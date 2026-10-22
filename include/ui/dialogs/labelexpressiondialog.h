@@ -1,9 +1,9 @@
-/*!
- * \file   labelexpressiondialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Expression builder for label templates.
+/**
+ * @file      labelexpressiondialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Expression builder for label templates.
  *
  *         The label template language is deliberately small: literal text
  *         with `{token}` placeholders, where `{name}` is the element id and
@@ -17,7 +17,9 @@
  *         and insertable, unknown tokens are called out as you type, and a
  *         live preview resolves the template against a sample feature so
  *         you can see the finished label before committing it.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_LABELEXPRESSIONDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LABELEXPRESSIONDIALOG_H
 
@@ -33,7 +35,8 @@ class QLabel;
 class QPlainTextEdit;
 class QTreeWidget;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class LabelExpressionDialog : public QDialog
 {
@@ -45,10 +48,8 @@ public:
      *                these become the insertable token list.
      * \param initial The expression to seed the editor with.
      */
-    LabelExpressionDialog(
-        const QVector<OpenSWMM::Render::AttributeField> &fields,
-        const QString &initial,
-        QWidget *parent = nullptr);
+    LabelExpressionDialog(const QVector<OpenSWMM::Render::AttributeField> &fields,
+                          const QString &initial, QWidget *parent = nullptr);
 
     /*! The edited template. */
     [[nodiscard]] QString expression() const;
@@ -66,29 +67,27 @@ public:
     /*! Resolves \p expr the same way the paint path does: `{name}` → \p name,
      *  any other `{token}` → `attrs[token]` as a string, unmatched braces
      *  kept literally. Mirrors swmmlayeritem.cpp's resolveExpression. */
-    [[nodiscard]] static QString resolve(const QString &expr,
-                                         const QString &name,
+    [[nodiscard]] static QString resolve(const QString &expr, const QString &name,
                                          const QVariantMap &attrs);
 
     /*! Every `{token}` in \p expr that is neither "name" nor a known field.
      *  Empty means the template references nothing that would resolve blank. */
-    [[nodiscard]] static QStringList unknownTokens(
-        const QString &expr,
-        const QVector<OpenSWMM::Render::AttributeField> &fields);
+    [[nodiscard]] static QStringList
+    unknownTokens(const QString &expr, const QVector<OpenSWMM::Render::AttributeField> &fields);
 
 private:
     void insertToken(const QString &token);
     void refreshPreview();
 
     QVector<OpenSWMM::Render::AttributeField> m_fields;
-    QString      m_sampleName;
-    QVariantMap  m_sampleAttrs;
+    QString m_sampleName;
+    QVariantMap m_sampleAttrs;
 
-    QPlainTextEdit   *m_edit      = nullptr;
-    QTreeWidget      *m_fieldTree = nullptr;
-    QLabel           *m_preview   = nullptr;
-    QLabel           *m_status    = nullptr;
-    QDialogButtonBox *m_buttons   = nullptr;
+    QPlainTextEdit *m_edit = nullptr;
+    QTreeWidget *m_fieldTree = nullptr;
+    QLabel *m_preview = nullptr;
+    QLabel *m_status = nullptr;
+    QDialogButtonBox *m_buttons = nullptr;
 };
 
 } // namespace openswmmvis::ui

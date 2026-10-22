@@ -1,9 +1,9 @@
-/*!
- * \file   test_objectbrowser_add_new_dispatch.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BM.0-Add-New (2026-05-24) — pin the TimeseriesEditorDialog
+/**
+ * @file      test_objectbrowser_add_new_dispatch.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BM.0-Add-New (2026-05-24) — pin the TimeseriesEditorDialog
  *         createNew factory contract that ObjectBrowserPanel's Add-New
  *         dispatch relies on after NewDataObjectDialog removal.
  *
@@ -27,6 +27,7 @@
  *   8. submitCreateNew applies the selected source mode to the new provider.
  *   9. chartView()->setProvider rebinds cleanly (and accepts nullptr).
  *  10. Edit-mode ctor path is unaffected (regression guard).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "timeseries/timeseriesprovider.h"
@@ -48,14 +49,14 @@ using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::ui::TimeseriesEditorDialog;
 
-namespace {
+namespace
+{
 
 QLineEdit *findCreateNameEdit(TimeseriesEditorDialog *dlg)
 {
     const auto edits = dlg->findChildren<QLineEdit *>();
     for (QLineEdit *e : edits)
-        if (e->parentWidget() && e->parentWidget()->objectName()
-            == QStringLiteral("createCard"))
+        if (e->parentWidget() && e->parentWidget()->objectName() == QStringLiteral("createCard"))
             return e;
     return nullptr;
 }
@@ -64,7 +65,8 @@ QPushButton *findCreateBtn(TimeseriesEditorDialog *dlg)
 {
     const auto btns = dlg->findChildren<QPushButton *>();
     for (QPushButton *b : btns)
-        if (b->text() == QStringLiteral("Create")) return b;
+        if (b->text() == QStringLiteral("Create"))
+            return b;
     return nullptr;
 }
 
@@ -72,8 +74,7 @@ QComboBox *findSourceModeCombo(TimeseriesEditorDialog *dlg)
 {
     const auto combos = dlg->findChildren<QComboBox *>();
     for (QComboBox *c : combos)
-        if (c->parentWidget() && c->parentWidget()->objectName()
-            == QStringLiteral("createCard"))
+        if (c->parentWidget() && c->parentWidget()->objectName() == QStringLiteral("createCard"))
             return c;
     return nullptr;
 }
@@ -107,7 +108,7 @@ private slots:
         QVERIFY(dlg);
         auto *edit = findCreateNameEdit(dlg);
         QVERIFY(edit);
-        edit->setText(QStringLiteral("   "));   // whitespace = empty
+        edit->setText(QStringLiteral("   ")); // whitespace = empty
         QVERIFY(!dlg->isCreateEnabled());
         delete dlg;
     }
@@ -179,7 +180,7 @@ private slots:
         QVERIFY(edit);
         edit->setText(QStringLiteral("RAIN_C"));
 
-        delete dlg;   // simulates close
+        delete dlg; // simulates close
 
         QCOMPARE(addedSpy.size(), 0);
         QCOMPARE(reg.providerCount(), 0);
@@ -212,7 +213,7 @@ private slots:
         auto *dlg = TimeseriesEditorDialog::createNew(&reg, &stack);
         QVERIFY(dlg);
 
-        auto *edit  = findCreateNameEdit(dlg);
+        auto *edit = findCreateNameEdit(dlg);
         auto *combo = findSourceModeCombo(dlg);
         QVERIFY(edit && combo);
         edit->setText(QStringLiteral("RAIN_E"));
@@ -223,8 +224,7 @@ private slots:
 
         auto *p = reg.findByName(QStringLiteral("RAIN_E"));
         QVERIFY(p);
-        QCOMPARE(int(p->sourceMode()),
-                 int(TimeseriesProvider::SourceMode::GeopackageObserved));
+        QCOMPARE(int(p->sourceMode()), int(TimeseriesProvider::SourceMode::GeopackageObserved));
 
         delete dlg;
     }
@@ -269,7 +269,7 @@ private slots:
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
         QCOMPARE(int(dlg.mode()), int(TimeseriesEditorDialog::Mode::Edit));
         QVERIFY(dlg.tableModel() != nullptr);
-        QVERIFY(dlg.chartView()  != nullptr);
+        QVERIFY(dlg.chartView() != nullptr);
         QCOMPARE(dlg.chartView()->provider(), &p);
         // No create-card in Edit mode.
         QVERIFY(findCreateNameEdit(&dlg) == nullptr);

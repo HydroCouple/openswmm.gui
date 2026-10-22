@@ -1,8 +1,12 @@
-/*!
- * \file speciesattributes.cpp
- * \brief Implementation of the dynamic species attribute helpers (Y2a).
+/**
+ * @file      speciesattributes.cpp
+ * @brief     Implementation of the dynamic species attribute helpers (Y2a).
  *
- * \see include/layers/speciesattributes.h
+ * @see include/layers/speciesattributes.h
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/speciesattributes.h"
@@ -14,7 +18,8 @@ namespace OpenSWMMVis::Species
 
 QString speciesAttributeName(const QString &species)
 {
-    if (species.isEmpty()) return {};
+    if (species.isEmpty())
+        return {};
     return QLatin1String(kSpeciesAttrPrefix) + species;
 }
 
@@ -25,15 +30,15 @@ bool isSpeciesAttribute(const QString &attr)
 
 QString speciesFromAttribute(const QString &attr)
 {
-    if (!isSpeciesAttribute(attr)) return {};
+    if (!isSpeciesAttribute(attr))
+        return {};
     // qsizetype in Qt6; the prefix is ASCII so size() is the char count.
     return attr.mid(static_cast<int>(qstrlen(kSpeciesAttrPrefix)));
 }
 
 bool isReservedSpecies(const QString &species)
 {
-    return species == QLatin1String(kWaterAgeName)
-        || species == QLatin1String(kTemperatureName);
+    return species == QLatin1String(kWaterAgeName) || species == QLatin1String(kTemperatureName);
 }
 
 QString speciesDisplayLabel(const QString &species)
@@ -45,25 +50,27 @@ QString speciesDisplayLabel(const QString &species)
     return species;
 }
 
-QString speciesUnitLabel(const QString &species,
-                         const QString &concentrationUnit)
+QString speciesUnitLabel(const QString &species, const QString &concentrationUnit)
 {
     // The `.out` unit enum has no HOURS or DEGC slot — engine A2b keyed
     // those on the species NAME instead, and this is the consumer side of
     // that decision. Widening the enum would break every reader.
-    if (species == QLatin1String(kWaterAgeName))    return QStringLiteral("h");
-    if (species == QLatin1String(kTemperatureName)) return QStringLiteral("°C");
+    if (species == QLatin1String(kWaterAgeName))
+        return QStringLiteral("h");
+    if (species == QLatin1String(kTemperatureName))
+        return QStringLiteral("°C");
     return concentrationUnit;
 }
 
-int speciesOutCode(const QString &attr, const QStringList &species,
-                   int pollutBase)
+int speciesOutCode(const QString &attr, const QStringList &species, int pollutBase)
 {
     const QString name = speciesFromAttribute(attr);
-    if (name.isEmpty()) return -1;
+    if (name.isEmpty())
+        return -1;
     const int idx = species.indexOf(name);
-    if (idx < 0) return -1;          // saved theme names a species this run
-                                     // does not carry — caller skips.
+    if (idx < 0)
+        return -1; // saved theme names a species this run
+                   // does not carry — caller skips.
     return pollutBase + idx;
 }
 
@@ -89,19 +96,17 @@ bool inflowMassAllowed(const QString &name)
     return name != QLatin1String("FLOW") && !isReservedSpecies(name);
 }
 
-QString SpeciesMissWarner::noteMiss(const QString &attr,
-                                    const QString &runName)
+QString SpeciesMissWarner::noteMiss(const QString &attr, const QString &runName)
 {
     if (!isSpeciesAttribute(attr))
         return {};
     if (m_warned.contains(attr))
         return {};
     m_warned.insert(attr);
-    return QCoreApplication::translate(
-               "Species",
-               "Theme attribute '%1' names species '%2', which run '%3' "
-               "does not carry — the theme stays inactive until a run "
-               "with that species is loaded (species are saved by name).")
+    return QCoreApplication::translate("Species",
+                                       "Theme attribute '%1' names species '%2', which run '%3' "
+                                       "does not carry — the theme stays inactive until a run "
+                                       "with that species is loaded (species are saved by name).")
         .arg(attr, speciesFromAttribute(attr), runName);
 }
 

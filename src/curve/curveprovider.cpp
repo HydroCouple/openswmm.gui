@@ -1,32 +1,47 @@
-/*!
- * \file   curveprovider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      curveprovider.cpp
+ * @brief     One CurveProvider per `[CURVES]` entry in the project.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "curve/curveprovider.h"
 #include "core/unitsystem.h"
 
 #include <algorithm>
 
-namespace openswmmvis::curve {
+namespace openswmmvis::curve
+{
 
 QString CurveProvider::xLabel(CurveType t)
 {
     switch (t) {
-    case CurveType::Storage:   return tr("Depth");
-    case CurveType::Diversion: return tr("Inflow");
-    case CurveType::Rating:    return tr("Head");
-    case CurveType::Shape:     return tr("Depth/Full");
-    case CurveType::Control:   return tr("Variable");
-    case CurveType::Tidal:     return tr("Hour");
-    case CurveType::Pump1:     return tr("Volume");
-    case CurveType::Pump2:     return tr("Depth");
-    case CurveType::Pump3:     return tr("Head");
-    case CurveType::Pump4:     return tr("Depth");
+    case CurveType::Storage:
+        return tr("Depth");
+    case CurveType::Diversion:
+        return tr("Inflow");
+    case CurveType::Rating:
+        return tr("Head");
+    case CurveType::Shape:
+        return tr("Depth/Full");
+    case CurveType::Control:
+        return tr("Variable");
+    case CurveType::Tidal:
+        return tr("Hour");
+    case CurveType::Pump1:
+        return tr("Volume");
+    case CurveType::Pump2:
+        return tr("Depth");
+    case CurveType::Pump3:
+        return tr("Head");
+    case CurveType::Pump4:
+        return tr("Depth");
     // PUMP5 is head-based like PUMP3 (variable speed scales the head; engine
     // HydStructures pump cases 3 and 5). It was mislabelled "Depth".
-    case CurveType::Pump5:     return tr("Head");
+    case CurveType::Pump5:
+        return tr("Head");
     }
     return tr("X");
 }
@@ -34,17 +49,28 @@ QString CurveProvider::xLabel(CurveType t)
 QString CurveProvider::yLabel(CurveType t)
 {
     switch (t) {
-    case CurveType::Storage:   return tr("Surface Area");
-    case CurveType::Diversion: return tr("Diverted Flow");
-    case CurveType::Rating:    return tr("Flow");
-    case CurveType::Shape:     return tr("Width/Full");
-    case CurveType::Control:   return tr("Setting");
-    case CurveType::Tidal:     return tr("Stage");
-    case CurveType::Pump1:     return tr("Flow");
-    case CurveType::Pump2:     return tr("Flow");
-    case CurveType::Pump3:     return tr("Flow");
-    case CurveType::Pump4:     return tr("Flow");
-    case CurveType::Pump5:     return tr("Flow");
+    case CurveType::Storage:
+        return tr("Surface Area");
+    case CurveType::Diversion:
+        return tr("Diverted Flow");
+    case CurveType::Rating:
+        return tr("Flow");
+    case CurveType::Shape:
+        return tr("Width/Full");
+    case CurveType::Control:
+        return tr("Setting");
+    case CurveType::Tidal:
+        return tr("Stage");
+    case CurveType::Pump1:
+        return tr("Flow");
+    case CurveType::Pump2:
+        return tr("Flow");
+    case CurveType::Pump3:
+        return tr("Flow");
+    case CurveType::Pump4:
+        return tr("Flow");
+    case CurveType::Pump5:
+        return tr("Flow");
     }
     return tr("Y");
 }
@@ -52,17 +78,28 @@ QString CurveProvider::yLabel(CurveType t)
 QString CurveProvider::typeLabel(CurveType t)
 {
     switch (t) {
-    case CurveType::Storage:   return tr("Storage (Depth → Surface Area)");
-    case CurveType::Diversion: return tr("Diversion (Inflow → Diverted Flow)");
-    case CurveType::Rating:    return tr("Rating (Head → Flow)");
-    case CurveType::Shape:     return tr("Shape (Depth → Width, custom xsect)");
-    case CurveType::Control:   return tr("Control (Variable → Setting)");
-    case CurveType::Tidal:     return tr("Tidal (Hour → Stage)");
-    case CurveType::Pump1:     return tr("Pump 1 (Volume → Flow)");
-    case CurveType::Pump2:     return tr("Pump 2 (Depth → Flow, on/off)");
-    case CurveType::Pump3:     return tr("Pump 3 (Head → Flow, continuous)");
-    case CurveType::Pump4:     return tr("Pump 4 (Depth → Flow, continuous)");
-    case CurveType::Pump5:     return tr("Pump 5 (Head → Flow, variable speed)");
+    case CurveType::Storage:
+        return tr("Storage (Depth → Surface Area)");
+    case CurveType::Diversion:
+        return tr("Diversion (Inflow → Diverted Flow)");
+    case CurveType::Rating:
+        return tr("Rating (Head → Flow)");
+    case CurveType::Shape:
+        return tr("Shape (Depth → Width, custom xsect)");
+    case CurveType::Control:
+        return tr("Control (Variable → Setting)");
+    case CurveType::Tidal:
+        return tr("Tidal (Hour → Stage)");
+    case CurveType::Pump1:
+        return tr("Pump 1 (Volume → Flow)");
+    case CurveType::Pump2:
+        return tr("Pump 2 (Depth → Flow, on/off)");
+    case CurveType::Pump3:
+        return tr("Pump 3 (Head → Flow, continuous)");
+    case CurveType::Pump4:
+        return tr("Pump 4 (Depth → Flow, continuous)");
+    case CurveType::Pump5:
+        return tr("Pump 5 (Head → Flow, variable speed)");
     }
     return {};
 }
@@ -76,12 +113,17 @@ QString CurveProvider::xUnit(CurveType t)
     case CurveType::Pump2:
     case CurveType::Pump3:
     case CurveType::Pump4:
-    case CurveType::Pump5:     return u->depthLabel();
-    case CurveType::Diversion: return u->flowUnitLabel();
-    case CurveType::Tidal:     return tr("hr");
-    case CurveType::Pump1:     return u->volumeLabel();
+    case CurveType::Pump5:
+        return u->depthLabel();
+    case CurveType::Diversion:
+        return u->flowUnitLabel();
+    case CurveType::Tidal:
+        return tr("hr");
+    case CurveType::Pump1:
+        return u->volumeLabel();
     case CurveType::Shape:
-    case CurveType::Control:   return {};
+    case CurveType::Control:
+        return {};
     }
     return {};
 }
@@ -92,17 +134,21 @@ QString CurveProvider::yUnit(CurveType t)
     switch (t) {
     // Storage surface area: ft² / m². (UnitSystem::areaLabel() is the
     // subcatchment land-area unit, ac / ha — not this.)
-    case CurveType::Storage:   return u->lengthLabel() + QChar(0x00B2);
-    case CurveType::Tidal:     return u->depthLabel();
+    case CurveType::Storage:
+        return u->lengthLabel() + QChar(0x00B2);
+    case CurveType::Tidal:
+        return u->depthLabel();
     case CurveType::Diversion:
     case CurveType::Rating:
     case CurveType::Pump1:
     case CurveType::Pump2:
     case CurveType::Pump3:
     case CurveType::Pump4:
-    case CurveType::Pump5:     return u->flowUnitLabel();
+    case CurveType::Pump5:
+        return u->flowUnitLabel();
     case CurveType::Shape:
-    case CurveType::Control:   return {};
+    case CurveType::Control:
+        return {};
     }
     return {};
 }
@@ -122,9 +168,7 @@ QString CurveProvider::yTitle(CurveType t)
 // ─────────────────────────────────────────────────────────────────────────────
 
 CurveProvider::CurveProvider(QString name, CurveType type, QObject *parent)
-    : QObject(parent)
-    , m_name(std::move(name))
-    , m_type(type)
+    : QObject(parent), m_name(std::move(name)), m_type(type)
 {
 }
 
@@ -133,7 +177,8 @@ CurveProvider::~CurveProvider() = default;
 bool CurveProvider::isStrictlyMonotoneX_(const QVector<CurvePoint> &pts)
 {
     for (int i = 1; i < pts.size(); ++i) {
-        if (!(pts[i].x > pts[i - 1].x)) return false;
+        if (!(pts[i].x > pts[i - 1].x))
+            return false;
     }
     return true;
 }
@@ -142,7 +187,8 @@ bool CurveProvider::setAllPoints(QVector<CurvePoint> newPoints, QString *reasonO
 {
     if (!isStrictlyMonotoneX_(newPoints)) {
         const auto reason = tr("Curve points must be strictly ascending in X.");
-        if (reasonOut) *reasonOut = reason;
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
@@ -152,9 +198,12 @@ bool CurveProvider::setAllPoints(QVector<CurvePoint> newPoints, QString *reasonO
 
     // Emit the most specific signal: replaced common prefix + maybe insert / remove.
     const int common = std::min(oldN, newN);
-    if (common > 0) emit pointsChanged(0, common);
-    if (newN > oldN) emit pointsInserted(common, newN - oldN);
-    if (newN < oldN) emit pointsRemoved(common, oldN - newN);
+    if (common > 0)
+        emit pointsChanged(0, common);
+    if (newN > oldN)
+        emit pointsInserted(common, newN - oldN);
+    if (newN < oldN)
+        emit pointsRemoved(common, oldN - newN);
     return true;
 }
 
@@ -162,11 +211,13 @@ bool CurveProvider::setYAt(int i, double newY, QString *reasonOut)
 {
     if (i < 0 || i >= m_points.size()) {
         const auto reason = tr("Point index %1 out of range.").arg(i);
-        if (reasonOut) *reasonOut = reason;
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
-    if (m_points[i].y == newY) return true;
+    if (m_points[i].y == newY)
+        return true;
     m_points[i].y = newY;
     emit pointsChanged(i, 1);
     return true;
@@ -176,26 +227,29 @@ bool CurveProvider::setPointAt(int i, double newX, double newY, QString *reasonO
 {
     if (i < 0 || i >= m_points.size()) {
         const auto reason = tr("Point index %1 out of range.").arg(i);
-        if (reasonOut) *reasonOut = reason;
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
     // Check left + right neighbour bounds (strict).
     if (i > 0 && !(newX > m_points[i - 1].x)) {
-        const auto reason = tr("Point %1: X must be strictly greater than the previous point's X.")
-                              .arg(i);
-        if (reasonOut) *reasonOut = reason;
+        const auto reason =
+            tr("Point %1: X must be strictly greater than the previous point's X.").arg(i);
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
     if (i + 1 < m_points.size() && !(newX < m_points[i + 1].x)) {
-        const auto reason = tr("Point %1: X must be strictly less than the next point's X.")
-                              .arg(i);
-        if (reasonOut) *reasonOut = reason;
+        const auto reason = tr("Point %1: X must be strictly less than the next point's X.").arg(i);
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
-    if (m_points[i].x == newX && m_points[i].y == newY) return true;
+    if (m_points[i].x == newX && m_points[i].y == newY)
+        return true;
     m_points[i].x = newX;
     m_points[i].y = newY;
     emit pointsChanged(i, 1);
@@ -209,11 +263,13 @@ int CurveProvider::insertPoint(double x, double y, QString *reasonOut)
     for (; pos < m_points.size(); ++pos) {
         if (x == m_points[pos].x) {
             const auto reason = tr("A point with X=%1 already exists.").arg(x);
-            if (reasonOut) *reasonOut = reason;
+            if (reasonOut)
+                *reasonOut = reason;
             emit mutationRejected(reason);
             return -1;
         }
-        if (x < m_points[pos].x) break;
+        if (x < m_points[pos].x)
+            break;
     }
     m_points.insert(pos, {x, y});
     emit pointsInserted(pos, 1);
@@ -222,7 +278,8 @@ int CurveProvider::insertPoint(double x, double y, QString *reasonOut)
 
 void CurveProvider::removePointsAt(QVector<int> indices)
 {
-    if (indices.isEmpty()) return;
+    if (indices.isEmpty())
+        return;
     std::sort(indices.begin(), indices.end(), std::greater<int>());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     for (int i : indices) {
@@ -235,7 +292,8 @@ void CurveProvider::removePointsAt(QVector<int> indices)
 
 void CurveProvider::setName(QString newName)
 {
-    if (newName == m_name) return;
+    if (newName == m_name)
+        return;
     const QString prev = m_name;
     m_name = std::move(newName);
     emit nameChanged(prev, m_name);
@@ -243,7 +301,8 @@ void CurveProvider::setName(QString newName)
 
 void CurveProvider::setType(CurveType t)
 {
-    if (t == m_type) return;
+    if (t == m_type)
+        return;
     const CurveType prev = m_type;
     m_type = t;
     emit typeChanged(prev, m_type);

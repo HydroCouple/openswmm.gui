@@ -1,8 +1,10 @@
-/*!
- * \file   channelburnboundary.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnboundary.h
+ * @brief     Truncating a burned channel at the 2D domain boundary — phase P5 of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§7).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Truncating a burned channel at the 2D domain boundary — phase P5 of
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§7).
@@ -24,7 +26,9 @@
  * `InsertNodeSplitCommand` refuses OUTFALL for that reason: split at the
  * crossing as a JUNCTION, delete the inside reach, and only then convert the
  * now-terminal node (§16.6).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_CHANNELBURNBOUNDARY_H
 #define OPENSWMMVIS_MESH_CHANNELBURNBOUNDARY_H
 
@@ -37,17 +41,17 @@
 #include "mesh/channelburnprofile.h"
 #include "mesh/channelburnnetwork.h"
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief One point where a centreline crosses the domain edge. */
-struct BoundaryCrossing
-{
-    QPointF point;               ///< On the domain ring.
-    double  t        = 0.0;      ///< Normalized position along the whole polyline, [0, 1] —
-                                 ///<     the parameter `InsertNodeSplitCommand` takes.
-    double  chainage = 0.0;      ///< Distance along the polyline to \ref point.
-    int     segment  = 0;        ///< Index of the polyline segment it lies on.
-    bool    entering = false;    ///< True when the path is INSIDE the domain after this point.
+struct BoundaryCrossing {
+    QPointF point;         ///< On the domain ring.
+    double t = 0.0;        ///< Normalized position along the whole polyline, [0, 1] —
+                           ///<     the parameter `InsertNodeSplitCommand` takes.
+    double chainage = 0.0; ///< Distance along the polyline to \ref point.
+    int segment = 0;       ///< Index of the polyline segment it lies on.
+    bool entering = false; ///< True when the path is INSIDE the domain after this point.
 };
 
 /*!
@@ -56,8 +60,7 @@ struct BoundaryCrossing
  * Mirrors the mesh pipeline's own view (`PipelineInputs::domains` and
  * `holeRings`), so a channel running into a hole is correctly outside.
  */
-struct BurnDomain
-{
+struct BurnDomain {
     QVector<QPolygonF> rings;
     QVector<QPolygonF> holes;
 
@@ -79,8 +82,7 @@ private:
     QVector<int> m_cellStart, m_cellItems;
 };
 
-struct BurnSplit
-{
+struct BurnSplit {
     QString linkId, nodeId, downstreamId;
     double t = 0.0; ///< Position on the remaining link at the time of this split.
     QPointF xy;
@@ -101,9 +103,8 @@ struct BurnSplit
  * below two channel cells. A burned interval left shorter than 1.5 connector
  * lengths is kept in 1D instead. Lengths are in mesh xy units, like chainage.
  */
-struct BurnConnectorRule
-{
-    bool   enabled = false;
+struct BurnConnectorRule {
+    bool enabled = false;
     double fixedLength = 0.0;        ///< > 0 overrides the automatic length.
     double routingStepS = 0.0;       ///< Model routing step, seconds.
     double cellSize = 0.0;           ///< Channel cell size (floor is two of these).
@@ -111,14 +112,14 @@ struct BurnConnectorRule
     double horizontalUnitToSI = 1.0; ///< Metres per mesh xy unit.
 };
 
-struct BurnReplacementPlan
-{
+struct BurnReplacementPlan {
     QVector<BurnProfile> profiles; ///< Only intervals inside the domain.
-    BurnNetwork network;          ///< Topology after splitting, before retirement.
+    BurnNetwork network;           ///< Topology after splitting, before retirement.
     QVector<BurnSplit> splits;     ///< Apply in this order.
     QSet<QString> replacedIds;
     QSet<QString> originalIds;
-    QHash<QString, QString> intervalSource; ///< Burned interval id -> the selected conduit it comes from.
+    QHash<QString, QString>
+        intervalSource; ///< Burned interval id -> the selected conduit it comes from.
     QVector<BurnNodePlan> nodes;
     QStringList notes;
     QString error;
@@ -127,9 +128,9 @@ struct BurnReplacementPlan
 /*! Partition all selected links at every crossing before allocating mesh corridors.
  * Outside intervals retain their 1D conveyance. Generated names avoid existing IDs. */
 [[nodiscard]] BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
-                                                       const BurnNetwork &network,
-                                                       const BurnDomain &domain,
-                                                       const BurnConnectorRule &rule = {});
+                                                      const BurnNetwork &network,
+                                                      const BurnDomain &domain,
+                                                      const BurnConnectorRule &rule = {});
 
 /*! \brief Every crossing along \p path, in path order. */
 [[nodiscard]] QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,

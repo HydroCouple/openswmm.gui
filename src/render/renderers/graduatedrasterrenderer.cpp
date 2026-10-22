@@ -1,8 +1,10 @@
-/*!
- * \file   graduatedrasterrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      graduatedrasterrenderer.cpp
+ * @brief     continuous (stretched) or classified single-band colouring.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/graduatedrasterrenderer.h"
@@ -23,7 +25,9 @@ namespace
 
 /*! Legend swatch: a single SimpleFill layer carrying the colour — the same
  *  shape every raster / feature renderer emits, so the legend views share
- *  one code path (§J.5). */
+ *  one code path (§J.5).
+ * @param c Color copied into the canonical color property without validation.
+ * @return Owned single-pass style at default opacity with no expressions. */
 SymbolStyle makeSwatch(const QColor &c)
 {
     SymbolStyle s;
@@ -34,6 +38,9 @@ SymbolStyle makeSwatch(const QColor &c)
     return s;
 }
 
+/** @brief Serialize cached edge values in their current order.
+ * @param edges Data-unit bounds copied without validation or sorting.
+ * @return Owned numeric JSON array, using Qt conversion for nonfinite values. */
 QJsonArray edgesToJson(const QVector<double> &edges)
 {
     QJsonArray arr;
@@ -42,6 +49,11 @@ QJsonArray edgesToJson(const QVector<double> &edges)
     return arr;
 }
 
+/** @brief Decode and structurally check authoritative saved edges.
+ * @param arr Ordered values converted through QJsonValue::toDouble(), with
+ * missing/nonnumeric entries becoming zero.
+ * @return Owned list when at least two converted entries are finite and
+ * nondecreasing, otherwise empty. Duplicates and scheme/count mismatches remain legal. */
 QVector<double> edgesFromJson(const QJsonArray &arr)
 {
     QVector<double> out;
@@ -53,7 +65,10 @@ QVector<double> edgesFromJson(const QJsonArray &arr)
     if (out.size() < 2 || !std::is_sorted(out.cbegin(), out.cend()))
         out.clear();
     for (double e : out)
-        if (!std::isfinite(e)) { out.clear(); break; }
+        if (!std::isfinite(e)) {
+            out.clear();
+            break;
+        }
     return out;
 }
 
@@ -118,8 +133,8 @@ QColor GraduatedRasterRenderer::colorForValue(double value, bool isNoData) const
     if (value < m_lo)
         return QColor(Qt::transparent);
 
-    if (m_scheme.mode() == ClassificationScheme::ClassMode::Continuous
-        || m_classColors.isEmpty())   // degenerate range: flat raster
+    if (m_scheme.mode() == ClassificationScheme::ClassMode::Continuous ||
+        m_classColors.isEmpty()) // degenerate range: flat raster
         return QColor::fromRgba(m_lut[size_t(ScalarRampLut::indexFor(value, m_lo, m_hi))]);
 
     const int index = ClassificationScheme::classIndexFor(value, m_edges);
@@ -130,19 +145,17 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
 {
     QList<LegendSymbolItem> items;
 
-    if (m_scheme.mode() == ClassificationScheme::ClassMode::Continuous)
-    {
+    if (m_scheme.mode() == ClassificationScheme::ClassMode::Continuous) {
         // Sampled swatch rows lo → hi — the same idiom as the 2D depth fill.
         const int rows = kContinuousLegendRows;
         items.reserve(rows);
-        for (int i = 0; i < rows; ++i)
-        {
+        for (int i = 0; i < rows; ++i) {
             const double f = rows > 1 ? double(i) / double(rows - 1) : 0.0;
             const double v = m_lo + f * (m_hi - m_lo);
             LegendSymbolItem item;
-            item.label     = m_scheme.formatValue(v);
-            item.symbol    = makeSwatch(QColor::fromRgba(
-                m_lut[size_t(std::lround(f * (ScalarRampLut::kSize - 1)))]));
+            item.label = m_scheme.formatValue(v);
+            item.symbol = makeSwatch(
+                QColor::fromRgba(m_lut[size_t(std::lround(f * (ScalarRampLut::kSize - 1)))]));
             item.sortIndex = i;
             items.append(item);
         }
@@ -151,17 +164,16 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
 
     const int n = classCount();
     items.reserve(n);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         LegendSymbolItem item;
         item.label = QStringLiteral("%1 – %2")
                          .arg(m_scheme.formatValue(m_edges.at(i)))
                          .arg(m_scheme.formatValue(m_edges.at(i + 1)));
         item.userLabel = m_scheme.labelOverride(i);
-        item.range     = { m_edges.at(i), m_edges.at(i + 1) };
-        item.classKey  = QString::number(i);
+        item.range = {m_edges.at(i), m_edges.at(i + 1)};
+        item.classKey = QString::number(i);
         item.sortIndex = i;
-        item.symbol    = makeSwatch(QColor::fromRgba(m_classColors.at(i)));
+        item.symbol = makeSwatch(QColor::fromRgba(m_classColors.at(i)));
         items.append(item);
     }
     return items;
@@ -170,11 +182,11 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
 QJsonObject GraduatedRasterRenderer::toJson() const
 {
     QJsonObject obj;
-    obj.insert(QStringLiteral("id"),             rendererId());
-    obj.insert(QStringLiteral("scheme"),         m_scheme.toJson());
-    obj.insert(QStringLiteral("dataMin"),        m_dataMin);
-    obj.insert(QStringLiteral("dataMax"),        m_dataMax);
-    obj.insert(QStringLiteral("edges"),          edgesToJson(m_edges));
+    obj.insert(QStringLiteral("id"), rendererId());
+    obj.insert(QStringLiteral("scheme"), m_scheme.toJson());
+    obj.insert(QStringLiteral("dataMin"), m_dataMin);
+    obj.insert(QStringLiteral("dataMax"), m_dataMax);
+    obj.insert(QStringLiteral("edges"), edgesToJson(m_edges));
     obj.insert(QStringLiteral("clipOutOfRange"), m_clipOutOfRange);
     return obj;
 }
@@ -182,24 +194,19 @@ QJsonObject GraduatedRasterRenderer::toJson() const
 void GraduatedRasterRenderer::fromJson(const QJsonObject &j)
 {
     if (j.contains(QStringLiteral("scheme")))
-        m_scheme = ClassificationScheme::fromJson(
-            j.value(QStringLiteral("scheme")).toObject());
-    m_dataMin        = j.value(QStringLiteral("dataMin")).toDouble(m_dataMin);
-    m_dataMax        = j.value(QStringLiteral("dataMax")).toDouble(m_dataMax);
+        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("scheme")).toObject());
+    m_dataMin = j.value(QStringLiteral("dataMin")).toDouble(m_dataMin);
+    m_dataMax = j.value(QStringLiteral("dataMax")).toDouble(m_dataMax);
     m_clipOutOfRange = j.value(QStringLiteral("clipOutOfRange")).toBool(false);
 
     // Persisted edges are authoritative (a Quantile / Jenks classification
     // must reload without the sample it was derived from); fall back to a
     // fresh derivation only when they are missing or malformed.
-    const QVector<double> edges =
-        edgesFromJson(j.value(QStringLiteral("edges")).toArray());
-    if (!edges.isEmpty())
-    {
+    const QVector<double> edges = edgesFromJson(j.value(QStringLiteral("edges")).toArray());
+    if (!edges.isEmpty()) {
         m_edges = edges;
         rebake();
-    }
-    else
-    {
+    } else {
         reclassify();
     }
 }

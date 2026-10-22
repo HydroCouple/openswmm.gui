@@ -1,8 +1,11 @@
-/*!
- * \file textlayersdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \license GPL-3.0-or-later
+/**
+ * @file      textlayersdialog.h
+ * @brief     Text Layers Dialog interface and supporting types.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_TEXTLAYERSDIALOG_H
 #define OPENSWMM_TEXTLAYERSDIALOG_H
 #include <QDialog>
@@ -17,8 +20,10 @@ class TextLayersDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit TextLayersDialog(MapCanvas *canvas, OpenSWMMVisAnnotationLayer *selected, QWidget *parent = nullptr);
+    explicit TextLayersDialog(MapCanvas *canvas, OpenSWMMVisAnnotationLayer *selected,
+                              QWidget *parent = nullptr);
     OpenSWMMVisAnnotationLayer *selectedLayer() const;
+
 private:
     void reloadLayers(OpenSWMMVisAnnotationLayer *selected = nullptr);
     void reloadItems();

@@ -1,8 +1,9 @@
 #ifndef DIALOGLAYOUTWATCHER_H
 #define DIALOGLAYOUTWATCHER_H
 
-/*!
- * \file dialoglayoutwatcher.h
+/**
+ * @file      dialoglayoutwatcher.h
+ * @brief     UI redesign iteration 2 (D1) — app-wide automatic dialog layout persistence.
  *
  * UI redesign iteration 2 (D1) — app-wide automatic dialog layout
  * persistence. Installed as its OWN application event filter (one line
@@ -17,11 +18,16 @@
  * Opt-out: set the "noLayoutPersistence" dynamic property (the command
  * palette does — it is deliberately fixed-size). Unnamed dialogs are
  * implicitly out.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QObject>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /// Dynamic property opting a QDialog out of automatic persistence.
 inline constexpr char kNoLayoutPersistenceProp[] = "noLayoutPersistence";
@@ -38,6 +44,6 @@ public:
     bool eventFilter(QObject *watched, QEvent *event) override;
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // DIALOGLAYOUTWATCHER_H

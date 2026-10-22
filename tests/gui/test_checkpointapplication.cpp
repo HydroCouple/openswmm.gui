@@ -1,4 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+
+/**
+ * @file      test_checkpointapplication.cpp
+ * @brief     Tests for checkpointapplication.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest>
 #include <QSignalSpy>
 #include <QSettings>
@@ -19,20 +29,27 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_surface_ownership.h>
 
-class TestCheckpointApplication:public QObject {
+class TestCheckpointApplication : public QObject
+{
     Q_OBJECT
 private slots:
-    void initTestCase() {
-        QCoreApplication::setOrganizationName("OpenSWMMCheckpointTest");QCoreApplication::setApplicationName("CheckpointApplication");
-        QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,root());
+    void initTestCase()
+    {
+        QCoreApplication::setOrganizationName("OpenSWMMCheckpointTest");
+        QCoreApplication::setApplicationName("CheckpointApplication");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root());
     }
-    void reviewedProjectInspectionInitialRunAndStatusUseOneModel() {
+    void reviewedProjectInspectionInitialRunAndStatusUseOneModel()
+    {
 #ifndef OPENSWMM_HAS_2D
         QSKIP("Native authored surface profile requires 2D");
 #else
-        const QDir dir(root());const auto input=dir.filePath("reviewed.inp"),cp=dir.filePath("reviewed.chk");
-        QFile f(input);QVERIFY(f.open(QIODevice::WriteOnly|QIODevice::NewOnly));
-        const QByteArray deck=R"([OPTIONS]
+        const QDir dir(root());
+        const auto input = dir.filePath("reviewed.inp"), cp = dir.filePath("reviewed.chk");
+        QFile f(input);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+        const QByteArray deck = R"([OPTIONS]
 FLOW_UNITS CMS
 FLOW_ROUTING DYNWAVE
 START_DATE 10/12/2026
@@ -95,43 +112,110 @@ CLOSURE CLOSED_FORM
 [2D_SURFACE_OWNERSHIP]
 A SUBCATCH UNIFORM
 )";
-        QCOMPARE(f.write(deck),qint64(deck.size()));f.close();
-        auto engine=swmm_engine_create();QVERIFY(engine);const auto rpt=dir.filePath("fixture.rpt").toUtf8(),out=dir.filePath("fixture.out").toUtf8();
-        QCOMPARE(swmm_engine_open(engine,input.toUtf8().constData(),rpt.constData(),out.constData(),nullptr),SWMM_OK);
-        QCOMPARE(swmm_file_path_set(engine,SWMM_FILE_OUTPUT_2D,nullptr,dir.filePath("fixture.h5").toUtf8().constData()),SWMM_OK);
-        int objects=0,shares=0,cells=0,valid=0;char token[128]={},diagnostic[4096]={};
-        QCOMPARE(swmm_surface_owner_preview(engine,nullptr,-1,nullptr,0,&objects,nullptr,0,&shares,nullptr,0,&cells,&valid,token,sizeof token,diagnostic,sizeof diagnostic,nullptr,nullptr),SWMM_OK);QVERIFY(valid);
-        const auto history=dir.filePath("fixture.history").toUtf8();const SWMM_CheckpointSessionOptions options{sizeof options,1,4,history.constData(),1,token};
-        QCOMPARE(swmm_checkpoint_start_session(engine,&options),SWMM_OK);double elapsed=0;
-        for(int i=0;i<3;++i)QCOMPARE(swmm_engine_step(engine,&elapsed),SWMM_OK);
-        QCOMPARE(swmm_checkpoint_save(engine,cp.toUtf8().constData()),SWMM_OK);swmm_engine_close(engine);swmm_engine_destroy(engine);
+        QCOMPARE(f.write(deck), qint64(deck.size()));
+        f.close();
+        auto engine = swmm_engine_create();
+        QVERIFY(engine);
+        const auto rpt = dir.filePath("fixture.rpt").toUtf8(),
+                   out = dir.filePath("fixture.out").toUtf8();
+        QCOMPARE(swmm_engine_open(engine, input.toUtf8().constData(), rpt.constData(),
+                                  out.constData(), nullptr),
+                 SWMM_OK);
+        QCOMPARE(swmm_file_path_set(engine, SWMM_FILE_OUTPUT_2D, nullptr,
+                                    dir.filePath("fixture.h5").toUtf8().constData()),
+                 SWMM_OK);
+        int objects = 0, shares = 0, cells = 0, valid = 0;
+        char token[128] = {}, diagnostic[4096] = {};
+        QCOMPARE(swmm_surface_owner_preview(engine, nullptr, -1, nullptr, 0, &objects, nullptr, 0,
+                                            &shares, nullptr, 0, &cells, &valid, token,
+                                            sizeof token, diagnostic, sizeof diagnostic, nullptr,
+                                            nullptr),
+                 SWMM_OK);
+        QVERIFY(valid);
+        const auto history = dir.filePath("fixture.history").toUtf8();
+        const SWMM_CheckpointSessionOptions options{sizeof options,      1, 4,
+                                                    history.constData(), 1, token};
+        QCOMPARE(swmm_checkpoint_start_session(engine, &options), SWMM_OK);
+        double elapsed = 0;
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(swmm_engine_step(engine, &elapsed), SWMM_OK);
+        QCOMPARE(swmm_checkpoint_save(engine, cp.toUtf8().constData()), SWMM_OK);
+        swmm_engine_close(engine);
+        swmm_engine_destroy(engine);
 
-        SWMMVis window;auto* workspace=OpenSWMMVisWorkspace::newInstance(QString(),&window);QVERIFY(workspace);
-        auto* project=new SWMMVisProjectWindow(workspace,input,&window);QList<QString> warnings,errors;
-        QVERIFY2(project->loadModel(warnings,errors),qPrintable(errors.join("\n")));
-        auto* mdi=window.findChild<QMdiArea*>("mdiAreaCentral");QVERIFY(mdi);mdi->addSubWindow(project);project->show();mdi->setActiveSubWindow(project);
-        auto* action=window.findChild<QAction*>("actionCheckpoints");QVERIFY(action);action->trigger();
-        auto* model=window.findChild<CheckpointModel*>();auto* dialog=window.findChild<CheckpointsDialog*>();QVERIFY(model);QVERIFY(dialog);
-        auto context=model->context();context.detailedSources=true;model->setContext(context);QVERIFY(model->importFile(cp));
-        auto* list=dialog->findChild<QTableView*>("checkpointList");QVERIFY(list);list->selectRow(0);
-        QPushButton* inspect=nullptr;for(auto* button:dialog->findChildren<QPushButton*>())if(button->text()=="Inspect")inspect=button;
-        QVERIFY(inspect);inspect->click();QTRY_VERIFY_WITH_TIMEOUT(!model->ioBusy(),30000);
-        QVERIFY2(model->entry(0)->compatible,qPrintable(model->entry(0)->inspection));
-        QCOMPARE(model->context().modelPath,input);QCOMPARE(model->context().ownershipToken,QString::fromUtf8(token));QCOMPARE(model->context().modelSha256.size(),32);
-        window.findChild<QAction*>("actionExecute")->trigger();QCOMPARE(window.findChildren<SimulationRunner*>().size(),0);
-        action->trigger();QCOMPARE(window.findChildren<CheckpointModel*>().size(),1);QCOMPARE(window.findChildren<CheckpointsDialog*>().size(),1);
-        QSignalSpy finished(model,&CheckpointModel::runFinished);
-        QVERIFY(model->startRun(-1,dir.filePath("application-initial")));
+        SWMMVis window;
+        auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), &window);
+        QVERIFY(workspace);
+        auto *project = new SWMMVisProjectWindow(workspace, input, &window);
+        QList<QString> warnings, errors;
+        QVERIFY2(project->loadModel(warnings, errors), qPrintable(errors.join("\n")));
+        auto *mdi = window.findChild<QMdiArea *>("mdiAreaCentral");
+        QVERIFY(mdi);
+        mdi->addSubWindow(project);
+        project->show();
+        mdi->setActiveSubWindow(project);
+        auto *action = window.findChild<QAction *>("actionCheckpoints");
+        QVERIFY(action);
+        action->trigger();
+        auto *model = window.findChild<CheckpointModel *>();
+        auto *dialog = window.findChild<CheckpointsDialog *>();
+        QVERIFY(model);
+        QVERIFY(dialog);
+        auto context = model->context();
+        context.detailedSources = true;
+        model->setContext(context);
+        QVERIFY(model->importFile(cp));
+        auto *list = dialog->findChild<QTableView *>("checkpointList");
+        QVERIFY(list);
+        list->selectRow(0);
+        QPushButton *inspect = nullptr;
+        for (auto *button : dialog->findChildren<QPushButton *>())
+            if (button->text() == "Inspect")
+                inspect = button;
+        QVERIFY(inspect);
+        inspect->click();
+        QTRY_VERIFY_WITH_TIMEOUT(!model->ioBusy(), 30000);
+        QVERIFY2(model->entry(0)->compatible, qPrintable(model->entry(0)->inspection));
+        QCOMPARE(model->context().modelPath, input);
+        QCOMPARE(model->context().ownershipToken, QString::fromUtf8(token));
+        QCOMPARE(model->context().modelSha256.size(), 32);
+        window.findChild<QAction *>("actionExecute")->trigger();
+        QCOMPARE(window.findChildren<SimulationRunner *>().size(), 0);
+        action->trigger();
+        QCOMPARE(window.findChildren<CheckpointModel *>().size(), 1);
+        QCOMPARE(window.findChildren<CheckpointsDialog *>().size(), 1);
+        QSignalSpy finished(model, &CheckpointModel::runFinished);
+        QVERIFY(model->startRun(-1, dir.filePath("application-initial")));
         QVERIFY(model->save(dir.filePath("application-initial/accepted.chk")));
-        if(finished.isEmpty())QVERIFY(finished.wait(30000));const auto result=qvariant_cast<CheckpointResult>(finished.last()[0]);QVERIFY2(result.success,qPrintable(result.error));
-        auto* status=window.findChild<SimulationStatusModel*>();QVERIFY(status);QVERIFY(status->rowCount()>0);
-        const auto* record=status->jobRecord(status->jobIdForRow(status->rowCount()-1));QVERIFY(record);QCOMPARE(record->status,SimulationJobStatus::Success);
-        QVERIFY(record->currentSimDate.isValid());QVERIFY(record->startSimDate.isValid());QVERIFY(result.acceptedSeconds>=8);QVERIFY(std::isfinite(result.twoDError));QCOMPARE(model->rowCount(),2);
-        dialog->close();delete project;QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        if (finished.isEmpty())
+            QVERIFY(finished.wait(30000));
+        const auto result = qvariant_cast<CheckpointResult>(finished.last()[0]);
+        QVERIFY2(result.success, qPrintable(result.error));
+        auto *status = window.findChild<SimulationStatusModel *>();
+        QVERIFY(status);
+        QVERIFY(status->rowCount() > 0);
+        const auto *record = status->jobRecord(status->jobIdForRow(status->rowCount() - 1));
+        QVERIFY(record);
+        QCOMPARE(record->status, SimulationJobStatus::Success);
+        QVERIFY(record->currentSimDate.isValid());
+        QVERIFY(record->startSimDate.isValid());
+        QVERIFY(result.acceptedSeconds >= 8);
+        QVERIFY(std::isfinite(result.twoDError));
+        QCOMPARE(model->rowCount(), 2);
+        dialog->close();
+        delete project;
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 #endif
     }
+
 private:
-    QString root()const {const auto path=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",QStringLiteral("."))).filePath("output_checkpointapplication");QDir().mkpath(path);return path;}
+    QString root() const
+    {
+        const auto path = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+                              .filePath("output_checkpointapplication");
+        QDir().mkpath(path);
+        return path;
+    }
 };
 QTEST_MAIN(TestCheckpointApplication)
 #include "test_checkpointapplication.moc"

@@ -1,16 +1,18 @@
-/*!
- * \file   test_userflagsdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Phase 2 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsDialog
+/**
+ * @file      test_userflagsdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Phase 2 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsDialog
  *         staged-commit semantics against a real engine handle: load,
  *         add, remove (cascades values), redefine (description-only keeps
  *         values; type change clears them), and validation failures.
  *
  *         Confirmations are disabled via setConfirmationsEnabled(false) so
  *         no QMessageBox blocks the offscreen run.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/userflagsdialog.h"
 #include "ui/models/userflagsmodel.h"
 
@@ -27,7 +29,8 @@
 using openswmmvis::ui::UserFlagsModel;
 using FlagType = UserFlagsModel::FlagType;
 
-namespace {
+namespace
+{
 enum Column { ColName = 0, ColType = 1, ColDescription = 2 };
 
 void setRowName(QTableWidget *t, int row, const QString &name)
@@ -61,10 +64,8 @@ private slots:
         swmmvis_test::assertDialogA11y(&dlg);
         dlg.setConfirmationsEnabled(false);
         QCOMPARE(dlg.table()->rowCount(), 1);
-        QCOMPARE(dlg.table()->item(0, ColName)->text(),
-                 QStringLiteral("INSPECTED"));
-        QCOMPARE(dlg.table()->item(0, ColDescription)->text(),
-                 QStringLiteral("Field inspected?"));
+        QCOMPARE(dlg.table()->item(0, ColName)->text(), QStringLiteral("INSPECTED"));
+        QCOMPARE(dlg.table()->item(0, ColDescription)->text(), QStringLiteral("Field inspected?"));
         QVERIFY(!dlg.wroteAnyChanges());
 
         // Applying an unchanged table writes nothing.
@@ -79,8 +80,7 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
         UserFlagsModel model(eng);
-        QVERIFY(model.define(QStringLiteral("DOOMED"), FlagType::Integer,
-                             QString()));
+        QVERIFY(model.define(QStringLiteral("DOOMED"), FlagType::Integer, QString()));
         QVERIFY(model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
                                QStringLiteral("DOOMED"), QStringLiteral("3")));
 
@@ -89,8 +89,7 @@ private slots:
 
         // Stage: drop DOOMED, add ASSET_ID (name normalised to uppercase).
         dlg.table()->removeRow(0);
-        dlg.addRow(QStringLiteral("asset_id"), FlagType::String,
-                   QStringLiteral("External AM id"));
+        dlg.addRow(QStringLiteral("asset_id"), FlagType::String, QStringLiteral("External AM id"));
         QVERIFY(dlg.applyChanges());
         QVERIFY(dlg.wroteAnyChanges());
 
@@ -101,8 +100,7 @@ private slots:
 
         // DOOMED's per-object value cascaded away with the undefine.
         bool found = true;
-        model.value(QStringLiteral("NODE"), QStringLiteral("J1"),
-                    QStringLiteral("DOOMED"), &found);
+        model.value(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("DOOMED"), &found);
         QVERIFY(!found);
 
         swmm_engine_destroy(eng);
@@ -113,8 +111,7 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
         UserFlagsModel model(eng);
-        QVERIFY(model.define(QStringLiteral("PRIORITY"), FlagType::Integer,
-                             QStringLiteral("old")));
+        QVERIFY(model.define(QStringLiteral("PRIORITY"), FlagType::Integer, QStringLiteral("old")));
         QVERIFY(model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
                                QStringLiteral("PRIORITY"), QStringLiteral("2")));
 
@@ -141,8 +138,8 @@ private slots:
             QVERIFY(dlg.applyChanges());
         }
         QCOMPARE(model.defs()[0].type, FlagType::String);
-        model.value(QStringLiteral("NODE"), QStringLiteral("J1"),
-                    QStringLiteral("PRIORITY"), &found);
+        model.value(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("PRIORITY"),
+                    &found);
         QVERIFY(!found);
 
         swmm_engine_destroy(eng);

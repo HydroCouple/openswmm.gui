@@ -1,9 +1,9 @@
-/*!
- * \file   test_layerstylesubject.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for the ILayerStyleSubject snapshot / restore contract that
+/**
+ * @file      test_layerstylesubject.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for the ILayerStyleSubject snapshot / restore contract that
  *         LayerStyleDialog's Cancel rollback and undo/redo ride on.
  *
  *         The generic implementation walks the property object's Q_PROPERTYs
@@ -13,6 +13,7 @@
  *         `toString()/fromString()` case. These tests pin the round trip over
  *         a real subject: a SwmmElementSymbolAdapter, whose `labelFont` is
  *         the property that regressed.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QtTest/QtTest>
@@ -33,19 +34,47 @@ class TestLayerStyleSubject : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require font family/size/weight/slant and full font serialization to survive style
+     * snapshot restore, including writeback to the owning symbol.
+     *
+     */
     void qfontSurvivesSnapshotRestore();
+    /**
+     *
+     * @brief Require fill/outline/label/arrow scalar properties to restore from a generic style
+     * subject snapshot.
+     *
+     */
     void scalarPropertiesSurviveSnapshotRestore();
+    /**
+     *
+     * @brief Require a partial old-schema snapshot to update supplied fill while retaining
+     * current outline width.
+     *
+     */
     void restoreIgnoresAbsentKeys();
 
 private:
-    /*! An adapter over a throwaway symbol; the writer records the last value
-     *  pushed back so we can also see the writeback fire. */
-    static std::unique_ptr<SwmmElementSymbolAdapter>
-    makeAdapter(SWMMElementSymbol initial, SWMMElementSymbol *sink)
+    /**
+     *
+     * @brief Construct an owned adapter with optional borrowed symbol writeback storage.
+     * @param initial By-value symbol moved into the adapter as its starting snapshot.
+     * @param sink Optional borrowed destination updated by the retained writer callback;
+     * must outlive the returned adapter and any callbacks. Null disables writeback.
+     * @return Owned adapter, with no QObject parent. Writer copies the entire symbol on
+     * updates; does not allocate/own sink or touch a live model/renderer/file.
+     *
+     */
+    static std::unique_ptr<SwmmElementSymbolAdapter> makeAdapter(SWMMElementSymbol initial,
+                                                                 SWMMElementSymbol *sink)
     {
-        return std::make_unique<SwmmElementSymbolAdapter>(
-            std::move(initial),
-            [sink](const SWMMElementSymbol &s) { if (sink) *sink = s; });
+        return std::make_unique<SwmmElementSymbolAdapter>(std::move(initial),
+                                                          [sink](const SWMMElementSymbol &s) {
+                                                              if (sink)
+                                                                  *sink = s;
+                                                          });
     }
 };
 
@@ -82,11 +111,11 @@ void TestLayerStyleSubject::qfontSurvivesSnapshotRestore()
     subject.restore(snap);
 
     const QFont back = adapter->labelFont();
-    QCOMPARE(back.family(),    distinctive.family());
+    QCOMPARE(back.family(), distinctive.family());
     QCOMPARE(back.pointSize(), distinctive.pointSize());
-    QCOMPARE(back.bold(),      distinctive.bold());
-    QCOMPARE(back.italic(),    distinctive.italic());
-    QCOMPARE(back.toString(),  distinctive.toString());
+    QCOMPARE(back.bold(), distinctive.bold());
+    QCOMPARE(back.italic(), distinctive.italic());
+    QCOMPARE(back.toString(), distinctive.toString());
 
     // The rollback must reach the owning struct too, not just the adapter's
     // own copy — that writeback is what repaints the map.
@@ -118,12 +147,12 @@ void TestLayerStyleSubject::scalarPropertiesSurviveSnapshotRestore()
 
     subject.restore(snap);
 
-    QCOMPARE(adapter->fillColor(),    QColor(10, 20, 30));
+    QCOMPARE(adapter->fillColor(), QColor(10, 20, 30));
     QCOMPARE(adapter->outlineWidth(), 3.5);
-    QCOMPARE(adapter->showLabel(),    true);
-    QCOMPARE(adapter->labelColor(),   QColor(200, 100, 50));
-    QCOMPARE(adapter->showArrows(),   true);
-    QCOMPARE(adapter->arrowSize(),    13.5);
+    QCOMPARE(adapter->showLabel(), true);
+    QCOMPARE(adapter->labelColor(), QColor(200, 100, 50));
+    QCOMPARE(adapter->showArrows(), true);
+    QCOMPARE(adapter->arrowSize(), 13.5);
 }
 
 void TestLayerStyleSubject::restoreIgnoresAbsentKeys()
@@ -139,7 +168,7 @@ void TestLayerStyleSubject::restoreIgnoresAbsentKeys()
     // A snapshot from an older schema carries only some keys; the properties
     // it omits must be left as they are rather than reset to defaults.
     subject.restore(partial);
-    QCOMPARE(adapter->fillColor(),    QColor(255, 0, 0));
+    QCOMPARE(adapter->fillColor(), QColor(255, 0, 0));
     QCOMPARE(adapter->outlineWidth(), 4.0);
 }
 

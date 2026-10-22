@@ -1,8 +1,10 @@
-/*!
- * \file   channelburn.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburn.h
+ * @brief     Channel burn-in: corridor projection and the per-pixel rule
+ *            (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.4, phase P1).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Channel burn-in: corridor projection and the per-pixel rule
  * (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.4, phase P1).
@@ -24,7 +26,9 @@
  * onto the densified centreline.  Swept normals cross on the inside of a tight
  * bend and make the (chainage, offset) map multi-valued there; nearest-point
  * projection is single-valued everywhere by construction.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_CHANNELBURN_H
 #define OPENSWMMVIS_MESH_CHANNELBURN_H
 
@@ -36,26 +40,25 @@
 #include <QString>
 #include <QVector>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief Where a point landed on one conduit's corridor. */
-struct BurnProjection
-{
-    int    profile  = -1;   ///< Index into the caller's profile vector; < 0 = no hit.
-    double chainage = 0.0;  ///< Distance along that profile's centreline.
-    double offset   = 0.0;  ///< Signed lateral distance. **Positive = right of the
-                            ///<     downstream direction**, matching [TRANSECTS], whose
-                            ///<     stations ascend from the left bank to the right.
+struct BurnProjection {
+    int profile = -1;      ///< Index into the caller's profile vector; < 0 = no hit.
+    double chainage = 0.0; ///< Distance along that profile's centreline.
+    double offset = 0.0;   ///< Signed lateral distance. **Positive = right of the
+                           ///<     downstream direction**, matching [TRANSECTS], whose
+                           ///<     stations ascend from the left bank to the right.
 };
 
 /*! \brief What the rule did to one pixel. */
-enum class BurnOutcome
-{
-    Outside,     ///< No corridor covers it — the DEM stands.
-    Replaced,    ///< |s| <= R: the section overwrote the DEM (D2).
-    Lowered,     ///< |s| >  R: min(DEM, section) cut the DEM down (D3).
-    Unchanged,   ///< Inside the corridor, but min() kept the DEM.
-    NoDataKept   ///< NoData outside R — min() with NaN is undefined, so it stays NoData.
+enum class BurnOutcome {
+    Outside,   ///< No corridor covers it — the DEM stands.
+    Replaced,  ///< |s| <= R: the section overwrote the DEM (D2).
+    Lowered,   ///< |s| >  R: min(DEM, section) cut the DEM down (D3).
+    Unchanged, ///< Inside the corridor, but min() kept the DEM.
+    NoDataKept ///< NoData outside R — min() with NaN is undefined, so it stays NoData.
 };
 
 /*!
@@ -64,11 +67,10 @@ enum class BurnOutcome
  * Deliberately not `BurnOptions`: those lengths are in model units, and a
  * function that took both would be one rename away from the 3.28x bug.
  */
-struct BurnRule
-{
-    double forceHalfWidth = 0.0;   ///< R. |s| <= R replaces; beyond it, min() only.
-    double maxIncision    = 0.0;   ///< 0 = unbounded; else never cut more than this
-                                   ///<     below the DEM. Inert where the DEM is NoData.
+struct BurnRule {
+    double forceHalfWidth = 0.0; ///< R. |s| <= R replaces; beyond it, min() only.
+    double maxIncision = 0.0;    ///< 0 = unbounded; else never cut more than this
+                                 ///<     below the DEM. Inert where the DEM is NoData.
 };
 
 /*!
@@ -84,19 +86,21 @@ class BurnCorridorIndex
 public:
     void build(const QVector<BurnProfile> &profiles);
 
-    [[nodiscard]] bool   isEmpty() const noexcept { return m_seg.isEmpty(); }
-    [[nodiscard]] QRectF bounds()  const noexcept { return m_bounds; }   ///< Corridor bbox, extent included.
+    [[nodiscard]] bool isEmpty() const noexcept { return m_seg.isEmpty(); }
+    [[nodiscard]] QRectF bounds() const noexcept
+    {
+        return m_bounds;
+    } ///< Corridor bbox, extent included.
 
     /*! \brief Nearest point on EVERY profile whose corridor can cover \p p,
      *         one projection per profile, unordered. */
     void projectAll(const QPointF &p, QVector<BurnProjection> *out) const;
 
 private:
-    struct Seg
-    {
+    struct Seg {
         QPointF a, b;
-        double  chainageA = 0.0;   ///< Chainage at \ref a.
-        int     profile   = -1;
+        double chainageA = 0.0; ///< Chainage at \ref a.
+        int profile = -1;
         bool first = false, last = false;
     };
 
@@ -105,12 +109,12 @@ private:
         return qint64((quint64(quint32(i)) << 32) | quint32(j));
     }
 
-    QVector<Seg>              m_seg;
+    QVector<Seg> m_seg;
     QHash<qint64, QVector<int>> m_grid;
-    QVector<double>           m_extent;   ///< Per profile: max(|sMin|, sMax).
-    QRectF                    m_bounds;
-    double                    m_cell   = 0.0;
-    double                    m_radius = 0.0;  ///< Widest corridor half-extent.
+    QVector<double> m_extent; ///< Per profile: max(|sMin|, sMax).
+    QRectF m_bounds;
+    double m_cell = 0.0;
+    double m_radius = 0.0; ///< Widest corridor half-extent.
 };
 
 // ── The rule ───────────────────────────────────────────────────────────────
@@ -128,8 +132,8 @@ private:
  *       `max(z, bedZ − maxIncision)` can never fire, because the section is by
  *       definition at or above its own bed (§16.5).
  */
-BurnOutcome burnPixel(double zDem, bool demNoData, double zSec, double s,
-                      const BurnRule &rule, double *zOut);
+BurnOutcome burnPixel(double zDem, bool demNoData, double zSec, double s, const BurnRule &rule,
+                      double *zOut);
 
 /*!
  * \brief The confluence rule (§4.4 step 4) — among every corridor covering
@@ -162,8 +166,8 @@ bool bestBurnAt(const BurnCorridorIndex &index, const QVector<BurnProfile> &prof
  * the right vertex even when the two CRSs disagree about distance.
  */
 [[nodiscard]] BurnProfile toRasterFrame(const BurnProfile &p,
-                                        const QVector<QPointF> &rasterCenterline,
-                                        double hScale, double vScale);
+                                        const QVector<QPointF> &rasterCenterline, double hScale,
+                                        double vScale);
 
 /*! \brief \ref BurnOptions to \ref BurnRule, converting both lengths. */
 [[nodiscard]] BurnRule toRasterRule(const BurnOptions &opt, double hScale, double vScale);

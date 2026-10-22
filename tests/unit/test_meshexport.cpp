@@ -1,16 +1,18 @@
-/*!
- * \file   test_meshexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  "Export mesh…": cells, edges and vertices as tables
+/**
+ * @file      test_meshexport.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     "Export mesh…": cells, edges and vertices as tables
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.2, R10).
  *
  * A two-triangle-one-quad mesh: counts equal the mesh's (every interior edge
  * once), BC fields only on boundary edges and only those the type reads, and
  * the whole lot written to a GeoPackage under
  * tests/output/feature_layer_roles_2026-09-30/meshexport/ and read back.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <gtest/gtest.h>
 
 #include "io/meshexport.h"
@@ -30,13 +32,22 @@
 
 using namespace openswmmvis::io;
 
-namespace {
+namespace
+{
 
 /*!   3 ---- 4 ---- 5
  *    | \  t1|      |
  *    |  \   |  q   |      t0 = (0,1,4), t1 = (0,4,3), q = (1,2,5,4)
  *    | t0 \ |      |
  *    0 ---- 1 ---- 2      */
+/**
+ *
+ * @brief Build mixed-cell mesh/table export fixtures without file I/O.
+ * @return Owned successful six-vertex mesh with two triangles and one quad, coordinates
+ * 0..20 by 0..10, elevations 100..105 in shared length units, vertex-four J1 coupling,
+ * first-cell Manning 0.02 and quad park tag. Other fields retain native mesh defaults.
+ *
+ */
 mesh::MeshResult sampleMesh()
 {
     mesh::MeshResult m;
@@ -48,30 +59,71 @@ mesh::MeshResult sampleMesh()
         m.vertices << v;
     }
     m.vertices[4].coupledNode = QStringLiteral("J1");
-    mesh::MeshTriangle t0; t0.v0 = 0; t0.v1 = 1; t0.v2 = 4; t0.mannings = 0.02;
-    mesh::MeshTriangle t1; t1.v0 = 0; t1.v1 = 4; t1.v2 = 3;
-    mesh::MeshTriangle q;  q.v0 = 1; q.v1 = 2; q.v2 = 5; q.v3 = 4; q.tag = QStringLiteral("park");
+    mesh::MeshTriangle t0;
+    t0.v0 = 0;
+    t0.v1 = 1;
+    t0.v2 = 4;
+    t0.mannings = 0.02;
+    mesh::MeshTriangle t1;
+    t1.v0 = 0;
+    t1.v1 = 4;
+    t1.v2 = 3;
+    mesh::MeshTriangle q;
+    q.v0 = 1;
+    q.v1 = 2;
+    q.v2 = 5;
+    q.v3 = 4;
+    q.tag = QStringLiteral("park");
     m.triangles << t0 << t1 << q;
     m.ok = true;
     return m;
 }
 
+/**
+ *
+ * @brief Find one export-table field by exact Latin-1 name.
+ * @param t Borrowed table with stable field definitions.
+ * @param name Nonnull borrowed null-terminated Latin-1 field identifier.
+ * @return First zero-based matching index or -1. Does not validate rows, convert units
+ * or mutate the table; caller must check result before indexing row values.
+ *
+ */
 int column(const ExportTable &t, const char *name)
 {
     for (int i = 0; i < t.fields.size(); ++i)
-        if (t.fields.at(i).name == QLatin1String(name)) return i;
+        if (t.fields.at(i).name == QLatin1String(name))
+            return i;
     return -1;
 }
 
+/**
+ *
+ * @brief GoogleTest-owned process environment for runtime vector drivers.
+ *
+ */
 class GdalEnvironment : public ::testing::Environment
 {
 public:
+    /**
+     *
+     * @brief Register GDAL drivers for this test process before mesh export cases.
+     * Called by the GoogleTest-owned global environment; mutates global GDAL registry,
+     * creates no dataset and does not unregister drivers at teardown.
+     *
+     */
     void SetUp() override { GDALAllRegister(); }
 };
 const auto *kGdalEnv = ::testing::AddGlobalTestEnvironment(new GdalEnvironment);
 
-}   // namespace
+} // namespace
 
+/**
+ *
+ * @brief Verify mixed-cell export yields three cell rows, eight unique edge rows and six
+ * vertices.
+ * Requires six boundary edges and honors edge-only part selection.
+ *
+ */
 TEST(MeshExport, CountsEqualTheMesh)
 {
     const mesh::MeshResult m = sampleMesh();
@@ -80,23 +132,30 @@ TEST(MeshExport, CountsEqualTheMesh)
     EXPECT_EQ(tables.at(0).name, QStringLiteral("mesh_cells"));
     EXPECT_EQ(tables.at(0).rows.size(), 3);
     EXPECT_EQ(tables.at(1).name, QStringLiteral("mesh_edges"));
-    EXPECT_EQ(tables.at(1).rows.size(), 8);   // V − E + F = 1 → E = 6 + 3 − 1
+    EXPECT_EQ(tables.at(1).rows.size(), 8); // V − E + F = 1 → E = 6 + 3 − 1
     EXPECT_EQ(tables.at(2).name, QStringLiteral("mesh_vertices"));
     EXPECT_EQ(tables.at(2).rows.size(), 6);
 
     int boundary = 0;
     const int b = column(tables.at(1), "boundary");
-    for (const ExportRow &r : tables.at(1).rows) boundary += r.values.at(b).toBool() ? 1 : 0;
+    for (const ExportRow &r : tables.at(1).rows)
+        boundary += r.values.at(b).toBool() ? 1 : 0;
     EXPECT_EQ(boundary, 6);
 
     // Parts are honoured.
     EXPECT_EQ(meshTables(m, {}, MeshExportEdges).size(), 1);
 }
 
+/**
+ *
+ * @brief Verify cell field names/units/choices, authored roughness/tag, null defaults, quad
+ * polygon and averaged bed elevation.
+ *
+ */
 TEST(MeshExport, CellsCarryTheirParameters)
 {
-    const ExportTable cells = meshTables(sampleMesh(), {}, MeshExportCells, QStringLiteral("m"))
-                                  .first();
+    const ExportTable cells =
+        meshTables(sampleMesh(), {}, MeshExportCells, QStringLiteral("m")).first();
     const int n = column(cells, "mannings");
     const int d = column(cells, "initDepth");
     const int tag = column(cells, "tag");
@@ -117,6 +176,12 @@ TEST(MeshExport, CellsCarryTheirParameters)
     EXPECT_FALSE(cells.rows.at(0).values.at(method).isValid()) << "no infiltration → null";
 }
 
+/**
+ *
+ * @brief Verify applicable stage-boundary fields appear only on boundary rows while conveyance
+ * applies to interior edges too.
+ *
+ */
 TEST(MeshExport, BoundaryConditionsOnlyOnBoundaryEdges)
 {
     const mesh::MeshResult m = sampleMesh();
@@ -125,7 +190,7 @@ TEST(MeshExport, BoundaryConditionsOnlyOnBoundaryEdges)
     mesh::MeshEdgeBC stage;
     stage.type = mesh::MeshBCTypes::Type::SpecifiedStageConst;
     stage.head = 3.5;
-    stage.slope = 0.01;   // not read by a stage boundary
+    stage.slope = 0.01; // not read by a stage boundary
     stage.group = QStringLiteral("south");
     stage.conveyance = 0.5;
     bcs[mesh::edgeSlot(0, 2)] = stage;
@@ -152,13 +217,22 @@ TEST(MeshExport, BoundaryConditionsOnlyOnBoundaryEdges)
             sawInterior = true;
             EXPECT_FALSE(r.values.at(boundary).toBool());
             EXPECT_FALSE(r.values.at(type).isValid());
-            EXPECT_DOUBLE_EQ(r.values.at(conv).toDouble(), 0.25) << "conveyance applies to every edge";
+            EXPECT_DOUBLE_EQ(r.values.at(conv).toDouble(), 0.25)
+                << "conveyance applies to every edge";
         }
     }
     EXPECT_TRUE(sawStage);
     EXPECT_TRUE(sawInterior);
 }
 
+/**
+ *
+ * @brief Create/replace sample_mesh.gpkg under configured MESHEXPORT_OUT_DIR and read it via
+ * GDAL.
+ * Requires cell/edge/vertex layer counts and polygon geometry, then closes the reader.
+ * Directory creation/file deletion status is ignored; artifacts remain for review.
+ *
+ */
 TEST(MeshExport, WrittenAndReadBack)
 {
     const QString dir = QStringLiteral(MESHEXPORT_OUT_DIR);
@@ -170,9 +244,9 @@ TEST(MeshExport, WrittenAndReadBack)
     ExportReport rep;
     ASSERT_TRUE(exportVectorTables(meshTables(sampleMesh(), {}, MeshExportAll), o, {}, &rep))
         << rep.error.toStdString();
-    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
-        o.destination.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-        nullptr, nullptr, nullptr));
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(o.destination.toUtf8().constData(),
+                                                            GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                                            nullptr, nullptr, nullptr));
     ASSERT_TRUE(ds);
     EXPECT_EQ(ds->GetLayerByName("mesh_cells")->GetFeatureCount(), 3);
     EXPECT_EQ(ds->GetLayerByName("mesh_edges")->GetFeatureCount(), 8);

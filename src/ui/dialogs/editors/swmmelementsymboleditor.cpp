@@ -1,9 +1,14 @@
-/*!
- * \file   swmmelementsymboleditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmmelementsymboleditor.cpp
+ * @brief     Wraps the live SwmmElementSymbolAdapter Q_PROPERTYs with familiar QGIS controls:
+ *            colour buttons + swatches, marker shape combo, dash combo for flow arrows, live
+ *            preview swatch.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/swmmelementsymboleditor.h"
 
 #include "layers/swmmelementsymboladapter.h"
@@ -19,10 +24,10 @@
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapter,
-                                                  QWidget *parent)
+SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapter, QWidget *parent)
     : IStyleEditorWidget(parent), m_adapter(adapter)
 {
     auto *root = new QVBoxLayout(this);
@@ -114,48 +119,46 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     root->addWidget(previewBox);
 
     // ── Bindings ───────────────────────────────────────────────────────
-    connect(m_fillBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setFillColor(c); });
-    connect(m_outlineBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setOutlineColor(c); });
-    connect(m_outlineWSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setOutlineWidth(v); });
-    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setSize(v); });
+    connect(m_fillBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setFillColor(c); });
+    connect(m_outlineBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setOutlineColor(c); });
+    connect(m_outlineWSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setOutlineWidth(v); });
+    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setSize(v); });
 
-    connect(m_showLabelBox, &QCheckBox::toggled,
-            this, [this](bool v) { m_adapter->setShowLabel(v); });
-    connect(m_labelFontCombo, &QFontComboBox::currentFontChanged,
-            this, [this](const QFont &f) { m_adapter->setLabelFont(f); });
-    connect(m_labelColorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setLabelColor(c); });
+    connect(m_showLabelBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_adapter->setShowLabel(v); });
+    connect(m_labelFontCombo, &QFontComboBox::currentFontChanged, this,
+            [this](const QFont &f) { m_adapter->setLabelFont(f); });
+    connect(m_labelColorBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setLabelColor(c); });
 
-    connect(m_showArrowsBox, &QCheckBox::toggled,
-            this, [this](bool v) { m_adapter->setShowArrows(v); });
-    connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setArrowSize(v); });
-    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setArrowWidth(v); });
-    connect(m_arrowColorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setArrowColor(c); });
-    connect(m_arrowsFlowPosBox, &QCheckBox::toggled,
-            this, [this](bool v) { m_adapter->setArrowOnlyWhenFlowPos(v); });
+    connect(m_showArrowsBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_adapter->setShowArrows(v); });
+    connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setArrowSize(v); });
+    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setArrowWidth(v); });
+    connect(m_arrowColorBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setArrowColor(c); });
+    connect(m_arrowsFlowPosBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_adapter->setArrowOnlyWhenFlowPos(v); });
 
-    connect(m_adapter, &SwmmElementSymbolAdapter::symbolChanged,
-            this, &SwmmElementSymbolEditor::refreshFromModel,
-            Qt::UniqueConnection);
+    connect(m_adapter, &SwmmElementSymbolAdapter::symbolChanged, this,
+            &SwmmElementSymbolEditor::refreshFromModel, Qt::UniqueConnection);
 
     refreshFromModel();
 }
 
 void SwmmElementSymbolEditor::refreshFromModel()
 {
-    if (!m_adapter) return;
-    QSignalBlocker b1(m_fillBtn), b2(m_outlineBtn), b3(m_outlineWSpin),
-                   b4(m_sizeSpin), b5(m_showLabelBox), b6(m_labelFontCombo),
-                   b7(m_labelColorBtn), b8(m_showArrowsBox), b9(m_arrowSizeSpin),
-                   b10(m_arrowColorBtn), b11(m_arrowsFlowPosBox),
-                   b12(m_arrowWidSpin);
+    if (!m_adapter)
+        return;
+    QSignalBlocker b1(m_fillBtn), b2(m_outlineBtn), b3(m_outlineWSpin), b4(m_sizeSpin),
+        b5(m_showLabelBox), b6(m_labelFontCombo), b7(m_labelColorBtn), b8(m_showArrowsBox),
+        b9(m_arrowSizeSpin), b10(m_arrowColorBtn), b11(m_arrowsFlowPosBox), b12(m_arrowWidSpin);
 
     m_fillBtn->setColor(m_adapter->fillColor());
     m_outlineBtn->setColor(m_adapter->outlineColor());
@@ -177,7 +180,8 @@ void SwmmElementSymbolEditor::refreshFromModel()
 
 void SwmmElementSymbolEditor::updatePreview()
 {
-    if (!m_preview || !m_adapter) return;
+    if (!m_preview || !m_adapter)
+        return;
     m_preview->setColor(m_adapter->fillColor());
     QPen outline(m_adapter->outlineColor());
     outline.setWidthF(m_adapter->outlineWidth());
@@ -188,12 +192,11 @@ void SwmmElementSymbolEditor::updatePreview()
 }
 
 // Registry
-REGISTER_STYLE_EDITOR(
-    SwmmElementSymbolAdapter,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *a = qobject_cast<SwmmElementSymbolAdapter *>(obj))
-            return new SwmmElementSymbolEditor(a, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(SwmmElementSymbolAdapter,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *a = qobject_cast<SwmmElementSymbolAdapter *>(obj))
+                              return new SwmmElementSymbolEditor(a, parent);
+                          return nullptr;
+                      })
 
 } // namespace openswmmvis::ui

@@ -1,9 +1,9 @@
-/*!
- * \file   isublayer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Toggleable visual aspect of an output layer.
+/**
+ * @file      isublayer.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Toggleable visual aspect of an output layer.
  *
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §3.
  *
@@ -34,7 +34,9 @@
  *         (ConduitLineSublayer, NodeMarkerSublayer, DepthColorRampSublayer,
  *         IsolineSublayer, ContourBandSublayer, VelocityVectorSublayer)
  *         land in S2 / S5.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_ISUBLAYER_H
 #define OPENSWMM_RENDER_ISUBLAYER_H
 
@@ -69,14 +71,13 @@ class SublayerStyle;
  *         currentTime / currentPeriod are populated by AnimationController
  *         on each tick. Sublayers with isDynamic() == false ignore them.
  */
-struct SublayerContext
-{
-    QMatrix4x4    viewMatrix;          /*!< Full view transform (scene → clip). */
-    double        pixelsPerSceneUnit = 1.0; /*!< |viewMatrix.m11()| for the inverse-zoom math. */
-    double        devicePixelRatio   = 1.0; /*!< For Hi-DPI screens. */
-    QRectF        exposedSceneRect;    /*!< Visible scene-space bounds for culling. */
-    QDateTime     currentTime;         /*!< Animation tick — ignored if sublayer is static. */
-    int           currentPeriod = -1;  /*!< Animation period index — -1 = no animation. */
+struct SublayerContext {
+    QMatrix4x4 viewMatrix;           /*!< Full view transform (scene → clip). */
+    double pixelsPerSceneUnit = 1.0; /*!< |viewMatrix.m11()| for the inverse-zoom math. */
+    double devicePixelRatio = 1.0;   /*!< For Hi-DPI screens. */
+    QRectF exposedSceneRect;         /*!< Visible scene-space bounds for culling. */
+    QDateTime currentTime;           /*!< Animation tick — ignored if sublayer is static. */
+    int currentPeriod = -1;          /*!< Animation period index — -1 = no animation. */
 };
 
 /*!
@@ -96,32 +97,45 @@ public:
      *        and to gate which Q_PROPERTYs are meaningful (e.g. an
      *        ArrowKind sublayer's style bag has arrow-specific knobs).
      */
-    enum Kind
-    {
-        MarkerKind = 0,       /*!< Points (nodes, gages). */
-        LineKind,             /*!< Lines (conduits, edges). */
-        FillKind,             /*!< Polygons (subcatchments, mesh triangles, flat fill). */
-        ArrowKind,            /*!< Marker-along-line (flow-direction arrows). */
-        ColorRampFillKind,    /*!< Graduated polygon fill (depth heat-map). */
-        IsolineKind,          /*!< Marching-squares line contours. */
-        ContourBandKind,      /*!< Marching-squares filled bands. */
-        VectorGlyphKind,      /*!< Velocity arrows (RT0 reconstruction). */
+    enum Kind {
+        MarkerKind = 0,    /*!< Points (nodes, gages). */
+        LineKind,          /*!< Lines (conduits, edges). */
+        FillKind,          /*!< Polygons (subcatchments, mesh triangles, flat fill). */
+        ArrowKind,         /*!< Marker-along-line (flow-direction arrows). */
+        ColorRampFillKind, /*!< Graduated polygon fill (depth heat-map). */
+        IsolineKind,       /*!< Marching-squares line contours. */
+        ContourBandKind,   /*!< Marching-squares filled bands. */
+        VectorGlyphKind,   /*!< Velocity arrows (RT0 reconstruction). */
     };
     Q_ENUM(Kind)
 
+    /** @brief Construct a sublayer with ordinary Qt parent ownership.
+     * @param parent Optional QObject owner, which destroys this sublayer when destroyed. */
     explicit ISublayer(QObject *parent = nullptr) : QObject(parent) {}
+    /** @brief Destroy the sublayer and its QObject-owned style resources. */
     ~ISublayer() override = default;
 
     // ── Identity / taxonomy ────────────────────────────────────────────
-    [[nodiscard]] virtual Kind    kind() const        = 0;
-    [[nodiscard]] virtual QString id() const          = 0; /*!< Stable within parent layer. */
+    /** @brief Identify the paint behavior for editor and icon selection.
+     * @return Concrete sublayer kind. */
+    [[nodiscard]] virtual Kind kind() const = 0;
+    [[nodiscard]] virtual QString id() const = 0;          /*!< Stable within parent layer. */
     [[nodiscard]] virtual QString displayName() const = 0; /*!< Shown in the layer-tree row. */
 
     // ── Visibility / opacity ──────────────────────────────────────────
-    [[nodiscard]] virtual bool  isVisible() const  = 0;
-    virtual void                setVisible(bool)   = 0;
-    [[nodiscard]] virtual qreal opacity() const    = 0; /*!< 0..1; multiplies the parent layer's opacity. */
-    virtual void                setOpacity(qreal)  = 0;
+    /** @brief Read this sublayer's visibility independently of its parent layer.
+     * @return True when this contribution is enabled; parent visibility can still hide it. */
+    [[nodiscard]] virtual bool isVisible() const = 0;
+    /** @brief Enable or disable this visual contribution.
+     * The boolean argument is the requested visibility; concrete implementations
+     * invalidate their rendering when an effective change occurs. */
+    virtual void setVisible(bool) = 0;
+    [[nodiscard]] virtual qreal
+    opacity() const = 0; /*!< 0..1; multiplies the parent layer's opacity. */
+    /** @brief Set the sublayer's opacity multiplier.
+     * The qreal argument is a dimensionless opacity in [0,1]. Concrete implementations
+     * define clamping and notification behavior; parent opacity is applied separately. */
+    virtual void setOpacity(qreal) = 0;
 
     // ── Animation integration ─────────────────────────────────────────
     /*!
@@ -131,6 +145,7 @@ public:
      *        AnimationController::currentPeriodChanged invalidates only
      *        the sublayers that return true here, leaving static
      *        sublayers' cached QSG geometry untouched (plan §2 Decision 3).
+     * @return True when animation changes require invalidating this contribution.
      */
     [[nodiscard]] virtual bool isDynamic() const = 0;
 
@@ -145,6 +160,7 @@ public:
      *
      *        Returning nullptr is legal for sublayers with no
      *        user-editable knobs (e.g. a fixed-style debug overlay).
+     * @return Borrowed style pointer, or nullptr; callers must not delete it.
      */
     [[nodiscard]] virtual SublayerStyle *style() = 0;
 
@@ -156,6 +172,7 @@ public:
      *        field set to id() so right-click → "Edit Sublayer Style…"
      *        can jump back to this sublayer. The parent layer's
      *        legendSymbolItems() concatenates the per-sublayer lists.
+     * @return Owned legend rows; visibility filtering is the host aggregator's responsibility.
      */
     [[nodiscard]] virtual QList<LegendSymbolItem> legendSymbolItems() const = 0;
 
@@ -169,15 +186,13 @@ public:
      *                  pointer is returned.
      * \param ctx       Per-frame context (zoom, animation period, exposed rect).
      *
-     * \return Root QSGNode for this sublayer's contribution. Must be a child
-     *         of ctx.parentNode by the time the function returns (the parent
-     *         layer renderer enforces this).
+     * \return Root QSGNode for this contribution, managed by the calling scene-graph
+     *         renderer. The context contains no parent node; the caller manages attachment.
      *
      *         Returning nullptr is legal — indicates "nothing to draw this
      *         frame" (e.g. hidden, fully transparent, or empty).
      */
-    virtual QSGNode *buildOrUpdateNode(QSGNode *existing,
-                                       const SublayerContext &ctx) = 0;
+    virtual QSGNode *buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx) = 0;
 
     /*!
      * \brief Public entry point hosts call to request a re-render.

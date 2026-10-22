@@ -1,9 +1,9 @@
-/*!
- * \file   test_pattern_editor_dialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.2 — PatternEditorDialog + PatternProvider +
+/**
+ * @file      test_pattern_editor_dialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.2 — PatternEditorDialog + PatternProvider +
  *         PatternRegistry + PatternFactorTableModel coverage.
  *
  * Coverage (12 cases):
@@ -20,6 +20,7 @@
  *  10. Normalize button rescales the active provider to the spin-box target.
  *  11. createNew factory starts in CreateNew mode; submit transitions to Edit.
  *  12. Adding a provider via the registry shows up in the list automatically.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "dialog_a11y_checks.h"
@@ -27,7 +28,7 @@
 #include "pattern/patternregistry.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/panels/patternfactortablemodel.h"
-#include "ui/widgets/patterneditchartview.h"  // complete type for chartView()->grab()
+#include "ui/widgets/patterneditchartview.h" // complete type for chartView()->grab()
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -67,14 +68,15 @@ using openswmmvis::pattern::PatternType;
 using openswmmvis::ui::PatternEditorDialog;
 using openswmmvis::ui::PatternFactorTableModel;
 
-namespace {
+namespace
+{
 
 QLineEdit *findCreateNameEdit(PatternEditorDialog *dlg)
 {
     const auto edits = dlg->findChildren<QLineEdit *>();
     for (QLineEdit *e : edits)
-        if (e->parentWidget() && e->parentWidget()->objectName()
-            == QStringLiteral("patternCreateCard"))
+        if (e->parentWidget() &&
+            e->parentWidget()->objectName() == QStringLiteral("patternCreateCard"))
             return e;
     return nullptr;
 }
@@ -83,9 +85,8 @@ QPushButton *findCreateBtn(PatternEditorDialog *dlg)
 {
     const auto btns = dlg->findChildren<QPushButton *>();
     for (QPushButton *b : btns)
-        if (b->text() == QStringLiteral("Create")
-            && b->parentWidget()
-            && b->parentWidget()->objectName() == QStringLiteral("patternCreateCard"))
+        if (b->text() == QStringLiteral("Create") && b->parentWidget() &&
+            b->parentWidget()->objectName() == QStringLiteral("patternCreateCard"))
             return b;
     return nullptr;
 }
@@ -113,7 +114,8 @@ private slots:
         PatternEditorDialog dialog(registry, &stack);
         dialog.show();
         delete registry;
-        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY2(!dialog.isEnabled(),
+                 "A closed registry must disable the editor before stale callbacks can mutate it.");
         QVERIFY(!dialog.isVisible());
         QCOMPARE(dialog.tableModel()->rowCount(), 0);
     }
@@ -141,8 +143,10 @@ private slots:
         PatternEditorDialog dialog(&registry, &stack);
         auto *table = dialog.factorTable();
         QVERIFY(table);
-        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
-        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+        QVERIFY2(!table->accessibleName().isEmpty(),
+                 "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(),
+                 "Live editors must explain that Close does not undo applied edits.");
     }
 
     void newDraftDoesNotBindAnExistingObject()
@@ -154,7 +158,9 @@ private slots:
         const bool hasNoProvider = dialog->currentProvider() == nullptr;
         const int rows = dialog->tableModel()->rowCount();
         delete dialog;
-        QVERIFY2(hasNoProvider, "Creating a new object must not silently expose the previously selected object for editing.");
+        QVERIFY2(
+            hasNoProvider,
+            "Creating a new object must not silently expose the previously selected object for editing.");
         QCOMPARE(rows, 0);
         QCOMPARE(registry.providerCount(), 1);
         QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
@@ -166,10 +172,14 @@ private slots:
         QVERIFY(registry.create(QStringLiteral("Owned"), PatternType::Monthly));
         QUndoStack stack;
         QTimer::singleShot(0, [] {
-            if (auto *dialog = qobject_cast<PatternEditorDialog *>(QApplication::activeModalWidget())) dialog->reject();
+            if (auto *dialog =
+                    qobject_cast<PatternEditorDialog *>(QApplication::activeModalWidget()))
+                dialog->reject();
         });
         const QString selected = PatternEditorDialog::pickPattern(&registry, &stack, {});
-        QVERIFY2(selected.isEmpty(), "Closing an uncommitted new-object picker must not select an unrelated existing object.");
+        QVERIFY2(
+            selected.isEmpty(),
+            "Closing an uncommitted new-object picker must not select an unrelated existing object.");
         QCOMPARE(registry.providerCount(), 1);
     }
 
@@ -178,14 +188,15 @@ private slots:
     void factorCounts_PerType()
     {
         QCOMPARE(PatternProvider::factorCountFor(PatternType::Monthly), 12);
-        QCOMPARE(PatternProvider::factorCountFor(PatternType::Daily),    7);
-        QCOMPARE(PatternProvider::factorCountFor(PatternType::Hourly),  24);
+        QCOMPARE(PatternProvider::factorCountFor(PatternType::Daily), 7);
+        QCOMPARE(PatternProvider::factorCountFor(PatternType::Hourly), 24);
         QCOMPARE(PatternProvider::factorCountFor(PatternType::Weekend), 24);
 
         PatternProvider mp(QStringLiteral("m"), PatternType::Monthly);
         QCOMPARE(mp.factorCount(), 12);
         // Default factor is 1.0.
-        for (int i = 0; i < 12; ++i) QCOMPARE(mp.factor(i), 1.0);
+        for (int i = 0; i < 12; ++i)
+            QCOMPARE(mp.factor(i), 1.0);
     }
 
     void setFactor_ValidatesAndEmits()
@@ -220,7 +231,8 @@ private slots:
         QVector<double> ok(24, 0.5);
         QVERIFY(p.setAllFactors(ok));
         QCOMPARE(changed.size(), 1);
-        for (int i = 0; i < 24; ++i) QCOMPARE(p.factor(i), 0.5);
+        for (int i = 0; i < 24; ++i)
+            QCOMPARE(p.factor(i), 0.5);
     }
 
     void normalize_RescalesToTarget()
@@ -253,7 +265,7 @@ private slots:
     void setType_ResetsFactors()
     {
         PatternProvider p(QStringLiteral("p"), PatternType::Monthly);
-        QVERIFY(p.setFactor(3, 5.0));   // mutate one factor
+        QVERIFY(p.setFactor(3, 5.0)); // mutate one factor
 
         QSignalSpy typeSpy(&p, &PatternProvider::typeChanged);
         QSignalSpy factorsSpy(&p, &PatternProvider::factorsChanged);
@@ -261,7 +273,8 @@ private slots:
         p.setType(PatternType::Hourly);
         QCOMPARE(int(p.type()), int(PatternType::Hourly));
         QCOMPARE(p.factorCount(), 24);
-        for (int i = 0; i < 24; ++i) QCOMPARE(p.factor(i), 1.0);
+        for (int i = 0; i < 24; ++i)
+            QCOMPARE(p.factor(i), 1.0);
         QCOMPARE(typeSpy.size(), 1);
         QCOMPARE(factorsSpy.size(), 1);
     }
@@ -280,7 +293,7 @@ private slots:
         QCOMPARE(addedSpy.size(), 1);
         QCOMPARE(reg.providerCount(), 1);
         QCOMPARE(reg.findByName(QStringLiteral("DWF")), p);
-        QCOMPARE(reg.findByName(QStringLiteral("dwf")), p);   // case-insensitive
+        QCOMPARE(reg.findByName(QStringLiteral("dwf")), p); // case-insensitive
 
         // Duplicate name rejected.
         QVERIFY(reg.create(QStringLiteral("DWF"), PatternType::Monthly) == nullptr);
@@ -311,7 +324,7 @@ private slots:
         PatternFactorTableModel m;
         m.setProvider(&p);
 
-        QCOMPARE(m.rowCount(),    7);
+        QCOMPARE(m.rowCount(), 7);
         QCOMPARE(m.columnCount(), 1);
 
         // Initial value.
@@ -368,7 +381,7 @@ private slots:
             const QModelIndex src = lm->index(1, 0);
             dlg.listView()->setCurrentIndex(proxy ? proxy->mapFromSource(src) : src);
         }
-        QTest::qWait(0);   // allow currentChanged signal delivery
+        QTest::qWait(0); // allow currentChanged signal delivery
 
         QCOMPARE(dlg.currentProvider(), b);
         QCOMPARE(dlg.tableModel()->rowCount(), 7);
@@ -403,11 +416,10 @@ private slots:
 
         auto *dlg = PatternEditorDialog::createNew(&reg, &stack);
         QVERIFY(dlg);
-        QCOMPARE(int(dlg->mode()),
-                 int(PatternEditorDialog::Mode::CreateNew));
+        QCOMPARE(int(dlg->mode()), int(PatternEditorDialog::Mode::CreateNew));
 
         auto *edit = findCreateNameEdit(dlg);
-        auto *btn  = findCreateBtn(dlg);
+        auto *btn = findCreateBtn(dlg);
         QVERIFY(edit && btn);
         QVERIFY(!dlg->isCreateEnabled());
 
@@ -469,8 +481,8 @@ private slots:
         PatternEditorDialog dlg(&reg, &stack);
         // dlg auto-selects first → PAT_A.
         QCOMPARE(dlg.currentProvider(), a);
-        QVERIFY(!dlg.renameCurrent(QStringLiteral("PAT_B")));   // collision
-        QCOMPARE(a->name(), QStringLiteral("PAT_A"));            // unchanged
+        QVERIFY(!dlg.renameCurrent(QStringLiteral("PAT_B"))); // collision
+        QCOMPARE(a->name(), QStringLiteral("PAT_A"));         // unchanged
     }
 
     void deleteCurrent_RemovesFromRegistryAndList()
@@ -531,8 +543,7 @@ private slots:
         QVERIFY(src->setAllFactors(facs));
 
         // Bad src name → nullptr.
-        QVERIFY(reg.duplicate(QStringLiteral("__missing__"),
-                              QStringLiteral("X")) == nullptr);
+        QVERIFY(reg.duplicate(QStringLiteral("__missing__"), QStringLiteral("X")) == nullptr);
         // Empty new name → nullptr.
         QVERIFY(reg.duplicate(QStringLiteral("SRC"), QString()) == nullptr);
         // Colliding new name → nullptr.
@@ -541,8 +552,8 @@ private slots:
         // Happy path.
         auto *clone = reg.duplicate(QStringLiteral("SRC"), QStringLiteral("CLONE"));
         QVERIFY(clone);
-        QCOMPARE(clone->name(),       QStringLiteral("CLONE"));
-        QCOMPARE(int(clone->type()),  int(src->type()));
+        QCOMPARE(clone->name(), QStringLiteral("CLONE"));
+        QCOMPARE(int(clone->type()), int(src->type()));
         QCOMPARE(clone->factorCount(), src->factorCount());
         for (int i = 0; i < src->factorCount(); ++i)
             QCOMPARE(clone->factor(i), src->factor(i));
@@ -565,8 +576,8 @@ private slots:
 
         auto *clone = dlg.duplicateCurrent(QStringLiteral("PAT_2"));
         QVERIFY(clone);
-        QCOMPARE(dlg.currentProvider(), clone);    // selection moved
-        QCOMPARE(clone->factor(0), 7.0);            // factors copied
+        QCOMPARE(dlg.currentProvider(), clone); // selection moved
+        QCOMPARE(clone->factor(0), 7.0);        // factors copied
     }
 
     void search_FiltersListAndPreservesData()
@@ -666,8 +677,7 @@ private slots:
         // affordance is the toolbar button click, but the slot is internal.
         // We invoke via QMetaObject so the test doesn't depend on the
         // button being findable by text (icon-only).
-        QMetaObject::invokeMethod(&dlg, "onCopyChartClicked_",
-                                   Qt::DirectConnection);
+        QMetaObject::invokeMethod(&dlg, "onCopyChartClicked_", Qt::DirectConnection);
         QVERIFY(!clip->pixmap().isNull());
     }
 
@@ -697,8 +707,7 @@ private slots:
         QTemporaryDir tmp;
         QVERIFY(tmp.isValid());
         QSettings::setDefaultFormat(QSettings::IniFormat);
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                            tmp.path());
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, tmp.path());
 
         PatternRegistry reg;
         QVERIFY(reg.create(QStringLiteral("PAT"), PatternType::Monthly));
@@ -716,8 +725,7 @@ private slots:
             dlg.setPreviewMarkersVisible(false);
             dlg.show();
             QVERIFY(QTest::qWaitForWindowExposed(&dlg));
-            auto *box = dlg.findChild<QDialogButtonBox *>(
-                QStringLiteral("pattern_closeBox"));
+            auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("pattern_closeBox"));
             QVERIFY(box);
             box->button(QDialogButtonBox::Close)->click();
             QTRY_VERIFY(!dlg.isVisible());

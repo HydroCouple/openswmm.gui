@@ -1,6 +1,6 @@
-/*!
- * \file   test_channelburn_endtoend.cpp
- * \brief  The whole channel burn-in over a real deck and a real raster
+/**
+ * @file      test_channelburn_endtoend.cpp
+ * @brief     The whole channel burn-in over a real deck and a real raster
  *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §8).
  *
  * Every other burn test exercises one layer. This one runs the chain the mesh
@@ -18,7 +18,12 @@
  * What it cannot cover: the dialog and worker glue around these calls, because
  * SWMMModelLayer does not link headlessly. Gates V8/V9/V10 — a burned deck that
  * initializes, routes and round-trips — need a real project run.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QDir>
@@ -39,15 +44,16 @@
 #include <limits>
 
 #ifndef SWMMVIS_BURNE2E_FIXTURE_DIR
-#  define SWMMVIS_BURNE2E_FIXTURE_DIR "."
+#define SWMMVIS_BURNE2E_FIXTURE_DIR "."
 #endif
 #ifndef SWMMVIS_BURNE2E_OUTPUT_DIR
-#  define SWMMVIS_BURNE2E_OUTPUT_DIR "."
+#define SWMMVIS_BURNE2E_OUTPUT_DIR "."
 #endif
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
 /*! ft → m. The deck is CFS (feet); the DEM below is metres. */
 constexpr double kFtToM = 0.3048;
@@ -59,10 +65,26 @@ constexpr double kNoData = -9999.0;
  *  channel has to be cut down into it. */
 constexpr double kGroundM = 32.0;
 
+/**
+ *
+ * @brief Resolve a burn end-to-end input fixture without reading it.
+ * @param n Borrowed null-terminated Latin-1 filename under SWMMVIS_BURNE2E_FIXTURE_DIR.
+ * @return Owned joined path; default fixture directory is process cwd. No existence
+ * check or creation.
+ *
+ */
 QString fixturePath(const char *n)
 {
     return QDir(QStringLiteral(SWMMVIS_BURNE2E_FIXTURE_DIR)).filePath(QString::fromLatin1(n));
 }
+/**
+ *
+ * @brief Resolve a persistent burn end-to-end output path.
+ * @param n Borrowed null-terminated Latin-1 filename under SWMMVIS_BURNE2E_OUTPUT_DIR.
+ * @return Owned joined path after unchecked parent creation; default is process cwd.
+ * Does not remove an earlier output or open the file.
+ *
+ */
 QString outPath(const char *n)
 {
     QDir d(QStringLiteral(SWMMVIS_BURNE2E_OUTPUT_DIR));
@@ -70,32 +92,57 @@ QString outPath(const char *n)
     return d.filePath(QString::fromLatin1(n));
 }
 
-/*! 1-unit pixels over the deck's extent, north-up, flat at \ref kGroundM. */
+/**
+ *
+ * @brief Create the controlled metre-elevation raster covering the deck XY extent.
+ * @param path Test-owned output filename, potentially replacing an earlier raster.
+ * @return True if GTiff creation and all row writes succeed; false otherwise.
+ * Registers GDAL and writes 280x130 Float32 cells, 32-metre elevations, one-unit
+ * north-up pixels from (-35,65), declared -9999 NoData and no CRS. XY is deliberately
+ * shared with model coordinates while only elevations convert feet/metres. Transform,
+ * NoData and close statuses are unchecked; partial files can remain on failure.
+ *
+ */
 bool writeFlatDem(const QString &path)
 {
     GDALAllRegister();
     GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-    if (!drv) return false;
+    if (!drv)
+        return false;
     const int w = 280, h = 130;
     GDALDataset *ds = drv->Create(path.toUtf8().constData(), w, h, 1, GDT_Float32, nullptr);
-    if (!ds) return false;
-    double gt[6] = {-35.0, 1.0, 0.0, 65.0, 0.0, -1.0};   // covers x -35..245, y -65..65
+    if (!ds)
+        return false;
+    double gt[6] = {-35.0, 1.0, 0.0, 65.0, 0.0, -1.0}; // covers x -35..245, y -65..65
     ds->SetGeoTransform(gt);
     ds->GetRasterBand(1)->SetNoDataValue(kNoData);
     QVector<double> row(w, kGroundM);
     for (int r = 0; r < h; ++r)
-        if (ds->GetRasterBand(1)->RasterIO(GF_Write, 0, r, w, 1, row.data(), w, 1,
-                                           GDT_Float64, 0, 0) != CE_None)
-        { GDALClose(ds); return false; }
+        if (ds->GetRasterBand(1)->RasterIO(GF_Write, 0, r, w, 1, row.data(), w, 1, GDT_Float64, 0,
+                                           0) != CE_None) {
+            GDALClose(ds);
+            return false;
+        }
     GDALClose(ds);
     return true;
 }
 
+/**
+ *
+ * @brief Sample the containing pixel in a controlled unrotated burn raster.
+ * @param path Borrowed one-band fixture path with GDAL drivers already registered.
+ * @param wx Finite x in shared fixture/raster XY coordinate units.
+ * @param wy Finite y in the same units.
+ * @return Metre elevation, or NaN for failed open, outside extent, an untouched
+ * failed-read sentinel or exact -9999 NoData. Assumes valid nonzero axis-aligned
+ * transform; ignores transform/read status, opens/closes read-only and never interpolates.
+ *
+ */
 double sampleAt(const QString &path, double wx, double wy)
 {
-    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(),
-                                                          GA_ReadOnly));
-    if (!ds) return std::numeric_limits<double>::quiet_NaN();
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(), GA_ReadOnly));
+    if (!ds)
+        return std::numeric_limits<double>::quiet_NaN();
     double gt[6];
     ds->GetGeoTransform(gt);
     const int c = int(std::floor((wx - gt[0]) / gt[1]));
@@ -112,22 +159,28 @@ double sampleAt(const QString &path, double wx, double wy)
 QHash<QString, QVector<QPointF>> polylines()
 {
     QHash<QString, QVector<QPointF>> p;
-    p.insert(QStringLiteral("CREEK1"),
-             {QPointF(0, 0), QPointF(60, 10), QPointF(120, 0)});
+    p.insert(QStringLiteral("CREEK1"), {QPointF(0, 0), QPointF(60, 10), QPointF(120, 0)});
     p.insert(QStringLiteral("CREEK2"), {QPointF(120, 0), QPointF(210, 0)});
-    p.insert(QStringLiteral("CULV1"),  {QPointF(0, -50), QPointF(30, -50)});
+    p.insert(QStringLiteral("CULV1"), {QPointF(0, -50), QPointF(30, -50)});
     return p;
 }
 
 class BurnEndToEnd : public ::testing::Test
 {
 protected:
+    /**
+     *
+     * @brief Own/open the US-unit creek deck and create a persistent flat metre DEM.
+     * Creates eng without simulation initialization, writes reports under configured output,
+     * and sets burn widths/chainage in model feet. Fatal assertions can stop setup early;
+     * TearDown still releases any created engine. DEM artifacts remain for review.
+     *
+     */
     void SetUp() override
     {
         eng = swmm_engine_create();
         ASSERT_NE(eng, nullptr);
-        ASSERT_EQ(swmm_engine_open(eng,
-                                   fixturePath("channel_burn_creek.inp").toUtf8().constData(),
+        ASSERT_EQ(swmm_engine_open(eng, fixturePath("channel_burn_creek.inp").toUtf8().constData(),
                                    outPath("burn_e2e.rpt").toUtf8().constData(),
                                    outPath("burn_e2e.out").toUtf8().constData(), nullptr),
                   SWMM_OK);
@@ -135,41 +188,68 @@ protected:
         demPath = outPath("burn_e2e_dem.tif");
         ASSERT_TRUE(writeFlatDem(demPath));
 
-        opt.forceHalfWidth = 3.0;      // model units = feet
-        opt.clipToBanks    = false;    // compare against the whole section
-        opt.maxHalfWidth   = 12.0;
-        opt.stringCount    = 1;
-        opt.chainageStep   = 1.0;
+        opt.forceHalfWidth = 3.0; // model units = feet
+        opt.clipToBanks = false;  // compare against the whole section
+        opt.maxHalfWidth = 12.0;
+        opt.stringCount = 1;
+        opt.chainageStep = 1.0;
     }
+    /**
+     *
+     * @brief Destroy the owned engine and clear its handle after each case.
+     * Safe after partial setup; leaves persistent reports/rasters in place. No subsequent
+     * access to the destroyed engine is valid.
+     *
+     */
     void TearDown() override
     {
-        if (eng) { swmm_engine_destroy(eng); eng = nullptr; }
+        if (eng) {
+            swmm_engine_destroy(eng);
+            eng = nullptr;
+        }
     }
 
-    /*! Resolve + build, exactly as collectBurnInputs does. */
+    /**
+     *
+     * @brief Resolve all eligible open channels and build valid fixture profiles.
+     * @return Owned accepted/valid profiles in model feet, using eng, opt and the local
+     * cached-geometry stand-in. Rejected candidates/invalid profiles are silently omitted;
+     * requires opened engine and completed setup. No engine edit or raster writes.
+     *
+     */
     QVector<BurnProfile> buildProfiles()
     {
-        BurnSelector sel;                       // AllOpen
+        BurnSelector sel; // AllOpen
         QVector<BurnProfile> out;
-        for (const BurnCandidate &c :
-             resolveBurnSet(eng, sel, opt, polylines(), /*si*/ false))
-        {
-            if (!c.accepted) continue;
+        for (const BurnCandidate &c : resolveBurnSet(eng, sel, opt, polylines(), /*si*/ false)) {
+            if (!c.accepted)
+                continue;
             BurnProfile p = buildBurnProfile(c.input, opt);
-            if (p.isValid()) out.append(std::move(p));
+            if (p.isValid())
+                out.append(std::move(p));
         }
         return out;
     }
 
-    /*! Convert + burn, exactly as the worker does: the horizontal frame is
-     *  shared, the vertical one is not. */
+    /**
+     *
+     * @brief Convert model-foot elevations to metres and write a burn raster.
+     * @param profiles Borrowed valid profiles, with shared XY and bed/section elevations
+     * in model feet; copies are converted, originals unchanged.
+     * @param dst Borrowed test-owned output path, passed to production writer.
+     * @param src Borrowed source DEM with elevations in metres.
+     * @return Writer statistics, including partial/default stats if writing fails; records
+     * a nonfatal expectation rather than returning success. Horizontal scale is 1 and
+     * vertical scale .3048. Parent/destination cleanup is caller-controlled; no engine edits.
+     *
+     */
     BurnRasterStats burn(const QVector<BurnProfile> &profiles, const QString &dst,
                          const QString &src)
     {
         BurnRasterRequest req;
         req.sourcePath = src;
         req.outputPath = dst;
-        req.rule       = toRasterRule(opt, 1.0, 1.0 / kZConv);
+        req.rule = toRasterRule(opt, 1.0, 1.0 / kZConv);
         for (const BurnProfile &p : profiles)
             req.profiles.append(toRasterFrame(p, p.centerline, 1.0, 1.0 / kZConv));
 
@@ -180,7 +260,7 @@ protected:
     }
 
     SWMM_Engine eng = nullptr;
-    QString     demPath;
+    QString demPath;
     BurnOptions opt;
 };
 
@@ -189,7 +269,7 @@ protected:
 TEST_F(BurnEndToEnd, TheBurnedRasterHoldsTheChannelBedInTheRastersOwnUnits)
 {
     const QVector<BurnProfile> profiles = buildProfiles();
-    ASSERT_EQ(profiles.size(), 2);            // the two creeks; the culvert is refused
+    ASSERT_EQ(profiles.size(), 2); // the two creeks; the culvert is refused
 
     const QString dst = outPath("burn_e2e_burned.tif");
     QFile::remove(dst);
@@ -201,7 +281,8 @@ TEST_F(BurnEndToEnd, TheBurnedRasterHoldsTheChannelBedInTheRastersOwnUnits)
     // bed there is 100 - 1·(0.5) = 99.5 ft.
     const BurnProfile *c1 = nullptr;
     for (const BurnProfile &p : profiles)
-        if (p.conduitId == QStringLiteral("CREEK1")) c1 = &p;
+        if (p.conduitId == QStringLiteral("CREEK1"))
+            c1 = &p;
     ASSERT_NE(c1, nullptr);
     EXPECT_NEAR(c1->length(), 2.0 * std::hypot(60.0, 10.0), 1e-9);
     EXPECT_NEAR(bedZAt(*c1, c1->length() * 0.5), 99.5, 1e-9);
@@ -212,8 +293,8 @@ TEST_F(BurnEndToEnd, TheBurnedRasterHoldsTheChannelBedInTheRastersOwnUnits)
     const double got = sampleAt(dst, 60.5, 9.5);
     ASSERT_TRUE(std::isfinite(got));
     EXPECT_NEAR(got, 99.5 * kFtToM, 0.05);
-    EXPECT_LT(got, kGroundM);                        // the bed was cut INTO the ground
-    EXPECT_GT(got, 25.0);                            // …but nowhere near 3.28x too deep
+    EXPECT_LT(got, kGroundM); // the bed was cut INTO the ground
+    EXPECT_GT(got, 25.0);     // …but nowhere near 3.28x too deep
 }
 
 TEST_F(BurnEndToEnd, TerrainAwayFromTheChannelIsUntouched)
@@ -223,9 +304,9 @@ TEST_F(BurnEndToEnd, TerrainAwayFromTheChannelIsUntouched)
     burn(buildProfiles(), dst, demPath);
 
     // Well outside the corridor in every direction.
-    EXPECT_NEAR(sampleAt(dst, 60.5, 50.5),  kGroundM, 1e-4);
-    EXPECT_NEAR(sampleAt(dst, -30.5, 0.5),  kGroundM, 1e-4);
-    EXPECT_NEAR(sampleAt(dst, 240.5, 0.5),  kGroundM, 1e-4);
+    EXPECT_NEAR(sampleAt(dst, 60.5, 50.5), kGroundM, 1e-4);
+    EXPECT_NEAR(sampleAt(dst, -30.5, 0.5), kGroundM, 1e-4);
+    EXPECT_NEAR(sampleAt(dst, 240.5, 0.5), kGroundM, 1e-4);
     // The culvert was refused, so its alignment keeps the original ground.
     EXPECT_NEAR(sampleAt(dst, 15.5, -49.5), kGroundM, 1e-4);
 }
@@ -252,7 +333,7 @@ TEST_F(BurnEndToEnd, TheBedFallsDownstreamAlongTheWholeReach)
 TEST_F(BurnEndToEnd, AReBurnOfTheBurnedRasterChangesNothing)
 {
     const QVector<BurnProfile> profiles = buildProfiles();
-    const QString once  = outPath("burn_e2e_once.tif");
+    const QString once = outPath("burn_e2e_once.tif");
     const QString twice = outPath("burn_e2e_twice.tif");
     QFile::remove(once);
     QFile::remove(twice);
@@ -261,11 +342,11 @@ TEST_F(BurnEndToEnd, AReBurnOfTheBurnedRasterChangesNothing)
     const BurnRasterStats st2 = burn(profiles, twice, once);
     EXPECT_LT(st2.maxIncision, 1e-4);
 
-    for (const double x : {40.5, 60.5, 100.5, 150.5, 200.5})
-    {
+    for (const double x : {40.5, 60.5, 100.5, 150.5, 200.5}) {
         const double a = sampleAt(once, x, 0.5);
         const double b = sampleAt(twice, x, 0.5);
-        if (std::isfinite(a) || std::isfinite(b)) EXPECT_NEAR(a, b, 1e-6);
+        if (std::isfinite(a) || std::isfinite(b))
+            EXPECT_NEAR(a, b, 1e-6);
     }
 }
 
@@ -274,24 +355,26 @@ TEST_F(BurnEndToEnd, EveryBurnedReachAlsoMeshesAsAQuadCorridor)
     const QVector<BurnProfile> profiles = buildProfiles();
     ASSERT_EQ(profiles.size(), 2);
 
-    for (const BurnProfile &p : profiles)
-    {
+    for (const BurnProfile &p : profiles) {
         QString err;
         const BurnLattice lat = buildCorridorLattice(p, 4.0, 0.0, nullptr, &err);
         ASSERT_TRUE(lat.isValid()) << p.conduitId.toStdString() << ": " << err.toStdString();
 
         const PatchMesh pm = corridorPatch(lat, p, opt, &err);
-        ASSERT_FALSE(pm.quads.isEmpty())
-            << p.conduitId.toStdString() << ": " << err.toStdString();
+        ASSERT_FALSE(pm.quads.isEmpty()) << p.conduitId.toStdString() << ": " << err.toStdString();
         EXPECT_TRUE(validate(pm).isEmpty());
-        for (const MeshTriangle &q : pm.quads) EXPECT_TRUE(q.isQuad());
+        for (const MeshTriangle &q : pm.quads)
+            EXPECT_TRUE(q.isQuad());
 
         // CREEK2 carries the transect's roughness triple; CREEK1 is analytic
         // and has none, so its cells keep the mesh default.
         const bool hasTriple = (p.conduitId == QStringLiteral("CREEK2"));
         bool anyN = false;
         for (const MeshTriangle &q : pm.quads)
-            if (std::isfinite(q.mannings)) { anyN = true; break; }
+            if (std::isfinite(q.mannings)) {
+                anyN = true;
+                break;
+            }
         EXPECT_EQ(anyN, hasTriple) << p.conduitId.toStdString();
     }
 }
@@ -315,4 +398,3 @@ TEST_F(BurnEndToEnd, TheFingerprintTracksTheInputsThatChangeTheResult)
     // a no-op.
     EXPECT_EQ(base, burnFingerprint(id, opt, buildProfiles()));
 }
-

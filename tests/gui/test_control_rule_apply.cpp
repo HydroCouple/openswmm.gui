@@ -1,9 +1,9 @@
-/*!
- * \file   test_control_rule_apply.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Control-rule identity through SWMMModelLayer::applyControlRule*.
+/**
+ * @file      test_control_rule_apply.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Control-rule identity through SWMMModelLayer::applyControlRule*.
  *
  *         A rule's identity is its `RULE <name>` header: the engine derives
  *         the id from it and the registry is keyed by it. The tutorial bug
@@ -16,7 +16,9 @@
  *
  *         Drives the real layer over the typed-selection fixture (J1, X1, O1,
  *         C1), so the rules reference objects that exist.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "controls/controlruleprovider.h"
 #include "controls/controlruleregistry.h"
 #include "layers/swmmmodellayer.h"
@@ -30,7 +32,8 @@
 
 using openswmmvis::controls::ControlRuleRegistry;
 
-namespace {
+namespace
+{
 
 QString fixturePath()
 {
@@ -38,22 +41,24 @@ QString fixturePath()
         .filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
 
-const QString kR1Body = QStringLiteral(
-    "RULE R1\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n");
-const QString kR2Body = QStringLiteral(
-    "RULE R2\nIF NODE X1 DEPTH > 5\nTHEN LINK X1 STATUS = CLOSED\n");
+const QString kR1Body =
+    QStringLiteral("RULE R1\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n");
+const QString kR2Body =
+    QStringLiteral("RULE R2\nIF NODE X1 DEPTH > 5\nTHEN LINK X1 STATUS = CLOSED\n");
 
 QString engineRuleId(SWMM_Engine eng, int slot)
 {
     char buf[256] = {};
-    if (swmm_control_get_id(eng, slot, buf, sizeof(buf)) != SWMM_OK) return {};
+    if (swmm_control_get_id(eng, slot, buf, sizeof(buf)) != SWMM_OK)
+        return {};
     return QString::fromUtf8(buf);
 }
 
 QString engineRuleBody(SWMM_Engine eng, int slot)
 {
     char buf[8192] = {};
-    if (swmm_control_get_rule(eng, slot, buf, sizeof(buf)) != SWMM_OK) return {};
+    if (swmm_control_get_rule(eng, slot, buf, sizeof(buf)) != SWMM_OK)
+        return {};
     return QString::fromUtf8(buf);
 }
 
@@ -106,8 +111,8 @@ void TestControlRuleApply::headerlessReplaceIsRefusedAndKeepsEveryRule()
     SWMM_Engine eng = mLayer->engine();
     QString err;
     const bool ok = mLayer->applyControlRuleReplace(
-        QStringLiteral("R1"),
-        QStringLiteral("IF NODE J1 DEPTH > 1\nTHEN LINK C1 STATUS = OPEN\n"), &err);
+        QStringLiteral("R1"), QStringLiteral("IF NODE J1 DEPTH > 1\nTHEN LINK C1 STATUS = OPEN\n"),
+        &err);
     QVERIFY2(!ok, "a body without a RULE header must be refused");
     QVERIFY(!err.isEmpty());
 
@@ -125,8 +130,7 @@ void TestControlRuleApply::retypedHeaderWithSpacesIsRefused()
     QString err;
     const bool ok = mLayer->applyControlRuleReplace(
         QStringLiteral("R1"),
-        QStringLiteral("RULE my rule\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n"),
-        &err);
+        QStringLiteral("RULE my rule\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n"), &err);
     QVERIFY2(!ok, "the .inp format would save 'my rule' as 'my'");
     QVERIFY(!err.isEmpty());
     QCOMPARE(swmm_control_count(eng), 2);
@@ -150,8 +154,8 @@ void TestControlRuleApply::renameWithSpacesIsRefused()
 void TestControlRuleApply::retypedHeaderRenamesEngineAndRegistry()
 {
     SWMM_Engine eng = mLayer->engine();
-    const QString renamed = QStringLiteral(
-        "RULE R9\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n");
+    const QString renamed =
+        QStringLiteral("RULE R9\nIF NODE J1 DEPTH > 5\nTHEN LINK C1 STATUS = CLOSED\n");
     QString err;
     QVERIFY2(mLayer->applyControlRuleReplace(QStringLiteral("R1"), renamed, &err), qPrintable(err));
 
@@ -163,8 +167,8 @@ void TestControlRuleApply::retypedHeaderRenamesEngineAndRegistry()
 
     // The rule stays editable under its new name — this is the edit that used
     // to fail forever with "No rule named … found".
-    const QString edited = QStringLiteral(
-        "RULE R9\nIF NODE J1 DEPTH > 2\nTHEN LINK C1 STATUS = OPEN\n");
+    const QString edited =
+        QStringLiteral("RULE R9\nIF NODE J1 DEPTH > 2\nTHEN LINK C1 STATUS = OPEN\n");
     QVERIFY2(mLayer->applyControlRuleReplace(QStringLiteral("R9"), edited, &err), qPrintable(err));
     QCOMPARE(engineRuleBody(eng, 0).trimmed(), edited.trimmed());
     QCOMPARE(registry()->findByName(QStringLiteral("R9"))->body(), edited);
@@ -183,11 +187,12 @@ void TestControlRuleApply::renameRewritesHeaderOnBothSides()
     QCOMPARE(engineRuleId(eng, 0), QStringLiteral("Overflow"));
     QVERIFY(registry()->hasName(QStringLiteral("Overflow")));
     QVERIFY(engineRuleBody(eng, 0).startsWith(QStringLiteral("RULE Overflow")));
-    QVERIFY2(mLayer->applyControlRuleReplace(
-                 QStringLiteral("Overflow"),
-                 QStringLiteral("RULE Overflow\nIF NODE J1 DEPTH > 9\nTHEN LINK C1 STATUS = CLOSED\n"),
-                 &err),
-             qPrintable(err));
+    QVERIFY2(
+        mLayer->applyControlRuleReplace(
+            QStringLiteral("Overflow"),
+            QStringLiteral("RULE Overflow\nIF NODE J1 DEPTH > 9\nTHEN LINK C1 STATUS = CLOSED\n"),
+            &err),
+        qPrintable(err));
 }
 
 QTEST_MAIN(TestControlRuleApply)

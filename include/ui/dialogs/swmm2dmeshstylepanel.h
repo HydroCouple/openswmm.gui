@@ -1,9 +1,9 @@
-/*!
- * \file   swmm2dmeshstylepanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Styling panel for a SWMM2DMeshLayer — one tab per sublayer,
+/**
+ * @file      swmm2dmeshstylepanel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Styling panel for a SWMM2DMeshLayer — one tab per sublayer,
  *         mirroring Swmm2DResultsStylePanel (the QGIS mesh-layer idiom).
  *
  *         Replaces the combined "Mesh / TIN" form (MeshHillshadeEditor),
@@ -16,7 +16,9 @@
  *         Every control writes live into the owning sublayer / its style
  *         bag; each tab's tooltip carries the sublayer id so right-click →
  *         "Edit Sublayer Style…" routes to the matching tab.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_SWMM2DMESHSTYLEPANEL_H
 #define OPENSWMMVIS_UI_DIALOGS_SWMM2DMESHSTYLEPANEL_H
 
@@ -25,7 +27,8 @@
 
 class SWMM2DMeshLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class Swmm2DMeshStylePanel : public QWidget
 {

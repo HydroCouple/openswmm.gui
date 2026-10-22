@@ -1,17 +1,19 @@
-/*!
- * \file   openswmmvisservice.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Abstract base interface for all plug-in services registered with the
+/**
+ * @file      openswmmvisservice.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Abstract base interface for all plug-in services registered with the
  *         SWMMVis visualiser at runtime.
  *
- * \details Services are registered by name and version using a static service
+ * @details Services are registered by name and version using a static service
  *          registry. Callers retrieve a service by name, pass a request object,
  *          and receive a response object.  The interface is intentionally thin
  *          so that new services can be added without modifying the host
  *          application.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SWMMVISSERVICE_H
 #define SWMMVISSERVICE_H
 
@@ -31,7 +33,6 @@ class OpenSWMMVisServiceResponse;
 class OpenSWMMVisService
 {
 public:
-
     /*!
      * \brief Default constructor.
      */
@@ -67,11 +68,10 @@ public:
      *
      * \param[in]  request   Typed request object carrying the input parameters.
      * \param[out] response  Response object that will be populated by this call.
+     * @details Both references are caller-owned and must remain valid for the synchronous call. Implementations must document request-specific validation, response failure representation and any retained data; this abstract interface defines no universal status or ownership transfer.
      */
-    virtual void executeRequest(
-        const OpenSWMMVisServiceRequest &request,
-        OpenSWMMVisServiceResponse &response
-    ) = 0;
+    virtual void executeRequest(const OpenSWMMVisServiceRequest &request,
+                                OpenSWMMVisServiceResponse &response) = 0;
 };
 
 #endif // SWMMVISSERVICE_H

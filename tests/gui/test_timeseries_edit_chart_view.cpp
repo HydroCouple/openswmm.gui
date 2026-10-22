@@ -1,15 +1,17 @@
-/*!
- * \file   test_timeseries_edit_chart_view.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3.5 — smoke tests for the interactive chart view.
+/**
+ * @file      test_timeseries_edit_chart_view.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3.5 — smoke tests for the interactive chart view.
  *
  * Focus: MVC contract (provider edits propagate to the chart series), selection
  * state management, edit-mode toggle, and external-mode read-only guard.
  * Mouse-event simulation (drag math) is deferred to a follow-up that ships
  * with the dialog integration.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesprovider.h"
 #include "ui/widgets/timeserieseditchartview.h"
 
@@ -27,7 +29,8 @@ using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::ui::TimeseriesEditChartView;
 
-namespace {
+namespace
+{
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
@@ -35,8 +38,8 @@ QDateTime t(int year, int month, int day, int hour, int minute = 0)
 QVector<TimeseriesPoint> fixture()
 {
     return {
-        {t(2026, 1, 1, 0),  1.0},
-        {t(2026, 1, 1, 6),  2.0},
+        {t(2026, 1, 1, 0), 1.0},
+        {t(2026, 1, 1, 6), 2.0},
         {t(2026, 1, 1, 12), 3.0},
     };
 }
@@ -46,7 +49,8 @@ QList<QPointF> linePoints(const TimeseriesEditChartView &v)
     // The first attached QLineSeries is our data line.
     const auto list = v.chart()->series();
     for (auto *s : list) {
-        if (auto *line = qobject_cast<QLineSeries *>(s)) return line->points();
+        if (auto *line = qobject_cast<QLineSeries *>(s))
+            return line->points();
     }
     return {};
 }
@@ -67,7 +71,7 @@ private slots:
         const auto pts = linePoints(v);
         QCOMPARE(pts.size(), 3);
         QCOMPARE(pts.first().y(), 1.0);
-        QCOMPARE(pts.last().y(),  3.0);
+        QCOMPARE(pts.last().y(), 3.0);
     }
 
     void providerValueChange_RefreshesChart()
@@ -114,7 +118,7 @@ private slots:
         TimeseriesEditChartView v(&p);
 
         QSignalSpy spy(&v, &TimeseriesEditChartView::selectionChanged);
-        v.setSelection({2, 0, 0});   // unsorted + dup
+        v.setSelection({2, 0, 0}); // unsorted + dup
         QCOMPARE(v.selectedIndices(), (QVector<int>{0, 2}));
         QCOMPARE(spy.count(), 1);
 
@@ -130,7 +134,7 @@ private slots:
         QSignalSpy spy(&v, &TimeseriesEditChartView::editModeChanged);
         v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints);
         QCOMPARE(spy.count(), 1);
-        v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints);   // no-op
+        v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints); // no-op
         QCOMPARE(spy.count(), 1);
     }
 
@@ -145,7 +149,7 @@ private slots:
         // We can't easily simulate the QMenu exec without a real event loop;
         // verify that the undo-stack path is reachable by pushing the same
         // commands the menu would push.
-        p.insertPoint(t(2026, 1, 1, 3), 1.5);  // direct (no stack)
+        p.insertPoint(t(2026, 1, 1, 3), 1.5); // direct (no stack)
         QCOMPARE(linePoints(v).size(), 4);
     }
 
@@ -176,10 +180,8 @@ private slots:
         // Simulate a left-button press where point 0 should be — even if the
         // press lands on a point, the chart must refuse to start a drag in
         // external mode. Press at the chart center as a representative pixel.
-        QTest::mousePress(v.viewport(), Qt::LeftButton, Qt::NoModifier,
-                          QPoint(200, 150));
-        QTest::mouseRelease(v.viewport(), Qt::LeftButton, Qt::NoModifier,
-                            QPoint(200, 150));
+        QTest::mousePress(v.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+        QTest::mouseRelease(v.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
         // Provider unchanged.
         QCOMPARE(p.pointAt(0).value, 1.0);
         QCOMPARE(p.pointAt(1).value, 2.0);

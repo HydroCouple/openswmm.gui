@@ -1,9 +1,9 @@
-/*!
- * \file   test_offsetmode_roundtrip.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Open → Save must preserve what the user authored: the LINK_OFFSETS
+/**
+ * @file      test_offsetmode_roundtrip.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Open → Save must preserve what the user authored: the LINK_OFFSETS
  *         convention of every offset/crest and the From/To orientation of
  *         adverse-slope conduits.
  *
@@ -20,7 +20,9 @@
  *                 losses 0.1/0.2; C_OK J2→J3 12.5/11.0;
  *           OR1 offset 11.5, W1 crest 12.0, L1 offset 11.25 (all from J3=11).
  *         Output is written next to the fixture (reviewable, CLAUDE.md §4.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "ui/linkoffsetdisplay.h"
 #include "ui/panels/swmmattributetablemodel.h"
@@ -39,42 +41,80 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select SWMMVIS_GUI_TEST_DATA or current-directory dot for offset round-trip fixtures.
+ * @return Owned unvalidated directory, used for both readable input and writable output.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Load a named offset fixture/output INP into a caller-owned layer.
+ * @param file Borrowed filename joined through QDir::filePath under dataDir.
+ * @return Unique loaded layer/engine or nullptr after failed-load cleanup. Requires
+ * GUI-thread use; warnings/errors are discarded and no file is saved by this helper.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &file)
 {
     auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(file), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
 //! Whitespace-split row of `section` whose first token is `id`.
+/**
+ *
+ * @brief Read the first matching fixture INP row within a named section.
+ * @param path Borrowed readable UTF-8 text file path; the entire file is loaded.
+ * @param section Borrowed exact case-sensitive section token without brackets.
+ * Section headers are recognized by a bracketed-token prefix after trimming.
+ * @param id Borrowed exact case-sensitive first row token.
+ * @return Owned fields split only on ASCII space with empty parts skipped, or empty
+ * on open/match failure. Tabs, quoted fields and inline comments are not parsed;
+ * whole comment/blank rows are ignored. No input changes or retained references.
+ *
+ */
 QStringList row(const QString &path, const QString &section, const QString &id)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     bool inside = false;
-    for (const QString &raw : QString::fromUtf8(f.readAll()).split('\n'))
-    {
+    for (const QString &raw : QString::fromUtf8(f.readAll()).split('\n')) {
         const QString line = raw.trimmed();
-        if (line.startsWith('['))
-        {
+        if (line.startsWith('[')) {
             inside = line.startsWith(QStringLiteral("[%1]").arg(section));
             continue;
         }
-        if (!inside || line.isEmpty() || line.startsWith(';')) continue;
+        if (!inside || line.isEmpty() || line.startsWith(';'))
+            continue;
         const QStringList c = line.split(' ', Qt::SkipEmptyParts);
-        if (!c.isEmpty() && c.first() == id) return c;
+        if (!c.isEmpty() && c.first() == id)
+            return c;
     }
     return {};
 }
 
+/**
+ *
+ * @brief Copy a node ID for authored-orientation comparison.
+ * @param e Borrowed valid engine containing the fixture.
+ * @param idx Zero-based node index; negative means absent. Positive invalid indices
+ * are delegated to swmm_node_id and Qt null-string conversion.
+ * @return Owned UTF-8 identifier or empty when absent; no node or engine mutation.
+ *
+ */
 QString nodeName(SWMM_Engine e, int idx)
 {
     return idx >= 0 ? QString::fromUtf8(swmm_node_id(e, idx)) : QString();
@@ -102,15 +142,15 @@ private slots:
         swmm_link_get_from_node(e, idx, &from);
         swmm_link_get_to_node(e, idx, &to);
         QCOMPARE(nodeName(e, from), QStringLiteral("J1"));
-        QCOMPARE(nodeName(e, to),   QStringLiteral("J2"));
+        QCOMPARE(nodeName(e, to), QStringLiteral("J2"));
         QCOMPARE(layer->linkFromNodeIdx(idx), from);
-        QCOMPARE(layer->linkToNodeIdx(idx),   to);
+        QCOMPARE(layer->linkToNodeIdx(idx), to);
 
         double up = 0, dn = 0;
         swmm_link_get_offset_up(e, idx, &up);
         swmm_link_get_offset_dn(e, idx, &dn);
-        QCOMPARE(up, 0.5);    // 10.5 − 10
-        QCOMPARE(dn, 0.25);   // 12.25 − 12
+        QCOMPARE(up, 0.5);  // 10.5 − 10
+        QCOMPARE(dn, 0.25); // 12.25 − 12
         // InitFlow (q0) has no C-API getter — swmm_link_get_initial_flow reads
         // the live flow state, which is 0 before a run. Its restored sign is
         // asserted through the file in saveWithoutEditsPreservesAuthoredForm.
@@ -169,8 +209,8 @@ private slots:
         QCOMPARE(ok.at(6).toDouble(), 11.0);
 
         QCOMPARE(row(out, "ORIFICES", "OR1").at(4).toDouble(), 11.5);
-        QCOMPARE(row(out, "WEIRS",    "W1").at(4).toDouble(),  12.0);
-        QCOMPARE(row(out, "OUTLETS",  "L1").at(3).toDouble(),  11.25);
+        QCOMPARE(row(out, "WEIRS", "W1").at(4).toDouble(), 12.0);
+        QCOMPARE(row(out, "OUTLETS", "L1").at(3).toDouble(), 11.25);
 
         const QStringList loss = row(out, "LOSSES", "C_ADV");
         QCOMPARE(loss.at(1).toDouble(), 0.1);
@@ -201,7 +241,8 @@ private slots:
         linkoffsetdisplay::getOffsetUp(e, ok, &up);
         QCOMPARE(up, 0.5);
 
-        const QString out = QDir(dataDir()).filePath(QStringLiteral("offset_authored_depth_out.inp"));
+        const QString out =
+            QDir(dataDir()).filePath(QStringLiteral("offset_authored_depth_out.inp"));
         QCOMPARE(swmm_model_write(e, out.toUtf8().constData()), 0);
         QCOMPARE(row(out, "OPTIONS", "LINK_OFFSETS").value(1), QStringLiteral("DEPTH"));
         QCOMPARE(row(out, "CONDUITS", "C_OK").at(5).toDouble(), 0.5);
@@ -267,8 +308,8 @@ private slots:
                     .startsWith(QStringLiteral("Inlet Offset")));
         QVERIFY(conduit.displayLabelFor(QStringLiteral("offsetDn"))
                     .startsWith(QStringLiteral("Outlet Offset")));
-        QVERIFY(orifice.displayLabelFor(QStringLiteral("offset"))
-                    .startsWith(QStringLiteral("Offset")));
+        QVERIFY(
+            orifice.displayLabelFor(QStringLiteral("offset")).startsWith(QStringLiteral("Offset")));
         // Headers resolve at render time, so no schema rebuild is needed.
         QVERIFY(headerFor(QStringLiteral("link_offset_up"))
                     .startsWith(QStringLiteral("Upstream Offset")));

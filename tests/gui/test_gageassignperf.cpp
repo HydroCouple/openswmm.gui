@@ -1,6 +1,6 @@
-/*!
- * \file   test_gageassignperf.cpp
- * \brief  Performance harness for Model → Tools → Assign Rain Gages
+/**
+ * @file      test_gageassignperf.cpp
+ * @brief     Performance harness for Model → Tools → Assign Rain Gages
  *         (workplans/RAINGAGE_ASSIGNMENT_PERF_AND_RDII_PLAN_2026-10-02.md).
  *
  * Builds a synthetic model — S octagonal subcatchments on a jittered grid,
@@ -14,6 +14,10 @@
  *
  * The default cases are small enough for CI. Set SWMMVIS_GAGE_PERF_SCALE=full
  * for the 10k-subcatchment cases the plan's targets refer to.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
@@ -37,12 +41,20 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select and attempt to create the performance artifact directory.
+ * @return SWMMVIS_GAGE_PERF_OUT or relative gageassign_perf; directory creation
+ * failure is ignored here and later file opens report failure.
+ *
+ */
 QString outDir()
 {
-    const QString d = qEnvironmentVariable("SWMMVIS_GAGE_PERF_OUT",
-                                           QStringLiteral("gageassign_perf"));
+    const QString d =
+        qEnvironmentVariable("SWMMVIS_GAGE_PERF_OUT", QStringLiteral("gageassign_perf"));
     QDir().mkpath(d);
     return d;
 }
@@ -50,19 +62,43 @@ QString outDir()
 /*! Deterministic LCG in [0,1) — the deck must be identical run to run. */
 struct Lcg {
     quint64 s;
-    double next() { s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-                    return double(s >> 11) / double(1ULL << 53); }
+    /**
+     *
+     * @brief Advance the deterministic fixture LCG once.
+     * @return Double in [0,1) from the updated unsigned 64-bit state; wrap is defined.
+     * Mutates s without synchronization; requires serialized fixture use.
+     *
+     */
+    double next()
+    {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        return double(s >> 11) / double(1ULL << 53);
+    }
 };
 
 /*! Write the synthetic deck; returns its path. */
+/**
+ *
+ * @brief Create or reuse a deterministic synthetic rainfall-assignment INP deck.
+ * @param nSub Positive subcatchment count, each an octagonal five-acre object.
+ * @param nGage Positive gage/series count; all catchments initially use G0.
+ * @param nPts Positive 15-minute intensity entry count per gage; k*15 must fit int.
+ * @return Existing file path without content validation, new path after attempted
+ * stream writes, or empty if open fails. Writes under outDir using CFS/inch project
+ * units and local-time QDateTime formatting; does not check stream/close errors.
+ * Counts must fit memory/loop arithmetic; no local range validation.
+ *
+ */
 QString writeDeck(int nSub, int nGage, int nPts)
 {
     const QString path = QDir(outDir()).filePath(
         QStringLiteral("synthetic_S%1_G%2_P%3.inp").arg(nSub).arg(nGage).arg(nPts));
-    if (QFile::exists(path)) return path;
+    if (QFile::exists(path))
+        return path;
 
     QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+        return {};
     QTextStream o(&f);
     const int cols = int(std::ceil(std::sqrt(double(nSub))));
     const double cell = 100.0, extent = cols * cell;
@@ -89,10 +125,10 @@ QString writeDeck(int nSub, int nGage, int nPts)
     for (int g = 0; g < nGage; ++g)
         for (int k = 0; k < nPts; ++k) {
             const int mins = k * 15;
-            const QDateTime t = QDateTime(QDate(2020, 1, 1), QTime(0, 0))
-                                    .addSecs(qint64(mins) * 60);
-            o << "TS_G" << g << " " << t.toString(QStringLiteral("MM/dd/yyyy HH:mm"))
-              << " " << QString::number(rng.next() * 2.0, 'f', 3) << "\n";
+            const QDateTime t =
+                QDateTime(QDate(2020, 1, 1), QTime(0, 0)).addSecs(qint64(mins) * 60);
+            o << "TS_G" << g << " " << t.toString(QStringLiteral("MM/dd/yyyy HH:mm")) << " "
+              << QString::number(rng.next() * 2.0, 'f', 3) << "\n";
         }
 
     o << "\n[COORDINATES]\nOUT1 " << -cell << " " << -cell << "\n\n[POLYGONS]\n";
@@ -102,8 +138,8 @@ QString writeDeck(int nSub, int nGage, int nPts)
         for (int v = 0; v < 8; ++v) {
             const double a = v * M_PI / 4.0;
             const double r = cell * (0.40 + 0.08 * rng.next());
-            o << "S" << s << " " << QString::number(cx + r * std::cos(a), 'f', 3)
-              << " " << QString::number(cy + r * std::sin(a), 'f', 3) << "\n";
+            o << "S" << s << " " << QString::number(cx + r * std::cos(a), 'f', 3) << " "
+              << QString::number(cy + r * std::sin(a), 'f', 3) << "\n";
         }
     }
     o << "\n[SYMBOLS]\n";
@@ -113,14 +149,31 @@ QString writeDeck(int nSub, int nGage, int nPts)
     return path;
 }
 
-template <class T>
-T *findByText(QWidget *root, const QString &text)
+/**
+ *
+ * @brief Find a descendant fixture widget by exact mnemonic-stripped text.
+ * @tparam T QWidget-derived QObject type with text().
+ * @param root Nonnull borrowed root searched recursively on the GUI thread.
+ * @param text Exact label after removing every ampersand.
+ * @return First borrowed matching descendant or nullptr; no ownership transfer.
+ *
+ */
+template <class T> T *findByText(QWidget *root, const QString &text)
 {
     for (T *w : root->findChildren<T *>())
-        if (w->text().remove(QLatin1Char('&')) == text) return w;
+        if (w->text().remove(QLatin1Char('&')) == text)
+            return w;
     return nullptr;
 }
 
+/**
+ *
+ * @brief Time one synchronous callable including any waits/queued-event draining it performs.
+ * @param fn Borrowed nonempty callable invoked exactly once on the current thread.
+ * @return Monotonic elapsed milliseconds from nanosecond timer resolution. Exceptions
+ * propagate without a returned sample; this performs no repetition/statistics.
+ *
+ */
 double timeMs(const std::function<void()> &fn)
 {
     QElapsedTimer t;
@@ -130,6 +183,13 @@ double timeMs(const std::function<void()> &fn)
 }
 
 /*! Let queued refreshes (dataObjectsChanged → AttributeTablePanel) land. */
+/**
+ *
+ * @brief Process queued GUI events in five bounded 50-ms passes.
+ * Allows attribute-table refresh work/reentrancy; this is not proof every future
+ * worker event has completed. Requires a running QCoreApplication on its GUI thread.
+ *
+ */
 void drain()
 {
     for (int i = 0; i < 5; ++i)
@@ -142,7 +202,25 @@ class TestGageAssignPerf : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Register nSub/nGage/nPts/interp performance rows: two 500-catchment defaults and
+     * four larger rows when SWMMVIS_GAGE_PERF_SCALE=full.
+     *
+     */
     void run_data();
+    /**
+     *
+     * @brief Measure real-dialog Preview/Apply and undo/redo with an attribute table listener.
+     * Consumes integer nSub/nGage/nPts and bool interp. Creates/reuses a synthetic deck
+     * and appends gageassign_perf.csv under outDir(), labeled by SWMMVIS_GAGE_PERF_LABEL
+     * (default run). Worker settling spins the event dispatcher with no timeout, so a
+     * stuck worker can hang this harness. Checks successful load/widgets/undo readiness;
+     * timings are reported without performance thresholds or final-state equality gates.
+     * Requires GUI rendering, writable output and the configured engine dependencies;
+     * CSV stream failures after open are unchecked.
+     *
+     */
     void run();
 };
 
@@ -152,13 +230,13 @@ void TestGageAssignPerf::run_data()
     QTest::addColumn<int>("nGage");
     QTest::addColumn<int>("nPts");
     QTest::addColumn<bool>("interp");
-    QTest::newRow("thiessen-S500-G10")  << 500 << 10 << 96  << false;
-    QTest::newRow("nn-S500-G10")        << 500 << 10 << 96  << true;
+    QTest::newRow("thiessen-S500-G10") << 500 << 10 << 96 << false;
+    QTest::newRow("nn-S500-G10") << 500 << 10 << 96 << true;
     if (qEnvironmentVariable("SWMMVIS_GAGE_PERF_SCALE") == QStringLiteral("full")) {
-        QTest::newRow("thiessen-S10000-G25")  << 10000 << 25  << 96  << false;
-        QTest::newRow("thiessen-S10000-G100") << 10000 << 100 << 96  << false;
-        QTest::newRow("nn-S2000-G25")         << 2000  << 25  << 2000 << true;
-        QTest::newRow("nn-S10000-G25")        << 10000 << 25  << 2000 << true;
+        QTest::newRow("thiessen-S10000-G25") << 10000 << 25 << 96 << false;
+        QTest::newRow("thiessen-S10000-G100") << 10000 << 100 << 96 << false;
+        QTest::newRow("nn-S2000-G25") << 2000 << 25 << 2000 << true;
+        QTest::newRow("nn-S10000-G25") << 10000 << 25 << 2000 << true;
     }
 }
 
@@ -184,28 +262,44 @@ void TestGageAssignPerf::run()
 
     openswmmvis::ui::AssignRainGagesDialog dlg(layer, &canvas, &sel);
     if (interp) {
-        auto *nn = findByText<QRadioButton>(&dlg,
-            QStringLiteral("Natural-neighbour interpolation (creates gages)"));
+        auto *nn = findByText<QRadioButton>(
+            &dlg, QStringLiteral("Natural-neighbour interpolation (creates gages)"));
         QVERIFY(nn);
         nn->setChecked(true);
     }
     QPushButton *preview = findByText<QPushButton>(&dlg, QStringLiteral("Preview"));
-    QPushButton *apply   = findByText<QPushButton>(&dlg, QStringLiteral("Apply"));
+    QPushButton *apply = findByText<QPushButton>(&dlg, QStringLiteral("Apply"));
     QVERIFY(preview && apply);
 
     // The plan is computed on a worker; wait for the dialog to settle.
-    const auto settle = [&] { while (dlg.busy()) QCoreApplication::processEvents(
-                                  QEventLoop::AllEvents, 5); };
-    const double previewMs = timeMs([&] { preview->click(); settle(); });
-    const double applyMs   = timeMs([&] { apply->click(); settle(); drain(); });
+    const auto settle = [&] {
+        while (dlg.busy())
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    };
+    const double previewMs = timeMs([&] {
+        preview->click();
+        settle();
+    });
+    const double applyMs = timeMs([&] {
+        apply->click();
+        settle();
+        drain();
+    });
     MapUndoStack *stack = canvas.undoStack();
     QVERIFY(stack && stack->canUndo());
-    const double undoMs = timeMs([&] { stack->undo(); drain(); });
-    const double redoMs = timeMs([&] { stack->redo(); drain(); });
+    const double undoMs = timeMs([&] {
+        stack->undo();
+        drain();
+    });
+    const double redoMs = timeMs([&] {
+        stack->redo();
+        drain();
+    });
 
     QString status;
     for (QLabel *l : dlg.findChildren<QLabel *>())
-        if (l->text().contains(QStringLiteral("subcatchment"))) status = l->text();
+        if (l->text().contains(QStringLiteral("subcatchment")))
+            status = l->text();
 
     const QString csv = QDir(outDir()).filePath(QStringLiteral("gageassign_perf.csv"));
     QFile f(csv);
@@ -216,11 +310,10 @@ void TestGageAssignPerf::run()
         o << "timestamp,label,case,S,G,P,preview_ms,apply_ms,undo_ms,redo_ms\n";
     o << QDateTime::currentDateTime().toString(Qt::ISODate) << ","
       << qEnvironmentVariable("SWMMVIS_GAGE_PERF_LABEL", QStringLiteral("run")) << ","
-      << QTest::currentDataTag() << "," << nSub << "," << nGage << "," << nPts << ","
-      << previewMs << "," << applyMs << "," << undoMs << "," << redoMs << "\n";
-    qInfo().noquote() << QTest::currentDataTag() << "preview" << previewMs << "ms, apply"
-                      << applyMs << "ms, undo" << undoMs << "ms, redo" << redoMs
-                      << "ms |" << status.left(160);
+      << QTest::currentDataTag() << "," << nSub << "," << nGage << "," << nPts << "," << previewMs
+      << "," << applyMs << "," << undoMs << "," << redoMs << "\n";
+    qInfo().noquote() << QTest::currentDataTag() << "preview" << previewMs << "ms, apply" << applyMs
+                      << "ms, undo" << undoMs << "ms, redo" << redoMs << "ms |" << status.left(160);
 }
 
 QTEST_MAIN(TestGageAssignPerf)

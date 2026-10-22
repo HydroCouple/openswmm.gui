@@ -1,9 +1,9 @@
 #ifndef OBJECTDEFAULTSPAGE_H
 #define OBJECTDEFAULTSPAGE_H
 
-/*!
- * \file  objectdefaultspage.h
- * \brief Preferences page editing PreferencesManager::ObjectDefaults — the
+/**
+ * @file      objectdefaultspage.h
+ * @brief     Preferences page editing PreferencesManager::ObjectDefaults — the
  *        per-object-type property defaults applied to newly created objects.
  *
  *        Self-contained: PreferencesDialog only calls loadFrom / applyTo /
@@ -13,6 +13,10 @@
  *        show, and applyTo() writes both.
  *
  *        Plan: workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QWidget>
@@ -49,8 +53,8 @@ private:
     void commitWidgets(OD &d) const;
     void onUnitSystemSwitched(int comboIndex);
 
-    OD   m_us;
-    OD   m_si;
+    OD m_us;
+    OD m_si;
     bool m_showingSi = false;
 
     QComboBox *m_unitSystemCombo = nullptr;
@@ -60,45 +64,45 @@ private:
     QDoubleSpinBox *m_junctionInitDepth = nullptr;
     QDoubleSpinBox *m_junctionSurDepth = nullptr;
     QDoubleSpinBox *m_junctionPondedArea = nullptr;
-    QComboBox      *m_outfallType = nullptr;
-    QCheckBox      *m_outfallFlapGate = nullptr;
+    QComboBox *m_outfallType = nullptr;
+    QCheckBox *m_outfallFlapGate = nullptr;
     QDoubleSpinBox *m_storageMaxDepth = nullptr;
     QDoubleSpinBox *m_storageFuncCoeff = nullptr;
     QDoubleSpinBox *m_storageFuncExponent = nullptr;
     QDoubleSpinBox *m_storageFuncConstant = nullptr;
     QDoubleSpinBox *m_storageSeepRate = nullptr;
-    QComboBox      *m_dividerType = nullptr;
+    QComboBox *m_dividerType = nullptr;
 
     // Links
-    QComboBox      *m_conduitShape = nullptr;
+    QComboBox *m_conduitShape = nullptr;
     QDoubleSpinBox *m_conduitGeom1 = nullptr;
     QDoubleSpinBox *m_conduitGeom2 = nullptr;
     QDoubleSpinBox *m_conduitGeom3 = nullptr;
     QDoubleSpinBox *m_conduitGeom4 = nullptr;
     QDoubleSpinBox *m_conduitRoughness = nullptr;
     QDoubleSpinBox *m_conduitLength = nullptr;
-    QSpinBox       *m_conduitBarrels = nullptr;
+    QSpinBox *m_conduitBarrels = nullptr;
     QDoubleSpinBox *m_conduitLossInlet = nullptr;
     QDoubleSpinBox *m_conduitLossOutlet = nullptr;
-    QCheckBox      *m_conduitFlapGate = nullptr;
-    QCheckBox      *m_pumpInitStateOn = nullptr;
+    QCheckBox *m_conduitFlapGate = nullptr;
+    QCheckBox *m_pumpInitStateOn = nullptr;
     QDoubleSpinBox *m_pumpStartupDepth = nullptr;
     QDoubleSpinBox *m_pumpShutoffDepth = nullptr;
-    QComboBox      *m_orificeType = nullptr;
+    QComboBox *m_orificeType = nullptr;
     QDoubleSpinBox *m_orificeGeom1 = nullptr;
     QDoubleSpinBox *m_orificeCd = nullptr;
-    QCheckBox      *m_orificeFlapGate = nullptr;
+    QCheckBox *m_orificeFlapGate = nullptr;
     QDoubleSpinBox *m_orificeOpenCloseRate = nullptr;
-    QComboBox      *m_weirType = nullptr;
+    QComboBox *m_weirType = nullptr;
     QDoubleSpinBox *m_weirGeom1 = nullptr;
     QDoubleSpinBox *m_weirGeom2 = nullptr;
     QDoubleSpinBox *m_weirCd = nullptr;
-    QSpinBox       *m_weirEndContractions = nullptr;
-    QCheckBox      *m_weirFlapGate = nullptr;
-    QComboBox      *m_outletRatingType = nullptr;
+    QSpinBox *m_weirEndContractions = nullptr;
+    QCheckBox *m_weirFlapGate = nullptr;
+    QComboBox *m_outletRatingType = nullptr;
     QDoubleSpinBox *m_outletCoeff = nullptr;
     QDoubleSpinBox *m_outletExponent = nullptr;
-    QCheckBox      *m_outletFlapGate = nullptr;
+    QCheckBox *m_outletFlapGate = nullptr;
 
     // Subcatchments
     QDoubleSpinBox *m_subcatchArea = nullptr;
@@ -121,8 +125,8 @@ private:
     QDoubleSpinBox *m_cnDryTime = nullptr;
 
     // Rain gages
-    QComboBox      *m_gageRainFormat = nullptr;
-    QSpinBox       *m_gageIntervalMin = nullptr;
+    QComboBox *m_gageRainFormat = nullptr;
+    QSpinBox *m_gageIntervalMin = nullptr;
     QDoubleSpinBox *m_gageSnowCatch = nullptr;
 };
 

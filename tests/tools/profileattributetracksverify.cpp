@@ -1,9 +1,9 @@
-/*!
- * \file   profileattributetracksverify.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Manual-verification harness for the attribute-tracks pane —
+/**
+ * @file      profileattributetracksverify.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Manual-verification harness for the attribute-tracks pane —
  *         executes the display-dependent checks in
  *         `workplans/PROFILE_ATTRIBUTE_TRACKS_VERIFICATION.md` §3 without a
  *         human at the screen.
@@ -19,9 +19,10 @@
  * pieces that live above the widgets (toolbar menu, splitter persistence,
  * export) are noted in the report as out of scope.
  *
- *   cmake --build <build> --target profile_attribute_tracks_verify
- *   <build>/tests/tools/profile_attribute_tracks_verify \
+ *   cmake --build &lt;build&gt; --target profile_attribute_tracks_verify
+ *   &lt;build&gt;/tests/tools/profile_attribute_tracks_verify \
  *       <model.inp> <results.out> <output-dir> [startNode]
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "plot/plotattribute.h"
@@ -62,37 +63,60 @@ using TW = ProfileAttributeTracksWidget;
 // Reporting
 // ---------------------------------------------------------------------------
 
-namespace {
-
-struct Report
+namespace
 {
-    struct Row { QString item; bool pass; QString detail; };
+
+struct Report {
+    struct Row {
+        QString item;
+        bool pass;
+        QString detail;
+    };
     QVector<Row> rows;
     int failures = 0;
 
+    /**
+     *
+     * @brief Append one verification result and print it immediately.
+     * @param item Borrowed checklist item label, copied.
+     * @param pass True for success; false increments failures.
+     * @param detail Borrowed observed-result text, copied verbatim.
+     * Mutates report rows/counter and stdout only. Does not throw an assertion, stop later
+     * checks, escape Markdown or validate that pass agrees with detail.
+     *
+     */
     void check(const QString &item, bool pass, const QString &detail)
     {
         rows.push_back({item, pass, detail});
-        if (!pass) ++failures;
-        QTextStream(stdout)
-            << (pass ? "PASS  " : "FAIL  ") << item << " — " << detail << "\n";
+        if (!pass)
+            ++failures;
+        QTextStream(stdout) << (pass ? "PASS  " : "FAIL  ") << item << " — " << detail << "\n";
     }
 
+    /**
+     *
+     * @brief Attempt to write the accumulated checklist as a Markdown report.
+     * @param path Borrowed writable test-owned filename; parent must already exist.
+     * @param preamble Borrowed context inserted verbatim before the result table.
+     * Truncates existing file; silently returns on open failure and ignores stream/close
+     * errors. Rows are not escaped for Markdown pipes/newlines. Does not change counters
+     * or make file-write success part of the harness exit status.
+     *
+     */
     void write(const QString &path, const QString &preamble) const
     {
         QFile f(path);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+            return;
         QTextStream s(&f);
-        s << "# Attribute Tracks — automated §3 verification\n\n" << preamble
-          << "\n| # | Check | Result | Observed |\n|---|---|---|---|\n";
+        s << "# Attribute Tracks — automated §3 verification\n\n"
+          << preamble << "\n| # | Check | Result | Observed |\n|---|---|---|---|\n";
         for (int i = 0; i < rows.size(); ++i)
             s << "| " << i + 1 << " | " << rows[i].item << " | "
-              << (rows[i].pass ? "**PASS**" : "**FAIL**") << " | "
-              << rows[i].detail << " |\n";
-        s << "\n" << (failures == 0
-                          ? QStringLiteral("All checks passed.\n")
-                          : QStringLiteral("**%1 failing check(s).**\n")
-                                .arg(failures));
+              << (rows[i].pass ? "**PASS**" : "**FAIL**") << " | " << rows[i].detail << " |\n";
+        s << "\n"
+          << (failures == 0 ? QStringLiteral("All checks passed.\n")
+                            : QStringLiteral("**%1 failing check(s).**\n").arg(failures));
     }
 };
 
@@ -100,37 +124,65 @@ struct Report
 // Minimal .inp reader — only what a profile path needs
 // ---------------------------------------------------------------------------
 
-struct InpNode { double invert = 0.0; double maxDepth = 0.0;
-                 ProfileBuilder::NodeKind kind = ProfileBuilder::NodeKind::Junction; };
-struct InpLink { QString name, from, to; double length = 0.0; double geom1 = 0.0;
-                 ProfileBuilder::LinkKind kind = ProfileBuilder::LinkKind::Conduit; };
-
-struct InpModel
-{
-    QHash<QString, InpNode> nodes;
-    QVector<InpLink>        links;
+struct InpNode {
+    double invert = 0.0;
+    double maxDepth = 0.0;
+    ProfileBuilder::NodeKind kind = ProfileBuilder::NodeKind::Junction;
+};
+struct InpLink {
+    QString name, from, to;
+    double length = 0.0;
+    double geom1 = 0.0;
+    ProfileBuilder::LinkKind kind = ProfileBuilder::LinkKind::Conduit;
 };
 
+struct InpModel {
+    QHash<QString, InpNode> nodes;
+    QVector<InpLink> links;
+};
+
+/**
+ *
+ * @brief Split one pretrimmed fixture input row at runs of whitespace.
+ * @param line Borrowed text; no quote or inline-comment grammar is handled here.
+ * @return Owned nonempty tokens in input order using a cached regular expression.
+ * Does not mutate input, validate numeric fields or read files.
+ *
+ */
 QStringList fields(const QString &line)
 {
     static const QRegularExpression ws(QStringLiteral("\\s+"));
     return line.split(ws, Qt::SkipEmptyParts);
 }
 
+/**
+ *
+ * @brief Read only the input statics needed by this standalone profile harness.
+ * @param path Borrowed .inp filename, opened read-only in Qt text mode.
+ * @return Owned node dictionary/ordered links and primary section dimensions, or
+ * empty model on open failure. Reads node families, conduits/devices and XSECTIONS;
+ * strips semicolon tails, uppercases headers and uses unchecked toDouble conversion
+ * (default zero on malformed numbers). Preserves project length units, ignores offsets,
+ * most options and full SWMM validation. A local reader, not the engine parser.
+ *
+ */
 InpModel readInp(const QString &path)
 {
     InpModel m;
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return m;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return m;
     QTextStream in(&f);
     QString section;
-    QHash<QString, double> geom1;      // link name → primary dimension
+    QHash<QString, double> geom1; // link name → primary dimension
     while (!in.atEnd()) {
         QString line = in.readLine();
         const int semi = line.indexOf(QLatin1Char(';'));
-        if (semi >= 0) line.truncate(semi);
+        if (semi >= 0)
+            line.truncate(semi);
         line = line.trimmed();
-        if (line.isEmpty()) continue;
+        if (line.isEmpty())
+            continue;
         if (line.startsWith(QLatin1Char('['))) {
             section = line.toUpper();
             continue;
@@ -140,39 +192,45 @@ InpModel readInp(const QString &path)
             m.nodes[f2[0]] = {f2[1].toDouble(), f2[2].toDouble(),
                               ProfileBuilder::NodeKind::Junction};
         } else if (section == QLatin1String("[OUTFALLS]") && f2.size() >= 2) {
-            m.nodes[f2[0]] = {f2[1].toDouble(), 0.0,
-                              ProfileBuilder::NodeKind::Outfall};
+            m.nodes[f2[0]] = {f2[1].toDouble(), 0.0, ProfileBuilder::NodeKind::Outfall};
         } else if (section == QLatin1String("[STORAGE]") && f2.size() >= 3) {
             m.nodes[f2[0]] = {f2[1].toDouble(), f2[2].toDouble(),
                               ProfileBuilder::NodeKind::Storage};
         } else if (section == QLatin1String("[DIVIDERS]") && f2.size() >= 2) {
-            m.nodes[f2[0]] = {f2[1].toDouble(), 0.0,
-                              ProfileBuilder::NodeKind::Divider};
+            m.nodes[f2[0]] = {f2[1].toDouble(), 0.0, ProfileBuilder::NodeKind::Divider};
         } else if (section == QLatin1String("[CONDUITS]") && f2.size() >= 4) {
-            m.links.push_back({f2[0], f2[1], f2[2], f2[3].toDouble(), 0.0,
-                               ProfileBuilder::LinkKind::Conduit});
+            m.links.push_back(
+                {f2[0], f2[1], f2[2], f2[3].toDouble(), 0.0, ProfileBuilder::LinkKind::Conduit});
         } else if (section == QLatin1String("[PUMPS]") && f2.size() >= 3) {
-            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0,
-                               ProfileBuilder::LinkKind::Pump});
+            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0, ProfileBuilder::LinkKind::Pump});
         } else if (section == QLatin1String("[ORIFICES]") && f2.size() >= 3) {
-            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0,
-                               ProfileBuilder::LinkKind::Orifice});
+            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0, ProfileBuilder::LinkKind::Orifice});
         } else if (section == QLatin1String("[WEIRS]") && f2.size() >= 3) {
-            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0,
-                               ProfileBuilder::LinkKind::Weir});
+            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0, ProfileBuilder::LinkKind::Weir});
         } else if (section == QLatin1String("[OUTLETS]") && f2.size() >= 3) {
-            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0,
-                               ProfileBuilder::LinkKind::Outlet});
+            m.links.push_back({f2[0], f2[1], f2[2], 0.0, 0.0, ProfileBuilder::LinkKind::Outlet});
         } else if (section == QLatin1String("[XSECTIONS]") && f2.size() >= 3) {
             geom1[f2[0]] = f2[2].toDouble();
         }
     }
-    for (InpLink &l : m.links) l.geom1 = geom1.value(l.name, 0.0);
+    for (InpLink &l : m.links)
+        l.geom1 = geom1.value(l.name, 0.0);
     return m;
 }
 
-/*! Walks the longest downstream chain, preferring \p start when given.
- *  Mirrors what a user gets by picking two ends in the map view. */
+/**
+ *
+ * @brief Build a greedy downstream fixture path, choosing a head when unspecified.
+ * @param m Borrowed model with node IDs and ordered directed links.
+ * @param start Borrowed explicit source ID, or empty to try nodes with no incoming edge.
+ * @return Owned node/link statics and computed chainage in model length units; empty
+ * when no chain found. Each walk picks the first unvisited downstream link in input
+ * order; automatic mode selects the most links among these greedy walks, with hash
+ * iteration deciding ties. This is not an exhaustive longest-path algorithm or map
+ * selection. Missing node definitions use defaults, cycles stop at seen nodes and
+ * offsets remain defaults. No engine lookup or input mutation.
+ *
+ */
 ProfileBuilder::PathStatic buildPath(const InpModel &m, const QString &start)
 {
     QHash<QString, QVector<int>> outgoing;
@@ -189,8 +247,12 @@ ProfileBuilder::PathStatic buildPath(const InpModel &m, const QString &start)
         while (outgoing.contains(cur)) {
             int pick = -1;
             for (int idx : outgoing.value(cur))
-                if (!seen.contains(m.links[idx].to)) { pick = idx; break; }
-            if (pick < 0) break;
+                if (!seen.contains(m.links[idx].to)) {
+                    pick = idx;
+                    break;
+                }
+            if (pick < 0)
+                break;
             chain.push_back(pick);
             cur = m.links[pick].to;
             seen.insert(cur);
@@ -203,32 +265,35 @@ ProfileBuilder::PathStatic buildPath(const InpModel &m, const QString &start)
         best = walk(start);
     } else {
         for (auto it = m.nodes.cbegin(); it != m.nodes.cend(); ++it) {
-            if (hasIncoming.contains(it.key())) continue;
+            if (hasIncoming.contains(it.key()))
+                continue;
             const QVector<int> c = walk(it.key());
-            if (c.size() > best.size()) best = c;
+            if (c.size() > best.size())
+                best = c;
         }
     }
 
     ProfileBuilder::PathStatic path;
-    if (best.isEmpty()) return path;
+    if (best.isEmpty())
+        return path;
 
     const auto pushNode = [&](const QString &name) {
         const InpNode n = m.nodes.value(name);
         ProfileBuilder::NodeStatic ns;
-        ns.name       = name;
+        ns.name = name;
         ns.invertElev = n.invert;
-        ns.maxDepth   = n.maxDepth;
-        ns.kind       = n.kind;
+        ns.maxDepth = n.maxDepth;
+        ns.kind = n.kind;
         path.nodes.push_back(ns);
     };
     pushNode(m.links[best.front()].from);
     for (int idx : best) {
         const InpLink &l = m.links[idx];
         ProfileBuilder::LinkStatic ls;
-        ls.name     = l.name;
-        ls.length   = l.length;
+        ls.name = l.name;
+        ls.length = l.length;
         ls.maxDepth = l.geom1;
-        ls.kind     = l.kind;
+        ls.kind = l.kind;
         path.links.push_back(ls);
         pushNode(l.to);
     }
@@ -247,18 +312,28 @@ ProfileBuilder::PathStatic buildPath(const InpModel &m, const QString &start)
 
 using Profile = ProfileAttributeSampler::AttributeProfile;
 
-struct OutFile
-{
+struct OutFile {
     SWMM_Output handle = nullptr;
     int periods = 0;
     int flowUnits = 0;
     QHash<QString, int> nodeIdx, linkIdx;
 
+    /**
+     *
+     * @brief Open one native output and cache its node/link ID indices.
+     * @param path Borrowed existing native .out filename, UTF-8 encoded for the API.
+     * @return False for failed open, otherwise true after recording periods/flow units
+     * and ID maps. Requires a fresh unused OutFile: reopening overwrites the handle
+     * without closing it and does not clear old IDs. Maps own copied IDs; handle remains
+     * owned until destruction. Metadata validity/positive period count is not asserted.
+     *
+     */
     bool open(const QString &path)
     {
         handle = swmm_output_open(path.toUtf8().constData());
-        if (!handle) return false;
-        periods   = swmm_output_get_period_count(handle);
+        if (!handle)
+            return false;
+        periods = swmm_output_get_period_count(handle);
         flowUnits = swmm_output_get_flow_units(handle);
         for (int i = 0, n = swmm_output_get_node_count(handle); i < n; ++i)
             if (const char *id = swmm_output_get_node_id(handle, i))
@@ -268,21 +343,45 @@ struct OutFile
                 linkIdx[QString::fromUtf8(id)] = i;
         return true;
     }
-    ~OutFile() { if (handle) swmm_output_close(handle); }
+    /**
+     *
+     * @brief Close this harness's owned native output handle when nonnull.
+     * No ownership transfer or artifact removal. This type must not be copied while open,
+     * since its default copy would alias the handle and double-close it.
+     *
+     */
+    ~OutFile()
+    {
+        if (handle)
+            swmm_output_close(handle);
+    }
 };
 
-Profile sample(OutFile &out, const ProfileBuilder::PathStatic &path,
-               PlotAttribute attr)
+/**
+ *
+ * @brief Fetch a trackable variable over a fixture path using native output APIs.
+ * @param out Borrowed opened output with cached IDs, count and matching model units.
+ * @param path Borrowed ordered statics; its names determine node/link output lookup.
+ * @param attr Attribute to sample; unsupported/nontrackable values return an empty
+ * profile with only identity/type fields set.
+ * @return Owned float rows in path order and native reporting units, plus finite-only
+ * min/max envelopes. Missing IDs/unsupported codes/failed reads yield empty rows and
+ * NaN extrema; zero periods also yields empty rows. Uses inclusive API range 0..N-1.
+ * No flow-unit conversion, live results-layer access or mutation of out/path.
+ *
+ */
+Profile sample(OutFile &out, const ProfileBuilder::PathStatic &path, PlotAttribute attr)
 {
     Profile p;
-    p.attribute       = attr;
+    p.attribute = attr;
     p.isNodeAttribute = ProfileAttributeSampler::isNodeAttribute(attr);
-    if (!ProfileAttributeSampler::isTrackableAttribute(attr)) return p;
+    if (!ProfileAttributeSampler::isTrackableAttribute(attr))
+        return p;
     p.periodCount = out.periods;
 
     const bool node = p.isNodeAttribute;
-    const int  var  = SwmmOutRunLayer::variableCodeFor(
-        attr, node ? ObjectRef::Kind::Node : ObjectRef::Kind::Link);
+    const int var = SwmmOutRunLayer::variableCodeFor(attr, node ? ObjectRef::Kind::Node
+                                                                : ObjectRef::Kind::Link);
     const int count = node ? path.nodes.size() : path.links.size();
     p.byPath.resize(count);
     p.minByPath.resize(count);
@@ -290,24 +389,26 @@ Profile sample(OutFile &out, const ProfileBuilder::PathStatic &path,
 
     for (int i = 0; i < count; ++i) {
         const QString &name = node ? path.nodes[i].name : path.links[i].name;
-        const int idx = node ? out.nodeIdx.value(name, -1)
-                             : out.linkIdx.value(name, -1);
+        const int idx = node ? out.nodeIdx.value(name, -1) : out.linkIdx.value(name, -1);
         QVector<float> &row = p.byPath[i];
         if (out.handle && idx >= 0 && var >= 0 && out.periods > 0) {
             row.resize(out.periods);
-            const int rc = node
-                ? swmm_output_get_node_series(out.handle, idx, var, 0,
-                                              out.periods - 1, row.data())
-                : swmm_output_get_link_series(out.handle, idx, var, 0,
-                                              out.periods - 1, row.data());
-            if (rc != 0) row.clear();
+            const int rc = node ? swmm_output_get_node_series(out.handle, idx, var, 0,
+                                                              out.periods - 1, row.data())
+                                : swmm_output_get_link_series(out.handle, idx, var, 0,
+                                                              out.periods - 1, row.data());
+            if (rc != 0)
+                row.clear();
         }
         float mn = std::numeric_limits<float>::quiet_NaN();
         float mx = mn;
         for (float v : std::as_const(row)) {
-            if (!std::isfinite(v)) continue;
-            if (std::isnan(mn) || v < mn) mn = v;
-            if (std::isnan(mx) || v > mx) mx = v;
+            if (!std::isfinite(v))
+                continue;
+            if (std::isnan(mn) || v < mn)
+                mn = v;
+            if (std::isnan(mx) || v > mx)
+                mx = v;
         }
         p.minByPath[i] = mn;
         p.maxByPath[i] = mx;
@@ -319,34 +420,61 @@ Profile sample(OutFile &out, const ProfileBuilder::PathStatic &path,
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
-/*! The profile widget's own x mapping, expressed through its public API.
- *  ProfilePlotWidget::dataToPixel() is private, but every term it uses for x
- *  is public: plotRect().left() == chartLeftMarginPx(), its width is
- *  `max(1, width - left - right)`, and the range is visibleDataRange(). */
+/**
+ *
+ * @brief Reconstruct the profile widget's public horizontal mapping.
+ * @param plot Borrowed nonnull laid-out widget with nonzero visible range width.
+ * @param vx Virtual chainage in the widget's data frame, possibly outside view.
+ * @return Logical pixel x using public margins and max(1,availableWidth), with no
+ * clamping or finite/range validation. Does not call the private mapping method,
+ * change axes or convert to device pixels.
+ *
+ */
 double profilePixelForVirtualX(const ProfilePlotWidget *plot, double vx)
 {
     const QRectF r = plot->visibleDataRange();
     const double left = ProfilePlotWidget::chartLeftMarginPx();
-    const double w = std::max(1, plot->width()
-                                 - ProfilePlotWidget::chartLeftMarginPx()
-                                 - ProfilePlotWidget::chartRightMarginPx());
+    const double w = std::max(1, plot->width() - ProfilePlotWidget::chartLeftMarginPx() -
+                                     ProfilePlotWidget::chartRightMarginPx());
     return left + (vx - r.left()) / (r.right() - r.left()) * w;
 }
 
-/*! Largest |Δpixel| between the two panes over every node on the path. */
-double worstColumnDelta(const ProfilePlotWidget *plot, const TW *tracks,
-                        int *atNode = nullptr)
+/**
+ *
+ * @brief Measure largest horizontal pane disagreement at path-node columns.
+ * @param plot Borrowed nonnull laid-out profile widget with valid visible x range.
+ * @param tracks Borrowed nonnull tracks pane configured for the same path/data frame.
+ * @param atNode Optional output zero-based index, assigned only when a strictly larger
+ * positive discrepancy is found; remains unchanged for zero/empty comparisons.
+ * @return Maximum absolute logical-pixel x difference over virtualChainageTable,
+ * initially zero. No tolerances/assertions, finite checks or widget mutation.
+ *
+ */
+double worstColumnDelta(const ProfilePlotWidget *plot, const TW *tracks, int *atNode = nullptr)
 {
     double worst = 0.0;
     const QVector<double> &vx = plot->virtualChainageTable();
     for (int i = 0; i < vx.size(); ++i) {
-        const double d = std::abs(profilePixelForVirtualX(plot, vx[i])
-                                  - tracks->pixelForVirtualX(vx[i]));
-        if (d > worst) { worst = d; if (atNode) *atNode = i; }
+        const double d =
+            std::abs(profilePixelForVirtualX(plot, vx[i]) - tracks->pixelForVirtualX(vx[i]));
+        if (d > worst) {
+            worst = d;
+            if (atNode)
+                *atNode = i;
+        }
     }
     return worst;
 }
 
+/**
+ *
+ * @brief Attempt a widget screenshot without qualifying save success.
+ * @param w Borrowed nonnull visible/laid-out widget, used on GUI thread.
+ * @param file Borrowed writable image path; parent must already exist.
+ * Uses QWidget::grab and extension-selected image save, potentially replacing a file.
+ * Return status is ignored and this helper does not add a report failure.
+ *
+ */
 void grab(QWidget *w, const QString &file)
 {
     w->grab().save(file);
@@ -356,21 +484,37 @@ void grab(QWidget *w, const QString &file)
 
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Verify the reconstructed profile/track widget composition using real output data.
+ * @param argc At least 4 application arguments after Qt handling.
+ * @param argv Borrowed strings: program, matching .inp, .out, output directory and
+ * optional start node ID, decoded with local 8-bit encoding. Extra arguments ignored.
+ * @return 2 for usage/no usable path/output-open error; otherwise 0 when every
+ * recorded check passes or 1 for any failed check. Requires native GUI, positive
+ * period count and a sufficiently long path (at least 3 nodes for sparse-gap indexing;
+ * 4+ keeps the hole interior), although the early guard only enforces 2 nodes.
+ * Builds a local input reader/greedy path and recreated splitter composition rather
+ * than constructing ProfilePlotDialog. Processes events and synthetic wheel input,
+ * compares axes/pixels/signals and samples timing, creates/replaces eight PNGs and
+ * RESULTS.md. Save failures are not counted. Does not test toolbar persistence/export
+ * entrypoints; screenshot composition and index-only playback are local checks.
+ * Output closes by RAII; top-level splitter is intentionally left to process teardown.
+ *
+ */
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
 
     if (argc < 4) {
-        QTextStream(stderr)
-            << "usage: profile_attribute_tracks_verify <model.inp> "
-               "<results.out> <output-dir> [startNode]\n";
+        QTextStream(stderr) << "usage: profile_attribute_tracks_verify <model.inp> "
+                               "<results.out> <output-dir> [startNode]\n";
         return 2;
     }
     const QString inpPath = QString::fromLocal8Bit(argv[1]);
     const QString outPath = QString::fromLocal8Bit(argv[2]);
-    const QString outDir  = QString::fromLocal8Bit(argv[3]);
-    const QString startNode = argc > 4 ? QString::fromLocal8Bit(argv[4])
-                                       : QString();
+    const QString outDir = QString::fromLocal8Bit(argv[3]);
+    const QString startNode = argc > 4 ? QString::fromLocal8Bit(argv[4]) : QString();
     QDir().mkpath(outDir);
 
     Report rep;
@@ -429,70 +573,65 @@ int main(int argc, char *argv[])
     // Profile HGL, so the screenshots show the real thing above the tracks.
     {
         ProfileBuilder::SourceSeries src;
-        src.sourceId    = QFileInfo(outPath).completeBaseName();
+        src.sourceId = QFileInfo(outPath).completeBaseName();
         src.periodCount = out.periods;
         src.reportStepSec = swmm_output_get_report_step(out.handle);
-        const Profile head  = sample(out, path, PlotAttribute::NodeHead);
+        const Profile head = sample(out, path, PlotAttribute::NodeHead);
         const Profile depth = sample(out, path, PlotAttribute::NodeDepth);
-        const Profile vel   = sample(out, path, PlotAttribute::LinkVelocity);
+        const Profile vel = sample(out, path, PlotAttribute::LinkVelocity);
         src.nodeHead = head.byPath;
         src.nodeDepth = depth.byPath;
         src.linkVelocity = vel.byPath;
-        auto derived = std::make_shared<ProfileBuilder::SourceDerived>(
-            ProfileBuilder::compute(path, src,
-                                    us == openswmmvis::plot::UnitSystem::US
-                                        ? ProfileBuilder::kGravityFps2
-                                        : ProfileBuilder::kGravityMps2));
+        auto derived = std::make_shared<ProfileBuilder::SourceDerived>(ProfileBuilder::compute(
+            path, src,
+            us == openswmmvis::plot::UnitSystem::US ? ProfileBuilder::kGravityFps2
+                                                    : ProfileBuilder::kGravityMps2));
         ProfilePlotWidget::SeriesBinding b;
-        b.label   = src.sourceId;
-        b.kind    = ProfileBuilder::OutputKind::HGL;
+        b.label = src.sourceId;
+        b.kind = ProfileBuilder::OutputKind::HGL;
         b.derived = derived;
-        b.pen     = QPen(QColor(30, 120, 220), 1.6);
-        b.brush   = QBrush(QColor(30, 120, 220, 70));
+        b.pen = QPen(QColor(30, 120, 220), 1.6);
+        b.brush = QBrush(QColor(30, 120, 220, 70));
         plot->setSeries({b});
     }
 
     // ── §3.2 — two tracks, own y-axis, unit-bearing titles ─────────────────
-    const auto makeTrack = [&](PlotAttribute a, const QColor &c,
-                               const QString &sourceLabel, bool primary) {
+    const auto makeTrack = [&](PlotAttribute a, const QColor &c, const QString &sourceLabel,
+                               bool primary) {
         TW::Track t;
-        t.attribute       = a;
+        t.attribute = a;
         t.isNodeAttribute = ProfileAttributeSampler::isNodeAttribute(a);
-        t.title           = openswmmvis::plot::labelWithUnits(a, us);
-        t.pen             = QPen(c, 1.6);
+        t.title = openswmmvis::plot::labelWithUnits(a, us);
+        t.pen = QPen(c, 1.6);
         TW::SourceProfile sp;
-        sp.label   = sourceLabel;
-        sp.color   = c;
+        sp.label = sourceLabel;
+        sp.color = c;
         sp.primary = primary;
         sp.data = std::make_shared<const Profile>(sample(out, path, a));
         t.sources.push_back(sp);
         return t;
     };
 
-    TW::Track velocity = makeTrack(PlotAttribute::LinkVelocity,
-                                   QColor(200, 90, 40),
+    TW::Track velocity = makeTrack(PlotAttribute::LinkVelocity, QColor(200, 90, 40),
                                    QStringLiteral("primary"), true);
-    TW::Track depth = makeTrack(PlotAttribute::NodeDepth, QColor(40, 130, 200),
-                                QStringLiteral("primary"), true);
+    TW::Track depth =
+        makeTrack(PlotAttribute::NodeDepth, QColor(40, 130, 200), QStringLiteral("primary"), true);
     tracks->setTracks({depth, velocity});
 
     trackOptions.setAttributeVisible(PlotAttribute::NodeDepth, true);
     trackOptions.setAttributeVisible(PlotAttribute::LinkVelocity, true);
 
     rep.check(QStringLiteral("3.2 titles carry units"),
-              depth.title.contains(QLatin1Char('(')) &&
-                  velocity.title.contains(QLatin1Char('(')),
+              depth.title.contains(QLatin1Char('(')) && velocity.title.contains(QLatin1Char('(')),
               QStringLiteral("\"%1\", \"%2\"").arg(depth.title, velocity.title));
 
     // syncTracksGutter() — the profile's right gutter absorbs the tracks
     // scroll area's vertical scrollbar so both panes stay equally wide.
     const auto syncGutter = [&]() {
-        const int deficit = std::max(0, scroll->width()
-                                        - scroll->viewport()->width());
+        const int deficit = std::max(0, scroll->width() - scroll->viewport()->width());
         const QMargins m = plotHolderLayout->contentsMargins();
         if (m.right() != deficit)
-            plotHolderLayout->setContentsMargins(m.left(), m.top(), deficit,
-                                                 m.bottom());
+            plotHolderLayout->setContentsMargins(m.left(), m.top(), deficit, m.bottom());
     };
 
     // syncTracksAxes() — the contract in §6.
@@ -509,18 +648,19 @@ int main(int argc, char *argv[])
 
     // Both-way x sync with the dialog's single re-entrancy guard.
     bool syncing = false;
-    int  plotEmissions = 0, trackEmissions = 0;
-    QObject::connect(plot, &ProfilePlotWidget::visibleXRangeChanged,
-                     [&](double a, double b) {
+    int plotEmissions = 0, trackEmissions = 0;
+    QObject::connect(plot, &ProfilePlotWidget::visibleXRangeChanged, [&](double a, double b) {
         ++plotEmissions;
-        if (syncing) return;
+        if (syncing)
+            return;
         syncing = true;
         tracks->setVisibleXRange(a, b);
         syncing = false;
     });
     QObject::connect(tracks, &TW::visibleXRangeChanged, [&](double a, double b) {
         ++trackEmissions;
-        if (syncing) return;
+        if (syncing)
+            return;
         syncing = true;
         plot->setVisibleXRange(a, b);
         syncing = false;
@@ -541,11 +681,12 @@ int main(int argc, char *argv[])
         rep.check(QStringLiteral("3.3 columns align at fit"), worst < 0.5,
                   QStringLiteral("worst Δ = %1 px at node %2 (%3); "
                                  "plot w=%4, tracks w=%5, vscrollbar %6")
-                      .arg(worst, 0, 'f', 3).arg(node)
+                      .arg(worst, 0, 'f', 3)
+                      .arg(node)
                       .arg(node >= 0 ? path.nodes[node].name : QString())
-                      .arg(plot->width()).arg(tracks->width())
-                      .arg(scrollBarShown ? QStringLiteral("VISIBLE")
-                                          : QStringLiteral("hidden")));
+                      .arg(plot->width())
+                      .arg(tracks->width())
+                      .arg(scrollBarShown ? QStringLiteral("VISIBLE") : QStringLiteral("hidden")));
         grab(split, outDir + QStringLiteral("/1_fit_two_tracks.png"));
     }
 
@@ -557,10 +698,8 @@ int main(int argc, char *argv[])
         QApplication::processEvents();
         int node = -1;
         const double worst = worstColumnDelta(plot, tracks, &node);
-        rep.check(QStringLiteral("3.3 columns align when zoomed 2x"),
-                  worst < 0.5,
-                  QStringLiteral("worst Δ = %1 px at node %2")
-                      .arg(worst, 0, 'f', 3).arg(node));
+        rep.check(QStringLiteral("3.3 columns align when zoomed 2x"), worst < 0.5,
+                  QStringLiteral("worst Δ = %1 px at node %2").arg(worst, 0, 'f', 3).arg(node));
         grab(split, outDir + QStringLiteral("/2_zoomed.png"));
     }
 
@@ -572,8 +711,8 @@ int main(int argc, char *argv[])
         const int before = plotEmissions + trackEmissions;
 
         // Profile drives the pane.
-        plot->setVisibleXRange(fitted.left(), fitted.left()
-                                                  + (fitted.right() - fitted.left()) * 0.5);
+        plot->setVisibleXRange(fitted.left(),
+                               fitted.left() + (fitted.right() - fitted.left()) * 0.5);
         QApplication::processEvents();
         const double d1 = worstColumnDelta(plot, tracks);
         rep.check(QStringLiteral("3.4 profile → tracks follows"), d1 < 0.5,
@@ -582,9 +721,8 @@ int main(int argc, char *argv[])
         // Pane drives the profile — a real wheel event through its handler.
         const QRectF paneBefore = plot->visibleDataRange();
         QWheelEvent wheel(QPointF(tracks->width() / 2.0, 40.0),
-                          tracks->mapToGlobal(QPoint(tracks->width() / 2, 40)),
-                          QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
-                          Qt::NoModifier, Qt::NoScrollPhase, false);
+                          tracks->mapToGlobal(QPoint(tracks->width() / 2, 40)), QPoint(0, 0),
+                          QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QApplication::sendEvent(tracks, &wheel);
         QApplication::processEvents();
         const QRectF now = plot->visibleDataRange();
@@ -594,12 +732,12 @@ int main(int argc, char *argv[])
                   QStringLiteral("profile span %1 → %2 on a pane wheel-zoom, "
                                  "worst Δ = %3 px")
                       .arg(paneBefore.width(), 0, 'f', 3)
-                      .arg(now.width(), 0, 'f', 3).arg(d2, 0, 'f', 3));
+                      .arg(now.width(), 0, 'f', 3)
+                      .arg(d2, 0, 'f', 3));
 
         const int emissions = plotEmissions + trackEmissions - before;
         rep.check(QStringLiteral("3.4 no feedback loop"), emissions < 12,
-                  QStringLiteral("%1 range emissions for 2 user gestures")
-                      .arg(emissions));
+                  QStringLiteral("%1 range emissions for 2 user gestures").arg(emissions));
 
         plot->fitToExtent();
         QApplication::processEvents();
@@ -623,8 +761,7 @@ int main(int argc, char *argv[])
 
         rep.check(QStringLiteral("3.5 curves move with the clock"),
                   frame0 != frameMid && frame0 != envelopeOnly,
-                  QStringLiteral("period 0 / %1 / none all differ")
-                      .arg(out.periods / 2));
+                  QStringLiteral("period 0 / %1 / none all differ").arg(out.periods / 2));
 
         // Envelope invariance: turning the curve off must return the same
         // pixels as before it was ever drawn.
@@ -641,8 +778,8 @@ int main(int argc, char *argv[])
         trackOptions.setEnvelopesVisible(false);
         QApplication::processEvents();
         const QImage noEnv = tracks->grab().toImage();
-        rep.check(QStringLiteral("3.5 envelopes can be switched off"),
-                  noEnv != frameMid, QStringLiteral("repaint differs"));
+        rep.check(QStringLiteral("3.5 envelopes can be switched off"), noEnv != frameMid,
+                  QStringLiteral("repaint differs"));
         grab(split, outDir + QStringLiteral("/4_envelope_off.png"));
         trackOptions.setEnvelopesVisible(true);
         QApplication::processEvents();
@@ -662,18 +799,16 @@ int main(int argc, char *argv[])
         const int hBefore = tracks->minimumHeight();
         trackOptions.setTrackHeightPx(trackOptions.trackHeightPx() + 60);
         QApplication::processEvents();
-        rep.check(QStringLiteral("3.7 track height applies"),
-                  tracks->minimumHeight() > hBefore,
-                  QStringLiteral("minimumHeight %1 → %2")
-                      .arg(hBefore).arg(tracks->minimumHeight()));
+        rep.check(
+            QStringLiteral("3.7 track height applies"), tracks->minimumHeight() > hBefore,
+            QStringLiteral("minimumHeight %1 → %2").arg(hBefore).arg(tracks->minimumHeight()));
         trackOptions.setTrackHeightPx(trackOptions.trackHeightPx() - 60);
 
         const QImage titled = tracks->grab().toImage();
         trackOptions.setShowTrackTitles(false);
         QApplication::processEvents();
         rep.check(QStringLiteral("3.7 titles can be switched off"),
-                  tracks->grab().toImage() != titled,
-                  QStringLiteral("repaint differs"));
+                  tracks->grab().toImage() != titled, QStringLiteral("repaint differs"));
         trackOptions.setShowTrackTitles(true);
         tracks->setTracks({depth, velocity});
         QApplication::processEvents();
@@ -683,21 +818,20 @@ int main(int argc, char *argv[])
     {
         TW::Track twoSource = depth;
         TW::SourceProfile secondary = twoSource.sources.front();
-        secondary.label   = QStringLiteral("comparison");
-        secondary.color   = QColor(190, 60, 160);
+        secondary.label = QStringLiteral("comparison");
+        secondary.color = QColor(190, 60, 160);
         secondary.primary = false;
         twoSource.sources.push_back(secondary);
         tracks->setTracks({twoSource, velocity});
         QApplication::processEvents();
 
         const int primaries =
-            int(std::count_if(twoSource.sources.cbegin(),
-                              twoSource.sources.cend(),
+            int(std::count_if(twoSource.sources.cbegin(), twoSource.sources.cend(),
                               [](const TW::SourceProfile &s) { return s.primary; }));
-        rep.check(QStringLiteral("3.8 exactly one envelope owner"),
-                  primaries == 1,
+        rep.check(QStringLiteral("3.8 exactly one envelope owner"), primaries == 1,
                   QStringLiteral("%1 source(s) flagged primary of %2")
-                      .arg(primaries).arg(twoSource.sources.size()));
+                      .arg(primaries)
+                      .arg(twoSource.sources.size()));
         grab(split, outDir + QStringLiteral("/5_two_sources.png"));
         tracks->setTracks({depth, velocity});
         QApplication::processEvents();
@@ -711,12 +845,12 @@ int main(int argc, char *argv[])
         // one point paints nothing — correct, but not what this check is for.
         const int n = int(sparse.byPath.size());
         const int hole = std::clamp(n / 2, 2, std::max(2, n - 2));
-        sparse.byPath[hole].clear();                      // "unknown to the .out"
+        sparse.byPath[hole].clear(); // "unknown to the .out"
         sparse.minByPath[hole] = std::numeric_limits<float>::quiet_NaN();
         sparse.maxByPath[hole] = std::numeric_limits<float>::quiet_NaN();
 
         TW::Track gapped = depth;
-        gapped.pen = QPen(QColor(255, 0, 0), 2.0);        // findable in pixels
+        gapped.pen = QPen(QColor(255, 0, 0), 2.0); // findable in pixels
         gapped.sources[0].data = std::make_shared<const Profile>(sparse);
         tracks->setTracks({gapped});
         tracks->setCurrentPeriod(std::max(0, out.periods / 2));
@@ -728,8 +862,8 @@ int main(int argc, char *argv[])
         // ±2 px around the node's column: the end nodes sit on the track
         // frame, whose half-pixel clip can shave the exact column.
         const auto columnHasCurve = [&](int nodeIdx) {
-            const int x0 = int(std::round(tracks->pixelForVirtualX(
-                plot->virtualChainageTable().value(nodeIdx))));
+            const int x0 = int(
+                std::round(tracks->pixelForVirtualX(plot->virtualChainageTable().value(nodeIdx))));
             for (int dx = -2; dx <= 2; ++dx) {
                 const int x = std::clamp(x0 + dx, 0, img.width() - 1);
                 for (int y = 0; y < std::min(img.height(), 220); ++y) {
@@ -747,9 +881,9 @@ int main(int argc, char *argv[])
                   upstreamDrawn && !columnHasCurve(hole),
                   QStringLiteral("node %1 (%2) blank, upstream run drawn = %3 "
                                  "(no zero-fill on the floor)")
-                      .arg(hole).arg(path.nodes[hole].name)
-                      .arg(upstreamDrawn ? QStringLiteral("yes")
-                                         : QStringLiteral("NO")));
+                      .arg(hole)
+                      .arg(path.nodes[hole].name)
+                      .arg(upstreamDrawn ? QStringLiteral("yes") : QStringLiteral("NO")));
         grab(split, outDir + QStringLiteral("/6_sparse_gap.png"));
 
         // A short series must stop animating past its last period, not crash.
@@ -757,15 +891,14 @@ int main(int argc, char *argv[])
         for (auto &row : shortSeries.byPath)
             row.resize(std::max(1, out.periods / 3));
         TW::Track shortTrack = depth;
-        shortTrack.sources[0].data =
-            std::make_shared<const Profile>(shortSeries);
+        shortTrack.sources[0].data = std::make_shared<const Profile>(shortSeries);
         tracks->setTracks({shortTrack});
         tracks->setCurrentPeriod(out.periods - 1);
         QApplication::processEvents();
-        rep.check(QStringLiteral("3.9 short series survives past its end"),
-                  true, QStringLiteral("%1-period series indexed at %2, no crash")
-                            .arg(shortSeries.byPath.value(0).size())
-                            .arg(out.periods - 1));
+        rep.check(QStringLiteral("3.9 short series survives past its end"), true,
+                  QStringLiteral("%1-period series indexed at %2, no crash")
+                      .arg(shortSeries.byPath.value(0).size())
+                      .arg(out.periods - 1));
         tracks->setTracks({depth, velocity});
         QApplication::processEvents();
     }
@@ -784,7 +917,9 @@ int main(int argc, char *argv[])
         rep.check(QStringLiteral("3.10 export contains both panes"),
                   shot.height() > plot->height() && colors.size() > 3,
                   QStringLiteral("%1x%2 px, %3 distinct colours below the plot")
-                      .arg(shot.width()).arg(shot.height()).arg(colors.size()));
+                      .arg(shot.width())
+                      .arg(shot.height())
+                      .arg(colors.size()));
         shot.save(outDir + QStringLiteral("/7_export.png"));
     }
 
@@ -794,11 +929,9 @@ int main(int argc, char *argv[])
         QElapsedTimer t;
         t.start();
         for (PlotAttribute a : openswmmvis::plot::nodePlotAttributes())
-            all.push_back(makeTrack(a, QColor(40, 130, 200),
-                                    QStringLiteral("primary"), true));
+            all.push_back(makeTrack(a, QColor(40, 130, 200), QStringLiteral("primary"), true));
         for (PlotAttribute a : openswmmvis::plot::linkPlotAttributes())
-            all.push_back(makeTrack(a, QColor(200, 90, 40),
-                                    QStringLiteral("primary"), true));
+            all.push_back(makeTrack(a, QColor(200, 90, 40), QStringLiteral("primary"), true));
         const qint64 fetchMs = t.elapsed();
 
         tracks->setTracks(all);
@@ -806,19 +939,21 @@ int main(int argc, char *argv[])
         rep.check(QStringLiteral("3.11 all 11 attributes build"),
                   all.size() == 11 && tracks->trackCount() == 11,
                   QStringLiteral("%1 tracks, fetch %2 ms for %3 periods")
-                      .arg(tracks->trackCount()).arg(fetchMs).arg(out.periods));
+                      .arg(tracks->trackCount())
+                      .arg(fetchMs)
+                      .arg(out.periods));
 
         t.restart();
         const int frames = std::min(200, std::max(2, out.periods));
         for (int i = 0; i < frames; ++i) {
             tracks->setCurrentPeriod(i % out.periods);
-            tracks->grab();          // force the repaint the timer would
+            tracks->grab(); // force the repaint the timer would
         }
         const double perFrame = double(t.elapsed()) / frames;
-        rep.check(QStringLiteral("3.11 playback is index-only"),
-                  perFrame < 33.0,
+        rep.check(QStringLiteral("3.11 playback is index-only"), perFrame < 33.0,
                   QStringLiteral("%1 ms/frame over %2 frames (11 tracks)")
-                      .arg(perFrame, 0, 'f', 2).arg(frames));
+                      .arg(perFrame, 0, 'f', 2)
+                      .arg(frames));
 
         rep.check(QStringLiteral("3.11 pane scrolls instead of growing"),
                   tracks->minimumHeight() > scroll->viewport()->height(),
@@ -831,16 +966,16 @@ int main(int argc, char *argv[])
         QApplication::processEvents();
         int node = -1;
         const double worst = worstColumnDelta(plot, tracks, &node);
-        const bool barShown = scroll->verticalScrollBar()
-                              && scroll->verticalScrollBar()->isVisible();
-        rep.check(QStringLiteral("3.3 columns align with 11 tracks"),
-                  worst < 0.5,
+        const bool barShown =
+            scroll->verticalScrollBar() && scroll->verticalScrollBar()->isVisible();
+        rep.check(QStringLiteral("3.3 columns align with 11 tracks"), worst < 0.5,
                   QStringLiteral("worst Δ = %1 px at node %2; plot w=%3, "
                                  "tracks w=%4, vscrollbar %5")
-                      .arg(worst, 0, 'f', 3).arg(node)
-                      .arg(plot->width()).arg(tracks->width())
-                      .arg(barShown ? QStringLiteral("VISIBLE")
-                                    : QStringLiteral("hidden")));
+                      .arg(worst, 0, 'f', 3)
+                      .arg(node)
+                      .arg(plot->width())
+                      .arg(tracks->width())
+                      .arg(barShown ? QStringLiteral("VISIBLE") : QStringLiteral("hidden")));
         grab(split, outDir + QStringLiteral("/8_eleven_tracks.png"));
     }
 
@@ -852,12 +987,13 @@ int main(int argc, char *argv[])
             .arg(out.periods)
             .arg(us == openswmmvis::plot::UnitSystem::US ? QStringLiteral("US")
                                                          : QStringLiteral("SI"))
-            .arg(path.nodes.size()).arg(path.links.size())
+            .arg(path.nodes.size())
+            .arg(path.links.size())
             .arg(path.nodes.front().name, path.nodes.back().name);
     rep.write(outDir + QStringLiteral("/RESULTS.md"), preamble);
 
-    QTextStream(stdout) << "\n" << rep.rows.size() - rep.failures << "/"
-                        << rep.rows.size() << " checks passed; artifacts in "
-                        << outDir << "\n";
+    QTextStream(stdout) << "\n"
+                        << rep.rows.size() - rep.failures << "/" << rep.rows.size()
+                        << " checks passed; artifacts in " << outDir << "\n";
     return rep.failures == 0 ? 0 : 1;
 }

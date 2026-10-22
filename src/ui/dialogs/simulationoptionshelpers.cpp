@@ -1,14 +1,17 @@
-/*!
- * \file   simulationoptionshelpers.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      simulationoptionshelpers.cpp
+ * @brief     Static helper definitions for SimulationOptionsDialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Static helper definitions for SimulationOptionsDialog. Split out of the
  * main .cpp so leaf QtTests (test_simulationoptionsdialog) can compile the
  * helpers without dragging in GDAL/OGR via the layer + CRS code that the
  * dialog's spatial tab needs.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "core/swmmdatetime.h"
@@ -28,15 +31,14 @@
 int SimulationOptionsDialog::parseEngineBool(const QString &s)
 {
     const QString n = s.trimmed().toUpper();
-    if (n == QStringLiteral("YES") || n == QStringLiteral("TRUE")  || n == QStringLiteral("1"))
+    if (n == QStringLiteral("YES") || n == QStringLiteral("TRUE") || n == QStringLiteral("1"))
         return Qt::Checked;
-    if (n == QStringLiteral("NO")  || n == QStringLiteral("FALSE") || n == QStringLiteral("0"))
+    if (n == QStringLiteral("NO") || n == QStringLiteral("FALSE") || n == QStringLiteral("0"))
         return Qt::Unchecked;
     return Qt::PartiallyChecked;
 }
 
-void SimulationOptionsDialog::fastPresetValues(int &out_threads,
-                                               double &out_min_step_sec)
+void SimulationOptionsDialog::fastPresetValues(int &out_threads, double &out_min_step_sec)
 {
     // Conservative fast recipe (see FAST_RUN_RECIPE.md): every PERFORMANCE
     // core + a 1.0 s step floor so the 2D coupling can't collapse the 1D
@@ -53,10 +55,12 @@ int SimulationOptionsDialog::fastPresetThreads()
 {
     SWMM_ThreadInfo ti{};
     if (swmm_get_thread_info(&ti) == SWMM_OK) {
-        if (ti.perf_cores   > 0) return ti.perf_cores;
-        if (ti.logical_cpus > 0) return ti.logical_cpus;
+        if (ti.perf_cores > 0)
+            return ti.perf_cores;
+        if (ti.logical_cpus > 0)
+            return ti.logical_cpus;
     }
-    return 8;   // benchmark machine fallback when the hardware query fails
+    return 8; // benchmark machine fallback when the hardware query fails
 }
 
 QString SimulationOptionsDialog::engineBoolString(bool on)
@@ -64,16 +68,14 @@ QString SimulationOptionsDialog::engineBoolString(bool on)
     return on ? QStringLiteral("YES") : QStringLiteral("NO");
 }
 
-void SimulationOptionsDialog::formatEngineDateTime(const QDateTime &dt,
-                                                   QString &out_date,
+void SimulationOptionsDialog::formatEngineDateTime(const QDateTime &dt, QString &out_date,
                                                    QString &out_time)
 {
     out_date = dt.date().toString(QStringLiteral("MM/dd/yyyy"));
     out_time = dt.time().toString(QStringLiteral("HH:mm:ss"));
 }
 
-QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date,
-                                                       const QString &time)
+QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date, const QString &time)
 {
     QDate d = QDate::fromString(date.trimmed(), QStringLiteral("MM/dd/yyyy"));
     QTime t = QTime::fromString(time.trimmed(), QStringLiteral("HH:mm:ss"));
@@ -106,22 +108,24 @@ QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date,
 
 double SimulationOptionsDialog::oaDateFromQDateTime(const QDateTime &dt)
 {
-    if (!dt.isValid()) return 0.0;
+    if (!dt.isValid())
+        return 0.0;
     return openswmmvis::core::qDateTimeToSwmmDateTime(dt);
 }
 
 QDateTime SimulationOptionsDialog::qDateTimeFromOaDate(double oa)
 {
     const QDateTime utc = openswmmvis::core::swmmDateTimeToQDateTime(oa);
-    if (!utc.isValid()) return {};
-    return QDateTime(utc.date(), utc.time());   // re-label: see file-header note
+    if (!utc.isValid())
+        return {};
+    return QDateTime(utc.date(), utc.time()); // re-label: see file-header note
 }
 
-qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s,
-                                                 qint64 fallback)
+qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s, qint64 fallback)
 {
     const QString t = s.trimmed();
-    if (t.isEmpty()) return fallback;
+    if (t.isEmpty())
+        return fallback;
 
     if (!t.contains(QLatin1Char(':'))) {
         // Decimal form, not just integers: swmm_options_get() renders
@@ -132,32 +136,36 @@ qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s,
         // appeared not to persist.
         bool ok = false;
         const double v = t.toDouble(&ok);
-        if (!ok || v < 0.0) return fallback;
+        if (!ok || v < 0.0)
+            return fallback;
         return qRound64(v);
     }
 
     const QStringList parts = t.split(QLatin1Char(':'));
-    if (parts.size() > 3) return fallback;
+    if (parts.size() > 3)
+        return fallback;
     double secs = 0.0;
     for (const QString &p : parts) {
         bool ok = false;
         const double v = p.trimmed().toDouble(&ok);
-        if (!ok || v < 0.0) return fallback;
+        if (!ok || v < 0.0)
+            return fallback;
         secs = secs * 60.0 + v;
     }
     return qRound64(secs);
 }
 
-bool SimulationOptionsDialog::optionValueEquals(const QString &a,
-                                                const QString &b)
+bool SimulationOptionsDialog::optionValueEquals(const QString &a, const QString &b)
 {
     const QString ta = a.trimmed(), tb = b.trimmed();
-    if (ta == tb) return true;
+    if (ta == tb)
+        return true;
 
     bool okA = false, okB = false;
     const double da = ta.toDouble(&okA);
     const double db = tb.toDouble(&okB);
-    if (!okA || !okB) return false;
+    if (!okA || !okB)
+        return false;
 
     // Formatting differences ("0.000000" vs "0.00") are exactly equal after
     // parsing; the relative tolerance only absorbs last-digit rounding.
@@ -165,11 +173,11 @@ bool SimulationOptionsDialog::optionValueEquals(const QString &a,
     return std::abs(da - db) <= 1e-9 * scale;
 }
 
-QList<int> SimulationOptionsDialog::selectedRowsDescending(
-    const QTableWidget *table)
+QList<int> SimulationOptionsDialog::selectedRowsDescending(const QTableWidget *table)
 {
     QList<int> rows;
-    if (!table) return rows;
+    if (!table)
+        return rows;
 
     // The selection model sees row selections even when the cells hold only
     // setCellWidget() editors and no QTableWidgetItems (the [EVENTS] table).

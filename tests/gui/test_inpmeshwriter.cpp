@@ -1,13 +1,16 @@
-/*!
- * \file   test_inpmeshwriter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_inpmeshwriter.cpp
+ * @brief     Tests for inpmeshwriter.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AU — QtTest coverage for InpMeshWriter. Verifies external + inline
  * modes, [2D_MESH_FILE] reference patching, idempotent rewrites, and
  * tag-vs-index emission in the coupling maps.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -23,21 +26,39 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 // Keep fixtures and failure outputs under a reviewable repository/build path.
 // Unique case directories permit repeat runs without consuming prior evidence.
 class ReviewableTestDir : public QTemporaryDir
 {
 public:
+    /**
+     *
+     * @brief Create a uniquely named fixture directory and disable automatic deletion so outputs
+     * remain reviewable.
+     * Callers must check isValid(); failure does not throw or create a usable directory.
+     *
+     */
     ReviewableTestDir() : QTemporaryDir(outputTemplate()) { setAutoRemove(false); }
+
 private:
+    /**
+     *
+     * @brief Request the mesh-writer evidence root and build the per-case unique directory
+     * template.
+     * @return Owned current-test-name plus six-X template beneath
+     * SWMMVIS_MESH_WRITER_TEST_OUTPUT or relative test_inpmeshwriter_output. Root
+     * creation is unchecked; QTemporaryDir handles unique allocation in the constructor.
+     *
+     */
     static QString outputTemplate()
     {
         const QString root = qEnvironmentVariable("SWMMVIS_MESH_WRITER_TEST_OUTPUT",
-                                                   QStringLiteral("test_inpmeshwriter_output"));
+                                                  QStringLiteral("test_inpmeshwriter_output"));
         QDir().mkpath(root);
-        return QDir(root).filePath(QString::fromLatin1(QTest::currentTestFunction())
-                                   + QStringLiteral("-XXXXXX"));
+        return QDir(root).filePath(QString::fromLatin1(QTest::currentTestFunction()) +
+                                   QStringLiteral("-XXXXXX"));
     }
 };
 }
@@ -51,18 +72,26 @@ private:
      *  along one diagonal. Vertex 0 carries a tag "J1" so it can act as a
      *  coupling vertex via tag form; vertex 1 stays untagged so it tests
      *  the index form. */
+    /**
+     *
+     * @brief Build the detached four-vertex/two-triangle square fixture.
+     * @return Owned valid mesh spanning zero..100 in local horizontal units, vertex
+     * zero tag J1, first cell tag subcatch_S1 and unset cell roughness. Does not load
+     * a model, assign couplings or create files.
+     *
+     */
     static MeshResult sampleMesh()
     {
         MeshResult m;
         m.ok = true;
-        m.vertices.append({QPointF(0, 0),     1.0, 1, "J1"});
-        m.vertices.append({QPointF(100, 0),   1.5, 0, ""  });
-        m.vertices.append({QPointF(100, 100), 2.0, 0, ""  });
-        m.vertices.append({QPointF(0, 100),   1.2, 0, ""  });
+        m.vertices.append({QPointF(0, 0), 1.0, 1, "J1"});
+        m.vertices.append({QPointF(100, 0), 1.5, 0, ""});
+        m.vertices.append({QPointF(100, 100), 2.0, 0, ""});
+        m.vertices.append({QPointF(0, 100), 1.2, 0, ""});
         // v3 sits between v2 and tag since the tri-quad model landed —
         // designate it (-1 = triangle) rather than relying on position.
         m.triangles.append({0, 1, 2, -1, "subcatch_S1"});
-        m.triangles.append({0, 2, 3, -1, "" });
+        m.triangles.append({0, 2, 3, -1, ""});
         return m;
     }
 
@@ -71,6 +100,13 @@ private:
      *  engine's triangles-first order). Quad (1,2,5,4): edge 0 = (2,5),
      *  edge 1 = (5,4), edge 2 = (4,1) shared with triangle 0's edge 0,
      *  edge 3 = (1,2) on the bottom boundary. */
+    /**
+     *
+     * @brief Build the detached six-vertex mixed strip with triangles before its quad.
+     * @return Owned valid two-by-one local-coordinate mesh, left/street tags and
+     * quad initial depth 0.25 in authored depth units. No engine ownership or IO.
+     *
+     */
     static MeshResult mixedMesh()
     {
         MeshResult m;
@@ -90,6 +126,13 @@ private:
 
     /*! Two quads (0,1,4,3) and (1,2,5,4) sharing edge (1,4): quad 0's edge 0
      *  and quad 1's edge 2. */
+    /**
+     *
+     * @brief Build the detached two-quad strip sharing vertex pair one/four.
+     * @return Owned mesh reusing mixedMesh vertices with cell edge-zero/edge-two
+     * neighbor slots; no triangles or coupling assignments.
+     *
+     */
     static MeshResult quadPairMesh()
     {
         MeshResult m = mixedMesh();
@@ -99,33 +142,53 @@ private:
         return m;
     }
 
+    /**
+     *
+     * @brief Build vertex/cell coupling identities and a first-cell roughness override.
+     * @return Owned maps: vertices zero/one to J1/J2, cell zero to S1 and roughness
+     * 0.025. Names are fixture strings without validating model existence; no writes.
+     *
+     */
     static CouplingMap sampleCoupling()
     {
         CouplingMap c;
-        c.vertexToNode.insert(0, "J1");           // by tag (vertex 0 has tag "J1")
-        c.vertexToNode.insert(1, "J2");           // by index (vertex 1 untagged)
+        c.vertexToNode.insert(0, "J1"); // by tag (vertex 0 has tag "J1")
+        c.vertexToNode.insert(1, "J2"); // by index (vertex 1 untagged)
         c.triangleToNode.insert(0, "S1");
-        c.triangleMannings.insert(0, 0.025);      // override default
+        c.triangleMannings.insert(0, 0.025); // override default
         // triangle 1 uses the writer's default Manning's n
         return c;
     }
 
     /*! Minimum-viable .inp body — just a TITLE + OPTIONS block. */
+    /**
+     *
+     * @brief Build the minimal existing project text used by writer fixtures.
+     * @return Owned TITLE/OPTIONS deck declaring CFS; not a complete runnable model
+     * and not saved by this helper.
+     *
+     */
     static QString sampleInpText()
     {
-        return QStringLiteral(
-            "[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CFS\n\n");
+        return QStringLiteral("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CFS\n\n");
     }
 
 private slots:
+    /**
+     *
+     * @brief Register fourteen numeric persistence fields against external-write,
+     * sequential-patch and combined-patch modes.
+     *
+     */
     void numericPrecision_data()
     {
         QTest::addColumn<int>("field");
         QTest::addColumn<int>("mode");
-        const char *fields[] = {"close-vertices", "elevation", "roughness", "initial-depth",
-            "vertex-coefficient", "vertex-area", "cell-coefficient", "cell-area",
-            "infiltration-rate", "infiltration-step", "boundary-stage", "boundary-slope",
-            "boundary-flow", "conveyance"};
+        const char *fields[] = {"close-vertices",    "elevation",          "roughness",
+                                "initial-depth",     "vertex-coefficient", "vertex-area",
+                                "cell-coefficient",  "cell-area",          "infiltration-rate",
+                                "infiltration-step", "boundary-stage",     "boundary-slope",
+                                "boundary-flow",     "conveyance"};
         for (int i = 0; i < int(std::size(fields)); ++i) {
             QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-write")) << i << 0;
             QTest::newRow(qPrintable(QString::fromLatin1(fields[i]) + "-patch")) << i << 1;
@@ -133,6 +196,14 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Require each finite numeric field to round-trip by exact double equality, including
+     * nearby projected vertices and nextafter conveyance.
+     * Consumes field/mode; patch modes repeat twice from original working values.
+     * Writes persistent unique-case input/mesh fixtures; seed-deck write count is unchecked.
+     *
+     */
     void numericPrecision()
     {
         QFETCH(int, field);
@@ -142,10 +213,13 @@ private slots:
         QVERIFY(dir.isValid());
         const QString inp = dir.filePath("project.inp");
         const QString file = dir.filePath("mesh.2dm");
-        QFile deck(inp); QVERIFY(deck.open(QIODevice::WriteOnly));
-        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n"); deck.close();
+        QFile deck(inp);
+        QVERIFY(deck.open(QIODevice::WriteOnly));
+        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n");
+        deck.close();
         auto m = mixedMesh();
-        for (auto &v : m.vertices) v.xy += QPointF(1000000, 4500000);
+        for (auto &v : m.vertices)
+            v.xy += QPointF(1000000, 4500000);
         CouplingMap coupling;
         QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
         auto &bc = bcs[edgeSlot(2, 3)];
@@ -153,30 +227,70 @@ private slots:
         switch (field) {
         case 0:
             expected = m.vertices[1].xy.x() + 0.0000001;
-            m.vertices[2].xy.setX(expected); m.vertices[5].xy.setX(expected); break;
-        case 1: expected = -123.12345678901234; m.vertices[0].z = expected; break;
-        case 2: expected = 0.000012345678901234567; m.triangles[2].mannings = expected;
-            coupling.triangleMannings.insert(2, expected); break;
-        case 3: expected = 0.000012345678901234567; m.triangles[2].initDepth = expected; break;
-        case 4: case 5:
-            m.vertices[0].coupledNode = "J1"; coupling.vertexToNode.insert(0, "J1");
-            if (field == 4) m.vertices[0].couplingCd = expected;
-            else m.vertices[0].couplingArea = expected;
+            m.vertices[2].xy.setX(expected);
+            m.vertices[5].xy.setX(expected);
             break;
-        case 6: case 7:
-            m.cellCouplings.append({2, "J1", field == 6 ? expected : 0.65, field == 7 ? expected : 2.0}); break;
+        case 1:
+            expected = -123.12345678901234;
+            m.vertices[0].z = expected;
+            break;
+        case 2:
+            expected = 0.000012345678901234567;
+            m.triangles[2].mannings = expected;
+            coupling.triangleMannings.insert(2, expected);
+            break;
+        case 3:
+            expected = 0.000012345678901234567;
+            m.triangles[2].initDepth = expected;
+            break;
+        case 4:
+        case 5:
+            m.vertices[0].coupledNode = "J1";
+            coupling.vertexToNode.insert(0, "J1");
+            if (field == 4)
+                m.vertices[0].couplingCd = expected;
+            else
+                m.vertices[0].couplingArea = expected;
+            break;
+        case 6:
+        case 7:
+            m.cellCouplings.append(
+                {2, "J1", field == 6 ? expected : 0.65, field == 7 ? expected : 2.0});
+            break;
         case 8: {
-            InfilRow row; row.method = InfilMethod::Constant; row.p[0] = expected;
-            m.infilOverrides.insert(2, row); m.infilDefaults.append({"*", row}); break;
+            InfilRow row;
+            row.method = InfilMethod::Constant;
+            row.p[0] = expected;
+            m.infilOverrides.insert(2, row);
+            m.infilDefaults.append({"*", row});
+            break;
         }
-        case 9: expected = 60.00000012345679; m.infilOptions.infilStep = expected; break;
-        case 10: expected = 123.12345678901234; bc.type = MeshBCTypes::Type::SpecifiedStageConst; bc.head = expected; break;
-        case 11: bc.type = MeshBCTypes::Type::NormalFlow; bc.slope = expected; break;
-        case 12: expected = -0.12345678901234567; bc.type = MeshBCTypes::Type::SpecifiedFlowConst; bc.flow = expected; break;
-        case 13: expected = std::nextafter(1.0, 0.0); bc.conveyance = expected; break;
+        case 9:
+            expected = 60.00000012345679;
+            m.infilOptions.infilStep = expected;
+            break;
+        case 10:
+            expected = 123.12345678901234;
+            bc.type = MeshBCTypes::Type::SpecifiedStageConst;
+            bc.head = expected;
+            break;
+        case 11:
+            bc.type = MeshBCTypes::Type::NormalFlow;
+            bc.slope = expected;
+            break;
+        case 12:
+            expected = -0.12345678901234567;
+            bc.type = MeshBCTypes::Type::SpecifiedFlowConst;
+            bc.flow = expected;
+            break;
+        case 13:
+            expected = std::nextafter(1.0, 0.0);
+            bc.conveyance = expected;
+            break;
         }
         QString err;
-        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err), qPrintable(err));
+        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err),
+                 qPrintable(err));
         if (patch) {
             // Start from the serialized file, then patch the original working
             // values twice. Tests must not accept the first save's rounding.
@@ -193,37 +307,66 @@ private slots:
         QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
         double actual = 0;
         switch (field) {
-        case 0: actual = back.mesh.vertices[2].xy.x();
-            QVERIFY(actual > back.mesh.vertices[1].xy.x()); break;
-        case 1: actual = back.mesh.vertices[0].z; break;
-        case 2: actual = back.mesh.triangles[2].mannings; break;
-        case 3: actual = back.mesh.triangles[2].initDepth; break;
-        case 4: actual = back.mesh.vertices[0].couplingCd; break;
-        case 5: actual = back.mesh.vertices[0].couplingArea; break;
-        case 6: case 7:
+        case 0:
+            actual = back.mesh.vertices[2].xy.x();
+            QVERIFY(actual > back.mesh.vertices[1].xy.x());
+            break;
+        case 1:
+            actual = back.mesh.vertices[0].z;
+            break;
+        case 2:
+            actual = back.mesh.triangles[2].mannings;
+            break;
+        case 3:
+            actual = back.mesh.triangles[2].initDepth;
+            break;
+        case 4:
+            actual = back.mesh.vertices[0].couplingCd;
+            break;
+        case 5:
+            actual = back.mesh.vertices[0].couplingArea;
+            break;
+        case 6:
+        case 7:
             QCOMPARE(back.mesh.cellCouplings.size(), 1);
-            actual = field == 6 ? back.mesh.cellCouplings[0].cd : back.mesh.cellCouplings[0].area; break;
+            actual = field == 6 ? back.mesh.cellCouplings[0].cd : back.mesh.cellCouplings[0].area;
+            break;
         case 8:
             QCOMPARE(back.mesh.infilDefaults.size(), 1);
             QVERIFY(back.mesh.infilDefaults[0].row.p[0] == expected);
-            actual = back.mesh.infilOverrides.value(2).p[0]; break;
-        case 9: actual = back.mesh.infilOptions.infilStep; break;
-        case 10: actual = back.edgeBCs[edgeSlot(2, 3)].head; break;
-        case 11: actual = back.edgeBCs[edgeSlot(2, 3)].slope; break;
-        case 12: actual = back.edgeBCs[edgeSlot(2, 3)].flow; break;
-        case 13: actual = back.edgeBCs[edgeSlot(2, 3)].conveyance; break;
+            actual = back.mesh.infilOverrides.value(2).p[0];
+            break;
+        case 9:
+            actual = back.mesh.infilOptions.infilStep;
+            break;
+        case 10:
+            actual = back.edgeBCs[edgeSlot(2, 3)].head;
+            break;
+        case 11:
+            actual = back.edgeBCs[edgeSlot(2, 3)].slope;
+            break;
+        case 12:
+            actual = back.edgeBCs[edgeSlot(2, 3)].flow;
+            break;
+        case 13:
+            actual = back.edgeBCs[edgeSlot(2, 3)].conveyance;
+            break;
         }
         // QCOMPARE(double,double) allows a fuzzy tolerance; persistence must
         // recover the original finite double, not a nearby rounded value.
-        QVERIFY2(actual == expected, qPrintable(QString("%1 != %2")
-            .arg(actual, 0, 'g', 17).arg(expected, 0, 'g', 17)));
+        QVERIFY2(actual == expected,
+                 qPrintable(QString("%1 != %2").arg(actual, 0, 'g', 17).arg(expected, 0, 'g', 17)));
     }
 
-
+    /**
+     *
+     * @brief Require geometry and both coupling-map sections, fixture tags and roughness override
+     * to appear in generated text.
+     *
+     */
     void buildSectionText_includesAllFour()
     {
-        const QString text = InpMeshWriter::buildSectionText(
-            sampleMesh(), sampleCoupling());
+        const QString text = InpMeshWriter::buildSectionText(sampleMesh(), sampleCoupling());
         QVERIFY(text.contains("[2D_VERTICES]"));
         QVERIFY(text.contains("[2D_TRIANGLES]"));
         QVERIFY(text.contains("[2D_VERTEX_NODE_MAP]"));
@@ -239,6 +382,12 @@ private slots:
     /*! INIT_DEPTH sits between MANNINGS_N and TAG; the column is emitted for
      *  EVERY row whenever any triangle carries a depth or a tag, so a numeric
      *  5th token always means INIT_DEPTH on re-read. */
+    /**
+     *
+     * @brief Require all triangle rows to emit numeric depth before tag when any row has
+     * depth/tag metadata.
+     *
+     */
     void buildSectionText_initDepthPrecedesTag()
     {
         MeshResult m = sampleMesh();
@@ -248,32 +397,43 @@ private slots:
         const int sec = text.indexOf("[2D_TRIANGLES]");
         QVERIFY(sec >= 0);
         int end = text.indexOf("\n[", sec + 1);
-        if (end < 0) end = text.size();
+        if (end < 0)
+            end = text.size();
         const QString block = text.mid(sec, end - sec);
         QVERIFY(block.contains("INIT_DEPTH"));
 
         bool sawDepthThenTag = false, allRowsHaveDepth = true;
         for (const QString &line : block.split('\n')) {
             const QString t = line.trimmed();
-            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('[')) continue;
-            const QStringList tok =
-                t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-            if (tok.size() < 5) { allRowsHaveDepth = false; continue; }
+            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('['))
+                continue;
+            const QStringList tok = t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (tok.size() < 5) {
+                allRowsHaveDepth = false;
+                continue;
+            }
             bool okd = false;
             tok[4].toDouble(&okd);
-            if (!okd) allRowsHaveDepth = false;
-            if (okd && tok[4].toDouble() == 0.25 && tok.size() >= 6
-                && tok[5] == QStringLiteral("subcatch_S1"))
+            if (!okd)
+                allRowsHaveDepth = false;
+            if (okd && tok[4].toDouble() == 0.25 && tok.size() >= 6 &&
+                tok[5] == QStringLiteral("subcatch_S1"))
                 sawDepthThenTag = true;
         }
         QVERIFY2(allRowsHaveDepth, qPrintable(block));
         QVERIFY2(sawDepthThenTag, qPrintable(block));
     }
 
+    /**
+     *
+     * @brief Require vertex coupling text to retain explicit coefficient/area and materialized
+     * default values for the fixture map.
+     *
+     */
     void buildSectionText_vertexMapCarriesCdArea()
     {
         MeshResult m = sampleMesh();
-        m.vertices[1].couplingCd   = 0.7;
+        m.vertices[1].couplingCd = 0.7;
         m.vertices[1].couplingArea = 2.0;
         const QString text = InpMeshWriter::buildSectionText(m, sampleCoupling());
 
@@ -281,22 +441,22 @@ private slots:
         const int sec = text.indexOf("[2D_VERTEX_NODE_MAP]");
         QVERIFY(sec >= 0);
         int end = text.indexOf("\n[", sec + 1);
-        if (end < 0) end = text.size();
+        if (end < 0)
+            end = text.size();
         const QString block = text.mid(sec, end - sec);
 
         bool v1HasCdArea = false, v0HasDefaults = false;
         const QStringList lines = block.split('\n');
         for (const QString &line : lines) {
             const QString t = line.trimmed();
-            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('[')) continue;
-            const QStringList tok =
-                t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-            if (tok.size() < 4) continue;
-            if (tok[1] == "J2" && tok[2].toDouble() == 0.7
-                && tok[3].toDouble() == 2.0)
+            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('['))
+                continue;
+            const QStringList tok = t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (tok.size() < 4)
+                continue;
+            if (tok[1] == "J2" && tok[2].toDouble() == 0.7 && tok[3].toDouble() == 2.0)
                 v1HasCdArea = true;
-            if (tok[1] == "J1" && tok[2].toDouble() == 0.65
-                && tok[3].toDouble() == 1.0)
+            if (tok[1] == "J1" && tok[2].toDouble() == 0.65 && tok[3].toDouble() == 1.0)
                 v0HasDefaults = true;
         }
         QVERIFY2(v1HasCdArea, qPrintable(block));
@@ -307,29 +467,46 @@ private slots:
     // written without the token (the engine then applies COUPLING_CD / the
     // node's structure) and reads back unauthored; an authored AREA keeps
     // its CD column. Saves therefore stop turning defaults into overrides.
+    /**
+     *
+     * @brief Require absent coupling coefficient/area to stay unauthored and explicit values to
+     * survive external write/read.
+     * The local row lookup borrows generated text and an exact node name, returning
+     * the first whitespace-tokenized matching row or an empty list. Fixture files persist.
+     *
+     */
     void unauthoredCouplingTokensRoundTrip()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
         const QString inp = dir.filePath("project.inp");
         const QString file = dir.filePath("mesh.2dm");
-        QFile deck(inp); QVERIFY(deck.open(QIODevice::WriteOnly));
-        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n"); deck.close();
+        QFile deck(inp);
+        QVERIFY(deck.open(QIODevice::WriteOnly));
+        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n");
+        deck.close();
         auto m = mixedMesh();
         CouplingMap coupling;
-        m.vertices[0].coupledNode = "J1"; coupling.vertexToNode.insert(0, "J1");
+        m.vertices[0].coupledNode = "J1";
+        coupling.vertexToNode.insert(0, "J1");
         m.vertices[0].couplingCdSet = m.vertices[0].couplingAreaSet = false;
-        m.vertices[1].coupledNode = "J2"; coupling.vertexToNode.insert(1, "J2");
-        m.vertices[1].couplingCd = 0.7; m.vertices[1].couplingAreaSet = false;
-        mesh::CellCoupling bare{2, "J3", 0.65, 2.0}; bare.cdSet = bare.areaSet = false;
-        mesh::CellCoupling areaOnly{2, "J4", 0.65, 3.5}; areaOnly.cdSet = false;
+        m.vertices[1].coupledNode = "J2";
+        coupling.vertexToNode.insert(1, "J2");
+        m.vertices[1].couplingCd = 0.7;
+        m.vertices[1].couplingAreaSet = false;
+        mesh::CellCoupling bare{2, "J3", 0.65, 2.0};
+        bare.cdSet = bare.areaSet = false;
+        mesh::CellCoupling areaOnly{2, "J4", 0.65, 3.5};
+        areaOnly.cdSet = false;
         m.cellCouplings = {bare, areaOnly};
 
         const QString text = InpMeshWriter::buildSectionText(m, coupling);
         auto rowOf = [&](const QString &node) {
             for (const QString &line : text.split('\n')) {
-                const QStringList tok = line.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-                if (tok.size() >= 2 && tok[1] == node) return tok;
+                const QStringList tok =
+                    line.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (tok.size() >= 2 && tok[1] == node)
+                    return tok;
             }
             return QStringList{};
         };
@@ -341,7 +518,8 @@ private slots:
 
         QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
         QString err;
-        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err), qPrintable(err));
+        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err),
+                 qPrintable(err));
         const auto back = InpMeshReader::read(inp);
         QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
         QVERIFY(!back.mesh.vertices[0].couplingCdSet && !back.mesh.vertices[0].couplingAreaSet);
@@ -353,9 +531,15 @@ private slots:
         QCOMPARE(back.mesh.cellCouplings[1].area, 3.5);
     }
 
+    /**
+     *
+     * @brief Require an empty coupling map to omit both map sections while retaining
+     * vertex/triangle geometry.
+     *
+     */
     void buildSectionText_emptyVertexMap_omitsSection()
     {
-        CouplingMap c;  // no entries at all
+        CouplingMap c; // no entries at all
         const QString text = InpMeshWriter::buildSectionText(sampleMesh(), c);
         QVERIFY(text.contains("[2D_VERTICES]"));
         QVERIFY(text.contains("[2D_TRIANGLES]"));
@@ -364,6 +548,13 @@ private slots:
     }
 
     /*! External mode: writes .2dm next to .inp + injects [2D_MESH_FILE]. */
+    /**
+     *
+     * @brief Require external mode to write a sibling project.2dm and replace inline geometry
+     * with a mesh-file reference while retaining OPTIONS.
+     * Uses a persistent unique-case directory and does not run the model.
+     *
+     */
     void writeExternal_basic()
     {
         ReviewableTestDir dir;
@@ -375,9 +566,8 @@ private slots:
         inp.close();
 
         QString err;
-        const bool ok = InpMeshWriter::writeExternal(
-            inpPath, /*meshFilePath=*/"", sampleMesh(), sampleCoupling(),
-            0.035, &err);
+        const bool ok = InpMeshWriter::writeExternal(inpPath, /*meshFilePath=*/"", sampleMesh(),
+                                                     sampleCoupling(), 0.035, &err);
         QVERIFY2(ok, qPrintable(err));
 
         // Sibling .2dm exists and contains the four sections.
@@ -405,20 +595,25 @@ private slots:
 
     /*! External writes the path relative to the .inp directory when both
      *  are siblings (portable when copied as a unit). */
+    /**
+     *
+     * @brief Require sibling external mesh references to use project.2dm without leaking the
+     * absolute fixture-directory path.
+     *
+     */
     void writeExternal_relativePath()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath  = dir.filePath("project.inp");
+        const QString inpPath = dir.filePath("project.inp");
         QFile inp(inpPath);
         QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
         inp.write(sampleInpText().toUtf8());
         inp.close();
 
         QString err;
-        QVERIFY(InpMeshWriter::writeExternal(
-            inpPath, /*meshFilePath=*/"", sampleMesh(), sampleCoupling(),
-            0.035, &err));
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, /*meshFilePath=*/"", sampleMesh(),
+                                             sampleCoupling(), 0.035, &err));
 
         QFile in2(inpPath);
         QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
@@ -429,17 +624,31 @@ private slots:
         QVERIFY(inpText.contains("FILE  project.2dm"));
     }
 
+    /**
+     *
+     * @brief Register single/repeated-space and semicolon names for ordinary, rewritten and
+     * prepared-reference modes.
+     *
+     */
     void writeExternal_spacesReloadMesh_data()
     {
         QTest::addColumn<QString>("name");
         QTest::addColumn<int>("mode");
         for (const QString &name : {QStringLiteral("My Model"), QStringLiteral("My  Model"),
-                                   QStringLiteral("My; Model")}) {
+                                    QStringLiteral("My; Model")}) {
             for (int mode = 0; mode < 3; ++mode)
                 QTest::newRow(qPrintable(name + QString::number(mode))) << name << mode;
         }
     }
 
+    /**
+     *
+     * @brief Require name/spacing/semicolon references to reload the exact mesh rather than a
+     * collapsed-path decoy.
+     * Consumes name/mode; writes persistent project, mesh and deliberately different
+     * decoy files, then checks resolved path and geometry.
+     *
+     */
     void writeExternal_spacesReloadMesh()
     {
         QFETCH(QString, name);
@@ -463,17 +672,20 @@ private slots:
         decoy.write("[2D_VERTICES]\n0 0 99\n1 0 99\n0 1 99\n[2D_TRIANGLES]\n0 1 2\n");
         decoy.close();
         QString err;
-        QVERIFY2(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
-            sampleCoupling(), 0.035, &err), qPrintable(err));
+        QVERIFY2(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(), sampleCoupling(),
+                                              0.035, &err),
+                 qPrintable(err));
         if (mode == 1)
             QVERIFY2(InpMeshWriter::writeMeshFileRef(inpPath, meshPath, &err), qPrintable(err));
         if (mode == 2)
-            QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(inpPath, meshPath, meshPath, &err), qPrintable(err));
+            QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(inpPath, meshPath, meshPath, &err),
+                     qPrintable(err));
         const auto loaded = InpMeshReader::read(inpPath);
         QVERIFY2(loaded.errorMsg.isEmpty(), qPrintable(loaded.errorMsg));
         QVERIFY(loaded.hasMesh);
         QVERIFY(loaded.isExternal);
-        QCOMPARE(QFileInfo(loaded.sourcePath).absoluteFilePath(), QFileInfo(meshPath).absoluteFilePath());
+        QCOMPARE(QFileInfo(loaded.sourcePath).absoluteFilePath(),
+                 QFileInfo(meshPath).absoluteFilePath());
         QCOMPARE(loaded.mesh.vertices.size(), sampleMesh().vertices.size());
         QCOMPARE(loaded.mesh.vertices[0].z, sampleMesh().vertices[0].z);
         QCOMPARE(loaded.mesh.triangles.size(), sampleMesh().triangles.size());
@@ -481,6 +693,12 @@ private slots:
 
     /*! Re-running external write should fully replace any prior 2D data
      *  + a stale [2D_MESH_FILE] block (idempotent). */
+    /**
+     *
+     * @brief Require external writing to replace stale inline geometry/reference blocks and
+     * retain exactly one current mesh-file reference.
+     *
+     */
     void writeExternal_replacesPriorBlocks()
     {
         ReviewableTestDir dir;
@@ -489,17 +707,16 @@ private slots:
         QFile inp(inpPath);
         QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
         // Pre-existing inline sections + a stale [2D_MESH_FILE] block.
-        inp.write(QStringLiteral(
-            "[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS CFS\n\n"
-            "[2D_VERTICES]\nstale\n\n"
-            "[2D_TRIANGLES]\nstale\n\n"
-            "[2D_MESH_FILE]\nFILE old.2dm\n\n").toUtf8());
+        inp.write(QStringLiteral("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS CFS\n\n"
+                                 "[2D_VERTICES]\nstale\n\n"
+                                 "[2D_TRIANGLES]\nstale\n\n"
+                                 "[2D_MESH_FILE]\nFILE old.2dm\n\n")
+                      .toUtf8());
         inp.close();
 
         QString err;
-        QVERIFY(InpMeshWriter::writeExternal(
-            inpPath, /*meshFilePath=*/"", sampleMesh(), sampleCoupling(),
-            0.035, &err));
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, /*meshFilePath=*/"", sampleMesh(),
+                                             sampleCoupling(), 0.035, &err));
 
         QFile in2(inpPath);
         QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
@@ -512,6 +729,12 @@ private slots:
     }
 
     /*! Inline mode: sections in-place, no [2D_MESH_FILE]. */
+    /**
+     *
+     * @brief Require inline mode to retain OPTIONS and geometry, omit the external reference and
+     * create no sibling mesh file.
+     *
+     */
     void writeInline_basic()
     {
         ReviewableTestDir dir;
@@ -523,8 +746,7 @@ private slots:
         inp.close();
 
         QString err;
-        QVERIFY(InpMeshWriter::writeInline(
-            inpPath, sampleMesh(), sampleCoupling(), 0.035, &err));
+        QVERIFY(InpMeshWriter::writeInline(inpPath, sampleMesh(), sampleCoupling(), 0.035, &err));
 
         QFile in2(inpPath);
         QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
@@ -532,7 +754,7 @@ private slots:
         QVERIFY(inpText.contains("[OPTIONS]"));
         QVERIFY(inpText.contains("[2D_VERTICES]"));
         QVERIFY(inpText.contains("[2D_TRIANGLES]"));
-        QVERIFY(!inpText.contains("[2D_MESH_FILE]"));  // inline mode strips it
+        QVERIFY(!inpText.contains("[2D_MESH_FILE]")); // inline mode strips it
 
         // No sibling .2dm should be created.
         const QString meshPath = dir.filePath("project.2dm");
@@ -541,6 +763,12 @@ private slots:
 
     /*! clearMeshFileRef strips an external [2D_MESH_FILE] reference while
      *  preserving inline [2D_*] mesh data — the "switch to inline" path. */
+    /**
+     *
+     * @brief Require clearing a mesh-file reference to retain inline mesh and unrelated OPTIONS
+     * text.
+     *
+     */
     void clearMeshFileRef_dropsRefKeepsInline()
     {
         ReviewableTestDir dir;
@@ -549,11 +777,11 @@ private slots:
         QFile inp(inpPath);
         QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
         // Inline mesh data AND an external reference both present.
-        inp.write(QStringLiteral(
-            "[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS CFS\n\n"
-            "[2D_VERTICES]\n0 0 1.0\n\n"
-            "[2D_TRIANGLES]\n0 1 2 0.03\n\n"
-            "[2D_MESH_FILE]\nFILE other.2dm\n\n").toUtf8());
+        inp.write(QStringLiteral("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS CFS\n\n"
+                                 "[2D_VERTICES]\n0 0 1.0\n\n"
+                                 "[2D_TRIANGLES]\n0 1 2 0.03\n\n"
+                                 "[2D_MESH_FILE]\nFILE other.2dm\n\n")
+                      .toUtf8());
         inp.close();
 
         QString err;
@@ -571,6 +799,11 @@ private slots:
     }
 
     /*! clearMeshFileRef is a no-op-safe when no [2D_MESH_FILE] is present. */
+    /**
+     *
+     * @brief Require clearing an absent mesh-file reference to succeed while retaining OPTIONS.
+     *
+     */
     void clearMeshFileRef_noRef_isHarmless()
     {
         ReviewableTestDir dir;
@@ -592,6 +825,12 @@ private slots:
     }
 
     /*! Empty mesh → fail gracefully with errorOut set, .inp untouched. */
+    /**
+     *
+     * @brief Require an invalid empty mesh to refuse external writing with a diagnostic and leave
+     * the input text unchanged.
+     *
+     */
     void emptyMesh_fails()
     {
         ReviewableTestDir dir;
@@ -602,7 +841,7 @@ private slots:
         inp.write(sampleInpText().toUtf8());
         inp.close();
 
-        MeshResult empty;  // ok=false by default
+        MeshResult empty; // ok=false by default
         CouplingMap c;
         QString err;
         QVERIFY(!InpMeshWriter::writeExternal(inpPath, "", empty, c, 0.035, &err));
@@ -621,6 +860,12 @@ private slots:
      *  triangle Manning / tag / cell couplings must all survive; a triangle
      *  whose layer Manning is unset (NaN) must keep the generation-time
      *  token from the file. */
+    /**
+     *
+     * @brief Register units/CRS metadata located at file level or immediately inside the vertex
+     * section.
+     *
+     */
     void patchAttributeSections_preservesMetadata_data()
     {
         QTest::addColumn<bool>("insideSection");
@@ -628,6 +873,13 @@ private slots:
         QTest::newRow("engine-vertex-header") << true;
     }
 
+    /**
+     *
+     * @brief Require repeated attribute patching to retain one units/CRS header and the edited
+     * elevation for either header location.
+     * Consumes insideSection and checks parsed metadata plus raw header counts.
+     *
+     */
     void patchAttributeSections_preservesMetadata()
     {
         QFETCH(bool, insideSection);
@@ -637,10 +889,14 @@ private slots:
         auto mesh = sampleMesh();
         QString text = InpMeshWriter::buildSectionText(mesh, {});
         const QString header = ";; UNITS: SI (m)\n;; SOURCE_CRS: EPSG:32616\n";
-        if (insideSection) text.replace("[2D_VERTICES]\n", "[2D_VERTICES]\n" + header);
-        else text.prepend(header);
-        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
-        file.write(text.toUtf8()); file.close();
+        if (insideSection)
+            text.replace("[2D_VERTICES]\n", "[2D_VERTICES]\n" + header);
+        else
+            text.prepend(header);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(text.toUtf8());
+        file.close();
         mesh.vertices[0].z = 23.25;
         QString err;
         for (int i = 0; i < 2; ++i) {
@@ -651,17 +907,26 @@ private slots:
             QCOMPARE(back.sourceCrsTag, QStringLiteral("EPSG:32616"));
             QCOMPARE(back.mesh.vertices[0].z, 23.25);
             QVERIFY(file.open(QIODevice::ReadOnly));
-            const QByteArray bytes = file.readAll(); file.close();
+            const QByteArray bytes = file.readAll();
+            file.close();
             QCOMPARE(bytes.count(";; UNITS:"), 1);
             QCOMPARE(bytes.count(";; SOURCE_CRS:"), 1);
         }
     }
 
+    /**
+     *
+     * @brief Require attribute patching to persist vertex elevation/tag/couplings, cell tags and
+     * cell coupling while retaining file roughness for unset layer values.
+     * A later explicit roughness edit must replace the prior token; uses CMS fixtures
+     * so authored linear values do not require unit conversion.
+     *
+     */
     void patchAttributeSections_reemitsEditedState()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath  = dir.filePath("project.inp");
+        const QString inpPath = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
         {
             QFile inp(inpPath);
@@ -673,8 +938,8 @@ private slots:
 
         // Generation-time write — triangle 0 has an explicit Manning
         // (0.025), triangle 1 gets the writer default (0.035).
-        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
-                                             sampleCoupling(), 0.035));
+        QVERIFY(
+            InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(), sampleCoupling(), 0.035));
 
         // The layer's editable state after the user edits: Z + vertex tag +
         // vertex coupling + triangle tag + one cell coupling. Triangle
@@ -685,19 +950,21 @@ private slots:
         MeshResult edited = sampleMesh();
         edited.vertices[0].coupledNode = QStringLiteral("J1");
         edited.vertices[1].coupledNode = QStringLiteral("J2");
-        edited.vertices[1].z   = 9.75;
+        edited.vertices[1].z = 9.75;
         edited.vertices[2].tag = QStringLiteral("VTAG");
-        edited.vertices[3].coupledNode  = QStringLiteral("J9");
-        edited.vertices[3].couplingCd   = 0.5;
+        edited.vertices[3].coupledNode = QStringLiteral("J9");
+        edited.vertices[3].couplingCd = 0.5;
         edited.vertices[3].couplingArea = 2.5;
         edited.triangles[1].tag = QStringLiteral("subcatch_S2");
         CellCoupling cc;
-        cc.tri = 1; cc.nodeId = QStringLiteral("J7"); cc.cd = 0.6; cc.area = 3.0;
+        cc.tri = 1;
+        cc.nodeId = QStringLiteral("J7");
+        cc.cd = 0.6;
+        cc.area = 3.0;
         edited.cellCouplings.append(cc);
 
         QString err;
-        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
 
         const InpMeshReadResult r = InpMeshReader::read(inpPath);
         QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
@@ -725,8 +992,7 @@ private slots:
         // An explicit layer-side Manning edit wins over the file token.
         MeshResult edited2 = r.mesh;
         edited2.triangles[1].mannings = 0.077;
-        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited2, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited2, &err), qPrintable(err));
         const InpMeshReadResult r2 = InpMeshReader::read(inpPath);
         QVERIFY(r2.hasMesh);
         QCOMPARE(r2.mesh.triangles[1].mannings, 0.077);
@@ -735,11 +1001,17 @@ private slots:
 
     /*! Topology guard: a row-count mismatch means the file holds a
      *  different mesh — the patch must fail and leave the file untouched. */
+    /**
+     *
+     * @brief Require a vertex-count mismatch to refuse attribute patching with a diagnostic and
+     * preserve exact file bytes.
+     *
+     */
     void patchAttributeSections_countMismatchFailsUntouched()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath  = dir.filePath("project.inp");
+        const QString inpPath = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
         {
             QFile inp(inpPath);
@@ -747,8 +1019,8 @@ private slots:
             inp.write("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
             inp.close();
         }
-        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
-                                             sampleCoupling(), 0.035));
+        QVERIFY(
+            InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(), sampleCoupling(), 0.035));
         QFile before(meshPath);
         QVERIFY(before.open(QIODevice::ReadOnly));
         const QByteArray snapshot = before.readAll();
@@ -769,6 +1041,12 @@ private slots:
      *  no Manning's value on either side. Columns are positional, so the
      *  patcher materializes the default n rather than dropping the later
      *  columns — before the fix the depth (and tag) vanished silently. */
+    /**
+     *
+     * @brief Require editing depth/tag on connectivity-only rows to materialize positive
+     * roughness and retain positional fields.
+     *
+     */
     void patchAttributeSections_depthSurvivesMissingMannings()
     {
         ReviewableTestDir dir;
@@ -793,13 +1071,12 @@ private slots:
 
         MeshResult edited = sampleMesh();
         edited.triangles[0].initDepth = 0.4;
-        edited.triangles[0].tag       = QStringLiteral("pond");
+        edited.triangles[0].tag = QStringLiteral("pond");
         // triangles[*].mannings stay NaN — the layer only fills them on an
         // explicit edit, and the file has no token to preserve either.
 
         QString err;
-        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
 
         const InpMeshReadResult r = InpMeshReader::read(meshPath);
         QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
@@ -815,11 +1092,17 @@ private slots:
     /*! A depth edit must not disturb a Manning's value the file already
      *  carried — the patcher preserves the original token when the layer's
      *  own value is unset. */
+    /**
+     *
+     * @brief Require a depth-only patch with unset layer roughness to preserve both original file
+     * roughness values.
+     *
+     */
     void patchAttributeSections_depthEditKeepsFileMannings()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath  = dir.filePath("project.inp");
+        const QString inpPath = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
         {
             QFile inp(inpPath);
@@ -828,15 +1111,14 @@ private slots:
             inp.close();
         }
         // Triangle 0 carries an explicit 0.025; triangle 1 the 0.035 default.
-        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
-                                             sampleCoupling(), 0.035));
+        QVERIFY(
+            InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(), sampleCoupling(), 0.035));
 
         MeshResult edited = sampleMesh();
-        edited.triangles[1].initDepth = 0.15;   // depth only, mannings NaN
+        edited.triangles[1].initDepth = 0.15; // depth only, mannings NaN
 
         QString err;
-        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
 
         const InpMeshReadResult r = InpMeshReader::read(inpPath);
         QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
@@ -851,23 +1133,28 @@ private slots:
     /*! Pin the canonical full-precision text and historical column layout.
      *  Phase 14 deliberately replaces the lossy fixed-decimal representation;
      *  repeated writes in the new format remain byte-stable. */
+    /**
+     *
+     * @brief Require exact canonical full-precision triangle text and absence of an unused quad
+     * section.
+     *
+     */
     void buildSectionText_allTrianglePinnedText()
     {
         CouplingMap none;
         const QString text = InpMeshWriter::buildSectionText(sampleMesh(), none);
-        const QString expected = QStringLiteral(
-            "[2D_VERTICES]\n"
-            ";; X            Y            Z            TAG\n"
-            "0  0  1  J1\n"
-            "100  0  1.5\n"
-            "100  100  2\n"
-            "0  100  1.2\n"
-            "\n"
-            "[2D_TRIANGLES]\n"
-            ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
-            "0  1  2  0.035000000000000003  0  subcatch_S1\n"
-            "0  2  3  0.035000000000000003  0\n"
-            "\n");
+        const QString expected = QStringLiteral("[2D_VERTICES]\n"
+                                                ";; X            Y            Z            TAG\n"
+                                                "0  0  1  J1\n"
+                                                "100  0  1.5\n"
+                                                "100  100  2\n"
+                                                "0  100  1.2\n"
+                                                "\n"
+                                                "[2D_TRIANGLES]\n"
+                                                ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                                "0  1  2  0.035000000000000003  0  subcatch_S1\n"
+                                                "0  2  3  0.035000000000000003  0\n"
+                                                "\n");
         QCOMPARE(text, expected);
         QVERIFY(!text.contains("[2D_QUADS]"));
     }
@@ -875,6 +1162,12 @@ private slots:
     /*! A mixed mesh writes [2D_TRIANGLES] (triangle cells only) then
      *  [2D_QUADS] (`V1 V2 V3 V4 MANNINGS_N INIT_DEPTH TAG`), and the text
      *  survives reader -> writer byte-for-byte. */
+    /**
+     *
+     * @brief Require triangles-first mixed text, precise quad metadata and reader-to-writer byte
+     * identity.
+     *
+     */
     void quadRow_roundTripsByteIdentical()
     {
         ReviewableTestDir dir;
@@ -888,13 +1181,13 @@ private slots:
         }
         CouplingMap c;
         c.triangleMannings.insert(0, 0.025);
-        c.triangleMannings.insert(2, 0.018);   // the quad
+        c.triangleMannings.insert(2, 0.018); // the quad
         const QString first = InpMeshWriter::buildSectionText(mixedMesh(), c);
 
         const int tSec = first.indexOf("[2D_TRIANGLES]");
         const int qSec = first.indexOf("[2D_QUADS]");
         QVERIFY(tSec >= 0 && qSec > tSec);
-        const QString triBlock  = first.mid(tSec, qSec - tSec);
+        const QString triBlock = first.mid(tSec, qSec - tSec);
         QVERIFY(triBlock.contains("0  1  4  0.025000000000000001  0  left\n"));
         QVERIFY(triBlock.contains("0  4  3  0.035000000000000003  0\n"));
         QVERIFY(!triBlock.contains("1  2  5  4"));
@@ -902,8 +1195,7 @@ private slots:
                                "1  2  5  4  0.017999999999999999  0.25  street\n"));
 
         QString err;
-        QVERIFY2(InpMeshWriter::writeInline(inpPath, mixedMesh(), c, 0.035, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::writeInline(inpPath, mixedMesh(), c, 0.035, &err), qPrintable(err));
         const InpMeshReadResult r = InpMeshReader::read(inpPath);
         QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
         QVERIFY(r.hasMesh);
@@ -925,6 +1217,12 @@ private slots:
 
     /*! A BC on a quad's edge 3 (its (V1,V2) side) is written as `TRI EDGE`
      *  = (cell, 3) and read back into the same stride-4 slot. */
+    /**
+     *
+     * @brief Require a quad edge-three NormalFlow slope to round-trip into its four-slot edge
+     * position while all other slots remain Wall.
+     *
+     */
     void bcRow_onQuadEdge3()
     {
         ReviewableTestDir dir;
@@ -939,7 +1237,7 @@ private slots:
         const MeshResult m = mixedMesh();
         QVector<MeshEdgeBC> bcs(mesh::edgeSlotCount(m.triangles.size()));
         MeshEdgeBC nf;
-        nf.type  = MeshBCTypes::Type::NormalFlow;
+        nf.type = MeshBCTypes::Type::NormalFlow;
         nf.slope = 0.002;
         bcs[mesh::edgeSlot(2, 3)] = nf;
 
@@ -956,12 +1254,20 @@ private slots:
         QCOMPARE(r.edgeBCs[mesh::edgeSlot(2, 3)].slope, 0.002);
         // Every other slot (padding included) stays Wall.
         int nonWall = 0;
-        for (const auto &b : r.edgeBCs) if (b.type != MeshBCTypes::Type::Wall) ++nonWall;
+        for (const auto &b : r.edgeBCs)
+            if (b.type != MeshBCTypes::Type::Wall)
+                ++nonWall;
         QCOMPARE(nonWall, 1);
     }
 
     /*! Conveyance on a quad-quad edge: the two neighbour slots collapse to
      *  ONE vertex-pair row and both slots are repopulated on read. */
+    /**
+     *
+     * @brief Require shared quad-edge conveyance to serialize once by vertex pair and restore
+     * into both neighbor slots only.
+     *
+     */
     void conveyanceRow_onQuadQuadEdge()
     {
         ReviewableTestDir dir;
@@ -975,8 +1281,8 @@ private slots:
         }
         const MeshResult m = quadPairMesh();
         QVector<MeshEdgeBC> bcs(mesh::edgeSlotCount(m.triangles.size()));
-        bcs[mesh::edgeSlot(0, 0)].conveyance = 0.5;   // (1,4) seen from quad 0
-        bcs[mesh::edgeSlot(1, 2)].conveyance = 0.5;   // (4,1) seen from quad 1
+        bcs[mesh::edgeSlot(0, 0)].conveyance = 0.5; // (1,4) seen from quad 0
+        bcs[mesh::edgeSlot(1, 2)].conveyance = 0.5; // (4,1) seen from quad 1
 
         const QString convText = InpMeshWriter::buildConveyanceSectionText(m, bcs);
         QCOMPARE(convText.count(QStringLiteral(" 0.5\n")), 1);
@@ -991,18 +1297,26 @@ private slots:
         QCOMPARE(r.edgeBCs[mesh::edgeSlot(0, 0)].conveyance, 0.5);
         QCOMPARE(r.edgeBCs[mesh::edgeSlot(1, 2)].conveyance, 0.5);
         int nonDefault = 0;
-        for (const auto &b : r.edgeBCs) if (b.conveyance != 1.0) ++nonDefault;
+        for (const auto &b : r.edgeBCs)
+            if (b.conveyance != 1.0)
+                ++nonDefault;
         QCOMPARE(nonDefault, 2);
     }
 
     /*! patchAttributeSections on a mixed mesh: [2D_QUADS] rows are rebuilt
      *  from the quad cells (row j <-> cell n_tri + j), a file-side Manning
      *  token survives a NaN layer value, and the count guard sees quads. */
+    /**
+     *
+     * @brief Require mixed-cell patches to preserve quad kind/depth/file roughness while updating
+     * tag, and refuse quad-count mismatch without byte changes.
+     *
+     */
     void patchAttributeSections_mixedMesh()
     {
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath  = dir.filePath("project.inp");
+        const QString inpPath = dir.filePath("project.inp");
         const QString meshPath = dir.filePath("project.2dm");
         {
             QFile inp(inpPath);
@@ -1015,10 +1329,9 @@ private slots:
         QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, mixedMesh(), c, 0.035));
 
         MeshResult edited = mixedMesh();
-        edited.triangles[2].tag = QStringLiteral("avenue");   // mannings stay NaN
+        edited.triangles[2].tag = QStringLiteral("avenue"); // mannings stay NaN
         QString err;
-        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
-                 qPrintable(err));
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
         const InpMeshReadResult r = InpMeshReader::read(inpPath);
         QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
         QCOMPARE(r.mesh.triangles.size(), 3);
@@ -1039,6 +1352,12 @@ private slots:
         QVERIFY(after.open(QIODevice::ReadOnly));
         QCOMPARE(after.readAll(), snapshot);
     }
+    /**
+     *
+     * @brief Register all-triangle, mixed and all-quad geometries for combined-versus-sequential
+     * patch equivalence.
+     *
+     */
     void combinedPatch_preservesPayload_data()
     {
         QTest::addColumn<int>("shape");
@@ -1047,6 +1366,14 @@ private slots:
         QTest::newRow("quads") << 2;
     }
 
+    /**
+     *
+     * @brief Require repeated combined patches to match sequential attribute/BC output
+     * byte-for-byte and retain unrelated payload plus metadata.
+     * Consumes shape; verifies selected coupling/infiltration/boundary values and
+     * requires resetting boundaries to remove both boundary/conveyance sections.
+     *
+     */
     void combinedPatch_preservesPayload()
     {
         QFETCH(int, shape);
@@ -1054,18 +1381,24 @@ private slots:
         auto m = shape == 0 ? sampleMesh() : shape == 1 ? mixedMesh() : quadPairMesh();
         const QString combined = dir.filePath("combined.inp");
         const QString sequential = dir.filePath("sequential.inp");
-        QFile f(combined); QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write("[TITLE]\nAuthored title\n[UNOWNED_SECTION]\nkeep this payload\n"); f.close();
+        QFile f(combined);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[TITLE]\nAuthored title\n[UNOWNED_SECTION]\nkeep this payload\n");
+        f.close();
         QVERIFY(InpMeshWriter::writeInline(combined, m, {}));
         QVERIFY(QFile::copy(combined, sequential));
         InpMeshWriter::UnitInfo units;
-        units.linearUnitName = "SI (m)"; units.sourceCrsTag = "EPSG:3857";
+        units.linearUnitName = "SI (m)";
+        units.sourceCrsTag = "EPSG:3857";
         m.vertices[0].z = 123.12345678901234;
         m.vertices[0].coupledNode = "J1";
         m.cellCouplings.append({0, "J2", 0.65, 2.0});
         m.triangles[0].initDepth = 0.25;
-        InfilRow row; row.method = InfilMethod::Constant; row.p[0] = 0.12345678901234567;
-        m.infilOverrides.insert(0, row); m.infilDefaults.append({"*", row});
+        InfilRow row;
+        row.method = InfilMethod::Constant;
+        row.p[0] = 0.12345678901234567;
+        m.infilOverrides.insert(0, row);
+        m.infilDefaults.append({"*", row});
         QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
         bcs[edgeSlot(0, 2)].type = MeshBCTypes::Type::SpecifiedFlowConst;
         bcs[edgeSlot(0, 2)].flow = -0.125;
@@ -1073,12 +1406,15 @@ private slots:
         bcs[edgeSlot(0, 2)].conveyance = 0.42;
         QString err;
         for (int repeat = 0; repeat < 2; ++repeat) {
-            QVERIFY2(InpMeshWriter::patchMeshSections(combined, m, bcs, &err, .035, &units), qPrintable(err));
+            QVERIFY2(InpMeshWriter::patchMeshSections(combined, m, bcs, &err, .035, &units),
+                     qPrintable(err));
             QVERIFY(InpMeshWriter::patchAttributeSections(sequential, m, &err, .035, &units));
             QVERIFY(InpMeshWriter::patchBCSections(sequential, m, bcs, &err));
             QVERIFY(f.open(QIODevice::ReadOnly));
-            const auto bytes = f.readAll(); f.close();
-            QFile expected(sequential); QVERIFY(expected.open(QIODevice::ReadOnly));
+            const auto bytes = f.readAll();
+            f.close();
+            QFile expected(sequential);
+            QVERIFY(expected.open(QIODevice::ReadOnly));
             QCOMPARE(bytes, expected.readAll());
             QVERIFY(bytes.contains("[UNOWNED_SECTION]\nkeep this payload"));
             QVERIFY(bytes.contains(";; UNITS: SI (m)"));
@@ -1101,6 +1437,11 @@ private slots:
         QVERIFY(!reset.contains("[2D_EDGE_CONVEYANCE]"));
     }
 
+    /**
+     *
+     * @brief Register vertex-count, cell-kind and boundary-slot-count mismatches.
+     *
+     */
     void combinedPatch_rejectsMismatch_data()
     {
         QTest::addColumn<int>("failure");
@@ -1109,20 +1450,33 @@ private slots:
         QTest::newRow("boundary-slots") << 2;
     }
 
+    /**
+     *
+     * @brief Require each combined-patch mismatch to refuse with a diagnostic and retain exact
+     * original bytes.
+     * Consumes failure; persistent case files remain available for inspection.
+     *
+     */
     void combinedPatch_rejectsMismatch()
     {
         QFETCH(int, failure);
         ReviewableTestDir dir;
         const QString path = dir.filePath("mesh.inp");
-        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.close();
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.close();
         auto m = mixedMesh();
         QVERIFY(InpMeshWriter::writeInline(path, m, {}));
         QVERIFY(f.open(QIODevice::ReadOnly));
-        const auto before = f.readAll(); f.close();
+        const auto before = f.readAll();
+        f.close();
         QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
-        if (failure == 0) m.vertices.removeLast();
-        if (failure == 1) m.triangles[2].v3 = -1;
-        if (failure == 2) bcs.removeLast();
+        if (failure == 0)
+            m.vertices.removeLast();
+        if (failure == 1)
+            m.triangles[2].v3 = -1;
+        if (failure == 2)
+            bcs.removeLast();
         QString err;
         QVERIFY(!InpMeshWriter::patchMeshSections(path, m, bcs, &err));
         QVERIFY(!err.isEmpty());
@@ -1130,15 +1484,26 @@ private slots:
         QCOMPARE(f.readAll(), before);
     }
 
+    /**
+     *
+     * @brief Require repeated full mesh replacement to change topology and rebuild coupling,
+     * roughness, depth, infiltration and boundary payload.
+     * Checks selected exact values, retained solver text/units metadata and removal of
+     * the stale external mesh reference; does not initialize or simulate the deck.
+     *
+     */
     void replacement_changesTopologyAndRebuildsFullPayload()
     {
         ReviewableTestDir dir;
         const QString path = dir.filePath("replacement.inp");
-        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write("[TITLE]\nReplacement fixture\n[2D_OPTIONS]\nSOLVER EXPLICIT\n"); f.close();
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[TITLE]\nReplacement fixture\n[2D_OPTIONS]\nSOLVER EXPLICIT\n");
+        f.close();
         QVERIFY(InpMeshWriter::writeInline(path, sampleMesh(), sampleCoupling()));
         QVERIFY(f.open(QIODevice::Append));
-        f.write("\n[2D_MESH_FILE]\nFILE old.2dm\n"); f.close();
+        f.write("\n[2D_MESH_FILE]\nFILE old.2dm\n");
+        f.close();
         auto mesh = mixedMesh();
         mesh.vertices[0].coupledNode = "NewNode";
         mesh.vertices[0].couplingCd = 0.61;
@@ -1146,18 +1511,23 @@ private slots:
         mesh.cellCouplings.append({2, "CellNode", 0.72, 1.375});
         mesh.triangles[0].mannings = 0.067;
         mesh.triangles[0].initDepth = 0.125;
-        InfilRow row; row.method = InfilMethod::Constant; row.p[0] = 0.12345678901234567;
-        mesh.infilDefaults.append({"*", row}); mesh.infilOverrides.insert(2, row);
+        InfilRow row;
+        row.method = InfilMethod::Constant;
+        row.p[0] = 0.12345678901234567;
+        mesh.infilDefaults.append({"*", row});
+        mesh.infilOverrides.insert(2, row);
         QVector<MeshEdgeBC> bcs(edgeSlotCount(mesh.triangles.size()));
         bcs[edgeSlot(2, 3)].type = MeshBCTypes::Type::SpecifiedFlowConst;
         bcs[edgeSlot(2, 3)].flow = -0.625;
         bcs[edgeSlot(2, 3)].group = "NewOutlet";
         bcs[edgeSlot(2, 3)].conveyance = 0.375;
-        InpMeshWriter::UnitInfo units; units.linearUnitName = "SI (m)";
+        InpMeshWriter::UnitInfo units;
+        units.linearUnitName = "SI (m)";
         units.sourceCrsTag = "EPSG:3857";
         QString error;
         for (int repeat = 0; repeat < 2; ++repeat) {
-            QVERIFY2(InpMeshWriter::replaceMeshSections(path, mesh, bcs, &error, 0.035, &units), qPrintable(error));
+            QVERIFY2(InpMeshWriter::replaceMeshSections(path, mesh, bcs, &error, 0.035, &units),
+                     qPrintable(error));
             const auto loaded = InpMeshReader::read(path);
             QVERIFY2(loaded.hasMesh, qPrintable(loaded.errorMsg));
             QCOMPARE(loaded.mesh.vertices.size(), mesh.vertices.size());
@@ -1174,7 +1544,9 @@ private slots:
             QCOMPARE(loaded.mesh.infilOverrides.value(2).p[0], row.p[0]);
             QCOMPARE(loaded.edgeBCs[edgeSlot(2, 3)].flow, -0.625);
             QCOMPARE(loaded.edgeBCs[edgeSlot(2, 3)].conveyance, 0.375);
-            QVERIFY(f.open(QIODevice::ReadOnly)); const auto bytes = f.readAll(); f.close();
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const auto bytes = f.readAll();
+            f.close();
             QVERIFY(bytes.contains("[2D_OPTIONS]\nSOLVER EXPLICIT"));
             QVERIFY(bytes.contains(";; UNITS: SI (m)"));
             QVERIFY(!bytes.contains("[2D_MESH_FILE]"));
@@ -1182,95 +1554,154 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Register topology-addressed quality/coverage/aquifer/source/snow assignments,
+     * including tag/file forms and a lowercase commented header.
+     *
+     */
     void topologyGuard_refusesUnsupportedAssignments_data()
     {
         QTest::addColumn<QString>("section");
         QTest::addColumn<QString>("row");
-        for (const QString &section : {"2D_INITIAL_QUALITY", "2D_COVERAGES", "2D_LOADINGS",
-             "2D_CURB_LENGTH", "2D_AQUIFER", "GW_TRANSPORT_PARAMS", "GW_SORPTION", "GW_INITIAL_QUALITY"}) {
-            QTest::newRow(qPrintable(section + "-cell")) << section << QString("CELL 1 authored payload");
-            QTest::newRow(qPrintable(section + "-tag")) << section << QString("TAG bank authored payload");
+        for (const QString &section :
+             {"2D_INITIAL_QUALITY", "2D_COVERAGES", "2D_LOADINGS", "2D_CURB_LENGTH", "2D_AQUIFER",
+              "GW_TRANSPORT_PARAMS", "GW_SORPTION", "GW_INITIAL_QUALITY"}) {
+            QTest::newRow(qPrintable(section + "-cell"))
+                << section << QString("CELL 1 authored payload");
+            QTest::newRow(qPrintable(section + "-tag"))
+                << section << QString("TAG bank authored payload");
         }
         QTest::newRow("velocity") << QString("2D_INITIAL_VELOCITY") << QString("0 1 2");
-        QTest::newRow("boundary-quality") << QString("2D_BOUNDARY_QUALITY") << QString("0 1 Lead 0.5");
-        QTest::newRow("gw-boundary") << QString("GW_BOUNDARY_QUALITY") << QString("1 0 Lead CONC 0.5");
-        QTest::newRow("aquifer-node") << QString("2D_AQUIFER_NODE") << QString("J1 1 KC 0.01 DC 0.5");
+        QTest::newRow("boundary-quality")
+            << QString("2D_BOUNDARY_QUALITY") << QString("0 1 Lead 0.5");
+        QTest::newRow("gw-boundary")
+            << QString("GW_BOUNDARY_QUALITY") << QString("1 0 Lead CONC 0.5");
+        QTest::newRow("aquifer-node")
+            << QString("2D_AQUIFER_NODE") << QString("J1 1 KC 0.01 DC 0.5");
         QTest::newRow("gw-source-cell") << QString("GW_SOURCES") << QString("Well CELL 1 FLOW 1");
         QTest::newRow("gw-source-tag") << QString("GW_SOURCES") << QString("Well TAG bank FLOW 1");
         QTest::newRow("gw-file") << QString("GW_INITIAL_QUALITY") << QString("FILE external.csv");
         QTest::newRow("snow-cell") << QString("2D_SNOW_CELLS") << QString("1 SNOWPACK Winter");
-        QTest::newRow("snow-cell-prefix") << QString("2D_SNOW_CELLS") << QString("CELL 1 SNOWPACK Winter");
+        QTest::newRow("snow-cell-prefix")
+            << QString("2D_SNOW_CELLS") << QString("CELL 1 SNOWPACK Winter");
         QTest::newRow("snow-tag") << QString("2D_SNOW_DEFAULTS") << QString("bank SNOWPACK Winter");
-        QTest::newRow("snow-tag-prefix") << QString("2D_SNOW_DEFAULTS") << QString("TAG bank SNOWPACK Winter");
-        QTest::newRow("lowercase-header-with-comment") << QString("2d_initial_velocity") << QString("0 1 2");
+        QTest::newRow("snow-tag-prefix")
+            << QString("2D_SNOW_DEFAULTS") << QString("TAG bank SNOWPACK Winter");
+        QTest::newRow("lowercase-header-with-comment")
+            << QString("2d_initial_velocity") << QString("0 1 2");
     }
 
+    /**
+     *
+     * @brief Require validation and replacement to refuse every unsupported addressed assignment
+     * with remap guidance and untouched bytes.
+     * Consumes section/row; the payload tests structural ownership guards rather
+     * than engine grammar acceptance.
+     *
+     */
     void topologyGuard_refusesUnsupportedAssignments()
     {
-        QFETCH(QString, section); QFETCH(QString, row);
+        QFETCH(QString, section);
+        QFETCH(QString, row);
         ReviewableTestDir dir;
         const QString path = dir.filePath("unsupported.inp");
-        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
         const QString headerComment = section == "2d_initial_velocity" ? " ; header comment" : "";
-        const QByteArray before = (sampleInpText() + "\n[" + section + "]" + headerComment
-                                   + "\n" + row + " ; comment\n").toUtf8();
-        QCOMPARE(f.write(before), before.size()); f.close();
+        const QByteArray before =
+            (sampleInpText() + "\n[" + section + "]" + headerComment + "\n" + row + " ; comment\n")
+                .toUtf8();
+        QCOMPARE(f.write(before), before.size());
+        f.close();
         QString error;
         QVERIFY(!InpMeshWriter::validateTopologyReplacement(path, &error));
         QVERIFY2(error.contains("remap", Qt::CaseInsensitive), qPrintable(error));
         const auto mesh = sampleMesh();
-        QVERIFY(!InpMeshWriter::replaceMeshSections(path, mesh,
-            QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error));
-        QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(), before);
+        QVERIFY(!InpMeshWriter::replaceMeshSections(
+            path, mesh, QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), before);
     }
 
+    /**
+     *
+     * @brief Require uniform and location-based configuration to pass topology replacement and
+     * remain as an exact contiguous payload.
+     * The fixture is not initialized or simulated.
+     *
+     */
     void topologyGuard_preservesUniformAndLocationConfiguration()
     {
         ReviewableTestDir dir;
         const QString path = dir.filePath("uniform.inp");
-        const QByteArray config =
-            "[2D_OPTIONS]\nGROUNDWATER AUTO\n"
-            "[2D_SNOW_DEFAULTS]\n* SNOWPACK Winter\n"
-            "[2D_AQUIFER_OPTIONS]\nMODE MESH\n"
-            "[2D_AQUIFER]\n* 0.5 5 0.45 0.1 2\n"
-            "[2D_AQUIFER_NODE]\n\"Node one\" AUTO KC 0.01 DC 0.5\n"
-            "[2D_AQUIFER_LINKS]\nC1 KC 0.01 DC 0.5 EXCHANGE YES\n"
-            "[GW_TRANSPORT_OPTIONS]\nTRANSPORT_POLLUTANTS YES\n"
-            "[GW_TRANSPORT_PARAMS]\n* 2600 800 2 0 0 0 0 0 0\n"
-            "[GW_SORPTION]\n* Lead 1 -\n"
-            "[GW_INITIAL_QUALITY]\n* SAT Lead 1\n"
-            "[GW_SOURCES]\n\"Well one\" XY 5 5 FLOW 1\n"
-            "[2D_INITIAL_QUALITY]\n* Lead 1\n"
-            "[2D_COVERAGES]\n* Residential 100\n"
-            "[2D_LOADINGS]\n* Lead 1\n"
-            "[2D_CURB_LENGTH]\n* 0\n"
-            "[2D_INITIAL_VELOCITY]\n; no authored rows\n";
-        QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(config); f.close();
+        const QByteArray config = "[2D_OPTIONS]\nGROUNDWATER AUTO\n"
+                                  "[2D_SNOW_DEFAULTS]\n* SNOWPACK Winter\n"
+                                  "[2D_AQUIFER_OPTIONS]\nMODE MESH\n"
+                                  "[2D_AQUIFER]\n* 0.5 5 0.45 0.1 2\n"
+                                  "[2D_AQUIFER_NODE]\n\"Node one\" AUTO KC 0.01 DC 0.5\n"
+                                  "[2D_AQUIFER_LINKS]\nC1 KC 0.01 DC 0.5 EXCHANGE YES\n"
+                                  "[GW_TRANSPORT_OPTIONS]\nTRANSPORT_POLLUTANTS YES\n"
+                                  "[GW_TRANSPORT_PARAMS]\n* 2600 800 2 0 0 0 0 0 0\n"
+                                  "[GW_SORPTION]\n* Lead 1 -\n"
+                                  "[GW_INITIAL_QUALITY]\n* SAT Lead 1\n"
+                                  "[GW_SOURCES]\n\"Well one\" XY 5 5 FLOW 1\n"
+                                  "[2D_INITIAL_QUALITY]\n* Lead 1\n"
+                                  "[2D_COVERAGES]\n* Residential 100\n"
+                                  "[2D_LOADINGS]\n* Lead 1\n"
+                                  "[2D_CURB_LENGTH]\n* 0\n"
+                                  "[2D_INITIAL_VELOCITY]\n; no authored rows\n";
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(config);
+        f.close();
         QString error;
         QVERIFY2(InpMeshWriter::validateTopologyReplacement(path, &error), qPrintable(error));
         auto mesh = sampleMesh();
-        QVERIFY2(InpMeshWriter::replaceMeshSections(path, mesh,
-            QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error), qPrintable(error));
-        QVERIFY(f.open(QIODevice::ReadOnly)); QVERIFY(f.readAll().contains(config));
+        QVERIFY2(InpMeshWriter::replaceMeshSections(
+                     path, mesh, QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error),
+                 qPrintable(error));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(f.readAll().contains(config));
     }
 
+    /**
+     *
+     * @brief Require prepared reference writing to name the eventual logical mesh path while
+     * validating a separate physical stage file.
+     * Checks no logical mesh is created or stage filename leaked into the input.
+     *
+     */
     void preparedReference_usesLogicalPath()
     {
         ReviewableTestDir dir;
         const QString model = dir.filePath(".stage-model");
         const QString physical = dir.filePath(".stage-mesh");
         const QString logical = dir.filePath("new-final.2dm");
-        QFile f(model); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(sampleInpText().toUtf8()); f.close();
-        QFile mesh(physical); QVERIFY(mesh.open(QIODevice::WriteOnly)); mesh.write("prepared mesh\n"); mesh.close();
+        QFile f(model);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(sampleInpText().toUtf8());
+        f.close();
+        QFile mesh(physical);
+        QVERIFY(mesh.open(QIODevice::WriteOnly));
+        mesh.write("prepared mesh\n");
+        mesh.close();
         QVERIFY(!QFile::exists(logical));
         QString error;
-        QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(model, logical, physical, &error), qPrintable(error));
-        QVERIFY(f.open(QIODevice::ReadOnly)); const auto bytes = f.readAll();
+        QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(model, logical, physical, &error),
+                 qPrintable(error));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const auto bytes = f.readAll();
         QVERIFY(bytes.contains("FILE  new-final.2dm"));
         QVERIFY(!bytes.contains(".stage-mesh"));
         QVERIFY(!QFile::exists(logical));
     }
 
+    /**
+     *
+     * @brief Register missing, empty-file and directory stage paths.
+     *
+     */
     void preparedReference_invalidStage_data()
     {
         QTest::addColumn<int>("kind");
@@ -1279,6 +1710,14 @@ private slots:
         QTest::newRow("directory") << 2;
     }
 
+    /**
+     *
+     * @brief Require an invalid prepared stage to refuse with a diagnostic and retain original
+     * input bytes.
+     * Consumes kind; an existing logical mesh is seeded but its contents are not
+     * explicitly compared by this case.
+     *
+     */
     void preparedReference_invalidStage()
     {
         QFETCH(int, kind);
@@ -1286,17 +1725,27 @@ private slots:
         const QString model = dir.filePath("model.inp");
         const QString physical = dir.filePath("stage");
         const QString logical = dir.filePath("existing.2dm");
-        QFile f(model); QVERIFY(f.open(QIODevice::WriteOnly)); const auto before = sampleInpText().toUtf8();
-        f.write(before); f.close();
-        QFile target(logical); QVERIFY(target.open(QIODevice::WriteOnly)); target.write("existing mesh\n"); target.close();
-        if (kind == 1) { QFile stage(physical); QVERIFY(stage.open(QIODevice::WriteOnly)); }
-        if (kind == 2) QVERIFY(QDir().mkpath(physical));
+        QFile f(model);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        const auto before = sampleInpText().toUtf8();
+        f.write(before);
+        f.close();
+        QFile target(logical);
+        QVERIFY(target.open(QIODevice::WriteOnly));
+        target.write("existing mesh\n");
+        target.close();
+        if (kind == 1) {
+            QFile stage(physical);
+            QVERIFY(stage.open(QIODevice::WriteOnly));
+        }
+        if (kind == 2)
+            QVERIFY(QDir().mkpath(physical));
         QString error;
         QVERIFY(!InpMeshWriter::writePreparedMeshFileRef(model, logical, physical, &error));
         QVERIFY(!error.isEmpty());
-        QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(), before);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), before);
     }
-
 };
 
 QTEST_MAIN(TestInpMeshWriter)

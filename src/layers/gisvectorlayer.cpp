@@ -1,7 +1,10 @@
-/*!
- * \file   gisvectorlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      gisvectorlayer.cpp
+ * @brief     rendering features as QGraphicsItems in the canvas overlay.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/gisvectorlayer.h"
@@ -58,8 +61,14 @@ Q_LOGGING_CATEGORY(lcLoadVector, "openswmm.load.vector")
 // translate between the two so Symbology-tab edits reach the canvas
 // without rewriting populateScene's per-geometry-type item construction.
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Seed one simple-marker rule from legacy vector symbology.
+ * @param[out] style Existing layers are replaced and opacity set to one.
+ * @param[in] sym Marker fields and line colour/width/dash source; richer labels/polygon brush settings are not transferred.
+ */
 void seedSymbolStyleFromGISVectorSymbol(OpenSWMM::Render::SymbolStyle &style,
                                         const GISVectorSymbol &sym)
 {
@@ -70,25 +79,31 @@ void seedSymbolStyleFromGISVectorSymbol(OpenSWMM::Render::SymbolStyle &style,
     sl.kind = SymbolLayerKind::SimpleMarker;
     // Marker props — read by point paint and by the SymbolStyleAdapter's
     // markerSize / markerShape / fillColor / outlineColor accessors.
-    sl.props.insert(QStringLiteral("shape"),           int(sym.markerShape));
-    sl.props.insert(QStringLiteral("size"),            sym.markerSize);
-    sl.props.insert(QStringLiteral("fillColor"),       sym.markerFill);
-    sl.props.insert(QStringLiteral("outlineColor"),    sym.markerOutline);
-    sl.props.insert(QStringLiteral("outlineWidth"),    sym.markerOutlineW);
+    sl.props.insert(QStringLiteral("shape"), int(sym.markerShape));
+    sl.props.insert(QStringLiteral("size"), sym.markerSize);
+    sl.props.insert(QStringLiteral("fillColor"), sym.markerFill);
+    sl.props.insert(QStringLiteral("outlineColor"), sym.markerOutline);
+    sl.props.insert(QStringLiteral("outlineWidth"), sym.markerOutlineW);
     sl.props.insert(QStringLiteral("outlinePenStyle"), int(Qt::SolidLine));
     // Line / polygon props — adapter writes "color"/"width" alongside
     // "outlineColor"/"outlineWidth" so line + polygon outline track the
     // marker outline edit. Seed them with the existing line pen + polygon
     // outline so the panel reads sensible initial values.
-    sl.props.insert(QStringLiteral("color"),           sym.linePen.color());
-    sl.props.insert(QStringLiteral("width"),           sym.linePen.widthF());
-    sl.props.insert(QStringLiteral("penStyle"),        int(sym.linePen.style()));
+    sl.props.insert(QStringLiteral("color"), sym.linePen.color());
+    sl.props.insert(QStringLiteral("width"), sym.linePen.widthF());
+    sl.props.insert(QStringLiteral("penStyle"), int(sym.linePen.style()));
 
     style.layers.clear();
     style.layers.append(sl);
     style.opacity = 1.0;
 }
 
+/**
+ * @brief Project the first compositional symbol layer onto typed vector defaults.
+ * @param[in] style First layer supplies marker/line/outline/fill properties; additional layers and overall opacity are ignored.
+ * @param[in] fallback Values retained for missing/nonconvertible properties, or returned unchanged for an empty layer list.
+ * @return Owned typed symbol; numeric/enum ranges are unchecked and polygon fill becomes a solid colour brush.
+ */
 GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolStyle &style,
                                                const GISVectorSymbol &fallback)
 {
@@ -100,9 +115,11 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
 
     auto readColor = [&](const QString &key, const QColor &def) {
         const auto it = p.constFind(key);
-        if (it == p.constEnd()) return def;
+        if (it == p.constEnd())
+            return def;
         const QColor c = it.value().value<QColor>();
-        if (c.isValid()) return c;
+        if (c.isValid())
+            return c;
         // SymbolStyleAdapter sometimes stores colours as their #AARRGGBB
         // name string — accept that form too.
         const QColor s(it.value().toString());
@@ -110,25 +127,27 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
     };
     auto readReal = [&](const QString &key, qreal def) {
         const auto it = p.constFind(key);
-        if (it == p.constEnd()) return def;
+        if (it == p.constEnd())
+            return def;
         bool ok = false;
         const qreal v = it.value().toReal(&ok);
         return ok ? v : def;
     };
     auto readInt = [&](const QString &key, int def) {
         const auto it = p.constFind(key);
-        if (it == p.constEnd()) return def;
+        if (it == p.constEnd())
+            return def;
         bool ok = false;
         const int v = it.value().toInt(&ok);
         return ok ? v : def;
     };
 
     // ── Marker (point features) ─────────────────────────────────────
-    out.markerShape    = static_cast<GISVectorSymbol::MarkerShape>(
+    out.markerShape = static_cast<GISVectorSymbol::MarkerShape>(
         readInt(QStringLiteral("shape"), int(out.markerShape)));
-    out.markerSize     = readReal(QStringLiteral("size"),         out.markerSize);
-    out.markerFill     = readColor(QStringLiteral("fillColor"),   out.markerFill);
-    out.markerOutline  = readColor(QStringLiteral("outlineColor"), out.markerOutline);
+    out.markerSize = readReal(QStringLiteral("size"), out.markerSize);
+    out.markerFill = readColor(QStringLiteral("fillColor"), out.markerFill);
+    out.markerOutline = readColor(QStringLiteral("outlineColor"), out.markerOutline);
     out.markerOutlineW = readReal(QStringLiteral("outlineWidth"), out.markerOutlineW);
 
     // ── Line (linestring features) ──────────────────────────────────
@@ -137,13 +156,12 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
     QPen linePen = out.linePen;
     linePen.setColor(readColor(QStringLiteral("color"), linePen.color()));
     linePen.setWidthF(readReal(QStringLiteral("width"), linePen.widthF()));
-    linePen.setStyle(static_cast<Qt::PenStyle>(
-        readInt(QStringLiteral("penStyle"), int(linePen.style()))));
+    linePen.setStyle(
+        static_cast<Qt::PenStyle>(readInt(QStringLiteral("penStyle"), int(linePen.style()))));
     out.linePen = linePen;
 
     // ── Polygon (polygon features) ──────────────────────────────────
-    out.polygonFill = QBrush(readColor(QStringLiteral("fillColor"),
-                                        out.polygonFill.color()));
+    out.polygonFill = QBrush(readColor(QStringLiteral("fillColor"), out.polygonFill.color()));
     QPen polyOutline = out.polygonOutline;
     polyOutline.setColor(readColor(QStringLiteral("outlineColor"), polyOutline.color()));
     polyOutline.setWidthF(readReal(QStringLiteral("outlineWidth"), polyOutline.widthF()));
@@ -158,8 +176,7 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 
-GISVectorLayer::GISVectorLayer(const QString &filePath,
-                               const QString &layerName,
+GISVectorLayer::GISVectorLayer(const QString &filePath, const QString &layerName,
                                OpenSWMMVisWorkspace *parent)
     : OpenSWMMVisLayer(parent)
 {
@@ -182,8 +199,8 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
         OpenSWMM::Render::SymbolStyle style;
         seedSymbolStyleFromGISVectorSymbol(style, m_symbol);
         single->setSymbol(std::move(style));
-        m_ruleList->append(std::make_unique<OpenSWMM::Render::Rule>(
-            tr("Default"), std::move(single)));
+        m_ruleList->append(
+            std::make_unique<OpenSWMM::Render::Rule>(tr("Default"), std::move(single)));
     }
 
     // Propagate Rule-side edits to the canvas. The SymbolStyleAdapter
@@ -192,11 +209,10 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
     // RuleList::ruleChanged. Derive a fresh GISVectorSymbol from the
     // renderer and feed it through setSymbol(), which marks the scene
     // dirty + emits repaintRequested.
-    connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleChanged,
-            this, [this](int) {
-                syncSymbolFromRenderer();
-                emit rendererChanged();
-            });
+    connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleChanged, this, [this](int) {
+        syncSymbolFromRenderer();
+        emit rendererChanged();
+    });
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
 
@@ -219,14 +235,15 @@ GISVectorLayer::~GISVectorLayer()
 // Dataset info
 // ---------------------------------------------------------------------------
 
-QString GISVectorLayer::filePath()     const
+QString GISVectorLayer::filePath() const
 {
     // Properties window shows full on-disk path for the dataset.
-    return m_filePath.isEmpty()
-               ? m_filePath
-               : QFileInfo(m_filePath).absoluteFilePath();
+    return m_filePath.isEmpty() ? m_filePath : QFileInfo(m_filePath).absoluteFilePath();
 }
-QString GISVectorLayer::ogrLayerName() const { return m_ogrLayerName; }
+QString GISVectorLayer::ogrLayerName() const
+{
+    return m_ogrLayerName;
+}
 
 QString GISVectorLayer::sourceDescription() const
 {
@@ -237,11 +254,11 @@ QString GISVectorLayer::sourceDescription() const
 QVector<QPair<QString, QString>> GISVectorLayer::extendedMetadata() const
 {
     QVector<QPair<QString, QString>> md;
-    md.append({ tr("Features"), QString::number(featureCount()) });
+    md.append({tr("Features"), QString::number(featureCount())});
     const QStringList fields = fieldNames();
-    md.append({ tr("Fields"), QString::number(fields.size()) });
+    md.append({tr("Fields"), QString::number(fields.size())});
     if (!fields.isEmpty())
-        md.append({ tr("Field names"), fields.join(QStringLiteral(", ")) });
+        md.append({tr("Field names"), fields.join(QStringLiteral(", "))});
     return md;
 }
 
@@ -280,24 +297,35 @@ GISVectorLayer::availableAttributes(OpenSWMMVis::SwmmCategory /*cat*/) const
 {
     using OpenSWMM::Render::AttributeField;
     QVector<AttributeField> out;
-    if (!m_ogrLayer) return out;
+    if (!m_ogrLayer)
+        return out;
 
     OGRFeatureDefn *defn = m_ogrLayer->GetLayerDefn();
     out.reserve(defn->GetFieldCount());
     for (int i = 0; i < defn->GetFieldCount(); ++i) {
         OGRFieldDefn *fd = defn->GetFieldDefn(i);
         AttributeField f;
-        f.name        = QString::fromUtf8(fd->GetNameRef());
+        f.name = QString::fromUtf8(fd->GetNameRef());
         f.displayName = f.name;
-        f.isDynamic   = false;
+        f.isDynamic = false;
         switch (fd->GetType()) {
         case OFTInteger:
-        case OFTInteger64:  f.type = QMetaType::LongLong; break;
-        case OFTReal:       f.type = QMetaType::Double;   break;
-        case OFTString:     f.type = QMetaType::QString;  break;
+        case OFTInteger64:
+            f.type = QMetaType::LongLong;
+            break;
+        case OFTReal:
+            f.type = QMetaType::Double;
+            break;
+        case OFTString:
+            f.type = QMetaType::QString;
+            break;
         case OFTDate:
-        case OFTDateTime:   f.type = QMetaType::QDateTime;break;
-        default:            f.type = QMetaType::QString;  break;
+        case OFTDateTime:
+            f.type = QMetaType::QDateTime;
+            break;
+        default:
+            f.type = QMetaType::QString;
+            break;
         }
         out.append(f);
     }
@@ -310,7 +338,8 @@ void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
     // coords for the mask-clip resolver. The OGR walk + Y-flip mirrors
     // populateScene's polygon branch (avoiding a refactor of that path
     // which is hot during canvas paint).
-    if (!m_ogrLayer) return;
+    if (!m_ogrLayer)
+        return;
 
     // Save + clear the canvas's spatial filter so we walk every feature
     // regardless of what canvasExtent populateScene last set. Restore
@@ -322,7 +351,8 @@ void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
 
     auto addRing = [&](OGRLinearRing *ring) {
         const int n = ring ? ring->getNumPoints() : 0;
-        if (n < 3) return;
+        if (n < 3)
+            return;
         // Mirror populateScene: scene-coords are map-coords with Y
         // flipped. populateScene calls toScene(x, y) after the OGR
         // transform; we replicate that step inline since toScene is
@@ -336,8 +366,12 @@ void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
     OGRFeature *feat = nullptr;
     while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
         OGRGeometry *geom = feat->GetGeometryRef();
-        if (geom && m_transform) geom->transform(m_transform);
-        if (!geom) { OGRFeature::DestroyFeature(feat); continue; }
+        if (geom && m_transform)
+            geom->transform(m_transform);
+        if (!geom) {
+            OGRFeature::DestroyFeature(feat);
+            continue;
+        }
 
         const OGRwkbGeometryType gt = wkbFlatten(geom->getGeometryType());
         if (gt == wkbPolygon) {
@@ -349,7 +383,8 @@ void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
             auto *mp = geom->toMultiPolygon();
             for (int p = 0; p < mp->getNumGeometries(); ++p) {
                 auto *poly = mp->getGeometryRef(p)->toPolygon();
-                if (!poly) continue;
+                if (!poly)
+                    continue;
                 addRing(poly->getExteriorRing());
                 for (int h = 0; h < poly->getNumInteriorRings(); ++h)
                     addRing(poly->getInteriorRing(h));
@@ -368,7 +403,10 @@ void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
 // Filtering
 // ---------------------------------------------------------------------------
 
-QString GISVectorLayer::filterExpression() const { return m_filterExpr; }
+QString GISVectorLayer::filterExpression() const
+{
+    return m_filterExpr;
+}
 
 void GISVectorLayer::setFilterExpression(const QString &expr)
 {
@@ -378,10 +416,8 @@ void GISVectorLayer::setFilterExpression(const QString &expr)
     m_filterExpr = expr;
     OpenSWMM::Render::invalidateMaskClipCache(layerId());
 
-    if (m_ogrLayer)
-    {
-        m_ogrLayer->SetAttributeFilter(
-            expr.isEmpty() ? nullptr : expr.toUtf8().constData());
+    if (m_ogrLayer) {
+        m_ogrLayer->SetAttributeFilter(expr.isEmpty() ? nullptr : expr.toUtf8().constData());
     }
 
     m_needsRebuild = true;
@@ -393,7 +429,10 @@ void GISVectorLayer::setFilterExpression(const QString &expr)
 // Symbology
 // ---------------------------------------------------------------------------
 
-GISVectorSymbol GISVectorLayer::symbol() const { return m_symbol; }
+GISVectorSymbol GISVectorLayer::symbol() const
+{
+    return m_symbol;
+}
 
 // ---------------------------------------------------------------------------
 // GISVectorSymbol JSON round-trip (Slice X.19)
@@ -406,17 +445,17 @@ GISVectorSymbol GISVectorLayer::symbol() const { return m_symbol; }
 QJsonObject GISVectorSymbol::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("markerShape")]   = int(markerShape);
-    j[QStringLiteral("markerSize")]    = markerSize;
-    j[QStringLiteral("markerFill")]    = markerFill.name(QColor::HexArgb);
+    j[QStringLiteral("markerShape")] = int(markerShape);
+    j[QStringLiteral("markerSize")] = markerSize;
+    j[QStringLiteral("markerFill")] = markerFill.name(QColor::HexArgb);
     j[QStringLiteral("markerOutline")] = markerOutline.name(QColor::HexArgb);
     j[QStringLiteral("markerOutlineW")] = markerOutlineW;
 
-    j[QStringLiteral("lineColor")]     = linePen.color().name(QColor::HexArgb);
-    j[QStringLiteral("lineWidth")]     = linePen.widthF();
-    j[QStringLiteral("lineDash")]      = int(linePen.style());
+    j[QStringLiteral("lineColor")] = linePen.color().name(QColor::HexArgb);
+    j[QStringLiteral("lineWidth")] = linePen.widthF();
+    j[QStringLiteral("lineDash")] = int(linePen.style());
 
-    j[QStringLiteral("polygonFill")]   = polygonFill.color().name(QColor::HexArgb);
+    j[QStringLiteral("polygonFill")] = polygonFill.color().name(QColor::HexArgb);
     j[QStringLiteral("polygonOutline")] = polygonOutline.color().name(QColor::HexArgb);
     j[QStringLiteral("polygonOutlineW")] = polygonOutline.widthF();
 
@@ -424,35 +463,37 @@ QJsonObject GISVectorSymbol::toJson() const
     j[QStringLiteral("showLabels")] = showLabels;
     if (!labelField.isEmpty())
         j[QStringLiteral("labelField")] = labelField;
-    j[QStringLiteral("labelColor")]    = labelColor.name(QColor::HexArgb);
+    j[QStringLiteral("labelColor")] = labelColor.name(QColor::HexArgb);
     j[QStringLiteral("labelFontFamily")] = labelFont.family();
-    j[QStringLiteral("labelFontSize")] = labelFont.pointSizeF() > 0
-        ? labelFont.pointSizeF() : 9.0;
-    j[QStringLiteral("labelConfig")]   = labelConfig.toJson();
+    j[QStringLiteral("labelFontSize")] = labelFont.pointSizeF() > 0 ? labelFont.pointSizeF() : 9.0;
+    j[QStringLiteral("labelConfig")] = labelConfig.toJson();
     return j;
 }
 
 void GISVectorSymbol::fromJson(const QJsonObject &j)
 {
     if (j.contains(QStringLiteral("markerShape")))
-        markerShape = static_cast<MarkerShape>(
-            j.value(QStringLiteral("markerShape")).toInt(int(Circle)));
+        markerShape =
+            static_cast<MarkerShape>(j.value(QStringLiteral("markerShape")).toInt(int(Circle)));
     if (j.contains(QStringLiteral("markerSize")))
         markerSize = j.value(QStringLiteral("markerSize")).toDouble(6.0);
     if (j.contains(QStringLiteral("markerFill"))) {
         const QColor c(j.value(QStringLiteral("markerFill")).toString());
-        if (c.isValid()) markerFill = c;
+        if (c.isValid())
+            markerFill = c;
     }
     if (j.contains(QStringLiteral("markerOutline"))) {
         const QColor c(j.value(QStringLiteral("markerOutline")).toString());
-        if (c.isValid()) markerOutline = c;
+        if (c.isValid())
+            markerOutline = c;
     }
     if (j.contains(QStringLiteral("markerOutlineW")))
         markerOutlineW = j.value(QStringLiteral("markerOutlineW")).toDouble(1.0);
 
     if (j.contains(QStringLiteral("lineColor"))) {
         const QColor c(j.value(QStringLiteral("lineColor")).toString());
-        if (c.isValid()) linePen.setColor(c);
+        if (c.isValid())
+            linePen.setColor(c);
     }
     if (j.contains(QStringLiteral("lineWidth")))
         linePen.setWidthF(j.value(QStringLiteral("lineWidth")).toDouble(2.0));
@@ -462,11 +503,13 @@ void GISVectorSymbol::fromJson(const QJsonObject &j)
 
     if (j.contains(QStringLiteral("polygonFill"))) {
         const QColor c(j.value(QStringLiteral("polygonFill")).toString());
-        if (c.isValid()) polygonFill = QBrush(c);
+        if (c.isValid())
+            polygonFill = QBrush(c);
     }
     if (j.contains(QStringLiteral("polygonOutline"))) {
         const QColor c(j.value(QStringLiteral("polygonOutline")).toString());
-        if (c.isValid()) polygonOutline.setColor(c);
+        if (c.isValid())
+            polygonOutline.setColor(c);
     }
     if (j.contains(QStringLiteral("polygonOutlineW")))
         polygonOutline.setWidthF(j.value(QStringLiteral("polygonOutlineW")).toDouble(2.0));
@@ -477,7 +520,8 @@ void GISVectorSymbol::fromJson(const QJsonObject &j)
         labelField = j.value(QStringLiteral("labelField")).toString();
     if (j.contains(QStringLiteral("labelColor"))) {
         const QColor c(j.value(QStringLiteral("labelColor")).toString());
-        if (c.isValid()) labelColor = c;
+        if (c.isValid())
+            labelColor = c;
     }
     if (j.contains(QStringLiteral("labelFontFamily")))
         labelFont.setFamily(j.value(QStringLiteral("labelFontFamily")).toString());
@@ -504,22 +548,21 @@ void GISVectorLayer::syncSymbolFromRenderer()
 {
     auto *single = dynamic_cast<OpenSWMM::Render::SingleSymbolRenderer *>(renderer());
     if (!single)
-        return;  // Graduated / Categorized — per-feature dispatch follow-up.
+        return; // Graduated / Categorized — per-feature dispatch follow-up.
 
     // SingleSymbol returns the same style for every feature, so an
     // empty FeatureRef + empty attrs is sufficient.
     const OpenSWMM::Render::SymbolStyle style =
         single->symbolFor(OpenSWMM::Render::FeatureRef{}, QVariantMap{});
     const GISVectorSymbol derived = deriveGISVectorSymbolFromStyle(style, m_symbol);
-    if (derived.markerShape    == m_symbol.markerShape    &&
+    if (derived.markerShape == m_symbol.markerShape &&
         qFuzzyCompare(derived.markerSize + 1.0, m_symbol.markerSize + 1.0) &&
-        derived.markerFill     == m_symbol.markerFill     &&
-        derived.markerOutline  == m_symbol.markerOutline  &&
+        derived.markerFill == m_symbol.markerFill &&
+        derived.markerOutline == m_symbol.markerOutline &&
         qFuzzyCompare(derived.markerOutlineW + 1.0, m_symbol.markerOutlineW + 1.0) &&
-        derived.linePen        == m_symbol.linePen        &&
-        derived.polygonFill    == m_symbol.polygonFill    &&
+        derived.linePen == m_symbol.linePen && derived.polygonFill == m_symbol.polygonFill &&
         derived.polygonOutline == m_symbol.polygonOutline)
-        return;  // No-op edits (e.g. blendMode-only change) skip the rebuild.
+        return; // No-op edits (e.g. blendMode-only change) skip the rebuild.
     setSymbol(derived);
 }
 
@@ -532,30 +575,30 @@ void GISVectorLayer::syncSymbolFromRenderer()
 // bag, then chain to the base which stores the config + emits the signals.
 void GISVectorLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 {
-    if (labelConfig() == cfg) return;
+    if (labelConfig() == cfg)
+        return;
     GISVectorSymbol sym = m_symbol;
-    sym.showLabels  = cfg.enabled;
-    sym.labelField  = cfg.fieldName;
-    sym.labelColor  = cfg.color;
-    sym.labelFont   = cfg.effectiveFont();
-    sym.labelConfig = cfg;     // Slice X.19 — full mirror for JSON round-trip.
-    if (sym.showLabels != m_symbol.showLabels
-        || sym.labelField != m_symbol.labelField
-        || sym.labelColor != m_symbol.labelColor
-        || sym.labelFont  != m_symbol.labelFont)
-    {
+    sym.showLabels = cfg.enabled;
+    sym.labelField = cfg.fieldName;
+    sym.labelColor = cfg.color;
+    sym.labelFont = cfg.effectiveFont();
+    sym.labelConfig = cfg; // Slice X.19 — full mirror for JSON round-trip.
+    if (sym.showLabels != m_symbol.showLabels || sym.labelField != m_symbol.labelField ||
+        sym.labelColor != m_symbol.labelColor || sym.labelFont != m_symbol.labelFont) {
         m_symbol = sym;
         emit symbolChanged(m_symbol);
     }
-    OpenSWMMVisLayer::setLabelConfig(cfg);   // stores + emits labelConfigChanged + repaint
+    OpenSWMMVisLayer::setLabelConfig(cfg); // stores + emits labelConfigChanged + repaint
 }
 
 QStringList GISVectorLayer::ogrFieldNames() const
 {
-    if (!m_ogrLayer) return {};
+    if (!m_ogrLayer)
+        return {};
     QStringList names;
     OGRFeatureDefn *defn = m_ogrLayer->GetLayerDefn();
-    if (!defn) return names;
+    if (!defn)
+        return names;
     for (int i = 0; i < defn->GetFieldCount(); ++i) {
         if (OGRFieldDefn *fd = defn->GetFieldDefn(i))
             names << QString::fromUtf8(fd->GetNameRef());
@@ -572,25 +615,21 @@ QStringList GISVectorLayer::ogrFieldNames() const
 // first call, resynced afterwards) instead of a fresh allocation per call —
 // stops the leak-per-dialog-open and makes the dialog's Cancel snapshot
 // restore the same instance every surface edits.
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-GISVectorLayer::styleSubjects()
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> GISVectorLayer::styleSubjects()
 {
     using openswmmvis::ui::ILayerStyleSubject;
     using openswmmvis::ui::LayerStyleSubject;
 
     if (!m_symbolAdapter) {
         m_symbolAdapter = new GisVectorSymbolAdapter(
-            m_symbol,
-            [this](const GISVectorSymbol &s) { setSymbol(s); },
-            this);
+            m_symbol, [this](const GISVectorSymbol &s) { setSymbol(s); }, this);
     } else {
         m_symbolAdapter->resyncFrom(m_symbol);
     }
 
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
-    out.push_back(std::make_unique<LayerStyleSubject>(
-        tr("Symbology"), m_symbolAdapter, QStringLiteral("vector.symbol"),
-        QString()));
+    out.push_back(std::make_unique<LayerStyleSubject>(tr("Symbology"), m_symbolAdapter,
+                                                      QStringLiteral("vector.symbol"), QString()));
     return out;
 }
 
@@ -601,7 +640,8 @@ GISVectorLayer::styleSubjects()
 OpenSWMM::Render::IFeatureRenderer *GISVectorLayer::renderer() const
 {
     // Slice B.3 — delegate to the active Rule's owned renderer.
-    if (!m_ruleList) return nullptr;
+    if (!m_ruleList)
+        return nullptr;
     OpenSWMM::Render::Rule *r = m_ruleList->activeRule();
     return r ? r->renderer() : nullptr;
 }
@@ -637,7 +677,10 @@ const OpenSWMM::Render::RuleList *GISVectorLayer::ruleList() const
 // Selection
 // ---------------------------------------------------------------------------
 
-QSet<long long> GISVectorLayer::selectedFeatureIds() const { return m_selectedIds; }
+QSet<long long> GISVectorLayer::selectedFeatureIds() const
+{
+    return m_selectedIds;
+}
 
 void GISVectorLayer::setSelectedFeatureIds(const QSet<long long> &ids)
 {
@@ -656,15 +699,14 @@ void GISVectorLayer::clearSelection()
 // Identify  (overloaded for MapTool convenience – no canvasSRS needed)
 // ---------------------------------------------------------------------------
 
-QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
-                                               double tolerance) const
+QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY, double tolerance) const
 {
     return identifyAt(mapX, mapY, nullptr, tolerance);
 }
 
 QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
-                                               const SpatialReferenceSystem *canvasSRS,
-                                               double tolerance) const
+                                              const SpatialReferenceSystem *canvasSRS,
+                                              double tolerance) const
 {
     QList<QVariantMap> results;
 
@@ -675,40 +717,29 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
         return results;
 
     // Set a spatial filter around the click point
-    m_ogrLayer->SetSpatialFilterRect(mapX - tolerance, mapY - tolerance,
-                                     mapX + tolerance, mapY + tolerance);
+    m_ogrLayer->SetSpatialFilterRect(mapX - tolerance, mapY - tolerance, mapX + tolerance,
+                                     mapY + tolerance);
     m_ogrLayer->ResetReading();
 
     OGRFeature *feat = nullptr;
-    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr)
-    {
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
         QVariantMap attrs;
         attrs[QStringLiteral("fid")] = static_cast<long long>(feat->GetFID());
 
         const OGRFeatureDefn *defn = feat->GetDefnRef();
-        for (int i = 0; i < defn->GetFieldCount(); ++i)
-        {
+        for (int i = 0; i < defn->GetFieldCount(); ++i) {
             QString fname = QString::fromUtf8(defn->GetFieldDefn(i)->GetNameRef());
             OGRFieldType type = defn->GetFieldDefn(i)->GetType();
 
-            if (!feat->IsFieldSet(i) || feat->IsFieldNull(i))
-            {
+            if (!feat->IsFieldSet(i) || feat->IsFieldNull(i)) {
                 attrs[fname] = QVariant{};
-            }
-            else if (type == OFTInteger)
-            {
+            } else if (type == OFTInteger) {
                 attrs[fname] = feat->GetFieldAsInteger(i);
-            }
-            else if (type == OFTInteger64)
-            {
+            } else if (type == OFTInteger64) {
                 attrs[fname] = static_cast<long long>(feat->GetFieldAsInteger64(i));
-            }
-            else if (type == OFTReal)
-            {
+            } else if (type == OFTReal) {
                 attrs[fname] = feat->GetFieldAsDouble(i);
-            }
-            else
-            {
+            } else {
                 attrs[fname] = QString::fromUtf8(feat->GetFieldAsString(i));
             }
         }
@@ -723,11 +754,11 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
     return results;
 }
 
-QSet<long long> GISVectorLayer::featureIdsInRect(
-    const MapExtent &rectCanvasCrs) const
+QSet<long long> GISVectorLayer::featureIdsInRect(const MapExtent &rectCanvasCrs) const
 {
     QSet<long long> out;
-    if (!m_ogrLayer) return out;
+    if (!m_ogrLayer)
+        return out;
 
     // Rect corners → layer CRS when reprojected. The 4-corner bbox is fine
     // HERE (unlike the old populate filter) because it is only a prefilter —
@@ -739,10 +770,15 @@ QSet<long long> GISVectorLayer::featureIdsInRect(
             double xs[4] = {xMin, xMax, xMax, xMin};
             double ys[4] = {yMin, yMin, yMax, yMax};
             if (inv->Transform(4, xs, ys)) {
-                xMin = xs[0]; xMax = xs[0]; yMin = ys[0]; yMax = ys[0];
+                xMin = xs[0];
+                xMax = xs[0];
+                yMin = ys[0];
+                yMax = ys[0];
                 for (int i = 1; i < 4; ++i) {
-                    xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
-                    yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
+                    xMin = qMin(xMin, xs[i]);
+                    xMax = qMax(xMax, xs[i]);
+                    yMin = qMin(yMin, ys[i]);
+                    yMax = qMax(yMax, ys[i]);
                 }
             }
             OGRCoordinateTransformation::DestroyCT(inv);
@@ -761,7 +797,7 @@ QSet<long long> GISVectorLayer::featureIdsInRect(
     // Save/restore any pre-existing spatial filter (clone first —
     // SetSpatialFilter deletes the layer's internal filter, dangling the
     // GetSpatialFilter return; the attribute-model reload discipline).
-    OGRGeometry *saved      = m_ogrLayer->GetSpatialFilter();
+    OGRGeometry *saved = m_ogrLayer->GetSpatialFilter();
     OGRGeometry *savedClone = saved ? saved->clone() : nullptr;
 
     m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
@@ -775,17 +811,18 @@ QSet<long long> GISVectorLayer::featureIdsInRect(
     }
 
     m_ogrLayer->SetSpatialFilter(savedClone);
-    if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+    if (savedClone)
+        OGRGeometryFactory::destroyGeometry(savedClone);
     m_ogrLayer->ResetReading();
     return out;
 }
 
-QSet<long long> GISVectorLayer::featureIdsInPolygon(
-    const QPolygonF &polygonCanvasCrs,
-    const SpatialReferenceSystem *canvasSRS) const
+QSet<long long> GISVectorLayer::featureIdsInPolygon(const QPolygonF &polygonCanvasCrs,
+                                                    const SpatialReferenceSystem *canvasSRS) const
 {
     QSet<long long> out;
-    if (!m_ogrLayer || polygonCanvasCrs.size() < 3) return out;
+    if (!m_ogrLayer || polygonCanvasCrs.size() < 3)
+        return out;
     ensureTransform(canvasSRS);
 
     OGRLinearRing ring;
@@ -796,10 +833,12 @@ QSet<long long> GISVectorLayer::featureIdsInPolygon(
     polygon.addRing(&ring);
     if (m_transform) {
         auto *inverse = m_transform->GetInverse();
-        if (!inverse) return out;
+        if (!inverse)
+            return out;
         const OGRErr error = polygon.transform(inverse);
         OGRCoordinateTransformation::DestroyCT(inverse);
-        if (error != OGRERR_NONE) return out;
+        if (error != OGRERR_NONE)
+            return out;
     }
 
     // The envelope narrows the OGR scan; exact geometry intersection keeps
@@ -808,8 +847,7 @@ QSet<long long> GISVectorLayer::featureIdsInPolygon(
     polygon.getEnvelope(&envelope);
     OGRGeometry *saved = m_ogrLayer->GetSpatialFilter();
     OGRGeometry *savedClone = saved ? saved->clone() : nullptr;
-    m_ogrLayer->SetSpatialFilterRect(envelope.MinX, envelope.MinY,
-                                   envelope.MaxX, envelope.MaxY);
+    m_ogrLayer->SetSpatialFilterRect(envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY);
     m_ogrLayer->ResetReading();
     OGRFeature *feature = nullptr;
     while ((feature = m_ogrLayer->GetNextFeature()) != nullptr) {
@@ -819,7 +857,8 @@ QSet<long long> GISVectorLayer::featureIdsInPolygon(
         OGRFeature::DestroyFeature(feature);
     }
     m_ogrLayer->SetSpatialFilter(savedClone);
-    if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+    if (savedClone)
+        OGRGeometryFactory::destroyGeometry(savedClone);
     m_ogrLayer->ResetReading();
     return out;
 }
@@ -827,9 +866,10 @@ QSet<long long> GISVectorLayer::featureIdsInPolygon(
 QVector<QPointF> GISVectorLayer::selectedFeatureAnchors() const
 {
     QVector<QPointF> out;
-    if (m_selectedIds.isEmpty()) return out;
+    if (m_selectedIds.isEmpty())
+        return out;
     const auto fidOf = [](QGraphicsItem *it) -> long long {
-        if (auto *p  = dynamic_cast<VectorPolygonPathItem *>(it))
+        if (auto *p = dynamic_cast<VectorPolygonPathItem *>(it))
             return p->featureId();
         if (auto *ln = dynamic_cast<VectorLineItem *>(it))
             return ln->featureId();
@@ -851,15 +891,18 @@ QVector<QPointF> GISVectorLayer::selectedFeatureAnchors() const
 
 /*!
  * \brief Converts a map coordinate to scene coordinates (Y-flipped).
+ * @brief Convert ordinary map coordinates into the canvas scene convention.
+ * @param[in] mapX Map X in the already selected target CRS.
+ * @param[in] mapY Ordinary map Y in that CRS.
+ * @return (mapX,-mapY); no reprojection or finite check.
  */
 static inline QPointF toScene(double mapX, double mapY)
 {
     return QPointF(mapX, -mapY);
 }
 
-void GISVectorLayer::populateScene(QGraphicsScene *scene,
-                                    const MapExtent &canvasExtent,
-                                    const SpatialReferenceSystem *canvasSRS)
+void GISVectorLayer::populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                                   const SpatialReferenceSystem *canvasSRS)
 {
     Q_UNUSED(canvasExtent);
     if (!m_ogrLayer || !isVisible())
@@ -891,9 +934,9 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
     // Selection highlight follows the configured selection pen (the canvas
     // beacon's convention) instead of hardcoded yellow; yellow stays the
     // fallback when no preference is set.
-    QColor selColor = PreferencesManager::instance()
-                          ->selectionPen(QStringLiteral("node")).color();
-    if (!selColor.isValid()) selColor = Qt::yellow;
+    QColor selColor = PreferencesManager::instance()->selectionPen(QStringLiteral("node")).color();
+    if (!selColor.isValid())
+        selColor = Qt::yellow;
     QColor selFill = selColor;
     selFill.setAlpha(100);
 
@@ -901,7 +944,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         auto *item = new VectorPointItem(fid, mx, -my, m_symbol.markerSize / 2.0);
         item->setBrush(QBrush(selected ? selColor : m_symbol.markerFill));
         item->setPen(QPen(m_symbol.markerOutline, m_symbol.markerOutlineW));
-        item->setMarkerShape(int(m_symbol.markerShape));   // G-1 — canonical shape
+        item->setMarkerShape(int(m_symbol.markerShape)); // G-1 — canonical shape
         item->setHighlighted(selected);
         item->setOwnerLayer(this);
         item->setZValue(baseZ + 2);
@@ -915,8 +958,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         if (scenePts.size() < 2)
             return;
         auto *item = new VectorLineItem(fid, scenePts);
-        QPen pen = selected ? QPen(selColor, m_symbol.linePen.widthF() + 2)
-                            : m_symbol.linePen;
+        QPen pen = selected ? QPen(selColor, m_symbol.linePen.widthF() + 2) : m_symbol.linePen;
         // Cosmetic pen → width stays in screen pixels regardless of zoom.
         // Without this, a layer in a projected CRS (e.g. coords ~1e7) at
         // canvas scale ~1e-3 px/unit renders pen widths < 0.01 viewport
@@ -935,8 +977,8 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
     };
 
     auto addPolygonWithHoles = [&](const QVector<QPointF> &exterior,
-                                   const QVector<QVector<QPointF>> &interiors,
-                                   qint64 fid, bool selected) {
+                                   const QVector<QVector<QPointF>> &interiors, qint64 fid,
+                                   bool selected) {
         if (exterior.size() < 3)
             return;
         // Path-based item so interior rings render as holes (odd-even fill).
@@ -956,47 +998,42 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
     };
 
     OGRFeature *feat = nullptr;
-    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr)
-    {
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
         qint64 fid = static_cast<qint64>(feat->GetFID());
         bool selected = m_selectedIds.contains(static_cast<long long>(fid));
 
         OGRGeometry *geom = feat->GetGeometryRef();
-        if (!geom) { OGRFeature::DestroyFeature(feat); continue; }
+        if (!geom) {
+            OGRFeature::DestroyFeature(feat);
+            continue;
+        }
         if (m_transform)
             geom->transform(m_transform);
 
         {
             OGRwkbGeometryType gt = wkbFlatten(geom->getGeometryType());
 
-            if (gt == wkbPoint)
-            {
+            if (gt == wkbPoint) {
                 auto *pt = geom->toPoint();
                 addPoint(pt->getX(), pt->getY(), fid, selected);
-            }
-            else if (gt == wkbLineString)
-            {
+            } else if (gt == wkbLineString) {
                 auto *ls = geom->toLineString();
                 QVector<QPointF> pts;
                 pts.reserve(ls->getNumPoints());
                 for (int i = 0; i < ls->getNumPoints(); ++i)
                     pts.append(toScene(ls->getX(i), ls->getY(i)));
                 addLine(pts, fid, selected);
-            }
-            else if (gt == wkbPolygon)
-            {
+            } else if (gt == wkbPolygon) {
                 auto *poly = geom->toPolygon();
                 const OGRLinearRing *ring = poly->getExteriorRing();
                 QVector<QPointF> pts;
-                if (ring)
-                {
+                if (ring) {
                     pts.reserve(ring->getNumPoints());
                     for (int i = 0; i < ring->getNumPoints(); ++i)
                         pts.append(toScene(ring->getX(i), ring->getY(i)));
                 }
                 QVector<QVector<QPointF>> holes;
-                for (int h = 0; h < poly->getNumInteriorRings(); ++h)
-                {
+                for (int h = 0; h < poly->getNumInteriorRings(); ++h) {
                     const OGRLinearRing *hr = poly->getInteriorRing(h);
                     if (!hr || hr->getNumPoints() < 3)
                         continue;
@@ -1007,33 +1044,24 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
                     holes.append(hp);
                 }
                 addPolygonWithHoles(pts, holes, fid, selected);
-            }
-            else if (gt == wkbMultiPoint)
-            {
+            } else if (gt == wkbMultiPoint) {
                 const auto *mp = geom->toMultiPoint();
-                for (int j = 0; j < mp->getNumGeometries(); ++j)
-                {
+                for (int j = 0; j < mp->getNumGeometries(); ++j) {
                     auto *pt = mp->getGeometryRef(j)->toPoint();
                     addPoint(pt->getX(), pt->getY(), fid, selected);
                 }
-            }
-            else if (gt == wkbMultiLineString)
-            {
+            } else if (gt == wkbMultiLineString) {
                 const auto *ml = geom->toMultiLineString();
-                for (int j = 0; j < ml->getNumGeometries(); ++j)
-                {
+                for (int j = 0; j < ml->getNumGeometries(); ++j) {
                     auto *ls = ml->getGeometryRef(j)->toLineString();
                     QVector<QPointF> pts;
                     for (int k = 0; k < ls->getNumPoints(); ++k)
                         pts.append(toScene(ls->getX(k), ls->getY(k)));
                     addLine(pts, fid, selected);
                 }
-            }
-            else if (gt == wkbMultiPolygon)
-            {
+            } else if (gt == wkbMultiPolygon) {
                 const auto *mpoly = geom->toMultiPolygon();
-                for (int j = 0; j < mpoly->getNumGeometries(); ++j)
-                {
+                for (int j = 0; j < mpoly->getNumGeometries(); ++j) {
                     const auto *poly = mpoly->getGeometryRef(j)->toPolygon();
                     const OGRLinearRing *ring = poly->getExteriorRing();
                     if (!ring)
@@ -1043,8 +1071,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
                     for (int k = 0; k < ring->getNumPoints(); ++k)
                         pts.append(toScene(ring->getX(k), ring->getY(k)));
                     QVector<QVector<QPointF>> holes;
-                    for (int h = 0; h < poly->getNumInteriorRings(); ++h)
-                    {
+                    for (int h = 0; h < poly->getNumInteriorRings(); ++h) {
                         const OGRLinearRing *hr = poly->getInteriorRing(h);
                         if (!hr || hr->getNumPoints() < 3)
                             continue;
@@ -1069,8 +1096,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
     // correctness-bearing design (see header comment), and this line prices
     // it per layer.
     qCInfo(lcLoadVector).nospace()
-        << "[populate] " << name() << ": "
-        << (m_sceneItems.size() - itemsBefore) << " items in "
+        << "[populate] " << name() << ": " << (m_sceneItems.size() - itemsBefore) << " items in "
         << populateTimer.elapsed() << " ms";
 
     // A populate IS a rebuild: the scene now matches layer state, so the
@@ -1085,8 +1111,7 @@ void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
     if (!scene || m_sceneItems.isEmpty())
         return;
 
-    for (auto *item : std::as_const(m_sceneItems))
-    {
+    for (auto *item : std::as_const(m_sceneItems)) {
         scene->removeItem(item);
         delete item;
     }
@@ -1103,9 +1128,8 @@ void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasS
     m_needsRebuild = true;
 }
 
-void GISVectorLayer::refreshScene(QGraphicsScene *scene,
-                                   const MapExtent &canvasExtent,
-                                   const SpatialReferenceSystem *canvasSRS)
+void GISVectorLayer::refreshScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                                  const SpatialReferenceSystem *canvasSRS)
 {
     if (!m_needsRebuild) {
         // Geometry/symbol unchanged — but a layer-opacity edit (from the
@@ -1113,7 +1137,8 @@ void GISVectorLayer::refreshScene(QGraphicsScene *scene,
         // reflect. Re-apply the current opacity to the cached items in
         // place; cheap and avoids a full re-read of the OGR source.
         for (auto *item : std::as_const(m_sceneItems))
-            if (item) item->setOpacity(opacity());
+            if (item)
+                item->setOpacity(opacity());
         return;
     }
 
@@ -1126,22 +1151,20 @@ void GISVectorLayer::refreshScene(QGraphicsScene *scene,
 // Multi-layer enumeration (static — no instance, no full load)
 // ---------------------------------------------------------------------------
 
-QList<GISVectorLayer::OgrSublayerInfo>
-GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
+QList<GISVectorLayer::OgrSublayerInfo> GISVectorLayer::enumerateSublayers(const QString &filePath,
+                                                                          QString *errorOut)
 {
     QList<OgrSublayerInfo> out;
 
     QElapsedTimer enumTimer;
     enumTimer.start();
 
-    GDALAllRegister();  // idempotent
+    GDALAllRegister(); // idempotent
 
-    auto *ds = static_cast<GDALDataset *>(
-        GDALOpenEx(filePath.toUtf8().constData(),
-                   GDAL_OF_VECTOR | GDAL_OF_READONLY,
-                   nullptr, nullptr, nullptr));
-    if (!ds)
-    {
+    auto *ds = static_cast<GDALDataset *>(GDALOpenEx(filePath.toUtf8().constData(),
+                                                     GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr,
+                                                     nullptr, nullptr));
+    if (!ds) {
         if (errorOut)
             *errorOut = QStringLiteral("Not a readable vector datasource: %1").arg(filePath);
         return out;
@@ -1149,30 +1172,26 @@ GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
 
     const int layerCount = ds->GetLayerCount();
     out.reserve(layerCount);
-    for (int i = 0; i < layerCount; ++i)
-    {
+    for (int i = 0; i < layerCount; ++i) {
         OGRLayer *lyr = ds->GetLayer(i);
         if (!lyr)
             continue;
 
         OgrSublayerInfo info;
-        info.index        = i;
-        info.name         = QString::fromUtf8(lyr->GetName());
+        info.index = i;
+        info.name = QString::fromUtf8(lyr->GetName());
         info.geometryType = QString::fromUtf8(OGRGeometryTypeToName(lyr->GetGeomType()));
         info.featureCount = static_cast<long long>(lyr->GetFeatureCount(/*bForce=*/true));
 
-        if (const OGRSpatialReference *srs = lyr->GetSpatialRef())
-        {
+        if (const OGRSpatialReference *srs = lyr->GetSpatialRef()) {
             if (const char *name = srs->GetName(); name && *name)
                 info.crsDescription = QString::fromUtf8(name);
-            else
-            {
+            else {
                 const char *auth = srs->GetAuthorityName(nullptr);
                 const char *code = srs->GetAuthorityCode(nullptr);
                 if (auth && code)
-                    info.crsDescription = QStringLiteral("%1:%2")
-                                              .arg(QString::fromUtf8(auth),
-                                                   QString::fromUtf8(code));
+                    info.crsDescription = QStringLiteral("%1:%2").arg(QString::fromUtf8(auth),
+                                                                      QString::fromUtf8(code));
             }
         }
 
@@ -1197,21 +1216,19 @@ GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
 // GDALDataset handle and a non-owning OGRLayer pointer into it (single-owner,
 // handed to the GUI thread on completion); no QObject state is touched
 // off-thread.
-struct GISVectorLayer::OpenResult
-{
+struct GISVectorLayer::OpenResult {
     GDALDataset *dataset = nullptr;
-    OGRLayer    *ogrLayer = nullptr;
-    QString      filePath;
-    QString      layerName;
-    bool         hasExtent = false;
-    MapExtent    extent;
-    QString      wkt;
-    qint64       msOpen = 0, msTotal = 0;
+    OGRLayer *ogrLayer = nullptr;
+    QString filePath;
+    QString layerName;
+    bool hasExtent = false;
+    MapExtent extent;
+    QString wkt;
+    qint64 msOpen = 0, msTotal = 0;
 };
 
 GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
-                                                      const QString &layerName,
-                                                      unsigned openFlags)
+                                                      const QString &layerName, unsigned openFlags)
 {
     QElapsedTimer loadTimer;
     loadTimer.start();
@@ -1225,44 +1242,40 @@ GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
         openFlags = GDAL_OF_VECTOR | GDAL_OF_READONLY;
 
     r.dataset = static_cast<GDALDataset *>(
-        GDALOpenEx(filePath.toUtf8().constData(),
-                   openFlags,
-                   nullptr, nullptr, nullptr));
-    if (!r.dataset)
-    {
+        GDALOpenEx(filePath.toUtf8().constData(), openFlags, nullptr, nullptr, nullptr));
+    if (!r.dataset) {
         qWarning() << "GISVectorLayer: failed to open" << filePath;
         return r;
     }
 
-    r.ogrLayer = layerName.isEmpty()
-                     ? r.dataset->GetLayer(0)
-                     : r.dataset->GetLayerByName(layerName.toUtf8().constData());
-    if (!r.ogrLayer)
-    {
+    r.ogrLayer = layerName.isEmpty() ? r.dataset->GetLayer(0)
+                                     : r.dataset->GetLayerByName(layerName.toUtf8().constData());
+    if (!r.ogrLayer) {
         qWarning() << "GISVectorLayer: layer not found in" << filePath;
-        GDALClose(r.dataset);   // otherwise the dataset would leak
+        GDALClose(r.dataset); // otherwise the dataset would leak
         r.dataset = nullptr;
         return r;
     }
-    r.msOpen     = loadTimer.elapsed();  // GDALOpenEx + GetLayer
-    r.layerName  = QString::fromUtf8(r.ogrLayer->GetName());
+    r.msOpen = loadTimer.elapsed(); // GDALOpenEx + GetLayer
+    r.layerName = QString::fromUtf8(r.ogrLayer->GetName());
 
     // Layer extent (forces a full scan on some drivers — the point of the
     // worker thread).
     OGREnvelope env;
-    if (r.ogrLayer->GetExtent(&env) == OGRERR_NONE)
-    {
-        r.extent    = MapExtent(env.MinX, env.MinY, env.MaxX, env.MaxY);
+    if (r.ogrLayer->GetExtent(&env) == OGRERR_NONE) {
+        r.extent = MapExtent(env.MinX, env.MinY, env.MaxX, env.MaxY);
         r.hasExtent = true;
     }
 
     // CRS WKT copied to a QString; the SpatialReferenceSystem QObject is built
     // on the GUI thread in applyOpenResult (QObject affinity).
-    if (const OGRSpatialReference *srs = r.ogrLayer->GetSpatialRef())
-    {
+    if (const OGRSpatialReference *srs = r.ogrLayer->GetSpatialRef()) {
         char *wkt = nullptr;
         srs->exportToWkt(&wkt);
-        if (wkt) { r.wkt = QString::fromUtf8(wkt); CPLFree(wkt); }
+        if (wkt) {
+            r.wkt = QString::fromUtf8(wkt);
+            CPLFree(wkt);
+        }
     }
     r.msTotal = loadTimer.elapsed();
     return r;
@@ -1271,14 +1284,14 @@ GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
 void GISVectorLayer::applyOpenResult(const OpenResult &r)
 {
     OpenSWMM::Render::invalidateMaskClipCache(layerId());
-    closeDataset();          // drop any previously-open dataset (re-open case)
+    closeDataset(); // drop any previously-open dataset (re-open case)
 
-    m_dataset  = r.dataset;
+    m_dataset = r.dataset;
     m_ogrLayer = r.ogrLayer;
     if (!m_dataset || !m_ogrLayer)
-        return;              // doOpenWork already logged + cleaned up
+        return; // doOpenWork already logged + cleaned up
 
-    m_filePath     = r.filePath;
+    m_filePath = r.filePath;
     m_ogrLayerName = r.layerName;
 
     if (r.hasExtent)
@@ -1313,28 +1326,26 @@ void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName
     // handler closes the orphaned dataset.
     QPointer<GISVectorLayer> self(this);
     auto *watcher = new QFutureWatcher<OpenResult>();
-    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
-                     [watcher, self]() {
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher, [watcher, self]() {
         OpenResult r = watcher->result();
         watcher->deleteLater();
         if (!self) {
-            if (r.dataset) GDALClose(r.dataset);
+            if (r.dataset)
+                GDALClose(r.dataset);
             return;
         }
         self->applyOpenResult(r);
         emit self->openFinished(r.dataset != nullptr && r.ogrLayer != nullptr);
     });
     const QString path = filePath, layer = layerName;
-    const unsigned flags = m_openFlags;   // by value — the worker has no `this`
-    watcher->setFuture(QtConcurrent::run([path, layer, flags]() {
-        return doOpenWork(path, layer, flags);
-    }));
+    const unsigned flags = m_openFlags; // by value — the worker has no `this`
+    watcher->setFuture(
+        QtConcurrent::run([path, layer, flags]() { return doOpenWork(path, layer, flags); }));
 }
 
 void GISVectorLayer::closeDataset()
 {
-    if (m_transform)
-    {
+    if (m_transform) {
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
     }
@@ -1345,8 +1356,7 @@ void GISVectorLayer::closeDataset()
 
     m_ogrLayer = nullptr;
 
-    if (m_dataset)
-    {
+    if (m_dataset) {
         GDALClose(m_dataset);
         m_dataset = nullptr;
     }
@@ -1372,8 +1382,7 @@ void GISVectorLayer::ensureTransform(const SpatialReferenceSystem *canvasSRS) co
                                   "already in the canvas CRS (%2). Supply a "
                                   ".prj / CRS if the layer lands in the wrong "
                                   "place.")
-                       .arg(QFileInfo(m_filePath).fileName(),
-                            canvasSRS->toAuthority());
+                       .arg(QFileInfo(m_filePath).fileName(), canvasSRS->toAuthority());
             emit const_cast<GISVectorLayer *>(this)->crsAssumed(m_filePath);
         }
         return;
@@ -1392,8 +1401,7 @@ void GISVectorLayer::ensureTransform(const SpatialReferenceSystem *canvasSRS) co
 
 void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS) const
 {
-    if (m_transform)
-    {
+    if (m_transform) {
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
     }
@@ -1406,9 +1414,7 @@ void GISVectorLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS) c
         return;
 
     // Only create a transform if the CRS differs
-    if (!layerSRS->IsSame(canvasSRS->ogrSpatialReference()))
-    {
-        m_transform = OGRCreateCoordinateTransformation(
-            layerSRS, canvasSRS->ogrSpatialReference());
+    if (!layerSRS->IsSame(canvasSRS->ogrSpatialReference())) {
+        m_transform = OGRCreateCoordinateTransformation(layerSRS, canvasSRS->ogrSpatialReference());
     }
 }

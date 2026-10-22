@@ -1,8 +1,10 @@
-/*!
- * \file   linkcompoundeditdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      linkcompoundeditdialog.h
+ * @brief     One modal dialog with a stacked-widget body, one page per compound link attribute
+ *            (XSection / Inlet Usage).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice SC.1 — One modal dialog with a stacked-widget body, one page
  * per compound link attribute (XSection / Inlet Usage). The former
@@ -18,6 +20,7 @@
  * the rich multi-pane 26-shape live-preview editor (per §S.11); the
  * `LinkCompoundEditRef` plumbing + dialog host stay unchanged so this
  * is a drop-in widget swap.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef LINKCOMPOUNDEDITDIALOG_H
@@ -38,15 +41,17 @@ class QListWidget;
 class QSplitter;
 class LabeledPickerCombo;
 
-namespace openswmmvis::sectionview { class SectionPreviewWidget; }
+namespace openswmmvis::sectionview
+{
+class SectionPreviewWidget;
+}
 
 class LinkCompoundEditDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit LinkCompoundEditDialog(LinkCompoundEditRef ref,
-                                      QWidget *parent = nullptr);
+    explicit LinkCompoundEditDialog(LinkCompoundEditRef ref, QWidget *parent = nullptr);
 
     /*! Refreshed summary string after the dialog closes. Equal to the
      *  constructor's `ref.summary` if no mutation succeeded. */
@@ -148,18 +153,18 @@ private:
     // splitter + list expose the same `currentXsectShapeId()` selection
     // signal the old combo did so the suppress-apply / round-trip
     // contract is unchanged.
-    QSplitter      *m_xsSplitter     = nullptr;
-    QListWidget    *m_xsShapeList    = nullptr;
-    QDoubleSpinBox *m_xsGeom1Spin    = nullptr;
-    QDoubleSpinBox *m_xsGeom2Spin    = nullptr;
-    QDoubleSpinBox *m_xsGeom3Spin    = nullptr;
-    QDoubleSpinBox *m_xsGeom4Spin    = nullptr;
-    QSpinBox       *m_xsBarrelsSpin  = nullptr;
-    QLabel         *m_xsSummaryLabel = nullptr;
-    QLabel         *m_xsGeom1Label   = nullptr;
-    QLabel         *m_xsGeom2Label   = nullptr;
-    QLabel         *m_xsGeom3Label   = nullptr;
-    QLabel         *m_xsGeom4Label   = nullptr;
+    QSplitter *m_xsSplitter = nullptr;
+    QListWidget *m_xsShapeList = nullptr;
+    QDoubleSpinBox *m_xsGeom1Spin = nullptr;
+    QDoubleSpinBox *m_xsGeom2Spin = nullptr;
+    QDoubleSpinBox *m_xsGeom3Spin = nullptr;
+    QDoubleSpinBox *m_xsGeom4Spin = nullptr;
+    QSpinBox *m_xsBarrelsSpin = nullptr;
+    QLabel *m_xsSummaryLabel = nullptr;
+    QLabel *m_xsGeom1Label = nullptr;
+    QLabel *m_xsGeom2Label = nullptr;
+    QLabel *m_xsGeom3Label = nullptr;
+    QLabel *m_xsGeom4Label = nullptr;
 
     /*! Slice SP.3 — third splitter pane: engine-accurate live section
      *  drawing with labelled dimensions. */
@@ -172,13 +177,13 @@ private:
     // "..." button opens the TransectEditorDialog CRUD modal
     // (`pickTransect`). On commit we translate the picked name → engine
     // transect index → geom1.
-    QLabel             *m_xsTransectLabel  = nullptr;
+    QLabel *m_xsTransectLabel = nullptr;
     LabeledPickerCombo *m_xsTransectPicker = nullptr;
 
     // STREET shape — same picker pattern as IRREGULAR: geom1 is a street
     // *index*, surfaced as a name dropdown + "..." button that opens the
     // StreetEditorDialog CRUD modal (`pickStreet`).
-    QLabel             *m_xsStreetLabel  = nullptr;
+    QLabel *m_xsStreetLabel = nullptr;
     LabeledPickerCombo *m_xsStreetPicker = nullptr;
 
     // Re-entrancy guard: when we populate widgets from engine state
@@ -188,21 +193,21 @@ private:
     bool m_xsSuppressApply = false;
 
     // Inlet usage page widgets — the legacy 8-row form (Dinletusage.pas).
-    LabeledPickerCombo *m_iuDesignPicker  = nullptr;
-    QComboBox          *m_iuCaptureCombo  = nullptr;
-    QSpinBox           *m_iuNumInlets     = nullptr;
-    QDoubleSpinBox     *m_iuPctClogged    = nullptr;
-    QDoubleSpinBox     *m_iuFlowLimit     = nullptr;
-    QDoubleSpinBox     *m_iuDepressHeight = nullptr;
-    QDoubleSpinBox     *m_iuDepressWidth  = nullptr;
-    QComboBox          *m_iuPlacement     = nullptr;
-    QPushButton        *m_iuRemoveBtn     = nullptr;
-    QLabel             *m_iuStatus        = nullptr;
+    LabeledPickerCombo *m_iuDesignPicker = nullptr;
+    QComboBox *m_iuCaptureCombo = nullptr;
+    QSpinBox *m_iuNumInlets = nullptr;
+    QDoubleSpinBox *m_iuPctClogged = nullptr;
+    QDoubleSpinBox *m_iuFlowLimit = nullptr;
+    QDoubleSpinBox *m_iuDepressHeight = nullptr;
+    QDoubleSpinBox *m_iuDepressWidth = nullptr;
+    QComboBox *m_iuPlacement = nullptr;
+    QPushButton *m_iuRemoveBtn = nullptr;
+    QLabel *m_iuStatus = nullptr;
     /*! Same re-entrancy guard the xsection page uses: true while the widgets
      *  are being populated from the engine. */
     bool m_iuSuppressApply = false;
 
-    QStackedWidget   *m_stack   = nullptr;
+    QStackedWidget *m_stack = nullptr;
     QDialogButtonBox *m_buttons = nullptr;
 };
 

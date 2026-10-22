@@ -1,9 +1,9 @@
-/*!
- * \file   test_unclassedcolorsrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.9 — UnclassedColorsRenderer.
+/**
+ * @file      test_unclassedcolorsrenderer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.9 — UnclassedColorsRenderer.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.9):
  *           - Continuous color mapping over [minValue, maxValue].
@@ -17,6 +17,7 @@
  *           - Legend emits the requested number of items, evenly spaced
  *             across [min, max].
  *           - Clone is independent of the original.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QColor>
@@ -80,7 +81,7 @@ void TestUnclassedColorsRenderer::colorForValue_inRangeMatchesRampSampling()
     r.setRamp(RasterColorRamp::viridis(0.0, 10.0));
 
     const QColor midRendered = r.colorForValue(5.0);
-    const QColor midDirect   = r.ramp().colorAt(0.5);
+    const QColor midDirect = r.ramp().colorAt(0.5);
     QCOMPARE(midRendered.rgb(), midDirect.rgb());
 }
 
@@ -127,7 +128,7 @@ void TestUnclassedColorsRenderer::colorForValue_nanReturnsNoData()
 void TestUnclassedColorsRenderer::colorForValue_degenerateRangeReturnsMidpoint()
 {
     UnclassedColorsRenderer r;
-    r.setRange(5.0, 5.0);  // min == max → degenerate
+    r.setRange(5.0, 5.0); // min == max → degenerate
     r.setRamp(RasterColorRamp::viridis(5.0, 5.0));
     const QColor c = r.colorForValue(5.0);
     QVERIFY(c.isValid());
@@ -139,7 +140,7 @@ void TestUnclassedColorsRenderer::colorForValue_clampsToZeroOne()
     UnclassedColorsRenderer r;
     r.setRange(0.0, 10.0);
     r.setRamp(RasterColorRamp::viridis(0.0, 10.0));
-    QCOMPARE(r.colorForValue(0.0).rgb(),  r.ramp().colorAt(0.0).rgb());
+    QCOMPARE(r.colorForValue(0.0).rgb(), r.ramp().colorAt(0.0).rgb());
     QCOMPARE(r.colorForValue(10.0).rgb(), r.ramp().colorAt(1.0).rgb());
 }
 
@@ -154,7 +155,7 @@ void TestUnclassedColorsRenderer::symbolFor_overridesColorPropWhenPresent()
     SymbolLayer layer;
     layer.kind = SymbolLayerKind::SimpleMarker;
     layer.props[QStringLiteral("color")] = QStringLiteral("#FF000000");
-    layer.props[QStringLiteral("size")]  = 8.0;
+    layer.props[QStringLiteral("size")] = 8.0;
     base.layers.append(layer);
     r.setBaseSymbol(base);
 
@@ -165,8 +166,8 @@ void TestUnclassedColorsRenderer::symbolFor_overridesColorPropWhenPresent()
     QVERIFY(s.layers.first().props.contains(QStringLiteral("color")));
     // Colour changed from the original black. (X1 — the override writes a
     // QColor variant; compare colour values.)
-    QVERIFY(s.layers.first().props.value(QStringLiteral("color")).value<QColor>()
-            != QColor(QStringLiteral("#FF000000")));
+    QVERIFY(s.layers.first().props.value(QStringLiteral("color")).value<QColor>() !=
+            QColor(QStringLiteral("#FF000000")));
 }
 
 void TestUnclassedColorsRenderer::symbolFor_leavesNonColorPropsUntouched()
@@ -281,12 +282,12 @@ void TestUnclassedColorsRenderer::json_roundTripPreservesEveryField()
     UnclassedColorsRenderer back;
     back.fromJson(r.toJson());
     QCOMPARE(back.classifyAttribute(), QStringLiteral("flow"));
-    QCOMPARE(back.minValue(),          -2.5);
-    QCOMPARE(back.maxValue(),          50.0);
+    QCOMPARE(back.minValue(), -2.5);
+    QCOMPARE(back.maxValue(), 50.0);
     QCOMPARE(back.belowRangeColor().rgb(), QColor(11, 22, 33).rgb());
     QCOMPARE(back.aboveRangeColor().rgb(), QColor(200, 200, 200).rgb());
     QCOMPARE(back.noDataColor().rgb(), QColor(64, 64, 64).rgb());
-    QCOMPARE(back.legendLabelCount(),  8);
+    QCOMPARE(back.legendLabelCount(), 8);
 }
 
 void TestUnclassedColorsRenderer::json_omitsDefaultedSentinels()
@@ -303,8 +304,7 @@ void TestUnclassedColorsRenderer::json_rendererIdIsUnclassed()
 {
     UnclassedColorsRenderer r;
     QCOMPARE(r.rendererId(), QStringLiteral("unclassed"));
-    QCOMPARE(r.toJson().value(QStringLiteral("id")).toString(),
-             QStringLiteral("unclassed"));
+    QCOMPARE(r.toJson().value(QStringLiteral("id")).toString(), QStringLiteral("unclassed"));
 }
 
 // ── Clone ───────────────────────────────────────────────────────────

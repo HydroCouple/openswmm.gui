@@ -1,7 +1,10 @@
-/*!
- * \file   maptooladdvirtualnode.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptooladdvirtualnode.cpp
+ * @brief     Left-click a conduit to split it and insert a virtual junction at the picked point.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooladdvirtualnode.h"
@@ -14,8 +17,8 @@
 
 using ConduitSplitPick::ConduitHit;
 
-OpenSWMMVisMapToolAddVirtualNode::OpenSWMMVisMapToolAddVirtualNode(
-        MapCanvas *canvas, QObject *parent)
+OpenSWMMVisMapToolAddVirtualNode::OpenSWMMVisMapToolAddVirtualNode(MapCanvas *canvas,
+                                                                   QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Add Virtual Junction"), canvas, parent)
 {
 }
@@ -30,8 +33,7 @@ void OpenSWMMVisMapToolAddVirtualNode::activate()
     m_hover = {};
     m_armed = false;
     OpenSWMMVisMapTool::activate();
-    emit statusMessageChanged(
-        tr("Click a conduit to insert a virtual junction at that point."));
+    emit statusMessageChanged(tr("Click a conduit to insert a virtual junction at that point."));
 }
 
 void OpenSWMMVisMapToolAddVirtualNode::deactivate()
@@ -44,7 +46,8 @@ void OpenSWMMVisMapToolAddVirtualNode::deactivate()
 
 void OpenSWMMVisMapToolAddVirtualNode::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     m_hover = ConduitSplitPick::pickConduit(m_canvas, event->pos());
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addvj-rubber"));
 }
@@ -69,12 +72,12 @@ void OpenSWMMVisMapToolAddVirtualNode::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
 
-    const QString nodeName = ConduitSplitPick::nextNodeName(
-        hit.layer, QStringLiteral("virtual_junction"));
+    const QString nodeName =
+        ConduitSplitPick::nextNodeName(hit.layer, QStringLiteral("virtual_junction"));
     const QString linkName = ConduitSplitPick::nextSplitLinkName(hit.layer, hit.name);
 
-    auto *cmd = new InsertVirtualJunctionCommand(hit.layer, hit.name, hit.t,
-                                                 nodeName, linkName, m_canvas);
+    auto *cmd =
+        new InsertVirtualJunctionCommand(hit.layer, hit.name, hit.t, nodeName, linkName, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
@@ -84,28 +87,26 @@ void OpenSWMMVisMapToolAddVirtualNode::mouseReleaseEvent(QMouseEvent *event)
         hit.layer->setSelectedElements({{nodeName, SWMMModelLayer::kKindNode}});
         emit virtualJunctionAdded(nodeName, hit.name, linkName);
         emit statusMessageChanged(
-            tr("Inserted virtual junction \"%1\" on \"%2\".")
-                .arg(nodeName, hit.name));
+            tr("Inserted virtual junction \"%1\" on \"%2\".").arg(nodeName, hit.name));
     } else {
         emit statusMessageChanged(
             tr("Could not insert a virtual junction on \"%1\".").arg(hit.name));
     }
 
     m_hover = {};
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                         QStringLiteral("addvj-commit"));
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QStringLiteral("addvj-commit"));
 }
 
 void OpenSWMMVisMapToolAddVirtualNode::paint(QPainter *painter, const MapExtent &,
                                              const SpatialReferenceSystem *)
 {
-    if (!painter || !m_hover.valid()) return;
+    if (!painter || !m_hover.valid())
+        return;
 
     // Marker preview at the prospective split point (layer CRS → pixels via
     // the canvas transform on the scene-space coordinate).
     double cx = m_hover.point.x(), cy = m_hover.point.y();
-    m_hover.layer->transformLayerToCanvas(m_hover.point.x(), m_hover.point.y(),
-                                          cx, cy);
+    m_hover.layer->transformLayerToCanvas(m_hover.point.x(), m_hover.point.y(), cx, cy);
     int px = 0, py = 0;
     toPixelCoords(cx, cy, px, py);
 

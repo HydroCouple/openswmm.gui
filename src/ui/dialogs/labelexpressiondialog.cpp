@@ -1,11 +1,16 @@
-/*!
- * \file   labelexpressiondialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      labelexpressiondialog.cpp
+ * @brief     The label template language is deliberately small: literal text with `{token}`
+ *            placeholders, where `{name}` is the element id and every other token is an attribute
+ *            lookup (see the resolver in swmmlayeritem.cpp).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * See labelexpressiondialog.h for the contract.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/labelexpressiondialog.h"
 
 #include "ui/theme/themehelpers.h"
@@ -22,11 +27,13 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::AttributeField;
 
-namespace {
+namespace
+{
 
 constexpr int kTokenRole = Qt::UserRole + 1;
 
@@ -44,19 +51,20 @@ QString sectionFor(const AttributeField &f)
 QString placeholderFor(const AttributeField &f)
 {
     switch (f.type) {
-    case QMetaType::QString: return QObject::tr("text");
+    case QMetaType::QString:
+        return QObject::tr("text");
     case QMetaType::Int:
-    case QMetaType::LongLong: return QStringLiteral("42");
-    default: return QStringLiteral("1.23");
+    case QMetaType::LongLong:
+        return QStringLiteral("42");
+    default:
+        return QStringLiteral("1.23");
     }
 }
 
 } // namespace
 
-LabelExpressionDialog::LabelExpressionDialog(
-    const QVector<AttributeField> &fields,
-    const QString &initial,
-    QWidget *parent)
+LabelExpressionDialog::LabelExpressionDialog(const QVector<AttributeField> &fields,
+                                             const QString &initial, QWidget *parent)
     : QDialog(parent), m_fields(fields)
 {
     setWindowTitle(tr("Label Expression Builder"));
@@ -80,8 +88,7 @@ LabelExpressionDialog::LabelExpressionDialog(
     m_fieldTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     fieldLay->addWidget(m_fieldTree);
 
-    auto *insertHint = new QLabel(
-        tr("Double-click a field to insert its token."), fieldBox);
+    auto *insertHint = new QLabel(tr("Double-click a field to insert its token."), fieldBox);
     insertHint->setStyleSheet(theme::hintStyle());
     insertHint->setWordWrap(true);
     fieldLay->addWidget(insertHint);
@@ -89,8 +96,7 @@ LabelExpressionDialog::LabelExpressionDialog(
 
     // "{name}" is always available and is not an attribute, so it heads the
     // tree as its own entry rather than sitting under a data section.
-    auto *nameItem = new QTreeWidgetItem(m_fieldTree,
-                                         {QStringLiteral("{name}"), QString()});
+    auto *nameItem = new QTreeWidgetItem(m_fieldTree, {QStringLiteral("{name}"), QString()});
     nameItem->setData(0, kTokenRole, QStringLiteral("name"));
     nameItem->setToolTip(0, tr("The element's ID — always available."));
 
@@ -107,8 +113,7 @@ LabelExpressionDialog::LabelExpressionDialog(
             parentItem->setExpanded(true);
             sections.insert(sec, parentItem);
         }
-        auto *item = new QTreeWidgetItem(
-            parentItem, {QStringLiteral("{%1}").arg(f.name), f.unit});
+        auto *item = new QTreeWidgetItem(parentItem, {QStringLiteral("{%1}").arg(f.name), f.unit});
         item->setData(0, kTokenRole, f.name);
         if (!f.displayName.isEmpty() && f.displayName != f.name)
             item->setToolTip(0, f.displayName);
@@ -117,7 +122,7 @@ LabelExpressionDialog::LabelExpressionDialog(
 
     // ── Editor + syntax help + preview ─────────────────────────────────
     auto *rightPane = new QWidget(split);
-    auto *rightLay  = new QVBoxLayout(rightPane);
+    auto *rightLay = new QVBoxLayout(rightPane);
     rightLay->setContentsMargins(0, 0, 0, 0);
 
     rightLay->addWidget(new QLabel(tr("Expression"), rightPane));
@@ -127,12 +132,11 @@ LabelExpressionDialog::LabelExpressionDialog(
     m_edit->setTabChangesFocus(true);
     rightLay->addWidget(m_edit, 1);
 
-    auto *help = new QLabel(
-        tr("Literal text is kept as typed. <b>{token}</b> is replaced with "
-           "that field's value for each feature; <b>{name}</b> is the element "
-           "ID. An unknown token resolves to nothing, so the label simply "
-           "comes out short.<br>Example: <tt>{name}: {depth} m</tt>"),
-        rightPane);
+    auto *help = new QLabel(tr("Literal text is kept as typed. <b>{token}</b> is replaced with "
+                               "that field's value for each feature; <b>{name}</b> is the element "
+                               "ID. An unknown token resolves to nothing, so the label simply "
+                               "comes out short.<br>Example: <tt>{name}: {depth} m</tt>"),
+                            rightPane);
     help->setWordWrap(true);
     help->setTextFormat(Qt::RichText);
     help->setStyleSheet(theme::hintStyle());
@@ -154,19 +158,17 @@ LabelExpressionDialog::LabelExpressionDialog(
     split->setStretchFactor(1, 2);
     root->addWidget(split, 1);
 
-    m_buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     root->addWidget(m_buttons);
 
     connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(m_edit, &QPlainTextEdit::textChanged,
-            this, &LabelExpressionDialog::refreshPreview);
-    connect(m_fieldTree, &QTreeWidget::itemDoubleClicked, this,
-            [this](QTreeWidgetItem *item, int) {
-                const QString tok = item->data(0, kTokenRole).toString();
-                if (!tok.isEmpty()) insertToken(tok);
-            });
+    connect(m_edit, &QPlainTextEdit::textChanged, this, &LabelExpressionDialog::refreshPreview);
+    connect(m_fieldTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
+        const QString tok = item->data(0, kTokenRole).toString();
+        if (!tok.isEmpty())
+            insertToken(tok);
+    });
 
     refreshPreview();
 }
@@ -176,10 +178,9 @@ QString LabelExpressionDialog::expression() const
     return m_edit->toPlainText();
 }
 
-void LabelExpressionDialog::setSampleFeature(const QString &name,
-                                             const QVariantMap &attrs)
+void LabelExpressionDialog::setSampleFeature(const QString &name, const QVariantMap &attrs)
 {
-    m_sampleName  = name;
+    m_sampleName = name;
     m_sampleAttrs = attrs;
     refreshPreview();
 }
@@ -190,8 +191,7 @@ void LabelExpressionDialog::insertToken(const QString &token)
     m_edit->setFocus();
 }
 
-QString LabelExpressionDialog::resolve(const QString &expr,
-                                       const QString &name,
+QString LabelExpressionDialog::resolve(const QString &expr, const QString &name,
                                        const QVariantMap &attrs)
 {
     QString out;
@@ -202,9 +202,7 @@ QString LabelExpressionDialog::resolve(const QString &expr,
             const int close = expr.indexOf(QLatin1Char('}'), i + 1);
             if (close > i) {
                 const QString token = expr.mid(i + 1, close - i - 1);
-                out += (token == QLatin1String("name"))
-                           ? name
-                           : attrs.value(token).toString();
+                out += (token == QLatin1String("name")) ? name : attrs.value(token).toString();
                 i = close + 1;
                 continue;
             }
@@ -215,8 +213,8 @@ QString LabelExpressionDialog::resolve(const QString &expr,
     return out;
 }
 
-QStringList LabelExpressionDialog::unknownTokens(
-    const QString &expr, const QVector<AttributeField> &fields)
+QStringList LabelExpressionDialog::unknownTokens(const QString &expr,
+                                                 const QVector<AttributeField> &fields)
 {
     QSet<QString> known{QStringLiteral("name")};
     for (const AttributeField &f : fields)
@@ -246,24 +244,23 @@ void LabelExpressionDialog::refreshPreview()
 
     // Sample values: the caller's feature when it gave one, otherwise a
     // per-type stand-in so the preview still shows the label's shape.
-    QString     name  = m_sampleName;
+    QString name = m_sampleName;
     QVariantMap attrs = m_sampleAttrs;
     const bool synthetic = attrs.isEmpty();
-    if (name.isEmpty()) name = tr("J1");
+    if (name.isEmpty())
+        name = tr("J1");
     if (synthetic)
         for (const AttributeField &f : m_fields)
             attrs.insert(f.name, placeholderFor(f));
 
     const QString resolved = resolve(expr, name, attrs);
-    m_preview->setText(resolved.isEmpty()
-                           ? tr("<i>(empty — nothing would be drawn)</i>")
-                           : resolved.toHtmlEscaped());
+    m_preview->setText(resolved.isEmpty() ? tr("<i>(empty — nothing would be drawn)</i>")
+                                          : resolved.toHtmlEscaped());
 
     const QStringList bad = unknownTokens(expr, m_fields);
     if (!bad.isEmpty()) {
-        m_status->setText(
-            tr("<b>Unknown field(s):</b> %1 — these resolve to nothing.")
-                .arg(bad.join(QStringLiteral(", ")).toHtmlEscaped()));
+        m_status->setText(tr("<b>Unknown field(s):</b> %1 — these resolve to nothing.")
+                              .arg(bad.join(QStringLiteral(", ")).toHtmlEscaped()));
         m_status->setStyleSheet(QStringLiteral("color: palette(link-visited);"));
     } else if (synthetic) {
         m_status->setText(tr("Sample values shown; actual labels use each "

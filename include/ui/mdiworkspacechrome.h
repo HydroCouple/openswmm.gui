@@ -1,13 +1,19 @@
 #ifndef MDIWORKSPACECHROME_H
 #define MDIWORKSPACECHROME_H
 
-/*!
- * \file mdiworkspacechrome.h
+/**
+ * @file      mdiworkspacechrome.h
+ * @brief     Correct QMdiArea's stale initial backdrop, and make the welcome tab paint one of its
+ *            own.
  *
  * Correct QMdiArea's stale initial backdrop, and make the welcome tab paint
  * one of its own. Extracted from SWMMVis so
  * tests/gui/test_mdi_tab_maximize.cpp can drive the real code against a
  * bare QMdiArea instead of restating the logic.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QString>
@@ -18,7 +24,8 @@ class QMdiArea;
 class QMdiSubWindow;
 class QWidget;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*!
  * \brief Make \a area's backdrop track the theme and give \a welcome an
@@ -45,7 +52,10 @@ namespace openswmmvis::ui {
  * uses, so the welcome looks unchanged — and it is re-read at every paint,
  * so the Appearance switch needs no extra hook here.
  *
- * Safe to call once per area; a null \a area or \a welcome is a no-op.
+ * Safe to call once per area; a null \a area skips backdrop setup; a null \a welcome skips its background setup.
+ * @param[in,out] area Optional MDI area whose backdrop is set from the current theme and subscribed for later theme changes.
+ * @param[in,out] welcome Optional widget whose autoFillBackground is enabled independently of area.
+ * @note Does not transfer ownership. Repeated calls add repeated theme connections; intended once per area on the GUI thread.
  */
 void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome = nullptr);
 
@@ -71,11 +81,13 @@ void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome = nullptr);
  *     index, so callers must re-run this after a sub-window is removed.
  *
  * A null \a area, or an area with no tab bar, is a no-op.
+ * @param[in,out] area Optional tabbed MDI area; null/no QTabBar is ignored.
+ * @param[in] pathFor Optional callback receiving each borrowed subwindow and returning its document path. Empty/missing callback result falls back to windowTitle().
+ * @note Uses native path separators and parallel subWindowList/tab order up to the shorter count. Reinvoke after insertion/removal; no subscriptions are installed.
  */
-void refreshSubWindowTabToolTips(
-    QMdiArea *area,
-    const std::function<QString(QMdiSubWindow *)> &pathFor);
+void refreshSubWindowTabToolTips(QMdiArea *area,
+                                 const std::function<QString(QMdiSubWindow *)> &pathFor);
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // MDIWORKSPACECHROME_H

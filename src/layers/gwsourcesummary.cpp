@@ -1,8 +1,10 @@
-/*!
- * \file   gwsourcesummary.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      gwsourcesummary.cpp
+ * @brief     navigational summary of [GROUNDWATER] (AQUIFER_GROUNDWATER_EXCHANGE plan G5).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/gwsourcesummary.h"
@@ -15,7 +17,8 @@ namespace OpenSWMMVis::Groundwater
 QStringList groundwaterSourceSubcatchments(SWMM_Engine engine, int nodeIdx)
 {
     QStringList out;
-    if (!engine || nodeIdx < 0) return out;
+    if (!engine || nodeIdx < 0)
+        return out;
 
     const int ns = swmm_subcatch_count(engine);
     for (int s = 0; s < ns; ++s) {

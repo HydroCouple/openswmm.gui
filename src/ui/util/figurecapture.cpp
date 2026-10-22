@@ -1,10 +1,12 @@
-/*!
- * \file   figurecapture.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Implementation of the manual figure capture engine (see header).
+/**
+ * @file      figurecapture.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Implementation of the manual figure capture engine (see header).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/util/figurecapture.h"
 
 #include "ui/actionregistry.h"
@@ -47,24 +49,33 @@
 
 Q_LOGGING_CATEGORY(lcFigCap, "openswmm.figcap")
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Actions that raise a NATIVE file/colour picker. Triggering one headless
  *  blocks forever with nobody to dismiss it, so the engine refuses them and
- *  the manifest must mark those figures lane:"human". */
+ *  the manifest must mark those figures lane:"human".
+ * @return Static set of known file/open/save/export/import/print action IDs; this is a fixed guard list, not runtime inspection of every action.
+ */
 const QSet<QString> &nativePickerActions_()
 {
     static const QSet<QString> ids = {
-        QStringLiteral("file.open"),        QStringLiteral("file.openProject"),
-        QStringLiteral("file.save"),        QStringLiteral("file.saveAs"),
-        QStringLiteral("file.exportMap"),   QStringLiteral("file.import"),
+        QStringLiteral("file.open"),      QStringLiteral("file.openProject"),
+        QStringLiteral("file.save"),      QStringLiteral("file.saveAs"),
+        QStringLiteral("file.exportMap"), QStringLiteral("file.import"),
         QStringLiteral("file.print"),
     };
     return ids;
 }
 
+/**
+ * @brief Decode the manifest capture lane.
+ * @param[in] text Case-insensitive live/human token; other values select Offscreen.
+ * @return Figure lane without changing the Qt platform.
+ */
 FigureLane laneFromString_(const QString &text)
 {
     if (text.compare(QLatin1String("live"), Qt::CaseInsensitive) == 0)
@@ -74,7 +85,10 @@ FigureLane laneFromString_(const QString &text)
     return FigureLane::Offscreen;
 }
 
-/*! "760x980" → QSize(760,980); anything else → an invalid QSize. */
+/*! "760x980" → QSize(760,980); anything else → an invalid QSize.
+ * @param[in] text Lowercase-x-separated positive integer width/height text; whitespace around components is allowed.
+ * @return Valid QSize or default invalid size when component count/conversion/ranges fail. Empty split components are skipped.
+ */
 QSize sizeFromString_(const QString &text)
 {
     const QStringList parts = text.split(QLatin1Char('x'), Qt::SkipEmptyParts);
@@ -88,7 +102,11 @@ QSize sizeFromString_(const QString &text)
 
 /*! A descendant by objectName, else by class name. Class names are the only
     handle most inner panels have — they set no objectName — and they are the
-    more stable of the two anyway. */
+    more stable of the two anyway.
+ * @param[in] root Required widget scope; the root itself is not tested.
+ * @param[in] which Exact objectName searched first, otherwise exact or trailing namespace class name among visible descendants.
+ * @return Borrowed matching widget or null. Object-name matches need not be visible.
+ */
 QWidget *descendant_(QWidget *root, const QString &which)
 {
     if (QWidget *named = root->findChild<QWidget *>(which))
@@ -109,7 +127,10 @@ QWidget *descendant_(QWidget *root, const QString &which)
 
 /*! "Meshes (1)" -> "Meshes". The Layers panel suffixes every category and
     kind row with its count, which changes with the model; a manifest should
-    name the row, not the arithmetic. */
+    name the row, not the arithmetic.
+ * @param[in] text Display label with optional final parenthesized digits.
+ * @return Trimmed prefix when a noninitial trailing digit-only parenthesis group is found; otherwise unchanged text.
+ */
 QString stripCount_(const QString &text)
 {
     if (!text.endsWith(QLatin1Char(')')))
@@ -117,8 +138,7 @@ QString stripCount_(const QString &text)
     const int open = text.lastIndexOf(QLatin1Char('('));
     if (open <= 0)
         return text;
-    const QStringView inner =
-        QStringView(text).sliced(open + 1, text.size() - open - 2);
+    const QStringView inner = QStringView(text).sliced(open + 1, text.size() - open - 2);
     if (inner.isEmpty())
         return text;
     for (const QChar c : inner)
@@ -128,7 +148,10 @@ QString stripCount_(const QString &text)
 }
 
 /*! The app's own widget classes under \a root, for a failure message — Qt's
-    own (QWidget, QLabel, …) are noise when a figure is hunting for a panel. */
+    own (QWidget, QLabel, …) are noise when a figure is hunting for a panel.
+ * @param[in] root Required widget scope.
+ * @return Comma-separated distinct visible descendant class names that do not start Q; used only in diagnostics.
+ */
 QString offeredClasses_(QWidget *root)
 {
     QStringList out;
@@ -146,7 +169,12 @@ QString offeredClasses_(QWidget *root)
 
 /*! Every row text under \a root, "Parent/Child" style, for a failure message.
     A row name a figure cannot guess costs a whole capture round trip, so the
-    failure says what was actually on offer. */
+    failure says what was actually on offer.
+ * @param[in] root Required widget scope used to discover visible item views when model is null.
+ * @param[in] parent Model parent whose column-zero children are enumerated.
+ * @param[in] model Optional borrowed model; null gathers each visible populated descendant view.
+ * @return Nested display labels with up to 24 immediate rows per recursion level; does not modify models or expand views.
+ */
 QString offeredRows_(QWidget *root, const QModelIndex &parent = {},
                      QAbstractItemModel *model = nullptr)
 {
@@ -156,8 +184,7 @@ QString offeredRows_(QWidget *root, const QModelIndex &parent = {},
         for (QAbstractItemView *view : views) {
             if (!view->isVisibleTo(root) || !view->model())
                 continue;
-            const QString rows =
-                offeredRows_(root, view->rootIndex(), view->model());
+            const QString rows = offeredRows_(root, view->rootIndex(), view->model());
             if (!rows.isEmpty())
                 out << rows;
         }
@@ -171,15 +198,18 @@ QString offeredRows_(QWidget *root, const QModelIndex &parent = {},
             continue;
         const QString text = idx.data(Qt::DisplayRole).toString();
         const QString kids = offeredRows_(root, idx, model);
-        out << (kids.isEmpty() ? text
-                               : QStringLiteral("%1/[%2]").arg(text, kids));
+        out << (kids.isEmpty() ? text : QStringLiteral("%1/[%2]").arg(text, kids));
     }
     return out.join(QStringLiteral(", "));
 }
 
-/*! Depth-first search for the row whose display text is \a which. */
-QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
-                     const QString &which)
+/*! Depth-first search for the row whose display text is \a which.
+ * @param[in] model Required borrowed item model.
+ * @param[in] parent Subtree root index.
+ * @param[in] which Case-insensitive display identity; final numeric count suffix is ignored as fallback.
+ * @return First depth-first column-zero matching index, or invalid; no filtering/selection mutation occurs here.
+ */
+QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent, const QString &which)
 {
     const int rows = model->rowCount(parent);
     for (int r = 0; r < rows; ++r) {
@@ -187,8 +217,8 @@ QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
         if (!idx.isValid())
             continue;
         const QString text = idx.data(Qt::DisplayRole).toString();
-        if (text.compare(which, Qt::CaseInsensitive) == 0
-            || stripCount_(text).compare(which, Qt::CaseInsensitive) == 0)
+        if (text.compare(which, Qt::CaseInsensitive) == 0 ||
+            stripCount_(text).compare(which, Qt::CaseInsensitive) == 0)
             return idx;
         const QModelIndex hit = findRow_(model, idx, which);
         if (hit.isValid())
@@ -197,9 +227,17 @@ QModelIndex findRow_(QAbstractItemModel *model, const QModelIndex &parent,
     return {};
 }
 
+/**
+ * @brief Remove all ampersands and trim a copied display label.
+ * @param[in] text Qt label text.
+ * @return Matching text; literal doubled-ampersand escaping is not preserved.
+ */
 QString stripMnemonic_(const QString &text);
 
-/*! Tab, list, tree and combo labels under \a root, for a failure message. */
+/*! Tab, list, tree and combo labels under \a root, for a failure message.
+ * @param[in] root Required widget scope.
+ * @return Diagnostic list of tab/list/combo labels with mnemonic stripping and hidden-combo prefixes. Tree category labels are not included by this helper.
+ */
 QString offeredPages_(QWidget *root)
 {
     QStringList out;
@@ -234,20 +272,23 @@ QString stripMnemonic_(const QString &text)
  *  or mesh figure silently comes back as a flat rectangle. Counting distinct
  *  colours over a coarse grid separates that from a real screenshot without
  *  scanning every pixel. A populated dialog runs to hundreds of colours; an
- *  empty frame is 1-2. */
+ *  empty frame is 1-2.
+ * @param[in] img Rendered image to sample on an approximately 64-by-64 grid.
+ * @return True for a null image or at most twelve distinct sampled colours; false once a thirteenth colour appears. This heuristic does not establish semantic capture correctness.
+ */
 bool looksBlank_(const QImage &img)
 {
     if (img.isNull())
         return true;
 
     QSet<QRgb> seen;
-    const int stepX = qMax(1, img.width()  / 64);
+    const int stepX = qMax(1, img.width() / 64);
     const int stepY = qMax(1, img.height() / 64);
     for (int y = 0; y < img.height(); y += stepY) {
         for (int x = 0; x < img.width(); x += stepX) {
             seen.insert(img.pixel(x, y));
             if (seen.size() > 12)
-                return false;   // clearly has content; stop early
+                return false; // clearly has content; stop early
         }
     }
     return true;
@@ -255,8 +296,7 @@ bool looksBlank_(const QImage &img)
 
 } // namespace
 
-FigureCapture *FigureCapture::createIfRequested(QMainWindow *host,
-                                                QObject     *parent)
+FigureCapture *FigureCapture::createIfRequested(QMainWindow *host, QObject *parent)
 {
     const QString manifest = qEnvironmentVariable("SWMMVIS_CAPTURE_MANIFEST");
     if (manifest.isEmpty() || !host)
@@ -269,12 +309,8 @@ FigureCapture *FigureCapture::createIfRequested(QMainWindow *host,
     return new FigureCapture(host, manifest, parent ? parent : host);
 }
 
-FigureCapture::FigureCapture(QMainWindow *host,
-                             QString      manifestPath,
-                             QObject     *parent)
-    : QObject(parent)
-    , mHost(host)
-    , mManifestPath(std::move(manifestPath))
+FigureCapture::FigureCapture(QMainWindow *host, QString manifestPath, QObject *parent)
+    : QObject(parent), mHost(host), mManifestPath(std::move(manifestPath))
 {
     mWatchdog = new QTimer(this);
     mWatchdog->setSingleShot(true);
@@ -283,10 +319,9 @@ FigureCapture::FigureCapture(QMainWindow *host,
         // failure rather than wedging the whole run on one figure.
         dismissDialogs();
         FigureResult r;
-        r.name      = mCurrent.name;
-        r.status    = QStringLiteral("failed");
-        r.detail    = QStringLiteral("watchdog: state not reached in %1 ms")
-                          .arg(mWatchdogMs);
+        r.name = mCurrent.name;
+        r.status = QStringLiteral("failed");
+        r.detail = QStringLiteral("watchdog: state not reached in %1 ms").arg(mWatchdogMs);
         r.elapsedMs = int(mSpecTimer.elapsed());
         finishSpec(r);
     });
@@ -326,9 +361,8 @@ bool FigureCapture::loadManifest(QString *error)
     QJsonParseError parseError{};
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError) {
-        *error = QStringLiteral("%1 at offset %2")
-                     .arg(parseError.errorString())
-                     .arg(parseError.offset);
+        *error =
+            QStringLiteral("%1 at offset %2").arg(parseError.errorString()).arg(parseError.offset);
         return false;
     }
     const QJsonObject root = doc.object();
@@ -338,15 +372,13 @@ bool FigureCapture::loadManifest(QString *error)
     // CLAUDE.md §4.1 wants every generated file reviewable in the tree.
     mOutDir = mDefaults.value(QStringLiteral("outDir")).toString();
     if (mOutDir.isEmpty())
-        mOutDir = QFileInfo(mManifestPath).absolutePath()
-                  + QStringLiteral("/manual_figures");
+        mOutDir = QFileInfo(mManifestPath).absolutePath() + QStringLiteral("/manual_figures");
     QDir().mkpath(mOutDir);
 
     // An optional filter lets one manifest serve many launches: the driver
     // passes SWMMVIS_CAPTURE_ONLY=a.png,b.png to run just those rows.
     const QStringList only =
-        qEnvironmentVariable("SWMMVIS_CAPTURE_ONLY")
-            .split(QLatin1Char(','), Qt::SkipEmptyParts);
+        qEnvironmentVariable("SWMMVIS_CAPTURE_ONLY").split(QLatin1Char(','), Qt::SkipEmptyParts);
 
     const QJsonArray figures = root.value(QStringLiteral("figures")).toArray();
     for (const QJsonValue &v : figures) {
@@ -358,29 +390,29 @@ bool FigureCapture::loadManifest(QString *error)
         if (!only.isEmpty() && !only.contains(spec.name))
             continue;
 
-        spec.action      = o.value(QStringLiteral("action")).toString();
-        spec.widget      = o.value(QStringLiteral("widget")).toString();
+        spec.action = o.value(QStringLiteral("action")).toString();
+        spec.widget = o.value(QStringLiteral("widget")).toString();
         spec.wholeWindow = o.value(QStringLiteral("window")).toBool(false);
-        spec.floatDock   = o.value(QStringLiteral("floatDock")).toBool(false);
-        spec.page        = o.value(QStringLiteral("page")).toString();
-        spec.tab         = o.value(QStringLiteral("tab")).toString();
-        spec.tabIn       = o.value(QStringLiteral("tabIn")).toString();
-        spec.dialogPage  = o.value(QStringLiteral("dialogPage")).toString();
+        spec.floatDock = o.value(QStringLiteral("floatDock")).toBool(false);
+        spec.page = o.value(QStringLiteral("page")).toString();
+        spec.tab = o.value(QStringLiteral("tab")).toString();
+        spec.tabIn = o.value(QStringLiteral("tabIn")).toString();
+        spec.dialogPage = o.value(QStringLiteral("dialogPage")).toString();
         for (const auto &name : o.value(QStringLiteral("hide")).toArray())
             spec.hide.append(name.toString());
         for (const auto &name : o.value(QStringLiteral("show")).toArray())
             spec.show.append(name.toString());
-        spec.type        = o.value(QStringLiteral("type")).toString();
-        spec.typeInto    = o.value(QStringLiteral("typeInto")).toString();
+        spec.type = o.value(QStringLiteral("type")).toString();
+        spec.typeInto = o.value(QStringLiteral("typeInto")).toString();
         spec.afterTypeClick = o.value(QStringLiteral("afterTypeClick")).toString();
-        spec.select      = o.value(QStringLiteral("select")).toString();
-        spec.activate    = o.value(QStringLiteral("activate")).toString();
-        spec.sortColumn  = o.value(QStringLiteral("sortColumn")).toString();
+        spec.select = o.value(QStringLiteral("select")).toString();
+        spec.activate = o.value(QStringLiteral("activate")).toString();
+        spec.sortColumn = o.value(QStringLiteral("sortColumn")).toString();
         for (const auto &value : o.value(QStringLiteral("check")).toArray())
             spec.check << value.toString();
         for (const auto &value : o.value(QStringLiteral("uncheck")).toArray())
             spec.uncheck << value.toString();
-        spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
+        spec.hostSelect = o.value(QStringLiteral("hostSelect")).toString();
         spec.hostSelectIn = o.value(QStringLiteral("hostSelectIn")).toString();
         for (const auto &value : o.value(QStringLiteral("hostSelectMore")).toArray())
             spec.hostSelectMore << value.toString();
@@ -394,10 +426,10 @@ bool FigureCapture::loadManifest(QString *error)
         } else if (!clickVal.toString().isEmpty()) {
             spec.clicks << clickVal.toString();
         }
-        spec.column      = o.value(QStringLiteral("column")).toString();
-        spec.editCell    = o.value(QStringLiteral("editCell")).toString();
-        spec.grab        = o.value(QStringLiteral("grab")).toString();
-        spec.maxWidth    = o.value(QStringLiteral("maxWidth")).toInt(0);
+        spec.column = o.value(QStringLiteral("column")).toString();
+        spec.editCell = o.value(QStringLiteral("editCell")).toString();
+        spec.grab = o.value(QStringLiteral("grab")).toString();
+        spec.maxWidth = o.value(QStringLiteral("maxWidth")).toInt(0);
         if (o.contains(QStringLiteral("cursorNorm"))) {
             spec.cursorNorm = o.value(QStringLiteral("cursorNorm")).toDouble(-1);
             if (spec.cursorNorm < 0 || spec.cursorNorm > 1) {
@@ -405,9 +437,9 @@ bool FigureCapture::loadManifest(QString *error)
                 return false;
             }
         }
-        spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
+        spec.size = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
-        spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
+        spec.lane = laneFromString_(o.value(QStringLiteral("lane")).toString());
         spec.settleMs = o.value(QStringLiteral("settleMs")).toInt(0);
         mQueue.append(spec);
     }
@@ -422,17 +454,16 @@ bool FigureCapture::loadManifest(QString *error)
 void FigureCapture::applyDefaults()
 {
     mDefaultSettleMs = mDefaults.value(QStringLiteral("settleMs")).toInt(600);
-    mStartupMs       = mDefaults.value(QStringLiteral("startupMs")).toInt(2500);
+    mStartupMs = mDefaults.value(QStringLiteral("startupMs")).toInt(2500);
     // A big model (Bellinge is 38 MB) is still loading when the manifest's
     // startup wait expires, and every row then finds an empty editor. The
     // launcher raises the wait for those runs rather than slowing every run.
-    if (const int override =
-            qEnvironmentVariable("SWMMVIS_CAPTURE_STARTUP_MS").toInt();
+    if (const int override = qEnvironmentVariable("SWMMVIS_CAPTURE_STARTUP_MS").toInt();
         override > 0)
         mStartupMs = override;
-    mWatchdogMs      = mDefaults.value(QStringLiteral("watchdogMs")).toInt(20000);
-    mMaxWidth        = mDefaults.value(QStringLiteral("maxWidth")).toInt(1400);
-    mRenderScale     = mDefaults.value(QStringLiteral("renderScale")).toDouble(2.0);
+    mWatchdogMs = mDefaults.value(QStringLiteral("watchdogMs")).toInt(20000);
+    mMaxWidth = mDefaults.value(QStringLiteral("maxWidth")).toInt(1400);
+    mRenderScale = mDefaults.value(QStringLiteral("renderScale")).toDouble(2.0);
 
     // The manual is captured on the light theme (docs/manual/README.md). Force
     // it explicitly: on the live lane the developer's OS appearance leaks in.
@@ -444,8 +475,7 @@ void FigureCapture::applyDefaults()
 
     // Offscreen the main window comes up at a useless default (canvas 192x114),
     // so whole-window figures need a deterministic size on every platform.
-    const QSize win = sizeFromString_(
-        mDefaults.value(QStringLiteral("window")).toString());
+    const QSize win = sizeFromString_(mDefaults.value(QStringLiteral("window")).toString());
     if (win.isValid() && mHost)
         mHost->resize(win);
 }
@@ -457,13 +487,13 @@ void FigureCapture::processNext()
         return;
     }
 
-    mCurrent     = mQueue.takeFirst();
+    mCurrent = mQueue.takeFirst();
     mCurrentDone = false;
     mSpecTimer.start();
 
     if (mCurrent.lane == FigureLane::Human) {
         FigureResult r;
-        r.name   = mCurrent.name;
+        r.name = mCurrent.name;
         r.status = QStringLiteral("skipped");
         r.detail = QStringLiteral("lane:human — capture by hand");
         finishSpec(r);
@@ -476,7 +506,6 @@ void FigureCapture::processNext()
     mWatchdog->start(qMax(mWatchdogMs, mCurrent.settleMs * 2 + mWatchdogMs / 2));
     captureSpec(mCurrent);
 }
-
 
 bool FigureCapture::applyHostSelect(const FigureSpec &spec)
 {
@@ -498,16 +527,16 @@ bool FigureCapture::applyHostSelect(const FigureSpec &spec)
     }
 
     FigureResult r;
-    r.name   = spec.name;
+    r.name = spec.name;
     r.status = QStringLiteral("failed");
-    r.detail = scope
-        ? QStringLiteral("no item matching '%1' in %2 — rows offered: %3")
-              .arg(spec.hostSelect,
-                   spec.hostSelectIn.isEmpty() ? QStringLiteral("the main window")
-                                               : spec.hostSelectIn,
-                   offeredRows_(scope))
-        : QStringLiteral("no panel named or classed '%1' to select in")
-              .arg(spec.hostSelectIn);
+    r.detail =
+        scope
+            ? QStringLiteral("no item matching '%1' in %2 — rows offered: %3")
+                  .arg(spec.hostSelect,
+                       spec.hostSelectIn.isEmpty() ? QStringLiteral("the main window")
+                                                   : spec.hostSelectIn,
+                       offeredRows_(scope))
+            : QStringLiteral("no panel named or classed '%1' to select in").arg(spec.hostSelectIn);
     r.elapsedMs = int(mSpecTimer.elapsed());
     finishSpec(r);
     return false;
@@ -542,9 +571,7 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
 
     // --- whole main window -------------------------------------------------
     if (spec.wholeWindow) {
-        QTimer::singleShot(settle, this, [this, spec]() {
-            grabInto(mHost, spec);
-        });
+        QTimer::singleShot(settle, this, [this, spec]() { grabInto(mHost, spec); });
         return;
     }
 
@@ -559,10 +586,10 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
                 act = mHost->findChild<QAction *>(spec.action);
             if (!act) {
                 FigureResult r;
-                r.name   = spec.name;
+                r.name = spec.name;
                 r.status = QStringLiteral("failed");
-                r.detail = QStringLiteral("no action with catalog id or objectName '%1'")
-                               .arg(spec.action);
+                r.detail =
+                    QStringLiteral("no action with catalog id or objectName '%1'").arg(spec.action);
                 finishSpec(r);
                 return;
             }
@@ -575,11 +602,11 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             QWidget *w = descendant_(mHost, spec.widget);
             if (!w) {
                 FigureResult r;
-                r.name      = spec.name;
-                r.status    = QStringLiteral("failed");
-                r.detail    = QStringLiteral("no widget named or classed '%1'"
-                                             " — classes present: %2")
-                                  .arg(spec.widget, offeredClasses_(mHost));
+                r.name = spec.name;
+                r.status = QStringLiteral("failed");
+                r.detail = QStringLiteral("no widget named or classed '%1'"
+                                          " — classes present: %2")
+                               .arg(spec.widget, offeredClasses_(mHost));
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 finishSpec(r);
                 return;
@@ -598,10 +625,9 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
         // is far too late.
         if (nativePickerActions_().contains(spec.action)) {
             FigureResult r;
-            r.name   = spec.name;
+            r.name = spec.name;
             r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral(
-                           "action '%1' raises a native picker — mark lane:human")
+            r.detail = QStringLiteral("action '%1' raises a native picker — mark lane:human")
                            .arg(spec.action);
             finishSpec(r);
             return;
@@ -615,10 +641,10 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             act = mHost->findChild<QAction *>(spec.action);
         if (!act) {
             FigureResult r;
-            r.name   = spec.name;
+            r.name = spec.name;
             r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral("no action with catalog id or objectName '%1'")
-                           .arg(spec.action);
+            r.detail =
+                QStringLiteral("no action with catalog id or objectName '%1'").arg(spec.action);
             finishSpec(r);
             return;
         }
@@ -630,10 +656,9 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
             QWidget *dlg = activeDialog();
             if (!dlg) {
                 FigureResult r;
-                r.name      = spec.name;
-                r.status    = QStringLiteral("failed");
-                r.detail    = QStringLiteral("action '%1' raised no dialog")
-                                  .arg(spec.action);
+                r.name = spec.name;
+                r.status = QStringLiteral("failed");
+                r.detail = QStringLiteral("action '%1' raised no dialog").arg(spec.action);
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 finishSpec(r);
                 return;
@@ -650,7 +675,7 @@ void FigureCapture::captureSpec(const FigureSpec &spec)
     }
 
     FigureResult r;
-    r.name   = spec.name;
+    r.name = spec.name;
     r.status = QStringLiteral("failed");
     r.detail = QStringLiteral("row names no action, widget or window target");
     finishSpec(r);
@@ -682,7 +707,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             parent = parent->parentWidget();
         if (auto *dock = qobject_cast<QDockWidget *>(parent)) {
             dock->setFloating(true);
-            if (spec.size.isValid()) dock->resize(spec.size);
+            if (spec.size.isValid())
+                dock->resize(spec.size);
             dock->show();
             QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         } else {
@@ -700,11 +726,10 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     // Fall back to the host: a tab that drives the target often lives outside
     // it — the ribbon's tab strip is a separate toolbar from the ribbon pages
     // it shows, and a dock's tab bar belongs to the main window.
-    if (!spec.page.isEmpty()
-        && !selectPage(target, spec.page) && !selectPage(mHost, spec.page)) {
-        r.status    = QStringLiteral("failed");
-        r.detail    = QStringLiteral("no page matching '%1' — pages offered: %2")
-                          .arg(spec.page, offeredPages_(target));
+    if (!spec.page.isEmpty() && !selectPage(target, spec.page) && !selectPage(mHost, spec.page)) {
+        r.status = QStringLiteral("failed");
+        r.detail = QStringLiteral("no page matching '%1' — pages offered: %2")
+                       .arg(spec.page, offeredPages_(target));
         r.elapsedMs = int(mSpecTimer.elapsed());
         dismissOpenedBy(spec);
         finishSpec(r);
@@ -722,12 +747,12 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         QWidget *scope = spec.tabIn.isEmpty() ? nullptr : descendant_(mHost, spec.tabIn);
         const bool selected = spec.tabIn.isEmpty()
-            ? (selectPage(target, spec.tab) || selectPage(mHost, spec.tab))
-            : (scope && selectPage(scope, spec.tab));
+                                  ? (selectPage(target, spec.tab) || selectPage(mHost, spec.tab))
+                                  : (scope && selectPage(scope, spec.tab));
         if (!selected) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no tab matching '%1' — pages offered: %2")
-                              .arg(spec.tab, offeredPages_(target));
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no tab matching '%1' — pages offered: %2")
+                           .arg(spec.tab, offeredPages_(target));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -803,8 +828,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 // Honour the selected row: hostSelect picks the object the
                 // figure is about, and opening row 0 regardless produced an
                 // inflows page reading "0 on this node (model total: 4)".
-                const int row = view->currentIndex().isValid()
-                                    ? view->currentIndex().row() : 0;
+                const int row = view->currentIndex().isValid() ? view->currentIndex().row() : 0;
                 const QModelIndex idx = model->index(row, col);
                 if (!idx.isValid())
                     continue;
@@ -819,11 +843,11 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 break;
         }
         if (!opened) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no column headed '%1' to edit in %2 — headers: %3")
-                              .arg(spec.editCell,
-                                   QString::fromLatin1(target->metaObject()->className()),
-                                   headers.join(QStringLiteral(", ")));
+            r.status = QStringLiteral("failed");
+            r.detail =
+                QStringLiteral("no column headed '%1' to edit in %2 — headers: %3")
+                    .arg(spec.editCell, QString::fromLatin1(target->metaObject()->className()),
+                         headers.join(QStringLiteral(", ")));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -870,8 +894,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             QAbstractButton *loose = nullptr;
             const auto buttons = target->findChildren<QAbstractButton *>();
             for (QAbstractButton *b : buttons) {
-                if (!b->isVisibleTo(target) || !b->isEnabled()
-                    || b->text().isEmpty())
+                if (!b->isVisibleTo(target) || !b->isEnabled() || b->text().isEmpty())
                     continue;
                 const QString label = stripMnemonic_(b->text());
                 offered << label;
@@ -888,16 +911,16 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             if (!btn)
                 btn = loose;
             if (!btn) {
-                r.status    = QStringLiteral("failed");
-                r.detail    = QStringLiteral("no button labelled '%1' — buttons: %2")
-                                  .arg(wanted, offered.join(QStringLiteral(", ")));
+                r.status = QStringLiteral("failed");
+                r.detail = QStringLiteral("no button labelled '%1' — buttons: %2")
+                               .arg(wanted, offered.join(QStringLiteral(", ")));
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 dismissOpenedBy(spec);
                 finishSpec(r);
                 return;
             }
             if (i + 1 == spec.clicks.size())
-                break;                      // the last one is armed below
+                break; // the last one is armed below
             btn->click();
             QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         }
@@ -910,25 +933,25 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         rest.page = spec.dialogPage;
         rest.dialogPage.clear();
         rest.tab.clear();
-        rest.editCell.clear();   // already served: it is what raised the dialog
+        rest.editCell.clear(); // already served: it is what raised the dialog
         rest.column.clear();
         rest.hostSize = QSize();
         QWidget *before = activeDialog();
-        QTimer::singleShot(spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs,
-                           this, [this, rest, before]() {
-            QWidget *dlg = activeDialog();
-            if (!dlg || dlg == before) {
-                FigureResult f;
-                f.name      = rest.name;
-                f.status    = QStringLiteral("failed");
-                f.detail    = QStringLiteral("the click raised no dialog");
-                f.elapsedMs = int(mSpecTimer.elapsed());
-                dismissDialogs();
-                finishSpec(f);
-                return;
-            }
-            grabInto(dlg, rest);
-        });
+        QTimer::singleShot(spec.settleMs > 0 ? spec.settleMs : mDefaultSettleMs, this,
+                           [this, rest, before]() {
+                               QWidget *dlg = activeDialog();
+                               if (!dlg || dlg == before) {
+                                   FigureResult f;
+                                   f.name = rest.name;
+                                   f.status = QStringLiteral("failed");
+                                   f.detail = QStringLiteral("the click raised no dialog");
+                                   f.elapsedMs = int(mSpecTimer.elapsed());
+                                   dismissDialogs();
+                                   finishSpec(f);
+                                   return;
+                               }
+                               grabInto(dlg, rest);
+                           });
         btn->click();
         return;
     }
@@ -960,23 +983,22 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         for (QLineEdit *e : edits) {
             if (!e->isVisibleTo(target) || !e->isEnabled() || e->isReadOnly())
                 continue;
-            fields << (e->placeholderText().isEmpty() ? e->objectName()
-                                                      : e->placeholderText());
-            if (!spec.typeInto.isEmpty()
-                && !e->objectName().contains(spec.typeInto, Qt::CaseInsensitive)
-                && !e->placeholderText().contains(spec.typeInto, Qt::CaseInsensitive))
+            fields << (e->placeholderText().isEmpty() ? e->objectName() : e->placeholderText());
+            if (!spec.typeInto.isEmpty() &&
+                !e->objectName().contains(spec.typeInto, Qt::CaseInsensitive) &&
+                !e->placeholderText().contains(spec.typeInto, Qt::CaseInsensitive))
                 continue;
             e->setFocus(Qt::OtherFocusReason);
-            e->setText(spec.type);        // emits textChanged: filters apply
+            e->setText(spec.type); // emits textChanged: filters apply
             settleAfterTyping();
             typedInto = true;
             break;
         }
 
         if (!typedInto && !spec.typeInto.isEmpty()) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no field matching '%1' — fields: %2")
-                              .arg(spec.typeInto, fields.join(QStringLiteral(", ")));
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no field matching '%1' — fields: %2")
+                           .arg(spec.typeInto, fields.join(QStringLiteral(", ")));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -1001,9 +1023,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
 
         if (!typedInto) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no editable text field to type '%1' into")
-                              .arg(spec.type);
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no editable text field to type '%1' into").arg(spec.type);
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -1014,9 +1035,9 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     if (!spec.afterTypeClick.isEmpty()) {
         QAbstractButton *button = nullptr;
         for (auto *candidate : target->findChildren<QAbstractButton *>()) {
-            if (candidate->isVisibleTo(target) && candidate->isEnabled()
-                && stripMnemonic_(candidate->text()).compare(
-                       spec.afterTypeClick, Qt::CaseInsensitive) == 0) {
+            if (candidate->isVisibleTo(target) && candidate->isEnabled() &&
+                stripMnemonic_(candidate->text())
+                        .compare(spec.afterTypeClick, Qt::CaseInsensitive) == 0) {
                 button = candidate;
                 break;
             }
@@ -1034,18 +1055,18 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     }
 
     if (!spec.select.isEmpty() && !selectItem(target, spec.select)) {
-        r.status    = QStringLiteral("failed");
-        r.detail    = QStringLiteral("no item matching '%1' to select"
-                                    " — rows offered: %2")
-                          .arg(spec.select, offeredRows_(target));
+        r.status = QStringLiteral("failed");
+        r.detail = QStringLiteral("no item matching '%1' to select"
+                                  " — rows offered: %2")
+                       .arg(spec.select, offeredRows_(target));
         r.elapsedMs = int(mSpecTimer.elapsed());
         dismissOpenedBy(spec);
         finishSpec(r);
         return;
     }
 
-    if (!spec.activate.isEmpty()
-        && !selectItem(target, spec.activate, false, QStringLiteral("activate"))) {
+    if (!spec.activate.isEmpty() &&
+        !selectItem(target, spec.activate, false, QStringLiteral("activate"))) {
         r.status = QStringLiteral("failed");
         r.detail = QStringLiteral("no item matching '%1' to activate").arg(spec.activate);
         dismissOpenedBy(spec);
@@ -1060,14 +1081,16 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 continue;
             auto *model = view->model();
             for (int c = 0; c < model->columnCount(); ++c) {
-                if (model->headerData(c, Qt::Horizontal).toString()
+                if (model->headerData(c, Qt::Horizontal)
+                        .toString()
                         .compare(spec.sortColumn, Qt::CaseInsensitive) == 0) {
                     view->sortByColumn(c, Qt::AscendingOrder);
                     sorted = true;
                     break;
                 }
             }
-            if (sorted) break;
+            if (sorted)
+                break;
         }
         if (!sorted) {
             r.status = QStringLiteral("failed");
@@ -1110,9 +1133,9 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 break;
         }
         if (!scrolled) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no column headed '%1' — headers: %2")
-                              .arg(spec.column, headers.join(QStringLiteral(", ")));
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no column headed '%1' — headers: %2")
+                           .arg(spec.column, headers.join(QStringLiteral(", ")));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -1126,10 +1149,10 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     if (!spec.grab.isEmpty()) {
         QWidget *inner = descendant_(target, spec.grab);
         if (!inner) {
-            r.status    = QStringLiteral("failed");
-            r.detail    = QStringLiteral("no descendant named or classed '%1'"
-                                         " — classes present: %2")
-                              .arg(spec.grab, offeredClasses_(target));
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no descendant named or classed '%1'"
+                                      " — classes present: %2")
+                           .arg(spec.grab, offeredClasses_(target));
             r.elapsedMs = int(mSpecTimer.elapsed());
             dismissOpenedBy(spec);
             finishSpec(r);
@@ -1173,11 +1196,10 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     QPixmap pm(logical * mRenderScale);
     pm.setDevicePixelRatio(mRenderScale);
     pm.fill(Qt::transparent);
-    target->render(&pm, QPoint(), QRegion(),
-                   QWidget::DrawWindowBackground | QWidget::DrawChildren);
+    target->render(&pm, QPoint(), QRegion(), QWidget::DrawWindowBackground | QWidget::DrawChildren);
 
     QImage img = pm.toImage();
-    img.setDevicePixelRatio(1.0);   // bake the scale in; store real pixels
+    img.setDevicePixelRatio(1.0); // bake the scale in; store real pixels
 
     // A per-row clamp, because the audit's size cap is per FILE: a dense
     // figure (the CRS dialog's WKT block) can breach 400 KB at the width every
@@ -1186,8 +1208,8 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
     if (cap > 0 && img.width() > cap)
         img = img.scaledToWidth(cap, Qt::SmoothTransformation);
 
-    r.blank  = looksBlank_(img);
-    r.width  = img.width();
+    r.blank = looksBlank_(img);
+    r.width = img.width();
     r.height = img.height();
 
     const QString path = mOutDir + QLatin1Char('/') + spec.name;
@@ -1195,11 +1217,11 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         r.status = QStringLiteral("failed");
         r.detail = QStringLiteral("could not write %1").arg(path);
     } else {
-        r.bytes  = QFileInfo(path).size();
+        r.bytes = QFileInfo(path).size();
         r.status = QStringLiteral("ok");
         if (r.blank) {
-            r.detail = QStringLiteral(
-                "blank grab — scene-graph content needs lane:live on a display");
+            r.detail =
+                QStringLiteral("blank grab — scene-graph content needs lane:live on a display");
         }
     }
     r.elapsedMs = int(mSpecTimer.elapsed());
@@ -1272,8 +1294,7 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     const auto tabs = target->findChildren<QTabWidget *>();
     for (QTabWidget *tw : tabs) {
         for (int i = 0; i < tw->count(); ++i) {
-            if (stripMnemonic_(tw->tabText(i)).compare(
-                    wanted, Qt::CaseInsensitive) == 0) {
+            if (stripMnemonic_(tw->tabText(i)).compare(wanted, Qt::CaseInsensitive) == 0) {
                 tw->setCurrentIndex(i);
                 return true;
             }
@@ -1284,8 +1305,7 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     const auto bars = target->findChildren<QTabBar *>();
     for (QTabBar *bar : bars) {
         for (int i = 0; i < bar->count(); ++i) {
-            if (stripMnemonic_(bar->tabText(i)).compare(
-                    wanted, Qt::CaseInsensitive) == 0) {
+            if (stripMnemonic_(bar->tabText(i)).compare(wanted, Qt::CaseInsensitive) == 0) {
                 bar->setCurrentIndex(i);
                 return true;
             }
@@ -1297,8 +1317,7 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     const auto lists = target->findChildren<QListWidget *>();
     for (QListWidget *lw : lists) {
         for (int i = 0; i < lw->count(); ++i) {
-            if (stripMnemonic_(lw->item(i)->text()).compare(
-                    wanted, Qt::CaseInsensitive) == 0) {
+            if (stripMnemonic_(lw->item(i)->text()).compare(wanted, Qt::CaseInsensitive) == 0) {
                 lw->setCurrentRow(i);
                 return true;
             }
@@ -1310,8 +1329,7 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
     for (QTreeWidget *tree : trees) {
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *item = tree->topLevelItem(i);
-            if (stripMnemonic_(item->text(0)).compare(
-                    wanted, Qt::CaseInsensitive) == 0) {
+            if (stripMnemonic_(item->text(0)).compare(wanted, Qt::CaseInsensitive) == 0) {
                 tree->setCurrentItem(item);
                 return true;
             }
@@ -1329,8 +1347,8 @@ bool FigureCapture::selectPage(QWidget *target, const QString &page) const
             // These carry counts too ("Conduits (11)"), same as the Layers
             // panel's rows — a manifest names the category, not the tally.
             const QString label = stripMnemonic_(combo->itemText(i));
-            if (label.compare(wanted, Qt::CaseInsensitive) == 0
-                || stripCount_(label).compare(wanted, Qt::CaseInsensitive) == 0) {
+            if (label.compare(wanted, Qt::CaseInsensitive) == 0 ||
+                stripCount_(label).compare(wanted, Qt::CaseInsensitive) == 0) {
                 combo->setCurrentIndex(i);
                 return true;
             }
@@ -1348,8 +1366,7 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which, bool appen
     // caption ("the series list; point grid and chart" over an empty grid).
     // One pass over every item view covers QListWidget, QListView, QTreeWidget
     // and QTableView alike.
-    const bool wantFirst =
-        which.compare(QLatin1String("first"), Qt::CaseInsensitive) == 0;
+    const bool wantFirst = which.compare(QLatin1String("first"), Qt::CaseInsensitive) == 0;
 
     const auto views = target->findChildren<QAbstractItemView *>();
     for (QAbstractItemView *view : views) {
@@ -1369,14 +1386,15 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which, bool appen
             if (QItemSelectionModel *sel = view->selectionModel()) {
                 sel->setCurrentIndex(idx, QItemSelectionModel::NoUpdate);
                 sel->select(idx, (append ? QItemSelectionModel::Select
-                                       : QItemSelectionModel::ClearAndSelect)
-                                     | QItemSelectionModel::Rows);
+                                         : QItemSelectionModel::ClearAndSelect) |
+                                     QItemSelectionModel::Rows);
             }
             view->scrollTo(idx);
             if (operation == QLatin1String("check") || operation == QLatin1String("uncheck")) {
-                const Qt::CheckState state = operation == QLatin1String("check") ? Qt::Checked : Qt::Unchecked;
-                if (!(idx.flags() & Qt::ItemIsUserCheckable)
-                    || !view->model()->setData(idx, state, Qt::CheckStateRole))
+                const Qt::CheckState state =
+                    operation == QLatin1String("check") ? Qt::Checked : Qt::Unchecked;
+                if (!(idx.flags() & Qt::ItemIsUserCheckable) ||
+                    !view->model()->setData(idx, state, Qt::CheckStateRole))
                     return false;
             } else if (operation == QLatin1String("activate")) {
                 // The report navigator scrolls on clicked(), whereas ordinary
@@ -1402,14 +1420,15 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which, bool appen
         // spelled "NAD83(2011) / UTM zone 17N", and splitting it looked for a
         // "UTM zone 17N" nested under a "NAD83(2011)".
         QModelIndex idx = findRow_(model, view->rootIndex(), which);
-        if (!idx.isValid() && (which.contains(QLatin1Char('/'))
-                              || which.contains(QStringLiteral(" > ")))) {
+        if (!idx.isValid() &&
+            (which.contains(QLatin1Char('/')) || which.contains(QStringLiteral(" > ")))) {
             // "Meshes/2d_complete_example.inp", for the models whose mesh
             // layer and SWMM layer carry the same name.
             idx = view->rootIndex();
             // " > " also supports labels with slash units such as ft³/s.
             const QStringList segments = which.contains(QStringLiteral(" > "))
-                ? which.split(QStringLiteral(" > ")) : which.split(QLatin1Char('/'));
+                                             ? which.split(QStringLiteral(" > "))
+                                             : which.split(QLatin1Char('/'));
             for (const QString &segment : segments) {
                 idx = findRow_(model, idx, segment.trimmed());
                 if (!idx.isValid())
@@ -1443,8 +1462,7 @@ void FigureCapture::dismissDialogs()
         QWidget *w = activeDialog();
         if (!w)
             break;
-        qCInfo(lcFigCap) << "    dismiss" << w->metaObject()->className()
-                         << w->objectName();
+        qCInfo(lcFigCap) << "    dismiss" << w->metaObject()->className() << w->objectName();
         if (auto *dlg = qobject_cast<QDialog *>(w))
             dlg->reject();
         else
@@ -1456,17 +1474,17 @@ void FigureCapture::dismissDialogs()
 void FigureCapture::finishSpec(const FigureResult &result)
 {
     if (mCurrentDone)
-        return;             // a watchdog and a real completion can race
+        return; // a watchdog and a real completion can race
     mCurrentDone = true;
     mWatchdog->stop();
 
     mResults.append(result);
-    qCInfo(lcFigCap).nospace()
-        << "  " << result.status << "  " << result.name
-        << "  " << result.width << "x" << result.height
-        << (result.blank ? "  BLANK" : "")
-        << (result.detail.isEmpty() ? QString()
-                                    : QStringLiteral("  (%1)").arg(result.detail));
+    qCInfo(lcFigCap).nospace() << "  " << result.status << "  " << result.name << "  "
+                               << result.width << "x" << result.height
+                               << (result.blank ? "  BLANK" : "")
+                               << (result.detail.isEmpty()
+                                       ? QString()
+                                       : QStringLiteral("  (%1)").arg(result.detail));
 
     QTimer::singleShot(0, this, &FigureCapture::processNext);
 }
@@ -1476,18 +1494,22 @@ void FigureCapture::finishRun()
     int ok = 0, failed = 0, skipped = 0, blank = 0;
     QJsonArray rows;
     for (const FigureResult &r : std::as_const(mResults)) {
-        if (r.status == QLatin1String("ok"))           ++ok;
-        else if (r.status == QLatin1String("skipped")) ++skipped;
-        else                                           ++failed;
-        if (r.blank) ++blank;
+        if (r.status == QLatin1String("ok"))
+            ++ok;
+        else if (r.status == QLatin1String("skipped"))
+            ++skipped;
+        else
+            ++failed;
+        if (r.blank)
+            ++blank;
 
         QJsonObject o;
-        o[QStringLiteral("name")]      = r.name;
-        o[QStringLiteral("status")]    = r.status;
-        o[QStringLiteral("width")]     = r.width;
-        o[QStringLiteral("height")]    = r.height;
-        o[QStringLiteral("bytes")]     = double(r.bytes);
-        o[QStringLiteral("blank")]     = r.blank;
+        o[QStringLiteral("name")] = r.name;
+        o[QStringLiteral("status")] = r.status;
+        o[QStringLiteral("width")] = r.width;
+        o[QStringLiteral("height")] = r.height;
+        o[QStringLiteral("bytes")] = double(r.bytes);
+        o[QStringLiteral("blank")] = r.blank;
         o[QStringLiteral("elapsedMs")] = r.elapsedMs;
         if (!r.detail.isEmpty())
             o[QStringLiteral("detail")] = r.detail;
@@ -1496,30 +1518,27 @@ void FigureCapture::finishRun()
 
     QJsonObject summary;
     summary[QStringLiteral("platform")] = QGuiApplication::platformName();
-    summary[QStringLiteral("ok")]       = ok;
-    summary[QStringLiteral("failed")]   = failed;
-    summary[QStringLiteral("skipped")]  = skipped;
-    summary[QStringLiteral("blank")]    = blank;
+    summary[QStringLiteral("ok")] = ok;
+    summary[QStringLiteral("failed")] = failed;
+    summary[QStringLiteral("skipped")] = skipped;
+    summary[QStringLiteral("blank")] = blank;
 
     QJsonObject root;
     root[QStringLiteral("manifest")] = mManifestPath;
-    root[QStringLiteral("summary")]  = summary;
-    root[QStringLiteral("figures")]  = rows;
+    root[QStringLiteral("summary")] = summary;
+    root[QStringLiteral("figures")] = rows;
 
     const QString reportPath = mOutDir + QStringLiteral("/run.json");
     QFile out(reportPath);
     if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
         out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
 
-    qCInfo(lcFigCap) << "capture done — ok" << ok << "failed" << failed
-                     << "skipped" << skipped << "blank" << blank
-                     << "→" << reportPath;
+    qCInfo(lcFigCap) << "capture done — ok" << ok << "failed" << failed << "skipped" << skipped
+                     << "blank" << blank << "→" << reportPath;
 
     // Exit code carries the failure count so a driver script can gate on it.
     // Without this the app would sit at its event loop and have to be killed.
-    QTimer::singleShot(0, qApp, [failed]() {
-        qApp->exit(failed > 0 ? 1 : 0);
-    });
+    QTimer::singleShot(0, qApp, [failed]() { qApp->exit(failed > 0 ? 1 : 0); });
 }
 
 } // namespace openswmmvis::ui

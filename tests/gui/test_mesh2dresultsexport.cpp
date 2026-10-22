@@ -1,8 +1,9 @@
-/*!
- * \file   test_mesh2dresultsexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_mesh2dresultsexport.cpp
+ * @brief     Tests for mesh2dresultsexport.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Gates workplans/MESH2D_RESULTS_EXPORT_PLAN_2026-09-09.md §Verification for
  * the widget-free exporter: the new rank-1 envelope read, the vector writers
@@ -10,12 +11,14 @@
  * separate `_max` file, the three interpolators, the dry mask, and the
  * cancel-cleanup contract.
  *
- * Every artifact is written to <repo>/tests/output/mesh2d_export so a human
+ * Every artifact is written to repository/tests/output/mesh2d_export so a human
  * can open the results in QGIS afterwards — never a temp dir (CLAUDE.md §4.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "io/mesh2dh5reader.h"
 #include "io/mesh2dresultsexport.h"
-#include "layers/swmm2dresultslayer.h"   // IMesh2DSource
+#include "layers/swmm2dresultslayer.h" // IMesh2DSource
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
@@ -32,8 +35,13 @@
 
 using namespace openswmmvis::io;
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Resolve GUI fixture base from environment.
+ * @return SWMMVIS_GUI_TEST_DATA or dot, owned string, no existence check or file IO.
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
@@ -43,13 +51,13 @@ QString dataDir()
 //! 8 triangles, 72 frames, with depth / head / vx / vy and both envelopes.
 QString fixtureH5()
 {
-    QDir d(dataDir());              // tests/gui/data
-    d.cdUp();                       // tests/gui
-    d.cdUp();                       // tests
+    QDir d(dataDir()); // tests/gui/data
+    d.cdUp();          // tests/gui
+    d.cdUp();          // tests
     return d.filePath(QStringLiteral("unit/data/2d_complete_example.h5"));
 }
 
-//! Reviewable output root: <repo>/tests/output/mesh2d_export (never a temp dir).
+//! Reviewable output root: repository/tests/output/mesh2d_export (never a temp dir).
 QString outputDir()
 {
     QDir d(dataDir());
@@ -82,45 +90,129 @@ QString testWkt()
 class H5Source : public IMesh2DSource
 {
 public:
+    /**
+     * @brief Open or replace the wrapped HDF5 reader file for exporter fixtures.
+     * @param[in] path Existing read-only result path, borrowed while opening.
+     * @return Reader open success, false exposes reader().lastError; prior file/cache state
+     * follows reader open. Reader owns native handles, caller keeps source object alive through
+     * all export callbacks.
+     */
     bool open(const QString &path) { return reader_.open(path); }
 
-    int vertexCount()   const override { return reader_.vertexCount(); }
+    /**
+     * @brief Return the wrapped result's native vertex count.
+     * @return Reader vertexCount, normally zero before successful open; no caller ownership
+     * transfer.
+     */
+    int vertexCount() const override { return reader_.vertexCount(); }
+    /**
+     * @brief Return wrapped file face count, including quad cells when present.
+     * @return Reader triangleCount historical API value, distinct from display triangulation
+     * count.
+     */
     int triangleCount() const override { return reader_.triangleCount(); }
-    int timeCount()     const override { return reader_.timeCount(); }
+    /**
+     * @brief Return the wrapped result's available report count.
+     * @return Reader timeCount, no frame selection or file writes.
+     */
+    int timeCount() const override { return reader_.timeCount(); }
 
-    bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy,
-                          std::vector<double> &vz,
+    /**
+     * @brief Copy stored coordinates and display-triangle connectivity through the reader.
+     * @param[out] vx Borrowed x output in raw stored metre units.
+     * @param[out] vy Borrowed y output in raw stored metre units.
+     * @param[out] vz Borrowed elevation output in raw stored metre units.
+     * @param[out] tris Borrowed zero-based display triangle output, quad splits may duplicate
+     * face identity.
+     * @return True only if both coordinate and triangle reads succeed; coordinate failure
+     * short-circuits triangle read, connectivity failure can leave already populated
+     * coordinates. No atomic output guarantee. Reader handles/caches remain source-owned, no
+     * output references retained or source file mutation.
+     */
+    bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override
     {
         return reader_.readMeshGeometry(vx, vy, vz) && reader_.readTriangles(tris);
     }
-    bool readCells(std::vector<double> &vx, std::vector<double> &vy,
-                   std::vector<double> &vz,
+    /**
+     * @brief Copy stored coordinates and native triangle/quad connectivity through the reader.
+     * @param[out] vx Borrowed x output in raw stored metres.
+     * @param[out] vy Borrowed y output in raw stored metres.
+     * @param[out] vz Borrowed elevation output in raw stored metres.
+     * @param[out] cells Borrowed zero-based four-slot native cells, triangle fourth entry -1.
+     * @return True only for successful coordinates then cells; short-circuit failure may leave
+     * partial outputs. No unitFactor applied here, no output ownership retained or source file
+     * writes.
+     */
+    bool readCells(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                    std::vector<std::array<int, 4>> &cells) override
     {
         return reader_.readMeshGeometry(vx, vy, vz) && reader_.readCells(cells);
     }
-    bool readDepthsAt(int t, std::vector<float> &d) override
-    {
-        return reader_.readDepthsAt(t, d);
-    }
+    /**
+     * @brief Forward one per-cell hydraulic depth frame to the reader.
+     * @param[in] t Zero-based available report index, invalid indices refuse.
+     * @param[out] d Borrowed vector filled with float depths in stored metres, missing values
+     * NaN.
+     * @return Reader success, false details in reader().lastError; output clearing follows
+     * reader contract. No output references retained, file remains read-only, reader caches may
+     * update.
+     */
+    bool readDepthsAt(int t, std::vector<float> &d) override { return reader_.readDepthsAt(t, d); }
+    /**
+     * @brief Probe wrapped file dataset availability without writing it.
+     * @param[in] ds Required nonnull dataset name, borrowed synchronously.
+     * @return Reader presence result; mutable reader may cache the probe despite const wrapper
+     * method. No ownership transfer or promise that present data has valid export shape.
+     */
     bool hasFaceField(const char *ds) const override { return reader_.hasFaceField(ds); }
+    /**
+     * @brief Forward a named dynamic scalar row read.
+     * @param[in] ds Required nonnull face dataset name, borrowed.
+     * @param[in] t Available zero-based frame index.
+     * @param[out] v Borrowed vector filled by reader with decoded per-cell floats in dataset
+     * native units.
+     * @return Reader success or false with lastError; failed reader clears invalid row output
+     * under its contract. No unit conversion, file writes or output reference retention.
+     */
     bool readFaceFieldAt(const char *ds, int t, std::vector<float> &v) override
     {
         return reader_.readFaceFieldAt(ds, t, v);
     }
+    /**
+     * @brief Forward a rank-one per-cell envelope read.
+     * @param[in] ds Required nonnull envelope dataset name, borrowed.
+     * @param[out] v Borrowed vector filled by reader with decoded per-cell envelope floats.
+     * @return Reader success, false for missing/wrong-rank data; diagnostics through
+     * reader().lastError. Does not substitute frame zero or compute a time maximum, file
+     * read-only.
+     */
     bool readFaceEnvelope(const char *ds, std::vector<float> &v) override
     {
         return reader_.readFaceEnvelope(ds, v);
     }
     //! Frame k is 5 minutes after the one before it, from a fixed epoch, so the
     //! band-description assertion has something deterministic to compare.
+    /**
+     * @brief Supply deterministic synthetic report timestamps for exporter band-description
+     * assertions.
+     * @param[in] t Zero-based index in [0,timeCount), otherwise unavailable.
+     * @return UTC 2026-01-01 plus 300*t seconds, invalid QDateTime outside range. Uses fixture
+     * epoch rather than reading HDF5 time origin, no source mutation.
+     */
     QDateTime simTimeAt(int t) const override
     {
-        if (t < 0 || t >= timeCount()) return {};
+        if (t < 0 || t >= timeCount())
+            return {};
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC).addSecs(qint64(t) * 300);
     }
 
+    /**
+     * @brief Expose the owned reader for diagnostic and fixture-specific readback.
+     * @return Borrowed mutable reference valid until source destruction; caller must coordinate
+     * all uses and must not destroy it separately. No ownership transfer, allocation or IO in
+     * accessor.
+     */
     Mesh2DH5Reader &reader() { return reader_; }
 
 private:
@@ -133,7 +225,14 @@ private:
 class FakeSource : public IMesh2DSource
 {
 public:
-    //! \param n cells per side; the mesh spans [0, n] x [0, n].
+    //! Grid dimension n is the cells per side; the mesh spans [0, n] x [0, n].
+    /**
+     * @brief Allocate a unit-spaced square triangular mesh with one initially dry frame.
+     * @param[in] n Nonnegative squares per side, unchecked integer/index allocation products.
+     * @note Owns (n+1)^2 vertices on [0,n]^2, two CCW triangles per square with fourth slot -1,
+     * zero elevations/depths. No external file or engine; allocations may throw, source use
+     * serialized.
+     */
     explicit FakeSource(int n) : n_(n)
     {
         for (int j = 0; j <= n; ++j)
@@ -145,14 +244,23 @@ public:
         auto vid = [&](int i, int j) { return j * (n + 1) + i; };
         for (int j = 0; j < n; ++j)
             for (int i = 0; i < n; ++i) {
-                cells_.push_back({vid(i, j),     vid(i + 1, j), vid(i + 1, j + 1), -1});
-                cells_.push_back({vid(i, j), vid(i + 1, j + 1), vid(i,     j + 1), -1});
+                cells_.push_back({vid(i, j), vid(i + 1, j), vid(i + 1, j + 1), -1});
+                cells_.push_back({vid(i, j), vid(i + 1, j + 1), vid(i, j + 1), -1});
             }
         frames_.resize(1);
         frames_[0].assign(cells_.size(), 0.0f);
     }
 
     //! Fill frame 0 from a function of the cell centroid.
+    /**
+     * @brief Replace first-frame depths by evaluating a caller function at each triangle
+     * centroid.
+     * @param[in] f Nonempty synchronous callable taking planar x/y and returning depth, both
+     * fixture metre units; caller ensures finite/appropriate values where desired and no
+     * reentrant mutation of this source.
+     * @note Result cast to float, first frame always exists, other frames untouched; exception
+     * can leave partial updates. Callable not retained, no history-generation bump or file IO.
+     */
     void setDepthFromCentroid(const std::function<double(double, double)> &f)
     {
         for (size_t c = 0; c < cells_.size(); ++c) {
@@ -164,56 +272,139 @@ public:
             frames_[0][c] = float(f(sx / 3.0, sy / 3.0));
         }
     }
+    /**
+     * @brief Set one first-frame cell depth without bounds checking.
+     * @param[in] cell Valid zero-based index below triangleCount.
+     * @param[in] v Depth float in fixture metres, copied without validation/clamping.
+     * @note Other cells/frames/history identity unchanged, no allocation or source file write.
+     */
     void setCellDepth(int cell, float v) { frames_[0][size_t(cell)] = v; }
 
     //! Append a frame whose per-cell depth is frame0 scaled by \p scale, so the
     //! per-cell maximum over the run is analytically known.
+    /**
+     * @brief Append a new owning depth frame equal to frame zero multiplied by a scalar.
+     * @param[in] scale Multiplier, dimensionless; finite positive values used for analytic peak
+     * fixtures.
+     * @note Copies frame0 rather than most recent frame, no clipping or history-generation bump;
+     * allocation may fail, existing frames preserved until append succeeds, no IO.
+     */
     void appendScaledFrame(float scale)
     {
         std::vector<float> f = frames_[0];
-        for (float &v : f) v *= scale;
+        for (float &v : f)
+            v *= scale;
         frames_.push_back(f);
     }
 
-    int vertexCount()   const override { return int(vx_.size()); }
+    /**
+     * @brief Read allocated synthetic vertex count.
+     * @return vx_.size converted to int; fixture capacities must fit int, no mutation.
+     */
+    int vertexCount() const override { return int(vx_.size()); }
+    /**
+     * @brief Read synthetic cell count.
+     * @return cells_.size converted to int, two triangles per square, no mutation.
+     */
     int triangleCount() const override { return int(cells_.size()); }
-    int timeCount()     const override { return int(frames_.size()); }
+    /**
+     * @brief Read the currently stored synthetic frame count.
+     * @return frames_.size converted to int, at least one after construction, no mutation.
+     */
+    int timeCount() const override { return int(frames_.size()); }
 
-    bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy,
-                          std::vector<double> &vz,
+    /**
+     * @brief Copy synthetic coordinates and three-index triangle connectivity.
+     * @param[out] vx Borrowed x vector replaced with owned fixture coordinates in metres.
+     * @param[out] vy Borrowed y vector replaced in the same units.
+     * @param[out] vz Borrowed elevation vector replaced, all fixture values initially zero
+     * metres.
+     * @param[out] tris Borrowed vector cleared then filled with first three cell indices.
+     * @return Always true after assignments, allocation may throw with partial output updates.
+     * No source mutation, reference retention, quad splitting or file IO.
+     */
+    bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override
     {
-        vx = vx_; vy = vy_; vz = vz_;
+        vx = vx_;
+        vy = vy_;
+        vz = vz_;
         tris.clear();
-        for (const auto &c : cells_) tris.push_back({c[0], c[1], c[2]});
+        for (const auto &c : cells_)
+            tris.push_back({c[0], c[1], c[2]});
         return true;
     }
-    bool readCells(std::vector<double> &vx, std::vector<double> &vy,
-                   std::vector<double> &vz,
+    /**
+     * @brief Copy synthetic coordinates and four-slot native triangle records.
+     * @param[out] vx Borrowed x vector replaced with fixture metres.
+     * @param[out] vy Borrowed y vector replaced with fixture metres.
+     * @param[out] vz Borrowed elevation vector replaced with fixture metres.
+     * @param[out] cells Borrowed vector replaced with zero-based triangle cells, fourth slot -1.
+     * @return Always true after assignment, allocation may throw/partially update outputs; no
+     * retained references or source mutation, returned vectors own their data.
+     */
+    bool readCells(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                    std::vector<std::array<int, 4>> &cells) override
     {
-        vx = vx_; vy = vy_; vz = vz_;
+        vx = vx_;
+        vy = vy_;
+        vz = vz_;
         cells = cells_;
         return true;
     }
+    /**
+     * @brief Copy one fixture depth frame and optionally simulate live-history invalidation on a
+     * selected read.
+     * @param[in] t Zero-based index in [0,timeCount), invalid returns false.
+     * @param[out] d Borrowed depth vector replaced with selected metre float values on success,
+     * unchanged on refusal.
+     * @return True for available frame after assignment, increments reads_ and generation_ when
+     * read count matches configured thinOnRead_; no actual frame thinning. Mutable counters not
+     * concurrent-safe, allocation may throw before counters update, no file IO.
+     */
     bool readDepthsAt(int t, std::vector<float> &d) override
     {
-        if (t < 0 || t >= int(frames_.size())) return false;
+        if (t < 0 || t >= int(frames_.size()))
+            return false;
         d = frames_[size_t(t)];
         // Live-source stand-in: the Nth depth read "thins" the history.
-        if (++reads_ == thinOnRead_) ++generation_;
+        if (++reads_ == thinOnRead_)
+            ++generation_;
         return true;
     }
+    /**
+     * @brief Extrapolate deterministic five-minute UTC fixture timestamps without bounds
+     * checking.
+     * @param[in] t Integer report offset, any value accepted, not restricted to stored frames.
+     * @return 2026-01-01 T 00:00 Z plus 300*t seconds; no source mutation or native time
+     * conversion.
+     */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC).addSecs(qint64(t) * 300);
     }
+    /**
+     * @brief Expose the fixture history invalidation counter.
+     * @return Current generation_, changed only by configured read-trigger simulation, no
+     * mutation/synchronization.
+     */
     int historyGeneration() const override { return generation_; }
 
     //! Bump historyGeneration() from inside the \p nth readDepthsAt (1-based),
     //! the way a live EngineMesh2DSource thins under an event-loop pump.
+    /**
+     * @brief Schedule a simulated history-generation change on one absolute successful
+     * depth-read count.
+     * @param[in] nth One-based total successful read number, compared against ongoing reads_
+     * count; zero disables ordinary trigger, already-passed values never trigger again.
+     * @note Does not reset read count or thin real arrays, changes fixture control only, no IO.
+     */
     void thinOnRead(int nth) { thinOnRead_ = nth; }
 
+    /**
+     * @brief Return the original square-grid dimension.
+     * @return n_ unit squares per side, no allocation or mutation.
+     */
     int cellsPerSide() const { return n_; }
 
 private:
@@ -228,37 +419,61 @@ private:
 // Read-back helpers
 // ---------------------------------------------------------------------------
 
-struct RasterBand
-{
+struct RasterBand {
     int w = 0, h = 0;
     double gt[6] = {0, 0, 0, 0, 0, 0};
     QString description;
     std::vector<float> px;
 
+    /**
+     * @brief Read one raster pixel by row-major index without bounds checking.
+     * @param[in] i Column in [0,w), caller ensures px has w*h entries.
+     * @param[in] j Row in [0,h).
+     * @return Float pixel sample or its stored NoData sentinel, no status masking/conversion or
+     * mutation.
+     */
     float at(int i, int j) const { return px[size_t(j) * size_t(w) + size_t(i)]; }
 };
 
+/**
+ * @brief Read one exported raster band and its geometry/description for fixture assertions.
+ * @param[in] path Existing read-only GDAL raster path, borrowed during open/read.
+ * @param[in] band One-based GDAL band number; invalid band refuses after dimensions populated.
+ * @param[out] out Borrowed result progressively overwritten with
+ * width/height/geotransform/description/pixels; may be partially changed on failure, no atomic
+ * rollback. Geotransform return status is not checked.
+ * @param[out] bandCount Optional borrowed int set to dataset band count after successful open,
+ * unchanged if open fails.
+ * @return True when open/band/read succeed, false otherwise; closes dataset on all explicit
+ * return paths. Registers GDAL, allocates owned Float32 pixel storage, no source modification or
+ * handle retention.
+ */
 bool readBand(const QString &path, int band, RasterBand &out, int *bandCount = nullptr)
 {
     GDALAllRegister();
     auto *ds = static_cast<GDALDataset *>(
         GDALOpenEx(path.toUtf8().constData(), GDAL_OF_RASTER, nullptr, nullptr, nullptr));
-    if (!ds) return false;
-    if (bandCount) *bandCount = ds->GetRasterCount();
+    if (!ds)
+        return false;
+    if (bandCount)
+        *bandCount = ds->GetRasterCount();
     out.w = ds->GetRasterXSize();
     out.h = ds->GetRasterYSize();
     ds->GetGeoTransform(out.gt);
     GDALRasterBand *b = ds->GetRasterBand(band);
-    if (!b) { GDALClose(ds); return false; }
+    if (!b) {
+        GDALClose(ds);
+        return false;
+    }
     out.description = QString::fromUtf8(b->GetDescription());
     out.px.assign(size_t(out.w) * size_t(out.h), 0.0f);
-    const bool ok = b->RasterIO(GF_Read, 0, 0, out.w, out.h, out.px.data(),
-                                out.w, out.h, GDT_Float32, 0, 0, nullptr) == CE_None;
+    const bool ok = b->RasterIO(GF_Read, 0, 0, out.w, out.h, out.px.data(), out.w, out.h,
+                                GDT_Float32, 0, 0, nullptr) == CE_None;
     GDALClose(ds);
     return ok;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 
@@ -267,6 +482,12 @@ class TestMesh2DResultsExport : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Register GDAL drivers, create persistent export output root and require shipped
+     * HDF5 fixture.
+     * @note Missing fixture fails before export slots; does not create source engine output or
+     * sweep old files.
+     */
     void initTestCase();
 
     void envelopeReadsMaxDepthFromFixture();
@@ -310,12 +531,10 @@ void TestMesh2DResultsExport::envelopeReadsMaxDepthFromFixture()
     QVERIFY(r.open(fixtureH5()));
 
     std::vector<float> envelope;
-    QVERIFY2(r.readFaceEnvelope("Mesh2_face_max_depth", envelope),
-             qPrintable(r.lastError()));
+    QVERIFY2(r.readFaceEnvelope("Mesh2_face_max_depth", envelope), qPrintable(r.lastError()));
     QCOMPARE(int(envelope.size()), r.triangleCount());
 
-    std::vector<float> scanned(size_t(r.triangleCount()),
-                               -std::numeric_limits<float>::max());
+    std::vector<float> scanned(size_t(r.triangleCount()), -std::numeric_limits<float>::max());
     std::vector<float> frame0, frame;
     QVERIFY(r.readDepthsAt(0, frame0));
     for (int t = 0; t < r.timeCount(); ++t) {
@@ -328,11 +547,15 @@ void TestMesh2DResultsExport::envelopeReadsMaxDepthFromFixture()
     for (size_t i = 0; i < envelope.size(); ++i) {
         QVERIFY2(envelope[i] >= scanned[i] - 1e-6f,
                  qPrintable(QStringLiteral("cell %1: envelope %2 below reported max %3")
-                                .arg(i).arg(double(envelope[i])).arg(double(scanned[i]))));
+                                .arg(i)
+                                .arg(double(envelope[i]))
+                                .arg(double(scanned[i]))));
         // A sub-step peak is a small correction, never a different quantity.
         QVERIFY2(envelope[i] <= scanned[i] + 0.05f,
                  qPrintable(QStringLiteral("cell %1: envelope %2 implausibly above %3")
-                                .arg(i).arg(double(envelope[i])).arg(double(scanned[i]))));
+                                .arg(i)
+                                .arg(double(envelope[i]))
+                                .arg(double(scanned[i]))));
         anyPositive = anyPositive || envelope[i] > 0.0f;
     }
     QVERIFY(anyPositive);
@@ -340,8 +563,7 @@ void TestMesh2DResultsExport::envelopeReadsMaxDepthFromFixture()
     // Guards against the rank-2 path silently returning frame 0 instead.
     bool differsFromFirstFrame = false;
     for (size_t i = 0; i < envelope.size(); ++i)
-        differsFromFirstFrame = differsFromFirstFrame
-                                || std::abs(envelope[i] - frame0[i]) > 1e-6f;
+        differsFromFirstFrame = differsFromFirstFrame || std::abs(envelope[i] - frame0[i]) > 1e-6f;
     QVERIFY(differsFromFirstFrame);
 }
 
@@ -354,7 +576,7 @@ void TestMesh2DResultsExport::envelopeAbsentReturnsFalse()
 
     std::vector<float> v;
     QVERIFY(!r.readFaceEnvelope("Mesh2_face_no_such_thing", v));
-    QVERIFY(!r.readFaceEnvelope("Mesh2_face_depth", v));   // rank 2 — not an envelope
+    QVERIFY(!r.readFaceEnvelope("Mesh2_face_depth", v)); // rank 2 — not an envelope
     QVERIFY(r.readFaceEnvelope("Mesh2_face_max_velocity", v));
 }
 
@@ -367,10 +589,10 @@ void TestMesh2DResultsExport::shapefilePerVariableWithTimesCsv()
     QVERIFY(src.open(fixtureH5()));
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("shp"));
-    opt.format     = Mesh2DExportFormat::Shapefile;
-    opt.variables  = Mesh2DDepth | Mesh2DVmag;
-    opt.timeSteps  = {0, 10, 20};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("shp"));
+    opt.format = Mesh2DExportFormat::Shapefile;
+    opt.variables = Mesh2DDepth | Mesh2DVmag;
+    opt.timeSteps = {0, 10, 20};
     opt.includeMax = true;
 
     Mesh2DExportInputs in;
@@ -420,19 +642,20 @@ void TestMesh2DResultsExport::shapefilePerVariableWithTimesCsv()
         auto *poly = f->GetGeometryRef()->toPolygon();
         QVERIFY(poly);
         OGRLinearRing *ring = poly->getExteriorRing();
-        QCOMPARE(ring->getNumPoints(), 4);          // closed triangle
+        QCOMPARE(ring->getNumPoints(), 4); // closed triangle
         // Every ring vertex must be one of the cell's own nodes.
         for (int k = 0; k < 3; ++k) {
             bool matched = false;
             for (int v = 0; v < 3; ++v) {
                 const int vi = cells[size_t(id)][v];
-                if (std::abs(ring->getX(k) - vx[size_t(vi)]) < 1e-9
-                    && std::abs(ring->getY(k) - vy[size_t(vi)]) < 1e-9) {
+                if (std::abs(ring->getX(k) - vx[size_t(vi)]) < 1e-9 &&
+                    std::abs(ring->getY(k) - vy[size_t(vi)]) < 1e-9) {
                     matched = true;
                     break;
                 }
             }
-            QVERIFY2(matched, qPrintable(QStringLiteral("cell %1 vertex %2 off-mesh").arg(id).arg(k)));
+            QVERIFY2(matched,
+                     qPrintable(QStringLiteral("cell %1 vertex %2 off-mesh").arg(id).arg(k)));
         }
         OGRFeature::DestroyFeature(f);
         ++seen;
@@ -442,9 +665,9 @@ void TestMesh2DResultsExport::shapefilePerVariableWithTimesCsv()
 
     QFile csv(opt.basePath + QStringLiteral("_times.csv"));
     QVERIFY(csv.open(QIODevice::ReadOnly | QIODevice::Text));
-    const QStringList lines = QString::fromUtf8(csv.readAll())
-                                  .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    QCOMPARE(lines.size(), 5);                       // header + 3 steps + max
+    const QStringList lines =
+        QString::fromUtf8(csv.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    QCOMPARE(lines.size(), 5); // header + 3 steps + max
     QVERIFY(lines[0].startsWith(QStringLiteral("field,band,frame_index")));
     QVERIFY(lines[1].startsWith(QStringLiteral("t0001,1,0,")));
     QVERIFY(lines[2].startsWith(QStringLiteral("t0002,2,10,")));
@@ -460,10 +683,10 @@ void TestMesh2DResultsExport::geopackageOneFileManyLayers()
     QVERIFY(src.open(fixtureH5()));
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("gpkg"));
-    opt.format     = Mesh2DExportFormat::GeoPackage;
-    opt.variables  = Mesh2DDepth | Mesh2DVmag;
-    opt.timeSteps  = {0, 5};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("gpkg"));
+    opt.format = Mesh2DExportFormat::GeoPackage;
+    opt.variables = Mesh2DDepth | Mesh2DVmag;
+    opt.timeSteps = {0, 5};
     opt.includeMax = true;
 
     Mesh2DExportInputs in;
@@ -498,10 +721,10 @@ void TestMesh2DResultsExport::unitFactorScalesGeometryAndValues()
     const double factor = 1.0 / 0.3048;
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("feet"));
-    opt.format     = Mesh2DExportFormat::Shapefile;
-    opt.variables  = Mesh2DDepth;
-    opt.timeSteps  = {3};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("feet"));
+    opt.format = Mesh2DExportFormat::Shapefile;
+    opt.variables = Mesh2DDepth;
+    opt.timeSteps = {3};
     opt.includeMax = false;
 
     Mesh2DExportInputs in;
@@ -525,14 +748,13 @@ void TestMesh2DResultsExport::unitFactorScalesGeometryAndValues()
     layer->ResetReading();
     while (OGRFeature *f = layer->GetNextFeature()) {
         const int id = f->GetFieldAsInteger("cell_id");
-        QVERIFY(std::abs(f->GetFieldAsDouble("t0001")
-                         - double(frame[size_t(id)]) * factor) < 1e-5);
+        QVERIFY(std::abs(f->GetFieldAsDouble("t0001") - double(frame[size_t(id)]) * factor) < 1e-5);
         OGRLinearRing *ring = f->GetGeometryRef()->toPolygon()->getExteriorRing();
         bool matched = false;
         for (int v = 0; v < 3; ++v) {
             const int vi = cells[size_t(id)][v];
-            if (std::abs(ring->getX(0) - vx[size_t(vi)] * factor) < 1e-7
-                && std::abs(ring->getY(0) - vy[size_t(vi)] * factor) < 1e-7) {
+            if (std::abs(ring->getX(0) - vx[size_t(vi)] * factor) < 1e-7 &&
+                std::abs(ring->getY(0) - vy[size_t(vi)] * factor) < 1e-7) {
                 matched = true;
                 break;
             }
@@ -553,14 +775,14 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
     src.setDepthFromCentroid(plane);
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("gg"));
-    opt.format     = Mesh2DExportFormat::GeoTiff;
-    opt.variables  = Mesh2DDepth;
-    opt.timeSteps  = {0};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("gg"));
+    opt.format = Mesh2DExportFormat::GeoTiff;
+    opt.variables = Mesh2DDepth;
+    opt.timeSteps = {0};
     opt.includeMax = false;
-    opt.cellSize   = 0.1;
-    opt.interp     = Mesh2DInterp::GreenGauss;
-    opt.maskDry    = false;
+    opt.cellSize = 0.1;
+    opt.interp = Mesh2DInterp::GreenGauss;
+    opt.maskDry = false;
 
     Mesh2DExportInputs in;
     in.source = &src;
@@ -589,17 +811,23 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
             gxc += vx[size_t(cells[c][k])] / 3.0;
             gyc += vy[size_t(cells[c][k])] / 3.0;
         }
-        if (gxc < 1.5 || gxc > kSide - 1.5 || gyc < 1.5 || gyc > kSide - 1.5) continue;
+        if (gxc < 1.5 || gxc > kSide - 1.5 || gyc < 1.5 || gyc > kSide - 1.5)
+            continue;
         const int i = int((gxc - b.gt[0]) / b.gt[1]);
         const int j = int((gyc - b.gt[3]) / b.gt[5]);
         const double px = b.gt[0] + (i + 0.5) * b.gt[1];
         const double py = b.gt[3] + (j + 0.5) * b.gt[5];
         QVERIFY2(std::abs(double(b.at(i, j)) - plane(px, py)) < 1e-5,
                  qPrintable(QStringLiteral("cell %1 pixel (%2,%3) = %4, plane = %5")
-                                .arg(c).arg(i).arg(j).arg(double(b.at(i, j))).arg(plane(px, py))));
+                                .arg(c)
+                                .arg(i)
+                                .arg(j)
+                                .arg(double(b.at(i, j)))
+                                .arg(plane(px, py))));
         ++checked;
     }
-    QVERIFY2(checked > 40, qPrintable(QStringLiteral("only %1 interior cells sampled").arg(checked)));
+    QVERIFY2(checked > 40,
+             qPrintable(QStringLiteral("only %1 interior cells sampled").arg(checked)));
 
     // (2) The limiter: no pixel may overshoot the cell-centre field it was
     // built from. This is what keeps a wet/dry front from inventing depth,
@@ -618,10 +846,15 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
     for (int j = 0; j < b.h; ++j)
         for (int i = 0; i < b.w; ++i) {
             const float v = b.at(i, j);
-            if (v == kMesh2DNoData) continue;
+            if (v == kMesh2DNoData)
+                continue;
             QVERIFY2(double(v) >= lo - 1e-6 && double(v) <= hi + 1e-6,
                      qPrintable(QStringLiteral("pixel (%1,%2) = %3 outside [%4, %5]")
-                                    .arg(i).arg(j).arg(double(v)).arg(lo).arg(hi)));
+                                    .arg(i)
+                                    .arg(j)
+                                    .arg(double(v))
+                                    .arg(lo)
+                                    .arg(hi)));
         }
 
     // This mesh fills its own bounding box, so every pixel resolves to a cell.
@@ -641,16 +874,15 @@ void TestMesh2DResultsExport::rasterNaturalNeighbourAndIdwReproduceConstant()
 
     for (const auto method : {Mesh2DInterp::NaturalNeighbour, Mesh2DInterp::Idw}) {
         Mesh2DExportOptions opt;
-        opt.basePath   = QDir(out_).filePath(
-            method == Mesh2DInterp::Idw ? QStringLiteral("idw_const")
-                                        : QStringLiteral("nn_const"));
-        opt.format     = Mesh2DExportFormat::GeoTiff;
-        opt.variables  = Mesh2DDepth;
-        opt.timeSteps  = {0};
+        opt.basePath = QDir(out_).filePath(
+            method == Mesh2DInterp::Idw ? QStringLiteral("idw_const") : QStringLiteral("nn_const"));
+        opt.format = Mesh2DExportFormat::GeoTiff;
+        opt.variables = Mesh2DDepth;
+        opt.timeSteps = {0};
         opt.includeMax = false;
-        opt.cellSize   = 0.2;
-        opt.interp     = method;
-        opt.maskDry    = false;
+        opt.cellSize = 0.2;
+        opt.interp = method;
+        opt.maskDry = false;
 
         Mesh2DExportReport rep;
         QVERIFY2(exportMesh2DResults(in, opt, {}, &rep), qPrintable(rep.error));
@@ -662,7 +894,9 @@ void TestMesh2DResultsExport::rasterNaturalNeighbourAndIdwReproduceConstant()
                 if (b.at(i, j) != kMesh2DNoData)
                     QVERIFY2(std::abs(double(b.at(i, j)) - 0.75) < 1e-4,
                              qPrintable(QStringLiteral("pixel (%1,%2) = %3")
-                                            .arg(i).arg(j).arg(double(b.at(i, j)))));
+                                            .arg(i)
+                                            .arg(j)
+                                            .arg(double(b.at(i, j)))));
     }
 
     // Sibson weights reproduce a linear field; check well inside the hull of
@@ -674,14 +908,14 @@ void TestMesh2DResultsExport::rasterNaturalNeighbourAndIdwReproduceConstant()
     in2.source = &lin;
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("nn_plane"));
-    opt.format     = Mesh2DExportFormat::GeoTiff;
-    opt.variables  = Mesh2DDepth;
-    opt.timeSteps  = {0};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("nn_plane"));
+    opt.format = Mesh2DExportFormat::GeoTiff;
+    opt.variables = Mesh2DDepth;
+    opt.timeSteps = {0};
     opt.includeMax = false;
-    opt.cellSize   = 0.2;
-    opt.interp     = Mesh2DInterp::NaturalNeighbour;
-    opt.maskDry    = false;
+    opt.cellSize = 0.2;
+    opt.interp = Mesh2DInterp::NaturalNeighbour;
+    opt.maskDry = false;
 
     Mesh2DExportReport rep;
     QVERIFY2(exportMesh2DResults(in2, opt, {}, &rep), qPrintable(rep.error));
@@ -693,10 +927,14 @@ void TestMesh2DResultsExport::rasterNaturalNeighbourAndIdwReproduceConstant()
         for (int i = 0; i < b.w; ++i) {
             const double x = b.gt[0] + (i + 0.5) * b.gt[1];
             const double y = b.gt[3] + (j + 0.5) * b.gt[5];
-            if (x < 2.0 || x > kSide - 2.0 || y < 2.0 || y > kSide - 2.0) continue;
+            if (x < 2.0 || x > kSide - 2.0 || y < 2.0 || y > kSide - 2.0)
+                continue;
             QVERIFY2(std::abs(double(b.at(i, j)) - plane(x, y)) < 1e-3,
                      qPrintable(QStringLiteral("pixel (%1,%2) = %3, plane = %4")
-                                    .arg(i).arg(j).arg(double(b.at(i, j))).arg(plane(x, y))));
+                                    .arg(i)
+                                    .arg(j)
+                                    .arg(double(b.at(i, j)))
+                                    .arg(plane(x, y))));
             ++checked;
         }
     QVERIFY(checked >= 100);
@@ -710,14 +948,14 @@ void TestMesh2DResultsExport::rasterBandsDescriptionsAndMaxFile()
     QVERIFY(src.open(fixtureH5()));
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("tif"));
-    opt.format     = Mesh2DExportFormat::GeoTiff;
-    opt.variables  = Mesh2DDepth | Mesh2DVx;
-    opt.timeSteps  = {0, 5};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("tif"));
+    opt.format = Mesh2DExportFormat::GeoTiff;
+    opt.variables = Mesh2DDepth | Mesh2DVx;
+    opt.timeSteps = {0, 5};
     opt.includeMax = true;
-    opt.cellSize   = 0.5;
-    opt.interp     = Mesh2DInterp::GreenGauss;
-    opt.maskDry    = false;
+    opt.cellSize = 0.5;
+    opt.interp = Mesh2DInterp::GreenGauss;
+    opt.maskDry = false;
 
     Mesh2DExportInputs in;
     in.source = &src;
@@ -765,7 +1003,7 @@ void TestMesh2DResultsExport::dryMaskWritesNoData()
     constexpr int kSide = 4;
     FakeSource src(kSide);
     src.setDepthFromCentroid([](double, double) { return 0.5; });
-    src.setCellDepth(0, 0.0f);        // lower-left half-cell goes dry
+    src.setCellDepth(0, 0.0f); // lower-left half-cell goes dry
     src.setCellDepth(1, 0.0f);
 
     Mesh2DExportInputs in;
@@ -774,18 +1012,18 @@ void TestMesh2DResultsExport::dryMaskWritesNoData()
 
     auto run = [&](bool mask, const QString &name) {
         Mesh2DExportOptions opt;
-        opt.basePath   = QDir(out_).filePath(name);
-        opt.format     = Mesh2DExportFormat::GeoTiff;
-        opt.variables  = Mesh2DDepth;
-        opt.timeSteps  = {0};
+        opt.basePath = QDir(out_).filePath(name);
+        opt.format = Mesh2DExportFormat::GeoTiff;
+        opt.variables = Mesh2DDepth;
+        opt.timeSteps = {0};
         opt.includeMax = false;
-        opt.cellSize   = 0.1;
-        opt.interp     = Mesh2DInterp::GreenGauss;
-        opt.maskDry    = mask;
+        opt.cellSize = 0.1;
+        opt.interp = Mesh2DInterp::GreenGauss;
+        opt.maskDry = mask;
         Mesh2DExportReport rep;
         QVERIFY2(exportMesh2DResults(in, opt, {}, &rep), qPrintable(rep.error));
     };
-    run(true,  QStringLiteral("mask_on"));
+    run(true, QStringLiteral("mask_on"));
     run(false, QStringLiteral("mask_off"));
 
     RasterBand on, off;
@@ -812,22 +1050,25 @@ void TestMesh2DResultsExport::cancelRemovesPartialOutputs()
     QVERIFY(src.open(fixtureH5()));
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("cancelled"));
-    opt.format     = Mesh2DExportFormat::GeoTiff;
-    opt.variables  = Mesh2DDepth | Mesh2DHead;
-    opt.timeSteps  = {0, 1, 2};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("cancelled"));
+    opt.format = Mesh2DExportFormat::GeoTiff;
+    opt.variables = Mesh2DDepth | Mesh2DHead;
+    opt.timeSteps = {0, 1, 2};
     opt.includeMax = true;
-    opt.cellSize   = 0.5;
-    opt.interp     = Mesh2DInterp::GreenGauss;
+    opt.cellSize = 0.5;
+    opt.interp = Mesh2DInterp::GreenGauss;
 
     Mesh2DExportInputs in;
     in.source = &src;
 
     int calls = 0;
     Mesh2DExportReport rep;
-    const bool ok = exportMesh2DResults(in, opt, [&](int, int, const QString &) {
-        return ++calls < 2;                      // stop on the second report
-    }, &rep);
+    const bool ok = exportMesh2DResults(
+        in, opt,
+        [&](int, int, const QString &) {
+            return ++calls < 2; // stop on the second report
+        },
+        &rep);
 
     QVERIFY(!ok);
     QCOMPARE(rep.error, QStringLiteral("Cancelled"));
@@ -843,10 +1084,10 @@ void TestMesh2DResultsExport::cancelRemovesPartialOutputs()
 void TestMesh2DResultsExport::maxFallsBackToAFrameScanWithoutEnvelopes()
 {
     constexpr int kSide = 3;
-    FakeSource src(kSide);                       // FakeSource has no envelopes
+    FakeSource src(kSide); // FakeSource has no envelopes
     src.setDepthFromCentroid([](double x, double y) { return 0.1 + 0.01 * x + 0.02 * y; });
-    src.appendScaledFrame(2.5f);                 // the run peak
-    src.appendScaledFrame(0.4f);                 // then it recedes
+    src.appendScaledFrame(2.5f); // the run peak
+    src.appendScaledFrame(0.4f); // then it recedes
     QCOMPARE(src.timeCount(), 3);
 
     std::vector<float> f0, f1;
@@ -854,10 +1095,10 @@ void TestMesh2DResultsExport::maxFallsBackToAFrameScanWithoutEnvelopes()
     QVERIFY(src.readDepthsAt(1, f1));
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("scanmax"));
-    opt.format     = Mesh2DExportFormat::Shapefile;
-    opt.variables  = Mesh2DDepth;
-    opt.timeSteps  = {0};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("scanmax"));
+    opt.format = Mesh2DExportFormat::Shapefile;
+    opt.variables = Mesh2DDepth;
+    opt.timeSteps = {0};
     opt.includeMax = true;
 
     Mesh2DExportInputs in;
@@ -879,7 +1120,8 @@ void TestMesh2DResultsExport::maxFallsBackToAFrameScanWithoutEnvelopes()
         // which is what a broken envelope probe would have written.
         QVERIFY2(std::abs(f->GetFieldAsDouble("max") - double(f1[size_t(id)])) < 1e-5,
                  qPrintable(QStringLiteral("cell %1: max %2 want %3")
-                                .arg(id).arg(f->GetFieldAsDouble("max"))
+                                .arg(id)
+                                .arg(f->GetFieldAsDouble("max"))
                                 .arg(double(f1[size_t(id)]))));
         QVERIFY(f->GetFieldAsDouble("max") > f->GetFieldAsDouble("t0001"));
         OGRFeature::DestroyFeature(f);
@@ -898,13 +1140,13 @@ void TestMesh2DResultsExport::thinnedHistoryMidExportFails()
     src.setDepthFromCentroid([](double x, double y) { return 0.1 + 0.01 * x + 0.02 * y; });
     src.appendScaledFrame(2.0f);
     src.appendScaledFrame(0.5f);
-    src.thinOnRead(2);                           // thin while frames are being read
+    src.thinOnRead(2); // thin while frames are being read
 
     Mesh2DExportOptions opt;
-    opt.basePath   = QDir(out_).filePath(QStringLiteral("thinned"));
-    opt.format     = Mesh2DExportFormat::Shapefile;
-    opt.variables  = Mesh2DDepth;
-    opt.timeSteps  = {0, 1, 2};
+    opt.basePath = QDir(out_).filePath(QStringLiteral("thinned"));
+    opt.format = Mesh2DExportFormat::Shapefile;
+    opt.variables = Mesh2DDepth;
+    opt.timeSteps = {0, 1, 2};
     opt.includeMax = false;
 
     // The refusal happens before anything is written, so a leftover here can
@@ -912,7 +1154,8 @@ void TestMesh2DResultsExport::thinnedHistoryMidExportFails()
     // sees this export's behaviour.
     const QFileInfo fi(opt.basePath);
     QDir outDir(fi.absolutePath());
-    for (const QString &stale : outDir.entryList({fi.fileName() + QStringLiteral("*")}, QDir::Files))
+    for (const QString &stale :
+         outDir.entryList({fi.fileName() + QStringLiteral("*")}, QDir::Files))
         QVERIFY(outDir.remove(stale));
 
     Mesh2DExportInputs in;
@@ -941,11 +1184,11 @@ void TestMesh2DResultsExport::thinnedHistoryMidExportFails()
 //! (about two pixels across a typical cell).
 void TestMesh2DResultsExport::gridHintGivesExtentAndMedianCellSize()
 {
-    FakeSource unitSquare(1);        // one unit cell, two triangles of area 0.5
+    FakeSource unitSquare(1); // one unit cell, two triangles of area 0.5
     const Mesh2DGridHint hint = mesh2DGridHint(&unitSquare, 1.0);
     QVERIFY(hint.isValid());
     QVERIFY(std::abs(hint.suggestedCellSize - std::sqrt(0.5) / 2.0) < 1e-9);
-    QVERIFY(std::abs(hint.extentWidth  - 1.0) < 1e-12);
+    QVERIFY(std::abs(hint.extentWidth - 1.0) < 1e-12);
     QVERIFY(std::abs(hint.extentHeight - 1.0) < 1e-12);
 
     // The extent scales with the model's units, like every other coordinate.

@@ -1,12 +1,17 @@
-/*!
- * \file   test_resultssizechannel.cpp
- * \brief  Results-layer size channel: per-frame widths under a Single Symbol
+/**
+ * @file      test_resultssizechannel.cpp
+ * @brief     Results-layer size channel: per-frame widths under a Single Symbol
  *         renderer, Cancel rollback, migration of the Graduated output axes,
  *         and the tabbed per-kind symbology page.
  *
  *         Model / run files are written to RESULTS_SIZE_CHANNEL_OUTPUT
  *         (tests/output/results_size_channel_2026-10-17).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "layers/swmmresultslayer.h"
 #include "project/openswmmvisworkspace.h"
 #include "render/renderers/graduatedrenderer.h"
@@ -44,11 +49,34 @@ class TestResultsSizeChannel : public QObject
     std::unique_ptr<SWMMVisProjectWindow> window;
     SWMMResultsLayer *results = nullptr;
 
+    /**
+     *
+     * @brief Join one fixture filename to the configured persistent output folder.
+     * @param name Borrowed relative filename, copied without validation.
+     * @return Owned path; no file opening/removal or parent creation. Requires folder
+     * assigned by initTestCase for intended destination semantics.
+     *
+     */
     QString path(const QString &name) const { return QDir(folder).filePath(name); }
+    /**
+     *
+     * @brief Get the live conduit style owned by the fixture results layer.
+     * @return Borrowed nonnull style, requiring initialized results and conduit sublayer.
+     * No null guards or ownership transfer; invalid after results cleanup/replacement.
+     *
+     */
     LineFeatureSublayerStyle *conduitStyle() const
     {
         return results->featureSublayer(SWMMModelLayer::CatConduits)->lineStyle();
     }
+    /**
+     *
+     * @brief Find a conduit row in the current fixture model by exact name.
+     * @param name Borrowed case-sensitive conduit ID.
+     * @return First zero-based conduit row, or -1 if absent. Requires initialized window/
+     * model; no cache, mutation or engine index assumption.
+     *
+     */
     int conduitRow(const QString &name) const
     {
         auto *model = window->modelLayer();
@@ -59,6 +87,15 @@ class TestResultsSizeChannel : public QObject
     }
 
 private slots:
+    /**
+     *
+     * @brief Create/run a metric two-branch model and open its live GUI results fixture.
+     * Creates/truncates persistent input/report/output under RESULTS_SIZE_CHANNEL_OUTPUT,
+     * then owns workspace/window/results until cleanup. Requires native GUI and engine;
+     * fatal Qt assertions can leave partial artifacts/setup. Branch inflows differ fourfold
+     * and ramp over an hour; at least ten report steps are required.
+     *
+     */
     void initTestCase()
     {
         folder = QStringLiteral(RESULTS_SIZE_CHANNEL_OUTPUT);
@@ -83,7 +120,8 @@ private slots:
         const QString out = path("size_channel.out");
         QCOMPARE(swmm_engine_run(inp.toUtf8().constData(),
                                  path("size_channel.rpt").toUtf8().constData(),
-                                 out.toUtf8().constData(), nullptr), 0);
+                                 out.toUtf8().constData(), nullptr),
+                 0);
 
         workspace.reset(OpenSWMMVisWorkspace::newInstance({}, nullptr));
         window = std::make_unique<SWMMVisProjectWindow>(workspace.get(), inp);
@@ -94,6 +132,14 @@ private slots:
         QVERIFY(results->totalTimeSteps() >= 10);
     }
 
+    /**
+     *
+     * @brief Require single-symbol conduit widths to follow flow across links/time and
+     * fixed/per-frame/whole-run ranges.
+     * Checks logical-pixel bounds, waits for async whole-run range and requires disabled
+     * channel sentinel -1. Mutates the shared fixture renderer/style/current frame.
+     *
+     */
     void widthFollowsFlowUnderSingleSymbol()
     {
         results->setKindRenderer(SWMMModelLayer::CatConduits,
@@ -102,8 +148,10 @@ private slots:
         ch.enabled = true;
         ch.attribute = QStringLiteral("LinkFlow");
         ch.rangeMode = RangeMode::FixedUser;
-        ch.userMin = 0.0; ch.userMax = 5.0;
-        ch.minPx = 1.0; ch.maxPx = 11.0;
+        ch.userMin = 0.0;
+        ch.userMax = 5.0;
+        ch.minPx = 1.0;
+        ch.maxPx = 11.0;
         conduitStyle()->setWidthChannel(ch);
 
         const int a = conduitRow("AO"), b = conduitRow("BO");
@@ -115,7 +163,8 @@ private slots:
         const double bLate = results->featureWidthOverride(SWMMModelLayer::CatConduits, b);
         for (double w : {aEarly, aLate, bLate})
             QVERIFY2(w >= ch.minPx && w <= ch.maxPx, qPrintable(QString::number(w)));
-        QVERIFY2(aLate > aEarly + 1.0, qPrintable(QStringLiteral("%1 -> %2").arg(aEarly).arg(aLate)));
+        QVERIFY2(aLate > aEarly + 1.0,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(aEarly).arg(aLate)));
         QVERIFY(aLate > bLate + 1.0);
 
         // Each frame: this frame's largest flow (the trunk JO) is at max px,
@@ -123,7 +172,8 @@ private slots:
         ch.rangeMode = RangeMode::PerFrameAutoStretch;
         ch.zeroBased = false;
         conduitStyle()->setWidthChannel(ch);
-        QCOMPARE(results->featureWidthOverride(SWMMModelLayer::CatConduits, conduitRow("JO")), ch.maxPx);
+        QCOMPARE(results->featureWidthOverride(SWMMModelLayer::CatConduits, conduitRow("JO")),
+                 ch.maxPx);
         QCOMPARE(results->featureWidthOverride(SWMMModelLayer::CatConduits, b), ch.minPx);
 
         // Whole run: resolves through the async range scan.
@@ -137,15 +187,23 @@ private slots:
         QCOMPARE(results->featureWidthOverride(SWMMModelLayer::CatConduits, a), -1.0);
     }
 
+    /**
+     *
+     * @brief Require width legend rows to match configured values/pixels, honor zero-based lower
+     * bound and disappear when disabled.
+     *
+     */
     void legendShowsSizeRange()
     {
         SizeChannel ch;
         ch.enabled = true;
         ch.attribute = QStringLiteral("flow");
         ch.rangeMode = RangeMode::FixedUser;
-        ch.userMin = 0.5; ch.userMax = 4.0;
+        ch.userMin = 0.5;
+        ch.userMax = 4.0;
         ch.zeroBased = false;
-        ch.minPx = 1.0; ch.maxPx = 11.0;
+        ch.minPx = 1.0;
+        ch.maxPx = 11.0;
         conduitStyle()->setWidthChannel(ch);
 
         const auto rows = results->legendSymbolItems();
@@ -175,6 +233,12 @@ private slots:
             QVERIFY(!row.label.contains(QStringLiteral("width by")));
     }
 
+    /**
+     *
+     * @brief Require style-dialog reject to restore disabled width channel and the exact
+     * pre-dialog JSON snapshot.
+     *
+     */
     void cancelRestoresChannel()
     {
         conduitStyle()->setWidthChannel(SizeChannel{});
@@ -192,6 +256,12 @@ private slots:
         QCOMPARE(StyleFileIO::styleToJson(results), before);
     }
 
+    /**
+     *
+     * @brief Load the legacy style fixture, require width-axis migration into SizeChannel and
+     * stable re-save/reload JSON.
+     *
+     */
     void graduatedWidthAxisMigrates()
     {
         conduitStyle()->setWidthChannel(SizeChannel{});
@@ -218,6 +288,14 @@ private slots:
         QCOMPARE(StyleFileIO::styleToJson(results), resaved);
     }
 
+    /**
+     *
+     * @brief Check results-kind tab composition, size checkbox binding, remembered tab and
+     * subcatchment fallback.
+     * Constructs/rejects the live style dialog and processes deferred deletions while
+     * switching kinds; relies on prior shared fixture setup and mutates its style.
+     *
+     */
     void kindPageTabs()
     {
         conduitStyle()->setWidthChannel(SizeChannel{});
@@ -232,7 +310,8 @@ private slots:
         };
         auto titles = [](QTabWidget *t) {
             QStringList out;
-            for (int i = 0; t && i < t->count(); ++i) out << t->tabText(i);
+            for (int i = 0; t && i < t->count(); ++i)
+                out << t->tabText(i);
             return out;
         };
 
@@ -244,7 +323,8 @@ private slots:
 
         // The Size tab writes the sublayer style.
         tabs->setCurrentIndex(1);
-        auto *enable = tabs->widget(1)->findChild<QCheckBox *>(QStringLiteral("sizeChannelEnabled"));
+        auto *enable =
+            tabs->widget(1)->findChild<QCheckBox *>(QStringLiteral("sizeChannelEnabled"));
         QVERIFY(enable);
         enable->setChecked(true);
         QVERIFY(conduitStyle()->widthChannel().enabled);
@@ -255,7 +335,7 @@ private slots:
 
         tabs = tabsFor(QStringLiteral("results.junctions"));
         QCOMPARE(titles(tabs), (QStringList{"Color", "Size", "Labels"}));
-        QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("Size"));   // remembered
+        QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("Size")); // remembered
 
         tabs = tabsFor(QStringLiteral("results.subcatchments"));
         QCOMPARE(titles(tabs), (QStringList{"Color", "Labels"}));
@@ -263,6 +343,13 @@ private slots:
         dialog.reject();
     }
 
+    /**
+     *
+     * @brief Delete results before its model/window/workspace, then clear owning pointers.
+     * Persistent model/report/output files remain for review; borrowed style/row references
+     * from earlier helpers must not be used afterward.
+     *
+     */
     void cleanupTestCase()
     {
         delete results;

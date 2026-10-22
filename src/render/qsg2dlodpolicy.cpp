@@ -1,11 +1,14 @@
-/*!
- * \file   qsg2dlodpolicy.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      qsg2dlodpolicy.cpp
+ * @brief     Level-of-detail decisions for 2D scene graph rendering.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * QSG-2D-1M Phase 3 — see qsg2dlodpolicy.h.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/qsg2dlodpolicy.h"
 
 #include <algorithm>
@@ -14,9 +17,14 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
-/*! Raw (hysteresis-free) bucket from mean projected cell area. */
+/** @brief Choose a raw density bucket without hysteresis.
+ * @param avgCellAreaPx Finite mean projected cell area in squared logical pixels.
+ * @param farMaxCellAreaPx Finite Far-to-Mid threshold in squared logical pixels.
+ * @return Far below the first threshold, Near at/above the fixed Near threshold,
+ * otherwise Mid. Thresholds are evaluated in that order. */
 Qsg2DLodDecision::Bucket rawBucket(double avgCellAreaPx, double farMaxCellAreaPx)
 {
     if (avgCellAreaPx < farMaxCellAreaPx)
@@ -27,25 +35,28 @@ Qsg2DLodDecision::Bucket rawBucket(double avgCellAreaPx, double farMaxCellAreaPx
 }
 
 /*! Bucket with hysteresis: keep the previous bucket while the metric sits
- *  within ±kBucketHysteresis of the threshold it would have to cross. */
-Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous,
-                                      double farMaxCellAreaPx)
+ *  within ±kBucketHysteresis of the threshold it would have to cross.
+ * @param avgCellAreaPx Finite projected mean area in squared logical pixels.
+ * @param previous Previous bucket integer, or an out-of-range unset sentinel.
+ * @param farMaxCellAreaPx Finite Far-to-Mid area threshold.
+ * @return Prior bucket within an adjacent-boundary hysteresis band; otherwise
+ * rawBucket(). Two-bucket jumps and invalid previous values are never damped. */
+Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous, double farMaxCellAreaPx)
 {
     const auto raw = rawBucket(avgCellAreaPx, farMaxCellAreaPx);
-    if (previous < Qsg2DLodDecision::Far || previous > Qsg2DLodDecision::Near
-        || previous == int(raw))
+    if (previous < Qsg2DLodDecision::Far || previous > Qsg2DLodDecision::Near ||
+        previous == int(raw))
         return raw;
 
     const double h = Qsg2DLodPolicy::kBucketHysteresis;
     auto withinBand = [&](double threshold) {
-        return avgCellAreaPx >= threshold * (1.0 - h)
-            && avgCellAreaPx <= threshold * (1.0 + h);
+        return avgCellAreaPx >= threshold * (1.0 - h) && avgCellAreaPx <= threshold * (1.0 + h);
     };
 
     // Only adjacent-bucket flips can be damped; a two-bucket jump is a
     // genuine zoom change and always takes effect.
     const int prev = previous;
-    const int cur  = int(raw);
+    const int cur = int(raw);
     if (std::abs(cur - prev) == 1) {
         const double threshold = (std::min(cur, prev) == Qsg2DLodDecision::Far)
                                      ? farMaxCellAreaPx
@@ -57,7 +68,10 @@ Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous,
 }
 
 /*! Zoom octave with hysteresis: keep the previous step while log2(ppu)
- *  stays inside [prev - hys, prev + 1 + hys). */
+ *  stays inside [prev - hys, prev + 1 + hys).
+ * @param pxPerUnit Finite positive logical pixels per map unit; floored at 1e-30 before log2.
+ * @param previous Previous octave index, or int minimum for no hysteresis anchor.
+ * @return Previous index inside its expanded interval, otherwise floor(log2(scale)). */
 int stableZoomStep(double pxPerUnit, int previous)
 {
     const double raw = std::log2(std::max(pxPerUnit, 1e-30));
@@ -75,41 +89,37 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
 {
     Qsg2DLodDecision d;
 
-    const bool viewValid = in.viewportWidthPx > 0.0 && in.viewportHeightPx > 0.0
-                        && in.extentWidth    > 0.0 && in.extentHeight     > 0.0;
+    const bool viewValid = in.viewportWidthPx > 0.0 && in.viewportHeightPx > 0.0 &&
+                           in.extentWidth > 0.0 && in.extentHeight > 0.0;
     if (!viewValid) {
         // Degenerate view — draw nothing dense, but never lose a selection.
-        d.bucket               = Qsg2DLodDecision::Far;
-        d.zoomStep             = 0;
-        d.drawFill             = in.wantFill;
-        d.useAggregateFill     = true;
+        d.bucket = Qsg2DLodDecision::Far;
+        d.zoomStep = 0;
+        d.drawFill = in.wantFill;
+        d.useAggregateFill = true;
         d.drawSelectedOverlays = in.haveSelection;
         return d;
     }
 
     const double pxPerUnit = in.viewportWidthPx / in.extentWidth;
     const double cellAreaScene =
-        (in.cellCount > 0 && in.meshBBoxArea > 0.0)
-            ? in.meshBBoxArea / double(in.cellCount)
-            : 0.0;
+        (in.cellCount > 0 && in.meshBBoxArea > 0.0) ? in.meshBBoxArea / double(in.cellCount) : 0.0;
     d.avgCellAreaPx = cellAreaScene * pxPerUnit * pxPerUnit;
 
     // A mesh with unknown density (no cells / no bbox yet) renders Near —
     // there is nothing dense to protect against.
     d.bucket = (cellAreaScene > 0.0)
-                   ? stableBucket(d.avgCellAreaPx, in.previousBucket,
-                                  in.farMaxCellAreaPx)
+                   ? stableBucket(d.avgCellAreaPx, in.previousBucket, in.farMaxCellAreaPx)
                    : Qsg2DLodDecision::Near;
     d.zoomStep = stableZoomStep(pxPerUnit, in.previousZoomStep);
 
     const double visFrac = std::clamp(in.visibleFraction, 0.0, 1.0);
-    const qint64 visibleCellsEstimate =
-        qint64(std::llround(double(in.cellCount) * visFrac));
+    const qint64 visibleCellsEstimate = qint64(std::llround(double(in.cellCount) * visFrac));
 
     switch (d.bucket) {
     case Qsg2DLodDecision::Far:
-        d.drawFill             = in.wantFill;
-        d.useAggregateFill     = true;
+        d.drawFill = in.wantFill;
+        d.useAggregateFill = true;
         // Honour the configurable per-pass thresholds even at Far so the
         // "show edges/vertices at N px/cell" control — where 0 means
         // "always show when the sublayer is visible" — is respected across
@@ -118,10 +128,8 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
         // ceiling farMaxCellAreaPx) this stays false, so dense million-scale
         // wireframe/markers remain suppressed by default; only an explicit
         // low/zero threshold draws through here.
-        d.drawEdges            = in.wantEdges
-                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
-        d.drawVertexMarkers    = in.wantVertexMarkers
-                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
+        d.drawEdges = in.wantEdges && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
+        d.drawVertexMarkers = in.wantVertexMarkers && d.avgCellAreaPx >= in.markerMinCellAreaPx;
         // Contour bands/isolines derive from the layer's STATIC
         // classification range and are pan/zoom-invariant (cached or
         // async-built once per frame/geometry); band boundaries are macro
@@ -130,54 +138,50 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
         // and isolines only appeared once the view crossed into Mid — so
         // they now draw at Far too. Labels stay Mid/Near: screen-space
         // label placement is pure clutter at Far densities.
-        d.drawContours         = in.wantContours;
-        d.drawContourLabels    = false;
-        d.exactContourBands    = true;
+        d.drawContours = in.wantContours;
+        d.drawContourLabels = false;
+        d.exactContourBands = true;
         // Screen-space SAMPLED glyphs stay bounded at any zoom, so the
         // velocity overlay survives Far; only the one-glyph-per-cell dense
         // mode is banned (million-scale noise).
-        d.drawVelocityVectors  = in.wantVelocity;
+        d.drawVelocityVectors = in.wantVelocity;
         d.denseVelocityAllowed = false;
-        d.maxVelocityGlyphs    = kDenseVelocityCellCap;
-        d.maxContourLabels     = 0;
+        d.maxVelocityGlyphs = kDenseVelocityCellCap;
+        d.maxContourLabels = 0;
         break;
 
     case Qsg2DLodDecision::Mid:
-        d.drawFill             = in.wantFill;
-        d.useAggregateFill     = false;
-        d.drawEdges            = in.wantEdges
-                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
+        d.drawFill = in.wantFill;
+        d.useAggregateFill = false;
+        d.drawEdges = in.wantEdges && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
         // Vertex markers were pinned to the Near bucket, so a marker
         // threshold below Near's floor (kNearMinCellAreaPx) did nothing.
         // Gate on the (configurable) threshold here too so the "show
         // vertices at" control is honoured across the whole zoom range.
         // Results renderers keep the default 200 px² (> Mid's 160 ceiling),
         // so this is a no-op for them.
-        d.drawVertexMarkers    = in.wantVertexMarkers
-                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
-        d.drawContours         = in.wantContours;
-        d.drawContourLabels    = in.wantContourLabels;
-        d.exactContourBands    = true;
-        d.drawVelocityVectors  = in.wantVelocity;
-        d.denseVelocityAllowed = false;   // grid sampling only at Mid
-        d.maxVelocityGlyphs    = kDenseVelocityCellCap;
-        d.maxContourLabels     = kMidMaxContourLabels;
+        d.drawVertexMarkers = in.wantVertexMarkers && d.avgCellAreaPx >= in.markerMinCellAreaPx;
+        d.drawContours = in.wantContours;
+        d.drawContourLabels = in.wantContourLabels;
+        d.exactContourBands = true;
+        d.drawVelocityVectors = in.wantVelocity;
+        d.denseVelocityAllowed = false; // grid sampling only at Mid
+        d.maxVelocityGlyphs = kDenseVelocityCellCap;
+        d.maxContourLabels = kMidMaxContourLabels;
         break;
 
     case Qsg2DLodDecision::Near:
-        d.drawFill             = in.wantFill;
-        d.useAggregateFill     = false;
-        d.drawEdges            = in.wantEdges
-                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
-        d.drawVertexMarkers    = in.wantVertexMarkers
-                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
-        d.drawContours         = in.wantContours;
-        d.drawContourLabels    = in.wantContourLabels;
-        d.exactContourBands    = true;
-        d.drawVelocityVectors  = in.wantVelocity;
+        d.drawFill = in.wantFill;
+        d.useAggregateFill = false;
+        d.drawEdges = in.wantEdges && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
+        d.drawVertexMarkers = in.wantVertexMarkers && d.avgCellAreaPx >= in.markerMinCellAreaPx;
+        d.drawContours = in.wantContours;
+        d.drawContourLabels = in.wantContourLabels;
+        d.exactContourBands = true;
+        d.drawVelocityVectors = in.wantVelocity;
         d.denseVelocityAllowed = visibleCellsEstimate <= kDenseVelocityCellCap;
-        d.maxVelocityGlyphs    = kDenseVelocityCellCap;
-        d.maxContourLabels     = kNearMaxContourLabels;
+        d.maxVelocityGlyphs = kDenseVelocityCellCap;
+        d.maxContourLabels = kNearMaxContourLabels;
         break;
     }
 

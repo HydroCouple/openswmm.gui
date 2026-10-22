@@ -1,62 +1,84 @@
-/*!
- * \file   rulesyntaxhighlighter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rulesyntaxhighlighter.cpp
+ * @brief     Attached to `RuleCodeEditor`'s `QTextDocument`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "controls/rulesyntaxhighlighter.h"
 
 #include <QRegularExpression>
 #include <QSet>
 
-namespace openswmmvis::controls {
+namespace openswmmvis::controls
+{
 
-namespace {
+namespace
+{
 
 // Build the vocabulary once and reuse — these are upper-case canonical
 // forms; matching is case-insensitive at the call site.
-const QStringList &blockKwSet() {
-    static const QStringList kw = {
-        QStringLiteral("RULE"), QStringLiteral("IF"), QStringLiteral("THEN"),
-        QStringLiteral("ELSE"), QStringLiteral("AND"), QStringLiteral("OR"),
-        QStringLiteral("NOT"),  QStringLiteral("PRIORITY")
-    };
+/**
+ * @brief Share canonical block-control tokens without rebuilding the list.
+ * @return Borrowed process-lifetime uppercase vocabulary.
+ */
+const QStringList &blockKwSet()
+{
+    static const QStringList kw = {QStringLiteral("RULE"), QStringLiteral("IF"),
+                                   QStringLiteral("THEN"), QStringLiteral("ELSE"),
+                                   QStringLiteral("AND"),  QStringLiteral("OR"),
+                                   QStringLiteral("NOT"),  QStringLiteral("PRIORITY")};
     return kw;
 }
-const QStringList &objectTypeSet() {
-    static const QStringList kw = {
-        QStringLiteral("NODE"), QStringLiteral("LINK"), QStringLiteral("CONDUIT"),
-        QStringLiteral("PUMP"), QStringLiteral("ORIFICE"), QStringLiteral("WEIR"),
-        QStringLiteral("OUTLET"), QStringLiteral("SUBCATCH"),
-        QStringLiteral("SIMULATION"), QStringLiteral("GAGE")
-    };
+/**
+ * @brief Share canonical object-category tokens.
+ * @return Borrowed process-lifetime uppercase vocabulary.
+ */
+const QStringList &objectTypeSet()
+{
+    static const QStringList kw = {QStringLiteral("NODE"),       QStringLiteral("LINK"),
+                                   QStringLiteral("CONDUIT"),    QStringLiteral("PUMP"),
+                                   QStringLiteral("ORIFICE"),    QStringLiteral("WEIR"),
+                                   QStringLiteral("OUTLET"),     QStringLiteral("SUBCATCH"),
+                                   QStringLiteral("SIMULATION"), QStringLiteral("GAGE")};
     return kw;
 }
-const QStringList &variableSet() {
+/**
+ * @brief Share supported variable tokens and representative rain-window attributes.
+ * @return Borrowed process-lifetime uppercase vocabulary.
+ */
+const QStringList &variableSet()
+{
     static const QStringList kw = {
-        QStringLiteral("DEPTH"), QStringLiteral("HEAD"), QStringLiteral("FLOW"),
-        QStringLiteral("VOLUME"), QStringLiteral("INFLOW"), QStringLiteral("SETTING"),
-        QStringLiteral("STATUS"), QStringLiteral("CLOCKTIME"), QStringLiteral("DATE"),
-        QStringLiteral("MONTH"), QStringLiteral("DAY"), QStringLiteral("TIME"),
-        QStringLiteral("OVERFLOW"), QStringLiteral("INTENSITY"),
-        QStringLiteral("1-HR_DEPTH"), QStringLiteral("6-HR_DEPTH"),
-        QStringLiteral("12-HR_DEPTH"), QStringLiteral("24-HR_DEPTH"),
-        QStringLiteral("48-HR_DEPTH")
-    };
+        QStringLiteral("DEPTH"),      QStringLiteral("HEAD"),        QStringLiteral("FLOW"),
+        QStringLiteral("VOLUME"),     QStringLiteral("INFLOW"),      QStringLiteral("SETTING"),
+        QStringLiteral("STATUS"),     QStringLiteral("CLOCKTIME"),   QStringLiteral("DATE"),
+        QStringLiteral("MONTH"),      QStringLiteral("DAY"),         QStringLiteral("TIME"),
+        QStringLiteral("OVERFLOW"),   QStringLiteral("INTENSITY"),   QStringLiteral("1-HR_DEPTH"),
+        QStringLiteral("6-HR_DEPTH"), QStringLiteral("12-HR_DEPTH"), QStringLiteral("24-HR_DEPTH"),
+        QStringLiteral("48-HR_DEPTH")};
     return kw;
 }
 
-QSet<QString> toUpperSet(const QStringList &xs) {
+/**
+ * @brief Build a case-normalized membership set for token lookup.
+ * @param[in] xs Vocabulary to copy and uppercase.
+ * @return Owning set with duplicate uppercase tokens collapsed.
+ */
+QSet<QString> toUpperSet(const QStringList &xs)
+{
     QSet<QString> s;
     s.reserve(xs.size());
-    for (const auto &x : xs) s.insert(x.toUpper());
+    for (const auto &x : xs)
+        s.insert(x.toUpper());
     return s;
 }
 
 } // namespace
 
-RuleSyntaxHighlighter::RuleSyntaxHighlighter(QTextDocument *parent)
-    : QSyntaxHighlighter(parent)
+RuleSyntaxHighlighter::RuleSyntaxHighlighter(QTextDocument *parent) : QSyntaxHighlighter(parent)
 {
     rebuildFormats_();
 }
@@ -70,17 +92,27 @@ void RuleSyntaxHighlighter::setPalette(const QPalette &palette)
     rehighlight();
 }
 
-QStringList RuleSyntaxHighlighter::blockKeywords()   { return blockKwSet(); }
-QStringList RuleSyntaxHighlighter::objectTypes()     { return objectTypeSet(); }
-QStringList RuleSyntaxHighlighter::variableNames()   { return variableSet(); }
-
-QStringList RuleSyntaxHighlighter::operatorTokens() {
-    return {QStringLiteral("="),  QStringLiteral("<"),  QStringLiteral(">"),
-            QStringLiteral("<="), QStringLiteral(">="), QStringLiteral("<>"),
-            QStringLiteral("IS")};
+QStringList RuleSyntaxHighlighter::blockKeywords()
+{
+    return blockKwSet();
+}
+QStringList RuleSyntaxHighlighter::objectTypes()
+{
+    return objectTypeSet();
+}
+QStringList RuleSyntaxHighlighter::variableNames()
+{
+    return variableSet();
 }
 
-QStringList RuleSyntaxHighlighter::allKeywords() {
+QStringList RuleSyntaxHighlighter::operatorTokens()
+{
+    return {QStringLiteral("="),  QStringLiteral("<"),  QStringLiteral(">"), QStringLiteral("<="),
+            QStringLiteral(">="), QStringLiteral("<>"), QStringLiteral("IS")};
+}
+
+QStringList RuleSyntaxHighlighter::allKeywords()
+{
     QStringList out;
     out.reserve(blockKwSet().size() + objectTypeSet().size() + variableSet().size());
     out += blockKwSet();
@@ -93,12 +125,12 @@ void RuleSyntaxHighlighter::rebuildFormats_()
 {
     // Resolve palette colours. The fallback (when m_palette is default-
     // constructed) uses the QPalette::Active group's default roles.
-    const QColor highlight     = m_palette.color(QPalette::Active, QPalette::Highlight);
-    const QColor linkVisited   = m_palette.color(QPalette::Active, QPalette::LinkVisited);
-    const QColor link          = m_palette.color(QPalette::Active, QPalette::Link);
-    const QColor windowText    = m_palette.color(QPalette::Active, QPalette::WindowText);
-    const QColor text          = m_palette.color(QPalette::Active, QPalette::Text);
-    const QColor placeholder   = m_palette.color(QPalette::Active, QPalette::PlaceholderText);
+    const QColor highlight = m_palette.color(QPalette::Active, QPalette::Highlight);
+    const QColor linkVisited = m_palette.color(QPalette::Active, QPalette::LinkVisited);
+    const QColor link = m_palette.color(QPalette::Active, QPalette::Link);
+    const QColor windowText = m_palette.color(QPalette::Active, QPalette::WindowText);
+    const QColor text = m_palette.color(QPalette::Active, QPalette::Text);
+    const QColor placeholder = m_palette.color(QPalette::Active, QPalette::PlaceholderText);
 
     m_fmtBlockKw = QTextCharFormat{};
     m_fmtBlockKw.setForeground(highlight.isValid() ? highlight : QColor("#1565C0"));
@@ -125,7 +157,8 @@ void RuleSyntaxHighlighter::rebuildFormats_()
 
 void RuleSyntaxHighlighter::highlightBlock(const QString &text)
 {
-    if (text.isEmpty()) return;
+    if (text.isEmpty())
+        return;
 
     // ── Comment: ';' to EOL. Apply first; comment text wins over keywords.
     const int semi = text.indexOf(QLatin1Char(';'));
@@ -134,16 +167,18 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
         setFormat(semi, text.size() - semi, m_fmtComment);
 
     // Pre-build the upper-case lookup sets once per call (cheap).
-    static const QSet<QString> kBlock    = toUpperSet(blockKwSet());
-    static const QSet<QString> kObjType  = toUpperSet(objectTypeSet());
+    static const QSet<QString> kBlock = toUpperSet(blockKwSet());
+    static const QSet<QString> kObjType = toUpperSet(objectTypeSet());
     static const QSet<QString> kVariable = toUpperSet(variableSet());
 
     // ── Walk tokens up to contentEnd.
     int i = 0;
     while (i < contentEnd) {
         // Skip whitespace.
-        while (i < contentEnd && text.at(i).isSpace()) ++i;
-        if (i >= contentEnd) break;
+        while (i < contentEnd && text.at(i).isSpace())
+            ++i;
+        if (i >= contentEnd)
+            break;
 
         const QChar c = text.at(i);
 
@@ -153,7 +188,7 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
             if (i + 1 < contentEnd) {
                 const QChar nc = text.at(i + 1);
                 if ((c == QLatin1Char('<') && (nc == QLatin1Char('=') || nc == QLatin1Char('>'))) ||
-                    (c == QLatin1Char('>') &&  nc == QLatin1Char('='))) {
+                    (c == QLatin1Char('>') && nc == QLatin1Char('='))) {
                     len = 2;
                 }
             }
@@ -164,16 +199,16 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
 
         // Number: starts with a digit, optional decimal point, or HH:MM[:SS].
         if (c.isDigit() ||
-            (c == QLatin1Char('.') && i + 1 < contentEnd && text.at(i + 1).isDigit()))
-        {
+            (c == QLatin1Char('.') && i + 1 < contentEnd && text.at(i + 1).isDigit())) {
             // A gage depth is one parameterized attribute, including its
             // numeric prefix. The engine validator enforces the 48-hour cap.
             int end = i;
             while (end < contentEnd && !text.at(end).isSpace() &&
                    text.at(end) != QLatin1Char('=') && text.at(end) != QLatin1Char('<') &&
-                   text.at(end) != QLatin1Char('>')) ++end;
-            static const QRegularExpression rainDepth(
-                QStringLiteral("^[0-9]+-HR_DEPTH$"), QRegularExpression::CaseInsensitiveOption);
+                   text.at(end) != QLatin1Char('>'))
+                ++end;
+            static const QRegularExpression rainDepth(QStringLiteral("^[0-9]+-HR_DEPTH$"),
+                                                      QRegularExpression::CaseInsensitiveOption);
             if (rainDepth.match(text.mid(i, end - i)).hasMatch()) {
                 setFormat(i, end - i, m_fmtVariable);
                 i = end;
@@ -184,7 +219,8 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
                 const QChar cj = text.at(j);
                 if (cj.isDigit() || cj == QLatin1Char('.') || cj == QLatin1Char(':'))
                     ++j;
-                else break;
+                else
+                    break;
             }
             setFormat(i, j - i, m_fmtNumber);
             i = j;
@@ -196,9 +232,8 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
         int j = i;
         while (j < contentEnd) {
             const QChar cj = text.at(j);
-            if (cj.isSpace() ||
-                cj == QLatin1Char('=') || cj == QLatin1Char('<') || cj == QLatin1Char('>') ||
-                cj == QLatin1Char(';'))
+            if (cj.isSpace() || cj == QLatin1Char('=') || cj == QLatin1Char('<') ||
+                cj == QLatin1Char('>') || cj == QLatin1Char(';'))
                 break;
             ++j;
         }
@@ -214,7 +249,7 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
                 setFormat(i, j - i, m_fmtOperator);
             // else: leave default — it's an identifier (NODE name, etc.)
         }
-        i = j > i ? j : i + 1;   // safety: always advance.
+        i = j > i ? j : i + 1; // safety: always advance.
     }
 }
 

@@ -1,9 +1,9 @@
-/*!
- * \file   test_utctimeaxis.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Issue #11 — time-axis labels are UTC, whatever the process zone.
+/**
+ * @file      test_utctimeaxis.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Issue #11 — time-axis labels are UTC, whatever the process zone.
  *
  *         Runs under TZ=America/Denver (ctest ENVIRONMENT_MODIFICATION, and
  *         again in-process below) so the assertions are not vacuous on a UTC
@@ -12,6 +12,7 @@
  *         QDateTimeAxis: both edges labelled, the numeric range stays true
  *         epoch milliseconds, a chart zoom relabels and re-emits the range as
  *         instants, duplicate labels collapse instead of colliding.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "plot/utctimeaxis.h"
@@ -32,8 +33,21 @@
 
 using openswmmvis::plot::UtcTimeAxis;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Construct a UTC instant for axis-label fixtures.
+ * @param y Valid calendar year for the test.
+ * @param mo Month 1..12.
+ * @param d Valid day within that year/month.
+ * @param h Hour 0..23.
+ * @param mi Minute 0..59, default zero; seconds are zero.
+ * @return Owned UTC QDateTime. Invalid calendar/time values are not asserted here;
+ * no local timezone conversion or global environment mutation.
+ *
+ */
 QDateTime utc(int y, int mo, int d, int h, int mi = 0)
 {
     return QDateTime(QDate(y, mo, d), QTime(h, mi), Qt::UTC);
@@ -41,13 +55,20 @@ QDateTime utc(int y, int mo, int d, int h, int mi = 0)
 
 const QString kFmt = QStringLiteral("yyyy-MM-dd HH:mm");
 
-}  // namespace
+} // namespace
 
 class TestUtcTimeAxis : public QObject
 {
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Set process TZ to America/Denver and print a UTC-to-local probe before axis cases.
+     * Calls tzset on Unix; no prior TZ restoration. Requires isolated test process and
+     * serialized timezone use. This is a non-UTC control, not Windows API emulation.
+     *
+     */
     void initTestCase()
     {
         // Belt and braces with the ctest TZ: a non-UTC, DST-observing zone
@@ -58,11 +79,16 @@ private slots:
         tzset();
 #endif
         const QDateTime probe = utc(2026, 1, 1, 12);
-        qInfo() << "process zone renders 2026-01-01 12:00Z as"
-                << probe.toLocalTime().toString(kFmt)
+        qInfo() << "process zone renders 2026-01-01 12:00Z as" << probe.toLocalTime().toString(kFmt)
                 << "(offset s =" << probe.toLocalTime().offsetFromUtc() << ")";
     }
 
+    /**
+     *
+     * @brief Require five UTC edge/interior labels and exact epoch-millisecond numeric range
+     * independent of local display zone.
+     *
+     */
     void labelsAreUtcAtBothEdges()
     {
         UtcTimeAxis ax;
@@ -90,6 +116,12 @@ private slots:
                  static_cast<qreal>(utc(2026, 1, 2, 0).toMSecsSinceEpoch()));
     }
 
+    /**
+     *
+     * @brief Require uniformly spaced UTC labels across Denver spring DST transition and verify
+     * differing local text when applicable.
+     *
+     */
     void labelsIgnoreProcessTimeZoneAcrossDst()
     {
         // 2026-03-08 is the US spring-forward day. A local-time axis in
@@ -99,21 +131,26 @@ private slots:
         ax.setFormat(kFmt);
         ax.setTickCount(3);
         ax.setRange(utc(2026, 3, 8, 0), utc(2026, 3, 9, 0));
-        const QStringList expected{
-            QStringLiteral("2026-03-08 00:00"), QStringLiteral("2026-03-08 12:00"),
-            QStringLiteral("2026-03-09 00:00")};
+        const QStringList expected{QStringLiteral("2026-03-08 00:00"),
+                                   QStringLiteral("2026-03-08 12:00"),
+                                   QStringLiteral("2026-03-09 00:00")};
         QCOMPARE(ax.categoriesLabels(), expected);
 
         // The same instant rendered the QDateTimeAxis way (local) differs
         // whenever the process zone is not UTC — which it is not here.
-        const QString local = QDateTime::fromMSecsSinceEpoch(
-                                  utc(2026, 3, 8, 12).toMSecsSinceEpoch())
-                                  .toString(kFmt);
+        const QString local =
+            QDateTime::fromMSecsSinceEpoch(utc(2026, 3, 8, 12).toMSecsSinceEpoch()).toString(kFmt);
         if (utc(2026, 3, 8, 12).toLocalTime().offsetFromUtc() != 0)
             QVERIFY2(local != QStringLiteral("2026-03-08 12:00"),
                      "process zone is UTC; the non-UTC assertion is vacuous");
     }
 
+    /**
+     *
+     * @brief Require QValueAxis numeric-range edits to refresh labels and emit one UTC range
+     * signal, with identical-range silence.
+     *
+     */
     void numericRangeChangeRelabelsAndEmitsUtcRange()
     {
         // What QChart::zoomIn / scroll / zoomReset do under the hood: they
@@ -145,10 +182,18 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    /**
+     *
+     * @brief Require a real exposed chart zoom to update UTC bounds within two minutes and reset
+     * exact day endpoints/labels.
+     * Creates GUI-owned chart/series/axes, processes events and waits for exposure; requires
+     * native window support. This invokes chart zoom directly rather than synthesizing a drag.
+     *
+     */
     void chartRubberBandZoomRelabels()
     {
         // The real path: a laid-out chart zoomed to the middle half.
-        auto *chart = new QChart;   // owned, and deleted, by the view below
+        auto *chart = new QChart; // owned, and deleted, by the view below
         auto *series = new QLineSeries;
         const QDateTime t0 = utc(2026, 1, 1, 0), t24 = utc(2026, 1, 2, 0);
         series->append(static_cast<qreal>(t0.toMSecsSinceEpoch()), 0.0);
@@ -173,17 +218,17 @@ private slots:
 
         const QRectF plot = chart->plotArea();
         QVERIFY(plot.width() > 100.0);
-        chart->zoomIn(QRectF(plot.left() + plot.width() * 0.25, plot.top(),
-                            plot.width() * 0.5, plot.height()));
+        chart->zoomIn(QRectF(plot.left() + plot.width() * 0.25, plot.top(), plot.width() * 0.5,
+                             plot.height()));
         QTest::qWait(20);
 
         // 25 %..75 % of a day, to pixel precision.
         const double tolMs = 2.0 * 60.0 * 1000.0;
-        QVERIFY2(std::abs(double(ax->min().toMSecsSinceEpoch()
-                                 - utc(2026, 1, 1, 6).toMSecsSinceEpoch())) < tolMs,
+        QVERIFY2(std::abs(double(ax->min().toMSecsSinceEpoch() -
+                                 utc(2026, 1, 1, 6).toMSecsSinceEpoch())) < tolMs,
                  qPrintable(ax->min().toString(Qt::ISODate)));
-        QVERIFY2(std::abs(double(ax->max().toMSecsSinceEpoch()
-                                 - utc(2026, 1, 1, 18).toMSecsSinceEpoch())) < tolMs,
+        QVERIFY2(std::abs(double(ax->max().toMSecsSinceEpoch() -
+                                 utc(2026, 1, 1, 18).toMSecsSinceEpoch())) < tolMs,
                  qPrintable(ax->max().toString(Qt::ISODate)));
         QCOMPARE(ax->categoriesLabels().size(), 3);
         QVERIFY(ax->categoriesLabels().first().startsWith(QStringLiteral("2026-01-01 0")));
@@ -192,12 +237,17 @@ private slots:
         QTest::qWait(20);
         QCOMPARE(ax->min(), t0);
         QCOMPARE(ax->max(), t24);
-        QCOMPARE(ax->categoriesLabels(),
-                 (QStringList{QStringLiteral("2026-01-01 00:00"),
-                              QStringLiteral("2026-01-01 12:00"),
-                              QStringLiteral("2026-01-02 00:00")}));
+        QCOMPARE(ax->categoriesLabels(), (QStringList{QStringLiteral("2026-01-01 00:00"),
+                                                      QStringLiteral("2026-01-01 12:00"),
+                                                      QStringLiteral("2026-01-02 00:00")}));
     }
 
+    /**
+     *
+     * @brief Require individual UTC min/max setters to preserve the other endpoint and update
+     * edge labels.
+     *
+     */
     void setMinSetMaxMoveOneEdge()
     {
         UtcTimeAxis ax;
@@ -218,10 +268,16 @@ private slots:
 
     // Tutorial bug report (2026-10-17): comparison plots lost their time
     // labels on narrow charts. The tick count now follows the pixel width.
+    /**
+     *
+     * @brief Require tick-count fitting to select 3/2/8 ticks at logical widths 420/100/5000
+     * pixels.
+     *
+     */
     void tickCountFollowsWidth()
     {
         openswmmvis::plot::UtcTimeAxis axis;
-        axis.setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));   // 16 chars ≈ 136 px
+        axis.setFormat(QStringLiteral("yyyy-MM-dd HH:mm")); // 16 chars ≈ 136 px
         axis.fitTickCountToWidth(420);
         QCOMPARE(axis.tickCount(), 3);
         axis.fitTickCountToWidth(100);
@@ -230,6 +286,12 @@ private slots:
         QCOMPARE(axis.tickCount(), 8);
     }
 
+    /**
+     *
+     * @brief Require day-only labels to collapse duplicates and wider time format to restore five
+     * labels.
+     *
+     */
     void duplicateLabelsCollapse()
     {
         // A day-only format over one day: four ticks round to the same text.

@@ -1,9 +1,15 @@
-/*!
- * \file dialoglayoutwatcher.cpp
+/**
+ * @file      dialoglayoutwatcher.cpp
+ * @brief     UI redesign iteration 2 (D1) — app-wide automatic dialog layout persistence.
  *
  * UI redesign iteration 2 (D1) — automatic dialog layout persistence.
  * See dialoglayoutwatcher.h for the design contract.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/dialogs/dialoglayoutwatcher.h"
 
 #include <QDialog>
@@ -11,9 +17,11 @@
 
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 QDialog *persistableDialog_(QObject *watched)
 {
@@ -21,18 +29,15 @@ QDialog *persistableDialog_(QObject *watched)
     if (!dlg || !dlg->isWindow())
         return nullptr;
     if (dlg->objectName().isEmpty())
-        return nullptr;   // unnamed = implicitly opted out
+        return nullptr; // unnamed = implicitly opted out
     if (dlg->property(kNoLayoutPersistenceProp).toBool())
         return nullptr;
     return dlg;
 }
 
-}   // namespace
+} // namespace
 
-DialogLayoutWatcher::DialogLayoutWatcher(QObject *parent)
-    : QObject(parent)
-{
-}
+DialogLayoutWatcher::DialogLayoutWatcher(QObject *parent) : QObject(parent) {}
 
 bool DialogLayoutWatcher::eventFilter(QObject *watched, QEvent *event)
 {
@@ -64,4 +69,4 @@ bool DialogLayoutWatcher::eventFilter(QObject *watched, QEvent *event)
     return QObject::eventFilter(watched, event);
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

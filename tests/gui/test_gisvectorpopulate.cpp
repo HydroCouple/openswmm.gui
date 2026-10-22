@@ -1,9 +1,9 @@
-/*!
- * \file   test_gisvectorpopulate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  GIS vector layers populate the FULL feature set — the scene culls
+/**
+ * @file      test_gisvectorpopulate.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     GIS vector layers populate the FULL feature set — the scene culls
  *         per frame; the layer never clips to a viewport.
  *
  * Pins the fix for "polygons partially in view vanish": populateScene used to
@@ -16,7 +16,9 @@
  *
  * The GPKG fixture is written under ./test_gisvectorpopulate_output/ in the
  * ctest working directory, reviewable per CLAUDE.md §4.1.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/gisvectorlayer.h"
 #include "map/graphicsitems.h"
 #include "map/mapextent.h"
@@ -32,7 +34,8 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 QString outDir()
 {
@@ -40,8 +43,14 @@ QString outDir()
     return QStringLiteral("test_gisvectorpopulate_output");
 }
 
-QString gpkgPath() { return outDir() + QStringLiteral("/three_polys.gpkg"); }
-QString crsGpkgPath() { return outDir() + QStringLiteral("/crs_utm33n.gpkg"); }
+QString gpkgPath()
+{
+    return outDir() + QStringLiteral("/three_polys.gpkg");
+}
+QString crsGpkgPath()
+{
+    return outDir() + QStringLiteral("/crs_utm33n.gpkg");
+}
 
 /*! One square, stamped with EPSG:32633 (UTM 33N) — a PROJECTED CRS that is
  *  unmistakably not the CRS-less fixture above and not WGS84. Used to prove
@@ -51,16 +60,25 @@ bool buildCrsFixture()
 {
     GDALAllRegister();
     GDALDriver *gpkg = GetGDALDriverManager()->GetDriverByName("GPKG");
-    if (!gpkg) return false;
+    if (!gpkg)
+        return false;
     const QByteArray gp = crsGpkgPath().toUtf8();
-    if (QFile::exists(crsGpkgPath())) gpkg->Delete(gp.constData());
+    if (QFile::exists(crsGpkgPath()))
+        gpkg->Delete(gp.constData());
 
     GDALDataset *ds = gpkg->Create(gp.constData(), 0, 0, 0, GDT_Unknown, nullptr);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     OGRSpatialReference srs;
-    if (srs.importFromEPSG(32633) != OGRERR_NONE) { GDALClose(ds); return false; }
+    if (srs.importFromEPSG(32633) != OGRERR_NONE) {
+        GDALClose(ds);
+        return false;
+    }
     OGRLayer *layer = ds->CreateLayer("utm_polys", &srs, wkbPolygon, nullptr);
-    if (!layer) { GDALClose(ds); return false; }
+    if (!layer) {
+        GDALClose(ds);
+        return false;
+    }
 
     OGRLinearRing ring;
     ring.addPoint(500000.0, 4600000.0);
@@ -84,14 +102,20 @@ bool buildFixture()
 {
     GDALAllRegister();
     GDALDriver *gpkg = GetGDALDriverManager()->GetDriverByName("GPKG");
-    if (!gpkg) return false;
+    if (!gpkg)
+        return false;
     const QByteArray gp = gpkgPath().toUtf8();
-    if (QFile::exists(gpkgPath())) gpkg->Delete(gp.constData());
+    if (QFile::exists(gpkgPath()))
+        gpkg->Delete(gp.constData());
 
     GDALDataset *ds = gpkg->Create(gp.constData(), 0, 0, 0, GDT_Unknown, nullptr);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
-    if (!layer) { GDALClose(ds); return false; }
+    if (!layer) {
+        GDALClose(ds);
+        return false;
+    }
 
     for (double x0 : {0.0, 10.0, 20.0}) {
         OGRLinearRing ring;
@@ -106,7 +130,10 @@ bool buildFixture()
         f->SetGeometry(&poly);
         const bool ok = (layer->CreateFeature(f) == OGRERR_NONE);
         OGRFeature::DestroyFeature(f);
-        if (!ok) { GDALClose(ds); return false; }
+        if (!ok) {
+            GDALClose(ds);
+            return false;
+        }
     }
     GDALClose(ds);
     return true;
@@ -128,15 +155,18 @@ class TestGisVectorPopulate : public QObject
     Q_OBJECT
 private slots:
 
-    void initTestCase() { QVERIFY(buildFixture()); QVERIFY(buildCrsFixture()); }
+    void initTestCase()
+    {
+        QVERIFY(buildFixture());
+        QVERIFY(buildCrsFixture());
+    }
 
     /*! A layer must adopt the CRS its file declares. */
     void vectorLayerAdoptsFileCRS()
     {
         GISVectorLayer layer(crsGpkgPath(), QStringLiteral("utm_polys"));
         SpatialReferenceSystem *s = layer.srs();
-        QVERIFY2(s != nullptr,
-                 "layer has no SRS after opening a file declaring EPSG:32633");
+        QVERIFY2(s != nullptr, "layer has no SRS after opening a file declaring EPSG:32633");
         QCOMPARE(s->code(), 32633);
         QVERIFY(s->isProjected());
     }
@@ -164,7 +194,8 @@ private slots:
         // inverted, so latitude arrives negated — compare |y|.
         QVERIFY2(std::abs(b.left()) < 180.0 && std::abs(b.top()) < 180.0,
                  qPrintable(QStringLiteral("geometry not reprojected — bounds %1,%2")
-                                .arg(b.left()).arg(b.top())));
+                                .arg(b.left())
+                                .arg(b.top())));
         QVERIFY(std::abs(b.left() - 15.0) < 1.5);
         QVERIFY(std::abs(std::abs(b.top()) - 41.5) < 1.5);
     }
@@ -208,7 +239,8 @@ private slots:
         // allocator routinely hands the freed blocks straight back, and a
         // failed compare would stringify dangling QGraphicsItem*s.
         constexpr int kChurnProbe = 7;
-        for (auto *p : before) p->setData(kChurnProbe, true);
+        for (auto *p : before)
+            p->setData(kChurnProbe, true);
 
         layer.refreshScene(&scene, MapExtent(19.0, -1.0, 22.0, 2.0), nullptr);
 
@@ -235,23 +267,28 @@ private slots:
         VectorPolygonPathItem *mid = nullptr, *other = nullptr;
         for (auto *p : items) {
             const double cx = p->sceneBoundingRect().center().x();
-            if (cx > 9.0 && cx < 12.0) mid = p; else other = p;
+            if (cx > 9.0 && cx < 12.0)
+                mid = p;
+            else
+                other = p;
         }
         QVERIFY(mid && other);
         const qint64 midFid = mid->featureId();
 
-        layer.setSelectedFeatureIds({midFid});   // arms m_needsRebuild
+        layer.setSelectedFeatureIds({midFid}); // arms m_needsRebuild
         layer.refreshScene(&scene, MapExtent(0.0, 0.0, 1.5, 1.5), nullptr);
 
         const auto rebuilt = polygonItems(scene);
         QCOMPARE(rebuilt.size(), 3);
         VectorPolygonPathItem *midNew = nullptr, *otherNew = nullptr;
         for (auto *p : rebuilt) {
-            if (p->featureId() == midFid) midNew = p; else otherNew = p;
+            if (p->featureId() == midFid)
+                midNew = p;
+            else
+                otherNew = p;
         }
         QVERIFY(midNew && otherNew);
-        QVERIFY2(midNew->brush() != otherNew->brush()
-                     || midNew->pen() != otherNew->pen(),
+        QVERIFY2(midNew->brush() != otherNew->brush() || midNew->pen() != otherNew->pen(),
                  "selected feature must be painted as highlighted");
     }
 

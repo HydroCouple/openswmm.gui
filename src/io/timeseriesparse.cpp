@@ -1,9 +1,14 @@
-/*!
- * \file   timeseriesparse.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      timeseriesparse.cpp
+ * @brief     Extracted from ObservedCsvRunLayer::parseRow_ so the same parser drives: - file
+ *            import (ObservedCsvRunLayer, TimeseriesProvider ExternalFile mode) - clipboard paste
+ *            into the TimeseriesEditorDialog grid.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "io/timeseriesparse.h"
 
 #include "core/swmmdatetime.h"
@@ -15,19 +20,22 @@
 #include <cmath>
 #include <limits>
 
-namespace openswmmvis::io {
-
-QChar guessDelimiter(const QString& sampleLine)
+namespace openswmmvis::io
 {
-    const int tabs   = sampleLine.count(QLatin1Char('\t'));
+
+QChar guessDelimiter(const QString &sampleLine)
+{
+    const int tabs = sampleLine.count(QLatin1Char('\t'));
     const int commas = sampleLine.count(QLatin1Char(','));
-    const int semis  = sampleLine.count(QLatin1Char(';'));
-    if (tabs >= commas && tabs >= semis && tabs > 0) return QLatin1Char('\t');
-    if (semis > commas && semis > 0)                  return QLatin1Char(';');
+    const int semis = sampleLine.count(QLatin1Char(';'));
+    if (tabs >= commas && tabs >= semis && tabs > 0)
+        return QLatin1Char('\t');
+    if (semis > commas && semis > 0)
+        return QLatin1Char(';');
     return QLatin1Char(',');
 }
 
-bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
+bool tryParseTimestamp(const QString &s, double &jOut, double fallbackBase)
 {
     static const QString kFormats[] = {
         QStringLiteral("yyyy-MM-ddTHH:mm:ss"),
@@ -56,14 +64,16 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
     // TSF exports can use a 24-hour clock with a redundant AM/PM suffix.
     // Keep ordinary 1..12 AM/PM conversion, including midnight and noon.
     static const QRegularExpression redundantMeridiem(
-        QStringLiteral("^\\d{1,2}/\\d{1,2}/\\d{4}\\s+(0{1,2}|1[3-9]|2[0-3]):\\d{2}(?::\\d{2})?\\s+(AM|PM)$"),
+        QStringLiteral(
+            "^\\d{1,2}/\\d{1,2}/\\d{4}\\s+(0{1,2}|1[3-9]|2[0-3]):\\d{2}(?::\\d{2})?\\s+(AM|PM)$"),
         QRegularExpression::CaseInsensitiveOption);
     const auto meridiem = redundantMeridiem.match(trimmed);
     if (meridiem.hasMatch())
         trimmed = trimmed.left(meridiem.capturedStart(2)).trimmed();
-    for (const QString& fmt : kFormats) {
+    for (const QString &fmt : kFormats) {
         QDateTime dt = QDateTime::fromString(trimmed, fmt);
-        if (!dt.isValid()) continue;
+        if (!dt.isValid())
+            continue;
         // qDateTimeToSwmmDateTime() reads calendar components directly and
         // never converts via toUTC()/toLocalTime(), so fromString()'s default
         // Qt::LocalTime label (there's no timezone in these formats) doesn't
@@ -81,35 +91,41 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
     return false;
 }
 
-bool parseRow(const QString& line,
-              QChar delim,
-              double& timeJulianOut,
-              std::vector<double>& valuesOut,
-              double hoursSinceStartFallbackBase)
+bool parseRow(const QString &line, QChar delim, double &timeJulianOut,
+              std::vector<double> &valuesOut, double hoursSinceStartFallbackBase)
 {
     const QStringList cells = line.split(delim);
-    if (cells.size() < 2) return false;
+    if (cells.size() < 2)
+        return false;
 
-    if (!tryParseTimestamp(cells.first(), timeJulianOut,
-                            hoursSinceStartFallbackBase)) return false;
+    if (!tryParseTimestamp(cells.first(), timeJulianOut, hoursSinceStartFallbackBase))
+        return false;
 
     valuesOut.assign(static_cast<std::size_t>(cells.size() - 1),
                      std::numeric_limits<double>::quiet_NaN());
     for (int c = 1; c < cells.size(); ++c) {
         const QString s = cells.at(c).trimmed();
-        if (s.isEmpty()) continue;
+        if (s.isEmpty())
+            continue;
         bool ok = false;
         const double v = s.toDouble(&ok);
-        if (ok) valuesOut[static_cast<std::size_t>(c - 1)] = v;
+        if (ok)
+            valuesOut[static_cast<std::size_t>(c - 1)] = v;
     }
     return true;
 }
 
-namespace {
+namespace
+{
 
 // Engine's TBLSEPSTR = " \t\n\r," — split on whitespace or comma and drop
 // empties. Pre-compiled regex matches the engine's strtok() behaviour.
-QStringList tokenizeDatLine_(const QString& line)
+/**
+ * @brief Split a DAT record using whitespace or comma separators, dropping empty fields.
+ * @param[in] line Record text; no quoting or inline-comment syntax is interpreted.
+ * @return Tokens in input order.
+ */
+QStringList tokenizeDatLine_(const QString &line)
 {
     static const QRegularExpression sep(QStringLiteral("[\\s,]+"));
     return line.split(sep, Qt::SkipEmptyParts);
@@ -120,26 +136,36 @@ QStringList tokenizeDatLine_(const QString& line)
 // per-call overhead of QTime::fromString (which retries multiple format
 // strings and runs full calendrical validation); on a 1.97M-row file the
 // fromString path alone burned tens of seconds.
-bool tryParseClockToDayFraction_(const QString& s, double& fracOut)
+/**
+ * @brief Convert one to three nonnegative integer clock fields to days.
+ * @param[in] s Hours, hours:minutes, or hours:minutes:seconds; upper bounds are not imposed.
+ * @param[out] fracOut Day fraction assigned only on success; may exceed one.
+ * @return False for malformed, negative, or more than three fields.
+ */
+bool tryParseClockToDayFraction_(const QString &s, double &fracOut)
 {
-    const auto parts = QStringView{s}.split(QLatin1Char(':'),
-                                            Qt::KeepEmptyParts,
-                                            Qt::CaseSensitive);
-    if (parts.isEmpty() || parts.size() > 3) return false;
+    const auto parts =
+        QStringView{s}.split(QLatin1Char(':'), Qt::KeepEmptyParts, Qt::CaseSensitive);
+    if (parts.isEmpty() || parts.size() > 3)
+        return false;
 
     bool ok = false;
     const int hr = parts.at(0).toInt(&ok);
-    if (!ok) return false;
+    if (!ok)
+        return false;
     int min = 0, sec = 0;
     if (parts.size() >= 2) {
         min = parts.at(1).toInt(&ok);
-        if (!ok) return false;
+        if (!ok)
+            return false;
     }
     if (parts.size() == 3) {
         sec = parts.at(2).toInt(&ok);
-        if (!ok) return false;
+        if (!ok)
+            return false;
     }
-    if (hr < 0 || min < 0 || sec < 0) return false;
+    if (hr < 0 || min < 0 || sec < 0)
+        return false;
     fracOut = (hr * 3600 + min * 60 + sec) / 86400.0;
     return true;
 }
@@ -148,34 +174,49 @@ bool tryParseClockToDayFraction_(const QString& s, double& fracOut)
 // '/' separator, parses three integers, picks ordering by position heuristic
 // (4-digit-first → Y/M/D, first int > 12 → D/M/Y, else SWMM default M/D/Y).
 // Skips QDate::fromString's format-string loop entirely.
-bool tryParseDateOnly_(const QString& s, double& jOut)
+/**
+ * @brief Parse a dash- or slash-separated calendar date using SWMM-oriented ordering.
+ * @param[in] s Three integers; year-first takes priority, then day-first when the first integer exceeds 12.
+ * @param[out] jOut SWMM days since 1899-12-30, assigned after valid calendar conversion.
+ * @return True for a valid date with a finite converted value.
+ */
+bool tryParseDateOnly_(const QString &s, double &jOut)
 {
     QChar delim = QLatin1Char('-');
     if (!s.contains(delim)) {
         delim = QLatin1Char('/');
-        if (!s.contains(delim)) return false;
+        if (!s.contains(delim))
+            return false;
     }
-    const auto parts = QStringView{s}.split(delim, Qt::KeepEmptyParts,
-                                             Qt::CaseSensitive);
-    if (parts.size() != 3) return false;
+    const auto parts = QStringView{s}.split(delim, Qt::KeepEmptyParts, Qt::CaseSensitive);
+    if (parts.size() != 3)
+        return false;
 
     bool ok1 = false, ok2 = false, ok3 = false;
     const int a = parts.at(0).toInt(&ok1);
     const int b = parts.at(1).toInt(&ok2);
     const int c = parts.at(2).toInt(&ok3);
-    if (!ok1 || !ok2 || !ok3) return false;
+    if (!ok1 || !ok2 || !ok3)
+        return false;
 
     int yr = 0, mon = 0, day = 0;
     if (parts.at(0).size() == 4 || a > 31) {
-        yr = a; mon = b; day = c;            // Y/M/D
+        yr = a;
+        mon = b;
+        day = c; // Y/M/D
     } else if (a > 12) {
-        day = a; mon = b; yr = c;            // D/M/Y
+        day = a;
+        mon = b;
+        yr = c; // D/M/Y
     } else {
-        mon = a; day = b; yr = c;            // M/D/Y (SWMM default)
+        mon = a;
+        day = b;
+        yr = c; // M/D/Y (SWMM default)
     }
 
     const QDate d(yr, mon, day);
-    if (!d.isValid()) return false;
+    if (!d.isValid())
+        return false;
     const QDateTime dt(d, QTime(0, 0), Qt::UTC);
     jOut = openswmmvis::core::qDateTimeToSwmmDateTime(dt);
     return std::isfinite(jOut);
@@ -183,21 +224,22 @@ bool tryParseDateOnly_(const QString& s, double& jOut)
 
 } // namespace
 
-bool parseSwmmDatLine(const QString& line,
-                      SwmmDatState&  state,
-                      double&        timeJulianOut,
-                      double&        valueOut)
+bool parseSwmmDatLine(const QString &line, SwmmDatState &state, double &timeJulianOut,
+                      double &valueOut)
 {
     const QString trimmed = line.trimmed();
-    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char(';'))) return false;
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char(';')))
+        return false;
 
     const QStringList tok = tokenizeDatLine_(trimmed);
-    if (tok.size() < 2 || tok.size() > 3) return false;
+    if (tok.size() < 2 || tok.size() > 3)
+        return false;
 
     // The value is always the LAST token regardless of format.
     bool valOk = false;
     const double v = tok.last().toDouble(&valOk);
-    if (!valOk) return false;
+    if (!valOk)
+        return false;
 
     if (tok.size() == 2) {
         // <time> <value>. Time = HH:MM[:SS] or numeric hours.
@@ -210,13 +252,14 @@ bool parseSwmmDatLine(const QString& line,
             return false;
         }
         timeJulianOut = state.lastDateJulian + frac;
-        valueOut      = v;
+        valueOut = v;
         return true;
     }
 
     // tok.size() == 3 → <date> <time> <value>.
     double dayJ = 0.0;
-    if (!tryParseDateOnly_(tok.at(0), dayJ)) return false;
+    if (!tryParseDateOnly_(tok.at(0), dayJ))
+        return false;
 
     double frac = 0.0;
     bool numOk = false;
@@ -228,9 +271,9 @@ bool parseSwmmDatLine(const QString& line,
     }
 
     state.lastDateJulian = dayJ;
-    state.anyDateSeen    = true;
-    timeJulianOut        = dayJ + frac;
-    valueOut             = v;
+    state.anyDateSeen = true;
+    timeJulianOut = dayJ + frac;
+    valueOut = v;
     return true;
 }
 

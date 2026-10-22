@@ -1,9 +1,9 @@
-/*!
- * \file   test_sms2dmreader.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  TRI_QUAD_MESHING_PLAN phase G5 — Sms2dmReader parse contract.
+/**
+ * @file      test_sms2dmreader.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     TRI_QUAD_MESHING_PLAN phase G5 — Sms2dmReader parse contract.
  *
  *           - ND / E3T / E4Q cards land as vertices, triangle cells and quad
  *             cells (v3 set), triangles first then quads (engine order)
@@ -15,7 +15,9 @@
  *
  *         Test artifacts are written under a reviewable path, never a temp
  *         directory (CLAUDE.md §4.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/sms2dmreader.h"
 #include "mesh/meshcellgeom.h"
 
@@ -25,8 +27,16 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Request the persistent SMS parser fixture directory.
+ * @return Owned relative tests/output/sms2dmreader path; directory creation status
+ * is unchecked and no dataset is opened.
+ *
+ */
 QString outDir()
 {
     const QString d = QStringLiteral("tests/output/sms2dmreader");
@@ -34,6 +44,15 @@ QString outDir()
     return d;
 }
 
+/**
+ *
+ * @brief Replace a named persistent SMS fixture with UTF-8 text.
+ * @param name Borrowed filename concatenated under outDir(), assumed path-safe.
+ * @param text Borrowed complete contents encoded synchronously.
+ * @return Owned output path or empty on failed open. Byte count/close status are
+ * unchecked, so a nonempty path alone does not prove a complete write.
+ *
+ */
 QString writeFixture(const QString &name, const QString &text)
 {
     const QString path = outDir() + QStringLiteral("/") + name;
@@ -45,27 +64,34 @@ QString writeFixture(const QString &name, const QString &text)
     return path;
 }
 
-/*! A unit square split into a triangle pair on the left half and one quad
+/*! A two-by-one strip split into a triangle pair on the left half and one quad
  *  on the right half: nodes 1..6 (ids sparse: 10 replaces 6), elements
  *  listed BEFORE nodes as SMS writes them. */
+/**
+ *
+ * @brief Build sparse-ID SMS text with elements before nodes.
+ * @return Owned two-by-one strip: two left triangles plus a right quad, six nodes
+ * including ID ten, material tags three/seven and ignored metadata cards.
+ * Coordinates/elevations retain synthetic local units; does not create a file.
+ *
+ */
 QString mixedMesh()
 {
-    return QStringLiteral(
-        "MESH2D\n"
-        "MESHNAME \"demo\"\n"
-        "NUM_MATERIALS_PER_ELEM 1\n"
-        "E4Q 1 2 3 5 4 7\n"
-        "E3T 2 1 2 4 3\n"
-        "E3T 3 1 4 10 3\n"
-        "ND 1 0.0 0.0 10.0\n"
-        "ND 2 1.0 0.0 10.5\n"
-        "ND 3 2.0 0.0 11.0\n"
-        "ND 4 1.0 1.0 12.0\n"
-        "ND 5 2.0 1.0 11.5\n"
-        "ND 10 0.0 1.0 10.2\n"
-        "NS 1 2 -3\n"
-        "BEGPARAMDEF\n"
-        "ENDPARAMDEF\n");
+    return QStringLiteral("MESH2D\n"
+                          "MESHNAME \"demo\"\n"
+                          "NUM_MATERIALS_PER_ELEM 1\n"
+                          "E4Q 1 2 3 5 4 7\n"
+                          "E3T 2 1 2 4 3\n"
+                          "E3T 3 1 4 10 3\n"
+                          "ND 1 0.0 0.0 10.0\n"
+                          "ND 2 1.0 0.0 10.5\n"
+                          "ND 3 2.0 0.0 11.0\n"
+                          "ND 4 1.0 1.0 12.0\n"
+                          "ND 5 2.0 1.0 11.5\n"
+                          "ND 10 0.0 1.0 10.2\n"
+                          "NS 1 2 -3\n"
+                          "BEGPARAMDEF\n"
+                          "ENDPARAMDEF\n");
 }
 
 } // namespace
@@ -82,29 +108,45 @@ private slots:
     void unknownNodeIdFails();
 };
 
+/**
+ *
+ * @brief Require sparse IDs and element-before-node cards to parse into six vertices,
+ * triangles-first cell order and material-derived tags.
+ *
+ */
 void TestSms2dmReader::parsesMixedMesh()
 {
     const mesh::MeshResult m = mesh::Sms2dmReader::parse(mixedMesh());
     QVERIFY2(m.ok, qPrintable(m.errorMsg));
     QCOMPARE(m.vertices.size(), 6);
-    QCOMPARE(m.vertices[5].xy, QPointF(0.0, 1.0));   // id 10 → index 5
+    QCOMPARE(m.vertices[5].xy, QPointF(0.0, 1.0)); // id 10 → index 5
     QCOMPARE(m.vertices[3].z, 12.0);
 
     // Triangles first (file order), then the quad.
     QCOMPARE(m.triangles.size(), 3);
     QCOMPARE(m.quadCount(), 1);
     QVERIFY(!m.triangles[0].isQuad());
-    QCOMPARE(m.triangles[0].v0, 0); QCOMPARE(m.triangles[0].v1, 1); QCOMPARE(m.triangles[0].v2, 3);
+    QCOMPARE(m.triangles[0].v0, 0);
+    QCOMPARE(m.triangles[0].v1, 1);
+    QCOMPARE(m.triangles[0].v2, 3);
     QCOMPARE(m.triangles[0].tag, QStringLiteral("mat3"));
-    QCOMPARE(m.triangles[1].v2, 5);                    // node id 10 remapped
+    QCOMPARE(m.triangles[1].v2, 5); // node id 10 remapped
     QVERIFY(m.triangles[2].isQuad());
     QCOMPARE(m.triangles[2].vertexCount(), 4);
-    QCOMPARE(m.triangles[2].v0, 1); QCOMPARE(m.triangles[2].v1, 2);
-    QCOMPARE(m.triangles[2].v2, 4); QCOMPARE(m.triangles[2].v3, 3);
+    QCOMPARE(m.triangles[2].v0, 1);
+    QCOMPARE(m.triangles[2].v1, 2);
+    QCOMPARE(m.triangles[2].v2, 4);
+    QCOMPARE(m.triangles[2].v3, 3);
     QCOMPARE(m.triangles[2].tag, QStringLiteral("mat7"));
     QVERIFY(std::isnan(m.triangles[2].mannings));
 }
 
+/**
+ *
+ * @brief Require the persistent mixed.2dm fixture to parse three cells and a missing file to
+ * return an error.
+ *
+ */
 void TestSms2dmReader::readsFromFile()
 {
     const QString p = writeFixture(QStringLiteral("mixed.2dm"), mixedMesh());
@@ -119,6 +161,12 @@ void TestSms2dmReader::readsFromFile()
     QVERIFY(!missing.errorMsg.isEmpty());
 }
 
+/**
+ *
+ * @brief Require quad splitting to use the shared cellGeom subtriangle indices, retain material
+ * tags and conserve area.
+ *
+ */
 void TestSms2dmReader::splitQuadsUsesCellGeomDiagonal()
 {
     const mesh::MeshResult whole = mesh::Sms2dmReader::parse(mixedMesh());
@@ -144,6 +192,11 @@ void TestSms2dmReader::splitQuadsUsesCellGeomDiagonal()
     QVERIFY(qFuzzyCompare(a0 + a1, g.area));
 }
 
+/**
+ *
+ * @brief Require a short element card to refuse with its fifth source-line number.
+ *
+ */
 void TestSms2dmReader::malformedCardReportsLine()
 {
     const mesh::MeshResult m = mesh::Sms2dmReader::parse(
@@ -152,6 +205,12 @@ void TestSms2dmReader::malformedCardReportsLine()
     QVERIFY2(m.errorMsg.contains(QStringLiteral("line 5")), qPrintable(m.errorMsg));
 }
 
+/**
+ *
+ * @brief Require an element referencing missing node nine to refuse with both source-line four
+ * and the missing identity.
+ *
+ */
 void TestSms2dmReader::unknownNodeIdFails()
 {
     const mesh::MeshResult m = mesh::Sms2dmReader::parse(

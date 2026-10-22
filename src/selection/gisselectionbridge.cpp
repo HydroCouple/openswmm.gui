@@ -1,9 +1,12 @@
-/*!
- * \file   gisselectionbridge.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      gisselectionbridge.cpp
+ * @brief     SelectionManager bus.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "selection/gisselectionbridge.h"
 
 #include "layers/gisobjectref.h"
@@ -14,18 +17,17 @@
 #include <QHash>
 #include <QSet>
 
-GisSelectionBridge::GisSelectionBridge(SelectionManager *selection,
-                                       MapCanvas *canvas, QObject *parent)
+GisSelectionBridge::GisSelectionBridge(SelectionManager *selection, MapCanvas *canvas,
+                                       QObject *parent)
     : QObject(parent), m_selection(selection), m_canvas(canvas)
 {
-    if (!m_selection || !m_canvas) return;
+    if (!m_selection || !m_canvas)
+        return;
 
-    connect(m_canvas, &MapCanvas::layerAdded,
-            this, &GisSelectionBridge::onLayerAdded);
-    connect(m_canvas, &MapCanvas::layerRemoved,
-            this, &GisSelectionBridge::onLayerRemoved);
-    connect(m_selection, &SelectionManager::selectionChanged,
-            this, &GisSelectionBridge::onBusSelectionChanged);
+    connect(m_canvas, &MapCanvas::layerAdded, this, &GisSelectionBridge::onLayerAdded);
+    connect(m_canvas, &MapCanvas::layerRemoved, this, &GisSelectionBridge::onLayerRemoved);
+    connect(m_selection, &SelectionManager::selectionChanged, this,
+            &GisSelectionBridge::onBusSelectionChanged);
 
     // Layers loaded before the bridge existed (project restore order).
     for (OpenSWMMVisLayer *l : m_canvas->layers())
@@ -35,9 +37,8 @@ GisSelectionBridge::GisSelectionBridge(SelectionManager *selection,
 
 void GisSelectionBridge::hook(GISVectorLayer *gis)
 {
-    connect(gis, &GISVectorLayer::selectionChanged,
-            this, &GisSelectionBridge::onLayerSelectionChanged,
-            Qt::UniqueConnection);
+    connect(gis, &GISVectorLayer::selectionChanged, this,
+            &GisSelectionBridge::onLayerSelectionChanged, Qt::UniqueConnection);
 }
 
 void GisSelectionBridge::onLayerAdded(OpenSWMMVisLayer *layer)
@@ -51,20 +52,23 @@ void GisSelectionBridge::onLayerRemoved(OpenSWMMVisLayer *layer)
     // A removed layer's refs must not linger on the bus, or the table's
     // show-selected-only filter and other views keep phantom features.
     auto *gis = qobject_cast<GISVectorLayer *>(layer);
-    if (!gis || !m_selection || m_busy) return;
+    if (!gis || !m_selection || m_busy)
+        return;
     disconnect(gis, nullptr, this, nullptr);
-    onLayerSelectionChanged();   // rebuild from the remaining layers
+    onLayerSelectionChanged(); // rebuild from the remaining layers
 }
 
 void GisSelectionBridge::onLayerSelectionChanged()
 {
-    if (m_busy || !m_selection || !m_canvas) return;
+    if (m_busy || !m_selection || !m_canvas)
+        return;
     m_busy = true;
 
     QSet<SWMMObjectRef> refs;
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         auto *gis = qobject_cast<GISVectorLayer *>(l);
-        if (!gis) continue;
+        if (!gis)
+            continue;
         const QString id = gis->layerId();
         for (long long fid : gis->selectedFeatureIds())
             refs.insert(GisObjectRef::feature(id, fid));
@@ -76,7 +80,8 @@ void GisSelectionBridge::onLayerSelectionChanged()
     // bridge's Replace happens at the layer level, so this mirrors it.
     QSet<SWMMObjectRef> keep;
     for (const SWMMObjectRef &r : m_selection->selection())
-        if (r.objectType != SWMMObjectRef::Feature) keep.insert(r);
+        if (r.objectType != SWMMObjectRef::Feature)
+            keep.insert(r);
     m_selection->select(keep + refs, SelectionManager::Replace);
 
     m_busy = false;
@@ -84,7 +89,8 @@ void GisSelectionBridge::onLayerSelectionChanged()
 
 void GisSelectionBridge::onBusSelectionChanged()
 {
-    if (m_busy || !m_selection || !m_canvas) return;
+    if (m_busy || !m_selection || !m_canvas)
+        return;
     m_busy = true;
 
     QHash<QString, QSet<long long>> byLayer;
@@ -97,7 +103,8 @@ void GisSelectionBridge::onBusSelectionChanged()
 
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         auto *gis = qobject_cast<GISVectorLayer *>(l);
-        if (!gis) continue;
+        if (!gis)
+            continue;
         const QSet<long long> want = byLayer.value(gis->layerId());
         if (gis->selectedFeatureIds() != want)
             gis->setSelectedFeatureIds(want);

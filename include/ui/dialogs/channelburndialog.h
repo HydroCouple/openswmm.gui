@@ -1,3 +1,12 @@
+/**
+ * @file      channelburndialog.h
+ * @brief     Staged editing of channel burn geometry and generation settings.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #ifndef OPENSWMMVIS_CHANNELBURNDIALOG_H
 #define OPENSWMMVIS_CHANNELBURNDIALOG_H
 
@@ -28,6 +37,7 @@ class ChannelBurnDialog final : public QDialog
     Q_OBJECT
     friend class TestChannelBurnDialog;
     friend class TestMeshTerrainPipeline;
+
 public:
     explicit ChannelBurnDialog(SWMMVisProjectWindow *project, QWidget *parent = nullptr);
     ~ChannelBurnDialog() override;

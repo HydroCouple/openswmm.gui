@@ -1,6 +1,6 @@
-/*!
- * \file   test_2d_sublayers.cpp
- * \brief  Combined verification for the 2D sublayer classes added in
+/**
+ * @file      test_2d_sublayers.cpp
+ * @brief     Combined verification for the 2D sublayer classes added in
  *         Slice S5 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §3 default mix for
  *         SWMM2DResultsLayer).
  *
@@ -8,6 +8,10 @@
  *         contract — splitting into five files would not buy additional
  *         signal. Each class gets a dedicated case for: kind, isDynamic,
  *         JSON round-trip, and legend output shape.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QJsonObject>
@@ -26,18 +30,31 @@
 
 using namespace OpenSWMM::Render;
 
-namespace {
+namespace
+{
 // QPropertyModel is a class-hierarchy tree: property rows are leaves under a
 // class node, with the property name on column 0. Find the leaf row whose
 // name column matches, searching recursively.
+/**
+ *
+ * @brief Find the first matching property name in a finite model subtree, depth first.
+ * @param m Nonnull borrowed model, stable during GUI-thread traversal.
+ * @param parent Root index or valid parent belonging to m.
+ * @param name Exact DisplayRole string to match in column zero.
+ * @return Matching model index, or invalid index if absent. Does not edit the model;
+ * recursion assumes an acyclic finite hierarchy and uses stack proportional to depth.
+ *
+ */
 QModelIndex findPropertyRow(const QAbstractItemModel *m, const QModelIndex &parent,
                             const QString &name)
 {
     for (int r = 0; r < m->rowCount(parent); ++r) {
         const QModelIndex idx = m->index(r, 0, parent);
-        if (idx.data(Qt::DisplayRole).toString() == name) return idx;
+        if (idx.data(Qt::DisplayRole).toString() == name)
+            return idx;
         const QModelIndex hit = findPropertyRow(m, idx, name);
-        if (hit.isValid()) return hit;
+        if (hit.isValid())
+            return hit;
     }
     return {};
 }
@@ -48,61 +65,222 @@ class Test2DSublayers : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require velocity colors to use two actual manual bins despite requested count eight.
+     * Checks underflow transparency, endpoint/overflow saturation and class-color override.
+     *
+     */
     void velocityRangeUsesActualManualClasses()
     {
-        VelocityVectorStyle style; style.setColorByMagnitude(true);
-        auto scheme=style.scheme(); scheme.setMode(ClassificationScheme::ClassMode::Classified);
-        scheme.setUseCustomRange(true); scheme.setRangeMin(1); scheme.setRangeMax(4);
-        scheme.setMethod(BinMethod::Manual); scheme.setManualBreaks({2}); scheme.setClassCount(8);
+        VelocityVectorStyle style;
+        style.setColorByMagnitude(true);
+        auto scheme = style.scheme();
+        scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(1);
+        scheme.setRangeMax(4);
+        scheme.setMethod(BinMethod::Manual);
+        scheme.setManualBreaks({2});
+        scheme.setClassCount(8);
         style.setScheme(scheme);
-        QCOMPARE(style.colorForSpeed(0.9).alpha(),0);
-        QCOMPARE(style.colorForSpeed(1),scheme.colorForClass(0,2));
-        QCOMPARE(style.colorForSpeed(4),scheme.colorForClass(1,2));
-        QCOMPARE(style.colorForSpeed(40),style.colorForSpeed(4));
-        scheme.setColorOverride(1,QColor(11,22,33,128)); style.setScheme(scheme);
-        QCOMPARE(style.colorForSpeed(40),QColor(11,22,33,128));
+        QCOMPARE(style.colorForSpeed(0.9).alpha(), 0);
+        QCOMPARE(style.colorForSpeed(1), scheme.colorForClass(0, 2));
+        QCOMPARE(style.colorForSpeed(4), scheme.colorForClass(1, 2));
+        QCOMPARE(style.colorForSpeed(40), style.colorForSpeed(4));
+        scheme.setColorOverride(1, QColor(11, 22, 33, 128));
+        style.setScheme(scheme);
+        QCOMPARE(style.colorForSpeed(40), QColor(11, 22, 33, 128));
     }
     // MeshFill (static)
+    /**
+     *
+     * @brief Pin mesh-fill FillKind and static classification.
+     *
+     */
     void meshFill_identity_static();
+    /**
+     *
+     * @brief Round-trip mesh fill RGBA, hillshade strength and disabled elevation ramp.
+     *
+     */
     void meshFill_json_roundTrip();
+    /**
+     *
+     * @brief Require one mesh-fill legend row linked to its sublayer ID.
+     *
+     */
     void meshFill_legend_one_row();
+    /**
+     *
+     * @brief Require the default Terrain scheme ramp to name a registered builtin.
+     *
+     */
     void meshFill_default_names_terrain_ramp();
 
     // MeshEdge (static)
+    /**
+     *
+     * @brief Pin mesh-edge LineKind and static classification.
+     *
+     */
     void meshEdge_identity_static();
+    /**
+     *
+     * @brief Require default classified two-bin Manual scheme with its break equal to slopeBreak.
+     *
+     */
     void meshEdge_default_scheme_legacy_two_class();
+    /**
+     *
+     * @brief Round-trip mesh edge colors, widths, dash, slope policy/break and customized
+     * Quantile scheme.
+     *
+     */
     void meshEdge_json_roundTrip();
+    /**
+     *
+     * @brief Require old JSON without classification to seed two manual slope classes at the
+     * saved break.
+     *
+     */
     void meshEdge_legacy_json_seedsScheme();
 
     // D1-a — classification property surfaces as an editable grid leaf
+    /**
+     *
+     * @brief Require the property grid classification leaf to be editable with
+     * ClassificationScheme metatype.
+     * Constructs a model in the GUI thread; it checks the delegate prerequisite rather
+     * than opening the classification editor.
+     *
+     */
     void meshEdge_classification_isEditableGridLeaf();
 
     // VelocityVector (dynamic)
+    /**
+     *
+     * @brief Pin dynamic VectorGlyphKind and default hidden visibility.
+     *
+     */
     void velocityVector_identity_dynamic();
+    /**
+     *
+     * @brief Require zero glyph spacing to clamp to one logical pixel.
+     *
+     */
     void velocityVector_glyph_spacing_floor();
+    /**
+     *
+     * @brief Round-trip pixel-per-m/s glyph scale, head size, color and metre dry-depth cutoff.
+     *
+     */
     void velocityVector_json_roundTrip();
+    /**
+     *
+     * @brief Require legacy magnitude-ramp fields to seed the saved range, ramp and five classes.
+     *
+     */
     void velocityVector_legacy_json_seedsScheme();
 
     // Isoline (dynamic)
+    /**
+     *
+     * @brief Pin dynamic IsolineKind and default hidden visibility.
+     *
+     */
     void isoline_identity_dynamic();
+    /**
+     *
+     * @brief Require requested zero isolines to clamp to one.
+     *
+     */
     void isoline_count_floor();
+    /**
+     *
+     * @brief Round-trip isoline attribute, count, logical-pixel width, color, dash and labels.
+     *
+     */
     void isoline_json_roundTrip();
 
     // ContourBand (dynamic)
+    /**
+     *
+     * @brief Pin dynamic ContourBandKind and default hidden visibility.
+     *
+     */
     void contourBand_identity_dynamic();
+    /**
+     *
+     * @brief Require a negative band count to clamp to one.
+     *
+     */
     void contourBand_count_floor();
+    /**
+     *
+     * @brief Round-trip contour attribute/count, endpoint colors and disabled smoothing.
+     *
+     */
     void contourBand_json_roundTrip();
 
     // Direct scalar fills (dynamic)
+    /**
+     *
+     * @brief Pin hidden dynamic cell FillKind, full opacity, nonnull style and display name.
+     *
+     */
     void cellDepthFill_identity_dynamic();
+    /**
+     *
+     * @brief Pin hidden dynamic smooth ColorRampFillKind, 0.6 opacity, nonnull style and name.
+     *
+     */
     void smoothDepthFill_identity_dynamic();
+    /**
+     *
+     * @brief Round-trip scalar attribute, classified bands, named/inverted ramp and custom
+     * bounds.
+     *
+     */
     void scalarFill_json_roundTrip();
+    /**
+     *
+     * @brief Require six continuous legend samples to match formatted [10,40] values, colors and
+     * 0.4 alpha for both scalar fills.
+     *
+     */
     void scalarFill_continuous_customRange_matches_values();
+    /**
+     *
+     * @brief Require two manual breaks to produce three actual legend bins with label/color
+     * overrides despite requested count eight.
+     *
+     */
     void scalarFill_manual_legend_uses_actual_edges();
+    /**
+     *
+     * @brief Require absent sample-driven or automatic bounds to yield NaN legend ranges and
+     * explicit unavailable-data labels.
+     *
+     */
     void scalarFill_unavailable_bounds_are_not_invented();
+    /**
+     *
+     * @brief Require reversed custom bounds to yield one Invalid classification legend row with
+     * NaN range.
+     *
+     */
     void scalarFill_invalid_custom_range_is_explicit();
 
     // Shared
+    /**
+     *
+     * @brief Require exactly one invalidation from a representative style edit in each of six
+     * sublayer classes.
+     * Checks mesh fill, velocity, isoline, bands and two scalar fills; mesh edge is not
+     * part of this particular shared-signal loop.
+     *
+     */
     void all_sublayers_emit_invalidated_on_style_change();
 };
 
@@ -110,8 +288,8 @@ private slots:
 void Test2DSublayers::meshFill_identity_static()
 {
     MeshFillSublayer s(QStringLiteral("m"));
-    QCOMPARE(s.kind(),      ISublayer::FillKind);
-    QCOMPARE(s.isDynamic(), false);  // Load-bearing for animation dispatch
+    QCOMPARE(s.kind(), ISublayer::FillKind);
+    QCOMPARE(s.isDynamic(), false); // Load-bearing for animation dispatch
 }
 
 void Test2DSublayers::meshFill_json_roundTrip()
@@ -123,9 +301,9 @@ void Test2DSublayers::meshFill_json_roundTrip()
 
     MeshFillStyle b;
     b.fromJson(a.toJson());
-    QCOMPARE(b.fillColor(),         QColor(123, 45, 67, 200));
+    QCOMPARE(b.fillColor(), QColor(123, 45, 67, 200));
     QCOMPARE(b.hillshadeStrength(), 0.7);
-    QCOMPARE(b.useElevationRamp(),  false);
+    QCOMPARE(b.useElevationRamp(), false);
 }
 
 void Test2DSublayers::meshFill_legend_one_row()
@@ -150,8 +328,8 @@ void Test2DSublayers::meshFill_default_names_terrain_ramp()
 void Test2DSublayers::meshEdge_identity_static()
 {
     MeshEdgeSublayer s(QStringLiteral("e"));
-    QCOMPARE(s.kind(),      ISublayer::LineKind);
-    QCOMPARE(s.isDynamic(), false);  // edges follow mesh topology, not the clock
+    QCOMPARE(s.kind(), ISublayer::LineKind);
+    QCOMPARE(s.isDynamic(), false); // edges follow mesh topology, not the clock
 }
 
 void Test2DSublayers::meshEdge_default_scheme_legacy_two_class()
@@ -161,9 +339,9 @@ void Test2DSublayers::meshEdge_default_scheme_legacy_two_class()
     // keeps its dedicated two-tier path while the scheme stays at this default.
     MeshEdgeStyle st;
     const ClassificationScheme &s = st.scheme();
-    QCOMPARE(s.mode(),       ClassificationScheme::ClassMode::Classified);
+    QCOMPARE(s.mode(), ClassificationScheme::ClassMode::Classified);
     QCOMPARE(s.classCount(), 2);
-    QCOMPARE(s.method(),     BinMethod::Manual);
+    QCOMPARE(s.method(), BinMethod::Manual);
     QCOMPARE(s.manualBreaks().size(), 1);
     QCOMPARE(s.manualBreaks().first(), st.slopeBreak());
 }
@@ -187,14 +365,14 @@ void Test2DSublayers::meshEdge_json_roundTrip()
 
     MeshEdgeStyle b;
     b.fromJson(a.toJson());
-    QCOMPARE(b.color(),               QColor(10, 20, 30, 180));
-    QCOMPARE(b.lineWidthPx(),         1.25);
-    QCOMPARE(b.dashPattern(),         Qt::DashDotLine);
+    QCOMPARE(b.color(), QColor(10, 20, 30, 180));
+    QCOMPARE(b.lineWidthPx(), 1.25);
+    QCOMPARE(b.dashPattern(), Qt::DashDotLine);
     QCOMPARE(b.useSlopeDrivenWidth(), false);
-    QCOMPARE(b.slopeBreak(),          0.6);
-    QCOMPARE(b.wideWidthPx(),         2.5);
-    QCOMPARE(b.wideColor(),           QColor(200, 0, 0, 220));
-    QVERIFY(b.scheme() == a.scheme());   // customized scheme survived round-trip
+    QCOMPARE(b.slopeBreak(), 0.6);
+    QCOMPARE(b.wideWidthPx(), 2.5);
+    QCOMPARE(b.wideColor(), QColor(200, 0, 0, 220));
+    QVERIFY(b.scheme() == a.scheme()); // customized scheme survived round-trip
 }
 
 void Test2DSublayers::meshEdge_legacy_json_seedsScheme()
@@ -202,18 +380,18 @@ void Test2DSublayers::meshEdge_legacy_json_seedsScheme()
     // A pre-scheme file (no "classification" key) must reproduce the legacy
     // 2-class slope split via seedSchemeFromLegacy() on load.
     QJsonObject legacy;
-    legacy.insert(QStringLiteral("color"),               QStringLiteral("#80112233"));
-    legacy.insert(QStringLiteral("wideColor"),           QStringLiteral("#cc445566"));
-    legacy.insert(QStringLiteral("slopeBreak"),          0.42);
+    legacy.insert(QStringLiteral("color"), QStringLiteral("#80112233"));
+    legacy.insert(QStringLiteral("wideColor"), QStringLiteral("#cc445566"));
+    legacy.insert(QStringLiteral("slopeBreak"), 0.42);
     legacy.insert(QStringLiteral("useSlopeDrivenWidth"), true);
 
     MeshEdgeStyle st;
     st.fromJson(legacy);
     const ClassificationScheme &s = st.scheme();
-    QCOMPARE(s.mode(),       ClassificationScheme::ClassMode::Classified);
+    QCOMPARE(s.mode(), ClassificationScheme::ClassMode::Classified);
     QCOMPARE(s.classCount(), 2);
     QCOMPARE(s.manualBreaks().size(), 1);
-    QCOMPARE(s.manualBreaks().first(), 0.42);  // re-seeded from the legacy slopeBreak
+    QCOMPARE(s.manualBreaks().first(), 0.42); // re-seeded from the legacy slopeBreak
 }
 
 void Test2DSublayers::meshEdge_classification_isEditableGridLeaf()
@@ -229,23 +407,21 @@ void Test2DSublayers::meshEdge_classification_isEditableGridLeaf()
 
     const QModelIndex nameIdx =
         findPropertyRow(&model, QModelIndex(), QStringLiteral("classification"));
-    QVERIFY2(nameIdx.isValid(),
-             "QPropertyModel did not surface a 'classification' property row");
+    QVERIFY2(nameIdx.isValid(), "QPropertyModel did not surface a 'classification' property row");
 
     const QModelIndex valueIdx = model.index(nameIdx.row(), 1, nameIdx.parent());
     QVERIFY(valueIdx.isValid());
     QVERIFY2(valueIdx.flags().testFlag(Qt::ItemIsEditable),
              "classification value cell is not editable — the delegate's "
              "ClassificationScheme editor creator can never fire");
-    QCOMPARE(valueIdx.data(Qt::EditRole).metaType().id(),
-             qMetaTypeId<ClassificationScheme>());
+    QCOMPARE(valueIdx.data(Qt::EditRole).metaType().id(), qMetaTypeId<ClassificationScheme>());
 }
 
 // ── VelocityVector ──────────────────────────────────────────────────────
 void Test2DSublayers::velocityVector_identity_dynamic()
 {
     VelocityVectorSublayer s(QStringLiteral("v"));
-    QCOMPARE(s.kind(),      ISublayer::VectorGlyphKind);
+    QCOMPARE(s.kind(), ISublayer::VectorGlyphKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false); // off by default per plan
 }
@@ -268,9 +444,9 @@ void Test2DSublayers::velocityVector_json_roundTrip()
     VelocityVectorStyle b;
     b.fromJson(a.toJson());
     QCOMPARE(b.glyphLengthScalePxPerMps(), 30.0);
-    QCOMPARE(b.headSizePx(),               8.0);
-    QCOMPARE(b.color(),                    QColor(99, 0, 99));
-    QCOMPARE(b.dryDepthCutoff(),           0.05);
+    QCOMPARE(b.headSizePx(), 8.0);
+    QCOMPARE(b.color(), QColor(99, 0, 99));
+    QCOMPARE(b.dryDepthCutoff(), 0.05);
 }
 
 void Test2DSublayers::velocityVector_legacy_json_seedsScheme()
@@ -279,25 +455,25 @@ void Test2DSublayers::velocityVector_legacy_json_seedsScheme()
     // seed the embedded scheme through the forwarders so saved styles load.
     QJsonObject legacy;
     legacy.insert(QStringLiteral("colorByMagnitude"), true);
-    legacy.insert(QStringLiteral("colorRampName"),    QStringLiteral("viridis"));
-    legacy.insert(QStringLiteral("speedMinMps"),      0.1);
-    legacy.insert(QStringLiteral("speedMaxMps"),      2.5);
-    legacy.insert(QStringLiteral("colorClassCount"),  5);
+    legacy.insert(QStringLiteral("colorRampName"), QStringLiteral("viridis"));
+    legacy.insert(QStringLiteral("speedMinMps"), 0.1);
+    legacy.insert(QStringLiteral("speedMaxMps"), 2.5);
+    legacy.insert(QStringLiteral("colorClassCount"), 5);
 
     VelocityVectorStyle st;
     st.fromJson(legacy);
     QCOMPARE(st.colorByMagnitude(), true);
-    QCOMPARE(st.colorRampName(),    QStringLiteral("viridis"));
-    QCOMPARE(st.speedMinMps(),      0.1);
-    QCOMPARE(st.speedMaxMps(),      2.5);
-    QCOMPARE(st.colorClassCount(),  5);   // >= 2 → scheme switched to Classified
+    QCOMPARE(st.colorRampName(), QStringLiteral("viridis"));
+    QCOMPARE(st.speedMinMps(), 0.1);
+    QCOMPARE(st.speedMaxMps(), 2.5);
+    QCOMPARE(st.colorClassCount(), 5); // >= 2 → scheme switched to Classified
 }
 
 // ── Isoline ─────────────────────────────────────────────────────────────
 void Test2DSublayers::isoline_identity_dynamic()
 {
     IsolineSublayer s(QStringLiteral("i"));
-    QCOMPARE(s.kind(),      ISublayer::IsolineKind);
+    QCOMPARE(s.kind(), ISublayer::IsolineKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false);
 }
@@ -321,19 +497,19 @@ void Test2DSublayers::isoline_json_roundTrip()
 
     IsolineStyle b;
     b.fromJson(a.toJson());
-    QCOMPARE(b.attribute(),     QStringLiteral("WSE"));
+    QCOMPARE(b.attribute(), QStringLiteral("WSE"));
     QCOMPARE(b.isoValueCount(), 12);
-    QCOMPARE(b.lineWidthPx(),   2.0);
-    QCOMPARE(b.color(),         QColor(0, 0, 0));
-    QCOMPARE(b.dashPattern(),   Qt::DashLine);
-    QCOMPARE(b.labels(),        true);
+    QCOMPARE(b.lineWidthPx(), 2.0);
+    QCOMPARE(b.color(), QColor(0, 0, 0));
+    QCOMPARE(b.dashPattern(), Qt::DashLine);
+    QCOMPARE(b.labels(), true);
 }
 
 // ── ContourBand ─────────────────────────────────────────────────────────
 void Test2DSublayers::contourBand_identity_dynamic()
 {
     ContourBandSublayer s(QStringLiteral("b"));
-    QCOMPARE(s.kind(),      ISublayer::ContourBandKind);
+    QCOMPARE(s.kind(), ISublayer::ContourBandKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false);
 }
@@ -356,21 +532,21 @@ void Test2DSublayers::contourBand_json_roundTrip()
 
     ContourBandStyle b;
     b.fromJson(a.toJson());
-    QCOMPARE(b.attribute(),    QStringLiteral("depth"));
-    QCOMPARE(b.bandCount(),    16);
-    QCOMPARE(b.lowColor(),     QColor(20, 30, 40));
-    QCOMPARE(b.highColor(),    QColor(220, 240, 250));
-    QCOMPARE(b.smoothBands(),  false);
+    QCOMPARE(b.attribute(), QStringLiteral("depth"));
+    QCOMPARE(b.bandCount(), 16);
+    QCOMPARE(b.lowColor(), QColor(20, 30, 40));
+    QCOMPARE(b.highColor(), QColor(220, 240, 250));
+    QCOMPARE(b.smoothBands(), false);
 }
 
 // ── Direct Scalar Fills ─────────────────────────────────────────────────
 void Test2DSublayers::cellDepthFill_identity_dynamic()
 {
     CellDepthFillSublayer s(QStringLiteral("cell"));
-    QCOMPARE(s.kind(),      ISublayer::FillKind);
+    QCOMPARE(s.kind(), ISublayer::FillKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false);
-    QCOMPARE(s.opacity(),   qreal(1.0));
+    QCOMPARE(s.opacity(), qreal(1.0));
     QVERIFY(s.fillStyle());
     QCOMPARE(s.displayName(), QStringLiteral("Cell Depth Fill"));
 }
@@ -378,10 +554,10 @@ void Test2DSublayers::cellDepthFill_identity_dynamic()
 void Test2DSublayers::smoothDepthFill_identity_dynamic()
 {
     SmoothDepthFillSublayer s(QStringLiteral("smooth"));
-    QCOMPARE(s.kind(),      ISublayer::ColorRampFillKind);
+    QCOMPARE(s.kind(), ISublayer::ColorRampFillKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false);
-    QCOMPARE(s.opacity(),   qreal(0.60));
+    QCOMPARE(s.opacity(), qreal(0.60));
     QVERIFY(s.fillStyle());
     QCOMPARE(s.displayName(), QStringLiteral("Smooth Depth Fill"));
 }
@@ -400,14 +576,14 @@ void Test2DSublayers::scalarFill_json_roundTrip()
 
     ScalarFillStyle b;
     b.fromJson(a.toJson());
-    QCOMPARE(b.attribute(),      QStringLiteral("velocity_magnitude"));
-    QCOMPARE(b.classified(),     true);
-    QCOMPARE(b.bandCount(),      7);
-    QCOMPARE(b.colorRampName(),  QStringLiteral("magma"));
-    QCOMPARE(b.invertRamp(),     true);
+    QCOMPARE(b.attribute(), QStringLiteral("velocity_magnitude"));
+    QCOMPARE(b.classified(), true);
+    QCOMPARE(b.bandCount(), 7);
+    QCOMPARE(b.colorRampName(), QStringLiteral("magma"));
+    QCOMPARE(b.invertRamp(), true);
     QCOMPARE(b.useCustomRange(), true);
-    QCOMPARE(b.rangeMin(),       0.2);
-    QCOMPARE(b.rangeMax(),       4.5);
+    QCOMPARE(b.rangeMin(), 0.2);
+    QCOMPARE(b.rangeMax(), 4.5);
 }
 
 // ── Shared contract ─────────────────────────────────────────────────────
@@ -455,9 +631,14 @@ void Test2DSublayers::scalarFill_continuous_customRange_matches_values()
         auto *style = qobject_cast<ScalarFillStyle *>(s->style());
         auto scheme = style->scheme();
         scheme.setMode(ClassificationScheme::ClassMode::Continuous);
-        scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
-        scheme.setRampName(QString()); scheme.setLowColor(Qt::red); scheme.setHighColor(Qt::blue);
-        scheme.setLabelPrecision(2); style->setScheme(scheme);
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(10);
+        scheme.setRangeMax(40);
+        scheme.setRampName(QString());
+        scheme.setLowColor(Qt::red);
+        scheme.setHighColor(Qt::blue);
+        scheme.setLabelPrecision(2);
+        style->setScheme(scheme);
         s->setOpacity(0.4);
         const auto legend = s->legendSymbolItems();
         QCOMPARE(legend.size(), 6);
@@ -478,9 +659,14 @@ void Test2DSublayers::scalarFill_manual_legend_uses_actual_edges()
     CellDepthFillSublayer cell(QStringLiteral("cell"));
     auto scheme = cell.fillStyle()->scheme();
     scheme.setMode(ClassificationScheme::ClassMode::Classified);
-    scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
-    scheme.setClassCount(8); scheme.setMethod(BinMethod::Manual); scheme.setManualBreaks({12, 30});
-    scheme.setLabelOverride(1, "Important interval"); scheme.setColorOverride(1, Qt::magenta);
+    scheme.setUseCustomRange(true);
+    scheme.setRangeMin(10);
+    scheme.setRangeMax(40);
+    scheme.setClassCount(8);
+    scheme.setMethod(BinMethod::Manual);
+    scheme.setManualBreaks({12, 30});
+    scheme.setLabelOverride(1, "Important interval");
+    scheme.setColorOverride(1, Qt::magenta);
     cell.fillStyle()->setScheme(scheme);
     const auto expected = scheme.legendItems(10, 40);
     const auto legend = cell.legendSymbolItems();
@@ -498,8 +684,11 @@ void Test2DSublayers::scalarFill_unavailable_bounds_are_not_invented()
     CellDepthFillSublayer cell(QStringLiteral("cell"));
     auto scheme = cell.fillStyle()->scheme();
     scheme.setMode(ClassificationScheme::ClassMode::Classified);
-    scheme.setMethod(BinMethod::Quantile); scheme.setClassCount(3);
-    scheme.setUseCustomRange(true); scheme.setRangeMin(10); scheme.setRangeMax(40);
+    scheme.setMethod(BinMethod::Quantile);
+    scheme.setClassCount(3);
+    scheme.setUseCustomRange(true);
+    scheme.setRangeMin(10);
+    scheme.setRangeMax(40);
     cell.fillStyle()->setScheme(scheme);
     auto legend = cell.legendSymbolItems();
     QCOMPARE(legend.size(), 3);
@@ -507,7 +696,8 @@ void Test2DSublayers::scalarFill_unavailable_bounds_are_not_invented()
         QVERIFY(std::isnan(item.range.first));
         QVERIFY(item.label.contains("data", Qt::CaseInsensitive));
     }
-    scheme.setUseCustomRange(false); scheme.setMethod(BinMethod::EqualInterval);
+    scheme.setUseCustomRange(false);
+    scheme.setMethod(BinMethod::EqualInterval);
     cell.fillStyle()->setScheme(scheme);
     legend = cell.legendSymbolItems();
     for (const auto &item : legend) {
@@ -520,7 +710,9 @@ void Test2DSublayers::scalarFill_invalid_custom_range_is_explicit()
 {
     CellDepthFillSublayer cell(QStringLiteral("cell"));
     auto scheme = cell.fillStyle()->scheme();
-    scheme.setUseCustomRange(true); scheme.setRangeMin(40); scheme.setRangeMax(10);
+    scheme.setUseCustomRange(true);
+    scheme.setRangeMin(40);
+    scheme.setRangeMax(10);
     cell.fillStyle()->setScheme(scheme);
     const auto legend = cell.legendSymbolItems();
     QCOMPARE(legend.size(), 1);

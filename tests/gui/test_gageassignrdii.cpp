@@ -1,6 +1,6 @@
-/*!
- * \file   test_gageassignrdii.cpp
- * \brief  Rain-gage assignment for RDII inflows
+/**
+ * @file      test_gageassignrdii.cpp
+ * @brief     Rain-gage assignment for RDII inflows
  *         (workplans/RAINGAGE_ASSIGNMENT_PERF_AND_RDII_PLAN_2026-10-02.md §5).
  *
  * SWMM binds the gage to the unit-hydrograph GROUP. Fixture
@@ -15,6 +15,10 @@
  *   - A partial run (only J3 selected) must not move J1/J2: UH1 stays on GN
  *     and J3 moves to a copy.
  *   - Interpolated: nodes land on generated gages, undo restores everything.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "assignment/raingageassignment.h"
@@ -33,8 +37,15 @@
 
 namespace rg = openswmmvis::assignment::raingage;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Resolve gage_assign_rdii.inp under SWMMVIS_GUI_TEST_DATA or the current directory.
+ * @return Owned unvalidated fixture path.
+ *
+ */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -42,6 +53,16 @@ QString fixturePath()
 }
 
 /*! Sorted "node|group|area" for every [RDII] entry. */
+/**
+ *
+ * @brief Serialize RDII fixture rows into sorted comparison strings.
+ * @param eng Borrowed valid loaded engine. Requires successful per-row getters,
+ * valid referenced nodes and group IDs fitting the 256-byte UTF-8 buffer; getter
+ * errors are not checked.
+ * @return Owned sorted node|group|area strings in native API numeric units/Qt
+ * default number formatting. Does not modify engine entries.
+ *
+ */
 QStringList rdiiTable(SWMM_Engine eng)
 {
     QStringList out;
@@ -50,14 +71,24 @@ QStringList rdiiTable(SWMM_Engine eng)
         int ni = -1;
         double a = 0;
         swmm_rdii_get(eng, i, &ni, buf, sizeof buf, &a);
-        out << QStringLiteral("%1|%2|%3").arg(QString::fromUtf8(swmm_node_id(eng, ni)),
-                                              QString::fromUtf8(buf)).arg(a);
+        out << QStringLiteral("%1|%2|%3")
+                   .arg(QString::fromUtf8(swmm_node_id(eng, ni)), QString::fromUtf8(buf))
+                   .arg(a);
     }
     out.sort();
     return out;
 }
 
 /*! group -> gage for every group with a gage line. */
+/**
+ *
+ * @brief Read successfully decoded hydrograph-group gage assignments.
+ * @param eng Borrowed valid loaded engine; IDs must fit the 256-byte buffers for
+ * complete fixture comparison. Failed getter rows are skipped.
+ * @return Owned map of group ID to gage ID; duplicate map keys overwrite earlier
+ * entries. No engine write or borrowed C-string escapes.
+ *
+ */
 QMap<QString, QString> groupGages(SWMM_Engine eng)
 {
     QMap<QString, QString> out;
@@ -69,6 +100,16 @@ QMap<QString, QString> groupGages(SWMM_Engine eng)
 }
 
 /*! Sorted "month|resp|r|t|k|dmax|drecov|dinit" rows of one group. */
+/**
+ *
+ * @brief Serialize one hydrograph group into sorted numeric comparison rows.
+ * @param eng Borrowed valid loaded engine.
+ * @param group Exact case-sensitive UTF-8-decoded group name to retain. Requires
+ * IDs fitting the 256-byte API buffer for complete matching.
+ * @return Owned month|response|r|t|k|dmax|drecov|dinit rows without unit conversion,
+ * using Qt default numeric formatting; getter failures are skipped. No mutation.
+ *
+ */
 QStringList groupRows(SWMM_Engine eng, const QString &group)
 {
     QStringList out;
@@ -76,16 +117,31 @@ QStringList groupRows(SWMM_Engine eng, const QString &group)
     for (int i = 0, n = swmm_hydrograph_count(eng); i < n; ++i) {
         int m = 0, resp = 0;
         double r, t, k, a, b, c;
-        if (swmm_hydrograph_get(eng, i, buf, sizeof buf, &m, &resp, &r, &t, &k, &a, &b, &c)
-                != SWMM_OK || QString::fromUtf8(buf) != group)
+        if (swmm_hydrograph_get(eng, i, buf, sizeof buf, &m, &resp, &r, &t, &k, &a, &b, &c) !=
+                SWMM_OK ||
+            QString::fromUtf8(buf) != group)
             continue;
         out << QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
-                   .arg(m).arg(resp).arg(r).arg(t).arg(k).arg(a).arg(b).arg(c);
+                   .arg(m)
+                   .arg(resp)
+                   .arg(r)
+                   .arg(t)
+                   .arg(k)
+                   .arg(a)
+                   .arg(b)
+                   .arg(c);
     }
     out.sort();
     return out;
 }
 
+/**
+ *
+ * @brief Collect sorted hydrograph group IDs whose API reads succeed.
+ * @param eng Borrowed valid loaded engine, IDs fitting the 256-byte buffer.
+ * @return Owned sorted names; failed reads are omitted, no engine changes.
+ *
+ */
 QStringList groupNames(SWMM_Engine eng)
 {
     QStringList out;
@@ -98,35 +154,75 @@ QStringList groupNames(SWMM_Engine eng)
 }
 
 struct Rig {
-    MapCanvas       canvas;
+    MapCanvas canvas;
     SWMMModelLayer *layer = nullptr;
 
+    /**
+     *
+     * @brief Load the RDII fixture and add its layer to the owning canvas.
+     * @return True on load/add success; false leaves the newly allocated unparented
+     * layer undeleted on this fixture failure path. Requires GUI thread/readable input;
+     * warnings/errors are discarded and no file is written.
+     *
+     */
     bool load()
     {
         layer = new SWMMModelLayer(fixturePath(), nullptr);
         QList<QString> w, e;
-        if (!layer->loadModel(w, e)) return false;
+        if (!layer->loadModel(w, e))
+            return false;
         canvas.addLayer(layer, false);
         return true;
     }
+    /**
+     *
+     * @brief Borrow the successfully loaded fixture engine.
+     * @return Handle owned by layer/canvas; requires load() success and no layer removal.
+     *
+     */
     SWMM_Engine eng() const { return layer->engine(); }
 
-    rg::Plan plan(rg::Options o)
-    {
-        return rg::computePlan(rg::gatherInput(layer, o));
-    }
+    /**
+     *
+     * @brief Gather current fixture input and synchronously compute an assignment plan.
+     * @param o By-value options carrying scope/method/selected names; no local validation.
+     * @return Owned Plan with diagnostics/error; does not push an undo command or apply
+     * changes. Requires loaded layer and GUI-thread input gathering.
+     *
+     */
+    rg::Plan plan(rg::Options o) { return rg::computePlan(rg::gatherInput(layer, o)); }
     /*! Plan + push; returns false when the plan produced no command. */
+    /**
+     *
+     * @brief Compute and apply one assignment plan through the canvas undo stack.
+     * @param o By-value assignment options for the loaded fixture.
+     * @return False on plan error (also logged) or no command, true after pushing one
+     * owned undo command, which executes redo immediately. Requires live layer/canvas
+     * on the GUI thread; mutates assignments and possibly generated gages/groups.
+     *
+     */
     bool run(rg::Options o)
     {
         const rg::Plan p = plan(o);
-        if (!p.error.isEmpty()) { qWarning() << p.error; return false; }
+        if (!p.error.isEmpty()) {
+            qWarning() << p.error;
+            return false;
+        }
         QUndoCommand *cmd = rg::makeApplyCommand(layer, &canvas, p, QStringLiteral("t"));
-        if (!cmd) return false;
+        if (!cmd)
+            return false;
         canvas.undoStack()->push(cmd);
         return true;
     }
 };
 
+/**
+ *
+ * @brief Select only RDII group assignment for a fixture run.
+ * @param m Requested method, default Nearest; stored verbatim.
+ * @return Options with subcatchments false and rdii true; other defaults unchanged.
+ *
+ */
 rg::Options rdiiOnly(rg::Method m = rg::Method::Nearest)
 {
     rg::Options o;
@@ -142,10 +238,40 @@ class TestGageAssignRdii : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require shared UH1 to retain the larger-area east gage while west nodes move to an
+     * identical-row UH1_GW copy.
+     *
+     */
     void nearestSplitsSharedGroup();
+    /**
+     *
+     * @brief Require repeated RDII assignment to have no new groups/gage changes, no changed rows
+     * and no undo command.
+     *
+     */
     void rerunIsANoOp();
+    /**
+     *
+     * @brief Require RDII table/gage-map/group-name snapshots to restore on undo and applied
+     * table/gages to recur on redo.
+     *
+     */
     void undoRedoRestoreExactly();
+    /**
+     *
+     * @brief Require selecting only J3 to copy its group for GE while unselected J1/J2/J4 retain
+     * GN assignments.
+     *
+     */
     void partialRunNeverMovesOutOfScopeNodes();
+    /**
+     *
+     * @brief Require interpolation to assign every used group to an NNG_ gage and undo to restore
+     * original table/map/gage count.
+     *
+     */
     void interpolatedUsesGeneratedGagesAndUndoes();
 };
 
@@ -158,7 +284,7 @@ void TestGageAssignRdii::nearestSplitsSharedGroup()
 
     const QMap<QString, QString> gg = groupGages(rig.eng());
     QCOMPARE(gg.value(QStringLiteral("UH2")), QStringLiteral("GW"));
-    QCOMPARE(gg.value(QStringLiteral("UH1")), QStringLiteral("GE"));   // 40 ac > 30 ac
+    QCOMPARE(gg.value(QStringLiteral("UH1")), QStringLiteral("GE")); // 40 ac > 30 ac
     QCOMPARE(gg.value(QStringLiteral("UH1_GW")), QStringLiteral("GW"));
     QCOMPARE(groupRows(rig.eng(), QStringLiteral("UH1_GW")), uh1Rows);
 
@@ -214,9 +340,9 @@ void TestGageAssignRdii::partialRunNeverMovesOutOfScopeNodes()
     QVERIFY(rig.run(o));
 
     const QMap<QString, QString> gg = groupGages(rig.eng());
-    QCOMPARE(gg.value(QStringLiteral("UH1")), QStringLiteral("GN"));   // pinned by J1, J2
+    QCOMPARE(gg.value(QStringLiteral("UH1")), QStringLiteral("GN")); // pinned by J1, J2
     QCOMPARE(gg.value(QStringLiteral("UH1_GE")), QStringLiteral("GE"));
-    QCOMPARE(gg.value(QStringLiteral("UH2")), QStringLiteral("GN"));   // J4 not selected
+    QCOMPARE(gg.value(QStringLiteral("UH2")), QStringLiteral("GN")); // J4 not selected
     QCOMPARE(rdiiTable(rig.eng()),
              QStringList({QStringLiteral("J1|UH1|10"), QStringLiteral("J2|UH1|20"),
                           QStringLiteral("J3|UH1_GE|40"), QStringLiteral("J4|UH2|5")}));

@@ -1,17 +1,19 @@
-/*!
- * \file   swmmvisapplication.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  QApplication subclass for SWMMVis — sets up GDAL, static
+/**
+ * @file      swmmvisapplication.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     QApplication subclass for SWMMVis — sets up GDAL, static
  *         Qt resources, and the main window during application startup.
  *
- * \details Two application objects are provided:
+ * @details Two application objects are provided:
  *  - SWMMVisCoreApplication: non-GUI variant (extends QCoreApplication),
  *    used for headless batch runs.
  *  - SWMMVisApplication: full GUI application (extends QApplication),
  *    creates the SWMMVis main window and the startup splash screen.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SWMMAPPLICATION_H
 #define SWMMAPPLICATION_H
 
@@ -97,8 +99,8 @@ protected:
 private:
     void reportHandlerException(QObject *receiver, const QString &what);
 
-    SWMMVis             *mSWMMVisGUI;           ///< Owned main window.
-    SWMMVisSplashScreen *mSWMMVisSplashScreen;  ///< Owned splash screen.
+    SWMMVis *mSWMMVisGUI;                      ///< Owned main window.
+    SWMMVisSplashScreen *mSWMMVisSplashScreen; ///< Owned splash screen.
 };
 
 #endif // SWMMAPPLICATION_H

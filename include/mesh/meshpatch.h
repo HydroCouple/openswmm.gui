@@ -1,8 +1,10 @@
-/*!
- * \file   meshpatch.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshpatch.h
+ * @brief     Structured quad patches (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md §3.2, phase
+ *            G3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Structured quad patches (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md
  * §3.2, phase G3). Two authoring forms:
@@ -16,7 +18,9 @@
  * MeshGenerator::addPatch stitches into the triangle domain: the boundary
  * segments become PSLG constraints, the interior a hole, and the quads are
  * appended after the triangles (engine order).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_MESHPATCH_H
 #define OPENSWMMVIS_MESH_MESHPATCH_H
 
@@ -28,15 +32,15 @@
 #include <QString>
 #include <QVector>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief Four-sided patch: corners in cyclic order (either orientation);
  *  n subdivisions along corner0→corner1 (and corner3→corner2), m along
  *  corner0→corner3 (and corner1→corner2). */
-struct StructuredPatch
-{
-    QVector<QPointF> corners;   ///< Exactly 4, cyclic.
-    int     n = 0, m = 0;
+struct StructuredPatch {
+    QVector<QPointF> corners; ///< Exactly 4, cyclic.
+    int n = 0, m = 0;
     QString tag;
 };
 
@@ -44,12 +48,11 @@ struct StructuredPatch
  *  vertices) and cut into \p across quads per station. \p along > 0
  *  resamples every centreline segment to that target spacing (original
  *  vertices are kept); 0 = one station per centreline vertex. */
-struct SweptPatch
-{
-    QVector<QPointF> centreline;  ///< >= 2 points.
-    double  width  = 0.0;
-    int     across = 0;
-    double  along  = 0.0;
+struct SweptPatch {
+    QVector<QPointF> centreline; ///< >= 2 points.
+    double width = 0.0;
+    int across = 0;
+    double along = 0.0;
     QString tag;
 };
 
@@ -58,8 +61,7 @@ struct SweptPatch
  *  union of normalized arc-length vertices, retaining every bank bend exactly.
  *  Positive along subdivides that union to the target spacing; zero retains
  *  only the union. This is normalized arc correspondence, not surveyed stations. */
-struct BankPairPatch
-{
+struct BankPairPatch {
     QVector<QPointF> bankA, bankB;
     int across = 0;
     double along = 0.0;
@@ -68,23 +70,21 @@ struct BankPairPatch
 
 /*! \brief A polyline through a patch's vertices that must be reported as
  *  mesh edges with a marker — a conduit running along a strip's middle row. */
-struct PatchLine
-{
-    QVector<int> path;     ///< Local vertex indices, consecutive ones joined by quad edges.
-    int          marker = 0;
-    QString      tag;
+struct PatchLine {
+    QVector<int> path; ///< Local vertex indices, consecutive ones joined by quad edges.
+    int marker = 0;
+    QString tag;
 };
 
 /*! \brief A generated patch in local indices. Quads are emitted CCW. */
-struct PatchMesh
-{
-    QVector<QPointF>        xy;
-    QVector<MeshTriangle>   quads;             ///< v3 >= 0, local indices.
-    QVector<QPair<int,int>> boundarySegments;  ///< Local index pairs around the patch.
-    QString                 tag;
+struct PatchMesh {
+    QVector<QPointF> xy;
+    QVector<MeshTriangle> quads;               ///< v3 >= 0, local indices.
+    QVector<QPair<int, int>> boundarySegments; ///< Local index pairs around the patch.
+    QString tag;
     /*! Interior lines emitted as MeshResult::boundaryEdges with their marker
      *  and tag, and bounding region tags like any constraint. */
-    QVector<PatchLine>      lines;
+    QVector<PatchLine> lines;
 };
 
 /*! \brief Input checks. Empty string = valid. */
@@ -142,9 +142,9 @@ PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, do
  *  logical side pair most aligned with it receives hAlong; the other receives
  *  hAcross. Equal association scores are rejected. Ring rotation/reversal must
  *  not exchange the physical spacings. Widths use the ring's coordinate units. */
-PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners,
-                          double hAlong, double hAcross, double alongAngleDeg,
-                          const QString &tag, QString *err = nullptr);
+PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double hAlong,
+                          double hAcross, double alongAngleDeg, const QString &tag,
+                          QString *err = nullptr);
 
 } // namespace mesh
 

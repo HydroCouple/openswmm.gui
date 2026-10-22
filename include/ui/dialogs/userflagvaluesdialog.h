@@ -1,9 +1,9 @@
-/*!
- * \file   userflagvaluesdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Per-object user-flag value editor — Phase 4 of
+/**
+ * @file      userflagvaluesdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Per-object user-flag value editor — Phase 4 of
  *         docs/USER_FLAGS_UI_PLAN_2026-06-03.md.
  *
  * One row per defined flag (Flag, Type, Value). Boolean values edit via
@@ -15,7 +15,9 @@
  * Opened from the Property Browser's "User Flags" row
  * (UserFlagsEditButton), mirroring NodeCompoundEditDialog's launch
  * pattern.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef USERFLAGVALUESDIALOG_H
 #define USERFLAGVALUESDIALOG_H
 
@@ -30,8 +32,7 @@ class UserFlagValuesDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit UserFlagValuesDialog(UserFlagsEditRef ref,
-                                  QWidget *parent = nullptr);
+    explicit UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent = nullptr);
 
     /*! True once OK committed at least one set/clear to the engine. */
     [[nodiscard]] bool wroteAnyChanges() const noexcept { return m_wroteAnyChanges; }
@@ -58,9 +59,9 @@ private:
     void reloadFromModel();
 
     UserFlagsEditRef m_ref;
-    QTableWidget    *m_table = nullptr;
-    bool             m_wroteAnyChanges      = false;
-    bool             m_confirmationsEnabled = true;
+    QTableWidget *m_table = nullptr;
+    bool m_wroteAnyChanges = false;
+    bool m_confirmationsEnabled = true;
 };
 
 #endif // USERFLAGVALUESDIALOG_H

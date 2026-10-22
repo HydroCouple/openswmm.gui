@@ -1,23 +1,29 @@
-/*!
- * \file   rptparser.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rptparser.cpp
+ * @brief     SWMM's .rpt is a plain-text report split into named sections separated by lines of
+ *            asterisks.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "io/rptparser.h"
 
 #include <QFile>
 #include <QRegularExpression>
 #include <QTextStream>
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
 QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
 {
     QVector<RptSection> sections;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (errorOut) *errorOut = f.errorString();
+        if (errorOut)
+            *errorOut = f.errorString();
         return sections;
     }
     QTextStream in(&f);
@@ -42,15 +48,19 @@ QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
 
     auto starSpan = [](const QString &l, int *indent, int *len) -> bool {
         const auto m = starsRx.match(l);
-        if (!m.hasMatch()) return false;
-        if (indent) *indent = int(m.capturedLength(1));
-        if (len)    *len    = int(m.capturedLength(2));
+        if (!m.hasMatch())
+            return false;
+        if (indent)
+            *indent = int(m.capturedLength(1));
+        if (len)
+            *len = int(m.capturedLength(2));
         return true;
     };
 
     auto titleText = [](const QString &line, int indent, int len) -> QString {
         const QString raw = line.mid(indent).trimmed();
-        if (raw.isEmpty()) return {};
+        if (raw.isEmpty())
+            return {};
 
         // Continuity headers append unit columns to the right of the title:
         //   2D Surface Routing Continuity  cubic meters      10^6 ltr
@@ -119,8 +129,7 @@ QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
     return sections;
 }
 
-bool RptParser::hasHighContinuityError(const QVector<RptSection> &sections,
-                                        double thresholdPct)
+bool RptParser::hasHighContinuityError(const QVector<RptSection> &sections, double thresholdPct)
 {
     static const QRegularExpression continRx(
         QStringLiteral("Continuity Error\\s*\\(%\\)[^\\d\\-]*([-\\d\\.]+)"));
@@ -130,7 +139,8 @@ bool RptParser::hasHighContinuityError(const QVector<RptSection> &sections,
             const auto m = it.next();
             bool ok = false;
             const double v = std::abs(m.captured(1).toDouble(&ok));
-            if (ok && v > thresholdPct) return true;
+            if (ok && v > thresholdPct)
+                return true;
         }
     }
     return false;

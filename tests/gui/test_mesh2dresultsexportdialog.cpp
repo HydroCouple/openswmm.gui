@@ -1,14 +1,17 @@
-/*!
- * \file   test_mesh2dresultsexportdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_mesh2dresultsexportdialog.cpp
+ * @brief     Tests for mesh2dresultsexportdialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Gates the option collector for "Export 2D Results…": the Shapefile field
  * cap, the time-step selection helpers, the options round trip, and the
  * velocity gating. Widgets are reached by objectName only — no accessors are
  * added to the dialog for the test's benefit.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "io/mesh2dresultsexport.h"
 #include "ui/dialogs/mesh2dresultsexportdialog.h"
 
@@ -29,14 +32,25 @@ using namespace openswmmvis::io;
 using openswmmvis::ui::Mesh2DExportDialogInputs;
 using openswmmvis::ui::Mesh2DResultsExportDialog;
 
-namespace {
+namespace
+{
 
 //! A run of \p n frames, five minutes apart, with velocity available.
+/**
+ * @brief Construct in-memory result-export dialog metadata for a regular five-minute run.
+ * @param[in] n Nonnegative frame count, nonpositive creates no timestamps.
+ * @param[in] current Current zero-based frame index copied unchecked, default 0.
+ * @param[in] velocity Whether fixture advertises velocity data, default true.
+ * @return Owned inputs starting 2026-01-01 UTC,spacing 300 s,2.5 mcell,500 by 400
+ * mextent,temporary-directory suggestion/run 1 basename. Does not create temporary output files,
+ * validate frame index or open sources.
+ */
 Mesh2DExportDialogInputs makeInputs(int n, int current = 0, bool velocity = true)
 {
     Mesh2DExportDialogInputs in;
     const QDateTime base(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC);
-    for (int i = 0; i < n; ++i) in.times << base.addSecs(qint64(i) * 300);
+    for (int i = 0; i < n; ++i)
+        in.times << base.addSecs(qint64(i) * 300);
     in.currentIndex = current;
     in.suggestedCellSize = 2.5;
     in.extentWidth = 500.0;
@@ -48,18 +62,32 @@ Mesh2DExportDialogInputs makeInputs(int n, int current = 0, bool velocity = true
     return in;
 }
 
-template <typename T>
-T *child(QDialog &dlg, const char *name)
+/**
+ * @brief Look up a named typed dialog descendant without changing its parent ownership.
+ * @tparam T QObject-compatible requested widget type.
+ * @param[in] dlg Live dialog with existing child tree, GUI thread.
+ * @param[in] name Required nonnull Latin1 object name, borrowed synchronously.
+ * @return Borrowed first matching T pointer or null; caller must check before dereferencing. No
+ * creation, model mutation or lifetime extension.
+ */
+template <typename T> T *child(QDialog &dlg, const char *name)
 {
     T *w = dlg.findChild<T *>(QLatin1String(name));
     return w;
 }
 
+/**
+ * @brief Collect selected list rows in ascending index order.
+ * @param[in] list Required nonnull live GUI-thread list widget, read only.
+ * @return Owned vector of selected zero-based row indices; empty when none, ignores selection
+ * order. Does not change item selection or retain widget ownership.
+ */
 std::vector<int> selectedRows(QListWidget *list)
 {
     std::vector<int> out;
     for (int i = 0; i < list->count(); ++i)
-        if (list->item(i)->isSelected()) out.push_back(i);
+        if (list->item(i)->isSelected())
+            out.push_back(i);
     return out;
 }
 
@@ -149,8 +177,7 @@ void TestMesh2DResultsExportDialog::currentSelectsCurrentIndex()
 
     // The constructor also starts there, so the common case is one click.
     Mesh2DResultsExportDialog fresh(makeInputs(20, /*current=*/3));
-    QCOMPARE(selectedRows(child<QListWidget>(fresh, "timeStepList")),
-             (std::vector<int>{3}));
+    QCOMPARE(selectedRows(child<QListWidget>(fresh, "timeStepList")), (std::vector<int>{3}));
 }
 
 //! Every widget reaches the options struct, and the path is reduced to a stem.
@@ -158,10 +185,11 @@ void TestMesh2DResultsExportDialog::optionsRoundTrip()
 {
     Mesh2DResultsExportDialog dlg(makeInputs(30, /*current=*/0));
 
-    child<QComboBox>(dlg, "formatCombo")->setCurrentIndex(
-        child<QComboBox>(dlg, "formatCombo")->findData(int(Mesh2DExportFormat::GeoTiff)));
-    child<QLineEdit>(dlg, "outputPathEdit")->setText(
-        QDir(QDir::tempPath()).filePath(QStringLiteral("myrun.tif")));
+    child<QComboBox>(dlg, "formatCombo")
+        ->setCurrentIndex(
+            child<QComboBox>(dlg, "formatCombo")->findData(int(Mesh2DExportFormat::GeoTiff)));
+    child<QLineEdit>(dlg, "outputPathEdit")
+        ->setText(QDir(QDir::tempPath()).filePath(QStringLiteral("myrun.tif")));
     child<QCheckBox>(dlg, "depthCheck")->setChecked(true);
     child<QCheckBox>(dlg, "headCheck")->setChecked(false);
     child<QCheckBox>(dlg, "vmagCheck")->setChecked(true);
@@ -170,13 +198,14 @@ void TestMesh2DResultsExportDialog::optionsRoundTrip()
     child<QCheckBox>(dlg, "includeMaxCheck")->setChecked(true);
     child<QCheckBox>(dlg, "maskDryCheck")->setChecked(false);
     child<QDoubleSpinBox>(dlg, "cellSizeSpin")->setValue(1.25);
-    child<QComboBox>(dlg, "interpCombo")->setCurrentIndex(
-        child<QComboBox>(dlg, "interpCombo")->findData(int(Mesh2DInterp::Idw)));
+    child<QComboBox>(dlg, "interpCombo")
+        ->setCurrentIndex(child<QComboBox>(dlg, "interpCombo")->findData(int(Mesh2DInterp::Idw)));
     child<QSpinBox>(dlg, "idwNeighboursSpin")->setValue(12);
 
     auto *list = child<QListWidget>(dlg, "timeStepList");
     list->clearSelection();
-    for (int row : {2, 5, 9}) list->item(row)->setSelected(true);
+    for (int row : {2, 5, 9})
+        list->item(row)->setSelected(true);
 
     const Mesh2DExportOptions o = dlg.options();
     QCOMPARE(o.format, Mesh2DExportFormat::GeoTiff);
@@ -193,8 +222,9 @@ void TestMesh2DResultsExportDialog::optionsRoundTrip()
 
     // The neighbour count only applies to inverse distance weighting.
     QVERIFY(child<QSpinBox>(dlg, "idwNeighboursSpin")->isEnabled());
-    child<QComboBox>(dlg, "interpCombo")->setCurrentIndex(
-        child<QComboBox>(dlg, "interpCombo")->findData(int(Mesh2DInterp::GreenGauss)));
+    child<QComboBox>(dlg, "interpCombo")
+        ->setCurrentIndex(
+            child<QComboBox>(dlg, "interpCombo")->findData(int(Mesh2DInterp::GreenGauss)));
     QVERIFY(!child<QSpinBox>(dlg, "idwNeighboursSpin")->isEnabled());
 }
 
@@ -221,7 +251,7 @@ void TestMesh2DResultsExportDialog::velocityDisabledWithoutVelocity()
 //! memory mid-write.
 void TestMesh2DResultsExportDialog::oversizedRasterIsRefusedWithPixelCount()
 {
-    Mesh2DResultsExportDialog dlg(makeInputs(10));            // 500 x 400 extent
+    Mesh2DResultsExportDialog dlg(makeInputs(10)); // 500 x 400 extent
     auto *format = child<QComboBox>(dlg, "formatCombo");
     auto *cellSize = child<QDoubleSpinBox>(dlg, "cellSizeSpin");
     auto *gridInfo = child<QLabel>(dlg, "gridInfoLabel");
@@ -229,12 +259,12 @@ void TestMesh2DResultsExportDialog::oversizedRasterIsRefusedWithPixelCount()
     QVERIFY(format && cellSize && gridInfo && buttons);
     format->setCurrentIndex(format->findData(int(Mesh2DExportFormat::GeoTiff)));
 
-    cellSize->setValue(2.0);                                   // 250 x 200 px
+    cellSize->setValue(2.0); // 250 x 200 px
     QVERIFY2(gridInfo->text().contains(QStringLiteral("250")), qPrintable(gridInfo->text()));
     QVERIFY2(gridInfo->text().contains(QStringLiteral("200")), qPrintable(gridInfo->text()));
     QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
 
-    cellSize->setValue(0.001);                                 // 500k x 400k px
+    cellSize->setValue(0.001); // 500k x 400k px
     QVERIFY2(!buttons->button(QDialogButtonBox::Ok)->isEnabled(),
              "2e11 pixels must be refused before the export starts");
     QVERIFY(child<QLabel>(dlg, "validationLabel")->text().contains(QStringLiteral("500000")));

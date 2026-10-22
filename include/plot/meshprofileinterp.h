@@ -1,9 +1,9 @@
-/*!
- * \file   meshprofileinterp.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Water-surface bridging for the 2D longitudinal profile.
+/**
+ * @file      meshprofileinterp.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Water-surface bridging for the 2D longitudinal profile.
  *
  *         The mesh profile sampler produces a continuous, barycentric-
  *         interpolated sample series, but partially-wet / dry saddle cells
@@ -35,6 +35,7 @@
  *         bridging across it, preserving a genuine off-mesh gap.
  *
  *         Header-only so the painter and the unit test share one implementation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef MESH_PROFILE_INTERP_H
@@ -51,9 +52,9 @@
 namespace MeshProfileInterp
 {
 
-/*! Paint floor (m): a sample whose water surface sits more than this above the
+/*! Paint floor (profile vertical units): a sample whose water surface sits more than this above the
  *  bed renders as water. Deliberately far below the layer's hydraulic
- *  dryDepth() (~1e-4 m) so genuinely-wet thin films still draw; truly
+ *  dryDepth() (typically ~1e-4 m before display scaling) so thin films still draw; truly
  *  zero/negative depth (surface at/under the bed) still reads as dry. */
 inline constexpr double kFilm = 1e-6;
 
@@ -65,10 +66,11 @@ inline constexpr double kFilm = 1e-6;
  *                 (e.g. ground + depthNow, or ground + maxDepth).
  * \return Parallel array of "paint top" elevations; NaN where the sample is
  *         dry (off-mesh, at/under the bed, or an unbridged crest).
+ * @note Chainage/ground/top elevations must be mutually consistent finite units where available; kFilm is interpreted in those vertical units. topElev must be callable and should return finite elevations or NaN. No source data is modified. Gap bridging requires a no-surface sample, finite intervening ground and two wet endpoints; genuinely dry crests and off-mesh gaps remain split.
  */
-inline QVector<double> bridgedTops(
-    const QVector<MeshProfileSampler::Sample> &s,
-    const std::function<double(const MeshProfileSampler::Sample &)> &topElev)
+inline QVector<double>
+bridgedTops(const QVector<MeshProfileSampler::Sample> &s,
+            const std::function<double(const MeshProfileSampler::Sample &)> &topElev)
 {
     const int n = s.size();
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -76,19 +78,25 @@ inline QVector<double> bridgedTops(
 
     // 1) Raw per-sample surface — films included via kFilm.
     for (int i = 0; i < n; ++i) {
-        if (!std::isfinite(s[i].ground)) continue;
+        if (!std::isfinite(s[i].ground))
+            continue;
         const double t = topElev(s[i]);
-        if (t > s[i].ground + kFilm) top[i] = t;
+        if (t > s[i].ground + kFilm)
+            top[i] = t;
     }
 
     // 2) Bridge dry gaps that lie between two wet runs.
     int i = 0;
     while (i < n) {
-        if (std::isnan(top[i])) { ++i; continue; }
+        if (std::isnan(top[i])) {
+            ++i;
+            continue;
+        }
 
         // End of the current wet run.
         int runEnd = i;
-        while (runEnd + 1 < n && !std::isnan(top[runEnd + 1])) ++runEnd;
+        while (runEnd + 1 < n && !std::isnan(top[runEnd + 1]))
+            ++runEnd;
 
         // Walk the gap to the next wet sample. An off-mesh (NaN ground) sample
         // blocks the bridge — a genuine mesh hole must stay a true gap. A gap
@@ -99,23 +107,27 @@ inline QVector<double> bridgedTops(
         bool blocked = false;
         bool sawNoData = false;
         while (next < n && std::isnan(top[next])) {
-            if (!std::isfinite(s[next].ground)) { blocked = true; break; }
-            if (!s[next].cellHasSurface) sawNoData = true;
+            if (!std::isfinite(s[next].ground)) {
+                blocked = true;
+                break;
+            }
+            if (!s[next].cellHasSurface)
+                sawNoData = true;
             ++next;
         }
 
         if (!blocked && sawNoData && next < n && gapStart < next) {
             const double cL = s[runEnd].chainage, wseL = top[runEnd];
-            const double cR = s[next].chainage,    wseR = top[next];
+            const double cR = s[next].chainage, wseR = top[next];
             const double dC = cR - cL;
-            const double wseUp = std::max(wseL, wseR);   // upstream (higher) level
+            const double wseUp = std::max(wseL, wseR); // upstream (higher) level
             for (int k = gapStart; k < next; ++k) {
-                if (!std::isfinite(s[k].ground)) continue;   // safety
-                double wse = (dC > 1e-12)
-                    ? wseL + (s[k].chainage - cL) / dC * (wseR - wseL)
-                    : wseL;
-                if (wse > wseUp) wse = wseUp;                // no uphill water
-                if (wse > s[k].ground + kFilm)               // above the bed → wet
+                if (!std::isfinite(s[k].ground))
+                    continue; // safety
+                double wse = (dC > 1e-12) ? wseL + (s[k].chainage - cL) / dC * (wseR - wseL) : wseL;
+                if (wse > wseUp)
+                    wse = wseUp;               // no uphill water
+                if (wse > s[k].ground + kFilm) // above the bed → wet
                     top[k] = wse;
                 // else: dry crest — leave NaN so the run splits at the hill.
             }
@@ -158,26 +170,31 @@ inline QVector<double> bridgedTops(
  *        elevation lies on the drawn ground segment by construction, so both
  *        the WSE polyline and the fill close exactly onto the ground line.
  * \return true when a physically meaningful intercept exists.
+ * @note Output pointers may independently be null. Both are left unchanged on failure. Inputs must use consistent chainage/elevation units and finite values within the declared wet run; structural range checks do not verify every sample. A flat single-sample surface is permitted.
  */
 inline bool shorelineIntercept(const QVector<MeshProfileSampler::Sample> &s,
-                               const QVector<double> &top,
-                               int runFirst, int runLast, bool trailing,
+                               const QVector<double> &top, int runFirst, int runLast, bool trailing,
                                double *outChainage, double *outElev)
 {
     const int n = s.size();
     if (runFirst < 0 || runLast >= n || runFirst > runLast || top.size() != n)
         return false;
-    const int i = trailing ? runLast : runFirst;          // boundary wet sample
-    const int j = trailing ? runLast - 1 : runFirst + 1;  // inner wet neighbour
-    const int k = trailing ? runLast + 1 : runFirst - 1;  // adjacent dry sample
-    if (k < 0 || k >= n) return false;                    // run ends at the data edge
-    if (!std::isfinite(s[k].ground)) return false;        // off-mesh — keep the hard edge
-    if (!std::isnan(top[k])) return false;                // neighbour not dry (defensive)
-    if (std::isnan(top[i]) || !std::isfinite(s[i].ground)) return false;
+    const int i = trailing ? runLast : runFirst;         // boundary wet sample
+    const int j = trailing ? runLast - 1 : runFirst + 1; // inner wet neighbour
+    const int k = trailing ? runLast + 1 : runFirst - 1; // adjacent dry sample
+    if (k < 0 || k >= n)
+        return false; // run ends at the data edge
+    if (!std::isfinite(s[k].ground))
+        return false; // off-mesh — keep the hard edge
+    if (!std::isnan(top[k]))
+        return false; // neighbour not dry (defensive)
+    if (std::isnan(top[i]) || !std::isfinite(s[i].ground))
+        return false;
 
     const double ci = s[i].chainage, ck = s[k].chainage;
-    const double dSeg = ck - ci;                          // signed, toward the dry side
-    if (std::abs(dSeg) < 1e-12) return false;
+    const double dSeg = ck - ci; // signed, toward the dry side
+    if (std::abs(dSeg) < 1e-12)
+        return false;
 
     // Wet-side surface slope from the two boundary-most wet samples; a
     // single-sample run extends flat.
@@ -194,12 +211,16 @@ inline bool shorelineIntercept(const QVector<MeshProfileSampler::Sample> &s,
     // They cross where surface == ground.
     const double gi = s[i].ground, gk = s[k].ground;
     const double denom = (gk - gi) - mTop * dSeg;
-    if (denom <= 1e-12) return false;      // ground never rises through the surface
+    if (denom <= 1e-12)
+        return false; // ground never rises through the surface
     const double t = (top[i] - gi) / denom;
-    if (t <= 0.0 || t > 1.0) return false; // no crossing inside the segment
+    if (t <= 0.0 || t > 1.0)
+        return false; // no crossing inside the segment
 
-    if (outChainage) *outChainage = ci + t * dSeg;
-    if (outElev)     *outElev     = gi + t * (gk - gi);
+    if (outChainage)
+        *outChainage = ci + t * dSeg;
+    if (outElev)
+        *outElev = gi + t * (gk - gi);
     return true;
 }
 

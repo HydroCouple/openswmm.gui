@@ -1,14 +1,18 @@
-/*!
- * \file   loadprogress.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      loadprogress.cpp
+ * @brief     Determinate open-progress model (LOAD_PERF plan Phase 1a).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/loadprogress.h"
 
 #include <algorithm>
 
-namespace {
+namespace
+{
 
 /*! Per-stage share of the total, summing to 100.
  *
@@ -19,31 +23,34 @@ namespace {
  *
  *  Indexed by OpenStage; a static_assert below pins the sum. */
 constexpr int kWeights[static_cast<int>(OpenStage::Count_)] = {
-    28,   // EngineParse
-     8,   // SoaCopy
-    12,   // GeomCache
-     2,   // CrsFinish
-     5,   // Sidecar
-     8,   // Results
-    15,   // MeshParse
-    14,   // MeshSceneA
-     8,   // MeshSceneB
+    28, // EngineParse
+    8,  // SoaCopy
+    12, // GeomCache
+    2,  // CrsFinish
+    5,  // Sidecar
+    8,  // Results
+    15, // MeshParse
+    14, // MeshSceneA
+    8,  // MeshSceneB
 };
 
+/**
+ * @brief Sum fixed stage budgets for the compile-time 100-percent invariant.
+ * @return Total of every entry in kWeights.
+ */
 constexpr int weightSum()
 {
     int s = 0;
-    for (int w : kWeights) s += w;
+    for (int w : kWeights)
+        s += w;
     return s;
 }
-static_assert(weightSum() == 100,
-              "OpenProgressModel stage weights must sum to 100 — otherwise the "
-              "bar cannot reach (or overshoots) 100.");
+static_assert(weightSum() == 100, "OpenProgressModel stage weights must sum to 100 — otherwise the "
+                                  "bar cannot reach (or overshoots) 100.");
 
 } // namespace
 
-OpenProgressModel::OpenProgressModel(QObject *parent)
-    : QObject(parent)
+OpenProgressModel::OpenProgressModel(QObject *parent) : QObject(parent)
 {
     m_localPct.fill(0);
 }
@@ -59,22 +66,31 @@ int OpenProgressModel::stageWeight(OpenStage stage)
 QString OpenProgressModel::stageLabel(OpenStage stage)
 {
     switch (stage) {
-    case OpenStage::EngineParse: return tr("Parsing model…");
-    case OpenStage::SoaCopy:     return tr("Reading network…");
-    case OpenStage::GeomCache:   return tr("Building geometry cache…");
-    case OpenStage::CrsFinish:   return tr("Resolving coordinate system…");
-    case OpenStage::Sidecar:     return tr("Applying project settings…");
-    case OpenStage::Results:     return tr("Opening results…");
-    case OpenStage::MeshParse:   return tr("Parsing 2D mesh…");
-    case OpenStage::MeshSceneA:  return tr("Building mesh display geometry…");
-    case OpenStage::MeshSceneB:  return tr("Finishing mesh index…");
-    case OpenStage::Count_:      break;
+    case OpenStage::EngineParse:
+        return tr("Parsing model…");
+    case OpenStage::SoaCopy:
+        return tr("Reading network…");
+    case OpenStage::GeomCache:
+        return tr("Building geometry cache…");
+    case OpenStage::CrsFinish:
+        return tr("Resolving coordinate system…");
+    case OpenStage::Sidecar:
+        return tr("Applying project settings…");
+    case OpenStage::Results:
+        return tr("Opening results…");
+    case OpenStage::MeshParse:
+        return tr("Parsing 2D mesh…");
+    case OpenStage::MeshSceneA:
+        return tr("Building mesh display geometry…");
+    case OpenStage::MeshSceneB:
+        return tr("Finishing mesh index…");
+    case OpenStage::Count_:
+        break;
     }
     return {};
 }
 
-void OpenProgressModel::setStage(OpenStage stage, int localPct,
-                                 const QString &label)
+void OpenProgressModel::setStage(OpenStage stage, int localPct, const QString &label)
 {
     const int i = static_cast<int>(stage);
     if (i < 0 || i >= kStageCount)
@@ -99,7 +115,7 @@ void OpenProgressModel::finishStage(OpenStage stage)
     if (i < 0 || i >= kStageCount)
         return;
     if (m_localPct[i] == 100)
-        return;                 // idempotent
+        return; // idempotent
 
     m_localPct[i] = 100;
     recompute();
@@ -109,7 +125,10 @@ void OpenProgressModel::finishAll()
 {
     bool changed = false;
     for (int &v : m_localPct) {
-        if (v != 100) { v = 100; changed = true; }
+        if (v != 100) {
+            v = 100;
+            changed = true;
+        }
     }
     if (changed || !m_finishedEmitted)
         recompute();
@@ -117,8 +136,7 @@ void OpenProgressModel::finishAll()
 
 bool OpenProgressModel::isComplete() const
 {
-    return std::all_of(m_localPct.begin(), m_localPct.end(),
-                       [](int v) { return v == 100; });
+    return std::all_of(m_localPct.begin(), m_localPct.end(), [](int v) { return v == 100; });
 }
 
 void OpenProgressModel::recompute()
@@ -129,14 +147,14 @@ void OpenProgressModel::recompute()
     for (int i = 0; i < kStageCount; ++i)
         acc += kWeights[i] * m_localPct[i];
 
-    int pct = (acc + 50) / 100;                 // round to nearest
+    int pct = (acc + 50) / 100; // round to nearest
     pct = std::clamp(pct, 0, 100);
 
     // Monotonic clamp (see header): the bar may jump forward when a stage is
     // skipped wholesale, but must never run backwards.
     pct = std::max(pct, m_lastPct);
 
-    const bool pctChanged   = (pct != m_lastPct);
+    const bool pctChanged = (pct != m_lastPct);
     const bool labelChanged = (m_label != m_emittedLabel);
     m_lastPct = pct;
 

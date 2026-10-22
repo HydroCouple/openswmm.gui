@@ -1,9 +1,13 @@
-/*!
- * \file   rastersymbologypanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rastersymbologypanel.cpp
+ * @brief     renderer chooser (QGIS "Singleband pseudocolor" / "Paletted" / "Multiband colour")
+ *            mounted by LayerStyleDialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/rastersymbologypanel.h"
 
 #include "layers/gisrasterlayer.h"
@@ -38,9 +42,11 @@ using OpenSWMM::Render::GraduatedRasterRenderer;
 using OpenSWMM::Render::MultiBandColorRenderer;
 using OpenSWMM::Render::PalettedRasterRenderer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 constexpr int kColValue = 0;
 constexpr int kColLabel = 1;
 constexpr int kColColor = 2;
@@ -72,26 +78,26 @@ RasterSymbologyPanel::RasterSymbologyPanel(GISRasterLayer *layer, QWidget *paren
     root->addWidget(m_sourceBox);
 
     m_stack = new QStackedWidget(this);
-    m_stack->addWidget(buildGraduatedPage());   // Kind::Graduated
-    m_stack->addWidget(buildPalettedPage());    // Kind::Paletted
-    m_stack->addWidget(buildMultiBandPage());   // Kind::MultiBand
+    m_stack->addWidget(buildGraduatedPage()); // Kind::Graduated
+    m_stack->addWidget(buildPalettedPage());  // Kind::Paletted
+    m_stack->addWidget(buildMultiBandPage()); // Kind::MultiBand
     root->addWidget(m_stack);
 
     m_hsBox = buildHillshadeGroup();
     root->addWidget(m_hsBox);
     root->addStretch();
 
-    connect(m_kindCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &RasterSymbologyPanel::onKindComboChanged);
+    connect(m_kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &RasterSymbologyPanel::onKindComboChanged);
 
     if (m_layer) {
         // Queued: a push from one of our own editors (or the dialog's
         // Cancel / undo restore) re-syncs the panel after the current
         // handler returns, never inside it.
-        connect(m_layer, &GISRasterLayer::rasterRendererChanged,
-                this, &RasterSymbologyPanel::refreshFromModel, Qt::QueuedConnection);
-        connect(m_layer, &GISRasterLayer::renderBandChanged,
-                this, &RasterSymbologyPanel::refreshFromModel, Qt::QueuedConnection);
+        connect(m_layer, &GISRasterLayer::rasterRendererChanged, this,
+                &RasterSymbologyPanel::refreshFromModel, Qt::QueuedConnection);
+        connect(m_layer, &GISRasterLayer::renderBandChanged, this,
+                &RasterSymbologyPanel::refreshFromModel, Qt::QueuedConnection);
     }
 
     refreshFromModel();
@@ -101,7 +107,7 @@ RasterSymbologyPanel::RasterSymbologyPanel(GISRasterLayer *layer, QWidget *paren
 
 QGroupBox *RasterSymbologyPanel::buildSourceGroup()
 {
-    auto *box  = new QGroupBox(tr("Source"), this);
+    auto *box = new QGroupBox(tr("Source"), this);
     auto *form = new QFormLayout(box);
 
     m_bandSpin = new QSpinBox(box);
@@ -123,7 +129,7 @@ QGroupBox *RasterSymbologyPanel::buildSourceGroup()
 QWidget *RasterSymbologyPanel::buildGraduatedPage()
 {
     auto *page = new QWidget(this);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
     lay->setContentsMargins(0, 0, 0, 0);
 
     // The shared classification editor drives the renderer's scheme through
@@ -133,7 +139,9 @@ QWidget *RasterSymbologyPanel::buildGraduatedPage()
                                              /*ownBinding=*/true, page);
     lay->addWidget(m_classEditor);
 
-    auto *rangePolicy = new QLabel(tr("Values below the minimum are hidden. Values above the maximum use the maximum color."), page);
+    auto *rangePolicy = new QLabel(
+        tr("Values below the minimum are hidden. Values above the maximum use the maximum color."),
+        page);
     rangePolicy->setWordWrap(true);
     lay->addWidget(rangePolicy);
     return page;
@@ -142,7 +150,7 @@ QWidget *RasterSymbologyPanel::buildGraduatedPage()
 QWidget *RasterSymbologyPanel::buildPalettedPage()
 {
     auto *page = new QWidget(this);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
     lay->setContentsMargins(0, 0, 0, 0);
 
     auto *form = new QFormLayout;
@@ -154,7 +162,7 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     lay->addLayout(form);
 
     m_palModel = new QStandardItemModel(0, 3, page);
-    m_palModel->setHorizontalHeaderLabels({ tr("Value"), tr("Label"), tr("Colour") });
+    m_palModel->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Colour")});
     m_palTable = new QTableView(page);
     m_palTable->setObjectName(QStringLiteral("rasterPalettedTable"));
     m_palTable->setModel(m_palModel);
@@ -172,7 +180,7 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
                                  "missed — add them with +)."));
     m_loadTableBtn = new QPushButton(tr("Load colour table"), page);
     m_loadTableBtn->setToolTip(tr("Use the colour table embedded in the raster file."));
-    auto *addBtn    = new QPushButton(tr("+"), page);
+    auto *addBtn = new QPushButton(tr("+"), page);
     auto *removeBtn = new QPushButton(tr("−"), page);
     addBtn->setToolTip(tr("Add a class"));
     removeBtn->setToolTip(tr("Remove the selected classes"));
@@ -186,9 +194,11 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     lay->addLayout(btnRow);
 
     connect(m_paletteCombo, &QComboBox::currentTextChanged, this, [this](const QString &name) {
-        if (m_suppress || !m_layer) return;
+        if (m_suppress || !m_layer)
+            return;
         auto *p = paletted();
-        if (!p) return;
+        if (!p)
+            return;
         // Re-colour every class from the new palette, keeping values/labels.
         p->setPaletteName(name);
         const QList<QColor> pal = CategoricalPalette::byName(name);
@@ -199,29 +209,35 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
         m_layer->notifyRasterRendererEdited();
     });
     connect(m_palModel, &QStandardItemModel::itemChanged, this, [this](QStandardItem *) {
-        if (!m_suppress) pushPalettedTable();
+        if (!m_suppress)
+            pushPalettedTable();
     });
     connect(m_classifyBtn, &QPushButton::clicked, this, [this] {
-        if (!m_layer) return;
+        if (!m_layer)
+            return;
         if (auto *p = paletted()) {
             p->buildClassesFromValues(m_layer->uniqueValues(m_layer->renderBand()));
             m_layer->notifyRasterRendererEdited();
         }
     });
     connect(m_loadTableBtn, &QPushButton::clicked, this, [this] {
-        if (!m_layer) return;
+        if (!m_layer)
+            return;
         if (auto *p = paletted()) {
             p->setClasses(m_layer->colorTableClasses());
             m_layer->notifyRasterRendererEdited();
         }
     });
     connect(addBtn, &QPushButton::clicked, this, [this] {
-        if (!m_layer) return;
+        if (!m_layer)
+            return;
         auto *p = paletted();
-        if (!p) return;
+        if (!p)
+            return;
         QList<PalettedRasterRenderer::Class> classes = p->classes();
         int next = 0;
-        for (const auto &c : classes) next = std::max(next, c.value + 1);
+        for (const auto &c : classes)
+            next = std::max(next, c.value + 1);
         const QList<QColor> pal = CategoricalPalette::byName(p->paletteName());
         PalettedRasterRenderer::Class c;
         c.value = next;
@@ -232,17 +248,21 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
         m_layer->notifyRasterRendererEdited();
     });
     connect(removeBtn, &QPushButton::clicked, this, [this] {
-        if (!m_layer) return;
+        if (!m_layer)
+            return;
         auto *p = paletted();
-        if (!p) return;
+        if (!p)
+            return;
         QList<int> rows;
         for (const QModelIndex &idx : m_palTable->selectionModel()->selectedRows())
             rows.append(idx.row());
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty())
+            return;
         std::sort(rows.begin(), rows.end(), std::greater<int>());
         QList<PalettedRasterRenderer::Class> classes = p->classes();
         for (int r : rows)
-            if (r >= 0 && r < classes.size()) classes.removeAt(r);
+            if (r >= 0 && r < classes.size())
+                classes.removeAt(r);
         p->setClasses(classes);
         m_layer->notifyRasterRendererEdited();
     });
@@ -262,55 +282,63 @@ QWidget *RasterSymbologyPanel::buildMultiBandPage()
         s->setRange(lo, n);
         return s;
     };
-    m_redSpin   = makeSpin("rasterRedBand", 1);
+    m_redSpin = makeSpin("rasterRedBand", 1);
     m_greenSpin = makeSpin("rasterGreenBand", 1);
-    m_blueSpin  = makeSpin("rasterBlueBand", 1);
+    m_blueSpin = makeSpin("rasterBlueBand", 1);
     m_alphaSpin = makeSpin("rasterAlphaBand", 0);
     m_alphaSpin->setSpecialValueText(tr("(none)"));
-    form->addRow(tr("&Red band:"),   m_redSpin);
+    form->addRow(tr("&Red band:"), m_redSpin);
     form->addRow(tr("&Green band:"), m_greenSpin);
-    form->addRow(tr("&Blue band:"),  m_blueSpin);
+    form->addRow(tr("&Blue band:"), m_blueSpin);
     form->addRow(tr("&Alpha band:"), m_alphaSpin);
 
-    for (QSpinBox *s : { m_redSpin, m_greenSpin, m_blueSpin, m_alphaSpin })
+    for (QSpinBox *s : {m_redSpin, m_greenSpin, m_blueSpin, m_alphaSpin})
         connect(s, qOverload<int>(&QSpinBox::valueChanged), this, [this](int) {
-            if (!m_suppress) pushMultiBand();
+            if (!m_suppress)
+                pushMultiBand();
         });
     return page;
 }
 
 QGroupBox *RasterSymbologyPanel::buildHillshadeGroup()
 {
-    auto *box  = new QGroupBox(tr("Hillshade relief"), this);
+    auto *box = new QGroupBox(tr("Hillshade relief"), this);
     auto *form = new QFormLayout(box);
 
     m_hsEnable = new QCheckBox(tr("Enable relief shading"), box);
     form->addRow(QString(), m_hsEnable);
 
     m_hsAzimuth = new QDoubleSpinBox(box);
-    m_hsAzimuth->setRange(0.0, 360.0); m_hsAzimuth->setSuffix(tr("°"));
+    m_hsAzimuth->setRange(0.0, 360.0);
+    m_hsAzimuth->setSuffix(tr("°"));
     form->addRow(tr("A&zimuth:"), m_hsAzimuth);
 
     m_hsAltitude = new QDoubleSpinBox(box);
-    m_hsAltitude->setRange(0.0, 90.0); m_hsAltitude->setSuffix(tr("°"));
+    m_hsAltitude->setRange(0.0, 90.0);
+    m_hsAltitude->setSuffix(tr("°"));
     form->addRow(tr("A&ltitude:"), m_hsAltitude);
 
     m_hsZFactor = new QDoubleSpinBox(box);
-    m_hsZFactor->setRange(0.0, 100.0); m_hsZFactor->setDecimals(2);
+    m_hsZFactor->setRange(0.0, 100.0);
+    m_hsZFactor->setDecimals(2);
     m_hsZFactor->setSingleStep(0.1);
     form->addRow(tr("Z &factor:"), m_hsZFactor);
 
     m_hsStrength = new QDoubleSpinBox(box);
-    m_hsStrength->setRange(0.0, 1.0); m_hsStrength->setDecimals(2);
+    m_hsStrength->setRange(0.0, 1.0);
+    m_hsStrength->setDecimals(2);
     m_hsStrength->setSingleStep(0.05);
     form->addRow(tr("&Strength:"), m_hsStrength);
 
     connect(m_hsEnable, &QCheckBox::toggled, this, [this](bool on) {
-        if (!m_suppress && m_layer) m_layer->setHillshadeEnabled(on);
+        if (!m_suppress && m_layer)
+            m_layer->setHillshadeEnabled(on);
     });
-    for (QDoubleSpinBox *sb : { m_hsAzimuth, m_hsAltitude, m_hsZFactor, m_hsStrength })
-        connect(sb, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                this, [this](double) { if (!m_suppress) pushHillshade(); });
+    for (QDoubleSpinBox *sb : {m_hsAzimuth, m_hsAltitude, m_hsZFactor, m_hsStrength})
+        connect(sb, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
+            if (!m_suppress)
+                pushHillshade();
+        });
     return box;
 }
 
@@ -333,8 +361,10 @@ MultiBandColorRenderer *RasterSymbologyPanel::multiband() const
 
 RasterSymbologyPanel::Kind RasterSymbologyPanel::currentKind() const
 {
-    if (paletted())  return Kind::Paletted;
-    if (multiband()) return Kind::MultiBand;
+    if (paletted())
+        return Kind::Paletted;
+    if (multiband())
+        return Kind::MultiBand;
     return Kind::Graduated;
 }
 
@@ -342,15 +372,18 @@ RasterSymbologyPanel::Kind RasterSymbologyPanel::currentKind() const
 
 void RasterSymbologyPanel::onKindComboChanged(int index)
 {
-    if (m_suppress || !m_layer || index < 0) return;
+    if (m_suppress || !m_layer || index < 0)
+        return;
     const auto kind = Kind(m_kindCombo->itemData(index).toInt());
-    if (kind == currentKind()) return;
+    if (kind == currentKind())
+        return;
     installKind(kind);
 }
 
 void RasterSymbologyPanel::installKind(Kind kind)
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     const int band = m_layer->renderBand();
     std::unique_ptr<OpenSWMM::Render::IRasterRenderer> fresh;
     switch (kind) {
@@ -378,7 +411,7 @@ void RasterSymbologyPanel::installKind(Kind kind)
         break;
     }
     }
-    m_layer->setRasterRenderer(std::move(fresh));   // invalidates + repaints
+    m_layer->setRasterRenderer(std::move(fresh)); // invalidates + repaints
     refreshFromModel();
 }
 
@@ -386,9 +419,11 @@ void RasterSymbologyPanel::installKind(Kind kind)
 
 void RasterSymbologyPanel::pushPalettedTable()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     auto *p = paletted();
-    if (!p) return;
+    if (!p)
+        return;
     QList<PalettedRasterRenderer::Class> classes;
     classes.reserve(m_palModel->rowCount());
     for (int r = 0; r < m_palModel->rowCount(); ++r) {
@@ -404,19 +439,21 @@ void RasterSymbologyPanel::pushPalettedTable()
 
 void RasterSymbologyPanel::pushMultiBand()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     if (auto *mb = multiband()) {
-        mb->setBands(m_redSpin->value(), m_greenSpin->value(),
-                     m_blueSpin->value(), m_alphaSpin->value());
+        mb->setBands(m_redSpin->value(), m_greenSpin->value(), m_blueSpin->value(),
+                     m_alphaSpin->value());
         m_layer->notifyRasterRendererEdited();
     }
 }
 
 void RasterSymbologyPanel::pushHillshade()
 {
-    if (!m_layer) return;
-    m_layer->setHillshadeParams(m_hsAzimuth->value(), m_hsAltitude->value(),
-                                m_hsZFactor->value(), m_hsStrength->value());
+    if (!m_layer)
+        return;
+    m_layer->setHillshadeParams(m_hsAzimuth->value(), m_hsAltitude->value(), m_hsZFactor->value(),
+                                m_hsStrength->value());
 }
 
 // ── Sync from model ─────────────────────────────────────────────────────
@@ -428,21 +465,23 @@ void RasterSymbologyPanel::rebuildPalettedTable()
     // here or the view never learns about the inserted rows.
     m_palModel->removeRows(0, m_palModel->rowCount());
     auto *p = paletted();
-    if (!p) return;
+    if (!p)
+        return;
     for (const auto &c : p->classes()) {
         auto *value = new QStandardItem(QString::number(c.value));
         auto *label = new QStandardItem(c.label);
         auto *color = new QStandardItem;
         color->setData(c.color, Qt::BackgroundRole);
         color->setEditable(false);
-        m_palModel->appendRow({ value, label, color });
+        m_palModel->appendRow({value, label, color});
     }
     m_palTable->resizeColumnToContents(kColValue);
 }
 
 void RasterSymbologyPanel::refreshFromModel()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     m_suppress = true;
 
     const Kind kind = currentKind();
@@ -466,9 +505,8 @@ void RasterSymbologyPanel::refreshFromModel()
         m_bandSpin->setRange(1, std::max(1, m_layer->bandCount()));
         m_bandSpin->setValue(m_layer->renderBand());
     }
-    m_nodataLabel->setText(m_layer->hasNoDataValue()
-                               ? QString::number(m_layer->noDataValue(), 'g', 8)
-                               : tr("(none)"));
+    m_nodataLabel->setText(
+        m_layer->hasNoDataValue() ? QString::number(m_layer->noDataValue(), 'g', 8) : tr("(none)"));
 
     switch (kind) {
     case Kind::Graduated: {
@@ -479,7 +517,8 @@ void RasterSymbologyPanel::refreshFromModel()
         if (auto *p = paletted()) {
             const QSignalBlocker b(m_paletteCombo);
             const int pi = m_paletteCombo->findText(p->paletteName(), Qt::MatchFixedString);
-            if (pi >= 0) m_paletteCombo->setCurrentIndex(pi);
+            if (pi >= 0)
+                m_paletteCombo->setCurrentIndex(pi);
         }
         rebuildPalettedTable();
         m_loadTableBtn->setEnabled(m_layer->hasColorTable());
@@ -487,7 +526,7 @@ void RasterSymbologyPanel::refreshFromModel()
     }
     case Kind::MultiBand: {
         const int n = std::max(1, m_layer->bandCount());
-        for (QSpinBox *s : { m_redSpin, m_greenSpin, m_blueSpin })
+        for (QSpinBox *s : {m_redSpin, m_greenSpin, m_blueSpin})
             s->setRange(1, n);
         m_alphaSpin->setRange(0, n);
         if (auto *mb = multiband()) {
@@ -502,8 +541,8 @@ void RasterSymbologyPanel::refreshFromModel()
     }
 
     {
-        const QSignalBlocker b5(m_hsEnable), b6(m_hsAzimuth), b7(m_hsAltitude),
-            b8(m_hsZFactor), b9(m_hsStrength);
+        const QSignalBlocker b5(m_hsEnable), b6(m_hsAzimuth), b7(m_hsAltitude), b8(m_hsZFactor),
+            b9(m_hsStrength);
         m_hsEnable->setChecked(m_layer->hillshadeEnabled());
         m_hsAzimuth->setValue(m_layer->hillshadeAzimuthDeg());
         m_hsAltitude->setValue(m_layer->hillshadeAltitudeDeg());

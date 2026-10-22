@@ -1,15 +1,11 @@
-/*!
- * \file   swmmapplication.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      swmmvisapplication.cpp
+ * @brief     Qt resources, and the main window during application startup.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QStyleFactory>
@@ -44,14 +40,13 @@
 #include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
-
 /*! \class SWMMVisCoreApplication
  * \brief The SWMMVisCoreApplication class is a subclass of QCoreApplication.
  *
  * The SWMMVisCoreApplication class is a subclass of QCoreApplication.
  * It is used to handle the core functionality of the SWMM application.
  */
-SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
+SWMMVisCoreApplication::SWMMVisCoreApplication(int &argc, char *argv[])
     : QCoreApplication(argc, argv)
 {
     setupBundledGisDataPaths();
@@ -68,10 +63,7 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
  * \brief SWMMVisCoreApplication::~SWMMVisCoreApplication
  * The destructor for the SWMMVisCoreApplication class.
  */
-SWMMVisCoreApplication::~SWMMVisCoreApplication()
-{
-
-}
+SWMMVisCoreApplication::~SWMMVisCoreApplication() {}
 
 bool SWMMVisApplication::notify(QObject *receiver, QEvent *event)
 {
@@ -87,22 +79,23 @@ bool SWMMVisApplication::notify(QObject *receiver, QEvent *event)
 
 void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString &what)
 {
-    const QString where = receiver
-        ? QString::fromLatin1(receiver->metaObject()->className())
-        : QStringLiteral("?");
-    qCritical("SWMMVis: exception escaped an event handler (%s): %s",
-              qPrintable(where), qPrintable(what));
+    const QString where =
+        receiver ? QString::fromLatin1(receiver->metaObject()->className()) : QStringLiteral("?");
+    qCritical("SWMMVis: exception escaped an event handler (%s): %s", qPrintable(where),
+              qPrintable(what));
     // One dialog per burst — a handler that throws on every paint or timer
     // tick would otherwise bury the user in message boxes. Deferred so the
     // box is not raised from inside notify().
     static QElapsedTimer sinceLast;
-    if (sinceLast.isValid() && sinceLast.elapsed() < 10000) return;
+    if (sinceLast.isValid() && sinceLast.elapsed() < 10000)
+        return;
     sinceLast.start();
     QTimer::singleShot(0, this, [where, what]() {
         QMessageBox::critical(nullptr, tr("Internal error"),
-            tr("An error escaped an event handler in %1:\n%2\n\n"
-               "The application kept running; the message is in the log. "
-               "Save your work and consider restarting.").arg(where, what));
+                              tr("An error escaped an event handler in %1:\n%2\n\n"
+                                 "The application kept running; the message is in the log. "
+                                 "Save your work and consider restarting.")
+                                  .arg(where, what));
     });
 }
 
@@ -112,9 +105,7 @@ void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString
  * \param argv The arguments passed to the application.
  */
 SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
-    : QApplication(argc, argv),
-    mSWMMVisGUI(nullptr),
-    mSWMMVisSplashScreen(nullptr)
+    : QApplication(argc, argv), mSWMMVisGUI(nullptr), mSWMMVisSplashScreen(nullptr)
 {
     // MUST run before the main window is built. PROJ caches its data search
     // paths when a PJ_CONTEXT is first created, so GDAL_DATA/PROJ_DATA have to
@@ -183,7 +174,6 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     mSWMMVisGUI = new SWMMVis();
 
-
     this->setStyle(QStyleFactory::create("Fusion"));
 
     // UI redesign P2 — install the token-driven chrome theme on top of
@@ -225,33 +215,30 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // attachment. Mode is resolved once here — see dialogregistry.h.
     {
         auto *registry = openswmmvis::ui::DialogRegistry::instance();
-        registry->setStackingMode(
-            openswmmvis::ui::DialogRegistry::configuredStackingMode());
+        registry->setStackingMode(openswmmvis::ui::DialogRegistry::configuredStackingMode());
         installEventFilter(registry);
     }
 
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
 
-    if (QScreen* screen = QGuiApplication::primaryScreen())
-    {
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
         pixmap.setDevicePixelRatio(screen->devicePixelRatio());
     }
 
     int w = 600 * pixmap.devicePixelRatioF();
     int h = 400 * pixmap.devicePixelRatioF();
 
-    mSWMMVisSplashScreen = new SWMMVisSplashScreen(pixmap.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    mSWMMVisSplashScreen =
+        new SWMMVisSplashScreen(pixmap.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
     // Force splash screen to start on primary screen
-    if (QScreen* screen = QGuiApplication::primaryScreen())
-    {
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
         const QPoint currentDesktopsCenter = screen->availableGeometry().center();
         mSWMMVisSplashScreen->move(currentDesktopsCenter - mSWMMVisSplashScreen->rect().center());
     }
 
     mSWMMVisSplashScreen->show();
-
 
     //!Read settings
     mSWMMVisSplashScreen->onShowMessage("Reading Application Settings");
@@ -261,15 +248,15 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     mSWMMVisSplashScreen->onShowMessage("Loading Component Libraries");
     printf("Loading Component Libraries\n");
 
-//     int ms = 5000;
+    //     int ms = 5000;
 
-// #ifdef Q_OS_WIN
-//     Sleep(uint(ms));
-// #else
+    // #ifdef Q_OS_WIN
+    //     Sleep(uint(ms));
+    // #else
 
-//     struct timespec ts = { ms / 1000, (ms % 1000) * 1000 * 1000 };
-//     nanosleep(&ts, NULL);
-// #endif
+    //     struct timespec ts = { ms / 1000, (ms % 1000) * 1000 * 1000 };
+    //     nanosleep(&ts, NULL);
+    // #endif
 
     mSWMMVisSplashScreen->finish(mSWMMVisGUI);
     mSWMMVisGUI->show();
@@ -285,8 +272,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
             return;
 
-        if (LicenseAgreementDialog::shouldShowOnStartup())
-        {
+        if (LicenseAgreementDialog::shouldShowOnStartup()) {
             LicenseAgreementDialog dlg(mSWMMVisGUI);
             if (dlg.exec() != QDialog::Accepted)
                 quit();
@@ -298,10 +284,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
  * \brief SWMMVisApplication::~SWMMVisApplication
  * The destructor for the SWMMVisApplication class.
  */
-SWMMVisApplication::~SWMMVisApplication()
-{
-
-}
+SWMMVisApplication::~SWMMVisApplication() {}
 
 bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
 {
@@ -312,23 +295,18 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
     // detach); Hide is the fallback for dialogs hidden without a Close event
     // (QDialog::done() paths) — detachFromParentWindow re-orders-out in that
     // case so the window can't linger glued above the main window.
-    if (event->type() == QEvent::Close || event->type() == QEvent::Hide)
-    {
-        if (auto *dlg = qobject_cast<QDialog *>(watched))
-        {
+    if (event->type() == QEvent::Close || event->type() == QEvent::Hide) {
+        if (auto *dlg = qobject_cast<QDialog *>(watched)) {
             if (dlg->isWindow())
                 openswmmvis::platform::detachFromParentWindow(dlg);
         }
     }
 #endif
-    if (event->type() == QEvent::Show)
-    {
-        if (auto *dlg = qobject_cast<QDialog *>(watched))
-        {
+    if (event->type() == QEvent::Show) {
+        if (auto *dlg = qobject_cast<QDialog *>(watched)) {
             // Only act on top-level dialogs — embedded QDialog widgets in a
             // layout are not what we're trying to keep on top.
-            if (dlg->isWindow())
-            {
+            if (dlg->isWindow()) {
                 // Defer until after the Show is processed so we operate on the
                 // realised platform window. raise()+activateWindow() brings the
                 // dialog above the main window without the always-on-top hint
@@ -352,9 +330,8 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                     // no native gluing, so a dialog can never be dragged
                     // off-screen by the window it happens to be attached to.
                     using openswmmvis::ui::DialogRegistry;
-                    const bool nativeStacking =
-                        DialogRegistry::instance()->stackingMode()
-                            == DialogRegistry::StackingMode::NativeChildWindow;
+                    const bool nativeStacking = DialogRegistry::instance()->stackingMode() ==
+                                                DialogRegistry::StackingMode::NativeChildWindow;
                     if (nativeStacking && dlg->windowModality() == Qt::NonModal)
                         openswmmvis::platform::attachAsChildWindow(dlg);
 #endif

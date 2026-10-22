@@ -1,9 +1,12 @@
-/*!
- * \file   importplanning.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importplanning.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — the pure planning core.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/import/importplanning.h"
 #include "ui/heatproperties.h"
 
@@ -14,25 +17,31 @@
 #include <cmath>
 #include <limits>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
-namespace {
+namespace
+{
 
-const double kCoordEps = 1e-6;   // model-unit coordinate comparison epsilon
+const double kCoordEps = 1e-6; // model-unit coordinate comparison epsilon
 
-QString trPlan(const char *s) { return QCoreApplication::translate("ImportPlanning", s); }
+QString trPlan(const char *s)
+{
+    return QCoreApplication::translate("ImportPlanning", s);
+}
 
 bool numericallyEqual(const QPointF &a, const QPointF &b)
 {
-    return std::abs(a.x() - b.x()) <= kCoordEps
-        && std::abs(a.y() - b.y()) <= kCoordEps;
+    return std::abs(a.x() - b.x()) <= kCoordEps && std::abs(a.y() - b.y()) <= kCoordEps;
 }
 
 bool polylinesEqual(const QVector<QPointF> &a, const QVector<QPointF> &b)
 {
-    if (a.size() != b.size()) return false;
+    if (a.size() != b.size())
+        return false;
     for (int i = 0; i < a.size(); ++i)
-        if (!numericallyEqual(a[i], b[i])) return false;
+        if (!numericallyEqual(a[i], b[i]))
+            return false;
     return true;
 }
 
@@ -54,11 +63,14 @@ bool toDoubleLenient(const QVariant &v, double *out)
         break;
     }
     const QString s = v.toString().trimmed();
-    if (s.isEmpty()) return false;
+    if (s.isEmpty())
+        return false;
     bool ok = false;
     double d = QLocale::c().toDouble(s, &ok);
-    if (!ok) d = QLocale().toDouble(s, &ok);
-    if (ok) *out = d;
+    if (!ok)
+        d = QLocale().toDouble(s, &ok);
+    if (ok)
+        *out = d;
     return ok;
 }
 
@@ -67,12 +79,12 @@ bool toDoubleLenient(const QVariant &v, double *out)
  *  else null. */
 QVariant rawValueFor(const AttributeBinding *b, const QVariantMap &attrs)
 {
-    if (!b) return {};
+    if (!b)
+        return {};
     if (!b->sourceField.isEmpty()) {
         const QVariant cell = attrs.value(b->sourceField);
-        if (cell.isValid() && !cell.isNull()
-            && !(cell.typeId() == QMetaType::QString
-                 && cell.toString().trimmed().isEmpty()))
+        if (cell.isValid() && !cell.isNull() &&
+            !(cell.typeId() == QMetaType::QString && cell.toString().trimmed().isEmpty()))
             return cell;
     }
     return b->defaultValue;
@@ -92,9 +104,9 @@ bool isCommonLinkKey(const QString &key)
 }
 
 struct EndpointResolution {
-    bool    ok = false;
+    bool ok = false;
     QString nodeName;
-    bool    autoCreated = false;
+    bool autoCreated = false;
     QString failReason;
 };
 
@@ -104,21 +116,20 @@ struct EndpointResolution {
 // coerceValue
 // ---------------------------------------------------------------------------
 
-QVariant coerceValue(const QVariant &raw, const TargetAttribute &attr,
-                     bool *ok, QString *errorOut)
+QVariant coerceValue(const QVariant &raw, const TargetAttribute &attr, bool *ok, QString *errorOut)
 {
     *ok = true;
     if (!raw.isValid() || raw.isNull())
-        return {};   // "not provided" — caller leaves the engine default
+        return {}; // "not provided" — caller leaves the engine default
 
     // Enum-typed: integer code or case-insensitive label.
     if (!attr.enumChoices.isEmpty()) {
         double d = 0.0;
-        if (toDoubleLenient(raw, &d)
-            && std::abs(d - std::round(d)) < 1e-9) {
+        if (toDoubleLenient(raw, &d) && std::abs(d - std::round(d)) < 1e-9) {
             const int code = static_cast<int>(std::llround(d));
             for (const EnumChoice &c : attr.enumChoices)
-                if (c.code == code) return QVariant(code);
+                if (c.code == code)
+                    return QVariant(code);
         }
         const QString s = raw.toString().trimmed();
         for (const EnumChoice &c : attr.enumChoices)
@@ -126,30 +137,28 @@ QVariant coerceValue(const QVariant &raw, const TargetAttribute &attr,
                 return QVariant(c.code);
         *ok = false;
         if (errorOut)
-            *errorOut = trPlan("\"%1\" is not a valid value for %2")
-                            .arg(raw.toString(), attr.label);
+            *errorOut =
+                trPlan("\"%1\" is not a valid value for %2").arg(raw.toString(), attr.label);
         return {};
     }
 
     switch (attr.type) {
     case QMetaType::Double: {
         double d = 0.0;
-        if (toDoubleLenient(raw, &d)) return QVariant(d);
+        if (toDoubleLenient(raw, &d))
+            return QVariant(d);
         *ok = false;
         if (errorOut)
-            *errorOut = trPlan("\"%1\" is not a number for %2")
-                            .arg(raw.toString(), attr.label);
+            *errorOut = trPlan("\"%1\" is not a number for %2").arg(raw.toString(), attr.label);
         return {};
     }
     case QMetaType::Int: {
         double d = 0.0;
-        if (toDoubleLenient(raw, &d)
-            && std::abs(d - std::round(d)) < 1e-9)
+        if (toDoubleLenient(raw, &d) && std::abs(d - std::round(d)) < 1e-9)
             return QVariant(static_cast<int>(std::llround(d)));
         *ok = false;
         if (errorOut)
-            *errorOut = trPlan("\"%1\" is not an integer for %2")
-                            .arg(raw.toString(), attr.label);
+            *errorOut = trPlan("\"%1\" is not an integer for %2").arg(raw.toString(), attr.label);
         return {};
     }
     case QMetaType::QString:
@@ -162,30 +171,26 @@ QVariant coerceValue(const QVariant &raw, const TargetAttribute &attr,
 // buildImportPlan
 // ---------------------------------------------------------------------------
 
-ImportPlan buildImportPlan(const ImportMapping &mapping,
-                           const ModelSnapshot &snapshot,
+ImportPlan buildImportPlan(const ImportMapping &mapping, const ModelSnapshot &snapshot,
                            const QVector<SourceFeature> &features)
 {
     ImportPlan plan;
     plan.items.reserve(features.size());
 
-    const TargetKind kind        = mapping.kind;
-    const bool       linkKind    = ImportTargetRegistry::isLinkKind(kind);
-    const bool       gageKind    = (kind == TargetKind::RainGage);
-    const QVector<TargetAttribute> attrs =
-        ImportTargetRegistry::attributesFor(kind);
+    const TargetKind kind = mapping.kind;
+    const bool linkKind = ImportTargetRegistry::isLinkKind(kind);
+    const bool gageKind = (kind == TargetKind::RainGage);
+    const QVector<TargetAttribute> attrs = ImportTargetRegistry::attributesFor(kind);
 
     const AttributeBinding *nameBinding = mapping.binding(QStringLiteral("name"));
     const bool nameBound = nameBinding && !nameBinding->sourceField.isEmpty();
 
-    const AttributeBinding *fromBinding =
-        mapping.binding(QStringLiteral("fromNode"));
-    const AttributeBinding *toBinding =
-        mapping.binding(QStringLiteral("toNode"));
+    const AttributeBinding *fromBinding = mapping.binding(QStringLiteral("fromNode"));
+    const AttributeBinding *toBinding = mapping.binding(QStringLiteral("toNode"));
 
-    QSet<QString>            seenNames;      // duplicate-in-source guard
-    QHash<QString, QPointF>  pendingNodes;   // nodes this run will create
-    int                      autoCounter = 1;
+    QSet<QString> seenNames;              // duplicate-in-source guard
+    QHash<QString, QPointF> pendingNodes; // nodes this run will create
+    int autoCounter = 1;
 
     // When the target itself is a node kind, features planned for
     // creation also become snappable/referable endpoints for any
@@ -196,7 +201,8 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
         return snapshot.nodes.contains(n) || pendingNodes.contains(n);
     };
     auto nodePos = [&](const QString &n) -> QPointF {
-        if (snapshot.nodes.contains(n)) return snapshot.nodes.value(n);
+        if (snapshot.nodes.contains(n))
+            return snapshot.nodes.value(n);
         return pendingNodes.value(n);
     };
 
@@ -208,17 +214,14 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
         return n;
     };
 
-    auto resolveEndpoint = [&](const AttributeBinding *fieldBinding,
-                               const QVariantMap &featAttrs,
+    auto resolveEndpoint = [&](const AttributeBinding *fieldBinding, const QVariantMap &featAttrs,
                                const QPointF &pt) -> EndpointResolution {
         EndpointResolution r;
         QStringList tried;
 
         // 1) attribute columns
-        if (mapping.endpointsFromFields && fieldBinding
-            && !fieldBinding->sourceField.isEmpty()) {
-            const QString ref =
-                featAttrs.value(fieldBinding->sourceField).toString().trimmed();
+        if (mapping.endpointsFromFields && fieldBinding && !fieldBinding->sourceField.isEmpty()) {
+            const QString ref = featAttrs.value(fieldBinding->sourceField).toString().trimmed();
             if (!ref.isEmpty()) {
                 if (nodeExists(ref)) {
                     r.ok = true;
@@ -233,21 +236,21 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
 
         // 2) spatial snap
         if (mapping.endpointsSnap) {
-            const double tol2 = mapping.snapToleranceMapUnits
-                              * mapping.snapToleranceMapUnits;
+            const double tol2 = mapping.snapToleranceMapUnits * mapping.snapToleranceMapUnits;
             double bestD2 = std::numeric_limits<double>::max();
             QString best;
             auto consider = [&](const QString &n, const QPointF &p) {
                 const double dx = p.x() - pt.x();
                 const double dy = p.y() - pt.y();
                 const double d2 = dx * dx + dy * dy;
-                if (d2 < bestD2) { bestD2 = d2; best = n; }
+                if (d2 < bestD2) {
+                    bestD2 = d2;
+                    best = n;
+                }
             };
-            for (auto it = snapshot.nodes.constBegin();
-                 it != snapshot.nodes.constEnd(); ++it)
+            for (auto it = snapshot.nodes.constBegin(); it != snapshot.nodes.constEnd(); ++it)
                 consider(it.key(), it.value());
-            for (auto it = pendingNodes.constBegin();
-                 it != pendingNodes.constEnd(); ++it)
+            for (auto it = pendingNodes.constBegin(); it != pendingNodes.constEnd(); ++it)
                 consider(it.key(), it.value());
             if (!best.isEmpty() && bestD2 <= tol2) {
                 r.ok = true;
@@ -266,9 +269,8 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             return r;
         }
 
-        r.failReason = tried.isEmpty()
-                           ? trPlan("no endpoint-resolution strategy enabled")
-                           : tried.join(QStringLiteral("; "));
+        r.failReason = tried.isEmpty() ? trPlan("no endpoint-resolution strategy enabled")
+                                       : tried.join(QStringLiteral("; "));
         return r;
     };
 
@@ -287,24 +289,21 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             plan.items.append(item);
             continue;
         }
-        item.name = f.attrs.value(nameBinding->sourceField)
-                        .toString().trimmed();
+        item.name = f.attrs.value(nameBinding->sourceField).toString().trimmed();
         if (item.name.isEmpty()) {
             fail(trPlan("empty unique identifier"));
             plan.items.append(item);
             continue;
         }
         if (seenNames.contains(item.name)) {
-            fail(trPlan("duplicate identifier \"%1\" in source layer")
-                     .arg(item.name));
+            fail(trPlan("duplicate identifier \"%1\" in source layer").arg(item.name));
             plan.items.append(item);
             continue;
         }
 
         // ---- geometry -------------------------------------------------
         if (!f.geometryOk) {
-            fail(f.geometryError.isEmpty()
-                     ? trPlan("unusable geometry") : f.geometryError);
+            fail(f.geometryError.isEmpty() ? trPlan("unusable geometry") : f.geometryError);
             plan.items.append(item);
             continue;
         }
@@ -328,12 +327,12 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
         // ---- mapped attributes (adapter-backed keys only) -------------
         bool attrError = false;
         for (const TargetAttribute &ta : attrs) {
-            if (ta.adapterProperty.isEmpty()) continue;   // ctor-consumed
+            if (ta.adapterProperty.isEmpty())
+                continue; // ctor-consumed
             const AttributeBinding *b = mapping.binding(ta.key);
             if (!b || !b->isBound()) {
                 if (ta.required) {
-                    fail(trPlan("required attribute \"%1\" is not mapped")
-                             .arg(ta.label));
+                    fail(trPlan("required attribute \"%1\" is not mapped").arg(ta.label));
                     attrError = true;
                     break;
                 }
@@ -348,9 +347,12 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
                 attrError = true;
                 break;
             }
-            const int heatAttr=OpenSWMMVis::heatPropertyIndex(ta.key);
-            if(heatAttr>=0&&v.isValid()&&!v.isNull()&&!OpenSWMMVis::heatPropertyValueValid(heatAttr,v.toDouble())) {
-                fail(trPlan("Heat property is outside its valid range: %1").arg(ta.label));attrError=true;break;
+            const int heatAttr = OpenSWMMVis::heatPropertyIndex(ta.key);
+            if (heatAttr >= 0 && v.isValid() && !v.isNull() &&
+                !OpenSWMMVis::heatPropertyValueValid(heatAttr, v.toDouble())) {
+                fail(trPlan("Heat property is outside its valid range: %1").arg(ta.label));
+                attrError = true;
+                break;
             }
             if (v.isValid() && !v.isNull())
                 item.attributeValues.insert(ta.key, v);
@@ -365,16 +367,14 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
         bool typeMismatch = false;
         if (linkKind) {
             exists = snapshot.linkTypes.contains(item.name);
-            typeMismatch = exists
-                && snapshot.linkTypes.value(item.name)
-                       != ImportTargetRegistry::swmmLinkType(kind);
+            typeMismatch = exists && snapshot.linkTypes.value(item.name) !=
+                                         ImportTargetRegistry::swmmLinkType(kind);
         } else if (gageKind) {
             exists = snapshot.gages.contains(item.name);
         } else {
             exists = snapshot.nodes.contains(item.name);
-            typeMismatch = exists
-                && snapshot.nodeTypes.value(item.name)
-                       != ImportTargetRegistry::swmmNodeType(kind);
+            typeMismatch = exists && snapshot.nodeTypes.value(item.name) !=
+                                         ImportTargetRegistry::swmmNodeType(kind);
         }
 
         if (exists) {
@@ -390,15 +390,15 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             item.action = PlannedItem::Action::Update;
 
             if (typeMismatch) {
-                item.messages << trPlan(
-                    "type differs from existing object — only common "
-                    "attributes applied (use \"Convert To\" to change type)");
+                item.messages << trPlan("type differs from existing object — only common "
+                                        "attributes applied (use \"Convert To\" to change type)");
                 QVariantMap common;
                 for (auto it = item.attributeValues.constBegin();
                      it != item.attributeValues.constEnd(); ++it) {
-                    const bool keep = linkKind ? isCommonLinkKey(it.key())
-                                               : isCommonNodeKey(it.key());
-                    if (keep) common.insert(it.key(), it.value());
+                    const bool keep =
+                        linkKind ? isCommonLinkKey(it.key()) : isCommonNodeKey(it.key());
+                    if (keep)
+                        common.insert(it.key(), it.value());
                 }
                 item.attributeValues = common;
             }
@@ -408,20 +408,16 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             if (mapping.updateGeometry) {
                 if (linkKind) {
                     const auto lg = snapshot.linkGeoms.value(item.name);
-                    item.geometryDiffers =
-                        !polylinesEqual(lg.interior, item.interiorVertices);
+                    item.geometryDiffers = !polylinesEqual(lg.interior, item.interiorVertices);
                 } else if (gageKind) {
                     // No applyGageMove in the layer API today — gage
                     // position updates are deferred; surface the fact.
-                    if (!numericallyEqual(snapshot.gages.value(item.name),
-                                          QPointF(item.x, item.y)))
-                        item.messages << trPlan(
-                            "gage position differs — position updates for "
-                            "rain gages are not supported yet");
+                    if (!numericallyEqual(snapshot.gages.value(item.name), QPointF(item.x, item.y)))
+                        item.messages << trPlan("gage position differs — position updates for "
+                                                "rain gages are not supported yet");
                 } else {
-                    item.geometryDiffers = !numericallyEqual(
-                        snapshot.nodes.value(item.name),
-                        QPointF(item.x, item.y));
+                    item.geometryDiffers =
+                        !numericallyEqual(snapshot.nodes.value(item.name), QPointF(item.x, item.y));
                 }
                 if (item.geometryDiffers)
                     item.messages << trPlan("geometry will be updated");
@@ -431,18 +427,17 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             // when column-resolved endpoints disagree with the model.
             if (linkKind && mapping.endpointsFromFields) {
                 const auto lg = snapshot.linkGeoms.value(item.name);
-                const QString wantFrom = fromBinding
-                    ? f.attrs.value(fromBinding->sourceField)
-                          .toString().trimmed() : QString();
-                const QString wantTo = toBinding
-                    ? f.attrs.value(toBinding->sourceField)
-                          .toString().trimmed() : QString();
-                if ((!wantFrom.isEmpty() && wantFrom != lg.from)
-                    || (!wantTo.isEmpty() && wantTo != lg.to)) {
+                const QString wantFrom =
+                    fromBinding ? f.attrs.value(fromBinding->sourceField).toString().trimmed()
+                                : QString();
+                const QString wantTo =
+                    toBinding ? f.attrs.value(toBinding->sourceField).toString().trimmed()
+                              : QString();
+                if ((!wantFrom.isEmpty() && wantFrom != lg.from) ||
+                    (!wantTo.isEmpty() && wantTo != lg.to)) {
                     item.endpointsDiffer = true;
-                    item.messages << trPlan(
-                        "source endpoints differ from existing link — "
-                        "endpoints are not rewired by import");
+                    item.messages << trPlan("source endpoints differ from existing link — "
+                                            "endpoints are not rewired by import");
                 }
             }
 
@@ -460,42 +455,41 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
             const EndpointResolution fromR =
                 resolveEndpoint(fromBinding, f.attrs, f.points.first());
             if (!fromR.ok) {
-                fail(trPlan("upstream endpoint unresolved: %1")
-                         .arg(fromR.failReason));
+                fail(trPlan("upstream endpoint unresolved: %1").arg(fromR.failReason));
                 plan.items.append(item);
                 continue;
             }
-            const EndpointResolution toR =
-                resolveEndpoint(toBinding, f.attrs, f.points.last());
+            const EndpointResolution toR = resolveEndpoint(toBinding, f.attrs, f.points.last());
             if (!toR.ok) {
                 // Roll back an auto-node created for the from-endpoint so
                 // a failed feature leaves no side effects.
-                if (fromR.autoCreated) pendingNodes.remove(fromR.nodeName);
-                fail(trPlan("downstream endpoint unresolved: %1")
-                         .arg(toR.failReason));
+                if (fromR.autoCreated)
+                    pendingNodes.remove(fromR.nodeName);
+                fail(trPlan("downstream endpoint unresolved: %1").arg(toR.failReason));
                 plan.items.append(item);
                 continue;
             }
             if (fromR.nodeName == toR.nodeName) {
-                if (fromR.autoCreated) pendingNodes.remove(fromR.nodeName);
-                if (toR.autoCreated)   pendingNodes.remove(toR.nodeName);
-                fail(trPlan("both endpoints resolve to node \"%1\"")
-                         .arg(fromR.nodeName));
+                if (fromR.autoCreated)
+                    pendingNodes.remove(fromR.nodeName);
+                if (toR.autoCreated)
+                    pendingNodes.remove(toR.nodeName);
+                fail(trPlan("both endpoints resolve to node \"%1\"").arg(fromR.nodeName));
                 plan.items.append(item);
                 continue;
             }
             item.fromNode = fromR.nodeName;
-            item.toNode   = toR.nodeName;
+            item.toNode = toR.nodeName;
             if (fromR.autoCreated) {
                 item.autoNodeNames << fromR.nodeName;
-                item.autoNodePos   << f.points.first();
+                item.autoNodePos << f.points.first();
                 item.messages << trPlan("junction \"%1\" will be created "
                                         "at the upstream end")
                                      .arg(fromR.nodeName);
             }
             if (toR.autoCreated) {
                 item.autoNodeNames << toR.nodeName;
-                item.autoNodePos   << f.points.last();
+                item.autoNodePos << f.points.last();
                 item.messages << trPlan("junction \"%1\" will be created "
                                         "at the downstream end")
                                      .arg(toR.nodeName);

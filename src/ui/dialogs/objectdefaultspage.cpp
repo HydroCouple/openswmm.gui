@@ -1,3 +1,12 @@
+/**
+ * @file      objectdefaultspage.cpp
+ * @brief     per-object-type property defaults applied to newly created objects.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/dialogs/objectdefaultspage.h"
 
 #include "core/unitsystem.h"
@@ -12,7 +21,8 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 
-namespace {
+namespace
+{
 
 QDoubleSpinBox *makeSpin(double max, int decimals)
 {
@@ -40,9 +50,7 @@ void selectData(QComboBox *c, const QString &keyword)
 } // anonymous
 
 ObjectDefaultsPage::ObjectDefaultsPage(QWidget *parent)
-    : QWidget(parent),
-      m_us(OD::usSeed()),
-      m_si(OD::siSeed())
+    : QWidget(parent), m_us(OD::usSeed()), m_si(OD::siSeed())
 {
     buildUi();
     populateWidgets(m_us);
@@ -52,11 +60,10 @@ void ObjectDefaultsPage::buildUi()
 {
     auto *outer = new QVBoxLayout(this);
 
-    auto *intro = new QLabel(
-        tr("Property defaults applied to newly created objects (draw tools "
-           "and GIS import). Existing objects are not modified. Values are "
-           "in the display units of the selected unit system; separate "
-           "defaults are kept for US customary and SI projects."));
+    auto *intro = new QLabel(tr("Property defaults applied to newly created objects (draw tools "
+                                "and GIS import). Existing objects are not modified. Values are "
+                                "in the display units of the selected unit system; separate "
+                                "defaults are kept for US customary and SI projects."));
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
@@ -66,8 +73,8 @@ void ObjectDefaultsPage::buildUi()
     m_unitSystemCombo->addItem(tr("SI metric (CMS, m, ha)"));
     unitForm->addRow(tr("Unit system:"), m_unitSystemCombo);
     outer->addLayout(unitForm);
-    connect(m_unitSystemCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ObjectDefaultsPage::onUnitSystemSwitched);
+    connect(m_unitSystemCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ObjectDefaultsPage::onUnitSystemSwitched);
 
     auto *tabs = new QTabWidget;
     outer->addWidget(tabs, 1);
@@ -79,19 +86,18 @@ void ObjectDefaultsPage::buildUi()
 
         auto *junction = new QGroupBox(tr("Junctions"));
         auto *jf = new QFormLayout(junction);
-        jf->addRow(tr("Max depth (0 = highest crown):"),
-                   m_junctionMaxDepth = makeSpin(1e6, 3));
-        jf->addRow(tr("Initial depth:"),  m_junctionInitDepth = makeSpin(1e6, 3));
+        jf->addRow(tr("Max depth (0 = highest crown):"), m_junctionMaxDepth = makeSpin(1e6, 3));
+        jf->addRow(tr("Initial depth:"), m_junctionInitDepth = makeSpin(1e6, 3));
         jf->addRow(tr("Surcharge depth:"), m_junctionSurDepth = makeSpin(1e6, 3));
-        jf->addRow(tr("Ponded area:"),    m_junctionPondedArea = makeSpin(1e9, 2));
+        jf->addRow(tr("Ponded area:"), m_junctionPondedArea = makeSpin(1e9, 2));
         v->addWidget(junction);
 
         auto *outfall = new QGroupBox(tr("Outfalls"));
         auto *of = new QFormLayout(outfall);
-        of->addRow(tr("Type:"), m_outfallType = makeCombo({
-            {tr("Free"),   QStringLiteral("FREE")},
-            {tr("Normal"), QStringLiteral("NORMAL")},
-            {tr("Fixed"),  QStringLiteral("FIXED")}}));
+        of->addRow(tr("Type:"),
+                   m_outfallType = makeCombo({{tr("Free"), QStringLiteral("FREE")},
+                                              {tr("Normal"), QStringLiteral("NORMAL")},
+                                              {tr("Fixed"), QStringLiteral("FIXED")}}));
         of->addRow(tr("Flap gate:"), m_outfallFlapGate = new QCheckBox);
         v->addWidget(outfall);
 
@@ -99,18 +105,18 @@ void ObjectDefaultsPage::buildUi()
         auto *sf = new QFormLayout(storage);
         sf->addRow(tr("Max depth:"), m_storageMaxDepth = makeSpin(1e6, 3));
         sf->addRow(tr("Area coefficient (a):"), m_storageFuncCoeff = makeSpin(1e9, 4));
-        sf->addRow(tr("Area exponent (b):"),    m_storageFuncExponent = makeSpin(10.0, 4));
-        sf->addRow(tr("Area constant (c):"),    m_storageFuncConstant = makeSpin(1e9, 2));
-        sf->addRow(tr("Seepage rate:"),         m_storageSeepRate = makeSpin(1e6, 4));
+        sf->addRow(tr("Area exponent (b):"), m_storageFuncExponent = makeSpin(10.0, 4));
+        sf->addRow(tr("Area constant (c):"), m_storageFuncConstant = makeSpin(1e9, 2));
+        sf->addRow(tr("Seepage rate:"), m_storageSeepRate = makeSpin(1e6, 4));
         v->addWidget(storage);
 
         auto *divider = new QGroupBox(tr("Dividers"));
         auto *df = new QFormLayout(divider);
-        df->addRow(tr("Type:"), m_dividerType = makeCombo({
-            {tr("Overflow"), QStringLiteral("OVERFLOW")},
-            {tr("Cutoff"),   QStringLiteral("CUTOFF")},
-            {tr("Tabular"),  QStringLiteral("TABULAR")},
-            {tr("Weir"),     QStringLiteral("WEIR")}}));
+        df->addRow(tr("Type:"),
+                   m_dividerType = makeCombo({{tr("Overflow"), QStringLiteral("OVERFLOW")},
+                                              {tr("Cutoff"), QStringLiteral("CUTOFF")},
+                                              {tr("Tabular"), QStringLiteral("TABULAR")},
+                                              {tr("Weir"), QStringLiteral("WEIR")}}));
         v->addWidget(divider);
 
         v->addStretch(1);
@@ -124,12 +130,13 @@ void ObjectDefaultsPage::buildUi()
 
         auto *conduit = new QGroupBox(tr("Conduits"));
         auto *cf = new QFormLayout(conduit);
-        cf->addRow(tr("Cross-section shape:"), m_conduitShape = makeCombo({
-            {tr("Circular"),           QStringLiteral("CIRCULAR")},
-            {tr("Rectangular closed"), QStringLiteral("RECT_CLOSED")},
-            {tr("Rectangular open"),   QStringLiteral("RECT_OPEN")},
-            {tr("Trapezoidal"),        QStringLiteral("TRAPEZOIDAL")},
-            {tr("Triangular"),         QStringLiteral("TRIANGULAR")}}));
+        cf->addRow(tr("Cross-section shape:"),
+                   m_conduitShape =
+                       makeCombo({{tr("Circular"), QStringLiteral("CIRCULAR")},
+                                  {tr("Rectangular closed"), QStringLiteral("RECT_CLOSED")},
+                                  {tr("Rectangular open"), QStringLiteral("RECT_OPEN")},
+                                  {tr("Trapezoidal"), QStringLiteral("TRAPEZOIDAL")},
+                                  {tr("Triangular"), QStringLiteral("TRIANGULAR")}}));
         cf->addRow(tr("Geom1 (diameter / height):"), m_conduitGeom1 = makeSpin(1e4, 3));
         cf->addRow(tr("Geom2:"), m_conduitGeom2 = makeSpin(1e4, 3));
         cf->addRow(tr("Geom3:"), m_conduitGeom3 = makeSpin(1e4, 3));
@@ -140,22 +147,22 @@ void ObjectDefaultsPage::buildUi()
         m_conduitBarrels->setRange(1, 100);
         cf->addRow(tr("Barrels:"), m_conduitBarrels);
         cf->addRow(tr("Entry loss coefficient:"), m_conduitLossInlet = makeSpin(100.0, 3));
-        cf->addRow(tr("Exit loss coefficient:"),  m_conduitLossOutlet = makeSpin(100.0, 3));
+        cf->addRow(tr("Exit loss coefficient:"), m_conduitLossOutlet = makeSpin(100.0, 3));
         cf->addRow(tr("Flap gate:"), m_conduitFlapGate = new QCheckBox);
         v->addWidget(conduit);
 
         auto *pump = new QGroupBox(tr("Pumps (ideal — no curve)"));
         auto *pf = new QFormLayout(pump);
-        pf->addRow(tr("Initially on:"),   m_pumpInitStateOn = new QCheckBox);
-        pf->addRow(tr("Startup depth:"),  m_pumpStartupDepth = makeSpin(1e6, 3));
-        pf->addRow(tr("Shutoff depth:"),  m_pumpShutoffDepth = makeSpin(1e6, 3));
+        pf->addRow(tr("Initially on:"), m_pumpInitStateOn = new QCheckBox);
+        pf->addRow(tr("Startup depth:"), m_pumpStartupDepth = makeSpin(1e6, 3));
+        pf->addRow(tr("Shutoff depth:"), m_pumpShutoffDepth = makeSpin(1e6, 3));
         v->addWidget(pump);
 
         auto *orifice = new QGroupBox(tr("Orifices"));
         auto *orf = new QFormLayout(orifice);
-        orf->addRow(tr("Type:"), m_orificeType = makeCombo({
-            {tr("Side"),   QStringLiteral("SIDE")},
-            {tr("Bottom"), QStringLiteral("BOTTOM")}}));
+        orf->addRow(tr("Type:"),
+                    m_orificeType = makeCombo({{tr("Side"), QStringLiteral("SIDE")},
+                                               {tr("Bottom"), QStringLiteral("BOTTOM")}}));
         orf->addRow(tr("Diameter:"), m_orificeGeom1 = makeSpin(1e4, 3));
         orf->addRow(tr("Discharge coefficient:"), m_orificeCd = makeSpin(10.0, 3));
         orf->addRow(tr("Flap gate:"), m_orificeFlapGate = new QCheckBox);
@@ -164,12 +171,12 @@ void ObjectDefaultsPage::buildUi()
 
         auto *weir = new QGroupBox(tr("Weirs"));
         auto *wf = new QFormLayout(weir);
-        wf->addRow(tr("Type:"), m_weirType = makeCombo({
-            {tr("Transverse"),  QStringLiteral("TRANSVERSE")},
-            {tr("Side flow"),   QStringLiteral("SIDEFLOW")},
-            {tr("V-notch"),     QStringLiteral("VNOTCH")},
-            {tr("Trapezoidal"), QStringLiteral("TRAPEZOIDAL")},
-            {tr("Roadway"),     QStringLiteral("ROADWAY")}}));
+        wf->addRow(tr("Type:"),
+                   m_weirType = makeCombo({{tr("Transverse"), QStringLiteral("TRANSVERSE")},
+                                           {tr("Side flow"), QStringLiteral("SIDEFLOW")},
+                                           {tr("V-notch"), QStringLiteral("VNOTCH")},
+                                           {tr("Trapezoidal"), QStringLiteral("TRAPEZOIDAL")},
+                                           {tr("Roadway"), QStringLiteral("ROADWAY")}}));
         wf->addRow(tr("Height (geom1):"), m_weirGeom1 = makeSpin(1e4, 3));
         wf->addRow(tr("Length (geom2):"), m_weirGeom2 = makeSpin(1e4, 3));
         wf->addRow(tr("Discharge coefficient:"), m_weirCd = makeSpin(10.0, 3));
@@ -181,11 +188,12 @@ void ObjectDefaultsPage::buildUi()
 
         auto *outlet = new QGroupBox(tr("Outlets (rating Q = C·hⁿ)"));
         auto *ouf = new QFormLayout(outlet);
-        ouf->addRow(tr("Rating basis:"), m_outletRatingType = makeCombo({
-            {tr("Functional, depth"), QStringLiteral("FUNCTIONAL_DEPTH")},
-            {tr("Functional, head"),  QStringLiteral("FUNCTIONAL_HEAD")}}));
+        ouf->addRow(tr("Rating basis:"),
+                    m_outletRatingType =
+                        makeCombo({{tr("Functional, depth"), QStringLiteral("FUNCTIONAL_DEPTH")},
+                                   {tr("Functional, head"), QStringLiteral("FUNCTIONAL_HEAD")}}));
         ouf->addRow(tr("Coefficient (C):"), m_outletCoeff = makeSpin(1e6, 3));
-        ouf->addRow(tr("Exponent (n):"),    m_outletExponent = makeSpin(10.0, 3));
+        ouf->addRow(tr("Exponent (n):"), m_outletExponent = makeSpin(10.0, 3));
         ouf->addRow(tr("Flap gate:"), m_outletFlapGate = new QCheckBox);
         v->addWidget(outlet);
 
@@ -205,14 +213,14 @@ void ObjectDefaultsPage::buildUi()
         suf->addRow(tr("Slope (%):"), m_subcatchSlopePct = makeSpin(1000.0, 3));
         suf->addRow(tr("Imperviousness (%):"), m_subcatchImpervPct = makeSpin(100.0, 1));
         suf->addRow(tr("N imperv:"), m_subcatchNImperv = makeSpin(1.0, 4));
-        suf->addRow(tr("N perv:"),   m_subcatchNPerv = makeSpin(1.0, 4));
+        suf->addRow(tr("N perv:"), m_subcatchNPerv = makeSpin(1.0, 4));
         suf->addRow(tr("Depression storage, imperv:"), m_subcatchDsImperv = makeSpin(100.0, 3));
-        suf->addRow(tr("Depression storage, perv:"),   m_subcatchDsPerv = makeSpin(100.0, 3));
+        suf->addRow(tr("Depression storage, perv:"), m_subcatchDsPerv = makeSpin(100.0, 3));
         suf->addRow(tr("Zero-storage imperv (%):"), m_subcatchPctZeroImperv = makeSpin(100.0, 1));
         v->addWidget(surface);
 
-        auto *infil = new QGroupBox(
-            tr("Infiltration (the family matching the project's model is applied)"));
+        auto *infil =
+            new QGroupBox(tr("Infiltration (the family matching the project's model is applied)"));
         auto *inf = new QFormLayout(infil);
         inf->addRow(tr("Horton max rate:"), m_hortonMaxRate = makeSpin(1e4, 3));
         inf->addRow(tr("Horton min rate:"), m_hortonMinRate = makeSpin(1e4, 3));
@@ -236,10 +244,10 @@ void ObjectDefaultsPage::buildUi()
 
         auto *gage = new QGroupBox(tr("Rain gages"));
         auto *gf = new QFormLayout(gage);
-        gf->addRow(tr("Rain format:"), m_gageRainFormat = makeCombo({
-            {tr("Intensity"),  QStringLiteral("INTENSITY")},
-            {tr("Volume"),     QStringLiteral("VOLUME")},
-            {tr("Cumulative"), QStringLiteral("CUMULATIVE")}}));
+        gf->addRow(tr("Rain format:"), m_gageRainFormat = makeCombo(
+                                           {{tr("Intensity"), QStringLiteral("INTENSITY")},
+                                            {tr("Volume"), QStringLiteral("VOLUME")},
+                                            {tr("Cumulative"), QStringLiteral("CUMULATIVE")}}));
         m_gageIntervalMin = new QSpinBox;
         m_gageIntervalMin->setRange(1, 1440);
         gf->addRow(tr("Recording interval (min):"), m_gageIntervalMin);
@@ -322,71 +330,71 @@ void ObjectDefaultsPage::populateWidgets(const OD &d)
 
 void ObjectDefaultsPage::commitWidgets(OD &d) const
 {
-    d.junctionMaxDepth      = m_junctionMaxDepth->value();
-    d.junctionInitDepth     = m_junctionInitDepth->value();
-    d.junctionSurDepth      = m_junctionSurDepth->value();
-    d.junctionPondedArea    = m_junctionPondedArea->value();
-    d.outfallType           = m_outfallType->currentData().toString();
-    d.outfallFlapGate       = m_outfallFlapGate->isChecked();
-    d.storageMaxDepth       = m_storageMaxDepth->value();
-    d.storageFuncCoeff      = m_storageFuncCoeff->value();
-    d.storageFuncExponent   = m_storageFuncExponent->value();
-    d.storageFuncConstant   = m_storageFuncConstant->value();
-    d.storageSeepRate       = m_storageSeepRate->value();
-    d.dividerType           = m_dividerType->currentData().toString();
+    d.junctionMaxDepth = m_junctionMaxDepth->value();
+    d.junctionInitDepth = m_junctionInitDepth->value();
+    d.junctionSurDepth = m_junctionSurDepth->value();
+    d.junctionPondedArea = m_junctionPondedArea->value();
+    d.outfallType = m_outfallType->currentData().toString();
+    d.outfallFlapGate = m_outfallFlapGate->isChecked();
+    d.storageMaxDepth = m_storageMaxDepth->value();
+    d.storageFuncCoeff = m_storageFuncCoeff->value();
+    d.storageFuncExponent = m_storageFuncExponent->value();
+    d.storageFuncConstant = m_storageFuncConstant->value();
+    d.storageSeepRate = m_storageSeepRate->value();
+    d.dividerType = m_dividerType->currentData().toString();
 
-    d.conduitShape          = m_conduitShape->currentData().toString();
-    d.conduitGeom1          = m_conduitGeom1->value();
-    d.conduitGeom2          = m_conduitGeom2->value();
-    d.conduitGeom3          = m_conduitGeom3->value();
-    d.conduitGeom4          = m_conduitGeom4->value();
-    d.conduitRoughness      = m_conduitRoughness->value();
-    d.conduitLength         = m_conduitLength->value();
-    d.conduitBarrels        = m_conduitBarrels->value();
-    d.conduitLossInlet      = m_conduitLossInlet->value();
-    d.conduitLossOutlet     = m_conduitLossOutlet->value();
-    d.conduitFlapGate       = m_conduitFlapGate->isChecked();
-    d.pumpInitStateOn       = m_pumpInitStateOn->isChecked();
-    d.pumpStartupDepth      = m_pumpStartupDepth->value();
-    d.pumpShutoffDepth      = m_pumpShutoffDepth->value();
-    d.orificeType           = m_orificeType->currentData().toString();
-    d.orificeGeom1          = m_orificeGeom1->value();
-    d.orificeCd             = m_orificeCd->value();
-    d.orificeFlapGate       = m_orificeFlapGate->isChecked();
-    d.orificeOpenCloseRate  = m_orificeOpenCloseRate->value();
-    d.weirType              = m_weirType->currentData().toString();
-    d.weirGeom1             = m_weirGeom1->value();
-    d.weirGeom2             = m_weirGeom2->value();
-    d.weirCd                = m_weirCd->value();
-    d.weirEndContractions   = m_weirEndContractions->value();
-    d.weirFlapGate          = m_weirFlapGate->isChecked();
-    d.outletRatingType      = m_outletRatingType->currentData().toString();
-    d.outletCoeff           = m_outletCoeff->value();
-    d.outletExponent        = m_outletExponent->value();
-    d.outletFlapGate        = m_outletFlapGate->isChecked();
+    d.conduitShape = m_conduitShape->currentData().toString();
+    d.conduitGeom1 = m_conduitGeom1->value();
+    d.conduitGeom2 = m_conduitGeom2->value();
+    d.conduitGeom3 = m_conduitGeom3->value();
+    d.conduitGeom4 = m_conduitGeom4->value();
+    d.conduitRoughness = m_conduitRoughness->value();
+    d.conduitLength = m_conduitLength->value();
+    d.conduitBarrels = m_conduitBarrels->value();
+    d.conduitLossInlet = m_conduitLossInlet->value();
+    d.conduitLossOutlet = m_conduitLossOutlet->value();
+    d.conduitFlapGate = m_conduitFlapGate->isChecked();
+    d.pumpInitStateOn = m_pumpInitStateOn->isChecked();
+    d.pumpStartupDepth = m_pumpStartupDepth->value();
+    d.pumpShutoffDepth = m_pumpShutoffDepth->value();
+    d.orificeType = m_orificeType->currentData().toString();
+    d.orificeGeom1 = m_orificeGeom1->value();
+    d.orificeCd = m_orificeCd->value();
+    d.orificeFlapGate = m_orificeFlapGate->isChecked();
+    d.orificeOpenCloseRate = m_orificeOpenCloseRate->value();
+    d.weirType = m_weirType->currentData().toString();
+    d.weirGeom1 = m_weirGeom1->value();
+    d.weirGeom2 = m_weirGeom2->value();
+    d.weirCd = m_weirCd->value();
+    d.weirEndContractions = m_weirEndContractions->value();
+    d.weirFlapGate = m_weirFlapGate->isChecked();
+    d.outletRatingType = m_outletRatingType->currentData().toString();
+    d.outletCoeff = m_outletCoeff->value();
+    d.outletExponent = m_outletExponent->value();
+    d.outletFlapGate = m_outletFlapGate->isChecked();
 
-    d.subcatchArea          = m_subcatchArea->value();
-    d.subcatchWidth         = m_subcatchWidth->value();
-    d.subcatchSlopePct      = m_subcatchSlopePct->value();
-    d.subcatchImpervPct     = m_subcatchImpervPct->value();
-    d.subcatchNImperv       = m_subcatchNImperv->value();
-    d.subcatchNPerv         = m_subcatchNPerv->value();
-    d.subcatchDsImperv      = m_subcatchDsImperv->value();
-    d.subcatchDsPerv        = m_subcatchDsPerv->value();
+    d.subcatchArea = m_subcatchArea->value();
+    d.subcatchWidth = m_subcatchWidth->value();
+    d.subcatchSlopePct = m_subcatchSlopePct->value();
+    d.subcatchImpervPct = m_subcatchImpervPct->value();
+    d.subcatchNImperv = m_subcatchNImperv->value();
+    d.subcatchNPerv = m_subcatchNPerv->value();
+    d.subcatchDsImperv = m_subcatchDsImperv->value();
+    d.subcatchDsPerv = m_subcatchDsPerv->value();
     d.subcatchPctZeroImperv = m_subcatchPctZeroImperv->value();
-    d.hortonMaxRate         = m_hortonMaxRate->value();
-    d.hortonMinRate         = m_hortonMinRate->value();
-    d.hortonDecay           = m_hortonDecay->value();
-    d.hortonDryTime         = m_hortonDryTime->value();
-    d.gaSuction             = m_gaSuction->value();
-    d.gaKsat                = m_gaKsat->value();
-    d.gaImd                 = m_gaImd->value();
-    d.cnCurveNumber         = m_cnCurveNumber->value();
-    d.cnDryTime             = m_cnDryTime->value();
+    d.hortonMaxRate = m_hortonMaxRate->value();
+    d.hortonMinRate = m_hortonMinRate->value();
+    d.hortonDecay = m_hortonDecay->value();
+    d.hortonDryTime = m_hortonDryTime->value();
+    d.gaSuction = m_gaSuction->value();
+    d.gaKsat = m_gaKsat->value();
+    d.gaImd = m_gaImd->value();
+    d.cnCurveNumber = m_cnCurveNumber->value();
+    d.cnDryTime = m_cnDryTime->value();
 
-    d.gageRainFormat        = m_gageRainFormat->currentData().toString();
-    d.gageIntervalMin       = m_gageIntervalMin->value();
-    d.gageSnowCatch         = m_gageSnowCatch->value();
+    d.gageRainFormat = m_gageRainFormat->currentData().toString();
+    d.gageIntervalMin = m_gageIntervalMin->value();
+    d.gageSnowCatch = m_gageSnowCatch->value();
 }
 
 void ObjectDefaultsPage::onUnitSystemSwitched(int comboIndex)
@@ -405,8 +413,7 @@ void ObjectDefaultsPage::loadFrom(PreferencesManager *p)
     m_us = p->objectDefaults(/*si=*/false);
     m_si = p->objectDefaults(/*si=*/true);
 
-    const bool projectSi =
-        UnitSystem::instance() && UnitSystem::instance()->isSI();
+    const bool projectSi = UnitSystem::instance() && UnitSystem::instance()->isSI();
     m_showingSi = p->objectDefaultsEditingSI(projectSi);
     // Keep the combo in sync without re-triggering the switch handler's
     // commit of stale widget contents.

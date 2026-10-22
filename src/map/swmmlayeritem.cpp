@@ -1,8 +1,11 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
-/*!
- * \file   swmmlayeritem.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      swmmlayeritem.cpp
+ * @brief     one SWMMModelLayer in a single paint() call.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/swmmlayeritem.h"
@@ -33,18 +36,26 @@
 #include <QPolygonF>
 #include <QStyleOptionGraphicsItem>
 
-#include <ogr_spatialref.h>   // OGRCoordinateTransformation
+#include <ogr_spatialref.h> // OGRCoordinateTransformation
 
 #include <algorithm>
 #include <array>
 #include <QMap>
 #include <cmath>
 
-namespace {
+namespace
+{
 
 /*! Scene-space Y-flip helper — matches the legacy toScene(mx, my) in
- *  swmmmodellayer.cpp (scene Y grows downward, map Y grows upward). */
-inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
+ *  swmmmodellayer.cpp (scene Y grows downward, map Y grows upward).
+ * @param[in] mx Already projected canvas-map X.
+ * @param[in] my Already projected canvas-map Y, upward.
+ * @return (mx,-my) scene point; no CRS transformation or unit conversion.
+ */
+inline QPointF toScene(double mx, double my)
+{
+    return QPointF(mx, -my);
+}
 
 /*! Slice Z.5b-paint — extract the line-symbol-layer offsetPx from a
  *  kind's renderer. Returns 0 for renderer classes / symbol-layer
@@ -54,34 +65,55 @@ inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
  *
  *  Graduated / Categorized per-class offsets need a per-feature
  *  lookup that this paint loop doesn't have today — the named
- *  Z.5b-paint-graduated follow-up wires that in. */
-inline qreal lineOffsetForKindRenderer(
-    const OpenSWMM::Render::IFeatureRenderer *r)
+ *  Z.5b-paint-graduated follow-up wires that in.
+ * @param[in] r Optional borrowed renderer inspected with dynamic_cast, not mutated.
+ * @return offsetPx from FIRST SingleSymbol style layer only when SimpleLine/MarkerLine;0null/other
+ *   renderer/empty/other first-layer kind. No per-feature offset evaluation here; paint caller
+ *   separately handles override caches.
+ */
+inline qreal lineOffsetForKindRenderer(const OpenSWMM::Render::IFeatureRenderer *r)
 {
     using namespace OpenSWMM::Render;
     const auto *single = dynamic_cast<const SingleSymbolRenderer *>(r);
-    if (!single) return 0.0;
+    if (!single)
+        return 0.0;
     const SymbolStyle &style = single->symbol();
-    if (style.layers.isEmpty()) return 0.0;
+    if (style.layers.isEmpty())
+        return 0.0;
     const SymbolLayer &layer = style.layers.first();
-    if (layer.kind != SymbolLayerKind::SimpleLine
-        && layer.kind != SymbolLayerKind::MarkerLine) return 0.0;
+    if (layer.kind != SymbolLayerKind::SimpleLine && layer.kind != SymbolLayerKind::MarkerLine)
+        return 0.0;
     return LineSymbolLayerSpec::fromSymbolLayer(layer).offsetPx;
 }
 
 /*! Marker radius is a pen/brush-sized dot painted in scene units at a
  *  cosmetic pixel-size. Kept small so nodes stay visually compact at
- *  typical zoom; symbology->size is the designer-set marker diameter. */
-inline double markerRadius(const SWMMElementSymbol &s) { return s.size * 0.5; }
+ *  typical zoom; symbology->size is the designer-set marker diameter.
+ * @param[in] s Borrowed legacy symbol whose size is desired pixel diameter.
+ * @return Raw size/2, no clamp/finite validation. Caller scales to scene/device units as
+ *   appropriate, no painter/model mutation.
+ */
+inline double markerRadius(const SWMMElementSymbol &s)
+{
+    return s.size * 0.5;
+}
 
 /*! Shape-driven node glyph drawer. Caller has already pushed the brush
  *  and pen onto \p p. Hot shapes (the four legacy SWMM kinds) are
  *  inlined to avoid the brush/pen push that drawMarkerShape() does
  *  internally; the remaining canonical shapes route through
  *  drawMarkerShape() so we cover all 13 entries in the MarkerShape
- *  enum with one code path. */
-void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
-                   OpenSWMM::Render::MarkerShape shape)
+ *  enum with one code path.
+ * @param[in] p Required active painter with desired pen/brush already installed.
+ * @param[in] c Marker center in current painter coordinate frame.
+ * @param[in] r Raw radius in same coordinates; caller supplies nonnegative finite value.
+ * @param[in] shape Canonical marker enum; four common shapes drawn inline, others shared marker
+ *   helper.
+ * @note Circle/square/diamond/legacy up-triangle body only; cold helper receives diameter2r. No
+ *   selection/engine lookup or rotation. Caller owns painter save/restore; primitive paths do not
+ *   restore any externally changed state.
+ */
+void drawNodeGlyph(QPainter *p, const QPointF &c, double r, OpenSWMM::Render::MarkerShape shape)
 {
     using Shape = OpenSWMM::Render::MarkerShape;
     switch (shape) {
@@ -93,9 +125,7 @@ void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
         return;
     case Shape::Diamond: {
         QPolygonF dia;
-        dia << QPointF(c.x(),     c.y() - r)
-            << QPointF(c.x() + r, c.y())
-            << QPointF(c.x(),     c.y() + r)
+        dia << QPointF(c.x(), c.y() - r) << QPointF(c.x() + r, c.y()) << QPointF(c.x(), c.y() + r)
             << QPointF(c.x() - r, c.y());
         p->drawPolygon(dia);
         return;
@@ -105,9 +135,8 @@ void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
         // glyph; kept inline so the common kind paths don't churn
         // through drawMarkerShape's save/restore.
         QPolygonF tri;
-        tri << QPointF(c.x(),         c.y() - r)
-            << QPointF(c.x() - r,     c.y() + r * 0.8)
-            << QPointF(c.x() + r,     c.y() + r * 0.8);
+        tri << QPointF(c.x(), c.y() - r) << QPointF(c.x() - r, c.y() + r * 0.8)
+            << QPointF(c.x() + r, c.y() + r * 0.8);
         p->drawPolygon(tri);
         return;
     }
@@ -120,16 +149,26 @@ void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
     // the caller's brush + pen via painter->save/restore; that's a
     // small extra cost we only pay when the user picks one of these
     // shapes explicitly.
-    OpenSWMM::Render::drawMarkerShape(p, shape, c, 2 * r,
-                                       p->brush(), p->pen());
+    OpenSWMM::Render::drawMarkerShape(p, shape, c, 2 * r, p->brush(), p->pen());
 }
 
 // Slice BI Phase 8.13.8-mini (2026-05-24) — flow-direction arrow head.
 // Drawn at the midpoint of the link's visible polyline, rotated to the
 // polyline tangent there, in scene-space units (the caller scales the
 // pixel size into scene units via invViewScale).
-void drawFlowArrow(QPainter *p, const QPointF &c, double angleRad,
-                   double lenScene, double widthScene, const QColor &fill)
+/**
+ * @param[in] p Required active painter, caller wraps state and chooses scene/device frame.
+ * @param[in] c Arrow anchor/center in current painter coordinates.
+ * @param[in] angleRad Counterclockwise mathematical angle radians in current frame.
+ * @param[in] lenScene Arrow length in same frame, finite positive expected.
+ * @param[in] widthScene Full width in same frame; nonpositive uses1.2×length.
+ * @param[in] fill Solid triangle fill/one-unit outline colour.
+ * @note Rotates local+x triangle about center and draws it; overwrites painter brush/pen without
+ *   save/restore, no geometry validation or model mutation. Despite parameter names caller may pass
+ *   device pixels.
+ */
+void drawFlowArrow(QPainter *p, const QPointF &c, double angleRad, double lenScene,
+                   double widthScene, const QColor &fill)
 {
     // Arrowhead pointing along +x in local frame, then rotated/translated.
     // Triangle vertices (tip ahead, two tail corners). Length (along the
@@ -141,13 +180,10 @@ void drawFlowArrow(QPainter *p, const QPointF &c, double angleRad,
     const double sn = std::sin(angleRad);
 
     auto xform = [&](double lx, double ly) {
-        return QPointF(c.x() + lx * cs - ly * sn,
-                       c.y() + lx * sn + ly * cs);
+        return QPointF(c.x() + lx * cs - ly * sn, c.y() + lx * sn + ly * cs);
     };
     QPolygonF tri;
-    tri << xform(lenScene * 0.5,  0.0)
-        << xform(-lenScene * 0.5,  w)
-        << xform(-lenScene * 0.5, -w);
+    tri << xform(lenScene * 0.5, 0.0) << xform(-lenScene * 0.5, w) << xform(-lenScene * 0.5, -w);
 
     p->setBrush(QBrush(fill));
     p->setPen(QPen(fill, 1.0));
@@ -157,19 +193,32 @@ void drawFlowArrow(QPainter *p, const QPointF &c, double angleRad,
 // Walk a polyline (interleaved xy doubles, count vertices) and return
 // the midpoint plus the local tangent angle. Returns true on success;
 // false when the polyline has < 2 vertices or is degenerate.
-bool polylineMidpoint(const double *xy, uint32_t count,
-                      QPointF *midOut, double *angleOut)
+/**
+ * @param[in] xy Optional borrowed interleaved double XY array with2*countentries, prepared scene
+ *   frame.
+ * @param[in] count Vertex count,>=2for eligible polyline.
+ * @param[out] midOut Required nonnull destination on success path; untouched on early false.
+ * @param[out] angleOut Required nonnull tangent angle radians in supplied coordinate frame;
+ *   untouched on early false.
+ * @return False null XY/count<2/nonpositive summed Euclidean length; true midpoint at half
+ *   arclength and containing segment tangent. If traversal cannot find segment falls back endpoint
+ *   midpoint/tangent. Nonfinite coordinates not rejected and can produce true/nonfinite fallback;
+ *   no source mutation.
+ */
+bool polylineMidpoint(const double *xy, uint32_t count, QPointF *midOut, double *angleOut)
 {
-    if (count < 2 || !xy) return false;
+    if (count < 2 || !xy)
+        return false;
 
     // Total length pass.
     double total = 0.0;
     for (uint32_t i = 1; i < count; ++i) {
-        const double dx = xy[i * 2]     - xy[(i - 1) * 2];
+        const double dx = xy[i * 2] - xy[(i - 1) * 2];
         const double dy = xy[i * 2 + 1] - xy[(i - 1) * 2 + 1];
         total += std::hypot(dx, dy);
     }
-    if (total <= 0.0) return false;
+    if (total <= 0.0)
+        return false;
 
     // Find the segment that straddles the half-length mark.
     const double half = total * 0.5;
@@ -182,17 +231,15 @@ bool polylineMidpoint(const double *xy, uint32_t count,
         const double segLen = std::hypot(x1 - x0, y1 - y0);
         if (acc + segLen >= half) {
             const double t = (segLen > 0.0) ? (half - acc) / segLen : 0.0;
-            *midOut   = QPointF(x0 + t * (x1 - x0), y0 + t * (y1 - y0));
+            *midOut = QPointF(x0 + t * (x1 - x0), y0 + t * (y1 - y0));
             *angleOut = std::atan2(y1 - y0, x1 - x0);
             return true;
         }
         acc += segLen;
     }
     // Fallback (shouldn't reach here when total > 0).
-    *midOut   = QPointF((xy[0] + xy[(count - 1) * 2]) * 0.5,
-                        (xy[1] + xy[(count - 1) * 2 + 1]) * 0.5);
-    *angleOut = std::atan2(xy[(count - 1) * 2 + 1] - xy[1],
-                           xy[(count - 1) * 2]     - xy[0]);
+    *midOut = QPointF((xy[0] + xy[(count - 1) * 2]) * 0.5, (xy[1] + xy[(count - 1) * 2 + 1]) * 0.5);
+    *angleOut = std::atan2(xy[(count - 1) * 2 + 1] - xy[1], xy[(count - 1) * 2] - xy[0]);
     return true;
 }
 
@@ -203,13 +250,12 @@ bool polylineMidpoint(const double *xy, uint32_t count,
 // ---------------------------------------------------------------------------
 
 SWMMLayerItem::SWMMLayerItem(SWMMModelLayer *layer, QGraphicsItem *parent)
-    : QGraphicsItem(parent)
-    , m_layer(layer)
+    : QGraphicsItem(parent), m_layer(layer)
 {
     // Selection / focus / hover are handled by the layer itself, not the
     // scene's BSP. This item is logically one big canvas-overlay.
-    setFlag(QGraphicsItem::ItemIsSelectable,    false);
-    setFlag(QGraphicsItem::ItemIsMovable,       false);
+    setFlag(QGraphicsItem::ItemIsSelectable, false);
+    setFlag(QGraphicsItem::ItemIsMovable, false);
     // exposedRect is set when paint() is called — we rely on it for
     // viewport culling so we never iterate the full SoA on a partial
     // redraw.
@@ -227,7 +273,10 @@ SWMMLayerItem::SWMMLayerItem(SWMMModelLayer *layer, QGraphicsItem *parent)
 void SWMMLayerItem::refreshBoundingRect()
 {
     prepareGeometryChange();
-    if (!m_layer) { m_boundingRect = QRectF(); return; }
+    if (!m_layer) {
+        m_boundingRect = QRectF();
+        return;
+    }
 
     const auto applyTransform = [this](double &x, double &y) {
         if (m_layer->m_transform)
@@ -237,12 +286,18 @@ void SWMMLayerItem::refreshBoundingRect()
     QRectF r;
     bool first = true;
     auto extend = [&](const QPointF &p) {
-        if (first) { r = QRectF(p, QSizeF(0, 0)); first = false; }
-        else {
-            if (p.x() < r.left())   r.setLeft(p.x());
-            if (p.x() > r.right())  r.setRight(p.x());
-            if (p.y() < r.top())    r.setTop(p.y());
-            if (p.y() > r.bottom()) r.setBottom(p.y());
+        if (first) {
+            r = QRectF(p, QSizeF(0, 0));
+            first = false;
+        } else {
+            if (p.x() < r.left())
+                r.setLeft(p.x());
+            if (p.x() > r.right())
+                r.setRight(p.x());
+            if (p.y() < r.top())
+                r.setTop(p.y());
+            if (p.y() > r.bottom())
+                r.setBottom(p.y());
         }
     };
 
@@ -251,54 +306,66 @@ void SWMMLayerItem::refreshBoundingRect()
     // here doubled the projection cost of every open. Read the caches instead
     // — but only when they are demonstrably in step with the SoA arrays, since
     // this also runs from the item ctor. Otherwise fall back to computing.
-    const auto &nodePts   = m_layer->m_nodeScenePts;
-    const auto &gagePts   = m_layer->m_gageScenePts;
+    const auto &nodePts = m_layer->m_nodeScenePts;
+    const auto &gagePts = m_layer->m_gageScenePts;
     const auto &linkBoxes = m_layer->m_linkSceneBBoxes;
     const auto &catchBoxes = m_layer->m_catchSceneBBoxes;
-    const bool cachesFresh =
-           nodePts.size()    == m_layer->m_nodes.size()
-        && gagePts.size()    == m_layer->m_gages.size()
-        && linkBoxes.size()  == m_layer->m_links.size()
-        && catchBoxes.size() == m_layer->m_catchments.size();
+    const bool cachesFresh = nodePts.size() == m_layer->m_nodes.size() &&
+                             gagePts.size() == m_layer->m_gages.size() &&
+                             linkBoxes.size() == m_layer->m_links.size() &&
+                             catchBoxes.size() == m_layer->m_catchments.size();
 
     if (cachesFresh) {
-        for (const QPointF &p : nodePts) extend(p);
-        for (const QPointF &p : gagePts) extend(p);
+        for (const QPointF &p : nodePts)
+            extend(p);
+        for (const QPointF &p : gagePts)
+            extend(p);
         // Link boxes span the FULL polyline (endpoints included), a superset of
         // the interior-vertex-only loop below; the endpoints are nodes, already
         // covered, so the union is unchanged.
         for (const QRectF &b : linkBoxes) {
-            if (b.isNull()) continue;
-            extend(b.topLeft()); extend(b.bottomRight());
+            if (b.isNull())
+                continue;
+            extend(b.topLeft());
+            extend(b.bottomRight());
         }
         for (const QRectF &b : catchBoxes) {
-            if (b.isNull()) continue;
-            extend(b.topLeft()); extend(b.bottomRight());
+            if (b.isNull())
+                continue;
+            extend(b.topLeft());
+            extend(b.bottomRight());
         }
     } else {
         for (const auto &n : m_layer->m_nodes) {
-            double x = n.x, y = n.y; applyTransform(x, y);
+            double x = n.x, y = n.y;
+            applyTransform(x, y);
             extend(toScene(x, y));
         }
         for (const auto &g : m_layer->m_gages) {
-            double x = g.x, y = g.y; applyTransform(x, y);
+            double x = g.x, y = g.y;
+            applyTransform(x, y);
             extend(toScene(x, y));
         }
         for (const auto &l : m_layer->m_links) {
             for (QPointF v : l.vertices) {
-                double x = v.x(), y = v.y(); applyTransform(x, y);
+                double x = v.x(), y = v.y();
+                applyTransform(x, y);
                 extend(toScene(x, y));
             }
         }
         for (const auto &c : m_layer->m_catchments) {
             for (QPointF v : c.vertices) {
-                double x = v.x(), y = v.y(); applyTransform(x, y);
+                double x = v.x(), y = v.y();
+                applyTransform(x, y);
                 extend(toScene(x, y));
             }
         }
     }
 
-    if (first) { m_boundingRect = QRectF(); return; }
+    if (first) {
+        m_boundingRect = QRectF();
+        return;
+    }
     // Pad by a conservative marker size so boundingRect() encloses the
     // dot halos even when a node sits exactly on the extent corner.
     const double pad = 16.0;
@@ -309,13 +376,14 @@ void SWMMLayerItem::refreshBoundingRect()
 // Paint
 // ---------------------------------------------------------------------------
 
-void SWMMLayerItem::paint(QPainter *painter,
-                          const QStyleOptionGraphicsItem *option,
+void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                           QWidget *widget)
 {
-    if (!m_layer || !m_layer->isVisible()) return;
+    if (!m_layer || !m_layer->isVisible())
+        return;
 
-    QElapsedTimer t_total; t_total.start();
+    QElapsedTimer t_total;
+    t_total.start();
     painter->setOpacity(m_layer->opacity());
 
     const QRectF exposed = option->exposedRect;
@@ -326,18 +394,14 @@ void SWMMLayerItem::paint(QPainter *painter,
     // even on exceptional exits from the paint loop below.
     painter->save();
     {
-        const auto clip = OpenSWMM::Render::resolveMaskClip(
-            m_layer, m_layer->maskSpec());
+        const auto clip = OpenSWMM::Render::resolveMaskClip(m_layer, m_layer->maskSpec());
         if (clip.ok && !clip.path.isEmpty()) {
             if (clip.mode == OpenSWMM::Render::MaskMode::ClipInside) {
                 painter->setClipPath(clip.path, Qt::IntersectClip);
             } else {
                 QPainterPath all;
-                all.addRect(exposed.isNull()
-                                ? boundingRect()
-                                : exposed);
-                painter->setClipPath(all.subtracted(clip.path),
-                                      Qt::IntersectClip);
+                all.addRect(exposed.isNull() ? boundingRect() : exposed);
+                painter->setClipPath(all.subtracted(clip.path), Qt::IntersectClip);
             }
         }
     }
@@ -345,15 +409,15 @@ void SWMMLayerItem::paint(QPainter *painter,
     // QString hashing on the paint hot path. Maintained by
     // SWMMModelLayer::rebuildFlagArrays() on selection / visibility
     // mutations. The `selected` count is still used for logging.
-    const QStringList   &selected     = m_layer->m_selectedNames;
-    const auto &nodeSel   = m_layer->m_nodeSelectedFlag;
-    const auto &linkSel   = m_layer->m_linkSelectedFlag;
-    const auto &catchSel  = m_layer->m_catchSelectedFlag;
-    const auto &gageSel   = m_layer->m_gageSelectedFlag;
-    const auto &nodeHid   = m_layer->m_nodeHiddenFlag;
-    const auto &linkHid   = m_layer->m_linkHiddenFlag;
-    const auto &catchHid  = m_layer->m_catchHiddenFlag;
-    const auto &gageHid   = m_layer->m_gageHiddenFlag;
+    const QStringList &selected = m_layer->m_selectedNames;
+    const auto &nodeSel = m_layer->m_nodeSelectedFlag;
+    const auto &linkSel = m_layer->m_linkSelectedFlag;
+    const auto &catchSel = m_layer->m_catchSelectedFlag;
+    const auto &gageSel = m_layer->m_gageSelectedFlag;
+    const auto &nodeHid = m_layer->m_nodeHiddenFlag;
+    const auto &linkHid = m_layer->m_linkHiddenFlag;
+    const auto &catchHid = m_layer->m_catchHiddenFlag;
+    const auto &gageHid = m_layer->m_gageHiddenFlag;
     const qint64 t_setup = t_total.elapsed();
 
     // View scale recovery. Node / gage glyphs are sized in PIXELS (so the
@@ -364,7 +428,7 @@ void SWMMLayerItem::paint(QPainter *painter,
     // the view's transform paints us, the result back-scales into the
     // original pixel diameter. Guarded against zero to keep paint safe
     // during the first paint before the view has set up its transform.
-    const qreal m11         = painter->transform().m11();
+    const qreal m11 = painter->transform().m11();
     const qreal invViewScale = (m11 > 0.0) ? (1.0 / m11) : 1.0;
 
     // Scene-space coords are precomputed in SWMMModelLayer::rebuildSceneCoords
@@ -382,18 +446,18 @@ void SWMMLayerItem::paint(QPainter *painter,
     const bool qsgGages = m_layer->qsgOwnsKind(SWMMModelLayer::QsgGages);
 
     // ---------------------------------------------------------------- Subcatchments
-    if (!qsgCatch && m_layer->m_showSubcatchments)
-    {
+    if (!qsgCatch && m_layer->m_showSubcatchments) {
         const auto &sym = m_layer->m_subcatchSym;
         // Per-kind opacity for subcatchments.
         const qreal kindOp = m_layer->categoryOpacity(SWMMModelLayer::CatSubcatchments);
         auto fade = [kindOp](QColor c) {
-            if (kindOp < 1.0 && c.isValid()) c.setAlphaF(c.alphaF() * kindOp);
+            if (kindOp < 1.0 && c.isValid())
+                c.setAlphaF(c.alphaF() * kindOp);
             return c;
         };
         QPen pen(fade(sym.outlineColor), sym.outlineWidth);
         pen.setCosmetic(true);
-        pen.setCapStyle (Qt::RoundCap);
+        pen.setCapStyle(Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
 
         painter->setPen(pen);
@@ -402,33 +466,31 @@ void SWMMLayerItem::paint(QPainter *painter,
         // Phase 8.13.6.4 — when subcatchments use a non-Single renderer,
         // fall through to per-feature setBrush so each polygon gets its
         // own bin / category colour. drawPolygon is already per-feature.
-        const bool catchOverrides =
-            m_layer->kindUsesOverrides(SWMMModelLayer::CatSubcatchments);
+        const bool catchOverrides = m_layer->kindUsesOverrides(SWMMModelLayer::CatSubcatchments);
 
-        const auto &cps    = m_layer->m_catchScenePts;
+        const auto &cps = m_layer->m_catchScenePts;
         const auto &cboxes = m_layer->m_catchSceneBBoxes;
-        for (int i = 0; i < m_layer->m_catchments.size(); ++i)
-        {
-            if (size_t(i) < catchHid.size() && catchHid[i]) continue;
-            if (i >= cps.size() || cps[i].isEmpty()) continue;
+        for (int i = 0; i < m_layer->m_catchments.size(); ++i) {
+            if (size_t(i) < catchHid.size() && catchHid[i])
+                continue;
+            if (i >= cps.size() || cps[i].isEmpty())
+                continue;
             // Viewport cull against the precomputed scene-space bbox.
-            if (!exposed.isNull() && i < cboxes.size()
-                && !exposed.intersects(cboxes[i]))
+            if (!exposed.isNull() && i < cboxes.size() && !exposed.intersects(cboxes[i]))
                 continue;
 
             const QPolygonF poly(cps[i]);
             const bool sel = size_t(i) < catchSel.size() && catchSel[i];
             if (sel) {
                 painter->setBrush(
-                    PreferencesManager::instance()->selectionBrush(
-                        QStringLiteral("subcatchment")));
+                    PreferencesManager::instance()->selectionBrush(QStringLiteral("subcatchment")));
             } else if (catchOverrides) {
-                const QColor col = m_layer->featureColor(
-                    SWMMModelLayer::CatSubcatchments, i);
+                const QColor col = m_layer->featureColor(SWMMModelLayer::CatSubcatchments, i);
                 painter->setBrush(QBrush(fade(col.isValid() ? col : sym.fillColor)));
             }
             painter->drawPolygon(poly);
-            if (sel || catchOverrides) painter->setBrush(QBrush(fade(sym.fillColor)));
+            if (sel || catchOverrides)
+                painter->setBrush(QBrush(fade(sym.fillColor)));
         }
 
         // ── Outlet connector lines: PIA → outlet node / subcatchment ──
@@ -476,8 +538,7 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Links
-    if (!qsgLinks && m_layer->m_showLinks)
-    {
+    if (!qsgLinks && m_layer->m_showLinks) {
         // Per-link-type pen comes from PreferencesManager so colour,
         // width and dash are user-tunable from the
         // Preferences dialog's Rendering page. Outlets (case 4) now
@@ -496,23 +557,30 @@ void SWMMLayerItem::paint(QPainter *painter,
             switch (linkType) {
             case 1:
                 pen = prefs->linkPen(QStringLiteral("pump"));
-                sym = m_layer->pumpSymbol();    break;
+                sym = m_layer->pumpSymbol();
+                break;
             case 2:
                 pen = prefs->linkPen(QStringLiteral("orifice"));
-                sym = m_layer->orificeSymbol(); break;
+                sym = m_layer->orificeSymbol();
+                break;
             case 3:
                 pen = prefs->linkPen(QStringLiteral("weir"));
-                sym = m_layer->weirSymbol();    break;
+                sym = m_layer->weirSymbol();
+                break;
             case 4:
                 pen = prefs->linkPen(QStringLiteral("outlet"));
-                hasSym = false;                 break;  // QSG parity
+                hasSym = false;
+                break; // QSG parity
             default:
                 pen = prefs->linkPen(QStringLiteral("conduit"));
-                sym = m_layer->conduitSymbol(); break;
+                sym = m_layer->conduitSymbol();
+                break;
             }
             if (hasSym) {
-                if (sym.fillColor.isValid()) pen.setColor(sym.fillColor);
-                if (sym.size > 0.0)          pen.setWidthF(sym.size);
+                if (sym.fillColor.isValid())
+                    pen.setColor(sym.fillColor);
+                if (sym.size > 0.0)
+                    pen.setWidthF(sym.size);
             }
             OpenSWMM::Render::configureLinkStrokePen(pen);
             return pen;
@@ -528,11 +596,8 @@ void SWMMLayerItem::paint(QPainter *painter,
         // buckets per kind). Selected links don't use override colours
         // (the selection halo wins).
         constexpr std::array<SWMMModelLayer::Category, 5> linkTypeToCategory = {
-            SWMMModelLayer::CatConduits,
-            SWMMModelLayer::CatPumps,
-            SWMMModelLayer::CatOrifices,
-            SWMMModelLayer::CatWeirs,
-            SWMMModelLayer::CatOutlets,
+            SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,   SWMMModelLayer::CatOrifices,
+            SWMMModelLayer::CatWeirs,    SWMMModelLayer::CatOutlets,
         };
         std::array<bool, 5> typeUsesOverrides{};
         for (int t = 0; t < 5; ++t)
@@ -557,25 +622,25 @@ void SWMMLayerItem::paint(QPainter *painter,
         // path runs with the type-uniform offset from the SingleSymbol
         // renderer.
         std::array<qreal, 5> offsetByType{};
-        std::array<bool, 5>  typeHasPerFeatureOffset{};
+        std::array<bool, 5> typeHasPerFeatureOffset{};
         bool anyTypeOffset = false;
         for (int t = 0; t < 5; ++t) {
-            const qreal px = lineOffsetForKindRenderer(
-                m_layer->kindRenderer(linkTypeToCategory[t]));
+            const qreal px =
+                lineOffsetForKindRenderer(m_layer->kindRenderer(linkTypeToCategory[t]));
             offsetByType[t] = px * invViewScale;
-            typeHasPerFeatureOffset[t] =
-                m_layer->kindHasAnyOffset(linkTypeToCategory[t]);
-            if (px != 0.0 || typeHasPerFeatureOffset[t]) anyTypeOffset = true;
+            typeHasPerFeatureOffset[t] = m_layer->kindHasAnyOffset(linkTypeToCategory[t]);
+            if (px != 0.0 || typeHasPerFeatureOffset[t])
+                anyTypeOffset = true;
         }
 
         // Phase A.3: consume the flat link scene-coord buffer. One
         // contiguous std::vector<float> of (x, y) pairs, with per-link
         // (offset, count) parallel arrays. Cache-friendly, and the
         // exact buffer the GL pipeline (Phase B) will hand to a VBO.
-        const double   *flat    = m_layer->m_linkSceneFlat.data();
+        const double *flat = m_layer->m_linkSceneFlat.data();
         const uint32_t *offsets = m_layer->m_linkVertexOffset.data();
-        const uint32_t *counts  = m_layer->m_linkVertexCount.data();
-        const int       nLinks  = m_layer->m_links.size();
+        const uint32_t *counts = m_layer->m_linkVertexCount.data();
+        const int nLinks = m_layer->m_links.size();
 
         // Spatial-index cull (Phase A.1, docs/RENDERING_5M_PLAN.md). At
         // zoomed-in views the grid returns a small subset of links; at
@@ -584,22 +649,24 @@ void SWMMLayerItem::paint(QPainter *painter,
         QVector<int> visible;
         if (!exposed.isNull() && !m_layer->m_linkGrid.isEmpty())
             visible = m_layer->m_linkGrid.query(exposed);
-        const bool useGrid = !visible.isEmpty()
-                          || (!exposed.isNull() && !m_layer->m_linkGrid.isEmpty());
+        const bool useGrid =
+            !visible.isEmpty() || (!exposed.isNull() && !m_layer->m_linkGrid.isEmpty());
         const int total = useGrid ? visible.size() : nLinks;
 
-        for (int k = 0; k < total; ++k)
-        {
+        for (int k = 0; k < total; ++k) {
             const int i = useGrid ? visible[k] : k;
-            if (i < 0 || i >= nLinks) continue;
-            if (size_t(i) < linkHid.size() && linkHid[i]) continue;
+            if (i < 0 || i >= nLinks)
+                continue;
+            if (size_t(i) < linkHid.size() && linkHid[i])
+                continue;
             const uint32_t cnt = counts[i];
-            if (cnt < 2) continue;
+            if (cnt < 2)
+                continue;
             const uint32_t off = offsets[i];
 
-            const int type = (m_layer->m_links[i].linkType >= 0
-                           && m_layer->m_links[i].linkType < 5)
-                           ? m_layer->m_links[i].linkType : 0;
+            const int type = (m_layer->m_links[i].linkType >= 0 && m_layer->m_links[i].linkType < 5)
+                                 ? m_layer->m_links[i].linkType
+                                 : 0;
             const bool sel = size_t(i) < linkSel.size() && linkSel[i];
             const double *p = flat + size_t(off) * 2;
 
@@ -617,8 +684,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             qreal offsetScene = 0.0;
             if (anyTypeOffset) {
                 if (typeHasPerFeatureOffset[size_t(type)]) {
-                    const double px = m_layer->featureOffset(
-                        linkTypeToCategory[size_t(type)], i);
+                    const double px = m_layer->featureOffset(linkTypeToCategory[size_t(type)], i);
                     offsetScene = px * invViewScale;
                 } else {
                     offsetScene = offsetByType[size_t(type)];
@@ -630,15 +696,15 @@ void SWMMLayerItem::paint(QPainter *painter,
                 input.reserve(int(cnt));
                 for (uint32_t j = 0; j < cnt; ++j)
                     input.append(QPointF(p[j * 2], p[j * 2 + 1]));
-                offsetPoly =
-                    OpenSWMM::Render::offsetPolyline(input, offsetScene);
+                offsetPoly = OpenSWMM::Render::offsetPolyline(input, offsetScene);
             }
 
             // Keep each link as a connected subpath. Independent QLineFs
             // have end caps at every interior vertex and cannot form joins.
             auto emitPath = [&](QPainterPath &target) {
                 if (offsetScene != 0.0) {
-                    if (offsetPoly.isEmpty()) return;
+                    if (offsetPoly.isEmpty())
+                        return;
                     target.moveTo(offsetPoly.front());
                     for (int j = 1; j < offsetPoly.size(); ++j)
                         target.lineTo(offsetPoly[j]);
@@ -658,13 +724,13 @@ void SWMMLayerItem::paint(QPainter *painter,
             } else if (typeUsesOverrides[size_t(type)]) {
                 const auto cat = linkTypeToCategory[size_t(type)];
                 const QColor col = m_layer->featureColor(cat, i);
-                const QRgb rgba  = col.isValid() ? col.rgba() : 0u;
+                const QRgb rgba = col.isValid() ? col.rgba() : 0u;
                 // Line archetypes carry the renderer's width axis in the size
                 // channel (see SWMMModelLayer::rebuildKindFeatureColors).
                 // Quantise to 1/16 px so near-equal widths still share a pen.
                 const double wOv = m_layer->featureSize(cat, i);
-                const quint32 wq = (wOv > 0.0)
-                    ? quint32(std::lround(std::min(wOv, 256.0) * 16.0)) : 0u;
+                const quint32 wq =
+                    (wOv > 0.0) ? quint32(std::lround(std::min(wOv, 256.0) * 16.0)) : 0u;
                 const quint64 key = (quint64(wq) << 32) | quint64(rgba);
                 emitPath(overridePathsByType[size_t(type)][key]);
             } else {
@@ -681,16 +747,17 @@ void SWMMLayerItem::paint(QPainter *painter,
         // the QSG renderer already uses.
         const QTransform xf = painter->transform();
         auto drawDevicePath = [&](const QPainterPath &path) {
-            if (!path.isEmpty()) painter->drawPath(xf.map(path));
+            if (!path.isEmpty())
+                painter->drawPath(xf.map(path));
         };
         painter->save();
-        painter->resetTransform();   // draw link strokes in device space
+        painter->resetTransform(); // draw link strokes in device space
         for (int t = 0; t < 5; ++t) {
             // Per-kind (sub-layer) opacity for this link type.
-            const qreal kindOp =
-                m_layer->categoryOpacity(linkTypeToCategory[size_t(t)]);
+            const qreal kindOp = m_layer->categoryOpacity(linkTypeToCategory[size_t(t)]);
             auto fade = [kindOp](QColor c) {
-                if (kindOp < 1.0 && c.isValid()) c.setAlphaF(c.alphaF() * kindOp);
+                if (kindOp < 1.0 && c.isValid())
+                    c.setAlphaF(c.alphaF() * kindOp);
                 return c;
             };
             // Legacy fast path — single pen per kind.
@@ -728,19 +795,20 @@ void SWMMLayerItem::paint(QPainter *painter,
         // beyond the base line regardless of the link's own width. The
         // link's round caps and mitred joins are inherited so the halo
         // follows the same continuous path through interior vertices.
-        const QPen selPen = PreferencesManager::instance()->selectionPen(
-            QStringLiteral("link"));
+        const QPen selPen = PreferencesManager::instance()->selectionPen(QStringLiteral("link"));
         for (int t = 0; t < 5; ++t) {
-            if (selPathsByType[size_t(t)].isEmpty()) continue;
+            if (selPathsByType[size_t(t)].isEmpty())
+                continue;
             QPen hi = linkPenForType(t);
             hi.setColor(selPen.color());
             hi.setWidthF(hi.widthF() + selPen.widthF());
-            if (selPen.style() != Qt::SolidLine) hi.setStyle(selPen.style());
+            if (selPen.style() != Qt::SolidLine)
+                hi.setStyle(selPen.style());
             hi.setCosmetic(true);
             painter->setPen(hi);
             drawDevicePath(selPathsByType[size_t(t)]);
         }
-        painter->restore();   // back to scene transform
+        painter->restore(); // back to scene transform
 
         // ── Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24) ──
         // For each link kind whose SWMMElementSymbol::showArrows is true,
@@ -750,63 +818,68 @@ void SWMMLayerItem::paint(QPainter *painter,
         // short-circuit on swmm_link_get_flow > 0 (Phase 8.13.8-α —
         // sidesteps the BI.2 expression DSL prereq). Arrows draw last
         // so they overlay both the base link and the selection halo.
-        struct ArrowCfg { const SWMMElementSymbol *sym; bool enabled; };
+        struct ArrowCfg {
+            const SWMMElementSymbol *sym;
+            bool enabled;
+        };
         // Slice FX.1 — Outlets now have their own m_outletSym (was aliased
         // to m_conduitSym with enabled=false, which made Outlets uncontrollable).
         const std::array<ArrowCfg, 5> arrowCfg = {{
             {&m_layer->m_conduitSym, m_layer->m_conduitSym.showArrows},
-            {&m_layer->m_pumpSym,    m_layer->m_pumpSym.showArrows   },
+            {&m_layer->m_pumpSym, m_layer->m_pumpSym.showArrows},
             {&m_layer->m_orificeSym, m_layer->m_orificeSym.showArrows},
-            {&m_layer->m_weirSym,    m_layer->m_weirSym.showArrows   },
-            {&m_layer->m_outletSym,  m_layer->m_outletSym.showArrows },
+            {&m_layer->m_weirSym, m_layer->m_weirSym.showArrows},
+            {&m_layer->m_outletSym, m_layer->m_outletSym.showArrows},
         }};
         const bool anyArrows = std::any_of(arrowCfg.begin(), arrowCfg.end(),
                                            [](const ArrowCfg &c) { return c.enabled; });
-        if (anyArrows)
-        {
+        if (anyArrows) {
             // Same large-coordinate remedy as the link strokes: map the arrow
             // anchor to device pixels and draw with the transform reset, so the
             // arrowheads don't garble/vanish at low zoom with large projected
             // coords. arrowSize is already in pixels, so it IS the device size.
             painter->save();
             painter->resetTransform();
-            for (int k = 0; k < total; ++k)
-            {
+            for (int k = 0; k < total; ++k) {
                 const int i = useGrid ? visible[k] : k;
-                if (i < 0 || i >= nLinks) continue;
-                if (size_t(i) < linkHid.size() && linkHid[i]) continue;
+                if (i < 0 || i >= nLinks)
+                    continue;
+                if (size_t(i) < linkHid.size() && linkHid[i])
+                    continue;
                 const uint32_t cnt = counts[i];
-                if (cnt < 2) continue;
+                if (cnt < 2)
+                    continue;
 
-                const int type = (m_layer->m_links[i].linkType >= 0
-                               && m_layer->m_links[i].linkType < 5)
-                               ? m_layer->m_links[i].linkType : 0;
+                const int type =
+                    (m_layer->m_links[i].linkType >= 0 && m_layer->m_links[i].linkType < 5)
+                        ? m_layer->m_links[i].linkType
+                        : 0;
                 const ArrowCfg &cfg = arrowCfg[size_t(type)];
-                if (!cfg.enabled) continue;
-                if (cfg.sym->arrowOnlyWhenFlowPos
-                    && m_layer->linkFlow(i) <= 0.0) continue;
+                if (!cfg.enabled)
+                    continue;
+                if (cfg.sym->arrowOnlyWhenFlowPos && m_layer->linkFlow(i) <= 0.0)
+                    continue;
 
                 const uint32_t off = offsets[i];
-                const double  *p   = flat + size_t(off) * 2;
+                const double *p = flat + size_t(off) * 2;
                 QPointF mid;
-                double  angle = 0.0;
-                if (!polylineMidpoint(p, cnt, &mid, &angle)) continue;
+                double angle = 0.0;
+                if (!polylineMidpoint(p, cnt, &mid, &angle))
+                    continue;
                 // QSG-parity — arrows fade with the kind's (sub-layer)
                 // opacity like the base links do.
                 QColor ac = cfg.sym->arrowColor;
-                const qreal kop = m_layer->categoryOpacity(
-                    linkTypeToCategory[size_t(type)]);
+                const qreal kop = m_layer->categoryOpacity(linkTypeToCategory[size_t(type)]);
                 if (kop < 1.0 && ac.isValid())
                     ac.setAlphaF(ac.alphaF() * kop);
                 // Re-derive the heading in device space (robust to the view's
                 // scale / Y orientation) by mapping the tangent through xf.
                 const QPointF devMid = xf.map(mid);
-                const QPointF devDir = xf.map(mid + QPointF(std::cos(angle),
-                                                            std::sin(angle)));
-                const double devAngle = std::atan2(devDir.y() - devMid.y(),
-                                                   devDir.x() - devMid.x());
-                drawFlowArrow(painter, devMid, devAngle,
-                              cfg.sym->arrowSize, cfg.sym->arrowWidth, ac);
+                const QPointF devDir = xf.map(mid + QPointF(std::cos(angle), std::sin(angle)));
+                const double devAngle =
+                    std::atan2(devDir.y() - devMid.y(), devDir.x() - devMid.x());
+                drawFlowArrow(painter, devMid, devAngle, cfg.sym->arrowSize, cfg.sym->arrowWidth,
+                              ac);
             }
             painter->restore();
         }
@@ -827,11 +900,10 @@ void SWMMLayerItem::paint(QPainter *painter,
         const auto &connectors = m_layer->inletConnectors();
         if (!connectors.isEmpty()) {
             const auto &csym = m_layer->m_inletConnectorSym;
-            QPen cpen(csym.fillColor,
-                      csym.outlineWidth > 0.0 ? csym.outlineWidth : 1.5,
+            QPen cpen(csym.fillColor, csym.outlineWidth > 0.0 ? csym.outlineWidth : 1.5,
                       Qt::CustomDashLine);
-            cpen.setDashPattern({4.0, 3.0});   // matches profileplotoptions.cpp
-            cpen.setCosmetic(true);            // constant width at every zoom
+            cpen.setDashPattern({4.0, 3.0}); // matches profileplotoptions.cpp
+            cpen.setCosmetic(true);          // constant width at every zoom
             painter->save();
             painter->setPen(cpen);
             painter->setBrush(Qt::NoBrush);
@@ -840,10 +912,9 @@ void SWMMLayerItem::paint(QPainter *painter,
             // an empty rect.
             const double pad = invViewScale;
             for (const auto &c : connectors) {
-                if (!exposed.isNull()
-                    && !exposed.intersects(QRectF(c.host, c.capture)
-                                               .normalized()
-                                               .adjusted(-pad, -pad, pad, pad)))
+                if (!exposed.isNull() &&
+                    !exposed.intersects(
+                        QRectF(c.host, c.capture).normalized().adjusted(-pad, -pad, pad, pad)))
                     continue;
                 painter->drawLine(c.host, c.capture);
             }
@@ -857,32 +928,31 @@ void SWMMLayerItem::paint(QPainter *painter,
     // `nodesSel` buffer). Painting again on CPU here would compose the
     // CPU halo BEFORE the GPU base glyphs blit on top, hiding the halo
     // entirely — so the CPU path bows out whenever the kind is owned.
-    if (!qsgNodes && m_layer->m_showNodes)
-    {
+    if (!qsgNodes && m_layer->m_showNodes) {
         // Bucket per node type so pen+brush only switch O(types) times
         // — all junctions draw together, then outfalls, etc. Each bucket
         // also tracks the SoA index alongside the scene point so the
         // per-feature override path (Phase 8.13.6.4) can look up the
         // bin / category colour for that specific feature.
         struct Bucket {
-            const SWMMElementSymbol         *sym;
-            int                              nodeType;
-            SWMMModelLayer::Category         cat;
-            QVector<QPointF>                 scenePts;
-            QVector<int>                     indices;       // SoA index parallel to scenePts
-            QVector<QPointF>                 selPts;
-            QVector<int>                     selIndices;
+            const SWMMElementSymbol *sym;
+            int nodeType;
+            SWMMModelLayer::Category cat;
+            QVector<QPointF> scenePts;
+            QVector<int> indices; // SoA index parallel to scenePts
+            QVector<QPointF> selPts;
+            QVector<int> selIndices;
         };
         // Bucket 4: virtual junctions, bucket 5: inlet junctions — both in
         // the CatJunctions category (D-G1: no persisted 5th category) with
         // distinct marker overrides.
         Bucket buckets[6] = {
             {&m_layer->m_junctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
-            {&m_layer->m_outfallSym,  1, SWMMModelLayer::CatOutfalls,  {}, {}, {}, {}},
-            {&m_layer->m_storageSym,  2, SWMMModelLayer::CatStorage,   {}, {}, {}, {}},
-            {&m_layer->m_dividerSym,  3, SWMMModelLayer::CatDividers,  {}, {}, {}, {}},
+            {&m_layer->m_outfallSym, 1, SWMMModelLayer::CatOutfalls, {}, {}, {}, {}},
+            {&m_layer->m_storageSym, 2, SWMMModelLayer::CatStorage, {}, {}, {}, {}},
+            {&m_layer->m_dividerSym, 3, SWMMModelLayer::CatDividers, {}, {}, {}, {}},
             {&m_layer->m_virtualJunctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
-            {&m_layer->m_inletJunctionSym,   0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
+            {&m_layer->m_inletJunctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
         };
 
         // Expand the cull window by the largest marker radius (in scene
@@ -893,22 +963,31 @@ void SWMMLayerItem::paint(QPainter *painter,
         const auto &nps = m_layer->m_nodeScenePts;
         for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
             const auto &n = m_layer->m_nodes[i];
-            if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
-            if (i >= nps.size()) continue;
+            if (size_t(i) < nodeHid.size() && nodeHid[i])
+                continue;
+            if (i >= nps.size())
+                continue;
             const QPointF &sp = nps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
-                QRectF e = exposed.adjusted(-haloScene, -haloScene,
-                                             haloScene,  haloScene);
-                if (!e.contains(sp)) continue;
+                QRectF e = exposed.adjusted(-haloScene, -haloScene, haloScene, haloScene);
+                if (!e.contains(sp))
+                    continue;
             }
             int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
             // An inlet junction is ALSO virtual, so it must be tested first.
-            if      (t == 0 && n.isInlet)   t = 5;   // inlet-junction override
-            else if (t == 0 && n.isVirtual) t = 4;   // virtual-junction override
+            if (t == 0 && n.isInlet)
+                t = 5; // inlet-junction override
+            else if (t == 0 && n.isVirtual)
+                t = 4; // virtual-junction override
             auto &b = buckets[t];
             const bool sel = size_t(i) < nodeSel.size() && nodeSel[i];
-            if (sel) { b.selPts.append(sp);   b.selIndices.append(i); }
-            else     { b.scenePts.append(sp); b.indices.append(i);    }
+            if (sel) {
+                b.selPts.append(sp);
+                b.selIndices.append(i);
+            } else {
+                b.scenePts.append(sp);
+                b.indices.append(i);
+            }
         }
 
         // Device-space projection (same large-coordinate remedy as the link
@@ -922,14 +1001,15 @@ void SWMMLayerItem::paint(QPainter *painter,
             drawNodeGlyph(painter, xf.map(cScene), rScene * devScale, shape);
         };
         painter->save();
-        painter->resetTransform();   // draw glyphs in device space
+        painter->resetTransform(); // draw glyphs in device space
         for (const Bucket &b : buckets) {
-            if (b.scenePts.isEmpty() && b.selPts.isEmpty()) continue;
+            if (b.scenePts.isEmpty() && b.selPts.isEmpty())
+                continue;
             // Fixed pixel-size glyphs — see the invViewScale comment at
             // the top of paint(). markerRadius returns PIXELS, not scene
             // units, so we scale into scene space for each glyph below.
             const double r = markerRadius(*b.sym) * invViewScale;
-            const bool   overrides = m_layer->kindUsesOverrides(b.cat);
+            const bool overrides = m_layer->kindUsesOverrides(b.cat);
 
             const auto kindShape = b.sym->markerShape;
             // Per-kind (sub-layer) opacity — multiplies every glyph's alpha.
@@ -961,15 +1041,14 @@ void SWMMLayerItem::paint(QPainter *painter,
                         const QColor col = m_layer->featureColor(b.cat, b.indices[j]);
                         painter->setBrush(QBrush(fade(col.isValid() ? col : b.sym->fillColor)));
                         const double szOverride = m_layer->featureSize(b.cat, b.indices[j]);
-                        const double rEff = (szOverride > 0.0)
-                            ? (szOverride * 0.5 * invViewScale)
-                            : r;
+                        const double rEff =
+                            (szOverride > 0.0) ? (szOverride * 0.5 * invViewScale) : r;
                         // M3 — per-feature marker shape from the renderer
                         // (Categorized / Rule-based); -1 = keep kind base shape.
                         const int fsh = m_layer->featureShape(b.cat, b.indices[j]);
                         const auto shp = (fsh >= 0)
-                            ? static_cast<OpenSWMM::Render::MarkerShape>(fsh)
-                            : kindShape;
+                                             ? static_cast<OpenSWMM::Render::MarkerShape>(fsh)
+                                             : kindShape;
                         devGlyph(b.scenePts[j], rEff, shp);
                     }
                 }
@@ -997,30 +1076,38 @@ void SWMMLayerItem::paint(QPainter *painter,
                 ring.setCosmetic(true);
                 painter->setPen(ring);
                 painter->setBrush(Qt::NoBrush);
-                const double ringDev = r * devScale + 3.0;   // glyph px + gap
+                const double ringDev = r * devScale + 3.0; // glyph px + gap
                 for (const QPointF &c : b.scenePts)
                     painter->drawEllipse(xf.map(c), ringDev, ringDev);
                 for (const QPointF &c : b.selPts)
                     painter->drawEllipse(xf.map(c), ringDev, ringDev);
             }
         }
-        painter->restore();   // back to scene transform
+        painter->restore(); // back to scene transform
     }
 
     // A leaf badge identifies LID storage without introducing a node type.
     if (m_layer->m_showNodes && m_layer->engine()) {
         const auto transform = painter->transform();
-        painter->save(); painter->resetTransform();
+        painter->save();
+        painter->resetTransform();
         painter->setPen(QPen(QColor("#176b35"), 1.0));
         painter->setBrush(QColor("#66ba69"));
         for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
             if (m_layer->m_nodes[i].nodeType != 2 || i >= m_layer->m_nodeScenePts.size() ||
-                (size_t(i) < nodeHid.size() && nodeHid[i])) continue;
-            int control = -1; double saturation = 0.0;
+                (size_t(i) < nodeHid.size() && nodeHid[i]))
+                continue;
+            int control = -1;
+            double saturation = 0.0;
             swmm_node_get_lid(m_layer->engine(), i, &control, &saturation);
-            if (control < 0) continue;
+            if (control < 0)
+                continue;
             const auto scene = m_layer->m_nodeScenePts[i];
-            if (!exposed.isNull() && !exposed.adjusted(-16 * invViewScale, -16 * invViewScale, 16 * invViewScale, 16 * invViewScale).contains(scene)) continue;
+            if (!exposed.isNull() && !exposed
+                                          .adjusted(-16 * invViewScale, -16 * invViewScale,
+                                                    16 * invViewScale, 16 * invViewScale)
+                                          .contains(scene))
+                continue;
             const auto center = transform.map(scene) + QPointF(6, -6);
             painter->drawEllipse(QRectF(center.x() - 3, center.y() - 5, 6, 10));
             painter->drawLine(center + QPointF(0, -3), center + QPointF(0, 4));
@@ -1030,12 +1117,11 @@ void SWMMLayerItem::paint(QPainter *painter,
 
     // ---------------------------------------------------------------- Rain gages
     // Same §QSG-1 skip as nodes — QSG owns gages when QsgGages is set.
-    if (!qsgGages && m_layer->m_showRainGages && !m_layer->m_gages.isEmpty())
-    {
+    if (!qsgGages && m_layer->m_showRainGages && !m_layer->m_gages.isEmpty()) {
         const auto &sym = m_layer->m_gageSym;
         // Fixed pixel-size glyph — see invViewScale comment at top.
-        const double r          = markerRadius(sym) * invViewScale;
-        const double haloScene  = 16.0 * invViewScale;
+        const double r = markerRadius(sym) * invViewScale;
+        const double haloScene = 16.0 * invViewScale;
 
         // Bucket the gage pass the same way nodes are bucketed, so
         // selected gages paint yellow on top of the base fill. Without
@@ -1043,21 +1129,26 @@ void SWMMLayerItem::paint(QPainter *painter,
         // though the layer's selection set is correctly updated —
         // which is exactly the regression the user reported.
         QVector<QPointF> basePts, selPts;
-        QVector<int>     baseIdxs;   // parallel to basePts (Phase 8.13.6.4 override lookup)
+        QVector<int> baseIdxs; // parallel to basePts (Phase 8.13.6.4 override lookup)
         const auto &gps = m_layer->m_gageScenePts;
-        for (int i = 0; i < m_layer->m_gages.size(); ++i)
-        {
-            if (size_t(i) < gageHid.size() && gageHid[i]) continue;
-            if (i >= gps.size()) continue;
+        for (int i = 0; i < m_layer->m_gages.size(); ++i) {
+            if (size_t(i) < gageHid.size() && gageHid[i])
+                continue;
+            if (i >= gps.size())
+                continue;
             const QPointF &sp = gps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
-                QRectF e = exposed.adjusted(-haloScene, -haloScene,
-                                             haloScene,  haloScene);
-                if (!e.contains(sp)) continue;
+                QRectF e = exposed.adjusted(-haloScene, -haloScene, haloScene, haloScene);
+                if (!e.contains(sp))
+                    continue;
             }
             const bool sel = size_t(i) < gageSel.size() && gageSel[i];
-            if (sel) { selPts.append(sp); }
-            else     { basePts.append(sp); baseIdxs.append(i); }
+            if (sel) {
+                selPts.append(sp);
+            } else {
+                basePts.append(sp);
+                baseIdxs.append(i);
+            }
         }
 
         const bool gageOverrides = m_layer->kindUsesOverrides(SWMMModelLayer::CatRainGages);
@@ -1072,7 +1163,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             drawNodeGlyph(painter, xf.map(cScene), rScene * devScale, shape);
         };
         painter->save();
-        painter->resetTransform();   // draw glyphs in device space
+        painter->resetTransform(); // draw glyphs in device space
 
         if (!basePts.isEmpty()) {
             QPen pen(sym.outlineColor, sym.outlineWidth);
@@ -1084,14 +1175,12 @@ void SWMMLayerItem::paint(QPainter *painter,
                     devGlyph(sp, r, gageShape);
             } else {
                 for (int j = 0; j < basePts.size(); ++j) {
-                    const QColor col = m_layer->featureColor(
-                        SWMMModelLayer::CatRainGages, baseIdxs[j]);
+                    const QColor col =
+                        m_layer->featureColor(SWMMModelLayer::CatRainGages, baseIdxs[j]);
                     painter->setBrush(QBrush(col.isValid() ? col : sym.fillColor));
-                    const double szOverride = m_layer->featureSize(
-                        SWMMModelLayer::CatRainGages, baseIdxs[j]);
-                    const double rEff = (szOverride > 0.0)
-                        ? (szOverride * 0.5 * invViewScale)
-                        : r;
+                    const double szOverride =
+                        m_layer->featureSize(SWMMModelLayer::CatRainGages, baseIdxs[j]);
+                    const double rEff = (szOverride > 0.0) ? (szOverride * 0.5 * invViewScale) : r;
                     devGlyph(basePts[j], rEff, gageShape);
                 }
             }
@@ -1105,7 +1194,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             for (const QPointF &sp : selPts)
                 devGlyph(sp, r, gageShape);
         }
-        painter->restore();   // back to scene transform
+        painter->restore(); // back to scene transform
     }
 
     // ---------------------------------------------------------------- Labels
@@ -1134,27 +1223,39 @@ void SWMMLayerItem::paint(QPainter *painter,
 
         const bool layerOn = labelCfg.enabled || m_layer->m_showLabels;
 
-        auto symForCat = [&](SWMMModelLayer::Category c)
-            -> const SWMMElementSymbol * {
+        auto symForCat = [&](SWMMModelLayer::Category c) -> const SWMMElementSymbol * {
             switch (c) {
-            case SWMMModelLayer::CatJunctions:     return &m_layer->m_junctionSym;
-            case SWMMModelLayer::CatOutfalls:      return &m_layer->m_outfallSym;
-            case SWMMModelLayer::CatStorage:       return &m_layer->m_storageSym;
-            case SWMMModelLayer::CatDividers:      return &m_layer->m_dividerSym;
-            case SWMMModelLayer::CatConduits:      return &m_layer->m_conduitSym;
-            case SWMMModelLayer::CatPumps:         return &m_layer->m_pumpSym;
-            case SWMMModelLayer::CatOrifices:      return &m_layer->m_orificeSym;
-            case SWMMModelLayer::CatWeirs:         return &m_layer->m_weirSym;
-            case SWMMModelLayer::CatOutlets:       return &m_layer->m_outletSym;
-            case SWMMModelLayer::CatSubcatchments: return &m_layer->m_subcatchSym;
-            case SWMMModelLayer::CatRainGages:     return &m_layer->m_gageSym;
-            default:                               return nullptr;
+            case SWMMModelLayer::CatJunctions:
+                return &m_layer->m_junctionSym;
+            case SWMMModelLayer::CatOutfalls:
+                return &m_layer->m_outfallSym;
+            case SWMMModelLayer::CatStorage:
+                return &m_layer->m_storageSym;
+            case SWMMModelLayer::CatDividers:
+                return &m_layer->m_dividerSym;
+            case SWMMModelLayer::CatConduits:
+                return &m_layer->m_conduitSym;
+            case SWMMModelLayer::CatPumps:
+                return &m_layer->m_pumpSym;
+            case SWMMModelLayer::CatOrifices:
+                return &m_layer->m_orificeSym;
+            case SWMMModelLayer::CatWeirs:
+                return &m_layer->m_weirSym;
+            case SWMMModelLayer::CatOutlets:
+                return &m_layer->m_outletSym;
+            case SWMMModelLayer::CatSubcatchments:
+                return &m_layer->m_subcatchSym;
+            case SWMMModelLayer::CatRainGages:
+                return &m_layer->m_gageSym;
+            default:
+                return nullptr;
             }
         };
         // A kind is labelled when the layer-level config is on, or the
         // kind's own showLabel toggle (Symbology → Labels group) is set.
         auto kindOn = [&](SWMMModelLayer::Category c) {
-            if (layerOn) return true;
+            if (layerOn)
+                return true;
             const auto *s = symForCat(c);
             return s && s->showLabel;
         };
@@ -1163,7 +1264,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         for (int c = 0; c < SWMMModelLayer::NumCategories && !anyOn; ++c)
             anyOn = kindOn(static_cast<SWMMModelLayer::Category>(c));
 
-        const qreal m11    = painter->transform().m11();
+        const qreal m11 = painter->transform().m11();
         const qreal m11Min = PreferencesManager::instance()->labelLodM11Min();
 
         // Scale-window gate — resolve the owning canvas' scale denominator
@@ -1181,9 +1282,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             }
         }
 
-        if (anyOn && m11 >= m11Min
-            && LabelPainter::scaleVisible(labelCfg, scaleDen))
-        {
+        if (anyOn && m11 >= m11Min && LabelPainter::scaleVisible(labelCfg, scaleDen)) {
             // Per-kind effective config: layer LabelConfig with the kind's
             // labelFont / labelColor applied when its showLabel is set
             // (that's the per-kind override contract that makes the
@@ -1221,21 +1320,18 @@ void SWMMLayerItem::paint(QPainter *painter,
             // m_labelCache (invalidated on data edits via the layer's
             // editRevision, or when the config's text fields change), so
             // pan/zoom repaints don't re-resolve.
-            const bool exprNeedsAttrs =
-                !labelCfg.expression.isEmpty()
-                && labelCfg.expression.contains(QLatin1Char('{'))
-                && QString(labelCfg.expression)
-                           .remove(QLatin1String("{name}"))
-                           .contains(QLatin1Char('{'));
-            const bool needsAttrs = exprNeedsAttrs
-                                 || !labelCfg.fieldName.isEmpty()
-                                 || !labelCfg.priorityField.isEmpty();
+            const bool exprNeedsAttrs = !labelCfg.expression.isEmpty() &&
+                                        labelCfg.expression.contains(QLatin1Char('{')) &&
+                                        QString(labelCfg.expression)
+                                            .remove(QLatin1String("{name}"))
+                                            .contains(QLatin1Char('{'));
+            const bool needsAttrs = exprNeedsAttrs || !labelCfg.fieldName.isEmpty() ||
+                                    !labelCfg.priorityField.isEmpty();
             // Feedback C4 — numeric values go through LabelConfig::formatValue
             // (6 significant digits by default, or the configured decimals)
             // instead of QVariant::toString()'s 17-digit dump.
             const int decimals = labelCfg.decimals;
-            auto resolveExpression = [decimals](const QString &expr,
-                                                const QString &name,
+            auto resolveExpression = [decimals](const QString &expr, const QString &name,
                                                 const QVariantMap &attrs) {
                 QString out;
                 out.reserve(expr.size());
@@ -1263,23 +1359,23 @@ void SWMMLayerItem::paint(QPainter *painter,
             // the config's text-affecting fields; (re)size lazily-filled
             // per-group vectors when stale.
             if (needsAttrs) {
-                if (m_labelCache.editRev != m_layer->editRevision()
-                    || m_labelCache.expression    != labelCfg.expression
-                    || m_labelCache.fieldName     != labelCfg.fieldName
-                    || m_labelCache.priorityField != labelCfg.priorityField
-                    || m_labelCache.decimals      != labelCfg.decimals
+                if (m_labelCache.editRev != m_layer->editRevision() ||
+                    m_labelCache.expression != labelCfg.expression ||
+                    m_labelCache.fieldName != labelCfg.fieldName ||
+                    m_labelCache.priorityField != labelCfg.priorityField ||
+                    m_labelCache.decimals != labelCfg.decimals
                     // SoA size drift (model reload / geometry rebuild paths
                     // that don't emit modelEdited) — indices would shift.
-                    || m_labelCache.text[0].size() != m_layer->m_nodes.size()
-                    || m_labelCache.text[1].size() != m_layer->m_links.size()
-                    || m_labelCache.text[2].size() != m_layer->m_catchments.size()
-                    || m_labelCache.text[3].size() != m_layer->m_gages.size()) {
+                    || m_labelCache.text[0].size() != m_layer->m_nodes.size() ||
+                    m_labelCache.text[1].size() != m_layer->m_links.size() ||
+                    m_labelCache.text[2].size() != m_layer->m_catchments.size() ||
+                    m_labelCache.text[3].size() != m_layer->m_gages.size()) {
                     m_labelCache.clear();
-                    m_labelCache.editRev       = m_layer->editRevision();
-                    m_labelCache.expression    = labelCfg.expression;
-                    m_labelCache.fieldName     = labelCfg.fieldName;
+                    m_labelCache.editRev = m_layer->editRevision();
+                    m_labelCache.expression = labelCfg.expression;
+                    m_labelCache.fieldName = labelCfg.fieldName;
                     m_labelCache.priorityField = labelCfg.priorityField;
-                    m_labelCache.decimals      = labelCfg.decimals;
+                    m_labelCache.decimals = labelCfg.decimals;
                     m_labelCache.text[0].resize(m_layer->m_nodes.size());
                     m_labelCache.text[1].resize(m_layer->m_links.size());
                     m_labelCache.text[2].resize(m_layer->m_catchments.size());
@@ -1294,27 +1390,26 @@ void SWMMLayerItem::paint(QPainter *painter,
             }
 
             struct PendingLabel {
-                QPointF anchorDev;   // device-space anchor
+                QPointF anchorDev; // device-space anchor
                 QString text;
-                double  priority = 0.0;
-                int     cat      = 0;
+                double priority = 0.0;
+                int cat = 0;
             };
             QVector<PendingLabel> pending;
 
             const QTransform xf = painter->transform();
             // \p group: 0=node 1=link 2=catch 3=gage; \p soa is the index
             // within that group's SoA (cache slot).
-            auto append = [&](SWMMModelLayer::Category c, int group, int soa,
-                              const QString &name, const QPointF &sceneAnchor) {
+            auto append = [&](SWMMModelLayer::Category c, int group, int soa, const QString &name,
+                              const QPointF &sceneAnchor) {
                 PendingLabel pl;
-                pl.cat       = int(c);
+                pl.cat = int(c);
                 pl.anchorDev = xf.map(sceneAnchor);
                 if (needsAttrs) {
-                    const bool cachable =
-                        group >= 0 && group < 4
-                        && soa >= 0 && soa < m_labelCache.text[group].size();
+                    const bool cachable = group >= 0 && group < 4 && soa >= 0 &&
+                                          soa < m_labelCache.text[group].size();
                     if (cachable && !m_labelCache.text[group][soa].isNull()) {
-                        pl.text     = m_labelCache.text[group][soa];
+                        pl.text = m_labelCache.text[group][soa];
                         pl.priority = m_labelCache.priority[group][soa];
                     } else {
                         const QVariantMap attrs = m_layer->identifyByName(name);
@@ -1328,7 +1423,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                         if (!labelCfg.priorityField.isEmpty())
                             pl.priority = attrs.value(labelCfg.priorityField).toDouble();
                         if (cachable) {
-                            m_labelCache.text[group][soa]     = pl.text;
+                            m_labelCache.text[group][soa] = pl.text;
                             m_labelCache.priority[group][soa] = pl.priority;
                         }
                     }
@@ -1350,77 +1445,87 @@ void SWMMLayerItem::paint(QPainter *painter,
                 const auto &nps = m_layer->m_nodeScenePts;
                 for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
                     const auto &n = m_layer->m_nodes[i];
-                    if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
-                    if (i >= nps.size()) continue;
+                    if (size_t(i) < nodeHid.size() && nodeHid[i])
+                        continue;
+                    if (i >= nps.size())
+                        continue;
                     const int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
                     const auto cat = static_cast<SWMMModelLayer::Category>(
                         int(SWMMModelLayer::CatJunctions) + t);
-                    if (!kindOn(cat)) continue;
+                    if (!kindOn(cat))
+                        continue;
                     const QPointF &sp = nps[i];
-                    if (!exposed.isNull() && !exposed.contains(sp)) continue;
+                    if (!exposed.isNull() && !exposed.contains(sp))
+                        continue;
                     append(cat, /*group=*/0, i, n.name, sp);
                 }
             }
 
             // ── Links (label at the middle vertex of the polyline) ──
-            if (m_layer->m_showLinks
-                && m_layer->m_linkVertexCount.size()
-                       >= size_t(m_layer->m_links.size())
-                && m_layer->m_linkVertexOffset.size()
-                       >= size_t(m_layer->m_links.size())) {
+            if (m_layer->m_showLinks &&
+                m_layer->m_linkVertexCount.size() >= size_t(m_layer->m_links.size()) &&
+                m_layer->m_linkVertexOffset.size() >= size_t(m_layer->m_links.size())) {
                 static constexpr SWMMModelLayer::Category linkCats[5] = {
                     SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,
                     SWMMModelLayer::CatOrifices, SWMMModelLayer::CatWeirs,
-                    SWMMModelLayer::CatOutlets };
-                const double   *flat    = m_layer->m_linkSceneFlat.data();
+                    SWMMModelLayer::CatOutlets};
+                const double *flat = m_layer->m_linkSceneFlat.data();
                 const uint32_t *offsets = m_layer->m_linkVertexOffset.data();
-                const uint32_t *counts  = m_layer->m_linkVertexCount.data();
+                const uint32_t *counts = m_layer->m_linkVertexCount.data();
                 for (int i = 0; i < m_layer->m_links.size(); ++i) {
-                    if (size_t(i) < linkHid.size() && linkHid[i]) continue;
+                    if (size_t(i) < linkHid.size() && linkHid[i])
+                        continue;
                     const uint32_t cnt = counts[i];
-                    if (cnt < 2) continue;
-                    const int t = (m_layer->m_links[i].linkType >= 0
-                                && m_layer->m_links[i].linkType < 5)
-                                ? m_layer->m_links[i].linkType : 0;
+                    if (cnt < 2)
+                        continue;
+                    const int t =
+                        (m_layer->m_links[i].linkType >= 0 && m_layer->m_links[i].linkType < 5)
+                            ? m_layer->m_links[i].linkType
+                            : 0;
                     const auto cat = linkCats[t];
-                    if (!kindOn(cat)) continue;
+                    if (!kindOn(cat))
+                        continue;
                     const double *p = flat + size_t(offsets[i]) * 2;
                     // Midpoint of the middle segment — cheap and close
                     // enough to the visual centre for labelling.
                     const uint32_t m0 = (cnt - 1) / 2, m1 = m0 + 1;
-                    const QPointF mid(
-                        (p[m0 * 2]     + p[m1 * 2])     * 0.5,
-                        (p[m0 * 2 + 1] + p[m1 * 2 + 1]) * 0.5);
-                    if (!exposed.isNull() && !exposed.contains(mid)) continue;
+                    const QPointF mid((p[m0 * 2] + p[m1 * 2]) * 0.5,
+                                      (p[m0 * 2 + 1] + p[m1 * 2 + 1]) * 0.5);
+                    if (!exposed.isNull() && !exposed.contains(mid))
+                        continue;
                     append(cat, /*group=*/1, i, m_layer->m_links[i].name, mid);
                 }
             }
 
             // ── Subcatchments (bbox centre) ──
-            if (m_layer->m_showSubcatchments
-                && kindOn(SWMMModelLayer::CatSubcatchments)) {
+            if (m_layer->m_showSubcatchments && kindOn(SWMMModelLayer::CatSubcatchments)) {
                 const auto &cboxes = m_layer->m_catchSceneBBoxes;
                 for (int i = 0; i < m_layer->m_catchments.size(); ++i) {
-                    if (size_t(i) < catchHid.size() && catchHid[i]) continue;
-                    if (i >= cboxes.size() || !cboxes[i].isValid()) continue;
+                    if (size_t(i) < catchHid.size() && catchHid[i])
+                        continue;
+                    if (i >= cboxes.size() || !cboxes[i].isValid())
+                        continue;
                     const QPointF ctr = cboxes[i].center();
-                    if (!exposed.isNull() && !exposed.contains(ctr)) continue;
+                    if (!exposed.isNull() && !exposed.contains(ctr))
+                        continue;
                     append(SWMMModelLayer::CatSubcatchments, /*group=*/2, i,
                            m_layer->m_catchments[i].name, ctr);
                 }
             }
 
             // ── Rain gages ──
-            if (m_layer->m_showRainGages
-                && kindOn(SWMMModelLayer::CatRainGages)) {
+            if (m_layer->m_showRainGages && kindOn(SWMMModelLayer::CatRainGages)) {
                 const auto &gps = m_layer->m_gageScenePts;
                 for (int i = 0; i < m_layer->m_gages.size(); ++i) {
-                    if (size_t(i) < gageHid.size() && gageHid[i]) continue;
-                    if (i >= gps.size()) continue;
+                    if (size_t(i) < gageHid.size() && gageHid[i])
+                        continue;
+                    if (i >= gps.size())
+                        continue;
                     const QPointF &sp = gps[i];
-                    if (!exposed.isNull() && !exposed.contains(sp)) continue;
-                    append(SWMMModelLayer::CatRainGages, /*group=*/3, i,
-                           m_layer->m_gages[i].name, sp);
+                    if (!exposed.isNull() && !exposed.contains(sp))
+                        continue;
+                    append(SWMMModelLayer::CatRainGages, /*group=*/3, i, m_layer->m_gages[i].name,
+                           sp);
                 }
             }
 
@@ -1442,12 +1547,15 @@ void SWMMLayerItem::paint(QPainter *painter,
                 const LabelConfig &cfg = kindCfg[size_t(pl.cat)];
                 const QFontMetricsF fm(cfg.effectiveFont());
                 const QSizeF textSize(fm.horizontalAdvance(pl.text), fm.height());
-                const QRectF rect =
-                    LabelPainter::labelRect(cfg, pl.anchorDev, textSize);
+                const QRectF rect = LabelPainter::labelRect(cfg, pl.anchorDev, textSize);
                 bool collides = false;
                 for (const QRectF &r : taken)
-                    if (r.intersects(rect)) { collides = true; break; }
-                if (collides) continue;
+                    if (r.intersects(rect)) {
+                        collides = true;
+                        break;
+                    }
+                if (collides)
+                    continue;
                 taken.append(rect);
                 LabelPainter::drawLabelAt(*painter, pl.anchorDev, pl.text, cfg);
             }
@@ -1458,15 +1566,13 @@ void SWMMLayerItem::paint(QPainter *painter,
     // Opt-in (openswmm.render.perf) — this used to log unconditionally on
     // every scene paint, which itself cost formatting time per frame.
     qCDebug(lcRenderPerf).noquote()
-                       << "[SWMMLayerItem::paint] setup_ms=" << t_setup
-                       << " total_ms=" << t_total.elapsed()
-                       << " links=" << m_layer->m_links.size()
-                       << " grid=" << (m_layer->m_linkGrid.isEmpty() ? "n/a"
-                            : QString("%1x%2").arg(m_layer->m_linkGrid.cols)
-                                              .arg(m_layer->m_linkGrid.rows))
-                       << " nodes=" << m_layer->m_nodes.size()
-                       << " selected=" << selected.size()
-                       << " exposed=" << exposed;
+        << "[SWMMLayerItem::paint] setup_ms=" << t_setup << " total_ms=" << t_total.elapsed()
+        << " links=" << m_layer->m_links.size() << " grid="
+        << (m_layer->m_linkGrid.isEmpty()
+                ? "n/a"
+                : QString("%1x%2").arg(m_layer->m_linkGrid.cols).arg(m_layer->m_linkGrid.rows))
+        << " nodes=" << m_layer->m_nodes.size() << " selected=" << selected.size()
+        << " exposed=" << exposed;
 
     // Pair with the painter->save() at the top of paint() that installed
     // the Z.14-paint mask clip (if any). Always called, mask or no mask.

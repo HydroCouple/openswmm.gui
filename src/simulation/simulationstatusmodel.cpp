@@ -1,9 +1,12 @@
-/*!
- * \file   simulationstatusmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      simulationstatusmodel.cpp
+ * @brief     Data record for one simulation run.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "simulation/simulationstatusmodel.h"
 #include "swmmvisprojectwindow.h"
 
@@ -17,29 +20,26 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-SimulationStatusModel::SimulationStatusModel(QObject *parent)
-    : QAbstractItemModel(parent)
-{
-}
+SimulationStatusModel::SimulationStatusModel(QObject *parent) : QAbstractItemModel(parent) {}
 
 // ---------------------------------------------------------------------------
 // Mutators (called on GUI thread)
 // ---------------------------------------------------------------------------
 
 int SimulationStatusModel::addJob(const QString &instanceName, const QString &inpPath,
-                                   const QString &engineVersion)
+                                  const QString &engineVersion)
 {
-    const int id   = m_nextId++;
-    const int row  = m_jobs.size();
+    const int id = m_nextId++;
+    const int row = m_jobs.size();
 
     beginInsertRows(QModelIndex(), row, row);
     SimulationJobRecord rec;
-    rec.id            = id;
-    rec.instanceName  = instanceName;
-    rec.inpPath       = inpPath;
+    rec.id = id;
+    rec.instanceName = instanceName;
+    rec.inpPath = inpPath;
     rec.engineVersion = engineVersion;
-    rec.status        = SimulationJobStatus::Running;
-    rec.startedAt     = QDateTime::currentDateTime();
+    rec.status = SimulationJobStatus::Running;
+    rec.startedAt = QDateTime::currentDateTime();
     m_jobs.append(rec);
     endInsertRows();
 
@@ -64,18 +64,18 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
         if (row >= 0) {
             auto &rec = m_jobs[row];
             // Reset the record for a fresh run.
-            rec.status            = SimulationJobStatus::Running;
-            rec.progress          = 0.0;
-            rec.runoffErrPct      = 0.0;
-            rec.routingErrPct     = 0.0;
-            rec.twoDErrPct        = qQNaN();
-            rec.errorCode         = 0;
+            rec.status = SimulationJobStatus::Running;
+            rec.progress = 0.0;
+            rec.runoffErrPct = 0.0;
+            rec.routingErrPct = 0.0;
+            rec.twoDErrPct = qQNaN();
+            rec.errorCode = 0;
             rec.errorMessage.clear();
-            rec.startedAt         = QDateTime::currentDateTime();
-            rec.finishedAt        = QDateTime();
-            rec.currentSimDate    = QDateTime();
-            rec.avgTimestepSec    = 0.0;
-            rec.droppedWarnings   = 0;
+            rec.startedAt = QDateTime::currentDateTime();
+            rec.finishedAt = QDateTime();
+            rec.currentSimDate = QDateTime();
+            rec.avgTimestepSec = 0.0;
+            rec.droppedWarnings = 0;
 
             const QModelIndex tl = createIndex(row, 0, kRootId);
             const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
@@ -83,8 +83,9 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
 
             if (!rec.warnings.isEmpty() || !rec.snowLedger.isEmpty()) {
                 const QModelIndex jobIdx = createIndex(row, 0, kRootId);
-                beginRemoveRows(jobIdx, 0, rec.warnings.size()+rec.snowLedger.size() - 1);
-                rec.warnings.clear();rec.snowLedger.clear();
+                beginRemoveRows(jobIdx, 0, rec.warnings.size() + rec.snowLedger.size() - 1);
+                rec.warnings.clear();
+                rec.snowLedger.clear();
                 endRemoveRows();
             }
 
@@ -99,60 +100,73 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
 }
 
 int SimulationStatusModel::ensureJobForModel(SWMMVisProjectWindow *model,
-                                             const QString &instanceName,
-                                             const QString &inpPath,
+                                             const QString &instanceName, const QString &inpPath,
                                              const QString &engineVersion)
 {
-    if (!model) return -1;
+    if (!model)
+        return -1;
 
     auto &versionMap = m_modelToJobId[model];
     if (versionMap.contains(engineVersion)) {
         const int jobId = versionMap[engineVersion];
-        if (jobIndexById(jobId) >= 0) return jobId;
+        if (jobIndexById(jobId) >= 0)
+            return jobId;
     }
 
     const int jobId = addJob(instanceName, inpPath, engineVersion);
     versionMap[engineVersion] = jobId;
 
-    auto &rec     = m_jobs.last();
-    rec.status    = SimulationJobStatus::Idle;
+    auto &rec = m_jobs.last();
+    rec.status = SimulationJobStatus::Idle;
     rec.startedAt = QDateTime();
     const int row = m_jobs.size() - 1;
-    emit dataChanged(createIndex(row, 0, kRootId),
-                     createIndex(row, NumColumns - 1, kRootId),
+    emit dataChanged(createIndex(row, 0, kRootId), createIndex(row, NumColumns - 1, kRootId),
                      {Qt::DisplayRole, Qt::ForegroundRole});
     return jobId;
 }
 
-void SimulationStatusModel::updateSnowLedger(int jobId,const QStringList& rows)
+void SimulationStatusModel::updateSnowLedger(int jobId, const QStringList &rows)
 {
-    const int r=jobIndexById(jobId);if(r<0)return;
-    auto& job=m_jobs[r];const auto parent=createIndex(r,0,kRootId);const int first=job.warnings.size();
-    if(job.snowLedger.size()==rows.size()) {
-        if(rows.isEmpty())return;
-        job.snowLedger=rows;
-        emit dataChanged(index(first,0,parent),index(first+rows.size()-1,0,parent));return;
+    const int r = jobIndexById(jobId);
+    if (r < 0)
+        return;
+    auto &job = m_jobs[r];
+    const auto parent = createIndex(r, 0, kRootId);
+    const int first = job.warnings.size();
+    if (job.snowLedger.size() == rows.size()) {
+        if (rows.isEmpty())
+            return;
+        job.snowLedger = rows;
+        emit dataChanged(index(first, 0, parent), index(first + rows.size() - 1, 0, parent));
+        return;
     }
-    if(!job.snowLedger.isEmpty()) {
-        beginRemoveRows(parent,first,first+job.snowLedger.size()-1);job.snowLedger.clear();endRemoveRows();
+    if (!job.snowLedger.isEmpty()) {
+        beginRemoveRows(parent, first, first + job.snowLedger.size() - 1);
+        job.snowLedger.clear();
+        endRemoveRows();
     }
-    if(!rows.isEmpty()) {beginInsertRows(parent,first,first+rows.size()-1);job.snowLedger=rows;endInsertRows();}
+    if (!rows.isEmpty()) {
+        beginInsertRows(parent, first, first + rows.size() - 1);
+        job.snowLedger = rows;
+        endInsertRows();
+    }
 }
 
 void SimulationStatusModel::updateProgress(int jobId, double fraction,
-                                           const QDateTime &currentSimDate,
-                                           double runoffErrFrac, double routingErrFrac,
-                                           double avgTimestepSec, double twoDErrFrac)
+                                           const QDateTime &currentSimDate, double runoffErrFrac,
+                                           double routingErrFrac, double avgTimestepSec,
+                                           double twoDErrFrac)
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return;
+    if (row < 0)
+        return;
 
-    auto &rec           = m_jobs[row];
-    rec.progress        = fraction;
-    rec.runoffErrPct    = runoffErrFrac  * 100.0;
-    rec.routingErrPct   = routingErrFrac * 100.0;
-    rec.twoDErrPct      = twoDErrFrac    * 100.0;  // NaN passes through
-    rec.avgTimestepSec  = avgTimestepSec;
+    auto &rec = m_jobs[row];
+    rec.progress = fraction;
+    rec.runoffErrPct = runoffErrFrac * 100.0;
+    rec.routingErrPct = routingErrFrac * 100.0;
+    rec.twoDErrPct = twoDErrFrac * 100.0; // NaN passes through
+    rec.avgTimestepSec = avgTimestepSec;
     // Store the runner-provided current date verbatim. The worker thread
     // converts the engine OADate to QDateTime via the canonical epoch, so
     // the model shouldn't try to derive it from start + offset (that
@@ -162,35 +176,36 @@ void SimulationStatusModel::updateProgress(int jobId, double fraction,
 
     // Refresh the whole row — progress bar, current-date, continuity
     // columns all update on every tick.
-    const QModelIndex tl = createIndex(row, 0,              kRootId);
+    const QModelIndex tl = createIndex(row, 0, kRootId);
     const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
     emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::UserRole});
 }
 
-void SimulationStatusModel::setSimulationDates(int jobId,
-                                               const QDateTime &startSimDate,
+void SimulationStatusModel::setSimulationDates(int jobId, const QDateTime &startSimDate,
                                                const QDateTime &endSimDate)
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return;
+    if (row < 0)
+        return;
 
-    auto &rec        = m_jobs[row];
+    auto &rec = m_jobs[row];
     rec.startSimDate = startSimDate;
-    rec.endSimDate   = endSimDate;
+    rec.endSimDate = endSimDate;
     // Initial current = start until the first progress tick arrives. An
     // Idle row (no run yet) always tracks the start so option edits show.
     if (!rec.currentSimDate.isValid() || rec.status == SimulationJobStatus::Idle)
         rec.currentSimDate = startSimDate;
 
-    const QModelIndex tl = createIndex(row, ColStartDate,   kRootId);
-    const QModelIndex br = createIndex(row, ColEndDate,     kRootId);
+    const QModelIndex tl = createIndex(row, ColStartDate, kRootId);
+    const QModelIndex br = createIndex(row, ColEndDate, kRootId);
     emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::UserRole});
 }
 
 void SimulationStatusModel::addWarning(int jobId, int code, const QString &message)
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return;
+    if (row < 0)
+        return;
 
     auto &rec = m_jobs[row];
     const QModelIndex jobIdx = createIndex(row, 0, kRootId);
@@ -201,14 +216,13 @@ void SimulationStatusModel::addWarning(int jobId, int code, const QString &messa
     // went, so the newest warnings are always the ones on screen.
     constexpr int kWarningCap = 5000, kWarningTrim = 500;
     if (rec.warnings.size() >= kWarningCap) {
-        const bool hadMarker = rec.droppedWarnings > 0;   // marker row sits at 0
+        const bool hadMarker = rec.droppedWarnings > 0; // marker row sits at 0
         beginRemoveRows(jobIdx, 0, kWarningTrim - 1);
         rec.warnings.remove(0, kWarningTrim);
         endRemoveRows();
         rec.droppedWarnings += hadMarker ? kWarningTrim - 1 : kWarningTrim;
         beginInsertRows(jobIdx, 0, 0);
-        rec.warnings.prepend(tr("… %1 earlier warnings dropped")
-                                 .arg(rec.droppedWarnings));
+        rec.warnings.prepend(tr("… %1 earlier warnings dropped").arg(rec.droppedWarnings));
         endInsertRows();
     }
 
@@ -218,22 +232,22 @@ void SimulationStatusModel::addWarning(int jobId, int code, const QString &messa
     endInsertRows();
 }
 
-void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
-                                      const QString &errMsg,
+void SimulationStatusModel::finishJob(int jobId, bool success, int errCode, const QString &errMsg,
                                       double runoffErrFrac, double routingErrFrac,
                                       double twoDErrFrac)
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return;
+    if (row < 0)
+        return;
 
-    auto &rec          = m_jobs[row];
-    rec.finishedAt     = QDateTime::currentDateTime();
-    rec.runoffErrPct   = runoffErrFrac  * 100.0;
-    rec.routingErrPct  = routingErrFrac * 100.0;
-    rec.twoDErrPct     = twoDErrFrac    * 100.0;  // NaN passes through
-    rec.progress       = 1.0;
-    rec.errorCode      = errCode;
-    rec.errorMessage   = errMsg;
+    auto &rec = m_jobs[row];
+    rec.finishedAt = QDateTime::currentDateTime();
+    rec.runoffErrPct = runoffErrFrac * 100.0;
+    rec.routingErrPct = routingErrFrac * 100.0;
+    rec.twoDErrPct = twoDErrFrac * 100.0; // NaN passes through
+    rec.progress = 1.0;
+    rec.errorCode = errCode;
+    rec.errorMessage = errMsg;
 
     if (!success && errCode != 0)
         rec.status = SimulationJobStatus::Failed;
@@ -261,7 +275,7 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
         endInsertRows();
     }
 
-    const QModelIndex tl = createIndex(row, 0,          kRootId);
+    const QModelIndex tl = createIndex(row, 0, kRootId);
     const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
     emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
 }
@@ -269,23 +283,27 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
 const SimulationJobRecord *SimulationStatusModel::jobRecord(int jobId) const
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return nullptr;
+    if (row < 0)
+        return nullptr;
     return &m_jobs[row];
 }
 
 int SimulationStatusModel::jobIdForRow(int row) const
 {
-    if (row < 0 || row >= m_jobs.size()) return -1;
+    if (row < 0 || row >= m_jobs.size())
+        return -1;
     return m_jobs[row].id;
 }
 
 QList<int> SimulationStatusModel::clearJobsForModel(SWMMVisProjectWindow *model)
 {
     QList<int> removedIds;
-    if (!model) return removedIds;
+    if (!model)
+        return removedIds;
 
     auto it = m_modelToJobId.find(model);
-    if (it == m_modelToJobId.end()) return removedIds;
+    if (it == m_modelToJobId.end())
+        return removedIds;
 
     const QList<int> jobIds = it.value().values();
     m_modelToJobId.erase(it);
@@ -296,7 +314,8 @@ QList<int> SimulationStatusModel::clearJobsForModel(SWMMVisProjectWindow *model)
     rows.reserve(jobIds.size());
     for (int jobId : jobIds) {
         const int row = jobIndexById(jobId);
-        if (row >= 0) rows.append(row);
+        if (row >= 0)
+            rows.append(row);
     }
     std::sort(rows.begin(), rows.end(), std::greater<int>());
 
@@ -314,14 +333,13 @@ QList<int> SimulationStatusModel::clearJobsForModel(SWMMVisProjectWindow *model)
 // QAbstractItemModel
 // ---------------------------------------------------------------------------
 
-QModelIndex SimulationStatusModel::index(int row, int column,
-                                          const QModelIndex &parent) const
+QModelIndex SimulationStatusModel::index(int row, int column, const QModelIndex &parent) const
 {
     if (!hasIndex(row, column, parent))
         return {};
 
     if (!parent.isValid())
-        return createIndex(row, column, kRootId);          // job row
+        return createIndex(row, column, kRootId); // job row
 
     if (parent.internalId() == kRootId)
         return createIndex(row, column, quintptr(parent.row())); // warning row
@@ -334,7 +352,7 @@ QModelIndex SimulationStatusModel::parent(const QModelIndex &child) const
     if (!child.isValid())
         return {};
     if (child.internalId() == kRootId)
-        return {};                                           // job → root
+        return {}; // job → root
     // warning → its parent job row
     return createIndex(int(child.internalId()), 0, kRootId);
 }
@@ -343,32 +361,37 @@ int SimulationStatusModel::rowCount(const QModelIndex &parent) const
 {
     if (!parent.isValid())
         return m_jobs.size();
-    if (parent.column()==0 && parent.internalId() == kRootId && parent.row()<m_jobs.size())
-        return m_jobs[parent.row()].warnings.size()+m_jobs[parent.row()].snowLedger.size();
+    if (parent.column() == 0 && parent.internalId() == kRootId && parent.row() < m_jobs.size())
+        return m_jobs[parent.row()].warnings.size() + m_jobs[parent.row()].snowLedger.size();
     return 0;
 }
 
-int SimulationStatusModel::columnCount(const QModelIndex &/*parent*/) const
+int SimulationStatusModel::columnCount(const QModelIndex & /*parent*/) const
 {
     return NumColumns;
 }
 
 QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid()) return {};
+    if (!index.isValid())
+        return {};
 
     // ── Warning (child) rows ─────────────────────────────────────────────
     if (index.internalId() != kRootId) {
         const int jobRow = int(index.internalId());
-        if (jobRow < 0 || jobRow >= m_jobs.size()) return {};
+        if (jobRow < 0 || jobRow >= m_jobs.size())
+            return {};
         const auto &rec = m_jobs[jobRow];
-        if(index.row()>=rec.warnings.size()) {
-            const int r=index.row()-rec.warnings.size();
-            if(r>=rec.snowLedger.size())return {};
-            if(index.column()==0 && (role==Qt::DisplayRole||role==Qt::ToolTipRole))return rec.snowLedger[r];
+        if (index.row() >= rec.warnings.size()) {
+            const int r = index.row() - rec.warnings.size();
+            if (r >= rec.snowLedger.size())
+                return {};
+            if (index.column() == 0 && (role == Qt::DisplayRole || role == Qt::ToolTipRole))
+                return rec.snowLedger[r];
             return {}; // process balances are ordinary data, not warnings
         }
-        if (index.row() < 0) return {};
+        if (index.row() < 0)
+            return {};
 
         if (role == Qt::DisplayRole && index.column() == 0)
             return rec.warnings.at(index.row());
@@ -378,7 +401,7 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             // The failure row (finishJob) is red; warnings stay amber.
             if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR [")))
                 return QBrush(QColor(0xC0, 0x00, 0x00));
-            return QBrush(QColor(0xD0, 0x6F, 0x00));  // amber for warnings
+            return QBrush(QColor(0xD0, 0x6F, 0x00)); // amber for warnings
         }
         // Not-color-alone (UI redesign P9): a warning glyph carries the
         // severity for color-blind users and assistive tech.
@@ -390,7 +413,8 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
     }
 
     // ── Job (top-level) rows ─────────────────────────────────────────────
-    if (index.row() < 0 || index.row() >= m_jobs.size()) return {};
+    if (index.row() < 0 || index.row() >= m_jobs.size())
+        return {};
     const auto &rec = m_jobs[index.row()];
 
     // UserRole carries raw values — used by the progress-bar delegate to
@@ -398,8 +422,10 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
     // text. Columns without a raw role return the invalid variant.
     if (role == Qt::UserRole) {
         switch (index.column()) {
-        case ColProgress:    return int(rec.progress * 100.0 + 0.5);
-        default:             break;
+        case ColProgress:
+            return int(rec.progress * 100.0 + 0.5);
+        default:
+            break;
         }
     }
 
@@ -409,11 +435,16 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return rec.instanceName;
         case ColStatus:
             switch (rec.status) {
-            case SimulationJobStatus::Idle:      return tr("Idle");
-            case SimulationJobStatus::Running:   return tr("Running");
-            case SimulationJobStatus::Success:   return tr("Success");
-            case SimulationJobStatus::Failed:    return tr("Failed");
-            case SimulationJobStatus::Cancelled: return tr("Cancelled");
+            case SimulationJobStatus::Idle:
+                return tr("Idle");
+            case SimulationJobStatus::Running:
+                return tr("Running");
+            case SimulationJobStatus::Success:
+                return tr("Success");
+            case SimulationJobStatus::Failed:
+                return tr("Failed");
+            case SimulationJobStatus::Cancelled:
+                return tr("Cancelled");
             }
             break;
         case ColProgress:
@@ -428,10 +459,12 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         case ColEndDate:
             return rec.endSimDate;
         case ColRunoffErr:
-            if(qIsNaN(rec.runoffErrPct))return QStringLiteral("—");
+            if (qIsNaN(rec.runoffErrPct))
+                return QStringLiteral("—");
             return QStringLiteral("%1 %").arg(rec.runoffErrPct, 0, 'f', 3);
         case ColRoutingErr:
-            if(qIsNaN(rec.routingErrPct))return QStringLiteral("—");
+            if (qIsNaN(rec.routingErrPct))
+                return QStringLiteral("—");
             return QStringLiteral("%1 %").arg(rec.routingErrPct, 0, 'f', 3);
         case ColTwoDErr:
             if (qIsNaN(rec.twoDErrPct))
@@ -441,10 +474,9 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             if (!rec.startedAt.isValid())
                 return QStringLiteral("—");
             if (!rec.finishedAt.isValid())
-                return QStringLiteral("%1 s")
-                    .arg(rec.startedAt.secsTo(QDateTime::currentDateTime()));
-            return QStringLiteral("%1 s")
-                .arg(rec.startedAt.secsTo(rec.finishedAt));
+                return QStringLiteral("%1 s").arg(
+                    rec.startedAt.secsTo(QDateTime::currentDateTime()));
+            return QStringLiteral("%1 s").arg(rec.startedAt.secsTo(rec.finishedAt));
         }
         case ColAvgTimestep:
             if (rec.avgTimestepSec <= 0.0)
@@ -455,41 +487,53 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         case ColVersion:
             return rec.engineVersion.isEmpty() ? QStringLiteral("—") : rec.engineVersion;
         case Col2DBackend: {
-            if (rec.twoDBackend.isEmpty()) return QStringLiteral("—");
-            static const char* const kClosure[] =
-                {"LOCAL_INERTIAL", "FULL_SWE", "DIFFUSIVE_WAVE"};
+            if (rec.twoDBackend.isEmpty())
+                return QStringLiteral("—");
+            static const char *const kClosure[] = {"LOCAL_INERTIAL", "FULL_SWE", "DIFFUSIVE_WAVE"};
             // "cpu (explicit marcher)" → "cpu"; the full label is the tooltip.
-            const QString label =
-                rec.twoDBackend.section(QLatin1Char('('), 0, 0).trimmed();
-            if (rec.twoDMomentum < 0 || rec.twoDMomentum > 2) return label;
-            return QStringLiteral("%1 · %2")
-                .arg(label, QLatin1String(kClosure[rec.twoDMomentum]));
+            const QString label = rec.twoDBackend.section(QLatin1Char('('), 0, 0).trimmed();
+            if (rec.twoDMomentum < 0 || rec.twoDMomentum > 2)
+                return label;
+            return QStringLiteral("%1 · %2").arg(label, QLatin1String(kClosure[rec.twoDMomentum]));
         }
         case ColLtsTiers: {
-            if (rec.twoDBackend.isEmpty()) return QStringLiteral("—");
-            if (rec.twoDTierCells.isEmpty()) return tr("%1 tiers").arg(rec.twoDLtsTiers);
+            if (rec.twoDBackend.isEmpty())
+                return QStringLiteral("—");
+            if (rec.twoDTierCells.isEmpty())
+                return tr("%1 tiers").arg(rec.twoDLtsTiers);
             qint64 sum = 0, best = -1;
-            int    bestTier = 0;
+            int bestTier = 0;
             for (int k = 0; k < rec.twoDTierCells.size(); ++k) {
                 sum += rec.twoDTierCells[k];
-                if (rec.twoDTierCells[k] > best) { best = rec.twoDTierCells[k]; bestTier = k; }
+                if (rec.twoDTierCells[k] > best) {
+                    best = rec.twoDTierCells[k];
+                    bestTier = k;
+                }
             }
-            if (sum <= 0) return tr("%1 tiers").arg(rec.twoDTierCells.size());
+            if (sum <= 0)
+                return tr("%1 tiers").arg(rec.twoDTierCells.size());
             return tr("%1 tiers · t%2 %3 %")
-                .arg(rec.twoDTierCells.size()).arg(bestTier)
+                .arg(rec.twoDTierCells.size())
+                .arg(bestTier)
                 .arg(100.0 * double(best) / double(sum), 0, 'f', 0);
         }
-        default: break;
+        default:
+            break;
         }
     }
 
     if (role == Qt::ForegroundRole) {
         switch (rec.status) {
-        case SimulationJobStatus::Idle:      return {};
-        case SimulationJobStatus::Running:   return QBrush(QColor(0x00, 0x70, 0xC0));
-        case SimulationJobStatus::Success:   return QBrush(QColor(0x00, 0x80, 0x00));
-        case SimulationJobStatus::Failed:    return QBrush(QColor(0xC0, 0x00, 0x00));
-        case SimulationJobStatus::Cancelled: return QBrush(QColor(0x60, 0x60, 0x60));
+        case SimulationJobStatus::Idle:
+            return {};
+        case SimulationJobStatus::Running:
+            return QBrush(QColor(0x00, 0x70, 0xC0));
+        case SimulationJobStatus::Success:
+            return QBrush(QColor(0x00, 0x80, 0x00));
+        case SimulationJobStatus::Failed:
+            return QBrush(QColor(0xC0, 0x00, 0x00));
+        case SimulationJobStatus::Cancelled:
+            return QBrush(QColor(0x60, 0x60, 0x60));
         }
     }
 
@@ -500,57 +544,74 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
     if (role == Qt::ToolTipRole && index.column() == ColLtsTiers && !rec.twoDTierCells.isEmpty()) {
         QStringList parts;
         qint64 sum = 0;
-        for (qint64 c : rec.twoDTierCells) sum += c;
+        for (qint64 c : rec.twoDTierCells)
+            sum += c;
         for (int k = 0; k < rec.twoDTierCells.size(); ++k)
-            parts << tr("tier %1: %2 %").arg(k)
-                        .arg(sum > 0 ? 100.0 * double(rec.twoDTierCells[k]) / double(sum) : 0.0,
-                             0, 'f', 1);
-        return tr("LTS tier occupancy (rebuild-sampled cells)\n%1").arg(parts.join(QLatin1Char('\n')));
+            parts << tr("tier %1: %2 %")
+                         .arg(k)
+                         .arg(sum > 0 ? 100.0 * double(rec.twoDTierCells[k]) / double(sum) : 0.0, 0,
+                              'f', 1);
+        return tr("LTS tier occupancy (rebuild-sampled cells)\n%1")
+            .arg(parts.join(QLatin1Char('\n')));
     }
 
     return {};
 }
 
-QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientation,
-                                            int role) const
+QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
         return {};
 
     switch (section) {
-    case ColName:        return tr("Name");
-    case ColStatus:      return tr("Status");
-    case ColProgress:    return tr("Progress");
-    case ColStartDate:   return tr("Sim Start");
-    case ColCurrentDate: return tr("Sim Current");
-    case ColEndDate:     return tr("Sim End");
-    case ColRunoffErr:   return tr("Runoff Err (%)");
-    case ColRoutingErr:  return tr("Routing Err (%)");
-    case ColTwoDErr:     return tr("2D Err (%)");
-    case ColDuration:     return tr("Duration");
-    case ColAvgTimestep:  return tr("Avg Timestep");
-    case ColVersion:      return tr("Engine Version");
-    case Col2DBackend:    return tr("2D Solver");
-    case ColLtsTiers:     return tr("LTS Tiers");
-    default: return {};
+    case ColName:
+        return tr("Name");
+    case ColStatus:
+        return tr("Status");
+    case ColProgress:
+        return tr("Progress");
+    case ColStartDate:
+        return tr("Sim Start");
+    case ColCurrentDate:
+        return tr("Sim Current");
+    case ColEndDate:
+        return tr("Sim End");
+    case ColRunoffErr:
+        return tr("Runoff Err (%)");
+    case ColRoutingErr:
+        return tr("Routing Err (%)");
+    case ColTwoDErr:
+        return tr("2D Err (%)");
+    case ColDuration:
+        return tr("Duration");
+    case ColAvgTimestep:
+        return tr("Avg Timestep");
+    case ColVersion:
+        return tr("Engine Version");
+    case Col2DBackend:
+        return tr("2D Solver");
+    case ColLtsTiers:
+        return tr("LTS Tiers");
+    default:
+        return {};
     }
 }
 
-void SimulationStatusModel::updateTwoDSolverStats(int jobId, const QString &backend,
-                                                  int momentum, int ltsTiers,
-                                                  qint64 steps,
+void SimulationStatusModel::updateTwoDSolverStats(int jobId, const QString &backend, int momentum,
+                                                  int ltsTiers, qint64 steps,
                                                   const QVector<qint64> &tierCells)
 {
     const int row = jobIndexById(jobId);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     auto &rec = m_jobs[row];
-    rec.twoDBackend   = backend;
-    rec.twoDMomentum  = momentum;
-    rec.twoDLtsTiers  = ltsTiers;
-    rec.twoDSteps     = steps;
+    rec.twoDBackend = backend;
+    rec.twoDMomentum = momentum;
+    rec.twoDLtsTiers = ltsTiers;
+    rec.twoDSteps = steps;
     rec.twoDTierCells = tierCells;
     const QModelIndex tl = createIndex(row, Col2DBackend, kRootId);
-    const QModelIndex br = createIndex(row, ColLtsTiers,  kRootId);
+    const QModelIndex br = createIndex(row, ColLtsTiers, kRootId);
     emit dataChanged(tl, br, {Qt::DisplayRole, Qt::ToolTipRole});
 }
 
@@ -561,6 +622,7 @@ void SimulationStatusModel::updateTwoDSolverStats(int jobId, const QString &back
 int SimulationStatusModel::jobIndexById(int jobId) const
 {
     for (int i = 0; i < m_jobs.size(); ++i)
-        if (m_jobs[i].id == jobId) return i;
+        if (m_jobs[i].id == jobId)
+            return i;
     return -1;
 }

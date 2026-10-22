@@ -1,6 +1,6 @@
-/*!
- * \file   test_hydrograph_models.cpp
- * \brief  Slice BS Phase 6.9.2 — Qt-contract tests for the four hydrograph
+/**
+ * @file      test_hydrograph_models.cpp
+ * @brief     Slice BS Phase 6.9.2 — Qt-contract tests for the four hydrograph
  *         MVC models.
  *
  * Tests focus on the model surface that can be verified without instantiating
@@ -23,6 +23,10 @@
  * Stubs at the bottom of the file satisfy the linker for the few
  * SWMMModelLayer methods the models reference; they're never invoked
  * because the tests pass nullptr for the layer.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QObject>
@@ -85,9 +89,8 @@ private slots:
     void rtkNumericColumnsEditable()
     {
         HydrographRtkTableModel m(nullptr);
-        for (int c : { HydrographRtkTableModel::ColR,
-                         HydrographRtkTableModel::ColT,
-                         HydrographRtkTableModel::ColK }) {
+        for (int c : {HydrographRtkTableModel::ColR, HydrographRtkTableModel::ColT,
+                      HydrographRtkTableModel::ColK}) {
             for (int r = 0; r < 3; ++r) {
                 const Qt::ItemFlags f = m.flags(m.index(r, c));
                 QVERIFY(f & Qt::ItemIsEditable);
@@ -131,9 +134,7 @@ private slots:
     {
         HydrographRtkTableModel m(nullptr);
         m.setContext("UH1", -1);
-        QCOMPARE(m.setData(m.index(0, HydrographRtkTableModel::ColR),
-                            0.5, Qt::EditRole),
-                 false);
+        QCOMPARE(m.setData(m.index(0, HydrographRtkTableModel::ColR), 0.5, Qt::EditRole), false);
     }
 
     // -------------------------------------------------------------------
@@ -150,15 +151,15 @@ private slots:
     void iaHeaderColumns()
     {
         HydrographIaTableModel m(nullptr);
-        QCOMPARE(m.headerData(HydrographIaTableModel::ColDmax,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
+        QCOMPARE(m.headerData(HydrographIaTableModel::ColDmax, Qt::Horizontal, Qt::DisplayRole)
+                     .toString(),
                  QStringLiteral("Dmax"));
-        QCOMPARE(m.headerData(HydrographIaTableModel::ColDrec,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
+        QCOMPARE(m.headerData(HydrographIaTableModel::ColDrec, Qt::Horizontal, Qt::DisplayRole)
+                     .toString(),
                  QStringLiteral("Drec"));
-        QCOMPARE(m.headerData(HydrographIaTableModel::ColDo,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
-                 QStringLiteral("Do"));
+        QCOMPARE(
+            m.headerData(HydrographIaTableModel::ColDo, Qt::Horizontal, Qt::DisplayRole).toString(),
+            QStringLiteral("Do"));
     }
 
     // -------------------------------------------------------------------
@@ -186,14 +187,14 @@ private slots:
     void decayHeaderColumns()
     {
         HydrographDecayTableModel m(nullptr);
-        QCOMPARE(m.headerData(HydrographDecayTableModel::ColActive,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
+        QCOMPARE(m.headerData(HydrographDecayTableModel::ColActive, Qt::Horizontal, Qt::DisplayRole)
+                     .toString(),
                  QStringLiteral("Active"));
-        QCOMPARE(m.headerData(HydrographDecayTableModel::ColKdep,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
+        QCOMPARE(m.headerData(HydrographDecayTableModel::ColKdep, Qt::Horizontal, Qt::DisplayRole)
+                     .toString(),
                  QStringLiteral("k_dep"));
-        QCOMPARE(m.headerData(HydrographDecayTableModel::ColTref,
-                                Qt::Horizontal, Qt::DisplayRole).toString(),
+        QCOMPARE(m.headerData(HydrographDecayTableModel::ColTref, Qt::Horizontal, Qt::DisplayRole)
+                     .toString(),
                  QStringLiteral("T_ref"));
     }
 
@@ -205,7 +206,7 @@ private slots:
         QCOMPARE(m.currentName(), QStringLiteral("UH1"));
         QCOMPARE(resetSpy.count(), 1);
         m.setContext("UH1");
-        QCOMPARE(resetSpy.count(), 1);   // no-op
+        QCOMPARE(resetSpy.count(), 1); // no-op
         m.setContext("UH2");
         QCOMPARE(resetSpy.count(), 2);
     }
@@ -230,23 +231,39 @@ private slots:
 // Empty stand-in for the kd-tree pimpl member. The real definition
 // pulls in nanoflann + 80k LOC; we just need a complete type so the
 // unique_ptr<SWMMKdTrees> destructor instantiates cleanly.
-struct SWMMKdTrees {};
+struct SWMMKdTrees {
+};
 
 // GDAL-using out-of-line definitions stubbed (real ones live in
 // spatialreferencesystem.cpp + would force GDAL into the test link).
 SpatialReferenceSystem::~SpatialReferenceSystem() = default;
 
-SWMM_Engine SWMMModelLayer::engine() const { return nullptr; }
+SWMM_Engine SWMMModelLayer::engine() const
+{
+    return nullptr;
+}
 
-bool SWMMModelLayer::applyHydrographSetRtk(const QString&, int, int,
-                                            double, double, double) { return true; }
-bool SWMMModelLayer::applyHydrographSetIa(const QString&, int, int,
-                                           double, double, double) { return true; }
-bool SWMMModelLayer::applyHydrographRenameGroup(const QString&, const QString&) { return true; }
-bool SWMMModelLayer::applyRdiiDecaySet(const QString&, int,
-                                        double, double, double,
-                                        double, double, double) { return true; }
-bool SWMMModelLayer::applyRdiiDecayRemove(const QString&, int) { return true; }
+bool SWMMModelLayer::applyHydrographSetRtk(const QString &, int, int, double, double, double)
+{
+    return true;
+}
+bool SWMMModelLayer::applyHydrographSetIa(const QString &, int, int, double, double, double)
+{
+    return true;
+}
+bool SWMMModelLayer::applyHydrographRenameGroup(const QString &, const QString &)
+{
+    return true;
+}
+bool SWMMModelLayer::applyRdiiDecaySet(const QString &, int, double, double, double, double, double,
+                                       double)
+{
+    return true;
+}
+bool SWMMModelLayer::applyRdiiDecayRemove(const QString &, int)
+{
+    return true;
+}
 
 // Slice Z (RENDERING_RULE_MODEL_PLAN) — vtable stubs. The MOC for
 // SWMMModelLayer references these from qt_static_metacall + the
@@ -254,32 +271,65 @@ bool SWMMModelLayer::applyRdiiDecayRemove(const QString&, int) { return true; }
 // painting / styling / property accessors are inert in this test.
 SWMMModelLayer::~SWMMModelLayer() = default;
 
-QString SWMMModelLayer::modelFilePath()      const { return {}; }
-bool    SWMMModelLayer::showNodes()          const { return false; }
-bool    SWMMModelLayer::showLinks()          const { return false; }
-bool    SWMMModelLayer::showSubcatchments()  const { return false; }
-bool    SWMMModelLayer::showRainGages()      const { return false; }
-bool    SWMMModelLayer::showLabels()         const { return false; }
-void    SWMMModelLayer::setShowNodes(bool)         {}
-void    SWMMModelLayer::setShowLinks(bool)         {}
-void    SWMMModelLayer::setShowSubcatchments(bool) {}
-void    SWMMModelLayer::setShowRainGages(bool)     {}
-void    SWMMModelLayer::setShowLabels(bool)        {}
+QString SWMMModelLayer::modelFilePath() const
+{
+    return {};
+}
+bool SWMMModelLayer::showNodes() const
+{
+    return false;
+}
+bool SWMMModelLayer::showLinks() const
+{
+    return false;
+}
+bool SWMMModelLayer::showSubcatchments() const
+{
+    return false;
+}
+bool SWMMModelLayer::showRainGages() const
+{
+    return false;
+}
+bool SWMMModelLayer::showLabels() const
+{
+    return false;
+}
+void SWMMModelLayer::setShowNodes(bool) {}
+void SWMMModelLayer::setShowLinks(bool) {}
+void SWMMModelLayer::setShowSubcatchments(bool) {}
+void SWMMModelLayer::setShowRainGages(bool) {}
+void SWMMModelLayer::setShowLabels(bool) {}
 
-OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::renderer() const { return nullptr; }
+OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::renderer() const
+{
+    return nullptr;
+}
 void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>) {}
 
-OpenSWMM::Render::RuleList       *SWMMModelLayer::ruleList()       { return nullptr; }
-const OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList() const { return nullptr; }
+OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList()
+{
+    return nullptr;
+}
+const OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList() const
+{
+    return nullptr;
+}
 
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-SWMMModelLayer::styleSubjects() { return {}; }
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMMModelLayer::styleSubjects()
+{
+    return {};
+}
 
 void SWMMModelLayer::populateScene(QGraphicsScene *, const MapExtent &,
-                                    const SpatialReferenceSystem *) {}
+                                   const SpatialReferenceSystem *)
+{
+}
 void SWMMModelLayer::depopulateScene(QGraphicsScene *) {}
 void SWMMModelLayer::refreshScene(QGraphicsScene *, const MapExtent &,
-                                   const SpatialReferenceSystem *) {}
+                                  const SpatialReferenceSystem *)
+{
+}
 void SWMMModelLayer::onCanvasCRSChanged(const SpatialReferenceSystem *) {}
 
 QTEST_MAIN(TestHydrographModels)

@@ -1,6 +1,6 @@
-/*!
- * \file   test_meshenginesync.cpp
- * \brief  Mesh-edit persistence — layer edits → engine → .inp round trip.
+/**
+ * @file      test_meshenginesync.cpp
+ * @brief     Mesh-edit persistence — layer edits → engine → .inp round trip.
  *
  * Reproduces the reported bug ("edits of the mesh are not persisted to file")
  * end-to-end against a real engine:
@@ -17,7 +17,12 @@
  *
  * Output .inp is written next to the fixture (the CTest WORKING_DIRECTORY) so
  * it can be reviewed rather than hidden in a temp dir.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QByteArray>
@@ -38,12 +43,22 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_2d.h>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Read an input/report fixture as UTF-8 text.
+ * @param path Borrowed filename opened read-only in Qt text mode.
+ * @return Owned text or empty on open failure; read errors and empty-file ambiguity
+ * are not distinguished. No modification; handle closes on return.
+ *
+ */
 QString readAll(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     return QString::fromUtf8(f.readAll());
 }
 
@@ -51,7 +66,7 @@ QString readAll(const QString &path)
 
 TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
 {
-    const QString inPath  = QStringLiteral("mesh_sync_fixture.inp");
+    const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
     const QString outPath = QStringLiteral("mesh_sync_out.inp");
 
     // ---- Layer-side state, exactly as the GUI builds it on load ----------
@@ -60,8 +75,8 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_GT(rr.mesh.vertices.size(), 0);
     ASSERT_FALSE(rr.edgeBCs.isEmpty());
 
-    mesh::MeshResult         meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs      = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     // The reader lifts the engine's [2D_VERTEX_NODE_MAP] coupling onto the
     // vertex's coupledNode field (distinct from the descriptive tag). Vertex 4
@@ -70,7 +85,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     EXPECT_EQ(meshState.vertices[4].coupledNode, QStringLiteral("J1"))
         << "[2D_VERTEX_NODE_MAP] coupling not read onto coupledNode";
     // The optional CD / AREA columns land on couplingCd / couplingArea.
-    EXPECT_DOUBLE_EQ(meshState.vertices[4].couplingCd,   0.65);
+    EXPECT_DOUBLE_EQ(meshState.vertices[4].couplingCd, 0.65);
     EXPECT_DOUBLE_EQ(meshState.vertices[4].couplingArea, 2.0);
 
     // ---- Open the engine on the same model -------------------------------
@@ -78,9 +93,9 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     // model-BUILDING session, which swmm_engine_open rejects (lifecycle).
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
-                               "mesh_sync_fixture.rpt", "mesh_sync_fixture.out",
-                               nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_fixture.rpt",
+                               "mesh_sync_fixture.out", nullptr),
+              0);
     ASSERT_EQ(swmm_engine_initialize(e), 0);
 
     int nv = 0, nt = 0;
@@ -90,26 +105,26 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
 
     // ---- Make the mesh edits ---------------------------------------------
-    const double kZ = 555.5;   // vertex 0 elevation
-    const double kC = 0.25;    // conveyance on tri 0, edge 0
-    const double kH = 97.7;    // stage head on tri 5, edge 0
-    const double kF = 0.077;   // specified-flow magnitude on tri 7, edge 0
-    const double kN = 0.099;   // Manning's n on triangle 0
-    const double kD = 0.313;   // initial depth on triangle 0
+    const double kZ = 555.5; // vertex 0 elevation
+    const double kC = 0.25;  // conveyance on tri 0, edge 0
+    const double kH = 97.7;  // stage head on tri 5, edge 0
+    const double kF = 0.077; // specified-flow magnitude on tri 7, edge 0
+    const double kN = 0.099; // Manning's n on triangle 0
+    const double kD = 0.313; // initial depth on triangle 0
     ASSERT_GT(meshState.triangles.size(), 7);
-    meshState.vertices[0].z           = kZ;
-    meshState.vertices[0].coupledNode = QStringLiteral("J1");      // new coupling
-    meshState.vertices[4].couplingCd  = 0.9;                       // toolbar Cd edit
-    meshState.vertices[1].tag         = QStringLiteral("VTAG1");   // descriptive tag
-    meshState.triangles[0].mannings   = kN;                        // roughness edit
-    meshState.triangles[0].initDepth  = kD;                        // init-depth edit
-    meshState.triangles[0].tag        = QStringLiteral("REGION_X");// triangle tag
+    meshState.vertices[0].z = kZ;
+    meshState.vertices[0].coupledNode = QStringLiteral("J1"); // new coupling
+    meshState.vertices[4].couplingCd = 0.9;                   // toolbar Cd edit
+    meshState.vertices[1].tag = QStringLiteral("VTAG1");      // descriptive tag
+    meshState.triangles[0].mannings = kN;                     // roughness edit
+    meshState.triangles[0].initDepth = kD;                    // init-depth edit
+    meshState.triangles[0].tag = QStringLiteral("REGION_X");  // triangle tag
     bcs[mesh::edgeSlot(0, 0)].conveyance = kC;
-    bcs[mesh::edgeSlot(5, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[mesh::edgeSlot(5, 0)].head       = kH;
-    bcs[mesh::edgeSlot(5, 0)].tseries.clear();   // ensure no stale name masks the head
-    bcs[mesh::edgeSlot(7, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
-    bcs[mesh::edgeSlot(7, 0)].flow       = kF;
+    bcs[mesh::edgeSlot(5, 0)].type = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head = kH;
+    bcs[mesh::edgeSlot(5, 0)].tseries.clear(); // ensure no stale name masks the head
+    bcs[mesh::edgeSlot(7, 0)].type = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+    bcs[mesh::edgeSlot(7, 0)].flow = kF;
     bcs[mesh::edgeSlot(7, 0)].tseries.clear();
 
     // ---- Push edits into the engine, then serialise ----------------------
@@ -122,23 +137,23 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     // ---- Assert the edits landed in the written .inp ---------------------
     const QString text = readAll(outPath);
     ASSERT_FALSE(text.isEmpty());
-    EXPECT_TRUE(text.contains(QStringLiteral("555.5")))       // vertex Z
+    EXPECT_TRUE(text.contains(QStringLiteral("555.5"))) // vertex Z
         << "edited vertex elevation not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.25")))        // conveyance
+    EXPECT_TRUE(text.contains(QStringLiteral("0.25"))) // conveyance
         << "edited edge conveyance not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("97.7")))        // stage head
+    EXPECT_TRUE(text.contains(QStringLiteral("97.7"))) // stage head
         << "edited edge stage BC not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.077")))       // specified flow
+    EXPECT_TRUE(text.contains(QStringLiteral("0.077"))) // specified flow
         << "edited specified-flow BC not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.099")))       // Manning's n
+    EXPECT_TRUE(text.contains(QStringLiteral("0.099"))) // Manning's n
         << "edited triangle Manning's n not persisted";
     // INIT_DEPTH carries the mesh's length units, so an SI deck round-trips
     // the authored number verbatim (no conversion on either side).
-    EXPECT_TRUE(text.contains(QStringLiteral("0.313")))       // initial depth
+    EXPECT_TRUE(text.contains(QStringLiteral("0.313"))) // initial depth
         << "edited triangle initial depth not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("REGION_X")))    // triangle tag
+    EXPECT_TRUE(text.contains(QStringLiteral("REGION_X"))) // triangle tag
         << "edited triangle tag not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("VTAG1")))       // vertex descriptive tag
+    EXPECT_TRUE(text.contains(QStringLiteral("VTAG1"))) // vertex descriptive tag
         << "edited descriptive vertex tag not persisted";
 
     // New vertex 0 -> J1 coupling must appear in [2D_VERTEX_NODE_MAP].
@@ -146,31 +161,32 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
         const int sec = text.indexOf(QStringLiteral("[2D_VERTEX_NODE_MAP]"));
         ASSERT_GE(sec, 0) << "vertex node map missing";
         int end = text.indexOf(QStringLiteral("\n["), sec + 1);
-        if (end < 0) end = text.size();
+        if (end < 0)
+            end = text.size();
         const QString block = text.mid(sec, end - sec);
         bool v0Coupled = false, v4CdArea = false, v0Defaults = false;
         for (const QString &line : block.split('\n')) {
             const QString t = line.trimmed();
-            if (t.startsWith(QStringLiteral(";;")) || t.isEmpty()) continue;
-            const QStringList tok = t.split(QRegularExpression(QStringLiteral("\\s+")),
-                                            Qt::SkipEmptyParts);
-            if (tok.size() >= 2 && tok[0] == QStringLiteral("0")
-                && tok[1] == QStringLiteral("J1")) {
+            if (t.startsWith(QStringLiteral(";;")) || t.isEmpty())
+                continue;
+            const QStringList tok =
+                t.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+            if (tok.size() >= 2 && tok[0] == QStringLiteral("0") &&
+                tok[1] == QStringLiteral("J1")) {
                 v0Coupled = true;
                 // A freshly coupled vertex is pushed with the defaults.
-                if (tok.size() >= 4 && tok[2].toDouble() == 0.65
-                    && tok[3].toDouble() == 1.0)
+                if (tok.size() >= 4 && tok[2].toDouble() == 0.65 && tok[3].toDouble() == 1.0)
                     v0Defaults = true;
             }
             // The toolbar's Cd edit persisted; the fixture AREA survived.
-            if (tok.size() >= 4 && tok[0] == QStringLiteral("4")
-                && tok[1] == QStringLiteral("J1")
-                && tok[2].toDouble() == 0.9 && tok[3].toDouble() == 2.0)
+            if (tok.size() >= 4 && tok[0] == QStringLiteral("4") &&
+                tok[1] == QStringLiteral("J1") && tok[2].toDouble() == 0.9 &&
+                tok[3].toDouble() == 2.0)
                 v4CdArea = true;
         }
-        EXPECT_TRUE(v0Coupled)  << "edited vertex coupling not persisted";
+        EXPECT_TRUE(v0Coupled) << "edited vertex coupling not persisted";
         EXPECT_TRUE(v0Defaults) << "fresh coupling did not carry default Cd/Area";
-        EXPECT_TRUE(v4CdArea)   << "edited coupling Cd (or fixture AREA) not persisted";
+        EXPECT_TRUE(v4CdArea) << "edited coupling Cd (or fixture AREA) not persisted";
     }
 
     // ---- Assert no regression on data the GUI model does not carry -------
@@ -178,8 +194,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
         << "per-triangle Manning's n was flattened (regression)";
     EXPECT_TRUE(text.contains(QStringLiteral("[2D_VERTEX_NODE_MAP]")))
         << "vertex coupling map dropped (regression)";
-    EXPECT_TRUE(text.contains(QStringLiteral("J1")))
-        << "vertex->node coupling lost (regression)";
+    EXPECT_TRUE(text.contains(QStringLiteral("J1"))) << "vertex->node coupling lost (regression)";
 }
 
 // Node→cell couplings (Plan Part C) — the full GUI persistence chain for the
@@ -188,7 +203,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
 // written section must carry a repeated triangle index.
 TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
 {
-    const QString inPath  = QStringLiteral("mesh_sync_fixture.inp");
+    const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
     const QString outPath = QStringLiteral("mesh_sync_cellcoupling_out.inp");
 
     const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
@@ -200,24 +215,24 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     const int vaultTri = rr.mesh.cellCouplings[0].tri;
     EXPECT_GE(vaultTri, 0);
     EXPECT_EQ(rr.mesh.cellCouplings[0].nodeId, QStringLiteral("ST1"));
-    EXPECT_DOUBLE_EQ(rr.mesh.cellCouplings[0].cd,   0.60);
+    EXPECT_DOUBLE_EQ(rr.mesh.cellCouplings[0].cd, 0.60);
     EXPECT_DOUBLE_EQ(rr.mesh.cellCouplings[0].area, 10.0);
 
-    mesh::MeshResult          meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     // Two more nodes mapped into ONE cell — what Remap produces for a pair
     // of 1D nodes that fall inside the same triangle.
     const int sharedTri = (vaultTri == 0) ? 1 : 0;
-    meshState.cellCouplings.append({ sharedTri, QStringLiteral("J1"),   0.65, 2.0 });
-    meshState.cellCouplings.append({ sharedTri, QStringLiteral("OUT1"), 0.65, 2.0 });
+    meshState.cellCouplings.append({sharedTri, QStringLiteral("J1"), 0.65, 2.0});
+    meshState.cellCouplings.append({sharedTri, QStringLiteral("OUT1"), 0.65, 2.0});
 
     // OPENED, not INITIALIZED — the state the GUI saves from.
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
-                               "mesh_sync_cellcoupling.rpt",
-                               "mesh_sync_cellcoupling.out", nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_cellcoupling.rpt",
+                               "mesh_sync_cellcoupling.out", nullptr),
+              0);
 
     QStringList warnings;
     ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
@@ -238,15 +253,16 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     int sharedCount = 0;
     bool vaultBack = false;
     for (const mesh::CellCoupling &cc : back.mesh.cellCouplings) {
-        if (cc.tri == sharedTri) ++sharedCount;
+        if (cc.tri == sharedTri)
+            ++sharedCount;
         if (cc.nodeId == QStringLiteral("ST1")) {
             vaultBack = (cc.tri == vaultTri);
-            EXPECT_NEAR(cc.cd,   0.60, 1e-9);
+            EXPECT_NEAR(cc.cd, 0.60, 1e-9);
             EXPECT_NEAR(cc.area, 10.0, 1e-9);
         }
     }
     EXPECT_EQ(sharedCount, 2) << "both nodes sharing one cell must survive";
-    EXPECT_TRUE(vaultBack)    << "pre-existing tag-form coupling lost or moved";
+    EXPECT_TRUE(vaultBack) << "pre-existing tag-form coupling lost or moved";
 }
 
 // The GUI keeps the engine OPENED (never INITIALIZED) so 1D property edits stay
@@ -254,35 +270,34 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
 // inline-mesh save bug came from. Same edits as above, but no initialize().
 TEST(MeshEngineSync, EditsPersistInOpenedState)
 {
-    const QString inPath  = QStringLiteral("mesh_sync_fixture.inp");
+    const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
     const QString outPath = QStringLiteral("mesh_sync_opened_out.inp");
 
     const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
     ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
-    mesh::MeshResult         meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs      = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     // swmm_engine_create, NOT swmm_engine_new: _new opens a programmatic
     // model-BUILDING session, which swmm_engine_open rejects (lifecycle).
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
-                               "mesh_sync_opened.rpt", "mesh_sync_opened.out",
-                               nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_opened.rpt",
+                               "mesh_sync_opened.out", nullptr),
+              0);
     // NOTE: deliberately NOT calling swmm_engine_initialize — mirrors the GUI.
 
     int nv = 0, nt = 0;
-    ASSERT_EQ(swmm_2d_vertex_count(e, &nv), 0)
-        << "vertex_count must work in OPENED state";
+    ASSERT_EQ(swmm_2d_vertex_count(e, &nv), 0) << "vertex_count must work in OPENED state";
     ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
     ASSERT_EQ(nv, meshState.vertices.size());
     ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
 
     // Edit a vertex Z, an edge conveyance, and an edge stage BC.
-    meshState.vertices[0].z   = 333.3;
+    meshState.vertices[0].z = 333.3;
     bcs[mesh::edgeSlot(0, 0)].conveyance = 0.41;
-    bcs[mesh::edgeSlot(5, 0)].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[mesh::edgeSlot(5, 0)].head       = 88.8;
+    bcs[mesh::edgeSlot(5, 0)].type = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head = 88.8;
     bcs[mesh::edgeSlot(5, 0)].tseries.clear();
 
     QStringList warnings;
@@ -311,8 +326,8 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
     const QString inPath = QStringLiteral("mesh_sync_fixture.inp");
     const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
     ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
-    mesh::MeshResult          meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
@@ -320,9 +335,9 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
     // the plain OPENED state, and initialize activates the 2D router —
     // which would let the pre-A8 solver-state guard pass and blunt this
     // gate (the EditsPersistInOpenedState convention).
-    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
-                               "mesh_sync_parity.rpt", "mesh_sync_parity.out",
-                               nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_parity.rpt",
+                               "mesh_sync_parity.out", nullptr),
+              0);
     int nt = 0;
     ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
     ASSERT_EQ(bcs.size(), mesh::edgeSlotCount(nt));
@@ -332,16 +347,18 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
     // for a deck with authored BC rows — the getter must refuse cleanly,
     // not read past the end (unchecked indexing here segfaulted when this
     // gate was first written; the CHECK_BC_SIZED guard is the fix).
-    { int et0 = -1;
-      EXPECT_NE(swmm_2d_get_edge_bc_type(e, 0, 0, &et0), 0)
-          << "pre-drain BC getter must refuse, not read unsized arrays"; }
+    {
+        int et0 = -1;
+        EXPECT_NE(swmm_2d_get_edge_bc_type(e, 0, 0, &et0), 0)
+            << "pre-drain BC getter must refuse, not read unsized arrays";
+    }
 
     // Name-carrying edits on the two slots the fixture keeps as boundary
     // BCs; the names need not resolve — the setters store them verbatim
     // with deferred resolution, so a missing-TS warning is acceptable.
-    bcs[mesh::edgeSlot(5, 0)].type    = mesh::MeshBCTypes::Type::SpecifiedStageTS;
+    bcs[mesh::edgeSlot(5, 0)].type = mesh::MeshBCTypes::Type::SpecifiedStageTS;
     bcs[mesh::edgeSlot(5, 0)].tseries = QStringLiteral("TS_PARITY");
-    bcs[mesh::edgeSlot(7, 0)].type    = mesh::MeshBCTypes::Type::SpecifiedFlowTS;
+    bcs[mesh::edgeSlot(7, 0)].type = mesh::MeshBCTypes::Type::SpecifiedFlowTS;
     bcs[mesh::edgeSlot(7, 0)].tseries = QStringLiteral("TS_PARITY_Q");
 
     QStringList warnings;
@@ -350,13 +367,18 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
     using T = mesh::MeshBCTypes::Type;
     const auto engTypeOf = [](T t) {
         switch (t) {
-        case T::Wall:                return SWMM_2D_BC_WALL;
-        case T::NormalFlow:          return SWMM_2D_BC_NORMAL_FLOW;
+        case T::Wall:
+            return SWMM_2D_BC_WALL;
+        case T::NormalFlow:
+            return SWMM_2D_BC_NORMAL_FLOW;
         case T::SpecifiedStageConst:
-        case T::SpecifiedStageTS:    return SWMM_2D_BC_SPECIFIED_STAGE;
+        case T::SpecifiedStageTS:
+            return SWMM_2D_BC_SPECIFIED_STAGE;
         case T::SpecifiedFlowConst:
-        case T::SpecifiedFlowTS:     return SWMM_2D_BC_SPECIFIED_FLOW;
-        case T::RatingCurve:         return SWMM_2D_BC_RATING_CURVE;
+        case T::SpecifiedFlowTS:
+            return SWMM_2D_BC_SPECIFIED_FLOW;
+        case T::RatingCurve:
+            return SWMM_2D_BC_RATING_CURVE;
         }
         return SWMM_2D_BC_WALL;
     };
@@ -368,22 +390,15 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
             int et = -1;
             ASSERT_EQ(swmm_2d_get_edge_bc_type(e, t, k, &et), 0)
                 << "OPENED-state BC getter refused (pre-A8 solver guard?)";
-            EXPECT_EQ(et, engTypeOf(b.type)) << "type mismatch at " << t
-                                             << ":" << k;
-            ASSERT_EQ(swmm_2d_get_edge_bc_tseries_name(e, t, k, buf,
-                                                       sizeof buf), 0);
-            EXPECT_EQ(QString::fromUtf8(buf),
-                      b.type == T::SpecifiedStageTS ? b.tseries : QString())
+            EXPECT_EQ(et, engTypeOf(b.type)) << "type mismatch at " << t << ":" << k;
+            ASSERT_EQ(swmm_2d_get_edge_bc_tseries_name(e, t, k, buf, sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf), b.type == T::SpecifiedStageTS ? b.tseries : QString())
                 << "stage-TS name mismatch at " << t << ":" << k;
-            ASSERT_EQ(swmm_2d_get_edge_bc_flow_tseries_name(e, t, k, buf,
-                                                            sizeof buf), 0);
-            EXPECT_EQ(QString::fromUtf8(buf),
-                      b.type == T::SpecifiedFlowTS ? b.tseries : QString())
+            ASSERT_EQ(swmm_2d_get_edge_bc_flow_tseries_name(e, t, k, buf, sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf), b.type == T::SpecifiedFlowTS ? b.tseries : QString())
                 << "flow-TS name mismatch at " << t << ":" << k;
-            ASSERT_EQ(swmm_2d_get_edge_bc_rating_curve_name(e, t, k, buf,
-                                                            sizeof buf), 0);
-            EXPECT_EQ(QString::fromUtf8(buf),
-                      b.type == T::RatingCurve ? b.curve : QString())
+            ASSERT_EQ(swmm_2d_get_edge_bc_rating_curve_name(e, t, k, buf, sizeof buf), 0);
+            EXPECT_EQ(QString::fromUtf8(buf), b.type == T::RatingCurve ? b.curve : QString())
                 << "curve name mismatch at " << t << ":" << k;
         }
     }
@@ -401,7 +416,7 @@ TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
     // drop the `;; UNITS: SI (m)` mesh header so the engine treats the mesh
     // (and its BC constants) as project feet.
     const QString srcPath = QStringLiteral("mesh_sync_fixture.inp");
-    const QString inPath  = QStringLiteral("mesh_sync_fixture_cfs.inp");
+    const QString inPath = QStringLiteral("mesh_sync_fixture_cfs.inp");
     const QString outPath = QStringLiteral("mesh_sync_cfs_out.inp");
     {
         QString text = readAll(srcPath);
@@ -415,7 +430,8 @@ TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
         // mentions the token mid-line, which is not a header).
         ASSERT_FALSE(QRegularExpression(QStringLiteral("^;; UNITS: SI \\(m\\)"),
                                         QRegularExpression::MultilineOption)
-                         .match(text).hasMatch());
+                         .match(text)
+                         .hasMatch());
         QFile f(inPath);
         ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
         f.write(text.toUtf8());
@@ -423,22 +439,23 @@ TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
 
     const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
     ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
-    mesh::MeshResult          meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
-                               "mesh_sync_cfs.rpt", "mesh_sync_cfs.out", nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_cfs.rpt",
+                               "mesh_sync_cfs.out", nullptr),
+              0);
     // OPENED only — mirrors the GUI's editing engine.
 
-    const double kFlowCfsPerM = 1.25;   // display units, as the toolbar shows
-    const double kStageFt     = 97.7;
-    bcs[mesh::edgeSlot(7, 0)].type  = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
-    bcs[mesh::edgeSlot(7, 0)].flow  = kFlowCfsPerM;
+    const double kFlowCfsPerM = 1.25; // display units, as the toolbar shows
+    const double kStageFt = 97.7;
+    bcs[mesh::edgeSlot(7, 0)].type = mesh::MeshBCTypes::Type::SpecifiedFlowConst;
+    bcs[mesh::edgeSlot(7, 0)].flow = kFlowCfsPerM;
     bcs[mesh::edgeSlot(7, 0)].tseries.clear();
-    bcs[mesh::edgeSlot(5, 0)].type  = mesh::MeshBCTypes::Type::SpecifiedStageConst;
-    bcs[mesh::edgeSlot(5, 0)].head  = kStageFt;
+    bcs[mesh::edgeSlot(5, 0)].type = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[mesh::edgeSlot(5, 0)].head = kStageFt;
     bcs[mesh::edgeSlot(5, 0)].tseries.clear();
 
     QStringList warnings;
@@ -449,20 +466,21 @@ TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)
     ASSERT_EQ(swmm_2d_get_edge_bc_flow(e, 7, 0, &engFlow), 0);
     ASSERT_EQ(swmm_2d_get_edge_bc_head(e, 5, 0, &engHead), 0);
     EXPECT_NEAR(engFlow, kFlowCfsPerM, 1e-12) << "flow pushed in m³/s/m into an OPENED engine";
-    EXPECT_NEAR(engHead, kStageFt,     1e-12);
+    EXPECT_NEAR(engHead, kStageFt, 1e-12);
 
     // …and write it back verbatim.
     ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
     swmm_engine_destroy(e);
     const QString text = readAll(outPath);
     EXPECT_TRUE(text.contains(QStringLiteral("1.25"))) << "SPECIFIED_FLOW not written in CFS/m";
-    EXPECT_FALSE(text.contains(QStringLiteral("0.0353")))   // 1.25 × 0.02832
+    EXPECT_FALSE(text.contains(QStringLiteral("0.0353"))) // 1.25 × 0.02832
         << "SPECIFIED_FLOW written in m³/s/m — will be converted again on reopen";
 
     // Reopen + initialize: the engine converts exactly once.
     SWMM_Engine e2 = swmm_engine_create();
-    ASSERT_EQ(swmm_engine_open(e2, outPath.toUtf8().constData(),
-                               "mesh_sync_cfs2.rpt", "mesh_sync_cfs2.out", nullptr), 0);
+    ASSERT_EQ(swmm_engine_open(e2, outPath.toUtf8().constData(), "mesh_sync_cfs2.rpt",
+                               "mesh_sync_cfs2.out", nullptr),
+              0);
     ASSERT_EQ(swmm_engine_initialize(e2), 0);
     ASSERT_EQ(swmm_2d_get_edge_bc_flow(e2, 7, 0, &engFlow), 0);
     ASSERT_EQ(swmm_2d_get_edge_bc_head(e2, 5, 0, &engHead), 0);
@@ -478,8 +496,8 @@ TEST(MeshEngineSync, MissingOrDifferentMeshIsNotAWriteRejection)
     bool trianglesSynced = true;
     bool rejected = true;
     QStringList warnings;
-    EXPECT_FALSE(mesh::pushMeshEditsToEngine(nullptr, rr.mesh, rr.edgeBCs,
-                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(mesh::pushMeshEditsToEngine(nullptr, rr.mesh, rr.edgeBCs, &warnings,
+                                             &trianglesSynced, &rejected));
     EXPECT_FALSE(trianglesSynced);
     EXPECT_FALSE(rejected);
 
@@ -492,8 +510,8 @@ TEST(MeshEngineSync, MissingOrDifferentMeshIsNotAWriteRejection)
     ASSERT_EQ(swmm_2d_vertex_get_xyz(e, 0, &x, &y, &before), 0);
     different.vertices[0].z = 999.0;
     trianglesSynced = rejected = true;
-    EXPECT_FALSE(mesh::pushMeshEditsToEngine(e, different, rr.edgeBCs,
-                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(mesh::pushMeshEditsToEngine(e, different, rr.edgeBCs, &warnings, &trianglesSynced,
+                                             &rejected));
     EXPECT_FALSE(trianglesSynced);
     EXPECT_FALSE(rejected);
     EXPECT_FALSE(warnings.isEmpty());
@@ -509,33 +527,45 @@ TEST(MeshEngineSync, RejectedEdgeResetsSuccessOutputsAndCanRetry)
     ASSERT_FALSE(rr.edgeBCs.isEmpty());
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    ASSERT_EQ(swmm_engine_open(e, "mesh_sync_fixture.inp", "rejection.rpt", "rejection.out", nullptr), 0);
+    ASSERT_EQ(
+        swmm_engine_open(e, "mesh_sync_fixture.inp", "rejection.rpt", "rejection.out", nullptr), 0);
     auto bcs = rr.edgeBCs;
     bcs[0].conveyance = 1.5;
     bool trianglesSynced = true;
     bool rejected = false;
     QStringList warnings;
-    EXPECT_FALSE(mesh::pushMeshEditsToEngine(e, rr.mesh, bcs,
-                                            &warnings, &trianglesSynced, &rejected));
+    EXPECT_FALSE(
+        mesh::pushMeshEditsToEngine(e, rr.mesh, bcs, &warnings, &trianglesSynced, &rejected));
     EXPECT_FALSE(trianglesSynced);
     EXPECT_TRUE(rejected);
     EXPECT_TRUE(warnings.join(';').contains(QStringLiteral("edge conveyance (item 1) (edge 1)")));
     bcs[0].conveyance = 0.5;
     warnings.clear();
-    EXPECT_TRUE(mesh::pushMeshEditsToEngine(e, rr.mesh, bcs,
-                                           &warnings, &trianglesSynced, &rejected));
+    EXPECT_TRUE(
+        mesh::pushMeshEditsToEngine(e, rr.mesh, bcs, &warnings, &trianglesSynced, &rejected));
     EXPECT_TRUE(trianglesSynced);
     EXPECT_FALSE(rejected);
     EXPECT_TRUE(warnings.isEmpty());
     swmm_engine_destroy(e);
 }
 
-namespace {
+namespace
+{
+/**
+ *
+ * @brief Construct a thin large-origin quad for mesh-save validation tests.
+ * @return Owned four-vertex counterclockwise rectangle at (1e6,2e6), width 1e5 and
+ * height 1 in common project coordinate units, all z=-10. Other mesh/attribute fields
+ * retain defaults; this builder does not mark ok or initialize boundary records.
+ *
+ */
 mesh::MeshResult validationRectangle()
 {
     mesh::MeshResult result;
-    result.vertices = {{QPointF(1000000, 2000000), -10}, {QPointF(1100000, 2000000), -10},
-                       {QPointF(1100000, 2000001), -10}, {QPointF(1000000, 2000001), -10}};
+    result.vertices = {{QPointF(1000000, 2000000), -10},
+                       {QPointF(1100000, 2000000), -10},
+                       {QPointF(1100000, 2000001), -10},
+                       {QPointF(1000000, 2000001), -10}};
     result.triangles = {{0, 1, 2, 3}};
     return result;
 }
@@ -576,10 +606,14 @@ TEST(MeshSaveValidation, BoundaryRangesRetainSignedHeadsAndFlows)
     auto m = validationRectangle();
     QVector<mesh::MeshEdgeBC> bcs(4);
     using T = mesh::MeshBCTypes::Type;
-    bcs[0].type = T::SpecifiedStageConst; bcs[0].head = -5;
-    bcs[1].type = T::SpecifiedFlowConst; bcs[1].flow = -0.3;
-    bcs[2].type = T::NormalFlow; bcs[2].slope = 0;
-    bcs[0].conveyance = 0; bcs[1].conveyance = 1;
+    bcs[0].type = T::SpecifiedStageConst;
+    bcs[0].head = -5;
+    bcs[1].type = T::SpecifiedFlowConst;
+    bcs[1].flow = -0.3;
+    bcs[2].type = T::NormalFlow;
+    bcs[2].slope = 0;
+    bcs[0].conveyance = 0;
+    bcs[1].conveyance = 1;
     EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
     bcs[2].slope = -0.1;
     EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).contains("Cell 1: edge 3"));
@@ -596,9 +630,11 @@ TEST(MeshSaveValidation, ChecksBothTimeSeriesTypesAndRatingCurve)
     QVector<mesh::MeshEdgeBC> bcs(4);
     using T = mesh::MeshBCTypes::Type;
     for (const auto type : {T::SpecifiedStageTS, T::SpecifiedFlowTS, T::RatingCurve}) {
-        bcs[0] = {}; bcs[0].type = type;
+        bcs[0] = {};
+        bcs[0].type = type;
         EXPECT_FALSE(mesh::validateMeshSaveData(m, bcs).isEmpty());
-        bcs[0].tseries = "boundary_series"; bcs[0].curve = "boundary_curve";
+        bcs[0].tseries = "boundary_series";
+        bcs[0].curve = "boundary_curve";
         EXPECT_TRUE(mesh::validateMeshSaveData(m, bcs).isEmpty());
     }
 }

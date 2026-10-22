@@ -1,13 +1,16 @@
-/*!
- * \file   licenseagreementdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      licenseagreementdialog.h
+ * @brief     Startup license agreement dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Startup license agreement dialog. Shown at launch unless the user has
  * previously accepted and unchecked "Show on startup". Declining exits the
  * application immediately.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef LICENSEAGREEMENTDIALOG_H
 #define LICENSEAGREEMENTDIALOG_H
 
@@ -54,9 +57,9 @@ private:
     void buildUi();
     void savePreference(bool show);
 
-    QPlainTextEdit  *m_licenseText  = nullptr;
-    QCheckBox       *m_showCheckBox = nullptr;
-    QDialogButtonBox *m_buttons     = nullptr;
+    QPlainTextEdit *m_licenseText = nullptr;
+    QCheckBox *m_showCheckBox = nullptr;
+    QDialogButtonBox *m_buttons = nullptr;
 };
 
 #endif // LICENSEAGREEMENTDIALOG_H

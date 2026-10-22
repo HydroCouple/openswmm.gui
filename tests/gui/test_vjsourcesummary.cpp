@@ -1,8 +1,12 @@
-/*!
- * \file   test_vjsourcesummary.cpp
- * \brief  lateralSourceSummary(): the sentence the virtual-junction delete /
+/**
+ * @file      test_vjsourcesummary.cpp
+ * @brief     lateralSourceSummary(): the sentence the virtual-junction delete /
  *         re-fuse prompts show for a fed node, built from the engine alone
  *         (VJ_LATERAL_INFLOW_GUI_PLAN_2026-09-04).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/vjsourcesummary.h"
@@ -27,34 +31,50 @@ private:
     // DWF row and two [INFLOWS] rows and becomes the outlet of subcatchment
     // S1; J1 carries nothing. The flag is set before the sources are added
     // so the fixture builds against any engine version.
+    /**
+     *
+     * @brief Construct a BUILDING engine for a fed virtual midpoint source-summary case.
+     * @return Owned engine to destroy, or nullptr only on engine allocation failure.
+     * Attempts J1/MID/O1, two conduits, MID virtual flag, one DWF/two external inflows
+     * and S1 outlet; individual CRUD statuses are unchecked, so partial construction
+     * is possible. No file open, model validation or simulation is performed.
+     *
+     */
     SWMM_Engine buildFixture()
     {
         SWMM_Engine e = swmm_engine_new();
-        if (!e) return nullptr;
-        swmm_node_add(e, "J1",  0);
+        if (!e)
+            return nullptr;
+        swmm_node_add(e, "J1", 0);
         swmm_node_add(e, "MID", 0);
-        swmm_node_add(e, "O1",  1);
+        swmm_node_add(e, "O1", 1);
         const int j = swmm_node_index(e, "J1");
         const int m = swmm_node_index(e, "MID");
         const int o = swmm_node_index(e, "O1");
         swmm_node_set_invert_elev(e, j, 100.0);
-        swmm_node_set_invert_elev(e, m,  97.5);
-        swmm_node_set_invert_elev(e, o,  95.0);
-        swmm_link_add(e, "C1", 0);   // 0 = conduit
+        swmm_node_set_invert_elev(e, m, 97.5);
+        swmm_node_set_invert_elev(e, o, 95.0);
+        swmm_link_add(e, "C1", 0); // 0 = conduit
         swmm_link_add(e, "C2", 0);
         swmm_link_set_nodes(e, swmm_link_index(e, "C1"), j, m);
         swmm_link_set_nodes(e, swmm_link_index(e, "C2"), m, o);
         swmm_node_set_virtual(e, m, 1);
 
         swmm_dwf_add(e, m, "FLOW", 0.5, "", "", "", "");
-        swmm_ext_inflow_add(e, m, "FLOW", "TS1", "FLOW",   1.0, 1.0, 0.0, "");
-        swmm_ext_inflow_add(e, m, "TSS",  "TS2", "CONCEN", 1.0, 1.0, 0.0, "");
+        swmm_ext_inflow_add(e, m, "FLOW", "TS1", "FLOW", 1.0, 1.0, 0.0, "");
+        swmm_ext_inflow_add(e, m, "TSS", "TS2", "CONCEN", 1.0, 1.0, 0.0, "");
         swmm_subcatch_add(e, "S1");
         swmm_subcatch_set_outlet(e, swmm_subcatch_index(e, "S1"), m);
         return e;
     }
 
 private slots:
+    /**
+     *
+     * @brief Require a fed virtual MID prompt to count two inflows/one DWF, omit RDII and warn
+     * that S1 loses its outlet.
+     *
+     */
     void fedVirtualJunctionListsRowsAndSubcatchment()
     {
         SWMM_Engine e = buildFixture();
@@ -65,17 +85,21 @@ private slots:
         QCOMPARE(isVirtual, 1);
 
         const QString text = lateralSourceSummary(e, m);
-        QVERIFY2(text.contains(QStringLiteral("Re-fusing will remove its")),
-                 qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Re-fusing will remove its")), qPrintable(text));
         QVERIFY2(text.contains(QStringLiteral("2 inflow entries")), qPrintable(text));
         QVERIFY2(text.contains(QStringLiteral("1 DWF entry")), qPrintable(text));
         QVERIFY2(!text.contains(QStringLiteral("RDII")), qPrintable(text));
-        QVERIFY2(text.contains(
-                     QStringLiteral("Subcatchment \"S1\" will lose its outlet.")),
+        QVERIFY2(text.contains(QStringLiteral("Subcatchment \"S1\" will lose its outlet.")),
                  qPrintable(text));
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require the unfed J1, negative node index and null engine to yield empty
+     * lateral-source summaries.
+     *
+     */
     void unfedNodeIsEmpty()
     {
         SWMM_Engine e = buildFixture();

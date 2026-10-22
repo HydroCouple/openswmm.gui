@@ -1,8 +1,12 @@
-/*!
- * \file   test_treatment_expression_editor.cpp
- * \brief  Iteration 4 — the treatment-expression editing stack: highlighter
+/**
+ * @file      test_treatment_expression_editor.cpp
+ * @brief     Iteration 4 — the treatment-expression editing stack: highlighter
  *         vocabulary (drift guard vs the engine grammar), completer wiring,
  *         live engine-backed validation states, and the cell delegate.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/widgets/treatmentexpressionedit.h"
@@ -25,6 +29,14 @@ class TestTreatmentExpressionEditor : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require every offered treatment variable/function to validate through the engine
+     * grammar in a C assignment.
+     * Uses one operand for ordinary functions and two for min/max; creates/destroys an
+     * in-memory engine without writing model data.
+     *
+     */
     void vocabularyMatchesEngineGrammar()
     {
         // Drift guard: every vocab entry must validate as a bare operand
@@ -37,22 +49,27 @@ private slots:
         int col = -1;
         for (const QString &v : TreatmentSyntaxHighlighter::variableNames()) {
             const QString expr = QStringLiteral("C = %1").arg(v);
-            QCOMPARE(swmm_treatment_validate_expression(
-                         e, expr.toUtf8().constData(), err, sizeof(err), &col),
+            QCOMPARE(swmm_treatment_validate_expression(e, expr.toUtf8().constData(), err,
+                                                        sizeof(err), &col),
                      SWMM_OK);
         }
         for (const QString &f : TreatmentSyntaxHighlighter::functionNames()) {
-            const QString expr =
-                (f == QLatin1String("min") || f == QLatin1String("max"))
-                    ? QStringLiteral("C = %1(1, 2)").arg(f)
-                    : QStringLiteral("C = %1(1)").arg(f);
-            QCOMPARE(swmm_treatment_validate_expression(
-                         e, expr.toUtf8().constData(), err, sizeof(err), &col),
+            const QString expr = (f == QLatin1String("min") || f == QLatin1String("max"))
+                                     ? QStringLiteral("C = %1(1, 2)").arg(f)
+                                     : QStringLiteral("C = %1(1)").arg(f);
+            QCOMPARE(swmm_treatment_validate_expression(e, expr.toUtf8().constData(), err,
+                                                        sizeof(err), &col),
                      SWMM_OK);
         }
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require a completer containing HRT, exp and AREA.
+     * Despite its name, this case does not directly inspect the highlighter instance.
+     *
+     */
     void editorHasHighlighterAndCompleter()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -62,14 +79,19 @@ private slots:
         // Completion vocabulary covers variables + functions.
         QStringList items;
         for (int i = 0; i < completer->model()->rowCount(); ++i)
-            items << completer->model()
-                         ->index(i, 0).data().toString();
+            items << completer->model()->index(i, 0).data().toString();
         QVERIFY(items.contains(QStringLiteral("HRT")));
         QVERIFY(items.contains(QStringLiteral("exp")));
         QVERIFY(items.contains(QStringLiteral("AREA")));
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require valid removal syntax, rejected FLOW with zero-based column four, rejected X
+     * assignment and valid empty-clear status signals.
+     *
+     */
     void validationStates()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -104,13 +126,18 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require the treatment delegate to hydrate/commit expression text and Enter to emit
+     * editingFinished without a newline.
+     *
+     */
     void delegateHostsExpressionEditor()
     {
         SWMM_Engine e = swmm_engine_new();
         TreatmentExpressionDelegate delegate(e);
         QStandardItemModel model(1, 2);
-        model.setData(model.index(0, 1), QStringLiteral("R = 0.5"),
-                      Qt::EditRole);
+        model.setData(model.index(0, 1), QStringLiteral("R = 0.5"), Qt::EditRole);
 
         QWidget parent;
         QWidget *editor = delegate.createEditor(&parent, {}, model.index(0, 1));

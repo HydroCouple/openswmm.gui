@@ -1,8 +1,8 @@
-/*!
- * \file test_speciesplotting.cpp
- * \brief Y2b-2 (amendment D-Y4) — species series resolution + row keying.
+/**
+ * @file      test_speciesplotting.cpp
+ * @brief     Y2b-2 (amendment D-Y4) — species series resolution + row keying.
  *
- * \details Link-light on purpose: swmmoutrunlayer_codes.cpp carries the
+ * @details Link-light on purpose: swmmoutrunlayer_codes.cpp carries the
  *          pure static mappings (no SWMMResultsLayer), and the model is
  *          engine-free. What no test here can observe is
  *          `SwmmOutRunLayer::getSeriesAt(descriptor)` against a real
@@ -22,6 +22,10 @@
  *             source without species (the base default).
  *          4. 1v1 pairs require the same descriptor — TSS vs Lead is
  *             refused exactly like depth vs flow.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/speciesattributes.h"
@@ -38,7 +42,8 @@
 
 using namespace openswmmvis::plot;
 
-namespace {
+namespace
+{
 
 const QStringList kSpecies = {QStringLiteral("TSS"), QStringLiteral("Lead"),
                               QStringLiteral("__WATER_AGE__")};
@@ -48,17 +53,16 @@ const QStringList kSpecies = {QStringLiteral("TSS"), QStringLiteral("Lead"),
 class FixedOnlySource : public IRunLayer
 {
 public:
-    QString    scenarioName()      const override { return QStringLiteral("fixed"); }
-    UnitSystem unitSystem()        const override { return UnitSystem::US; }
-    double     startDateJulian()   const override { return 0.0; }
-    int        periodCount()       const override { return 1; }
-    int        reportStepSeconds() const override { return 60; }
-    void getSeriesAt(const ObjectRef&, PlotAttribute,
-                     SeriesData& out) const override
+    QString scenarioName() const override { return QStringLiteral("fixed"); }
+    UnitSystem unitSystem() const override { return UnitSystem::US; }
+    double startDateJulian() const override { return 0.0; }
+    int periodCount() const override { return 1; }
+    int reportStepSeconds() const override { return 60; }
+    void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.timesJulian = {1.0};
-        out.values      = {42.0};
-        out.ok          = true;
+        out.values = {42.0};
+        out.ok = true;
     }
 };
 
@@ -66,8 +70,8 @@ public:
 class SpeciesSource final : public FixedOnlySource
 {
 public:
-    void getSeriesAt(const ObjectRef& ref, const ResultDescriptor& d,
-                     SeriesData& out) const override
+    void getSeriesAt(const ObjectRef &ref, const ResultDescriptor &d,
+                     SeriesData &out) const override
     {
         if (!d.isSpecies()) {
             FixedOnlySource::getSeriesAt(ref, d.attr, out);
@@ -80,8 +84,8 @@ public:
             return;
         }
         out.timesJulian = {1.0};
-        out.values      = {100.0 + idx};   // marker: which column served
-        out.ok          = true;
+        out.values = {100.0 + idx}; // marker: which column served
+        out.ok = true;
     }
 };
 
@@ -102,40 +106,36 @@ void TestSpeciesPlotting::speciesCodesResolveByNameAndFollowReorder()
 {
     using K = ObjectRef::Kind;
     // NAME → index → per-kind base + index.
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("TSS"), kSpecies, K::Node),
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("TSS"), kSpecies, K::Node),
              SWMM_OUT_NODE_POLLUT_BASE + 0);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("__WATER_AGE__"), kSpecies, K::Node),
-             SWMM_OUT_NODE_POLLUT_BASE + 2);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("__WATER_AGE__"), kSpecies, K::Link),
-             SWMM_OUT_LINK_POLLUT_BASE + 2);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("Lead"), kSpecies, K::Subcatch),
+    QCOMPARE(
+        SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("__WATER_AGE__"), kSpecies, K::Node),
+        SWMM_OUT_NODE_POLLUT_BASE + 2);
+    QCOMPARE(
+        SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("__WATER_AGE__"), kSpecies, K::Link),
+        SWMM_OUT_LINK_POLLUT_BASE + 2);
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("Lead"), kSpecies, K::Subcatch),
              SWMM_OUT_SUBCATCH_POLLUT_BASE + 1);
 
     // D-G1's whole point: after a reorder the NAME follows its column.
-    const QStringList reordered = {QStringLiteral("__WATER_AGE__"),
-                                   QStringLiteral("TSS"),
+    const QStringList reordered = {QStringLiteral("__WATER_AGE__"), QStringLiteral("TSS"),
                                    QStringLiteral("Lead")};
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("__WATER_AGE__"), reordered, K::Node),
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("__WATER_AGE__"), reordered,
+                                                     K::Node),
              SWMM_OUT_NODE_POLLUT_BASE + 0);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("TSS"), reordered, K::Node),
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("TSS"), reordered, K::Node),
              SWMM_OUT_NODE_POLLUT_BASE + 1);
 
     // Misses are -1, never a wrong column: unknown name, kinds without
     // species columns, the empty name.
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("Zinc"), kSpecies, K::Node), -1);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("TSS"), kSpecies, K::System), -1);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QStringLiteral("TSS"), kSpecies, K::Mesh2DCell), -1);
-    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(
-                 QString(), kSpecies, K::Node), -1);
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("Zinc"), kSpecies, K::Node),
+             -1);
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("TSS"), kSpecies, K::System),
+             -1);
+    QCOMPARE(
+        SwmmOutRunLayer::speciesVariableCodeFor(QStringLiteral("TSS"), kSpecies, K::Mesh2DCell),
+        -1);
+    QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QString(), kSpecies, K::Node), -1);
 }
 
 void TestSpeciesPlotting::modelRowsKeyPerSpecies()
@@ -145,25 +145,23 @@ void TestSpeciesPlotting::modelRowsKeyPerSpecies()
     rs.layer = std::make_shared<SpeciesSource>();
     const int run = model.addRunSource(std::move(rs));
 
-    auto addSpec = [&](const QString& node, PlotAttribute a,
-                       const QString& sp) {
+    auto addSpec = [&](const QString &node, PlotAttribute a, const QString &sp) {
         SeriesSpec spec;
-        spec.runIndex  = run;
+        spec.runIndex = run;
         spec.objectRef = ObjectRef::forNode(node);
         spec.attribute = a;
-        spec.species   = sp;
+        spec.species = sp;
         return model.addSeries(std::move(spec));
     };
     addSpec(QStringLiteral("J1"), PlotAttribute::NodeDepth, {});
     addSpec(QStringLiteral("J1"), PlotAttribute::Unknown, QStringLiteral("TSS"));
     addSpec(QStringLiteral("J2"), PlotAttribute::Unknown, QStringLiteral("TSS"));
     addSpec(QStringLiteral("J1"), PlotAttribute::Unknown, QStringLiteral("Lead"));
-    addSpec(QStringLiteral("J1"), PlotAttribute::Unknown,
-            QStringLiteral("__WATER_AGE__"));
+    addSpec(QStringLiteral("J1"), PlotAttribute::Unknown, QStringLiteral("__WATER_AGE__"));
 
     // Four rows: depth, TSS (2 series), Lead, age — TSS and Lead share
     // units but are different quantities; one row would overlay them.
-    const auto& rows = model.rows();
+    const auto &rows = model.rows();
     QCOMPARE(rows.size(), 4);
     QCOMPARE(rows[0].attribute, PlotAttribute::NodeDepth);
     QVERIFY(rows[0].species.isEmpty());
@@ -188,9 +186,9 @@ void TestSpeciesPlotting::resolveSeriesDispatchesByDescriptor()
     const int runF = model.addRunSource(std::move(without));
 
     SeriesSpec lead;
-    lead.runIndex  = runS;
+    lead.runIndex = runS;
     lead.objectRef = ObjectRef::forNode(QStringLiteral("J1"));
-    lead.species   = QStringLiteral("Lead");
+    lead.species = QStringLiteral("Lead");
     const int sLead = model.addSeries(lead);
 
     SeriesSpec leadOnFixed = lead;
@@ -201,7 +199,7 @@ void TestSpeciesPlotting::resolveSeriesDispatchesByDescriptor()
     model.resolveSeries(sLead, out);
     QVERIFY(out.ok);
     QCOMPARE(out.values.size(), std::size_t(1));
-    QCOMPARE(out.values[0], 101.0);   // Lead's marker — the species column
+    QCOMPARE(out.values[0], 101.0); // Lead's marker — the species column
 
     // The same spec against a species-less source refuses with words —
     // the base default, not a crash and not a silently-wrong column.
@@ -218,27 +216,22 @@ void TestSpeciesPlotting::pairsRequireTheSameDescriptor()
     rs.layer = std::make_shared<SpeciesSource>();
     const int run = model.addRunSource(std::move(rs));
 
-    auto addSpec = [&](const QString& node, PlotAttribute a,
-                       const QString& sp) {
+    auto addSpec = [&](const QString &node, PlotAttribute a, const QString &sp) {
         SeriesSpec spec;
-        spec.runIndex  = run;
+        spec.runIndex = run;
         spec.objectRef = ObjectRef::forNode(node);
         spec.attribute = a;
-        spec.species   = sp;
+        spec.species = sp;
         return model.addSeries(std::move(spec));
     };
-    const int tss1  = addSpec(QStringLiteral("J1"), PlotAttribute::Unknown,
-                              QStringLiteral("TSS"));
-    const int tss2  = addSpec(QStringLiteral("J2"), PlotAttribute::Unknown,
-                              QStringLiteral("TSS"));
-    const int lead1 = addSpec(QStringLiteral("J1"), PlotAttribute::Unknown,
-                              QStringLiteral("Lead"));
-    const int depth = addSpec(QStringLiteral("J1"), PlotAttribute::NodeDepth,
-                              {});
+    const int tss1 = addSpec(QStringLiteral("J1"), PlotAttribute::Unknown, QStringLiteral("TSS"));
+    const int tss2 = addSpec(QStringLiteral("J2"), PlotAttribute::Unknown, QStringLiteral("TSS"));
+    const int lead1 = addSpec(QStringLiteral("J1"), PlotAttribute::Unknown, QStringLiteral("Lead"));
+    const int depth = addSpec(QStringLiteral("J1"), PlotAttribute::NodeDepth, {});
 
-    QVERIFY(model.addPair({tss1, tss2}) >= 0);   // same species — legal
-    QCOMPARE(model.addPair({tss1, lead1}), -1);  // TSS vs Lead — refused
-    QCOMPARE(model.addPair({tss1, depth}), -1);  // species vs fixed — refused
+    QVERIFY(model.addPair({tss1, tss2}) >= 0);  // same species — legal
+    QCOMPARE(model.addPair({tss1, lead1}), -1); // TSS vs Lead — refused
+    QCOMPARE(model.addPair({tss1, depth}), -1); // species vs fixed — refused
 }
 
 void TestSpeciesPlotting::savedSpeciesTokenSurvivesReopenAgainstAPoorerRun()
@@ -258,22 +251,20 @@ void TestSpeciesPlotting::savedSpeciesTokenSurvivesReopenAgainstAPoorerRun()
     // never a wrong column; and against a run that HAS the species but
     // in a different position, the right column.
     const QStringList poorer = {QStringLiteral("TSS")};
-    QCOMPARE(OpenSWMMVis::Species::speciesOutCode(
-                 back.attribute(), poorer, SWMM_OUT_NODE_POLLUT_BASE), -1);
-    const QStringList reordered = {QStringLiteral("Lead"),
-                                   QStringLiteral("TSS")};
-    QCOMPARE(OpenSWMMVis::Species::speciesOutCode(
-                 back.attribute(), reordered, SWMM_OUT_NODE_POLLUT_BASE),
+    QCOMPARE(
+        OpenSWMMVis::Species::speciesOutCode(back.attribute(), poorer, SWMM_OUT_NODE_POLLUT_BASE),
+        -1);
+    const QStringList reordered = {QStringLiteral("Lead"), QStringLiteral("TSS")};
+    QCOMPARE(OpenSWMMVis::Species::speciesOutCode(back.attribute(), reordered,
+                                                  SWMM_OUT_NODE_POLLUT_BASE),
              SWMM_OUT_NODE_POLLUT_BASE + 0);
 
     // Leg 3 — the miss has WORDS, exactly once (the layer logs what this
     // returns; per-frame resolution must not spam).
     OpenSWMMVis::Species::SpeciesMissWarner warner;
-    const QString msg =
-        warner.noteMiss(back.attribute(), QStringLiteral("poorer.out"));
+    const QString msg = warner.noteMiss(back.attribute(), QStringLiteral("poorer.out"));
     QVERIFY(msg.contains(QStringLiteral("Lead")));
-    QVERIFY(warner.noteMiss(back.attribute(),
-                            QStringLiteral("poorer.out")).isEmpty());
+    QVERIFY(warner.noteMiss(back.attribute(), QStringLiteral("poorer.out")).isEmpty());
 }
 
 QTEST_MAIN(TestSpeciesPlotting)

@@ -1,11 +1,13 @@
-/*!
- * \file   test_timeseries_registry_engine.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine
+/**
+ * @file      test_timeseries_registry_engine.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine
  *         round-trips a BUILDING-state engine with two Tseries.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/swmmdatetime.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
@@ -24,14 +26,14 @@ using openswmmvis::core::qDateTimeToSwmmDateTime;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 
-namespace {
+namespace
+{
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
 }
 
-void addSeries(SWMM_Engine eng, const char *id,
-               const QVector<QPair<QDateTime, double>> &pts)
+void addSeries(SWMM_Engine eng, const char *id, const QVector<QPair<QDateTime, double>> &pts)
 {
     QVERIFY(swmm_timeseries_add(eng, id) == SWMM_OK);
     const int idx = swmm_table_index(eng, id);
@@ -51,8 +53,9 @@ private slots:
 
     void fileBackedSeries_diskRoundTrip()
     {
-        const QDir directory(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
-                                 .filePath(QStringLiteral("timeseries_files")));
+        const QDir directory(
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+                .filePath(QStringLiteral("timeseries_files")));
         QFile csv(directory.filePath(QStringLiteral("rain_multi.csv")));
         QVERIFY(csv.open(QIODevice::ReadOnly));
         const QByteArray originalCsv = csv.readAll();
@@ -139,15 +142,17 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
 
-        addSeries(eng, "RAIN_A", {
-            {t(2026, 1, 1, 0),  0.5},
-            {t(2026, 1, 1, 6),  1.5},
-            {t(2026, 1, 1, 12), 0.7},
-        });
-        addSeries(eng, "INFLOW_B", {
-            {t(2026, 1, 1, 0),  10.0},
-            {t(2026, 1, 1, 6),  20.0},
-        });
+        addSeries(eng, "RAIN_A",
+                  {
+                      {t(2026, 1, 1, 0), 0.5},
+                      {t(2026, 1, 1, 6), 1.5},
+                      {t(2026, 1, 1, 12), 0.7},
+                  });
+        addSeries(eng, "INFLOW_B",
+                  {
+                      {t(2026, 1, 1, 0), 10.0},
+                      {t(2026, 1, 1, 6), 20.0},
+                  });
 
         TimeseriesRegistry reg;
         const int added = reg.loadFromEngine(eng);
@@ -209,10 +214,10 @@ private slots:
         addSeries(eng, "DUP", {{t(2026, 1, 1, 0), 1.0}});
 
         TimeseriesRegistry reg;
-        QVERIFY(reg.create(QStringLiteral("DUP")) != nullptr);   // pre-existing
+        QVERIFY(reg.create(QStringLiteral("DUP")) != nullptr); // pre-existing
 
         const int added = reg.loadFromEngine(eng);
-        QCOMPARE(added, 0);                                       // skipped
+        QCOMPARE(added, 0); // skipped
         QCOMPARE(reg.providerCount(), 1);
         // Original (empty) provider is preserved; engine points NOT merged in.
         QCOMPARE(reg.findByName(QStringLiteral("DUP"))->pointCount(), 0);
@@ -268,11 +273,12 @@ private slots:
 
         // Seed engine with 3 points, then mutate provider to a different set
         // and confirm saveToEngine replaces them all (no append-only drift).
-        addSeries(eng, "EXIST", {
-            {t(2026, 1, 1, 0),  1.0},
-            {t(2026, 1, 1, 6),  2.0},
-            {t(2026, 1, 1, 12), 3.0},
-        });
+        addSeries(eng, "EXIST",
+                  {
+                      {t(2026, 1, 1, 0), 1.0},
+                      {t(2026, 1, 1, 6), 2.0},
+                      {t(2026, 1, 1, 12), 3.0},
+                  });
 
         TimeseriesRegistry reg;
         QCOMPARE(reg.loadFromEngine(eng), 1);
@@ -331,8 +337,8 @@ private slots:
         TimeseriesRegistry reg;
         auto *p = reg.create(QStringLiteral("EXT_FILE"));
         QVERIFY(p != nullptr);
-        p->setFileSource(QStringLiteral("data/rain_multi.csv"),
-                         QStringLiteral("RG_2"), QDateTime());
+        p->setFileSource(QStringLiteral("data/rain_multi.csv"), QStringLiteral("RG_2"),
+                         QDateTime());
         p->setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
 
         QCOMPARE(reg.saveToEngine(eng), 1);
@@ -340,13 +346,12 @@ private slots:
         // Engine series exists and its TIMESERIES_DATA slot carries the
         // composed "path:col" token (the GUI owns the colon convention).
         QVERIFY(swmm_table_index(eng, "EXT_FILE") >= 0);
-        char abs[1024]  = {};
+        char abs[1024] = {};
         char orig[1024] = {};
-        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "EXT_FILE",
-                                    abs, int(sizeof(abs)),
-                                    orig, int(sizeof(orig))), SWMM_OK);
-        QCOMPARE(QString::fromUtf8(orig),
-                 QStringLiteral("data/rain_multi.csv:RG_2"));
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "EXT_FILE", abs,
+                                    int(sizeof(abs)), orig, int(sizeof(orig))),
+                 SWMM_OK);
+        QCOMPARE(QString::fromUtf8(orig), QStringLiteral("data/rain_multi.csv:RG_2"));
 
         swmm_engine_destroy(eng);
     }
@@ -356,8 +361,9 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
         QVERIFY(swmm_timeseries_add(eng, "FTS") == SWMM_OK);
-        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "FTS",
-                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+        QCOMPARE(
+            swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "FTS", "data/rain_multi.csv:RG_2"),
+            SWMM_OK);
 
         TimeseriesRegistry reg;
         QCOMPARE(reg.loadFromEngine(eng), 1);
@@ -375,8 +381,9 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
         QVERIFY(swmm_timeseries_add(eng, "WINTS") == SWMM_OK);
-        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "WINTS",
-                                    "C:\\data\\rain.csv:RG_2"), SWMM_OK);
+        QCOMPARE(
+            swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "WINTS", "C:\\data\\rain.csv:RG_2"),
+            SWMM_OK);
 
         TimeseriesRegistry reg;
         QCOMPARE(reg.loadFromEngine(eng), 1);
@@ -393,20 +400,20 @@ private slots:
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
         QVERIFY(swmm_timeseries_add(eng, "REL") == SWMM_OK);
-        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "REL",
-                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+        QCOMPARE(
+            swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "REL", "data/rain_multi.csv:RG_2"),
+            SWMM_OK);
 
         TimeseriesRegistry reg;
         QCOMPARE(reg.loadFromEngine(eng), 1);
         // Untouched load → save must keep the relative token verbatim.
         QCOMPARE(reg.saveToEngine(eng), 1);
-        char abs[1024]  = {};
+        char abs[1024] = {};
         char orig[1024] = {};
-        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "REL",
-                                    abs, int(sizeof(abs)),
-                                    orig, int(sizeof(orig))), SWMM_OK);
-        QCOMPARE(QString::fromUtf8(orig),
-                 QStringLiteral("data/rain_multi.csv:RG_2"));
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "REL", abs, int(sizeof(abs)),
+                                    orig, int(sizeof(orig))),
+                 SWMM_OK);
+        QCOMPARE(QString::fromUtf8(orig), QStringLiteral("data/rain_multi.csv:RG_2"));
 
         swmm_engine_destroy(eng);
     }
@@ -417,7 +424,8 @@ private slots:
         QVERIFY(eng != nullptr);
         QVERIFY(swmm_timeseries_add(eng, "DETACHED") == SWMM_OK);
         QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "DETACHED",
-                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+                                    "data/rain_multi.csv:RG_2"),
+                 SWMM_OK);
 
         // GUI-side provider of the same name is Inline (e.g. after
         // Detach → Inline in the editor): saving must clear the FILE token
@@ -428,11 +436,11 @@ private slots:
         QVERIFY(p->setAllPoints({{t(2026, 1, 1, 0), 4.2}}));
 
         QCOMPARE(reg.saveToEngine(eng), 1);
-        char abs[1024]  = {};
+        char abs[1024] = {};
         char orig[1024] = {};
-        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "DETACHED",
-                                    abs, int(sizeof(abs)),
-                                    orig, int(sizeof(orig))), SWMM_OK);
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "DETACHED", abs,
+                                    int(sizeof(abs)), orig, int(sizeof(orig))),
+                 SWMM_OK);
         QCOMPARE(QString::fromUtf8(orig), QString());
 
         const int idx = swmm_table_index(eng, "DETACHED");
@@ -453,24 +461,25 @@ private slots:
     {
         SWMM_Engine eng = swmm_engine_new();
         QVERIFY(eng != nullptr);
-        addSeries(eng, "RAIN", {
-            {t(2026, 1, 1, 0),  1.0},
-            {t(2026, 1, 1, 6),  2.0},
-        });
+        addSeries(eng, "RAIN",
+                  {
+                      {t(2026, 1, 1, 0), 1.0},
+                      {t(2026, 1, 1, 6), 2.0},
+                  });
 
         TimeseriesRegistry reg;
         QCOMPARE(reg.engineHandle(), nullptr);
         QCOMPARE(reg.loadFromEngine(eng), 1);
-        QCOMPARE(reg.engineHandle(), eng);   // cached
+        QCOMPARE(reg.engineHandle(), eng); // cached
 
         // Mutate provider, flush via no-arg overload.
         auto *p = reg.findByName(QStringLiteral("RAIN"));
         QVERIFY(p != nullptr);
         QVERIFY(p->setAllPoints({
-            {t(2026, 5, 1, 0),  99.0},
+            {t(2026, 5, 1, 0), 99.0},
             {t(2026, 5, 1, 12), 88.0},
         }));
-        QCOMPARE(reg.saveToEngine(), 1);   // no-arg uses cached handle
+        QCOMPARE(reg.saveToEngine(), 1); // no-arg uses cached handle
 
         const int idx = swmm_table_index(eng, "RAIN");
         int n = 0;
@@ -487,7 +496,7 @@ private slots:
     {
         TimeseriesRegistry reg;
         QVERIFY(reg.create(QStringLiteral("A")) != nullptr);
-        QCOMPARE(reg.saveToEngine(), 0);   // no handle ever bound
+        QCOMPARE(reg.saveToEngine(), 0); // no handle ever bound
     }
 };
 

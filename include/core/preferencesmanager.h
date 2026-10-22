@@ -1,8 +1,9 @@
-/*!
- * \file   preferencesmanager.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      preferencesmanager.h
+ * @brief     Settings & Preferences infrastructure.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice V — Settings & Preferences infrastructure.
  *
@@ -14,6 +15,7 @@
  * Live binding: every setter emits `preferenceChanged(group, key)` so
  * the Select tool, the batched renderer's LOD, the project window's
  * default tool, etc. refresh without restart.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef PREFERENCESMANAGER_H
@@ -38,25 +40,52 @@ class PreferencesManager : public QObject
 public:
     /*! Process-wide singleton. Constructed on first access; reads
      *  current values from QSettings at construction so app-scope
-     *  keys are immediately available to early callers. */
+     *  keys are immediately available to early callers.
+     * @return Borrowed process-lifetime QObject singleton; do not delete. Use its interface on the GUI thread.
+     * @details Construction migrates legacy style settings and registers style metatypes; access can therefore write migration keys.
+     */
     static PreferencesManager *instance();
 
     // ── Selection (MapToolSelect) ────────────────────────────────────────
     /*! Pixel-tolerance floor for click-picking. Effective tolerance at
      *  pick time is `max(clickTolerancePx, markerFloor + 4 px halo)`,
      *  so clicks inside the visible glyph always hit regardless of
-     *  this value. Default 16. */
-    [[nodiscard]] int  clickTolerancePx() const;
+     *  this value. Default 16.
+     * @brief Click-picking tolerance floor in screen pixels.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int clickTolerancePx() const;
+    /**
+     * @brief Persist the clickTolerancePx preference and notify consumers when changed.
+     * @param[in] pixels Accepts integers in [1,200]; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setClickTolerancePx(int pixels);
 
     /*! Drag threshold in pixels before a click turns into a rubber-band
-     *  rectangle select. Default 8. */
-    [[nodiscard]] int  dragThresholdPx() const;
+     *  rectangle select. Default 8.
+     * @brief Drag distance in screen pixels before rectangle selection begins.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int dragThresholdPx() const;
+    /**
+     * @brief Persist the dragThresholdPx preference and notify consumers when changed.
+     * @param[in] pixels Accepts integers in [1,200]; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDragThresholdPx(int pixels);
 
     /*! When the user clicks in empty space (no hit-target), clear the
-     *  current selection. Default true. */
+     *  current selection. Default true.
+     * @brief Whether an empty-space click clears selected objects.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] bool clearSelectionOnMiss() const;
+    /**
+     * @brief Persist the clearSelectionOnMiss preference and notify consumers when changed.
+     * @param[in] on True enables clearing; false retains selection.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setClearSelectionOnMiss(bool on);
 
     /*! Selection highlight pen for features of a given vector class.
@@ -67,53 +96,118 @@ public:
      *  base link pen: a width of 2.0 means the selected-link halo is
      *  2 px wider than the conduit/pump/etc. pen at the same scale.
      *
-     *  Stored under SWMMVis/Preferences/Selection/Pen/<Class>. On first
-     *  load, legacy SWMMVis/Preferences/Selection/Color/<Class> values
+     *  Stored under SWMMVis/Preferences/Selection/Pen/&lt;Class&gt;. On first
+     *  load, legacy SWMMVis/Preferences/Selection/Color/&lt;Class&gt; values
      *  are migrated into both a pen (with the saved colour) and a brush
      *  (with the saved colour, alpha 180 for polygons / 255 for glyphs)
-     *  and the legacy key is removed. */
-    [[nodiscard]] QPen   selectionPen(const QString &className) const;
+     *  and the legacy key is removed.
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @return Saved outline pen or the compiled style fallback for the canonical type.
+     */
+    [[nodiscard]] QPen selectionPen(const QString &className) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @param[in] pen Complete outline pen copied by value; an invalid color is ignored.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setSelectionPen(const QString &className, const QPen &pen);
 
     /*! Selection fill brush for polygonal/glyph classes ("subcatchment",
      *  "node", "gage"). Querying for "link" returns Qt::NoBrush since
      *  links are stroked, not filled. Stored under
-     *  SWMMVis/Preferences/Selection/Brush/<Class>. */
+     *  SWMMVis/Preferences/Selection/Brush/&lt;Class&gt;.
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @return Saved fill brush or the compiled style fallback for the canonical type.
+     */
     [[nodiscard]] QBrush selectionBrush(const QString &className) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @param[in] brush Complete fill brush copied by value; an invalid color is ignored.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setSelectionBrush(const QString &className, const QBrush &brush);
 
     /*! Convenience wrapper around `selectionPen(className).color()`.
-     *  Retained for callers that only need the colour. */
+     *  Retained for callers that only need the colour.
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @return Current canonical style pen color.
+     */
     [[nodiscard]] QColor selectionColor(const QString &className) const;
 
     /*! Clears any user-set pen + brush for \p className so the next
      *  query returns the compile-time defaults. Emits preferenceChanged
-     *  for both keys. Used by Preferences dialog's "Reset to defaults". */
+     *  for both keys. Used by Preferences dialog's "Reset to defaults".
+     * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
+     * @details Only existing saved keys are removed and signaled; already-default keys are left alone.
+     */
     void resetSelectionStyleToDefault(const QString &className);
 
     // ── Appearance ───────────────────────────────────────────────────────
     /*! Chrome theme mode. One of "System" (follow the OS appearance,
-     *  default) / "Light" / "Dark". Consumed by ThemeManager. */
+     *  default) / "Light" / "Dark". Consumed by ThemeManager.
+     * @brief Application chrome appearance token, default System.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString appearanceMode() const;
+    /**
+     * @brief Persist the appearanceMode preference and notify consumers when changed.
+     * @param[in] mode Token stored verbatim; consumers interpret System, Light or Dark.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setAppearanceMode(const QString &mode);
 
     // ── Canvas / Default tool ────────────────────────────────────────────
     /*! Default tool active when a project opens. One of
-     *  "Select" / "Pan" / "Zoom". Default "Select". */
+     *  "Select" / "Pan" / "Zoom". Default "Select".
+     * @brief Default project-opening map tool token.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString defaultTool() const;
+    /**
+     * @brief Persist the defaultTool preference and notify consumers when changed.
+     * @param[in] tool Nonempty tool token stored verbatim; empty input is ignored. Consumers expect Select, Pan or Zoom.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDefaultTool(const QString &tool);
 
     /*! CRS mode when the loaded .inp has no embedded CRS.
      *  "LocalAuto" (default) — auto-generate a local CRS from [MAP] Units.
-     *  "EPSG"               — use defaultCrsAuthority() / defaultCrsCode(). */
+     *  "EPSG"               — use defaultCrsAuthority() / defaultCrsCode().
+     * @brief CRS fallback mode used when an input model has no CRS.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString defaultCrsMode() const;
+    /**
+     * @brief Persist the defaultCrsMode preference and notify consumers when changed.
+     * @param[in] mode Token stored verbatim; consumers expect LocalAuto or EPSG.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDefaultCrsMode(const QString &mode);
 
     /*! Default CRS authority (e.g. "EPSG") + code (e.g. 4326) used
-     *  when the loaded .inp has no CRS and mode is "EPSG". */
+     *  when the loaded .inp has no CRS and mode is "EPSG".
+     * @brief Authority string for the default fallback CRS.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString defaultCrsAuthority() const;
-    [[nodiscard]] int     defaultCrsCode()      const;
+    /**
+     * @brief Positive authority code paired with defaultCrsAuthority().
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int defaultCrsCode() const;
+    /**
+     * @brief Persist the defaultCrsAuthority preference and notify consumers when changed.
+     * @param[in] authority Nonempty authority such as EPSG; empty input is ignored. No authority lookup occurs.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDefaultCrsAuthority(const QString &authority);
+    /**
+     * @brief Persist the defaultCrsCode preference and notify consumers when changed.
+     * @param[in] code Positive code; nonpositive input is ignored. No CRS lookup occurs.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDefaultCrsCode(int code);
 
     // ── GPU / QSG rendering ──────────────────────────────────────────────
@@ -123,8 +217,16 @@ public:
      *  Catch | Gages), the CPU SWMMLayerItem skips every kind, and the
      *  QSG overlay draws everything. When disabled, the CPU painter
      *  path renders the network — left as a fallback for users who hit
-     *  GPU-driver-specific issues. Default true. */
-    [[nodiscard]] bool qsgRenderEnabled()  const;
+     *  GPU-driver-specific issues. Default true.
+     * @brief Whether newly added network layers use the GPU scene graph by default.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] bool qsgRenderEnabled() const;
+    /**
+     * @brief Persist the qsgRenderEnabled preference and notify consumers when changed.
+     * @param[in] enabled True enables the default GPU path; false selects CPU rendering.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setQsgRenderEnabled(bool enabled);
 
     /*! Mesh Tiled LOD plan P1.1 — GPU scene-graph rendering for 2D terrain
@@ -132,37 +234,85 @@ public:
      *  SWMM2DMeshLayer to SWMM2DMeshQSGRenderer and the CPU
      *  SWMM2DMeshGraphicsItem paint is skipped (qsgOwnsRendering gate).
      *  QPainter path remains the fallback. App-wide env kill-switch:
-     *  OPENSWMM_QSG_MESH=0. Default true. */
+     *  OPENSWMM_QSG_MESH=0. Default true.
+     * @brief Whether newly added terrain meshes use the GPU scene graph by default.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] bool qsgMeshRenderEnabled() const;
+    /**
+     * @brief Persist the qsgMeshRenderEnabled preference and notify consumers when changed.
+     * @param[in] enabled True enables the mesh GPU default; environment overrides are evaluated elsewhere.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setQsgMeshRenderEnabled(bool enabled);
 
     /*! Whether a large raster opened without internal overviews gets an
      *  external `.ovr` pyramid built automatically in the background (once
      *  per file, never modifying the source). Off ⇒ big rasters stay on the
      *  slow full-resolution warp until the user builds pyramids manually.
-     *  Default true. */
+     *  Default true.
+     * @brief Whether large rasters may build external overview pyramids automatically.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] bool autoBuildRasterOverviews() const;
+    /**
+     * @brief Persist the autoBuildRasterOverviews preference and notify consumers when changed.
+     * @param[in] enabled True permits background overview creation by raster consumers.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setAutoBuildRasterOverviews(bool enabled);
 
     // ── Snapping ─────────────────────────────────────────────────────────
-    /*! Whether vertex snapping is active for all drawing tools. Default true. */
-    [[nodiscard]] bool snapEnabled()     const;
+    /*! Whether vertex snapping is active for all drawing tools. Default true.
+     * @brief Whether drawing tools perform vertex snapping.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] bool snapEnabled() const;
+    /**
+     * @brief Persist the snapEnabled preference and notify consumers when changed.
+     * @param[in] enabled True enables snapping; this stores the preference only.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setSnapEnabled(bool enabled);
 
-    /*! Snap detection radius in screen pixels. Default 12. */
-    [[nodiscard]] int  snapTolerancePx() const;
+    /*! Snap detection radius in screen pixels. Default 12.
+     * @brief Snapping radius in screen pixels, default 12.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int snapTolerancePx() const;
+    /**
+     * @brief Persist the snapTolerancePx preference and notify consumers when changed.
+     * @param[in] px Radius stored verbatim; no range validation is applied.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setSnapTolerancePx(int px);
 
     /*! If true, also snap to link polyline and subcatchment polygon vertices
-     *  in addition to node/gage centres. Default true. */
-    [[nodiscard]] bool snapToVertices()  const;
+     *  in addition to node/gage centres. Default true.
+     * @brief Whether link bends and polygon vertices supplement node/gage snapping.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] bool snapToVertices() const;
+    /**
+     * @brief Persist the snapToVertices preference and notify consumers when changed.
+     * @param[in] enabled True includes additional geometry vertices.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setSnapToVertices(bool enabled);
 
     // ── Rendering / Map LOD ──────────────────────────────────────────────
     /*! Minimum view-transform `m11()` required for label drawing in
      *  the batched renderer. Below this the label pass is skipped
-     *  entirely. Default 0.5. */
+     *  entirely. Default 0.5.
+     * @brief Minimum map transform m11 scale at which labels are drawn.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] qreal labelLodM11Min() const;
+    /**
+     * @brief Persist the labelLodM11Min preference and notify consumers when changed.
+     * @param[in] m11 Positive transform scale; values <= 0 are ignored and fuzzy-equal changes are suppressed.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setLabelLodM11Min(qreal m11);
 
     /*! Full rendering pen for a link subtype — colour, width, cap, join,
@@ -172,20 +322,35 @@ public:
      *  \p linkType is one of: "conduit", "pump", "orifice", "weir", "outlet"
      *  (case-insensitive). Unknown keys fall back to the conduit default.
      *
-     *  Stored under SWMMVis/Preferences/Rendering/LinkPen/<Type>. On first
-     *  load any legacy SWMMVis/Preferences/Rendering/LinkColor/<Type>
+     *  Stored under SWMMVis/Preferences/Rendering/LinkPen/&lt;Type&gt;. On first
+     *  load any legacy SWMMVis/Preferences/Rendering/LinkColor/&lt;Type&gt;
      *  values are migrated to a pen carrying the default width/cap for
-     *  that link type, then the legacy key is removed. */
-    [[nodiscard]] QPen   linkPen(const QString &linkType) const;
+     *  that link type, then the legacy key is removed.
+     * @param[in] linkType Link subtype: conduit, pump, orifice, weir or outlet, case-insensitive; unknown names use Conduit.
+     * @return Saved outline pen or the compiled style fallback for the canonical type.
+     */
+    [[nodiscard]] QPen linkPen(const QString &linkType) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] linkType Link subtype: conduit, pump, orifice, weir or outlet, case-insensitive; unknown names use Conduit.
+     * @param[in] pen Complete outline pen copied by value; an invalid color is ignored.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setLinkPen(const QString &linkType, const QPen &pen);
 
     /*! Convenience wrapper around `linkPen(linkType).color()`. Retained
-     *  for call sites that only need the colour. */
+     *  for call sites that only need the colour.
+     * @param[in] linkType Link subtype: conduit, pump, orifice, weir or outlet, case-insensitive; unknown names use Conduit.
+     * @return Current canonical style pen color.
+     */
     [[nodiscard]] QColor linkColor(const QString &linkType) const;
 
     /*! Clears any user-set pen for \p linkType so the next linkPen() call
      *  returns the compile-time default. Emits preferenceChanged. Used by
-     *  the Preferences dialog's "Reset to defaults" button. */
+     *  the Preferences dialog's "Reset to defaults" button.
+     * @param[in] linkType Link subtype: conduit, pump, orifice, weir or outlet, case-insensitive; unknown names use Conduit.
+     * @details Only existing saved keys are removed and signaled; already-default keys are left alone.
+     */
     void resetLinkPenToDefault(const QString &linkType);
 
     /*! Outline pen for a node marker class — colour, width, cap, join,
@@ -198,25 +363,55 @@ public:
      *  (polygon fill + outline; the size slot is unused). Case-insensitive;
      *  unknown keys fall back to the junction default.
      *
-     *  Stored under SWMMVis/Preferences/Rendering/NodePen/<Type>. */
-    [[nodiscard]] QPen   nodePen(const QString &nodeType) const;
+     *  Stored under SWMMVis/Preferences/Rendering/NodePen/&lt;Type&gt;.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @return Saved outline pen or the compiled style fallback for the canonical type.
+     */
+    [[nodiscard]] QPen nodePen(const QString &nodeType) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @param[in] pen Complete outline pen copied by value; an invalid color is ignored.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setNodePen(const QString &nodeType, const QPen &pen);
 
     /*! Fill brush for a node marker class. Used as the glyph fill in the
      *  CPU + QSG paint paths. Stored under
-     *  SWMMVis/Preferences/Rendering/NodeBrush/<Type>. */
+     *  SWMMVis/Preferences/Rendering/NodeBrush/&lt;Type&gt;.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @return Saved fill brush or the compiled style fallback for the canonical type.
+     */
     [[nodiscard]] QBrush nodeBrush(const QString &nodeType) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @param[in] brush Complete fill brush copied by value; an invalid color is ignored.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setNodeBrush(const QString &nodeType, const QBrush &brush);
 
     /*! Marker diameter in pixels for a node class. Default 8 (junction /
      *  divider), 12.5 (outfall), 12.0 (storage). Range 1–64 px. Stored
-     *  under SWMMVis/Preferences/Rendering/NodeSize/<Type>. */
+     *  under SWMMVis/Preferences/Rendering/NodeSize/&lt;Type&gt;.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @return Saved marker diameter in screen pixels or the compiled style fallback for the canonical type.
+     */
     [[nodiscard]] double nodeSize(const QString &nodeType) const;
+    /**
+     * @brief Save a canonical feature style for subsequent rendering defaults.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @param[in] sizePx Diameter in [1,64] pixels; outside values are ignored and fuzzy-equal writes are suppressed.
+     * @details Persists a changed accepted value and emits preferenceChanged for its style key.
+     */
     void setNodeSize(const QString &nodeType, double sizePx);
 
     /*! Clears any user-set pen + brush + size for \p nodeType so the
      *  next query returns the compile-time defaults. Emits
-     *  preferenceChanged for each cleared key. */
+     *  preferenceChanged for each cleared key.
+     * @param[in] nodeType Marker/polygon type accepted by nodePen(), case-insensitive; unknown names use Junction.
+     * @details Only existing saved keys are removed and signaled; already-default keys are left alone.
+     */
     void resetNodeStyleToDefault(const QString &nodeType);
 
     // ── Rendering / Custom color ramps (Slice BB-α) ──────────────────────
@@ -225,9 +420,22 @@ public:
      *  entry is the RasterColorRamp::toJson() payload plus a "name"
      *  field. Reads return the latest persisted map; writes update both
      *  the in-memory cache and QSettings. Emits preferenceChanged with
-     *  group "Rendering", key "CustomRamps". */
+     *  group "Rendering", key "CustomRamps".
+     * @return Owned map parsed from saved JSON; malformed/non-array JSON returns empty, unnamed entries are skipped and later duplicate names replace earlier ones.
+     */
     [[nodiscard]] QMap<QString, RasterColorRamp> customColorRamps() const;
+    /**
+     * @brief Add or replace a named color ramp in the persisted JSON collection.
+     * @param[in] name Display name trimmed before lookup; whitespace-only names are ignored.
+     * @param[in] ramp Ramp copied and serialized using RasterColorRamp::toJson().
+     * @details Emits Rendering/CustomRamps even when a same-name value is equivalent.
+     */
     void saveCustomColorRamp(const QString &name, const RasterColorRamp &ramp);
+    /**
+     * @brief Remove one named ramp from the persisted JSON collection.
+     * @param[in] name Trimmed, case-sensitive display name; empty or absent names are ignored.
+     * @details Emits Rendering/CustomRamps only when an entry was removed.
+     */
     void removeCustomColorRamp(const QString &name);
 
     // ── 2D mesh boundary-condition edge styling ──────────────────────────
@@ -240,47 +448,117 @@ public:
      *  curve). Out-of-range indices fold onto Wall.
      *
      *  Width has no Wall entry: Wall edges ARE the interior wireframe and
-     *  are drawn at the edge style's own lineWidthPx. */
-    [[nodiscard]] bool   meshBcColorByType() const;
+     *  are drawn at the edge style's own lineWidthPx.
+     * @brief Whether new mesh styles initially show boundary edges colored by type.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] bool meshBcColorByType() const;
+    /**
+     * @brief Persist the meshBcColorByType preference and notify consumers when changed.
+     * @param[in] on True seeds type coloring for newly configured styles.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeshBcColorByType(bool on);
 
+    /**
+     * @brief Read a default boundary-condition edge color.
+     * @param[in] type Boundary-condition type in [0,6]; invalid values select Wall (0).
+     * @return Saved valid ARGB color or the compiled per-type fallback.
+     */
     [[nodiscard]] QColor meshBcColor(int type) const;
+    /**
+     * @brief Save a default boundary-condition edge color.
+     * @param[in] type Boundary-condition type in [0,6]; invalid values select Wall.
+     * @param[in] color Valid color copied with alpha; invalid or unchanged input is ignored.
+     * @details Persists HexArgb and emits Mesh2D/BcColor for the canonical type.
+     */
     void setMeshBcColor(int type, const QColor &color);
 
+    /**
+     * @brief Read a default boundary-condition edge width.
+     * @param[in] type Boundary-condition type in [0,6]; invalid values select Wall.
+     * @return Saved width in screen pixels or the compiled per-type fallback.
+     */
     [[nodiscard]] double meshBcWidthPx(int type) const;
+    /**
+     * @brief Save a default boundary-condition edge width.
+     * @param[in] type Boundary-condition type in [0,6]; invalid values select Wall.
+     * @param[in] px Width clamped to [0.1,20] screen pixels; supply a finite value.
+     * @details Fuzzy-equal values are ignored; accepted changes emit Mesh2D/BcWidthPx.
+     */
     void setMeshBcWidthPx(int type, double px);
 
     // ── Simulation ───────────────────────────────────────────────────────
     /*! Progress-tick interval (ms) for live UI updates while a
      *  simulation runs. 1 Hz by default — short enough to feel live,
-     *  long enough to not starve the event loop on small models. */
+     *  long enough to not starve the event loop on small models.
+     * @brief Interval in milliseconds between live simulation progress updates.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] int progressTickMs() const;
+    /**
+     * @brief Persist the progressTickMs preference and notify consumers when changed.
+     * @param[in] ms Accepts [50,10000] milliseconds; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setProgressTickMs(int ms);
 
     /*! Live 2D results: maximum frames kept in memory while a run streams
      *  (default 2000). Past the cap the older half is thinned 2:1; frames
-     *  keep their sim times. Range 100–200000. */
+     *  keep their sim times. Range 100–200000.
+     * @brief Live 2D frame cap; corrupt out-of-range stored values read as 2000.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] int live2DHistoryCap() const;
+    /**
+     * @brief Persist the live2DHistoryCap preference and notify consumers when changed.
+     * @param[in] frames Accepts [100,200000] frames; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setLive2DHistoryCap(int frames);
 
     /*! Live 2D results: byte budget (MB) for the frames kept in memory,
      *  applied alongside the frame cap — the frame cap alone let a large mesh
-     *  hold gigabytes. Default 1024 MB, range 64–32768. */
+     *  hold gigabytes. Default 1024 MB, range 64–32768.
+     * @brief Live 2D frame memory budget in MB; invalid stored values read as 1024.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] int live2DHistoryMB() const;
+    /**
+     * @brief Persist the live2DHistoryMB preference and notify consumers when changed.
+     * @param[in] megabytes Accepts [64,32768] MB; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setLive2DHistoryMB(int megabytes);
 
     /*! Live 1D results: open the run's .out while the engine writes it and
      *  grow the results layer (map animation, profile + comparison plots)
      *  on every progress tick. Applies to the 6.x engine and the legacy
-     *  workers alike (both flush per report period). Default true. */
+     *  workers alike (both flush per report period). Default true.
+     * @brief Whether running output is opened and refreshed for live 1D results.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] bool liveResults1DEnabled() const;
+    /**
+     * @brief Persist the liveResults1DEnabled preference and notify consumers when changed.
+     * @param[in] on True enables live output refresh in simulation consumers.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setLiveResults1DEnabled(bool on);
 
     /*! Default animation playback speed multiplier restored at startup.
      *  Valid values: 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 (mirrors the
      *  animation toolbar's Speed combo). Default 1.0. Per-session
-     *  overrides live in `.oswp` (Slice BA Phase 8.5). */
+     *  overrides live in `.oswp` (Slice BA Phase 8.5).
+     * @brief Default animation playback multiplier.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] double animationSpeed() const;
+    /**
+     * @brief Persist the animationSpeed preference and notify consumers when changed.
+     * @param[in] speed One of 0.25, 0.5, 1, 2, 4 or 8 (fuzzy comparison); unsupported values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setAnimationSpeed(double speed);
 
     // ── Profile plot path discovery ──────────────────────────────────────
@@ -289,8 +567,16 @@ public:
      *  Range 1–1000000 (the upper bound is a sanity floor — exhaustive
      *  enumeration is exponential in the worst case so very high values
      *  may freeze the UI on heavily-meshed networks; the router's
-     *  wall-clock soft cap will still bail out before total hang). */
-    [[nodiscard]] int  profileMaxPaths() const;
+     *  wall-clock soft cap will still bail out before total hang).
+     * @brief Maximum candidate simple paths to enumerate for a profile.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int profileMaxPaths() const;
+    /**
+     * @brief Persist the profileMaxPaths preference and notify consumers when changed.
+     * @param[in] n Accepts [1,1000000] candidate paths; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setProfileMaxPaths(int n);
 
     /*! Radius (in screen pixels, not scene units) of the start/end endpoint
@@ -298,68 +584,238 @@ public:
      *  cosmetic — its size stays constant regardless of map zoom.  Default
      *  10 px, which sits slightly outside the default 8 px junction marker
      *  so the halo reads clearly as an indicator without occluding the
-     *  node glyph. */
-    [[nodiscard]] int  profileEndpointHaloRadiusPx() const;
+     *  node glyph.
+     * @brief Profile endpoint halo radius in screen pixels.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int profileEndpointHaloRadiusPx() const;
+    /**
+     * @brief Persist the profileEndpointHaloRadiusPx preference and notify consumers when changed.
+     * @param[in] px Accepts [1,200] pixels; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setProfileEndpointHaloRadiusPx(int px);
 
     /*! Pen used to stroke the start-endpoint halo.  Width is also in screen
-     *  pixels (the pen is cosmetic).  Default: solid green, width 3 px. */
+     *  pixels (the pen is cosmetic).  Default: solid green, width 3 px.
+     * @return Saved start-endpoint halo pen if convertible, otherwise the cosmetic compiled pen with width 3 screen pixels.
+     */
     [[nodiscard]] QPen profileStartEndpointPen() const;
+    /**
+     * @brief Persist a profile start-endpoint halo pen.
+     * @param[in] pen Complete pen copied verbatim, including cosmetic flag, color and width.
+     * @details Always writes and emits preferenceChanged, including an equal value; no pen validity checks are applied.
+     */
     void setProfileStartEndpointPen(const QPen &pen);
 
     /*! Pen used to stroke the end-endpoint halo.  Default: solid red,
-     *  width 3 px. */
+     *  width 3 px.
+     * @return Saved end-endpoint halo pen if convertible, otherwise the cosmetic compiled pen with width 3 screen pixels.
+     */
     [[nodiscard]] QPen profileEndEndpointPen() const;
+    /**
+     * @brief Persist a profile end-endpoint halo pen.
+     * @param[in] pen Complete pen copied verbatim, including cosmetic flag, color and width.
+     * @details Always writes and emits preferenceChanged, including an equal value; no pen validity checks are applied.
+     */
     void setProfileEndEndpointPen(const QPen &pen);
 
     // ── Map Decorations / Scale Bar ──────────────────────────────────────
-    [[nodiscard]] QColor  scaleBarPenColor()     const;
+    /**
+     * @brief Scale-bar stroke color, with black fallback for missing or invalid saved color.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] QColor scaleBarPenColor() const;
+    /**
+     * @brief Persist the scaleBarPenColor preference and notify consumers when changed.
+     * @param[in] color Valid QColor; invalid colors are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarPenColor(const QColor &color);
 
-    [[nodiscard]] int     scaleBarPenWidth()     const;  ///< Default 2; range 1–20
+    /**
+     * @brief Scale-bar pen width in screen pixels.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int scaleBarPenWidth() const; ///< Default 2; range 1–20
+    /**
+     * @brief Persist the scaleBarPenWidth preference and notify consumers when changed.
+     * @param[in] width Accepts [1,20] pixels; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarPenWidth(int width);
 
-    [[nodiscard]] int     scaleBarPenStyle()     const;  ///< Qt::PenStyle as int; default Qt::SolidLine
+    /**
+     * @brief Stored Qt::PenStyle integer for scale-bar strokes.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int scaleBarPenStyle() const; ///< Qt::PenStyle as int; default Qt::SolidLine
+    /**
+     * @brief Persist the scaleBarPenStyle preference and notify consumers when changed.
+     * @param[in] style Style integer stored verbatim without enum validation.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarPenStyle(int style);
 
-    [[nodiscard]] QString scaleBarFontFamily()   const;  ///< Default "sans-serif"
+    /**
+     * @brief Scale-bar label font family.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] QString scaleBarFontFamily() const; ///< Default "sans-serif"
+    /**
+     * @brief Persist the scaleBarFontFamily preference and notify consumers when changed.
+     * @param[in] family Nonempty family name; empty input is ignored and font availability is not checked.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarFontFamily(const QString &family);
 
-    [[nodiscard]] int     scaleBarFontSize()     const;  ///< Default 8; range 4–72
+    /**
+     * @brief Scale-bar label font size in points.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int scaleBarFontSize() const; ///< Default 8; range 4–72
+    /**
+     * @brief Persist the scaleBarFontSize preference and notify consumers when changed.
+     * @param[in] size Accepts [4,72] points; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarFontSize(int size);
 
-    [[nodiscard]] int     scaleBarUnits()        const;  ///< ScaleBarSettings::Units as int; default 0 (Auto)
+    /**
+     * @brief Stored ScaleBarSettings::Units selector.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int scaleBarUnits() const; ///< ScaleBarSettings::Units as int; default 0 (Auto)
+    /**
+     * @brief Persist the scaleBarUnits preference and notify consumers when changed.
+     * @param[in] units Enum integer stored verbatim without validation; zero represents Auto.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarUnits(int units);
 
-    [[nodiscard]] int     scaleBarPosition()     const;  ///< ScaleBarSettings::Position as int; default 0 (BottomLeft)
+    /**
+     * @brief Stored ScaleBarSettings::Position selector.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int
+    scaleBarPosition() const; ///< ScaleBarSettings::Position as int; default 0 (BottomLeft)
+    /**
+     * @brief Persist the scaleBarPosition preference and notify consumers when changed.
+     * @param[in] position Enum integer stored verbatim without validation; zero represents BottomLeft.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarPosition(int position);
 
-    [[nodiscard]] int     scaleBarMaxBarLength() const;  ///< Default 100; range 20–500
+    /**
+     * @brief Maximum scale-bar length in screen pixels.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int scaleBarMaxBarLength() const; ///< Default 100; range 20–500
+    /**
+     * @brief Persist the scaleBarMaxBarLength preference and notify consumers when changed.
+     * @param[in] length Accepts [20,500] pixels; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarMaxBarLength(int length);
 
-    [[nodiscard]] int  scaleBarLabelDecimals()   const;  ///< -1=auto, 0=whole, n=n decimals. Default -1.
+    /**
+     * @brief Scale-bar precision (-1 automatic, 0 integer, positive decimal places).
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int
+    scaleBarLabelDecimals() const; ///< -1=auto, 0=whole, n=n decimals. Default -1.
+    /**
+     * @brief Persist the scaleBarLabelDecimals preference and notify consumers when changed.
+     * @param[in] decimals Precision stored verbatim; the setter does not constrain the integer range.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarLabelDecimals(int decimals);
 
-    [[nodiscard]] bool scaleBarCompactNotation() const;  ///< Default false.
+    /**
+     * @brief Whether scale-bar labels use compact numeric notation.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] bool scaleBarCompactNotation() const; ///< Default false.
+    /**
+     * @brief Persist the scaleBarCompactNotation preference and notify consumers when changed.
+     * @param[in] compact True enables compact notation.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setScaleBarCompactNotation(bool compact);
 
     // ── Map Decorations / Measure Tool ───────────────────────────────────
-    [[nodiscard]] QColor  measureLineColor()   const;  ///< Segment + vertex dot color. Default Qt::red
+    /**
+     * @brief Measurement segment and vertex-marker color.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] QColor measureLineColor() const; ///< Segment + vertex dot color. Default Qt::red
+    /**
+     * @brief Persist the measureLineColor preference and notify consumers when changed.
+     * @param[in] color Valid QColor; invalid input is ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureLineColor(const QColor &color);
 
-    [[nodiscard]] QString measureLabelFontFamily() const;  ///< Default "sans-serif"
+    /**
+     * @brief Measurement label font family.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] QString measureLabelFontFamily() const; ///< Default "sans-serif"
+    /**
+     * @brief Persist the measureLabelFontFamily preference and notify consumers when changed.
+     * @param[in] family Nonempty family name; empty input is ignored and availability is not checked.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureLabelFontFamily(const QString &family);
 
-    [[nodiscard]] int     measureLabelFontSize()   const;  ///< Default 8; range 4–72
+    /**
+     * @brief Measurement label font size in points.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int measureLabelFontSize() const; ///< Default 8; range 4–72
+    /**
+     * @brief Persist the measureLabelFontSize preference and notify consumers when changed.
+     * @param[in] size Accepts [4,72] points; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureLabelFontSize(int size);
 
-    [[nodiscard]] int     measureLabelDecimals()   const;  ///< Decimal places in labels. Default 2; range 0–6
+    /**
+     * @brief Measurement label decimal places.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int
+    measureLabelDecimals() const; ///< Decimal places in labels. Default 2; range 0–6
+    /**
+     * @brief Persist the measureLabelDecimals preference and notify consumers when changed.
+     * @param[in] decimals Accepts [0,6] decimal places; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureLabelDecimals(int decimals);
 
-    [[nodiscard]] QColor  measureFillColor()   const;  ///< Area polygon fill base color. Default #6495ED (cornflower blue)
+    /**
+     * @brief Base fill color for measured area polygons.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] QColor
+    measureFillColor() const; ///< Area polygon fill base color. Default #6495ED (cornflower blue)
+    /**
+     * @brief Persist the measureFillColor preference and notify consumers when changed.
+     * @param[in] color Valid QColor; invalid input is ignored. Opacity is configured separately.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureFillColor(const QColor &color);
 
-    [[nodiscard]] int     measureFillOpacity() const;  ///< Area fill opacity 0–100 %. Default 30
+    /**
+     * @brief Area measurement fill opacity as percent.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int measureFillOpacity() const; ///< Area fill opacity 0–100 %. Default 30
+    /**
+     * @brief Persist the measureFillOpacity preference and notify consumers when changed.
+     * @param[in] opacity Accepts [0,100] percent; other values are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setMeasureFillOpacity(int opacity);
 
     // ── Plots: default numeric precision ─────────────────────────────────
@@ -368,19 +824,59 @@ public:
      *  dialog overrides them. `*FormatMode` is `NumberFormatMode` as int
      *  (0=Decimals, 1=SignificantFigures, 2=Scientific, 3=Engineering,
      *  4=Thousands); `*Precision` is the digit count
-     *  (decimals 0–10, sig figs 1–10). Time/date axes are unaffected. */
-    [[nodiscard]] int  plotXAxisFormatMode() const;  ///< Default 0 (Decimals)
+     *  (decimals 0–10, sig figs 1–10). Time/date axes are unaffected.
+     * @brief Stored X-axis NumberFormatMode integer.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int plotXAxisFormatMode() const; ///< Default 0 (Decimals)
+    /**
+     * @brief Persist the plotXAxisFormatMode preference and notify consumers when changed.
+     * @param[in] mode Only 0 (Decimals) or 1 (SignificantFigures) is accepted by this setter; other modes are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setPlotXAxisFormatMode(int mode);
-    [[nodiscard]] int  plotXAxisPrecision()  const;  ///< Default 0; range 0–10
+    /**
+     * @brief Default X-axis digit count.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int plotXAxisPrecision() const; ///< Default 0; range 0–10
+    /**
+     * @brief Persist the plotXAxisPrecision preference and notify consumers when changed.
+     * @param[in] count Accepts [0,10]; meaning depends on format mode and no significant-figure minimum is enforced here.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setPlotXAxisPrecision(int count);
 
-    [[nodiscard]] int  plotYAxisFormatMode() const;  ///< Default 0 (Decimals)
+    /**
+     * @brief Stored Y-axis NumberFormatMode integer.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int plotYAxisFormatMode() const; ///< Default 0 (Decimals)
+    /**
+     * @brief Persist the plotYAxisFormatMode preference and notify consumers when changed.
+     * @param[in] mode Only 0 (Decimals) or 1 (SignificantFigures) is accepted by this setter; other modes are ignored.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setPlotYAxisFormatMode(int mode);
-    [[nodiscard]] int  plotYAxisPrecision()  const;  ///< Default 2; range 0–10
+    /**
+     * @brief Default Y-axis digit count.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
+    [[nodiscard]] int plotYAxisPrecision() const; ///< Default 2; range 0–10
+    /**
+     * @brief Persist the plotYAxisPrecision preference and notify consumers when changed.
+     * @param[in] count Accepts [0,10]; meaning depends on format mode and no significant-figure minimum is enforced here.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setPlotYAxisPrecision(int count);
 
-    /*! Convenience: the global default X/Y format as a value type. */
+    /*! Convenience: the global default X/Y format as a value type.
+     * @return Value bundle combining the saved X-axis mode and precision; no additional validation occurs.
+     */
     [[nodiscard]] openswmmvis::plot::NumberFormat plotXAxisFormat() const;
+    /**
+     * @return Value bundle combining the saved Y-axis mode and precision; no additional validation occurs.
+     */
     [[nodiscard]] openswmmvis::plot::NumberFormat plotYAxisFormat() const;
 
     // ── Element naming prefixes ──────────────────────────────────────────
@@ -391,37 +887,97 @@ public:
      *
      *  Defaults: junction→"J", outfall→"O", storage→"S", divider→"D",
      *            conduit→"C", pump→"Pu", orifice→"Or", weir→"W",
-     *            outlet→"Ou", raingage→"RG", subcatchment→"Sub". */
+     *            outlet→"Ou", raingage→"RG", subcatchment→"Sub".
+     * @param[in] kind Object type, matched case-insensitively against compiled prefix defaults.
+     * @return Saved prefix or compiled prefix for a recognized type.
+     */
     [[nodiscard]] QString elementNamePrefix(const QString &kind) const;
+    /**
+     * @brief Persist a naming prefix for one object type.
+     * @param[in] kind Type used as a lowercase settings key.
+     * @param[in] prefix Nonempty literal prefix; whitespace is retained and engine ID validity is not checked.
+     * @details Ignores empty/unchanged prefix; emits Naming/Prefix for the canonical key.
+     */
     void setElementNamePrefix(const QString &kind, const QString &prefix);
 
     // ── Terrain editing defaults ─────────────────────────────────────────
     /*! Default node invert offset (model vertical units) applied when terrain
-     *  assistance is active. Negative = invert below ground. Default 0.0. */
+     *  assistance is active. Negative = invert below ground. Default 0.0.
+     * @brief Terrain-assisted node invert offset in model vertical units.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] double terrainDefaultNodeOffset() const;
+    /**
+     * @brief Persist the terrainDefaultNodeOffset preference and notify consumers when changed.
+     * @param[in] offset Signed offset stored verbatim; negative values place invert below terrain. No finiteness check is applied.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setTerrainDefaultNodeOffset(double offset);
 
     /*! Default link endpoint invert offset used to estimate conduit slope.
-     *  Default 0.0. */
+     *  Default 0.0.
+     * @brief Terrain-assisted link endpoint offset in model vertical units.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] double terrainDefaultLinkOffset() const;
+    /**
+     * @brief Persist the terrainDefaultLinkOffset preference and notify consumers when changed.
+     * @param[in] offset Signed offset stored verbatim without finiteness checks.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setTerrainDefaultLinkOffset(double offset);
 
     // ── Application defaults applied on project creation ─────────────────
     /*! Whether the auto-length policy is enabled by default when a project
      *  opens. The Status-bar checkbox in SWMMVis still surfaces the
-     *  per-project override. Default true. */
+     *  per-project override. Default true.
+     * @brief Whether projects initially enable automatic link-length policy.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] bool autoLengthEnabled() const;
+    /**
+     * @brief Persist the autoLengthEnabled preference and notify consumers when changed.
+     * @param[in] enabled True enables the initial project policy; existing per-project overrides remain consumer-owned.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setAutoLengthEnabled(bool enabled);
 
+    /**
+     * @brief Last preferred directory for opening a project, or empty when unset.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString projectOpenDirectory() const;
+    /**
+     * @brief Persist the projectOpenDirectory preference and notify consumers when changed.
+     * @param[in] directory Directory text is trimmed then stored; existence and accessibility are not checked.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setProjectOpenDirectory(const QString &directory);
+    /**
+     * @brief Read the unit-system tab last selected in the object-default editor.
+     * @param[in] fallback Value used when the setting does not exist.
+     * @return True for the SI editor set, false for US customary.
+     */
     [[nodiscard]] bool objectDefaultsEditingSI(bool fallback) const;
+    /**
+     * @brief Remember the unit-system tab selected in the object-default editor.
+     * @param[in] si True selects SI, false selects US customary.
+     * @details Always writes this editor preference without emitting preferenceChanged.
+     */
     void setObjectDefaultsEditingSI(bool si);
 
     /*! Engine version string activated by default at startup / on File→New.
      *  One of SWMM_VERSION (refactored engine, default) or
-     *  LEGACY_SWMM_VERSION (SWMM5 legacy engine). */
+     *  LEGACY_SWMM_VERSION (SWMM5 legacy engine).
+     * @brief Default engine version token; empty means consumers choose the current refactored engine.
+     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+     */
     [[nodiscard]] QString defaultEngineMode() const;
+    /**
+     * @brief Persist the defaultEngineMode preference and notify consumers when changed.
+     * @param[in] version Version token stored verbatim; no installed-engine validation occurs.
+     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
+     */
     void setDefaultEngineMode(const QString &version);
 
     // ── Simulation defaults for new (blank) projects ─────────────────────
@@ -429,58 +985,57 @@ public:
      *  pre-populated in the New Project dialog. Persisted under
      *  SWMMVis/Preferences/SimulationDefaults so users can edit once and
      *  every subsequent new project inherits the choices. */
-    struct SimulationDefaults
-    {
-        QString flowUnits           = QStringLiteral("CFS");
-        QString infiltrationModel   = QStringLiteral("HORTON");
-        QString flowRouting         = QStringLiteral("DYNWAVE");
+    struct SimulationDefaults {
+        QString flowUnits = QStringLiteral("CFS");
+        QString infiltrationModel = QStringLiteral("HORTON");
+        QString flowRouting = QStringLiteral("DYNWAVE");
 
         // Legacy-SWMM parity: a new project simulates every process that
         // its model data exercises. IGNORE_ROUTING YES here made every
         // File→New model appear dead (no flows anywhere) unless the user
         // found Simulation Defaults and opted routing back in.
-        bool    ignoreRainfall      = false;
-        bool    ignoreRdii          = false;
-        bool    ignoreSnowmelt      = false;
-        bool    ignoreGroundwater   = false;
-        bool    ignoreQuality       = false;
-        bool    ignoreRouting       = false;
-        bool    module2DEnabled     = false;
+        bool ignoreRainfall = false;
+        bool ignoreRdii = false;
+        bool ignoreSnowmelt = false;
+        bool ignoreGroundwater = false;
+        bool ignoreQuality = false;
+        bool ignoreRouting = false;
+        bool module2DEnabled = false;
 
-        bool    allowPonding        = false;
-        bool    skipSteadyState     = false;
-        double  minSlopePct         = 0.0;     ///< MIN_SLOPE (%)
+        bool allowPonding = false;
+        bool skipSteadyState = false;
+        double minSlopePct = 0.0; ///< MIN_SLOPE (%)
 
-        QString sweepStart          = QStringLiteral("01/01");
-        QString sweepEnd            = QStringLiteral("12/31");
-        double  dryDays             = 0.0;
+        QString sweepStart = QStringLiteral("01/01");
+        QString sweepEnd = QStringLiteral("12/31");
+        double dryDays = 0.0;
 
         // Time steps stored as seconds.
-        int     reportStepSec       = 60;      ///< REPORT_STEP (1 minute)
-        int     dryStepSec          = 5 * 60;  ///< DRY_STEP (runoff dry-weather step, 5 min)
-        int     wetStepSec          = 60;      ///< WET_STEP (1 minute)
-        int     ruleStepSec         = 0;       ///< RULE_STEP (0 = use routing step)
-        double  routingStepSec      = 5.0;     ///< ROUTING_STEP (seconds, fractional ok)
+        int reportStepSec = 60;      ///< REPORT_STEP (1 minute)
+        int dryStepSec = 5 * 60;     ///< DRY_STEP (runoff dry-weather step, 5 min)
+        int wetStepSec = 60;         ///< WET_STEP (1 minute)
+        int ruleStepSec = 0;         ///< RULE_STEP (0 = use routing step)
+        double routingStepSec = 5.0; ///< ROUTING_STEP (seconds, fractional ok)
 
-        int     maxTrials           = 8;
-        double  headTolerance       = 0.005;   ///< HEAD_TOLERANCE
-        double  sysFlowTolPct       = 5.0;     ///< SYS_FLOW_TOL surface = percent
-        double  latFlowTolPct       = 5.0;     ///< LAT_FLOW_TOL surface = percent
+        int maxTrials = 8;
+        double headTolerance = 0.005; ///< HEAD_TOLERANCE
+        double sysFlowTolPct = 5.0;   ///< SYS_FLOW_TOL surface = percent
+        double latFlowTolPct = 5.0;   ///< LAT_FLOW_TOL surface = percent
 
         // Dynamic-wave specific.
-        QString inertialDamping     = QStringLiteral("PARTIAL"); ///< "Dampen"
-        QString normalFlowLimited   = QStringLiteral("BOTH");    ///< Slope+Froude
-        QString forceMainEquation   = QStringLiteral("H-W");
-        QString surchargeMethod     = QStringLiteral("EXTRAN");
-        bool    variableStepOn      = true;
-        double  variableStepFactor  = 0.75;    ///< VARIABLE_STEP Courant fraction (0 disables)
-        double  minRoutingStepSec   = 0.5;     ///< MINIMUM_STEP (CFL floor)
-        double  lengtheningStepSec  = 0.0;     ///< LENGTHENING_STEP
+        QString inertialDamping = QStringLiteral("PARTIAL"); ///< "Dampen"
+        QString normalFlowLimited = QStringLiteral("BOTH");  ///< Slope+Froude
+        QString forceMainEquation = QStringLiteral("H-W");
+        QString surchargeMethod = QStringLiteral("EXTRAN");
+        bool variableStepOn = true;
+        double variableStepFactor = 0.75; ///< VARIABLE_STEP Courant fraction (0 disables)
+        double minRoutingStepSec = 0.5;   ///< MINIMUM_STEP (CFL floor)
+        double lengtheningStepSec = 0.0;  ///< LENGTHENING_STEP
 
         // New-engine only. Emitted only when defaultEngineMode is the
         // refactored engine; for legacy engine the keys are suppressed.
-        QString nodeContinuity      = QStringLiteral("SEMI_IMPLICIT");
-        bool    andersonAccel       = true;
+        QString nodeContinuity = QStringLiteral("SEMI_IMPLICIT");
+        bool andersonAccel = true;
 
         // Mixed-flow options (engine issue #156; GUI issue #10). Applies to
         // dynamic-wave and FV routing; new-engine only like nodeContinuity.
@@ -488,17 +1043,26 @@ public:
         // TPA_CELERITY follows the DPS_* rule (method-specific, engine-side
         // default), FV_PRESSURE_CLOSURE follows the FV_* gap, and
         // REPORT_SIGNED_HEADS follows the RPT_* rule (no report keys here).
-        QString unsteadyFriction    = QStringLiteral("NONE");  ///< UNSTEADY_FRICTION
-        double  ufK3                = 0.015;                   ///< UF_K3 (Vitkovsky k3)
+        QString unsteadyFriction = QStringLiteral("NONE"); ///< UNSTEADY_FRICTION
+        double ufK3 = 0.015;                               ///< UF_K3 (Vitkovsky k3)
 
         /*! THREADS option. 0 = let the engine auto-pick (default in INP). The
          *  GUI defaults the live value to QThread::idealThreadCount() so a
          *  fresh project starts maxed out, but the persisted preference is 0
          *  so users who never open the dialog still get the engine's auto. */
-        int     threads             = 0;
+        int threads = 0;
     };
 
+    /**
+     * @brief Read the simulation-default bundle used for new projects.
+     * @return Owning values with compiled fallbacks for missing settings; seconds and project-unit quantities follow member documentation.
+     */
     [[nodiscard]] SimulationDefaults simulationDefaults() const;
+    /**
+     * @brief Persist the complete simulation-default bundle.
+     * @param[in] d Fields copied verbatim to the simulation-default settings group; callers validate ranges and option tokens.
+     * @details Emits one Defaults/SimulationDefaults notification after writing the bundle. Does not update existing engines.
+     */
     void setSimulationDefaults(const SimulationDefaults &d);
 
     // ── 2D model defaults for new projects ───────────────────────────────
@@ -509,76 +1073,97 @@ public:
      *  Distances are stored in SI (metres); consumers unit-scale exactly
      *  as the mesh dialog's seedDefaults always has. Persisted under
      *  SWMMVis/Preferences/TwoDDefaults. */
-    struct TwoDDefaults
-    {
+    struct TwoDDefaults {
         // [2D_OPTIONS] solver keys (defaults mirror the engine's).
-        double  maxTimestepSec     = 10.0;    ///< MAX_TIMESTEP (s)
-        double  theta              = 0.8;     ///< THETA
-        double  cflNumber          = 0.7;     ///< CFL_NUMBER
-        int     ltsTiers           = 4;       ///< LTS_TIERS
-        double  hMove              = 0.003;   ///< H_MOVE (m)
-        double  froudeMax          = 1.5;     ///< FROUDE_MAX
-        bool    advection          = false;   ///< ADVECTION
-        double  dryDepth           = 0.001;   ///< DRY_DEPTH (m)
-        double  limiterEpsilon     = 1e-6;    ///< LIMITER_EPSILON
-        double  fluxDhEps          = 0.004;   ///< FLUX_DH_EPS (m)
-        QString cellClosure        = QStringLiteral("FLAT");  ///< CELL_CLOSURE
-        QString faceReconstruction = QStringLiteral("MEAN");  ///< FACE_RECONSTRUCTION
-        double  vfrMinWetFrac      = 0.01;    ///< VFR_MIN_WET_FRAC
-        double  couplingCd         = 0.65;    ///< COUPLING_CD
-        double  couplingSync       = 0.0;     ///< COUPLING_SYNC (0 = every routing step)
-        bool    couplingAreaAuto   = false;   ///< COUPLING_AREA AUTO vs DEFAULT
+        double maxTimestepSec = 10.0;                        ///< MAX_TIMESTEP (s)
+        double theta = 0.8;                                  ///< THETA
+        double cflNumber = 0.7;                              ///< CFL_NUMBER
+        int ltsTiers = 4;                                    ///< LTS_TIERS
+        double hMove = 0.003;                                ///< H_MOVE (m)
+        double froudeMax = 1.5;                              ///< FROUDE_MAX
+        bool advection = false;                              ///< ADVECTION
+        double dryDepth = 0.001;                             ///< DRY_DEPTH (m)
+        double limiterEpsilon = 1e-6;                        ///< LIMITER_EPSILON
+        double fluxDhEps = 0.004;                            ///< FLUX_DH_EPS (m)
+        QString cellClosure = QStringLiteral("FLAT");        ///< CELL_CLOSURE
+        QString faceReconstruction = QStringLiteral("MEAN"); ///< FACE_RECONSTRUCTION
+        double vfrMinWetFrac = 0.01;                         ///< VFR_MIN_WET_FRAC
+        double couplingCd = 0.65;                            ///< COUPLING_CD
+        double couplingSync = 0.0;     ///< COUPLING_SYNC (0 = every routing step)
+        bool couplingAreaAuto = false; ///< COUPLING_AREA AUTO vs DEFAULT
         // New models take the regime-aware exchange (fine-scale coupling plan
         // D1/D3/D9); the engine's own defaults stay the legacy ORIFICE /
         // CELL / FOOTPRINT so existing decks run unchanged.
-        QString couplingLaw        = QStringLiteral("WEIR_ORIFICE");      ///< COUPLING_LAW
-        QString couplingHead       = QStringLiteral("STENCIL_WET_MEAN");  ///< COUPLING_HEAD
-        QString couplingPondMode   = QStringLiteral("TRACKING");          ///< COUPLING_POND_MODE
-        QString rainfallMode       = QStringLiteral("NATURAL_NEIGHBOUR"); ///< RAINFALL_MODE
-        bool    report2D           = false;   ///< REPORT_2D
+        QString couplingLaw = QStringLiteral("WEIR_ORIFICE");       ///< COUPLING_LAW
+        QString couplingHead = QStringLiteral("STENCIL_WET_MEAN");  ///< COUPLING_HEAD
+        QString couplingPondMode = QStringLiteral("TRACKING");      ///< COUPLING_POND_MODE
+        QString rainfallMode = QStringLiteral("NATURAL_NEIGHBOUR"); ///< RAINFALL_MODE
+        bool report2D = false;                                      ///< REPORT_2D
 
         // Mesh-generation seeds (SI canonical; the dialog unit-scales).
         // Version 2 defaults: 20 ft minimum, no maximum, automatic elevation
         // tolerance. Legacy fields remain readable for old preferences.
-        double  meshCellSizeM        = 0.0; ///< 0 = inherit minimum target for new configurations
-        double  meshCoarsenFactor    = 0.0; ///< Legacy multiplier; 0 = no maximum for new configurations
-        double  meshSizeRatio        = 2.0;   ///< neighbour edge-length ratio
-        double  meshMinCellSizeM     = 6.096; ///< 20 ft; 0 = cell size / 4
-        double  meshTerrainToleranceM = 0.0; ///< 0 = automatic elevation estimate
+        double meshCellSizeM = 0.0; ///< 0 = inherit minimum target for new configurations
+        double meshCoarsenFactor =
+            0.0;                    ///< Legacy multiplier; 0 = no maximum for new configurations
+        double meshSizeRatio = 2.0; ///< neighbour edge-length ratio
+        double meshMinCellSizeM = 6.096;    ///< 20 ft; 0 = cell size / 4
+        double meshTerrainToleranceM = 0.0; ///< 0 = automatic elevation estimate
         std::optional<mesh::ResolutionSettings> meshResolution;
-        mesh::ResolutionSettings resolutionSettings() const {
-            if (meshResolution) return *meshResolution;
+        /**
+         * @brief Resolve optional modern resolution settings or migrate legacy mesh-size defaults.
+         * @return Modern settings verbatim when present; otherwise SI metre values with minimum fallback 6.096 m, optional feature/maximum/tolerance and copied transition ratio.
+         */
+        mesh::ResolutionSettings resolutionSettings() const
+        {
+            if (meshResolution)
+                return *meshResolution;
             mesh::ResolutionSettings r;
-            r.minimumM=meshMinCellSizeM>0?meshMinCellSizeM:meshCellSizeM>0?meshCellSizeM/4:6.096;
-            if (meshCellSizeM>0) r.featureM=meshCellSizeM;
-            if (meshCoarsenFactor>0) r.maximumM=r.featureM.value_or(r.minimumM)*meshCoarsenFactor;
-            if (meshTerrainToleranceM>0) r.toleranceM=meshTerrainToleranceM;
-            r.breaklineToleranceM=r.toleranceM; r.transition=meshSizeRatio;
+            r.minimumM = meshMinCellSizeM > 0 ? meshMinCellSizeM
+                         : meshCellSizeM > 0  ? meshCellSizeM / 4
+                                              : 6.096;
+            if (meshCellSizeM > 0)
+                r.featureM = meshCellSizeM;
+            if (meshCoarsenFactor > 0)
+                r.maximumM = r.featureM.value_or(r.minimumM) * meshCoarsenFactor;
+            if (meshTerrainToleranceM > 0)
+                r.toleranceM = meshTerrainToleranceM;
+            r.breaklineToleranceM = r.toleranceM;
+            r.transition = meshSizeRatio;
             return r;
         }
         /// Every triangle's smallest angle reaches this (degrees, 20–33;
         /// MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10).
-        double  meshMinAngleDeg      = 33.0;
+        double meshMinAngleDeg = 33.0;
         /// Facing terrain break lines with lower ground between them (streets,
         /// ditches) become aligned quad strips (D12.3).
-        bool    meshQuadsBetweenBreaklines = true;
-        double  meshTrimTurnDeg      = 5.0;   ///< straightness trimming; 0 = off
-        double  meshTrimDeviationM   = 0.0;   ///< 0 = cell size / 10
-        double  meshIdwPower         = 2.0;
-        double  meshNodeFlattenRadM  = 5.0;
+        bool meshQuadsBetweenBreaklines = true;
+        double meshTrimTurnDeg = 5.0;    ///< straightness trimming; 0 = off
+        double meshTrimDeviationM = 0.0; ///< 0 = cell size / 10
+        double meshIdwPower = 2.0;
+        double meshNodeFlattenRadM = 5.0;
         // 2026-09-11: nodes pinned as Steiner vertices, at their rim
         // elevation, with the minimum separation demoting close clusters —
         // all on by default (virtual junctions are never pinned).
-        bool    meshNodesAsVertices  = true;  ///< nodes → Steiner vertices
-        bool    meshNodesUseRim      = true;  ///< rim elevation instead of terrain
-        bool    meshMinNodeSepOn     = true;
-        double  meshMinNodeSepM      = 2.0;
-        double  meshManningsN        = 0.035;
-        double  meshInitDepth        = 0.0;   ///< mesh length units; 0 = dry
-        bool    meshOutputExternal   = true;
+        bool meshNodesAsVertices = true; ///< nodes → Steiner vertices
+        bool meshNodesUseRim = true;     ///< rim elevation instead of terrain
+        bool meshMinNodeSepOn = true;
+        double meshMinNodeSepM = 2.0;
+        double meshManningsN = 0.035;
+        double meshInitDepth = 0.0; ///< mesh length units; 0 = dry
+        bool meshOutputExternal = true;
     };
 
+    /**
+     * @brief Read 2D solver and mesh-generation defaults for new configurations.
+     * @return Owning defaults with missing keys filled from compiled seeds; mesh resolution lengths are canonical metres.
+     */
     [[nodiscard]] TwoDDefaults twoDDefaults() const;
+    /**
+     * @brief Persist the complete 2D-default bundle.
+     * @param[in] d Solver tokens, timesteps and canonical SI mesh dimensions to store; callers own validity checks.
+     * @details Emits one Defaults/TwoDDefaults notification after writing; existing mesh/solver state is not changed.
+     */
     void setTwoDDefaults(const TwoDDefaults &d);
 
     // ── Object creation defaults ─────────────────────────────────────────
@@ -592,108 +1177,131 @@ public:
      *  single source of default truth. Persisted under
      *  SWMMVis/Preferences/ObjectDefaults/<US|SI>.
      *  Plan of record: workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md */
-    struct ObjectDefaults
-    {
+    struct ObjectDefaults {
         // Junctions (0 = engine "auto from highest crown" for max depth)
-        double  junctionMaxDepth      = 0.0;   ///< ft | m (0 = auto)
-        double  junctionInitDepth     = 0.0;   ///< ft | m
-        double  junctionSurDepth      = 0.0;   ///< ft | m
-        double  junctionPondedArea    = 0.0;   ///< ft2 | m2
+        double junctionMaxDepth = 0.0;   ///< ft | m (0 = auto)
+        double junctionInitDepth = 0.0;  ///< ft | m
+        double junctionSurDepth = 0.0;   ///< ft | m
+        double junctionPondedArea = 0.0; ///< ft2 | m2
 
         // Outfalls
-        QString outfallType           = QStringLiteral("FREE");
-        bool    outfallFlapGate       = false;
+        QString outfallType = QStringLiteral("FREE");
+        bool outfallFlapGate = false;
 
         // Storage (functional area A = coeff*d^expon + constant)
-        double  storageMaxDepth       = 15.0;  ///< ft | m
-        double  storageFuncCoeff      = 0.0;
-        double  storageFuncExponent   = 0.0;
-        double  storageFuncConstant   = 1000.0; ///< ft2 | m2
-        double  storageSeepRate       = 0.0;   ///< in/hr | mm/hr
+        double storageMaxDepth = 15.0; ///< ft | m
+        double storageFuncCoeff = 0.0;
+        double storageFuncExponent = 0.0;
+        double storageFuncConstant = 1000.0; ///< ft2 | m2
+        double storageSeepRate = 0.0;        ///< in/hr | mm/hr
 
         // Dividers
-        QString dividerType           = QStringLiteral("OVERFLOW");
+        QString dividerType = QStringLiteral("OVERFLOW");
 
         // Conduits
-        QString conduitShape          = QStringLiteral("CIRCULAR");
-        double  conduitGeom1          = 1.0;   ///< ft | m
-        double  conduitGeom2          = 0.0;
-        double  conduitGeom3          = 0.0;
-        double  conduitGeom4          = 0.0;
-        double  conduitRoughness      = 0.013; ///< concrete
-        double  conduitLength         = 400.0; ///< ft | m (skipped when auto-length on)
-        int     conduitBarrels        = 1;
-        double  conduitLossInlet      = 0.0;
-        double  conduitLossOutlet     = 0.0;
-        bool    conduitFlapGate       = false;
+        QString conduitShape = QStringLiteral("CIRCULAR");
+        double conduitGeom1 = 1.0; ///< ft | m
+        double conduitGeom2 = 0.0;
+        double conduitGeom3 = 0.0;
+        double conduitGeom4 = 0.0;
+        double conduitRoughness = 0.013; ///< concrete
+        double conduitLength = 400.0;    ///< ft | m (skipped when auto-length on)
+        int conduitBarrels = 1;
+        double conduitLossInlet = 0.0;
+        double conduitLossOutlet = 0.0;
+        bool conduitFlapGate = false;
 
         // Pumps (ideal pump: no curve reference to default)
-        bool    pumpInitStateOn       = true;
-        double  pumpStartupDepth      = 0.0;   ///< ft | m
-        double  pumpShutoffDepth      = 0.0;   ///< ft | m
+        bool pumpInitStateOn = true;
+        double pumpStartupDepth = 0.0; ///< ft | m
+        double pumpShutoffDepth = 0.0; ///< ft | m
 
         // Orifices
-        QString orificeType           = QStringLiteral("SIDE");
-        double  orificeGeom1          = 1.0;   ///< circular diameter, ft | m
-        double  orificeCd             = 0.65;
-        bool    orificeFlapGate       = false;
-        double  orificeOpenCloseRate  = 0.0;   ///< hr
+        QString orificeType = QStringLiteral("SIDE");
+        double orificeGeom1 = 1.0; ///< circular diameter, ft | m
+        double orificeCd = 0.65;
+        bool orificeFlapGate = false;
+        double orificeOpenCloseRate = 0.0; ///< hr
 
         // Weirs
-        QString weirType              = QStringLiteral("TRANSVERSE");
-        double  weirGeom1             = 3.0;   ///< height, ft | m
-        double  weirGeom2             = 3.0;   ///< length, ft | m
-        double  weirCd                = 3.33;  ///< unit-semantic: 3.33 US, 1.84 SI
-        int     weirEndContractions   = 0;
-        bool    weirFlapGate          = false;
+        QString weirType = QStringLiteral("TRANSVERSE");
+        double weirGeom1 = 3.0; ///< height, ft | m
+        double weirGeom2 = 3.0; ///< length, ft | m
+        double weirCd = 3.33;   ///< unit-semantic: 3.33 US, 1.84 SI
+        int weirEndContractions = 0;
+        bool weirFlapGate = false;
 
         // Outlets (rating Q = C*h^n)
-        QString outletRatingType      = QStringLiteral("FUNCTIONAL_DEPTH");
-        double  outletCoeff           = 10.0;  ///< unit-semantic: 10.0 US, 0.5 SI
-        double  outletExponent        = 0.5;
-        bool    outletFlapGate        = false;
+        QString outletRatingType = QStringLiteral("FUNCTIONAL_DEPTH");
+        double outletCoeff = 10.0; ///< unit-semantic: 10.0 US, 0.5 SI
+        double outletExponent = 0.5;
+        bool outletFlapGate = false;
 
         // Subcatchments
-        double  subcatchArea          = 5.0;   ///< ac | ha (skipped when auto-area on)
-        double  subcatchWidth         = 500.0; ///< ft | m
-        double  subcatchSlopePct      = 0.5;
-        double  subcatchImpervPct     = 25.0;
-        double  subcatchNImperv       = 0.012;
-        double  subcatchNPerv         = 0.15;
-        double  subcatchDsImperv      = 0.06;  ///< in | mm
-        double  subcatchDsPerv        = 0.15;  ///< in | mm
-        double  subcatchPctZeroImperv = 25.0;
-        double  hortonMaxRate         = 3.0;   ///< in/hr | mm/hr
-        double  hortonMinRate         = 0.5;   ///< in/hr | mm/hr
-        double  hortonDecay           = 4.0;   ///< 1/hr
-        double  hortonDryTime         = 7.0;   ///< days
-        double  gaSuction             = 3.5;   ///< in | mm
-        double  gaKsat                = 0.5;   ///< in/hr | mm/hr
-        double  gaImd                 = 0.26;
-        double  cnCurveNumber         = 80.0;
-        double  cnDryTime             = 7.0;   ///< days
+        double subcatchArea = 5.0;    ///< ac | ha (skipped when auto-area on)
+        double subcatchWidth = 500.0; ///< ft | m
+        double subcatchSlopePct = 0.5;
+        double subcatchImpervPct = 25.0;
+        double subcatchNImperv = 0.012;
+        double subcatchNPerv = 0.15;
+        double subcatchDsImperv = 0.06; ///< in | mm
+        double subcatchDsPerv = 0.15;   ///< in | mm
+        double subcatchPctZeroImperv = 25.0;
+        double hortonMaxRate = 3.0; ///< in/hr | mm/hr
+        double hortonMinRate = 0.5; ///< in/hr | mm/hr
+        double hortonDecay = 4.0;   ///< 1/hr
+        double hortonDryTime = 7.0; ///< days
+        double gaSuction = 3.5;     ///< in | mm
+        double gaKsat = 0.5;        ///< in/hr | mm/hr
+        double gaImd = 0.26;
+        double cnCurveNumber = 80.0;
+        double cnDryTime = 7.0; ///< days
 
         // Rain gages
-        QString gageRainFormat        = QStringLiteral("INTENSITY");
-        int     gageIntervalMin       = 15;    ///< minutes
-        double  gageSnowCatch         = 1.0;
+        QString gageRainFormat = QStringLiteral("INTENSITY");
+        int gageIntervalMin = 15; ///< minutes
+        double gageSnowCatch = 1.0;
 
         //! Compiled-in US-customary seed (the member initializers).
+        /**
+         * @return Compiled US customary member defaults without reading user settings.
+         */
         [[nodiscard]] static ObjectDefaults usSeed();
         //! Compiled-in SI seed — usSeed() with unit-differing fields overridden.
+        /**
+         * @return Compiled SI defaults with unit-differing fields explicitly overridden; coefficients with unit-dependent semantics use SI seed values.
+         */
         [[nodiscard]] static ObjectDefaults siSeed();
     };
 
+    /**
+     * @brief Read creation-property defaults for one project unit system.
+     * @param[in] si True reads SI keys and seed; false reads US customary keys and seed.
+     * @return Owning defaults in the selected project display units; no conversion between saved SI/US sets occurs.
+     */
     [[nodiscard]] ObjectDefaults objectDefaults(bool si) const;
+    /**
+     * @brief Persist creation-property defaults for one unit system.
+     * @param[in] d Complete bundle in the selected project display units, copied without validation.
+     * @param[in] si True writes SI settings; false writes US customary settings.
+     * @details Emits Defaults/ObjectDefaults; existing model objects are unchanged.
+     */
     void setObjectDefaults(const ObjectDefaults &d, bool si);
 
 signals:
-    /*! Emitted after any successful set*. `group` is one of
+    /*! Emitted after most accepted preference changes; setObjectDefaultsEditingSI() does not emit. `group` is one of
      *  "Selection" / "Canvas" / "Rendering" / "Simulation" /
-     *  "Decorations" / "Output"; `key` identifies the specific setting. */
+     *  "Decorations" / "Output"; `key` identifies the specific setting.
+     * @param[in] group Category of the persisted preference or bundle.
+     * @param[in] key Specific key or bundle name; subscribers decide how to refresh their state.
+     */
     void preferenceChanged(const QString &group, const QString &key);
 
 private:
+    /**
+     * @brief Initialize settings and migrate legacy style keys.
+     * @param[in] parent Optional QObject owner; singleton construction uses nullptr.
+     */
     explicit PreferencesManager(QObject *parent = nullptr);
 
     QSettings m_settings;

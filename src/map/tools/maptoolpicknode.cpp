@@ -1,8 +1,11 @@
-/*!
- * \file   maptoolpicknode.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolpicknode.cpp
+ * @brief     Pushed onto the canvas by NodePickSession while a dialog or a property editor waits
+ *            for the user to point at a node (the inlet junction's capture node today).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "map/tools/maptoolpicknode.h"
@@ -42,11 +45,11 @@ void OpenSWMMVisMapToolPickNode::deactivate()
     OpenSWMMVisMapTool::deactivate();
 }
 
-OpenSWMMVisMapToolPickNode::NodeHit
-OpenSWMMVisMapToolPickNode::hitNode(const QPoint &pixel) const
+OpenSWMMVisMapToolPickNode::NodeHit OpenSWMMVisMapToolPickNode::hitNode(const QPoint &pixel) const
 {
     NodeHit h;
-    if (!m_canvas) return h;
+    if (!m_canvas)
+        return h;
 
     double mx = 0.0, my = 0.0, mx2 = 0.0, my2 = 0.0;
     toMapCoords(pixel.x(), pixel.y(), mx, my);
@@ -57,18 +60,21 @@ OpenSWMMVisMapToolPickNode::hitNode(const QPoint &pixel) const
     // Same walk as the plot-pick tool: first visible model layer that reports
     // a node under the cursor wins.
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l->isVisible()) continue;
+        if (!l->isVisible())
+            continue;
         auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
+        if (!sl)
+            continue;
         const QVariantMap hit = sl->identifyAt(mx, my, nullptr, tol);
         if (hit.value(QStringLiteral("elementType")).toString() != QStringLiteral("Node"))
             continue;
         const QString name = hit.value(QStringLiteral("elementName")).toString();
         const int idx = name.isEmpty() ? -1 : sl->nodeIndex(name);
-        if (idx < 0) continue;
+        if (idx < 0)
+            continue;
         h.layer = sl;
-        h.name  = name;
-        h.idx   = idx;
+        h.name = name;
+        h.idx = idx;
         return h;
     }
     return h;
@@ -76,7 +82,8 @@ OpenSWMMVisMapToolPickNode::hitNode(const QPoint &pixel) const
 
 void OpenSWMMVisMapToolPickNode::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     m_hover = hitNode(event->pos());
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("picknode-hover"));
 }
@@ -93,7 +100,7 @@ void OpenSWMMVisMapToolPickNode::mouseReleaseEvent(QMouseEvent *event)
     m_armed = false;
     const NodeHit hit = hitNode(event->pos());
     if (!hit.valid())
-        return;   // background click: keep waiting for a node
+        return; // background click: keep waiting for a node
     emit nodePicked(hit.layer, hit.name, hit.idx);
 }
 
@@ -110,16 +117,18 @@ void OpenSWMMVisMapToolPickNode::keyPressEvent(QKeyEvent *event)
 void OpenSWMMVisMapToolPickNode::paint(QPainter *painter, const MapExtent &,
                                        const SpatialReferenceSystem *)
 {
-    if (!painter || !m_hover.valid()) return;
+    if (!painter || !m_hover.valid())
+        return;
     double x = 0.0, y = 0.0;
-    if (!m_hover.layer->cachedNodeCoord(m_hover.idx, &x, &y)) return;
+    if (!m_hover.layer->cachedNodeCoord(m_hover.idx, &x, &y))
+        return;
     double cx = x, cy = y;
     m_hover.layer->transformLayerToCanvas(x, y, cx, cy);
     int px = 0, py = 0;
     toPixelCoords(cx, cy, px, py);
 
     painter->save();
-    QPen pen(QColor(255, 165, 0));   // the snap-ring orange: "this one"
+    QPen pen(QColor(255, 165, 0)); // the snap-ring orange: "this one"
     pen.setWidth(2);
     painter->setPen(pen);
     painter->setBrush(Qt::NoBrush);

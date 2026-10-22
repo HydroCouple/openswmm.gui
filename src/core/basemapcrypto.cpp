@@ -1,8 +1,13 @@
-/*!
- * \file   basemapcrypto.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      basemapcrypto.cpp
+ * @brief     Provides a simple encrypt/decrypt API backed by OpenSSL EVP_* (available via Qt6's
+ *            Network dependency which already links OpenSSL).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "core/basemapcrypto.h"
 
 #include <QCryptographicHash>
@@ -15,10 +20,10 @@
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-static constexpr int kKeyLen      = 32;   // AES-256 key
-static constexpr int kIvLen       = 16;   // AES-CBC IV
-static constexpr int kSaltLen     = 16;
-static constexpr int kIterations  = 100000;
+static constexpr int kKeyLen = 32; // AES-256 key
+static constexpr int kIvLen = 16;  // AES-CBC IV
+static constexpr int kSaltLen = 16;
+static constexpr int kIterations = 100000;
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -30,31 +35,26 @@ QByteArray BasemapCrypto::machinePassphrase()
     return QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex();
 }
 
-bool BasemapCrypto::deriveKey(const QByteArray &passphrase,
-                               const QByteArray &salt,
-                               QByteArray       &key,
-                               QByteArray       &iv)
+bool BasemapCrypto::deriveKey(const QByteArray &passphrase, const QByteArray &salt, QByteArray &key,
+                              QByteArray &iv)
 {
     key.resize(kKeyLen);
     iv.resize(kIvLen);
 
-    const int ok = PKCS5_PBKDF2_HMAC(
-        passphrase.constData(), passphrase.size(),
-        reinterpret_cast<const unsigned char *>(salt.constData()), salt.size(),
-        kIterations,
-        EVP_sha256(),
-        kKeyLen, reinterpret_cast<unsigned char *>(key.data()));
+    const int ok = PKCS5_PBKDF2_HMAC(passphrase.constData(), passphrase.size(),
+                                     reinterpret_cast<const unsigned char *>(salt.constData()),
+                                     salt.size(), kIterations, EVP_sha256(), kKeyLen,
+                                     reinterpret_cast<unsigned char *>(key.data()));
 
-    if (ok != 1) return false;
+    if (ok != 1)
+        return false;
 
     // Derive IV via a second PBKDF2 pass with a different "salt prefix"
     QByteArray ivSalt = QByteArray("iv-") + salt;
-    const int okIv = PKCS5_PBKDF2_HMAC(
-        passphrase.constData(), passphrase.size(),
-        reinterpret_cast<const unsigned char *>(ivSalt.constData()), ivSalt.size(),
-        kIterations,
-        EVP_sha256(),
-        kIvLen, reinterpret_cast<unsigned char *>(iv.data()));
+    const int okIv = PKCS5_PBKDF2_HMAC(passphrase.constData(), passphrase.size(),
+                                       reinterpret_cast<const unsigned char *>(ivSalt.constData()),
+                                       ivSalt.size(), kIterations, EVP_sha256(), kIvLen,
+                                       reinterpret_cast<unsigned char *>(iv.data()));
 
     return okIv == 1;
 }
@@ -65,7 +65,8 @@ bool BasemapCrypto::deriveKey(const QByteArray &passphrase,
 
 QByteArray BasemapCrypto::encrypt(const QString &plaintext)
 {
-    if (plaintext.isEmpty()) return {};
+    if (plaintext.isEmpty())
+        return {};
 
     const QByteArray pass = machinePassphrase();
 
@@ -75,7 +76,8 @@ QByteArray BasemapCrypto::encrypt(const QString &plaintext)
         return {};
 
     QByteArray key, iv;
-    if (!deriveKey(pass, salt, key, iv)) return {};
+    if (!deriveKey(pass, salt, key, iv))
+        return {};
 
     const QByteArray input = plaintext.toUtf8();
 
@@ -84,22 +86,22 @@ QByteArray BasemapCrypto::encrypt(const QString &plaintext)
     int outLen1 = 0, outLen2 = 0;
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) return {};
+    if (!ctx)
+        return {};
 
     bool ok =
         EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
                            reinterpret_cast<const unsigned char *>(key.constData()),
-                           reinterpret_cast<const unsigned char *>(iv.constData())) == 1
-        &&
-        EVP_EncryptUpdate(ctx,
-                          reinterpret_cast<unsigned char *>(cipherBuf.data()), &outLen1,
-                          reinterpret_cast<const unsigned char *>(input.constData()), input.size()) == 1
-        &&
-        EVP_EncryptFinal_ex(ctx,
-                            reinterpret_cast<unsigned char *>(cipherBuf.data()) + outLen1, &outLen2) == 1;
+                           reinterpret_cast<const unsigned char *>(iv.constData())) == 1 &&
+        EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(cipherBuf.data()), &outLen1,
+                          reinterpret_cast<const unsigned char *>(input.constData()),
+                          input.size()) == 1 &&
+        EVP_EncryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(cipherBuf.data()) + outLen1,
+                            &outLen2) == 1;
 
     EVP_CIPHER_CTX_free(ctx);
-    if (!ok) return {};
+    if (!ok)
+        return {};
 
     cipherBuf.resize(outLen1 + outLen2);
 
@@ -110,39 +112,41 @@ QByteArray BasemapCrypto::encrypt(const QString &plaintext)
 
 QString BasemapCrypto::decrypt(const QByteArray &cipherBase64)
 {
-    if (cipherBase64.isEmpty()) return {};
+    if (cipherBase64.isEmpty())
+        return {};
 
     const QByteArray payload = QByteArray::fromBase64(cipherBase64);
-    if (payload.size() <= kSaltLen) return {};
+    if (payload.size() <= kSaltLen)
+        return {};
 
-    const QByteArray salt       = payload.left(kSaltLen);
+    const QByteArray salt = payload.left(kSaltLen);
     const QByteArray cipherData = payload.mid(kSaltLen);
 
     const QByteArray pass = machinePassphrase();
 
     QByteArray key, iv;
-    if (!deriveKey(pass, salt, key, iv)) return {};
+    if (!deriveKey(pass, salt, key, iv))
+        return {};
 
     QByteArray plainBuf(cipherData.size() + EVP_MAX_BLOCK_LENGTH, '\0');
     int outLen1 = 0, outLen2 = 0;
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) return {};
+    if (!ctx)
+        return {};
 
-    bool ok =
-        EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
-                           reinterpret_cast<const unsigned char *>(key.constData()),
-                           reinterpret_cast<const unsigned char *>(iv.constData())) == 1
-        &&
-        EVP_DecryptUpdate(ctx,
-                          reinterpret_cast<unsigned char *>(plainBuf.data()), &outLen1,
-                          reinterpret_cast<const unsigned char *>(cipherData.constData()), cipherData.size()) == 1
-        &&
-        EVP_DecryptFinal_ex(ctx,
-                            reinterpret_cast<unsigned char *>(plainBuf.data()) + outLen1, &outLen2) == 1;
+    bool ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
+                                 reinterpret_cast<const unsigned char *>(key.constData()),
+                                 reinterpret_cast<const unsigned char *>(iv.constData())) == 1 &&
+              EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char *>(plainBuf.data()), &outLen1,
+                                reinterpret_cast<const unsigned char *>(cipherData.constData()),
+                                cipherData.size()) == 1 &&
+              EVP_DecryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(plainBuf.data()) + outLen1,
+                                  &outLen2) == 1;
 
     EVP_CIPHER_CTX_free(ctx);
-    if (!ok) return {};
+    if (!ok)
+        return {};
 
     plainBuf.resize(outLen1 + outLen2);
     return QString::fromUtf8(plainBuf);

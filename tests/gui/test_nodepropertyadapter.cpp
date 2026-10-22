@@ -1,6 +1,6 @@
-/*!
- * \file   test_nodepropertyadapter.cpp
- * \brief  Slice DB round-trip tests for SWMMNodePropertyAdapter and its
+/**
+ * @file      test_nodepropertyadapter.cpp
+ * @brief     Slice DB round-trip tests for SWMMNodePropertyAdapter and its
  *         four type-aware subclasses (Junction / Outfall / Storage /
  *         Divider). Exercises:
  *           - The depth/elev/area scalar block that already shipped in
@@ -8,22 +8,24 @@
  *           - X / Y coord getters reading via `swmm_spatial_get_node_coord`.
  *           - The `coordChangeRequested` signal fired by setXCoord /
  *             setYCoord when the new value differs from the cached coord.
- *           - The read-only summary block (`crownElev`, `fullVolume`,
- *             `degree`, `statMaxDepth`, `statMaxOverflow`, `statVolFlooded`,
- *             `statTimeFlooded`) returning zero pre-run + the correct
- *             post-link `degree`.
+ *           - Read-only summary metadata, zero pre-run statistics and the
+ *             unresolved topology degree default.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_engine.h>
-#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
+#include <openswmm/engine/openswmm_initial_quality.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
-#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
+#include <openswmm/engine/openswmm_pollutants.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_spatial.h>
-#include <openswmm/engine/openswmm_subcatchments.h>  // G5 — groundwater sources
-#include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
+#include <openswmm/engine/openswmm_subcatchments.h> // G5 — groundwater sources
+#include <openswmm/engine/openswmm_tables.h>        // Slice AG.4 — storage curve
 
 #include <QObject>
 #include <QSignalSpy>
@@ -38,15 +40,23 @@ class TestNodePropertyAdapter : public QObject
 
 private:
     // Build a tiny fixture with one junction (J1) sitting at (10, 20)
-    // and an outfall (O1) at (30, 40), connected by a circular conduit.
-    // The conduit gives J1 a degree of 1 and a non-zero crown elevation
-    // so `degree` and `crownElev` exercise the engine's computed paths.
+    // and an outfall (O1) at (30, 40). No link or resolved topology is added.
+    /**
+     *
+     * @brief Allocate an editing-only junction/outfall fixture with coordinates and elevations.
+     * @return Owned engine to destroy, or nullptr on allocation failure. Setup API
+     * statuses are unchecked. J1 is at (10,20), invert 100/max depth five; O1 is at
+     * (30,40), invert 95, in the engine authored units. No conduit is added, topology
+     * is not initialized and no files or simulation results are created.
+     *
+     */
     SWMM_Engine buildFixture()
     {
         SWMM_Engine e = swmm_engine_new();
-        if (!e) return nullptr;
-        swmm_node_add(e, "J1", 0);  // 0 = Junction
-        swmm_node_add(e, "O1", 1);  // 1 = Outfall
+        if (!e)
+            return nullptr;
+        swmm_node_add(e, "J1", 0); // 0 = Junction
+        swmm_node_add(e, "O1", 1); // 1 = Outfall
         const int jIdx = swmm_node_index(e, "J1");
         const int oIdx = swmm_node_index(e, "O1");
         swmm_node_set_invert_elev(e, jIdx, 100.0);
@@ -61,21 +71,31 @@ private:
     // conduits are default-constructed, so they satisfy the virtual-junction
     // rules (identical cross-section, zero offsets, exactly two conduits, no
     // 2D coupling) without any further setup.
+    /**
+     *
+     * @brief Allocate J1-C1-MID-C2-O1 with MID flagged as virtual.
+     * @return Owned editing engine or nullptr on allocation/virtual-flag refusal;
+     * the refused handle is destroyed. Earlier node/link/setter statuses are unchecked.
+     * Default conduit geometry and zero offsets supply the virtual-junction fixture
+     * preconditions; no simulation or IO.
+     *
+     */
     SWMM_Engine buildVirtualJunctionFixture()
     {
         SWMM_Engine e = swmm_engine_new();
-        if (!e) return nullptr;
-        swmm_node_add(e, "J1",  0);
+        if (!e)
+            return nullptr;
+        swmm_node_add(e, "J1", 0);
         swmm_node_add(e, "MID", 0);
-        swmm_node_add(e, "O1",  1);
+        swmm_node_add(e, "O1", 1);
         const int jIdx = swmm_node_index(e, "J1");
         const int mIdx = swmm_node_index(e, "MID");
         const int oIdx = swmm_node_index(e, "O1");
         swmm_node_set_invert_elev(e, jIdx, 100.0);
-        swmm_node_set_invert_elev(e, mIdx,  97.5);
-        swmm_node_set_invert_elev(e, oIdx,  95.0);
+        swmm_node_set_invert_elev(e, mIdx, 97.5);
+        swmm_node_set_invert_elev(e, oIdx, 95.0);
 
-        swmm_link_add(e, "C1", 0);   // 0 = conduit
+        swmm_link_add(e, "C1", 0); // 0 = conduit
         swmm_link_add(e, "C2", 0);
         swmm_link_set_nodes(e, swmm_link_index(e, "C1"), jIdx, mIdx);
         swmm_link_set_nodes(e, swmm_link_index(e, "C2"), mIdx, oIdx);
@@ -88,13 +108,20 @@ private:
     }
 
 private slots:
+    /**
+     *
+     * @brief Require an unchanged compound initial-quality property assignment to remain silent
+     * and wroteChanges to emit one notification.
+     * Exercises the ref notification contract without actually editing a quality row.
+     *
+     */
     void initialQualityFocusOutOnlyNotifiesRealWrites()
     {
         SWMM_Engine e = buildFixture();
         QVERIFY(e);
         SWMMJunctionPropertyAdapter adapter(e, QStringLiteral("J1"));
-        const auto property = adapter.metaObject()->property(
-            adapter.metaObject()->indexOfProperty("initialQuality"));
+        const auto property =
+            adapter.metaObject()->property(adapter.metaObject()->indexOfProperty("initialQuality"));
         QVERIFY(property.isValid());
         QSignalSpy changed(&adapter, &SWMMNodePropertyAdapter::changed);
         auto ref = adapter.initialQualityRef();
@@ -106,11 +133,18 @@ private slots:
         swmm_engine_destroy(e);
     }
 
-
     // ====================================================================
     // 1D↔2D coupling rows ([2D_NODE_COUPLING], fine-scale coupling §7.1)
     // ====================================================================
 
+    /**
+     *
+     * @brief Require junction/outfall coupling defaults and authored structure fields to
+     * round-trip, blank clearing and invalid node-kind refusal.
+     * Checks coupleable off/on restores the junction default and outfall spread/relaxation
+     * fields.
+     *
+     */
     void coupling2DRowsRoundTripThroughTheEngine()
     {
         SWMM_Engine e = buildFixture();
@@ -158,6 +192,13 @@ private slots:
     // Scalar regression (Slice Z.5.3 contract — unchanged in DB)
     // ====================================================================
 
+    /**
+     *
+     * @brief Require initial invert/max-depth reads and surcharge/ponded-area edits to round-trip
+     * in the editing state.
+     * Does not assert initial-depth mutation or initialize hydraulic topology.
+     *
+     */
     void junctionScalarRoundTrip()
     {
         SWMM_Engine e = buildFixture();
@@ -165,17 +206,13 @@ private slots:
 
         SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
         QCOMPARE(a.invertElev(), 100.0);
-        QCOMPARE(a.maxDepth(),   5.0);
+        QCOMPARE(a.maxDepth(), 5.0);
 
-        // surcharge / ponded use straight SoA setters that round-trip in
-        // the BUILDING state. (`initialDepth` is not asserted here because
-        // the engine's `_set_initial_depth` writes to the runtime `depth`
-        // field rather than `init_depth`; that asymmetry is pre-existing
-        // and out of scope for Slice DB.)
+        // Check surcharge and ponding in BUILDING state; initial depth is not tested here.
         a.setSurchargeDepth(2.0);
         a.setPondedArea(150.0);
         QCOMPARE(a.surchargeDepth(), 2.0);
-        QCOMPARE(a.pondedArea(),     150.0);
+        QCOMPARE(a.pondedArea(), 150.0);
 
         swmm_engine_destroy(e);
     }
@@ -184,6 +221,11 @@ private slots:
     // Coordinates — read direct, write via signal (no in-adapter write)
     // ====================================================================
 
+    /**
+     *
+     * @brief Require adapter X/Y reads to equal the engine-authored fixture coordinates.
+     *
+     */
     void coordReadHitsEngine()
     {
         SWMM_Engine e = buildFixture();
@@ -194,6 +236,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require an X edit to emit its requested X with cached Y while retaining unchanged
+     * raw engine coordinates.
+     *
+     */
     void setXCoordEmitsRequestWithCurrentY()
     {
         SWMM_Engine e = buildFixture();
@@ -205,7 +253,7 @@ private slots:
         QCOMPARE(spy.count(), 1);
         const auto args = spy.takeFirst();
         QCOMPARE(args.at(0).toDouble(), 99.0);
-        QCOMPARE(args.at(1).toDouble(), 20.0);  // Y preserved from cache.
+        QCOMPARE(args.at(1).toDouble(), 20.0); // Y preserved from cache.
 
         // The adapter intentionally does NOT touch the engine — the
         // request is the contract; PropertiesPanel routes it through
@@ -219,6 +267,11 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require a Y edit to emit cached X with the requested Y.
+     *
+     */
     void setYCoordEmitsRequestWithCurrentX()
     {
         SWMM_Engine e = buildFixture();
@@ -235,6 +288,11 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require unchanged X/Y writes to emit no coordinate-move request.
+     *
+     */
     void coordWriteWithSameValueIsNoop()
     {
         SWMM_Engine e = buildFixture();
@@ -242,8 +300,8 @@ private slots:
         SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
 
         QSignalSpy spy(&a, &SWMMNodePropertyAdapter::coordChangeRequested);
-        a.setXCoord(10.0);  // identical to current X.
-        a.setYCoord(20.0);  // identical to current Y.
+        a.setXCoord(10.0); // identical to current X.
+        a.setYCoord(20.0); // identical to current Y.
         QCOMPARE(spy.count(), 0);
 
         swmm_engine_destroy(e);
@@ -253,26 +311,35 @@ private slots:
     // Read-only summary block (Slice DB)
     // ====================================================================
 
+    /**
+     *
+     * @brief Require all four node statistics and unresolved topology degree to read zero before
+     * a run.
+     * This case does not assert crown elevation or full volume.
+     *
+     */
     void summaryBlockReadsZeroBeforeRun()
     {
         SWMM_Engine e = buildFixture();
         QVERIFY(e);
         SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
 
-        // No simulation run → all four stat values are zero. Crown elev
-        // and full volume depend on link insertion + storage curve
-        // hydration, which the fixture doesn't perform, so they also
-        // read zero. Degree is the count of attached links (also zero
-        // until we add a conduit below).
-        QCOMPARE(a.statMaxDepth(),    0.0);
+        // No simulation or topology initialization: statistics and degree stay zero.
+        QCOMPARE(a.statMaxDepth(), 0.0);
         QCOMPARE(a.statMaxOverflow(), 0.0);
-        QCOMPARE(a.statVolFlooded(),  0.0);
+        QCOMPARE(a.statVolFlooded(), 0.0);
         QCOMPARE(a.statTimeFlooded(), 0.0);
-        QCOMPARE(a.degree(),          0);
+        QCOMPARE(a.degree(), 0);
 
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require the uninitialized editing fixture degree getter to return zero; does not
+     * assert a post-initialization link count.
+     *
+     */
     void degreeReadableViaGetter()
     {
         // Pre-`swmm_engine_initialize`, `nodes.degree[]` is zero — the
@@ -287,6 +354,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require summary/statistic meta-properties to be read-only and scalar/coordinate
+     * editing properties to advertise writable setters.
+     *
+     */
     void summaryBlockIsReadOnlyViaMetaObject()
     {
         // Catches a regression where someone adds a WRITE to the Q_PROPERTY
@@ -297,12 +370,9 @@ private slots:
 
         const auto *mo = a.metaObject();
         const QStringList readOnlyProps = {
-            QStringLiteral("crownElev"),
-            QStringLiteral("fullVolume"),
-            QStringLiteral("degree"),
-            QStringLiteral("statMaxDepth"),
-            QStringLiteral("statMaxOverflow"),
-            QStringLiteral("statVolFlooded"),
+            QStringLiteral("crownElev"),       QStringLiteral("fullVolume"),
+            QStringLiteral("degree"),          QStringLiteral("statMaxDepth"),
+            QStringLiteral("statMaxOverflow"), QStringLiteral("statVolFlooded"),
             QStringLiteral("statTimeFlooded"),
         };
         for (const QString &name : readOnlyProps) {
@@ -315,12 +385,9 @@ private slots:
         // Conversely, the editable ones MUST advertise writability so
         // QPropertyModel renders an editor.
         const QStringList editableProps = {
-            QStringLiteral("invertElev"),
-            QStringLiteral("maxDepth"),
-            QStringLiteral("initialDepth"),
-            QStringLiteral("surchargeDepth"),
-            QStringLiteral("pondedArea"),
-            QStringLiteral("xCoord"),
+            QStringLiteral("invertElev"),   QStringLiteral("maxDepth"),
+            QStringLiteral("initialDepth"), QStringLiteral("surchargeDepth"),
+            QStringLiteral("pondedArea"),   QStringLiteral("xCoord"),
             QStringLiteral("yCoord"),
         };
         for (const QString &name : editableProps) {
@@ -341,6 +408,13 @@ private slots:
      *  crown), so the adapter exposes no `maxDepth` editor. What it does
      *  expose is `rimDepth` — the optional [VIRTUAL_JUNCTIONS] MaxDepth that
      *  says where the ground surface is drawn. */
+    /**
+     *
+     * @brief Require virtual junctions to expose writable display rim depth without ordinary
+     * hydraulic depth/ponding editors.
+     * Checks 4.5 round-trip, zero clearing and a Display label; no hydraulic run.
+     *
+     */
     void virtualJunctionExposesWritableRimDepthOnly()
     {
         SWMM_Engine e = buildVirtualJunctionFixture();
@@ -381,6 +455,12 @@ private slots:
     // Display labels — verifies new key names map to non-empty strings
     // ====================================================================
 
+    /**
+     *
+     * @brief Require coordinate, summary, statistic and compound-editor keys to resolve to
+     * nonempty labels.
+     *
+     */
     void displayLabelsCoverNewKeys()
     {
         SWMM_Engine e = buildFixture();
@@ -388,14 +468,20 @@ private slots:
         SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
 
         const QStringList keys = {
-            QStringLiteral("xCoord"),  QStringLiteral("yCoord"),
-            QStringLiteral("crownElev"), QStringLiteral("fullVolume"),
+            QStringLiteral("xCoord"),
+            QStringLiteral("yCoord"),
+            QStringLiteral("crownElev"),
+            QStringLiteral("fullVolume"),
             QStringLiteral("degree"),
-            QStringLiteral("statMaxDepth"),    QStringLiteral("statMaxOverflow"),
-            QStringLiteral("statVolFlooded"),  QStringLiteral("statTimeFlooded"),
+            QStringLiteral("statMaxDepth"),
+            QStringLiteral("statMaxOverflow"),
+            QStringLiteral("statVolFlooded"),
+            QStringLiteral("statTimeFlooded"),
             // Slice DB.2 — compound editor keys.
-            QStringLiteral("inflows"), QStringLiteral("dwf"),
-            QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            QStringLiteral("inflows"),
+            QStringLiteral("dwf"),
+            QStringLiteral("rdii"),
+            QStringLiteral("treatment"),
             // AQUIFER_GROUNDWATER_EXCHANGE G5 — node-side navigation row.
             QStringLiteral("groundwaterSources"),
         };
@@ -411,6 +497,12 @@ private slots:
     // Slice DB.2 — compound editor refs
     // ====================================================================
 
+    /**
+     *
+     * @brief Require each compound editor ref to carry the borrowed engine, J1 identity, expected
+     * editor kind and nonempty live summary.
+     *
+     */
     void compoundRefsCarryEngineAndNodeName()
     {
         SWMM_Engine e = buildFixture();
@@ -418,17 +510,16 @@ private slots:
         SWMMJunctionPropertyAdapter a(e, QStringLiteral("J1"));
 
         const auto refs = std::array{
-            std::pair{a.inflowsRef(),   NodeCompoundEditRef::Inflows},
-            std::pair{a.dwfRef(),       NodeCompoundEditRef::Dwf},
-            std::pair{a.rdiiRef(),      NodeCompoundEditRef::Rdii},
+            std::pair{a.inflowsRef(), NodeCompoundEditRef::Inflows},
+            std::pair{a.dwfRef(), NodeCompoundEditRef::Dwf},
+            std::pair{a.rdiiRef(), NodeCompoundEditRef::Rdii},
             std::pair{a.treatmentRef(), NodeCompoundEditRef::Treatment},
-            std::pair{a.groundwaterSourcesRef(),
-                      NodeCompoundEditRef::GroundwaterSources},
+            std::pair{a.groundwaterSourcesRef(), NodeCompoundEditRef::GroundwaterSources},
         };
         for (const auto &[ref, expectedKind] : refs) {
-            QCOMPARE(ref.engine,   e);
+            QCOMPARE(ref.engine, e);
             QCOMPARE(ref.nodeName, QStringLiteral("J1"));
-            QCOMPARE(ref.kind,     expectedKind);
+            QCOMPARE(ref.kind, expectedKind);
             // Summary is computed live; for an empty fixture every
             // count-based summary should be the "(none)" or "engine
             // API pending" sentinel — non-empty in either case.
@@ -438,6 +529,16 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require junction/outfall/storage/divider/virtual adapter metaobjects to expose the
+     * common compound editor rows.
+     * The local checker borrows an adapter QObject and C-string diagnostic label,
+     * recording QtTest failures per missing property; it returns locally on failure.
+     * Storage/divider/virtual adapters use J1 for metadata inspection rather than
+     * creating matching node-kind engine fixtures.
+     *
+     */
     void compoundRefsAdvertisedOnAllNodeKinds()
     {
         // Q_PROPERTYs `inflows`, `dwf`, `rdii`, `treatment` must surface
@@ -447,16 +548,17 @@ private slots:
         QVERIFY(e);
 
         const QStringList compoundProps = {
-            QStringLiteral("inflows"), QStringLiteral("dwf"),
-            QStringLiteral("rdii"),    QStringLiteral("treatment"),
+            QStringLiteral("inflows"),
+            QStringLiteral("dwf"),
+            QStringLiteral("rdii"),
+            QStringLiteral("treatment"),
             QStringLiteral("groundwaterSources"),
         };
         auto checkAdvertises = [&](const QObject &a, const char *label) {
             const auto *mo = a.metaObject();
             for (const QString &p : compoundProps) {
                 const int idx = mo->indexOfProperty(p.toUtf8().constData());
-                QVERIFY2(idx >= 0, qPrintable(
-                    QStringLiteral("%1 missing %2").arg(label, p)));
+                QVERIFY2(idx >= 0, qPrintable(QStringLiteral("%1 missing %2").arg(label, p)));
             }
         };
         {
@@ -490,6 +592,12 @@ private slots:
     }
 
     // AQUIFER_GROUNDWATER_EXCHANGE G5 — "from S1, S3" / "(none)" summary.
+    /**
+     *
+     * @brief Require node groundwater-source summary to include S1/S3 with aquifers and exclude
+     * S2 lacking one, retaining its navigation kind.
+     *
+     */
     void groundwaterSourcesSummaryTracksEngine()
     {
         SWMM_Engine e = buildFixture();
@@ -511,8 +619,7 @@ private slots:
             QCOMPARE(swmm_subcatch_set_gw_node(e, s, j), SWMM_OK);
         }
         QCOMPARE(a.groundwaterSourcesRef().summary, QStringLiteral("from S1, S3"));
-        QCOMPARE(a.groundwaterSourcesRef().kind,
-                 NodeCompoundEditRef::GroundwaterSources);
+        QCOMPARE(a.groundwaterSourcesRef().kind, NodeCompoundEditRef::GroundwaterSources);
 
         swmm_engine_destroy(e);
     }
@@ -521,6 +628,13 @@ private slots:
     // Initial-quality UI round — per-element "Initial Quality" cell
     // ====================================================================
 
+    /**
+     *
+     * @brief Require the node initial-quality ref to preserve borrowed identity and count only
+     * its own authored TSS row.
+     * Also checks the property exists on junction/storage adapter metadata.
+     *
+     */
     void initialQualityRefTracksEngineRows()
     {
         SWMM_Engine e = buildFixture();
@@ -561,10 +675,19 @@ private slots:
 
     // A storage unit (S1) plus one [STORAGE]-type curve (SC1) so both the
     // functional and tabular paths have something to bind to.
+    /**
+     *
+     * @brief Allocate storage S1 and a two-point storage curve SC1.
+     * @return Owned editing engine or nullptr on allocation failure. Adds authored
+     * curve points (depth,area) (0,100)/(5,400) without assigning the curve; setup
+     * statuses are unchecked and physical units follow the engine project convention.
+     *
+     */
     SWMM_Engine buildStorageFixture()
     {
         SWMM_Engine e = swmm_engine_new();
-        if (!e) return nullptr;
+        if (!e)
+            return nullptr;
         swmm_node_add(e, "S1", 2);   // 2 = Storage
         swmm_curve_add(e, "SC1", 1); // 1 = CURVE_STORAGE
         const int ci = swmm_table_index(e, "SC1");
@@ -573,6 +696,12 @@ private slots:
         return e;
     }
 
+    /**
+     *
+     * @brief Require functional storage A/B/C edits to retain independent terms and match the raw
+     * engine triple.
+     *
+     */
     void storageFunctionalRoundTrip()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -588,7 +717,7 @@ private slots:
         a.setStorageExpB(0.5);
         a.setStorageConstC(250.0);
         QCOMPARE(a.storageCoeffA(), 1500.0);
-        QCOMPARE(a.storageExpB(),   0.5);
+        QCOMPARE(a.storageExpB(), 0.5);
         QCOMPARE(a.storageConstC(), 250.0);
 
         // Mirror the read against the raw engine triple.
@@ -602,6 +731,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require assigning/clearing storage curve refs and Functional/Tabular switching to
+     * keep engine curve binding coherent.
+     *
+     */
     void storageTabularRoundTripAndShapeSwitch()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -644,6 +779,13 @@ private slots:
     // These are curve-less but NOT power-law functional, which is precisely what the
     // old "shape = (curve >= 0) ? Tabular : Functional" inference could not express —
     // the adapter now reads the engine's real shape field.
+    /**
+     *
+     * @brief Require cylindrical/conical/paraboloid/pyramidal shape dimensions to round-trip and
+     * produce nonzero curve-less area coefficients.
+     * Checks pyramidal dimensions 30/20/2.5 derive exact coefficients 250/25/600.
+     *
+     */
     void storageGeometricShapeRoundTrip()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -651,12 +793,15 @@ private slots:
         SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
         const int idx = swmm_node_index(e, "S1");
 
-        struct Case { SWMMNodePropertyAdapter::StorageShape shape; double p1, p2, p3; };
+        struct Case {
+            SWMMNodePropertyAdapter::StorageShape shape;
+            double p1, p2, p3;
+        };
         const QVector<Case> cases = {
-            { SWMMNodePropertyAdapter::Cylindrical, 30.0, 20.0, 0.0 },
-            { SWMMNodePropertyAdapter::Conical,     30.0, 20.0, 2.5 },
-            { SWMMNodePropertyAdapter::Paraboloid,  30.0, 20.0, 8.0 },
-            { SWMMNodePropertyAdapter::Pyramidal,   30.0, 20.0, 2.5 },
+            {SWMMNodePropertyAdapter::Cylindrical, 30.0, 20.0, 0.0},
+            {SWMMNodePropertyAdapter::Conical, 30.0, 20.0, 2.5},
+            {SWMMNodePropertyAdapter::Paraboloid, 30.0, 20.0, 8.0},
+            {SWMMNodePropertyAdapter::Pyramidal, 30.0, 20.0, 2.5},
         };
 
         for (const Case &c : cases) {
@@ -699,6 +844,12 @@ private slots:
 
     // A rejected dimension must leave the node on its last valid geometry rather
     // than half-writing it (the engine validates before it mutates).
+    /**
+     *
+     * @brief Require zero pyramidal length and zero paraboloid height to refuse while retaining
+     * the last valid dimensions.
+     *
+     */
     void storageGeometryRejectsInvalidDimensions()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -710,11 +861,11 @@ private slots:
         a.setStorageParam2(20.0);
         a.setStorageParam3(2.5);
 
-        a.setStorageParam1(0.0);          // L must be > 0 → rejected
+        a.setStorageParam1(0.0); // L must be > 0 → rejected
         QCOMPARE(a.storageParam1(), 30.0);
 
         a.setStorageShape(SWMMNodePropertyAdapter::Paraboloid);
-        a.setStorageParam3(0.0);          // height divides → rejected
+        a.setStorageParam3(0.0); // height divides → rejected
         QCOMPARE(a.storageParam3(), 2.5);
 
         swmm_engine_destroy(e);
@@ -722,6 +873,12 @@ private slots:
 
     // Switching away from a geometric shape and back must not leave the node
     // wedged as "shape says PYRAMIDAL but a curve is attached".
+    /**
+     *
+     * @brief Require Conical-to-Tabular-to-Functional-to-Conical switching to attach/detach
+     * curves and retain geometric dimensions.
+     *
+     */
     void storageShapeSwitchesAreCoherent()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -754,7 +911,7 @@ private slots:
         QCOMPARE(a.storageParam3(), 2.5);
         double av = 0, bv = 0, cv = 0;
         swmm_node_get_storage_functional(e, idx, &av, &bv, &cv);
-        QVERIFY(cv > 0.0);   // π·A·B
+        QVERIFY(cv > 0.0); // π·A·B
 
         swmm_engine_destroy(e);
     }
@@ -762,6 +919,12 @@ private slots:
     // Writing functional coefficients on a node that was geometric must snap it back
     // to FUNCTIONAL — otherwise the solver would read the power-law A/B/C as a cone's
     // quadratic coefficients.
+    /**
+     *
+     * @brief Require writing functional coefficient A on a pyramidal storage to switch its shape
+     * back to Functional.
+     *
+     */
     void storageFunctionalWriteClearsGeometricShape()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -780,6 +943,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require every storage shape/curve/coefficient/dimension meta-property to be present,
+     * writable and labeled.
+     *
+     */
     void storageGeometryPropsWritableViaMetaObject()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -790,9 +959,8 @@ private slots:
         const QStringList writableProps = {
             QStringLiteral("storageShape"),  QStringLiteral("storageCurve"),
             QStringLiteral("storageCoeffA"), QStringLiteral("storageExpB"),
-            QStringLiteral("storageConstC"),
-            QStringLiteral("storageParam1"), QStringLiteral("storageParam2"),
-            QStringLiteral("storageParam3"),
+            QStringLiteral("storageConstC"), QStringLiteral("storageParam1"),
+            QStringLiteral("storageParam2"), QStringLiteral("storageParam3"),
         };
         for (const QString &name : writableProps) {
             const int idx = mo->indexOfProperty(name.toUtf8().constData());

@@ -1,9 +1,13 @@
-/*!
- * \file   comparisonplotmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      comparisonplotmodel.cpp
+ * @brief     Holds three things: - A list of `RunSource` records (one per loaded run / observed
+ *            dataset).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/comparisonplotmodel.h"
 
 #include <QFileInfo>
@@ -13,12 +17,10 @@
 #include <cmath>
 #include <limits>
 
-namespace openswmmvis::plot {
-
-ComparisonPlotModel::ComparisonPlotModel(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::plot
 {
-}
+
+ComparisonPlotModel::ComparisonPlotModel(QObject *parent) : QObject(parent) {}
 
 ComparisonPlotModel::~ComparisonPlotModel() = default;
 
@@ -76,7 +78,7 @@ void ComparisonPlotModel::removeRunSource(int runIndex)
         emit pairsChanged();
 }
 
-int ComparisonPlotModel::findRunByLayer(const IRunLayer* layer) const
+int ComparisonPlotModel::findRunByLayer(const IRunLayer *layer) const
 {
     if (!layer)
         return -1;
@@ -102,8 +104,7 @@ int ComparisonPlotModel::addSeries(SeriesSpec spec)
     // Auto-style cycle: if the spec carries the default style, assign one
     // from the run's cycle position.
     if (spec.style.color == SeriesStyle{}.color && spec.runIndex >= 0 &&
-        spec.runIndex < m_runs.size())
-    {
+        spec.runIndex < m_runs.size()) {
         RunSource &run = m_runs[spec.runIndex];
         spec.style = defaultStyleForCycle(run.cycleSeed++);
     }
@@ -118,8 +119,9 @@ int ComparisonPlotModel::addSeries(SeriesSpec spec)
 
 int ComparisonPlotModel::addSeriesBatch(QVector<SeriesSpec> specs)
 {
-    if (specs.isEmpty()) return 0;
-    for (auto& spec : specs) {
+    if (specs.isEmpty())
+        return 0;
+    for (auto &spec : specs) {
         if (spec.style.color == SeriesStyle{}.color && spec.runIndex >= 0 &&
             spec.runIndex < m_runs.size())
             spec.style = defaultStyleForCycle(m_runs[spec.runIndex].cycleSeed++);
@@ -131,13 +133,13 @@ int ComparisonPlotModel::addSeriesBatch(QVector<SeriesSpec> specs)
     return specs.size();
 }
 
-QVector<SeriesData> ComparisonPlotModel::resolveAllSeries(const QVector<int>& firstPeriods) const
+QVector<SeriesData> ComparisonPlotModel::resolveAllSeries(const QVector<int> &firstPeriods) const
 {
     QVector<SeriesData> out(m_specs.size());
     QVector<QVector<SeriesRequest>> requests(m_runs.size());
     QVector<QVector<int>> indices(m_runs.size());
     for (int i = 0; i < m_specs.size(); ++i) {
-        const auto& s = m_specs[i];
+        const auto &s = m_specs[i];
         if (!s.isValid() || s.runIndex >= m_runs.size() || !m_runs[s.runIndex].layer) {
             out[i].firstPeriod = firstPeriods.value(i, 0);
             resolveSeries(i, out[i]);
@@ -147,11 +149,13 @@ QVector<SeriesData> ComparisonPlotModel::resolveAllSeries(const QVector<int>& fi
         indices[s.runIndex].append(i);
     }
     for (int r = 0; r < m_runs.size(); ++r) {
-        if (requests[r].isEmpty()) continue;
+        if (requests[r].isEmpty())
+            continue;
         QVector<SeriesData> data;
         m_runs[r].layer->getSeriesBatch(requests[r], data);
         for (int k = 0; k < indices[r].size(); ++k)
-            if (k < data.size()) out[indices[r][k]] = std::move(data[k]);
+            if (k < data.size())
+                out[indices[r][k]] = std::move(data[k]);
     }
     return out;
 }
@@ -175,17 +179,14 @@ void ComparisonPlotModel::removeSeries(int seriesIndex)
 
 int ComparisonPlotModel::addPair(ComparisonPair pair)
 {
-    const auto validIdx = [this](int i) {
-        return i >= 0 && i < m_specs.size();
-    };
+    const auto validIdx = [this](int i) { return i >= 0 && i < m_specs.size(); };
     if (!validIdx(pair.xSeriesIndex) || !validIdx(pair.ySeriesIndex))
         return -1;
     if (pair.xSeriesIndex == pair.ySeriesIndex)
         return -1;
     // Same descriptor = same chart row; cross-attribute (or cross-
     // species — TSS vs Lead) scatters would mix units on one axis pair.
-    if (m_specs[pair.xSeriesIndex].descriptor() !=
-        m_specs[pair.ySeriesIndex].descriptor())
+    if (m_specs[pair.xSeriesIndex].descriptor() != m_specs[pair.ySeriesIndex].descriptor())
         return -1;
     if (m_pairs.contains(pair))
         return -1;
@@ -221,13 +222,19 @@ bool ComparisonPlotModel::fixupPairsAfterSeriesRemoval_(int seriesIndex)
             changed = true;
             continue;
         }
-        if (p.xSeriesIndex > seriesIndex) { --p.xSeriesIndex; changed = true; }
-        if (p.ySeriesIndex > seriesIndex) { --p.ySeriesIndex; changed = true; }
+        if (p.xSeriesIndex > seriesIndex) {
+            --p.xSeriesIndex;
+            changed = true;
+        }
+        if (p.ySeriesIndex > seriesIndex) {
+            --p.ySeriesIndex;
+            changed = true;
+        }
     }
     return changed;
 }
 
-void ComparisonPlotModel::updateStyle(int seriesIndex, const SeriesStyle& style)
+void ComparisonPlotModel::updateStyle(int seriesIndex, const SeriesStyle &style)
 {
     if (seriesIndex < 0 || seriesIndex >= m_specs.size())
         return;
@@ -235,7 +242,7 @@ void ComparisonPlotModel::updateStyle(int seriesIndex, const SeriesStyle& style)
     emit styleChanged(seriesIndex);
 }
 
-void ComparisonPlotModel::updateLegendOverride(int seriesIndex, const QString& legendOverride)
+void ComparisonPlotModel::updateLegendOverride(int seriesIndex, const QString &legendOverride)
 {
     if (seriesIndex < 0 || seriesIndex >= m_specs.size())
         return;
@@ -280,14 +287,14 @@ void ComparisonPlotModel::deriveRows_()
         } else {
             AttributeRow row;
             row.attribute = spec.attribute;
-            row.species   = spec.species;
-            row.variableKey   = spec.variableKey;
+            row.species = spec.species;
+            row.variableKey = spec.variableKey;
             row.variableLabel = spec.variableLabel;
             row.variableUnits = spec.variableUnits;
-            row.unitSystem = (spec.runIndex >= 0 && spec.runIndex < m_runs.size() &&
-                              m_runs[spec.runIndex].layer)
-                              ? m_runs[spec.runIndex].layer->unitSystem()
-                              : UnitSystem::US;
+            row.unitSystem =
+                (spec.runIndex >= 0 && spec.runIndex < m_runs.size() && m_runs[spec.runIndex].layer)
+                    ? m_runs[spec.runIndex].layer->unitSystem()
+                    : UnitSystem::US;
             row.unitsLabel = spec.descriptor().unitLabel(row.unitSystem);
             row.ymin = std::numeric_limits<double>::infinity();
             row.ymax = -std::numeric_limits<double>::infinity();
@@ -309,13 +316,13 @@ void ComparisonPlotModel::deriveRows_()
     m_rows = std::move(rows);
 }
 
-void ComparisonPlotModel::resolveSeries(int seriesIndex, SeriesData& out) const
+void ComparisonPlotModel::resolveSeries(int seriesIndex, SeriesData &out) const
 {
     out.ok = false;
     out.errorMessage.clear();
     out.timesJulian.clear();
     out.values.clear();
-    out.periodCount = 0;   // out.firstPeriod is the caller's cursor — keep it
+    out.periodCount = 0; // out.firstPeriod is the caller's cursor — keep it
 
     if (seriesIndex < 0 || seriesIndex >= m_specs.size()) {
         out.errorMessage = QStringLiteral("Series index out of range");

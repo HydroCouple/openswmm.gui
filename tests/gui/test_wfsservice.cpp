@@ -1,9 +1,9 @@
-/*!
- * \file   test_wfsservice.cpp
- * \license GPL-3.0-or-later
- * \brief  Connecting to a Web Feature Service and taking a collection off it.
+/**
+ * @file      test_wfsservice.cpp
+ * @license   GPL-3.0-or-later
+ * @brief     Connecting to a Web Feature Service and taking a collection off it.
  *
- * \details
+ * @details
  * The first tests this program has ever had for one of its OGC services —
  * WMS, WMTS and WCS have none. They talk to an HTTP server running inside
  * the test process on the loopback interface, so nothing here reaches the
@@ -14,6 +14,9 @@
  * national feature register, so the awkward parts are the ones a real
  * server actually has: collections published in a projected national grid
  * by default, and millions of features behind each of them.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/wfslayer.h"
@@ -30,14 +33,16 @@
 #include <QTest>
 #include <QUrlQuery>
 
-namespace {
+namespace
+{
 
 QByteArray fixture(const QString &name)
 {
     const QByteArray dir = qgetenv("SWMMVIS_GUI_TEST_DATA");
     QFile file(QString::fromUtf8(dir) + QStringLiteral("/ogc/") + name);
 
-    if (!file.open(QIODevice::ReadOnly)) return {};
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
 
     return file.readAll();
 }
@@ -79,17 +84,16 @@ private:
     {
         m_buffers[socket].append(socket->readAll());
 
-        if (!m_buffers[socket].contains("\r\n\r\n")) return;
+        if (!m_buffers[socket].contains("\r\n\r\n"))
+            return;
 
         const QByteArray head = m_buffers.take(socket);
-        const QString target =
-            QString::fromUtf8(head.split('\n').value(0).split(' ').value(1));
+        const QString target = QString::fromUtf8(head.split('\n').value(0).split(' ').value(1));
 
         m_lastRequest = target;
 
         const QString request =
-            QUrlQuery(QUrl(target).query()).queryItemValue(
-                QStringLiteral("REQUEST"));
+            QUrlQuery(QUrl(target).query()).queryItemValue(QStringLiteral("REQUEST"));
 
         QByteArray body;
         QByteArray type = "application/xml";
@@ -105,8 +109,7 @@ private:
             // address the capabilities came from. The saved one names the
             // service it was captured from, so this stand-in has to claim
             // the address it is actually listening on.
-            body.replace("https://service.pdok.nl/kadaster/bag/wfs/v2_0",
-                         endpoint().toUtf8());
+            body.replace("https://service.pdok.nl/kadaster/bag/wfs/v2_0", endpoint().toUtf8());
         } else {
             body = "<?xml version=\"1.0\"?><ows:ExceptionReport "
                    "xmlns:ows=\"http://www.opengis.net/ows/1.1\">"
@@ -179,16 +182,12 @@ void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
     AddBasemapDialog dialog;
 
     dialog.setInitialTab(AddBasemapDialog::Wfs);
-    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
-        ->setText(server.endpoint());
-    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
-        ->click();
+    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))->setText(server.endpoint());
+    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))->click();
 
-    auto *list = dialog.findChild<QListWidget *>(
-        QStringLiteral("wfsCollectionList"));
+    auto *list = dialog.findChild<QListWidget *>(QStringLiteral("wfsCollectionList"));
 
-    QVERIFY2(waitFor([&] { return list->count() > 0; }),
-             qPrintable(dialog.wfsStatus()));
+    QVERIFY2(waitFor([&] { return list->count() > 0; }), qPrintable(dialog.wfsStatus()));
 
     // The user said nothing about the version or what it holds; both are
     // answers, not questions.
@@ -200,9 +199,7 @@ void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
 
     // Something readable is already chosen, so Add is available without
     // hunting through the list first.
-    QVERIFY(dialog.findChild<QDialogButtonBox *>()
-                ->button(QDialogButtonBox::Ok)
-                ->isEnabled());
+    QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
 }
 
 void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
@@ -216,20 +213,15 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
 
     // What the map is looking at: one catchment's worth, not a country's.
     dialog.setPreferredExtent(QRectF(QPointF(4.0, 51.0), QPointF(6.0, 53.0)));
-    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
-        ->setText(server.endpoint());
-    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
-        ->click();
+    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))->setText(server.endpoint());
+    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))->click();
 
-    auto *list = dialog.findChild<QListWidget *>(
-        QStringLiteral("wfsCollectionList"));
+    auto *list = dialog.findChild<QListWidget *>(QStringLiteral("wfsCollectionList"));
 
     QVERIFY(waitFor([&] { return list->count() > 0; }));
 
     list->setCurrentRow(0);
-    dialog.findChild<QDialogButtonBox *>()
-        ->button(QDialogButtonBox::Ok)
-        ->click();
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
 
     // Accepted only once the features are in hand, because a request that
     // is well formed can still come back holding nothing.
@@ -238,8 +230,7 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
 
     const QUrlQuery query(QUrl(server.lastRequest()).query());
 
-    QCOMPARE(query.queryItemValue(QStringLiteral("REQUEST")),
-             QStringLiteral("GetFeature"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("REQUEST")), QStringLiteral("GetFeature"));
 
     // A national register asked without a limit answers with every feature
     // it holds, and this one holds millions.
@@ -247,16 +238,13 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
 
     // Latitude first: EPSG:4326 under WFS 2.0.0 is written in the
     // authority's own axis order.
-    QVERIFY2(query.queryItemValue(QStringLiteral("BBOX"))
-                 .startsWith(QStringLiteral("51")),
+    QVERIFY2(query.queryItemValue(QStringLiteral("BBOX")).startsWith(QStringLiteral("51")),
              qPrintable(query.queryItemValue(QStringLiteral("BBOX"))));
 
     // GeoJSON, because this collection offers it and it needs no schema.
-    QVERIFY(query.queryItemValue(QStringLiteral("OUTPUTFORMAT"))
-                .contains(QStringLiteral("json")));
+    QVERIFY(query.queryItemValue(QStringLiteral("OUTPUTFORMAT")).contains(QStringLiteral("json")));
 
-    std::unique_ptr<WFSLayer> layer(
-        qobject_cast<WFSLayer *>(dialog.createLayer(nullptr)));
+    std::unique_ptr<WFSLayer> layer(qobject_cast<WFSLayer *>(dialog.createLayer(nullptr)));
 
     QVERIFY(layer != nullptr);
     QCOMPARE(layer->featureCount(), 2);
@@ -271,30 +259,22 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
 void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
 {
     LocalWfs server;
-    server.answerFeaturesWith(
-        R"({"type":"FeatureCollection","features":[]})");
+    server.answerFeaturesWith(R"({"type":"FeatureCollection","features":[]})");
 
     AddBasemapDialog dialog;
 
     dialog.setInitialTab(AddBasemapDialog::Wfs);
-    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
-        ->setText(server.endpoint());
-    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
-        ->click();
+    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))->setText(server.endpoint());
+    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))->click();
 
-    auto *list = dialog.findChild<QListWidget *>(
-        QStringLiteral("wfsCollectionList"));
+    auto *list = dialog.findChild<QListWidget *>(QStringLiteral("wfsCollectionList"));
 
     QVERIFY(waitFor([&] { return list->count() > 0; }));
 
     list->setCurrentRow(0);
-    dialog.findChild<QDialogButtonBox *>()
-        ->button(QDialogButtonBox::Ok)
-        ->click();
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
 
-    QVERIFY2(waitFor([&] {
-                 return dialog.wfsStatus().contains(QStringLiteral("no features"));
-             }),
+    QVERIFY2(waitFor([&] { return dialog.wfsStatus().contains(QStringLiteral("no features")); }),
              qPrintable(dialog.wfsStatus()));
 
     // Said where the user is looking, rather than after the dialog has
@@ -302,9 +282,7 @@ void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
     // starting again.
     QVERIFY(dialog.result() != QDialog::Accepted);
     QVERIFY(dialog.createLayer(nullptr) == nullptr);
-    QVERIFY(dialog.findChild<QDialogButtonBox *>()
-                ->button(QDialogButtonBox::Ok)
-                ->isEnabled());
+    QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
 }
 
 void TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid()
@@ -315,30 +293,22 @@ void TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid()
     AddBasemapDialog dialog;
 
     dialog.setInitialTab(AddBasemapDialog::Wfs);
-    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
-        ->setText(server.endpoint());
-    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
-        ->click();
+    dialog.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))->setText(server.endpoint());
+    dialog.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))->click();
 
-    QVERIFY(waitFor([&] {
-        return !dialog.wfsStatus().contains(QStringLiteral("Asking"));
-    }));
+    QVERIFY(waitFor([&] { return !dialog.wfsStatus().contains(QStringLiteral("Asking")); }));
 
     // The server said why, and that is more use than this program's guess.
     QVERIFY2(dialog.wfsStatus().contains(QStringLiteral("not supported")),
              qPrintable(dialog.wfsStatus()));
-    QCOMPARE(dialog.findChild<QListWidget *>(
-                 QStringLiteral("wfsCollectionList"))
-                 ->count(),
-             0);
+    QCOMPARE(dialog.findChild<QListWidget *>(QStringLiteral("wfsCollectionList"))->count(), 0);
 
     // And nothing typed that is not an address is fetched at all.
     AddBasemapDialog nowhere;
     nowhere.setInitialTab(AddBasemapDialog::Wfs);
     nowhere.findChild<QLineEdit *>(QStringLiteral("wfsUrlEdit"))
         ->setText(QStringLiteral("this is not a url"));
-    nowhere.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))
-        ->click();
+    nowhere.findChild<QPushButton *>(QStringLiteral("wfsConnectButton"))->click();
 
     QVERIFY(nowhere.wfsStatus().contains(QStringLiteral("not a web address")));
 }
@@ -374,14 +344,13 @@ void TestWfsService::aLayerKeepsItsFeaturesReadableForItsWholeLife()
     // And a service that refuses does so in the body, under an HTTP 200 as
     // often as not — so the answer is read as a document before being
     // called unreadable, and what it says reaches the user.
-    QVERIFY(!first.adoptResponse(
-        "<?xml version=\"1.0\"?><ows:ExceptionReport "
-        "xmlns:ows=\"http://www.opengis.net/ows/1.1\"><ows:Exception>"
-        "<ows:ExceptionText>Unknown typeName bag:nonesuch</ows:ExceptionText>"
-        "</ows:Exception></ows:ExceptionReport>",
-        message));
-    QVERIFY2(message.contains(QStringLiteral("bag:nonesuch")),
-             qPrintable(message));
+    QVERIFY(
+        !first.adoptResponse("<?xml version=\"1.0\"?><ows:ExceptionReport "
+                             "xmlns:ows=\"http://www.opengis.net/ows/1.1\"><ows:Exception>"
+                             "<ows:ExceptionText>Unknown typeName bag:nonesuch</ows:ExceptionText>"
+                             "</ows:Exception></ows:ExceptionReport>",
+                             message));
+    QVERIFY2(message.contains(QStringLiteral("bag:nonesuch")), qPrintable(message));
 }
 
 QTEST_MAIN(TestWfsService)

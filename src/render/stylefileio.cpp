@@ -1,9 +1,12 @@
-/*!
- * \file   stylefileio.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      stylefileio.cpp
+ * @brief     minimal QGIS .qml import for the common renderer cases.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/stylefileio.h"
 
 #include "layers/gisrasterlayer.h"
@@ -33,38 +36,56 @@
 
 #include <memory>
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 
-namespace {
+namespace
+{
 
 constexpr const char *kSchema = "swmmvis-style/v1";
 
 /*! Construct a renderer from a JSON object whose "id" field is the
  *  discriminator.  Mirrors `projectserializer::makeRendererFromJson`
- *  but lives here so style-file IO doesn't pull project-level deps. */
+ *  but lives here so style-file IO doesn't pull project-level deps.
+ * @param j Object with an exact single, graduated, categorized or rule id.
+ * @return Sole ownership after loading, or nullptr for missing/unsupported IDs;
+ * allocation/loader exceptions propagate. No source JSON reference is retained. */
 std::unique_ptr<IFeatureRenderer> makeRenderer(const QJsonObject &j)
 {
     const QString id = j.value(QStringLiteral("id")).toString();
     std::unique_ptr<IFeatureRenderer> r;
-    if      (id == QLatin1String("single"))      r = std::make_unique<SingleSymbolRenderer>();
-    else if (id == QLatin1String("graduated"))   r = std::make_unique<GraduatedRenderer>();
-    else if (id == QLatin1String("categorized")) r = std::make_unique<CategorizedRenderer>();
-    else if (id == QLatin1String("rule"))        r = std::make_unique<RuleBasedRenderer>();
-    if (r) r->fromJson(j);
+    if (id == QLatin1String("single"))
+        r = std::make_unique<SingleSymbolRenderer>();
+    else if (id == QLatin1String("graduated"))
+        r = std::make_unique<GraduatedRenderer>();
+    else if (id == QLatin1String("categorized"))
+        r = std::make_unique<CategorizedRenderer>();
+    else if (id == QLatin1String("rule"))
+        r = std::make_unique<RuleBasedRenderer>();
+    if (r)
+        r->fromJson(j);
     return r;
 }
 
+/** @brief Describe supported concrete layer types for style metadata.
+ * @param layer Optional borrowed layer inspected by Qt runtime type.
+ * @return SWMMModelLayer, SWMMResultsLayer, GISVectorLayer, GISRasterLayer,
+ * or generic Layer for null/other types. No mutation or ownership transfer occurs. */
 QString layerTypeTag(const OpenSWMMVisLayer *layer)
 {
-    if (qobject_cast<const SWMMModelLayer  *>(layer))  return QStringLiteral("SWMMModelLayer");
-    if (qobject_cast<const SWMMResultsLayer *>(layer)) return QStringLiteral("SWMMResultsLayer");
-    if (qobject_cast<const GISVectorLayer  *>(layer))  return QStringLiteral("GISVectorLayer");
-    if (qobject_cast<const GISRasterLayer  *>(layer))  return QStringLiteral("GISRasterLayer");
+    if (qobject_cast<const SWMMModelLayer *>(layer))
+        return QStringLiteral("SWMMModelLayer");
+    if (qobject_cast<const SWMMResultsLayer *>(layer))
+        return QStringLiteral("SWMMResultsLayer");
+    if (qobject_cast<const GISVectorLayer *>(layer))
+        return QStringLiteral("GISVectorLayer");
+    if (qobject_cast<const GISRasterLayer *>(layer))
+        return QStringLiteral("GISRasterLayer");
     return QStringLiteral("Layer");
 }
 
-constexpr const char *kRenderBand     = "renderBand";
-constexpr const char *kHillshade      = "hillshade";
+constexpr const char *kRenderBand = "renderBand";
+constexpr const char *kHillshade = "hillshade";
 constexpr const char *kRasterRenderer = "rasterRenderer";
 
 } // namespace
@@ -80,10 +101,10 @@ QJsonObject StyleFileIO::rasterStyleToJson(const GISRasterLayer *layer)
         return style;
     style[QLatin1String(kRenderBand)] = layer->renderBand();
     QJsonObject hs;
-    hs[QStringLiteral("enabled")]  = layer->hillshadeEnabled();
-    hs[QStringLiteral("azimuth")]  = layer->hillshadeAzimuthDeg();
+    hs[QStringLiteral("enabled")] = layer->hillshadeEnabled();
+    hs[QStringLiteral("azimuth")] = layer->hillshadeAzimuthDeg();
     hs[QStringLiteral("altitude")] = layer->hillshadeAltitudeDeg();
-    hs[QStringLiteral("zFactor")]  = layer->hillshadeZFactor();
+    hs[QStringLiteral("zFactor")] = layer->hillshadeZFactor();
     hs[QStringLiteral("strength")] = layer->hillshadeStrength();
     style[QLatin1String(kHillshade)] = hs;
     if (const auto *r = layer->rasterRenderer())
@@ -125,17 +146,17 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
     if (!layer)
         return root;
 
-    root[QStringLiteral("schema")]    = QString::fromLatin1(kSchema);
+    root[QStringLiteral("schema")] = QString::fromLatin1(kSchema);
     root[QStringLiteral("layerType")] = layerTypeTag(layer);
-    if(const auto *host=dynamic_cast<const ISublayerHost *>(layer))
-        root[QStringLiteral("sublayers")]=ISublayerHost::saveSublayersToJson(*host).value(QStringLiteral("sublayers"));
+    if (const auto *host = dynamic_cast<const ISublayerHost *>(layer))
+        root[QStringLiteral("sublayers")] =
+            ISublayerHost::saveSublayersToJson(*host).value(QStringLiteral("sublayers"));
 
     if (const auto *r = layer->renderer())
         root[QStringLiteral("renderer")] = r->toJson();
 
     // SWMM model layer: per-kind renderers + label config.
-    if (auto *m = qobject_cast<const SWMMModelLayer *>(
-            const_cast<OpenSWMMVisLayer *>(layer))) {
+    if (auto *m = qobject_cast<const SWMMModelLayer *>(const_cast<OpenSWMMVisLayer *>(layer))) {
         QJsonObject kindObj;
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(i);
@@ -149,8 +170,7 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
         root[QStringLiteral("labelConfig")] = m->labelConfig().toJson();
     }
     // SWMM results layer: per-kind only.
-    if (auto *rl = qobject_cast<const SWMMResultsLayer *>(
-            const_cast<OpenSWMMVisLayer *>(layer))) {
+    if (auto *rl = qobject_cast<const SWMMResultsLayer *>(const_cast<OpenSWMMVisLayer *>(layer))) {
         QJsonObject kindObj;
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(i);
@@ -162,8 +182,7 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
         root[QStringLiteral("labelConfig")] = rl->labelConfig().toJson();
     }
     // GIS vector layer: label config (lives inside the symbol bag).
-    if (auto *vec = qobject_cast<const GISVectorLayer *>(
-            const_cast<OpenSWMMVisLayer *>(layer))) {
+    if (auto *vec = qobject_cast<const GISVectorLayer *>(const_cast<OpenSWMMVisLayer *>(layer))) {
         root[QStringLiteral("labelConfig")] = vec->labelConfig().toJson();
         // Symbol bag (markers, line, polygon, labels legacy fields).
         root[QStringLiteral("vectorSymbol")] = vec->symbol().toJson();
@@ -177,8 +196,7 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
     return root;
 }
 
-StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
-                                              const QString &path)
+StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer, const QString &path)
 {
     Result res;
     if (!layer) {
@@ -190,14 +208,12 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
 
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        res.errorMessage = QObject::tr("Cannot open %1 for writing: %2")
-                                .arg(path, f.errorString());
+        res.errorMessage = QObject::tr("Cannot open %1 for writing: %2").arg(path, f.errorString());
         return res;
     }
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!f.commit()) {
-        res.errorMessage = QObject::tr("Cannot commit %1: %2")
-                                .arg(path, f.errorString());
+        res.errorMessage = QObject::tr("Cannot commit %1: %2").arg(path, f.errorString());
         return res;
     }
     res.ok = true;
@@ -208,8 +224,7 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
 // Import — top-level dispatcher
 // ---------------------------------------------------------------------------
 
-StyleFileIO::Result StyleFileIO::importStyle(OpenSWMMVisLayer *layer,
-                                              const QString &path)
+StyleFileIO::Result StyleFileIO::importStyle(OpenSWMMVisLayer *layer, const QString &path)
 {
     Result res;
     if (!layer) {
@@ -227,8 +242,7 @@ StyleFileIO::Result StyleFileIO::importStyle(OpenSWMMVisLayer *layer,
 // Native JSON
 // ---------------------------------------------------------------------------
 
-StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
-                                               const QString &path)
+StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer, const QString &path)
 {
     Result res;
     QFile f(path);
@@ -246,16 +260,15 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
     const QString schema = root.value(QStringLiteral("schema")).toString();
     if (!schema.startsWith(QLatin1String("swmmvis-style")))
         res.warnings << QObject::tr(
-            "Schema marker missing or unrecognised (got '%1') — proceeding anyway.")
-            .arg(schema);
+                            "Schema marker missing or unrecognised (got '%1') — proceeding anyway.")
+                            .arg(schema);
 
     Result applied = applyStyleJson(layer, root);
     applied.warnings = res.warnings + applied.warnings;
     return applied;
 }
 
-StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
-                                                 const QJsonObject &root)
+StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer, const QJsonObject &root)
 {
     Result res;
     if (!layer) {
@@ -265,9 +278,9 @@ StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
 
     // Restore dynamic entries before looking up their styles by stable ID.
     // Older style files without this block retain the current sublayers.
-    if(root.contains(QStringLiteral("sublayers")))
-        if(auto *host=dynamic_cast<ISublayerHost *>(layer))
-            ISublayerHost::loadSublayersFromJson(*host,root);
+    if (root.contains(QStringLiteral("sublayers")))
+        if (auto *host = dynamic_cast<ISublayerHost *>(layer))
+            ISublayerHost::loadSublayersFromJson(*host, root);
 
     // Layer-level renderer.
     if (root.contains(QStringLiteral("renderer"))) {
@@ -281,7 +294,8 @@ StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(i);
             const QString key = SWMMModelLayer::kindKey(c);
-            if (!kindObj.contains(key)) continue;
+            if (!kindObj.contains(key))
+                continue;
             if (auto r = makeRenderer(kindObj.value(key).toObject()))
                 m->setKindRenderer(c, std::move(r));
         }
@@ -296,7 +310,8 @@ StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(i);
             const QString key = SWMMModelLayer::kindKey(c);
-            if (!kindObj.contains(key)) continue;
+            if (!kindObj.contains(key))
+                continue;
             if (auto r = makeRenderer(kindObj.value(key).toObject()))
                 rl->setKindRenderer(c, std::move(r));
         }
@@ -339,26 +354,39 @@ StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
 // else (data-defined SVG markers, multi-layer symbols, scale-dep
 // vis, expression filters) is ignored with a warning.
 
-namespace {
+namespace
+{
 
+/** @brief Parse QGIS comma-separated byte-channel text without explicit range checks.
+ * @param s At least three integer fields R,G,B, with optional A defaulting to 255.
+ * Additional fields are ignored; whitespace acceptance follows QString::toInt().
+ * @return QColor from the converted channels, or invalid for too few fields or
+ * failed integer conversion. Channel range handling is delegated to QColor. */
 QColor parseQgisColor(const QString &s)
 {
     // QGIS colors come in "R,G,B,A" form (each 0..255).
     const auto parts = s.split(QLatin1Char(','));
-    if (parts.size() < 3) return {};
-    bool ok1=false, ok2=false, ok3=false, ok4=false;
+    if (parts.size() < 3)
+        return {};
+    bool ok1 = false, ok2 = false, ok3 = false, ok4 = false;
     const int r = parts[0].toInt(&ok1);
     const int g = parts[1].toInt(&ok2);
     const int b = parts[2].toInt(&ok3);
     const int a = parts.size() >= 4 ? parts[3].toInt(&ok4) : 255;
-    if (!ok1 || !ok2 || !ok3 || (parts.size() >= 4 && !ok4)) return {};
+    if (!ok1 || !ok2 || !ok3 || (parts.size() >= 4 && !ok4))
+        return {};
     return QColor(r, g, b, a);
 }
 
-/*! Walk a single <symbol>'s <prop> children and pull out the colour
+/*! Walk a single symbol element's prop children and pull out the colour
  *  + width into a flat key/value dict.  We only need the leaf props
  *  the renderer-v2 spec writes for SimpleMarker / SimpleLine /
- *  SimpleFill symbol layers. */
+ *  SimpleFill symbol layers.
+ * @param[in,out] x XML reader positioned on a symbol start element. Advances
+ * through its closing element or parser end/error; descendant prop/Option
+ * elements are accepted when both k and v attributes are nonempty.
+ * @return Owned flat key/value map, with later duplicate keys replacing earlier
+ * ones. Partial collected values remain on XML error; the caller checks reader status. */
 QHash<QString, QString> readSymbolProps(QXmlStreamReader &x)
 {
     QHash<QString, QString> props;
@@ -367,8 +395,7 @@ QHash<QString, QString> readSymbolProps(QXmlStreamReader &x)
         const auto t = x.readNext();
         if (t == QXmlStreamReader::StartElement) {
             ++depth;
-            if (x.name() == QLatin1String("prop")
-                || x.name() == QLatin1String("Option")) {
+            if (x.name() == QLatin1String("prop") || x.name() == QLatin1String("Option")) {
                 const auto attrs = x.attributes();
                 const QString k = attrs.value(QStringLiteral("k")).toString();
                 const QString v = attrs.value(QStringLiteral("v")).toString();
@@ -383,13 +410,17 @@ QHash<QString, QString> readSymbolProps(QXmlStreamReader &x)
 }
 
 /*! Make a colour-only SymbolStyle.  QML import populates this and
- *  hands it to the matching renderer slot. */
+ *  hands it to the matching renderer slot.
+ * @param props Parsed QML properties; only color, line_width and size are consumed.
+ * @return Owned default-SimpleMarker pass. Valid color sets both color/fillColor;
+ * nonempty width/size remain string variants without numeric conversion or QGIS
+ * unit conversion. Missing values stay absent and other QML details are ignored. */
 SymbolStyle makeFromQmlProps(const QHash<QString, QString> &props)
 {
     SymbolStyle s;
     SymbolLayer layer;
     const QString colorStr = props.value(QStringLiteral("color"));
-    const QColor  col      = parseQgisColor(colorStr);
+    const QColor col = parseQgisColor(colorStr);
     if (col.isValid()) {
         // X1 — in-memory colour props are QColor variants (the spec readers
         // use value<QColor>()); write both grammar keys so marker/fill
@@ -400,7 +431,7 @@ SymbolStyle makeFromQmlProps(const QHash<QString, QString> &props)
     const QString widthStr = props.value(QStringLiteral("line_width"));
     if (!widthStr.isEmpty())
         layer.props.insert(QStringLiteral("width"), widthStr);
-    const QString sizeStr  = props.value(QStringLiteral("size"));
+    const QString sizeStr = props.value(QStringLiteral("size"));
     if (!sizeStr.isEmpty())
         layer.props.insert(QStringLiteral("size"), sizeStr);
     s.layers.append(layer);
@@ -409,8 +440,7 @@ SymbolStyle makeFromQmlProps(const QHash<QString, QString> &props)
 
 } // namespace
 
-StyleFileIO::Result StyleFileIO::importQml(OpenSWMMVisLayer *layer,
-                                            const QString &path)
+StyleFileIO::Result StyleFileIO::importQml(OpenSWMMVisLayer *layer, const QString &path)
 {
     Result res;
     QFile f(path);
@@ -431,25 +461,24 @@ StyleFileIO::Result StyleFileIO::importQml(OpenSWMMVisLayer *layer,
             const QString name = x.name().toString();
             if (name == QLatin1String("renderer-v2")) {
                 insideRenderer = true;
-                rendererType   = x.attributes().value(QStringLiteral("type")).toString();
-                classifyAttr   = x.attributes().value(QStringLiteral("attr")).toString();
-            }
-            else if (insideRenderer && name == QLatin1String("category")) {
+                rendererType = x.attributes().value(QStringLiteral("type")).toString();
+                classifyAttr = x.attributes().value(QStringLiteral("attr")).toString();
+            } else if (insideRenderer && name == QLatin1String("category")) {
                 CategorizedRenderer::Category c;
                 c.value = x.attributes().value(QStringLiteral("value")).toString();
                 c.label = x.attributes().value(QStringLiteral("label")).toString();
-                if (c.label.isEmpty()) c.label = c.value;
+                if (c.label.isEmpty())
+                    c.label = c.value;
                 const QString sym = x.attributes().value(QStringLiteral("symbol")).toString();
                 // Stash symbol-ref id; resolved below when we read the
                 // <symbols> section.  For minimal v1 we just create a
                 // colour-only symbol from the category fallback (gray);
                 // proper resolution requires keeping the symbol map.
-                c.symbol = makeFromQmlProps({{ QStringLiteral("color"),
-                                               QStringLiteral("128,128,128,255") }});
+                c.symbol = makeFromQmlProps(
+                    {{QStringLiteral("color"), QStringLiteral("128,128,128,255")}});
                 Q_UNUSED(sym);
                 categories.append(c);
-            }
-            else if (insideRenderer && name == QLatin1String("symbol")) {
+            } else if (insideRenderer && name == QLatin1String("symbol")) {
                 // First or unnamed symbol becomes the single fallback.
                 const auto props = readSymbolProps(x);
                 if (singleSymbol.layers.isEmpty())
@@ -471,18 +500,16 @@ StyleFileIO::Result StyleFileIO::importQml(OpenSWMMVisLayer *layer,
         if (!singleSymbol.layers.isEmpty())
             r->setSymbol(singleSymbol);
         layer->setRenderer(std::move(r));
-    }
-    else if (rendererType == QLatin1String("categorizedSymbol")) {
+    } else if (rendererType == QLatin1String("categorizedSymbol")) {
         auto r = std::make_unique<CategorizedRenderer>();
         r->setClassifyAttribute(classifyAttr);
         r->setCategories(categories);
         r->setFallbackSymbol(singleSymbol);
         layer->setRenderer(std::move(r));
-    }
-    else {
-        res.warnings << QObject::tr(
-            "Renderer type '%1' from QML isn't yet supported — kept the "
-            "layer's existing style.").arg(rendererType);
+    } else {
+        res.warnings << QObject::tr("Renderer type '%1' from QML isn't yet supported — kept the "
+                                    "layer's existing style.")
+                            .arg(rendererType);
     }
 
     res.ok = true;

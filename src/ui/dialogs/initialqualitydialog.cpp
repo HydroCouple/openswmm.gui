@@ -1,7 +1,11 @@
-/*!
- * \file initialqualitydialog.cpp
- * \brief Implementation of the per-element initial-quality editor (G-A1).
- * \see include/ui/dialogs/initialqualitydialog.h
+/**
+ * @file      initialqualitydialog.cpp
+ * @brief     Implementation of the per-element initial-quality editor (G-A1).
+ * @see include/ui/dialogs/initialqualitydialog.h
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/initialqualitydialog.h"
@@ -12,7 +16,7 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
-#include <openswmm/engine/openswmm_reactions.h>   // U2: MSX species constituents
+#include <openswmm/engine/openswmm_reactions.h> // U2: MSX species constituents
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -37,29 +41,29 @@
 namespace OpenSWMMVis
 {
 
-namespace {
+namespace
+{
 
 bool canEdit(SWMM_Engine engine)
 {
     int state = SWMM_STATE_NONE;
     return engine && swmm_engine_get_state(engine, &state) == SWMM_OK &&
-        (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
+           (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
 }
 
-constexpr int kColScope       = 0;
-constexpr int kColElement     = 1;
+constexpr int kColScope = 0;
+constexpr int kColElement = 1;
 constexpr int kColConstituent = 2;
-constexpr int kColValue       = 3;
+constexpr int kColValue = 3;
 
-const char kWaterAgeName[]    = "__WATER_AGE__";
+const char kWaterAgeName[] = "__WATER_AGE__";
 const char kTemperatureName[] = "__TEMPERATURE__";
 
 /*! YES/NO [OPTIONS] probe — gates the reserved constituent entries. */
 bool optionOn(SWMM_Engine engine, const char *key)
 {
     char buf[16] = {0};
-    if (!engine ||
-        swmm_options_get(engine, key, buf, sizeof(buf)) != SWMM_OK)
+    if (!engine || swmm_options_get(engine, key, buf, sizeof(buf)) != SWMM_OK)
         return false;
     return std::strcmp(buf, "YES") == 0;
 }
@@ -77,8 +81,7 @@ QDoubleSpinBox *makeValueSpin(QWidget *parent)
 
 } // namespace
 
-InitialQualityDialog::InitialQualityDialog(SWMM_Engine engine,
-                                           QWidget *parent)
+InitialQualityDialog::InitialQualityDialog(SWMM_Engine engine, QWidget *parent)
     : QDialog(parent), m_engine(engine)
 {
     setWindowTitle(tr("Initial Quality"));
@@ -87,7 +90,8 @@ InitialQualityDialog::InitialQualityDialog(SWMM_Engine engine,
     m_editable = canEdit(m_engine);
     buildUi();
     readFromEngine();
-    if (!m_editable) setReadOnly();
+    if (!m_editable)
+        setReadOnly();
 }
 
 void InitialQualityDialog::invalidateEngine()
@@ -102,13 +106,12 @@ void InitialQualityDialog::buildUi()
 {
     auto *vlay = new QVBoxLayout(this);
 
-    m_hintLabel = new QLabel(
-        tr("Initial concentrations for individual nodes and links, applied "
-           "at the start of the run over the global initial concentration "
-           "from the pollutant editor. Water age is in <b>hours</b> "
-           "(negative extracts age), temperature in <b>°C</b>. A value on "
-           "a dry element takes effect when the element wets."),
-        this);
+    m_hintLabel = new QLabel(tr("Initial concentrations for individual nodes and links, applied "
+                                "at the start of the run over the global initial concentration "
+                                "from the pollutant editor. Water age is in <b>hours</b> "
+                                "(negative extracts age), temperature in <b>°C</b>. A value on "
+                                "a dry element takes effect when the element wets."),
+                             this);
     m_hintLabel->setObjectName(QStringLiteral("iq_hint"));
     m_hintLabel->setWordWrap(true);
     vlay->addWidget(m_hintLabel);
@@ -117,7 +120,7 @@ void InitialQualityDialog::buildUi()
     m_table->setObjectName(QStringLiteral("iq_table"));
     m_table->setAccessibleName(tr("Initial quality for nodes and links"));
     m_table->setHorizontalHeaderLabels(
-        { tr("Scope"), tr("Element"), tr("Constituent"), tr("Value") });
+        {tr("Scope"), tr("Element"), tr("Constituent"), tr("Value")});
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(false);
     vlay->addWidget(m_table);
@@ -133,10 +136,9 @@ void InitialQualityDialog::buildUi()
     m_fileEdit->setObjectName(QStringLiteral("iq_fileEdit"));
     fileLabel->setBuddy(m_fileEdit);
     m_fileEdit->setPlaceholderText(tr("none — rows are stored in the model file"));
-    m_fileEdit->setToolTip(
-        tr("[INITIAL_QUALITY] FILE — a CSV of scope,element,constituent,value "
-           "read at every open (relative to the model file). Its rows are "
-           "shown greyed below and are edited in the file itself."));
+    m_fileEdit->setToolTip(tr("[INITIAL_QUALITY] FILE — a CSV of scope,element,constituent,value "
+                              "read at every open (relative to the model file). Its rows are "
+                              "shown greyed below and are edited in the file itself."));
     fileRow->addWidget(m_fileEdit, 1);
     auto *browseBtn = new QPushButton(tr("&Browse…"), this);
     browseBtn->setAutoDefault(false);
@@ -145,19 +147,18 @@ void InitialQualityDialog::buildUi()
     auto *importBtn = new QPushButton(tr("&Import rows…"), this);
     importBtn->setAutoDefault(false);
     importBtn->setObjectName(QStringLiteral("iq_importBtn"));
-    importBtn->setToolTip(
-        tr("Read a CSV's rows into the table as ordinary rows stored in the "
-           "model file (no lasting reference to the CSV)."));
+    importBtn->setToolTip(tr("Read a CSV's rows into the table as ordinary rows stored in the "
+                             "model file (no lasting reference to the CSV)."));
     fileRow->addWidget(importBtn);
     vlay->addLayout(fileRow);
     connect(browseBtn, &QPushButton::clicked, this, [this]() {
-        const QString f = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("initial-quality"),
-            this, tr("Initial quality CSV"), m_fileEdit->text(),
+        const QString f = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+            QStringLiteral("initial-quality"), this, tr("Initial quality CSV"), m_fileEdit->text(),
             tr("CSV files (*.csv *.txt);;All files (*)"));
-        if (!f.isEmpty()) m_fileEdit->setText(f);
+        if (!f.isEmpty())
+            m_fileEdit->setText(f);
     });
-    connect(importBtn, &QPushButton::clicked,
-            this, &InitialQualityDialog::onImportCsv);
+    connect(importBtn, &QPushButton::clicked, this, &InitialQualityDialog::onImportCsv);
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("&Add"), this);
@@ -168,77 +169,71 @@ void InitialQualityDialog::buildUi()
     remBtn->setObjectName(QStringLiteral("iq_removeBtn"));
     m_removeButton = remBtn;
     remBtn->setEnabled(false);
-    connect(m_table, &QTableWidget::currentCellChanged, this,
-            [this](int row, int, int, int) {
-                m_removeButton->setEnabled(m_editable && row >= 0 && !m_fileRows.contains(row));
-            });
+    connect(m_table, &QTableWidget::currentCellChanged, this, [this](int row, int, int, int) {
+        m_removeButton->setEnabled(m_editable && row >= 0 && !m_fileRows.contains(row));
+    });
     btnRow->addWidget(addBtn);
     btnRow->addWidget(remBtn);
     btnRow->addStretch();
     vlay->addLayout(btnRow);
-    connect(addBtn, &QPushButton::clicked,
-            this, &InitialQualityDialog::onAddRow);
-    connect(remBtn, &QPushButton::clicked,
-            this, &InitialQualityDialog::onRemoveRow);
+    connect(addBtn, &QPushButton::clicked, this, &InitialQualityDialog::onAddRow);
+    connect(remBtn, &QPushButton::clicked, this, &InitialQualityDialog::onRemoveRow);
 
-    auto *bb = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     vlay->addWidget(bb);
-    connect(bb, &QDialogButtonBox::accepted,
-            this, &InitialQualityDialog::onAccept);
+    connect(bb, &QDialogButtonBox::accepted, this, &InitialQualityDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
 void InitialQualityDialog::setElementScope(int isLink, const QString &elementName)
 {
-    if (!m_engine || elementName.isEmpty()) return;
+    if (!m_engine || elementName.isEmpty())
+        return;
     const QByteArray nameUtf8 = elementName.toUtf8();
     const int idx = isLink ? swmm_link_index(m_engine, nameUtf8.constData())
                            : swmm_node_index(m_engine, nameUtf8.constData());
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
 
-    m_scopeIsLink  = isLink ? 1 : 0;
+    m_scopeIsLink = isLink ? 1 : 0;
     m_scopeElemIdx = idx;
 
-    setWindowTitle(tr("Initial Quality — %1 %2")
-                       .arg(isLink ? tr("Link") : tr("Node"), elementName));
-    m_hintLabel->setText(
-        tr("Initial concentrations for %1 <b>%2</b>, applied at the start "
-           "of the run over the global initial concentration from the "
-           "pollutant editor. Water age is in <b>hours</b> (negative "
-           "extracts age), temperature in <b>°C</b>. A value on a dry "
-           "element takes effect when the element wets.")
-            .arg(isLink ? tr("link") : tr("node"), elementName));
+    setWindowTitle(
+        tr("Initial Quality — %1 %2").arg(isLink ? tr("Link") : tr("Node"), elementName));
+    m_hintLabel->setText(tr("Initial concentrations for %1 <b>%2</b>, applied at the start "
+                            "of the run over the global initial concentration from the "
+                            "pollutant editor. Water age is in <b>hours</b> (negative "
+                            "extracts age), temperature in <b>°C</b>. A value on a dry "
+                            "element takes effect when the element wets.")
+                             .arg(isLink ? tr("link") : tr("node"), elementName));
     m_table->setColumnHidden(kColScope, true);
     m_table->setColumnHidden(kColElement, true);
 
     readFromEngine();
-    if (!m_editable) setReadOnly();
+    if (!m_editable)
+        setReadOnly();
 }
 
 void InitialQualityDialog::populateElementCombo(int row)
 {
-    auto *scopeCombo = qobject_cast<QComboBox *>(
-        m_table->cellWidget(row, kColScope));
-    auto *elemCombo = qobject_cast<QComboBox *>(
-        m_table->cellWidget(row, kColElement));
-    if (!scopeCombo || !elemCombo || !m_engine) return;
+    auto *scopeCombo = qobject_cast<QComboBox *>(m_table->cellWidget(row, kColScope));
+    auto *elemCombo = qobject_cast<QComboBox *>(m_table->cellWidget(row, kColElement));
+    if (!scopeCombo || !elemCombo || !m_engine)
+        return;
 
     const bool link = scopeCombo->currentData().toInt() == 1;
     elemCombo->clear();
-    const int n = link ? swmm_link_count(m_engine)
-                       : swmm_node_count(m_engine);
+    const int n = link ? swmm_link_count(m_engine) : swmm_node_count(m_engine);
     for (int i = 0; i < n; ++i) {
-        const char *id = link ? swmm_link_id(m_engine, i)
-                              : swmm_node_id(m_engine, i);
-        elemCombo->addItem(id ? QString::fromUtf8(id)
-                              : QStringLiteral("#%1").arg(i), i);
+        const char *id = link ? swmm_link_id(m_engine, i) : swmm_node_id(m_engine, i);
+        elemCombo->addItem(id ? QString::fromUtf8(id) : QStringLiteral("#%1").arg(i), i);
     }
 }
 
 void InitialQualityDialog::onAddRow()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int r = m_table->rowCount();
     m_table->insertRow(r);
 
@@ -254,8 +249,8 @@ void InitialQualityDialog::onAddRow()
     const int np = swmm_pollutant_count(m_engine);
     for (int p = 0; p < np; ++p) {
         const char *id = swmm_pollutant_id(m_engine, p);
-        if (id) consCombo->addItem(QString::fromUtf8(id),
-                                   QString::fromUtf8(id));
+        if (id)
+            consCombo->addItem(QString::fromUtf8(id), QString::fromUtf8(id));
     }
     // U2 (2026-09-07): reactions-component species are constituents here on
     // the same footing as pollutants — [INITIAL_QUALITY] is the canonical
@@ -268,25 +263,23 @@ void InitialQualityDialog::onAddRow()
         char name[128] = {0}, units[32] = {0};
         int isWall = 0;
         double atol = 0.0, rtol = 0.0;
-        if (swmm_reaction_species_get(m_engine, m, name, sizeof(name), &isWall,
-                                      units, sizeof(units), &atol, &rtol) != SWMM_OK)
+        if (swmm_reaction_species_get(m_engine, m, name, sizeof(name), &isWall, units,
+                                      sizeof(units), &atol, &rtol) != SWMM_OK)
             continue;
-        if (!name[0]) continue;
+        if (!name[0])
+            continue;
         const QString nm = QString::fromUtf8(name);
-        if (consCombo->findData(nm) >= 0) continue;
-        consCombo->addItem(units[0] ? tr("%1 (%2)").arg(nm, QString::fromUtf8(units))
-                                    : nm,
-                           nm);
+        if (consCombo->findData(nm) >= 0)
+            continue;
+        consCombo->addItem(units[0] ? tr("%1 (%2)").arg(nm, QString::fromUtf8(units)) : nm, nm);
     }
     // Reserved species, offered only while their option is on — a row for
     // an off species would be stored-but-inert (the engine warns), so the
     // editor does not invite it.
     if (optionOn(m_engine, "WATER_AGE"))
-        consCombo->addItem(tr("Water age (hours)"),
-                           QString::fromUtf8(kWaterAgeName));
+        consCombo->addItem(tr("Water age (hours)"), QString::fromUtf8(kWaterAgeName));
     if (optionOn(m_engine, "HEAT_TRANSPORT"))
-        consCombo->addItem(tr("Temperature (°C)"),
-                           QString::fromUtf8(kTemperatureName));
+        consCombo->addItem(tr("Temperature (°C)"), QString::fromUtf8(kTemperatureName));
     m_table->setCellWidget(r, kColConstituent, consCombo);
 
     auto *spin = makeValueSpin(m_table);
@@ -297,18 +290,17 @@ void InitialQualityDialog::onAddRow()
     // are signed).
     // Persistent indexes follow surviving rows when an earlier row is removed.
     const QPersistentModelIndex scopeIndex(m_table->model()->index(r, kColScope));
-    connect(scopeCombo, &QComboBox::currentIndexChanged, this,
-            [this, scopeIndex]() {
-                if (scopeIndex.isValid()) populateElementCombo(scopeIndex.row());
-            });
+    connect(scopeCombo, &QComboBox::currentIndexChanged, this, [this, scopeIndex]() {
+        if (scopeIndex.isValid())
+            populateElementCombo(scopeIndex.row());
+    });
     auto applyFloor = [consCombo, spin]() {
         const QString name = consCombo->currentData().toString();
-        const bool reserved = name == QLatin1String(kWaterAgeName) ||
-                              name == QLatin1String(kTemperatureName);
+        const bool reserved =
+            name == QLatin1String(kWaterAgeName) || name == QLatin1String(kTemperatureName);
         spin->setMinimum(reserved ? -1.0e6 : 0.0);
     };
-    connect(consCombo, &QComboBox::currentIndexChanged, this,
-            [applyFloor]() { applyFloor(); });
+    connect(consCombo, &QComboBox::currentIndexChanged, this, [applyFloor]() { applyFloor(); });
     populateElementCombo(r);
     applyFloor();
 
@@ -316,10 +308,12 @@ void InitialQualityDialog::onAddRow()
     // scoped element so every row the user adds belongs to it.
     if (m_scopeIsLink >= 0) {
         const int si = scopeCombo->findData(m_scopeIsLink);
-        if (si >= 0) scopeCombo->setCurrentIndex(si);
+        if (si >= 0)
+            scopeCombo->setCurrentIndex(si);
         populateElementCombo(r);
         const int ei = elemCombo->findData(m_scopeElemIdx);
-        if (ei >= 0) elemCombo->setCurrentIndex(ei);
+        if (ei >= 0)
+            elemCombo->setCurrentIndex(ei);
         scopeCombo->setEnabled(false);
         elemCombo->setEnabled(false);
     }
@@ -332,9 +326,11 @@ void InitialQualityDialog::updateRowPresentation(int firstRow)
         for (int column = 0; column < m_table->columnCount(); ++column) {
             if (auto *widget = m_table->cellWidget(row, column)) {
                 widget->setAccessibleName(tr("Row %1, %2")
-                    .arg(row + 1).arg(m_table->horizontalHeaderItem(column)->text()));
-                widget->setAccessibleDescription(m_fileRows.contains(row)
-                    ? tr("From the CSV file; edit the value in that file.") : QString());
+                                              .arg(row + 1)
+                                              .arg(m_table->horizontalHeaderItem(column)->text()));
+                widget->setAccessibleDescription(
+                    m_fileRows.contains(row) ? tr("From the CSV file; edit the value in that file.")
+                                             : QString());
             }
         }
     }
@@ -345,7 +341,8 @@ void InitialQualityDialog::updateRowPresentation(int firstRow)
 void InitialQualityDialog::onRemoveRow()
 {
     const int r = m_table->currentRow();
-    if (r < 0 || m_fileRows.contains(r)) return;
+    if (r < 0 || m_fileRows.contains(r))
+        return;
     QSet<int> shiftedFileRows;
     for (int fileRow : m_fileRows)
         shiftedFileRows.insert(fileRow > r ? fileRow - 1 : fileRow);
@@ -356,7 +353,8 @@ void InitialQualityDialog::onRemoveRow()
 
 void InitialQualityDialog::readFromEngine()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     m_table->setRowCount(0);
     m_fileRows.clear();
     {
@@ -369,27 +367,25 @@ void InitialQualityDialog::readFromEngine()
         int is_link = 0, elem = -1;
         char cons[128] = {0};
         double value = 0.0;
-        if (swmm_init_quality_get(m_engine, i, &is_link, &elem,
-                                  cons, sizeof(cons), &value) != SWMM_OK)
+        if (swmm_init_quality_get(m_engine, i, &is_link, &elem, cons, sizeof(cons), &value) !=
+            SWMM_OK)
             continue;
-        if (m_scopeIsLink >= 0 &&
-            (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
-            continue;                        // element-scoped: other elements stay put
-        onAddRow();                          // builds the row's widgets
+        if (m_scopeIsLink >= 0 && (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
+            continue; // element-scoped: other elements stay put
+        onAddRow();   // builds the row's widgets
         const int r = m_table->rowCount() - 1;
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_table->cellWidget(r, kColScope))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColScope))) {
             const int idx = c->findData(is_link ? 1 : 0);
-            if (idx >= 0) c->setCurrentIndex(idx);
+            if (idx >= 0)
+                c->setCurrentIndex(idx);
         }
         populateElementCombo(r);
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_table->cellWidget(r, kColElement))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColElement))) {
             const int idx = c->findData(elem);
-            if (idx >= 0) c->setCurrentIndex(idx);
+            if (idx >= 0)
+                c->setCurrentIndex(idx);
         }
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_table->cellWidget(r, kColConstituent))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColConstituent))) {
             const int idx = c->findData(QString::fromUtf8(cons));
             if (idx >= 0) {
                 c->setCurrentIndex(idx);
@@ -401,8 +397,7 @@ void InitialQualityDialog::readFromEngine()
                 c->setCurrentIndex(c->count() - 1);
             }
         }
-        if (auto *s = qobject_cast<QDoubleSpinBox *>(
-                m_table->cellWidget(r, kColValue)))
+        if (auto *s = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue)))
             OpenSWMM::Ui::setHydratedValue(s, value);
         // U2: a row that came from the FILE sidecar is displayed but not
         // editable here — the CSV is its source, and writeToEngine skips it.
@@ -420,10 +415,11 @@ void InitialQualityDialog::readFromEngine()
 
 void InitialQualityDialog::onImportCsv()
 {
-    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("initial-quality"),
-        this, tr("Import initial quality rows"), QString(),
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("initial-quality"), this, tr("Import initial quality rows"), QString(),
         tr("CSV files (*.csv *.txt);;All files (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty())
+        return;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_hintLabel->setText(tr("Could not read %1.").arg(QFileInfo(path).fileName()));
@@ -433,13 +429,21 @@ void InitialQualityDialog::onImportCsv()
     while (!f.atEnd()) {
         ++lineno;
         const QString line = QString::fromUtf8(f.readLine()).trimmed();
-        if (line.isEmpty() || line.startsWith(QLatin1Char(';'))) continue;
+        if (line.isEmpty() || line.startsWith(QLatin1Char(';')))
+            continue;
         const QStringList tok =
             line.split(QRegularExpression(QStringLiteral("[,;\\s]+")), Qt::SkipEmptyParts);
-        if (tok.size() < 4) { ++skipped; continue; }
+        if (tok.size() < 4) {
+            ++skipped;
+            continue;
+        }
         bool okNum = false;
         const double v = tok[3].toDouble(&okNum);
-        if (!okNum) { if (lineno > 1) ++skipped; continue; }   // header
+        if (!okNum) {
+            if (lineno > 1)
+                ++skipped;
+            continue;
+        } // header
         const QString scope = tok[0].toUpper();
         if (scope != QLatin1String("NODE") && scope != QLatin1String("LINK")) {
             ++skipped;
@@ -450,41 +454,55 @@ void InitialQualityDialog::onImportCsv()
         const int r = m_table->rowCount() - 1;
         if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColScope))) {
             const int i = c->findData(link ? 1 : 0);
-            if (i >= 0) c->setCurrentIndex(i);
+            if (i >= 0)
+                c->setCurrentIndex(i);
         }
         populateElementCombo(r);
         bool resolved = false;
         if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColElement))) {
             const int i = c->findText(tok[1], Qt::MatchFixedString);
-            if (i >= 0) { c->setCurrentIndex(i); resolved = true; }
+            if (i >= 0) {
+                c->setCurrentIndex(i);
+                resolved = true;
+            }
         }
         if (auto *c = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColConstituent))) {
             const int i = c->findData(tok[2]);
-            if (i >= 0) c->setCurrentIndex(i);
-            else { c->addItem(tok[2], tok[2]); c->setCurrentIndex(c->count() - 1); }
+            if (i >= 0)
+                c->setCurrentIndex(i);
+            else {
+                c->addItem(tok[2], tok[2]);
+                c->setCurrentIndex(c->count() - 1);
+            }
         }
         if (auto *s = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue)))
             OpenSWMM::Ui::setHydratedValue(s, v);
-        if (!resolved) { m_table->removeRow(r); ++skipped; continue; }
+        if (!resolved) {
+            m_table->removeRow(r);
+            ++skipped;
+            continue;
+        }
         ++added;
     }
     m_hintLabel->setText(
-        skipped > 0
-            ? tr("Imported %1 row(s) from %2; %3 line(s) skipped (unknown "
-                 "element or malformed).")
-                  .arg(added).arg(QFileInfo(path).fileName()).arg(skipped)
-            : tr("Imported %1 row(s) from %2.")
-                  .arg(added).arg(QFileInfo(path).fileName()));
+        skipped > 0 ? tr("Imported %1 row(s) from %2; %3 line(s) skipped (unknown "
+                         "element or malformed).")
+                          .arg(added)
+                          .arg(QFileInfo(path).fileName())
+                          .arg(skipped)
+                    : tr("Imported %1 row(s) from %2.").arg(added).arg(QFileInfo(path).fileName()));
 }
 
 void InitialQualityDialog::setReadOnly()
 {
     m_hintLabel->setText(m_engine
-        ? tr("Initial quality cannot be edited in the current model state. "
-             "Reset the simulation to edit these values.")
-        : tr("No model is open."));
-    for (auto *widget : m_table->findChildren<QComboBox *>()) widget->setEnabled(false);
-    for (auto *widget : m_table->findChildren<QDoubleSpinBox *>()) widget->setEnabled(false);
+                             ? tr("Initial quality cannot be edited in the current model state. "
+                                  "Reset the simulation to edit these values.")
+                             : tr("No model is open."));
+    for (auto *widget : m_table->findChildren<QComboBox *>())
+        widget->setEnabled(false);
+    for (auto *widget : m_table->findChildren<QDoubleSpinBox *>())
+        widget->setEnabled(false);
     m_fileEdit->setEnabled(false);
     for (const auto *name : {"iq_addBtn", "iq_removeBtn", "iq_fileBrowseBtn", "iq_importBtn"})
         findChild<QPushButton *>(QLatin1String(name))->setEnabled(false);
@@ -506,46 +524,62 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
         return id ? QString::fromUtf8(id) : name;
     };
     struct Key {
-        int is_link; int elem; QString cons;
-        bool operator==(const Key &o) const {
+        int is_link;
+        int elem;
+        QString cons;
+        bool operator==(const Key &o) const
+        {
             return is_link == o.is_link && elem == o.elem && cons == o.cons;
         }
     };
-    struct Row { Key key; double value; int entry; QString label; };
+    struct Row {
+        Key key;
+        double value;
+        int entry;
+        QString label;
+    };
     QVector<Row> engineRows;
     const int count = swmm_init_quality_count(m_engine);
-    if (count < 0) return tr("Could not read the saved initial-quality rows (error %1).").arg(count);
+    if (count < 0)
+        return tr("Could not read the saved initial-quality rows (error %1).").arg(count);
     for (int i = 0; i < count; ++i) {
         int is_link = 0, elem = -1;
         char cons[128] = {0};
         double value = 0.0;
-        const int rc = swmm_init_quality_get(m_engine, i, &is_link, &elem,
-                                             cons, sizeof(cons), &value);
+        const int rc =
+            swmm_init_quality_get(m_engine, i, &is_link, &elem, cons, sizeof(cons), &value);
         if (rc != SWMM_OK)
             return tr("Could not read saved row %1 (error %2).").arg(i + 1).arg(rc);
-        if (m_scopeIsLink >= 0 &&
-            (is_link != m_scopeIsLink || elem != m_scopeElemIdx)) continue;
-        if (swmm_init_quality_is_file(m_engine, i)) continue;
+        if (m_scopeIsLink >= 0 && (is_link != m_scopeIsLink || elem != m_scopeElemIdx))
+            continue;
+        if (swmm_init_quality_is_file(m_engine, i))
+            continue;
         const char *id = is_link ? swmm_link_id(m_engine, elem) : swmm_node_id(m_engine, elem);
-        engineRows.append({{is_link, elem, constituentKey(QString::fromUtf8(cons))}, value, i,
-            tr("%1 %2, %3").arg(is_link ? tr("Link") : tr("Node"),
-                                QString::fromUtf8(id ? id : "?"), QString::fromUtf8(cons))});
+        engineRows.append({{is_link, elem, constituentKey(QString::fromUtf8(cons))},
+                           value,
+                           i,
+                           tr("%1 %2, %3")
+                               .arg(is_link ? tr("Link") : tr("Node"),
+                                    QString::fromUtf8(id ? id : "?"), QString::fromUtf8(cons))});
     }
 
     // Validate that every editable row has a complete selection before any
     // mutation. FILE-backed rows remain owned by their source, not this editor.
     QVector<Row> tableRows;
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        if (m_fileRows.contains(r)) continue;
+        if (m_fileRows.contains(r))
+            continue;
         auto *sc = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColScope));
         auto *ec = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColElement));
         auto *cc = qobject_cast<QComboBox *>(m_table->cellWidget(r, kColConstituent));
         auto *vs = qobject_cast<QDoubleSpinBox *>(m_table->cellWidget(r, kColValue));
-        if (!sc || !ec || !cc || !vs || ec->currentIndex() < 0 ||
-            cc->currentIndex() < 0 || cc->currentData().toString().isEmpty()) {
+        if (!sc || !ec || !cc || !vs || ec->currentIndex() < 0 || cc->currentIndex() < 0 ||
+            cc->currentData().toString().isEmpty()) {
             failedWidget = ec && ec->currentIndex() < 0 ? static_cast<QWidget *>(ec) : cc;
-            m_table->setCurrentCell(r, ec && ec->currentIndex() < 0 ? kColElement : kColConstituent);
-            return tr("Row %1 needs an element and a constituent before it can be saved.").arg(r + 1);
+            m_table->setCurrentCell(r,
+                                    ec && ec->currentIndex() < 0 ? kColElement : kColConstituent);
+            return tr("Row %1 needs an element and a constituent before it can be saved.")
+                .arg(r + 1);
         }
         const Key key{sc->currentData().toInt(), ec->currentData().toInt(),
                       constituentKey(cc->currentData().toString())};
@@ -555,12 +589,15 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
                 m_table->setCurrentCell(r, kColConstituent);
                 return tr("Row %1 duplicates row %2 (%3 %4, %5). Keep one value "
                           "for each element and constituent before saving.")
-                    .arg(r + 1).arg(earlier.entry + 1)
+                    .arg(r + 1)
+                    .arg(earlier.entry + 1)
                     .arg(sc->currentText(), ec->currentText(), cc->currentData().toString());
             }
         }
-        tableRows.append({key, OpenSWMM::Ui::preciseValue(vs), r,
-            tr("%1 %2, %3").arg(sc->currentText(), ec->currentText(), cc->currentData().toString())});
+        tableRows.append(
+            {key, OpenSWMM::Ui::preciseValue(vs), r,
+             tr("%1 %2, %3")
+                 .arg(sc->currentText(), ec->currentText(), cc->currentData().toString())});
     }
 
     char file[1024] = {0};
@@ -574,7 +611,9 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
         rc = swmm_init_quality_file_set(m_engine, newFile.toUtf8().constData());
         if (rc != SWMM_OK) {
             failedWidget = m_fileEdit;
-            return tr("Could not save the CSV file reference '%1' (error %2).").arg(newFile).arg(rc);
+            return tr("Could not save the CSV file reference '%1' (error %2).")
+                .arg(newFile)
+                .arg(rc);
         }
         ++m_lastWriteCount;
     }
@@ -583,13 +622,19 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
     for (int i = engineRows.size() - 1; i >= 0; --i) {
         bool kept = false;
         for (const auto &t : tableRows)
-            if (t.key == engineRows[i].key) { kept = true; break; }
-        if (kept) continue;
+            if (t.key == engineRows[i].key) {
+                kept = true;
+                break;
+            }
+        if (kept)
+            continue;
         rc = swmm_init_quality_remove(m_engine, engineRows[i].entry);
         if (rc != SWMM_OK) {
             failedWidget = m_table;
             return tr("Could not remove saved row %1 (%2; error %3).")
-                .arg(engineRows[i].entry + 1).arg(engineRows[i].label).arg(rc);
+                .arg(engineRows[i].entry + 1)
+                .arg(engineRows[i].label)
+                .arg(rc);
         }
         ++m_lastWriteCount;
     }
@@ -601,7 +646,8 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
                 same = true;
                 break;
             }
-        if (same) continue;
+        if (same)
+            continue;
         rc = swmm_init_quality_set(m_engine, t.key.is_link, t.key.elem,
                                    t.key.cons.toUtf8().constData(), t.value);
         if (rc != SWMM_OK) {
@@ -610,7 +656,10 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
             failedWidget = m_table->cellWidget(t.entry, column);
             return tr("Could not save row %1 (%2): the engine refused its element, constituent "
                       "or value %3 (error %4).")
-                .arg(t.entry + 1).arg(t.label).arg(t.value).arg(rc);
+                .arg(t.entry + 1)
+                .arg(t.label)
+                .arg(t.value)
+                .arg(rc);
         }
         ++m_lastWriteCount;
     }
@@ -619,7 +668,8 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
 
 void InitialQualityDialog::onAccept()
 {
-    if (!m_editable) return;
+    if (!m_editable)
+        return;
     m_lastWriteCount = 0;
     QWidget *failedWidget = nullptr;
     QString error = writeToEngine(failedWidget);
@@ -631,7 +681,8 @@ void InitialQualityDialog::onAccept()
         if (m_wroteAnyChanges)
             error += tr("\n\nEarlier changes have been applied. Cancel will not undo them.");
         QMessageBox::warning(this, tr("Initial Quality"), error);
-        if (failedWidget) failedWidget->setFocus(Qt::OtherFocusReason);
+        if (failedWidget)
+            failedWidget->setFocus(Qt::OtherFocusReason);
         return;
     }
     accept();

@@ -1,12 +1,16 @@
-/*!
- * \file   channelburnselector.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnselector.cpp
+ * @brief     Which conduits get burned, and their geometry — phase P1/P6 bridge of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1, §4.8, §16.4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Which conduits get burned, and their geometry
  * (CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.1, §4.8, §16.4).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/channelburnselector.h"
 
 #include "core/queryparser.h"
@@ -26,9 +30,11 @@ using openswmmvis::evaluateQuery;
 using openswmmvis::parseQuery;
 using openswmmvis::sectionview::XsectSampler;
 
-namespace mesh {
+namespace mesh
+{
 
-namespace {
+namespace
+{
 
 /*! Depth samples for the analytic ladder. Generous: a section is reconstructed
  *  once per burn, not per frame, and the invert is where accuracy is won. */
@@ -46,27 +52,25 @@ SectionGeometry transectSection(SWMM_Engine eng, int transectIdx, QString *reaso
 {
     SectionGeometry g;
     const int n = swmm_transect_get_station_count(eng, transectIdx);
-    if (n < 2)
-    {
-        if (reason) *reason = QStringLiteral("transect %1 has fewer than 2 stations")
-                                  .arg(transectIdx);
+    if (n < 2) {
+        if (reason)
+            *reason = QStringLiteral("transect %1 has fewer than 2 stations").arg(transectIdx);
         return g;
     }
 
     QVector<double> st, el;
     st.reserve(n);
     el.reserve(n);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         double s = 0.0, e = 0.0;
-        if (swmm_transect_get_station(eng, transectIdx, i, &s, &e) != SWMM_OK) continue;
+        if (swmm_transect_get_station(eng, transectIdx, i, &s, &e) != SWMM_OK)
+            continue;
         st.append(s);
         el.append(e);
     }
-    if (st.size() < 2)
-    {
-        if (reason) *reason = QStringLiteral("transect %1 stations are unreadable")
-                                  .arg(transectIdx);
+    if (st.size() < 2) {
+        if (reason)
+            *reason = QStringLiteral("transect %1 stations are unreadable").arg(transectIdx);
         return g;
     }
 
@@ -79,37 +83,43 @@ SectionGeometry transectSection(SWMM_Engine eng, int transectIdx, QString *reaso
 
     // A transect with both bank stations equal has no overbanks; leave them
     // unset rather than clipping the corridor to nothing.
-    if (std::isfinite(xLeft) && std::isfinite(xRight) && xLeft >= xRight)
-    { xLeft = qQNaN(); xRight = qQNaN(); }
+    if (std::isfinite(xLeft) && std::isfinite(xRight) && xLeft >= xRight) {
+        xLeft = qQNaN();
+        xRight = qQNaN();
+    }
 
     return sectionFromTransect(st, el, xLeft, xRight, nL, nC, nR, xf, yf);
 }
 
 } // namespace
 
-SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
-                               const BurnOptions &opt, QString *reason)
+SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si, const BurnOptions &opt,
+                               QString *reason)
 {
     SectionGeometry empty;
-    if (!eng) { if (reason) *reason = QStringLiteral("no engine"); return empty; }
+    if (!eng) {
+        if (reason)
+            *reason = QStringLiteral("no engine");
+        return empty;
+    }
 
     int shape = -1;
     double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
-    if (swmm_link_get_xsect(eng, linkIdx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
-    {
-        if (reason) *reason = QStringLiteral("no cross-section");
+    if (swmm_link_get_xsect(eng, linkIdx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK) {
+        if (reason)
+            *reason = QStringLiteral("no cross-section");
         return empty;
     }
 
     // The open-channel gate. fullProps() is the only reachable spelling of
     // swmm_xsect_is_open() here, and the engine calls a STREET closed — which
     // is what makes D-F's opt-in the right shape.
-    XsectSampler s = openswmmvis::sectionview::samplerForLink(eng, linkIdx, shape,
-                                                              g1, g2, g3, g4, si);
-    if (!s.isValid())
-    {
-        if (reason) *reason = QStringLiteral("cross-section geometry is unresolved "
-                                             "(the engine is still BUILDING)");
+    XsectSampler s =
+        openswmmvis::sectionview::samplerForLink(eng, linkIdx, shape, g1, g2, g3, g4, si);
+    if (!s.isValid()) {
+        if (reason)
+            *reason = QStringLiteral("cross-section geometry is unresolved "
+                                     "(the engine is still BUILDING)");
         return empty;
     }
     const auto props = s.fullProps();
@@ -121,24 +131,20 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
     // test_xsectsampler.cpp pins it precisely because it can change. Leaning on
     // it would make D-F ("streets opt-in, default off") flip silently with the
     // engine — burning every kerb line in the model by default.
-    if (isStreet)
-    {
-        if (!opt.burnStreets)
-        {
+    if (isStreet) {
+        if (!opt.burnStreets) {
             if (reason)
                 *reason = QStringLiteral("street section (enable \"burn streets\" to include)");
             return empty;
         }
-    }
-    else if (!props.open)
-    {
+    } else if (!props.open) {
         if (reason)
             *reason = QStringLiteral("closed section (a culvert is a structure, not terrain)");
         return empty;
     }
-    if (!(props.yFull > 0.0))
-    {
-        if (reason) *reason = QStringLiteral("section has no depth");
+    if (!(props.yFull > 0.0)) {
+        if (reason)
+            *reason = QStringLiteral("section has no depth");
         return empty;
     }
 
@@ -149,9 +155,9 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
 
     const QVector<double> depths = cosineDepthLadder(props.yFull, kSectionSamples);
     const QVector<double> widths = s.widthsAtDepths(depths);
-    if (widths.size() != depths.size())
-    {
-        if (reason) *reason = QStringLiteral("the engine returned no width ladder");
+    if (widths.size() != depths.size()) {
+        if (reason)
+            *reason = QStringLiteral("the engine returned no width ladder");
         return empty;
     }
     const SectionGeometry g = sectionFromWidths(depths, widths);
@@ -160,23 +166,21 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
     return g;
 }
 
-QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng,
-                                      const BurnSelector &sel,
+QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng, const BurnSelector &sel,
                                       const BurnOptions &opt,
-                                      const QHash<QString, QVector<QPointF>> &polylines,
-                                      bool si,
+                                      const QHash<QString, QVector<QPointF>> &polylines, bool si,
                                       const QHash<QString, QVariantMap> &rows,
                                       QStringList *warnings)
 {
     QVector<BurnCandidate> out;
-    if (!eng) return out;
+    if (!eng)
+        return out;
 
     const QSet<QString> explicitIds(sel.conduitIds.cbegin(), sel.conduitIds.cend());
 
     QueryPredicate pred;
     bool haveQuery = false;
-    if (sel.mode == BurnSelector::Mode::ByQuery)
-    {
+    if (sel.mode == BurnSelector::Mode::ByQuery) {
         pred = parseQuery(sel.query);
         haveQuery = true;
         if (sel.query.trimmed().isEmpty() && warnings)
@@ -185,49 +189,58 @@ QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng,
 
     const int n = swmm_link_count(eng);
     out.reserve(n);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         int type = -1;
-        if (swmm_link_get_type(eng, i, &type) != SWMM_OK) continue;
-        if (type != SWMM_LINK_CONDUIT) continue;
+        if (swmm_link_get_type(eng, i, &type) != SWMM_OK)
+            continue;
+        if (type != SWMM_LINK_CONDUIT)
+            continue;
 
         BurnCandidate c;
         c.linkIndex = i;
         c.conduitId = linkId(eng, i);
-        if (c.conduitId.isEmpty()) continue;
+        if (c.conduitId.isEmpty())
+            continue;
 
         // 1) Selection.
-        switch (sel.mode)
-        {
+        switch (sel.mode) {
         case BurnSelector::Mode::AllOpen:
             break;
         case BurnSelector::Mode::ExplicitList:
-            if (!explicitIds.contains(c.conduitId))
-            { c.reason = QStringLiteral("not in the selection"); out.append(c); continue; }
+            if (!explicitIds.contains(c.conduitId)) {
+                c.reason = QStringLiteral("not in the selection");
+                out.append(c);
+                continue;
+            }
             break;
         case BurnSelector::Mode::ByQuery:
-            if (!haveQuery || sel.query.trimmed().isEmpty()
-                || !evaluateQuery(pred, rows.value(c.conduitId)))
-            { c.reason = QStringLiteral("does not match the filter"); out.append(c); continue; }
+            if (!haveQuery || sel.query.trimmed().isEmpty() ||
+                !evaluateQuery(pred, rows.value(c.conduitId))) {
+                c.reason = QStringLiteral("does not match the filter");
+                out.append(c);
+                continue;
+            }
             break;
         }
 
         // 2) Section, and with it the open-channel gate.
         QString why;
         const SectionGeometry section = sectionForLink(eng, i, si, opt, &why);
-        if (section.station.size() < 2)
-        {
+        if (section.station.size() < 2) {
             c.reason = why.isEmpty() ? QStringLiteral("no burnable section") : why;
             out.append(c);
             continue;
         }
         const QString bad = validateSection(section);
-        if (!bad.isEmpty()) { c.reason = bad; out.append(c); continue; }
+        if (!bad.isEmpty()) {
+            c.reason = bad;
+            out.append(c);
+            continue;
+        }
 
         // 3) Centreline, from the GUI's cache. Never guessed at.
         const auto it = polylines.constFind(c.conduitId);
-        if (it == polylines.constEnd() || it.value().size() < 2)
-        {
+        if (it == polylines.constEnd() || it.value().size() < 2) {
             c.reason = QStringLiteral("no centreline geometry");
             out.append(c);
             continue;
@@ -237,9 +250,8 @@ QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng,
         //    ALWAYS stored as a depth above the node invert whatever
         //    LINK_OFFSETS says — so it is never re-derived here.
         int n1 = -1, n2 = -1;
-        if (swmm_link_get_from_node(eng, i, &n1) != SWMM_OK
-            || swmm_link_get_to_node(eng, i, &n2) != SWMM_OK || n1 < 0 || n2 < 0)
-        {
+        if (swmm_link_get_from_node(eng, i, &n1) != SWMM_OK ||
+            swmm_link_get_to_node(eng, i, &n2) != SWMM_OK || n1 < 0 || n2 < 0) {
             c.reason = QStringLiteral("endpoints are unresolved");
             out.append(c);
             continue;
@@ -250,12 +262,12 @@ QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng,
         swmm_link_get_offset_up(eng, i, &o1);
         swmm_link_get_offset_dn(eng, i, &o2);
 
-        c.input.conduitId  = c.conduitId;
+        c.input.conduitId = c.conduitId;
         c.input.centerline = it.value();
-        c.input.zUp        = z1 + o1;
-        c.input.zDn        = z2 + o2;
-        c.input.section    = section;
-        c.accepted         = true;
+        c.input.zUp = z1 + o1;
+        c.input.zDn = z2 + o2;
+        c.input.section = section;
+        c.accepted = true;
         out.append(c);
     }
     return out;

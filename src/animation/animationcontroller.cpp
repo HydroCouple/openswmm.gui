@@ -1,7 +1,11 @@
-/*!
- * \file   animationcontroller.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      animationcontroller.cpp
+ * @brief     AnimationController drives playback of one or more SWMMResultsLayers using a
+ *            primary/secondary model.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "animation/animationcontroller.h"
@@ -18,8 +22,7 @@
 #include <QTimer>
 
 AnimationController::AnimationController(QObject *parent)
-    : QObject(parent)
-    , m_timer(new QTimer(this))
+    : QObject(parent), m_timer(new QTimer(this))
 {
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, &AnimationController::onTimerTick);
@@ -69,24 +72,25 @@ SWMMResultsLayer *AnimationController::primaryLayer() const
 
 void AnimationController::connectPrimary()
 {
-    if (!m_primaryLayer) return;
+    if (!m_primaryLayer)
+        return;
     // Slice §Y.1 — only one wire from the primary into the cascade.
     // onPrimaryPeriodChanged derives the wall-clock time from the layer and
     // emits currentTimeChanged itself, so the second
     // currentDateTimeChanged → onPrimaryTimeChanged bridge is gone. The
     // layer still emits currentDateTimeChanged for direct Q_PROPERTY / UI
     // consumers (DateTime edit widget binding).
-    connect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
-            this, &AnimationController::onPrimaryPeriodChanged);
-    connect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
-            this, &AnimationController::onPrimaryTotalStepsChanged);
+    connect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged, this,
+            &AnimationController::onPrimaryPeriodChanged);
+    connect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged, this,
+            &AnimationController::onPrimaryTotalStepsChanged);
     // Slice Z.13-controller — refresh the timer interval whenever the
     // primary's TemporalSpec changes (Temporal tab edit, project load,
     // programmatic setter). The lambda gates on m_playing so we don't
     // restart a stopped timer; updateTimerInterval is idempotent when
     // the timer is idle.
-    connect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged,
-            this, [this]() { updateTimerInterval(); });
+    connect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged, this,
+            [this]() { updateTimerInterval(); });
     // Reset direction when the primary switches — pingPong state is
     // not preserved across layer swaps.
     m_direction = 1;
@@ -94,16 +98,16 @@ void AnimationController::connectPrimary()
 
 void AnimationController::disconnectPrimary()
 {
-    if (!m_primaryLayer) return;
-    disconnect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
-               this, &AnimationController::onPrimaryPeriodChanged);
-    disconnect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
-               this, &AnimationController::onPrimaryTotalStepsChanged);
+    if (!m_primaryLayer)
+        return;
+    disconnect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged, this,
+               &AnimationController::onPrimaryPeriodChanged);
+    disconnect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged, this,
+               &AnimationController::onPrimaryTotalStepsChanged);
     // Slice Z.13-controller — drop the spec observer; the lambda we
     // installed in connectPrimary captured `this` so disconnect needs
     // the sender + receiver pair to undo it.
-    disconnect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged,
-               this, nullptr);
+    disconnect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged, this, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -133,33 +137,34 @@ void AnimationController::setFallback2DLayer(SWMM2DResultsLayer *layer)
 
 void AnimationController::connectFallback2D()
 {
-    if (!m_fallback2D) return;
-    connect(m_fallback2D, &SWMM2DResultsLayer::currentTimeChanged,
-            this, &AnimationController::onFallback2DPeriodChanged);
-    connect(m_fallback2D, &SWMM2DResultsLayer::currentDateTimeChanged,
-            this, &AnimationController::onFallback2DTimeChanged);
-    connect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged,
-            this, &AnimationController::onFallback2DRangeChanged);
+    if (!m_fallback2D)
+        return;
+    connect(m_fallback2D, &SWMM2DResultsLayer::currentTimeChanged, this,
+            &AnimationController::onFallback2DPeriodChanged);
+    connect(m_fallback2D, &SWMM2DResultsLayer::currentDateTimeChanged, this,
+            &AnimationController::onFallback2DTimeChanged);
+    connect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged, this,
+            &AnimationController::onFallback2DRangeChanged);
     // Slice Z.13-controller-2d-fallback — refresh tick interval when the
     // 2D layer's TemporalSpec changes (mirrors the 1D primary path in
     // connectPrimary). Only meaningful when no 1D primary is set; when
     // a 1D primary takes over, updateTimerInterval ignores this layer's
     // spec.
-    connect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged,
-            this, [this]() { updateTimerInterval(); });
+    connect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged, this,
+            [this]() { updateTimerInterval(); });
 }
 
 void AnimationController::disconnectFallback2D()
 {
-    if (!m_fallback2D) return;
-    disconnect(m_fallback2D, &SWMM2DResultsLayer::currentTimeChanged,
-               this, &AnimationController::onFallback2DPeriodChanged);
-    disconnect(m_fallback2D, &SWMM2DResultsLayer::currentDateTimeChanged,
-               this, &AnimationController::onFallback2DTimeChanged);
-    disconnect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged,
-               this, &AnimationController::onFallback2DRangeChanged);
-    disconnect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged,
-               this, nullptr);
+    if (!m_fallback2D)
+        return;
+    disconnect(m_fallback2D, &SWMM2DResultsLayer::currentTimeChanged, this,
+               &AnimationController::onFallback2DPeriodChanged);
+    disconnect(m_fallback2D, &SWMM2DResultsLayer::currentDateTimeChanged, this,
+               &AnimationController::onFallback2DTimeChanged);
+    disconnect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged, this,
+               &AnimationController::onFallback2DRangeChanged);
+    disconnect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged, this, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,17 +178,19 @@ bool AnimationController::hasDriver() const
 
 int AnimationController::driverTotalSteps() const
 {
-    if (m_primaryLayer) return m_primaryLayer->totalTimeSteps();
-    if (m_fallback2D)   return m_fallback2D->source()
-                                  ? m_fallback2D->source()->timeCount()
-                                  : 0;
+    if (m_primaryLayer)
+        return m_primaryLayer->totalTimeSteps();
+    if (m_fallback2D)
+        return m_fallback2D->source() ? m_fallback2D->source()->timeCount() : 0;
     return 0;
 }
 
 int AnimationController::driverCurrentStep() const
 {
-    if (m_primaryLayer) return m_primaryLayer->currentTimeStep();
-    if (m_fallback2D)   return m_fallback2D->currentTimeIndex();
+    if (m_primaryLayer)
+        return m_primaryLayer->currentTimeStep();
+    if (m_fallback2D)
+        return m_fallback2D->currentTimeIndex();
     return 0;
 }
 
@@ -196,8 +203,7 @@ void AnimationController::driverSetStep(int step)
         // (play, seek, step). Stop auto-following the newest streamed frame so
         // the requested frame stays put; re-arm follow only when the user lands
         // on the latest available frame, so "seek to last" snaps back to live.
-        const int n = m_fallback2D->source() ? m_fallback2D->source()->timeCount()
-                                             : 0;
+        const int n = m_fallback2D->source() ? m_fallback2D->source()->timeCount() : 0;
         m_fallback2D->setFollowLive(n > 0 && step >= n - 1);
         m_fallback2D->setCurrentTimeIndex(step);
     }
@@ -205,9 +211,10 @@ void AnimationController::driverSetStep(int step)
 
 bool AnimationController::driverIsLive() const
 {
-    if (m_primaryLayer) return m_primaryLayer->isLive();
-    if (m_fallback2D)   return m_fallback2D->source()
-                                && m_fallback2D->source()->isLive();
+    if (m_primaryLayer)
+        return m_primaryLayer->isLive();
+    if (m_fallback2D)
+        return m_fallback2D->source() && m_fallback2D->source()->isLive();
     return false;
 }
 
@@ -218,7 +225,8 @@ QDateTime AnimationController::driverStartTime() const
     // span must open at the first frame's time too; anchoring on
     // START_DATE left a dead zone at the left of the global slider
     // whenever REPORT_START != START_DATE (frame 0 normalised to > 0).
-    if (m_primaryLayer) return m_primaryLayer->reportedStartDateTime();
+    if (m_primaryLayer)
+        return m_primaryLayer->reportedStartDateTime();
     if (m_fallback2D && m_fallback2D->source())
         return m_fallback2D->source()->simTimeAt(0);
     return {};
@@ -226,17 +234,20 @@ QDateTime AnimationController::driverStartTime() const
 
 QDateTime AnimationController::driverEndTime() const
 {
-    if (m_primaryLayer) return m_primaryLayer->endDateTime();
+    if (m_primaryLayer)
+        return m_primaryLayer->endDateTime();
     if (m_fallback2D && m_fallback2D->source()) {
         const int n = m_fallback2D->source()->timeCount();
-        if (n > 0) return m_fallback2D->source()->simTimeAt(n - 1);
+        if (n > 0)
+            return m_fallback2D->source()->simTimeAt(n - 1);
     }
     return {};
 }
 
 QDateTime AnimationController::currentDateTime() const
 {
-    if (m_primaryLayer) return m_primaryLayer->currentDateTime();
+    if (m_primaryLayer)
+        return m_primaryLayer->currentDateTime();
     if (m_fallback2D && m_fallback2D->source())
         return m_fallback2D->source()->simTimeAt(m_fallback2D->currentTimeIndex());
     return {};
@@ -244,8 +255,10 @@ QDateTime AnimationController::currentDateTime() const
 
 void AnimationController::setWindowMs(qint64 ms)
 {
-    if (ms < 0) ms = 0;
-    if (ms == m_windowMs) return;
+    if (ms < 0)
+        ms = 0;
+    if (ms == m_windowMs)
+        return;
     m_windowMs = ms;
     emit windowChanged(m_windowMs);
 }
@@ -256,7 +269,8 @@ void AnimationController::setWindowMs(qint64 ms)
 
 void AnimationController::addSecondaryLayer(SWMMResultsLayer *layer)
 {
-    if (!layer || m_secondaryLayers.contains(layer)) return;
+    if (!layer || m_secondaryLayers.contains(layer))
+        return;
     m_secondaryLayers.append(layer);
 }
 
@@ -273,9 +287,11 @@ void AnimationController::clearSecondaryLayers()
 QList<SWMMResultsLayer *> AnimationController::allLayers() const
 {
     QList<SWMMResultsLayer *> result;
-    if (m_primaryLayer) result.append(m_primaryLayer);
+    if (m_primaryLayer)
+        result.append(m_primaryLayer);
     for (auto &ptr : m_secondaryLayers)
-        if (ptr) result.append(ptr);
+        if (ptr)
+            result.append(ptr);
     return result;
 }
 
@@ -309,8 +325,10 @@ void AnimationController::updateTimerInterval()
     // behaviour unchanged.
     int ms = static_cast<int>(kDefaultStepMs / m_speed);
     const OpenSWMM::Render::TemporalSpec *activeSpec = nullptr;
-    if (m_primaryLayer)    activeSpec = &m_primaryLayer->temporalSpec();
-    else if (m_fallback2D) activeSpec = &m_fallback2D->temporalSpec();
+    if (m_primaryLayer)
+        activeSpec = &m_primaryLayer->temporalSpec();
+    else if (m_fallback2D)
+        activeSpec = &m_fallback2D->temporalSpec();
     if (activeSpec && activeSpec->enabled && activeSpec->frameRateFps > 0.0) {
         const double effectiveFps = activeSpec->frameRateFps * m_speed;
         ms = static_cast<int>(1000.0 / qMax(0.1, effectiveFps));
@@ -318,9 +336,8 @@ void AnimationController::updateTimerInterval()
     // When the requested interval falls below the floor, keep the timer at the
     // floor and advance several frames per tick so the effective playback rate
     // still scales with speed (otherwise 8× and 4× both clamp to ~20 Hz).
-    m_stepsPerTick = (ms >= kMinIntervalMs || ms <= 0)
-                         ? 1
-                         : qMax(1, (kMinIntervalMs + ms / 2) / ms);
+    m_stepsPerTick =
+        (ms >= kMinIntervalMs || ms <= 0) ? 1 : qMax(1, (kMinIntervalMs + ms / 2) / ms);
     m_timer->setInterval(qMax(kMinIntervalMs, ms));
 }
 
@@ -378,7 +395,8 @@ void AnimationController::stepForward()
     // honors startTime/endTime.
     int rMin = 0, rMax = 0;
     effectiveStepRange(rMin, rMax);
-    if (rMax < rMin) return;
+    if (rMax < rMin)
+        return;
     driverSetStep(std::min(driverCurrentStep() + 1, rMax));
 }
 
@@ -386,7 +404,8 @@ void AnimationController::stepBackward()
 {
     int rMin = 0, rMax = 0;
     effectiveStepRange(rMin, rMax);
-    if (rMax < rMin) return;
+    if (rMax < rMin)
+        return;
     driverSetStep(std::max(driverCurrentStep() - 1, rMin));
 }
 
@@ -401,7 +420,8 @@ void AnimationController::seekToLast()
 {
     int rMin = 0, rMax = 0;
     effectiveStepRange(rMin, rMax);
-    if (rMax >= rMin) driverSetStep(rMax);
+    if (rMax >= rMin)
+        driverSetStep(rMax);
 }
 
 void AnimationController::seekToPeriod(int period)
@@ -413,11 +433,12 @@ void AnimationController::seekToPeriod(int period)
 
 void AnimationController::seekToTime(const QDateTime &dt)
 {
-    if (!dt.isValid()) return;
+    if (!dt.isValid())
+        return;
     if (m_primaryLayer) {
         seekToPeriod(m_primaryLayer->periodIndexForDateTime(dt));
     } else if (m_fallback2D) {
-        m_fallback2D->setCurrentSimTime(dt);   // nearest frame; re-emits via fallback slots
+        m_fallback2D->setCurrentSimTime(dt); // nearest frame; re-emits via fallback slots
     }
 }
 
@@ -431,9 +452,11 @@ void AnimationController::effectiveStepRange(int &outMin, int &outMax) const
     // 2D fallback, range clamping by datetime is the named
     // Z.13-controller-2d-range follow-up; for now the 2D path uses the
     // full [0, total-1] interval.
-    if (!m_primaryLayer) return;
+    if (!m_primaryLayer)
+        return;
     const auto &spec = m_primaryLayer->temporalSpec();
-    if (!spec.enabled) return;
+    if (!spec.enabled)
+        return;
 
     if (spec.startTime.isValid()) {
         const int idx = m_primaryLayer->periodIndexForDateTime(spec.startTime);
@@ -471,12 +494,12 @@ void AnimationController::onTimerTick()
     //   - pingPong=true (implies loop=true per the spec doc): reverse
     //     direction and step backwards until hitting rangeMin, then
     //     reverse again. Forward-and-back forever.
-    bool loop     = m_loop;
+    bool loop = m_loop;
     bool pingPong = false;
     if (m_primaryLayer) {
         const auto &spec = m_primaryLayer->temporalSpec();
         if (spec.enabled) {
-            loop     = loop || spec.loop || spec.pingPong;
+            loop = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     } else if (m_fallback2D) {
@@ -485,7 +508,7 @@ void AnimationController::onTimerTick()
         // handled in updateTimerInterval below.
         const auto &spec = m_fallback2D->temporalSpec();
         if (spec.enabled) {
-            loop     = loop || spec.loop || spec.pingPong;
+            loop = loop || spec.loop || spec.pingPong;
             pingPong = spec.pingPong;
         }
     }
@@ -588,7 +611,8 @@ void AnimationController::onPrimaryTotalStepsChanged(int total)
 
 void AnimationController::onFallback2DPeriodChanged(int step)
 {
-    if (m_primaryLayer) return;
+    if (m_primaryLayer)
+        return;
 
     // Slice S2.5a — same dispatch pattern as the 1D primary path. The
     // dynamic_cast is a no-op today because SWMM2DResultsLayer does NOT
@@ -603,13 +627,15 @@ void AnimationController::onFallback2DPeriodChanged(int step)
 
 void AnimationController::onFallback2DTimeChanged(const QDateTime &dt)
 {
-    if (m_primaryLayer) return;
+    if (m_primaryLayer)
+        return;
     emit currentTimeChanged(dt);
 }
 
 void AnimationController::onFallback2DRangeChanged(int lo, int hi)
 {
-    if (m_primaryLayer) return;
-    (void)lo;                          // range always starts at 0
-    emit totalPeriodsChanged(hi + 1);  // total = (hi - lo + 1) with lo == 0
+    if (m_primaryLayer)
+        return;
+    (void)lo;                         // range always starts at 0
+    emit totalPeriodsChanged(hi + 1); // total = (hi - lo + 1) with lo == 0
 }

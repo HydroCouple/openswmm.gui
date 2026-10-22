@@ -1,9 +1,12 @@
-/*!
- * \file   controlruleregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      controlruleregistry.cpp
+ * @brief     `ControlRuleProvider` instances.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "controls/controlruleregistry.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -12,12 +15,10 @@
 #include <string>
 #include <vector>
 
-namespace openswmmvis::controls {
-
-ControlRuleRegistry::ControlRuleRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::controls
 {
-}
+
+ControlRuleRegistry::ControlRuleRegistry(QObject *parent) : QObject(parent) {}
 
 ControlRuleRegistry::~ControlRuleRegistry() = default;
 
@@ -28,7 +29,8 @@ ControlRuleProvider *ControlRuleRegistry::findByName(const QString &name) const
 
 ControlRuleProvider *ControlRuleRegistry::create(const QString &name, const QString &body)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
     auto *p = new ControlRuleProvider(name, body, this);
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
@@ -46,7 +48,8 @@ ControlRuleProvider *ControlRuleRegistry::create(const QString &name, const QStr
 
 void ControlRuleRegistry::remove(ControlRuleProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
     emit providerAboutToBeRemoved(p);
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
@@ -55,13 +58,15 @@ void ControlRuleRegistry::remove(ControlRuleProvider *p)
 
 bool ControlRuleRegistry::rename(ControlRuleProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
+    if (!p || newName.isEmpty())
+        return false;
     // Case-only rename is permitted (re-use the same provider's identity).
     if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
         p->setName(newName);
         return true;
     }
-    if (hasName(newName)) return false;
+    if (hasName(newName))
+        return false;
     p->setName(newName);
     return true;
 }
@@ -84,11 +89,13 @@ void ControlRuleRegistry::clear()
 int ControlRuleRegistry::loadFromEngine(void *engineHandle)
 {
     clear();
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
 
     const int n = swmm_control_count(eng);
-    if (n <= 0) return 0;
+    if (n <= 0)
+        return 0;
 
     int added = 0;
     for (int i = 0; i < n; ++i) {
@@ -128,7 +135,8 @@ int ControlRuleRegistry::loadFromEngine(void *engineHandle)
 
 int ControlRuleRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
 
     // The rewrite clears before it adds, so snapshot the live list first: a
@@ -141,18 +149,21 @@ int ControlRuleRegistry::saveToEngine(void *engineHandle)
             original.emplace_back(body);
     }
 
-    if (swmm_control_clear_rules(eng) != SWMM_OK) return 0;
+    if (swmm_control_clear_rules(eng) != SWMM_OK)
+        return 0;
 
     int written = 0;
     for (ControlRuleProvider *p : m_providers) {
-        if (!p) continue;
+        if (!p)
+            continue;
         const QByteArray utf8 = p->body().toUtf8();
         if (swmm_control_add_rule(eng, utf8.constData()) == SWMM_OK) {
             ++written;
             continue;
         }
         if (swmm_control_clear_rules(eng) == SWMM_OK)
-            for (const auto &kept : original) swmm_control_add_rule(eng, kept.c_str());
+            for (const auto &kept : original)
+                swmm_control_add_rule(eng, kept.c_str());
         return 0;
     }
     return written;

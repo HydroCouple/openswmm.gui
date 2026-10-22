@@ -1,8 +1,9 @@
-/*!
- * \file   hydrographgroupeditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      hydrographgroupeditor.h
+ * @brief     Slice BS Phase 6.9.2 — Unit-hydrograph editor dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BS Phase 6.9.2 — Unit-hydrograph editor dialog.
  *
@@ -30,6 +31,7 @@
  * calibration context. Geometry + splitter sizes persist via QSettings.
  *
  * See: docs/GUI_IMPLEMENTATION_PLAN.md Slice BS Phase 6.9.2.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef HYDROGRAPHGROUPEDITOR_H
@@ -58,7 +60,9 @@ class HydrographIaTableModel;
 class HydrographDecayTableModel;
 
 QT_BEGIN_NAMESPACE
-namespace QtCharts {}  // forward
+namespace QtCharts
+{
+} // forward
 QT_END_NAMESPACE
 
 class QChart;
@@ -66,14 +70,17 @@ class QAreaSeries;
 class QLineSeries;
 class QValueAxis;
 class QLegendMarker;
-namespace openswmmvis::ui { class InteractiveChartView; class ChartAxisFormatController; }
+namespace openswmmvis::ui
+{
+class InteractiveChartView;
+class ChartAxisFormatController;
+}
 
 class HydrographGroupEditor : public QDialog
 {
     Q_OBJECT
 public:
-    explicit HydrographGroupEditor(SWMMModelLayer *layer,
-                                    QWidget *parent = nullptr);
+    explicit HydrographGroupEditor(SWMMModelLayer *layer, QWidget *parent = nullptr);
     ~HydrographGroupEditor() override;
 
     /*! Select \a name in the groups list and make sure the dialog is
@@ -96,12 +103,11 @@ public slots:
      *  returns the currently-highlighted group's name on accept (Apply,
      *  OK, or Close). Returns empty string if the user dismissed without
      *  any selection. Use this from the RDII picker's browse button. */
-    static QString pickGroup(SWMMModelLayer *layer,
-                              const QString &initialName,
-                              QWidget *parent = nullptr);
+    static QString pickGroup(SWMMModelLayer *layer, const QString &initialName,
+                             QWidget *parent = nullptr);
 
 protected:
-    void showEvent(QShowEvent  *e) override;
+    void showEvent(QShowEvent *e) override;
 
 private slots:
     void onGroupSelectionChanged();
@@ -123,61 +129,62 @@ private:
     QWidget *buildLeftPane();
     QWidget *buildMiddlePane();
     QWidget *buildRightPane();
-    void    populateGageCombo();
-    void    populateSeasonCombo();
-    void    rebindModelsToCurrentSelection();
-    void    refreshPreview();
-    void    updateGroupSummary();
-    void    commitOpenEditors();
+    void populateGageCombo();
+    void populateSeasonCombo();
+    void rebindModelsToCurrentSelection();
+    void refreshPreview();
+    void updateGroupSummary();
+    void commitOpenEditors();
     QString currentGroupName() const;
-    int     currentMonth() const;       ///< -1 for "All", 0..11 for months
+    int currentMonth() const; ///< -1 for "All", 0..11 for months
 
-    QPointer<SWMMModelLayer>   m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     bool m_contextValid = true;
 
     // Layer-owned models (do not delete here — the layer owns them).
-    HydrographGroupListModel  *m_groupListModel = nullptr;
-    HydrographRtkTableModel   *m_rtkModel       = nullptr;
-    HydrographIaTableModel    *m_iaModel        = nullptr;
-    HydrographDecayTableModel *m_decayModel     = nullptr;
+    HydrographGroupListModel *m_groupListModel = nullptr;
+    HydrographRtkTableModel *m_rtkModel = nullptr;
+    HydrographIaTableModel *m_iaModel = nullptr;
+    HydrographDecayTableModel *m_decayModel = nullptr;
 
     // Filter proxy over the group list — owned by the dialog.
-    QSortFilterProxyModel     *m_filterProxy    = nullptr;
+    QSortFilterProxyModel *m_filterProxy = nullptr;
 
-    QSplitter   *m_splitter        = nullptr;
+    QSplitter *m_splitter = nullptr;
 
     // Left pane.
-    QLineEdit   *m_filterEdit      = nullptr;
-    QListView   *m_groupList       = nullptr;
-    QToolButton *m_addBtn          = nullptr;
-    QToolButton *m_removeBtn       = nullptr;
-    QToolButton *m_renameBtn       = nullptr;
+    QLineEdit *m_filterEdit = nullptr;
+    QListView *m_groupList = nullptr;
+    QToolButton *m_addBtn = nullptr;
+    QToolButton *m_removeBtn = nullptr;
+    QToolButton *m_renameBtn = nullptr;
 
     // Middle pane.
-    QLabel      *m_nameLabel       = nullptr;
-    QComboBox   *m_gageCombo       = nullptr;
-    QComboBox   *m_seasonCombo     = nullptr;
-    QTabWidget  *m_tabs            = nullptr;
-    QTableView  *m_rtkView         = nullptr;
-    QTableView  *m_iaView          = nullptr;
-    QTableView  *m_decayView       = nullptr;
-    QLabel      *m_summaryLabel    = nullptr;     ///< bottom status strip
+    QLabel *m_nameLabel = nullptr;
+    QComboBox *m_gageCombo = nullptr;
+    QComboBox *m_seasonCombo = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    QTableView *m_rtkView = nullptr;
+    QTableView *m_iaView = nullptr;
+    QTableView *m_decayView = nullptr;
+    QLabel *m_summaryLabel = nullptr; ///< bottom status strip
 
     // Right pane — UH preview plot.
-    QChart                                *m_chart       = nullptr;
-    openswmmvis::ui::InteractiveChartView *m_chartView   = nullptr;
-    openswmmvis::ui::ChartAxisFormatController *m_axisFmt = nullptr;  ///< Per-chart axis number format.
-    QAreaSeries                           *m_areaSeries[3] = {nullptr, nullptr, nullptr};
-    QLineSeries                           *m_areaUpper[3]  = {nullptr, nullptr, nullptr};
-    QLineSeries                           *m_sumSeries  = nullptr;
-    QValueAxis                            *m_xAxis      = nullptr;
-    QValueAxis                            *m_yAxis      = nullptr;
-    QLabel                                *m_hoverLabel = nullptr;  ///< floats above plot
+    QChart *m_chart = nullptr;
+    openswmmvis::ui::InteractiveChartView *m_chartView = nullptr;
+    openswmmvis::ui::ChartAxisFormatController *m_axisFmt =
+        nullptr; ///< Per-chart axis number format.
+    QAreaSeries *m_areaSeries[3] = {nullptr, nullptr, nullptr};
+    QLineSeries *m_areaUpper[3] = {nullptr, nullptr, nullptr};
+    QLineSeries *m_sumSeries = nullptr;
+    QValueAxis *m_xAxis = nullptr;
+    QValueAxis *m_yAxis = nullptr;
+    QLabel *m_hoverLabel = nullptr; ///< floats above plot
 
     // Action bar.
     QDialogButtonBox *m_buttonBox = nullptr;
 
-    bool m_suppressGageSignal   = false;
+    bool m_suppressGageSignal = false;
     bool m_suppressSeasonSignal = false;
 };
 

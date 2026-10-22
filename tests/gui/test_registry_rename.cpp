@@ -1,9 +1,9 @@
-/*!
- * \file   test_registry_rename.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Renaming a data object must not duplicate it in the engine, and
+/**
+ * @file      test_registry_rename.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Renaming a data object must not duplicate it in the engine, and
  *         snow-pack parameters must survive a save/reload round trip.
  *
  *         Registry rename() used to update only the provider. The next
@@ -19,7 +19,9 @@
  *
  *         Uses QTEST_APPLESS_MAIN — no widgets, just registries over a bare
  *         engine handle.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "aquifer/aquiferprovider.h"
 #include "aquifer/aquiferregistry.h"
 #include "inlet/inletprovider.h"
@@ -208,27 +210,29 @@ void TestRegistryRename::snowpackParametersReachTheEngine()
     reg.saveToEngine(m_engine);
 
     double cmin = 0, cmax = 0, tbase = 0, fwfrac = 0, sd0 = 0, fw0 = 0, last = 0;
-    QCOMPARE(swmm_snowpack_get_plowable(m_engine, 0, &cmin, &cmax, &tbase,
-                                        &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_plowable(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(cmin, 0.05);
     QCOMPARE(cmax, 0.12);
 
-    QCOMPARE(swmm_snowpack_get_impervious(m_engine, 0, &cmin, &cmax, &tbase,
-                                          &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_impervious(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(tbase, 32.0);
 
-    QCOMPARE(swmm_snowpack_get_pervious(m_engine, 0, &cmin, &cmax, &tbase,
-                                        &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_pervious(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(fwfrac, 0.10);
 
     double dsnow = 0, fout = 0, fimp = 0, fperv = 0, fimelt = 0, fsub = 0;
-    QCOMPARE(swmm_snowpack_get_removal(m_engine, 0, &dsnow, &fout, &fimp,
-                                       &fperv, &fimelt, &fsub), SWMM_OK);
+    QCOMPARE(swmm_snowpack_get_removal(m_engine, 0, &dsnow, &fout, &fimp, &fperv, &fimelt, &fsub),
+             SWMM_OK);
     QCOMPARE(dsnow, 2.5);
 
     char buf[64] = {};
-    QCOMPARE(swmm_snowpack_get_removal_subcatch(m_engine, 0, buf, sizeof(buf)),
-             SWMM_OK);
+    QCOMPARE(swmm_snowpack_get_removal_subcatch(m_engine, 0, buf, sizeof(buf)), SWMM_OK);
     QCOMPARE(QString::fromUtf8(buf), QStringLiteral("S1"));
 }
 

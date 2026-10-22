@@ -1,9 +1,12 @@
-/*!
- * \file   externalcolumnfile.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      externalcolumnfile.cpp
+ * @brief     multi-column series files (CSV / TSV / PCSWMM .tsf).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/util/externalcolumnfile.h"
 
 #include "ui/util/externalcolumnfilecore.h"
@@ -25,40 +28,49 @@
 #include <string>
 #include <vector>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Timestamp cell → SWMM DateTime. The engine-mirroring grammar
  *  (extcol::parseSeriesDateTime — ISO / US / AM-PM) is tried first;
  *  io::tryParseTimestamp keeps the GUI's extra legacy formats
  *  (e.g. dd/MM/yyyy European) working as before. No hours-since-start
- *  fallback here — column files are absolute-dated. */
-bool parseTimestampCell(const std::string& cell, double& jOut)
+ *  fallback here — column files are absolute-dated.
+ * @param[in] cell Absolute timestamp cell. Engine-shaped ISO/US parsing is tried first, then GUI legacy formats.
+ * @param[out] jOut SWMM date days since 1899-12-30 on success; failure does not guarantee an unchanged value.
+ * @return True for a successfully encoded timestamp; no elapsed-hours fallback is available.
+ */
+bool parseTimestampCell(const std::string &cell, double &jOut)
 {
     extcol::DateTimeParts p;
     if (extcol::parseSeriesDateTime(cell, p)) {
         const QDate d(p.year, p.month, p.day);
         const QTime t(p.hour, p.minute, p.second);
         if (d.isValid() && t.isValid()) {
-            jOut = openswmmvis::core::qDateTimeToSwmmDateTime(
-                QDateTime(d, t, Qt::UTC));
+            jOut = openswmmvis::core::qDateTimeToSwmmDateTime(QDateTime(d, t, Qt::UTC));
             return std::isfinite(jOut);
         }
     }
-    return openswmmvis::io::tryParseTimestamp(
-        QString::fromStdString(cell), jOut,
-        std::numeric_limits<double>::quiet_NaN());
+    return openswmmvis::io::tryParseTimestamp(QString::fromStdString(cell), jOut,
+                                              std::numeric_limits<double>::quiet_NaN());
 }
 
 /*! Value cell → double via strtod (engine parity: accepts what the engine
- *  accepts). Returns NaN for empty / non-numeric cells. */
-double parseValueCell(const std::string& cell)
+ *  accepts). Returns NaN for empty / non-numeric cells.
+ * @param[in] cell Raw cell bytes. strtod accepts numeric prefixes without requiring whole-cell consumption.
+ * @return Parsed value including infinity/NaN, or NaN for empty/no-conversion.
+ */
+double parseValueCell(const std::string &cell)
 {
-    if (cell.empty()) return std::numeric_limits<double>::quiet_NaN();
-    char* endp = nullptr;
+    if (cell.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    char *endp = nullptr;
     const double v = std::strtod(cell.c_str(), &endp);
-    if (endp == cell.c_str()) return std::numeric_limits<double>::quiet_NaN();
+    if (endp == cell.c_str())
+        return std::numeric_limits<double>::quiet_NaN();
     return v;
 }
 
@@ -66,19 +78,31 @@ double parseValueCell(const std::string& cell)
  *  data rows are then not read, keeping readHeaders() cheap on huge files).
  *  Returns false when the file cannot be opened, no header/content line
  *  exists, or a non-empty \a columnSelector cannot be resolved (no such
- *  header, or the file is headerless and therefore has no names at all). */
-bool parseFile(const QString& path, const QString& columnSelector,
-               QVector<ExternalSeriesPoint>* pointsOut,
-               QStringList* headersOut, QString* errorOut,
-               bool* fabricatedOut)
+ *  header, or the file is headerless and therefore has no names at all).
+ * @param[in] path Filename to open as UTF-8 text.
+ * @param[in] columnSelector Empty selects first value column; nonempty must match a real header.
+ * @param[out] pointsOut Optional sample destination, cleared on entry; null requests header-only probing without reading data rows.
+ * @param[out] headersOut Optional names destination, cleared on entry and filled before selector validation.
+ * @param[out] errorOut Optional file/header/selector diagnostic; unchanged on success.
+ * @param[out] fabricatedOut Optional flag reset false and set true when data-like first content causes fabricated display names.
+ * @return False on open/no-content/selector failure; true may contain zero usable headers/points and does not assert full-file parse validity.
+ * @note Consumes the first content row as header even when data-like. Headerless named selectors are rejected; valid samples are stably ordered by timestamp and NaN values skipped.
+ */
+bool parseFile(const QString &path, const QString &columnSelector,
+               QVector<ExternalSeriesPoint> *pointsOut, QStringList *headersOut, QString *errorOut,
+               bool *fabricatedOut)
 {
-    if (headersOut) headersOut->clear();
-    if (pointsOut) pointsOut->clear();
-    if (fabricatedOut) *fabricatedOut = false;
+    if (headersOut)
+        headersOut->clear();
+    if (pointsOut)
+        pointsOut->clear();
+    if (fabricatedOut)
+        *fabricatedOut = false;
 
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (errorOut) *errorOut = f.errorString();
+        if (errorOut)
+            *errorOut = f.errorString();
         return false;
     }
     QTextStream in(&f);
@@ -87,23 +111,25 @@ bool parseFile(const QString& path, const QString& columnSelector,
     // ── Header row (first non-blank, non-comment line) ──────────────────────
     std::string headerLine;
     bool haveHeader = false;
-    bool firstLine  = true;
+    bool firstLine = true;
     while (!in.atEnd()) {
         headerLine = in.readLine().toStdString();
         extcol::normalizeLine(headerLine, firstLine);
         firstLine = false;
-        if (extcol::isBlankOrComment(headerLine)) continue;
+        if (extcol::isBlankOrComment(headerLine))
+            continue;
         haveHeader = true;
         break;
     }
     if (!haveHeader) {
-        if (errorOut) *errorOut = QStringLiteral("no header row");
+        if (errorOut)
+            *errorOut = QStringLiteral("no header row");
         return false;
     }
 
     char delim = ',';
-    std::vector<std::string> headers;      // value columns only (time excluded)
-    bool fabricated = false;               // headerless → display-only names
+    std::vector<std::string> headers; // value columns only (time excluded)
+    bool fabricated = false;          // headerless → display-only names
 
     if (extcol::isTsfHeader(headerLine)) {
         // PCSWMM TSF: tab-delimited; IDs-row tokens 1..N name the columns;
@@ -111,7 +137,8 @@ bool parseFile(const QString& path, const QString& columnSelector,
         delim = '\t';
         const auto cells = extcol::splitCells(headerLine, delim);
         headers.assign(cells.begin() + 1, cells.end());
-        for (int i = 0; i < 2 && !in.atEnd(); ++i) in.readLine();
+        for (int i = 0; i < 2 && !in.atEnd(); ++i)
+            in.readLine();
     } else {
         delim = extcol::sniffDelimiter(headerLine);
         const auto cells = extcol::splitCells(headerLine, delim);
@@ -124,7 +151,8 @@ bool parseFile(const QString& path, const QString& columnSelector,
         double probeT = 0.0;
         if (cells.size() >= 2 && parseTimestampCell(cells[0], probeT)) {
             fabricated = true;
-            if (fabricatedOut) *fabricatedOut = true;
+            if (fabricatedOut)
+                *fabricatedOut = true;
             for (std::size_t c = 1; c < cells.size(); ++c)
                 headers.push_back(extcol::fabricatedColumnName(c));
         } else {
@@ -133,10 +161,11 @@ bool parseFile(const QString& path, const QString& columnSelector,
     }
 
     if (headersOut) {
-        for (const std::string& h : headers)
+        for (const std::string &h : headers)
             *headersOut << QString::fromStdString(h);
     }
-    if (!pointsOut) return true;   // header-only probe
+    if (!pointsOut)
+        return true; // header-only probe
 
     // ── Column resolution ("" → first data column; a miss is an error) ──────
     // A non-empty selector that matches nothing is a hard failure in the
@@ -148,27 +177,26 @@ bool parseFile(const QString& path, const QString& columnSelector,
         // A headerless file has no names for the engine to match, so NO name
         // resolves against it — not even a fabricated one. Its first data
         // column is addressable only through an empty selector (review B-4).
-        activeCol = fabricated
-                        ? -1
-                        : extcol::findColumn(headers, columnSelector.toStdString());
+        activeCol = fabricated ? -1 : extcol::findColumn(headers, columnSelector.toStdString());
         if (activeCol < 0) {
             if (errorOut)
-                *errorOut = fabricated
-                    ? QObject::tr("%1 has no header row, so no column can be "
-                                  "selected by name — only its first column "
-                                  "can be read.")
-                          .arg(QFileInfo(path).fileName())
-                    : QObject::tr("column \"%1\" not found in %2")
-                          .arg(columnSelector, QFileInfo(path).fileName());
+                *errorOut = fabricated ? QObject::tr("%1 has no header row, so no column can be "
+                                                     "selected by name — only its first column "
+                                                     "can be read.")
+                                             .arg(QFileInfo(path).fileName())
+                                       : QObject::tr("column \"%1\" not found in %2")
+                                             .arg(columnSelector, QFileInfo(path).fileName());
             return false;
         }
     }
     const std::size_t cellIdx = static_cast<std::size_t>(activeCol) + 1;
 
-    auto appendRow = [&](const std::vector<std::string>& cells, double tJ) {
-        if (cellIdx >= cells.size()) return;                 // short row
+    auto appendRow = [&](const std::vector<std::string> &cells, double tJ) {
+        if (cellIdx >= cells.size())
+            return; // short row
         const double v = parseValueCell(cells[cellIdx]);
-        if (std::isnan(v)) return;   // missing cell — engine skips these too
+        if (std::isnan(v))
+            return; // missing cell — engine skips these too
         pointsOut->push_back({tJ, v});
     };
 
@@ -176,65 +204,65 @@ bool parseFile(const QString& path, const QString& columnSelector,
     while (!in.atEnd()) {
         std::string line = in.readLine().toStdString();
         extcol::normalizeLine(line, false);
-        if (extcol::isBlankOrComment(line)) continue;
+        if (extcol::isBlankOrComment(line))
+            continue;
         const auto cells = extcol::splitCells(line, delim);
         double tJ = 0.0;
-        if (cells.empty() || !parseTimestampCell(cells[0], tJ)) continue;
+        if (cells.empty() || !parseTimestampCell(cells[0], tJ))
+            continue;
         appendRow(cells, tJ);
     }
 
     // ── Sort ascending (records may be out of order; engine parity) ────────
-    auto& pts = *pointsOut;
+    auto &pts = *pointsOut;
     if (!std::is_sorted(pts.begin(), pts.end(),
-                        [](const ExternalSeriesPoint& a,
-                           const ExternalSeriesPoint& b)
-                        { return a.timeJulian < b.timeJulian; })) {
+                        [](const ExternalSeriesPoint &a, const ExternalSeriesPoint &b) {
+                            return a.timeJulian < b.timeJulian;
+                        })) {
         std::stable_sort(pts.begin(), pts.end(),
-                         [](const ExternalSeriesPoint& a,
-                            const ExternalSeriesPoint& b)
-                         { return a.timeJulian < b.timeJulian; });
+                         [](const ExternalSeriesPoint &a, const ExternalSeriesPoint &b) {
+                             return a.timeJulian < b.timeJulian;
+                         });
     }
     return true;
 }
 
 } // namespace
 
-QStringList readHeaders(const QString& path, QString* errorOut,
-                        bool* fabricatedOut)
+QStringList readHeaders(const QString &path, QString *errorOut, bool *fabricatedOut)
 {
     QStringList headers;
-    parseFile(path, QString(), /*pointsOut=*/nullptr, &headers, errorOut,
-              fabricatedOut);
+    parseFile(path, QString(), /*pointsOut=*/nullptr, &headers, errorOut, fabricatedOut);
     return headers;
 }
 
-int readColumn(const QString& path, const QString& columnSelector,
-               QVector<ExternalSeriesPoint>& pointsOut,
-               QStringList* headersOut, QString* errorOut,
-               bool* fabricatedOut)
+int readColumn(const QString &path, const QString &columnSelector,
+               QVector<ExternalSeriesPoint> &pointsOut, QStringList *headersOut, QString *errorOut,
+               bool *fabricatedOut)
 {
-    if (!parseFile(path, columnSelector, &pointsOut, headersOut, errorOut,
-                   fabricatedOut))
+    if (!parseFile(path, columnSelector, &pointsOut, headersOut, errorOut, fabricatedOut))
         return -1;
     return pointsOut.size();
 }
 
-QString reconcileColumnSelector(const QString& path, const QString& current)
+QString reconcileColumnSelector(const QString &path, const QString &current)
 {
-    if (path.isEmpty()) return {};
+    if (path.isEmpty())
+        return {};
 
     bool fabricated = false;
-    const QStringList headers = readHeaders(path, /*errorOut=*/nullptr,
-                                            &fabricated);
+    const QStringList headers = readHeaders(path, /*errorOut=*/nullptr, &fabricated);
     // A fabricated name is display-only: the engine spends line 1 as its header
     // row and would never match "col_2", so the only addressable column of a
     // headerless file is its first, via an empty selector.
-    if (fabricated || headers.isEmpty()) return {};
+    if (fabricated || headers.isEmpty())
+        return {};
 
     // Case-insensitive like readColumn's own matching, but the file's spelling
     // is what gets stored — the token then reads the way the file does.
-    for (const QString& h : headers)
-        if (h.compare(current, Qt::CaseInsensitive) == 0) return h;
+    for (const QString &h : headers)
+        if (h.compare(current, Qt::CaseInsensitive) == 0)
+            return h;
 
     return headers.first();
 }

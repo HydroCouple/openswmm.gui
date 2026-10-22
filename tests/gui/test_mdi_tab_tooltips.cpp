@@ -12,6 +12,16 @@
 //   * Tab index == position in subWindowList() — the same rule
 //     setSubWindowTabVisible() depends on. Closing a tab shifts every later
 //     index, which is why the app re-runs the refresh on sub-window changes.
+
+/**
+ * @file      test_mdi_tab_tooltips.cpp
+ * @brief     Tests for mdi tab tooltips.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QApplication>
@@ -24,9 +34,18 @@
 
 using openswmmvis::ui::refreshSubWindowTabToolTips;
 
-namespace {
+namespace
+{
 
-/*! The central widget as uic emits it: TabbedView, tabs closable/movable. */
+// Minimal tabbed central widget fixture (closable tabs).
+/**
+ *
+ * @brief Create a parent-owned tabbed MDI area with closable tabs.
+ * @param host Optional QWidget owner; null leaves cleanup with the caller.
+ * @return New area, borrowed when host owns it. Does not enable tab moving despite
+ * the older surrounding comment; tests use default subwindow order. GUI thread only.
+ *
+ */
 QMdiArea *makeTabbedArea(QWidget *host)
 {
     auto *area = new QMdiArea(host);
@@ -35,6 +54,15 @@ QMdiArea *makeTabbedArea(QWidget *host)
     return area;
 }
 
+/**
+ *
+ * @brief Add an empty document widget to a fixture MDI area and name its tab.
+ * @param area Nonnull borrowed GUI-thread MDI area.
+ * @param title Borrowed initial window/tab label.
+ * @return New subwindow owned by area, containing its owned empty QWidget. No path
+ * metadata or tooltip is set; caller must not outlive the area with this pointer.
+ *
+ */
 QMdiSubWindow *addDoc(QMdiArea *area, const QString &title)
 {
     auto *sub = area->addSubWindow(new QWidget);
@@ -42,9 +70,20 @@ QMdiSubWindow *addDoc(QMdiArea *area, const QString &title)
     return sub;
 }
 
-QTabBar *tabBarOf(QMdiArea *area) { return area->findChild<QTabBar *>(); }
+/**
+ *
+ * @brief Find the first internal tab bar in a fixture MDI area.
+ * @param area Nonnull borrowed GUI-thread area in TabbedView mode.
+ * @return Borrowed child QTabBar or nullptr before/without its creation; no ownership
+ * transfer, visibility changes or tab edits.
+ *
+ */
+QTabBar *tabBarOf(QMdiArea *area)
+{
+    return area->findChild<QTabBar *>();
+}
 
-}   // namespace
+} // namespace
 
 class TestMdiTabToolTips : public QObject
 {
@@ -73,8 +112,7 @@ void TestMdiTabToolTips::toolTipCarriesFullPath()
         {a, QStringLiteral("/models/north/site_drainage_model.inp")},
         {b, QStringLiteral("/models/south/site_drainage_model.inp")},
     };
-    refreshSubWindowTabToolTips(
-        area, [&paths](QMdiSubWindow *s) { return paths.value(s); });
+    refreshSubWindowTabToolTips(area, [&paths](QMdiSubWindow *s) { return paths.value(s); });
 
     QTabBar *bar = tabBarOf(area);
     QVERIFY(bar);
@@ -83,10 +121,8 @@ void TestMdiTabToolTips::toolTipCarriesFullPath()
     // The labels are identical — that is the bug being fixed — and only the
     // tooltips tell the two apart.
     QCOMPARE(bar->tabText(0), bar->tabText(1));
-    QCOMPARE(bar->tabToolTip(0),
-             QDir::toNativeSeparators(paths.value(a)));
-    QCOMPARE(bar->tabToolTip(1),
-             QDir::toNativeSeparators(paths.value(b)));
+    QCOMPARE(bar->tabToolTip(0), QDir::toNativeSeparators(paths.value(a)));
+    QCOMPARE(bar->tabToolTip(1), QDir::toNativeSeparators(paths.value(b)));
     QVERIFY(bar->tabToolTip(0) != bar->tabToolTip(1));
 }
 
@@ -112,8 +148,7 @@ void TestMdiTabToolTips::toolTipSurvivesTitleChange()
     QVERIFY2(bar->tabText(0).contains(QLatin1Char('*')),
              "QMdiArea should have rewritten the tab TEXT");
     QCOMPARE(bar->tabToolTip(0), before);
-    QVERIFY2(!bar->tabToolTip(0).isEmpty(),
-             "a title change must not blank the tooltip");
+    QVERIFY2(!bar->tabToolTip(0).isEmpty(), "a title change must not blank the tooltip");
 }
 
 void TestMdiTabToolTips::refreshAfterCloseRetargetsTabs()

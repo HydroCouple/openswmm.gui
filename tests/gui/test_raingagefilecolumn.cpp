@@ -1,6 +1,6 @@
-/*!
- * \file   test_raingagefilecolumn.cpp
- * \brief  Rain-gage file/column/format coupling in the Attribute Table
+/**
+ * @file      test_raingagefilecolumn.cpp
+ * @brief     Rain-gage file/column/format coupling in the Attribute Table
  *         (review follow-ups R3 and A-2).
  *
  * Two behaviours, both about the fact that a rain file's COLUMN belongs to the
@@ -20,6 +20,10 @@
  * Fixtures: `extcol_switch_multi.csv` (real headers time,rain_a,rain_b) and
  * `extcol_dialog_sample.tsf` (PCSWMM IDs: row, RG1/RG2) from the multi-column
  * series work, plus `typed_selection_fixture.inp` for the model itself.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
@@ -38,7 +42,8 @@
 
 using openswmmvis::ColumnSpec;
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -55,7 +60,8 @@ std::unique_ptr<SWMMModelLayer> openLayer()
     auto layer = std::make_unique<SWMMModelLayer>(
         fixture(QStringLiteral("typed_selection_fixture.inp")), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
@@ -63,7 +69,8 @@ std::unique_ptr<SWMMModelLayer> openLayer()
 int colForSetter(const QList<ColumnSpec> &specs, const QString &tag)
 {
     for (int i = 0; i < specs.size(); ++i)
-        if (specs[i].setter == tag) return i;
+        if (specs[i].setter == tag)
+            return i;
     return -1;
 }
 
@@ -83,16 +90,13 @@ private slots:
     void adapterReconcilesTheColumnToo();
 
 private:
-    std::unique_ptr<SWMMModelLayer>   m_layer;
-    std::unique_ptr<QUndoStack>       m_undo;
+    std::unique_ptr<SWMMModelLayer> m_layer;
+    std::unique_ptr<QUndoStack> m_undo;
     std::unique_ptr<SWMMAttributeTableModel> m_model;
     int m_row = -1, m_pathCol = -1, m_colCol = -1, m_fmtCol = -1, m_stationCol = -1;
 
     //! The gage's engine index (fixture has exactly one gage).
-    [[nodiscard]] int gageIdx() const
-    {
-        return swmm_gage_index(m_layer->engine(), "S1");
-    }
+    [[nodiscard]] int gageIdx() const { return swmm_gage_index(m_layer->engine(), "S1"); }
 };
 
 void TestRainGageFileColumn::init()
@@ -104,19 +108,19 @@ void TestRainGageFileColumn::init()
     // FILE-source gage.
     QCOMPARE(swmm_gage_set_data_source(m_layer->engine(), gageIdx(), 1), 0);
 
-    m_undo  = std::make_unique<QUndoStack>();
+    m_undo = std::make_unique<QUndoStack>();
     m_model = std::make_unique<SWMMAttributeTableModel>();
     m_model->setSource(m_layer.get(), SWMMModelLayer::CatRainGages);
     m_model->setUndoStack(m_undo.get());
 
     const auto specs = m_model->columnSpecs();
-    m_pathCol    = colForSetter(specs, QStringLiteral("gage_file_path"));
-    m_colCol     = colForSetter(specs, QStringLiteral("gage_file_column"));
-    m_fmtCol     = colForSetter(specs, QStringLiteral("gage_file_format"));
+    m_pathCol = colForSetter(specs, QStringLiteral("gage_file_path"));
+    m_colCol = colForSetter(specs, QStringLiteral("gage_file_column"));
+    m_fmtCol = colForSetter(specs, QStringLiteral("gage_file_format"));
     m_stationCol = colForSetter(specs, QStringLiteral("gage_station_id"));
     QVERIFY(m_pathCol >= 0);
-    QVERIFY(m_colCol  >= 0);
-    QVERIFY(m_fmtCol  >= 0);
+    QVERIFY(m_colCol >= 0);
+    QVERIFY(m_fmtCol >= 0);
 
     m_row = 0;
     QCOMPARE(m_model->rowCount(), 1);
@@ -126,8 +130,7 @@ void TestRainGageFileColumn::pathEditBindsFirstColumnAndUndoesAsOneStep()
 {
     const QString csv = fixture(QStringLiteral("extcol_switch_multi.csv"));
 
-    QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol), csv,
-                             Qt::EditRole));
+    QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol), csv, Qt::EditRole));
 
     // The multi-column file is bound to its first value column — leaving it
     // unbound made the writer emit the station grammar for a file that has no
@@ -142,8 +145,7 @@ void TestRainGageFileColumn::pathEditBindsFirstColumnAndUndoesAsOneStep()
     QCOMPARE(m_undo->count(), 1);
     m_undo->undo();
 
-    QCOMPARE(m_model->data(m_model->index(m_row, m_colCol), Qt::EditRole).toString(),
-             QString());
+    QCOMPARE(m_model->data(m_model->index(m_row, m_colCol), Qt::EditRole).toString(), QString());
     // The format flip has to undo as well. It is the engine's implicit
     // side-effect of setting a column, so it is recorded as its own command
     // inside the macro — without that, undo left the gage USER_CSV with no
@@ -157,8 +159,8 @@ void TestRainGageFileColumn::pathEditKeepsAColumnTheNewFileStillHas()
     const QString csv = fixture(QStringLiteral("extcol_switch_multi.csv"));
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol), csv, Qt::EditRole));
     // Pick the second column explicitly.
-    QVERIFY(m_model->setData(m_model->index(m_row, m_colCol),
-                             QStringLiteral("rain_b"), Qt::EditRole));
+    QVERIFY(
+        m_model->setData(m_model->index(m_row, m_colCol), QStringLiteral("rain_b"), Qt::EditRole));
     const int stepsBefore = m_undo->count();
 
     // Re-pointing at the SAME file must not steal the user's column choice.
@@ -172,16 +174,14 @@ void TestRainGageFileColumn::pathEditKeepsAColumnTheNewFileStillHas()
 void TestRainGageFileColumn::pathEditClearsAColumnTheNewFileCannotResolve()
 {
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol),
-                             fixture(QStringLiteral("extcol_switch_multi.csv")),
-                             Qt::EditRole));
-    QVERIFY(m_model->setData(m_model->index(m_row, m_colCol),
-                             QStringLiteral("rain_b"), Qt::EditRole));
+                             fixture(QStringLiteral("extcol_switch_multi.csv")), Qt::EditRole));
+    QVERIFY(
+        m_model->setData(m_model->index(m_row, m_colCol), QStringLiteral("rain_b"), Qt::EditRole));
 
     // Switch to a file that has no "rain_b": keeping the stale name would write
     // a model whose run fails on a column the file does not contain.
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol),
-                             fixture(QStringLiteral("extcol_dialog_sample.tsf")),
-                             Qt::EditRole));
+                             fixture(QStringLiteral("extcol_dialog_sample.tsf")), Qt::EditRole));
     QCOMPARE(m_model->data(m_model->index(m_row, m_colCol), Qt::EditRole).toString(),
              QStringLiteral("RG1"));
 
@@ -193,36 +193,30 @@ void TestRainGageFileColumn::pathEditClearsAColumnTheNewFileCannotResolve()
 void TestRainGageFileColumn::formatColumnIsPresentAndLeavesUserCsv()
 {
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol),
-                             fixture(QStringLiteral("extcol_switch_multi.csv")),
-                             Qt::EditRole));
+                             fixture(QStringLiteral("extcol_switch_multi.csv")), Qt::EditRole));
     QCOMPARE(m_model->data(m_model->index(m_row, m_fmtCol), Qt::EditRole).toInt(),
              int(SWMMRainGagePropertyAdapter::MultiColumn));
 
     // A-2: the way back out. Selecting a station-based format clears the column
     // engine-side, so the gage can be a standard rain file again.
     QVERIFY(m_model->setData(m_model->index(m_row, m_fmtCol),
-                             int(SWMMRainGagePropertyAdapter::StandardRainFile),
-                             Qt::EditRole));
-    QCOMPARE(m_model->data(m_model->index(m_row, m_colCol), Qt::EditRole).toString(),
-             QString());
+                             int(SWMMRainGagePropertyAdapter::StandardRainFile), Qt::EditRole));
+    QCOMPARE(m_model->data(m_model->index(m_row, m_colCol), Qt::EditRole).toString(), QString());
 
     // Station ID is usable again — the row the format flip exists to release.
     if (m_stationCol >= 0) {
-        QVERIFY(m_model->setData(m_model->index(m_row, m_stationCol),
-                                 QStringLiteral("STA1"), Qt::EditRole));
-        QCOMPARE(m_model->data(m_model->index(m_row, m_stationCol),
-                               Qt::EditRole).toString(),
+        QVERIFY(m_model->setData(m_model->index(m_row, m_stationCol), QStringLiteral("STA1"),
+                                 Qt::EditRole));
+        QCOMPARE(m_model->data(m_model->index(m_row, m_stationCol), Qt::EditRole).toString(),
                  QStringLiteral("STA1"));
     }
 
     // And selecting the multi-column grammar clears the station id, because the
     // two grammars' row selectors are mutually exclusive.
     QVERIFY(m_model->setData(m_model->index(m_row, m_fmtCol),
-                             int(SWMMRainGagePropertyAdapter::MultiColumn),
-                             Qt::EditRole));
+                             int(SWMMRainGagePropertyAdapter::MultiColumn), Qt::EditRole));
     if (m_stationCol >= 0)
-        QCOMPARE(m_model->data(m_model->index(m_row, m_stationCol),
-                               Qt::EditRole).toString(),
+        QCOMPARE(m_model->data(m_model->index(m_row, m_stationCol), Qt::EditRole).toString(),
                  QString());
 }
 
@@ -245,8 +239,7 @@ void TestRainGageFileColumn::adapterReconcilesTheColumnToo()
     // A-2 through the adapter.
     adapter.setFileFormat(int(SWMMRainGagePropertyAdapter::StandardRainFile));
     QCOMPARE(adapter.fileColumn(), QString());
-    QCOMPARE(adapter.fileFormatEnum(),
-             SWMMRainGagePropertyAdapter::StandardRainFile);
+    QCOMPARE(adapter.fileFormatEnum(), SWMMRainGagePropertyAdapter::StandardRainFile);
 }
 
 QTEST_MAIN(TestRainGageFileColumn)

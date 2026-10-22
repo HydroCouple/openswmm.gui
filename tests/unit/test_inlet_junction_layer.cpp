@@ -1,6 +1,6 @@
-/*!
- * \file   test_inlet_junction_layer.cpp
- * \brief  Engine-level contract behind the GUI's inlet-junction commands
+/**
+ * @file      test_inlet_junction_layer.cpp
+ * @brief     Engine-level contract behind the GUI's inlet-junction commands
  *         (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md, phase G5).
  *
  * Scope note: SWMMModelLayer cannot be linked headlessly (nanoflann, GDAL, the
@@ -20,7 +20,12 @@
  * The fixture is a real .inp (tests/data/inlets/street_inlet.inp) and every
  * artefact is written to tests/output/inlets/ so it can be reviewed
  * (CLAUDE.md §4.1), never to a temp dir.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QByteArray>
@@ -35,21 +40,36 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
-namespace {
+namespace
+{
 
 #ifndef SWMMVIS_INLET_FIXTURE_DIR
-#  define SWMMVIS_INLET_FIXTURE_DIR "."
+#define SWMMVIS_INLET_FIXTURE_DIR "."
 #endif
 #ifndef SWMMVIS_INLET_OUTPUT_DIR
-#  define SWMMVIS_INLET_OUTPUT_DIR "."
+#define SWMMVIS_INLET_OUTPUT_DIR "."
 #endif
 
+/**
+ *
+ * @brief Resolve an inlet-command input path without opening it.
+ * @param name Borrowed null-terminated Latin-1 filename under SWMMVIS_INLET_FIXTURE_DIR.
+ * @return Owned joined path, default cwd; no existence check or parent creation.
+ *
+ */
 QString fixturePath(const char *name)
 {
-    return QDir(QStringLiteral(SWMMVIS_INLET_FIXTURE_DIR)).filePath(
-        QString::fromLatin1(name));
+    return QDir(QStringLiteral(SWMMVIS_INLET_FIXTURE_DIR)).filePath(QString::fromLatin1(name));
 }
 
+/**
+ *
+ * @brief Resolve a persistent inlet-command report/output path.
+ * @param name Borrowed null-terminated Latin-1 filename under SWMMVIS_INLET_OUTPUT_DIR.
+ * @return Owned joined path after unchecked directory creation, default cwd; no file
+ * cleanup or handle ownership.
+ *
+ */
 QString outputPath(const char *name)
 {
     QDir dir(QStringLiteral(SWMMVIS_INLET_OUTPUT_DIR));
@@ -57,25 +77,39 @@ QString outputPath(const char *name)
     return dir.filePath(QString::fromLatin1(name));
 }
 
+/**
+ *
+ * @brief Read an existing fixture as UTF-8 text for assertions.
+ * @param path Borrowed filename, opened read-only in Qt text mode.
+ * @return Owned decoded contents or empty on failed open; valid empty content and
+ * failure are indistinguishable. Read errors unchecked; closes file on return.
+ *
+ */
 QString readAll(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     return QString::fromUtf8(f.readAll());
 }
 
-/*! Open the fixture in the editable OPENED state — deliberately NOT
- *  initialized: swmm_conduit_split_inlet and the usage setters are
- *  BUILDING/OPENED-only, and initialize() bakes the node-count invariant. */
+/**
+ *
+ * @brief Create/open the editable street-inlet fixture without initializing it.
+ * @return Owned OPENED engine requiring swmm_engine_destroy, or null on create/open
+ * failure, destroying the partial engine after failed open. Inlet split/usage edits
+ * require BUILDING/OPENED lifecycle. Persistent inlet report/output files remain.
+ *
+ */
 SWMM_Engine openFixture()
 {
     SWMM_Engine e = swmm_engine_create();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     const QString inp = fixturePath("street_inlet.inp");
     const QString rpt = outputPath("street_inlet.rpt");
     const QString out = outputPath("street_inlet.out");
-    if (swmm_engine_open(e, inp.toUtf8().constData(),
-                         rpt.toUtf8().constData(),
+    if (swmm_engine_open(e, inp.toUtf8().constData(), rpt.toUtf8().constData(),
                          out.toUtf8().constData(), nullptr) != SWMM_OK) {
         swmm_engine_destroy(e);
         return nullptr;
@@ -98,9 +132,9 @@ TEST(InletJunctionLayer, SplitStreetConduitMakesInletJunction)
     ASSERT_GE(c1, 0);
 
     int newNode = -1, newLink = -1;
-    ASSERT_EQ(swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B",
-                                       "GRATE1", "SEWER",
-                                       &newNode, &newLink), SWMM_OK);
+    ASSERT_EQ(
+        swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B", "GRATE1", "SEWER", &newNode, &newLink),
+        SWMM_OK);
     ASSERT_GE(newNode, 0);
     ASSERT_GE(newLink, 0);
 
@@ -143,9 +177,9 @@ TEST(InletJunctionLayer, FuseUndoesSplitByteIdentically)
     const int c1 = swmm_link_index(e, "C1");
     ASSERT_GE(c1, 0);
     int newNode = -1, newLink = -1;
-    ASSERT_EQ(swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B",
-                                       "GRATE1", "SEWER",
-                                       &newNode, &newLink), SWMM_OK);
+    ASSERT_EQ(
+        swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B", "GRATE1", "SEWER", &newNode, &newLink),
+        SWMM_OK);
 
     int surviving = -1;
     ASSERT_EQ(swmm_inlet_junction_fuse(e, newNode, &surviving), SWMM_OK);
@@ -171,9 +205,9 @@ TEST(InletJunctionLayer, UsageRowSetAndRestoreRoundTrips)
     SWMM_Engine e = openFixture();
     ASSERT_NE(e, nullptr);
 
-    const int c1     = swmm_link_index(e, "C1");
+    const int c1 = swmm_link_index(e, "C1");
     const int design = swmm_inlet_index(e, "GRATE1");
-    const int sewer  = swmm_node_index(e, "SEWER");
+    const int sewer = swmm_node_index(e, "SEWER");
     ASSERT_GE(c1, 0);
     ASSERT_GE(design, 0);
     ASSERT_GE(sewer, 0);
@@ -183,16 +217,16 @@ TEST(InletJunctionLayer, UsageRowSetAndRestoreRoundTrips)
 
     // --- redo: install the row ---------------------------------------------
     SWMM_InletUsage first{};
-    first.host_kind        = SWMM_INLET_HOST_LINK;
-    first.host_idx         = c1;
-    first.design_idx       = design;
+    first.host_kind = SWMM_INLET_HOST_LINK;
+    first.host_idx = c1;
+    first.design_idx = design;
     first.capture_node_idx = sewer;
-    first.num_inlets       = 2;
-    first.pct_clogged      = 10.0;
-    first.flow_limit       = 1.5;
-    first.local_depress    = 0.25;
-    first.local_width      = 3.0;
-    first.placement        = SWMM_INLET_ON_SAG;
+    first.num_inlets = 2;
+    first.pct_clogged = 10.0;
+    first.flow_limit = 1.5;
+    first.local_depress = 0.25;
+    first.local_width = 3.0;
+    first.placement = SWMM_INLET_ON_SAG;
     int rowIdx = -1;
     ASSERT_EQ(swmm_inlet_usage_set(e, &first, &rowIdx), SWMM_OK);
     ASSERT_GE(rowIdx, 0);
@@ -204,22 +238,20 @@ TEST(InletJunctionLayer, UsageRowSetAndRestoreRoundTrips)
     ASSERT_EQ(swmm_inlet_usage_get(e, found, &snapshot), SWMM_OK);
 
     SWMM_InletUsage second = first;
-    second.num_inlets  = 4;
+    second.num_inlets = 4;
     second.pct_clogged = 40.0;
-    second.placement   = SWMM_INLET_ON_GRADE;
+    second.placement = SWMM_INLET_ON_GRADE;
     ASSERT_EQ(swmm_inlet_usage_set(e, &second, nullptr), SWMM_OK);
 
     SWMM_InletUsage now{};
-    ASSERT_EQ(swmm_inlet_usage_get(e, swmm_inlet_usage_find_link(e, c1), &now),
-              SWMM_OK);
+    ASSERT_EQ(swmm_inlet_usage_get(e, swmm_inlet_usage_find_link(e, c1), &now), SWMM_OK);
     EXPECT_EQ(now.num_inlets, 4);
     EXPECT_DOUBLE_EQ(now.pct_clogged, 40.0);
     EXPECT_EQ(now.placement, SWMM_INLET_ON_GRADE);
 
     // --- undo of the second edit: restore the snapshot ---------------------
     ASSERT_EQ(swmm_inlet_usage_set(e, &snapshot, nullptr), SWMM_OK);
-    ASSERT_EQ(swmm_inlet_usage_get(e, swmm_inlet_usage_find_link(e, c1), &now),
-              SWMM_OK);
+    ASSERT_EQ(swmm_inlet_usage_get(e, swmm_inlet_usage_find_link(e, c1), &now), SWMM_OK);
     EXPECT_EQ(now.num_inlets, 2);
     EXPECT_DOUBLE_EQ(now.pct_clogged, 10.0);
     EXPECT_DOUBLE_EQ(now.flow_limit, 1.5);
@@ -230,8 +262,7 @@ TEST(InletJunctionLayer, UsageRowSetAndRestoreRoundTrips)
     EXPECT_EQ(now.capture_node_idx, sewer);
 
     // --- undo of the FIRST edit: there was no row, so remove ---------------
-    ASSERT_EQ(swmm_inlet_usage_remove(e, swmm_inlet_usage_find_link(e, c1)),
-              SWMM_OK);
+    ASSERT_EQ(swmm_inlet_usage_remove(e, swmm_inlet_usage_find_link(e, c1)), SWMM_OK);
     EXPECT_LT(swmm_inlet_usage_find_link(e, c1), 0);
 
     swmm_engine_destroy(e);
@@ -250,17 +281,17 @@ TEST(InletJunctionLayer, VirtualCaptureNodeIsRefused)
     const int c1 = swmm_link_index(e, "C1");
     ASSERT_GE(c1, 0);
     int newNode = -1, newLink = -1;
-    ASSERT_EQ(swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B",
-                                       "GRATE1", "SEWER",
-                                       &newNode, &newLink), SWMM_OK);
+    ASSERT_EQ(
+        swmm_conduit_split_inlet(e, c1, 0.5, "IJ1", "C1_B", "GRATE1", "SEWER", &newNode, &newLink),
+        SWMM_OK);
 
     // Point a conduit-hosted inlet at the inlet junction just created.
     SWMM_InletUsage bad{};
-    bad.host_kind        = SWMM_INLET_HOST_LINK;
-    bad.host_idx         = swmm_link_index(e, "C1_B");
-    bad.design_idx       = swmm_inlet_index(e, "GRATE1");
+    bad.host_kind = SWMM_INLET_HOST_LINK;
+    bad.host_idx = swmm_link_index(e, "C1_B");
+    bad.design_idx = swmm_inlet_index(e, "GRATE1");
     bad.capture_node_idx = newNode;
-    bad.num_inlets       = 1;
+    bad.num_inlets = 1;
     EXPECT_NE(swmm_inlet_usage_set(e, &bad, nullptr), SWMM_OK)
         << "a virtual / inlet junction must not be accepted as a capture node";
 

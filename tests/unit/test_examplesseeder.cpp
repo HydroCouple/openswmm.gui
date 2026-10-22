@@ -1,6 +1,6 @@
-/*!
- * \file   test_examplesseeder.cpp
- * \brief  Unit tests for the bundled-example seeder/discovery
+/**
+ * @file      test_examplesseeder.cpp
+ * @brief     Unit tests for the bundled-example seeder/discovery
  *         (openswmmvis::project::examples) plus the curated Bellinge
  *         payload guard.
  *
@@ -8,7 +8,12 @@
  * BELLINGE_EXAMPLE_DIR is injected by tests/unit/CMakeLists.txt and points
  * at the committed examples/bellinge_2d payload so payload/curation
  * regressions fail the suite.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QDateTime>
@@ -31,20 +36,41 @@
 
 using namespace openswmmvis::project::examples;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Create parents and truncate/write a test-owned fixture file.
+ * @param path Borrowed destination filename; caller supplies disposable test output.
+ * @param content Borrowed raw bytes written without text-mode conversion.
+ * @return True for successful open and full one-call write; false otherwise.
+ * Parent creation/write-close errors are unchecked; partial files can remain and
+ * previous contents are lost after opening. Handle closes on return, without fsync.
+ *
+ */
 bool writeFile(const QString &path, const QByteArray &content)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
     return f.write(content) == content.size();
 }
 
+/**
+ *
+ * @brief Read fixture bytes for exact copy/seeding assertions.
+ * @param path Borrowed filename opened read-only.
+ * @return Owned contents, or empty on open failure; empty-file and failed-open
+ * results are indistinguishable. Read errors unchecked; closes the file on return.
+ *
+ */
 QByteArray readFile(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) return {};
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
     return f.readAll();
 }
 
@@ -70,8 +96,7 @@ TEST(ExamplesSeeder, CopyMissingSourceFails)
 {
     QTemporaryDir tmp;
     QString err;
-    EXPECT_FALSE(copyDirectoryRecursively(tmp.filePath("nope"),
-                                          tmp.filePath("dst"), &err));
+    EXPECT_FALSE(copyDirectoryRecursively(tmp.filePath("nope"), tmp.filePath("dst"), &err));
     EXPECT_FALSE(err.isEmpty());
 }
 
@@ -106,7 +131,7 @@ TEST(ExamplesSeeder, CopyIsNoOpForUnchangedFiles)
                                   QFileDevice::FileModificationTime));
     }
     ASSERT_TRUE(copyDirectoryRecursively(src, dst, nullptr));
-    EXPECT_EQ(readFile(dst + "/a.inp"), QByteArray("Z"));  // untouched
+    EXPECT_EQ(readFile(dst + "/a.inp"), QByteArray("Z")); // untouched
 
     // A size change must trigger a re-copy.
     ASSERT_TRUE(writeFile(dst + "/a.inp", "ZZ"));
@@ -184,20 +209,22 @@ TEST(ExamplesSeeder, SteadyStateSyncOfRealPayloadIsCheap)
 {
     const QString src = QStringLiteral(EXAMPLES_SOURCE_DIR);
     ASSERT_TRUE(QDir(src).exists()) << EXAMPLES_SOURCE_DIR;
-    QDir out(src); out.cdUp();                                  // <repo>
-    const QString dst = out.filePath(
-        QStringLiteral("tests/output/examplesseeder/steady_state_mirror"));
+    QDir out(src);
+    out.cdUp(); // <repo>
+    const QString dst =
+        out.filePath(QStringLiteral("tests/output/examplesseeder/steady_state_mirror"));
     QDir(dst).removeRecursively();
 
     QString err;
-    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString();  // cold: copies
+    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString(); // cold: copies
 
-    QElapsedTimer t; t.start();
-    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString();  // warm: stats only
+    QElapsedTimer t;
+    t.start();
+    ASSERT_TRUE(syncFromInstall(src, dst, "test", &err)) << err.toStdString(); // warm: stats only
     const qint64 warmMs = t.elapsed();
     RecordProperty("steady_state_sync_ms", static_cast<int>(warmMs));
-    std::printf("[  INFO    ] steady-state sync of %s: %lld ms\n",
-                EXAMPLES_SOURCE_DIR, static_cast<long long>(warmMs));
+    std::printf("[  INFO    ] steady-state sync of %s: %lld ms\n", EXAMPLES_SOURCE_DIR,
+                static_cast<long long>(warmMs));
     EXPECT_LT(warmMs, 250) << "a no-op re-seed should be one stat per file";
 
     // The warm walk touched nothing: a mirrored file keeps the payload mtime.
@@ -217,16 +244,16 @@ TEST(ExamplesSeeder, SyncUnwritableDestinationFails)
     ASSERT_TRUE(writeFile(src + "/model.inp", "M"));
     const QString lockedParent = tmp.filePath("locked");
     ASSERT_TRUE(QDir().mkpath(lockedParent));
-    ASSERT_TRUE(QFile::setPermissions(
-        lockedParent, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    ASSERT_TRUE(
+        QFile::setPermissions(lockedParent, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
 
     QString err;
     EXPECT_FALSE(syncFromInstall(src, lockedParent + "/examples", "6.0.0", &err));
     EXPECT_FALSE(err.isEmpty());
 
     QFile::setPermissions(lockedParent,
-                          QFileDevice::ReadOwner | QFileDevice::WriteOwner
-                              | QFileDevice::ExeOwner);  // let QTemporaryDir clean up
+                          QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                              QFileDevice::ExeOwner); // let QTemporaryDir clean up
 }
 #endif
 
@@ -252,7 +279,7 @@ TEST(ExamplesSeeder, DiscoveryFindsDirAndFlatExamples)
     const QVector<ExampleInfo> found = discoverExamples(root);
     ASSERT_EQ(found.size(), 3);
 
-    const ExampleInfo &big = found[0];   // subdirs sorted first
+    const ExampleInfo &big = found[0]; // subdirs sorted first
     EXPECT_TRUE(big.isDirectory);
     EXPECT_EQ(big.displayName, QStringLiteral("Big Model"));
     EXPECT_EQ(big.description, QStringLiteral("Desc."));
@@ -301,8 +328,7 @@ TEST(BellingeExample, CuratedPayloadIsSelfContained)
     const QString dir = QStringLiteral(BELLINGE_EXAMPLE_DIR);
     ASSERT_TRUE(QFileInfo(dir).isDir()) << dir.toStdString();
 
-    const QString oswp =
-        dir + QStringLiteral("/BellingeSWMM_v021_nopervious.oswp");
+    const QString oswp = dir + QStringLiteral("/BellingeSWMM_v021_nopervious.oswp");
     QFile f(oswp);
     ASSERT_TRUE(f.open(QIODevice::ReadOnly));
     QJsonParseError parseErr{};
@@ -319,8 +345,8 @@ TEST(BellingeExample, CuratedPayloadIsSelfContained)
     EXPECT_FALSE(s.contains(QStringLiteral("resultLayerSublayers")));
 
     // Every remaining stored path resolves to a file that ships.
-    const QString inpPath = ProjectSerializer::resolveStoredPath(
-        s.value(QStringLiteral("inpPath")).toString(), oswp);
+    const QString inpPath =
+        ProjectSerializer::resolveStoredPath(s.value(QStringLiteral("inpPath")).toString(), oswp);
     EXPECT_TRUE(QFile::exists(inpPath)) << inpPath.toStdString();
 
     for (const QJsonValue &m : s.value(QStringLiteral("meshLayers")).toArray()) {
@@ -333,14 +359,17 @@ TEST(BellingeExample, CuratedPayloadIsSelfContained)
     QFile manifest(dir + QStringLiteral("/example.json"));
     ASSERT_TRUE(manifest.open(QIODevice::ReadOnly));
     EXPECT_FALSE(QJsonDocument::fromJson(manifest.readAll())
-                     .object().value(QStringLiteral("name"))
-                     .toString().isEmpty());
+                     .object()
+                     .value(QStringLiteral("name"))
+                     .toString()
+                     .isEmpty());
 
     // Excluded-by-design artifacts must never sneak into the payload.
     const QDir d(dir);
     EXPECT_TRUE(d.entryList({QStringLiteral("*.ovr"), QStringLiteral("*.out"),
                              QStringLiteral("*.rpt"), QStringLiteral("*.2d.h5")},
-                            QDir::Files).isEmpty());
+                            QDir::Files)
+                    .isEmpty());
 }
 
 // The deck must declare its CRS, and it must be the one the mesh was built in.
@@ -368,13 +397,11 @@ TEST(BellingeExample, DeclaresTheProjectedCrsAndAgreesWithTheMesh)
 
     // The [OPTIONS] CRS key, as the engine's reader sees it: whitespace-split,
     // value = second token.
-    const QRegularExpression crsLine(
-        QStringLiteral("^CRS[ \\t]+(\\S+)"),
-        QRegularExpression::MultilineOption);
+    const QRegularExpression crsLine(QStringLiteral("^CRS[ \\t]+(\\S+)"),
+                                     QRegularExpression::MultilineOption);
     const QRegularExpressionMatch m = crsLine.match(deck);
-    ASSERT_TRUE(m.hasMatch())
-        << "the Bellinge deck declares no [OPTIONS] CRS - it will open as a "
-           "local, unprojected model";
+    ASSERT_TRUE(m.hasMatch()) << "the Bellinge deck declares no [OPTIONS] CRS - it will open as a "
+                                 "local, unprojected model";
     EXPECT_EQ(m.captured(1), QStringLiteral("EPSG:25832"));
 
     // The mesh header records the frame the mesh was generated in.
@@ -410,9 +437,9 @@ TEST(SwashesExamples, CuratedPayloadIsInputOnly)
 
         // Every shipped file is an input the GUI or the user reads.
         const QStringList allowed{
-            QStringLiteral("1d_dynwave.inp"), QStringLiteral("1d_fv.inp"),
+            QStringLiteral("1d_dynwave.inp"),  QStringLiteral("1d_fv.inp"),
             QStringLiteral("2d_explicit.inp"), QStringLiteral("reference.csv"),
-            QStringLiteral("example.json"), QStringLiteral("README.md")};
+            QStringLiteral("example.json"),    QStringLiteral("README.md")};
         const QStringList files =
             d.entryList(QDir::Files | QDir::Hidden | QDir::System, QDir::Name);
         for (const QString &f : files)
@@ -430,10 +457,8 @@ TEST(SwashesExamples, CuratedPayloadIsInputOnly)
             QFile f(d.absoluteFilePath(deck));
             ASSERT_TRUE(f.open(QIODevice::ReadOnly)) << deck.toStdString();
             const QString text = QString::fromUtf8(f.readAll());
-            EXPECT_FALSE(text.contains(QStringLiteral("[FILES]")))
-                << deck.toStdString();
-            EXPECT_FALSE(text.contains(QStringLiteral("/Users/")))
-                << deck.toStdString();
+            EXPECT_FALSE(text.contains(QStringLiteral("[FILES]"))) << deck.toStdString();
+            EXPECT_FALSE(text.contains(QStringLiteral("/Users/"))) << deck.toStdString();
         }
 
         // Manifest carries the display name and the shared category that
@@ -458,19 +483,36 @@ TEST(SwashesExamples, CuratedPayloadIsInputOnly)
 // with conduit Length equal to plan distance. Before this gate the 1D chains
 // ran along the 2D strip's bottom wall (y = 0 vs a strip on [0, W]).
 
-namespace {
+namespace
+{
 
-struct XY { double x = 0, y = 0; };
+struct XY {
+    double x = 0, y = 0;
+};
 
 //! Parses `[SECTION]` rows of an .inp into token lists (comments/blank skipped).
+/**
+ *
+ * @brief Extract whitespace-tokenized rows from exact input-section headers.
+ * @param text Borrowed full input text, split at LF and trimmed per line.
+ * @param section Borrowed exact case-sensitive bracketed header, such as [CONDUITS].
+ * @return Owned tokens from matching sections, skipping blank lines and full-line
+ * semicolon comments. Any new bracket-starting line changes section state; inline
+ * comments/quoted fields are not parsed. No complete SWMM grammar validation.
+ *
+ */
 QVector<QStringList> sectionRows(const QString &text, const QString &section)
 {
     QVector<QStringList> rows;
     bool in = false;
     for (const QString &raw : text.split(QLatin1Char('\n'))) {
         const QString line = raw.trimmed();
-        if (line.startsWith(QLatin1Char('['))) { in = (line == section); continue; }
-        if (!in || line.isEmpty() || line.startsWith(QLatin1Char(';'))) continue;
+        if (line.startsWith(QLatin1Char('['))) {
+            in = (line == section);
+            continue;
+        }
+        if (!in || line.isEmpty() || line.startsWith(QLatin1Char(';')))
+            continue;
         rows.append(line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts));
     }
     return rows;
@@ -484,13 +526,16 @@ TEST(SwashesExamples, DecksShareOneFrame)
     ASSERT_TRUE(examples.exists()) << EXAMPLES_SOURCE_DIR;
     int checked1d = 0, checked2d = 0;
 
-    for (const QString &name : examples.entryList({QStringLiteral("swashes_*")}, QDir::Dirs, QDir::Name)) {
+    for (const QString &name :
+         examples.entryList({QStringLiteral("swashes_*")}, QDir::Dirs, QDir::Name)) {
         const QDir d(examples.absoluteFilePath(name));
         SCOPED_TRACE(name.toStdString());
 
         // 1D decks: a straight chain along +x on y = 0, starting at 0.
-        for (const QString &deck : {QStringLiteral("1d_dynwave.inp"), QStringLiteral("1d_fv.inp")}) {
-            if (!QFile::exists(d.absoluteFilePath(deck))) continue;
+        for (const QString &deck :
+             {QStringLiteral("1d_dynwave.inp"), QStringLiteral("1d_fv.inp")}) {
+            if (!QFile::exists(d.absoluteFilePath(deck)))
+                continue;
             SCOPED_TRACE(deck.toStdString());
             const QString text = QString::fromUtf8(readFile(d.absoluteFilePath(deck)));
             const auto coords = sectionRows(text, QStringLiteral("[COORDINATES]"));
@@ -500,13 +545,14 @@ TEST(SwashesExamples, DecksShareOneFrame)
                 ASSERT_EQ(r.size(), 3) << r.join(' ').toStdString();
                 const double x = r[1].toDouble(), y = r[2].toDouble();
                 EXPECT_DOUBLE_EQ(y, 0.0) << r[0].toStdString();
-                EXPECT_GE(x, prevX) << r[0].toStdString();          // written in chainage order
+                EXPECT_GE(x, prevX) << r[0].toStdString(); // written in chainage order
                 prevX = x;
             }
-            EXPECT_DOUBLE_EQ(coords.first()[1].toDouble(), 0.0);   // starts at the origin
+            EXPECT_DOUBLE_EQ(coords.first()[1].toDouble(), 0.0); // starts at the origin
             // Every conduit's Length equals its plan distance (straight chain).
             QMap<QString, XY> at;
-            for (const QStringList &r : coords) at[r[0]] = {r[1].toDouble(), r[2].toDouble()};
+            for (const QStringList &r : coords)
+                at[r[0]] = {r[1].toDouble(), r[2].toDouble()};
             for (const QStringList &c : sectionRows(text, QStringLiteral("[CONDUITS]"))) {
                 ASSERT_TRUE(at.contains(c[1]) && at.contains(c[2])) << c[0].toStdString();
                 const double plan = std::hypot(at[c[2]].x - at[c[1]].x, at[c[2]].y - at[c[1]].y);
@@ -517,15 +563,18 @@ TEST(SwashesExamples, DecksShareOneFrame)
 
         // 2D deck: strip centred on y = 0, x from 0; dummy pair past the outlet.
         if (QFile::exists(d.absoluteFilePath(QStringLiteral("2d_explicit.inp")))) {
-            const QString text = QString::fromUtf8(readFile(d.absoluteFilePath(QStringLiteral("2d_explicit.inp"))));
+            const QString text =
+                QString::fromUtf8(readFile(d.absoluteFilePath(QStringLiteral("2d_explicit.inp"))));
             const auto verts = sectionRows(text, QStringLiteral("[2D_VERTICES]"));
             ASSERT_GE(verts.size(), 4);
             double xmin = 1e300, xmax = -1e300, ymin = 1e300, ymax = -1e300;
             for (const QStringList &v : verts) {
                 ASSERT_EQ(v.size(), 3) << v.join(' ').toStdString();
                 const double x = v[0].toDouble(), y = v[1].toDouble();
-                xmin = std::min(xmin, x); xmax = std::max(xmax, x);
-                ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+                xmin = std::min(xmin, x);
+                xmax = std::max(xmax, x);
+                ymin = std::min(ymin, y);
+                ymax = std::max(ymax, y);
             }
             EXPECT_DOUBLE_EQ(xmin, 0.0);
             EXPECT_NEAR(ymin, -ymax, 1e-9) << "strip not centred on y = 0";
@@ -541,9 +590,11 @@ TEST(SwashesExamples, DecksShareOneFrame)
             }
             bool sawCd1 = false;
             for (const QStringList &c : sectionRows(text, QStringLiteral("[CONDUITS]"))) {
-                if (c[0] != QStringLiteral("CD1")) continue;
+                if (c[0] != QStringLiteral("CD1"))
+                    continue;
                 sawCd1 = true;
-                EXPECT_NEAR(c[3].toDouble(), at[QStringLiteral("OD1")].x - at[QStringLiteral("JD1")].x, 1e-6)
+                EXPECT_NEAR(c[3].toDouble(),
+                            at[QStringLiteral("OD1")].x - at[QStringLiteral("JD1")].x, 1e-6)
                     << "CD1 Length must equal its plan distance";
             }
             EXPECT_TRUE(sawCd1);

@@ -1,8 +1,9 @@
-/*!
- * \file   burnedrasterwriter.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      burnedrasterwriter.h
+ * @brief     Writing the burned DEM (CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.5, D1, phase P1).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Writing the burned DEM (CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.5, D1, phase P1).
  *
@@ -11,7 +12,9 @@
  * against the study domain. The shared section callback gives raster export
  * and mesh refinement the same bathymetry, including sub-pixel channels.
  * The source raster is never modified.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_BURNEDRASTERWRITER_H
 #define OPENSWMMVIS_MESH_BURNEDRASTERWRITER_H
 
@@ -23,29 +26,28 @@
 
 #include <functional>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief What the burn did to one conduit, for the report CSV. */
-struct BurnConduitStats
-{
+struct BurnConduitStats {
     QString conduitId;
-    qint64  replaced   = 0;
-    qint64  lowered    = 0;
-    qint64  unchanged  = 0;
-    qint64  noDataKept = 0;
-    double  maxIncision = 0.0;   ///< Deepest cut below the ORIGINAL DEM, raster units.
+    qint64 replaced = 0;
+    qint64 lowered = 0;
+    qint64 unchanged = 0;
+    qint64 noDataKept = 0;
+    double maxIncision = 0.0; ///< Deepest cut below the ORIGINAL DEM, raster units.
 };
 
 /*! \brief What the burn did overall. */
-struct BurnRasterStats
-{
-    qint64 pixelsVisited   = 0;
-    qint64 pixelsReplaced  = 0;
-    qint64 pixelsLowered   = 0;
+struct BurnRasterStats {
+    qint64 pixelsVisited = 0;
+    qint64 pixelsReplaced = 0;
+    qint64 pixelsLowered = 0;
     qint64 pixelsUnchanged = 0;
-    qint64 pixelsNoData    = 0;
-    double maxIncision     = 0.0;
-    QVector<BurnConduitStats> perConduit;   ///< Parallel to the request's profiles.
+    qint64 pixelsNoData = 0;
+    double maxIncision = 0.0;
+    QVector<BurnConduitStats> perConduit; ///< Parallel to the request's profiles.
     QStringList warnings;
 };
 
@@ -56,11 +58,10 @@ struct BurnRasterStats
  *       and rasterToProfileZ for mixed raster/mesh coordinates or units.
  *       Without callbacks, profiles use the raster's frame (legacy callers).
  */
-struct BurnRasterRequest
-{
+struct BurnRasterRequest {
     QString sourcePath;
-    QString outputPath;         ///< Job-owned physical stage; absent or an empty regular file.
-    QString logicalOutputPath;  ///< Final DEM path for report metadata; empty uses outputPath.
+    QString outputPath;        ///< Job-owned physical stage; absent or an empty regular file.
+    QString logicalOutputPath; ///< Final DEM path for report metadata; empty uses outputPath.
     /*! Overlay mode (single-band sources): outputPath becomes a VRT that
      *  paints a sparse tiles GeoTIFF over the source DEM, and only the tiles
      *  the burn changes are written, here (job-owned, absent or empty). The
@@ -69,9 +70,9 @@ struct BurnRasterRequest
      *  Empty = copy the whole source (the previous behaviour). */
     QString overlayTilesPath;
     QString overlayTilesName;
-    int     band = 1;
+    int band = 1;
     QVector<BurnProfile> profiles;
-    BurnRule             rule;
+    BurnRule rule;
     // Optional inverse transform: query each raster pixel in the physical
     // profile frame. Widths are never approximated by a single CRS scale.
     std::function<bool(QPointF *)> toProfileFrame;
@@ -107,8 +108,7 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
  *        report rather than inferred later.
  */
 bool writeBurnReport(const QString &path, const BurnRasterRequest &req,
-                     const BurnRasterStats &stats, const QString &unitsLine,
-                     QString *err);
+                     const BurnRasterStats &stats, const QString &unitsLine, QString *err);
 
 } // namespace mesh
 

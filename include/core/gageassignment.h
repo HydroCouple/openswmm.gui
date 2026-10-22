@@ -1,10 +1,10 @@
-/*!
- * \file   gageassignment.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Spatial rules that bind rain gages to subcatchments.
- * \details Two rules live here:
+/**
+ * @file      gageassignment.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Spatial rules that bind rain gages to subcatchments.
+ * @details Two rules live here:
  *
  *          - Thiessen area-majority — the share of a subcatchment's area that
  *            falls inside each gage's Voronoi cell, and the winning gage. The
@@ -23,6 +23,7 @@
  *
  *          Rings follow the SWMM `[POLYGONS]` convention: OPEN (no repeated
  *          closing vertex), as produced by EditGeometry::cleanPolygonRing.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_CORE_GAGEASSIGNMENT_H
@@ -65,9 +66,11 @@ constexpr int kDefaultSampleTarget = 200;
  *          even though the ring itself may be degenerate. Only ever consume the
  *          area of the output, never its outline.
  * \returns The clipped open ring; empty when nothing survives.
+ * @param[in] ring Ordered open ring in a common Euclidean coordinate frame.
+ * @param[in] keep Site whose half-plane is retained, including its bisector boundary.
+ * @param[in] drop Competing site in the same frame.
  */
-[[nodiscard]] QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring,
-                                             const QPointF &keep,
+[[nodiscard]] QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring, const QPointF &keep,
                                              const QPointF &drop);
 
 /*!
@@ -89,8 +92,7 @@ constexpr int kDefaultSampleTarget = 200;
  * \param fractionOut  When non-null, receives the winner's share of the total.
  * \returns The winning index, or -1 when every share is zero.
  */
-[[nodiscard]] int areaMajorityGage(const QVector<double> &shares,
-                                   double *fractionOut = nullptr);
+[[nodiscard]] int areaMajorityGage(const QVector<double> &shares, double *fractionOut = nullptr);
 
 /*!
  * \brief Reusable Thiessen geometry for one gage network.
@@ -117,28 +119,40 @@ class ThiessenIndex
 {
 public:
     /*! \param extent  Must contain every ring that will be queried. The sites
-     *                 are added to it automatically. */
+     *                 are added to it automatically.     * @brief Replace the index with reusable Voronoi bounds and neighbor lists.
+     * @param[in] sites Site positions copied into the index; coincident later sites are shadowed.
+     * @details Build must not overlap concurrent queries; the completed index can be shared for read-only queries.
+     */
     void build(const QVector<QPointF> &sites, const QRectF &extent);
 
+    /**
+     * @brief Count all supplied sites, including shadowed coincident entries.
+     * @return Length of the index-aligned share vector.
+     */
     [[nodiscard]] int siteCount() const { return int(m_sites.size()); }
 
-    /*! \brief Same contract as thiessenAreaShares(ring, sites). */
+    /*! \brief Same contract as thiessenAreaShares(ring, sites).     * @param[in] ring Open ring contained by the extent supplied to build(), in the site coordinate frame.
+     * @return One area per indexed site in squared coordinate units; degenerate rings produce zeros.
+     */
     [[nodiscard]] QVector<double> areaShares(const QVector<QPointF> &ring) const;
 
     /*! \brief Index of the site nearest \p p (ties toward the lowest index;
-     *         a shadowed coincident site never wins). -1 when empty. */
+     *         a shadowed coincident site never wins). -1 when empty.     * @param[in] p Query position in the indexed sites' coordinate frame.
+     * @return Lowest-index nearest nonshadowed site, or -1 when none exists.
+     */
     [[nodiscard]] int nearestSite(const QPointF &p) const;
 
     /*! \brief True when the Delaunay neighbour lists were used (false means
-     *         the all-pairs fallback). For tests and diagnostics. */
+     *         the all-pairs fallback). For tests and diagnostics.     * @return True when build() obtained Delaunay neighbor lists; false before build or when all-pairs fallback is used.
+     */
     [[nodiscard]] bool usesDelaunay() const { return m_delaunay; }
 
 private:
-    QVector<QPointF>      m_sites;
-    QVector<bool>         m_shadowed;  ///< Coincident with a lower index.
-    QVector<QVector<int>> m_nbrs;      ///< Half-planes that bound each cell.
-    QVector<QRectF>       m_cellBox;   ///< Null when the cell is empty.
-    bool                  m_delaunay = false;
+    QVector<QPointF> m_sites;
+    QVector<bool> m_shadowed;     ///< Coincident with a lower index.
+    QVector<QVector<int>> m_nbrs; ///< Half-planes that bound each cell.
+    QVector<QRectF> m_cellBox;    ///< Null when the cell is empty.
+    bool m_delaunay = false;
 };
 
 // ===========================================================================
@@ -169,6 +183,8 @@ private:
  * \returns (site index, weight) pairs sorted ascending by index — sorted order
  *          is required, since cluster keys are built from these and must not
  *          depend on hash iteration order. Empty when \p sites is empty.
+ * @param[in] p Query coordinate in the same Euclidean frame as the sites.
+ * @param[in] sites Indexed gage locations; a coincident first site receives the full weight.
  */
 [[nodiscard]] QVector<QPair<int, double>> idwWeights(const QPointF &p,
                                                      const QVector<QPointF> &sites);
@@ -183,11 +199,14 @@ private:
  *          compare equal. Quantisation makes the comparison integral, so no
  *          floating-point tolerance leaks into the grouping.
  */
-struct ClusterKey
-{
-    QVector<QPair<int, long long>> terms;      ///< (gage index, quantum), sorted by index.
-    QString                        serialized; ///< "3:57|7:29|11:14"; "" when empty.
+struct ClusterKey {
+    QVector<QPair<int, long long>> terms; ///< (gage index, quantum), sorted by index.
+    QString serialized;                   ///< "3:57|7:29|11:14"; "" when empty.
 
+    /**
+     * @brief Test whether quantization retained any gage contribution.
+     * @return True when the canonical term list is empty.
+     */
     [[nodiscard]] bool isEmpty() const { return terms.isEmpty(); }
 };
 
@@ -203,8 +222,7 @@ struct ClusterKey
  * \param wEps  Zero-clamp threshold.
  * \returns The key; empty when \p w has no positive entry.
  */
-[[nodiscard]] ClusterKey quantizeWeights(const QVector<double> &w,
-                                         double tol  = kDefaultClusterTol,
+[[nodiscard]] ClusterKey quantizeWeights(const QVector<double> &w, double tol = kDefaultClusterTol,
                                          double wEps = kWeightEpsilon);
 
 /*!
@@ -215,10 +233,9 @@ struct ClusterKey
  * \param key     As returned by quantizeWeights().
  * \param tol     The same tolerance passed to quantizeWeights().
  * \param nGages  Length of the returned vector.
+ * @return Dense weights indexed by gage, each retained quantum multiplied by tol; out-of-range key indexes are ignored. Nonpositive tol returns zeros; no additional normalization is performed.
  */
-[[nodiscard]] QVector<double> dequantizeWeights(const ClusterKey &key,
-                                                double tol,
-                                                int nGages);
+[[nodiscard]] QVector<double> dequantizeWeights(const ClusterKey &key, double tol, int nGages);
 
 } // namespace GageAssignment
 

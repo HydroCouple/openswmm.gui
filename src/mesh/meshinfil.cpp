@@ -14,8 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*! \file meshinfil.cpp
- *  \brief Implementation of the per-cell 2D infiltration value types,
+/**
+ * @file      meshinfil.cpp
+ * @brief     Implementation of the per-cell 2D infiltration value types,
  *         resolution and token grammar declared in meshinfil.h.
  *
  *  Tokens, positional parameter order and destination spellings are copied
@@ -23,7 +24,12 @@
  *  (`parseInfil2DMethod` / `infil2DMethodToken` / `infil2DParamCount`) — the
  *  two sides read and write the same `[2D_INFILTRATION*]` sections, so any
  *  divergence here is a silent data-loss bug.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   Apache-2.0
  */
+
 #include "mesh/meshinfil.h"
 
 #include "mesh/meshresult.h"
@@ -36,19 +42,29 @@
 
 #include <cmath>
 
-namespace mesh {
+namespace mesh
+{
 
-namespace {
+namespace
+{
 
-const auto tr = [](const char *s) {
-    return QCoreApplication::translate("MeshInfil", s);
-};
+const auto tr = [](const char *s) { return QCoreApplication::translate("MeshInfil", s); };
 
-/*! Slot-by-slot equality that treats two NaNs (both "unset") as equal.
- *  Plain `==` would report every unset slot as different from itself. */
+/**
+ * @brief Compare two infiltration parameters while treating two unset NaN sentinels as equal.
+ * @param[in] a First value in the same project-unit parameter convention as b.
+ * @param[in] b Second value, unchanged.
+ * @return True if both NaN or ordinary exact equality holds, false otherwise. No tolerance,
+ * finite/range validation, unit conversion or state mutation; infinities compare by standard
+ * floating equality.
+ *
+ * @details Slot-by-slot equality that treats two NaNs (both "unset") as equal. Plain `==` would
+ * report every unset slot as different from itself.
+ */
 bool sameParam(double a, double b)
 {
-    if (std::isnan(a) && std::isnan(b)) return true;
+    if (std::isnan(a) && std::isnan(b))
+        return true;
     return a == b;
 }
 
@@ -56,9 +72,11 @@ bool sameParam(double a, double b)
 
 bool InfilRow::operator==(const InfilRow &o) const
 {
-    if (method != o.method || dest != o.dest) return false;
+    if (method != o.method || dest != o.dest)
+        return false;
     for (int k = 0; k < kInfilMaxParams; ++k)
-        if (!sameParam(p[k], o.p[k])) return false;
+        if (!sameParam(p[k], o.p[k]))
+            return false;
     return true;
 }
 
@@ -69,7 +87,8 @@ bool InfilRow::operator==(const InfilRow &o) const
 int indexOfDefault(const MeshResult &mesh, const QString &tag)
 {
     for (int i = 0; i < mesh.infilDefaults.size(); ++i)
-        if (mesh.infilDefaults[i].tag == tag) return i;
+        if (mesh.infilDefaults[i].tag == tag)
+            return i;
     return -1;
 }
 
@@ -93,11 +112,12 @@ InfilRow starDefault(const MeshResult &mesh)
 ResolvedInfil resolveInfil(const MeshResult &mesh, int tri)
 {
     ResolvedInfil out;
-    if (tri < 0 || tri >= mesh.triangles.size()) return out;
+    if (tri < 0 || tri >= mesh.triangles.size())
+        return out;
 
     const auto ov = mesh.infilOverrides.constFind(tri);
     if (ov != mesh.infilOverrides.constEnd()) {
-        out.row        = ov.value();
+        out.row = ov.value();
         out.provenance = InfilProvenance::Override;
         return out;
     }
@@ -106,18 +126,18 @@ ResolvedInfil resolveInfil(const MeshResult &mesh, int tri)
     if (!tag.isEmpty()) {
         const int i = indexOfDefault(mesh, tag);
         if (i >= 0) {
-            out.row        = mesh.infilDefaults[i].row;
+            out.row = mesh.infilDefaults[i].row;
             out.provenance = InfilProvenance::Tag;
-            out.sourceTag  = tag;
+            out.sourceTag = tag;
             return out;
         }
     }
 
     const int s = indexOfDefault(mesh, QStringLiteral("*"));
     if (s >= 0) {
-        out.row        = mesh.infilDefaults[s].row;
+        out.row = mesh.infilDefaults[s].row;
         out.provenance = InfilProvenance::Star;
-        out.sourceTag  = QStringLiteral("*");
+        out.sourceTag = QStringLiteral("*");
     }
     return out;
 }
@@ -128,18 +148,24 @@ ResolvedInfil resolveInfil(const MeshResult &mesh, int tri)
 
 bool infilUsesParam(InfilMethod method, int slot)
 {
-    if (slot < 0 || slot >= kInfilMaxParams) return false;
+    if (slot < 0 || slot >= kInfilMaxParams)
+        return false;
     switch (method) {
-    case InfilMethod::None:         return false;
+    case InfilMethod::None:
+        return false;
     case InfilMethod::Horton:
-    case InfilMethod::ModHorton:    return true;                 // f0 fmin decay dry Fmax
+    case InfilMethod::ModHorton:
+        return true; // f0 fmin decay dry Fmax
     case InfilMethod::GreenAmpt:
-    case InfilMethod::ModGreenAmpt: return slot <= 2;            // S Ks IMD
+    case InfilMethod::ModGreenAmpt:
+        return slot <= 2; // S Ks IMD
     // Slot 1 is the legacy [INFILTRATION] no-op column: Curve Number reads
     // CN from slot 0 and the drying time from slot 2, so the middle column
     // is a placeholder the writer emits as "-".
-    case InfilMethod::CurveNumber:  return slot == 0 || slot == 2;
-    case InfilMethod::Constant:     return slot == 0;            // rate
+    case InfilMethod::CurveNumber:
+        return slot == 0 || slot == 2;
+    case InfilMethod::Constant:
+        return slot == 0; // rate
     }
     return false;
 }
@@ -147,38 +173,52 @@ bool infilUsesParam(InfilMethod method, int slot)
 int infilParamCount(InfilMethod method)
 {
     switch (method) {
-    case InfilMethod::None:         return 0;
+    case InfilMethod::None:
+        return 0;
     case InfilMethod::Horton:
-    case InfilMethod::ModHorton:    return 5;
+    case InfilMethod::ModHorton:
+        return 5;
     case InfilMethod::GreenAmpt:
-    case InfilMethod::ModGreenAmpt: return 3;
+    case InfilMethod::ModGreenAmpt:
+        return 3;
     // Three COLUMNS, not three values — the middle one is the unused
     // placeholder (see infilUsesParam).
-    case InfilMethod::CurveNumber:  return 3;
-    case InfilMethod::Constant:     return 1;
+    case InfilMethod::CurveNumber:
+        return 3;
+    case InfilMethod::Constant:
+        return 1;
     }
     return 0;
 }
 
 QString infilParamLabel(InfilMethod method, int slot)
 {
-    if (!infilUsesParam(method, slot)) return {};
+    if (!infilUsesParam(method, slot))
+        return {};
     switch (method) {
     case InfilMethod::Horton:
     case InfilMethod::ModHorton:
         switch (slot) {
-        case 0:  return tr("Max. Infil. Rate (f0)");
-        case 1:  return tr("Min. Infil. Rate (fmin)");
-        case 2:  return tr("Decay Constant (1/hr)");
-        case 3:  return tr("Drying Time (days)");
-        default: return tr("Max. Infil. Volume (Fmax)");
+        case 0:
+            return tr("Max. Infil. Rate (f0)");
+        case 1:
+            return tr("Min. Infil. Rate (fmin)");
+        case 2:
+            return tr("Decay Constant (1/hr)");
+        case 3:
+            return tr("Drying Time (days)");
+        default:
+            return tr("Max. Infil. Volume (Fmax)");
         }
     case InfilMethod::GreenAmpt:
     case InfilMethod::ModGreenAmpt:
         switch (slot) {
-        case 0:  return tr("Suction Head");
-        case 1:  return tr("Conductivity (Ks)");
-        default: return tr("Initial Deficit (IMD)");
+        case 0:
+            return tr("Suction Head");
+        case 1:
+            return tr("Conductivity (Ks)");
+        default:
+            return tr("Initial Deficit (IMD)");
         }
     case InfilMethod::CurveNumber:
         return slot == 0 ? tr("Curve Number (CN)") : tr("Drying Time (days)");
@@ -192,30 +232,38 @@ QString infilParamLabel(InfilMethod method, int slot)
 
 QByteArray infilParamKey(InfilMethod method, int slot)
 {
-    if (!infilUsesParam(method, slot)) return {};
+    if (!infilUsesParam(method, slot))
+        return {};
     switch (method) {
     case InfilMethod::Horton:
     case InfilMethod::ModHorton:
         switch (slot) {
-        case 0:  return QByteArrayLiteral("infil.f0");
-        case 1:  return QByteArrayLiteral("infil.fmin");
-        case 2:  return QByteArrayLiteral("infil.decay");
-        case 3:  return QByteArrayLiteral("infil.dryTime");
-        default: return QByteArrayLiteral("infil.Fmax");
+        case 0:
+            return QByteArrayLiteral("infil.f0");
+        case 1:
+            return QByteArrayLiteral("infil.fmin");
+        case 2:
+            return QByteArrayLiteral("infil.decay");
+        case 3:
+            return QByteArrayLiteral("infil.dryTime");
+        default:
+            return QByteArrayLiteral("infil.Fmax");
         }
     case InfilMethod::GreenAmpt:
     case InfilMethod::ModGreenAmpt:
         switch (slot) {
-        case 0:  return QByteArrayLiteral("infil.suction");
-        case 1:  return QByteArrayLiteral("infil.Ks");
-        default: return QByteArrayLiteral("infil.IMD");
+        case 0:
+            return QByteArrayLiteral("infil.suction");
+        case 1:
+            return QByteArrayLiteral("infil.Ks");
+        default:
+            return QByteArrayLiteral("infil.IMD");
         }
     // Curve Number shares `infil.dryTime` with Horton but at slot 2, not
     // slot 3 — which is precisely why the key <-> slot mapping has to stay
     // method-dependent rather than becoming a flat table.
     case InfilMethod::CurveNumber:
-        return slot == 0 ? QByteArrayLiteral("infil.CN")
-                         : QByteArrayLiteral("infil.dryTime");
+        return slot == 0 ? QByteArrayLiteral("infil.CN") : QByteArrayLiteral("infil.dryTime");
     case InfilMethod::Constant:
         return QByteArrayLiteral("infil.rate");
     case InfilMethod::None:
@@ -226,25 +274,22 @@ QByteArray infilParamKey(InfilMethod method, int slot)
 
 int infilSlotForKey(InfilMethod method, const QByteArray &key)
 {
-    if (key.isEmpty()) return -1;
+    if (key.isEmpty())
+        return -1;
     for (int slot = 0; slot < kInfilMaxParams; ++slot)
-        if (infilParamKey(method, slot) == key) return slot;
+        if (infilParamKey(method, slot) == key)
+            return slot;
     return -1;
 }
 
 const QVector<QByteArray> &infilParamKeys()
 {
     static const QVector<QByteArray> keys = {
-        QByteArrayLiteral("infil.f0"),
-        QByteArrayLiteral("infil.fmin"),
-        QByteArrayLiteral("infil.decay"),
-        QByteArrayLiteral("infil.dryTime"),
-        QByteArrayLiteral("infil.Fmax"),
-        QByteArrayLiteral("infil.suction"),
-        QByteArrayLiteral("infil.Ks"),
-        QByteArrayLiteral("infil.IMD"),
-        QByteArrayLiteral("infil.CN"),
-        QByteArrayLiteral("infil.rate"),
+        QByteArrayLiteral("infil.f0"),    QByteArrayLiteral("infil.fmin"),
+        QByteArrayLiteral("infil.decay"), QByteArrayLiteral("infil.dryTime"),
+        QByteArrayLiteral("infil.Fmax"),  QByteArrayLiteral("infil.suction"),
+        QByteArrayLiteral("infil.Ks"),    QByteArrayLiteral("infil.IMD"),
+        QByteArrayLiteral("infil.CN"),    QByteArrayLiteral("infil.rate"),
     };
     return keys;
 }
@@ -256,20 +301,28 @@ const QVector<QByteArray> &infilParamKeys()
 QString infilMethodToken(InfilMethod m)
 {
     switch (m) {
-    case InfilMethod::Horton:       return QStringLiteral("HORTON");
-    case InfilMethod::ModHorton:    return QStringLiteral("MODIFIED_HORTON");
-    case InfilMethod::GreenAmpt:    return QStringLiteral("GREEN_AMPT");
-    case InfilMethod::ModGreenAmpt: return QStringLiteral("MODIFIED_GREEN_AMPT");
-    case InfilMethod::CurveNumber:  return QStringLiteral("CURVE_NUMBER");
-    case InfilMethod::Constant:     return QStringLiteral("CONSTANT");
-    case InfilMethod::None:         break;
+    case InfilMethod::Horton:
+        return QStringLiteral("HORTON");
+    case InfilMethod::ModHorton:
+        return QStringLiteral("MODIFIED_HORTON");
+    case InfilMethod::GreenAmpt:
+        return QStringLiteral("GREEN_AMPT");
+    case InfilMethod::ModGreenAmpt:
+        return QStringLiteral("MODIFIED_GREEN_AMPT");
+    case InfilMethod::CurveNumber:
+        return QStringLiteral("CURVE_NUMBER");
+    case InfilMethod::Constant:
+        return QStringLiteral("CONSTANT");
+    case InfilMethod::None:
+        break;
     }
     return QStringLiteral("NONE");
 }
 
 InfilMethod infilMethodFromToken(const QString &token, bool *ok)
 {
-    if (ok) *ok = true;
+    if (ok)
+        *ok = true;
     const QString t = token.trimmed();
     if (t.compare(QLatin1String("NONE"), Qt::CaseInsensitive) == 0)
         return InfilMethod::None;
@@ -285,20 +338,28 @@ InfilMethod infilMethodFromToken(const QString &token, bool *ok)
         return InfilMethod::CurveNumber;
     if (t.compare(QLatin1String("CONSTANT"), Qt::CaseInsensitive) == 0)
         return InfilMethod::Constant;
-    if (ok) *ok = false;
+    if (ok)
+        *ok = false;
     return InfilMethod::None;
 }
 
 QString infilMethodLabel(InfilMethod m)
 {
     switch (m) {
-    case InfilMethod::Horton:       return tr("Horton");
-    case InfilMethod::ModHorton:    return tr("Modified Horton");
-    case InfilMethod::GreenAmpt:    return tr("Green-Ampt");
-    case InfilMethod::ModGreenAmpt: return tr("Modified Green-Ampt");
-    case InfilMethod::CurveNumber:  return tr("Curve Number");
-    case InfilMethod::Constant:     return tr("Constant");
-    case InfilMethod::None:         break;
+    case InfilMethod::Horton:
+        return tr("Horton");
+    case InfilMethod::ModHorton:
+        return tr("Modified Horton");
+    case InfilMethod::GreenAmpt:
+        return tr("Green-Ampt");
+    case InfilMethod::ModGreenAmpt:
+        return tr("Modified Green-Ampt");
+    case InfilMethod::CurveNumber:
+        return tr("Curve Number");
+    case InfilMethod::Constant:
+        return tr("Constant");
+    case InfilMethod::None:
+        break;
     }
     return tr("None");
 }
@@ -314,16 +375,20 @@ QStringList infilMethodLabels()
 QString infilDestToken(InfilDest d)
 {
     switch (d) {
-    case InfilDest::SubcatchAquifer: return QStringLiteral("SUBCATCH_AQUIFER");
-    case InfilDest::Aquifer2D:       return QStringLiteral("AQUIFER_2D");
-    case InfilDest::Lost:            break;
+    case InfilDest::SubcatchAquifer:
+        return QStringLiteral("SUBCATCH_AQUIFER");
+    case InfilDest::Aquifer2D:
+        return QStringLiteral("AQUIFER_2D");
+    case InfilDest::Lost:
+        break;
     }
     return QStringLiteral("LOST");
 }
 
 InfilDest infilDestFromToken(const QString &token, bool *ok)
 {
-    if (ok) *ok = true;
+    if (ok)
+        *ok = true;
     const QString t = token.trimmed();
     if (t.compare(QLatin1String("LOST"), Qt::CaseInsensitive) == 0)
         return InfilDest::Lost;
@@ -331,16 +396,20 @@ InfilDest infilDestFromToken(const QString &token, bool *ok)
         return InfilDest::SubcatchAquifer;
     if (t.compare(QLatin1String("AQUIFER_2D"), Qt::CaseInsensitive) == 0)
         return InfilDest::Aquifer2D;
-    if (ok) *ok = false;
+    if (ok)
+        *ok = false;
     return InfilDest::Lost;
 }
 
 QString infilDestLabel(InfilDest d)
 {
     switch (d) {
-    case InfilDest::SubcatchAquifer: return tr("Subcatchment Aquifer");
-    case InfilDest::Aquifer2D:       return tr("2D Aquifer");
-    case InfilDest::Lost:            break;
+    case InfilDest::SubcatchAquifer:
+        return tr("Subcatchment Aquifer");
+    case InfilDest::Aquifer2D:
+        return tr("2D Aquifer");
+    case InfilDest::Lost:
+        break;
     }
     return tr("Lost");
 }
@@ -355,30 +424,17 @@ QStringList infilDestLabels()
 
 QString infilDestHint(InfilDest d)
 {
-    // This replaced infilDestSupported(), which returned a per-RELEASE answer
-    // the UI used to grey entries out. Both other destinations now work, and
-    // whether AQUIFER_2D works is a property of the OPEN MODEL rather than of
-    // the build: it is accepted exactly when a [2D_AQUIFER] section resolved.
-    // A static boolean cannot say that, and a flag threaded through four call
-    // sites would still be a snapshot taken before the user adds the aquifer.
-    //
-    // So the UI no longer blocks a choice it cannot correctly judge. The
-    // engine judges it, at resolve, by name:
-    //
-    //   "destination AQUIFER_2D needs a [2D_AQUIFER] section to receive the
-    //    recharge; this model has none — add one, or use LOST or
-    //    SUBCATCH_AQUIFER"
-    //
-    // That message is what the greying-out existed to prevent the user from
-    // hitting blind. It is no longer blind, so the block has stopped earning
-    // its keep and these hints take its place.
+    // Hints do not resolve model ownership. The legacy Aquifer2D token is
+    // retained for migration, while current engine validation rejects it;
+    // groundwater assignment supplies integrated aquifer capacity instead.
     switch (d) {
     case InfilDest::SubcatchAquifer:
         return tr("Recharges the legacy aquifer of the subcatchment whose "
                   "polygon contains the cell. Cells outside every polygon "
                   "stay lost, with a warning at run time.");
     case InfilDest::Aquifer2D:
-        return tr("Obsolete destination. Use Assign Groundwater → Review / migrate infiltration ownership. The aquifer computes capacity on covered cells.");
+        return tr(
+            "Obsolete destination. Use Assign Groundwater → Review / migrate infiltration ownership. The aquifer computes capacity on covered cells.");
     case InfilDest::Lost:
         break;
     }
@@ -390,34 +446,56 @@ QString infilDestHint(InfilDest d)
 // Classified-lookup tables
 // ---------------------------------------------------------------------------
 
-InfilRow InfilLookupTable::lookup(const QString &k1, const QString &k2,
-                                  bool *matched) const
+InfilRow InfilLookupTable::lookup(const QString &k1, const QString &k2, bool *matched) const
 {
     for (const InfilLookupEntry &e : entries) {
-        if (e.key1.compare(k1, Qt::CaseInsensitive) != 0) continue;
-        if (twoKey && e.key2.compare(k2, Qt::CaseInsensitive) != 0) continue;
-        if (matched) *matched = true;
+        if (e.key1.compare(k1, Qt::CaseInsensitive) != 0)
+            continue;
+        if (twoKey && e.key2.compare(k2, Qt::CaseInsensitive) != 0)
+            continue;
+        if (matched)
+            *matched = true;
         return e.row;
     }
-    if (matched) *matched = false;
+    if (matched)
+        *matched = false;
     return fallback;
 }
 
-namespace {
+namespace
+{
 
 constexpr const char *kCsvName = "# NAME:";
 constexpr const char *kCsvKey1 = "# KEY1:";
 constexpr const char *kCsvKey2 = "# KEY2:";
 
-/*! One CSV field per positional parameter, `-` for unset. Trailing columns
- *  the method does not use are still written (the CSV grid is fixed-width,
- *  unlike the .inp row form) so a spreadsheet round-trips cleanly. */
+/**
+ * @brief Encode one positional parameter for the unquoted fixed-width CSV grid.
+ * @param[in] v Stored project-unit value, not validated; NaN denotes an unset slot.
+ * @return Owned '-' for NaN, otherwise QString general-format number with 12 significant digits.
+ * Infinities are not rejected, unused slots are not masked by method and no source state is
+ * changed.
+ *
+ * @details One CSV field per positional parameter, `-` for unset. Trailing columns the method
+ * does not use are still written (the CSV grid is fixed-width, unlike the .inp row form) so a
+ * spreadsheet round-trips cleanly.
+ */
 QString csvParam(double v)
 {
     return std::isnan(v) ? QStringLiteral("-") : QString::number(v, 'g', 12);
 }
 
-/*! `method,p0,p1,p2,p3,p4,dest` — the tail shared by entry and fallback rows. */
+/**
+ * @brief Serialize the method, all five parameters and destination into a shared CSV suffix.
+ * @param[in] row Borrowed row, unchanged; physical validity and currently supported destination
+ * are unchecked.
+ * @return Owned comma-separated tail with stable uppercase tokens and 12-digit/NaN-marker
+ * parameters. All slots are written even if method-unused, preserving project units; unknown
+ * enums use token helper fallbacks. Allocates string storage, no file write, escaping or
+ * ownership retention.
+ *
+ * @details `method,p0,p1,p2,p3,p4,dest` — the tail shared by entry and fallback rows.
+ */
 QString csvRowTail(const InfilRow &row)
 {
     QString out = infilMethodToken(row.method);
@@ -427,23 +505,44 @@ QString csvRowTail(const InfilRow &row)
     return out;
 }
 
-/*! Parse `method,p0..p4,dest` starting at \p first. Returns false when the
- *  method token is unknown — which is also how a header row is detected. */
+/**
+ * @brief Permissively parse a known method and any available positional fields into an existing
+ * row.
+ * @param[in] f Borrowed split unquoted CSV fields, unchanged.
+ * @param[in] first Nonnegative index of the method field; caller must not pass
+ * negative/overflowing indices.
+ * @param[in,out] row Required nonnull borrowed row. Unknown/missing method leaves it untouched;
+ * otherwise method is assigned, parseable nonempty/non-dash parameter fields overwrite matching
+ * slots, and a nonempty destination overwrites with recognized value or Lost fallback.
+ * Unset/skipped fields retain prior values, so callers normally supply a fresh NaN-initialized
+ * row.
+ * @return False only for missing/unknown method, true after a recognized method even if
+ * parameters are missing, malformed, nonfinite or physically invalid. Project units preserved;
+ * no file IO or pointer retention.
+ *
+ * @details Parse `method,p0..p4,dest` starting at \p first. Returns false when the method token
+ * is unknown — which is also how a header row is detected.
+ */
 bool parseCsvRowTail(const QStringList &f, int first, InfilRow *row)
 {
-    if (f.size() < first + 1) return false;
+    if (f.size() < first + 1)
+        return false;
     bool okm = false;
     const InfilMethod m = infilMethodFromToken(f[first], &okm);
-    if (!okm) return false;
+    if (!okm)
+        return false;
     row->method = m;
     for (int k = 0; k < kInfilMaxParams; ++k) {
         const int idx = first + 1 + k;
-        if (idx >= f.size()) break;
+        if (idx >= f.size())
+            break;
         const QString t = f[idx].trimmed();
-        if (t.isEmpty() || t == QLatin1String("-")) continue;
+        if (t.isEmpty() || t == QLatin1String("-"))
+            continue;
         bool okv = false;
         const double v = t.toDouble(&okv);
-        if (okv) row->p[k] = v;
+        if (okv)
+            row->p[k] = v;
     }
     const int destIdx = first + 1 + kInfilMaxParams;
     if (destIdx < f.size() && !f[destIdx].trimmed().isEmpty())
@@ -453,13 +552,13 @@ bool parseCsvRowTail(const QStringList &f, int first, InfilRow *row)
 
 } // namespace
 
-bool saveLookupTableCsv(const InfilLookupTable &table, const QString &path,
-                        QString *err)
+bool saveLookupTableCsv(const InfilLookupTable &table, const QString &path, QString *err)
 {
     QSaveFile out(path);
     if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        if (err) *err = QCoreApplication::translate(
-            "MeshInfil", "Cannot open %1 for writing.").arg(path);
+        if (err)
+            *err =
+                QCoreApplication::translate("MeshInfil", "Cannot open %1 for writing.").arg(path);
         return false;
     }
 
@@ -473,41 +572,45 @@ bool saveLookupTableCsv(const InfilLookupTable &table, const QString &path,
     // Header row, emitted as a comment so a reader that ignores '#' lines and
     // one that skips a leading header row both do the right thing.
     s << "# key1";
-    if (table.twoKey) s << ",key2";
+    if (table.twoKey)
+        s << ",key2";
     s << ",method,p0,p1,p2,p3,p4,dest\n";
 
     for (const InfilLookupEntry &e : table.entries) {
         s << e.key1;
-        if (table.twoKey) s << ',' << e.key2;
+        if (table.twoKey)
+            s << ',' << e.key2;
         s << ',' << csvRowTail(e.row) << '\n';
     }
     // The fallback rides as a '*' keyed row — same spelling the
     // [2D_INFILTRATION_DEFAULTS] section uses for its mesh-wide default.
     if (!table.fallback.isNone()) {
         s << '*';
-        if (table.twoKey) s << ",*";
+        if (table.twoKey)
+            s << ",*";
         s << ',' << csvRowTail(table.fallback) << '\n';
     }
     s.flush();
 
     out.write(text.toUtf8());
     if (!out.commit()) {
-        if (err) *err = QCoreApplication::translate(
-            "MeshInfil", "Atomic save failed for %1: %2")
-            .arg(path, out.errorString());
+        if (err)
+            *err = QCoreApplication::translate("MeshInfil", "Atomic save failed for %1: %2")
+                       .arg(path, out.errorString());
         return false;
     }
     return true;
 }
 
-bool loadLookupTableCsv(InfilLookupTable *table, const QString &path,
-                        QString *err)
+bool loadLookupTableCsv(InfilLookupTable *table, const QString &path, QString *err)
 {
-    if (!table) return false;
+    if (!table)
+        return false;
     QFile in(path);
     if (!in.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (err) *err = QCoreApplication::translate(
-            "MeshInfil", "Cannot open %1 for reading.").arg(path);
+        if (err)
+            *err =
+                QCoreApplication::translate("MeshInfil", "Cannot open %1 for reading.").arg(path);
         return false;
     }
 
@@ -517,18 +620,25 @@ bool loadLookupTableCsv(InfilLookupTable *table, const QString &path,
 
     for (const QString &raw : lines) {
         const QString line = raw.trimmed();
-        if (line.isEmpty()) continue;
+        if (line.isEmpty())
+            continue;
         if (line.startsWith(QChar('#'))) {
             auto meta = [&line](const char *tagName, QString *out) {
                 const QLatin1String tag(tagName);
-                if (!line.startsWith(tag, Qt::CaseInsensitive)) return false;
+                if (!line.startsWith(tag, Qt::CaseInsensitive))
+                    return false;
                 *out = line.mid(int(tag.size())).trimmed();
                 return true;
             };
-            if (meta(kCsvName, &table->name)) continue;
-            if (meta(kCsvKey1, &table->key1Label)) continue;
+            if (meta(kCsvName, &table->name))
+                continue;
+            if (meta(kCsvKey1, &table->key1Label))
+                continue;
             QString k2;
-            if (meta(kCsvKey2, &k2)) { table->key2Label = k2; table->twoKey = true; }
+            if (meta(kCsvKey2, &k2)) {
+                table->key2Label = k2;
+                table->twoKey = true;
+            }
             continue;
         }
 
@@ -537,14 +647,15 @@ bool loadLookupTableCsv(InfilLookupTable *table, const QString &path,
         // 1 + 1 + 5 + 1 = 8 fields, two-key rows 9. The `# KEY2:` metadata
         // wins when present so a two-key row that omits its trailing DEST is
         // still read against the right column offsets.
-        const int keys =
-            (table->twoKey || f.size() >= 2 + 1 + kInfilMaxParams + 1) ? 2 : 1;
+        const int keys = (table->twoKey || f.size() >= 2 + 1 + kInfilMaxParams + 1) ? 2 : 1;
         InfilLookupEntry e;
         if (!parseCsvRowTail(f, keys, &e.row))
-            continue;   // header row or unknown method — skip, do not fail
-        if (keys == 2) table->twoKey = true;
+            continue; // header row or unknown method — skip, do not fail
+        if (keys == 2)
+            table->twoKey = true;
         e.key1 = f.value(0).trimmed();
-        if (keys == 2) e.key2 = f.value(1).trimmed();
+        if (keys == 2)
+            e.key2 = f.value(1).trimmed();
         if (e.key1 == QLatin1String("*"))
             table->fallback = e.row;
         else

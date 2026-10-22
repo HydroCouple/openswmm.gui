@@ -1,6 +1,6 @@
-/*!
- * \file   test_sectionmodelbuilders.cpp
- * \brief  Elevation annotations produced by the Slice SP section builders.
+/**
+ * @file      test_sectionmodelbuilders.cpp
+ * @brief     Elevation annotations produced by the Slice SP section builders.
  *
  * The builders turn engine state into a `SectionDiagramModel`; these tests
  * assert on the leader labels, which are the part a user reads numbers off.
@@ -24,6 +24,10 @@
  * Fixtures are built in memory (`swmm_engine_new` + the object/setter API), so
  * nothing here needs an .inp on disk. Mirrors the pattern in
  * `test_linkpropertyadapter.cpp`.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/sectionview/sectiondiagram.h"
@@ -52,17 +56,19 @@
 
 using namespace openswmmvis::sectionview;
 
-namespace {
+namespace
+{
 
 //! The builders format with the label the caller supplies; US keeps the
 //! fixture numbers readable as feet.
-const DiagramUnits kUnits{ QStringLiteral("ft"), false };
+const DiagramUnits kUnits{QStringLiteral("ft"), false};
 
 //! First leader whose text starts with \p prefix, or an empty string.
 QString leaderStarting(const SectionDiagramModel &m, const QString &prefix)
 {
     for (const DiagramLeader &l : m.leaders)
-        if (l.text.startsWith(prefix)) return l.text;
+        if (l.text.startsWith(prefix))
+            return l.text;
     return {};
 }
 
@@ -70,7 +76,8 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
     for (const DiagramLeader &l : m.leaders)
-        if (l.text.contains(needle)) ++n;
+        if (l.text.contains(needle))
+            ++n;
     return n;
 }
 
@@ -81,7 +88,8 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 SWMM_Engine buildConduitFixture(double invUp, double invDn)
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
 
     swmm_node_add(e, "J1", SWMM_NODE_JUNCTION);
     swmm_node_add(e, "J2", SWMM_NODE_JUNCTION);
@@ -105,8 +113,10 @@ double widestHalfWidth(const SectionDiagramModel &m, DiagramRole role)
 {
     double w = 0.0;
     for (const DiagramPoly &p : m.polys) {
-        if (p.role != role) continue;
-        for (const QPointF &pt : p.pts) w = std::max(w, std::abs(pt.x()));
+        if (p.role != role)
+            continue;
+        for (const QPointF &pt : p.pts)
+            w = std::max(w, std::abs(pt.x()));
     }
     return w;
 }
@@ -115,21 +125,22 @@ int countPolys(const SectionDiagramModel &m, DiagramRole role)
 {
     int n = 0;
     for (const DiagramPoly &p : m.polys)
-        if (p.role == role) ++n;
+        if (p.role == role)
+            ++n;
     return n;
 }
 
 bool hasSymbol(const SectionDiagramModel &m, DiagramSymbolKind kind)
 {
     for (const DiagramSymbol &s : m.symbols)
-        if (s.kind == kind) return true;
+        if (s.kind == kind)
+            return true;
     return false;
 }
 
 /*! A single node of \p type with one inbound conduit, so every node case has a
  *  pipe to attach and a shell to draw. Returns the node's index. */
-int buildNodeFixture(SWMM_Engine e, const char *id, int type,
-                     double invert, double maxDepth)
+int buildNodeFixture(SWMM_Engine e, const char *id, int type, double invert, double maxDepth)
 {
     swmm_node_add(e, id, type);
     const int n = swmm_node_index(e, id);
@@ -176,33 +187,45 @@ private slots:
 void TestSectionModelBuilders::richardsProfileShowsCellMoistureAndPressure()
 {
     const QDir data(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"));
-    const QString folder=data.filePath("richards_profile_out");
+    const QString folder = data.filePath("richards_profile_out");
     QVERIFY(QDir().mkpath(folder));
-    auto e=swmm_engine_create(); QVERIFY(e);
-    const auto input=data.filePath("lid_treatment_editor.inp").toUtf8();
-    const auto report=(folder+"/profile.rpt").toUtf8();
-    QCOMPARE(swmm_engine_open(e,input.constData(),report.constData(),nullptr,nullptr),SWMM_OK);
+    auto e = swmm_engine_create();
+    QVERIFY(e);
+    const auto input = data.filePath("lid_treatment_editor.inp").toUtf8();
+    const auto report = (folder + "/profile.rpt").toUtf8();
+    QCOMPARE(swmm_engine_open(e, input.constData(), report.constData(), nullptr, nullptr), SWMM_OK);
     SWMM_LidNodeLayer layers[3];
-    for(int row=0;row<3;++row)QCOMPARE(swmm_lid_node_layer_get(e,0,row,&layers[row]),SWMM_OK);
-    const SWMM_LidRichardsOptions options{1,4,1.e-7,1.e-5,30};
-    const SWMM_LidRichardsMaterial materials[3]{{},{.03,2,1.6,.5,1.e-4},{.03,2,1.6,.5,1.e-4}};
-    QCOMPARE(swmm_lid_node_configure_flow(e,0,layers,3,nullptr,0,&options,materials),SWMM_OK);
-    QCOMPARE(swmm_engine_initialize(e),SWMM_OK);
-    QCOMPARE(swmm_engine_start(e,0),SWMM_OK);
-    double time=0;
-    for(int step=0;step<50;++step)QCOMPARE(swmm_engine_step(e,&time),SWMM_OK);
-    const auto model=buildNodeProfile(e,0,kUnits);
+    for (int row = 0; row < 3; ++row)
+        QCOMPARE(swmm_lid_node_layer_get(e, 0, row, &layers[row]), SWMM_OK);
+    const SWMM_LidRichardsOptions options{1, 4, 1.e-7, 1.e-5, 30};
+    const SWMM_LidRichardsMaterial materials[3]{
+        {}, {.03, 2, 1.6, .5, 1.e-4}, {.03, 2, 1.6, .5, 1.e-4}};
+    QCOMPARE(swmm_lid_node_configure_flow(e, 0, layers, 3, nullptr, 0, &options, materials),
+             SWMM_OK);
+    QCOMPARE(swmm_engine_initialize(e), SWMM_OK);
+    QCOMPARE(swmm_engine_start(e, 0), SWMM_OK);
+    double time = 0;
+    for (int step = 0; step < 50; ++step)
+        QCOMPARE(swmm_engine_step(e, &time), SWMM_OK);
+    const auto model = buildNodeProfile(e, 0, kUnits);
     QVERIFY(model.title.contains("Richards 1D"));
-    int cells=0;
-    for(const auto& poly:model.polys)if(poly.insetLabel.startsWith(QString::fromUtf8("θ "))) {
-        ++cells; QVERIFY(poly.insetLabel.contains("h ")); QVERIFY(poly.insetLabel.endsWith("ft"));
-    }
-    QCOMPARE(cells,8);
-    QImage image(1100,850,QImage::Format_ARGB32); image.fill(Qt::white);
-    QPainter painter(&image); paintSectionDiagram(painter,QRectF(0,0,1100,850),model,QPalette()); painter.end();
-    QVERIFY(image.save(folder+"/richards-profile.png"));
-    QCOMPARE(swmm_engine_end(e),SWMM_OK);
-    swmm_engine_close(e); swmm_engine_destroy(e);
+    int cells = 0;
+    for (const auto &poly : model.polys)
+        if (poly.insetLabel.startsWith(QString::fromUtf8("θ "))) {
+            ++cells;
+            QVERIFY(poly.insetLabel.contains("h "));
+            QVERIFY(poly.insetLabel.endsWith("ft"));
+        }
+    QCOMPARE(cells, 8);
+    QImage image(1100, 850, QImage::Format_ARGB32);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    paintSectionDiagram(painter, QRectF(0, 0, 1100, 850), model, QPalette());
+    painter.end();
+    QVERIFY(image.save(folder + "/richards-profile.png"));
+    QCOMPARE(swmm_engine_end(e), SWMM_OK);
+    swmm_engine_close(e);
+    swmm_engine_destroy(e);
 }
 
 void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
@@ -210,8 +233,7 @@ void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
     SWMM_Engine e = buildConduitFixture(100.0, 98.0);
     QVERIFY(e);
 
-    const SectionDiagramModel m =
-        buildLinkSection(e, swmm_link_index(e, "C1"), kUnits);
+    const SectionDiagramModel m = buildLinkSection(e, swmm_link_index(e, "C1"), kUnits);
 
     // A section is one shape but the run has two ends; both belong on the
     // drawing or the number silently describes the upstream end only.
@@ -232,7 +254,8 @@ void TestSectionModelBuilders::irregularSectionDrawsTheTransectAsSurveyed()
     const int t = swmm_transect_count(e) - 1;
     swmm_transect_set_roughness(e, t, 0.05, 0.05, 0.03);
     const double gr[][2] = {{0, 10}, {10, 6}, {15, 2}, {20, 5}, {60, 6}, {100, 9}};
-    for (const auto &p : gr) QCOMPARE(swmm_transect_add_station(e, t, p[0], p[1]), SWMM_OK);
+    for (const auto &p : gr)
+        QCOMPARE(swmm_transect_add_station(e, t, p[0], p[1]), SWMM_OK);
     swmm_transect_set_bank_stations(e, t, 10.0, 60.0);
     swmm_transect_set_modifiers(e, t, 2.0, 0.0, 1.0);
     const int c1 = swmm_link_index(e, "C1");
@@ -247,13 +270,16 @@ void TestSectionModelBuilders::irregularSectionDrawsTheTransectAsSurveyed()
     double xMin = 1e9, xMax = -1e9, yMax = -1e9;
     bool thalweg = false;
     for (const QPointF &pt : body.pts) {
-        xMin = std::min(xMin, pt.x()); xMax = std::max(xMax, pt.x()); yMax = std::max(yMax, pt.y());
-        if (pt == QPointF(0.0, 0.0)) thalweg = true;
+        xMin = std::min(xMin, pt.x());
+        xMax = std::max(xMax, pt.x());
+        yMax = std::max(yMax, pt.y());
+        if (pt == QPointF(0.0, 0.0))
+            thalweg = true;
     }
-    QVERIFY(thalweg);                       // lowest point at x = 0, depth 0
-    QCOMPARE(xMin, -30.0);                  // (0 - 15) × 2
-    QCOMPARE(xMax, 170.0);                  // (100 - 15) × 2: not mirrored
-    QCOMPARE(yMax, 8.0);                    // 10 - 2, end walls to the top
+    QVERIFY(thalweg);      // lowest point at x = 0, depth 0
+    QCOMPARE(xMin, -30.0); // (0 - 15) × 2
+    QCOMPARE(xMax, 170.0); // (100 - 15) × 2: not mirrored
+    QCOMPARE(yMax, 8.0);   // 10 - 2, end walls to the top
     // The open top is the seam between the two wall tops.
     const int mid = body.pts.size() / 2;
     QCOMPARE(body.pts[mid - 1].y(), 8.0);
@@ -265,8 +291,9 @@ void TestSectionModelBuilders::irregularSectionDrawsTheTransectAsSurveyed()
     QCOMPARE(m.polylines[1].pts.first().x(), 90.0);
     // Rendered for review: tests/output/section_view_irregular/irregular.png
     {
-        const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
-            .absoluteFilePath(QStringLiteral("../../output/section_view_irregular"));
+        const QString dir =
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+                .absoluteFilePath(QStringLiteral("../../output/section_view_irregular"));
         QDir().mkpath(dir);
         QImage img(900, 500, QImage::Format_ARGB32);
         img.fill(Qt::white);
@@ -283,13 +310,12 @@ void TestSectionModelBuilders::linkSectionCollapsesToOneValueWhenFlat()
     SWMM_Engine e = buildConduitFixture(100.0, 100.0);
     QVERIFY(e);
 
-    const SectionDiagramModel m =
-        buildLinkSection(e, swmm_link_index(e, "C1"), kUnits);
+    const SectionDiagramModel m = buildLinkSection(e, swmm_link_index(e, "C1"), kUnits);
 
     const QString invert = leaderStarting(m, QStringLiteral("Invert El."));
-    const QString crown  = leaderStarting(m, QStringLiteral("Crown El."));
+    const QString crown = leaderStarting(m, QStringLiteral("Crown El."));
     QCOMPARE(invert, QStringLiteral("Invert El. 100.00 ft"));
-    QCOMPARE(crown,  QStringLiteral("Crown El. 101.00 ft"));
+    QCOMPARE(crown, QStringLiteral("Crown El. 101.00 ft"));
     QVERIFY2(!invert.contains(QLatin1Char('/')),
              "a flat run should not pay for the two-ended form");
     QVERIFY(!crown.contains(QLatin1Char('/')));
@@ -302,12 +328,12 @@ void TestSectionModelBuilders::linkProfileCrownsAreTrueBarrelEnds()
     SWMM_Engine e = buildConduitFixture(100.0, 98.0);
     QVERIFY(e);
 
-    const SectionDiagramModel m =
-        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
+    const SectionDiagramModel m = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
 
     QVector<QString> crowns;
     for (const DiagramLeader &l : m.leaders)
-        if (l.text.startsWith(QStringLiteral("Crown "))) crowns << l.text;
+        if (l.text.startsWith(QStringLiteral("Crown ")))
+            crowns << l.text;
 
     // Exactly one per barrel end, each carrying that end's invert + yFull.
     // The values this replaced were interpolated at a quarter point, which
@@ -349,8 +375,7 @@ void TestSectionModelBuilders::nodeProfileCrownsOnlyForRealSections()
     const SectionDiagramModel m = buildNodeProfile(e, j3, kUnits);
 
     // The conduit's crown is its invert at this node plus the full depth.
-    QCOMPARE(leaderStarting(m, QStringLiteral("C2  Crown")),
-             QStringLiteral("C2  Crown 94.00"));
+    QCOMPARE(leaderStarting(m, QStringLiteral("C2  Crown")), QStringLiteral("C2  Crown 94.00"));
     // Both connections keep their invert label.
     QCOMPARE(countLeadersContaining(m, QStringLiteral("Inv 93.00")), 2);
     // ...but the pump's stub height must never be reported as an elevation.
@@ -380,10 +405,9 @@ void TestSectionModelBuilders::storageShellIsWiderAndBrownerThanAJunction()
     QCOMPARE(countPolys(ms, DiagramRole::Structure), 0);
 
     const double junctionW = widestHalfWidth(mj, DiagramRole::Structure);
-    const double storageW  = widestHalfWidth(ms, DiagramRole::Storage);
+    const double storageW = widestHalfWidth(ms, DiagramRole::Storage);
     QVERIFY2(storageW > junctionW * 1.8,
-             qPrintable(QStringLiteral("storage %1 vs junction %2")
-                            .arg(storageW).arg(junctionW)));
+             qPrintable(QStringLiteral("storage %1 vs junction %2").arg(storageW).arg(junctionW)));
 
     // A manhole gets a frame and cover; a tank does not.
     QVERIFY(hasSymbol(mj, DiagramSymbolKind::ManholeCover));
@@ -408,7 +432,8 @@ void TestSectionModelBuilders::storageSilhouetteFollowsItsShape()
 
         double atInvert = 0.0, atRim = 0.0;
         for (const DiagramPoly &p : m.polys) {
-            if (p.role != DiagramRole::Storage) continue;
+            if (p.role != DiagramRole::Storage)
+                continue;
             for (const QPointF &pt : p.pts) {
                 if (std::abs(pt.y() - 100.0) < 1.0e-6)
                     atInvert = std::max(atInvert, std::abs(pt.x()));
@@ -444,7 +469,8 @@ void TestSectionModelBuilders::outfallDrawsReceivingWaterOnlyWhenItHasAStage()
     QCOMPARE(countPolys(mf, DiagramRole::Water), 1);
     bool labelled = false;
     for (const DiagramPolyline &pl : mf.polylines)
-        if (pl.label.contains(QStringLiteral("95.00"))) labelled = pl.wavy;
+        if (pl.label.contains(QStringLiteral("95.00")))
+            labelled = pl.wavy;
     QVERIFY2(labelled, "a fixed tailwater must be a labelled, wavy surface");
 
     SWMM_Engine ee = swmm_engine_new();
@@ -474,7 +500,8 @@ void TestSectionModelBuilders::varyingOutfallStageIsNeverLabelledWithANumber()
     // not a stage the model predicts.
     bool found = false;
     for (const DiagramPolyline &pl : m.polylines) {
-        if (pl.role != DiagramRole::Water) continue;
+        if (pl.role != DiagramRole::Water)
+            continue;
         found = true;
         QVERIFY2(pl.dashed, "a varying stage must be drawn dashed");
         QCOMPARE(pl.label, QStringLiteral("stage varies"));
@@ -502,7 +529,7 @@ void TestSectionModelBuilders::pumpConnectionIsASymbolNotABarrel()
     // pressure line plus the symbol, and no conduit polygon beyond the inbound
     // conduit's own stub.
     QVERIFY(hasSymbol(m, DiagramSymbolKind::Pump));
-    QCOMPARE(countPolys(m, DiagramRole::Conduit), 2);   // shell void + the feed
+    QCOMPARE(countPolys(m, DiagramRole::Conduit), 2); // shell void + the feed
 
     swmm_engine_destroy(e);
 }
@@ -528,16 +555,20 @@ void TestSectionModelBuilders::orificeConnectionIsAWallWithFillAboveTheOpening()
     // the invert, with the opening itself left void — that gap is the orifice.
     bool fillAbove = false, fillBelow = false, coversOpening = false;
     for (const DiagramPoly &p : m.polys) {
-        if (p.texture != DiagramTexture::Hatch) continue;
+        if (p.texture != DiagramTexture::Hatch)
+            continue;
         double lo = 1.0e9, hi = -1.0e9;
         for (const QPointF &pt : p.pts) {
             lo = std::min(lo, pt.y());
             hi = std::max(hi, pt.y());
         }
-        if (lo >= 84.5 - 1.0e-6) fillAbove = true;
-        if (hi <= 83.0 + 1.0e-6) fillBelow = true;
+        if (lo >= 84.5 - 1.0e-6)
+            fillAbove = true;
+        if (hi <= 83.0 + 1.0e-6)
+            fillBelow = true;
         // Any hatch straddling the opening would be a plate over the hole.
-        if (lo < 84.5 - 1.0e-6 && hi > 83.0 + 1.0e-6) coversOpening = true;
+        if (lo < 84.5 - 1.0e-6 && hi > 83.0 + 1.0e-6)
+            coversOpening = true;
     }
     QVERIFY2(fillAbove, "an orifice must show the wall it is cut through");
     QVERIFY(fillBelow);
@@ -555,7 +586,8 @@ QTEST_MAIN(TestSectionModelBuilders)
 // Link profile — what else meets each end
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! J0 -> B1 -> J1 -> C1 -> J2 -> B2 -> J3, laid out west-to-east so every
  *  heading resolves. Selecting C1 must show B1 at its upstream node and B2 at
@@ -563,13 +595,17 @@ namespace {
 SWMM_Engine buildBranchedFixture()
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
 
-    struct N { const char *id; double x, y, inv; };
-    const N ns[4] = { { "J0", -100.0, 50.0, 101.0 },
-                      { "J1",    0.0,  0.0, 100.0 },
-                      { "J2",  100.0,  0.0,  98.0 },
-                      { "J3",  200.0, -50.0, 97.0 } };
+    struct N {
+        const char *id;
+        double x, y, inv;
+    };
+    const N ns[4] = {{"J0", -100.0, 50.0, 101.0},
+                     {"J1", 0.0, 0.0, 100.0},
+                     {"J2", 100.0, 0.0, 98.0},
+                     {"J3", 200.0, -50.0, 97.0}};
     for (const N &n : ns) {
         swmm_node_add(e, n.id, SWMM_NODE_JUNCTION);
         const int i = swmm_node_index(e, n.id);
@@ -578,15 +614,18 @@ SWMM_Engine buildBranchedFixture()
         swmm_spatial_set_node_coord(e, i, n.x, n.y);
     }
 
-    struct L { const char *id; const char *from; const char *to; };
-    const L ls[3] = { { "B1", "J0", "J1" },     // branch INTO the upstream node
-                      { "C1", "J1", "J2" },     // the reach under inspection
-                      { "B2", "J2", "J3" } };   // branch OUT of the downstream node
+    struct L {
+        const char *id;
+        const char *from;
+        const char *to;
+    };
+    const L ls[3] = {{"B1", "J0", "J1"},  // branch INTO the upstream node
+                     {"C1", "J1", "J2"},  // the reach under inspection
+                     {"B2", "J2", "J3"}}; // branch OUT of the downstream node
     for (const L &l : ls) {
         swmm_link_add(e, l.id, SWMM_LINK_CONDUIT);
         const int i = swmm_link_index(e, l.id);
-        swmm_link_set_nodes(e, i, swmm_node_index(e, l.from),
-                            swmm_node_index(e, l.to));
+        swmm_link_set_nodes(e, i, swmm_node_index(e, l.from), swmm_node_index(e, l.to));
         swmm_link_set_length(e, i, 100.0);
         swmm_link_set_xsect(e, i, SWMM_XSECT_CIRCULAR, 1.0, 0.0, 0.0, 0.0);
     }
@@ -599,7 +638,8 @@ int leadersNaming(const SectionDiagramModel &m, const QString &link)
 {
     int n = 0;
     for (const DiagramLeader &l : m.leaders)
-        if (l.text == link || l.text.startsWith(link + QLatin1Char(' '))) ++n;
+        if (l.text == link || l.text.startsWith(link + QLatin1Char(' ')))
+            ++n;
     return n;
 }
 
@@ -610,8 +650,7 @@ void TestSectionModelBuilders::linkProfileStubsTheOtherPipesAtBothEnds()
     SWMM_Engine e = buildBranchedFixture();
     QVERIFY(e);
 
-    const SectionDiagramModel m =
-        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
+    const SectionDiagramModel m = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
 
     // The branch at each end is drawn and labelled with its own invert.
     QVERIFY2(leadersNaming(m, QStringLiteral("B1")) > 0,
@@ -624,11 +663,8 @@ void TestSectionModelBuilders::linkProfileStubsTheOtherPipesAtBothEnds()
     QCOMPARE(leadersNaming(m, QStringLiteral("C1")), 0);
 
     // Barrel + two stubs, so a plain reach's single barrel has grown.
-    const SectionDiagramModel plain =
-        buildLinkProfile(buildConduitFixture(100.0, 98.0),
-                         0, kUnits);
-    QVERIFY2(countPolys(m, DiagramRole::Conduit)
-                 > countPolys(plain, DiagramRole::Conduit),
+    const SectionDiagramModel plain = buildLinkProfile(buildConduitFixture(100.0, 98.0), 0, kUnits);
+    QVERIFY2(countPolys(m, DiagramRole::Conduit) > countPolys(plain, DiagramRole::Conduit),
              "no extra conduit bodies were added for the branches");
 
     swmm_engine_destroy(e);
@@ -639,8 +675,7 @@ void TestSectionModelBuilders::linkProfileGivesEachEndItsOwnPlanInset()
     SWMM_Engine e = buildBranchedFixture();
     QVERIFY(e);
 
-    const SectionDiagramModel m =
-        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
+    const SectionDiagramModel m = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
 
     // Two dials, titled and ordered upstream-then-downstream — an untitled or
     // single dial cannot say which end it describes.
@@ -654,38 +689,37 @@ void TestSectionModelBuilders::linkProfileGivesEachEndItsOwnPlanInset()
 
     auto spokeNames = [](const PlanInset &pi) {
         QStringList out;
-        for (const PlanSpoke &s : pi.spokes) out << s.label;
+        for (const PlanSpoke &s : pi.spokes)
+            out << s.label;
         out.sort();
         return out;
     };
     // Upstream dial: the branch arriving plus the reach leaving.
     QCOMPARE(spokeNames(m.planInsets.at(0)),
-             (QStringList{ QStringLiteral("B1"), QStringLiteral("C1") }));
+             (QStringList{QStringLiteral("B1"), QStringLiteral("C1")}));
     // Downstream dial: the reach arriving plus the branch leaving.
     QCOMPARE(spokeNames(m.planInsets.at(1)),
-             (QStringList{ QStringLiteral("B2"), QStringLiteral("C1") }));
+             (QStringList{QStringLiteral("B2"), QStringLiteral("C1")}));
 
     // The shared reach must point OPPOSITE ways on the two dials: it leaves
     // one node and arrives at the other. Getting this wrong is the classic
     // way a pair of compasses ends up lying about direction.
     auto reach = [](const PlanInset &pi) {
         for (const PlanSpoke &s : pi.spokes)
-            if (s.label == QStringLiteral("C1")) return s;
+            if (s.label == QStringLiteral("C1"))
+                return s;
         return PlanSpoke{};
     };
     const PlanSpoke up = reach(m.planInsets.at(0));
     const PlanSpoke dn = reach(m.planInsets.at(1));
     QVERIFY2(!up.inbound, "the reach should LEAVE its upstream node");
-    QVERIFY2(dn.inbound,  "the reach should ARRIVE at its downstream node");
-    const double delta =
-        std::fmod(std::abs(up.angleDeg - dn.angleDeg) + 360.0, 360.0);
+    QVERIFY2(dn.inbound, "the reach should ARRIVE at its downstream node");
+    const double delta = std::fmod(std::abs(up.angleDeg - dn.angleDeg) + 360.0, 360.0);
     QVERIFY2(std::abs(delta - 180.0) < 1.0e-6,
-             qPrintable(QStringLiteral("reach bearings differ by %1 deg, not 180")
-                            .arg(delta)));
+             qPrintable(QStringLiteral("reach bearings differ by %1 deg, not 180").arg(delta)));
 
     swmm_engine_destroy(e);
 }
-
 
 void TestSectionModelBuilders::linkProfileStubsDoNotWidenTheDrawing()
 {
@@ -696,21 +730,20 @@ void TestSectionModelBuilders::linkProfileStubsDoNotWidenTheDrawing()
     // pins that, and fails if a future tweak lengthens them past it.
     SWMM_Engine plainE = buildConduitFixture(100.0, 98.0);
     QVERIFY(plainE);
-    const QRectF plain =
-        buildLinkProfile(plainE, 0, kUnits).computeBounds();
+    const QRectF plain = buildLinkProfile(plainE, 0, kUnits).computeBounds();
 
     SWMM_Engine e = buildBranchedFixture();
     QVERIFY(e);
-    const QRectF withStubs =
-        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits).computeBounds();
+    const QRectF withStubs = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits).computeBounds();
 
     // Same reach length in both fixtures? No — normalise by length instead.
-    const double plainRatio  = plain.width()      / 1000.0;   // C1 is 1000 long
-    const double stubbedRatio = withStubs.width() /  100.0;   // C1 is 100 long
+    const double plainRatio = plain.width() / 1000.0;      // C1 is 1000 long
+    const double stubbedRatio = withStubs.width() / 100.0; // C1 is 100 long
     QVERIFY2(stubbedRatio <= plainRatio + 1.0e-9,
              qPrintable(QStringLiteral("stubs widened the drawing: %1 vs %2 "
                                        "reach-lengths across")
-                            .arg(stubbedRatio).arg(plainRatio)));
+                            .arg(stubbedRatio)
+                            .arg(plainRatio)));
 
     swmm_engine_destroy(plainE);
     swmm_engine_destroy(e);

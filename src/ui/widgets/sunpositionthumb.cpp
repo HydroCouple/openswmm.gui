@@ -1,9 +1,12 @@
-/*!
- * \file   sunpositionthumb.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sunpositionthumb.cpp
+ * @brief     altitude on a compass dial.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/sunpositionthumb.h"
 
 #include <QPaintEvent>
@@ -12,16 +15,24 @@
 #include <algorithm>
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-SunPositionThumb::SunPositionThumb(QWidget *parent)
-    : QWidget(parent)
+SunPositionThumb::SunPositionThumb(QWidget *parent) : QWidget(parent)
 {
     setAutoFillBackground(false);
 }
 
-void SunPositionThumb::setAzimuth(double degrees)  { m_azimuth = degrees;  update(); }
-void SunPositionThumb::setAltitude(double degrees) { m_altitude = degrees; update(); }
+void SunPositionThumb::setAzimuth(double degrees)
+{
+    m_azimuth = degrees;
+    update();
+}
+void SunPositionThumb::setAltitude(double degrees)
+{
+    m_altitude = degrees;
+    update();
+}
 
 void SunPositionThumb::paintEvent(QPaintEvent *)
 {
@@ -37,15 +48,17 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
 
     // Cardinal direction labels.
     const QFont prev = p.font();
-    QFont labelFont = prev; labelFont.setBold(true); labelFont.setPointSizeF(prev.pointSizeF() - 1);
+    QFont labelFont = prev;
+    labelFont.setBold(true);
+    labelFont.setPointSizeF(prev.pointSizeF() - 1);
     p.setFont(labelFont);
     p.setPen(palette().color(QPalette::Text));
     auto label = [&](const QString &txt, const QPointF &pos) {
         const QRectF box(pos.x() - 12, pos.y() - 10, 24, 20);
         p.drawText(box, Qt::AlignCenter, txt);
     };
-    label("N", QPointF(c.x(),          c.y() - r - 8));
-    label("S", QPointF(c.x(),          c.y() + r + 8));
+    label("N", QPointF(c.x(), c.y() - r - 8));
+    label("S", QPointF(c.x(), c.y() + r + 8));
     label("E", QPointF(c.x() + r + 10, c.y()));
     label("W", QPointF(c.x() - r - 10, c.y()));
     p.setFont(prev);
@@ -55,8 +68,8 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
     const double azRad = m_azimuth * kPi / 180.0;
     // Altitude collapses the vector toward centre at high sun angles.
     const double altT = std::clamp(m_altitude / 90.0, 0.0, 1.0);
-    const double rr = r * (1.0 - altT);  // sun overhead → vector length 0
-    const double dx =  std::sin(azRad) * rr;
+    const double rr = r * (1.0 - altT); // sun overhead → vector length 0
+    const double dx = std::sin(azRad) * rr;
     const double dy = -std::cos(azRad) * rr;
     const QPointF sun = c + QPointF(dx, dy);
 
@@ -68,10 +81,9 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
 
     // Altitude readout at the bottom.
     p.setPen(palette().color(QPalette::WindowText));
-    p.drawText(rect().adjusted(0, 0, 0, -2),
-               Qt::AlignBottom | Qt::AlignHCenter,
-               QString::number(m_azimuth, 'f', 0) + "° / " +
-               QString::number(m_altitude, 'f', 0) + "°");
+    p.drawText(rect().adjusted(0, 0, 0, -2), Qt::AlignBottom | Qt::AlignHCenter,
+               QString::number(m_azimuth, 'f', 0) + "° / " + QString::number(m_altitude, 'f', 0) +
+                   "°");
 }
 
 } // namespace openswmmvis::ui

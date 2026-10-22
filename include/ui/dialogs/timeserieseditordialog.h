@@ -1,9 +1,9 @@
-/*!
- * \file   timeserieseditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3.3 — modeless two-pane editor dialog.
+/**
+ * @file      timeserieseditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3.3 — modeless two-pane editor dialog.
  *
  * Hosts the multi-column grid (left) and the interactive chart (right)
  * for one or more sibling `TimeseriesProvider` instances. Toolbar carries:
@@ -29,13 +29,15 @@
  * Source-mode card + Import/Export menu + Convert-to-Inline button +
  * QPropertyModel-backed rotate/scale numeric panel ship with later
  * sub-phases (6.7.3.6 / 6.7.3.5 follow-up / 6.7.3.7).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_TIMESERIESEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_TIMESERIESEDITORDIALOG_H
 
 #include <QDialog>
 #include <QPointer>
-#include <QUndoStack>   // complete type for the inline undoStack() accessor
+#include <QUndoStack> // complete type for the inline undoStack() accessor
 #include <QVector>
 
 class QAction;
@@ -58,12 +60,14 @@ class QTableView;
 class QToolBar;
 class QUndoStack;
 
-namespace openswmmvis::timeseries {
+namespace openswmmvis::timeseries
+{
 class TimeseriesProvider;
 class TimeseriesRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class TimeseriesEditChartView;
 class TimeseriesListModel;
@@ -89,10 +93,10 @@ public:
      *
      *  The registry is required — callers that want a quick modal pick or
      *  create flow use `pickTimeseries` / `createNew`. */
-    explicit TimeseriesEditorDialog(openswmmvis::timeseries::TimeseriesRegistry *registry,
-                                    QUndoStack *undoStack,
-                                    openswmmvis::timeseries::TimeseriesProvider *initialSelection = nullptr,
-                                    QWidget *parent = nullptr);
+    explicit TimeseriesEditorDialog(
+        openswmmvis::timeseries::TimeseriesRegistry *registry, QUndoStack *undoStack,
+        openswmmvis::timeseries::TimeseriesProvider *initialSelection = nullptr,
+        QWidget *parent = nullptr);
 
     ~TimeseriesEditorDialog() override;
 
@@ -105,10 +109,8 @@ public:
      *
      *  Caller owns the returned dialog (use `Qt::WA_DeleteOnClose` for
      *  fire-and-forget modeless use). */
-    static TimeseriesEditorDialog *createNew(
-        openswmmvis::timeseries::TimeseriesRegistry *registry,
-        QUndoStack *undoStack,
-        QWidget *parent = nullptr);
+    static TimeseriesEditorDialog *createNew(openswmmvis::timeseries::TimeseriesRegistry *registry,
+                                             QUndoStack *undoStack, QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point for callers that
      *  round-trip a time series selection inline (e.g. the
@@ -119,9 +121,8 @@ public:
      *  edited points. Returns the name of the series currently bound
      *  to the dialog on close, or empty if no commit happened. */
     static QString pickTimeseries(openswmmvis::timeseries::TimeseriesRegistry *registry,
-                                   QUndoStack    *undoStack,
-                                   const QString &initialName,
-                                   QWidget       *parent = nullptr);
+                                  QUndoStack *undoStack, const QString &initialName,
+                                  QWidget *parent = nullptr);
 
     /*! \brief Name of the first provider currently bound to the dialog.
      *  Empty before a CreateNew commits. Exposed for `pickTimeseries`
@@ -132,7 +133,7 @@ public:
     Mode mode() const noexcept { return m_mode; }
 
     /*! \brief The grid model. Exposed for tests. */
-    TimeseriesTableModel  *tableModel() const noexcept { return m_tableModel; }
+    TimeseriesTableModel *tableModel() const noexcept { return m_tableModel; }
 
     /*! \brief The chart view. Exposed for tests. */
     TimeseriesEditChartView *chartView() const noexcept { return m_chartView; }
@@ -213,14 +214,14 @@ private slots:
     // ── Transform panel (Phase 6.7.3.5 follow-up) ───────────────────────────
     void onApplyRotateClicked_();
     void onApplyScaleClicked_();
-    void onChartEditModeChanged_();   ///< Refresh transform-panel visibility.
+    void onChartEditModeChanged_(); ///< Refresh transform-panel visibility.
 
     // ── List pane CRUD (Phase 6.7.3-CRUD) ───────────────────────────────────
-    void onListSelectionChanged_();   ///< Selection in left list → rebind grid + chart.
+    void onListSelectionChanged_(); ///< Selection in left list → rebind grid + chart.
     void onListFilterChanged_(const QString &text);
     void onNewSeriesClicked_();
     void onDeleteSeriesClicked_();
-    void onRenameSeriesClicked_();    ///< Triggers list-item edit on the current row.
+    void onRenameSeriesClicked_(); ///< Triggers list-item edit on the current row.
 
 private:
     void buildUi_(const QVector<openswmmvis::timeseries::TimeseriesProvider *> &providers);
@@ -250,8 +251,7 @@ private:
      *         no unresolvable name can be persisted, and only the first column
      *         is selectable (review B-4). A selector matching no header gets
      *         its own "(not in file)" item so display and state still agree. */
-    void populateColumnCombo_(const QStringList &headers,
-                              const QString &columnSelector,
+    void populateColumnCombo_(const QStringList &headers, const QString &columnSelector,
                               bool fabricatedHeaders = false);
 
     // ── Transform-panel helpers (Phase 6.7.3.5 follow-up) ───────────────────
@@ -265,99 +265,98 @@ private:
      *         "value" column) and therefore not persistable.
      *  \returns number of points loaded (0 on parse failure / file unreadable;
      *           the provider's points are cleared so no stale column is shown). */
-    int  loadExternalFileIntoProvider_(openswmmvis::timeseries::TimeseriesProvider *p,
-                                        const QString &path,
-                                        const QString &columnSelector,
-                                        QStringList *columnHeadersOut = nullptr,
-                                        QString *errorOut = nullptr,
-                                        bool *fabricatedOut = nullptr);
+    int loadExternalFileIntoProvider_(openswmmvis::timeseries::TimeseriesProvider *p,
+                                      const QString &path, const QString &columnSelector,
+                                      QStringList *columnHeadersOut = nullptr,
+                                      QString *errorOut = nullptr, bool *fabricatedOut = nullptr);
 
-    QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>>  m_providers;
+    QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>> m_providers;
     QPointer<QUndoStack> m_undoStack;
     bool m_contextValid = true;
     QPointer<openswmmvis::timeseries::TimeseriesRegistry> m_registry;
-    Mode                                     m_mode         = Mode::Edit;
+    Mode m_mode = Mode::Edit;
 
-    QSplitter               *m_splitter   = nullptr;
-    QTableView              *m_table      = nullptr;
-    TimeseriesTableModel    *m_tableModel = nullptr;
-    TimeseriesEditChartView *m_chartView  = nullptr;
-    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
-    QToolBar                *m_toolbar    = nullptr;
-    QStatusBar              *m_status     = nullptr;
-    QLabel                  *m_countLabel = nullptr;
-    QLabel                  *m_rangeLabel = nullptr;
+    QSplitter *m_splitter = nullptr;
+    QTableView *m_table = nullptr;
+    TimeseriesTableModel *m_tableModel = nullptr;
+    TimeseriesEditChartView *m_chartView = nullptr;
+    ChartAxisFormatController *m_axisFmt = nullptr; ///< Per-chart axis number format.
+    QToolBar *m_toolbar = nullptr;
+    QStatusBar *m_status = nullptr;
+    QLabel *m_countLabel = nullptr;
+    QLabel *m_rangeLabel = nullptr;
     // Guards to break the chart<->table selection feedback loop.
-    bool                     m_suppressTableSelectionSync_ts = false;
-    bool                     m_suppressChartSelectionSync_ts = false;
+    bool m_suppressTableSelectionSync_ts = false;
+    bool m_suppressChartSelectionSync_ts = false;
 
     // ── List pane CRUD (Phase 6.7.3-CRUD) ───────────────────────────────────
-    QWidget                                 *m_listPane          = nullptr;
-    QSortFilterProxyModel                   *m_listProxy         = nullptr;
-    QListView                               *m_listView          = nullptr;
-    QLineEdit                               *m_listFilterEdit    = nullptr;
-    QToolButton                             *m_listNewBtn        = nullptr;
-    QToolButton                             *m_listDeleteBtn     = nullptr;
-    QToolButton                             *m_listRenameBtn     = nullptr;
-    openswmmvis::ui::TimeseriesListModel    *m_listModel         = nullptr;
+    QWidget *m_listPane = nullptr;
+    QSortFilterProxyModel *m_listProxy = nullptr;
+    QListView *m_listView = nullptr;
+    QLineEdit *m_listFilterEdit = nullptr;
+    QToolButton *m_listNewBtn = nullptr;
+    QToolButton *m_listDeleteBtn = nullptr;
+    QToolButton *m_listRenameBtn = nullptr;
+    openswmmvis::ui::TimeseriesListModel *m_listModel = nullptr;
 
     // ── CreateNew-mode UI (null in Edit mode) ───────────────────────────────
-    QFrame      *m_createCard          = nullptr;
-    QLineEdit   *m_nameEdit            = nullptr;
-    QLabel      *m_nameValidationLabel = nullptr;
-    QComboBox   *m_sourceModeCombo     = nullptr;
-    QPushButton *m_createBtn           = nullptr;
+    QFrame *m_createCard = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QLabel *m_nameValidationLabel = nullptr;
+    QComboBox *m_sourceModeCombo = nullptr;
+    QPushButton *m_createBtn = nullptr;
 
-    QAction *m_actSelect    = nullptr;
-    QAction *m_actPan       = nullptr;
-    QAction *m_actZoomIn    = nullptr;
-    QAction *m_actZoomOut   = nullptr;
-    QAction *m_actZoomExt   = nullptr;
-    QAction *m_actEdit      = nullptr;
-    QAction *m_actRotate    = nullptr;
-    QAction *m_actScale     = nullptr;
-    QAction *m_actSnap      = nullptr;
-    QAction *m_actUndo      = nullptr;
-    QAction *m_actRedo      = nullptr;
+    QAction *m_actSelect = nullptr;
+    QAction *m_actPan = nullptr;
+    QAction *m_actZoomIn = nullptr;
+    QAction *m_actZoomOut = nullptr;
+    QAction *m_actZoomExt = nullptr;
+    QAction *m_actEdit = nullptr;
+    QAction *m_actRotate = nullptr;
+    QAction *m_actScale = nullptr;
+    QAction *m_actSnap = nullptr;
+    QAction *m_actUndo = nullptr;
+    QAction *m_actRedo = nullptr;
 
     // Row-editing actions (Phase 6.7.3.4-followup — Add/Delete/Copy/Paste).
-    QAction *m_actAddRow    = nullptr;
+    QAction *m_actAddRow = nullptr;
     QAction *m_actDeleteRow = nullptr;
-    QAction *m_actCopy      = nullptr;
-    QAction *m_actPaste     = nullptr;
+    QAction *m_actCopy = nullptr;
+    QAction *m_actPaste = nullptr;
 
     // ── Source-mode card (Phase 6.7.3.6) ────────────────────────────────────
-    QFrame       *m_sourceCard          = nullptr;
-    QRadioButton *m_radioInline         = nullptr;
-    QRadioButton *m_radioExternal       = nullptr;
-    QRadioButton *m_radioGeopackage     = nullptr;
-    QLineEdit    *m_extPathEdit         = nullptr;   ///< External file path (read-only display).
-    QPushButton  *m_extBrowseBtn        = nullptr;
-    QString       m_projectAnchor;                   ///< IO-11d: render `m_extPathEdit` relative to this dir.
-    QComboBox    *m_extColumnCombo      = nullptr;   ///< Populated from CSV/TSV header row.
-    bool          m_extHeadersFabricated = false;    ///< Combo shows display-only "col_N" names (headerless file).
-    QLabel       *m_extStatusLabel      = nullptr;   ///< mtime / staleness indicator.
-    QPushButton  *m_extReloadBtn        = nullptr;
-    QPushButton  *m_extDetachBtn        = nullptr;   ///< One-way Convert-to-Inline.
-    QLabel       *m_gpkgPlaceholderLbl  = nullptr;   ///< Stubbed in this cut.
-    QComboBox    *m_timeModeCombo       = nullptr;   ///< Absolute / Relative (+ read-only Mixed).
-    QLabel       *m_timeModeBadge       = nullptr;   ///< "saved as elapsed time from …" hint.
+    QFrame *m_sourceCard = nullptr;
+    QRadioButton *m_radioInline = nullptr;
+    QRadioButton *m_radioExternal = nullptr;
+    QRadioButton *m_radioGeopackage = nullptr;
+    QLineEdit *m_extPathEdit = nullptr; ///< External file path (read-only display).
+    QPushButton *m_extBrowseBtn = nullptr;
+    QString m_projectAnchor;               ///< IO-11d: render `m_extPathEdit` relative to this dir.
+    QComboBox *m_extColumnCombo = nullptr; ///< Populated from CSV/TSV header row.
+    bool m_extHeadersFabricated =
+        false; ///< Combo shows display-only "col_N" names (headerless file).
+    QLabel *m_extStatusLabel = nullptr; ///< mtime / staleness indicator.
+    QPushButton *m_extReloadBtn = nullptr;
+    QPushButton *m_extDetachBtn = nullptr;  ///< One-way Convert-to-Inline.
+    QLabel *m_gpkgPlaceholderLbl = nullptr; ///< Stubbed in this cut.
+    QComboBox *m_timeModeCombo = nullptr;   ///< Absolute / Relative (+ read-only Mixed).
+    QLabel *m_timeModeBadge = nullptr;      ///< "saved as elapsed time from …" hint.
 
     // ── Transform panel (Phase 6.7.3.5 follow-up) ───────────────────────────
-    QFrame          *m_transformPanel       = nullptr;   ///< Wrapper; show/hide per EditMode.
-    QFrame          *m_rotateGroup          = nullptr;
-    QFrame          *m_scaleGroup           = nullptr;
-    QDateTimeEdit   *m_rotatePivotTimeEdit  = nullptr;
-    QDoubleSpinBox  *m_rotatePivotValueEdit = nullptr;
-    QDoubleSpinBox  *m_rotateAngleEdit      = nullptr;
-    QCheckBox       *m_rotateUseCentroid    = nullptr;
-    QPushButton     *m_rotateApplyBtn       = nullptr;
-    QDateTimeEdit   *m_scaleAnchorTimeEdit  = nullptr;
-    QDoubleSpinBox  *m_scaleAnchorValueEdit = nullptr;
-    QDoubleSpinBox  *m_scaleXEdit           = nullptr;
-    QDoubleSpinBox  *m_scaleYEdit           = nullptr;
-    QCheckBox       *m_scaleUseCentroid     = nullptr;
-    QPushButton     *m_scaleApplyBtn        = nullptr;
+    QFrame *m_transformPanel = nullptr; ///< Wrapper; show/hide per EditMode.
+    QFrame *m_rotateGroup = nullptr;
+    QFrame *m_scaleGroup = nullptr;
+    QDateTimeEdit *m_rotatePivotTimeEdit = nullptr;
+    QDoubleSpinBox *m_rotatePivotValueEdit = nullptr;
+    QDoubleSpinBox *m_rotateAngleEdit = nullptr;
+    QCheckBox *m_rotateUseCentroid = nullptr;
+    QPushButton *m_rotateApplyBtn = nullptr;
+    QDateTimeEdit *m_scaleAnchorTimeEdit = nullptr;
+    QDoubleSpinBox *m_scaleAnchorValueEdit = nullptr;
+    QDoubleSpinBox *m_scaleXEdit = nullptr;
+    QDoubleSpinBox *m_scaleYEdit = nullptr;
+    QCheckBox *m_scaleUseCentroid = nullptr;
+    QPushButton *m_scaleApplyBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

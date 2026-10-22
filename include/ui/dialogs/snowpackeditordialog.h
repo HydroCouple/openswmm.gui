@@ -1,15 +1,17 @@
-/*!
- * \file   snowpackeditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Two-pane CRUD editor for SWMM snow packs ([SNOWPACKS]).
+/**
+ * @file      snowpackeditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Two-pane CRUD editor for SWMM snow packs ([SNOWPACKS]).
  *
  * Mirrors AquiferEditorDialog (list pane + scalar field form). The twenty-seven
  * snow-pack parameters are surfaced as labeled spin boxes, indexed by
  * SnowpackProvider::Param and grouped as PLOWABLE / IMPERVIOUS / PERVIOUS /
  * REMOVAL, plus a line edit for the REMOVAL destination subcatchment.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 
@@ -26,12 +28,14 @@ class QComboBox;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::snowpack {
+namespace openswmmvis::snowpack
+{
 class SnowpackProvider;
 class SnowpackRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class SnowpackListModel;
 
@@ -42,29 +46,25 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    SnowpackEditorDialog(openswmmvis::snowpack::SnowpackRegistry *registry,
-                         SWMMModelLayer *layer,
+    SnowpackEditorDialog(openswmmvis::snowpack::SnowpackRegistry *registry, SWMMModelLayer *layer,
                          QWidget *parent = nullptr);
     ~SnowpackEditorDialog() override;
 
-    static SnowpackEditorDialog *createNew(
-        openswmmvis::snowpack::SnowpackRegistry *registry,
-        SWMMModelLayer *layer,
-        QWidget *parent = nullptr);
+    static SnowpackEditorDialog *createNew(openswmmvis::snowpack::SnowpackRegistry *registry,
+                                           SWMMModelLayer *layer, QWidget *parent = nullptr);
 
-    static QString pickSnowpack(openswmmvis::snowpack::SnowpackRegistry*,
-                                SWMMModelLayer*, const QString& currentName,
-                                QWidget* parent = nullptr);
+    static QString pickSnowpack(openswmmvis::snowpack::SnowpackRegistry *, SWMMModelLayer *,
+                                const QString &currentName, QWidget *parent = nullptr);
 
     Mode mode() const noexcept { return m_mode; }
     openswmmvis::snowpack::SnowpackProvider *currentProvider() const noexcept;
 
-    QListView         *listView() const noexcept { return m_listView; }
+    QListView *listView() const noexcept { return m_listView; }
     SnowpackListModel *listModel() const noexcept { return m_listModel; }
-    QLineEdit         *nameEdit()  const noexcept { return m_nameEdit; }
+    QLineEdit *nameEdit() const noexcept { return m_nameEdit; }
 
     void invokeNew();
-    void accept()override;
+    void accept() override;
 
     /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
      *  Used by the Object Browser, Properties panel and Attribute Table. */
@@ -78,8 +78,8 @@ private slots:
     void onFieldEdited_();
     void onModelEdited_();
     void onRemovalSubcatchEdited_();
-    void onProviderRenamed_(openswmmvis::snowpack::SnowpackProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::snowpack::SnowpackProvider *p, const QString &prev,
+                            const QString &now);
 
 private:
     void buildUi_();
@@ -89,20 +89,20 @@ private:
     QString suggestUniqueName_() const;
 
     QPointer<openswmmvis::snowpack::SnowpackRegistry> m_registry;
-    QPointer<SWMMModelLayer>                          m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     QPointer<openswmmvis::snowpack::SnowpackProvider> m_current;
-    Mode                                              m_mode = Mode::Edit;
+    Mode m_mode = Mode::Edit;
 
     QSplitter *m_splitter = nullptr;
 
-    QListView         *m_listView  = nullptr;
+    QListView *m_listView = nullptr;
     SnowpackListModel *m_listModel = nullptr;
-    QPushButton       *m_addBtn    = nullptr;
-    QPushButton       *m_delBtn    = nullptr;
-    QLineEdit         *m_nameEdit  = nullptr;
-    QComboBox         *m_modelKind = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_delBtn = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QComboBox *m_modelKind = nullptr;
 
-    QVector<QDoubleSpinBox*> m_spins;   ///< one per SnowpackProvider::Param
+    QVector<QDoubleSpinBox *> m_spins; ///< one per SnowpackProvider::Param
     QLineEdit *m_removalSubcatchEdit = nullptr;
 
     bool m_suppressFieldSync = false;

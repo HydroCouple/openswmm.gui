@@ -1,9 +1,9 @@
-/*!
- * \file   kindtreesymbologypanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tree-on-left + editor-on-right Symbology widget for SWMM
+/**
+ * @file      kindtreesymbologypanel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tree-on-left + editor-on-right Symbology widget for SWMM
  *         multi-kind layers (Slice X.5).
  *
  *         Replaces the nested 11-sub-tab UI from §W with a single panel
@@ -26,7 +26,9 @@
  *             └ ☑ Outlets       S
  *             Subcatchments ☑   G
  *             Rain gages    ☑   S
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_KINDTREESYMBOLOGYPANEL_H
 #define OPENSWMMVIS_UI_DIALOGS_KINDTREESYMBOLOGYPANEL_H
 
@@ -42,15 +44,15 @@ class QStandardItem;
 class QStandardItemModel;
 class QTreeView;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class KindTreeSymbologyPanel : public QWidget
 {
     Q_OBJECT
 public:
     /*! \param hostLayer  Either a SWMMModelLayer or a SWMMResultsLayer. */
-    explicit KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
-                                     QWidget *parent = nullptr);
+    explicit KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer, QWidget *parent = nullptr);
 
     /*! Focus the tree on the kind matching \p routingId
      *  ("model.junctions" / "results.conduits" / …). */
@@ -73,9 +75,9 @@ private:
 
     QPointer<OpenSWMMVisLayer> m_layer;
 
-    QTreeView          *m_tree   = nullptr;
-    QStandardItemModel *m_model  = nullptr;
-    QStackedWidget     *m_stack  = nullptr;
+    QTreeView *m_tree = nullptr;
+    QStandardItemModel *m_model = nullptr;
+    QStackedWidget *m_stack = nullptr;
 
     /*! Routing-id prefix for this layer ("model." / "results."). */
     QString m_routingPrefix;

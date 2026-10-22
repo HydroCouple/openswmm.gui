@@ -1,17 +1,18 @@
-/*!
- * \file   linkrenderingprefs.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      linkrenderingprefs.cpp
+ * @brief     Q_PROPERTY-wrapped view onto PreferencesManager's per-link-type pens (conduit / pump
+ *            / orifice / weir / outlet).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "core/linkrenderingprefs.h"
 
 #include "core/preferencesmanager.h"
 
-LinkRenderingPrefs::LinkRenderingPrefs(QObject *parent)
-    : QObject(parent)
-{
-}
+LinkRenderingPrefs::LinkRenderingPrefs(QObject *parent) : QObject(parent) {}
 
 QPen LinkRenderingPrefs::conduitPen() const
 {
@@ -40,35 +41,40 @@ QPen LinkRenderingPrefs::outletPen() const
 
 void LinkRenderingPrefs::setConduitPen(const QPen &pen)
 {
-    if (conduitPen() == pen) return;
+    if (conduitPen() == pen)
+        return;
     PreferencesManager::instance()->setLinkPen(QStringLiteral("conduit"), pen);
     emit conduitPenChanged(pen);
 }
 
 void LinkRenderingPrefs::setPumpPen(const QPen &pen)
 {
-    if (pumpPen() == pen) return;
+    if (pumpPen() == pen)
+        return;
     PreferencesManager::instance()->setLinkPen(QStringLiteral("pump"), pen);
     emit pumpPenChanged(pen);
 }
 
 void LinkRenderingPrefs::setOrificePen(const QPen &pen)
 {
-    if (orificePen() == pen) return;
+    if (orificePen() == pen)
+        return;
     PreferencesManager::instance()->setLinkPen(QStringLiteral("orifice"), pen);
     emit orificePenChanged(pen);
 }
 
 void LinkRenderingPrefs::setWeirPen(const QPen &pen)
 {
-    if (weirPen() == pen) return;
+    if (weirPen() == pen)
+        return;
     PreferencesManager::instance()->setLinkPen(QStringLiteral("weir"), pen);
     emit weirPenChanged(pen);
 }
 
 void LinkRenderingPrefs::setOutletPen(const QPen &pen)
 {
-    if (outletPen() == pen) return;
+    if (outletPen() == pen)
+        return;
     PreferencesManager::instance()->setLinkPen(QStringLiteral("outlet"), pen);
     emit outletPenChanged(pen);
 }

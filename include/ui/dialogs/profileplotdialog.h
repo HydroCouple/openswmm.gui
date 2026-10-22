@@ -1,9 +1,9 @@
-/*!
- * \file   profileplotdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BC's host dialog for the longitudinal profile plot.
+/**
+ * @file      profileplotdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BC's host dialog for the longitudinal profile plot.
  *
  *         Composition: a `ProfilePlotWidget` (the chart) in the centre, a
  *         `ProfileLayerPanel` on the right (layer toggles), a Sources
@@ -12,6 +12,7 @@
  *         controller's `currentTimeChanged` signal, with each source
  *         resolving its own period via
  *         `SWMMResultsLayer::periodIndexForDateTime`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef PROFILE_PLOT_DIALOG_H
@@ -24,7 +25,7 @@
 #include "plot/profilerouter.h"
 #include "plot/profileplotwidget.h"
 #include "plot/profileplotoptions.h"
-#include "selection/selectionmanager.h"   // SWMMObjectRef (AT.3)
+#include "selection/selectionmanager.h" // SWMMObjectRef (AT.3)
 
 #include <QDateTime>
 #include "ui/panels/plotpanelview.h"
@@ -77,11 +78,9 @@ public:
      * \param canvasSRS  CRS of \p terrain's containing canvas; required
      *                   only when terrain is non-null.
      */
-    ProfilePlotDialog(SWMMModelLayer              *model,
-                      AnimationController         *anim,
-                      const ProfileRouter::Path   &path,
-                      SWMMVisProjectWindow        *projectWindow,
-                      QWidget                     *parent = nullptr);
+    ProfilePlotDialog(SWMMModelLayer *model, AnimationController *anim,
+                      const ProfileRouter::Path &path, SWMMVisProjectWindow *projectWindow,
+                      QWidget *parent = nullptr);
 
     /*!
      * \brief  Sever every external signal/slot connection while children
@@ -192,14 +191,12 @@ private:
      *        calls \p fn(realChainage, modelX, modelY) at each station. Shared
      *        by the terrain ground line and the 2D inundation overlay.
      */
-    void forEachPathStation(
-        const std::function<void(double, double, double)> &fn) const;
+    void forEachPathStation(const std::function<void(double, double, double)> &fn) const;
 
     /*! Same walk, with each station projected into the canvas CRS and
      *  delivered as a 2D SCENE point (canvas x, −canvas y) — the frame the
      *  mesh / 2D results layers sample in. `fn(realChainage, scenePt)`. */
-    void forEachPathStationScene(
-        const std::function<void(double, const QPointF &)> &fn) const;
+    void forEachPathStationScene(const std::function<void(double, const QPointF &)> &fn) const;
 
     /*! First SWMM2DMeshLayer on the canvas (the 2D mesh profile's rule), or
      *  nullptr. */
@@ -209,21 +206,20 @@ private:
      *  project has a mesh layer, else node rims. */
     ProfilePlotOptions::GroundSource resolvedGroundSource() const;
 
-    QPointer<class SWMM2DMeshLayer>       m_groundMesh;        ///< mesh the ground line is sampled from
-    ProfilePlotOptions::GroundSource      m_lastGroundSource = ProfilePlotOptions::NodeRims;
+    QPointer<class SWMM2DMeshLayer> m_groundMesh; ///< mesh the ground line is sampled from
+    ProfilePlotOptions::GroundSource m_lastGroundSource = ProfilePlotOptions::NodeRims;
 
     // ── 2D inundation overlay ───────────────────────────────────────────
 
     /*! One station where the path crosses the active 2D results mesh:
      *  static geometry cached once, depth re-read every animation tick. */
-    struct Surface2DStation
-    {
-        double  chainage = 0.0;   ///< real path chainage
-        QPointF scenePt;          ///< 2D layer scene coords (x, -y of canvas CRS)
-        int     displayTriIdx = -1; ///< containing results storage triangle
-        int     boundaryTriIdx = -1; ///< opposite side of a shared-edge trace
-        double  bed      = 0.0;   ///< result bed in profile elevation units
-        bool    breakBefore = false;
+    struct Surface2DStation {
+        double chainage = 0.0;   ///< real path chainage
+        QPointF scenePt;         ///< 2D layer scene coords (x, -y of canvas CRS)
+        int displayTriIdx = -1;  ///< containing results storage triangle
+        int boundaryTriIdx = -1; ///< opposite side of a shared-edge trace
+        double bed = 0.0;        ///< result bed in profile elevation units
+        bool breakBefore = false;
     };
 
     /*!
@@ -239,56 +235,56 @@ private:
      *  and pushes bed / WSE samples to the plot. Cheap (no cell search). */
     void refreshSurface2DDepths();
 
-    QVector<Surface2DStation>             m_surface2D;
+    QVector<Surface2DStation> m_surface2D;
     quint64 m_surface2DGeometryRevision = 0;
-    QPointer<class SWMM2DResultsLayer>    m_surface2DLayer;
-    QAction                              *m_actShow2D = nullptr;
-    QAction                              *m_actLidWater = nullptr;
-    QAction                              *m_actLidHead = nullptr;
+    QPointer<class SWMM2DResultsLayer> m_surface2DLayer;
+    QAction *m_actShow2D = nullptr;
+    QAction *m_actLidWater = nullptr;
+    QAction *m_actLidHead = nullptr;
 
-    QPointer<SWMMModelLayer>              m_model;
-    QPointer<MapCanvas>                   m_canvas;
-    QPointer<SWMMVisProjectWindow>        m_projectWindow;
-    QPointer<AnimationController>         m_anim;
-    ProfileRouter::Path                   m_routerPath;
-    ProfileBuilder::PathStatic            m_pathStatic;
+    QPointer<SWMMModelLayer> m_model;
+    QPointer<MapCanvas> m_canvas;
+    QPointer<SWMMVisProjectWindow> m_projectWindow;
+    QPointer<AnimationController> m_anim;
+    ProfileRouter::Path m_routerPath;
+    ProfileBuilder::PathStatic m_pathStatic;
 
     // Project windows we've subscribed to `aboutToClose` (deduped).  May
     // include the primary `m_projectWindow` plus any project that owns a
     // result layer currently bound as a source.  Raw pointers are safe
     // here because we manually remove entries in our handler before any
     // project teardown begins (see `onObservedProjectAboutToClose`).
-    QSet<SWMMVisProjectWindow *>          m_observedProjects;
+    QSet<SWMMVisProjectWindow *> m_observedProjects;
 
     void subscribeProjectClose(SWMMVisProjectWindow *pw);
     void onObservedProjectAboutToClose(SWMMVisProjectWindow *pw);
 
-    ProfilePlotWidget                    *m_plot         = nullptr;
-    ProfileLayerPanel                    *m_layerPanel   = nullptr;
-    QToolButton                          *m_sourceButton = nullptr;
-    QMenu                                *m_sourceMenu   = nullptr;
-    QProgressBar                         *m_loadingBar   = nullptr;
-    int                                   m_loadCookie   = 0;  // ignores stale watcher returns
-    ProfilePlotOptions                   *m_options      = nullptr;
+    ProfilePlotWidget *m_plot = nullptr;
+    ProfileLayerPanel *m_layerPanel = nullptr;
+    QToolButton *m_sourceButton = nullptr;
+    QMenu *m_sourceMenu = nullptr;
+    QProgressBar *m_loadingBar = nullptr;
+    int m_loadCookie = 0; // ignores stale watcher returns
+    ProfilePlotOptions *m_options = nullptr;
 
     // ── Attribute tracks state ──────────────────────────────────────────
-    ProfileAttributeTrackOptions         *m_trackOptions = nullptr;
-    ProfileAttributeTracksWidget         *m_tracks       = nullptr;
-    QScrollArea                          *m_tracksScroll = nullptr;  ///< the splitter pane; scrolls when many tracks
-    QWidget                              *m_plotHolder   = nullptr;  ///< carries the scrollbar-matching right gutter
-    QSplitter                            *m_profileSplit = nullptr;
-    QMenu                                *m_tracksMenu   = nullptr;
-    QAction                              *m_actShowTracks = nullptr;
+    ProfileAttributeTrackOptions *m_trackOptions = nullptr;
+    ProfileAttributeTracksWidget *m_tracks = nullptr;
+    QScrollArea *m_tracksScroll = nullptr; ///< the splitter pane; scrolls when many tracks
+    QWidget *m_plotHolder = nullptr;       ///< carries the scrollbar-matching right gutter
+    QSplitter *m_profileSplit = nullptr;
+    QMenu *m_tracksMenu = nullptr;
+    QAction *m_actShowTracks = nullptr;
     /*! The "Link attributes" section header — species node-scope entries
      *  are inserted above it so each scope's species sit with its fixed
      *  attributes. */
-    QAction                              *m_tracksLinkSection = nullptr;
+    QAction *m_tracksLinkSection = nullptr;
     /*! Species entries currently in the Tracks menu — rebuilt whenever
      *  the source set (and so the union of run species) changes. */
-    QList<QAction *>                      m_speciesTrackActions;
-    int                                   m_trackLoadCookie = 0;
-    bool                                  m_syncingX     = false;
-    QList<int>                            m_lastSplitSizes;    ///< restore target after collapse
+    QList<QAction *> m_speciesTrackActions;
+    int m_trackLoadCookie = 0;
+    bool m_syncingX = false;
+    QList<int> m_lastSplitSizes; ///< restore target after collapse
 
     /*! Rebuilds the species entries of the Tracks menu from the union of
      *  species across the current source layers (Y2b-2 follow-up). */
@@ -305,10 +301,10 @@ private:
     // Live-run throttle for the attribute-track re-read (appendLivePeriods):
     // the tracks re-fetch their whole period range from the .out, so at most
     // once per 2 s (leading edge; a pending tick re-reads at expiry).
-    QTimer                       m_liveTracksThrottle;
-    bool                         m_liveTracksPending = false;
-    bool                         m_liveTracksWired   = false;
-    QPointer<SWMMResultsLayer>   m_liveTracksLayer;
+    QTimer m_liveTracksThrottle;
+    bool m_liveTracksPending = false;
+    bool m_liveTracksWired = false;
+    QPointer<SWMMResultsLayer> m_liveTracksLayer;
 
     // Layer pointer (non-owning) per menu action.
     QHash<QAction *, QPointer<SWMMResultsLayer>> m_actionLayer;
@@ -320,14 +316,12 @@ private:
     // refetching the .out file every time. `m_cacheWired` tracks the
     // layers we've already connected invalidation signals on to avoid
     // duplicate connections.
-    QHash<SWMMResultsLayer *,
-          std::shared_ptr<ProfileBuilder::SourceDerived>> m_sourceCache;
+    QHash<SWMMResultsLayer *, std::shared_ptr<ProfileBuilder::SourceDerived>> m_sourceCache;
     /*! The fetched series each cached SourceDerived was computed from —
      *  kept so a live layer's new periods can be appended
      *  (ProfileSourceFetcher::appendTail + ProfileBuilder::appendPeriods)
      *  instead of refetching the whole .out on every progress tick. */
-    QHash<SWMMResultsLayer *,
-          std::shared_ptr<ProfileBuilder::SourceSeries>> m_sourceSeriesCache;
+    QHash<SWMMResultsLayer *, std::shared_ptr<ProfileBuilder::SourceSeries>> m_sourceSeriesCache;
     /*! Rebinds in flight on the worker thread. While non-zero the cached
      *  SourceDerived may be read off-thread, so live appends (which mutate
      *  it in place) are skipped; the next tick catches up. */
@@ -365,13 +359,13 @@ private:
     /*! Last-seen plot-level styles, so an edit can be told from a repaint.
      *  Seeded from the options object when it is bound. */
     struct PlotStyleSnapshot {
-        QPen   hglLinePen;
+        QPen hglLinePen;
         QBrush hglFillBrush;
-        QPen   eglLinePen;
-        QPen   maxHglLinePen;
+        QPen eglLinePen;
+        QPen maxHglLinePen;
         QBrush maxHglFillBrush;
-        QPen   maxEglLinePen;
-        bool   seeded = false;
+        QPen maxEglLinePen;
+        bool seeded = false;
     } m_lastPlotStyle;
 };
 

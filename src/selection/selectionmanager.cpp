@@ -1,13 +1,15 @@
-/*!
- * \file   selectionmanager.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      selectionmanager.cpp
+ * @brief     per-project Cross-View Selection Bus.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "selection/selectionmanager.h"
 
-SelectionManager::SelectionManager(QObject *parent)
-    : QObject(parent)
+SelectionManager::SelectionManager(QObject *parent) : QObject(parent)
 {
     qRegisterMetaType<SWMMObjectRef>("SWMMObjectRef");
     qRegisterMetaType<QSet<SWMMObjectRef>>("QSet<SWMMObjectRef>");
@@ -26,8 +28,7 @@ void SelectionManager::select(const SWMMObjectRef &ref, Mode mode)
 void SelectionManager::select(const QSet<SWMMObjectRef> &refs, Mode mode)
 {
     QSet<SWMMObjectRef> next = m_selection;
-    switch (mode)
-    {
+    switch (mode) {
     case Replace:
         next = refs;
         break;
@@ -38,10 +39,11 @@ void SelectionManager::select(const QSet<SWMMObjectRef> &refs, Mode mode)
         next.subtract(refs);
         break;
     case Toggle:
-        for (const SWMMObjectRef &r : refs)
-        {
-            if (next.contains(r)) next.remove(r);
-            else                  next.insert(r);
+        for (const SWMMObjectRef &r : refs) {
+            if (next.contains(r))
+                next.remove(r);
+            else
+                next.insert(r);
         }
         break;
     }
@@ -58,8 +60,10 @@ void SelectionManager::applyChange(const QSet<SWMMObjectRef> &next)
     if (next == m_selection)
         return;
 
-    QSet<SWMMObjectRef> added   = next;     added.subtract(m_selection);
-    QSet<SWMMObjectRef> removed = m_selection; removed.subtract(next);
+    QSet<SWMMObjectRef> added = next;
+    added.subtract(m_selection);
+    QSet<SWMMObjectRef> removed = m_selection;
+    removed.subtract(next);
     m_selection = next;
     emit selectionChanged(m_selection, added, removed);
 }

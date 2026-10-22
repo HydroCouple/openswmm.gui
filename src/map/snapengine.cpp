@@ -1,7 +1,11 @@
-/*!
- * \file   snapengine.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      snapengine.cpp
+ * @brief     Stateless helper that finds the nearest snap point for a given cursor position,
+ *            respecting the application's snapping preferences.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/snapengine.h"
@@ -14,8 +18,17 @@
 #include <algorithm>
 #include <cmath>
 
-namespace {
+namespace
+{
 
+/**
+ * @param[in] ax First point X in a shared planar coordinate frame.
+ * @param[in] ay First point Y in that frame.
+ * @param[in] bx Second point X in that frame.
+ * @param[in] by Second point Y in that frame.
+ * @return Squared Euclidean separation in coordinate-units squared; nonfinite/overflow propagates.
+ *   No geographic conversion or mutation.
+ */
 inline double dist2(double ax, double ay, double bx, double by)
 {
     const double dx = ax - bx, dy = ay - by;
@@ -26,9 +39,8 @@ inline double dist2(double ax, double ay, double bx, double by)
 
 // ---------------------------------------------------------------------------
 
-SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool,
-                                     SWMMModelLayer           *layer,
-                                     double mapX, double mapY)
+SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool, SWMMModelLayer *layer,
+                                    double mapX, double mapY)
 {
     Result out;
     out.x = mapX;
@@ -43,7 +55,7 @@ SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool,
     double mx2, my2, mx0, my0;
     tool->toMapCoords(tolPx, tolPx, mx2, my2);
     tool->toMapCoords(0, 0, mx0, my0);
-    const double tol  = std::max(std::abs(mx2 - mx0), std::abs(my2 - my0));
+    const double tol = std::max(std::abs(mx2 - mx0), std::abs(my2 - my0));
     const double tol2 = tol * tol;
 
     double bestD2 = tol2 + 1.0; // sentinel: anything > tol2 means no winner yet
@@ -56,7 +68,8 @@ SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool,
             const QString name = hit.value(QStringLiteral("elementName")).toString();
             double nx = mapX, ny = mapY;
             const int idx = layer->nodeIndex(name);
-            if (idx >= 0) layer->cachedNodeCoord(idx, &nx, &ny);
+            if (idx >= 0)
+                layer->cachedNodeCoord(idx, &nx, &ny);
             const double d2 = dist2(mapX, mapY, nx, ny);
             if (d2 <= tol2 && d2 < bestD2) {
                 bestD2 = d2;
@@ -79,11 +92,12 @@ SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool,
 
     // ── 2. Link polyline vertices (bbox pre-filter then vertex scan) ──────
     {
-        const QStringList links = layer->linksInRect(mapX - tol, mapY - tol,
-                                                      mapX + tol, mapY + tol);
+        const QStringList links =
+            layer->linksInRect(mapX - tol, mapY - tol, mapX + tol, mapY + tol);
         for (const QString &name : links) {
             const int idx = layer->linkIndex(name);
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
             for (const QPointF &v : layer->cachedLinkPolyline(idx)) {
                 const double d2 = dist2(mapX, mapY, v.x(), v.y());
                 if (d2 <= tol2 && d2 < bestD2) {
@@ -113,10 +127,8 @@ SnapEngine::Result SnapEngine::snap(const OpenSWMMVisMapTool *tool,
 
 // ---------------------------------------------------------------------------
 
-void SnapEngine::paintSnapRing(QPainter                 *painter,
-                                const OpenSWMMVisMapTool *tool,
-                                const Result             &result,
-                                const QColor             &color)
+void SnapEngine::paintSnapRing(QPainter *painter, const OpenSWMMVisMapTool *tool,
+                               const Result &result, const QColor &color)
 {
     if (!result.snapped || !painter || !tool)
         return;

@@ -1,6 +1,6 @@
-/*!
- * \file   test_typeconversionflow.cpp
- * \brief  Tests for node/link type conversion (right-click "Convert To" /
+/**
+ * @file      test_typeconversionflow.cpp
+ * @brief     Tests for node/link type conversion (right-click "Convert To" /
  *         Attribute Table "Change Type"). Two layers:
  *           1. The pure text builders in `TypeConversionFlow`
  *              (nodeTypeLabel / linkTypeLabel / confirmText / summaryHtml)
@@ -16,6 +16,10 @@
  * by the layer's own apply* methods; the layer is stubbed at link time
  * here (same idiom as test_control_rule_models.cpp) since the production
  * SWMMModelLayer drags in nanoflann / GDAL / the scene graph.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/typeconversionflow.h"
@@ -32,20 +36,21 @@
 
 using openswmmvis::ui::TypeConversionFlow;
 
-namespace {
+namespace
+{
 
 // Two junctions + one conduit C1 (J1 → J2). Mirrors the fixture in
 // test_linkpropertyadapter.cpp.
 SWMM_Engine buildFixture()
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     swmm_node_add(e, "J1", SWMM_NODE_JUNCTION);
     swmm_node_add(e, "J2", SWMM_NODE_JUNCTION);
     swmm_link_add(e, "C1", SWMM_LINK_CONDUIT);
     const int li = swmm_link_index(e, "C1");
-    swmm_link_set_nodes(e, li, swmm_node_index(e, "J1"),
-                               swmm_node_index(e, "J2"));
+    swmm_link_set_nodes(e, li, swmm_node_index(e, "J1"), swmm_node_index(e, "J2"));
     return e;
 }
 
@@ -63,37 +68,26 @@ private slots:
 
     void nodeLabels()
     {
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_JUNCTION),
-                 QStringLiteral("Junction"));
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_OUTFALL),
-                 QStringLiteral("Outfall"));
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_STORAGE),
-                 QStringLiteral("Storage"));
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_DIVIDER),
-                 QStringLiteral("Divider"));
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_JUNCTION), QStringLiteral("Junction"));
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_OUTFALL), QStringLiteral("Outfall"));
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_STORAGE), QStringLiteral("Storage"));
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_DIVIDER), QStringLiteral("Divider"));
         QVERIFY(TypeConversionFlow::nodeTypeLabel(-1).isEmpty());
         // GUI pseudo-type: virtual junction surfaces as its own node kind.
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(
-                     TypeConversionFlow::kVirtualNodeType),
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(TypeConversionFlow::kVirtualNodeType),
                  QStringLiteral("Virtual Junction"));
-        QCOMPARE(TypeConversionFlow::nodeTypeLabel(
-                     TypeConversionFlow::kInletNodeType),
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(TypeConversionFlow::kInletNodeType),
                  QStringLiteral("Inlet Junction"));
         QVERIFY(TypeConversionFlow::nodeTypeLabel(6).isEmpty());
     }
 
     void linkLabels()
     {
-        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_CONDUIT),
-                 QStringLiteral("Conduit"));
-        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_PUMP),
-                 QStringLiteral("Pump"));
-        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_ORIFICE),
-                 QStringLiteral("Orifice"));
-        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_WEIR),
-                 QStringLiteral("Weir"));
-        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_OUTLET),
-                 QStringLiteral("Outlet"));
+        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_CONDUIT), QStringLiteral("Conduit"));
+        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_PUMP), QStringLiteral("Pump"));
+        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_ORIFICE), QStringLiteral("Orifice"));
+        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_WEIR), QStringLiteral("Weir"));
+        QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_OUTLET), QStringLiteral("Outlet"));
         QVERIFY(TypeConversionFlow::linkTypeLabel(-1).isEmpty());
         QVERIFY(TypeConversionFlow::linkTypeLabel(5).isEmpty());
     }
@@ -101,8 +95,7 @@ private slots:
     void confirmTextMentionsNameAndBothTypes()
     {
         const QString t = TypeConversionFlow::confirmText(
-            /*isNode=*/true, QStringLiteral("J12"),
-            SWMM_NODE_JUNCTION, SWMM_NODE_STORAGE);
+            /*isNode=*/true, QStringLiteral("J12"), SWMM_NODE_JUNCTION, SWMM_NODE_STORAGE);
         QVERIFY(t.contains(QStringLiteral("J12")));
         QVERIFY(t.contains(QStringLiteral("Junction")));
         QVERIFY(t.contains(QStringLiteral("Storage")));
@@ -110,8 +103,7 @@ private slots:
         QVERIFY(t.contains(QStringLiteral("cleared")));
 
         const QString l = TypeConversionFlow::confirmText(
-            /*isNode=*/false, QStringLiteral("C1"),
-            SWMM_LINK_CONDUIT, SWMM_LINK_PUMP);
+            /*isNode=*/false, QStringLiteral("C1"), SWMM_LINK_CONDUIT, SWMM_LINK_PUMP);
         QVERIFY(l.contains(QStringLiteral("C1")));
         QVERIFY(l.contains(QStringLiteral("Conduit")));
         QVERIFY(l.contains(QStringLiteral("Pump")));
@@ -129,17 +121,16 @@ private slots:
         }
         // Warnings only.
         {
-            const QString s = TypeConversionFlow::summaryHtml(
-                {}, {QStringLiteral("Outfall has 2 inflow links")});
+            const QString s =
+                TypeConversionFlow::summaryHtml({}, {QStringLiteral("Outfall has 2 inflow links")});
             QVERIFY(s.contains(QStringLiteral("Topology warnings")));
             QVERIFY(s.contains(QStringLiteral("2 inflow links")));
             QVERIFY(!s.contains(QStringLiteral("Cleared fields")));
         }
         // Both.
         {
-            const QString s = TypeConversionFlow::summaryHtml(
-                {QStringLiteral("seep_rate")},
-                {QStringLiteral("warn A")});
+            const QString s = TypeConversionFlow::summaryHtml({QStringLiteral("seep_rate")},
+                                                              {QStringLiteral("warn A")});
             QVERIFY(s.contains(QStringLiteral("Cleared fields")));
             QVERIFY(s.contains(QStringLiteral("Topology warnings")));
         }
@@ -190,8 +181,7 @@ private slots:
         SWMM_ConversionResult res{};
         // Converting a conduit to a conduit must be rejected so the GUI
         // pickers are right to exclude the current type.
-        QCOMPARE(swmm_link_convert(e, li, SWMM_LINK_CONDUIT, &res),
-                 int(SWMM_ERR_BADPARAM));
+        QCOMPARE(swmm_link_convert(e, li, SWMM_LINK_CONDUIT, &res), int(SWMM_ERR_BADPARAM));
         swmm_conversion_result_free(&res);
         swmm_engine_destroy(e);
     }
@@ -234,18 +224,34 @@ private slots:
 // ----------------------------------------------------------------------------
 #include "layers/swmmmodellayer.h"
 
-bool SWMMModelLayer::applyNodeConvert(const QString&, int, QStringList*,
-                                      QStringList*, QString*) { return false; }
-bool SWMMModelLayer::applyLinkConvert(const QString&, int, QStringList*,
-                                      QStringList*, QString*) { return false; }
-bool SWMMModelLayer::applySetVirtual(const QString&, bool, QString*) { return false; }
+bool SWMMModelLayer::applyNodeConvert(const QString &, int, QStringList *, QStringList *, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applyLinkConvert(const QString &, int, QStringList *, QStringList *, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applySetVirtual(const QString &, bool, QString *)
+{
+    return false;
+}
 // Inlet-junction promotion / demotion + the usage row run() and
 // runToInletJunction() touch. Same never-called link-time stubs.
-bool SWMMModelLayer::applySetInlet(const QString&, bool, QString*) { return false; }
-bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage&, QString*) { return false; }
+bool SWMMModelLayer::applySetInlet(const QString &, bool, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage &, QString *)
+{
+    return false;
+}
 // run() reads the engine handle to probe the inlet flag before deciding how
 // to demote; nullptr short-circuits that probe.
-SWMM_Engine SWMMModelLayer::engine() const { return nullptr; }
+SWMM_Engine SWMMModelLayer::engine() const
+{
+    return nullptr;
+}
 
 QTEST_MAIN(TestTypeConversionFlow)
 #include "test_typeconversionflow.moc"

@@ -1,8 +1,9 @@
-/*!
- * \file   test_plot_batch_counts.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_plot_batch_counts.cpp
+ * @brief     Tests for plot batch counts.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Counts reads and resolutions for multi-series plots
  * (workplans/RAINFALL_2D_AND_PLOTTING_PLAN_2026-09-25.md, steps 3–4):
@@ -17,8 +18,11 @@
  *
  * Registered in tests/gui/CMakeLists.txt with the full-app link pattern
  * (swmmvis_link_full_app_deps): it drives the real ComparisonPlotDialog,
- * SWMM2DResultsLayer and Mesh2DRunLayer. Pure assertions — writes no files.
+ * SWMM2DResultsLayer and Mesh2DRunLayer. Recreates a reviewable HDF5 artifact
+ * under test_artifacts; the opt-in external-file benchmark reads its input only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmm2dresultslayer.h"
 #include "plot/comparisonplotmodel.h"
 #include "plot/mesh2drunlayer.h"
@@ -50,7 +54,8 @@
 using namespace openswmmvis::plot;
 using openswmmvis::ui::ComparisonPlotDialog;
 
-namespace {
+namespace
+{
 
 // Three samples per series; counts every per-series resolution.
 class CountingRunLayer : public IRunLayer
@@ -58,12 +63,54 @@ class CountingRunLayer : public IRunLayer
 public:
     mutable int calls = 0;
 
-    QString    scenarioName()      const override { return QStringLiteral("Counting"); }
-    UnitSystem unitSystem()        const override { return UnitSystem::SI; }
-    double     startDateJulian()   const override { return 46023.0; }
-    int        periodCount()       const override { return periods; }
-    int        reportStepSeconds() const override { return 60; }
-    void getSeriesAt(const ObjectRef&, PlotAttribute, SeriesData& out) const override
+    /**
+     *
+     * @brief Read the fixed Counting scenario label.
+     * @return Owned QString; no model or file lookup.
+     *
+     */
+    QString scenarioName() const override { return QStringLiteral("Counting"); }
+    /**
+     *
+     * @brief Report synthetic plotting units.
+     * @return SI enum, independent of requested attribute or generated integer values.
+     *
+     */
+    UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /**
+     *
+     * @brief Report the synthetic run start in engine SWMM datetime days.
+     * @return Constant 46023.0; no astronomical Julian-date conversion is performed.
+     *
+     */
+    double startDateJulian() const override { return 46023.0; }
+    /**
+     *
+     * @brief Read the mutable available-period count.
+     * @return periods, initially three, without nonnegative validation.
+     *
+     */
+    int periodCount() const override { return periods; }
+    /**
+     *
+     * @brief Report the fixed synthetic one-minute output interval.
+     * @return Sixty seconds.
+     *
+     */
+    int reportStepSeconds() const override { return 60; }
+    /**
+     *
+     * @brief Count a resolution and append synthetic minute-spaced samples to a caller buffer.
+     * @param ref Unused borrowed object reference; identity/index validity is not checked.
+     * @param attribute Unused attribute; every request receives the same integer ramp.
+     * @param out Borrowed mutable series. Requires firstPeriod>=0 and sensible periods;
+     * appends start+i/1440 day timestamps and numeric i for firstPeriod..periods-1
+     * without clearing old vectors. Sets ok=true/periodCount and increments calls even
+     * for an empty range; other metadata/error text is retained. Allocation failures
+     * can leave partial buffers. No file IO or synchronization.
+     *
+     */
+    void getSeriesAt(const ObjectRef &ref, PlotAttribute attribute, SeriesData &out) const override
     {
         ++calls;
         out.ok = true;
@@ -85,15 +132,43 @@ class CountingMeshSource : public IMesh2DSource
 public:
     static constexpr int kFrames = 5;
     int depthReads = 0;
-    int rainReads  = 0;
+    int rainReads = 0;
 
-    int vertexCount()   const override { return 4; }
+    /**
+     *
+     * @brief Report four unit-square fixture vertices.
+     * @return Four, with no mesh allocation.
+     *
+     */
+    int vertexCount() const override { return 4; }
+    /**
+     *
+     * @brief Report two native triangle fixture cells.
+     * @return Two, sharing the square diagonal.
+     *
+     */
     int triangleCount() const override { return 2; }
-    int timeCount()     const override { return kFrames; }
+    /**
+     *
+     * @brief Report the synthetic output clock length.
+     * @return Five frames.
+     *
+     */
+    int timeCount() const override { return kFrames; }
 
-    bool readMeshGeometry(std::vector<double>& vx, std::vector<double>& vy,
-                          std::vector<double>& vz,
-                          std::vector<std::array<int, 3>>& tris) override
+    /**
+     *
+     * @brief Replace output arrays with a metre unit-square mesh at one-metre bed elevation.
+     * @param vx Borrowed output four x coordinates.
+     * @param vy Borrowed output four matching y coordinates.
+     * @param vz Borrowed output four elevations, all one metre.
+     * @param tris Borrowed output zero-based triangles (0,1,2)/(0,2,3).
+     * @return True on completion; sequential allocations may partially update outputs
+     * on exception. No pointers retained or read counters changed.
+     *
+     */
+    bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
+                          std::vector<std::array<int, 3>> &tris) override
     {
         vx = {0.0, 1.0, 1.0, 0.0};
         vy = {0.0, 0.0, 1.0, 1.0};
@@ -102,23 +177,51 @@ public:
         return true;
     }
 
-    bool readDepthsAt(int t, std::vector<float>& depths) override
+    /**
+     *
+     * @brief Read two increasing synthetic native-cell depths and count valid reads.
+     * @param t Zero-based frame index 0..4.
+     * @param depths Borrowed output replaced by 0.1*(t+1),0.2*(t+1) metres.
+     * @return False for invalid time with output/counter unchanged; true after incrementing
+     * depthReads and filling. Allocation failure may leave the counter incremented.
+     *
+     */
+    bool readDepthsAt(int t, std::vector<float> &depths) override
     {
-        if (t < 0 || t >= kFrames) return false;
+        if (t < 0 || t >= kFrames)
+            return false;
         ++depthReads;
         depths = {0.1f * float(t + 1), 0.2f * float(t + 1)};
         return true;
     }
 
-    bool readFaceFieldAt(const char* dataset, int t, std::vector<float>& values) override
+    /**
+     *
+     * @brief Read the synthetic instantaneous rainfall dataset and count valid reads.
+     * @param dataset Borrowed nonnull null-terminated dataset ID; only exact
+     * Mesh2_face_rainfall is accepted.
+     * @param t Zero-based frame index 0..4.
+     * @param values Borrowed output two rainfall rates 1e-6/2e-6*(t+1) in m/s.
+     * @return False on invalid time/name without writes; true after incrementing rainReads
+     * and assignment. No field-name normalization or output-reference retention.
+     *
+     */
+    bool readFaceFieldAt(const char *dataset, int t, std::vector<float> &values) override
     {
         if (t < 0 || t >= kFrames || std::strcmp(dataset, "Mesh2_face_rainfall") != 0)
             return false;
         ++rainReads;
-        values = {1.0e-6f * float(t + 1), 2.0e-6f * float(t + 1)};   // m/s
+        values = {1.0e-6f * float(t + 1), 2.0e-6f * float(t + 1)}; // m/s
         return true;
     }
 
+    /**
+     *
+     * @brief Map any representable synthetic index to the one-minute UTC clock.
+     * @param t Frame index, normally 0..4 but not checked.
+     * @return UTC 1 Jan 2026 plus 60*t seconds, including out-of-range extrapolation.
+     *
+     */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC).addSecs(qint64(t) * 60);
@@ -131,34 +234,76 @@ public:
 class RainCumMeshSource : public CountingMeshSource
 {
 public:
-    static constexpr float kCum0[kFrames] = {0.0f, 2.5e-4f, 2.5e-4f, 7.5e-4f, 7.5e-4f};   // m³
+    static constexpr float kCum0[kFrames] = {0.0f, 2.5e-4f, 2.5e-4f, 7.5e-4f, 7.5e-4f}; // m³
 
-    bool hasFaceField(const char* dataset) const override
+    /**
+     *
+     * @brief Advertise the cumulative rain-volume field for derived-rainfall tests.
+     * @param dataset Borrowed nonnull null-terminated dataset ID.
+     * @return True only for exact Mesh2_face_rain_cum, despite readFaceFieldAt also
+     * supporting inherited instantaneous rainfall. No reads or counter changes.
+     *
+     */
+    bool hasFaceField(const char *dataset) const override
     {
         return std::strcmp(dataset, "Mesh2_face_rain_cum") == 0;
     }
 
-    bool readDepthsAt(int t, std::vector<float>& depths) override
+    /**
+     *
+     * @brief Use base depth/counter behavior then force the first native cell dry.
+     * @param t Zero-based frame 0..4, rejected by the base otherwise.
+     * @param depths Borrowed output base two-cell depths with index zero overwritten zero.
+     * @return Base false without writes, otherwise true. Keeps second cell and read count;
+     * requires successful base output of two entries before indexing.
+     *
+     */
+    bool readDepthsAt(int t, std::vector<float> &depths) override
     {
-        if (!CountingMeshSource::readDepthsAt(t, depths)) return false;
+        if (!CountingMeshSource::readDepthsAt(t, depths))
+            return false;
         depths[0] = 0.0f;
         return true;
     }
 
-    bool readFaceFieldAt(const char* dataset, int t, std::vector<float>& values) override
+    /**
+     *
+     * @brief Read cumulative rain volumes or inherited rainfall with dry-cell snapshots zeroed.
+     * @param dataset Borrowed nonnull null-terminated ID. Exact Mesh2_face_rain_cum
+     * selects cumulative cubic metres; other names delegate to the base rainfall reader.
+     * @param t Frame 0..4; cumulative frame two is deliberately unavailable.
+     * @param values Borrowed output two values on success, unchanged on refused reads.
+     * @return False for invalid/unavailable cumulative frame or base refusal; true with
+     * fixed cumulative first-cell sequence/1e-4*t second volume, or base m/s rainfall
+     * with first rate zero. Only delegated successful rainfall increments rainReads.
+     *
+     */
+    bool readFaceFieldAt(const char *dataset, int t, std::vector<float> &values) override
     {
         if (std::strcmp(dataset, "Mesh2_face_rain_cum") != 0) {
-            if (!CountingMeshSource::readFaceFieldAt(dataset, t, values)) return false;
+            if (!CountingMeshSource::readFaceFieldAt(dataset, t, values))
+                return false;
             values[0] = 0.0f;
             return true;
         }
-        if (t < 0 || t >= kFrames || t == 2) return false;
+        if (t < 0 || t >= kFrames || t == 2)
+            return false;
         values = {kCum0[t], 1.0e-4f * float(t)};
         return true;
     }
 };
 
-void compareSeries(const SeriesData& a, const SeriesData& b)
+/**
+ *
+ * @brief Assert selected series payload fields agree using QtTest comparisons.
+ * @param a Borrowed first series, with at least values.size() timestamps.
+ * @param b Borrowed second series with coherent parallel arrays.
+ * Checks ok, periodCount, both vector lengths and every value/timestamp; errors and
+ * other metadata are not compared. A failed assertion returns from this helper
+ * only, leaving the outer test running; inputs are never modified.
+ *
+ */
+void compareSeries(const SeriesData &a, const SeriesData &b)
 {
     QCOMPARE(a.ok, b.ok);
     QCOMPARE(a.periodCount, b.periodCount);
@@ -174,14 +319,29 @@ void compareSeries(const SeriesData& a, const SeriesData& b)
 // vertices f, f+1, f+2), absolute SWMM times one minute apart, and depth,
 // rainfall and edge-flux frames that vary per cell and frame. Written under
 // the working directory so it can be inspected (transparent-IO rule).
+/**
+ *
+ * @brief Create a deterministic native HDF5 plotting fixture under the current test_artifacts
+ * directory.
+ * @param faces Positive triangle count; faces+2 vertices form a zigzag strip.
+ * @param frames Positive minute-spaced report count; counts/products must fit int,
+ * hsize_t and allocation capacity. No argument validation.
+ * @return Fixed plot_batch_saved_results.h5 path, or empty only if H5Fcreate fails.
+ * Recreates/truncates this file, storing metre coordinates/depth, m/s rainfall, m3
+ * cumulative rain and m3/s edge flux with SWMM-day times. Other HDF5 creation/write/
+ * close statuses and directory creation are unchecked, so a returned path can hold
+ * partial data. Allocations can throw; no model simulation is run.
+ *
+ */
 QString writeSavedResults(int faces, int frames)
 {
     QDir out(QDir::currentPath() + QStringLiteral("/test_artifacts"));
     QDir().mkpath(out.absolutePath());
     const QString path = out.filePath(QStringLiteral("plot_batch_saved_results.h5"));
     const hid_t fid = H5Fcreate(path.toUtf8().constData(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (fid < 0) return {};
-    auto write = [&](const char* name, hid_t type, std::vector<hsize_t> dims, const void* data) {
+    if (fid < 0)
+        return {};
+    auto write = [&](const char *name, hid_t type, std::vector<hsize_t> dims, const void *data) {
         const hid_t sp = H5Screate_simple(int(dims.size()), dims.data(), nullptr);
         const hid_t ds = H5Dcreate2(fid, name, type, sp, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         H5Dwrite(ds, type, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
@@ -190,15 +350,21 @@ QString writeSavedResults(int faces, int frames)
     };
     const int verts = faces + 2;
     std::vector<double> x(verts), y(verts), z(verts);
-    for (int v = 0; v < verts; ++v) { x[v] = 0.5 * v; y[v] = v % 2; z[v] = 10.0 + 0.01 * v; }
+    for (int v = 0; v < verts; ++v) {
+        x[v] = 0.5 * v;
+        y[v] = v % 2;
+        z[v] = 10.0 + 0.01 * v;
+    }
     write("Mesh2_node_x", H5T_NATIVE_DOUBLE, {hsize_t(verts)}, x.data());
     write("Mesh2_node_y", H5T_NATIVE_DOUBLE, {hsize_t(verts)}, y.data());
     write("Mesh2_node_z", H5T_NATIVE_DOUBLE, {hsize_t(verts)}, z.data());
     std::vector<int> conn;
-    for (int f = 0; f < faces; ++f) conn.insert(conn.end(), {f, f + 1, f + 2});
+    for (int f = 0; f < faces; ++f)
+        conn.insert(conn.end(), {f, f + 1, f + 2});
     write("Mesh2_face_nodes", H5T_NATIVE_INT, {hsize_t(faces), 3}, conn.data());
     std::vector<double> times(frames);
-    for (int t = 0; t < frames; ++t) times[t] = 46023.0 + t / 1440.0;
+    for (int t = 0; t < frames; ++t)
+        times[t] = 46023.0 + t / 1440.0;
     write("time", H5T_NATIVE_DOUBLE, {hsize_t(frames)}, times.data());
     std::vector<double> depth, rain, rainCum, flux;
     for (int t = 0; t < frames; ++t)
@@ -206,16 +372,26 @@ QString writeSavedResults(int faces, int frames)
             depth.push_back(0.05 + 0.001 * t + 0.0001 * f);
             rain.push_back(1.0e-6 * (1 + (t + f) % 5));
             rainCum.push_back(1.0e-4 * t * (1 + f % 3));
-            for (int e = 0; e < 3; ++e) flux.push_back(0.001 * (e + 1) * std::sin(0.1 * t + f));
+            for (int e = 0; e < 3; ++e)
+                flux.push_back(0.001 * (e + 1) * std::sin(0.1 * t + f));
         }
     write("Mesh2_face_depth", H5T_NATIVE_DOUBLE, {hsize_t(frames), hsize_t(faces)}, depth.data());
     write("Mesh2_face_rainfall", H5T_NATIVE_DOUBLE, {hsize_t(frames), hsize_t(faces)}, rain.data());
-    write("Mesh2_face_rain_cum", H5T_NATIVE_DOUBLE, {hsize_t(frames), hsize_t(faces)}, rainCum.data());
+    write("Mesh2_face_rain_cum", H5T_NATIVE_DOUBLE, {hsize_t(frames), hsize_t(faces)},
+          rainCum.data());
     write("Mesh2_edge_flux", H5T_NATIVE_DOUBLE, {hsize_t(frames), hsize_t(faces), 3}, flux.data());
     H5Fclose(fid);
     return path;
 }
 
+/**
+ *
+ * @brief Build the standard saved-result extraction request matrix.
+ * @return Eighteen owned cell/attribute requests: cells zero/three/seven, six depth/
+ * HGL/rainfall/velocity/rain-depth/mean-rainfall attributes, all from period zero.
+ * Requires a consuming source with at least eight cells; performs no reads.
+ *
+ */
 QVector<SeriesRequest> savedRequests()
 {
     QVector<SeriesRequest> requests;
@@ -227,7 +403,15 @@ QVector<SeriesRequest> savedRequests()
     return requests;
 }
 
-std::unique_ptr<HDF5Mesh2DSource> openSaved(const QString& path)
+/**
+ *
+ * @brief Open an HDF5 fixture into a caller-owned source reader.
+ * @param path Borrowed readable saved-result filename, converted by the reader.
+ * @return Unique open source or nullptr after failed-open cleanup. Allocation errors
+ * propagate; the source file is read, not modified or owned by this pointer.
+ *
+ */
+std::unique_ptr<HDF5Mesh2DSource> openSaved(const QString &path)
 {
     auto source = std::make_unique<HDF5Mesh2DSource>();
     return source->open(path) ? std::move(source) : nullptr;
@@ -239,16 +423,96 @@ class TestPlotBatchCounts : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require batch additions to resolve every resulting series once per chart/statistics
+     * consumer, rather than once per insertion.
+     * Checks invalid vertex skipping and linear two-consumer counts for 20 then 25 series.
+     *
+     */
     void dialogBatchAddResolvesEachSeriesOnce();
+    /**
+     *
+     * @brief Require a four-series live-tail refresh after two new periods to invoke four source
+     * resolutions.
+     *
+     */
     void dialogLiveTailResolvesEachSeriesOnce();
+    /**
+     *
+     * @brief Require depth/HGL/rainfall for two cells to reuse five depth/rain reads each and
+     * convert final rainfall to mm/hour.
+     *
+     */
     void meshBatchReadsEachFrameOnce();
+    /**
+     *
+     * @brief Require batch/full-tail outputs to match single-series reads, with explicit missing
+     * cumulative-data and edge-geometry refusals.
+     *
+     */
     void meshBatchMatchesPerSeriesPath();
+    /**
+     *
+     * @brief Require cumulative rain-derived interval means/depth to reveal between-report
+     * rainfall on a dry cell.
+     * Checks batch/single equality, missing cumulative frame widening the next interval
+     * and integration of mean mm/hour back to cumulative mm, including tail requests.
+     *
+     */
     void derivedRainSeriesShowRainOnDryCells();
+    /**
+     *
+     * @brief Require a deferred saved-file extraction job to run on its own thread, read 40
+     * frames and reproduce direct payloads.
+     * Checks Loading states, one in-flight job, result acceptance and cached retrieval;
+     * recreates the test HDF5 file through writeSavedResults.
+     *
+     */
     void workerJobMatchesDirectRead();
+    /**
+     *
+     * @brief Require pre-cancelled extraction to read zero frames and stay cancelled until
+     * explicit retry queues a new job.
+     * Recreates the test HDF5 artifact and performs no asynchronous dialog work.
+     *
+     */
     void cancelledJobWaitsForRetry();
+    /**
+     *
+     * @brief Require results for a prior source identity to be rejected after reopening the same
+     * HDF5 path, then queue fresh loading.
+     *
+     */
     void staleJobIsRejected();
+    /**
+     *
+     * @brief Require added saved-result series to start Loading, complete within ten seconds and
+     * match direct reads with the loading strip hidden.
+     *
+     */
     void dialogLoadsSavedResultsOnWorker();
+    /**
+     *
+     * @brief Require dialog Cancel to discard loading, Retry to complete and mid-load destruction
+     * to finish within five seconds.
+     * Recreates the test HDF5 artifact and requires a functioning GUI event loop; checks
+     * Cancelled/Loading display states and worker cleanup, not OS disk-cache eviction.
+     *
+     */
     void dialogCancelRetryAndCloseWhileLoading();
+    /**
+     *
+     * @brief Optionally benchmark saved-result batched/cache/scalar/dialog extraction without
+     * timing thresholds.
+     * Skips without SWMMVIS_PLOT_BENCHMARK_FILE; requires readable depth/rainfall/velocity
+     * results, nonempty cells/frames and GUI event handling. Tests 1/10/50 selected cells
+     * when available and one/three attributes; SWMMVIS_PLOT_BENCHMARK_SCALAR enables
+     * separate single-series comparison. Logs JSON timing/event-gap diagnostics, with
+     * a fifteen-minute readiness timeout per dialog. Reads the supplied file without
+     * writing it; uncached means a fresh adapter, not a flushed OS cache.
+     *
+     */
     void savedResultsBenchmark();
 };
 
@@ -262,7 +526,8 @@ void TestPlotBatchCounts::dialogBatchAddResolvesEachSeriesOnce()
     const int run = dlg.model()->addRunSource(std::move(rs));
 
     QVector<int> cells;
-    for (int c = 0; c < 20; ++c) cells.append(c);
+    for (int c = 0; c < 20; ++c)
+        cells.append(c);
     QCOMPARE(dlg.addCellSeries(run, cells, {PlotAttribute::Mesh2DDepth}), 20);
     QCOMPARE(dlg.model()->seriesCount(), 20);
     // Each series resolves once for the charts and once for the statistics
@@ -278,7 +543,7 @@ void TestPlotBatchCounts::dialogBatchAddResolvesEachSeriesOnce()
     for (int v = 0; v < 5; ++v)
         items.append({ObjectRef::forMesh2DVertex(v),
                       ResultDescriptor::forAttribute(PlotAttribute::Mesh2DDepth)});
-    items.append({ObjectRef::forMesh2DVertex(-1),   // invalid: skipped
+    items.append({ObjectRef::forMesh2DVertex(-1), // invalid: skipped
                   ResultDescriptor::forAttribute(PlotAttribute::Mesh2DDepth)});
     QCOMPARE(dlg.addSeriesBatch(run, items), 5);
     QCOMPARE(dlg.model()->seriesCount(), 25);
@@ -295,7 +560,7 @@ void TestPlotBatchCounts::dialogLiveTailResolvesEachSeriesOnce()
     QCOMPARE(dlg.addCellSeries(run, {0, 1, 2, 3}, {PlotAttribute::Mesh2DDepth}), 4);
 
     layer->calls = 0;
-    layer->periods = 5;   // the run grew two frames
+    layer->periods = 5; // the run grew two frames
     QVERIFY(QMetaObject::invokeMethod(&dlg, "appendChartTails", Qt::DirectConnection));
     QCOMPARE(layer->calls, 4);
 }
@@ -304,24 +569,25 @@ void TestPlotBatchCounts::meshBatchReadsEachFrameOnce()
 {
     SWMM2DResultsLayer layer;
     auto owned = std::make_unique<CountingMeshSource>();
-    CountingMeshSource* src = owned.get();
+    CountingMeshSource *src = owned.get();
     layer.setSource(std::move(owned));
     Mesh2DRunLayer run(&layer);
 
     QVector<SeriesRequest> requests;
     for (int c : {0, 1})
-        for (PlotAttribute a : {PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DHGL,
-                                PlotAttribute::Mesh2DRainfall})
+        for (PlotAttribute a :
+             {PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DHGL, PlotAttribute::Mesh2DRainfall})
             requests.append({ObjectRef::forMesh2DCell(c), ResultDescriptor::forAttribute(a), 0});
 
     src->depthReads = src->rainReads = 0;
     QVector<SeriesData> out;
     run.getSeriesBatch(requests, out);
     QCOMPARE(out.size(), requests.size());
-    for (const auto& d : out) QVERIFY2(d.ok, qPrintable(d.errorMessage));
+    for (const auto &d : out)
+        QVERIFY2(d.ok, qPrintable(d.errorMessage));
     // Six series over two cells: each frame's depth and rainfall read once.
     QCOMPARE(src->depthReads, CountingMeshSource::kFrames);
-    QCOMPARE(src->rainReads,  CountingMeshSource::kFrames);
+    QCOMPARE(src->rainReads, CountingMeshSource::kFrames);
 
     // Rainfall is reported in mm/hr: 2e-6 m/s at frame 4 of cell 1 → 36 mm/hr.
     QVERIFY(std::fabs(out[5].values[4] - 2.0e-6f * 5.0f * 3.6e6) < 1e-6);
@@ -334,15 +600,14 @@ void TestPlotBatchCounts::meshBatchMatchesPerSeriesPath()
     Mesh2DRunLayer run(&layer);
 
     const QVector<PlotAttribute> attrs = {
-        PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DHGL,
-        PlotAttribute::Mesh2DRainfall, PlotAttribute::Mesh2DRainVolume,
-        PlotAttribute::Mesh2DVelocityMag};
+        PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DHGL, PlotAttribute::Mesh2DRainfall,
+        PlotAttribute::Mesh2DRainVolume, PlotAttribute::Mesh2DVelocityMag};
     for (int firstPeriod : {0, 3}) {
         QVector<SeriesRequest> requests;
         for (int c : {0, 1})
             for (PlotAttribute a : attrs)
-                requests.append({ObjectRef::forMesh2DCell(c),
-                                 ResultDescriptor::forAttribute(a), firstPeriod});
+                requests.append(
+                    {ObjectRef::forMesh2DCell(c), ResultDescriptor::forAttribute(a), firstPeriod});
         QVector<SeriesData> batch;
         run.getSeriesBatch(requests, batch);
         for (int k = 0; k < requests.size(); ++k) {
@@ -385,8 +650,8 @@ void TestPlotBatchCounts::derivedRainSeriesShowRainOnDryCells()
         QVector<SeriesRequest> requests;
         for (int c : {0, 1})
             for (PlotAttribute a : attrs)
-                requests.append({ObjectRef::forMesh2DCell(c),
-                                 ResultDescriptor::forAttribute(a), firstPeriod});
+                requests.append(
+                    {ObjectRef::forMesh2DCell(c), ResultDescriptor::forAttribute(a), firstPeriod});
         QVector<SeriesData> batch;
         run.getSeriesBatch(requests, batch);
         for (int k = 0; k < requests.size(); ++k) {
@@ -395,38 +660,53 @@ void TestPlotBatchCounts::derivedRainSeriesShowRainOnDryCells()
             run.getSeriesAt(requests[k].ref, requests[k].descriptor.attr, single);
             compareSeries(batch[k], single);
         }
-        if (firstPeriod != 0) continue;
-        for (double v : batch[0].values) QCOMPARE(v, 0.0);   // snapshot: no rain seen
-        for (double v : batch[3].values) QCOMPARE(v, 0.0);   // and the cell is dry
+        if (firstPeriod != 0)
+            continue;
+        for (double v : batch[0].values)
+            QCOMPARE(v, 0.0); // snapshot: no rain seen
+        for (double v : batch[3].values)
+            QCOMPARE(v, 0.0); // and the cell is dry
         // Interval means: frame 0 has no interval; unreadable frame 2 widens
         // frame 3's interval to 120 s instead of reading as zero.
-        const auto& mean = batch[1];
+        const auto &mean = batch[1];
         QCOMPARE(int(mean.values.size()), 3);
-        const double mmhr = 3600000.0 / 0.5;   // m³/s over 0.5 m² → mm/hr
+        const double mmhr = 3600000.0 / 0.5; // m³/s over 0.5 m² → mm/hr
         QVERIFY(std::fabs(mean.values[0] - double(2.5e-4f) / 60.0 * mmhr) < 1e-9);
-        QVERIFY(std::fabs(mean.values[1] - (double(7.5e-4f) - double(2.5e-4f)) / 120.0 * mmhr) < 1e-9);
+        QVERIFY(std::fabs(mean.values[1] - (double(7.5e-4f) - double(2.5e-4f)) / 120.0 * mmhr) <
+                1e-9);
         QCOMPARE(mean.values[2], 0.0);
         QVERIFY(mean.values[0] > 29.0);
-        const auto& depth = batch[2];   // mm
+        const auto &depth = batch[2]; // mm
         QCOMPARE(int(depth.values.size()), 4);
         QCOMPARE(depth.values[0], 0.0);
         QVERIFY(std::fabs(depth.values[3] - double(7.5e-4f) / 0.5 * 1000.0) < 1e-12);
         // The means integrate back to the depth the cell received.
         double integral = 0.0;
         for (std::size_t i = 0; i < mean.values.size(); ++i) {
-            const double seconds = (mean.timesJulian[i] - (i ? mean.timesJulian[i - 1]
-                                                             : batch[2].timesJulian[0])) * 86400.0;
+            const double seconds =
+                (mean.timesJulian[i] - (i ? mean.timesJulian[i - 1] : batch[2].timesJulian[0])) *
+                86400.0;
             integral += mean.values[i] * seconds / 3600.0;
         }
         QVERIFY(std::fabs(integral - depth.values[3]) < 1e-6);
     }
 }
 
-namespace {
-bool allLoaded(ComparisonPlotDialog& dlg)
+namespace
+{
+/**
+ *
+ * @brief Resolve every dialog series and check its current ok flags.
+ * @param dlg Borrowed live GUI-thread dialog/model; resolution may initiate or
+ * inspect extraction/cache work, so this is not a side-effect-free status accessor.
+ * @return True when every resolved series is ok, including a vacuously empty list.
+ * The fixture callers assert added series counts before using this predicate.
+ *
+ */
+bool allLoaded(ComparisonPlotDialog &dlg)
 {
     const auto data = dlg.model()->resolveAllSeries();
-    return std::all_of(data.cbegin(), data.cend(), [](const SeriesData& d) { return d.ok; });
+    return std::all_of(data.cbegin(), data.cend(), [](const SeriesData &d) { return d.ok; });
 }
 const QString kLoading = QStringLiteral("Loading…");
 const QString kCancelled = QStringLiteral("Loading cancelled");
@@ -446,9 +726,10 @@ void TestPlotBatchCounts::workerJobMatchesDirectRead()
 
     QVector<SeriesData> expected, pending, loaded;
     direct.getSeriesBatch(requests, expected);
-    for (const auto& d : expected) QVERIFY2(d.ok, qPrintable(d.errorMessage));
+    for (const auto &d : expected)
+        QVERIFY2(d.ok, qPrintable(d.errorMessage));
     deferred.getSeriesBatch(requests, pending);
-    for (const auto& d : pending) {
+    for (const auto &d : pending) {
         QVERIFY(!d.ok);
         QCOMPARE(d.errorMessage, kLoading);
     }
@@ -470,7 +751,8 @@ void TestPlotBatchCounts::workerJobMatchesDirectRead()
     QCOMPARE(frames.load(), 40);
     QVERIFY(deferred.acceptExtraction(job, results));
     deferred.getSeriesBatch(requests, loaded);
-    for (int k = 0; k < requests.size(); ++k) compareSeries(loaded[k], expected[k]);
+    for (int k = 0; k < requests.size(); ++k)
+        compareSeries(loaded[k], expected[k]);
 }
 
 void TestPlotBatchCounts::cancelledJobWaitsForRetry()
@@ -488,12 +770,13 @@ void TestPlotBatchCounts::cancelledJobWaitsForRetry()
     std::atomic<bool> cancel{true};
     std::atomic<int> frames{0};
     QVERIFY(!job.run(results, cancel, frames));
-    QCOMPARE(frames.load(), 0);              // checked before the first frame
+    QCOMPARE(frames.load(), 0); // checked before the first frame
     run.cancelExtraction(job);
     QVERIFY(run.hasCancelled());
     run.getSeriesBatch(requests, out);
-    for (const auto& d : out) QCOMPARE(d.errorMessage, kCancelled);
-    QVERIFY(run.takeExtractionJob().isEmpty());   // no reload until asked
+    for (const auto &d : out)
+        QCOMPARE(d.errorMessage, kCancelled);
+    QVERIFY(run.takeExtractionJob().isEmpty()); // no reload until asked
 
     run.retryCancelled();
     run.getSeriesBatch(requests, out);
@@ -520,7 +803,8 @@ void TestPlotBatchCounts::staleJobIsRejected()
     layer.setSource(openSaved(path));
     QVERIFY(!run.acceptExtraction(job, results));
     run.getSeriesBatch(requests, out);
-    for (const auto& d : out) QCOMPARE(d.errorMessage, kLoading);
+    for (const auto &d : out)
+        QCOMPARE(d.errorMessage, kLoading);
     QCOMPARE(run.takeExtractionJob().requests.size(), requests.size());
 }
 
@@ -537,17 +821,18 @@ void TestPlotBatchCounts::dialogLoadsSavedResultsOnWorker()
     const QVector<PlotAttribute> attrs{PlotAttribute::Mesh2DDepth, PlotAttribute::Mesh2DRainfall};
     QCOMPARE(dlg.addCellSeries(run, {0, 3, 7}, attrs), 6);
     // The addition returned without reading the file on the GUI thread.
-    for (const auto& d : dlg.model()->resolveAllSeries()) QCOMPARE(d.errorMessage, kLoading);
+    for (const auto &d : dlg.model()->resolveAllSeries())
+        QCOMPARE(d.errorMessage, kLoading);
 
     QTRY_VERIFY_WITH_TIMEOUT(allLoaded(dlg), 10000);
     QVERIFY(!dlg.isLoadingResults());
-    auto* strip = dlg.findChild<QWidget*>(QStringLiteral("loadStrip"));
+    auto *strip = dlg.findChild<QWidget *>(QStringLiteral("loadStrip"));
     QVERIFY(strip && strip->isHidden());
 
     Mesh2DRunLayer direct(&layer);
     const auto loaded = dlg.model()->resolveAllSeries();
     for (int i = 0; i < loaded.size(); ++i) {
-        const auto& spec = dlg.model()->spec(i);
+        const auto &spec = dlg.model()->spec(i);
         SeriesData expected;
         direct.getSeriesAt(spec.objectRef, spec.attribute, expected);
         compareSeries(loaded[i], expected);
@@ -559,24 +844,25 @@ void TestPlotBatchCounts::dialogCancelRetryAndCloseWhileLoading()
     const QString path = writeSavedResults(12, 40);
     SWMM2DResultsLayer layer;
     layer.setSource(openSaved(path));
-    auto* dlg = new ComparisonPlotDialog;
+    auto *dlg = new ComparisonPlotDialog;
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(&layer);
     const int run = dlg->model()->addRunSource(std::move(rs));
-    auto* button = dlg->findChild<QPushButton*>(QStringLiteral("loadButton"));
-    auto* strip = dlg->findChild<QWidget*>(QStringLiteral("loadStrip"));
+    auto *button = dlg->findChild<QPushButton *>(QStringLiteral("loadButton"));
+    auto *strip = dlg->findChild<QWidget *>(QStringLiteral("loadStrip"));
     QVERIFY(button && strip);
 
     QCOMPARE(dlg->addCellSeries(run, {0, 3}, {PlotAttribute::Mesh2DDepth}), 2);
     QTRY_VERIFY(dlg->isLoadingResults());
     QCOMPARE(button->text(), QStringLiteral("Cancel"));
-    button->click();                        // a pressed Cancel always discards
+    button->click(); // a pressed Cancel always discards
     QTRY_VERIFY(!dlg->isLoadingResults());
     QVERIFY(!strip->isHidden());
     QCOMPARE(button->text(), QStringLiteral("Retry"));
-    for (const auto& d : dlg->model()->resolveAllSeries()) QCOMPARE(d.errorMessage, kCancelled);
+    for (const auto &d : dlg->model()->resolveAllSeries())
+        QCOMPARE(d.errorMessage, kCancelled);
 
-    button->click();                        // Retry
+    button->click(); // Retry
     QTRY_VERIFY_WITH_TIMEOUT(allLoaded(*dlg), 10000);
     QTRY_VERIFY(strip->isHidden());
 
@@ -597,7 +883,8 @@ void TestPlotBatchCounts::dialogCancelRetryAndCloseWhileLoading()
 void TestPlotBatchCounts::savedResultsBenchmark()
 {
     const QString path = qEnvironmentVariable("SWMMVIS_PLOT_BENCHMARK_FILE");
-    if (path.isEmpty()) QSKIP("Set SWMMVIS_PLOT_BENCHMARK_FILE to benchmark saved results");
+    if (path.isEmpty())
+        QSKIP("Set SWMMVIS_PLOT_BENCHMARK_FILE to benchmark saved results");
     SWMM2DResultsLayer layer;
     auto source = std::make_unique<HDF5Mesh2DSource>();
     QVERIFY2(source->open(path), qPrintable(path));
@@ -608,7 +895,8 @@ void TestPlotBatchCounts::savedResultsBenchmark()
 
     const bool compareScalar = qEnvironmentVariableIntValue("SWMMVIS_PLOT_BENCHMARK_SCALAR") != 0;
     for (int count : {1, 10, 50}) {
-        if (count > faces) continue;
+        if (count > faces)
+            continue;
         for (int variables : {1, 3}) {
             QVector<PlotAttribute> attrs{PlotAttribute::Mesh2DDepth};
             if (variables == 3)
@@ -619,7 +907,8 @@ void TestPlotBatchCounts::savedResultsBenchmark()
                 const int cell = c * (faces / count);
                 cells.append(cell);
                 for (const auto attr : attrs)
-                    requests.append({ObjectRef::forMesh2DCell(cell), ResultDescriptor::forAttribute(attr), 0});
+                    requests.append(
+                        {ObjectRef::forMesh2DCell(cell), ResultDescriptor::forAttribute(attr), 0});
             }
             auto run = std::make_shared<Mesh2DRunLayer>(&layer);
             QVector<SeriesData> batch, cached;
@@ -628,7 +917,7 @@ void TestPlotBatchCounts::savedResultsBenchmark()
             run->getSeriesBatch(requests, batch);
             const double uncachedMs = timer.nsecsElapsed() / 1e6;
             QCOMPARE(batch.size(), requests.size());
-            for (const auto& result : batch) {
+            for (const auto &result : batch) {
                 QVERIFY2(result.ok, qPrintable(result.errorMessage));
                 QCOMPARE(int(result.values.size()), periods);
             }
@@ -636,11 +925,16 @@ void TestPlotBatchCounts::savedResultsBenchmark()
             run->getSeriesBatch(requests, cached);
             const double cachedMs = timer.nsecsElapsed() / 1e6;
             QCOMPARE(cached.size(), batch.size());
-            for (int i = 0; i < batch.size(); ++i) compareSeries(batch[i], cached[i]);
+            for (int i = 0; i < batch.size(); ++i)
+                compareSeries(batch[i], cached[i]);
 
-            QJsonObject record{{"file", QFileInfo(path).fileName()}, {"faces", faces},
-                {"periods", periods}, {"selected_cells", count}, {"variables", variables},
-                {"uncached_batch_ms", uncachedMs}, {"cached_batch_ms", cachedMs}};
+            QJsonObject record{{"file", QFileInfo(path).fileName()},
+                               {"faces", faces},
+                               {"periods", periods},
+                               {"selected_cells", count},
+                               {"variables", variables},
+                               {"uncached_batch_ms", uncachedMs},
+                               {"cached_batch_ms", cachedMs}};
             if (compareScalar) {
                 // Current single-series path with an initially empty cache.
                 // This measures repeated extraction, not the historical
@@ -651,7 +945,8 @@ void TestPlotBatchCounts::savedResultsBenchmark()
                 for (int i = 0; i < requests.size(); ++i)
                     singleRun.getSeriesAt(requests[i].ref, requests[i].descriptor.attr, scalar[i]);
                 record.insert("separate_series_ms", timer.nsecsElapsed() / 1e6);
-                for (int i = 0; i < batch.size(); ++i) compareSeries(batch[i], scalar[i]);
+                for (int i = 0; i < batch.size(); ++i)
+                    compareSeries(batch[i], scalar[i]);
             }
 
             ComparisonPlotDialog dialog;
@@ -678,7 +973,8 @@ void TestPlotBatchCounts::savedResultsBenchmark()
                 maxGapMs = std::max(maxGapMs, gap);
                 // Only a gap that starts and ends mid-load is the worker's;
                 // one spanning completion includes the chart rebuild.
-                if (loading && wasLoading) maxGapLoadingMs = std::max(maxGapLoadingMs, gap);
+                if (loading && wasLoading)
+                    maxGapLoadingMs = std::max(maxGapLoadingMs, gap);
                 wasLoading = loading;
             });
             ticker.start();
@@ -697,7 +993,8 @@ void TestPlotBatchCounts::savedResultsBenchmark()
             timer.restart();
             QCOMPARE(cachedDialog.addCellSeries(cachedRun, cells, attrs), requests.size());
             record.insert("cached_dialog_add_ms", timer.nsecsElapsed() / 1e6);
-            qInfo().noquote() << "PLOT_BENCHMARK" << QJsonDocument(record).toJson(QJsonDocument::Compact);
+            qInfo().noquote() << "PLOT_BENCHMARK"
+                              << QJsonDocument(record).toJson(QJsonDocument::Compact);
         }
     }
 }

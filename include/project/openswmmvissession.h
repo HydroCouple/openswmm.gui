@@ -1,11 +1,11 @@
-/*!
- * \file   openswmmvissession.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  A single-window editing session bound to one SWMMVis workspace.
+/**
+ * @file      openswmmvissession.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     A single-window editing session bound to one SWMMVis workspace.
  *
- * \details OpenSWMMVisSession binds an OpenSWMMVisWorkspace (project data) to
+ * @details OpenSWMMVisSession binds an OpenSWMMVisWorkspace (project data) to
  *          an OpenSWMMVisGraphicsView (interactive map overlay). Each project
  *          window in the MDI host owns exactly one session; creating or
  *          importing a second SWMM model opens a new session rather than
@@ -14,6 +14,7 @@
  *          OpenSWMMVisSession derives from OpenSWMMVisLayer so it can be tracked
  *          inside the workspace's layer list and referenced polymorphically by
  *          the canvas.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef SWMMVISSUBPROJECT_H
@@ -41,11 +42,9 @@ class OpenSWMMVisSession : public OpenSWMMVisLayer
     Q_OBJECT
 
 public:
-
     /*!
-     * \brief Constructs a session bound to \p parent workspace.
-     * \param parent        Owning workspace; must not be nullptr when creating
-     *                      a session as part of a project-open workflow.
+     * \brief Record borrowed workspace and graphics-view pointers.
+     * \param parent        Borrowed workspace pointer, including nullptr; it is not passed to the base QObject parent.
      * \param swmmGraphicsView  Optional pre-created graphics view to bind
      *                          immediately; may be set later via setGraphicsView().
      */
@@ -62,23 +61,27 @@ public:
     /*!
      * \brief No-op override — scene population is handled by the child layers
      *        registered with the workspace.
+     * @param[in] scene Unused scene pointer.
+     * @param[in] canvasExtent Unused visible map extent.
+     * @param[in] canvasSRS Unused canvas CRS pointer.
      */
-    void populateScene(QGraphicsScene *scene,
-                       const MapExtent &canvasExtent,
-                       const SpatialReferenceSystem *canvasSRS) override {}
+    void populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                       const SpatialReferenceSystem *canvasSRS) override
+    {
+    }
 
     // ----- Graphics view binding ---------------------------------------------
 
     /*!
      * \brief Replaces (or clears) the bound graphics view.
-     * \details Disconnects all signals from the old view before binding the
-     *          new one.  Pass nullptr to detach without rebinding.
+     * \details Only replaces the borrowed pointer; it neither reparents views nor disconnects signals. Pass nullptr to clear it.
      * \param graphicsView  New graphics view to bind, or nullptr.
      */
     void setGraphicsView(OpenSWMMVisGraphicsView *graphicsView);
 
     /*!
      * \brief Returns the currently bound graphics view, or nullptr if none.
+     * @return Borrowed pointer last supplied to the constructor or setter; null is permitted.
      */
     [[nodiscard]] OpenSWMMVisGraphicsView *graphicsView() const;
 
@@ -93,7 +96,7 @@ public:
 
 private:
     OpenSWMMVisGraphicsView *mGraphicsView;
-    OpenSWMMVisWorkspace    *mProject;
+    OpenSWMMVisWorkspace *mProject;
 };
 
 Q_DECLARE_METATYPE(OpenSWMMVisSession *)

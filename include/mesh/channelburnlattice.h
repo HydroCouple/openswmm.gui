@@ -1,8 +1,10 @@
-/*!
- * \file   channelburnlattice.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnlattice.h
+ * @brief     The channel corridor as mesh input — phases P2 and P3 of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.6, §4.7, §16.2).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * The channel corridor as mesh input — phases P2 and P3 of
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.6, §4.7, §16.2).
@@ -36,7 +38,9 @@
  * Unlike channelburn.h this header pulls in the mesh data model (QtGui), so it
  * is kept separate: the profile and rule layers stay Qt Core only and unit-test
  * without a GUI dependency.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_CHANNELBURNLATTICE_H
 #define OPENSWMMVIS_MESH_CHANNELBURNLATTICE_H
 
@@ -51,7 +55,8 @@
 #include <QStringList>
 #include <QVector>
 
-namespace mesh {
+namespace mesh
+{
 
 /*!
  * \brief One conduit's corridor, sampled on a conformal (along x across)
@@ -60,23 +65,22 @@ namespace mesh {
  * Row-major: vertex (i, k) is at \ref at(i, k), i along the channel, k across
  * it with k ascending to the RIGHT of the downstream direction.
  */
-struct BurnLattice
-{
-    QString          conduitId;
-    int              nAlong  = 0;
-    int              nAcross = 0;
-    QVector<double>  chainage;   ///< nAlong, ascending, 0 .. length.
-    QVector<double>  offsets;    ///< nAcross, ascending, signed.
-    QVector<QPointF> xy;         ///< nAlong · nAcross.
-    QVector<double>  z;          ///< nAlong · nAcross, exact burned elevation.
-    double minAlongSpacing  = 0.0;
+struct BurnLattice {
+    QString conduitId;
+    int nAlong = 0;
+    int nAcross = 0;
+    QVector<double> chainage; ///< nAlong, ascending, 0 .. length.
+    QVector<double> offsets;  ///< nAcross, ascending, signed.
+    QVector<QPointF> xy;      ///< nAlong · nAcross.
+    QVector<double> z;        ///< nAlong · nAcross, exact burned elevation.
+    double minAlongSpacing = 0.0;
     double minAcrossSpacing = 0.0;
 
     [[nodiscard]] int at(int i, int k) const noexcept { return i * nAcross + k; }
     [[nodiscard]] bool isValid() const noexcept
     {
-        return nAlong >= 2 && nAcross >= 2
-               && xy.size() == qsizetype(nAlong) * nAcross && z.size() == xy.size();
+        return nAlong >= 2 && nAcross >= 2 && xy.size() == qsizetype(nAlong) * nAcross &&
+               z.size() == xy.size();
     }
 };
 
@@ -85,8 +89,16 @@ struct BurnLattice
 class BurnSurface
 {
 public:
-    struct Hit { double z=qQNaN(); int profile=-1; double offset=0; };
-    struct Error { double maximum=0; QPointF point; bool touched=false; };
+    struct Hit {
+        double z = qQNaN();
+        int profile = -1;
+        double offset = 0;
+    };
+    struct Error {
+        double maximum = 0;
+        QPointF point;
+        bool touched = false;
+    };
     void build(const QVector<BurnLattice> &lattices);
     Hit sample(const QPointF &p) const;
     /*! sample(), or when \p p misses every face but lies within \p radius
@@ -107,15 +119,22 @@ public:
      *  corners, edge midpoints and interiors. Unlike error(), this is not an
      *  exact authored-surface diagnostic; retain that independent final check. */
     Error sampledTargetError(const QPointF *xy, const double *z,
-                const std::function<double(const QPointF &)> &target, double minWidth = 0.0) const;
+                             const std::function<double(const QPointF &)> &target,
+                             double minWidth = 0.0) const;
+
 private:
     Error errorImpl(const QPointF *xy, const double *z,
-                const std::function<bool(const QPointF &)> &inside, double minWidth,
-                const std::function<double(const QPointF &)> &target) const;
-    struct Face { QPointF p[3]; double z[3],offset[3]; int profile; QRectF bounds; };
+                    const std::function<bool(const QPointF &)> &inside, double minWidth,
+                    const std::function<double(const QPointF &)> &target) const;
+    struct Face {
+        QPointF p[3];
+        double z[3], offset[3];
+        int profile;
+        QRectF bounds;
+    };
     QVector<Face> faces;
-    QHash<QPair<int,int>,QVector<int>> grid;
-    double pitch=1;
+    QHash<QPair<int, int>, QVector<int>> grid;
+    double pitch = 1;
     QPointF origin;
     QRectF surfaceBounds;
     QVector<int> candidates(const QRectF &bounds) const;
@@ -143,11 +162,9 @@ private:
  *                    (more offsets than width / minCellSize + 1).
  *                    0 = keep every offset.
  */
-[[nodiscard]] BurnLattice buildCorridorLattice(const BurnProfile &p,
-                                               double alongStep, double minCellSize,
-                                               QStringList *warnings = nullptr,
-                                               QString *err = nullptr,
-                                               double acrossTolerance = 0.0,
+[[nodiscard]] BurnLattice buildCorridorLattice(const BurnProfile &p, double alongStep,
+                                               double minCellSize, QStringList *warnings = nullptr,
+                                               QString *err = nullptr, double acrossTolerance = 0.0,
                                                double minSpacing = 0.0);
 
 /*!
@@ -169,9 +186,8 @@ private:
  *
  * Markers run from \p markerBase; \p markerToTag receives marker → tag.
  */
-[[nodiscard]] QVector<ConstraintSegment> corridorStrings(const BurnLattice &lat,
-                                                         int markerBase,
-                                                         QHash<int, QString> *markerToTag = nullptr);
+[[nodiscard]] QVector<ConstraintSegment>
+corridorStrings(const BurnLattice &lat, int markerBase, QHash<int, QString> *markerToTag = nullptr);
 
 /*! \brief The lattice's vertices as exact-z Steiner points (`hasZ = true`), so
  *         the post-mesh elevation fill never re-samples them. */

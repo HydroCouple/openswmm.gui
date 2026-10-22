@@ -1,3 +1,14 @@
+/**
+ * @file      thememanager.cpp
+ * @brief     UI redesign P2 — applies the design tokens (themetokens.h) as the application-wide
+ *            QPalette plus a minimal QSS overlay, and tracks the OS appearance when the mode is
+ *            System (QStyleHints::colorScheme).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
 
@@ -6,24 +17,31 @@
 #include <QPalette>
 #include <QStyleHints>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Blend \a fg toward \a bg — used to derive the Disabled palette group
- *  from the enabled tokens instead of hand-picking more colors. */
+ *  from the enabled tokens instead of hand-picking more colors.
+ * @brief Blend RGB channel values without retaining input alpha.
+ * @param[in] fg Foreground colour.
+ * @param[in] bg Background colour.
+ * @param[in] fgShare Foreground weight, expected in [0,1]; no clamp is applied here.
+ * @return Opaque QColor with integer-truncated weighted RGB channels.
+ */
 QColor mixed(const QColor &fg, const QColor &bg, qreal fgShare)
 {
     const qreal bgShare = 1.0 - fgShare;
-    return QColor(int(fg.red()   * fgShare + bg.red()   * bgShare),
+    return QColor(int(fg.red() * fgShare + bg.red() * bgShare),
                   int(fg.green() * fgShare + bg.green() * bgShare),
-                  int(fg.blue()  * fgShare + bg.blue()  * bgShare));
+                  int(fg.blue() * fgShare + bg.blue() * bgShare));
 }
 
-}   // namespace
+} // namespace
 
-ThemeManager::ThemeManager(QObject *parent)
-    : QObject(parent)
+ThemeManager::ThemeManager(QObject *parent) : QObject(parent)
 {
     // In System mode, follow the OS appearance live.
     if (auto *hints = QGuiApplication::styleHints()) {
@@ -61,17 +79,14 @@ Qt::ColorScheme ThemeManager::effectiveScheme() const
         break;
     }
     const auto *hints = QGuiApplication::styleHints();
-    const Qt::ColorScheme system =
-        hints ? hints->colorScheme() : Qt::ColorScheme::Unknown;
+    const Qt::ColorScheme system = hints ? hints->colorScheme() : Qt::ColorScheme::Unknown;
     // Offscreen/minimal platforms report Unknown — light is the safe floor.
-    return system == Qt::ColorScheme::Dark ? Qt::ColorScheme::Dark
-                                           : Qt::ColorScheme::Light;
+    return system == Qt::ColorScheme::Dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
 }
 
 const ThemeColors &ThemeManager::colors() const
 {
-    return effectiveScheme() == Qt::ColorScheme::Dark ? darkColors()
-                                                      : lightColors();
+    return effectiveScheme() == Qt::ColorScheme::Dark ? darkColors() : lightColors();
 }
 
 void ThemeManager::apply()
@@ -84,34 +99,34 @@ void ThemeManager::apply()
     const ThemeColors &c = colors();
 
     QPalette pal;
-    pal.setColor(QPalette::Window,          c.surfaceWindow);
-    pal.setColor(QPalette::WindowText,      c.text);
-    pal.setColor(QPalette::Base,            c.surfaceRaised);
-    pal.setColor(QPalette::AlternateBase,   c.surfaceSunken);
-    pal.setColor(QPalette::Text,            c.text);
-    pal.setColor(QPalette::Button,          c.surfaceWindow);
-    pal.setColor(QPalette::ButtonText,      c.text);
-    pal.setColor(QPalette::ToolTipBase,     c.surfaceRaised);
-    pal.setColor(QPalette::ToolTipText,     c.text);
+    pal.setColor(QPalette::Window, c.surfaceWindow);
+    pal.setColor(QPalette::WindowText, c.text);
+    pal.setColor(QPalette::Base, c.surfaceRaised);
+    pal.setColor(QPalette::AlternateBase, c.surfaceSunken);
+    pal.setColor(QPalette::Text, c.text);
+    pal.setColor(QPalette::Button, c.surfaceWindow);
+    pal.setColor(QPalette::ButtonText, c.text);
+    pal.setColor(QPalette::ToolTipBase, c.surfaceRaised);
+    pal.setColor(QPalette::ToolTipText, c.text);
     pal.setColor(QPalette::PlaceholderText, c.hintText);
-    pal.setColor(QPalette::Highlight,       c.selectionFill);
+    pal.setColor(QPalette::Highlight, c.selectionFill);
     pal.setColor(QPalette::HighlightedText, c.selectionText);
-    pal.setColor(QPalette::Link,            c.accent);
-    pal.setColor(QPalette::BrightText,      c.surfaceRaised);
+    pal.setColor(QPalette::Link, c.accent);
+    pal.setColor(QPalette::BrightText, c.surfaceRaised);
     // Mid carries hint text for the pre-existing `palette(mid)` stylesheet
     // sites — with this role tokenized they become theme-correct as-is.
-    pal.setColor(QPalette::Mid,             c.hintText);
-    pal.setColor(QPalette::Dark,            c.border);
-    pal.setColor(QPalette::Midlight,        mixed(c.border, c.surfaceWindow, 0.5));
-    pal.setColor(QPalette::Light,           c.surfaceRaised);
-    pal.setColor(QPalette::Shadow,          mixed(c.text, c.surfaceSunken, 0.5));
+    pal.setColor(QPalette::Mid, c.hintText);
+    pal.setColor(QPalette::Dark, c.border);
+    pal.setColor(QPalette::Midlight, mixed(c.border, c.surfaceWindow, 0.5));
+    pal.setColor(QPalette::Light, c.surfaceRaised);
+    pal.setColor(QPalette::Shadow, mixed(c.text, c.surfaceSunken, 0.5));
 
     const QColor disabledText = mixed(c.text, c.surfaceWindow, 0.45);
-    pal.setColor(QPalette::Disabled, QPalette::WindowText,      disabledText);
-    pal.setColor(QPalette::Disabled, QPalette::Text,            disabledText);
-    pal.setColor(QPalette::Disabled, QPalette::ButtonText,      disabledText);
+    pal.setColor(QPalette::Disabled, QPalette::WindowText, disabledText);
+    pal.setColor(QPalette::Disabled, QPalette::Text, disabledText);
+    pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabledText);
     pal.setColor(QPalette::Disabled, QPalette::PlaceholderText, disabledText);
-    pal.setColor(QPalette::Disabled, QPalette::Highlight,       c.border);
+    pal.setColor(QPalette::Disabled, QPalette::Highlight, c.border);
     pal.setColor(QPalette::Disabled, QPalette::HighlightedText, disabledText);
 
     app->setPalette(pal);
@@ -120,10 +135,10 @@ void ThemeManager::apply()
     // express: a visible keyboard-focus ring under Fusion (whose default
     // focus rect is a faint dotted line) and toolbar breathing room.
     const QString focus = c.focusRing.name(QColor::HexRgb);
-    app->setStyleSheet(QStringLiteral(
-        "QToolButton:focus, QPushButton:focus, QComboBox:focus, "
-        "QTabBar::tab:focus { outline: 2px solid %1; outline-offset: -2px; }\n"
-        "QToolBar { spacing: 3px; }\n")
+    app->setStyleSheet(
+        QStringLiteral("QToolButton:focus, QPushButton:focus, QComboBox:focus, "
+                       "QTabBar::tab:focus { outline: 2px solid %1; outline-offset: -2px; }\n"
+                       "QToolBar { spacing: 3px; }\n")
             .arg(focus));
 
     if (scheme != mAppliedScheme) {
@@ -135,9 +150,12 @@ void ThemeManager::apply()
 QString ThemeManager::modeToString(Mode mode)
 {
     switch (mode) {
-    case Mode::Light:  return QStringLiteral("Light");
-    case Mode::Dark:   return QStringLiteral("Dark");
-    case Mode::System: break;
+    case Mode::Light:
+        return QStringLiteral("Light");
+    case Mode::Dark:
+        return QStringLiteral("Dark");
+    case Mode::System:
+        break;
     }
     return QStringLiteral("System");
 }
@@ -151,4 +169,4 @@ ThemeManager::Mode ThemeManager::modeFromString(const QString &text)
     return Mode::System;
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

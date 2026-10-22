@@ -1,9 +1,9 @@
-/*!
- * \file   test_attrtableperf_baseline.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Attribute Table performance harness for large (all-pipes) models.
+/**
+ * @file      test_attrtableperf_baseline.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Attribute Table performance harness for large (all-pipes) models.
  *
  *         Measures, per category, the paths that were unusable at 100k+
  *         objects before the query/cell-read work:
@@ -29,7 +29,9 @@
  *         Timings also land in a CSV under tests/output/attrtable_perf/ so
  *         a before/after pair is reviewable rather than scraped from
  *         scrollback.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "map/mapundostack.h"
 #include "selection/selectionmanager.h"
@@ -53,7 +55,8 @@
 
 #include <memory>
 
-namespace {
+namespace
+{
 
 QString perfInp()
 {
@@ -68,8 +71,8 @@ QString outDir()
 
 struct Row {
     QString model, category, phase;
-    qint64  ms = 0;
-    int     detail = 0;      //!< rows matched / rows visited — phase-specific
+    qint64 ms = 0;
+    int detail = 0; //!< rows matched / rows visited — phase-specific
 };
 
 //! Append one row to the CSV as soon as it is measured.
@@ -86,9 +89,9 @@ void appendRow(const Row &r)
     if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
         return;
     QTextStream s(&f);
-    if (f.size() == 0) s << "model,category,phase,ms,detail\n";
-    s << r.model << ',' << r.category << ',' << r.phase << ','
-      << r.ms << ',' << r.detail << '\n';
+    if (f.size() == 0)
+        s << "model,category,phase,ms,detail\n";
+    s << r.model << ',' << r.category << ',' << r.phase << ',' << r.ms << ',' << r.detail << '\n';
 }
 
 //! Record + emit in one step so no call site can log a phase it forgot to
@@ -99,16 +102,20 @@ void record(QList<Row> &rows, const Row &r)
     appendRow(r);
     qInfo().noquote() << QStringLiteral("%1,%2,%3,%4,%5")
                              .arg(r.model, r.category, r.phase)
-                             .arg(r.ms).arg(r.detail);
+                             .arg(r.ms)
+                             .arg(r.detail);
 }
 
 //! Categories worth timing: the two that dominate an all-pipes model, plus
 //! subcatchments (whose compound cells used to run engine-wide scans).
-struct Cat { const char *comboPrefix; SWMMModelLayer::Category cat; };
+struct Cat {
+    const char *comboPrefix;
+    SWMMModelLayer::Category cat;
+};
 constexpr Cat kCats[] = {
-    {"Junctions",      SWMMModelLayer::CatJunctions},
-    {"Conduits",       SWMMModelLayer::CatConduits},
-    {"Subcatchments",  SWMMModelLayer::CatSubcatchments},
+    {"Junctions", SWMMModelLayer::CatJunctions},
+    {"Conduits", SWMMModelLayer::CatConduits},
+    {"Subcatchments", SWMMModelLayer::CatSubcatchments},
 };
 
 } // namespace
@@ -139,10 +146,10 @@ private slots:
         QList<QString> warnings, errors;
         const bool ok = layer->loadModel(warnings, errors);
         const qint64 loadMs = t.elapsed();
-        QVERIFY2(ok, qPrintable(QStringLiteral("loadModel failed: %1")
-                                    .arg(errors.join(QStringLiteral("; ")))));
-        record(rows, Row{modelName, QStringLiteral("-"),
-                    QStringLiteral("load_model"), loadMs, 0});
+        QVERIFY2(
+            ok, qPrintable(
+                    QStringLiteral("loadModel failed: %1").arg(errors.join(QStringLiteral("; ")))));
+        record(rows, Row{modelName, QStringLiteral("-"), QStringLiteral("load_model"), loadMs, 0});
 
         SelectionManager selMgr;
         AttributeTablePanel panel;
@@ -150,8 +157,8 @@ private slots:
         panel.refresh();
 
         auto *combo = panel.findChild<QComboBox *>();
-        auto *view  = panel.findChild<QTableView *>();
-        auto *edit  = panel.findChild<QLineEdit *>();
+        auto *view = panel.findChild<QTableView *>();
+        auto *edit = panel.findChild<QLineEdit *>();
         QVERIFY(combo && view && edit);
 
         for (const auto &c : kCats) {
@@ -159,7 +166,8 @@ private slots:
             for (int i = 0; i < combo->count(); ++i)
                 if (combo->itemText(i).startsWith(QLatin1String(c.comboPrefix)))
                     catIdx = i;
-            if (catIdx < 0) continue;          // model has none of this kind
+            if (catIdx < 0)
+                continue; // model has none of this kind
 
             const QString cat = QString::fromLatin1(c.comboPrefix);
 
@@ -177,7 +185,8 @@ private slots:
             QVERIFY(m);
             const int nRow = m->rowCount();
             const int nCol = m->columnCount();
-            if (nRow == 0) continue;
+            if (nRow == 0)
+                continue;
             // Guard against the stale-category trap above coming back: the
             // proxy must now agree with the layer about this category.
             QCOMPARE(nRow, layer->categoryCount(c.cat));
@@ -190,8 +199,8 @@ private slots:
             for (int r = 0; r < window; ++r)
                 for (int col = 0; col < nCol; ++col)
                     (void)m->data(m->index(r, col), Qt::DisplayRole);
-            record(rows, Row{modelName, cat, QStringLiteral("viewport_read"),
-                        t.elapsed(), window * nCol});
+            record(rows, Row{modelName, cat, QStringLiteral("viewport_read"), t.elapsed(),
+                             window * nCol});
 
             // ---- queries ----------------------------------------------
             // Plain decimals only: the tokenizer has no scientific
@@ -210,11 +219,9 @@ private slots:
                 applyQuery(QStringLiteral("query_one_column"),
                            QStringLiteral("[%1] > -99999").arg(numField));
                 applyQuery(QStringLiteral("query_two_column"),
-                           QStringLiteral("[%1] > -99999 AND [%1] < 99999")
-                               .arg(numField));
+                           QStringLiteral("[%1] > -99999 AND [%1] < 99999").arg(numField));
             }
-            applyQuery(QStringLiteral("query_like"),
-                       QStringLiteral("Name LIKE '%'"));
+            applyQuery(QStringLiteral("query_like"), QStringLiteral("Name LIKE '%'"));
 
             // Clear so the sort and selection phases see the full table.
             edit->setText(QString());
@@ -226,8 +233,8 @@ private slots:
             if (nCol > 1) {
                 t.restart();
                 view->sortByColumn(1, Qt::AscendingOrder);
-                record(rows, Row{modelName, cat, QStringLiteral("sort_tagged_column"),
-                            t.elapsed(), nRow});
+                record(rows, Row{modelName, cat, QStringLiteral("sort_tagged_column"), t.elapsed(),
+                                 nRow});
                 view->sortByColumn(-1, Qt::AscendingOrder);
             }
 
@@ -240,12 +247,13 @@ private slots:
                 all.reserve(nRow);
                 for (int r = 0; r < nRow; ++r) {
                     const QString n = layer->objectNameAt(c.cat, r);
-                    if (!n.isEmpty()) all.insert(SWMMObjectRef(type, n));
+                    if (!n.isEmpty())
+                        all.insert(SWMMObjectRef(type, n));
                 }
                 t.restart();
                 selMgr.select(all, SelectionManager::Replace);
-                record(rows, Row{modelName, cat, QStringLiteral("select_all_bus"),
-                            t.elapsed(), int(all.size())});
+                record(rows, Row{modelName, cat, QStringLiteral("select_all_bus"), t.elapsed(),
+                                 int(all.size())});
                 selMgr.select(QSet<SWMMObjectRef>{}, SelectionManager::Replace);
             }
         }
@@ -290,9 +298,9 @@ private slots:
             t.restart();
             int done = 0;
             for (int i = 0; i < avail; ++i)
-                if (swmm_node_delete(eng, 0, nullptr) == SWMM_OK) ++done;
-            record(rows, Row{modelName, QStringLiteral("-"),
-                             QStringLiteral("engine_delete_floor"),
+                if (swmm_node_delete(eng, 0, nullptr) == SWMM_OK)
+                    ++done;
+            record(rows, Row{modelName, QStringLiteral("-"), QStringLiteral("engine_delete_floor"),
                              t.elapsed(), done});
         }
 
@@ -307,7 +315,8 @@ private slots:
         const int nJunc = layer->categoryCount(SWMMModelLayer::CatJunctions);
         for (int r = 0; r < qMin(nDel, nJunc); ++r) {
             const QString n = layer->objectNameAt(SWMMModelLayer::CatJunctions, r);
-            if (!n.isEmpty()) names << n;
+            if (!n.isEmpty())
+                names << n;
         }
         QVERIFY2(!names.isEmpty(), "no junctions to delete");
         const int nNames = static_cast<int>(names.size());
@@ -318,24 +327,23 @@ private slots:
         // BulkEditCommand is what the three production call sites now build.
         // Swap it for a plain QUndoCommand to reproduce the pre-fix numbers.
         t.restart();
-        auto *macro = new BulkEditCommand(
-            layer.get(), QStringLiteral("Delete %1 objects").arg(nNames));
+        auto *macro =
+            new BulkEditCommand(layer.get(), QStringLiteral("Delete %1 objects").arg(nNames));
         for (const QString &n : std::as_const(names))
-            new DeleteObjectCommand(layer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr, macro);
+            new DeleteObjectCommand(layer.get(), n, DeleteObjectCommand::DeleteNode, nullptr,
+                                    macro);
         record(rows, Row{modelName, QStringLiteral("Junctions"),
-                         QStringLiteral("bulk_delete_snapshot"),
-                         t.elapsed(), nNames});
+                         QStringLiteral("bulk_delete_snapshot"), t.elapsed(), nNames});
 
         t.restart();
         stack.push(macro);
-        record(rows, Row{modelName, QStringLiteral("Junctions"),
-                         QStringLiteral("bulk_delete_redo"), t.elapsed(), nNames});
+        record(rows, Row{modelName, QStringLiteral("Junctions"), QStringLiteral("bulk_delete_redo"),
+                         t.elapsed(), nNames});
 
         t.restart();
         stack.undo();
-        record(rows, Row{modelName, QStringLiteral("Junctions"),
-                         QStringLiteral("bulk_delete_undo"), t.elapsed(), nNames});
+        record(rows, Row{modelName, QStringLiteral("Junctions"), QStringLiteral("bulk_delete_undo"),
+                         t.elapsed(), nNames});
 
         t.restart();
         stack.redo();
@@ -349,20 +357,28 @@ private:
     static QString numericFieldFor(SWMMModelLayer::Category cat)
     {
         switch (cat) {
-        case SWMMModelLayer::CatJunctions:     return QStringLiteral("Invert elev");
-        case SWMMModelLayer::CatConduits:      return QStringLiteral("Length");
-        case SWMMModelLayer::CatSubcatchments: return QStringLiteral("Area");
-        default:                               return {};
+        case SWMMModelLayer::CatJunctions:
+            return QStringLiteral("Invert elev");
+        case SWMMModelLayer::CatConduits:
+            return QStringLiteral("Length");
+        case SWMMModelLayer::CatSubcatchments:
+            return QStringLiteral("Area");
+        default:
+            return {};
         }
     }
 
     static SWMMObjectRef::ObjectType refTypeFor(SWMMModelLayer::Category cat)
     {
         switch (cat) {
-        case SWMMModelLayer::CatJunctions:     return SWMMObjectRef::Node;
-        case SWMMModelLayer::CatConduits:      return SWMMObjectRef::Link;
-        case SWMMModelLayer::CatSubcatchments: return SWMMObjectRef::Subcatchment;
-        default:                               return SWMMObjectRef::Unknown;
+        case SWMMModelLayer::CatJunctions:
+            return SWMMObjectRef::Node;
+        case SWMMModelLayer::CatConduits:
+            return SWMMObjectRef::Link;
+        case SWMMModelLayer::CatSubcatchments:
+            return SWMMObjectRef::Subcatchment;
+        default:
+            return SWMMObjectRef::Unknown;
         }
     }
 
@@ -371,8 +387,7 @@ private:
     static void report(const QList<Row> &rows)
     {
         qInfo().noquote() << rows.size() << "phases appended to"
-                          << QDir(outDir()).filePath(
-                                 QStringLiteral("attrtable_perf.csv"));
+                          << QDir(outDir()).filePath(QStringLiteral("attrtable_perf.csv"));
     }
 };
 

@@ -5,6 +5,16 @@
 // targets and the mechanical sweeps; this target guards the sweep
 // invariants (mnemonic uniqueness, textless button naming, persistence
 // naming) where construction is free.
+
+/**
+ * @file      test_dialog_a11y_standalone.cpp
+ * @brief     Tests for dialog a11y standalone.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QSettings>
@@ -24,13 +34,17 @@
 
 using namespace swmmvis_test;
 
-namespace {
+namespace
+{
 // A drawn glyph/swatch is meaningful visually without a QIcon or button text.
-class PaintedButton : public QPushButton {
+class PaintedButton : public QPushButton
+{
 public:
     using QPushButton::QPushButton;
+
 protected:
-    void paintEvent(QPaintEvent *event) override {
+    void paintEvent(QPaintEvent *event) override
+    {
         QPushButton::paintEvent(event);
         QPainter painter(this);
         painter.fillRect(rect().adjusted(4, 4, -4, -4), Qt::blue);
@@ -64,8 +78,7 @@ void TestDialogA11yStandalone::initTestCase()
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("dialoga11y-test"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                       mSettingsDir.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
 void TestDialogA11yStandalone::aboutDialog()
@@ -86,7 +99,6 @@ void TestDialogA11yStandalone::licenseAgreementDialog()
     assertDialogA11y(&dlg);
 }
 
-
 void TestDialogA11yStandalone::unnamedPaintedButtonIsDetected()
 {
     QDialog dialog;
@@ -94,8 +106,10 @@ void TestDialogA11yStandalone::unnamedPaintedButtonIsDetected()
     button.setObjectName("unnamedPaintedControl");
     button.setToolTip("Choose a colour");
     auto *accessible = QAccessible::queryAccessibleInterface(&button);
-    QVERIFY(accessible); QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
-    QEXPECT_FAIL("", "The shared assertion must reject a painted button without an exposed name.", Continue);
+    QVERIFY(accessible);
+    QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
+    QEXPECT_FAIL("", "The shared assertion must reject a painted button without an exposed name.",
+                 Continue);
     assertIconButtonsNamed(&dialog);
 }
 
@@ -104,10 +118,13 @@ void TestDialogA11yStandalone::tooltipOnlyIconButtonIsDetected()
     QDialog dialog;
     QPushButton button(&dialog);
     button.setObjectName("tooltipOnlyControl");
-    QPixmap icon(8, 8); icon.fill(Qt::blue); button.setIcon(QIcon(icon));
+    QPixmap icon(8, 8);
+    icon.fill(Qt::blue);
+    button.setIcon(QIcon(icon));
     button.setToolTip("Choose a colour");
     auto *accessible = QAccessible::queryAccessibleInterface(&button);
-    QVERIFY(accessible); QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
+    QVERIFY(accessible);
+    QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
     QEXPECT_FAIL("", "A tooltip is not a substitute for the accessible Name role.", Continue);
     assertIconButtonsNamed(&dialog);
 }
@@ -127,12 +144,16 @@ void TestDialogA11yStandalone::namedColorButtonPasses()
     auto *button = new openswmmvis::ui::ColorButton(QColor(30, 60, 90), &dialog);
     if (buddyName) {
         auto *label = new QLabel("&Corridor colour", &dialog);
-        label->setBuddy(button); layout->addWidget(label);
-    } else button->setAccessibleName("Corridor colour");
+        label->setBuddy(button);
+        layout->addWidget(label);
+    } else
+        button->setAccessibleName("Corridor colour");
     layout->addWidget(button);
     auto *accessible = QAccessible::queryAccessibleInterface(button);
-    QVERIFY(accessible); QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
-    QVERIFY(button->text().isEmpty()); QVERIFY(button->icon().isNull());
+    QVERIFY(accessible);
+    QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
+    QVERIFY(button->text().isEmpty());
+    QVERIFY(button->icon().isNull());
     assertIconButtonsNamed(&dialog);
     QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
 }

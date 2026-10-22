@@ -1,8 +1,9 @@
-/*!
- * \file   runpathresolver.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      runpathresolver.h
+ * @brief     Strategy C (GUI-only, no engine [OPTIONS] persistence).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice QB.2 — Strategy C (GUI-only, no engine [OPTIONS] persistence).
  *
@@ -24,6 +25,7 @@
  * The function is intentionally pure over (inpPath, override, kind) so
  * tests can hit every precedence branch without spinning up the full
  * SimulationOptionsDialog + QSettings store.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef RUNPATHRESOLVER_H
@@ -31,13 +33,13 @@
 
 #include <QString>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
 /*! Which sibling extension is being resolved. */
-enum class RunOutputKind
-{
-    Rpt,   ///< Sibling `.rpt` — SWMM summary report file.
-    Out    ///< Sibling `.out` — SWMM binary results file.
+enum class RunOutputKind {
+    Rpt, ///< Sibling `.rpt` — SWMM summary report file.
+    Out  ///< Sibling `.out` — SWMM binary results file.
 };
 
 /*! Pure resolver. Reads no global state — the caller is responsible for
@@ -50,20 +52,26 @@ enum class RunOutputKind
  *    2. Sibling default — `<inpStem>.<rpt|out>` next to the .inp.
  *
  *  Empty `inpPath` returns an empty string regardless of override.
+ * @brief Resolve one report/binary destination without reading global preferences.
+ * @param[in] inpPath Input path whose parent/stem provide defaults; empty returns empty.
+ * @param[in] override_ Override trimmed before use; relative overrides are resolved against the input directory.
+ * @param[in] kind Rpt for report output, otherwise binary output.
+ * @return Cleaned absolute override or sibling default path; does not check existence, writability, or aliases.
  */
-[[nodiscard]] QString
-resolveRunOutputPath(const QString &inpPath,
-                     const QString &override_,
-                     RunOutputKind  kind);
+[[nodiscard]] QString resolveRunOutputPath(const QString &inpPath, const QString &override_,
+                                           RunOutputKind kind);
 
 /*! Live-QSettings convenience wrapper used by SWMMVis::runActiveProject.
  *  Reads the per-project override from QSettings under
  *  `SWMMVis/Project/<inpPath>/{Report,Output}FilePath` (matching Slice
  *  AA-4's key layout) and dispatches to the pure resolver above.
- *  Tests use the pure variant; production code uses this. */
-[[nodiscard]] QString
-resolveRunOutputPathFromSettings(const QString &inpPath,
-                                 RunOutputKind  kind);
+ *  Tests use the pure variant; production code uses this.
+ * @brief Resolve the per-project output preference through QSettings.
+ * @param[in] inpPath Input path used verbatim in the preference key.
+ * @param[in] kind Report or binary output selector.
+ * @return resolveRunOutputPath() result using the stored override; empty input returns empty.
+ */
+[[nodiscard]] QString resolveRunOutputPathFromSettings(const QString &inpPath, RunOutputKind kind);
 
 /*! Hand the per-project QSettings group `SWMMVis/Project/<path>/…` (2D module
  *  intent, report/output path overrides, Save As filter) from \p fromPath to
@@ -74,7 +82,11 @@ resolveRunOutputPathFromSettings(const QString &inpPath,
  *  an old one inherited its settings. The current project's keys under
  *  \p fromPath are then copied across (and kept at \p fromPath, which may
  *  still be another project on disk). An empty \p fromPath (untitled
- *  project) only clears the destination. No-op when the paths are equal. */
+ *  project) only clears the destination. No-op when the paths are equal.
+ * @param[in] fromPath Source preference-key path, empty to copy no values.
+ * @param[in] toPath Destination preference-key path; empty or identical to source is a no-op.
+ * @details Replaces the destination group before copying source keys, retaining the original group; QSettings persistence errors are not reported.
+ */
 void moveProjectSettings(const QString &fromPath, const QString &toPath);
 
 } // namespace openswmmvis

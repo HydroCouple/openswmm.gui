@@ -1,9 +1,9 @@
-/*!
- * \file   curveeditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.1 — three-pane non-modal editor for SWMM curves.
+/**
+ * @file      curveeditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.1 — three-pane non-modal editor for SWMM curves.
  *
  * Layout (left → right):
  *
@@ -24,7 +24,9 @@
  * Browser's Add-New dispatch. In `Mode::CreateNew` a small create-card
  * appears above the splitter (Name + uniqueness validator + Type combo +
  * Create button); on Create the dialog transitions to `Mode::Edit`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_CURVEEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_CURVEEDITORDIALOG_H
 
@@ -35,7 +37,8 @@ class QChart;
 class QAction;
 class QToolBar;
 class QChartView;
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 class InteractiveChartView;
 class CurveEditChartView;
 class ChartAxisFormatController;
@@ -58,12 +61,14 @@ class QTableView;
 class QToolButton;
 class QUndoStack;
 
-namespace openswmmvis::curve {
+namespace openswmmvis::curve
+{
 class CurveProvider;
 class CurveRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class CurvePointTableModel;
 
@@ -74,15 +79,12 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    CurveEditorDialog(openswmmvis::curve::CurveRegistry *registry,
-                       QUndoStack *undoStack,
-                       QWidget *parent = nullptr);
+    CurveEditorDialog(openswmmvis::curve::CurveRegistry *registry, QUndoStack *undoStack,
+                      QWidget *parent = nullptr);
     ~CurveEditorDialog() override;
 
-    static CurveEditorDialog *createNew(
-        openswmmvis::curve::CurveRegistry *registry,
-        QUndoStack *undoStack,
-        QWidget *parent = nullptr);
+    static CurveEditorDialog *createNew(openswmmvis::curve::CurveRegistry *registry,
+                                        QUndoStack *undoStack, QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point for callers that
      *  round-trip a curve selection inline (e.g. the outfall stage-data
@@ -92,10 +94,8 @@ public:
      *  happened. All edits persist through the registry/provider MVC
      *  layer regardless of which button closes the dialog. Mirrors
      *  `PatternEditorDialog::pickPattern` / `TimeseriesEditorDialog::pickTimeseries`. */
-    static QString pickCurve(openswmmvis::curve::CurveRegistry *registry,
-                              QUndoStack    *undoStack,
-                              const QString &initialName,
-                              QWidget       *parent = nullptr);
+    static QString pickCurve(openswmmvis::curve::CurveRegistry *registry, QUndoStack *undoStack,
+                             const QString &initialName, QWidget *parent = nullptr);
 
     void openForCurve(const QString &name);
 
@@ -104,17 +104,17 @@ public:
 
     // ── Test hooks ──────────────────────────────────────────────────────────
 
-    QListView                *listView() const noexcept { return m_listView; }
-    QTableView               *pointTable() const noexcept { return m_table; }
-    CurveEditChartView       *chartView() const noexcept { return m_chartView; }
-    CurvePointTableModel     *tableModel() const noexcept { return m_tableModel; }
+    QListView *listView() const noexcept { return m_listView; }
+    QTableView *pointTable() const noexcept { return m_table; }
+    CurveEditChartView *chartView() const noexcept { return m_chartView; }
+    CurvePointTableModel *tableModel() const noexcept { return m_tableModel; }
 
     QString pendingName() const;
-    int     pendingType() const;
-    bool    isCreateEnabled() const;
-    void    submitCreateNew();
-    void    invokeAddRow();
-    void    invokeDeleteRows();
+    int pendingType() const;
+    bool isCreateEnabled() const;
+    void submitCreateNew();
+    void invokeAddRow();
+    void invokeDeleteRows();
 
     /*! \brief Reveal the create-card (mirrors the "+ New" button). */
     void invokeNew();
@@ -146,8 +146,8 @@ private slots:
     void onCancelCreateClicked_();
     void onProviderAdded_(openswmmvis::curve::CurveProvider *p);
     void onProviderRemoved_(openswmmvis::curve::CurveProvider *p);
-    void onProviderRenamed_(openswmmvis::curve::CurveProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::curve::CurveProvider *p, const QString &prev,
+                            const QString &now);
     void onProviderPointsChanged_();
     void onProviderTypeChanged_();
     void onMutationRejected_(const QString &reason);
@@ -169,62 +169,62 @@ private:
     bool m_contextValid = true;
     QPointer<openswmmvis::curve::CurveRegistry> m_registry;
     QPointer<QUndoStack> m_undoStack;
-    QPointer<openswmmvis::curve::CurveProvider>  m_current;
-    Mode                                         m_mode      = Mode::Edit;
+    QPointer<openswmmvis::curve::CurveProvider> m_current;
+    Mode m_mode = Mode::Edit;
 
-    QSplitter                *m_splitter   = nullptr;
-    QListView                *m_listView   = nullptr;
-    QStandardItemModel       *m_listModel  = nullptr;
-    QSortFilterProxyModel    *m_listProxy  = nullptr;   ///< Curve-type filter.
-    QComboBox                *m_filterCombo = nullptr;
+    QSplitter *m_splitter = nullptr;
+    QListView *m_listView = nullptr;
+    QStandardItemModel *m_listModel = nullptr;
+    QSortFilterProxyModel *m_listProxy = nullptr; ///< Curve-type filter.
+    QComboBox *m_filterCombo = nullptr;
 
-    QComboBox                *m_typeCombo  = nullptr;
-    QLabel                   *m_typeHint   = nullptr;
-    QTableView               *m_table      = nullptr;
-    CurvePointTableModel     *m_tableModel = nullptr;
-    QPushButton              *m_addRowBtn  = nullptr;
-    QPushButton              *m_delRowBtn  = nullptr;
-    QAction                  *m_copyAct    = nullptr;
-    QAction                  *m_pasteAct   = nullptr;
-    QStatusBar               *m_status     = nullptr;
-    QLabel                   *m_countLabel = nullptr;
+    QComboBox *m_typeCombo = nullptr;
+    QLabel *m_typeHint = nullptr;
+    QTableView *m_table = nullptr;
+    CurvePointTableModel *m_tableModel = nullptr;
+    QPushButton *m_addRowBtn = nullptr;
+    QPushButton *m_delRowBtn = nullptr;
+    QAction *m_copyAct = nullptr;
+    QAction *m_pasteAct = nullptr;
+    QStatusBar *m_status = nullptr;
+    QLabel *m_countLabel = nullptr;
 
-    CurveEditChartView       *m_chartView  = nullptr;
-    QToolBar                 *m_chartToolBar     = nullptr;
-    QAction                  *m_chartPanAction   = nullptr;
-    QAction                  *m_chartZoomInAction  = nullptr;
-    QAction                  *m_chartZoomOutAction = nullptr;
-    QAction                  *m_chartEditAction    = nullptr;
-    QAction                  *m_chartLockXAction   = nullptr;
-    QAction                  *m_chartLockYAction   = nullptr;
-    QChart                   *m_chart      = nullptr;
-    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
-    QLineSeries              *m_line       = nullptr;
-    QScatterSeries           *m_scatter    = nullptr;
-    QValueAxis               *m_xAxis      = nullptr;
-    QValueAxis               *m_yAxis      = nullptr;
+    CurveEditChartView *m_chartView = nullptr;
+    QToolBar *m_chartToolBar = nullptr;
+    QAction *m_chartPanAction = nullptr;
+    QAction *m_chartZoomInAction = nullptr;
+    QAction *m_chartZoomOutAction = nullptr;
+    QAction *m_chartEditAction = nullptr;
+    QAction *m_chartLockXAction = nullptr;
+    QAction *m_chartLockYAction = nullptr;
+    QChart *m_chart = nullptr;
+    ChartAxisFormatController *m_axisFmt = nullptr; ///< Per-chart axis number format.
+    QLineSeries *m_line = nullptr;
+    QScatterSeries *m_scatter = nullptr;
+    QValueAxis *m_xAxis = nullptr;
+    QValueAxis *m_yAxis = nullptr;
 
     // CreateNew-mode UI (always built; hidden in Edit mode and revealed
     // by the "+ New" button or the createNew factory).
-    QFrame                   *m_createCard          = nullptr;
-    QLineEdit                *m_nameEdit            = nullptr;
-    QLabel                   *m_nameValidationLabel = nullptr;
-    QComboBox                *m_createTypeCombo     = nullptr;
-    QPushButton              *m_createBtn           = nullptr;
-    QPushButton              *m_cancelCreateBtn     = nullptr;
+    QFrame *m_createCard = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QLabel *m_nameValidationLabel = nullptr;
+    QComboBox *m_createTypeCombo = nullptr;
+    QPushButton *m_createBtn = nullptr;
+    QPushButton *m_cancelCreateBtn = nullptr;
 
     // List-pane CRUD buttons.
-    QPushButton              *m_newBtn              = nullptr;
-    QPushButton              *m_renameBtn           = nullptr;
-    QPushButton              *m_deleteBtn           = nullptr;
+    QPushButton *m_newBtn = nullptr;
+    QPushButton *m_renameBtn = nullptr;
+    QPushButton *m_deleteBtn = nullptr;
 
     // Suppress feedback loop when we set the type combo programmatically.
-    bool                      m_suppressTypeSignal = false;
+    bool m_suppressTypeSignal = false;
     // Suppress feedback loop when we reset list item text on collision.
-    bool                      m_suppressListItemRename = false;
+    bool m_suppressListItemRename = false;
     // Guards to break the chart<->table selection feedback loop.
-    bool                      m_suppressTableSelectionSync = false;
-    bool                      m_suppressChartSelectionSync = false;
+    bool m_suppressTableSelectionSync = false;
+    bool m_suppressChartSelectionSync = false;
 };
 
 } // namespace openswmmvis::ui

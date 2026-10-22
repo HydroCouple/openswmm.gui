@@ -1,8 +1,9 @@
-/*!
- * \file   hydraulicspage.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      hydraulicspage.h
+ * @brief     Simulation Options → Routing & Hydraulics.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Simulation Options → Routing & Hydraulics.
  *
@@ -17,7 +18,9 @@
  * Wave: SWMMEngine::isInSteadyState() is called from the main routing step
  * with no routing-model guard, so SKIP_STEADY_STATE is honoured under every
  * method (PLAN §7 Q1, resolved by measurement).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef HYDRAULICSPAGE_H
 #define HYDRAULICSPAGE_H
 
@@ -42,7 +45,7 @@ public:
 
     [[nodiscard]] QString title() const override;
     void read() override;
-    int  write() override;
+    int write() override;
     void applyCapabilities() override;
     void refreshGates() override;
 
@@ -61,49 +64,50 @@ private:
 
     QTabWidget *m_tabs = nullptr;
 
-    QCheckBox      *m_andersonAccelBox  = nullptr;
-    QDoubleSpinBox *m_dpsAlphaSpin      = nullptr;
-    QDoubleSpinBox *m_dpsCelerSpin      = nullptr;
-    QDoubleSpinBox *m_dpsDecaySpin      = nullptr;
-    QComboBox      *m_forceMainCombo    = nullptr;
-    QComboBox      *m_fvBackendCombo      = nullptr;
-    QDoubleSpinBox *m_fvCellLengthSpin    = nullptr;   // project length units; 0 = one cell/conduit
-    QSpinBox       *m_fvCflCensusSpin     = nullptr;
-    QDoubleSpinBox *m_fvCflSpin           = nullptr;
-    QCheckBox      *m_fvCompactionBox     = nullptr;
-    class QGroupBox *m_fvGroup            = nullptr;
-    QComboBox      *m_fvLimiterCombo      = nullptr;   // 2nd order only
-    QCheckBox      *m_fvLtsBox            = nullptr;
-    QSpinBox       *m_fvLtsTiersSpin      = nullptr;   // needs LTS on
-    QSpinBox       *m_fvMinCellsSpin      = nullptr;
-    QSpinBox       *m_fvMinParallelSpin   = nullptr;
-    QComboBox      *m_fvOrderCombo        = nullptr;
-    class QGroupBox *m_fvPerfGroup        = nullptr;
-    QCheckBox      *m_fvPressImplicitBox  = nullptr;   // FV_PRESSURIZED_IMPLICIT (experimental)
-    QComboBox      *m_fvPressureClosureCombo = nullptr; // FV_PRESSURE_CLOSURE (SLOT|TPA)
-    QComboBox      *m_fvRiemannCombo      = nullptr;
-    QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
-    QComboBox      *m_fvStructCouplingCombo = nullptr;
-    QComboBox      *m_fvTimeIntCombo      = nullptr;
-    QDoubleSpinBox *m_headTolSpin       = nullptr;
-    QComboBox      *m_inertialDampCombo = nullptr;
-    QDoubleSpinBox *m_latFlowTolSpin    = nullptr;     // percent
-    QDoubleSpinBox *m_lengtheningSpin   = nullptr;
-    QSpinBox       *m_maxTrialsSpin     = nullptr;
-    QDoubleSpinBox *m_minSlopeSpin      = nullptr;     // percent
-    QDoubleSpinBox *m_minStepSpin       = nullptr;     // MINIMUM_STEP (seconds)
-    QDoubleSpinBox *m_minSurfAreaSpin   = nullptr;
-    QComboBox      *m_nodeContinuityCombo = nullptr;
-    QComboBox      *m_normalFlowCombo   = nullptr;
-    QComboBox      *m_routingCombo      = nullptr;
-    QCheckBox      *m_skipSteadyBox     = nullptr;
-    QComboBox      *m_surchargeCombo    = nullptr;
-    QDoubleSpinBox *m_sysFlowTolSpin    = nullptr;     // percent
-    QDoubleSpinBox *m_tpaCeleritySpin   = nullptr;   // TPA_CELERITY (TPA only)
-    class QGroupBox *m_ufGroup            = nullptr;
-    QDoubleSpinBox *m_ufK3Spin            = nullptr;   // UF_K3 (method != NONE only)
-    QComboBox      *m_ufMethodCombo       = nullptr;   // UNSTEADY_FRICTION (NONE|VITKOVSKY)
-    QDoubleSpinBox *m_variableStepSpin  = nullptr;};
+    QCheckBox *m_andersonAccelBox = nullptr;
+    QDoubleSpinBox *m_dpsAlphaSpin = nullptr;
+    QDoubleSpinBox *m_dpsCelerSpin = nullptr;
+    QDoubleSpinBox *m_dpsDecaySpin = nullptr;
+    QComboBox *m_forceMainCombo = nullptr;
+    QComboBox *m_fvBackendCombo = nullptr;
+    QDoubleSpinBox *m_fvCellLengthSpin = nullptr; // project length units; 0 = one cell/conduit
+    QSpinBox *m_fvCflCensusSpin = nullptr;
+    QDoubleSpinBox *m_fvCflSpin = nullptr;
+    QCheckBox *m_fvCompactionBox = nullptr;
+    class QGroupBox *m_fvGroup = nullptr;
+    QComboBox *m_fvLimiterCombo = nullptr; // 2nd order only
+    QCheckBox *m_fvLtsBox = nullptr;
+    QSpinBox *m_fvLtsTiersSpin = nullptr; // needs LTS on
+    QSpinBox *m_fvMinCellsSpin = nullptr;
+    QSpinBox *m_fvMinParallelSpin = nullptr;
+    QComboBox *m_fvOrderCombo = nullptr;
+    class QGroupBox *m_fvPerfGroup = nullptr;
+    QCheckBox *m_fvPressImplicitBox = nullptr;     // FV_PRESSURIZED_IMPLICIT (experimental)
+    QComboBox *m_fvPressureClosureCombo = nullptr; // FV_PRESSURE_CLOSURE (SLOT|TPA)
+    QComboBox *m_fvRiemannCombo = nullptr;
+    QDoubleSpinBox *m_fvSlotCeleritySpin = nullptr; // project length units / s
+    QComboBox *m_fvStructCouplingCombo = nullptr;
+    QComboBox *m_fvTimeIntCombo = nullptr;
+    QDoubleSpinBox *m_headTolSpin = nullptr;
+    QComboBox *m_inertialDampCombo = nullptr;
+    QDoubleSpinBox *m_latFlowTolSpin = nullptr; // percent
+    QDoubleSpinBox *m_lengtheningSpin = nullptr;
+    QSpinBox *m_maxTrialsSpin = nullptr;
+    QDoubleSpinBox *m_minSlopeSpin = nullptr; // percent
+    QDoubleSpinBox *m_minStepSpin = nullptr;  // MINIMUM_STEP (seconds)
+    QDoubleSpinBox *m_minSurfAreaSpin = nullptr;
+    QComboBox *m_nodeContinuityCombo = nullptr;
+    QComboBox *m_normalFlowCombo = nullptr;
+    QComboBox *m_routingCombo = nullptr;
+    QCheckBox *m_skipSteadyBox = nullptr;
+    QComboBox *m_surchargeCombo = nullptr;
+    QDoubleSpinBox *m_sysFlowTolSpin = nullptr;  // percent
+    QDoubleSpinBox *m_tpaCeleritySpin = nullptr; // TPA_CELERITY (TPA only)
+    class QGroupBox *m_ufGroup = nullptr;
+    QDoubleSpinBox *m_ufK3Spin = nullptr; // UF_K3 (method != NONE only)
+    QComboBox *m_ufMethodCombo = nullptr; // UNSTEADY_FRICTION (NONE|VITKOVSKY)
+    QDoubleSpinBox *m_variableStepSpin = nullptr;
+};
 
 } // namespace openswmmvis::ui
 

@@ -1,11 +1,13 @@
-/*!
- * \file   test_editgeometry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      test_editgeometry.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
  *
- * \brief Leaf QtTest for the pure geometry helpers used by the map-edit
+ * @brief     Leaf QtTest for the pure geometry helpers used by the map-edit
  *        tools (MapToolMoveNode, MapToolEditVertex) and their undo
  *        commands (MoveNodeCommand, EditVertexCommand).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -21,22 +23,39 @@ class TestEditGeometry : public QObject
 
 private slots:
     // polylineLength -----------------------------------------------------
-    void polylineLength_empty()
-    {
-        QCOMPARE(EditGeometry::polylineLength({}), 0.0);
-    }
+    /**
+     *
+     * @brief Require an empty polyline to have zero length.
+     *
+     */
+    void polylineLength_empty() { QCOMPARE(EditGeometry::polylineLength({}), 0.0); }
 
+    /**
+     *
+     * @brief Require a single vertex to have zero length.
+     *
+     */
     void polylineLength_singleVertex()
     {
         QCOMPARE(EditGeometry::polylineLength({{1.0, 1.0}}), 0.0);
     }
 
+    /**
+     *
+     * @brief Require the 3-4-5 segment length to equal five coordinate units.
+     *
+     */
     void polylineLength_twoPoints()
     {
         // 3-4-5 triangle
         QCOMPARE(EditGeometry::polylineLength({{0.0, 0.0}, {3.0, 4.0}}), 5.0);
     }
 
+    /**
+     *
+     * @brief Require three unit orthogonal segments to sum to three.
+     *
+     */
     void polylineLength_multiSegment()
     {
         // 3 segments of length 1 each = 3
@@ -45,43 +64,61 @@ private slots:
     }
 
     // orientInteriorToEndpoints ------------------------------------------
+    /**
+     *
+     * @brief Require empty and single-interior-vertex paths to retain their order.
+     *
+     */
     void orient_fewerThanTwoIsNoOp()
     {
         const QPointF from(0, 0), to(10, 0);
-        QCOMPARE(EditGeometry::orientInteriorToEndpoints({}, from, to),
-                 QVector<QPointF>{});
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints({}, from, to), QVector<QPointF>{});
         const QVector<QPointF> one{{5, 5}};
         QCOMPARE(EditGeometry::orientInteriorToEndpoints(one, from, to), one);
     }
 
+    /**
+     *
+     * @brief Require an interior ordered toward the destination endpoint to remain exact.
+     *
+     */
     void orient_alreadyAlignedUnchanged()
     {
         // Interior runs from→to (first near from, last near to): keep as-is.
         const QPointF from(0, 0), to(10, 0);
         const QVector<QPointF> interior{{2, 1}, {8, 1}};
-        QCOMPARE(EditGeometry::orientInteriorToEndpoints(interior, from, to),
-                 interior);
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints(interior, from, to), interior);
     }
 
+    /**
+     *
+     * @brief Require reversed interior vertices to reverse into endpoint-aligned order.
+     *
+     */
     void orient_reversedGetsFlipped()
     {
         // Interior stored to→from (first near to, last near from): flip so the
         // assembled [from, interior, to] polyline no longer doubles back.
         const QPointF from(0, 0), to(10, 0);
-        const QVector<QPointF> stored{{8, 1}, {2, 1}};   // to→from order
-        const QVector<QPointF> want {{2, 1}, {8, 1}};    // from→to order
-        QCOMPARE(EditGeometry::orientInteriorToEndpoints(stored, from, to),
-                 want);
+        const QVector<QPointF> stored{{8, 1}, {2, 1}}; // to→from order
+        const QVector<QPointF> want{{2, 1}, {8, 1}};   // from→to order
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints(stored, from, to), want);
     }
 
+    /**
+     *
+     * @brief Require the reversed three-point fixture to become X-monotone when assembled with
+     * endpoints.
+     * Checks this concrete loop regression, without asserting a general simplicity proof.
+     *
+     */
     void orient_fixesSelfCrossingLoop()
     {
         // Reproduce the reported artifact: a reversed interior makes the full
         // polyline self-cross; orienting removes the crossing.
         const QPointF from(0, 0), to(10, 0);
         const QVector<QPointF> reversedInterior{{9, 2}, {5, 2}, {1, 2}};
-        const auto oriented =
-            EditGeometry::orientInteriorToEndpoints(reversedInterior, from, to);
+        const auto oriented = EditGeometry::orientInteriorToEndpoints(reversedInterior, from, to);
         // Oriented interior must progress monotonically in x toward `to`.
         QCOMPARE(oriented, (QVector<QPointF>{{1, 2}, {5, 2}, {9, 2}}));
         // Full assembled path is x-monotonic (no backtracking → no loop).
@@ -93,6 +130,11 @@ private slots:
     }
 
     // replacedAt ---------------------------------------------------------
+    /**
+     *
+     * @brief Require first-vertex replacement to retain vector size and the other exact points.
+     *
+     */
     void replacedAt_firstVertex()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
@@ -103,6 +145,11 @@ private slots:
         QCOMPARE(r[2], QPointF(2, 2));
     }
 
+    /**
+     *
+     * @brief Require replacing the last vertex to return the requested point.
+     *
+     */
     void replacedAt_lastVertex()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
@@ -110,6 +157,11 @@ private slots:
         QCOMPARE(r[2], QPointF(99, 99));
     }
 
+    /**
+     *
+     * @brief Require an index beyond the vector to return an unchanged copy.
+     *
+     */
     void replacedAt_outOfRangeIsNoOp()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}};
@@ -118,6 +170,11 @@ private slots:
     }
 
     // insertedAt ---------------------------------------------------------
+    /**
+     *
+     * @brief Require middle insertion to return all three points in order.
+     *
+     */
     void insertedAt_middle()
     {
         const QVector<QPointF> v{{0, 0}, {2, 2}};
@@ -128,6 +185,11 @@ private slots:
         QCOMPARE(r[2], QPointF(2, 2));
     }
 
+    /**
+     *
+     * @brief Require an oversized insertion index to append at the end.
+     *
+     */
     void insertedAt_atEndClamps()
     {
         const QVector<QPointF> v{{0, 0}};
@@ -137,6 +199,11 @@ private slots:
     }
 
     // removedAt ----------------------------------------------------------
+    /**
+     *
+     * @brief Require removing the interior vertex to retain the two endpoints.
+     *
+     */
     void removedAt_interior()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
@@ -146,6 +213,12 @@ private slots:
         QCOMPARE(r[1], QPointF(2, 2));
     }
 
+    /**
+     *
+     * @brief Require two- and one-vertex interior lists to shrink without imposing a polygon
+     * minimum.
+     *
+     */
     void removedAt_smallLists_shrinkToEmpty()
     {
         // Link callers pass the INTERIOR vertex list: a conduit with one or
@@ -158,6 +231,11 @@ private slots:
         QVERIFY(EditGeometry::removedAt(one, 0).isEmpty());
     }
 
+    /**
+     *
+     * @brief Require negative and one-past-end removals to preserve the vector.
+     *
+     */
     void removedAt_outOfRange_returnsCopy()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}};
@@ -166,6 +244,11 @@ private slots:
     }
 
     // distanceToPolyline -------------------------------------------------
+    /**
+     *
+     * @brief Require nearest projection to report distance three, segment zero and point (5,0).
+     *
+     */
     void distanceToPolyline_onSegment()
     {
         const QVector<QPointF> v{{0, 0}, {10, 0}};
@@ -177,6 +260,11 @@ private slots:
         QCOMPARE(pt, QPointF(5, 0));
     }
 
+    /**
+     *
+     * @brief Require distance beyond the line extent to use the clamped endpoint and equal five.
+     *
+     */
     void distanceToPolyline_beyondEndpoint()
     {
         const QVector<QPointF> v{{0, 0}, {10, 0}};
@@ -184,12 +272,22 @@ private slots:
         QCOMPARE(d, 5.0);
     }
 
+    /**
+     *
+     * @brief Require an empty path to return an infinite distance.
+     *
+     */
     void distanceToPolyline_empty_returnsInfinity()
     {
         const double d = EditGeometry::distanceToPolyline({}, {0, 0});
         QVERIFY(std::isinf(d));
     }
 
+    /**
+     *
+     * @brief Require the L-shaped path to select its vertical segment at distance two.
+     *
+     */
     void distanceToPolyline_picksNearestSegment()
     {
         // L-shape: horizontal then vertical
@@ -201,6 +299,11 @@ private slots:
     }
 
     // cleanPolyline ------------------------------------------------------
+    /**
+     *
+     * @brief Require cleaning empty/single-point input to preserve its contents.
+     *
+     */
     void cleanPolyline_emptyAndSingle_unchanged()
     {
         QCOMPARE(EditGeometry::cleanPolyline({}).size(), 0);
@@ -208,12 +311,23 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolyline(one), one);
     }
 
+    /**
+     *
+     * @brief Require a nondegenerate square path to remain byte-for-value equal at the point
+     * level.
+     *
+     */
     void cleanPolyline_nonDegenerate_preservedExactly()
     {
         const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
         QCOMPARE(EditGeometry::cleanPolyline(v), v);
     }
 
+    /**
+     *
+     * @brief Require consecutive duplicate vertices to collapse to one.
+     *
+     */
     void cleanPolyline_collapsesConsecutiveDuplicate()
     {
         const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 0}, {2, 0}};
@@ -221,6 +335,11 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolyline(v), expected);
     }
 
+    /**
+     *
+     * @brief Require a run of three repeated interior points to collapse to one.
+     *
+     */
     void cleanPolyline_collapsesRunOfThreeOrMore()
     {
         const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 0}, {1, 0}, {2, 0}};
@@ -228,6 +347,12 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolyline(v), expected);
     }
 
+    /**
+     *
+     * @brief Require a separation of 1e-9 coordinate units to collapse under the default 1e-6
+     * tolerance.
+     *
+     */
     void cleanPolyline_nearCoincidentWithinTol_collapses()
     {
         // Second point is 1e-9 away — well inside the 1e-6 default tolerance.
@@ -236,6 +361,12 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolyline(v), expected);
     }
 
+    /**
+     *
+     * @brief Require a 1e-3 coordinate-unit separation to remain distinct under the default
+     * tolerance.
+     *
+     */
     void cleanPolyline_justOutsideTol_kept()
     {
         // 1e-3 separation is far outside the default tolerance — keep both.
@@ -243,6 +374,12 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolyline(v), v);
     }
 
+    /**
+     *
+     * @brief Require an entirely coincident path to collapse to one point for caller-side
+     * degeneracy checks.
+     *
+     */
     void cleanPolyline_collapsesToSinglePoint()
     {
         // Whole input coincident → degenerate result the caller must guard on.
@@ -253,6 +390,11 @@ private slots:
     }
 
     // cleanPolygonRing ---------------------------------------------------
+    /**
+     *
+     * @brief Require a repeated explicit closing point to be removed from a square ring.
+     *
+     */
     void cleanPolygonRing_dropsRedundantClosingPoint()
     {
         // Square with an explicit closing vertex repeating the first.
@@ -261,12 +403,23 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolygonRing(v), expected);
     }
 
+    /**
+     *
+     * @brief Require a non-repeated four-point square ring to remain exact.
+     *
+     */
     void cleanPolygonRing_openRing_preserved()
     {
         const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
         QCOMPARE(EditGeometry::cleanPolygonRing(v), v);
     }
 
+    /**
+     *
+     * @brief Require cleaning to remove an interior duplicate and repeated closing point
+     * together.
+     *
+     */
     void cleanPolygonRing_collapsesAndDeCloses()
     {
         // Duplicate interior vertex AND an explicit closing point.
@@ -275,6 +428,12 @@ private slots:
         QCOMPARE(EditGeometry::cleanPolygonRing(v), expected);
     }
 
+    /**
+     *
+     * @brief Require the repeated two-distinct-point ring to remain below polygon cardinality
+     * after cleaning.
+     *
+     */
     void cleanPolygonRing_degenerate_belowThreeDistinct()
     {
         // Collapses to two distinct points — caller skips a <3 ring.
@@ -284,6 +443,12 @@ private slots:
     }
 
     // Composite: auto-length after endpoint move ------------------------
+    /**
+     *
+     * @brief Require endpoint replacement to update polyline length from ten to sqrt(34)+5 within
+     * 1e-9 coordinate units.
+     *
+     */
     void autoLength_recomputeAfterEndpointMove()
     {
         // Link polyline: [(0,0), (5,0), (10,0)] — length 10 before.
@@ -298,6 +463,12 @@ private slots:
     }
 
     // signedRingArea -----------------------------------------------------
+    /**
+     *
+     * @brief Require the CCW square area to equal 100 square coordinate units and reversed
+     * orientation to have negative sign.
+     *
+     */
     void signedRingArea_ccwPositive_cwNegative()
     {
         const QVector<QPointF> ccw{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
@@ -308,12 +479,23 @@ private slots:
         QVERIFY(EditGeometry::signedRingArea(cw) < 0.0);
     }
 
+    /**
+     *
+     * @brief Require a two-point ring to have zero signed area.
+     *
+     */
     void signedRingArea_degenerate_isZero()
     {
         QCOMPARE(EditGeometry::signedRingArea({{0, 0}, {1, 1}}), 0.0);
     }
 
     // pointInRing --------------------------------------------------------
+    /**
+     *
+     * @brief Require the square to contain its center and exclude points beyond either horizontal
+     * side.
+     *
+     */
     void pointInRing_insideAndOutside()
     {
         const QVector<QPointF> sq{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
@@ -323,6 +505,11 @@ private slots:
     }
 
     // interiorPoint — the robust hole seed --------------------------------
+    /**
+     *
+     * @brief Require the computed convex-square seed to satisfy the ring containment predicate.
+     *
+     */
     void interiorPoint_convexSquare_isInside()
     {
         const QVector<QPointF> sq{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
@@ -330,6 +517,11 @@ private slots:
         QVERIFY(EditGeometry::pointInRing(sq, p));
     }
 
+    /**
+     *
+     * @brief Require an interior seed for the concave L fixture whose vertex centroid is outside.
+     *
+     */
     void interiorPoint_lShape_isInside_whereCentroidIsNot()
     {
         // L-shape whose VERTEX CENTROID (~1.67,1.67) lies OUTSIDE the ring —
@@ -337,7 +529,8 @@ private slots:
         const QVector<QPointF> l{{0, 0}, {4, 0}, {4, 1}, {1, 1}, {1, 4}, {0, 4}};
         // Demonstrate the centroid is outside.
         QPointF c(0, 0);
-        for (const QPointF &v : l) c += v;
+        for (const QPointF &v : l)
+            c += v;
         c /= double(l.size());
         QVERIFY(!EditGeometry::pointInRing(l, c));
         // interiorPoint must nevertheless be strictly inside.
@@ -345,15 +538,25 @@ private slots:
         QVERIFY(EditGeometry::pointInRing(l, p));
     }
 
+    /**
+     *
+     * @brief Require the computed seed to lie inside the concave C fixture.
+     *
+     */
     void interiorPoint_cShape_isInside()
     {
-        const QVector<QPointF> cs{{0, 0}, {3, 0}, {3, 1}, {1, 1},
-                                  {1, 2}, {3, 2}, {3, 3}, {0, 3}};
+        const QVector<QPointF> cs{{0, 0}, {3, 0}, {3, 1}, {1, 1}, {1, 2}, {3, 2}, {3, 3}, {0, 3}};
         const QPointF p = EditGeometry::interiorPoint(cs);
         QVERIFY(EditGeometry::pointInRing(cs, p));
     }
 
     // netArea / containsPoint (donut) ------------------------------------
+    /**
+     *
+     * @brief Require a square donut to have net area 84 and include its body while excluding the
+     * hole and exterior.
+     *
+     */
     void ringPolygon_donut_areaAndContainment()
     {
         EditGeometry::RingPolygon rp;
@@ -367,23 +570,37 @@ private slots:
     }
 
     // validateRingPolygon ------------------------------------------------
+    /**
+     *
+     * @brief Require the nonintersecting square donut to validate as Ok.
+     *
+     */
     void validate_ok_donut()
     {
         EditGeometry::RingPolygon rp;
         rp.exterior = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
         rp.interiors.append(QVector<QPointF>{{3, 3}, {7, 3}, {7, 7}, {3, 7}});
-        QCOMPARE(EditGeometry::validateRingPolygon(rp),
-                 EditGeometry::RingValidity::Ok);
+        QCOMPARE(EditGeometry::validateRingPolygon(rp), EditGeometry::RingValidity::Ok);
     }
 
+    /**
+     *
+     * @brief Require a bow-tie exterior to report SelfIntersecting.
+     *
+     */
     void validate_selfIntersectingExterior()
     {
         EditGeometry::RingPolygon rp;
-        rp.exterior = {{0, 0}, {2, 2}, {2, 0}, {0, 2}};  // bow-tie
+        rp.exterior = {{0, 0}, {2, 2}, {2, 0}, {0, 2}}; // bow-tie
         QCOMPARE(EditGeometry::validateRingPolygon(rp),
                  EditGeometry::RingValidity::SelfIntersecting);
     }
 
+    /**
+     *
+     * @brief Require a disjoint exterior hole to report HoleOutsideExterior.
+     *
+     */
     void validate_holeOutsideExterior()
     {
         EditGeometry::RingPolygon rp;
@@ -393,34 +610,48 @@ private slots:
                  EditGeometry::RingValidity::HoleOutsideExterior);
     }
 
+    /**
+     *
+     * @brief Require two overlapping square holes to report HolesOverlap.
+     *
+     */
     void validate_holesOverlap()
     {
         EditGeometry::RingPolygon rp;
         rp.exterior = {{0, 0}, {20, 0}, {20, 20}, {0, 20}};
         rp.interiors.append(QVector<QPointF>{{2, 2}, {8, 2}, {8, 8}, {2, 8}});
         rp.interiors.append(QVector<QPointF>{{5, 5}, {11, 5}, {11, 11}, {5, 11}});
-        QCOMPARE(EditGeometry::validateRingPolygon(rp),
-                 EditGeometry::RingValidity::HolesOverlap);
+        QCOMPARE(EditGeometry::validateRingPolygon(rp), EditGeometry::RingValidity::HolesOverlap);
     }
 
     // normalizeRingPolygon -----------------------------------------------
+    /**
+     *
+     * @brief Require normalization to orient the exterior CCW and its retained single hole CW.
+     *
+     */
     void normalize_orientsExteriorCcwAndHolesCw()
     {
         EditGeometry::RingPolygon rp;
-        rp.exterior = {{0, 0}, {0, 10}, {10, 10}, {10, 0}};        // CW input
+        rp.exterior = {{0, 0}, {0, 10}, {10, 10}, {10, 0}};                    // CW input
         rp.interiors.append(QVector<QPointF>{{3, 3}, {7, 3}, {7, 7}, {3, 7}}); // CCW
 
         const EditGeometry::RingPolygon n = EditGeometry::normalizeRingPolygon(rp);
-        QVERIFY(EditGeometry::signedRingArea(n.exterior) > 0.0);   // CCW
+        QVERIFY(EditGeometry::signedRingArea(n.exterior) > 0.0); // CCW
         QCOMPARE(n.interiors.size(), qsizetype(1));
         QVERIFY(EditGeometry::signedRingArea(n.interiors[0]) < 0.0); // CW
     }
 
+    /**
+     *
+     * @brief Require normalization to drop an all-coincident hole.
+     *
+     */
     void normalize_dropsDegenerateHoles()
     {
         EditGeometry::RingPolygon rp;
         rp.exterior = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
-        rp.interiors.append(QVector<QPointF>{{3, 3}, {3, 3}, {3, 3}});  // collapses
+        rp.interiors.append(QVector<QPointF>{{3, 3}, {3, 3}, {3, 3}}); // collapses
         const EditGeometry::RingPolygon n = EditGeometry::normalizeRingPolygon(rp);
         QCOMPARE(n.interiors.size(), qsizetype(0));
     }

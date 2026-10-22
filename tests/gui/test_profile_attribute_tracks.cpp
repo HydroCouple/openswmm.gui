@@ -13,6 +13,16 @@
 // The sampler's engine path and the real pixel alignment against a live
 // profile plot need a .out file + display — covered by the manual steps in
 // workplans/PROFILE_ATTRIBUTE_TRACKS_VERIFICATION.md.
+
+/**
+ * @file      test_profile_attribute_tracks.cpp
+ * @brief     Tests for profile attribute tracks.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QPen>
@@ -63,8 +73,7 @@ void TestProfileAttributeTracks::initTestCase()
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("attrtracks-test"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                       mSettingsDir.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
 void TestProfileAttributeTracks::init()
@@ -79,12 +88,12 @@ void TestProfileAttributeTracks::genericAndPropertyAccessorsAgree()
     QVERIFY(!opt.linkVelocityVisible());
 
     opt.setAttributeVisible(PlotAttribute::LinkVelocity, true);
-    QVERIFY(opt.linkVelocityVisible());          // named getter sees it
+    QVERIFY(opt.linkVelocityVisible()); // named getter sees it
     QVERIFY(opt.isAttributeVisible(PlotAttribute::LinkVelocity));
 
     const QPen pen(QColor(10, 20, 30), 3.0, Qt::DashLine);
-    opt.setNodeDepthPen(pen);                    // named setter
-    QCOMPARE(opt.penFor(PlotAttribute::NodeDepth), pen);   // generic getter
+    opt.setNodeDepthPen(pen);                            // named setter
+    QCOMPARE(opt.penFor(PlotAttribute::NodeDepth), pen); // generic getter
 
     // And via the meta-object, the way QPropertyModel edits them.
     QVERIFY(opt.setProperty("linkFlowVisible", true));
@@ -99,18 +108,18 @@ void TestProfileAttributeTracks::oneChangedSignalPerEdit()
 
     opt.setAttributeVisible(PlotAttribute::NodeDepth, true);
     QCOMPARE(spy.count(), 1);
-    opt.setAttributeVisible(PlotAttribute::NodeDepth, true);   // no-op
+    opt.setAttributeVisible(PlotAttribute::NodeDepth, true); // no-op
     QCOMPARE(spy.count(), 1);
 
     opt.setTrackHeightPx(150);
     QCOMPARE(spy.count(), 2);
-    opt.setTrackHeightPx(150);                                 // no-op
+    opt.setTrackHeightPx(150); // no-op
     QCOMPARE(spy.count(), 2);
 
     // Out-of-range values clamp; a clamp to the current value is a no-op.
-    opt.setEnvelopeOpacity(2.0);   // clamps to 1.0
+    opt.setEnvelopeOpacity(2.0); // clamps to 1.0
     QCOMPARE(spy.count(), 3);
-    opt.setEnvelopeOpacity(1.5);   // clamps to 1.0 again — no change
+    opt.setEnvelopeOpacity(1.5); // clamps to 1.0 again — no change
     QCOMPARE(spy.count(), 3);
 }
 
@@ -138,7 +147,7 @@ void TestProfileAttributeTracks::settingsRoundTrip()
         fresh.readFrom(s);
         s.endGroup();
 
-        QCOMPARE(spy.count(), 1);   // batched: exactly one changed() emission
+        QCOMPARE(spy.count(), 1); // batched: exactly one changed() emission
         QVERIFY(fresh.isAttributeVisible(PlotAttribute::LinkVelocity));
         QVERIFY(fresh.isAttributeVisible(PlotAttribute::NodeDepth));
         QVERIFY(!fresh.isAttributeVisible(PlotAttribute::LinkFlow));
@@ -178,7 +187,7 @@ void TestProfileAttributeTracks::speciesTrackStateAndOrder()
     QCOMPARE(spy.count(), 1);
     QVERIFY(opt.isSpeciesTrackVisible(QStringLiteral("TSS"), true));
     QVERIFY(!opt.isSpeciesTrackVisible(QStringLiteral("TSS"), false));
-    opt.setSpeciesTrackVisible(QStringLiteral("TSS"), true, true);   // no-op
+    opt.setSpeciesTrackVisible(QStringLiteral("TSS"), true, true); // no-op
     QCOMPARE(spy.count(), 1);
 
     // Species alone drive the pane, without any fixed attribute enabled.
@@ -208,8 +217,7 @@ void TestProfileAttributeTracks::speciesTrackStateAndOrder()
 
     // Toggling off removes it from the visible list but keeps the pen.
     opt.setSpeciesTrackVisible(QStringLiteral("TSS"), true, false);
-    QVERIFY(!opt.visibleSpeciesTracks().contains(
-        qMakePair(QStringLiteral("TSS"), true)));
+    QVERIFY(!opt.visibleSpeciesTracks().contains(qMakePair(QStringLiteral("TSS"), true)));
     QCOMPARE(opt.speciesTrackPenFor(QStringLiteral("TSS"), false), fancy);
 }
 
@@ -240,15 +248,13 @@ void TestProfileAttributeTracks::speciesSettingsRoundTrip()
         fresh.readFrom(s);
         s.endGroup();
 
-        QCOMPARE(spy.count(), 1);   // still one batched emission
+        QCOMPARE(spy.count(), 1); // still one batched emission
         QVERIFY(fresh.isAttributeVisible(PlotAttribute::NodeDepth));
-        QVERIFY(fresh.isSpeciesTrackVisible(QStringLiteral("__WATER_AGE__"),
-                                            true));
+        QVERIFY(fresh.isSpeciesTrackVisible(QStringLiteral("__WATER_AGE__"), true));
         QVERIFY(fresh.isSpeciesTrackVisible(QStringLiteral("TSS"), false));
         QVERIFY(!fresh.isSpeciesTrackVisible(QStringLiteral("TSS"), true));
         QVERIFY(!fresh.isSpeciesTrackVisible(QStringLiteral("Ghost"), true));
-        QCOMPARE(fresh.speciesTrackPenFor(QStringLiteral("Ghost"), true),
-                 fancy);
+        QCOMPARE(fresh.speciesTrackPenFor(QStringLiteral("Ghost"), true), fancy);
         const auto vis = fresh.visibleSpeciesTracks();
         QCOMPARE(vis.size(), 2);
         QCOMPARE(vis[0], qMakePair(QStringLiteral("TSS"), false));
@@ -277,15 +283,15 @@ void TestProfileAttributeTracks::pixelMappingMatchesProfileFormula()
     //   px = left + (vx - xmin) / (xmax - xmin) * (width - left - right)
     ProfileAttributeTracksWidget w;
     w.resize(800, 300);
-    w.setHorizontalMargins(64, 16);     // the profile's gutters
+    w.setHorizontalMargins(64, 16); // the profile's gutters
     w.setVisibleXRange(0.0, 1000.0);
 
-    const double left  = 64.0;
+    const double left = 64.0;
     const double plotW = 800.0 - 64.0 - 16.0;
 
-    QCOMPARE(w.pixelForVirtualX(0.0),    left);
+    QCOMPARE(w.pixelForVirtualX(0.0), left);
     QCOMPARE(w.pixelForVirtualX(1000.0), left + plotW);
-    QCOMPARE(w.pixelForVirtualX(500.0),  left + plotW * 0.5);
+    QCOMPARE(w.pixelForVirtualX(500.0), left + plotW * 0.5);
 
     // A zoomed range maps proportionally.
     w.setVisibleXRange(250.0, 750.0);
@@ -314,7 +320,7 @@ void TestProfileAttributeTracks::minimumHeightTracksCount()
 
     ProfileAttributeTracksWidget w;
     w.setOptions(&opt);
-    QCOMPARE(w.minimumHeight(), 0);     // no tracks → collapses to nothing
+    QCOMPARE(w.minimumHeight(), 0); // no tracks → collapses to nothing
 
     ProfileAttributeTracksWidget::Track t1;
     t1.attribute = PlotAttribute::NodeDepth;
@@ -326,7 +332,7 @@ void TestProfileAttributeTracks::minimumHeightTracksCount()
 
     w.setTracks({t1, t2});
     QCOMPARE(w.trackCount(), 2);
-    QVERIFY(w.minimumHeight() > 2 * 100);   // 2 tracks + gaps + axis strip
+    QVERIFY(w.minimumHeight() > 2 * 100); // 2 tracks + gaps + axis strip
 
     w.setTracks({});
     QCOMPARE(w.minimumHeight(), 0);

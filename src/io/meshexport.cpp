@@ -1,8 +1,11 @@
-/*!
- * \file   meshexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshexport.cpp
+ * @brief     Collector for "Export mesh…"
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.2, R10).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "io/meshexport.h"
@@ -22,27 +25,54 @@
 using openswmmvis::feature::FieldChoice;
 using openswmmvis::feature::FieldType;
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
-namespace {
+namespace
+{
 
-QString tr_(const char *s) { return QCoreApplication::translate("MeshExport", s); }
+/**
+ * @brief Translate export labels and diagnostics.
+ * @param[in] s Non-null translation source text.
+ * @return Localized text in the MeshExport context.
+ */
+QString tr_(const char *s)
+{
+    return QCoreApplication::translate("MeshExport", s);
+}
 
+/**
+ * @brief Build independent export-column metadata.
+ * @param[in] name Stable output field identifier.
+ * @param[in] label Readable column label.
+ * @param[in] type Value representation.
+ * @param[in] unit Display-unit label only; does not convert values.
+ * @return Owning field metadata with no choice list.
+ */
 ExportField makeField(const QString &name, const QString &label, FieldType type,
                       const QString &unit = QString())
 {
     ExportField f;
-    f.name  = name;
+    f.name = name;
     f.label = label;
-    f.type  = type;
-    f.unit  = unit;
+    f.type = type;
+    f.unit = unit;
     return f;
 }
 
-/*! NaN (the mesh's "unset") becomes null. */
-QVariant real(double v) { return std::isfinite(v) ? QVariant(v) : QVariant(); }
+/*! NaN (the mesh's "unset") becomes null.
+ * @param[in] v Numeric mesh attribute in its stored unit.
+ * @return Numeric QVariant for finite v; invalid/null QVariant for NaN or infinity.
+ */
+QVariant real(double v)
+{
+    return std::isfinite(v) ? QVariant(v) : QVariant();
+}
 
-/*! Output name for a cell parameter key: "infil.method" → "infil_method". */
+/*! Output name for a cell parameter key: "infil.method" → "infil_method".
+ * @param[in] key Latin-1 mesh parameter key.
+ * @return Key with periods replaced by underscores, preserving other characters.
+ */
 QString paramFieldName(const QByteArray &key)
 {
     QString n = QString::fromLatin1(key);
@@ -50,17 +80,27 @@ QString paramFieldName(const QByteArray &key)
     return n;
 }
 
+/**
+ * @brief Describe supported infiltration tokens for an enum parameter.
+ * @param[in] spec Enum labels with contiguous values beginning at spec.min.
+ * @return Token/label choices excluding None, which exports as null.
+ */
 QVector<FieldChoice> infilMethodChoices(const mesh::CellParamSpec &spec)
 {
     QVector<FieldChoice> out;
     for (int i = 0; i < spec.enumLabels.size(); ++i) {
         const auto m = static_cast<mesh::InfilMethod>(int(spec.min) + i);
-        if (m == mesh::InfilMethod::None) continue;   // written as null
+        if (m == mesh::InfilMethod::None)
+            continue; // written as null
         out.append({mesh::infilMethodToken(m), spec.enumLabels.at(i)});
     }
     return out;
 }
 
+/**
+ * @brief Enumerate boundary condition types supported by mesh export.
+ * @return INP token/translated-label pairs in curated boundary type order.
+ */
 QVector<FieldChoice> bcTypeChoices()
 {
     using T = mesh::MeshBCTypes::Type;
@@ -71,11 +111,23 @@ QVector<FieldChoice> bcTypeChoices()
     return out;
 }
 
+/**
+ * @brief Test native vertex-index bounds before reading geometry.
+ * @param[in] m Mesh whose vertex vector defines the bound.
+ * @param[in] v Zero-based candidate index.
+ * @return True when v is nonnegative and below the vertex count.
+ */
 bool validVertex(const mesh::MeshResult &m, int v)
 {
     return v >= 0 && v < m.vertices.size();
 }
 
+/**
+ * @brief Copy cell polygons and enabled parameters into one table.
+ * @param[in] m Native mesh; coordinates and attribute values are not converted.
+ * @param[in] lengthUnit Label for length-valued fields and mean bed elevation.
+ * @return Owning cell table; missing-vertex cells are omitted with skipped diagnostics, nonfinite attributes become null.
+ */
 ExportTable cellTable(const mesh::MeshResult &m, const QString &lengthUnit)
 {
     ExportTable t;
@@ -86,13 +138,15 @@ ExportTable cellTable(const mesh::MeshResult &m, const QString &lengthUnit)
              << makeField(QStringLiteral("tag"), tr_("Tag"), FieldType::Text);
     QVector<const mesh::CellParamSpec *> params;
     for (const mesh::CellParamSpec &s : mesh::cellParamSpecs()) {
-        if (!s.enabled) continue;   // engine support pending: nothing to export
+        if (!s.enabled)
+            continue; // engine support pending: nothing to export
         params << &s;
-        ExportField f = makeField(paramFieldName(s.key), s.label,
-                                  s.kind == mesh::CellParamSpec::Kind::Enum ? FieldType::Text
-                                                                            : FieldType::Real,
-                                  s.lengthUnit ? lengthUnit : QString());
-        if (s.kind == mesh::CellParamSpec::Kind::Enum) f.choices = infilMethodChoices(s);
+        ExportField f =
+            makeField(paramFieldName(s.key), s.label,
+                      s.kind == mesh::CellParamSpec::Kind::Enum ? FieldType::Text : FieldType::Real,
+                      s.lengthUnit ? lengthUnit : QString());
+        if (s.kind == mesh::CellParamSpec::Kind::Enum)
+            f.choices = infilMethodChoices(s);
         t.fields << f;
     }
     t.fields << makeField(QStringLiteral("bed_z"), tr_("Bed elevation (corner mean)"),
@@ -106,7 +160,10 @@ ExportTable cellTable(const mesh::MeshResult &m, const QString &lengthUnit)
         bool ok = true;
         for (int k = 0; k < cell.vertexCount(); ++k) {
             const int v = cell.vertex(k);
-            if (!validVertex(m, v)) { ok = false; break; }
+            if (!validVertex(m, v)) {
+                ok = false;
+                break;
+            }
             row.points << m.vertices.at(v).xy;
             zSum += m.vertices.at(v).z;
         }
@@ -121,7 +178,8 @@ ExportTable cellTable(const mesh::MeshResult &m, const QString &lengthUnit)
                 const auto method = std::isfinite(v) ? static_cast<mesh::InfilMethod>(int(v))
                                                      : mesh::InfilMethod::None;
                 row.values << (method == mesh::InfilMethod::None
-                                   ? QVariant() : QVariant(mesh::infilMethodToken(method)));
+                                   ? QVariant()
+                                   : QVariant(mesh::infilMethodToken(method)));
             } else {
                 row.values << real(v);
             }
@@ -132,18 +190,26 @@ ExportTable cellTable(const mesh::MeshResult &m, const QString &lengthUnit)
     return t;
 }
 
+/**
+ * @brief Copy each undirected mesh edge once with its applicable boundary attributes.
+ * @param[in] m Native mesh defining geometry and local-edge slots.
+ * @param[in] bcs Slot-indexed conditions; missing entries use default wall/conveyance values.
+ * @param[in] lengthUnit Label for stage values without conversion.
+ * @return Edge table in first-encounter order using the lowest owning slot; fields not read by the boundary type are null.
+ */
 ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC> &bcs,
                       const QString &lengthUnit)
 {
     ExportTable t;
     t.name = QStringLiteral("mesh_edges");
     t.geometry = ExportGeometry::LineString;
-    ExportField bcType = makeField(QStringLiteral("bc_type"), tr_("Boundary condition"),
-                                   FieldType::Text);
+    ExportField bcType =
+        makeField(QStringLiteral("bc_type"), tr_("Boundary condition"), FieldType::Text);
     bcType.choices = bcTypeChoices();
     t.fields << makeField(QStringLiteral("cell"), tr_("Owning cell"), FieldType::Integer)
              << makeField(QStringLiteral("edge"), tr_("Local edge"), FieldType::Integer)
-             << makeField(QStringLiteral("boundary"), tr_("On the mesh boundary"), FieldType::Boolean)
+             << makeField(QStringLiteral("boundary"), tr_("On the mesh boundary"),
+                          FieldType::Boolean)
              << makeField(QStringLiteral("length"), tr_("Length (map units)"), FieldType::Real)
              << makeField(QStringLiteral("conveyance"), tr_("Conveyance"), FieldType::Real)
              << bcType
@@ -156,7 +222,10 @@ ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC>
 
     // Every undirected edge once, under its lowest slot; an edge seen once is
     // on the boundary (the outline or a hole).
-    struct Seen { int slot = -1; int uses = 0; };
+    struct Seen {
+        int slot = -1;
+        int uses = 0;
+    };
     QHash<quint64, Seen> edges;
     QVector<quint64> order;
     const auto keyOf = [](int a, int b) {
@@ -168,10 +237,14 @@ ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC>
         for (int e = 0; e < cell.vertexCount(); ++e) {
             int a = -1, b = -1;
             mesh::edgeEndpoints(cell, e, a, b);
-            if (!validVertex(m, a) || !validVertex(m, b)) continue;
+            if (!validVertex(m, a) || !validVertex(m, b))
+                continue;
             const quint64 key = keyOf(a, b);
             Seen &s = edges[key];
-            if (s.slot < 0) { s.slot = mesh::edgeSlot(c, e); order << key; }
+            if (s.slot < 0) {
+                s.slot = mesh::edgeSlot(c, e);
+                order << key;
+            }
             ++s.uses;
         }
     }
@@ -190,21 +263,27 @@ ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC>
         // attribute table shows it "—".
         const auto param = [&](const char *name, const QVariant &v) {
             return boundary && openswmmvis::feature::bcFieldApplies(token, QLatin1String(name))
-                       ? v : QVariant();
+                       ? v
+                       : QVariant();
         };
         ExportRow row;
         row.points << pa << pb;
         row.values << c << e << boundary << QLineF(pa, pb).length() << bc.conveyance
-                   << (boundary ? QVariant(token) : QVariant())
-                   << param("head", bc.head) << param("slope", bc.slope)
-                   << param("flow", bc.flow) << param("tseries", bc.tseries)
-                   << param("curve", bc.curve)
+                   << (boundary ? QVariant(token) : QVariant()) << param("head", bc.head)
+                   << param("slope", bc.slope) << param("flow", bc.flow)
+                   << param("tseries", bc.tseries) << param("curve", bc.curve)
                    << (boundary && !bc.group.isEmpty() ? QVariant(bc.group) : QVariant());
         t.rows << row;
     }
     return t;
 }
 
+/**
+ * @brief Copy all native mesh vertices and coupling metadata.
+ * @param[in] m Mesh to snapshot without changing coordinates.
+ * @param[in] lengthUnit Elevation label without conversion.
+ * @return Point table with zero-based vertex IDs and null unset/nonfinite attributes.
+ */
 ExportTable vertexTable(const mesh::MeshResult &m, const QString &lengthUnit)
 {
     ExportTable t;
@@ -213,7 +292,8 @@ ExportTable vertexTable(const mesh::MeshResult &m, const QString &lengthUnit)
     t.fields << makeField(QStringLiteral("vertex"), tr_("Vertex index"), FieldType::Integer)
              << makeField(QStringLiteral("z"), tr_("Elevation"), FieldType::Real, lengthUnit)
              << makeField(QStringLiteral("tag"), tr_("Tag"), FieldType::Text)
-             << makeField(QStringLiteral("coupled_node"), tr_("Coupled SWMM node"), FieldType::Text);
+             << makeField(QStringLiteral("coupled_node"), tr_("Coupled SWMM node"),
+                          FieldType::Text);
     t.rows.reserve(m.vertices.size());
     for (int v = 0; v < m.vertices.size(); ++v) {
         const mesh::MeshVertex &mv = m.vertices.at(v);
@@ -226,17 +306,19 @@ ExportTable vertexTable(const mesh::MeshResult &m, const QString &lengthUnit)
     return t;
 }
 
-}   // namespace
+} // namespace
 
-QVector<ExportTable> meshTables(const mesh::MeshResult &mesh,
-                                const QVector<mesh::MeshEdgeBC> &bcs,
+QVector<ExportTable> meshTables(const mesh::MeshResult &mesh, const QVector<mesh::MeshEdgeBC> &bcs,
                                 unsigned parts, const QString &lengthUnit)
 {
     QVector<ExportTable> out;
-    if (parts & MeshExportCells)    out << cellTable(mesh, lengthUnit);
-    if (parts & MeshExportEdges)    out << edgeTable(mesh, bcs, lengthUnit);
-    if (parts & MeshExportVertices) out << vertexTable(mesh, lengthUnit);
+    if (parts & MeshExportCells)
+        out << cellTable(mesh, lengthUnit);
+    if (parts & MeshExportEdges)
+        out << edgeTable(mesh, bcs, lengthUnit);
+    if (parts & MeshExportVertices)
+        out << vertexTable(mesh, lengthUnit);
     return out;
 }
 
-}   // namespace openswmmvis::io
+} // namespace openswmmvis::io

@@ -1,9 +1,9 @@
-/*!
- * \file   test_rulesymbologytab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.3 — RuleSymbologyTab widget.
+/**
+ * @file      test_rulesymbologytab.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.3 — RuleSymbologyTab widget.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.3):
  *           - Active Rule combo + Rule List populate from a RuleList.
@@ -16,6 +16,7 @@
  *         Tests run under QT_QPA_PLATFORM=offscreen (set by
  *         add_swmmvis_gui_test). No editor-binding tests here — that
  *         lands in the follow-up Z.3a slice.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QApplication>
@@ -91,7 +92,7 @@ void TestRuleSymbologyTab::empty_listShowsPlaceholderBody()
     RuleList rl;
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
     QVERIFY(combo);
     QVERIFY(list);
     QCOMPARE(combo->count(), 0);
@@ -102,8 +103,8 @@ void TestRuleSymbologyTab::populated_comboHasOneEntryPerRule()
 {
     RuleList rl;
     rl.append(std::make_unique<Rule>(QStringLiteral("Junctions"), nullptr));
-    rl.append(std::make_unique<Rule>(QStringLiteral("Conduits"),  nullptr));
-    rl.append(std::make_unique<Rule>(QStringLiteral("Subcatch"),  nullptr));
+    rl.append(std::make_unique<Rule>(QStringLiteral("Conduits"), nullptr));
+    rl.append(std::make_unique<Rule>(QStringLiteral("Subcatch"), nullptr));
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
@@ -184,7 +185,7 @@ void TestRuleSymbologyTab::modelActiveIndexChange_updatesUi()
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
 
     rl.setActiveIndex(1);
     QCOMPARE(combo->currentIndex(), 1);
@@ -229,7 +230,7 @@ void TestRuleSymbologyTab::ruleNameChange_updatesComboAndList()
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
 
     r->setName(QStringLiteral("Renamed"));
     QCOMPARE(combo->itemText(0), QStringLiteral("Renamed"));
@@ -245,7 +246,10 @@ void TestRuleSymbologyTab::addButton_appendsNewRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *add = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Add rule")) { add = b; break; }
+        if (b->toolTip() == QStringLiteral("Add rule")) {
+            add = b;
+            break;
+        }
     QVERIFY(add);
 
     add->click();
@@ -261,7 +265,10 @@ void TestRuleSymbologyTab::duplicateButton_clonesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *dup = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("Duplicate")) { dup = b; break; }
+        if (b->text() == QStringLiteral("Duplicate")) {
+            dup = b;
+            break;
+        }
     QVERIFY(dup);
 
     dup->click();
@@ -279,10 +286,13 @@ void TestRuleSymbologyTab::deleteButton_removesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *del = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("Delete")) { del = b; break; }
+        if (b->text() == QStringLiteral("Delete")) {
+            del = b;
+            break;
+        }
     QVERIFY(del);
 
-    del->click();  // deletes active (index 0)
+    del->click(); // deletes active (index 0)
     QCOMPARE(rl.count(), 1);
     QCOMPARE(rl.at(0)->name(), QStringLiteral("B"));
 }
@@ -298,7 +308,10 @@ void TestRuleSymbologyTab::moveUpButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *up = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Move rule up")) { up = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule up")) {
+            up = b;
+            break;
+        }
     QVERIFY(up);
 
     up->click();
@@ -316,7 +329,10 @@ void TestRuleSymbologyTab::moveDownButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *down = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Move rule down")) { down = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule down")) {
+            down = b;
+            break;
+        }
     QVERIFY(down);
 
     down->click();
@@ -329,14 +345,11 @@ void TestRuleSymbologyTab::buttons_disabledForEmptyList()
     RuleSymbologyTab tab(&rl);
     auto buttons = tab.findChildren<QPushButton *>();
     for (auto *b : buttons) {
-        if (b->text() == QStringLiteral("Duplicate") ||
-            b->text() == QStringLiteral("Delete") ||
-            b->text() == QStringLiteral("↑") ||
-            b->text() == QStringLiteral("↓"))
-        {
-            QVERIFY2(!b->isEnabled(),
-                     qPrintable(QStringLiteral("%1 should be disabled on empty list")
-                                    .arg(b->text())));
+        if (b->text() == QStringLiteral("Duplicate") || b->text() == QStringLiteral("Delete") ||
+            b->text() == QStringLiteral("↑") || b->text() == QStringLiteral("↓")) {
+            QVERIFY2(
+                !b->isEnabled(),
+                qPrintable(QStringLiteral("%1 should be disabled on empty list").arg(b->text())));
         }
     }
 }
@@ -371,7 +384,8 @@ void TestRuleSymbologyTab::downButton_disabledForLastRow()
 
 // ── Z.3a — Renderer-class picker ─────────────────────────────────────
 
-namespace {
+namespace
+{
 // Locate the renderer-class combo inside the body region (the second
 // QComboBox in the widget tree — the first is the Active Rule combo).
 QComboBox *findRendererCombo(QWidget &tab)
@@ -406,8 +420,7 @@ void TestRuleSymbologyTab::rendererCombo_disabledForEmptyList()
 void TestRuleSymbologyTab::rendererCombo_reflectsActiveRuleRenderer()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("g"),
-                                     std::make_unique<GraduatedRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("g"), std::make_unique<GraduatedRenderer>()));
     RuleSymbologyTab tab(&rl);
     auto *combo = findRendererCombo(tab);
     QVERIFY(combo);
@@ -444,10 +457,9 @@ void TestRuleSymbologyTab::rendererCombo_syncsWhenRulesRendererReplacedExternall
 void TestRuleSymbologyTab::rendererCombo_updatesOnActiveRuleChange()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("a"),
-                                     std::make_unique<SingleSymbolRenderer>()));
-    rl.append(std::make_unique<Rule>(QStringLiteral("b"),
-                                     std::make_unique<GraduatedRenderer>()));
+    rl.append(
+        std::make_unique<Rule>(QStringLiteral("a"), std::make_unique<SingleSymbolRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("b"), std::make_unique<GraduatedRenderer>()));
 
     RuleSymbologyTab tab(&rl);
     auto *combo = findRendererCombo(tab);

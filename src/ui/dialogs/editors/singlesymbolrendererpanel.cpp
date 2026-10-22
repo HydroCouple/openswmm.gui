@@ -1,16 +1,18 @@
-/*!
- * \file   singlesymbolrendererpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  IRendererPanel implementation for the "Single Symbol" renderer
+/**
+ * @file      singlesymbolrendererpanel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     IRendererPanel implementation for the "Single Symbol" renderer
  *         class.  Slice X.3.
  *
  *         For SWMM kinds the panel reuses the existing FeatureStyleEditor
  *         family (point/line/polygon archetypes) via the existing
  *         StyleEditorRegistry — no behaviour duplicated, just routed
  *         differently.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/irendererpanel.h"
 #include <QDebug>
 
@@ -18,7 +20,7 @@
 // Slice B.6c — Rule-aware Single Symbol panel.
 #include "render/rule.h"
 #include "render/symbolstyleadapter.h"
-#include "ui/dialogs/editors/basesymbolgroup.h"   // feedback C2 — shared style lookup
+#include "ui/dialogs/editors/basesymbolgroup.h" // feedback C2 — shared style lookup
 #include "ui/dialogs/istyleeditorwidget.h"
 
 #include <QHeaderView>
@@ -26,7 +28,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-#include <memory>   // m_styleAdapter (previously came via ilayerstylesubject.h)
+#include <memory> // m_styleAdapter (previously came via ilayerstylesubject.h)
 
 // SE.4 — the QPropertyModel generic-grid fallback was removed from the
 // symbology editor. Every *SymbolStyleAdapter archetype now has a dedicated
@@ -34,9 +36,11 @@
 // always returns a real editor. QPropertyModel remains in use elsewhere
 // (attribute panel, preferences, sublayer style dialog, …).
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 class SingleSymbolPanel : public IRendererPanel
 {
@@ -64,11 +68,9 @@ public:
         // the first SymbolLayer's kind doesn't map to one of the three
         // archetypes (raster / hillshade / contour passes).
         if (m_ctx.rule) {
-            m_styleAdapter.reset(
-                OpenSWMM::Render::SymbolStyleAdapter::createFor(m_ctx.rule));
+            m_styleAdapter.reset(OpenSWMM::Render::SymbolStyleAdapter::createFor(m_ctx.rule));
             style = m_styleAdapter.get();
-        }
-        else if (m_ctx.category.has_value()) {
+        } else if (m_ctx.category.has_value()) {
             // Results sublayer style, or the model layer's PERSISTENT
             // SwmmElementSymbolAdapter (same instance the dialog's subjects
             // wrap, so the Cancel snapshot covers edits made here). Shared
@@ -89,9 +91,8 @@ public:
             // symbolstyleeditors{,2d}.cpp). Show a diagnostic label rather
             // than the old QPropertyModel grid.
         }
-        lay->addWidget(new QLabel(
-            tr("No single-symbol editor registered for this layer kind."),
-            this));
+        lay->addWidget(
+            new QLabel(tr("No single-symbol editor registered for this layer kind."), this));
         lay->addStretch();
     }
 
@@ -103,22 +104,21 @@ public:
     QString displayName() const override { return tr("Single Symbol"); }
 
 private:
-    RendererPanelContext  m_ctx;
+    RendererPanelContext m_ctx;
     // Slice SS.1 — the factory returns one of four concrete subclasses
     // (Point / Line / Polygon / generic), so we hold it as the base
     // QObject. The QPropertyModel / StyleEditorRegistry only need a
     // QObject* anyway.
-    std::unique_ptr<QObject>                              m_styleAdapter;  // Slice B.6c → SS.1
+    std::unique_ptr<QObject> m_styleAdapter; // Slice B.6c → SS.1
 };
 
 } // namespace
 
 // Register the factory at static-init time.  RendererPanelRegistry walks
 // in insertion order, so this entry appears first in the dropdown.
-REGISTER_RENDERER_PANEL(
-    "single", "Single Symbol",
-    [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
-        return new SingleSymbolPanel(ctx, parent);
-    })
+REGISTER_RENDERER_PANEL("single", "Single Symbol",
+                        [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
+                            return new SingleSymbolPanel(ctx, parent);
+                        })
 
 } // namespace openswmmvis::ui

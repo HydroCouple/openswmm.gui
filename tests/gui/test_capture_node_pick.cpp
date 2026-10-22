@@ -1,9 +1,9 @@
-/*!
- * \file   test_capture_node_pick.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Picking an inlet junction's capture node on the map, through the
+/**
+ * @file      test_capture_node_pick.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Picking an inlet junction's capture node on the map, through the
  *         real canvas press/release path in a project window:
  *           - NodePickSession swaps in the pick tool, reports the clicked
  *             node and restores the previous tool; Escape cancels
@@ -19,6 +19,7 @@
  * street_inlet.inp plus a [MAP] section) — J1(0,0) —C1 STREET— J2(400,0),
  * SEWER(200,-100) —D1— OUT1(400,-100), inlet design GRATE1. Local CRS, so
  * canvas coordinates are layer coordinates.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/swmmmodellayer.h"
@@ -44,7 +45,8 @@
 #include <QTest>
 #include <QToolButton>
 
-namespace {
+namespace
+{
 
 QString fixturePath()
 {
@@ -52,26 +54,28 @@ QString fixturePath()
         .filePath(QStringLiteral("street_inlet_local.inp"));
 }
 
-struct Harness
-{
-    OpenSWMMVisWorkspace  *ws     = nullptr;
-    SWMMVisProjectWindow  *window = nullptr;
-    MapCanvas             *canvas = nullptr;
-    SWMMModelLayer        *layer  = nullptr;
+struct Harness {
+    OpenSWMMVisWorkspace *ws = nullptr;
+    SWMMVisProjectWindow *window = nullptr;
+    MapCanvas *canvas = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
         window = new SWMMVisProjectWindow(ws, fixturePath(), nullptr);
         QList<QString> warnings, errors;
-        if (!window->loadModel(warnings, errors)) return false;
+        if (!window->loadModel(warnings, errors))
+            return false;
         window->resize(900, 700);
         window->show();
-        if (!QTest::qWaitForWindowExposed(window)) return false;
+        if (!QTest::qWaitForWindowExposed(window))
+            return false;
         QTest::qWait(200);
         canvas = window->canvas();
-        layer  = window->modelLayer();
-        if (!canvas || !layer) return false;
+        layer = window->modelLayer();
+        if (!canvas || !layer)
+            return false;
         canvas->zoomToFullExtent();
         QTest::qWait(100);
         return true;
@@ -85,17 +89,17 @@ struct Harness
     {
         int px = 0, py = 0;
         canvas->toPixelCoords(mapX, mapY, px, py);
-        return { px, py };
+        return {px, py};
     }
     void clickAt(const QPoint &at)
     {
         QTest::mouseMove(canvas, at);
-        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, at);   // press + release
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, at); // press + release
         QTest::qWait(20);
     }
     QPoint sewer() const { return pixelOf(200.0, -100.0); }
-    QPoint out1()  const { return pixelOf(400.0, -100.0); }
-    QPoint j1()    const { return pixelOf(0.0, 0.0); }
+    QPoint out1() const { return pixelOf(400.0, -100.0); }
+    QPoint j1() const { return pixelOf(0.0, 0.0); }
 };
 
 /*! An inert stand-in for "whatever tool was active before the pick". */
@@ -125,7 +129,7 @@ private slots:
         QSignalSpy picked(session, &NodePickSession::nodePicked);
         QSignalSpy cancelled(session, &NodePickSession::cancelled);
 
-        h.clickAt(h.pixelOf(200.0, 60.0));               // empty canvas: keep waiting
+        h.clickAt(h.pixelOf(200.0, 60.0)); // empty canvas: keep waiting
         QCOMPARE(picked.count(), 0);
         QVERIFY(session->isActive());
 
@@ -134,7 +138,7 @@ private slots:
         QCOMPARE(picked.first().at(0).value<SWMMModelLayer *>(), h.layer);
         QCOMPARE(picked.first().at(1).toString(), QStringLiteral("SEWER"));
         QCOMPARE(picked.first().at(2).toInt(), h.layer->nodeIndex(QStringLiteral("SEWER")));
-        QVERIFY(session->isActive());                    // consumer decides when it ends
+        QVERIFY(session->isActive()); // consumer decides when it ends
 
         session->finish();
         QVERIFY(!session->isActive());
@@ -180,19 +184,19 @@ private slots:
         auto *picker = dlg.findChild<LabeledPickerCombo *>(QStringLiteral("capturePicker"));
         QVERIFY(picker);
         QVERIFY(picker->button()->isEnabled());
-        OpenSWMMVisMapTool *previous = h.canvas->activeTool();   // the window's Select tool
-        picker->button()->click();                       // the "…" button
+        OpenSWMMVisMapTool *previous = h.canvas->activeTool(); // the window's Select tool
+        picker->button()->click();                             // the "…" button
         QVERIFY(dlg.isPickingCaptureNode());
         QVERIFY(h.canvas->activeTool() != previous);
 
-        h.clickAt(h.j1());                                // excluded host end: refused
+        h.clickAt(h.j1()); // excluded host end: refused
         QVERIFY(dlg.isPickingCaptureNode());
         QCOMPARE(dlg.captureNode(), QStringLiteral("OUT1"));
 
         h.clickAt(h.sewer());
         QCOMPARE(dlg.captureNode(), QStringLiteral("SEWER"));
         QVERIFY(!dlg.isPickingCaptureNode());
-        QCOMPARE(h.canvas->activeTool(), previous);      // previous tool restored
+        QCOMPARE(h.canvas->activeTool(), previous); // previous tool restored
     }
 
     void inletToolOpensNonModalDialogAndInsertsWithPickedCapture()
@@ -205,7 +209,7 @@ private slots:
         OpenSWMMVisMapToolAddInletNode tool(h.canvas);
         QSignalSpy added(&tool, &OpenSWMMVisMapToolAddInletNode::inletJunctionAdded);
         h.canvas->setActiveTool(&tool);
-        h.clickAt(h.pixelOf(200.0, 0.0));                // middle of C1 (STREET)
+        h.clickAt(h.pixelOf(200.0, 0.0)); // middle of C1 (STREET)
 
         // Nothing is inserted yet: the dialog is up, non-modal, waiting.
         QCOMPARE(h.layer->cachedLinkCount(), links);
@@ -225,10 +229,10 @@ private slots:
         QVERIFY(h.canvas->activeTool() != &tool);
         h.clickAt(h.sewer());
         QCOMPARE(dlg->captureNode(), QStringLiteral("SEWER"));
-        QCOMPARE(h.canvas->activeTool(), &tool);         // inlet tool is back
+        QCOMPARE(h.canvas->activeTool(), &tool); // inlet tool is back
 
         dlg->accept();
-        QTest::qWait(50);                                 // WA_DeleteOnClose
+        QTest::qWait(50); // WA_DeleteOnClose
         QVERIFY(!tool.pendingDialog());
 
         QCOMPARE(added.count(), 1);
@@ -274,9 +278,9 @@ private slots:
 
         // The Properties-panel cell editor for that node's capture-node row.
         DataObjectRef ref;
-        ref.engine      = h.layer->engine();
-        ref.layer       = h.layer;
-        ref.kind        = DataObjectRef::CaptureNode;
+        ref.engine = h.layer->engine();
+        ref.layer = h.layer;
+        ref.kind = DataObjectRef::CaptureNode;
         ref.currentName = QStringLiteral("SEWER");
         ref.hostNodeIdx = host;
         DataObjectPickerEditor editor(h.window);
@@ -286,9 +290,9 @@ private slots:
 
         auto *combo = editor.findChild<LabeledPickerCombo *>();
         QVERIFY(combo);
-        combo->button()->click();                        // "…" → map pick
-        QVERIFY(h.canvas->activeTool());                 // pick tool installed
-        h.clickAt(h.pixelOf(200.0, 0.0));                // the inlet itself: refused
+        combo->button()->click();         // "…" → map pick
+        QVERIFY(h.canvas->activeTool());  // pick tool installed
+        h.clickAt(h.pixelOf(200.0, 0.0)); // the inlet itself: refused
         QVERIFY(h.canvas->activeTool());
         h.clickAt(h.out1());
         QTest::qWait(50);
@@ -298,7 +302,7 @@ private slots:
         QCOMPARE(u.capture_node_idx, h.layer->nodeIndex(QStringLiteral("OUT1")));
         QCOMPARE(editor.value().currentName, QStringLiteral("OUT1"));
         QVERIFY(changed.count() >= 1);
-        QCOMPARE(h.canvas->activeTool(), nullptr);       // previous (none) restored
+        QCOMPARE(h.canvas->activeTool(), nullptr); // previous (none) restored
 
         // The layer write is undoable from the canvas stack.
         QVERIFY(h.canvas->undoStack());

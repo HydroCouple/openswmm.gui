@@ -14,6 +14,16 @@
 // Runs on the offscreen QPA platform, so this exercises bookkeeping, not
 // real window-server stacking. Actual z-order behaviour on a multi-monitor
 // Mac is covered by the manual checklist in the verification document.
+
+/**
+ * @file      test_dialog_registry.cpp
+ * @brief     Tests for dialog registry.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QCloseEvent>
@@ -27,7 +37,8 @@
 
 using openswmmvis::ui::DialogRegistry;
 
-namespace {
+namespace
+{
 
 class RaiseRecorder : public QObject
 {
@@ -35,6 +46,16 @@ public:
     QList<QObject *> raised;
 
 protected:
+    /**
+     *
+     * @brief Record observed ZOrderChange events without consuming event delivery.
+     * @param watched Borrowed event target appended by raw pointer for later identity
+     * comparison; this recorder does not extend its lifetime.
+     * @param event Borrowed non-null Qt event, valid only during this call.
+     * @return Always false so normal event processing continues; other event types
+     * leave the recorded list unchanged.
+     *
+     */
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (event->type() == QEvent::ZOrderChange)
@@ -53,20 +74,47 @@ protected:
 // downcasts by type, so handing it a bare QEvent with those type tags is
 // formally undefined behaviour even though the subclasses add no members.
 
+/**
+ *
+ * @brief Install the borrowed registry filter and synchronously send a concrete show event.
+ * @param reg Borrowed non-null registry, retained by Qt as an event filter until
+ * either object is destroyed or the filter is removed.
+ * @param dlg Borrowed non-null dialog receiving the event.
+ * Qt deduplicates repeated filter installation; this exercises registry bookkeeping
+ * without requiring an actual platform-generated show or transferring ownership.
+ *
+ */
 void sendShow(DialogRegistry *reg, QDialog *dlg)
 {
-    dlg->installEventFilter(reg);   // idempotent: Qt de-dupes filters
+    dlg->installEventFilter(reg); // idempotent: Qt de-dupes filters
     QShowEvent e;
     QCoreApplication::sendEvent(dlg, &e);
 }
 
+/**
+ *
+ * @brief Install the registry filter and synchronously send WindowActivate.
+ * @param reg Borrowed non-null registry, retained as a Qt filter.
+ * @param dlg Borrowed non-null dialog target.
+ * Uses plain QEvent because this type has no dedicated subclass; synthetic
+ * activation exercises MRU bookkeeping without proving native window-server order.
+ *
+ */
 void sendActivate(DialogRegistry *reg, QDialog *dlg)
 {
     dlg->installEventFilter(reg);
-    QEvent e(QEvent::WindowActivate);   // no dedicated subclass exists
+    QEvent e(QEvent::WindowActivate); // no dedicated subclass exists
     QCoreApplication::sendEvent(dlg, &e);
 }
 
+/**
+ *
+ * @brief Install the registry filter and synchronously send a concrete close event.
+ * @param reg Borrowed non-null registry, retained as a Qt filter.
+ * @param dlg Borrowed non-null target dialog, ownership unchanged.
+ * Exercises the close-event path rather than calling close() or deleting the dialog.
+ *
+ */
 void sendClose(DialogRegistry *reg, QDialog *dlg)
 {
     dlg->installEventFilter(reg);
@@ -74,7 +122,7 @@ void sendClose(DialogRegistry *reg, QDialog *dlg)
     QCoreApplication::sendEvent(dlg, &e);
 }
 
-}   // namespace
+} // namespace
 
 class TestDialogRegistry : public QObject
 {
@@ -104,10 +152,18 @@ private:
     /// handle live leftovers.
     void drain();
 
-    QTemporaryDir mSettingsDir;   ///< keeps configuredStackingMode() off the
-                                  ///< developer's real preferences
+    QTemporaryDir mSettingsDir; ///< keeps configuredStackingMode() off the
+                                ///< developer's real preferences
 };
 
+/**
+ *
+ * @brief Send synthetic close events to every surviving singleton entry and require an empty
+ * register.
+ * Null guarded pointers are skipped; helper assertion failures return locally.
+ * Does not delete surviving dialogs or reset the configured stacking mode.
+ *
+ */
 void TestDialogRegistry::drain()
 {
     auto *reg = DialogRegistry::instance();
@@ -119,6 +175,14 @@ void TestDialogRegistry::drain()
     QCOMPARE(reg->openDialogs().size(), 0);
 }
 
+/**
+ *
+ * @brief Redirect registry INI settings to a valid temporary directory and isolated
+ * dialogregistry-test application identity.
+ * Changes process-global identity/default format/path; no corresponding restoration
+ * is performed by this suite.
+ *
+ */
 void TestDialogRegistry::initTestCase()
 {
     // configuredStackingMode() falls back to a QSettings lookup when the
@@ -128,15 +192,26 @@ void TestDialogRegistry::initTestCase()
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("dialogregistry-test"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                       mSettingsDir.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
+/**
+ *
+ * @brief Drain singleton dialog entries before each case to prevent stale tracking from an
+ * earlier case.
+ *
+ */
 void TestDialogRegistry::init()
 {
     drain();
 }
 
+/**
+ *
+ * @brief Register QtRaiseOnActivate and NativeChildWindow stacking modes for sibling-dialog
+ * bookkeeping.
+ *
+ */
 void TestDialogRegistry::siblingDialogsStayAboveMainWindow_data()
 {
     QTest::addColumn<DialogRegistry::StackingMode>("mode");
@@ -144,6 +219,14 @@ void TestDialogRegistry::siblingDialogsStayAboveMainWindow_data()
     QTest::newRow("native") << DialogRegistry::StackingMode::NativeChildWindow;
 }
 
+/**
+ *
+ * @brief Require sibling restacks to raise the most recent dialog last, preserve both visible
+ * siblings and defer to an active modal prompt.
+ * Consumes mode and records Qt ZOrderChange events; these assertions do not prove
+ * actual native multi-monitor stacking. Closing one sibling must leave the other visible.
+ *
+ */
 void TestDialogRegistry::siblingDialogsStayAboveMainWindow()
 {
     QFETCH(DialogRegistry::StackingMode, mode);
@@ -196,6 +279,11 @@ void TestDialogRegistry::siblingDialogsStayAboveMainWindow()
     QVERIFY(!rainfall.isVisible());
 }
 
+/**
+ *
+ * @brief Require a synthetic modeless top-level show to register exactly its live pointer.
+ *
+ */
 void TestDialogRegistry::tracksModelessTopLevelDialogs()
 {
     auto *reg = DialogRegistry::instance();
@@ -207,28 +295,44 @@ void TestDialogRegistry::tracksModelessTopLevelDialogs()
     QCOMPARE(reg->openDialogs().first().data(), &dlg);
 }
 
+/**
+ *
+ * @brief Require a modal dialog show to leave the modeless registry empty.
+ *
+ */
 void TestDialogRegistry::ignoresModalDialogs()
 {
     auto *reg = DialogRegistry::instance();
     QDialog dlg;
-    dlg.setModal(true);           // blocks interaction; not user-managed
+    dlg.setModal(true); // blocks interaction; not user-managed
     sendShow(reg, &dlg);
 
     QCOMPARE(reg->openDialogs().size(), 0);
 }
 
+/**
+ *
+ * @brief Require a QWidget-flag embedded dialog to be excluded from top-level tracking.
+ *
+ */
 void TestDialogRegistry::ignoresEmbeddedDialogs()
 {
     auto *reg = DialogRegistry::instance();
     QWidget host;
     QDialog embedded(&host);
-    embedded.setWindowFlags(Qt::Widget);   // laid out inside host, not a window
+    embedded.setWindowFlags(Qt::Widget); // laid out inside host, not a window
     QVERIFY(!embedded.isWindow());
     sendShow(reg, &embedded);
 
     QCOMPARE(reg->openDialogs().size(), 0);
 }
 
+/**
+ *
+ * @brief Require shown-dialog registration order to retain the newest entry last for subsequent
+ * raising.
+ *
+ */
 void TestDialogRegistry::newestShownEndsUpLast()
 {
     auto *reg = DialogRegistry::instance();
@@ -246,6 +350,12 @@ void TestDialogRegistry::newestShownEndsUpLast()
     QCOMPARE(open.at(2).data(), &third);
 }
 
+/**
+ *
+ * @brief Require activating the oldest dialog to move it last while retaining relative order of
+ * the other entries.
+ *
+ */
 void TestDialogRegistry::activationPromotesToMostRecent()
 {
     auto *reg = DialogRegistry::instance();
@@ -261,11 +371,17 @@ void TestDialogRegistry::activationPromotesToMostRecent()
 
     const QList<QPointer<QDialog>> open = reg->openDialogs();
     QCOMPARE(open.size(), 3);
-    QCOMPARE(open.at(2).data(), &first);        // now the top of the stack
-    QCOMPARE(open.at(0).data(), &second);       // relative order of the rest kept
+    QCOMPARE(open.at(2).data(), &first);  // now the top of the stack
+    QCOMPARE(open.at(0).data(), &second); // relative order of the rest kept
     QCOMPARE(open.at(1).data(), &third);
 }
 
+/**
+ *
+ * @brief Require a synthetic close to remove only its dialog and retain the other registered
+ * pointer.
+ *
+ */
 void TestDialogRegistry::closeRemovesEntry()
 {
     auto *reg = DialogRegistry::instance();
@@ -280,6 +396,12 @@ void TestDialogRegistry::closeRemovesEntry()
     QCOMPARE(open.first().data(), &keep);
 }
 
+/**
+ *
+ * @brief Require direct deletion of a registered dialog to prune its guarded pointer while
+ * preserving and safely raising the survivor.
+ *
+ */
 void TestDialogRegistry::destroyedDialogNeverDangles()
 {
     auto *reg = DialogRegistry::instance();
@@ -304,6 +426,12 @@ void TestDialogRegistry::destroyedDialogNeverDangles()
     reg->raiseAllInOrder();
 }
 
+/**
+ *
+ * @brief Require one openDialogsChanged signal for synthetic show and one additional signal for
+ * close.
+ *
+ */
 void TestDialogRegistry::emitsChangeSignal()
 {
     auto *reg = DialogRegistry::instance();
@@ -311,12 +439,19 @@ void TestDialogRegistry::emitsChangeSignal()
 
     QDialog dlg;
     sendShow(reg, &dlg);
-    QCOMPARE(spy.count(), 1);            // Window menu rebuilds on this
+    QCOMPARE(spy.count(), 1); // Window menu rebuilds on this
 
     sendClose(reg, &dlg);
     QCOMPARE(spy.count(), 2);
 }
 
+/**
+ *
+ * @brief Require qt/native environment values to select their matching configured modes.
+ * Temporarily overwrites OPENSWMM_DIALOG_STACKING then unsets it; an originally
+ * present environment value is not restored.
+ *
+ */
 void TestDialogRegistry::environmentOverridesStackingMode()
 {
     // The override exists so a tester can flip stacking strategies for one

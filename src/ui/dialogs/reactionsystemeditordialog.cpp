@@ -1,8 +1,12 @@
 #include <QRegularExpression>
-/*!
- * \file reactionsystemeditordialog.cpp
- * \brief Implementation of the reaction-system editor (G-B2 + G-C1 + G-D1).
- * \see include/ui/dialogs/reactionsystemeditordialog.h
+/**
+ * @file      reactionsystemeditordialog.cpp
+ * @brief     Implementation of the reaction-system editor (G-B2 + G-C1 + G-D1).
+ * @see include/ui/dialogs/reactionsystemeditordialog.h
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/reactionsystemeditordialog.h"
@@ -38,7 +42,8 @@
 namespace OpenSWMMVis
 {
 
-namespace {
+namespace
+{
 
 constexpr const char *kReactionsId = "org.hydrocouple.openswmm.reactions";
 
@@ -58,13 +63,12 @@ QString engineText(SWMM_Engine e)
 class RxnFileHighlighter : public QSyntaxHighlighter
 {
 public:
-    explicit RxnFileHighlighter(QTextDocument *doc, const QPalette &pal)
-        : QSyntaxHighlighter(doc)
+    explicit RxnFileHighlighter(QTextDocument *doc, const QPalette &pal) : QSyntaxHighlighter(doc)
     {
-        const QColor link  = pal.color(QPalette::Active, QPalette::Link);
-        const QColor lv    = pal.color(QPalette::Active, QPalette::LinkVisited);
-        const QColor ph    = pal.color(QPalette::Active, QPalette::PlaceholderText);
-        const QColor text  = pal.color(QPalette::Active, QPalette::Text);
+        const QColor link = pal.color(QPalette::Active, QPalette::Link);
+        const QColor lv = pal.color(QPalette::Active, QPalette::LinkVisited);
+        const QColor ph = pal.color(QPalette::Active, QPalette::PlaceholderText);
+        const QColor text = pal.color(QPalette::Active, QPalette::Text);
         m_fmtSection.setForeground(lv.isValid() ? lv : QColor("#6A1B9A"));
         m_fmtSection.setFontWeight(QFont::Bold);
         m_fmtKeyword.setForeground(link.isValid() ? link : QColor("#00695C"));
@@ -81,51 +85,47 @@ protected:
         const int semi = static_cast<int>(line.indexOf(QLatin1Char(';')));
         const int end = (semi >= 0) ? semi : static_cast<int>(line.size());
         if (semi >= 0)
-            setFormat(semi, static_cast<int>(line.size()) - semi,
-                      m_fmtComment);
+            setFormat(semi, static_cast<int>(line.size()) - semi, m_fmtComment);
 
         // Section header.
-        static const QRegularExpression kSection(
-            QStringLiteral("^\\s*\\[[A-Za-z0-9_]+\\]"));
+        static const QRegularExpression kSection(QStringLiteral("^\\s*\\[[A-Za-z0-9_]+\\]"));
         const auto sm = kSection.match(line.left(end));
         if (sm.hasMatch()) {
-            setFormat(static_cast<int>(sm.capturedStart(0)),
-                      static_cast<int>(sm.capturedLength(0)), m_fmtSection);
+            setFormat(static_cast<int>(sm.capturedStart(0)), static_cast<int>(sm.capturedLength(0)),
+                      m_fmtSection);
             return;
         }
 
         // Row keywords + numbers.
         static const QSet<QString> kKeywords = {
-            QStringLiteral("GLOBAL"), QStringLiteral("NODE"),
-            QStringLiteral("LINK"), QStringLiteral("BULK"),
-            QStringLiteral("WALL"), QStringLiteral("RATE"),
-            QStringLiteral("EQUIL"), QStringLiteral("FORMULA"),
-            QStringLiteral("PARAMETER"), QStringLiteral("CONSTANT"),
-            QStringLiteral("SOLVER"), QStringLiteral("COUPLING"),
+            QStringLiteral("GLOBAL"),     QStringLiteral("NODE"),
+            QStringLiteral("LINK"),       QStringLiteral("BULK"),
+            QStringLiteral("WALL"),       QStringLiteral("RATE"),
+            QStringLiteral("EQUIL"),      QStringLiteral("FORMULA"),
+            QStringLiteral("PARAMETER"),  QStringLiteral("CONSTANT"),
+            QStringLiteral("SOLVER"),     QStringLiteral("COUPLING"),
             QStringLiteral("RATE_UNITS"), QStringLiteral("AREA_UNITS"),
-            QStringLiteral("TIMESTEP"), QStringLiteral("ATOL"),
-            QStringLiteral("RTOL"), QStringLiteral("PATTERN_TIMESTEP"),
-            QStringLiteral("CONC"), QStringLiteral("MASS"),
-            QStringLiteral("SPECIES"), QStringLiteral("ALL"),
-            QStringLiteral("YES"), QStringLiteral("NO"),
+            QStringLiteral("TIMESTEP"),   QStringLiteral("ATOL"),
+            QStringLiteral("RTOL"),       QStringLiteral("PATTERN_TIMESTEP"),
+            QStringLiteral("CONC"),       QStringLiteral("MASS"),
+            QStringLiteral("SPECIES"),    QStringLiteral("ALL"),
+            QStringLiteral("YES"),        QStringLiteral("NO"),
         };
-        static const QRegularExpression kWord(
-            QStringLiteral("[A-Za-z_][A-Za-z0-9_]*"));
+        static const QRegularExpression kWord(QStringLiteral("[A-Za-z_][A-Za-z0-9_]*"));
         auto it = kWord.globalMatch(line.left(end));
         while (it.hasNext()) {
             const auto m = it.next();
             if (kKeywords.contains(m.captured(0).toUpper()))
                 setFormat(static_cast<int>(m.capturedStart(0)),
-                          static_cast<int>(m.capturedLength(0)),
-                          m_fmtKeyword);
+                          static_cast<int>(m.capturedLength(0)), m_fmtKeyword);
         }
-        static const QRegularExpression kNum(QStringLiteral(
-            "\\b[0-9]+(?:\\.[0-9]*)?(?:[eE][+-]?[0-9]+)?\\b"));
+        static const QRegularExpression kNum(
+            QStringLiteral("\\b[0-9]+(?:\\.[0-9]*)?(?:[eE][+-]?[0-9]+)?\\b"));
         auto nt = kNum.globalMatch(line.left(end));
         while (nt.hasNext()) {
             const auto m = nt.next();
-            setFormat(static_cast<int>(m.capturedStart(0)),
-                      static_cast<int>(m.capturedLength(0)), m_fmtNumber);
+            setFormat(static_cast<int>(m.capturedStart(0)), static_cast<int>(m.capturedLength(0)),
+                      m_fmtNumber);
         }
     }
 
@@ -133,8 +133,7 @@ private:
     QTextCharFormat m_fmtSection, m_fmtKeyword, m_fmtComment, m_fmtNumber;
 };
 
-QDoubleSpinBox *makeValueSpin(QWidget *parent, double lo = 0.0,
-                              double hi = 1.0e9, int decimals = 6)
+QDoubleSpinBox *makeValueSpin(QWidget *parent, double lo = 0.0, double hi = 1.0e9, int decimals = 6)
 {
     auto *s = new QDoubleSpinBox(parent);
     s->setRange(lo, hi);
@@ -144,8 +143,7 @@ QDoubleSpinBox *makeValueSpin(QWidget *parent, double lo = 0.0,
 
 } // namespace
 
-ReactionSystemEditorDialog::ReactionSystemEditorDialog(SWMM_Engine engine,
-                                                       QWidget *parent)
+ReactionSystemEditorDialog::ReactionSystemEditorDialog(SWMM_Engine engine, QWidget *parent)
     : QDialog(parent), m_engine(engine)
 {
     setWindowTitle(tr("Reaction System"));
@@ -168,7 +166,8 @@ void ReactionSystemEditorDialog::invalidateEngine()
         editor->invalidateEngine();
     for (auto *delegate : findChildren<openswmmvis::ui::ReactionExpressionDelegate *>())
         delegate->invalidateEngine();
-    for (auto *timer : findChildren<QTimer *>()) timer->stop();
+    for (auto *timer : findChildren<QTimer *>())
+        timer->stop();
     setEnabled(false);
     reject();
 }
@@ -179,19 +178,19 @@ void ReactionSystemEditorDialog::buildUi()
 
     m_tabs = new QTabWidget(this);
     m_tabs->setObjectName(QStringLiteral("rx_tabs"));
-    m_tabs->addTab(buildOptionsTab(),        tr("Options"));
-    m_tabs->addTab(buildSpeciesTab(),        tr("Species"));
-    m_tabs->addTab(buildCoefficientsTab(),   tr("Coefficients"));
-    m_tabs->addTab(buildTermsTab(),          tr("Terms"));
-    m_tabs->addTab(buildExpressionsTab(),    tr("Expressions"));
+    m_tabs->addTab(buildOptionsTab(), tr("Options"));
+    m_tabs->addTab(buildSpeciesTab(), tr("Species"));
+    m_tabs->addTab(buildCoefficientsTab(), tr("Coefficients"));
+    m_tabs->addTab(buildTermsTab(), tr("Terms"));
+    m_tabs->addTab(buildExpressionsTab(), tr("Expressions"));
     m_tabs->addTab(buildInitialQualityTab(), tr("Initial Quality"));
     m_fileTabIndex = m_tabs->addTab(buildFileTab(), tr("File"));
     const int srcIdx = m_sourcesTabIndex =
         m_tabs->addTab(buildSourcesPlaceholderTab(), tr("Sources"));
-    m_tabs->setTabToolTip(srcIdx,
-                          tr("Edit sources, patterns, parameter overrides, wall areas and output selection."));
-    connect(m_tabs, &QTabWidget::currentChanged,
-            this, &ReactionSystemEditorDialog::onTabChanged);
+    m_tabs->setTabToolTip(
+        srcIdx,
+        tr("Edit sources, patterns, parameter overrides, wall areas and output selection."));
+    connect(m_tabs, &QTabWidget::currentChanged, this, &ReactionSystemEditorDialog::onTabChanged);
     vlay->addWidget(m_tabs, 1);
 
     m_statusLabel = new QLabel(this);
@@ -202,16 +201,16 @@ void ReactionSystemEditorDialog::buildUi()
     auto *btnRow = new QHBoxLayout;
     m_saveBtn = new QPushButton(tr("&Save to File"), this);
     m_saveBtn->setObjectName(QStringLiteral("rx_saveBtn"));
-    connect(m_saveBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onSave);
+    connect(m_saveBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onSave);
     btnRow->addWidget(m_saveBtn);
     btnRow->addStretch();
     auto *closeBtn = new QPushButton(tr("&Close"), this);
     closeBtn->setObjectName(QStringLiteral("rx_closeBtn"));
     connect(closeBtn, &QPushButton::clicked, this, [this]() {
         if (m_tabs->currentIndex() == m_fileTabIndex && !applyFileTab())
-            return;                     // bad text gates the close
-        if(m_tabs->currentIndex()==m_sourcesTabIndex && !applyConfigurationTables())return;
+            return; // bad text gates the close
+        if (m_tabs->currentIndex() == m_sourcesTabIndex && !applyConfigurationTables())
+            return;
         accept();
     });
     btnRow->addWidget(closeBtn);
@@ -223,9 +222,8 @@ QWidget *ReactionSystemEditorDialog::buildOptionsTab()
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
 
-    auto addCombo = [&](const char *objName, const QString &label,
-                        const QStringList &items, const char *key)
-        -> QComboBox * {
+    auto addCombo = [&](const char *objName, const QString &label, const QStringList &items,
+                        const char *key) -> QComboBox * {
         auto *row = new QHBoxLayout;
         row->addWidget(new QLabel(label, w));
         auto *c = new QComboBox(w);
@@ -233,66 +231,64 @@ QWidget *ReactionSystemEditorDialog::buildOptionsTab()
         c->addItems(items);
         row->addWidget(c, 1);
         lay->addLayout(row);
-        connect(c, &QComboBox::currentTextChanged, this,
-                [this, key](const QString &v) {
-                    if (m_loading || !m_engine) return;
-                    if (swmm_reaction_option_set(
-                            m_engine, key, v.toUtf8().constData()) == SWMM_OK)
-                        {bumpWrites();setStatus(QString(),false);}
-                    else {
-                        setStatus(tr("Option rejected by the engine. Check the dependent reaction laws in File."),true);
-                        const bool loading=m_loading;m_loading=true;loadOptions();m_loading=loading;
-                    }
-                });
+        connect(c, &QComboBox::currentTextChanged, this, [this, key](const QString &v) {
+            if (m_loading || !m_engine)
+                return;
+            if (swmm_reaction_option_set(m_engine, key, v.toUtf8().constData()) == SWMM_OK) {
+                bumpWrites();
+                setStatus(QString(), false);
+            } else {
+                setStatus(
+                    tr("Option rejected by the engine. Check the dependent reaction laws in File."),
+                    true);
+                const bool loading = m_loading;
+                m_loading = true;
+                loadOptions();
+                m_loading = loading;
+            }
+        });
         return c;
     };
     m_solverCombo = addCombo("rx_solver", tr("Solver:"),
-                             {QStringLiteral("EUL"), QStringLiteral("RK5"),
-                              QStringLiteral("ROS2"), QStringLiteral("BDF2")},
+                             {QStringLiteral("EUL"), QStringLiteral("RK5"), QStringLiteral("ROS2"),
+                              QStringLiteral("BDF2")},
                              "SOLVER");
     m_couplingCombo = addCombo("rx_coupling", tr("Coupling:"),
-                               {QStringLiteral("NONE"),
-                                QStringLiteral("FULL")},
-                               "COUPLING");
-    m_rateUnitsCombo = addCombo("rx_rateUnits", tr("Rate units:"),
-                                {QStringLiteral("SEC"), QStringLiteral("MIN"),
-                                 QStringLiteral("HR"), QStringLiteral("DAY")},
-                                "RATE_UNITS");
-    m_areaUnitsCombo = addCombo("rx_areaUnits", tr("Area units:"),
-                                {QStringLiteral("FT2"), QStringLiteral("M2"),
-                                 QStringLiteral("CM2")},
-                                "AREA_UNITS");
+                               {QStringLiteral("NONE"), QStringLiteral("FULL")}, "COUPLING");
+    m_rateUnitsCombo = addCombo(
+        "rx_rateUnits", tr("Rate units:"),
+        {QStringLiteral("SEC"), QStringLiteral("MIN"), QStringLiteral("HR"), QStringLiteral("DAY")},
+        "RATE_UNITS");
+    m_areaUnitsCombo = addCombo(
+        "rx_areaUnits", tr("Area units:"),
+        {QStringLiteral("FT2"), QStringLiteral("M2"), QStringLiteral("CM2")}, "AREA_UNITS");
 
-    m_wallGeometryCombo=addCombo("rx_wallGeometry",tr("Use wall geometry:"),{"NO","YES"},"WALL_GEOMETRY");
+    m_wallGeometryCombo =
+        addCombo("rx_wallGeometry", tr("Use wall geometry:"), {"NO", "YES"}, "WALL_GEOMETRY");
 
-    auto addSpin = [&](const char *objName, const QString &label,
-                       const char *key, double lo, int dec)
-        -> QDoubleSpinBox * {
+    auto addSpin = [&](const char *objName, const QString &label, const char *key, double lo,
+                       int dec) -> QDoubleSpinBox * {
         auto *row = new QHBoxLayout;
         row->addWidget(new QLabel(label, w));
         auto *s = makeValueSpin(w, lo, 1.0e9, dec);
         s->setObjectName(QLatin1String(objName));
         row->addWidget(s, 1);
         lay->addLayout(row);
-        connect(s, &QDoubleSpinBox::valueChanged, this,
-                [this, key](double v) {
-                    if (m_loading || !m_engine) return;
-                    if (swmm_reaction_option_set(
-                            m_engine, key,
-                            QString::number(v, 'g', 16).toUtf8()
-                                .constData()) == SWMM_OK)
-                        bumpWrites();
-                });
+        connect(s, &QDoubleSpinBox::valueChanged, this, [this, key](double v) {
+            if (m_loading || !m_engine)
+                return;
+            if (swmm_reaction_option_set(
+                    m_engine, key, QString::number(v, 'g', 16).toUtf8().constData()) == SWMM_OK)
+                bumpWrites();
+        });
         return s;
     };
-    m_patternStepSpin=addSpin("rx_patternStep",tr("Source pattern interval (s):"),"PATTERN_TIMESTEP",.001,3);
-    m_timestepSpin = addSpin("rx_timestep",
-                             tr("Reaction step (s, 0 = quality step):"),
-                             "TIMESTEP", 0.0, 3);
-    m_atolSpin = addSpin("rx_atol", tr("Absolute tolerance:"), "ATOL",
-                         1.0e-14, 14);
-    m_rtolSpin = addSpin("rx_rtol", tr("Relative tolerance:"), "RTOL",
-                         1.0e-14, 14);
+    m_patternStepSpin =
+        addSpin("rx_patternStep", tr("Source pattern interval (s):"), "PATTERN_TIMESTEP", .001, 3);
+    m_timestepSpin =
+        addSpin("rx_timestep", tr("Reaction step (s, 0 = quality step):"), "TIMESTEP", 0.0, 3);
+    m_atolSpin = addSpin("rx_atol", tr("Absolute tolerance:"), "ATOL", 1.0e-14, 14);
+    m_rtolSpin = addSpin("rx_rtol", tr("Relative tolerance:"), "RTOL", 1.0e-14, 14);
     lay->addStretch();
     return w;
 }
@@ -331,10 +327,8 @@ QWidget *ReactionSystemEditorDialog::buildSpeciesTab()
     addRow->addWidget(addBtn);
     addRow->addWidget(remBtn);
     lay->addLayout(addRow);
-    connect(addBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onAddSpecies);
-    connect(remBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onRemoveSpecies);
+    connect(addBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onAddSpecies);
+    connect(remBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onRemoveSpecies);
     return w;
 }
 
@@ -345,8 +339,7 @@ QWidget *ReactionSystemEditorDialog::buildCoefficientsTab()
 
     m_coeffTable = new QTableWidget(0, 3, w);
     m_coeffTable->setObjectName(QStringLiteral("rx_coeffTable"));
-    m_coeffTable->setHorizontalHeaderLabels(
-        {tr("Kind"), tr("Name"), tr("Value")});
+    m_coeffTable->setHorizontalHeaderLabels({tr("Kind"), tr("Name"), tr("Value")});
     m_coeffTable->verticalHeader()->setVisible(false);
     m_coeffTable->horizontalHeader()->setStretchLastSection(false);
     m_coeffTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -372,10 +365,8 @@ QWidget *ReactionSystemEditorDialog::buildCoefficientsTab()
     addRow->addWidget(addBtn);
     addRow->addWidget(remBtn);
     lay->addLayout(addRow);
-    connect(addBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onAddCoefficient);
-    connect(remBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onRemoveCoefficient);
+    connect(addBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onAddCoefficient);
+    connect(remBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onRemoveCoefficient);
     return w;
 }
 
@@ -389,30 +380,25 @@ QWidget *ReactionSystemEditorDialog::buildTermsTab()
     m_termTable->setHorizontalHeaderLabels({tr("Name"), tr("Expression")});
     m_termTable->verticalHeader()->setVisible(false);
     m_termTable->horizontalHeader()->setStretchLastSection(false);
-    auto *del = new openswmmvis::ui::ReactionExpressionDelegate(
-        m_engine, SWMM_RXN_SCOPE_TERM, m_termTable);
+    auto *del =
+        new openswmmvis::ui::ReactionExpressionDelegate(m_engine, SWMM_RXN_SCOPE_TERM, m_termTable);
     m_termTable->setItemDelegateForColumn(1, del);
-    connect(del,
-            &openswmmvis::ui::ReactionExpressionDelegate::validationChanged,
-            this, [this](bool ok, const QString &msg, int) {
-                setStatus(ok ? QString() : msg, !ok);
-            });
-    connect(m_termTable, &QTableWidget::cellChanged, this,
-            [this](int row, int col) {
-                if (m_loading || col != 1 || !m_engine) return;
-                const QString expr =
-                    m_termTable->item(row, col)->text().trimmed();
-                if (swmm_reaction_term_set_expr(
-                        m_engine, row, expr.toUtf8().constData()) == SWMM_OK) {
-                    bumpWrites();
-                    setStatus(QString(), false);
-                } else {
-                    setStatus(tr("Expression rejected — the previous one is "
-                                 "kept."),
-                              true);
-                    loadTerms();
-                }
-            });
+    connect(del, &openswmmvis::ui::ReactionExpressionDelegate::validationChanged, this,
+            [this](bool ok, const QString &msg, int) { setStatus(ok ? QString() : msg, !ok); });
+    connect(m_termTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
+        if (m_loading || col != 1 || !m_engine)
+            return;
+        const QString expr = m_termTable->item(row, col)->text().trimmed();
+        if (swmm_reaction_term_set_expr(m_engine, row, expr.toUtf8().constData()) == SWMM_OK) {
+            bumpWrites();
+            setStatus(QString(), false);
+        } else {
+            setStatus(tr("Expression rejected — the previous one is "
+                         "kept."),
+                      true);
+            loadTerms();
+        }
+    });
     lay->addWidget(m_termTable, 1);
 
     auto *addRow = new QHBoxLayout;
@@ -427,10 +413,8 @@ QWidget *ReactionSystemEditorDialog::buildTermsTab()
     addRow->addWidget(addBtn);
     addRow->addWidget(remBtn);
     lay->addLayout(addRow);
-    connect(addBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onAddTerm);
-    connect(remBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onRemoveTerm);
+    connect(addBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onAddTerm);
+    connect(remBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onRemoveTerm);
     return w;
 }
 
@@ -438,10 +422,9 @@ QWidget *ReactionSystemEditorDialog::buildExpressionsTab()
 {
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
-    auto *hint = new QLabel(
-        tr("One row per species and scope. RATE integrates dφ/dt = expr; "
-           "EQUIL solves 0 = expr; FORMULA assigns φ = expr."),
-        w);
+    auto *hint = new QLabel(tr("One row per species and scope. RATE integrates dφ/dt = expr; "
+                               "EQUIL solves 0 = expr; FORMULA assigns φ = expr."),
+                            w);
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
@@ -451,45 +434,39 @@ QWidget *ReactionSystemEditorDialog::buildExpressionsTab()
         {tr("Species"), tr("Scope"), tr("Form"), tr("Expression")});
     m_exprTable->verticalHeader()->setVisible(false);
     m_exprTable->horizontalHeader()->setStretchLastSection(false);
-    auto *del = new openswmmvis::ui::ReactionExpressionDelegate(
-        m_engine, SWMM_RXN_SCOPE_PIPE, m_exprTable);
+    auto *del =
+        new openswmmvis::ui::ReactionExpressionDelegate(m_engine, SWMM_RXN_SCOPE_PIPE, m_exprTable);
     m_exprTable->setItemDelegateForColumn(3, del);
-    connect(del,
-            &openswmmvis::ui::ReactionExpressionDelegate::validationChanged,
-            this, [this](bool ok, const QString &msg, int) {
-                setStatus(ok ? QString() : msg, !ok);
-            });
-    connect(m_exprTable, &QTableWidget::cellChanged, this,
-            [this](int row, int col) {
-                if (m_loading || col != 3 || !m_engine) return;
-                const int species = row / 2;
-                const int scope = (row % 2 == 0) ? SWMM_RXN_SCOPE_PIPE
-                                                 : SWMM_RXN_SCOPE_TANK;
-                auto *formCombo = qobject_cast<QComboBox *>(
-                    m_exprTable->cellWidget(row, 2));
-                const QString expr =
-                    m_exprTable->item(row, col)->text().trimmed();
-                int form = formCombo ? formCombo->currentData().toInt()
-                                     : SWMM_RXN_FORM_RATE;
-                if (expr.isEmpty()) form = SWMM_RXN_FORM_NONE;
-                else if (form == SWMM_RXN_FORM_NONE)
-                    form = SWMM_RXN_FORM_RATE;
-                if (swmm_reaction_expr_set(m_engine, scope, species, form,
-                                           expr.toUtf8().constData())
-                        == SWMM_OK) {
-                    bumpWrites();
-                    setStatus(QString(), false);
-                    if (formCombo) {
-                        const int fi = formCombo->findData(form);
-                        if (fi >= 0) formCombo->setCurrentIndex(fi);
-                    }
-                } else {
-                    setStatus(tr("Expression rejected — the previous one is "
-                                 "kept."),
-                              true);
-                    loadExpressions();
-                }
-            });
+    connect(del, &openswmmvis::ui::ReactionExpressionDelegate::validationChanged, this,
+            [this](bool ok, const QString &msg, int) { setStatus(ok ? QString() : msg, !ok); });
+    connect(m_exprTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
+        if (m_loading || col != 3 || !m_engine)
+            return;
+        const int species = row / 2;
+        const int scope = (row % 2 == 0) ? SWMM_RXN_SCOPE_PIPE : SWMM_RXN_SCOPE_TANK;
+        auto *formCombo = qobject_cast<QComboBox *>(m_exprTable->cellWidget(row, 2));
+        const QString expr = m_exprTable->item(row, col)->text().trimmed();
+        int form = formCombo ? formCombo->currentData().toInt() : SWMM_RXN_FORM_RATE;
+        if (expr.isEmpty())
+            form = SWMM_RXN_FORM_NONE;
+        else if (form == SWMM_RXN_FORM_NONE)
+            form = SWMM_RXN_FORM_RATE;
+        if (swmm_reaction_expr_set(m_engine, scope, species, form, expr.toUtf8().constData()) ==
+            SWMM_OK) {
+            bumpWrites();
+            setStatus(QString(), false);
+            if (formCombo) {
+                const int fi = formCombo->findData(form);
+                if (fi >= 0)
+                    formCombo->setCurrentIndex(fi);
+            }
+        } else {
+            setStatus(tr("Expression rejected — the previous one is "
+                         "kept."),
+                      true);
+            loadExpressions();
+        }
+    });
     lay->addWidget(m_exprTable, 1);
     return w;
 }
@@ -503,19 +480,16 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     m_initGlobalTable = new QTableWidget(0, 2, w);
     m_initGlobalTable->setObjectName(QStringLiteral("rx_initGlobalTable"));
     m_initGlobalTable->setAccessibleName(tr("Global reaction initial values"));
-    m_initGlobalTable->setHorizontalHeaderLabels(
-        {tr("Species"), tr("Value")});
+    m_initGlobalTable->setHorizontalHeaderLabels({tr("Species"), tr("Value")});
     m_initGlobalTable->verticalHeader()->setVisible(false);
     m_initGlobalTable->horizontalHeader()->setStretchLastSection(false);
     m_initGlobalTable->setSelectionMode(QAbstractItemView::NoSelection);
     lay->addWidget(m_initGlobalTable);
 
-    lay->addWidget(new QLabel(
-        tr("Per-node / per-link overrides ([REACTION_QUALITY] NODE|LINK):"),
-        w));
+    lay->addWidget(
+        new QLabel(tr("Per-node / per-link overrides ([REACTION_QUALITY] NODE|LINK):"), w));
     m_initOverrideTable = new QTableWidget(0, 4, w);
-    m_initOverrideTable->setObjectName(
-        QStringLiteral("rx_initOverrideTable"));
+    m_initOverrideTable->setObjectName(QStringLiteral("rx_initOverrideTable"));
     m_initOverrideTable->setAccessibleName(tr("Reaction initial value overrides"));
     m_initOverrideTable->setHorizontalHeaderLabels(
         {tr("Scope"), tr("Element"), tr("Species"), tr("Value")});
@@ -534,10 +508,8 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     btnRow->addWidget(remBtn);
     btnRow->addStretch();
     lay->addLayout(btnRow);
-    connect(addBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onAddInitOverride);
-    connect(remBtn, &QPushButton::clicked,
-            this, &ReactionSystemEditorDialog::onRemoveInitOverride);
+    connect(addBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onAddInitOverride);
+    connect(remBtn, &QPushButton::clicked, this, &ReactionSystemEditorDialog::onRemoveInitOverride);
     return w;
 }
 
@@ -563,29 +535,27 @@ QWidget *ReactionSystemEditorDialog::buildFileTab()
     debounce->setSingleShot(true);
     debounce->setInterval(300);
     connect(debounce, &QTimer::timeout, this, [this]() {
-        if (!m_engine || m_loading) return;
+        if (!m_engine || m_loading)
+            return;
         const QString text = m_fileEdit->toPlainText();
         if (text.trimmed().isEmpty() || text == m_fileBaseline) {
             m_fileStatus->clear();
             return;
         }
         char err[512] = {};
-        if (swmm_reactions_check_text(m_engine, text.toUtf8().constData(),
-                                      err, 512) == SWMM_OK)
+        if (swmm_reactions_check_text(m_engine, text.toUtf8().constData(), err, 512) == SWMM_OK)
             m_fileStatus->setText(tr("Valid."));
         else
             m_fileStatus->setText(QString::fromUtf8(err));
     });
-    connect(m_fileEdit, &QPlainTextEdit::textChanged, this,
-            [this, debounce]() {
-                if (!m_loading) debounce->start();
-            });
+    connect(m_fileEdit, &QPlainTextEdit::textChanged, this, [this, debounce]() {
+        if (!m_loading)
+            debounce->start();
+    });
 
     auto *discardBtn = new QPushButton(tr("&Discard text edits"), w);
     discardBtn->setObjectName(QStringLiteral("rx_discardTextBtn"));
-    connect(discardBtn, &QPushButton::clicked, this, [this]() {
-        loadFileTab();
-    });
+    connect(discardBtn, &QPushButton::clicked, this, [this]() { loadFileTab(); });
     lay->addWidget(discardBtn);
     return w;
 }
@@ -594,36 +564,60 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
 {
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
-    auto *note=new QLabel(tr("MASS uses species mass units/second. CONC uses external water; FLOWPACED adds to arriving water; SETPOINT raises the mixed concentration. Patterns are cyclic; empty pattern means none. Changes apply together when leaving this tab or saving."),w);
-    note->setObjectName(QStringLiteral("rx_sourcesNote"));note->setWordWrap(true);lay->addWidget(note);
-    auto *pages=new QTabWidget(w);lay->addWidget(pages,1);
-    const QList<QPair<QString,QStringList>> specs={
-        {"REACTION_SOURCES",{tr("Type"),tr("Node"),tr("Species"),tr("Value"),tr("Pattern")}},
-        {"REACTION_PATTERNS",{tr("Name"),tr("Factors")}},
-        {"REACTION_PARAMETERS",{tr("NODE / LINK"),tr("Element"),tr("Parameter"),tr("Value")}},
-        {"REACTION_REPORT",{tr("SPECIES"),tr("Name / ALL"),tr("YES / NO")}},
-        {"REACTION_WALLS",{tr("NODE / LINK"),tr("Element"),tr("Area (AREA_UNITS)")}}
-    };
-    for(const auto& spec:specs) {
-        auto *page=new QWidget(pages);auto *box=new QVBoxLayout(page);
-        auto *table=new QTableWidget(0,spec.second.size(),page);
-        table->setObjectName("rx_"+spec.first.toLower()+"Table");table->setHorizontalHeaderLabels(spec.second);
+    auto *note = new QLabel(
+        tr("MASS uses species mass units/second. CONC uses external water; FLOWPACED adds to arriving water; SETPOINT raises the mixed concentration. Patterns are cyclic; empty pattern means none. Changes apply together when leaving this tab or saving."),
+        w);
+    note->setObjectName(QStringLiteral("rx_sourcesNote"));
+    note->setWordWrap(true);
+    lay->addWidget(note);
+    auto *pages = new QTabWidget(w);
+    lay->addWidget(pages, 1);
+    const QList<QPair<QString, QStringList>> specs = {
+        {"REACTION_SOURCES", {tr("Type"), tr("Node"), tr("Species"), tr("Value"), tr("Pattern")}},
+        {"REACTION_PATTERNS", {tr("Name"), tr("Factors")}},
+        {"REACTION_PARAMETERS", {tr("NODE / LINK"), tr("Element"), tr("Parameter"), tr("Value")}},
+        {"REACTION_REPORT", {tr("SPECIES"), tr("Name / ALL"), tr("YES / NO")}},
+        {"REACTION_WALLS", {tr("NODE / LINK"), tr("Element"), tr("Area (AREA_UNITS)")}}};
+    for (const auto &spec : specs) {
+        auto *page = new QWidget(pages);
+        auto *box = new QVBoxLayout(page);
+        auto *table = new QTableWidget(0, spec.second.size(), page);
+        table->setObjectName("rx_" + spec.first.toLower() + "Table");
+        table->setHorizontalHeaderLabels(spec.second);
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-        table->setSelectionBehavior(QAbstractItemView::SelectRows);box->addWidget(table);
-        m_configurationTables.insert(spec.first,table);
-        connect(table,&QTableWidget::itemChanged,this,[this]{if(!m_loading)m_configurationDirty=true;});
-        auto *buttons=new QHBoxLayout;auto *add=new QPushButton(tr("Add row"),page);auto *remove=new QPushButton(tr("Remove selected"),page);
-        add->setObjectName("rx_"+spec.first.toLower()+"Add");remove->setObjectName("rx_"+spec.first.toLower()+"Remove");
-        connect(add,&QPushButton::clicked,this,[this,table]{table->insertRow(table->rowCount());m_configurationDirty=true;});
-        connect(remove,&QPushButton::clicked,this,[this,table]{for(int row=table->rowCount()-1;row>=0;--row)if(table->selectionModel()->isRowSelected(row,QModelIndex())){table->removeRow(row);m_configurationDirty=true;}});
-        buttons->addWidget(add);buttons->addWidget(remove);buttons->addStretch();box->addLayout(buttons);
-        pages->addTab(page,spec.first.mid(9).toLower());
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        box->addWidget(table);
+        m_configurationTables.insert(spec.first, table);
+        connect(table, &QTableWidget::itemChanged, this, [this] {
+            if (!m_loading)
+                m_configurationDirty = true;
+        });
+        auto *buttons = new QHBoxLayout;
+        auto *add = new QPushButton(tr("Add row"), page);
+        auto *remove = new QPushButton(tr("Remove selected"), page);
+        add->setObjectName("rx_" + spec.first.toLower() + "Add");
+        remove->setObjectName("rx_" + spec.first.toLower() + "Remove");
+        connect(add, &QPushButton::clicked, this, [this, table] {
+            table->insertRow(table->rowCount());
+            m_configurationDirty = true;
+        });
+        connect(remove, &QPushButton::clicked, this, [this, table] {
+            for (int row = table->rowCount() - 1; row >= 0; --row)
+                if (table->selectionModel()->isRowSelected(row, QModelIndex())) {
+                    table->removeRow(row);
+                    m_configurationDirty = true;
+                }
+        });
+        buttons->addWidget(add);
+        buttons->addWidget(remove);
+        buttons->addStretch();
+        box->addLayout(buttons);
+        pages->addTab(page, spec.first.mid(9).toLower());
     }
     auto *edit = new QPushButton(tr("Edit configuration"), w);
     edit->setObjectName(QStringLiteral("rx_editSourcesBtn"));
-    connect(edit, &QPushButton::clicked, this, [this]() {
-        m_tabs->setCurrentIndex(m_fileTabIndex);
-    });
+    connect(edit, &QPushButton::clicked, this,
+            [this]() { m_tabs->setCurrentIndex(m_fileTabIndex); });
     lay->addWidget(edit);
     return w;
 }
@@ -635,14 +629,14 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
 QStringList ReactionSystemEditorDialog::speciesNames() const
 {
     QStringList out;
-    if (!m_engine) return out;
+    if (!m_engine)
+        return out;
     const int n = swmm_reaction_species_count(m_engine);
     for (int i = 0; i < n; ++i) {
         char name[128], units[32];
         int wall = 0;
         double a = 0, r = 0;
-        if (swmm_reaction_species_get(m_engine, i, name, 128, &wall, units,
-                                      32, &a, &r) == SWMM_OK)
+        if (swmm_reaction_species_get(m_engine, i, name, 128, &wall, units, 32, &a, &r) == SWMM_OK)
             out << QString::fromUtf8(name);
     }
     return out;
@@ -664,121 +658,116 @@ void ReactionSystemEditorDialog::reloadAll()
 
 void ReactionSystemEditorDialog::loadOptions()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     char v[64];
     auto setCombo = [&](QComboBox *c, const char *key) {
         if (swmm_reaction_option_get(m_engine, key, v, 64) == SWMM_OK) {
             const int i = c->findText(QString::fromUtf8(v));
-            if (i >= 0) c->setCurrentIndex(i);
+            if (i >= 0)
+                c->setCurrentIndex(i);
         }
     };
     setCombo(m_solverCombo, "SOLVER");
     setCombo(m_couplingCombo, "COUPLING");
     setCombo(m_rateUnitsCombo, "RATE_UNITS");
     setCombo(m_areaUnitsCombo, "AREA_UNITS");
-    setCombo(m_wallGeometryCombo,"WALL_GEOMETRY");
+    setCombo(m_wallGeometryCombo, "WALL_GEOMETRY");
     auto setSpin = [&](QDoubleSpinBox *s, const char *key) {
         if (swmm_reaction_option_get(m_engine, key, v, 64) == SWMM_OK)
             s->setValue(QString::fromUtf8(v).toDouble());
     };
     setSpin(m_timestepSpin, "TIMESTEP");
-    setSpin(m_patternStepSpin,"PATTERN_TIMESTEP");
+    setSpin(m_patternStepSpin, "PATTERN_TIMESTEP");
     setSpin(m_atolSpin, "ATOL");
     setSpin(m_rtolSpin, "RTOL");
 }
 
 void ReactionSystemEditorDialog::loadSpecies()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int n = swmm_reaction_species_count(m_engine);
     m_speciesTable->setRowCount(0);
     for (int i = 0; i < n; ++i) {
         char name[128], units[32];
         int wall = 0;
         double a = 0, r = 0;
-        if (swmm_reaction_species_get(m_engine, i, name, 128, &wall, units,
-                                      32, &a, &r) != SWMM_OK)
+        if (swmm_reaction_species_get(m_engine, i, name, 128, &wall, units, 32, &a, &r) != SWMM_OK)
             continue;
         const int row = m_speciesTable->rowCount();
         m_speciesTable->insertRow(row);
-        m_speciesTable->setItem(row, 0, new QTableWidgetItem(
-            wall ? QStringLiteral("WALL") : QStringLiteral("BULK")));
-        m_speciesTable->setItem(row, 1,
-                                new QTableWidgetItem(QString::fromUtf8(name)));
-        m_speciesTable->setItem(row, 2, new QTableWidgetItem(
-                                            QString::fromUtf8(units)));
-        m_speciesTable->setItem(row, 3,
-                                new QTableWidgetItem(QString::number(a)));
-        m_speciesTable->setItem(row, 4,
-                                new QTableWidgetItem(QString::number(r)));
+        m_speciesTable->setItem(
+            row, 0, new QTableWidgetItem(wall ? QStringLiteral("WALL") : QStringLiteral("BULK")));
+        m_speciesTable->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(name)));
+        m_speciesTable->setItem(row, 2, new QTableWidgetItem(QString::fromUtf8(units)));
+        m_speciesTable->setItem(row, 3, new QTableWidgetItem(QString::number(a)));
+        m_speciesTable->setItem(row, 4, new QTableWidgetItem(QString::number(r)));
     }
 }
 
 void ReactionSystemEditorDialog::loadCoefficients()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int n = swmm_reaction_coeff_count(m_engine);
     m_coeffTable->setRowCount(0);
     for (int i = 0; i < n; ++i) {
         char name[128];
         int is_param = 0;
         double v = 0;
-        if (swmm_reaction_coeff_get(m_engine, i, name, 128, &is_param, &v)
-                != SWMM_OK)
+        if (swmm_reaction_coeff_get(m_engine, i, name, 128, &is_param, &v) != SWMM_OK)
             continue;
         const int row = m_coeffTable->rowCount();
         m_coeffTable->insertRow(row);
-        m_coeffTable->setItem(row, 0, new QTableWidgetItem(
-            is_param ? QStringLiteral("PARAMETER")
-                     : QStringLiteral("CONSTANT")));
-        m_coeffTable->setItem(row, 1,
-                              new QTableWidgetItem(QString::fromUtf8(name)));
+        m_coeffTable->setItem(row, 0,
+                              new QTableWidgetItem(is_param ? QStringLiteral("PARAMETER")
+                                                            : QStringLiteral("CONSTANT")));
+        m_coeffTable->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(name)));
         auto *spin = makeValueSpin(m_coeffTable, -1.0e9, 1.0e9, 8);
         spin->setObjectName(QStringLiteral("rx_coeffValue_%1").arg(i));
         spin->setValue(v);
-        connect(spin, &QDoubleSpinBox::valueChanged, this,
-                [this, i](double nv) {
-                    if (m_loading || !m_engine) return;
-                    if (swmm_reaction_coeff_set_value(m_engine, i, nv)
-                            == SWMM_OK)
-                        bumpWrites();
-                });
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, i](double nv) {
+            if (m_loading || !m_engine)
+                return;
+            if (swmm_reaction_coeff_set_value(m_engine, i, nv) == SWMM_OK)
+                bumpWrites();
+        });
         m_coeffTable->setCellWidget(row, 2, spin);
     }
 }
 
 void ReactionSystemEditorDialog::loadTerms()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     m_loading = true;
     const int n = swmm_reaction_term_count(m_engine);
     m_termTable->setRowCount(0);
     for (int i = 0; i < n; ++i) {
         char name[128], expr[512];
-        if (swmm_reaction_term_get(m_engine, i, name, 128, expr, 512)
-                != SWMM_OK)
+        if (swmm_reaction_term_get(m_engine, i, name, 128, expr, 512) != SWMM_OK)
             continue;
         const int row = m_termTable->rowCount();
         m_termTable->insertRow(row);
         auto *nameItem = new QTableWidgetItem(QString::fromUtf8(name));
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_termTable->setItem(row, 0, nameItem);
-        m_termTable->setItem(row, 1,
-                             new QTableWidgetItem(QString::fromUtf8(expr)));
+        m_termTable->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(expr)));
     }
     m_loading = false;
 }
 
 void ReactionSystemEditorDialog::loadExpressions()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     m_loading = true;
     const QStringList names = speciesNames();
     m_exprTable->setRowCount(0);
     for (int s = 0; s < names.size(); ++s) {
         for (int half = 0; half < 2; ++half) {
-            const int scope = (half == 0) ? SWMM_RXN_SCOPE_PIPE
-                                          : SWMM_RXN_SCOPE_TANK;
+            const int scope = (half == 0) ? SWMM_RXN_SCOPE_PIPE : SWMM_RXN_SCOPE_TANK;
             int form = SWMM_RXN_FORM_NONE;
             char expr[512] = {};
             swmm_reaction_expr_get(m_engine, scope, s, &form, expr, 512);
@@ -788,36 +777,32 @@ void ReactionSystemEditorDialog::loadExpressions()
             auto *spItem = new QTableWidgetItem(names[s]);
             spItem->setFlags(spItem->flags() & ~Qt::ItemIsEditable);
             m_exprTable->setItem(row, 0, spItem);
-            auto *scItem = new QTableWidgetItem(
-                half == 0 ? tr("Pipes") : tr("Tanks"));
+            auto *scItem = new QTableWidgetItem(half == 0 ? tr("Pipes") : tr("Tanks"));
             scItem->setFlags(scItem->flags() & ~Qt::ItemIsEditable);
             m_exprTable->setItem(row, 1, scItem);
 
             auto *formCombo = new QComboBox(m_exprTable);
-            formCombo->setObjectName(
-                QStringLiteral("rx_form_%1_%2").arg(s).arg(half));
+            formCombo->setObjectName(QStringLiteral("rx_form_%1_%2").arg(s).arg(half));
             formCombo->addItem(tr("None"), SWMM_RXN_FORM_NONE);
             formCombo->addItem(QStringLiteral("RATE"), SWMM_RXN_FORM_RATE);
             formCombo->addItem(QStringLiteral("EQUIL"), SWMM_RXN_FORM_EQUIL);
-            formCombo->addItem(QStringLiteral("FORMULA"),
-                               SWMM_RXN_FORM_FORMULA);
+            formCombo->addItem(QStringLiteral("FORMULA"), SWMM_RXN_FORM_FORMULA);
             const int fi = formCombo->findData(form);
-            if (fi >= 0) formCombo->setCurrentIndex(fi);
+            if (fi >= 0)
+                formCombo->setCurrentIndex(fi);
             connect(formCombo, &QComboBox::currentIndexChanged, this,
                     [this, s, scope, formCombo, row]() {
-                        if (m_loading || !m_engine) return;
+                        if (m_loading || !m_engine)
+                            return;
                         const int nf = formCombo->currentData().toInt();
                         auto *cell = m_exprTable->item(row, 3);
-                        const QString expr = cell ? cell->text().trimmed()
-                                                  : QString();
-                        const int rc = swmm_reaction_expr_set(
-                            m_engine, scope, s, nf,
-                            expr.toUtf8().constData());
+                        const QString expr = cell ? cell->text().trimmed() : QString();
+                        const int rc = swmm_reaction_expr_set(m_engine, scope, s, nf,
+                                                              expr.toUtf8().constData());
                         if (rc == SWMM_OK) {
                             bumpWrites();
                             setStatus(QString(), false);
-                        } else if (nf != SWMM_RXN_FORM_NONE
-                                   && expr.isEmpty()) {
+                        } else if (nf != SWMM_RXN_FORM_NONE && expr.isEmpty()) {
                             setStatus(tr("Enter an expression for the new "
                                          "form."),
                                       true);
@@ -829,9 +814,7 @@ void ReactionSystemEditorDialog::loadExpressions()
             m_exprTable->setCellWidget(row, 2, formCombo);
 
             auto *exprItem = new QTableWidgetItem(QString::fromUtf8(expr));
-            exprItem->setData(
-                openswmmvis::ui::ReactionExpressionDelegate::ScopeRole,
-                scope);
+            exprItem->setData(openswmmvis::ui::ReactionExpressionDelegate::ScopeRole, scope);
             m_exprTable->setItem(row, 3, exprItem);
         }
     }
@@ -840,7 +823,8 @@ void ReactionSystemEditorDialog::loadExpressions()
 
 void ReactionSystemEditorDialog::loadInitialQuality()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     m_loading = true;
     const QStringList names = speciesNames();
 
@@ -856,13 +840,12 @@ void ReactionSystemEditorDialog::loadInitialQuality()
         double v = 0;
         swmm_reaction_init_global_get(m_engine, s, &v);
         spin->setValue(v);
-        connect(spin, &QDoubleSpinBox::valueChanged, this,
-                [this, s](double nv) {
-                    if (m_loading || !m_engine) return;
-                    if (swmm_reaction_init_global_set(m_engine, s, nv)
-                            == SWMM_OK)
-                        bumpWrites();
-                });
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, s](double nv) {
+            if (m_loading || !m_engine)
+                return;
+            if (swmm_reaction_init_global_set(m_engine, s, nv) == SWMM_OK)
+                bumpWrites();
+        });
         m_initGlobalTable->setCellWidget(row, 1, spin);
     }
 
@@ -871,29 +854,27 @@ void ReactionSystemEditorDialog::loadInitialQuality()
     for (int i = 0; i < n; ++i) {
         int is_link = 0, elem = -1, sp = -1;
         double v = 0;
-        if (swmm_reaction_init_elem_get(m_engine, i, &is_link, &elem, &sp,
-                                        &v) != SWMM_OK)
+        if (swmm_reaction_init_elem_get(m_engine, i, &is_link, &elem, &sp, &v) != SWMM_OK)
             continue;
-        onAddInitOverride();                      // builds the row widgets
+        onAddInitOverride(); // builds the row widgets
         const int row = m_initOverrideTable->rowCount() - 1;
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_initOverrideTable->cellWidget(row, 0))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 0))) {
             const int idx = c->findData(is_link);
-            if (idx >= 0) c->setCurrentIndex(idx);
+            if (idx >= 0)
+                c->setCurrentIndex(idx);
         }
         // Repopulate the element combo for the (possibly changed) scope.
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_initOverrideTable->cellWidget(row, 1))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 1))) {
             const int idx = c->findData(elem);
-            if (idx >= 0) c->setCurrentIndex(idx);
+            if (idx >= 0)
+                c->setCurrentIndex(idx);
         }
-        if (auto *c = qobject_cast<QComboBox *>(
-                m_initOverrideTable->cellWidget(row, 2))) {
+        if (auto *c = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 2))) {
             const int idx = c->findData(sp);
-            if (idx >= 0) c->setCurrentIndex(idx);
+            if (idx >= 0)
+                c->setCurrentIndex(idx);
         }
-        if (auto *sBox = qobject_cast<QDoubleSpinBox *>(
-                m_initOverrideTable->cellWidget(row, 3))) {
+        if (auto *sBox = qobject_cast<QDoubleSpinBox *>(m_initOverrideTable->cellWidget(row, 3))) {
             OpenSWMM::Ui::setHydratedValue(sBox, v);
             sBox->setProperty("committedInitialKey", QVariantList{is_link, elem, sp});
         }
@@ -903,7 +884,8 @@ void ReactionSystemEditorDialog::loadInitialQuality()
 
 void ReactionSystemEditorDialog::loadFileTab()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const bool was = m_loading;
     m_loading = true;
     m_fileBaseline = engineText(m_engine);
@@ -918,19 +900,21 @@ void ReactionSystemEditorDialog::loadFileTab()
 
 void ReactionSystemEditorDialog::onAddSpecies()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const QString name = m_newSpeciesName->text().trimmed();
     if (name.isEmpty()) {
         setStatus(tr("Enter a species name."), true);
         return;
     }
     const int rc = swmm_reaction_species_add(
-        m_engine, name.toUtf8().constData(),
-        m_newSpeciesKind->currentData().toInt(),
+        m_engine, name.toUtf8().constData(), m_newSpeciesKind->currentData().toInt(),
         m_newSpeciesUnits->text().trimmed().toUtf8().constData(), 0.0, 0.0);
     if (rc != SWMM_OK) {
         setStatus(tr("Species '%1' was refused (duplicate or invalid "
-                     "name).").arg(name), true);
+                     "name).")
+                      .arg(name),
+                  true);
         return;
     }
     bumpWrites();
@@ -941,9 +925,11 @@ void ReactionSystemEditorDialog::onAddSpecies()
 
 void ReactionSystemEditorDialog::onRemoveSpecies()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int row = m_speciesTable->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
     const int rc = swmm_reaction_species_remove(m_engine, row);
     if (rc != SWMM_OK) {
         setStatus(tr("Species removal refused — an expression still "
@@ -958,7 +944,8 @@ void ReactionSystemEditorDialog::onRemoveSpecies()
 
 void ReactionSystemEditorDialog::onAddCoefficient()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const QString name = m_newCoeffName->text().trimmed();
     if (name.isEmpty()) {
         setStatus(tr("Enter a coefficient name."), true);
@@ -967,9 +954,7 @@ void ReactionSystemEditorDialog::onAddCoefficient()
     if (swmm_reaction_coeff_add(m_engine, name.toUtf8().constData(),
                                 m_newCoeffKind->currentData().toInt(),
                                 m_newCoeffValue->value()) != SWMM_OK) {
-        setStatus(tr("Coefficient '%1' was refused (duplicate name).")
-                      .arg(name),
-                  true);
+        setStatus(tr("Coefficient '%1' was refused (duplicate name).").arg(name), true);
         return;
     }
     bumpWrites();
@@ -980,9 +965,11 @@ void ReactionSystemEditorDialog::onAddCoefficient()
 
 void ReactionSystemEditorDialog::onRemoveCoefficient()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int row = m_coeffTable->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
     if (swmm_reaction_coeff_remove(m_engine, row) != SWMM_OK) {
         setStatus(tr("Coefficient removal refused — an expression still "
                      "references it."),
@@ -996,16 +983,15 @@ void ReactionSystemEditorDialog::onRemoveCoefficient()
 
 void ReactionSystemEditorDialog::onAddTerm()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const QString name = m_newTermName->text().trimmed();
     if (name.isEmpty()) {
         setStatus(tr("Enter a term name."), true);
         return;
     }
-    if (swmm_reaction_term_add(m_engine, name.toUtf8().constData(), "0")
-            != SWMM_OK) {
-        setStatus(tr("Term '%1' was refused (duplicate name).").arg(name),
-                  true);
+    if (swmm_reaction_term_add(m_engine, name.toUtf8().constData(), "0") != SWMM_OK) {
+        setStatus(tr("Term '%1' was refused (duplicate name).").arg(name), true);
         return;
     }
     bumpWrites();
@@ -1016,9 +1002,11 @@ void ReactionSystemEditorDialog::onAddTerm()
 
 void ReactionSystemEditorDialog::onRemoveTerm()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int row = m_termTable->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
     if (swmm_reaction_term_remove(m_engine, row) != SWMM_OK) {
         setStatus(tr("Term removal refused — an expression still references "
                      "it."),
@@ -1032,7 +1020,8 @@ void ReactionSystemEditorDialog::onRemoveTerm()
 
 void ReactionSystemEditorDialog::onAddInitOverride()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int row = m_initOverrideTable->rowCount();
     m_initOverrideTable->insertRow(row);
 
@@ -1047,29 +1036,28 @@ void ReactionSystemEditorDialog::onAddInitOverride()
         const QSignalBlocker blocker(elemCombo);
         const bool link = scopeCombo->currentData().toInt() == 1;
         elemCombo->clear();
-        const int n = link ? swmm_link_count(m_engine)
-                           : swmm_node_count(m_engine);
+        const int n = link ? swmm_link_count(m_engine) : swmm_node_count(m_engine);
         for (int i = 0; i < n; ++i) {
-            const char *id = link ? swmm_link_id(m_engine, i)
-                                  : swmm_node_id(m_engine, i);
-            elemCombo->addItem(id ? QString::fromUtf8(id)
-                                  : QStringLiteral("#%1").arg(i), i);
+            const char *id = link ? swmm_link_id(m_engine, i) : swmm_node_id(m_engine, i);
+            elemCombo->addItem(id ? QString::fromUtf8(id) : QStringLiteral("#%1").arg(i), i);
         }
     };
     populateElems();
 
-
     auto *spCombo = new QComboBox(m_initOverrideTable);
     const QStringList names = speciesNames();
-    for (int s = 0; s < names.size(); ++s) spCombo->addItem(names[s], s);
+    for (int s = 0; s < names.size(); ++s)
+        spCombo->addItem(names[s], s);
     m_initOverrideTable->setCellWidget(row, 2, spCombo);
 
     auto *spin = makeValueSpin(m_initOverrideTable);
     m_initOverrideTable->setCellWidget(row, 3, spin);
     connect(spin, &QDoubleSpinBox::valueChanged, this,
             [this, spin]() { commitInitialOverride(spin); });
-    connect(scopeCombo, &QComboBox::currentIndexChanged, this,
-            [this, spin, populateElems]() { populateElems(); commitInitialOverride(spin); });
+    connect(scopeCombo, &QComboBox::currentIndexChanged, this, [this, spin, populateElems]() {
+        populateElems();
+        commitInitialOverride(spin);
+    });
     connect(elemCombo, &QComboBox::currentIndexChanged, this,
             [this, spin]() { commitInitialOverride(spin); });
     connect(spCombo, &QComboBox::currentIndexChanged, this,
@@ -1082,22 +1070,31 @@ void ReactionSystemEditorDialog::refreshInitialOverrideAccessibility()
     for (int row = 0; row < m_initOverrideTable->rowCount(); ++row) {
         for (int col = 0; col < m_initOverrideTable->columnCount(); ++col) {
             auto *editor = m_initOverrideTable->cellWidget(row, col);
-            if (!editor) continue;
-            const QString label = tr("Override row %1, %2").arg(row + 1)
-                .arg(m_initOverrideTable->horizontalHeaderItem(col)->text());
+            if (!editor)
+                continue;
+            const QString label = tr("Override row %1, %2")
+                                      .arg(row + 1)
+                                      .arg(m_initOverrideTable->horizontalHeaderItem(col)->text());
             editor->setAccessibleName(label);
-            editor->setAccessibleDescription(tr("%1. Each element and species combination must be unique. Changes apply immediately.").arg(label));
+            editor->setAccessibleDescription(
+                tr("%1. Each element and species combination must be unique. Changes apply immediately.")
+                    .arg(label));
         }
     }
 }
 
 void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
 {
-    if (m_loading || !m_engine) return;
+    if (m_loading || !m_engine)
+        return;
     int row = -1;
     for (int i = 0; i < m_initOverrideTable->rowCount(); ++i)
-        if (m_initOverrideTable->cellWidget(i, 3) == spin) { row = i; break; }
-    if (row < 0) return;
+        if (m_initOverrideTable->cellWidget(i, 3) == spin) {
+            row = i;
+            break;
+        }
+    if (row < 0)
+        return;
     auto *scope = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 0));
     auto *element = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 1));
     auto *species = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(row, 2));
@@ -1106,30 +1103,37 @@ void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
         field->setAccessibleDescription(tr("%1. %2").arg(field->accessibleName(), message));
         field->setFocus(Qt::OtherFocusReason);
     };
-    if (!scope || !element || !species || scope->currentIndex() < 0 || element->currentIndex() < 0 || species->currentIndex() < 0) {
+    if (!scope || !element || !species || scope->currentIndex() < 0 ||
+        element->currentIndex() < 0 || species->currentIndex() < 0) {
         refuse(spin, tr("Select a scope, element and species before saving the value."));
         return;
     }
-    const QVariantList key{scope->currentData().toInt(), element->currentData().toInt(), species->currentData().toInt()};
+    const QVariantList key{scope->currentData().toInt(), element->currentData().toInt(),
+                           species->currentData().toInt()};
     for (int i = 0; i < m_initOverrideTable->rowCount(); ++i) {
-        if (i == row) continue;
+        if (i == row)
+            continue;
         auto *sc = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 0));
         auto *ec = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 1));
         auto *pc = qobject_cast<QComboBox *>(m_initOverrideTable->cellWidget(i, 2));
-        if (sc && ec && pc && sc->currentIndex() >= 0 && ec->currentIndex() >= 0 && pc->currentIndex() >= 0
-            && QVariantList{sc->currentData(), ec->currentData(), pc->currentData()} == key) {
+        if (sc && ec && pc && sc->currentIndex() >= 0 && ec->currentIndex() >= 0 &&
+            pc->currentIndex() >= 0 &&
+            QVariantList{sc->currentData(), ec->currentData(), pc->currentData()} == key) {
             refuse(element, tr("This element and species already appear in row %1.").arg(i + 1));
             return;
         }
     }
     auto findKey = [this](const QVariantList &wanted, double *value) {
-        if (wanted.size() != 3) return -1;
+        if (wanted.size() != 3)
+            return -1;
         for (int i = 0; i < swmm_reaction_init_elem_count(m_engine); ++i) {
             int scope = -1, element = -1, species = -1;
             double current = 0;
-            if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &current) == SWMM_OK
-                && QVariantList{scope, element, species} == wanted) {
-                if (value) *value = current;
+            if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &current) ==
+                    SWMM_OK &&
+                QVariantList{scope, element, species} == wanted) {
+                if (value)
+                    *value = current;
                 return i;
             }
         }
@@ -1139,14 +1143,19 @@ void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
     double existing = 0;
     const int target = findKey(key, &existing);
     if (target >= 0 && oldKey != key) {
-        refuse(element, tr("This element and species already have a saved override. Reopen the dialog to review it."));
+        refuse(
+            element,
+            tr("This element and species already have a saved override. Reopen the dialog to review it."));
         return;
     }
     const double desired = OpenSWMM::Ui::preciseValue(spin);
     if (target < 0 || existing != desired) {
-        const int status = swmm_reaction_init_elem_set(m_engine, key[0].toInt(), key[1].toInt(), key[2].toInt(), desired);
+        const int status = swmm_reaction_init_elem_set(m_engine, key[0].toInt(), key[1].toInt(),
+                                                       key[2].toInt(), desired);
         if (status != SWMM_OK) {
-            refuse(spin, tr("The engine refused this value (error %1); the draft is retained.").arg(status));
+            refuse(
+                spin,
+                tr("The engine refused this value (error %1); the draft is retained.").arg(status));
             return;
         }
         bumpWrites();
@@ -1158,7 +1167,10 @@ void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
         if (previous >= 0) {
             const int status = swmm_reaction_init_elem_remove(m_engine, previous);
             if (status != SWMM_OK) {
-                refuse(element, tr("The new value was saved but the previous override could not be removed (error %1). Reopen the dialog to review both entries.").arg(status));
+                refuse(
+                    element,
+                    tr("The new value was saved but the previous override could not be removed (error %1). Reopen the dialog to review both entries.")
+                        .arg(status));
                 return;
             }
             bumpWrites();
@@ -1171,19 +1183,23 @@ void ReactionSystemEditorDialog::commitInitialOverride(QDoubleSpinBox *spin)
 
 void ReactionSystemEditorDialog::onRemoveInitOverride()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int row = m_initOverrideTable->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
     auto *spin = qobject_cast<QDoubleSpinBox *>(m_initOverrideTable->cellWidget(row, 3));
     const QVariantList key = spin ? spin->property("committedInitialKey").toList() : QVariantList{};
     for (int i = 0; key.size() == 3 && i < swmm_reaction_init_elem_count(m_engine); ++i) {
         int scope = -1, element = -1, species = -1;
         double value = 0;
-        if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &value) != SWMM_OK) {
+        if (swmm_reaction_init_elem_get(m_engine, i, &scope, &element, &species, &value) !=
+            SWMM_OK) {
             setStatus(tr("Could not read the saved override. The row has been retained."), true);
             return;
         }
-        if (QVariantList{scope, element, species} != key) continue;
+        if (QVariantList{scope, element, species} != key)
+            continue;
         if (swmm_reaction_init_elem_remove(m_engine, i) != SWMM_OK) {
             setStatus(tr("Could not remove the saved override. The row has been retained."), true);
             return;
@@ -1202,21 +1218,30 @@ void ReactionSystemEditorDialog::onRemoveInitOverride()
 
 void ReactionSystemEditorDialog::onTabChanged(int index)
 {
-    if (m_loading) { m_lastTabIndex = index; return; }
-    if(m_gatingBack)return;
-    if(m_lastTabIndex==m_sourcesTabIndex && index!=m_sourcesTabIndex) {
-        if(!applyConfigurationTables()) {
-            m_gatingBack=true;m_tabs->setCurrentIndex(m_sourcesTabIndex);m_gatingBack=false;return;
+    if (m_loading) {
+        m_lastTabIndex = index;
+        return;
+    }
+    if (m_gatingBack)
+        return;
+    if (m_lastTabIndex == m_sourcesTabIndex && index != m_sourcesTabIndex) {
+        if (!applyConfigurationTables()) {
+            m_gatingBack = true;
+            m_tabs->setCurrentIndex(m_sourcesTabIndex);
+            m_gatingBack = false;
+            return;
         }
         reloadAll();
     }
-    if(index==m_sourcesTabIndex && m_lastTabIndex!=m_fileTabIndex)loadConfigurationTables();
+    if (index == m_sourcesTabIndex && m_lastTabIndex != m_fileTabIndex)
+        loadConfigurationTables();
     if (index == m_fileTabIndex) {
         // Entering: regenerate from engine state so structured edits are
         // always visible (D-GC1) — unless we are bouncing back from a
         // failed apply, where reloading would destroy the user's text
         // and the diagnostic they need to fix it.
-        if (!m_gatingBack) loadFileTab();
+        if (!m_gatingBack)
+            loadFileTab();
     } else if (m_lastTabIndex == m_fileTabIndex) {
         // Leaving: apply edits; failure gates the switch.
         if (!applyFileTab()) {
@@ -1233,57 +1258,84 @@ void ReactionSystemEditorDialog::onTabChanged(int index)
 
 void ReactionSystemEditorDialog::loadConfigurationTables()
 {
-    const bool loading=m_loading;m_loading=true;
-    for(auto *table:m_configurationTables)table->setRowCount(0);
+    const bool loading = m_loading;
+    m_loading = true;
+    for (auto *table : m_configurationTables)
+        table->setRowCount(0);
     QString section;
-    for(QString line:engineText(m_engine).split('\n')) {
-        line=line.section(';',0,0).trimmed();
-        if(line.startsWith('[')){section=line.mid(1,line.size()-2).toUpper();continue;}
-        auto *table=m_configurationTables.value(section,nullptr);
-        if(!table||line.isEmpty())continue;
-        auto fields=line.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
-        if(section=="REACTION_PATTERNS"&&fields.size()>1)fields={fields[0],fields.mid(1).join(' ')};
-        const int row=table->rowCount();table->insertRow(row);
-        for(int col=0;col<table->columnCount();++col)table->setItem(row,col,new QTableWidgetItem(fields.value(col)));
+    for (QString line : engineText(m_engine).split('\n')) {
+        line = line.section(';', 0, 0).trimmed();
+        if (line.startsWith('[')) {
+            section = line.mid(1, line.size() - 2).toUpper();
+            continue;
+        }
+        auto *table = m_configurationTables.value(section, nullptr);
+        if (!table || line.isEmpty())
+            continue;
+        auto fields = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (section == "REACTION_PATTERNS" && fields.size() > 1)
+            fields = {fields[0], fields.mid(1).join(' ')};
+        const int row = table->rowCount();
+        table->insertRow(row);
+        for (int col = 0; col < table->columnCount(); ++col)
+            table->setItem(row, col, new QTableWidgetItem(fields.value(col)));
     }
-    m_configurationDirty=false;m_loading=loading;
+    m_configurationDirty = false;
+    m_loading = loading;
 }
 
 bool ReactionSystemEditorDialog::applyConfigurationTables()
 {
-    if(!m_engine||!m_configurationDirty)return true;
-    QString result,section;
-    for(const QString& line:engineText(m_engine).split('\n')) {
-        const auto trimmed=line.trimmed();
-        if(trimmed.startsWith('['))section=trimmed.mid(1,trimmed.size()-2).toUpper();
-        if(!m_configurationTables.contains(section))result+=line+'\n';
+    if (!m_engine || !m_configurationDirty)
+        return true;
+    QString result, section;
+    for (const QString &line : engineText(m_engine).split('\n')) {
+        const auto trimmed = line.trimmed();
+        if (trimmed.startsWith('['))
+            section = trimmed.mid(1, trimmed.size() - 2).toUpper();
+        if (!m_configurationTables.contains(section))
+            result += line + '\n';
     }
-    for(auto it=m_configurationTables.cbegin();it!=m_configurationTables.cend();++it) {
-        result+="\n["+it.key()+"]\n";auto *table=it.value();
-        for(int row=0;row<table->rowCount();++row) {
-            QStringList fields;bool any=false;
-            for(int col=0;col<table->columnCount();++col) {
-                const auto *item=table->item(row,col);auto value=item?item->text().trimmed():QString();any|=!value.isEmpty();
+    for (auto it = m_configurationTables.cbegin(); it != m_configurationTables.cend(); ++it) {
+        result += "\n[" + it.key() + "]\n";
+        auto *table = it.value();
+        for (int row = 0; row < table->rowCount(); ++row) {
+            QStringList fields;
+            bool any = false;
+            for (int col = 0; col < table->columnCount(); ++col) {
+                const auto *item = table->item(row, col);
+                auto value = item ? item->text().trimmed() : QString();
+                any |= !value.isEmpty();
                 // Keep required empty cells visible to validation rather than shifting columns.
-                if(value.isEmpty()&&col<table->columnCount()-1)value="*";
-                fields<<value;
+                if (value.isEmpty() && col < table->columnCount() - 1)
+                    value = "*";
+                fields << value;
             }
-            if(any)result+=fields.join(' ').trimmed()+'\n';
+            if (any)
+                result += fields.join(' ').trimmed() + '\n';
         }
     }
-    char error[1024]={};
-    if(swmm_reactions_apply_text(m_engine,result.toUtf8().constData(),error,sizeof(error))!=SWMM_OK){setStatus(QString::fromUtf8(error),true);return false;}
-    bumpWrites();m_configurationDirty=false;setStatus(QString(),false);return true;
+    char error[1024] = {};
+    if (swmm_reactions_apply_text(m_engine, result.toUtf8().constData(), error, sizeof(error)) !=
+        SWMM_OK) {
+        setStatus(QString::fromUtf8(error), true);
+        return false;
+    }
+    bumpWrites();
+    m_configurationDirty = false;
+    setStatus(QString(), false);
+    return true;
 }
 
 bool ReactionSystemEditorDialog::applyFileTab()
 {
-    if (!m_engine || !m_fileEdit) return true;
+    if (!m_engine || !m_fileEdit)
+        return true;
     const QString text = m_fileEdit->toPlainText();
-    if (text == m_fileBaseline) return true;      // untouched: zero calls
+    if (text == m_fileBaseline)
+        return true; // untouched: zero calls
     char err[512] = {};
-    if (swmm_reactions_apply_text(m_engine, text.toUtf8().constData(), err,
-                                  512) != SWMM_OK) {
+    if (swmm_reactions_apply_text(m_engine, text.toUtf8().constData(), err, 512) != SWMM_OK) {
         m_fileStatus->setText(QString::fromUtf8(err));
         setStatus(QString::fromUtf8(err), true);
         return false;
@@ -1296,20 +1348,23 @@ bool ReactionSystemEditorDialog::applyFileTab()
 
 void ReactionSystemEditorDialog::onSave()
 {
-    if (!m_engine) return;
-    if (m_tabs->currentIndex() == m_fileTabIndex && !applyFileTab()) return;
-    if (m_tabs->currentIndex() == m_sourcesTabIndex && !applyConfigurationTables()) return;
+    if (!m_engine)
+        return;
+    if (m_tabs->currentIndex() == m_fileTabIndex && !applyFileTab())
+        return;
+    if (m_tabs->currentIndex() == m_sourcesTabIndex && !applyConfigurationTables())
+        return;
 
     if (swmm_process_component_find(m_engine, kReactionsId) < 0) {
         // G-D1: one-step "create component + config file".
-        const auto rc = QMessageBox::question(
-            this, tr("Create reactions component"),
-            tr("No reactions component is bound to this model. Register "
-               "one and create its config file (model.rxn beside the "
-               "project input)?"));
-        if (rc != QMessageBox::Yes) return;
-        if (swmm_process_component_register(m_engine, kReactionsId,
-                                            "model.rxn") != SWMM_OK) {
+        const auto rc =
+            QMessageBox::question(this, tr("Create reactions component"),
+                                  tr("No reactions component is bound to this model. Register "
+                                     "one and create its config file (model.rxn beside the "
+                                     "project input)?"));
+        if (rc != QMessageBox::Yes)
+            return;
+        if (swmm_process_component_register(m_engine, kReactionsId, "model.rxn") != SWMM_OK) {
             setStatus(tr("Component registration failed."), true);
             return;
         }
@@ -1326,15 +1381,14 @@ void ReactionSystemEditorDialog::onSave()
 
 void ReactionSystemEditorDialog::refreshBinding()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     const int i = swmm_process_component_find(m_engine, kReactionsId);
     if (i >= 0) {
         char id[128], cfg[512], res[512];
-        if (swmm_process_component_get(m_engine, i, id, 128, cfg, 512, res,
-                                       512) == SWMM_OK) {
+        if (swmm_process_component_get(m_engine, i, id, 128, cfg, 512, res, 512) == SWMM_OK) {
             const QString path = QString::fromUtf8(*res ? res : cfg);
-            setWindowTitle(tr("Reaction System — %1")
-                               .arg(QFileInfo(path).fileName()));
+            setWindowTitle(tr("Reaction System — %1").arg(QFileInfo(path).fileName()));
             return;
         }
     }
@@ -1344,8 +1398,7 @@ void ReactionSystemEditorDialog::refreshBinding()
 void ReactionSystemEditorDialog::setStatus(const QString &msg, bool error)
 {
     m_statusLabel->setText(msg);
-    m_statusLabel->setStyleSheet(
-        error ? QStringLiteral("color: palette(link);") : QString());
+    m_statusLabel->setStyleSheet(error ? QStringLiteral("color: palette(link);") : QString());
 }
 
 } // namespace OpenSWMMVis

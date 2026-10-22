@@ -1,20 +1,25 @@
-/*!
- * \file   inletpropertybag.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      inletpropertybag.cpp
+ * @brief     property tree (QPropertyModel).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/inletpropertybag.h"
 
 #include "core/unitsystem.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::inlet::InletDesignData;
 using openswmmvis::inlet::InletProvider;
 using openswmmvis::inlet::InletType;
 
-namespace {
+namespace
+{
 
 QString lengthUnit()
 {
@@ -28,18 +33,16 @@ QString velocityUnit()
 
 } // namespace
 
-InletPropertyBag::InletPropertyBag(QObject *parent)
-    : QObject(parent)
-{
-}
+InletPropertyBag::InletPropertyBag(QObject *parent) : QObject(parent) {}
 
 void InletPropertyBag::bind(InletProvider *p)
 {
-    if (m_provider) m_provider->disconnect(this);
+    if (m_provider)
+        m_provider->disconnect(this);
     m_provider = QPointer<InletProvider>(p);
     if (m_provider) {
-        connect(m_provider, &InletProvider::paramsChanged,
-                this, &InletPropertyBag::onProviderParamsChanged_);
+        connect(m_provider, &InletProvider::paramsChanged, this,
+                &InletPropertyBag::onProviderParamsChanged_);
     }
     refreshFromProvider_();
 }
@@ -59,43 +62,46 @@ void InletPropertyBag::setCommitHandler(CommitFn fn)
 InletPropertyBag::Groups InletPropertyBag::groupsFor(InletType t)
 {
     switch (t) {
-    case InletType::Grate:     return GrateGroup;
-    case InletType::Curb:      return CurbGroup;
-    case InletType::Combo:     return GrateGroup | CurbGroup;
-    case InletType::Slotted:   return SlottedGroup;
-    case InletType::DropGrate: return GrateGroup;
-    case InletType::DropCurb:  return CurbGroup;
-    case InletType::Custom:    return CustomGroup;
+    case InletType::Grate:
+        return GrateGroup;
+    case InletType::Curb:
+        return CurbGroup;
+    case InletType::Combo:
+        return GrateGroup | CurbGroup;
+    case InletType::Slotted:
+        return SlottedGroup;
+    case InletType::DropGrate:
+        return GrateGroup;
+    case InletType::DropCurb:
+        return CurbGroup;
+    case InletType::Custom:
+        return CustomGroup;
     }
     return NoGroup;
 }
 
 InletPropertyBag::Groups InletPropertyBag::visibleGroups() const
 {
-    if (!m_provider) return NoGroup;
+    if (!m_provider)
+        return NoGroup;
     return groupsFor(m_provider->type());
 }
 
 InletPropertyBag::Group InletPropertyBag::groupOf(const QString &property)
 {
-    if (property == QLatin1String("grateType")
-        || property == QLatin1String("grateLength")
-        || property == QLatin1String("grateWidth")
-        || property == QLatin1String("openFraction")
-        || property == QLatin1String("splashVelocity"))
+    if (property == QLatin1String("grateType") || property == QLatin1String("grateLength") ||
+        property == QLatin1String("grateWidth") || property == QLatin1String("openFraction") ||
+        property == QLatin1String("splashVelocity"))
         return GrateGroup;
 
-    if (property == QLatin1String("curbLength")
-        || property == QLatin1String("curbHeight")
-        || property == QLatin1String("throatAngle"))
+    if (property == QLatin1String("curbLength") || property == QLatin1String("curbHeight") ||
+        property == QLatin1String("throatAngle"))
         return CurbGroup;
 
-    if (property == QLatin1String("slotLength")
-        || property == QLatin1String("slotWidth"))
+    if (property == QLatin1String("slotLength") || property == QLatin1String("slotWidth"))
         return SlottedGroup;
 
-    if (property == QLatin1String("curveKind")
-        || property == QLatin1String("curveId"))
+    if (property == QLatin1String("curveKind") || property == QLatin1String("curveId"))
         return CustomGroup;
 
     return NoGroup;
@@ -103,13 +109,14 @@ InletPropertyBag::Group InletPropertyBag::groupOf(const QString &property)
 
 bool InletPropertyBag::isPropertyVisible(const QString &property) const
 {
-    if (!m_provider) return false;
+    if (!m_provider)
+        return false;
     const Group g = groupOf(property);
-    if (g == NoGroup || !visibleGroups().testFlag(g)) return false;
+    if (g == NoGroup || !visibleGroups().testFlag(g))
+        return false;
 
     // Legacy exceptions (Dinlet.pas:241-298).
-    if (property == QLatin1String("openFraction")
-        || property == QLatin1String("splashVelocity"))
+    if (property == QLatin1String("openFraction") || property == QLatin1String("splashVelocity"))
         return m_grateType == GrateTypeQ::GENERIC;
 
     if (property == QLatin1String("throatAngle"))
@@ -156,29 +163,33 @@ QString InletPropertyBag::displayLabelFor(const QString &property) const
 InletDesignData InletPropertyBag::composed_() const
 {
     InletDesignData d = m_provider ? m_provider->design() : InletDesignData{};
-    d.grateType   = static_cast<inlet::GrateType>(m_grateType);
+    d.grateType = static_cast<inlet::GrateType>(m_grateType);
     d.grateLength = m_grateLength;
-    d.grateWidth  = m_grateWidth;
-    d.openArea    = m_openFraction;
+    d.grateWidth = m_grateWidth;
+    d.openArea = m_openFraction;
     d.splashVeloc = m_splashVelocity;
-    d.curbLength  = m_curbLength;
-    d.curbHeight  = m_curbHeight;
-    d.throat      = static_cast<inlet::ThroatType>(m_throatAngle);
-    d.slotLength  = m_slotLength;
-    d.slotWidth   = m_slotWidth;
-    d.curveKind   = static_cast<inlet::InletCurveKind>(m_curveKind);
-    d.curveId     = m_curveId;
+    d.curbLength = m_curbLength;
+    d.curbHeight = m_curbHeight;
+    d.throat = static_cast<inlet::ThroatType>(m_throatAngle);
+    d.slotLength = m_slotLength;
+    d.slotWidth = m_slotWidth;
+    d.curveKind = static_cast<inlet::InletCurveKind>(m_curveKind);
+    d.curveId = m_curveId;
     return d;
 }
 
 void InletPropertyBag::push_()
 {
-    if (m_suppressPush || !m_provider) return;
+    if (m_suppressPush || !m_provider)
+        return;
     const InletDesignData before = m_provider->design();
-    const InletDesignData after  = composed_();
-    if (after == before) return;
-    if (m_commit) m_commit(before, after);
-    else          m_provider->setDesign(after);
+    const InletDesignData after = composed_();
+    if (after == before)
+        return;
+    if (m_commit)
+        m_commit(before, after);
+    else
+        m_provider->setDesign(after);
 }
 
 void InletPropertyBag::refreshFromProvider_()
@@ -225,7 +236,8 @@ void InletPropertyBag::onProviderParamsChanged_()
 
 void InletPropertyBag::setGrateType(GrateTypeQ v)
 {
-    if (v == m_grateType) return;
+    if (v == m_grateType)
+        return;
     m_grateType = v;
     emit grateTypeChanged(v);
     push_();
@@ -233,7 +245,8 @@ void InletPropertyBag::setGrateType(GrateTypeQ v)
 
 void InletPropertyBag::setGrateLength(double v)
 {
-    if (v == m_grateLength) return;
+    if (v == m_grateLength)
+        return;
     m_grateLength = v;
     emit grateLengthChanged(v);
     push_();
@@ -241,7 +254,8 @@ void InletPropertyBag::setGrateLength(double v)
 
 void InletPropertyBag::setGrateWidth(double v)
 {
-    if (v == m_grateWidth) return;
+    if (v == m_grateWidth)
+        return;
     m_grateWidth = v;
     emit grateWidthChanged(v);
     push_();
@@ -249,7 +263,8 @@ void InletPropertyBag::setGrateWidth(double v)
 
 void InletPropertyBag::setOpenFraction(double v)
 {
-    if (v == m_openFraction) return;
+    if (v == m_openFraction)
+        return;
     m_openFraction = v;
     emit openFractionChanged(v);
     push_();
@@ -257,7 +272,8 @@ void InletPropertyBag::setOpenFraction(double v)
 
 void InletPropertyBag::setSplashVelocity(double v)
 {
-    if (v == m_splashVelocity) return;
+    if (v == m_splashVelocity)
+        return;
     m_splashVelocity = v;
     emit splashVelocityChanged(v);
     push_();
@@ -265,7 +281,8 @@ void InletPropertyBag::setSplashVelocity(double v)
 
 void InletPropertyBag::setCurbLength(double v)
 {
-    if (v == m_curbLength) return;
+    if (v == m_curbLength)
+        return;
     m_curbLength = v;
     emit curbLengthChanged(v);
     push_();
@@ -273,7 +290,8 @@ void InletPropertyBag::setCurbLength(double v)
 
 void InletPropertyBag::setCurbHeight(double v)
 {
-    if (v == m_curbHeight) return;
+    if (v == m_curbHeight)
+        return;
     m_curbHeight = v;
     emit curbHeightChanged(v);
     push_();
@@ -281,7 +299,8 @@ void InletPropertyBag::setCurbHeight(double v)
 
 void InletPropertyBag::setThroatAngle(ThroatTypeQ v)
 {
-    if (v == m_throatAngle) return;
+    if (v == m_throatAngle)
+        return;
     m_throatAngle = v;
     emit throatAngleChanged(v);
     push_();
@@ -289,7 +308,8 @@ void InletPropertyBag::setThroatAngle(ThroatTypeQ v)
 
 void InletPropertyBag::setSlotLength(double v)
 {
-    if (v == m_slotLength) return;
+    if (v == m_slotLength)
+        return;
     m_slotLength = v;
     emit slotLengthChanged(v);
     push_();
@@ -297,7 +317,8 @@ void InletPropertyBag::setSlotLength(double v)
 
 void InletPropertyBag::setSlotWidth(double v)
 {
-    if (v == m_slotWidth) return;
+    if (v == m_slotWidth)
+        return;
     m_slotWidth = v;
     emit slotWidthChanged(v);
     push_();
@@ -305,7 +326,8 @@ void InletPropertyBag::setSlotWidth(double v)
 
 void InletPropertyBag::setCurveKind(CurveKindQ v)
 {
-    if (v == m_curveKind) return;
+    if (v == m_curveKind)
+        return;
     m_curveKind = v;
     emit curveKindChanged(v);
     push_();
@@ -313,7 +335,8 @@ void InletPropertyBag::setCurveKind(CurveKindQ v)
 
 void InletPropertyBag::setCurveId(const QString &v)
 {
-    if (v == m_curveId) return;
+    if (v == m_curveId)
+        return;
     m_curveId = v;
     emit curveIdChanged(v);
     push_();

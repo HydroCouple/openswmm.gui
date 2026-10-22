@@ -1,9 +1,12 @@
-/*!
- * \file   timeseriesseriescommands.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      timeseriesseriescommands.cpp
+ * @brief     Separate from timeseriesundocommands.h on purpose.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesseriescommands.h"
 
 #include "layers/swmmmodellayer.h"
@@ -16,15 +19,27 @@
 
 #include <utility>
 
-namespace openswmmvis::timeseries {
+namespace openswmmvis::timeseries
+{
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Recover the borrowed model-layer pointer used by whole-series commands.
+ * @param[in] handle Actual SWMMModelLayer pointer, or null; no runtime type check is performed.
+ * @return Same borrowed pointer cast to its concrete type.
+ */
 SWMMModelLayer *asLayer(void *handle)
 {
     return static_cast<SWMMModelLayer *>(handle);
 }
 
+/**
+ * @brief Lazily resolve the layer-owned series registry.
+ * @param[in] handle Borrowed model-layer pointer erased as void*, valid on the caller thread.
+ * @return Borrowed registry from ensureTimeseriesRegistry(), or null for null layer/failed cast; lazy initialization can load engine providers.
+ */
 TimeseriesRegistry *registryOf(void *handle)
 {
     SWMMModelLayer *layer = asLayer(handle);
@@ -35,7 +50,11 @@ TimeseriesRegistry *registryOf(void *handle)
 
 /*! Flush the one provider a command changed to the engine — the convention
  *  every editor follows immediately after mutating the registry. Only that
- *  series is rewritten, so a macro of N series commands stays O(N). */
+ *  series is rewritten, so a macro of N series commands stays O(N).
+ * @param[in] handle Borrowed model-layer pointer erased as void*, supplying the current engine.
+ * @param[in] p Borrowed provider expected to be registered in that layer.
+ * @details No-op for missing layer/registry/provider; save failure is ignored.
+ */
 void flush(void *handle, TimeseriesProvider *p)
 {
     SWMMModelLayer *layer = asLayer(handle);
@@ -46,9 +65,12 @@ void flush(void *handle, TimeseriesProvider *p)
 
 /*! Drop the engine's own table for \p name.
  *
- *  TimeseriesRegistry::remove() only forgets the provider, and saveToEngine()
- *  never deletes rows, so without this an undone create leaves a live table
- *  that reappears in the written INP. */
+ *  The registry now also requests deletion; this explicit pre-removal path
+ *  remains part of the command implementation.
+ * @param[in] handle Borrowed model-layer pointer erased as void*.
+ * @param[in] name Table identifier passed to generic swmm_table_index().
+ * @details No-op without an engine/matching table; delete result is ignored. Generic lookup can resolve a same-named curve when no timeseries exists.
+ */
 void dropEngineTable(void *handle, const QString &name)
 {
     SWMMModelLayer *layer = asLayer(handle);
@@ -61,18 +83,12 @@ void dropEngineTable(void *handle, const QString &name)
 
 } // namespace
 
-AddTimeseriesCommand::AddTimeseriesCommand(void *layerHandle,
-                                           QString name,
-                                           QVector<TimeseriesPoint> points,
-                                           QString unitsLabel,
-                                           QString description,
-                                           QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_layer(layerHandle)
-    , m_name(std::move(name))
-    , m_points(std::move(points))
-    , m_unitsLabel(std::move(unitsLabel))
-    , m_description(std::move(description))
+AddTimeseriesCommand::AddTimeseriesCommand(void *layerHandle, QString name,
+                                           QVector<TimeseriesPoint> points, QString unitsLabel,
+                                           QString description, QUndoCommand *parent)
+    : QUndoCommand(parent), m_layer(layerHandle), m_name(std::move(name)),
+      m_points(std::move(points)), m_unitsLabel(std::move(unitsLabel)),
+      m_description(std::move(description))
 {
     setText(QObject::tr("Add timeseries %1").arg(m_name));
 }
@@ -85,8 +101,7 @@ void AddTimeseriesCommand::redo()
 
     // Someone else already owns this name — leave it strictly alone, including
     // on undo. Also makes redo() safe to re-enter.
-    if (reg->hasName(m_name))
-    {
+    if (reg->hasName(m_name)) {
         m_preexisting = true;
         return;
     }
@@ -116,29 +131,23 @@ void AddTimeseriesCommand::undo()
         reg->remove(p);
 }
 
-SetTimeseriesPointsCommand::SetTimeseriesPointsCommand(void *layerHandle,
-                                                       QString name,
+SetTimeseriesPointsCommand::SetTimeseriesPointsCommand(void *layerHandle, QString name,
                                                        QVector<TimeseriesPoint> newPoints,
-                                                       QString newDescription,
-                                                       QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_layer(layerHandle)
-    , m_name(std::move(name))
-    , m_newPoints(std::move(newPoints))
-    , m_newDescription(std::move(newDescription))
+                                                       QString newDescription, QUndoCommand *parent)
+    : QUndoCommand(parent), m_layer(layerHandle), m_name(std::move(name)),
+      m_newPoints(std::move(newPoints)), m_newDescription(std::move(newDescription))
 {
     setText(QObject::tr("Update timeseries %1").arg(m_name));
 }
 
-void SetTimeseriesPointsCommand::apply(const QVector<TimeseriesPoint> &pts,
-                                       const QString &desc)
+void SetTimeseriesPointsCommand::apply(const QVector<TimeseriesPoint> &pts, const QString &desc)
 {
     TimeseriesRegistry *reg = registryOf(m_layer);
     if (!reg)
         return;
     TimeseriesProvider *p = reg->findByName(m_name);
     if (!p)
-        return;   // series gone (e.g. an undone add) — clean no-op
+        return; // series gone (e.g. an undone add) — clean no-op
     p->setDescription(desc);
     p->setAllPoints(pts);
     flush(m_layer, p);
@@ -148,14 +157,12 @@ void SetTimeseriesPointsCommand::redo()
 {
     // Capture once, on the first redo, so the snapshot reflects the state this
     // command actually replaced rather than whatever existed at construction.
-    if (!m_captured)
-    {
+    if (!m_captured) {
         if (TimeseriesRegistry *reg = registryOf(m_layer))
-            if (TimeseriesProvider *p = reg->findByName(m_name))
-            {
-                m_oldPoints      = p->points();
+            if (TimeseriesProvider *p = reg->findByName(m_name)) {
+                m_oldPoints = p->points();
                 m_oldDescription = p->description();
-                m_captured       = true;
+                m_captured = true;
             }
     }
     apply(m_newPoints, m_newDescription);
@@ -167,12 +174,9 @@ void SetTimeseriesPointsCommand::undo()
         apply(m_oldPoints, m_oldDescription);
 }
 
-DeleteTimeseriesCommand::DeleteTimeseriesCommand(void *layerHandle,
-                                                 QString name,
+DeleteTimeseriesCommand::DeleteTimeseriesCommand(void *layerHandle, QString name,
                                                  QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_layer(layerHandle)
-    , m_name(std::move(name))
+    : QUndoCommand(parent), m_layer(layerHandle), m_name(std::move(name))
 {
     setText(QObject::tr("Delete timeseries %1").arg(m_name));
 }
@@ -186,12 +190,11 @@ void DeleteTimeseriesCommand::redo()
     if (!p)
         return;
 
-    if (!m_captured)
-    {
-        m_points      = p->points();
-        m_unitsLabel  = p->unitsLabel();
+    if (!m_captured) {
+        m_points = p->points();
+        m_unitsLabel = p->unitsLabel();
         m_description = p->description();
-        m_captured    = true;
+        m_captured = true;
     }
     dropEngineTable(m_layer, m_name);
     reg->remove(p);

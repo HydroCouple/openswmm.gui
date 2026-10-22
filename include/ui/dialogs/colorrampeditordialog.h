@@ -1,9 +1,9 @@
-/*!
- * \file   colorrampeditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Custom colour-ramp editor (redesigned 2026-08).
+/**
+ * @file      colorrampeditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Custom colour-ramp editor (redesigned 2026-08).
  *
  * Authors a stand-alone RasterColorRamp for the user's custom-ramp library
  * (PreferencesManager → Rendering/CustomRamps). Layout:
@@ -21,7 +21,9 @@
  * deleted (first caller of PreferencesManager::removeCustomColorRamp).
  * The caller reads the result via ramp() / rampName() on accept and does
  * its own saveCustomColorRamp — the dialog persists nothing on OK.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_COLORRAMPEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_COLORRAMPEDITORDIALOG_H
 
@@ -36,14 +38,14 @@ class QPushButton;
 class QTableWidget;
 class QToolButton;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ColorRampEditorDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit ColorRampEditorDialog(const RasterColorRamp &initial,
-                                   QWidget *parent = nullptr);
+    explicit ColorRampEditorDialog(const RasterColorRamp &initial, QWidget *parent = nullptr);
     ~ColorRampEditorDialog() override;
 
     /*! \brief Current edited ramp. */
@@ -74,21 +76,21 @@ private:
     void markCustomised();
 
     RasterColorRamp m_ramp;
-    bool m_suppress = false;   //!< guards table-driven re-entrancy
+    bool m_suppress = false; //!< guards table-driven re-entrancy
 
-    QLineEdit    *m_nameEdit     = nullptr;
-    QLabel       *m_nameWarning  = nullptr;
-    QComboBox    *m_presetCombo  = nullptr;
-    QComboBox    *m_interpCombo  = nullptr;
-    QToolButton  *m_reverseBtn   = nullptr;
-    QWidget      *m_preview      = nullptr;   // GradientPreviewWidget
-    QTableWidget *m_stopTable    = nullptr;
-    QPushButton  *m_addStopBtn   = nullptr;
-    QPushButton  *m_removeStopBtn = nullptr;
-    QComboBox    *m_savedCombo   = nullptr;
-    QPushButton  *m_loadSavedBtn = nullptr;
-    QPushButton  *m_deleteSavedBtn = nullptr;
-    QPushButton  *m_okBtn        = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QLabel *m_nameWarning = nullptr;
+    QComboBox *m_presetCombo = nullptr;
+    QComboBox *m_interpCombo = nullptr;
+    QToolButton *m_reverseBtn = nullptr;
+    QWidget *m_preview = nullptr; // GradientPreviewWidget
+    QTableWidget *m_stopTable = nullptr;
+    QPushButton *m_addStopBtn = nullptr;
+    QPushButton *m_removeStopBtn = nullptr;
+    QComboBox *m_savedCombo = nullptr;
+    QPushButton *m_loadSavedBtn = nullptr;
+    QPushButton *m_deleteSavedBtn = nullptr;
+    QPushButton *m_okBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

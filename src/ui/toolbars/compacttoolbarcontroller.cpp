@@ -1,3 +1,13 @@
+/**
+ * @file      compacttoolbarcontroller.cpp
+ * @brief     UI redesign P6 — the tabbed compact toolbar: a fixed tab-strip row (QTabBar inside a
+ *            locked QToolBar) over one visible tool row.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/toolbars/compacttoolbarcontroller.h"
 
 #include <QLayout>
@@ -7,16 +17,17 @@
 #include <QToolBar>
 #include <QWidget>
 
-namespace {
+namespace
+{
 const QString kSettingsGroup = QStringLiteral("SWMMVis::MainWindow");
-const QString kLastTabKey    = QStringLiteral("CompactToolbarTab");
+const QString kLastTabKey = QStringLiteral("CompactToolbarTab");
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 CompactToolbarController::CompactToolbarController(QMainWindow *window)
-    : QObject(window),
-      mWindow(window)
+    : QObject(window), mWindow(window)
 {
     mStrip = new QToolBar(tr("Toolbar Tabs"), window);
     mStrip->setObjectName(QStringLiteral("toolBarTabStrip"));
@@ -52,8 +63,7 @@ CompactToolbarController::CompactToolbarController(QMainWindow *window)
 }
 
 void CompactToolbarController::addTab(const QString &id, const QString &title,
-                                      const QList<QToolBar *> &toolbars,
-                                      bool contextual)
+                                      const QList<QToolBar *> &toolbars, bool contextual)
 {
     Q_ASSERT(!mFinalized);
     Tab tab;
@@ -123,9 +133,8 @@ void CompactToolbarController::finalize()
         while (target < mTabBar->count() && !mTabBar->isTabVisible(target))
             ++target;
     }
-    if (target >= 0 && target < mTabBar->count()
-        && mTabBar->currentIndex() != target) {
-        mTabBar->setCurrentIndex(target);   // triggers applyVisibility
+    if (target >= 0 && target < mTabBar->count() && mTabBar->currentIndex() != target) {
+        mTabBar->setCurrentIndex(target); // triggers applyVisibility
     } else {
         applyVisibility();
     }
@@ -216,4 +225,4 @@ void CompactToolbarController::applyVisibility()
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

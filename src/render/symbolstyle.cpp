@@ -1,9 +1,10 @@
-/*!
- * \file   symbolstyle.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  JSON round-trip for SymbolStyle (stack of SymbolLayer + opacity).
+/**
+ * @file      symbolstyle.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     JSON round-trip for SymbolStyle (stack of SymbolLayer + opacity).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/symbolstyle.h"
@@ -19,8 +20,7 @@ QJsonObject SymbolStyle::toJson() const
 {
     QJsonObject obj;
     QJsonArray arr;
-    for (const SymbolLayer &sl : layers)
-    {
+    for (const SymbolLayer &sl : layers) {
         arr.append(sl.toJson());
     }
     obj.insert(QStringLiteral("layers"), arr);
@@ -33,8 +33,7 @@ void SymbolStyle::fromJson(const QJsonObject &j)
     layers.clear();
     const QJsonArray arr = j.value(QStringLiteral("layers")).toArray();
     layers.reserve(arr.size());
-    for (const QJsonValue &v : arr)
-    {
+    for (const QJsonValue &v : arr) {
         SymbolLayer sl;
         sl.fromJson(v.toObject());
         layers.append(sl);
@@ -49,11 +48,11 @@ void SymbolStyle::fromJson(const QJsonObject &j)
 namespace SymbolProps
 {
 
-QColor readColor(const QVariantMap &props, const QString &key,
-                 const QColor &fallback)
+QColor readColor(const QVariantMap &props, const QString &key, const QColor &fallback)
 {
     const auto it = props.constFind(key);
-    if (it == props.constEnd()) return fallback;
+    if (it == props.constEnd())
+        return fallback;
     const QVariant &v = it.value();
     if (v.userType() == QMetaType::QColor) {
         // A QColor-typed variant is authoritative: an invalid QColor means
@@ -78,13 +77,13 @@ QColor firstColor(const SymbolStyle &style, const QColor &fallback)
     // Key order matches the legend-swatch convention established by the
     // X1 fix in the legend views: fill first (marker/fill grammar), then
     // line colour, then outline as a last resort.
-    static const QString kKeys[] = { QStringLiteral("fillColor"),
-                                     QStringLiteral("color"),
-                                     QStringLiteral("outlineColor") };
+    static const QString kKeys[] = {QStringLiteral("fillColor"), QStringLiteral("color"),
+                                    QStringLiteral("outlineColor")};
     for (const SymbolLayer &sl : style.layers) {
         for (const QString &key : kKeys) {
             const QColor c = readColor(sl.props, key);
-            if (c.isValid()) return c;
+            if (c.isValid())
+                return c;
         }
     }
     return fallback;

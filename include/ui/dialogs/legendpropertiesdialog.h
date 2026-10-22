@@ -1,9 +1,9 @@
-/*!
- * \file   legendpropertiesdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BB Phase 8.6.16 — modeless QPropertyModel-backed editor
+/**
+ * @file      legendpropertiesdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BB Phase 8.6.16 — modeless QPropertyModel-backed editor
  *         for a shared LegendOverlayStyle.
  *
  *         Opened from LegendOverlay's right-click context menu. The dialog
@@ -18,7 +18,9 @@
  *         …"). Per-class theming for individual legend items lives on each
  *         layer's IFeatureRenderer and is edited from the context menu
  *         directly — not in this dialog.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_LEGENDPROPERTIESDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LEGENDPROPERTIESDIALOG_H
 
@@ -28,9 +30,13 @@
 
 class QTreeView;
 
-namespace OpenSWMM::Render { class LegendOverlayStyle; }
+namespace OpenSWMM::Render
+{
+class LegendOverlayStyle;
+}
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class LegendPropertiesDialog : public QDialog
 {
@@ -52,8 +58,8 @@ private slots:
 
 private:
     QPointer<OpenSWMM::Render::LegendOverlayStyle> m_style;
-    QJsonObject  m_snapshot;   // captured at construction for Cancel.
-    QTreeView   *m_tree = nullptr;
+    QJsonObject m_snapshot; // captured at construction for Cancel.
+    QTreeView *m_tree = nullptr;
 };
 
 } // namespace openswmmvis::ui

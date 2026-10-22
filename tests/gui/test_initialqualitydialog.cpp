@@ -1,9 +1,9 @@
-/*!
- * \file test_initialqualitydialog.cpp
- * \brief G-A1 — the per-element Initial Quality editor, driven through its
+/**
+ * @file      test_initialqualitydialog.cpp
+ * @brief     G-A1 — the per-element Initial Quality editor, driven through its
  *        widgets.
  *
- * \details Dependency-light dialog (Qt Widgets + `openswmm_initial_quality.h`
+ * @details Dependency-light dialog (Qt Widgets + `openswmm_initial_quality.h`
  *          and friends), so a test constructs it against a synthetic
  *          BUILDING engine, hydrates, clicks, and reads the engine back —
  *          the `WaterAgeSourcesDialog` precedent.
@@ -22,6 +22,10 @@
  *             "Initial Quality" cell): only the scoped element's rows are
  *             shown, added rows are pinned to it, and OK never touches
  *             another element's rows.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/initialqualitydialog.h"
@@ -54,9 +58,20 @@
 
 using OpenSWMMVis::InitialQualityDialog;
 
-namespace {
+namespace
+{
 
 /*! A BUILDING-state engine with nodes, a link, and one pollutant. */
+/**
+ *
+ * @brief Create a BUILDING fixture engine and attempt two nodes, one conduit and TSS pollutant.
+ * @param ageOn True attempts WATER_AGE YES; false retains the engine default.
+ * @param heatOn True attempts HEAT_TRANSPORT YES; false retains the default.
+ * @return Newly owned handle to destroy after dialog use. A debug Q_ASSERT checks
+ * allocation; release builds may return nullptr. Individual CRUD/option statuses
+ * are unchecked, so partial configuration is possible; no file or simulation IO.
+ *
+ */
 SWMM_Engine makeEngine(bool ageOn = false, bool heatOn = false)
 {
     SWMM_Engine e = swmm_engine_new();
@@ -65,16 +80,34 @@ SWMM_Engine makeEngine(bool ageOn = false, bool heatOn = false)
     swmm_node_add(e, "J1", 0 /*JUNCTION*/);
     swmm_link_add(e, "C1", 0 /*CONDUIT*/);
     swmm_pollutant_add(e, "TSS", 0 /*MG/L*/);
-    if (ageOn)  swmm_options_set(e, "WATER_AGE", "YES");
-    if (heatOn) swmm_options_set(e, "HEAT_TRANSPORT", "YES");
+    if (ageOn)
+        swmm_options_set(e, "WATER_AGE", "YES");
+    if (heatOn)
+        swmm_options_set(e, "HEAT_TRANSPORT", "YES");
     return e;
 }
 
+/**
+ *
+ * @brief Find the initial-quality table fixture widget by its iq_table object name.
+ * @param dlg Borrowed live GUI-thread dialog.
+ * @return Borrowed child pointer or nullptr; no ownership transfer or table mutation.
+ *
+ */
 QTableWidget *table(InitialQualityDialog &dlg)
 {
     return dlg.findChild<QTableWidget *>(QStringLiteral("iq_table"));
 }
 
+/**
+ *
+ * @brief Click the initial-quality dialog standard OK button synchronously.
+ * @param dlg Borrowed live editable dialog with a button box and nonnull OK button.
+ * Records QtTest failure/returns from this helper if the box is absent; a missing
+ * OK button is not checked. Can enter an error message modal loop, so tests arm
+ * dismissal timers first. May partially write engine rows and accept the dialog.
+ *
+ */
 void clickOk(InitialQualityDialog &dlg)
 {
     auto *bb = dlg.findChild<QDialogButtonBox *>();
@@ -88,31 +121,189 @@ class TestInitialQualityDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require engine invalidation to disable/hide the dialog and later direct acceptance
+     * to stay rejected after handle destruction.
+     *
+     */
     void invalidationDiscardsDraftAndGuardsLaterSignals();
+    /**
+     *
+     * @brief Register bool editOtherRow rows for unchanged OK and an unrelated-row edit.
+     *
+     */
     void exactValuesSurviveRoundedDisplay_data();
+    /**
+     *
+     * @brief Require unchanged high-precision values to survive rounded display exactly, with
+     * only a selected unrelated row changed.
+     * Consumes bool editOtherRow and checks change tracking/no-op write count.
+     *
+     */
     void exactValuesSurviveRoundedDisplay();
+    /**
+     *
+     * @brief Register QString name rows for exact TSS and case-variant tss duplicate identities.
+     *
+     */
     void duplicateRowsRefuseBeforeWriting_data();
+    /**
+     *
+     * @brief Require case-insensitive duplicate rows to fail before any engine write, retain both
+     * draft rows and report the earlier row.
+     * Consumes QString name and dismisses the modal diagnostic with an event-loop timer.
+     *
+     */
     void duplicateRowsRefuseBeforeWriting();
+    /**
+     *
+     * @brief Register action/changed rows for unchanged OK, cancel, value edit and
+     * partial-write-then-cancel property edits.
+     *
+     */
     void propertyEditorReportsOnlyRealChanges_data();
+    /**
+     *
+     * @brief Require the property edit reference/signal to report real and partial writes even
+     * when summary counts stay unchanged.
+     * Consumes QString action/bool changed; timers drive modal dialog acceptance/cancel
+     * and dismiss deliberate engine errors. No persisted model is written.
+     *
+     */
     void propertyEditorReportsOnlyRealChanges();
+    /**
+     *
+     * @brief Require an earlier partial write to keep wroteAnyChanges true after removing the
+     * invalid row and accepting a no-op retry.
+     *
+     */
     void partialFailureThenNoOpRetryKeepsChangeFlag();
+    /**
+     *
+     * @brief Require an engine error on the second row to retain a visible draft after one
+     * applied row, then allow corrected retry/acceptance.
+     *
+     */
     void partialFailureRetainsDraftAndAllowsRetry();
+    /**
+     *
+     * @brief Require a rejected first constituent write to keep the engine empty, dialog
+     * unaccepted and change/write counters zero.
+     *
+     */
     void rejectedFirstWriteDoesNotClaimChanges();
+    /**
+     *
+     * @brief Require closing the engine before OK to refuse changes while preserving the draft
+     * row and zero write/signal state.
+     *
+     */
     void lifecycleChangeRefusesWithoutLosingDraft();
+    /**
+     *
+     * @brief Require a null-engine dialog to use Close alone and disable add/import/file-edit
+     * controls.
+     *
+     */
     void readOnlyUsesClose();
+    /**
+     *
+     * @brief Require surviving-row scope callbacks after row deletion to target the correct
+     * conduit and preserve its value.
+     *
+     */
     void scopeChangeFollowsRowAfterDeletion();
+    /**
+     *
+     * @brief Require imported CSV rows to remain read-only/undeletable after inline-row
+     * deletion/replacement and a dialog reopen.
+     * Creates initial_file.inp/initial.csv/report under SWMMVIS_IQ_DIALOG_TEST_OUTPUT
+     * or the source-relative review default; reads gw_exchange_fixture.inp from
+     * SWMMVIS_GUI_TEST_DATA or source data. Checks exact source CSV bytes unchanged
+     * after editing inline values. Requires writable artifacts and engine file loading.
+     *
+     */
     void fileRowsRemainProtectedAfterDeletion();
+    /**
+     *
+     * @brief Require a mnemonic CSV-file buddy and nonempty accessible names for table and four
+     * row controls.
+     *
+     */
     void fieldsHaveAccessibleNamesAndCsvBuddy();
+    /**
+     *
+     * @brief Require nonstandard auxiliary dialog buttons to have autoDefault disabled.
+     *
+     */
     void auxiliaryButtonsAreNotEnterDefaults();
+    /**
+     *
+     * @brief Require Escape to reject a shown draft without engine rows or change tracking.
+     *
+     */
     void escapeDiscardsDraft();
+    /**
+     *
+     * @brief Require null-engine construction to start with wroteAnyChanges false.
+     *
+     */
     void constructsWithNullEngine();
+    /**
+     *
+     * @brief Require two engine rows to hydrate scope/element/constituent/value widgets without
+     * marking changes.
+     *
+     */
     void hydratesEngineRows();
+    /**
+     *
+     * @brief Require adding a J1 value row to apply exactly one engine write and retain the
+     * original row.
+     *
+     */
     void addedRowReachesEngineOnOk();
+    /**
+     *
+     * @brief Require unchanged acceptance to emit no changesApplied, report zero writes and
+     * preserve the engine value.
+     *
+     */
     void noOpOkWritesNothing();
+    /**
+     *
+     * @brief Require deleting the draft node row to remove its engine key while preserving the
+     * conduit row.
+     *
+     */
     void deletedRowIsRemovedFromEngine();
+    /**
+     *
+     * @brief Require age/heat options to add their reserved constituents and age selection to
+     * allow signed values while pollutant minimum stays zero.
+     *
+     */
     void reservedSpeciesAreOptionGated();
+    /**
+     *
+     * @brief Require node J1 scope to hide scope/element columns and hydrate only its value.
+     *
+     */
     void elementScopeShowsOnlyThatElementsRows();
+    /**
+     *
+     * @brief Require one scoped J1 edit to leave J0 and conduit values unchanged with total row
+     * count preserved.
+     *
+     */
     void elementScopeEditPreservesOtherElements();
+    /**
+     *
+     * @brief Require scoped additions to lock identity to J1 and scoped removal to leave J0
+     * untouched.
+     *
+     */
     void elementScopeAddAndRemoveStayScoped();
 };
 
@@ -134,7 +325,8 @@ void TestInitialQualityDialog::duplicateRowsRefuseBeforeWriting()
     qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3))->setValue(2.0);
     dlg.findChild<QPushButton *>("iq_addBtn")->click();
     auto *constituent = qobject_cast<QComboBox *>(tbl->cellWidget(1, 2));
-    if (constituent->findData(name) < 0) constituent->addItem(name, name);
+    if (constituent->findData(name) < 0)
+        constituent->addItem(name, name);
     constituent->setCurrentIndex(constituent->findData(name));
     qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(1, 3))->setValue(1.0);
     QSignalSpy accepted(&dlg, &QDialog::accepted);
@@ -155,8 +347,9 @@ void TestInitialQualityDialog::duplicateRowsRefuseBeforeWriting()
     int link = -1, element = -1;
     char constituentName[64] = {};
     double value = -1;
-    QCOMPARE(swmm_init_quality_get(e, 0, &link, &element, constituentName,
-                                   sizeof constituentName, &value), SWMM_OK);
+    QCOMPARE(swmm_init_quality_get(e, 0, &link, &element, constituentName, sizeof constituentName,
+                                   &value),
+             SWMM_OK);
     QCOMPARE(value, 1.0);
     QCOMPARE(tbl->rowCount(), 2);
 }
@@ -188,7 +381,10 @@ void TestInitialQualityDialog::propertyEditorReportsOnlyRealChanges()
     QTimer::singleShot(0, &button, [&] {
         auto *dlg = button.findChild<InitialQualityDialog *>();
         QVERIFY(dlg);
-        if (action == QLatin1String("cancel")) { dlg->reject(); return; }
+        if (action == QLatin1String("cancel")) {
+            dlg->reject();
+            return;
+        }
         if (changed) {
             qobject_cast<QDoubleSpinBox *>(table(*dlg)->cellWidget(0, 3))->setValue(8.0);
         }
@@ -198,7 +394,8 @@ void TestInitialQualityDialog::propertyEditorReportsOnlyRealChanges()
             constituent->addItem("Unknown", "Unknown");
             constituent->setCurrentIndex(constituent->count() - 1);
             QTimer::singleShot(0, dlg, [dlg] {
-                if (auto *message = dlg->findChild<QMessageBox *>()) message->accept();
+                if (auto *message = dlg->findChild<QMessageBox *>())
+                    message->accept();
             });
             clickOk(*dlg);
             QVERIFY(dlg->wroteAnyChanges());
@@ -228,7 +425,8 @@ void TestInitialQualityDialog::partialFailureThenNoOpRetryKeepsChangeFlag()
     constituent->setCurrentIndex(constituent->count() - 1);
     QSignalSpy applied(&dlg, &InitialQualityDialog::changesApplied);
     QTimer::singleShot(0, &dlg, [&] {
-        if (auto *message = dlg.findChild<QMessageBox *>()) message->accept();
+        if (auto *message = dlg.findChild<QMessageBox *>())
+            message->accept();
     });
     clickOk(dlg);
     QCOMPARE(applied.count(), 1);
@@ -296,7 +494,8 @@ void TestInitialQualityDialog::rejectedFirstWriteDoesNotClaimChanges()
     QSignalSpy applied(&dlg, &InitialQualityDialog::changesApplied);
     QSignalSpy accepted(&dlg, &QDialog::accepted);
     QTimer::singleShot(0, &dlg, [&] {
-        if (auto *message = dlg.findChild<QMessageBox *>()) message->accept();
+        if (auto *message = dlg.findChild<QMessageBox *>())
+            message->accept();
     });
     clickOk(dlg);
     QCOMPARE(accepted.count(), 0);
@@ -316,7 +515,8 @@ void TestInitialQualityDialog::lifecycleChangeRefusesWithoutLosingDraft()
     QSignalSpy applied(&dlg, &InitialQualityDialog::changesApplied);
     QSignalSpy accepted(&dlg, &QDialog::accepted);
     QTimer::singleShot(0, &dlg, [&] {
-        if (auto *message = dlg.findChild<QMessageBox *>()) message->accept();
+        if (auto *message = dlg.findChild<QMessageBox *>())
+            message->accept();
     });
     clickOk(dlg);
     QCOMPARE(accepted.count(), 0);
@@ -358,8 +558,8 @@ void TestInitialQualityDialog::scopeChangeFollowsRowAfterDeletion()
     int link = 0, index = -1;
     char constituent[64] = {};
     double value = 0;
-    QCOMPARE(swmm_init_quality_get(e, 0, &link, &index, constituent,
-                                   sizeof constituent, &value), SWMM_OK);
+    QCOMPARE(swmm_init_quality_get(e, 0, &link, &index, constituent, sizeof constituent, &value),
+             SWMM_OK);
     QCOMPARE(link, 1);
     QCOMPARE(index, 0);
     QCOMPARE(value, 9.0);
@@ -368,15 +568,16 @@ void TestInitialQualityDialog::scopeChangeFollowsRowAfterDeletion()
 void TestInitialQualityDialog::fileRowsRemainProtectedAfterDeletion()
 {
     const auto testDir = QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir();
-    const QString output = qEnvironmentVariable("SWMMVIS_IQ_DIALOG_TEST_OUTPUT",
+    const QString output = qEnvironmentVariable(
+        "SWMMVIS_IQ_DIALOG_TEST_OUTPUT",
         testDir.filePath("../../workplans/artifacts/phase_21_parallel/dialogs/output"));
     QVERIFY(QDir().mkpath(output));
-    QFile fixture(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", testDir.filePath("data"))
-                  + QStringLiteral("/gw_exchange_fixture.inp"));
+    QFile fixture(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", testDir.filePath("data")) +
+                  QStringLiteral("/gw_exchange_fixture.inp"));
     QVERIFY(fixture.open(QIODevice::ReadOnly));
     const QByteArray deck = fixture.readAll() +
-        "\n[POLLUTANTS]\nTSS MG/L 0 0 0 0\n"
-        "[INITIAL_QUALITY]\nFILE initial.csv\nNODE J1 TSS 5\n";
+                            "\n[POLLUTANTS]\nTSS MG/L 0 0 0 0\n"
+                            "[INITIAL_QUALITY]\nFILE initial.csv\nNODE J1 TSS 5\n";
     const QString inputPath = QDir(output).filePath("initial_file.inp");
     QFile input(inputPath);
     QVERIFY(input.open(QIODevice::WriteOnly));
@@ -391,8 +592,9 @@ void TestInitialQualityDialog::fileRowsRemainProtectedAfterDeletion()
     QVERIFY(e);
     auto cleanup = qScopeGuard([e] { swmm_engine_destroy(e); });
     const auto report = QDir(output).filePath("initial_file.rpt").toUtf8();
-    QCOMPARE(swmm_engine_open(e, inputPath.toUtf8().constData(),
-                              report.constData(), nullptr, nullptr), SWMM_OK);
+    QCOMPARE(
+        swmm_engine_open(e, inputPath.toUtf8().constData(), report.constData(), nullptr, nullptr),
+        SWMM_OK);
     QCOMPARE(swmm_init_quality_count(e), 2);
     QCOMPARE(swmm_init_quality_is_file(e, 0), 0);
     QCOMPARE(swmm_init_quality_is_file(e, 1), 1);
@@ -415,8 +617,9 @@ void TestInitialQualityDialog::fileRowsRemainProtectedAfterDeletion()
         int link = 0, element = -1;
         char constituent[64] = {};
         double result = 0;
-        QCOMPARE(swmm_init_quality_get(e, i, &link, &element, constituent,
-                                       sizeof constituent, &result), SWMM_OK);
+        QCOMPARE(
+            swmm_init_quality_get(e, i, &link, &element, constituent, sizeof constituent, &result),
+            SWMM_OK);
         if (swmm_init_quality_is_file(e, i)) {
             QCOMPARE(result, 7.0);
             ++fileCount;
@@ -452,9 +655,9 @@ void TestInitialQualityDialog::fieldsHaveAccessibleNamesAndCsvBuddy()
             hasBuddy = true;
         }
     QVERIFY(hasBuddy);
-    for (QWidget *widget : {static_cast<QWidget *>(table(dlg)),
-                           table(dlg)->cellWidget(0, 0), table(dlg)->cellWidget(0, 1),
-                           table(dlg)->cellWidget(0, 2), table(dlg)->cellWidget(0, 3)}) {
+    for (QWidget *widget : {static_cast<QWidget *>(table(dlg)), table(dlg)->cellWidget(0, 0),
+                            table(dlg)->cellWidget(0, 1), table(dlg)->cellWidget(0, 2),
+                            table(dlg)->cellWidget(0, 3)}) {
         auto *accessible = QAccessible::queryAccessibleInterface(widget);
         QVERIFY(accessible);
         QVERIFY2(!accessible->text(QAccessible::Name).isEmpty(), widget->metaObject()->className());
@@ -466,7 +669,8 @@ void TestInitialQualityDialog::auxiliaryButtonsAreNotEnterDefaults()
     InitialQualityDialog dlg(nullptr);
     auto *buttons = dlg.findChild<QDialogButtonBox *>();
     for (auto *button : dlg.findChildren<QPushButton *>()) {
-        if (buttons->standardButton(button) != QDialogButtonBox::NoButton) continue;
+        if (buttons->standardButton(button) != QDialogButtonBox::NoButton)
+            continue;
         QVERIFY2(!button->autoDefault(), qPrintable(button->text()));
     }
 }
@@ -503,9 +707,9 @@ void TestInitialQualityDialog::hydratesEngineRows()
     QCOMPARE(tbl->rowCount(), 2);
 
     auto *scope = qobject_cast<QComboBox *>(tbl->cellWidget(0, 0));
-    auto *elem  = qobject_cast<QComboBox *>(tbl->cellWidget(0, 1));
-    auto *cons  = qobject_cast<QComboBox *>(tbl->cellWidget(0, 2));
-    auto *val   = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
+    auto *elem = qobject_cast<QComboBox *>(tbl->cellWidget(0, 1));
+    auto *cons = qobject_cast<QComboBox *>(tbl->cellWidget(0, 2));
+    auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
     QVERIFY(scope && elem && cons && val);
     QCOMPARE(scope->currentData().toInt(), 0);
     QCOMPARE(elem->currentText(), QStringLiteral("J1"));
@@ -513,7 +717,7 @@ void TestInitialQualityDialog::hydratesEngineRows()
     QCOMPARE(val->value(), 12.5);
 
     auto *scope1 = qobject_cast<QComboBox *>(tbl->cellWidget(1, 0));
-    auto *elem1  = qobject_cast<QComboBox *>(tbl->cellWidget(1, 1));
+    auto *elem1 = qobject_cast<QComboBox *>(tbl->cellWidget(1, 1));
     QVERIFY(scope1 && elem1);
     QCOMPARE(scope1->currentData().toInt(), 1);
     QCOMPARE(elem1->currentText(), QStringLiteral("C1"));
@@ -537,14 +741,14 @@ void TestInitialQualityDialog::addedRowReachesEngineOnOk()
     QCOMPARE(tbl->rowCount(), 2);
     const int r = 1;
     auto *elem = qobject_cast<QComboBox *>(tbl->cellWidget(r, 1));
-    auto *val  = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(r, 3));
+    auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(r, 3));
     QVERIFY(elem && val);
     elem->setCurrentIndex(elem->findText(QStringLiteral("J1")));
     val->setValue(12.5);
     clickOk(dlg);
 
     QVERIFY(dlg.wroteAnyChanges());
-    QCOMPARE(dlg.lastWriteCount(), 1);          // exactly the new row
+    QCOMPARE(dlg.lastWriteCount(), 1); // exactly the new row
     QCOMPARE(swmm_init_quality_count(e), 2);
     swmm_engine_destroy(e);
 }
@@ -565,8 +769,7 @@ void TestInitialQualityDialog::noOpOkWritesNothing()
     double v = 0.0;
     int is_link = 0, elem = -1;
     char buf[64];
-    QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v),
-             SWMM_OK);
+    QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v), SWMM_OK);
     QCOMPARE(v, 5.0);
     swmm_engine_destroy(e);
 }
@@ -589,13 +792,12 @@ void TestInitialQualityDialog::deletedRowIsRemovedFromEngine()
     clickOk(dlg);
 
     QVERIFY(dlg.wroteAnyChanges());
-    QCOMPARE(swmm_init_quality_count(e), 1);    // stale key would read 2
+    QCOMPARE(swmm_init_quality_count(e), 1); // stale key would read 2
     int is_link = 0, elem = -1;
     char buf[64];
     double v = 0.0;
-    QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v),
-             SWMM_OK);
-    QCOMPARE(is_link, 1);                       // the LINK row survived
+    QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v), SWMM_OK);
+    QCOMPARE(is_link, 1); // the LINK row survived
     swmm_engine_destroy(e);
 }
 
@@ -605,12 +807,10 @@ void TestInitialQualityDialog::reservedSpeciesAreOptionGated()
     {
         SWMM_Engine e = makeEngine(false, false);
         InitialQualityDialog dlg(e, nullptr);
-        auto *add = dlg.findChild<QPushButton *>(
-            QStringLiteral("iq_addBtn"));
+        auto *add = dlg.findChild<QPushButton *>(QStringLiteral("iq_addBtn"));
         QVERIFY(add);
         add->click();
-        auto *cons = qobject_cast<QComboBox *>(
-            table(dlg)->cellWidget(0, 2));
+        auto *cons = qobject_cast<QComboBox *>(table(dlg)->cellWidget(0, 2));
         QVERIFY(cons);
         QCOMPARE(cons->count(), 1);
         QCOMPARE(cons->itemData(0).toString(), QStringLiteral("TSS"));
@@ -620,12 +820,10 @@ void TestInitialQualityDialog::reservedSpeciesAreOptionGated()
     {
         SWMM_Engine e = makeEngine(true, true);
         InitialQualityDialog dlg(e, nullptr);
-        auto *add = dlg.findChild<QPushButton *>(
-            QStringLiteral("iq_addBtn"));
+        auto *add = dlg.findChild<QPushButton *>(QStringLiteral("iq_addBtn"));
         QVERIFY(add);
         add->click();
-        auto *cons = qobject_cast<QComboBox *>(
-            table(dlg)->cellWidget(0, 2));
+        auto *cons = qobject_cast<QComboBox *>(table(dlg)->cellWidget(0, 2));
         QVERIFY(cons);
         QCOMPARE(cons->count(), 3);
         QVector<QString> offered;
@@ -636,12 +834,10 @@ void TestInitialQualityDialog::reservedSpeciesAreOptionGated()
 
         // Reserved species accept negatives (signed age, D-NS1); pollutant
         // selection floors the spin at zero.
-        auto *val = qobject_cast<QDoubleSpinBox *>(
-            table(dlg)->cellWidget(0, 3));
+        auto *val = qobject_cast<QDoubleSpinBox *>(table(dlg)->cellWidget(0, 3));
         QVERIFY(val);
-        QCOMPARE(val->minimum(), 0.0);          // pollutant selected first
-        cons->setCurrentIndex(
-            cons->findData(QStringLiteral("__WATER_AGE__")));
+        QCOMPARE(val->minimum(), 0.0); // pollutant selected first
+        cons->setCurrentIndex(cons->findData(QStringLiteral("__WATER_AGE__")));
         QVERIFY(val->minimum() < 0.0);
         swmm_engine_destroy(e);
     }
@@ -650,9 +846,9 @@ void TestInitialQualityDialog::reservedSpeciesAreOptionGated()
 void TestInitialQualityDialog::elementScopeShowsOnlyThatElementsRows()
 {
     SWMM_Engine e = makeEngine();
-    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0),  SWMM_OK);  // J0
-    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK);  // J1
-    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0),  SWMM_OK);  // C1
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0), SWMM_OK);  // J0
+    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK); // J1
+    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0), SWMM_OK);  // C1
 
     InitialQualityDialog dlg(e, nullptr);
     dlg.setElementScope(0, QStringLiteral("J1"));
@@ -660,8 +856,8 @@ void TestInitialQualityDialog::elementScopeShowsOnlyThatElementsRows()
     auto *tbl = table(dlg);
     QVERIFY(tbl);
     QCOMPARE(tbl->rowCount(), 1);
-    QVERIFY(tbl->isColumnHidden(0));            // Scope collapsed
-    QVERIFY(tbl->isColumnHidden(1));            // Element collapsed
+    QVERIFY(tbl->isColumnHidden(0)); // Scope collapsed
+    QVERIFY(tbl->isColumnHidden(1)); // Element collapsed
     auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
     QVERIFY(val);
     QCOMPARE(val->value(), 12.5);
@@ -671,9 +867,9 @@ void TestInitialQualityDialog::elementScopeShowsOnlyThatElementsRows()
 void TestInitialQualityDialog::elementScopeEditPreservesOtherElements()
 {
     SWMM_Engine e = makeEngine();
-    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0),  SWMM_OK);  // J0
-    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK);  // J1
-    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0),  SWMM_OK);  // C1
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0), SWMM_OK);  // J0
+    QCOMPARE(swmm_init_quality_set(e, 0, 1, "TSS", 12.5), SWMM_OK); // J1
+    QCOMPARE(swmm_init_quality_set(e, 1, 0, "TSS", 9.0), SWMM_OK);  // C1
 
     InitialQualityDialog dlg(e, nullptr);
     dlg.setElementScope(0, QStringLiteral("J1"));
@@ -685,17 +881,25 @@ void TestInitialQualityDialog::elementScopeEditPreservesOtherElements()
     clickOk(dlg);
 
     QCOMPARE(dlg.lastWriteCount(), 1);
-    QCOMPARE(swmm_init_quality_count(e), 3);    // nobody else was removed
+    QCOMPARE(swmm_init_quality_count(e), 3); // nobody else was removed
     int found = 0;
     for (int i = 0; i < 3; ++i) {
         int is_link = 0, elem = -1;
         char buf[64];
         double v = 0.0;
-        QCOMPARE(swmm_init_quality_get(e, i, &is_link, &elem, buf, 64, &v),
-                 SWMM_OK);
-        if (!is_link && elem == 0) { QCOMPARE(v, 5.0);  ++found; }
-        if (!is_link && elem == 1) { QCOMPARE(v, 20.0); ++found; }
-        if (is_link  && elem == 0) { QCOMPARE(v, 9.0);  ++found; }
+        QCOMPARE(swmm_init_quality_get(e, i, &is_link, &elem, buf, 64, &v), SWMM_OK);
+        if (!is_link && elem == 0) {
+            QCOMPARE(v, 5.0);
+            ++found;
+        }
+        if (!is_link && elem == 1) {
+            QCOMPARE(v, 20.0);
+            ++found;
+        }
+        if (is_link && elem == 0) {
+            QCOMPARE(v, 9.0);
+            ++found;
+        }
     }
     QCOMPARE(found, 3);
     swmm_engine_destroy(e);
@@ -704,7 +908,7 @@ void TestInitialQualityDialog::elementScopeEditPreservesOtherElements()
 void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
 {
     SWMM_Engine e = makeEngine();
-    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0), SWMM_OK);   // J0
+    QCOMPARE(swmm_init_quality_set(e, 0, 0, "TSS", 5.0), SWMM_OK); // J0
 
     // Add in scope: the new row is pinned to J1 (combos locked) and lands
     // on the engine as a NODE J1 row.
@@ -718,8 +922,8 @@ void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
         QVERIFY(add);
         add->click();
         auto *scope = qobject_cast<QComboBox *>(tbl->cellWidget(0, 0));
-        auto *elem  = qobject_cast<QComboBox *>(tbl->cellWidget(0, 1));
-        auto *val   = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
+        auto *elem = qobject_cast<QComboBox *>(tbl->cellWidget(0, 1));
+        auto *val = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
         QVERIFY(scope && elem && val);
         QVERIFY(!scope->isEnabled());
         QVERIFY(!elem->isEnabled());
@@ -737,8 +941,7 @@ void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
         QVERIFY(tbl);
         QCOMPARE(tbl->rowCount(), 1);
         tbl->setCurrentCell(0, 3);
-        auto *rem = dlg.findChild<QPushButton *>(
-            QStringLiteral("iq_removeBtn"));
+        auto *rem = dlg.findChild<QPushButton *>(QStringLiteral("iq_removeBtn"));
         QVERIFY(rem);
         rem->click();
         clickOk(dlg);
@@ -746,10 +949,9 @@ void TestInitialQualityDialog::elementScopeAddAndRemoveStayScoped()
         int is_link = 0, elem = -1;
         char buf[64];
         double v = 0.0;
-        QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v),
-                 SWMM_OK);
+        QCOMPARE(swmm_init_quality_get(e, 0, &is_link, &elem, buf, 64, &v), SWMM_OK);
         QCOMPARE(is_link, 0);
-        QCOMPARE(elem, 0);                      // J0's row survived
+        QCOMPARE(elem, 0); // J0's row survived
         QCOMPARE(v, 5.0);
     }
     swmm_engine_destroy(e);
@@ -777,12 +979,17 @@ void TestInitialQualityDialog::exactValuesSurviveRoundedDisplay()
     int scope = -1, element = -1;
     char constituent[128] = {};
     double actual = 0;
-    QCOMPARE(swmm_init_quality_get(e, 0, &scope, &element, constituent, sizeof(constituent), &actual), SWMM_OK);
+    QCOMPARE(
+        swmm_init_quality_get(e, 0, &scope, &element, constituent, sizeof(constituent), &actual),
+        SWMM_OK);
     QCOMPARE(actual, exact);
-    QCOMPARE(swmm_init_quality_get(e, 1, &scope, &element, constituent, sizeof(constituent), &actual), SWMM_OK);
+    QCOMPARE(
+        swmm_init_quality_get(e, 1, &scope, &element, constituent, sizeof(constituent), &actual),
+        SWMM_OK);
     QCOMPARE(actual, editOtherRow ? 9.25 : 8.76543219);
     QCOMPARE(dlg.wroteAnyChanges(), editOtherRow);
-    if (!editOtherRow) QCOMPARE(dlg.lastWriteCount(), 0);
+    if (!editOtherRow)
+        QCOMPARE(dlg.lastWriteCount(), 0);
 }
 
 void TestInitialQualityDialog::invalidationDiscardsDraftAndGuardsLaterSignals()

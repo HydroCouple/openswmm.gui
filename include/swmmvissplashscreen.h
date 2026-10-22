@@ -1,16 +1,17 @@
-/*!
- * \file   swmmvissplashscreen.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Application startup splash screen with configurable message colour
+/**
+ * @file      swmmvissplashscreen.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Application startup splash screen with configurable message colour
  *         and text alignment.
  *
- * \details SWMMVisSplashScreen extends QSplashScreen to allow custom text
+ * @details SWMMVisSplashScreen extends QSplashScreen to allow custom text
  *          colour and alignment, matching the SWMMVis branding.  The
  *          `onShowMessage` slot is connected to the splash's showMessage
  *          signal so multi-line startup progress messages are displayed in
  *          the correct colour and position.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef SPLASHSCREEN_H
@@ -35,14 +36,12 @@ class SWMMVisSplashScreen : public QSplashScreen
     Q_OBJECT
 
 public:
-
     /*!
      * \brief Constructs a splash screen from a pixmap.
      * \param pixmap  Splash image (shown full-screen on the splash widget).
      * \param f       Qt window flags.
      */
-    SWMMVisSplashScreen(const QPixmap &pixmap = QPixmap(),
-                        Qt::WindowFlags f     = Qt::WindowFlags());
+    SWMMVisSplashScreen(const QPixmap &pixmap = QPixmap(), Qt::WindowFlags f = Qt::WindowFlags());
 
     /*!
      * \brief Constructs a splash screen with an explicit parent widget.
@@ -50,9 +49,8 @@ public:
      * \param pixmap  Splash image.
      * \param f       Qt window flags.
      */
-    SWMMVisSplashScreen(QWidget *parent,
-                        const QPixmap &pixmap = QPixmap(),
-                        Qt::WindowFlags f     = Qt::WindowFlags());
+    SWMMVisSplashScreen(QWidget *parent, const QPixmap &pixmap = QPixmap(),
+                        Qt::WindowFlags f = Qt::WindowFlags());
 
     /*!
      * \brief Destructor.
@@ -88,10 +86,9 @@ public slots:
     void onShowMessage(const QString &message);
 
 private:
-
-    QColor        mColor;      ///< Text colour for the status message.
-    Qt::Alignment mAlignment;  ///< Alignment flags for the status message.
-    QString       mMessage;    ///< Current message text displayed on the splash.
+    QColor mColor;            ///< Text colour for the status message.
+    Qt::Alignment mAlignment; ///< Alignment flags for the status message.
+    QString mMessage;         ///< Current message text displayed on the splash.
 };
 
 #endif // SPLASHSCREEN_H

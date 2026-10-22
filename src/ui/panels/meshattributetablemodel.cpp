@@ -1,9 +1,13 @@
-/*!
- * \file   meshattributetablemodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshattributetablemodel.cpp
+ * @brief     Tabular model over one 2D mesh layer's vertices, edges or cells, so the Attribute
+ *            Table dock can list and edit mesh elements the same way it lists SWMM objects.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/attributevalue.h"
 #include "ui/panels/meshattributetablemodel.h"
 
@@ -34,48 +38,89 @@ using openswmmvis::ColumnSpec;
 using openswmmvis::EditorKind;
 using openswmmvis::UnitKind;
 
-namespace {
+namespace
+{
 
 /*! Resolve the semantic unit to a display string for the active flow-units
  *  system. Mirrors the private helper in swmmattributetablemodel.cpp; only the
- *  handful of kinds this model actually uses are distinguished. */
+ *  handful of kinds this model actually uses are distinguished.
+ * @param[in] kind Only Length distinguished, None/other kinds empty.
+ * @return Live global length label, ft without singleton. No mesh-SI special case, conversion or
+ *   source query.
+ */
 QString unitLabel(UnitKind kind)
 {
     auto *us = UnitSystem::instance();
     switch (kind) {
-    case UnitKind::None:   return {};
-    case UnitKind::Length: return us ? us->lengthLabel() : QStringLiteral("ft");
-    default:               return {};
+    case UnitKind::None:
+        return {};
+    case UnitKind::Length:
+        return us ? us->lengthLabel() : QStringLiteral("ft");
+    default:
+        return {};
     }
 }
 
-ColumnSpec ro(const QString &key, const QString &label,
-              UnitKind unit = UnitKind::None, const QString &tooltip = {})
+/**
+ * @param[in] key Exact lookup/setter key copied.
+ * @param[in] label Display label copied.
+ * @param[in] tooltip Optional raw explanatory text copied.
+ * @param[in] unit Copied semantic presentation kind, default None.
+ * @return ReadOnly column with empty setter token. No provider/candidate lookup, bounds
+ *   normalization, model notification or source write.
+ */
+ColumnSpec ro(const QString &key, const QString &label, UnitKind unit = UnitKind::None,
+              const QString &tooltip = {})
 {
     ColumnSpec c;
-    c.key = key; c.label = label; c.unit = unit; c.tooltip = tooltip;
+    c.key = key;
+    c.label = label;
+    c.unit = unit;
+    c.tooltip = tooltip;
     c.editor = EditorKind::ReadOnly;
     return c;
 }
 
-ColumnSpec num(const QString &key, const QString &label,
-               double minV, double maxV, int decimals,
+/**
+ * @param[in] key Exact lookup/setter key copied.
+ * @param[in] label Display label copied.
+ * @param[in] tooltip Optional raw explanatory text copied.
+ * @param[in] minV Raw editor lower bound, not direct-write validation.
+ * @param[in] maxV Raw editor upper bound, not direct-write validation.
+ * @param[in] decimals Raw editor precision; does not round stored data.
+ * @param[in] unit Copied presentation kind, default None.
+ * @return Numeric column with setter token equal to key. No provider/candidate lookup, bounds
+ *   normalization, model notification or source write.
+ */
+ColumnSpec num(const QString &key, const QString &label, double minV, double maxV, int decimals,
                UnitKind unit = UnitKind::None, const QString &tooltip = {})
 {
     ColumnSpec c;
-    c.key = key; c.label = label; c.tooltip = tooltip;
-    c.editor   = EditorKind::Numeric;
-    c.setter   = key;          // non-empty ⇒ editable; dispatch is by key
-    c.minValue = minV; c.maxValue = maxV; c.decimals = decimals;
-    c.unit     = unit;
+    c.key = key;
+    c.label = label;
+    c.tooltip = tooltip;
+    c.editor = EditorKind::Numeric;
+    c.setter = key; // non-empty ⇒ editable; dispatch is by key
+    c.minValue = minV;
+    c.maxValue = maxV;
+    c.decimals = decimals;
+    c.unit = unit;
     return c;
 }
 
-ColumnSpec text(const QString &key, const QString &label,
-                const QString &tooltip = {})
+/**
+ * @param[in] key Exact lookup/setter key copied.
+ * @param[in] label Display label copied.
+ * @param[in] tooltip Optional raw explanatory text copied.
+ * @return Text column with setter token equal to key. No provider/candidate lookup, bounds
+ *   normalization, model notification or source write.
+ */
+ColumnSpec text(const QString &key, const QString &label, const QString &tooltip = {})
 {
     ColumnSpec c;
-    c.key = key; c.label = label; c.tooltip = tooltip;
+    c.key = key;
+    c.label = label;
+    c.tooltip = tooltip;
     c.editor = EditorKind::Text;
     c.setter = key;
     return c;
@@ -84,14 +129,21 @@ ColumnSpec text(const QString &key, const QString &label,
 /*! A cell that names another model object. Rendered by CompoundEditDelegate →
  *  DataObjectPickerEditor: a non-editable combo of the objects that actually
  *  exist, plus a "…" button onto that family's editor. Free text cannot reach
- *  the model through it, which is the referential-integrity guarantee — a mesh
- *  edge cannot cite a time series nobody defined, and a vertex cannot couple to
- *  a node that isn't there. */
-ColumnSpec picker(const QString &key, const QString &label,
-                  const QString &tooltip = {})
+ *  model through normal closed-combo selection. Direct setData callers and stale
+ *  references still require validation by the underlying edit path.
+ * @param[in] key Exact lookup/setter key copied.
+ * @param[in] label Display label copied.
+ * @param[in] tooltip Optional raw explanatory text copied.
+ * @return Compound column with setter token equal to key; closed GUI picker is presentation, direct
+ *   setData can still supply raw names. No provider/candidate lookup, bounds normalization, model
+ *   notification or source write.
+ */
+ColumnSpec picker(const QString &key, const QString &label, const QString &tooltip = {})
 {
     ColumnSpec c;
-    c.key = key; c.label = label; c.tooltip = tooltip;
+    c.key = key;
+    c.label = label;
+    c.tooltip = tooltip;
     c.editor = EditorKind::Compound;
     c.setter = key;
     return c;
@@ -99,26 +151,36 @@ ColumnSpec picker(const QString &key, const QString &label,
 
 /*! A column naming another object: a closed picker when a model is bound,
  *  plain text when one is not (a mesh can be opened without its .inp, and a
- *  picker with nothing to offer would be a dead cell). */
+ *  picker with nothing to offer would be a dead cell).
+ * @param[in] key Exact lookup/setter key copied.
+ * @param[in] label Display label copied.
+ * @param[in] tooltip Optional raw explanatory text copied.
+ * @param[in] canPick True chooses Compound picker, false plain Text; no candidate/engine check
+ *   inside helper.
+ * @return Picker or text spec selected from supplied availability. No provider/candidate lookup,
+ *   bounds normalization, model notification or source write.
+ */
 ColumnSpec refCol(bool canPick, const QString &key, const QString &label,
                   const QString &tooltip = {})
 {
     return canPick ? picker(key, label, tooltip) : text(key, label, tooltip);
 }
 
-/*! The BC-type combo, in the same order the mesh-editing toolbar shows. */
+/*! The BC-type combo, in the same order the mesh-editing toolbar shows.
+ * @return Editable Enum bcType column from MeshBCTypes Wall through RatingCurve inclusive,
+ *   [label,stored-int] pairs in toolbar order. No source access, boundary gate or enum validation
+ *   here.
+ */
 ColumnSpec bcTypeCol()
 {
     using mesh::MeshBCTypes;
     ColumnSpec c;
-    c.key    = QStringLiteral("bcType");
-    c.label  = QCoreApplication::translate("MeshAttributeTableModel", "BC Type");
+    c.key = QStringLiteral("bcType");
+    c.label = QCoreApplication::translate("MeshAttributeTableModel", "BC Type");
     c.editor = EditorKind::Enum;
     c.setter = c.key;
-    for (int t = int(MeshBCTypes::Type::Wall);
-         t <= int(MeshBCTypes::Type::RatingCurve); ++t) {
-        c.enumValues.append(QVariantList{
-            MeshBCTypes::label(static_cast<MeshBCTypes::Type>(t)), t});
+    for (int t = int(MeshBCTypes::Type::Wall); t <= int(MeshBCTypes::Type::RatingCurve); ++t) {
+        c.enumValues.append(QVariantList{MeshBCTypes::label(static_cast<MeshBCTypes::Type>(t)), t});
     }
     return c;
 }
@@ -130,15 +192,20 @@ ColumnSpec bcTypeCol()
  *  so the labels stay display-only, exactly the contract bcTypeCol() follows
  *  for the BC type column. `infil.method` is the only such spec today; its
  *  values run over the mesh::InfilMethod range (None = -1 … Constant = 5),
- *  which is what CellParamSpec::min/max carry. */
+ *  which is what CellParamSpec::min/max carry.
+ * @param[in] s Borrowed CellParamSpec with UTF-8 key, labels and numeric min/max; assumes integral
+ *   minimum for stored enum offset.
+ * @return Editable Enum spec with each label stored as int(min)+index; enabled flag ignored locally
+ *   because caller branches first. No max/count consistency validation, source access or write.
+ */
 ColumnSpec enumCol(const mesh::CellParamSpec &s)
 {
     ColumnSpec c;
-    c.key      = QString::fromUtf8(s.key);
-    c.label    = s.label;
-    c.tooltip  = s.tooltip;
-    c.editor   = EditorKind::Enum;
-    c.setter   = c.key;
+    c.key = QString::fromUtf8(s.key);
+    c.label = s.label;
+    c.tooltip = s.tooltip;
+    c.editor = EditorKind::Enum;
+    c.setter = c.key;
     c.minValue = s.min;
     c.maxValue = s.max;
     for (int i = 0; i < s.enumLabels.size(); ++i)
@@ -154,34 +221,58 @@ ColumnSpec enumCol(const mesh::CellParamSpec &s)
  *  and hides the rest — here the inapplicable cells render "—" and refuse
  *  edits, so a boundary can't be left carrying a stage the engine will ignore
  *  or a curve reference nothing reads. `group` is orthogonal to the type and
- *  applies throughout. */
+ *  applies throughout.
+ * @param[in] t Resolved boundary type; unknown treated unused.
+ * @param[in] key Exact boundary parameter key; group always applies, even unknown type.
+ * @return True for slope/NormalFlow, head/constant-stage, flow/constant-flow, tseries/TS types,
+ *   curve/RatingCurve, or group; Wall has no non-group fields. Does not establish boundary status,
+ *   clear inactive values or mutate source.
+ */
 bool bcFieldApplies(mesh::MeshBCTypes::Type t, const QString &key)
 {
     using T = mesh::MeshBCTypes::Type;
-    if (key == QLatin1String("group")) return true;
+    if (key == QLatin1String("group"))
+        return true;
     switch (t) {
-    case T::Wall:                return false;
-    case T::NormalFlow:          return key == QLatin1String("slope");
-    case T::SpecifiedStageConst: return key == QLatin1String("head");
-    case T::SpecifiedStageTS:    return key == QLatin1String("tseries");
-    case T::SpecifiedFlowConst:  return key == QLatin1String("flow");
-    case T::SpecifiedFlowTS:     return key == QLatin1String("tseries");
-    case T::RatingCurve:         return key == QLatin1String("curve");
+    case T::Wall:
+        return false;
+    case T::NormalFlow:
+        return key == QLatin1String("slope");
+    case T::SpecifiedStageConst:
+        return key == QLatin1String("head");
+    case T::SpecifiedStageTS:
+        return key == QLatin1String("tseries");
+    case T::SpecifiedFlowConst:
+        return key == QLatin1String("flow");
+    case T::SpecifiedFlowTS:
+        return key == QLatin1String("tseries");
+    case T::RatingCurve:
+        return key == QLatin1String("curve");
     }
     return false;
 }
 
 /*! Endpoint vertex indices of local edge \p e on cell \p tri.
- *  Convention is mesh::edgeEndpoints (edge e = v[(e+1)%nv], v[(e+2)%nv]);
- *  \p e must be below the cell's vertex count (3 or 4). */
+ *  Convention is delegated to mesh::edgeEndpoints for the actual cell arity;
+ *  \p e must be below the cell's vertex count (3 or 4).
+ * @param[in] m Borrowed consistent mesh geometry.
+ * @param[in] tri Zero-based cell index, negative/out-of-range false.
+ * @param[in] e Zero-based local edge, must be below actual triangle/quad vertexCount.
+ * @param[out] va Required nonnull first endpoint; untouched for invalid cell/local edge, set before
+ *   endpoint-bounds failure.
+ * @param[out] vb Required nonnull second endpoint, same partial-output rule.
+ * @return True iff both resolved vertices in mesh bounds. No finite-coordinate test or mutation;
+ *   delegates edge convention to mesh::edgeEndpoints.
+ */
 bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
 {
-    if (tri < 0 || tri >= m.triangles.size() || e < 0) return false;
+    if (tri < 0 || tri >= m.triangles.size() || e < 0)
+        return false;
     const mesh::MeshTriangle &t = m.triangles[tri];
-    if (e >= t.vertexCount()) return false;
+    if (e >= t.vertexCount())
+        return false;
     mesh::edgeEndpoints(t, e, *va, *vb);
-    return *va >= 0 && *va < m.vertices.size()
-        && *vb >= 0 && *vb < m.vertices.size();
+    return *va >= 0 && *va < m.vertices.size() && *vb >= 0 && *vb < m.vertices.size();
 }
 
 /*! Placeholder shown in a cell that does not apply to this row (a BC field on
@@ -193,8 +284,7 @@ bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
 // Construction / binding
 // ===========================================================================
 
-MeshAttributeTableModel::MeshAttributeTableModel(QObject *parent)
-    : QAbstractTableModel(parent)
+MeshAttributeTableModel::MeshAttributeTableModel(QObject *parent) : QAbstractTableModel(parent)
 {
     rebuildColumns();
 }
@@ -215,7 +305,8 @@ void MeshAttributeTableModel::setModelLayer(SWMMModelLayer *layer)
     // so the schema itself changes — a reset, not a dataChanged.
     beginResetModel();
     m_modelLayer = layer;
-    if(m_layer)m_layer->setInfiltrationModel(layer);
+    if (m_layer)
+        m_layer->setInfiltrationModel(layer);
     rebuildColumns();
     endResetModel();
 }
@@ -225,22 +316,26 @@ bool MeshAttributeTableModel::canPick() const
     return m_modelLayer && m_modelLayer->engine();
 }
 
-QVariant MeshAttributeTableModel::pickerRef(const QString &key,
-                                            const QString &current) const
+QVariant MeshAttributeTableModel::pickerRef(const QString &key, const QString &current) const
 {
-    if (!m_modelLayer || !m_modelLayer->engine()) return {};
+    if (!m_modelLayer || !m_modelLayer->engine())
+        return {};
     DataObjectRef ref;
-    ref.engine      = m_modelLayer->engine();
-    ref.layer       = m_modelLayer;
+    ref.engine = m_modelLayer->engine();
+    ref.layer = m_modelLayer;
     ref.currentName = current;
-    if (key == QLatin1String("coupledNode"))   ref.kind = DataObjectRef::Node;
-    else if (key == QLatin1String("tseries"))  ref.kind = DataObjectRef::TimeSeries;
+    if (key == QLatin1String("coupledNode"))
+        ref.kind = DataObjectRef::Node;
+    else if (key == QLatin1String("tseries"))
+        ref.kind = DataObjectRef::TimeSeries;
     // The engine resolves a 2D rating curve against the whole table namespace
     // (SurfaceRouter2D's ctx.table_names lookup), so the picker offers every
     // curve rather than only those typed RATING — narrowing it here would hide
     // choices the engine accepts.
-    else if (key == QLatin1String("curve"))    ref.kind = DataObjectRef::AnyCurve;
-    else return {};
+    else if (key == QLatin1String("curve"))
+        ref.kind = DataObjectRef::AnyCurve;
+    else
+        return {};
     return QVariant::fromValue(ref);
 }
 
@@ -253,8 +348,9 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind)
     if (m_layer)
         disconnect(m_layer, nullptr, this, nullptr);
     m_layer = layer;
-    if(m_layer)m_layer->setInfiltrationModel(m_modelLayer);
-    m_kind  = kind;
+    if (m_layer)
+        m_layer->setInfiltrationModel(m_modelLayer);
+    m_kind = kind;
     connectLayer(layer);
     rebuildColumns();
     rebuildEdgeRows();
@@ -263,10 +359,10 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind)
 
 void MeshAttributeTableModel::connectLayer(SWMM2DMeshLayer *layer)
 {
-    if (!layer) return;
-    connect(layer, &SWMM2DMeshLayer::attributeChanged,
-            this,  &MeshAttributeTableModel::onLayerAttributeChanged,
-            Qt::UniqueConnection);
+    if (!layer)
+        return;
+    connect(layer, &SWMM2DMeshLayer::attributeChanged, this,
+            &MeshAttributeTableModel::onLayerAttributeChanged, Qt::UniqueConnection);
     // Bulk mutations carry no single element ref — repaint every row rather
     // than trying to work out which ones moved.
     connect(layer, &SWMM2DMeshLayer::meshEditsChanged, this, [this]() {
@@ -276,10 +372,10 @@ void MeshAttributeTableModel::connectLayer(SWMM2DMeshLayer *layer)
     });
     // A progressive load only gains its boundary flags + vertex adjacency here,
     // and the Edge rows are built from both.
-    connect(layer, &SWMM2DMeshLayer::sceneGeometryReady,
-            this,  &MeshAttributeTableModel::reload, Qt::UniqueConnection);
-    connect(layer, &SWMM2DMeshLayer::selectionInvalidated,
-            this,  &MeshAttributeTableModel::reload, Qt::UniqueConnection);
+    connect(layer, &SWMM2DMeshLayer::sceneGeometryReady, this, &MeshAttributeTableModel::reload,
+            Qt::UniqueConnection);
+    connect(layer, &SWMM2DMeshLayer::selectionInvalidated, this, &MeshAttributeTableModel::reload,
+            Qt::UniqueConnection);
 }
 
 void MeshAttributeTableModel::reload()
@@ -300,42 +396,41 @@ void MeshAttributeTableModel::rebuildColumns()
 
     switch (m_kind) {
     case Kind::Vertex:
-        m_columnSpecs
-            << ro(QStringLiteral("Index"), tr("Index"))
-            << ro(QStringLiteral("X"), tr("X"), UnitKind::None,
-                  tr("Vertex easting in project map units. Move a vertex on "
-                     "the map — coordinates are not editable here."))
-            << ro(QStringLiteral("Y"), tr("Y"), UnitKind::None,
-                  tr("Vertex northing in project map units. Move a vertex on "
-                     "the map — coordinates are not editable here."))
-            << ro(QStringLiteral("Marker"), tr("Marker"), UnitKind::None,
-                  tr("Triangle input/output point marker carried through "
-                     "mesh generation."))
-            << num(QStringLiteral("z"), tr("Elevation"), -1.0e6, 1.0e6, 3,
-                   UnitKind::Length,
-                   tr("Bed elevation in project vertical units "
-                      "([2D_VERTICES] Z column)."))
-            << text(QStringLiteral("tag"), tr("Tag"),
-                    tr("Descriptive vertex tag ([2D_VERTICES] TAG column)."))
-            << refCol(canPick(), QStringLiteral("coupledNode"), tr("Coupled Node"),
-                      tr("Coupled SWMM node ([2D_VERTEX_NODE_MAP]). Pick from "
-                         "the model's nodes; blank = uncoupled."))
-            << num(QStringLiteral("couplingCd"), tr("Coupling Cd"),
-                   0.001, 1.0, 3, UnitKind::None,
-                   tr("Coupling discharge coefficient ([2D_VERTEX_NODE_MAP] CD "
-                      "column). Coupled vertices only; default 0.65."))
-            // The AREA column is mesh-length² — the engine scales it with the
-            // mesh coordinates (ft² on a US project unless the mesh file is
-            // tagged `;; UNITS: SI (m)`), so the label follows the layer.
-            << num(QStringLiteral("couplingArea"),
-                   tr("Coupling Area (%1)").arg(
-                       (m_layer && m_layer->meshUnitsSI())
-                           ? QStringLiteral("m²")
-                           : unitLabel(UnitKind::Length) + QStringLiteral("²")),
-                   0.0001, 1.0e6, 3, UnitKind::None,
-                   tr("Coupling exchange area in the mesh's length units squared "
-                      "([2D_VERTEX_NODE_MAP] AREA column). Coupled vertices only; "
-                      "default 1.0."));
+        m_columnSpecs << ro(QStringLiteral("Index"), tr("Index"))
+                      << ro(QStringLiteral("X"), tr("X"), UnitKind::None,
+                            tr("Vertex easting in project map units. Move a vertex on "
+                               "the map — coordinates are not editable here."))
+                      << ro(QStringLiteral("Y"), tr("Y"), UnitKind::None,
+                            tr("Vertex northing in project map units. Move a vertex on "
+                               "the map — coordinates are not editable here."))
+                      << ro(QStringLiteral("Marker"), tr("Marker"), UnitKind::None,
+                            tr("Triangle input/output point marker carried through "
+                               "mesh generation."))
+                      << num(QStringLiteral("z"), tr("Elevation"), -1.0e6, 1.0e6, 3,
+                             UnitKind::Length,
+                             tr("Bed elevation in project vertical units "
+                                "([2D_VERTICES] Z column)."))
+                      << text(QStringLiteral("tag"), tr("Tag"),
+                              tr("Descriptive vertex tag ([2D_VERTICES] TAG column)."))
+                      << refCol(canPick(), QStringLiteral("coupledNode"), tr("Coupled Node"),
+                                tr("Coupled SWMM node ([2D_VERTEX_NODE_MAP]). Pick from "
+                                   "the model's nodes; blank = uncoupled."))
+                      << num(QStringLiteral("couplingCd"), tr("Coupling Cd"), 0.001, 1.0, 3,
+                             UnitKind::None,
+                             tr("Coupling discharge coefficient ([2D_VERTEX_NODE_MAP] CD "
+                                "column). Coupled vertices only; default 0.65."))
+                      // The AREA column is mesh-length² — the engine scales it with the
+                      // mesh coordinates (ft² on a US project unless the mesh file is
+                      // tagged `;; UNITS: SI (m)`), so the label follows the layer.
+                      << num(QStringLiteral("couplingArea"),
+                             tr("Coupling Area (%1)")
+                                 .arg((m_layer && m_layer->meshUnitsSI())
+                                          ? QStringLiteral("m²")
+                                          : unitLabel(UnitKind::Length) + QStringLiteral("²")),
+                             0.0001, 1.0e6, 3, UnitKind::None,
+                             tr("Coupling exchange area in the mesh's length units squared "
+                                "([2D_VERTEX_NODE_MAP] AREA column). Coupled vertices only; "
+                                "default 1.0."));
         break;
 
     case Kind::Edge:
@@ -348,22 +443,18 @@ void MeshAttributeTableModel::rebuildColumns()
                   tr("Whether the edge lies on the mesh outline (or a hole). "
                      "Boundary conditions apply to these edges only."))
             << ro(QStringLiteral("Length"), tr("Length (map units)"))
-            << num(QStringLiteral("conveyance"), tr("Conveyance"), 0.0, 1.0, 4,
-                   UnitKind::None,
+            << num(QStringLiteral("conveyance"), tr("Conveyance"), 0.0, 1.0, 4, UnitKind::None,
                    tr("Flux attenuation multiplier in [0, 1]; 1 = "
                       "unrestricted. Applies to interior edges too, and is "
                       "mirrored onto the neighbouring half."))
             << bcTypeCol()
-            << num(QStringLiteral("head"), tr("Stage"), -1.0e9, 1.0e9, 4,
-                   UnitKind::Length,
+            << num(QStringLiteral("head"), tr("Stage"), -1.0e9, 1.0e9, 4, UnitKind::Length,
                    tr("Fixed water-surface elevation for a Specified Stage "
                       "(constant) boundary."))
-            << num(QStringLiteral("slope"), tr("Friction Slope"), 0.0, 1.0e6, 6,
-                   UnitKind::None,
+            << num(QStringLiteral("slope"), tr("Friction Slope"), 0.0, 1.0e6, 6, UnitKind::None,
                    tr("Dimensionless friction slope for a Normal Depth boundary. "
                       "Zero conveys no flow and acts as a wall."))
-            << num(QStringLiteral("flow"), tr("Flow"), -1.0e12, 1.0e12, 4,
-                   UnitKind::None,
+            << num(QStringLiteral("flow"), tr("Flow"), -1.0e12, 1.0e12, 4, UnitKind::None,
                    tr("Discharge per metre of edge for a Specified Flow "
                       "(constant) boundary."))
             << refCol(canPick(), QStringLiteral("tseries"), tr("Time Series"),
@@ -372,38 +463,32 @@ void MeshAttributeTableModel::rebuildColumns()
             << refCol(canPick(), QStringLiteral("curve"), tr("Rating Curve"),
                       tr("Stage → flow curve for a Rating Curve boundary. Pick "
                          "from the project's curves."))
-            << text(QStringLiteral("group"), tr("Group"),
-                    tr("Optional named boundary group."));
+            << text(QStringLiteral("group"), tr("Group"), tr("Optional named boundary group."));
         break;
 
     case Kind::Cell:
-        m_columnSpecs
-            << ro(QStringLiteral("Index"), tr("Index"))
-            << ro(QStringLiteral("Vertices"), tr("Vertices"), UnitKind::None,
-                  tr("Corner count: 3 for a triangle ([2D_TRIANGLES]), 4 for "
-                     "a quadrilateral ([2D_QUADS])."))
-            << ro(QStringLiteral("Area"), tr("Area (map units²)"))
-            << ro(QStringLiteral("Centroid X"), tr("Centroid X"))
-            << ro(QStringLiteral("Centroid Y"), tr("Centroid Y"))
-            << text(QStringLiteral("tag"), tr("Tag"),
-                    tr("Descriptive cell tag ([2D_TRIANGLES] TAG column)."));
+        m_columnSpecs << ro(QStringLiteral("Index"), tr("Index"))
+                      << ro(QStringLiteral("Vertices"), tr("Vertices"), UnitKind::None,
+                            tr("Corner count: 3 for a triangle ([2D_TRIANGLES]), 4 for "
+                               "a quadrilateral ([2D_QUADS])."))
+                      << ro(QStringLiteral("Area"), tr("Area (map units²)"))
+                      << ro(QStringLiteral("Centroid X"), tr("Centroid X"))
+                      << ro(QStringLiteral("Centroid Y"), tr("Centroid Y"))
+                      << text(QStringLiteral("tag"), tr("Tag"),
+                              tr("Descriptive cell tag ([2D_TRIANGLES] TAG column)."));
         m_firstCellParamCol = int(m_columnSpecs.size());
         // One column per registry entry, so a new per-cell parameter shows up
         // here the moment it is added to mesh::cellParamSpecs().
         for (const mesh::CellParamSpec &s : mesh::cellParamSpecs()) {
             const QString key = QString::fromUtf8(s.key);
             if (!s.enabled) {
-                m_columnSpecs << ro(key, s.label,
-                                    s.lengthUnit ? UnitKind::Length
-                                                 : UnitKind::None,
+                m_columnSpecs << ro(key, s.label, s.lengthUnit ? UnitKind::Length : UnitKind::None,
                                     s.tooltip);
             } else if (s.kind == mesh::CellParamSpec::Kind::Enum) {
                 m_columnSpecs << enumCol(s);
             } else {
                 m_columnSpecs << num(key, s.label, s.min, s.max, s.decimals,
-                                     s.lengthUnit ? UnitKind::Length
-                                                  : UnitKind::None,
-                                     s.tooltip);
+                                     s.lengthUnit ? UnitKind::Length : UnitKind::None, s.tooltip);
             }
         }
         break;
@@ -414,28 +499,31 @@ void MeshAttributeTableModel::rebuildEdgeRows()
 {
     m_edgeSlots.clear();
     m_slotRow.clear();
-    if (!m_layer || m_kind != Kind::Edge) return;
+    if (!m_layer || m_kind != Kind::Edge)
+        return;
     // findEdgeNeighbour needs the vertex adjacency, which a progressive load
     // only builds in its background pass. Listing 3T rows before then would
     // double-count every interior edge, so stay empty until it is ready — the
     // sceneGeometryReady connection re-runs this.
-    if (!m_layer->sceneGeometryComplete()) return;
+    if (!m_layer->sceneGeometryComplete())
+        return;
 
     const int nTri = m_layer->triangleCount();
     const auto &cells = m_layer->mesh().triangles;
     m_edgeSlots.reserve((3 * nTri + 1) / 2);
     m_slotRow.reserve(3 * nTri);
     for (int t = 0; t < nTri; ++t) {
-        const int nv = cells[t].vertexCount();   // 3 edges, or 4 on a quad
+        const int nv = cells[t].vertexCount(); // 3 edges, or 4 on a quad
         for (int e = 0; e < nv; ++e) {
             const int flat = mesh::edgeSlot(t, e);
             // Scanning in increasing flat order means the first slot reached
             // is always the lower one, which becomes the canonical row.
-            if (m_slotRow.contains(flat)) continue;
+            if (m_slotRow.contains(flat))
+                continue;
             const int row = int(m_edgeSlots.size());
             m_edgeSlots.append(flat);
             m_slotRow.insert(flat, row);
-            const QPair<int,int> nbr = m_layer->findEdgeNeighbour(t, e);
+            const QPair<int, int> nbr = m_layer->findEdgeNeighbour(t, e);
             if (nbr.first >= 0 && nbr.second >= 0)
                 m_slotRow.insert(mesh::edgeSlot(nbr.first, nbr.second), row);
         }
@@ -448,21 +536,27 @@ void MeshAttributeTableModel::rebuildEdgeRows()
 
 int MeshAttributeTableModel::slotForRow(int row) const
 {
-    if (m_kind != Kind::Edge) return -1;
-    if (row < 0 || row >= m_edgeSlots.size()) return -1;
+    if (m_kind != Kind::Edge)
+        return -1;
+    if (row < 0 || row >= m_edgeSlots.size())
+        return -1;
     return m_edgeSlots[row];
 }
 
 SWMMObjectRef MeshAttributeTableModel::refForRow(int row) const
 {
-    if (!m_layer || row < 0 || row >= rowCount()) return {};
+    if (!m_layer || row < 0 || row >= rowCount())
+        return {};
     const QString path = m_layer->sourcePath();
     switch (m_kind) {
-    case Kind::Vertex: return mesh::MeshObjectRef::vertex(path, row);
-    case Kind::Cell:   return mesh::MeshObjectRef::cell(path, row);
+    case Kind::Vertex:
+        return mesh::MeshObjectRef::vertex(path, row);
+    case Kind::Cell:
+        return mesh::MeshObjectRef::cell(path, row);
     case Kind::Edge: {
         const int flat = slotForRow(row);
-        if (flat < 0) return {};
+        if (flat < 0)
+            return {};
         return mesh::MeshObjectRef::edge(path, mesh::slotCell(flat), mesh::slotLocal(flat));
     }
     }
@@ -471,26 +565,33 @@ SWMMObjectRef MeshAttributeTableModel::refForRow(int row) const
 
 int MeshAttributeTableModel::rowForRef(const SWMMObjectRef &ref) const
 {
-    if (!m_layer) return -1;
+    if (!m_layer)
+        return -1;
     const QString wantKey = mesh::MeshObjectRef::layerKey(m_layer->sourcePath());
     QString lk;
     switch (m_kind) {
     case Kind::Vertex: {
         int v = -1;
-        if (!mesh::MeshObjectRef::parseVertex(ref, &lk, &v)) return -1;
-        if (lk != wantKey || v < 0 || v >= m_layer->vertexCount()) return -1;
+        if (!mesh::MeshObjectRef::parseVertex(ref, &lk, &v))
+            return -1;
+        if (lk != wantKey || v < 0 || v >= m_layer->vertexCount())
+            return -1;
         return v;
     }
     case Kind::Cell: {
         int t = -1;
-        if (!mesh::MeshObjectRef::parseCell(ref, &lk, &t)) return -1;
-        if (lk != wantKey || t < 0 || t >= m_layer->triangleCount()) return -1;
+        if (!mesh::MeshObjectRef::parseCell(ref, &lk, &t))
+            return -1;
+        if (lk != wantKey || t < 0 || t >= m_layer->triangleCount())
+            return -1;
         return t;
     }
     case Kind::Edge: {
         int t = -1, e = -1;
-        if (!mesh::MeshObjectRef::parseEdge(ref, &lk, &t, &e)) return -1;
-        if (lk != wantKey) return -1;
+        if (!mesh::MeshObjectRef::parseEdge(ref, &lk, &t, &e))
+            return -1;
+        if (lk != wantKey)
+            return -1;
         // Either half of an interior pair maps to the one canonical row.
         return m_slotRow.value(mesh::edgeSlot(t, e), -1);
     }
@@ -500,30 +601,38 @@ int MeshAttributeTableModel::rowForRef(const SWMMObjectRef &ref) const
 
 QRectF MeshAttributeTableModel::elementExtent(int row, bool *ok) const
 {
-    if (ok) *ok = false;
-    if (!m_layer || row < 0 || row >= rowCount()) return {};
+    if (ok)
+        *ok = false;
+    if (!m_layer || row < 0 || row >= rowCount())
+        return {};
     const mesh::MeshResult &m = m_layer->mesh();
     switch (m_kind) {
     case Kind::Vertex: {
-        if (row >= m.vertices.size()) return {};
+        if (row >= m.vertices.size())
+            return {};
         const QPointF p = m.vertices[row].xy;
-        if (ok) *ok = true;
+        if (ok)
+            *ok = true;
         return QRectF(p, p);
     }
     case Kind::Edge: {
         const int flat = slotForRow(row);
         int va = -1, vb = -1;
-        if (flat < 0 || !edgeEndpoints(m, mesh::slotCell(flat), mesh::slotLocal(flat), &va, &vb)) return {};
-        if (ok) *ok = true;
+        if (flat < 0 || !edgeEndpoints(m, mesh::slotCell(flat), mesh::slotLocal(flat), &va, &vb))
+            return {};
+        if (ok)
+            *ok = true;
         return QRectF(m.vertices[va].xy, m.vertices[vb].xy).normalized();
     }
     case Kind::Cell: {
-        if (row >= m.triangles.size()) return {};
+        if (row >= m.triangles.size())
+            return {};
         const mesh::MeshTriangle &t = m.triangles[row];
         const int nv = t.vertexCount();
         for (int k = 0; k < nv; ++k) {
             const int v = t.vertex(k);
-            if (v < 0 || v >= m.vertices.size()) return {};
+            if (v < 0 || v >= m.vertices.size())
+                return {};
         }
         // Bounding box by hand: QRectF::united() ignores a zero-size rect,
         // so uniting QRectF(c, c) per vertex would drop every vertex after
@@ -531,10 +640,13 @@ QRectF MeshAttributeTableModel::elementExtent(int row, bool *ok) const
         QPointF lo = m.vertices[t.v0].xy, hi = lo;
         for (int k = 1; k < nv; ++k) {
             const QPointF c = m.vertices[t.vertex(k)].xy;
-            lo.setX(qMin(lo.x(), c.x())); lo.setY(qMin(lo.y(), c.y()));
-            hi.setX(qMax(hi.x(), c.x())); hi.setY(qMax(hi.y(), c.y()));
+            lo.setX(qMin(lo.x(), c.x()));
+            lo.setY(qMin(lo.y(), c.y()));
+            hi.setX(qMax(hi.x(), c.x()));
+            hi.setY(qMax(hi.y(), c.y()));
         }
-        if (ok) *ok = true;
+        if (ok)
+            *ok = true;
         return QRectF(lo, hi);
     }
     }
@@ -547,11 +659,15 @@ QRectF MeshAttributeTableModel::elementExtent(int row, bool *ok) const
 
 int MeshAttributeTableModel::rowCount(const QModelIndex &parent) const
 {
-    if (parent.isValid() || !m_layer) return 0;
+    if (parent.isValid() || !m_layer)
+        return 0;
     switch (m_kind) {
-    case Kind::Vertex: return m_layer->vertexCount();
-    case Kind::Cell:   return m_layer->triangleCount();
-    case Kind::Edge:   return int(m_edgeSlots.size());
+    case Kind::Vertex:
+        return m_layer->vertexCount();
+    case Kind::Cell:
+        return m_layer->triangleCount();
+    case Kind::Edge:
+        return int(m_edgeSlots.size());
     }
     return 0;
 }
@@ -563,48 +679,57 @@ int MeshAttributeTableModel::columnCount(const QModelIndex &parent) const
 
 bool MeshAttributeTableModel::rowIsBoundaryEdge(int row) const
 {
-    if (!m_layer || m_kind != Kind::Edge) return false;
+    if (!m_layer || m_kind != Kind::Edge)
+        return false;
     const int flat = slotForRow(row);
-    if (flat < 0) return false;
+    if (flat < 0)
+        return false;
     return m_layer->isBoundaryEdge(mesh::slotCell(flat), mesh::slotLocal(flat));
 }
 
-bool MeshAttributeTableModel::cellInfilParamApplies(int row,
-                                                    const QByteArray &key) const
+bool MeshAttributeTableModel::cellInfilParamApplies(int row, const QByteArray &key) const
 {
-    if (!m_layer || m_kind != Kind::Cell) return false;
-    if (!m_layer->surfaceInfiltrationEditable(row)) return false;
-    if (key == "infil.method") return true;   // the method itself always applies
+    if (!m_layer || m_kind != Kind::Cell)
+        return false;
+    if (!m_layer->surfaceInfiltrationEditable(row))
+        return false;
+    if (key == "infil.method")
+        return true; // the method itself always applies
     const mesh::ResolvedInfil r = mesh::resolveInfil(m_layer->mesh(), row);
     return mesh::infilSlotForKey(r.row.method, key) >= 0;
 }
 
 mesh::InfilProvenance MeshAttributeTableModel::cellInfilProvenance(int row) const
 {
-    if (!m_layer || m_kind != Kind::Cell) return mesh::InfilProvenance::None;
+    if (!m_layer || m_kind != Kind::Cell)
+        return mesh::InfilProvenance::None;
     return mesh::resolveInfil(m_layer->mesh(), row).provenance;
 }
 
 QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 {
-    if (role == openswmmvis::kAttributeSortRole && index.isValid()
-        && m_kind == Kind::Edge && index.column() == 0)
+    if (role == openswmmvis::kAttributeSortRole && index.isValid() && m_kind == Kind::Edge &&
+        index.column() == 0)
         return slotForRow(index.row());
     if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
         return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
-    if (!index.isValid() || !m_layer) return {};
+    if (!index.isValid() || !m_layer)
+        return {};
 
     // An infiltration value a cell INHERITS from its region tag (or from the
     // mesh-wide '*' row) renders muted + italic, the same way the property
     // panels mark a value that is only a default. An overridden cell renders
     // normally, so "this number belongs to this cell" is visible at a glance
     // — which matters because editing an inherited cell detaches it from its
-    // region for good.
+    // region until the override is removed or undone.
     if (role == Qt::FontRole || role == Qt::ForegroundRole) {
-        if (m_kind != Kind::Cell || m_firstCellParamCol < 0) return {};
+        if (m_kind != Kind::Cell || m_firstCellParamCol < 0)
+            return {};
         const int col = index.column();
-        if (col < m_firstCellParamCol || col >= m_columnSpecs.size()) return {};
-        if (!m_columnSpecs[col].key.startsWith(QLatin1String("infil."))) return {};
+        if (col < m_firstCellParamCol || col >= m_columnSpecs.size())
+            return {};
+        if (!m_columnSpecs[col].key.startsWith(QLatin1String("infil.")))
+            return {};
         const mesh::InfilProvenance p = cellInfilProvenance(index.row());
         if (p != mesh::InfilProvenance::Tag && p != mesh::InfilProvenance::Star)
             return {};
@@ -613,12 +738,10 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
             f.setItalic(true);
             return f;
         }
-        return QBrush(QGuiApplication::palette().color(QPalette::Disabled,
-                                                       QPalette::Text));
+        return QBrush(QGuiApplication::palette().color(QPalette::Disabled, QPalette::Text));
     }
 
-    if (role != Qt::DisplayRole && role != Qt::EditRole
-        && role != Qt::ToolTipRole)
+    if (role != Qt::DisplayRole && role != Qt::EditRole && role != Qt::ToolTipRole)
         return {};
 
     const int row = index.row(), col = index.column();
@@ -632,28 +755,39 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 
     switch (m_kind) {
     case Kind::Vertex: {
-        if (row >= m.vertices.size()) return {};
+        if (row >= m.vertices.size())
+            return {};
         const mesh::MeshVertex &v = m.vertices[row];
-        if (spec.key == QLatin1String("Index"))        return row;
-        if (spec.key == QLatin1String("X"))            return v.xy.x();
-        if (spec.key == QLatin1String("Y"))            return v.xy.y();
-        if (spec.key == QLatin1String("Marker"))       return v.marker;
-        if (spec.key == QLatin1String("z"))            return v.z;
-        if (spec.key == QLatin1String("tag"))          return v.tag;
+        if (spec.key == QLatin1String("Index"))
+            return row;
+        if (spec.key == QLatin1String("X"))
+            return v.xy.x();
+        if (spec.key == QLatin1String("Y"))
+            return v.xy.y();
+        if (spec.key == QLatin1String("Marker"))
+            return v.marker;
+        if (spec.key == QLatin1String("z"))
+            return v.z;
+        if (spec.key == QLatin1String("tag"))
+            return v.tag;
         if (spec.key == QLatin1String("coupledNode")) {
             // EditRole hands the delegate a picker over the model's nodes;
             // DisplayRole stays a plain string so the query bar, Copy and CSV
             // export see the id and nothing else.
             if (role == Qt::EditRole) {
                 const QVariant ref = pickerRef(spec.key, v.coupledNode);
-                if (ref.isValid()) return ref;
+                if (ref.isValid())
+                    return ref;
             }
-            if (role == Qt::EditRole) return v.coupledNode;
-            return v.coupledNode.isEmpty() ? missing(tr("No coupled node assigned.")) : QVariant(v.coupledNode);
+            if (role == Qt::EditRole)
+                return v.coupledNode;
+            return v.coupledNode.isEmpty() ? missing(tr("No coupled node assigned."))
+                                           : QVariant(v.coupledNode);
         }
         // Coefficients have no physical meaning until a node is assigned.
         if (spec.key == QLatin1String("couplingCd") || spec.key == QLatin1String("couplingArea")) {
-            if (v.coupledNode.isEmpty()) return missing(tr("Not applicable: no coupled node assigned."));
+            if (v.coupledNode.isEmpty())
+                return missing(tr("Not applicable: no coupled node assigned."));
             return spec.key == QLatin1String("couplingCd") ? v.couplingCd : v.couplingArea;
         }
         return {};
@@ -661,7 +795,8 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 
     case Kind::Edge: {
         const int flat = slotForRow(row);
-        if (flat < 0) return {};
+        if (flat < 0)
+            return {};
         const int tri = mesh::slotCell(flat), e = mesh::slotLocal(flat);
         if (spec.key == QLatin1String("Edge"))
             return QStringLiteral("%1:%2").arg(tri).arg(e);
@@ -669,85 +804,101 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
             return m_layer->isBoundaryEdge(tri, e) ? tr("Yes") : tr("No");
         if (spec.key == QLatin1String("Length")) {
             int va = -1, vb = -1;
-            if (!edgeEndpoints(m, tri, e, &va, &vb)) return {};
+            if (!edgeEndpoints(m, tri, e, &va, &vb))
+                return {};
             return QLineF(m.vertices[va].xy, m.vertices[vb].xy).length();
         }
         const QVector<mesh::MeshEdgeBC> &bcs = m_layer->edgeBCs();
-        if (flat >= bcs.size()) return {};
+        if (flat >= bcs.size())
+            return {};
         const mesh::MeshEdgeBC &bc = bcs[flat];
-        if (spec.key == QLatin1String("conveyance")) return bc.conveyance;
+        if (spec.key == QLatin1String("conveyance"))
+            return bc.conveyance;
         // Every remaining column is a boundary-condition field.
         if (!m_layer->isBoundaryEdge(tri, e))
             return missing(tr("Not applicable on an interior edge."));
         if (spec.key == QLatin1String("bcType")) {
-            if (role == Qt::EditRole) return int(bc.type);
+            if (role == Qt::EditRole)
+                return int(bc.type);
             return mesh::MeshBCTypes::label(bc.type);
         }
         // A parameter this BC type does not read carries no meaning — show it
         // as inapplicable rather than as a stale number the engine ignores.
         if (!bcFieldApplies(bc.type, spec.key))
             return missing(tr("Not used by this boundary condition."));
-        if (spec.key == QLatin1String("head"))    return bc.head;
-        if (spec.key == QLatin1String("slope"))   return bc.slope;
-        if (spec.key == QLatin1String("flow"))    return bc.flow;
-        if (spec.key == QLatin1String("tseries")
-            || spec.key == QLatin1String("curve")) {
-            const QString cur = (spec.key == QLatin1String("tseries"))
-                                    ? bc.tseries : bc.curve;
+        if (spec.key == QLatin1String("head"))
+            return bc.head;
+        if (spec.key == QLatin1String("slope"))
+            return bc.slope;
+        if (spec.key == QLatin1String("flow"))
+            return bc.flow;
+        if (spec.key == QLatin1String("tseries") || spec.key == QLatin1String("curve")) {
+            const QString cur = (spec.key == QLatin1String("tseries")) ? bc.tseries : bc.curve;
             if (role == Qt::EditRole) {
                 const QVariant ref = pickerRef(spec.key, cur);
-                if (ref.isValid()) return ref;
+                if (ref.isValid())
+                    return ref;
             }
-            if (role == Qt::EditRole) return cur;
+            if (role == Qt::EditRole)
+                return cur;
             return cur.isEmpty() ? missing(tr("No reference assigned.")) : QVariant(cur);
         }
-        if (spec.key == QLatin1String("group"))   return bc.group;
+        if (spec.key == QLatin1String("group"))
+            return bc.group;
         return {};
     }
 
     case Kind::Cell: {
-        if (row >= m.triangles.size()) return {};
+        if (row >= m.triangles.size())
+            return {};
         const mesh::MeshTriangle &t = m.triangles[row];
-        if (spec.key == QLatin1String("Index"))    return row;
-        if (spec.key == QLatin1String("Vertices")) return t.vertexCount();
-        if (spec.key == QLatin1String("Area"))     return mesh::triangleArea(m, row);
-        if (spec.key == QLatin1String("Centroid X")
-            || spec.key == QLatin1String("Centroid Y")) {
+        if (spec.key == QLatin1String("Index"))
+            return row;
+        if (spec.key == QLatin1String("Vertices"))
+            return t.vertexCount();
+        if (spec.key == QLatin1String("Area"))
+            return mesh::triangleArea(m, row);
+        if (spec.key == QLatin1String("Centroid X") || spec.key == QLatin1String("Centroid Y")) {
             const int nv = t.vertexCount();
             for (int k = 0; k < nv; ++k) {
                 const int v = t.vertex(k);
-                if (v < 0 || v >= m.vertices.size()) return {};
+                if (v < 0 || v >= m.vertices.size())
+                    return {};
             }
             // Area centroid (mesh::cellGeom) — the vertex mean for a
             // triangle, area-weighted over the sub-triangles for a quad.
             const QPointF c = mesh::cellCentroid(m, row);
             return spec.key == QLatin1String("Centroid X") ? c.x() : c.y();
         }
-        if (spec.key == QLatin1String("tag")) return t.tag;
+        if (spec.key == QLatin1String("tag"))
+            return t.tag;
         // Per-cell parameter: unset reads back as the registry default, which
         // is what the engine would use; engine-pending keys have no value.
         const QByteArray key = spec.key.toUtf8();
         const mesh::CellParamSpec *cs = mesh::cellParamSpec(key);
-        if (!cs) return {};
-        const bool diagnostic = key == "infil.owner" || key == "infil.conflict"
-                             || key.startsWith("surface.");
+        if (!cs)
+            return {};
+        const bool diagnostic =
+            key == "infil.owner" || key == "infil.conflict" || key.startsWith("surface.");
         if (!cs->enabled && !diagnostic)
             return missing(cs->tooltip);
         if (!diagnostic && key.startsWith("infil.") && !m_layer->surfaceInfiltrationEditable(row))
             return missing(m.infiltrationOwner.value(row) == 0
-                ? tr("Not applicable: infiltration is disabled.")
-                : tr("Not applicable: infiltration is computed by the aquifer."));
+                               ? tr("Not applicable: infiltration is disabled.")
+                               : tr("Not applicable: infiltration is computed by the aquifer."));
         if (!diagnostic && key.startsWith("infil.") && !cellInfilParamApplies(row, key))
             return missing(tr("Not used by this infiltration method."));
         const double value = mesh::cellParamValue(m, row, key);
         if (diagnostic && !std::isfinite(value))
             return missing(tr("Resolved ownership data is not available."));
         if (cs->kind == mesh::CellParamSpec::Kind::Enum) {
-            if (!std::isfinite(value)) return missing(tr("No resolved value is available."));
+            if (!std::isfinite(value))
+                return missing(tr("No resolved value is available."));
             const int ev = int(value), label = ev - int(cs->min);
             if (label < 0 || label >= cs->enumLabels.size())
                 return missing(tr("Unknown value."));
-            if (role == Qt::EditRole) return ev;
+            if (role == Qt::EditRole)
+                return ev;
             return cs->enumLabels[label];
         }
         if (key.startsWith("infil.") && !std::isfinite(value))
@@ -762,36 +913,41 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
 {
     Qt::ItemFlags f = QAbstractTableModel::flags(index);
-    if (!index.isValid() || !m_layer) return f;
+    if (!index.isValid() || !m_layer)
+        return f;
     const int col = index.column();
-    if (col < 0 || col >= m_columnSpecs.size()) return f;
+    if (col < 0 || col >= m_columnSpecs.size())
+        return f;
     const ColumnSpec &spec = m_columnSpecs[col];
-    if (spec.editor == EditorKind::ReadOnly) return f;
+    if (spec.editor == EditorKind::ReadOnly)
+        return f;
 
     switch (m_kind) {
     case Kind::Vertex:
         // Coupling coefficients only exist once the vertex carries a node.
-        if (spec.key == QLatin1String("couplingCd")
-            || spec.key == QLatin1String("couplingArea")) {
+        if (spec.key == QLatin1String("couplingCd") || spec.key == QLatin1String("couplingArea")) {
             const mesh::MeshResult &m = m_layer->mesh();
             const int row = index.row();
-            if (row < 0 || row >= m.vertices.size()
-                || m.vertices[row].coupledNode.isEmpty())
+            if (row < 0 || row >= m.vertices.size() || m.vertices[row].coupledNode.isEmpty())
                 return f;
         }
         break;
     case Kind::Edge: {
         // Conveyance applies to every edge; the BC fields to boundary edges
         // only — same gating the toolbar applies.
-        if (spec.key == QLatin1String("conveyance")) break;
-        if (!rowIsBoundaryEdge(index.row())) return f;
+        if (spec.key == QLatin1String("conveyance"))
+            break;
+        if (!rowIsBoundaryEdge(index.row()))
+            return f;
         // And within a boundary edge, only the parameter its type actually
         // reads. Set the type first, then its value.
         if (spec.key != QLatin1String("bcType")) {
             const int flat = slotForRow(index.row());
             const QVector<mesh::MeshEdgeBC> &bcs = m_layer->edgeBCs();
-            if (flat < 0 || flat >= bcs.size()) return f;
-            if (!bcFieldApplies(bcs[flat].type, spec.key)) return f;
+            if (flat < 0 || flat >= bcs.size())
+                return f;
+            if (!bcFieldApplies(bcs[flat].type, spec.key))
+                return f;
         }
         break;
     }
@@ -808,19 +964,20 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
     return f | Qt::ItemIsEditable;
 }
 
-bool MeshAttributeTableModel::setData(const QModelIndex &index,
-                                      const QVariant &value, int role)
+bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
-    if (role != Qt::EditRole || !index.isValid() || !m_layer) return false;
-    if (!(flags(index) & Qt::ItemIsEditable)) return false;
+    if (role != Qt::EditRole || !index.isValid() || !m_layer)
+        return false;
+    if (!(flags(index) & Qt::ItemIsEditable))
+        return false;
     const int row = index.row(), col = index.column();
     if (row < 0 || row >= rowCount() || col < 0 || col >= m_columnSpecs.size())
         return false;
     const QByteArray key = m_columnSpecs[col].key.toUtf8();
 
     // A picker cell round-trips as a DataObjectRef; the id it settled on is
-    // the only part the mesh stores. The combo is closed, so that id always
-    // names an object that exists (or is empty, clearing the reference).
+    // the only part the mesh stores. The normal combo offers current names;
+    // direct callers and stale references still depend on edit-path validation.
     QVariant v = value;
     if (v.userType() == qMetaTypeId<DataObjectRef>())
         v = v.value<DataObjectRef>().currentName;
@@ -832,15 +989,15 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
         break;
     case Kind::Edge: {
         const int flat = slotForRow(row);
-        if (flat < 0) return false;
+        if (flat < 0)
+            return false;
         changed = mesh::pushEdgeParamEdit(
             m_layer, {qMakePair(mesh::slotCell(flat), mesh::slotLocal(flat))}, key, v, m_canvas);
         break;
     }
     case Kind::Cell:
         if (key == "tag") {
-            changed = mesh::pushCellTagEdit(m_layer, {row}, v.toString(),
-                                            m_canvas);
+            changed = mesh::pushCellTagEdit(m_layer, {row}, v.toString(), m_canvas);
         } else if (key.startsWith("infil.")) {
             // Infiltration is a ROW, not a set of independent columns: the
             // edited field is folded into the cell's currently-resolved row
@@ -851,8 +1008,8 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
             if (key == "infil.method") {
                 bool okm = false;
                 const int mi = v.toInt(&okm);
-                if (!okm || mi < int(mesh::InfilMethod::None)
-                         || mi > int(mesh::InfilMethod::Constant))
+                if (!okm || mi < int(mesh::InfilMethod::None) ||
+                    mi > int(mesh::InfilMethod::Constant))
                     return false;
                 next.method = static_cast<mesh::InfilMethod>(mi);
                 // Slots the new method does not read carry no meaning — clear
@@ -862,20 +1019,22 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
                         next.p[k] = std::numeric_limits<double>::quiet_NaN();
             } else {
                 const int slot = mesh::infilSlotForKey(next.method, key);
-                if (slot < 0) return false;   // masked — flags() refuses it too
+                if (slot < 0)
+                    return false; // masked — flags() refuses it too
                 bool okv = false;
                 const double dv = v.toDouble(&okv);
-                if (!okv) return false;
+                if (!okv)
+                    return false;
                 next.p[slot] = dv;
             }
             changed = mesh::pushCellInfilEdit(m_layer, {row}, next, m_canvas);
         } else {
-            changed = mesh::pushCellParamEdit(m_layer, {row}, key,
-                                              v.toDouble(), m_canvas);
+            changed = mesh::pushCellParamEdit(m_layer, {row}, key, v.toDouble(), m_canvas);
         }
         break;
     }
-    if (changed <= 0) return false;
+    if (changed <= 0)
+        return false;
 
     // The layer's attributeChanged already drove dataChanged for the row;
     // objectEdited is the user-edit-only signal other views key off.
@@ -883,16 +1042,15 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
     return true;
 }
 
-QVariant MeshAttributeTableModel::headerData(int section,
-                                             Qt::Orientation orientation,
+QVariant MeshAttributeTableModel::headerData(int section, Qt::Orientation orientation,
                                              int role) const
 {
-    if (orientation == Qt::Horizontal && section >= 0
-        && section < m_columnSpecs.size()) {
+    if (orientation == Qt::Horizontal && section >= 0 && section < m_columnSpecs.size()) {
         const ColumnSpec &spec = m_columnSpecs[section];
         const QString u = unitLabel(spec.unit);
         if (role == Qt::ToolTipRole) {
-            if (!spec.tooltip.isEmpty()) return spec.tooltip;
+            if (!spec.tooltip.isEmpty())
+                return spec.tooltip;
             return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
         }
         if (role == Qt::DisplayRole)
@@ -909,14 +1067,15 @@ QVariant MeshAttributeTableModel::headerData(int section,
 
 void MeshAttributeTableModel::onLayerAttributeChanged(const QString &refName)
 {
-    if (!m_layer || m_columnSpecs.isEmpty()) return;
+    if (!m_layer || m_columnSpecs.isEmpty())
+        return;
     // The signal carries only the encoded name; rebuild the ref with the kind
     // this view lists and let rowForRef reject the ones that belong elsewhere.
     static const SWMMObjectRef::ObjectType kTypes[] = {
-        SWMMObjectRef::MeshVertex, SWMMObjectRef::MeshEdge,
-        SWMMObjectRef::MeshCell};
+        SWMMObjectRef::MeshVertex, SWMMObjectRef::MeshEdge, SWMMObjectRef::MeshCell};
     const SWMMObjectRef ref(kTypes[int(m_kind)], refName);
     const int row = rowForRef(ref);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     emit dataChanged(index(row, 0), index(row, int(m_columnSpecs.size()) - 1));
 }

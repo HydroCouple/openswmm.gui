@@ -1,8 +1,9 @@
-/*!
- * \file   propertyeditorregistry.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      propertyeditorregistry.h
+ * @brief     Slice BM Phase 6.3.2 — `PropertyEditorRegistry`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BM Phase 6.3.2 — `PropertyEditorRegistry`.
  *
@@ -20,7 +21,9 @@
  *
  * Thread-safety: registration happens at startup; lookup is read-only
  * after that. No mutex.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef PROPERTYEDITORREGISTRY_H
 #define PROPERTYEDITORREGISTRY_H
 
@@ -45,19 +48,26 @@ class PropertyEditorRegistry
 public:
     using Factory = std::function<std::unique_ptr<IPropertyEditor>()>;
 
-    /*! \brief Access the singleton. */
+    /*! \brief Access the singleton.
+     * @return Borrowed process-lifetime registry; no engine or editor instance is owned by this reference.
+     */
     static PropertyEditorRegistry &instance();
 
     /*!
-     * \brief Register a factory for an editor kind. Idempotent on the
-     *        same (kind, factory) pair; replacing an existing factory
-     *        with a different callable issues a `qWarning` and accepts
+     * \brief Register a factory for an editor kind. Replacing an existing
+     *        registration issues a `qWarning` and accepts
      *        the new one (deterministic for unit tests; concrete editor
      *        slices should not double-register).
+     * @param[in] kind Nonempty, case-sensitive editor kind; empty names are warned and ignored.
+     * @param[in] factory Owning callable moved into the registry; empty callables are warned and ignored.
+     * @details Registration is unsynchronized and must not overlap lookup; an existing name is overwritten with a warning.
      */
     void registerFactory(const QString &kind, Factory factory);
 
-    /*! \brief True when at least one factory is registered for `kind`. */
+    /*! \brief True when at least one factory is registered for `kind`.
+     * @param[in] kind Exact registered key.
+     * @return True when a factory is stored; does not invoke it or guarantee a non-null editor.
+     */
     [[nodiscard]] bool hasFactory(const QString &kind) const;
 
     /*!
@@ -65,15 +75,28 @@ public:
      *        no factory is registered. Callers are responsible for
      *        wiring the editor to a concrete `SWMMObjectRef` via
      *        `IPropertyEditor::editorForObject`.
+     * @param[in] kind Exact registered key.
+     * @return Fresh caller-owned editor, or nullptr for a missing registration or null factory result. Factory exceptions propagate.
      */
     [[nodiscard]] std::unique_ptr<IPropertyEditor> create(const QString &kind) const;
 
-    /*! \brief Drop every registration. Test-only helper. */
+    /*! \brief Drop every registration. Test-only helper.
+     * @details Destroys stored callable objects; previously created editor instances remain owned by their callers. Must not overlap lookups.
+     */
     void clear();
 
 private:
+    /**
+     * @brief Construct an empty dispatch table for the singleton.
+     */
     PropertyEditorRegistry() = default;
-    PropertyEditorRegistry(const PropertyEditorRegistry &)            = delete;
+    /**
+     * @brief Disable copying of the singleton registry; the reference argument has no callable runtime operation.
+     */
+    PropertyEditorRegistry(const PropertyEditorRegistry &) = delete;
+    /**
+     * @brief Disable copy assignment so registry ownership remains process-wide; the reference argument is intentionally unavailable.
+     */
     PropertyEditorRegistry &operator=(const PropertyEditorRegistry &) = delete;
 
     QHash<QString, Factory> m_factories;

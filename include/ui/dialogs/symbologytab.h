@@ -1,9 +1,9 @@
-/*!
- * \file   symbologytab.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  QGIS-style Symbology tab content (Slice X.2).
+/**
+ * @file      symbologytab.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     QGIS-style Symbology tab content (Slice X.2).
  *
  *         Top row: a renderer-class dropdown populated from
  *         RendererPanelRegistry (Single / Graduated / Categorized / …).
@@ -16,7 +16,9 @@
  *         (vector / raster / mesh).  For SWMM multi-kind layers the
  *         dialog uses KindTreeSymbologyPanel (X.5) which composes a
  *         SymbologyTab per kind in the editor pane.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_SYMBOLOGYTAB_H
 #define OPENSWMMVIS_UI_DIALOGS_SYMBOLOGYTAB_H
 
@@ -28,7 +30,8 @@ class QComboBox;
 class QStackedWidget;
 class QVBoxLayout;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class SymbologyTab : public QWidget
 {
@@ -38,8 +41,7 @@ public:
      *  dropdown is populated from RendererPanelRegistry; switching it
      *  installs the matching renderer class on the host and mounts the
      *  registered panel. */
-    explicit SymbologyTab(const RendererPanelContext &ctx,
-                          QWidget *parent = nullptr);
+    explicit SymbologyTab(const RendererPanelContext &ctx, QWidget *parent = nullptr);
 
 private slots:
     void onRendererChanged(int comboIndex);
@@ -56,8 +58,8 @@ private:
 
     RendererPanelContext m_ctx;
 
-    QComboBox      *m_rendererCombo = nullptr;
-    QStackedWidget *m_stack         = nullptr;
+    QComboBox *m_rendererCombo = nullptr;
+    QStackedWidget *m_stack = nullptr;
 };
 
 } // namespace openswmmvis::ui

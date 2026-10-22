@@ -1,9 +1,9 @@
-/*!
- * \file   featureref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Stable identifier passed to IFeatureRenderer::symbolFor().
+/**
+ * @file      featureref.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Stable identifier passed to IFeatureRenderer::symbolFor().
  *
  *         A FeatureRef is the minimum information a renderer needs to
  *         identify which feature in the layer it is being asked to paint:
@@ -17,6 +17,7 @@
  *
  *         Cross-slice: Slice BI Phase 8.13.6 (see GUI_IMPLEMENTATION_PLAN.md
  *         §J.2). Sub-phase 8.13.6.1 — interface + types only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_FEATUREREF_H
@@ -31,11 +32,10 @@ namespace OpenSWMM::Render
  * \struct FeatureRef
  * \brief Identifies one feature in one layer for the renderer pipeline.
  */
-struct FeatureRef
-{
-    QString layerId;          /*!< Owning layer's stable id. */
-    int     featureIndex = -1;/*!< Index within the layer's feature list (-1 = unknown). */
-    QString categoryHint;     /*!< Optional category disambiguator (e.g. "junction", "conduit"). */
+struct FeatureRef {
+    QString layerId;       /*!< Owning layer's stable id. */
+    int featureIndex = -1; /*!< Index within the layer's feature list (-1 = unknown). */
+    QString categoryHint;  /*!< Optional category disambiguator (e.g. "junction", "conduit"). */
 };
 
 } // namespace OpenSWMM::Render

@@ -1,8 +1,10 @@
-/*!
- * \file   contourjob.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      contourjob.h
+ * @brief     QSG-2D-1M Phase 7 — thread-safe contour job input/output for asynchronous
+ *            marching-triangles recomputation.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * QSG-2D-1M Phase 7 — thread-safe contour job input/output for asynchronous
  * marching-triangles recomputation.
@@ -22,9 +24,11 @@
  * headlessly (tests/unit/test_contourjob.cpp locks its output to the
  * synchronous marching path bit-for-bit).
  *
- * Staleness is handled by the caller via Qsg2DAsyncResult: results carry a
- * generation token and stale output is dropped, never applied.
+ * Staleness is handled by the caller via Qsg2DAsyncResult: the caller associates
+ * a generation token with the result and drops stale output before applying it.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_CONTOURJOB_H
 #define OPENSWMM_RENDER_CONTOURJOB_H
 
@@ -39,12 +43,10 @@
 namespace OpenSWMM::Render
 {
 
-struct ContourJobInput
-{
+struct ContourJobInput {
     /*! Anchor-relative corner positions of one triangle. Float is exact
      *  enough here because the anchor shift keeps magnitudes small. */
-    struct TriPos
-    {
+    struct TriPos {
         float ax = 0, ay = 0, bx = 0, by = 0, cx = 0, cy = 0;
     };
 
@@ -75,18 +77,39 @@ struct ContourJobInput
     QRectF bandCoverage;
 };
 
-struct PackedBandVertex {float x=0,y=0;quint32 bandIndex=0;};
+struct PackedBandVertex {
+    float x = 0, y = 0;
+    quint32 bandIndex = 0;
+};
 
-struct ContourJobOutput
-{
+struct ContourJobOutput {
     std::vector<OpenSWMM::Contour::IsoBandPolygon> bands;
     std::vector<OpenSWMM::Contour::IsoLineSegment> segs;
     std::vector<WaterGeometryChunk<PackedBandVertex>> packedBands;
 };
 
-/*! Pure worker: march the snapshot. Safe on any thread. */
+/** @brief Compute filled contour bands and isolines from an immutable triangle snapshot.
+ * @param in Borrowed job input. Shared position/scalar/selection arrays must stay
+ * immutable throughout the call, including through other aliases. Coordinates
+ * are anchor-relative scene units; levels/cutoff use the scalar values' units.
+ * Finite, ascending band edges and finite isoline levels follow the marching
+ * helper contracts. Missing arrays or no paired triangles return empty outputs.
+ * @return Owned output without a generation token. Pairs only the shorter of
+ * the position/scalar arrays; optional out-of-range triangle indices are ignored
+ * and duplicate indices remain duplicated. packBands selects indexed triangle
+ * chunks instead of polygon bands. Band coverage only culls packed polygons by
+ * bounding-box overlap; it does not clip them or apply to isolines. The additional
+ * minimum-visible cutoff applies only to bands. No cancellation or stale-result
+ * check occurs here; allocation exceptions propagate. Safe on a worker thread
+ * when the snapshot has no concurrent mutation. */
 [[nodiscard]] ContourJobOutput computeContourJob(const ContourJobInput &in);
-/*! Reuse exclusively owned output storage; all logical output is replaced. */
+/** @brief Replace a caller-owned contour result, reusing packed chunk slots where possible.
+ * @param in Immutable input with the return-by-value overload's unit, ordering,
+ * lifetime and selection requirements.
+ * @param[in,out] out Exclusively owned output; existing bands/segments are cleared
+ * before computation and stale packed chunks are removed. The output must not
+ * alias input storage or be read concurrently. Allocation failures can leave a
+ * partial replacement; no transactional rollback or cancellation is provided. */
 void computeContourJob(const ContourJobInput &in, ContourJobOutput &out);
 
 } // namespace OpenSWMM::Render

@@ -1,7 +1,11 @@
-/*!
- * \file   test_numberformat.cpp
- * \brief  Unit tests for openswmmvis::plot::NumberFormat — the single source
+/**
+ * @file      test_numberformat.cpp
+ * @brief     Unit tests for openswmmvis::plot::NumberFormat — the single source
  *         of truth for chart-plot numeric precision (decimals vs sig figs).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -31,11 +35,37 @@ using openswmmvis::plot::Engineering2;
 using openswmmvis::plot::Engineering3;
 using openswmmvis::plot::ThousandsInteger;
 
-namespace {
-NumberFormat decimals(int n) { return { NumberFormatMode::Decimals, n }; }
-NumberFormat sigfigs(int n)  { return { NumberFormatMode::SignificantFigures, n }; }
+namespace
+{
+/**
+ *
+ * @brief Build a decimal-mode numeric-format fixture.
+ * @param n Requested raw decimal count, including invalid cases for later clamping.
+ * @return Owned NumberFormat with Decimals mode and n count; no formatting/validation.
+ *
+ */
+NumberFormat decimals(int n)
+{
+    return {NumberFormatMode::Decimals, n};
+}
+/**
+ *
+ * @brief Build a significant-figure numeric-format fixture.
+ * @param n Requested raw significant count, including zero for later clamping checks.
+ * @return Owned SignificantFigures format; helper does not clamp or render a value.
+ *
+ */
+NumberFormat sigfigs(int n)
+{
+    return {NumberFormatMode::SignificantFigures, n};
+}
 }
 
+/**
+ *
+ * @brief Verify decimal counts 0, 2 and 4 produce the exact fixed-point printf specs.
+ *
+ */
 TEST(NumberFormat, PrintfSpecDecimals)
 {
     EXPECT_EQ(decimals(0).printfSpec().toStdString(), "%.0f");
@@ -43,6 +73,11 @@ TEST(NumberFormat, PrintfSpecDecimals)
     EXPECT_EQ(decimals(4).printfSpec().toStdString(), "%.4f");
 }
 
+/**
+ *
+ * @brief Verify significant counts 1, 3 and 6 produce the exact general printf specs.
+ *
+ */
 TEST(NumberFormat, PrintfSpecSignificantFigures)
 {
     EXPECT_EQ(sigfigs(1).printfSpec().toStdString(), "%.1g");
@@ -50,6 +85,11 @@ TEST(NumberFormat, PrintfSpecSignificantFigures)
     EXPECT_EQ(sigfigs(6).printfSpec().toStdString(), "%.6g");
 }
 
+/**
+ *
+ * @brief Verify fixed-point rounding and preservation of requested trailing zeros.
+ *
+ */
 TEST(NumberFormat, FormatDecimals)
 {
     EXPECT_EQ(decimals(0).format(3.14159).toStdString(), "3");
@@ -59,6 +99,11 @@ TEST(NumberFormat, FormatDecimals)
     EXPECT_EQ(decimals(3).format(2.0).toStdString(), "2.000");
 }
 
+/**
+ *
+ * @brief Verify significant-digit rounding across ordinary, scientific and small-value output.
+ *
+ */
 TEST(NumberFormat, FormatSignificantFigures)
 {
     EXPECT_EQ(sigfigs(3).format(3.14159).toStdString(), "3.14");
@@ -66,6 +111,11 @@ TEST(NumberFormat, FormatSignificantFigures)
     EXPECT_EQ(sigfigs(2).format(0.012345).toStdString(), "0.012");
 }
 
+/**
+ *
+ * @brief Require significant precision at least one and decimal precision at least zero.
+ *
+ */
 TEST(NumberFormat, ClampsCountToValidRange)
 {
     // Sig figs floor at 1 (printf 'g' treats precision 0 as 1).
@@ -76,34 +126,51 @@ TEST(NumberFormat, ClampsCountToValidRange)
     EXPECT_EQ(decimals(-3).printfSpec().toStdString(), "%.0f");
 }
 
+/**
+ *
+ * @brief Require decimal and significant modes to select f and g conversion characters.
+ *
+ */
 TEST(NumberFormat, FmtChar)
 {
     EXPECT_EQ(decimals(2).fmtChar(), 'f');
     EXPECT_EQ(sigfigs(2).fmtChar(), 'g');
 }
 
+/**
+ *
+ * @brief Verify one valid custom float conversion overrides mode/count, including unit text and
+ * escaped percent.
+ *
+ */
 TEST(NumberFormat, CustomOverridesModeAndCount)
 {
     // A valid custom spec wins over mode+count for both the printf spec and
     // the formatted value.
-    NumberFormat f{ NumberFormatMode::Decimals, 0, QStringLiteral("%.2f") };
+    NumberFormat f{NumberFormatMode::Decimals, 0, QStringLiteral("%.2f")};
     EXPECT_TRUE(f.hasValidCustom());
     EXPECT_EQ(f.printfSpec().toStdString(), "%.2f");
     EXPECT_EQ(f.format(3.14159).toStdString(), "3.14");
 
     // Literal text and an escaped percent are allowed alongside one conversion.
-    NumberFormat g{ NumberFormatMode::Decimals, 0, QStringLiteral("%.1f m") };
+    NumberFormat g{NumberFormatMode::Decimals, 0, QStringLiteral("%.1f m")};
     EXPECT_EQ(g.format(3.14159).toStdString(), "3.1 m");
-    NumberFormat p{ NumberFormatMode::Decimals, 0, QStringLiteral("%.1f%%") };
+    NumberFormat p{NumberFormatMode::Decimals, 0, QStringLiteral("%.1f%%")};
     EXPECT_EQ(p.format(42.0).toStdString(), "42.0%");
 }
 
+/**
+ *
+ * @brief Reject empty/literal/nonfloat/star/multiple-conversion specs and preserve two-decimal
+ * fallback.
+ *
+ */
 TEST(NumberFormat, InvalidCustomFallsBackToModeAndCount)
 {
     // Empty, non-float conversions, '*' precision, or multiple conversions are
     // all rejected, so mode+count apply unchanged.
-    for (const char *bad : { "", "plain", "%s", "%d", "%.*f", "%.2f and %.2f" }) {
-        NumberFormat f{ NumberFormatMode::Decimals, 2, QString::fromLatin1(bad) };
+    for (const char *bad : {"", "plain", "%s", "%d", "%.*f", "%.2f and %.2f"}) {
+        NumberFormat f{NumberFormatMode::Decimals, 2, QString::fromLatin1(bad)};
         EXPECT_FALSE(f.hasValidCustom()) << "spec: " << bad;
         EXPECT_EQ(f.printfSpec().toStdString(), "%.2f") << "spec: " << bad;
         EXPECT_EQ(f.format(3.14159).toStdString(), "3.14") << "spec: " << bad;
@@ -115,53 +182,79 @@ TEST(NumberFormat, InvalidCustomFallsBackToModeAndCount)
 // free integer count.
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Check the documented rounded example for integer, decimal, significant, scientific and
+ * engineering presets.
+ *
+ */
 TEST(NumberFormatPresets, EveryPresetRendersItsDocumentedExample)
 {
     // The doc comment on each enumerator is a promise about what the user
     // sees; pin it. 12.3456789 exercises both rounding and sig-fig cutover.
     const double v = 12.3456789;
-    const struct { int preset; const char *shown; } kCases[] = {
-        { Integer,   "12"        },
-        { Decimals1, "12.3"      },
-        { Decimals2, "12.35"     },
-        { Decimals3, "12.346"    },
-        { Decimals4, "12.3457"   },
-        { Decimals6, "12.345679" },
-        { SigFigs3,  "12.3"      },
-        { SigFigs4,  "12.35"     },
-        { SigFigs6,  "12.3457"   },
-        { Scientific2,  "1.23e+01"   },
-        { Scientific3,  "1.235e+01"  },
-        { Scientific4,  "1.2346e+01" },
-        { Engineering2, "12.35e+00"  },
-        { Engineering3, "12.346e+00" },
+    const struct {
+        int preset;
+        const char *shown;
+    } kCases[] = {
+        {Integer, "12"},
+        {Decimals1, "12.3"},
+        {Decimals2, "12.35"},
+        {Decimals3, "12.346"},
+        {Decimals4, "12.3457"},
+        {Decimals6, "12.345679"},
+        {SigFigs3, "12.3"},
+        {SigFigs4, "12.35"},
+        {SigFigs6, "12.3457"},
+        {Scientific2, "1.23e+01"},
+        {Scientific3, "1.235e+01"},
+        {Scientific4, "1.2346e+01"},
+        {Engineering2, "12.35e+00"},
+        {Engineering3, "12.346e+00"},
     };
     for (const auto &c : kCases)
         EXPECT_EQ(numberFormatForPreset(c.preset).format(v).toStdString(), c.shown)
             << "preset " << c.preset;
 }
 
+/**
+ *
+ * @brief Verify engineering exponent multiples of three, sign/zero/rounding carry and axis printf
+ * fallback.
+ *
+ */
 TEST(NumberFormat, EngineeringSnapsExponentToMultipleOfThree)
 {
-    const NumberFormat e2{ NumberFormatMode::Engineering, 2 };
+    const NumberFormat e2{NumberFormatMode::Engineering, 2};
     EXPECT_EQ(e2.format(12345.678).toStdString(), "12.35e+03");
-    EXPECT_EQ(e2.format(0.00123).toStdString(),   "1.23e-03");
-    EXPECT_EQ(e2.format(-999999.0).toStdString(), "-1.00e+06");  // rounds up past 1000
-    EXPECT_EQ(e2.format(0.0).toStdString(),       "0.00e+00");
+    EXPECT_EQ(e2.format(0.00123).toStdString(), "1.23e-03");
+    EXPECT_EQ(e2.format(-999999.0).toStdString(), "-1.00e+06"); // rounds up past 1000
+    EXPECT_EQ(e2.format(0.0).toStdString(), "0.00e+00");
     // QValueAxis can't do engineering notation: printf spec degrades to 'e'.
     EXPECT_EQ(e2.printfSpec().toStdString(), "%.2e");
 }
 
+/**
+ *
+ * @brief Compare grouped output against current QLocale and verify plain fixed-point axis
+ * fallback.
+ *
+ */
 TEST(NumberFormat, ThousandsUsesLocaleGroupSeparators)
 {
-    const NumberFormat t1{ NumberFormatMode::Thousands, 1 };
+    const NumberFormat t1{NumberFormatMode::Thousands, 1};
     // Locale-dependent separators: compare against QLocale itself.
     EXPECT_EQ(t1.format(12345.67), QLocale().toString(12345.67, 'f', 1));
     EXPECT_EQ(numberFormatForPreset(ThousandsInteger).format(1234567.0),
               QLocale().toString(1234567.0, 'f', 0));
-    EXPECT_EQ(t1.printfSpec().toStdString(), "%.1f");   // QValueAxis fallback
+    EXPECT_EQ(t1.printfSpec().toStdString(), "%.1f"); // QValueAxis fallback
 }
 
+/**
+ *
+ * @brief Require each valid preset to round-trip through its stored mode and count.
+ *
+ */
 TEST(NumberFormatPresets, PresetRoundTripsThroughModeAndCount)
 {
     for (int p = 0; p < axisNumberFormatPresetCount; ++p) {
@@ -170,15 +263,26 @@ TEST(NumberFormatPresets, PresetRoundTripsThroughModeAndCount)
     }
 }
 
+/**
+ *
+ * @brief Require negative/past-end/large preset IDs to resolve to two decimals.
+ *
+ */
 TEST(NumberFormatPresets, OutOfRangePresetFallsBackToTwoDecimals)
 {
-    for (const int bad : { -1, axisNumberFormatPresetCount, 999 }) {
+    for (const int bad : {-1, axisNumberFormatPresetCount, 999}) {
         const NumberFormat f = numberFormatForPreset(bad);
         EXPECT_EQ(f.mode, NumberFormatMode::Decimals);
         EXPECT_EQ(f.count, 2);
     }
 }
 
+/**
+ *
+ * @brief Verify migrated counts choose the closest available preset within their mode, with ties
+ * toward more digits.
+ *
+ */
 TEST(NumberFormatPresets, StoredCountWithNoExactPresetSnapsWithinItsMode)
 {
     // Migration: the old UI allowed 0-10, so counts land between presets.

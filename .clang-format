@@ -1,0 +1,31 @@
+# Format with clang-format 19. Keep Doxygen prose and include order intact.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+UseTab: Never
+BreakBeforeBraces: Linux
+AccessModifierOffset: -4
+NamespaceIndentation: None
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+SortIncludes: Never
+SortUsingDeclarations: Never
+IncludeBlocks: Preserve
+ReflowComments: false
+BreakStringLiterals: false
+FixNamespaceComments: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: false
+SpaceBeforeParens: ControlStatements
+StatementMacros:
+  - X
+  - Q_UNUSED
+  - QT_REQUIRE_VERSION
+  - Q_OBJECT
+  - Q_GADGET
+  - Q_NAMESPACE
+  - Q_NAMESPACE_EXPORT

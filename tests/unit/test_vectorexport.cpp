@@ -1,9 +1,9 @@
-/*!
- * \file   test_vectorexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The widget-free export writer
+/**
+ * @file      test_vectorexport.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The widget-free export writer
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8, R8).
  *
  * Tables → GeoPackage / Shapefile / GeoJSON, reopened with plain OGR to check
@@ -13,7 +13,9 @@
  * raster round trip. Outputs land in
  * tests/output/feature_layer_roles_2026-09-30/vectorexport/ (reviewable —
  * CLAUDE.md §4.1) and are replaced on every run.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <gtest/gtest.h>
 
 #include "io/gdaldrivers.h"
@@ -40,23 +42,43 @@ using namespace openswmmvis::io;
 using openswmmvis::feature::FieldChoice;
 using openswmmvis::feature::FieldType;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Clear a test-owned export destination and create its parent directory.
+ * @param sub Relative file/directory name under VECTOREXPORT_OUT_DIR; caller must
+ * ensure it names disposable fixture output and no open handle still uses it.
+ * @return Absolute destination path. Existing directories are recursively removed,
+ * files unlinked, and only the common parent is created; all those statuses are
+ * unchecked. Despite its name this can return a nonexistent file path.
+ *
+ */
 QString outDir(const QString &sub)
 {
     QDir d(QStringLiteral(VECTOREXPORT_OUT_DIR));
     const QString path = d.filePath(sub);
     QFileInfo fi(path);
-    if (fi.isDir()) QDir(path).removeRecursively();
-    else QFile::remove(path);
+    if (fi.isDir())
+        QDir(path).removeRecursively();
+    else
+        QFile::remove(path);
     QDir().mkpath(d.absolutePath());
     return QFileInfo(path).absoluteFilePath();
 }
 
+/**
+ *
+ * @brief Export the projected-metre source CRS used by vector fixtures.
+ * @return Owned EPSG:32632 WKT after freeing GDAL export bytes. Import/export status
+ * is unchecked, requiring functioning GDAL spatial-reference support; no file writes.
+ *
+ */
 QString utmWkt()
 {
     OGRSpatialReference s;
-    s.importFromEPSG(32632);   // UTM 32N
+    s.importFromEPSG(32632); // UTM 32N
     char *wkt = nullptr;
     s.exportToWkt(&wkt);
     const QString out = QString::fromUtf8(wkt);
@@ -64,6 +86,13 @@ QString utmWkt()
     return out;
 }
 
+/**
+ *
+ * @brief Export the geographic target CRS used by reprojection fixtures.
+ * @return Owned EPSG:4326 WKT after freeing GDAL bytes. Import/export status is
+ * unchecked; this constructs CRS metadata without reprojecting any coordinates.
+ *
+ */
 QString wgs84Wkt()
 {
     OGRSpatialReference s;
@@ -75,6 +104,16 @@ QString wgs84Wkt()
     return out;
 }
 
+/**
+ *
+ * @brief Construct copied export-column metadata for fixture tables.
+ * @param name Borrowed null-terminated Latin-1 machine field name.
+ * @param label Borrowed null-terminated Latin-1 display description.
+ * @param unit Borrowed null-terminated Latin-1 unit label, empty for unitless data.
+ * @param t Attribute storage type; no validation/coercion performed here.
+ * @return Owned metadata with copied strings/type and default remaining settings.
+ *
+ */
 ExportField field(const char *name, const char *label, const char *unit, FieldType t)
 {
     ExportField f;
@@ -85,8 +124,15 @@ ExportField field(const char *name, const char *label, const char *unit, FieldTy
     return f;
 }
 
-/*! Two junctions (one with a long field name), one conduit, one subcatchment
- *  and one that cannot be a polygon. */
+/**
+ *
+ * @brief Build export tables with valid and deliberately invalid geometry rows.
+ * @return Owned junctions (two UTM-metre points with real/null/text/choice attributes),
+ * one three-point conduit and two subcatchment rows (one valid square, one invalid
+ * 2-point polygon), plus a preexisting skipped-row warning. Elevation/length labels
+ * are metres. No database export or engine lookup occurs in this fixture builder.
+ *
+ */
 QVector<ExportTable> sampleTables()
 {
     ExportTable j;
@@ -136,21 +182,35 @@ QVector<ExportTable> sampleTables()
     return {j, c, s};
 }
 
+/**
+ *
+ * @brief Open an exported fixture through plain read-only OGR access.
+ * @param path Borrowed existing dataset path; UTF-8 encoded for GDAL.
+ * @return Owned dataset requiring GDALClose, or null on open failure. Requires prior
+ * driver registration. Does not record a test failure; callers assert the result.
+ *
+ */
 GDALDataset *openVector(const QString &path)
 {
-    return static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(),
-                                                 GDAL_OF_VECTOR | GDAL_OF_READONLY,
-                                                 nullptr, nullptr, nullptr));
+    return static_cast<GDALDataset *>(GDALOpenEx(
+        path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
 }
 
 class GdalEnvironment : public ::testing::Environment
 {
 public:
+    /**
+     *
+     * @brief Register process-global GDAL drivers for this test binary.
+     * GoogleTest owns the environment and invokes setup before cases. No teardown
+     * unregisters drivers, and no fixture paths are created by this callback.
+     *
+     */
     void SetUp() override { GDALAllRegister(); }
 };
 const auto *kGdalEnv = ::testing::AddGlobalTestEnvironment(new GdalEnvironment);
 
-}   // namespace
+} // namespace
 
 TEST(VectorExport, WritableFormatsStartWithGeoPackage)
 {
@@ -164,15 +224,15 @@ TEST(VectorExport, WritableFormatsStartWithGeoPackage)
 
 TEST(VectorExport, ShortFieldNamesAreUniqueAndAtMostTen)
 {
-    const QStringList out = shortFieldNames({QStringLiteral("invertElev"),
-                                             QStringLiteral("surchargeDepth"),
-                                             QStringLiteral("surchargeDepthMax"),
-                                             QStringLiteral("SURCHARGED")});
+    const QStringList out =
+        shortFieldNames({QStringLiteral("invertElev"), QStringLiteral("surchargeDepth"),
+                         QStringLiteral("surchargeDepthMax"), QStringLiteral("SURCHARGED")});
     EXPECT_EQ(out.at(0), QStringLiteral("invertElev"));
     EXPECT_EQ(out.at(1), QStringLiteral("surchargeD"));
     EXPECT_EQ(out.at(2), QStringLiteral("surcharg_1"));
     EXPECT_EQ(out.at(3), QStringLiteral("SURCHARG_2"));
-    for (const QString &s : out) EXPECT_LE(s.size(), 10);
+    for (const QString &s : out)
+        EXPECT_LE(s.size(), 10);
 }
 
 TEST(VectorExport, TablesToGeoPackage)
@@ -324,12 +384,12 @@ TEST(VectorExport, CancelLeavesNoFiles)
         const bool gpkg = QLatin1String(driver) == QLatin1String("GPKG");
         ExportOptions o;
         o.driver = QLatin1String(driver);
-        o.destination = outDir(gpkg ? QStringLiteral("cancelled.gpkg")
-                                    : QStringLiteral("cancelled_shp"));
+        o.destination =
+            outDir(gpkg ? QStringLiteral("cancelled.gpkg") : QStringLiteral("cancelled_shp"));
         o.sourceSrsWkt = utmWkt();
         ExportReport rep;
-        EXPECT_FALSE(exportVectorTables(sampleTables(), o,
-                                        [](int, int, const QString &) { return false; }, &rep));
+        EXPECT_FALSE(exportVectorTables(
+            sampleTables(), o, [](int, int, const QString &) { return false; }, &rep));
         EXPECT_EQ(rep.error, QStringLiteral("Cancelled"));
         EXPECT_TRUE(rep.files.isEmpty());
         // The folder a Shapefile export made goes with its files.
@@ -346,7 +406,8 @@ TEST(VectorExport, CancelLeavesNoFiles)
     EXPECT_FALSE(exportVectorTables(
         sampleTables(), o,
         [&sawFirst](int, int, const QString &what) {
-            if (what.contains(QLatin1String("junctions"))) sawFirst = true;
+            if (what.contains(QLatin1String("junctions")))
+                sawFirst = true;
             return !what.contains(QLatin1String("conduits"));
         },
         &rep));
@@ -363,8 +424,8 @@ TEST(VectorExport, CancelLeavesNoFiles)
         ASSERT_TRUE(f.open(QIODevice::WriteOnly));
         f.write("kept");
     }
-    EXPECT_FALSE(exportVectorTables(sampleTables(), o,
-                                    [](int, int, const QString &) { return false; }, &rep));
+    EXPECT_FALSE(exportVectorTables(
+        sampleTables(), o, [](int, int, const QString &) { return false; }, &rep));
     EXPECT_TRUE(QFileInfo::exists(mine));
     const QStringList left = QDir(o.destination).entryList(QDir::Files);
     EXPECT_EQ(left, QStringList{QStringLiteral("readme.txt")});
@@ -372,8 +433,8 @@ TEST(VectorExport, CancelLeavesNoFiles)
     // …and so does one that was already there and empty.
     o.destination = outDir(QStringLiteral("cancelled_existing_empty_shp"));
     ASSERT_TRUE(QDir().mkpath(o.destination));
-    EXPECT_FALSE(exportVectorTables(sampleTables(), o,
-                                    [](int, int, const QString &) { return false; }, &rep));
+    EXPECT_FALSE(exportVectorTables(
+        sampleTables(), o, [](int, int, const QString &) { return false; }, &rep));
     EXPECT_TRUE(QFileInfo(o.destination).isDir());
 }
 
@@ -430,22 +491,24 @@ TEST(VectorExport, AVectorLayerWithASelection)
     OGRFeature::DestroyFeature(f);
     GDALClose(ds);
 
-    const QString csv = QDir(o.destination).filePath(QStringLiteral("junctions_selected_fields.csv"));
+    const QString csv =
+        QDir(o.destination).filePath(QStringLiteral("junctions_selected_fields.csv"));
     EXPECT_TRUE(rep.files.contains(csv));
     QFile map(csv);
     ASSERT_TRUE(map.open(QIODevice::ReadOnly | QIODevice::Text));
     const QString mapping = QTextStream(&map).readAll();
     EXPECT_TRUE(mapping.contains(QStringLiteral("\"surchargeDepthMax\",")));
 #if GDAL_VERSION_NUM >= 3080000
-    EXPECT_TRUE(mapping.contains(QStringLiteral("\"surchargeDepthMax\",\"Surcharge Depth Max\",\"m\"")))
+    EXPECT_TRUE(
+        mapping.contains(QStringLiteral("\"surchargeDepthMax\",\"Surcharge Depth Max\",\"m\"")))
         << mapping.toStdString();
 #endif
     ds = openVector(shp);
     ASSERT_TRUE(ds);
     const auto *def = ds->GetLayer(0)->GetLayerDefn();
     for (int i = 0; i < def->GetFieldCount(); ++i)
-        EXPECT_TRUE(mapping.contains(QStringLiteral("\"%1\",")
-                        .arg(QString::fromUtf8(def->GetFieldDefn(i)->GetNameRef()))));
+        EXPECT_TRUE(mapping.contains(
+            QStringLiteral("\"%1\",").arg(QString::fromUtf8(def->GetFieldDefn(i)->GetNameRef()))));
     GDALClose(ds);
 
     // All features, into another GeoPackage, under the layer's own name.
@@ -473,7 +536,8 @@ TEST(VectorExport, RasterRoundTripAndWarp)
         ds->SetGeoTransform(gt);
         ds->SetProjection(utmWkt().toUtf8().constData());
         std::vector<float> z(200);
-        for (int i = 0; i < 200; ++i) z[size_t(i)] = float(i);
+        for (int i = 0; i < 200; ++i)
+            z[size_t(i)] = float(i);
         ASSERT_EQ(ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 20, 10, z.data(), 20, 10,
                                                  GDT_Float32, 0, 0),
                   CE_None);
@@ -505,8 +569,8 @@ TEST(VectorExport, RasterRoundTripAndWarp)
 
     // A cancelled raster export leaves nothing behind.
     const QString cancelled = outDir(QStringLiteral("dem_cancelled.tif"));
-    EXPECT_FALSE(exportRaster(src, cancelled, wgs84Wkt(),
-                              [](int, int, const QString &) { return false; }, &rep));
+    EXPECT_FALSE(exportRaster(
+        src, cancelled, wgs84Wkt(), [](int, int, const QString &) { return false; }, &rep));
     EXPECT_EQ(rep.error, QStringLiteral("Cancelled"));
     EXPECT_FALSE(QFile::exists(cancelled));
 }

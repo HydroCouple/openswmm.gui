@@ -1,9 +1,12 @@
-/*!
- * \file   calibrationdatadialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      calibrationdatadialog.cpp
+ * @brief     Maintains a table of (object, attribute, observed-CSV path) bindings.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/calibrationdatadialog.h"
 
 #include "swmmvisprojectwindow.h"
@@ -20,10 +23,10 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-CalibrationDataDialog::CalibrationDataDialog(SWMMVisProjectWindow *projectWindow,
-                                              QWidget *parent)
+CalibrationDataDialog::CalibrationDataDialog(SWMMVisProjectWindow *projectWindow, QWidget *parent)
     : QDialog(parent), m_projectWindow(projectWindow)
 {
     setWindowTitle(tr("Calibration Data"));
@@ -42,25 +45,23 @@ void CalibrationDataDialog::buildUi()
 
     m_table = new QTableWidget(this);
     m_table->setColumnCount(5);
-    m_table->setHorizontalHeaderLabels({
-        tr("Object kind"), tr("Object name"), tr("Attribute"),
-        tr("Observed file"), tr("Column")
-    });
+    m_table->setHorizontalHeaderLabels(
+        {tr("Object kind"), tr("Object name"), tr("Attribute"), tr("Observed file"), tr("Column")});
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(false);
     root->addWidget(m_table, 1);
 
     auto *btnRow = new QHBoxLayout;
-    auto *addBtn    = new QPushButton(tr("Add row"), this);
-    auto *rmBtn     = new QPushButton(tr("Remove"),  this);
+    auto *addBtn = new QPushButton(tr("Add row"), this);
+    auto *rmBtn = new QPushButton(tr("Remove"), this);
     auto *browseBtn = new QPushButton(tr("Browse for CSV…"), this);
     btnRow->addWidget(addBtn);
     btnRow->addWidget(rmBtn);
     btnRow->addWidget(browseBtn);
     btnRow->addStretch(1);
     root->addLayout(btnRow);
-    connect(addBtn,    &QPushButton::clicked, this, &CalibrationDataDialog::onAddClicked);
-    connect(rmBtn,     &QPushButton::clicked, this, &CalibrationDataDialog::onRemoveClicked);
+    connect(addBtn, &QPushButton::clicked, this, &CalibrationDataDialog::onAddClicked);
+    connect(rmBtn, &QPushButton::clicked, this, &CalibrationDataDialog::onRemoveClicked);
     connect(browseBtn, &QPushButton::clicked, this, &CalibrationDataDialog::onBrowseClicked);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -87,18 +88,22 @@ void CalibrationDataDialog::onAddClicked()
 void CalibrationDataDialog::onRemoveClicked()
 {
     const int r = m_table->currentRow();
-    if (r >= 0) m_table->removeRow(r);
+    if (r >= 0)
+        m_table->removeRow(r);
 }
 
 void CalibrationDataDialog::onBrowseClicked()
 {
     const int r = m_table->currentRow();
-    if (r < 0) return;
-    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("timeseries"), this,
-        tr("Observed time-series file"), QString(),
+    if (r < 0)
+        return;
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("timeseries"), this, tr("Observed time-series file"), QString(),
         tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
-    if (path.isEmpty()) return;
-    if (!m_table->item(r, 3)) m_table->setItem(r, 3, new QTableWidgetItem());
+    if (path.isEmpty())
+        return;
+    if (!m_table->item(r, 3))
+        m_table->setItem(r, 3, new QTableWidgetItem());
     m_table->item(r, 3)->setText(path);
 }
 
@@ -112,7 +117,8 @@ void CalibrationDataDialog::loadFromProject()
         auto *kind = new QComboBox(m_table);
         kind->addItems({tr("Node"), tr("Link"), tr("Subcatch")});
         const int kIdx = kind->findText(e.objectKind);
-        if (kIdx >= 0) kind->setCurrentIndex(kIdx);
+        if (kIdx >= 0)
+            kind->setCurrentIndex(kIdx);
         m_table->setCellWidget(r, 0, kind);
 
         m_table->setItem(r, 1, new QTableWidgetItem(e.objectName));
@@ -129,22 +135,27 @@ void CalibrationDataDialog::loadFromProject()
 
 void CalibrationDataDialog::saveToProject()
 {
-    if (!m_projectWindow) return;
+    if (!m_projectWindow)
+        return;
     // Persist into the project's QSettings group "calibrationData".
     QSettings settings;
     settings.beginGroup(QStringLiteral("project/calibrationData"));
-    settings.remove(QString());   // wipe old
+    settings.remove(QString()); // wipe old
     settings.beginWriteArray(QStringLiteral("entries"));
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        auto *kind = qobject_cast<QComboBox*>(m_table->cellWidget(r, 0));
-        auto *attr = qobject_cast<QComboBox*>(m_table->cellWidget(r, 2));
-        if (!kind || !attr) continue;
+        auto *kind = qobject_cast<QComboBox *>(m_table->cellWidget(r, 0));
+        auto *attr = qobject_cast<QComboBox *>(m_table->cellWidget(r, 2));
+        if (!kind || !attr)
+            continue;
         settings.setArrayIndex(r);
-        settings.setValue(QStringLiteral("kind"),    kind->currentText());
-        settings.setValue(QStringLiteral("name"),    m_table->item(r, 1) ? m_table->item(r, 1)->text() : QString());
-        settings.setValue(QStringLiteral("attr"),    attr->currentText());
-        settings.setValue(QStringLiteral("path"),    m_table->item(r, 3) ? m_table->item(r, 3)->text() : QString());
-        settings.setValue(QStringLiteral("column"),  m_table->item(r, 4) ? m_table->item(r, 4)->text() : QString());
+        settings.setValue(QStringLiteral("kind"), kind->currentText());
+        settings.setValue(QStringLiteral("name"),
+                          m_table->item(r, 1) ? m_table->item(r, 1)->text() : QString());
+        settings.setValue(QStringLiteral("attr"), attr->currentText());
+        settings.setValue(QStringLiteral("path"),
+                          m_table->item(r, 3) ? m_table->item(r, 3)->text() : QString());
+        settings.setValue(QStringLiteral("column"),
+                          m_table->item(r, 4) ? m_table->item(r, 4)->text() : QString());
     }
     settings.endArray();
     settings.endGroup();
@@ -166,17 +177,22 @@ QVector<CalibrationEntry> CalibrationDataDialog::entriesFromProject(SWMMVisProje
     for (int i = 0; i < n; ++i) {
         settings.setArrayIndex(i);
         CalibrationEntry e;
-        e.objectKind     = settings.value(QStringLiteral("kind")).toString();
-        e.objectName     = settings.value(QStringLiteral("name")).toString();
+        e.objectKind = settings.value(QStringLiteral("kind")).toString();
+        e.objectName = settings.value(QStringLiteral("name")).toString();
         const QString attrLabel = settings.value(QStringLiteral("attr")).toString();
         // Reverse-lookup PlotAttribute from label.
         using openswmmvis::plot::PlotAttribute;
-        if      (attrLabel.contains(QStringLiteral("Depth")))   e.attribute = PlotAttribute::NodeDepth;
-        else if (attrLabel.contains(QStringLiteral("Head")))    e.attribute = PlotAttribute::NodeHead;
-        else if (attrLabel.contains(QStringLiteral("Flow")))    e.attribute = PlotAttribute::LinkFlow;
-        else if (attrLabel.contains(QStringLiteral("Velocity")))e.attribute = PlotAttribute::LinkVelocity;
-        else if (attrLabel.contains(QStringLiteral("Runoff")))  e.attribute = PlotAttribute::SubcatchRunoff;
-        e.observedPath   = settings.value(QStringLiteral("path")).toString();
+        if (attrLabel.contains(QStringLiteral("Depth")))
+            e.attribute = PlotAttribute::NodeDepth;
+        else if (attrLabel.contains(QStringLiteral("Head")))
+            e.attribute = PlotAttribute::NodeHead;
+        else if (attrLabel.contains(QStringLiteral("Flow")))
+            e.attribute = PlotAttribute::LinkFlow;
+        else if (attrLabel.contains(QStringLiteral("Velocity")))
+            e.attribute = PlotAttribute::LinkVelocity;
+        else if (attrLabel.contains(QStringLiteral("Runoff")))
+            e.attribute = PlotAttribute::SubcatchRunoff;
+        e.observedPath = settings.value(QStringLiteral("path")).toString();
         e.observedColumn = settings.value(QStringLiteral("column")).toString();
         out.append(e);
     }

@@ -1,7 +1,10 @@
-/*!
- * \file   dataobjectpickereditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      dataobjectpickereditor.cpp
+ * @brief     Custom cell editor widget for `DataObjectRef`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/dataobjectpickereditor.h"
@@ -37,10 +40,10 @@
 #include <QToolButton>
 
 #include <openswmm/engine/openswmm_gages.h>
-#include <openswmm/engine/openswmm_infrastructure.h>   // Inlet designs
+#include <openswmm/engine/openswmm_infrastructure.h> // Inlet designs
 #include <openswmm/engine/openswmm_tables.h>
-#include <openswmm/engine/openswmm_nodes.h>          // SubcatchOutlet combined list
-#include <openswmm/engine/openswmm_subcatchments.h>  // SubcatchOutlet combined list
+#include <openswmm/engine/openswmm_nodes.h>         // SubcatchOutlet combined list
+#include <openswmm/engine/openswmm_subcatchments.h> // SubcatchOutlet combined list
 
 DataObjectPickerEditor::DataObjectPickerEditor(QWidget *parent)
     : QWidget(parent), m_combo(new LabeledPickerCombo(QString(), this))
@@ -51,10 +54,10 @@ DataObjectPickerEditor::DataObjectPickerEditor(QWidget *parent)
     lay->addWidget(m_combo);
     setFocusProxy(m_combo->combo());
 
-    connect(m_combo, &LabeledPickerCombo::currentTextChanged,
-            this, &DataObjectPickerEditor::onComboTextChanged);
-    connect(m_combo, &LabeledPickerCombo::pickerClicked,
-            this, &DataObjectPickerEditor::onPickerClicked);
+    connect(m_combo, &LabeledPickerCombo::currentTextChanged, this,
+            &DataObjectPickerEditor::onComboTextChanged);
+    connect(m_combo, &LabeledPickerCombo::pickerClicked, this,
+            &DataObjectPickerEditor::onPickerClicked);
 }
 
 void DataObjectPickerEditor::setValue(const DataObjectRef &ref)
@@ -65,7 +68,8 @@ void DataObjectPickerEditor::setValue(const DataObjectRef &ref)
 
 void DataObjectPickerEditor::repopulate()
 {
-    if (!m_combo) return;
+    if (!m_combo)
+        return;
 
     QStringList items;
     if (m_ref.layer && m_ref.engine) {
@@ -87,7 +91,7 @@ void DataObjectPickerEditor::repopulate()
             items = m_ref.layer->tableIdsOfTypes({7, 8, 9, 10, 11});
             break;
         case DataObjectRef::RatingCurve:
-            items = m_ref.layer->tableIdsOfType(3);   // CURVE_RATING
+            items = m_ref.layer->tableIdsOfType(3); // CURVE_RATING
             break;
         case DataObjectRef::TimeSeries:
             items = m_ref.layer->tableIdsOfType(0);
@@ -98,12 +102,12 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_pattern_count(m_ref.engine);
             for (int i = 0; i < n; ++i) {
                 int t = -1;
-                if (m_ref.typeLock >= 0 &&
-                    swmm_pattern_get_type(m_ref.engine, i, &t) == SWMM_OK &&
+                if (m_ref.typeLock >= 0 && swmm_pattern_get_type(m_ref.engine, i, &t) == SWMM_OK &&
                     t != m_ref.typeLock)
                     continue;
                 if (const char *id = swmm_pattern_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             }
             break;
         }
@@ -111,18 +115,19 @@ void DataObjectPickerEditor::repopulate()
             // UH groups are surfaced through the DataHydrographs category.
             const int n = m_ref.layer->dataObjectCount(SWMMModelLayer::DataHydrographs);
             for (int i = 0; i < n; ++i) {
-                const QString nm = m_ref.layer->dataObjectNameAt(
-                    SWMMModelLayer::DataHydrographs, i);
-                if (!nm.isEmpty()) items << nm;
+                const QString nm =
+                    m_ref.layer->dataObjectNameAt(SWMMModelLayer::DataHydrographs, i);
+                if (!nm.isEmpty())
+                    items << nm;
             }
             break;
         }
         case DataObjectRef::Pollutant: {
             const int n = m_ref.layer->dataObjectCount(SWMMModelLayer::DataPollutants);
             for (int i = 0; i < n; ++i) {
-                const QString nm = m_ref.layer->dataObjectNameAt(
-                    SWMMModelLayer::DataPollutants, i);
-                if (!nm.isEmpty()) items << nm;
+                const QString nm = m_ref.layer->dataObjectNameAt(SWMMModelLayer::DataPollutants, i);
+                if (!nm.isEmpty())
+                    items << nm;
             }
             break;
         }
@@ -134,7 +139,8 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_gage_count(m_ref.engine);
             for (int i = 0; i < n; ++i) {
                 if (const char *id = swmm_gage_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             }
             break;
         }
@@ -145,7 +151,8 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_node_count(m_ref.engine);
             for (int i = 0; i < n; ++i)
                 if (const char *id = swmm_node_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             items.sort(Qt::CaseInsensitive);
             break;
         }
@@ -155,7 +162,8 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_subcatch_count(m_ref.engine);
             for (int i = 0; i < n; ++i)
                 if (const char *id = swmm_subcatch_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             items.sort(Qt::CaseInsensitive);
             break;
         }
@@ -169,11 +177,13 @@ void DataObjectPickerEditor::repopulate()
             const int nn = swmm_node_count(m_ref.engine);
             for (int i = 0; i < nn; ++i)
                 if (const char *id = swmm_node_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             const int ns = swmm_subcatch_count(m_ref.engine);
             for (int i = 0; i < ns; ++i)
                 if (const char *id = swmm_subcatch_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             break;
         }
         case DataObjectRef::LidControl: {
@@ -181,14 +191,16 @@ void DataObjectPickerEditor::repopulate()
                 int type = -1;
                 swmm_lid_get_type(m_ref.engine, i, &type);
                 if (type == 8 || type == 0 || type == 1 || type == 3 || type == 4)
-                    if (const char* id = swmm_lid_id(m_ref.engine, i)) items << QString::fromUtf8(id);
+                    if (const char *id = swmm_lid_id(m_ref.engine, i))
+                        items << QString::fromUtf8(id);
             }
             break;
         }
         case DataObjectRef::Snowpack: {
             for (int i = 0; i < swmm_snowpack_count(m_ref.engine); ++i)
-                if (const char* id = swmm_snowpack_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                if (const char *id = swmm_snowpack_id(m_ref.engine, i))
+                    if (*id)
+                        items << QString::fromUtf8(id);
             break;
         }
         case DataObjectRef::Aquifer: {
@@ -196,7 +208,8 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_aquifer_count(m_ref.engine);
             for (int i = 0; i < n; ++i)
                 if (const char *id = swmm_aquifer_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             break;
         }
         case DataObjectRef::Inlet: {
@@ -206,7 +219,8 @@ void DataObjectPickerEditor::repopulate()
             const int n = swmm_inlet_count(m_ref.engine);
             for (int i = 0; i < n; ++i)
                 if (const char *id = swmm_inlet_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             break;
         }
         case DataObjectRef::CaptureNode: {
@@ -216,9 +230,11 @@ void DataObjectPickerEditor::repopulate()
             for (int i = 0; i < n; ++i) {
                 int isVirtual = 0;
                 swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
-                if (isVirtual) continue;
+                if (isVirtual)
+                    continue;
                 if (const char *id = swmm_node_id(m_ref.engine, i))
-                    if (*id) items << QString::fromUtf8(id);
+                    if (*id)
+                        items << QString::fromUtf8(id);
             }
             items.sort(Qt::CaseInsensitive);
             break;
@@ -229,8 +245,8 @@ void DataObjectPickerEditor::repopulate()
     // A filtered curve list must still show the curve already assigned (an
     // older model may give a pump a curve of another type); without it the
     // combo falls back to "(none)" and the next commit would clear it.
-    if ((m_ref.kind == DataObjectRef::PumpCurve || m_ref.kind == DataObjectRef::RatingCurve)
-        && !m_ref.currentName.isEmpty() && !items.contains(m_ref.currentName))
+    if ((m_ref.kind == DataObjectRef::PumpCurve || m_ref.kind == DataObjectRef::RatingCurve) &&
+        !m_ref.currentName.isEmpty() && !items.contains(m_ref.currentName))
         items << m_ref.currentName;
 
     QSignalBlocker block(m_combo->combo());
@@ -248,39 +264,41 @@ void DataObjectPickerEditor::applyPickedName(const QString &name)
 
 void DataObjectPickerEditor::onComboTextChanged(const QString &text)
 {
-    if (m_suppressTextChange) return;
+    if (m_suppressTextChange)
+        return;
     m_ref.currentName = text;
     emit valueChanged();
 }
 
 void DataObjectPickerEditor::onPickerClicked()
 {
-    if (!m_ref.layer) return;
+    if (!m_ref.layer)
+        return;
 
     // Rain gages have no comprehensive editor and no DataCategory entry.
     // The combo still works for selection; the browse button surfaces a
     // brief note so the click isn't silent.
     if (m_ref.kind == DataObjectRef::RainGage) {
         QMessageBox::information(this, tr("Rain Gage"),
-            tr("Rain gages are edited from the Object Browser "
-               "(Rain Gages → select → Attribute panel). No dedicated "
-               "editor dialog."));
+                                 tr("Rain gages are edited from the Object Browser "
+                                    "(Rain Gages → select → Attribute panel). No dedicated "
+                                    "editor dialog."));
         return;
     }
     // Nodes are created on the map, not from a data-object dialog — the combo
     // is the whole picker, so the browse button explains itself.
     if (m_ref.kind == DataObjectRef::Node) {
         QMessageBox::information(this, tr("Coupled Node"),
-            tr("Pick an existing SWMM node from the dropdown, or leave it "
-               "blank to remove the coupling. Nodes are added on the map."));
+                                 tr("Pick an existing SWMM node from the dropdown, or leave it "
+                                    "blank to remove the coupling. Nodes are added on the map."));
         return;
     }
     // Subcatchments are drawn on the map, so the combo is the whole picker.
     if (m_ref.kind == DataObjectRef::Subcatchment) {
         QMessageBox::information(this, tr("Subcatchment"),
-            tr("Pick an existing subcatchment from the dropdown, or leave it "
-               "blank to send the discharge out of the system. Subcatchments "
-               "are drawn on the map."));
+                                 tr("Pick an existing subcatchment from the dropdown, or leave it "
+                                    "blank to send the discharge out of the system. Subcatchments "
+                                    "are drawn on the map."));
         return;
     }
     // Capture node: pick it on the map. The property grid closes this cell
@@ -291,8 +309,8 @@ void DataObjectPickerEditor::onPickerClicked()
         MapCanvas *canvas = m_ref.layer ? m_ref.layer->editCanvas() : nullptr;
         if (!canvas || m_ref.hostNodeIdx < 0) {
             QMessageBox::information(this, tr("Capture Node"),
-                tr("Pick the node the inlet discharges to. Virtual and inlet "
-                   "junctions cannot receive an inlet's capture."));
+                                     tr("Pick the node the inlet discharges to. Virtual and inlet "
+                                        "junctions cannot receive an inlet's capture."));
             return;
         }
         auto *session = new NodePickSession(canvas, m_ref.layer);
@@ -301,19 +319,22 @@ void DataObjectPickerEditor::onPickerClicked()
         const int host = m_ref.hostNodeIdx;
         connect(session, &NodePickSession::nodePicked, session,
                 [session, self, layer, host](SWMMModelLayer *l, const QString &name, int idx) {
-                    if (!layer || l != layer) return;
+                    if (!layer || l != layer)
+                        return;
                     // Engine rule 627: virtual / inlet junctions cannot
                     // receive the capture; nor can the inlet itself.
                     int isVirtual = 0;
                     swmm_node_is_virtual(layer->engine(), idx, &isVirtual);
-                    if (isVirtual || idx == host) return;   // keep picking
+                    if (isVirtual || idx == host)
+                        return; // keep picking
                     SWMM_InletUsage u{};
-                    if (layer->inletUsageFor(SWMM_INLET_HOST_NODE, host, &u)
-                        && u.capture_node_idx != idx) {
+                    if (layer->inletUsageFor(SWMM_INLET_HOST_NODE, host, &u) &&
+                        u.capture_node_idx != idx) {
                         u.capture_node_idx = idx;
                         layer->pushInletUsageEdit(u);
                     }
-                    if (self) self->applyPickedName(name);
+                    if (self)
+                        self->applyPickedName(name);
                     session->finish();
                     session->deleteLater();
                 });
@@ -326,10 +347,12 @@ void DataObjectPickerEditor::onPickerClicked()
         using openswmmvis::inlet::InletRegistry;
         using openswmmvis::ui::InletEditorDialog;
         auto *reg = qobject_cast<InletRegistry *>(m_ref.layer->ensureInletRegistry());
-        if (!reg) return;
-        const QString chosen = InletEditorDialog::pickInlet(
-            reg, m_ref.layer, /*undoStack=*/nullptr, this, m_ref.typeLock);
-        if (chosen.isEmpty()) return;
+        if (!reg)
+            return;
+        const QString chosen = InletEditorDialog::pickInlet(reg, m_ref.layer, /*undoStack=*/nullptr,
+                                                            this, m_ref.typeLock);
+        if (chosen.isEmpty())
+            return;
         m_ref.currentName = chosen;
         repopulate();
         emit valueChanged();
@@ -339,8 +362,8 @@ void DataObjectPickerEditor::onPickerClicked()
     // no "create new" target, so the browse button is a no-op note.
     if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
         QMessageBox::information(this, tr("Subcatchment Outlet"),
-            tr("Pick an existing node or subcatchment as this "
-               "subcatchment's outlet from the dropdown."));
+                                 tr("Pick an existing node or subcatchment as this "
+                                    "subcatchment's outlet from the dropdown."));
         return;
     }
 
@@ -350,27 +373,48 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::AnyCurve:
     case DataObjectRef::PumpCurve:
     case DataObjectRef::RatingCurve:
-    case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
-    case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
-    case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
-    case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
-    case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
-    case DataObjectRef::RainGage:       /* handled above */                   break;
-    case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
-    case DataObjectRef::Node:           /* handled above */                   break;
-    case DataObjectRef::Subcatchment:   /* handled above */                   break;
-    case DataObjectRef::LidControl:     dc = SWMMModelLayer::DataLIDControls; break;
-    case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
-    case DataObjectRef::Snowpack:       dc = SWMMModelLayer::DataSnowpacks;   break;
-    case DataObjectRef::Inlet:          /* handled above */                   break;
-    case DataObjectRef::CaptureNode:    /* handled above */                   break;
+    case DataObjectRef::StorageCurve:
+        dc = SWMMModelLayer::DataCurves;
+        break;
+    case DataObjectRef::TimeSeries:
+        dc = SWMMModelLayer::DataTimeSeries;
+        break;
+    case DataObjectRef::Pattern:
+        dc = SWMMModelLayer::DataPatterns;
+        break;
+    case DataObjectRef::UnitHydrograph:
+        dc = SWMMModelLayer::DataHydrographs;
+        break;
+    case DataObjectRef::Pollutant:
+        dc = SWMMModelLayer::DataPollutants;
+        break;
+    case DataObjectRef::RainGage: /* handled above */
+        break;
+    case DataObjectRef::SubcatchOutlet: /* handled above */
+        break;
+    case DataObjectRef::Node: /* handled above */
+        break;
+    case DataObjectRef::Subcatchment: /* handled above */
+        break;
+    case DataObjectRef::LidControl:
+        dc = SWMMModelLayer::DataLIDControls;
+        break;
+    case DataObjectRef::Aquifer:
+        dc = SWMMModelLayer::DataAquifers;
+        break;
+    case DataObjectRef::Snowpack:
+        dc = SWMMModelLayer::DataSnowpacks;
+        break;
+    case DataObjectRef::Inlet: /* handled above */
+        break;
+    case DataObjectRef::CaptureNode: /* handled above */
+        break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
     // Pollutants / etc.) carry only a tooltip in the registry; surface it.
     if (!ObjectBrowserPanel::hasComplexEditor(dc)) {
-        QMessageBox::information(this, tr("Create New"),
-            ObjectBrowserPanel::gapTooltipFor(dc));
+        QMessageBox::information(this, tr("Create New"), ObjectBrowserPanel::gapTooltipFor(dc));
         return;
     }
 
@@ -384,17 +428,17 @@ void DataObjectPickerEditor::onPickerClicked()
     QString chosen;
     switch (dc) {
     case SWMMModelLayer::DataHydrographs:
-        chosen = HydrographGroupEditor::pickGroup(
-            m_ref.layer, m_ref.currentName, this);
+        chosen = HydrographGroupEditor::pickGroup(m_ref.layer, m_ref.currentName, this);
         break;
 
     case SWMMModelLayer::DataPatterns: {
         using openswmmvis::pattern::PatternRegistry;
         using openswmmvis::ui::PatternEditorDialog;
         auto *reg = qobject_cast<PatternRegistry *>(m_ref.layer->ensurePatternRegistry());
-        if (!reg) return;
-        chosen = PatternEditorDialog::pickPattern(
-            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        if (!reg)
+            return;
+        chosen =
+            PatternEditorDialog::pickPattern(reg, /*undoStack=*/nullptr, m_ref.currentName, this);
         break;
     }
 
@@ -402,13 +446,15 @@ void DataObjectPickerEditor::onPickerClicked()
         using openswmmvis::timeseries::TimeseriesRegistry;
         using openswmmvis::ui::TimeseriesEditorDialog;
         auto *reg = qobject_cast<TimeseriesRegistry *>(m_ref.layer->ensureTimeseriesRegistry());
-        if (!reg) return;
-        chosen = TimeseriesEditorDialog::pickTimeseries(
-            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        if (!reg)
+            return;
+        chosen = TimeseriesEditorDialog::pickTimeseries(reg, /*undoStack=*/nullptr,
+                                                        m_ref.currentName, this);
         // Flush any newly-created provider out to the engine so the
         // adapter's setter (which looks up by engine table index) can
         // resolve the name.
-        if (!chosen.isEmpty()) reg->saveToEngine();
+        if (!chosen.isEmpty())
+            reg->saveToEngine();
         break;
     }
 
@@ -416,16 +462,17 @@ void DataObjectPickerEditor::onPickerClicked()
         using openswmmvis::curve::CurveRegistry;
         using openswmmvis::ui::CurveEditorDialog;
         auto *reg = qobject_cast<CurveRegistry *>(m_ref.layer->ensureCurveRegistry());
-        if (!reg) return;
-        chosen = CurveEditorDialog::pickCurve(
-            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        if (!reg)
+            return;
+        chosen = CurveEditorDialog::pickCurve(reg, /*undoStack=*/nullptr, m_ref.currentName, this);
         break;
     }
 
     case SWMMModelLayer::DataSnowpacks: {
-        auto* registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry*>(m_ref.layer->ensureSnowpackRegistry());
-        chosen = openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(
-            registry, m_ref.layer, m_ref.currentName, this);
+        auto *registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry *>(
+            m_ref.layer->ensureSnowpackRegistry());
+        chosen = openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(registry, m_ref.layer,
+                                                                     m_ref.currentName, this);
         break;
     }
 
@@ -433,11 +480,11 @@ void DataObjectPickerEditor::onPickerClicked()
         using openswmmvis::aquifer::AquiferRegistry;
         using openswmmvis::ui::AquiferEditorDialog;
         auto *reg = qobject_cast<AquiferRegistry *>(m_ref.layer->ensureAquiferRegistry());
-        if (!reg) return;
+        if (!reg)
+            return;
         // pickAquifer flushes the registry to the engine before returning,
         // so the adapter's setter can resolve the name via swmm_aquifer_index.
-        chosen = AquiferEditorDialog::pickAquifer(
-            reg, m_ref.layer, m_ref.currentName, this);
+        chosen = AquiferEditorDialog::pickAquifer(reg, m_ref.layer, m_ref.currentName, this);
         break;
     }
 
@@ -445,7 +492,8 @@ void DataObjectPickerEditor::onPickerClicked()
         return;
     }
 
-    if (chosen.isEmpty()) return;
+    if (chosen.isEmpty())
+        return;
     m_ref.currentName = chosen;
     repopulate();
     emit valueChanged();

@@ -1,9 +1,9 @@
-/*!
- * \file   classificationbindings.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice US.1 (UNIFIED_STYLING plan S1) — adapter interface that lets
+/**
+ * @file      classificationbindings.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice US.1 (UNIFIED_STYLING plan S1) — adapter interface that lets
  *         one ClassificationEditor drive any classified visual.
  *
  *         The editor knows nothing about renderers or style bags. It reads a
@@ -23,7 +23,9 @@
  *             GraduatedRasterRenderer (scheme + band statistics + cached
  *             edges; every push reclassifies against the band sample and
  *             invalidates the tile cache).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_CLASSIFICATIONBINDINGS_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_CLASSIFICATIONBINDINGS_H
 
@@ -39,13 +41,15 @@
 
 class GISRasterLayer;
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class GraduatedRasterRenderer;
 class GraduatedRenderer;
 class IFeatureRenderer;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*!
  * \class IClassificationBinding
@@ -103,7 +107,10 @@ public:
 
     /*! Attribute picker is shown only when this returns a non-empty list.
      *  Pairs of (displayName, canonicalName). */
-    [[nodiscard]] virtual QVector<QPair<QString, QString>> availableAttributes() const { return {}; }
+    [[nodiscard]] virtual QVector<QPair<QString, QString>> availableAttributes() const
+    {
+        return {};
+    }
     [[nodiscard]] virtual QString attribute() const { return {}; }
     virtual void setAttribute(const QString &) {}
 };
@@ -124,18 +131,17 @@ public:
 class GraduatedRendererBinding final : public IClassificationBinding
 {
 public:
-    using RendererGetter   = std::function<OpenSWMM::Render::GraduatedRenderer *()>;
-    using RendererInstaller = std::function<void(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>)>;
-    using AttributeList    = std::function<QVector<QPair<QString, QString>>()>;
+    using RendererGetter = std::function<OpenSWMM::Render::GraduatedRenderer *()>;
+    using RendererInstaller =
+        std::function<void(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>)>;
+    using AttributeList = std::function<QVector<QPair<QString, QString>>()>;
     /*! Whether the animation range-mode row applies right now — depends on
      *  host type AND the currently selected attribute's dynamism, so it is a
      *  closure re-queried on each refresh rather than a fixed flag. */
-    using RangeModeGate    = std::function<bool()>;
+    using RangeModeGate = std::function<bool()>;
 
-    GraduatedRendererBinding(RendererGetter getRenderer,
-                             RendererInstaller installRenderer,
-                             AttributeList attributeList,
-                             RangeModeGate rangeModesEnabled);
+    GraduatedRendererBinding(RendererGetter getRenderer, RendererInstaller installRenderer,
+                             AttributeList attributeList, RangeModeGate rangeModesEnabled);
 
     /*! Re-read the cached scheme from the live renderer. Call after the
      *  host's refreshFromModel / Cancel rollback so the editor reflects the
@@ -159,10 +165,10 @@ public:
 private:
     [[nodiscard]] OpenSWMM::Render::ClassificationScheme schemeFromRenderer() const;
 
-    RendererGetter    m_get;
+    RendererGetter m_get;
     RendererInstaller m_install;
-    AttributeList     m_attributes;
-    RangeModeGate     m_rangeGate;
+    AttributeList m_attributes;
+    RangeModeGate m_rangeGate;
     OpenSWMM::Render::ClassificationScheme m_scheme;
 };
 
@@ -178,31 +184,37 @@ private:
 class SublayerSchemeBinding final : public IClassificationBinding
 {
 public:
-    using Getter        = std::function<OpenSWMM::Render::ClassificationScheme()>;
-    using Setter        = std::function<void(const OpenSWMM::Render::ClassificationScheme &)>;
+    using Getter = std::function<OpenSWMM::Render::ClassificationScheme()>;
+    using Setter = std::function<void(const OpenSWMM::Render::ClassificationScheme &)>;
     using SampleProvider = std::function<QVector<double>()>;
-    using RangeProvider  = std::function<QPair<double, double>()>;
+    using RangeProvider = std::function<QPair<double, double>()>;
 
-    SublayerSchemeBinding(Getter getter, Setter setter,
-                          SampleProvider sampleProvider, RangeProvider rangeProvider,
-                          bool supportsContinuousMode, bool supportsRangeModes);
+    SublayerSchemeBinding(Getter getter, Setter setter, SampleProvider sampleProvider,
+                          RangeProvider rangeProvider, bool supportsContinuousMode,
+                          bool supportsRangeModes);
 
     OpenSWMM::Render::ClassificationScheme scheme() const override { return m_get(); }
     void setScheme(const OpenSWMM::Render::ClassificationScheme &s) override { m_set(s); }
-    QVector<double> sampleValues() const override { return m_samples ? m_samples() : QVector<double>{}; }
-    QPair<double, double> dataRange() const override { return m_range ? m_range() : QPair<double, double>{ 0.0, 1.0 }; }
+    QVector<double> sampleValues() const override
+    {
+        return m_samples ? m_samples() : QVector<double>{};
+    }
+    QPair<double, double> dataRange() const override
+    {
+        return m_range ? m_range() : QPair<double, double>{0.0, 1.0};
+    }
 
     bool supportsContinuousMode() const override { return m_supportsContinuous; }
     bool supportsRangeModes() const override { return m_supportsRangeModes; }
     bool supportsCustomRange() const override { return !m_supportsRangeModes; }
 
 private:
-    Getter         m_get;
-    Setter         m_set;
+    Getter m_get;
+    Setter m_set;
     SampleProvider m_samples;
-    RangeProvider  m_range;
-    bool           m_supportsContinuous = false;
-    bool           m_supportsRangeModes = false;
+    RangeProvider m_range;
+    bool m_supportsContinuous = false;
+    bool m_supportsRangeModes = false;
 };
 
 // ───────────────────────────────────────────────────────────────────────

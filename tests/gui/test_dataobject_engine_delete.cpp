@@ -1,15 +1,18 @@
-/*!
- * \file   test_dataobject_engine_delete.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_dataobject_engine_delete.cpp
+ * @brief     Tests for dataobject engine delete.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Perf-plan Phase A3 (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN_2026-09-01) bug
  * fix: the transect and curve registries' remove() must delete the ENGINE
  * copy too.  Their saveToEngine only ever adds/updates, so before the fix a
  * "deleted" object survived in the engine and reappeared in the written INP.
  * The timeseries twin lives in test_timeseries_registry_engine.cpp.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
 #include "transect/transectprovider.h"
@@ -25,8 +28,19 @@
 using openswmmvis::curve::CurveRegistry;
 using openswmmvis::transect::TransectRegistry;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Append a three-station transect fixture to a mutable engine.
+ * @param eng Borrowed valid mutable engine; must outlive subsequent registry tests.
+ * @param id Borrowed null-terminated unique UTF-8 transect ID. Stations/elevations
+ * (0,10),(5,2),(10,10) use the API native units without conversion. Each failed
+ * QtTest assertion returns only from this helper and can leave a partial transect;
+ * it does not abort the outer slot or roll back already added records.
+ *
+ */
 void addTransect(SWMM_Engine eng, const char *id)
 {
     QVERIFY(swmm_transect_add(eng, id) == SWMM_OK);
@@ -37,6 +51,16 @@ void addTransect(SWMM_Engine eng, const char *id)
     QVERIFY(swmm_transect_add_station(eng, idx, 10.0, 10.0) == SWMM_OK);
 }
 
+/**
+ *
+ * @brief Append a two-point type-code-one curve fixture to a mutable engine.
+ * @param eng Borrowed valid mutable engine, with table capacity for the fixture.
+ * @param id Borrowed null-terminated unique UTF-8 curve/table ID. Points (0,1) and
+ * (2,4) are passed in native curve units without conversion. A failed QtTest
+ * assertion records failure and returns from this helper with possible partial
+ * state; outer callers continue unless their own assertions stop them.
+ *
+ */
 void addCurve(SWMM_Engine eng, const char *id)
 {
     QVERIFY(swmm_curve_add(eng, id, /*Storage*/ 1) == SWMM_OK);
@@ -54,6 +78,12 @@ class TestDataObjectEngineDelete : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require registry removal to delete the engine transect while preserving a sibling,
+     * including after a later full registry flush.
+     *
+     */
     void transectRemove_DeletesTheEngineCopy()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -79,6 +109,13 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require registry removal to delete the engine curve table and a later flush not to
+     * resurrect it.
+     * Checks sibling survival before the flush; writes no persisted INP.
+     *
+     */
     void curveRemove_DeletesTheEngineTable()
     {
         SWMM_Engine eng = swmm_engine_new();

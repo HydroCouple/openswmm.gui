@@ -1,9 +1,13 @@
-/*!
- * \file   chartaxisformatcontroller.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      chartaxisformatcontroller.cpp
+ * @brief     The editor charts (curve / pattern / timeseries / scatter / hydrograph / transect)
+ *            each own one of these.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/chartaxisformatcontroller.h"
 
 #include "core/preferencesmanager.h"
@@ -14,7 +18,8 @@
 #include <QChart>
 #include <QValueAxis>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::plot::ChartProperties;
 using openswmmvis::plot::NumberFormat;
@@ -37,23 +42,29 @@ void ChartAxisFormatController::setChart(QChart *chart)
 
 void ChartAxisFormatController::apply()
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     const QString xSpec = m_x.printfSpec();
     const QString ySpec = m_y.printfSpec();
     // UtcTimeAxis must be skipped EXPLICITLY (issue #11): it derives from
     // QCategoryAxis → QValueAxis, so unlike QDateTimeAxis it matches the cast
     // below, and a numeric spec would replace its date labels.
     auto applySpec = [](QAbstractAxis *ax, const QString &spec) {
-        if (qobject_cast<openswmmvis::plot::UtcTimeAxis *>(ax)) return;
-        if (auto *va = qobject_cast<QValueAxis *>(ax)) va->setLabelFormat(spec);
+        if (qobject_cast<openswmmvis::plot::UtcTimeAxis *>(ax))
+            return;
+        if (auto *va = qobject_cast<QValueAxis *>(ax))
+            va->setLabelFormat(spec);
     };
-    for (auto *ax : m_chart->axes(Qt::Horizontal)) applySpec(ax, xSpec);
-    for (auto *ax : m_chart->axes(Qt::Vertical))   applySpec(ax, ySpec);
+    for (auto *ax : m_chart->axes(Qt::Horizontal))
+        applySpec(ax, xSpec);
+    for (auto *ax : m_chart->axes(Qt::Vertical))
+        applySpec(ax, ySpec);
 }
 
 void ChartAxisFormatController::openDialog(QWidget *parent)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
 
     // ChartProperties seeds non-format attributes (title/range/colours/theme)
     // from the live chart; override its label-format fields with our persistent
@@ -69,19 +80,21 @@ void ChartAxisFormatController::openDialog(QWidget *parent)
     // Write edits back so they persist across the editor's replot cycles. The
     // connections auto-disconnect when the dialog deletes `cp` on close.
     connect(cp, &ChartProperties::xLabelFormatModeChanged, this,
-            [this](ChartProperties::LabelFormatMode m) { m_x.mode = static_cast<NumberFormatMode>(m); });
-    connect(cp, &ChartProperties::xLabelPrecisionChanged, this,
-            [this](int c) { m_x.count = c; });
+            [this](ChartProperties::LabelFormatMode m) {
+                m_x.mode = static_cast<NumberFormatMode>(m);
+            });
+    connect(cp, &ChartProperties::xLabelPrecisionChanged, this, [this](int c) { m_x.count = c; });
     connect(cp, &ChartProperties::xLabelFormatChanged, this,
             [this](const QString &s) { m_x.custom = s; });
     connect(cp, &ChartProperties::yLabelFormatModeChanged, this,
-            [this](ChartProperties::LabelFormatMode m) { m_y.mode = static_cast<NumberFormatMode>(m); });
-    connect(cp, &ChartProperties::yLabelPrecisionChanged, this,
-            [this](int c) { m_y.count = c; });
+            [this](ChartProperties::LabelFormatMode m) {
+                m_y.mode = static_cast<NumberFormatMode>(m);
+            });
+    connect(cp, &ChartProperties::yLabelPrecisionChanged, this, [this](int c) { m_y.count = c; });
     connect(cp, &ChartProperties::yLabelFormatChanged, this,
             [this](const QString &s) { m_y.custom = s; });
 
-    auto *dlg = new ChartPropertiesDialog(cp, parent);   // takes ownership of cp
+    auto *dlg = new ChartPropertiesDialog(cp, parent); // takes ownership of cp
     dlg->show();
 }
 

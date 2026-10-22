@@ -1,6 +1,6 @@
-/*!
- * \file  test_aquifer_editor_dialog_stubs.cpp
- * \brief Link-only stubs so test_aquifer_editor_dialog can build without the
+/**
+ * @file      test_aquifer_editor_dialog_stubs.cpp
+ * @brief     Link-only stubs so test_aquifer_editor_dialog can build without the
  *        full model-layer and pattern-editor chains.
  *
  * aquifereditordialog.cpp reaches SWMMModelLayer::ensurePatternRegistry() and
@@ -12,16 +12,22 @@
  * technique as test_nodepropertyadapter_stubs.cpp. The real implementations
  * live in src/layers/swmmmodellayer.cpp and src/ui/dialogs/patterneditordialog.cpp
  * and are covered by the app build.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/patterneditordialog.h"
 
-QObject *SWMMModelLayer::ensurePatternRegistry() { return nullptr; }
+QObject *SWMMModelLayer::ensurePatternRegistry()
+{
+    return nullptr;
+}
 
-QString openswmmvis::ui::PatternEditorDialog::pickPattern(
-    openswmmvis::pattern::PatternRegistry *, QUndoStack *,
-    const QString &, QWidget *)
+QString openswmmvis::ui::PatternEditorDialog::pickPattern(openswmmvis::pattern::PatternRegistry *,
+                                                          QUndoStack *, const QString &, QWidget *)
 {
     return {};
 }

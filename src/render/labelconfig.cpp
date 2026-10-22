@@ -1,50 +1,56 @@
-/*!
- * \file   labelconfig.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      labelconfig.cpp
+ * @brief     paints text labels.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/labelconfig.h"
 
 #include <QJsonArray>
 
 #include <cmath>
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 
 QJsonObject LabelConfig::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("enabled")]      = enabled;
+    j[QStringLiteral("enabled")] = enabled;
     if (!fieldName.isEmpty())
-        j[QStringLiteral("field")]    = fieldName;
+        j[QStringLiteral("field")] = fieldName;
     if (!expression.isEmpty())
         j[QStringLiteral("expression")] = expression;
-    j[QStringLiteral("fontFamily")]   = font.family();
-    j[QStringLiteral("fontBold")]     = font.bold();
-    j[QStringLiteral("fontItalic")]   = font.italic();
-    j[QStringLiteral("fontSizePt")]   = fontSizePt;
-    j[QStringLiteral("color")]        = color.name(QColor::HexArgb);
-    j[QStringLiteral("haloEnabled")]  = haloEnabled;
-    j[QStringLiteral("haloColor")]    = haloColor.name(QColor::HexArgb);
+    j[QStringLiteral("fontFamily")] = font.family();
+    j[QStringLiteral("fontBold")] = font.bold();
+    j[QStringLiteral("fontItalic")] = font.italic();
+    j[QStringLiteral("fontSizePt")] = fontSizePt;
+    j[QStringLiteral("color")] = color.name(QColor::HexArgb);
+    j[QStringLiteral("haloEnabled")] = haloEnabled;
+    j[QStringLiteral("haloColor")] = haloColor.name(QColor::HexArgb);
     j[QStringLiteral("haloRadiusPx")] = haloRadiusPx;
-    j[QStringLiteral("placement")]    = int(placement);
-    if (minScale > 0.0) j[QStringLiteral("minScale")] = minScale;
-    if (maxScale > 0.0) j[QStringLiteral("maxScale")] = maxScale;
+    j[QStringLiteral("placement")] = int(placement);
+    if (minScale > 0.0)
+        j[QStringLiteral("minScale")] = minScale;
+    if (maxScale > 0.0)
+        j[QStringLiteral("maxScale")] = maxScale;
     // X.24 — background + priority
     if (backgroundEnabled)
         j[QStringLiteral("backgroundEnabled")] = true;
-    if (backgroundColor   != QColor(255, 255, 255, 200))
-        j[QStringLiteral("backgroundColor")]   = backgroundColor.name(QColor::HexArgb);
+    if (backgroundColor != QColor(255, 255, 255, 200))
+        j[QStringLiteral("backgroundColor")] = backgroundColor.name(QColor::HexArgb);
     if (!qFuzzyCompare(backgroundPaddingPx, 2.0))
         j[QStringLiteral("backgroundPaddingPx")] = backgroundPaddingPx;
     if (!qFuzzyCompare(backgroundRadiusPx, 3.0))
-        j[QStringLiteral("backgroundRadiusPx")]  = backgroundRadiusPx;
+        j[QStringLiteral("backgroundRadiusPx")] = backgroundRadiusPx;
     if (!priorityField.isEmpty())
-        j[QStringLiteral("priorityField")]    = priorityField;
+        j[QStringLiteral("priorityField")] = priorityField;
     // Feedback C4 — absent key = automatic, so older sidecars read unchanged.
     if (decimals >= 0)
-        j[QStringLiteral("decimals")]         = decimals;
+        j[QStringLiteral("decimals")] = decimals;
     return j;
 }
 
@@ -54,9 +60,9 @@ QString LabelConfig::formatValue(const QVariant &v, int decimals)
     case QMetaType::Double:
     case QMetaType::Float: {
         const double d = v.toDouble();
-        if (!std::isfinite(d)) return QString();
-        return decimals < 0 ? QString::number(d, 'g', 6)
-                            : QString::number(d, 'f', decimals);
+        if (!std::isfinite(d))
+            return QString();
+        return decimals < 0 ? QString::number(d, 'g', 6) : QString::number(d, 'f', decimals);
     }
     default:
         return v.toString();
@@ -81,13 +87,15 @@ void LabelConfig::fromJson(const QJsonObject &j)
         fontSizePt = j.value(QStringLiteral("fontSizePt")).toDouble(9.0);
     if (j.contains(QStringLiteral("color"))) {
         const QColor c(j.value(QStringLiteral("color")).toString());
-        if (c.isValid()) color = c;
+        if (c.isValid())
+            color = c;
     }
     if (j.contains(QStringLiteral("haloEnabled")))
         haloEnabled = j.value(QStringLiteral("haloEnabled")).toBool(false);
     if (j.contains(QStringLiteral("haloColor"))) {
         const QColor c(j.value(QStringLiteral("haloColor")).toString());
-        if (c.isValid()) haloColor = c;
+        if (c.isValid())
+            haloColor = c;
     }
     if (j.contains(QStringLiteral("haloRadiusPx")))
         haloRadiusPx = j.value(QStringLiteral("haloRadiusPx")).toDouble(1.5);
@@ -100,12 +108,13 @@ void LabelConfig::fromJson(const QJsonObject &j)
         backgroundEnabled = j.value(QStringLiteral("backgroundEnabled")).toBool(false);
     if (j.contains(QStringLiteral("backgroundColor"))) {
         const QColor c(j.value(QStringLiteral("backgroundColor")).toString());
-        if (c.isValid()) backgroundColor = c;
+        if (c.isValid())
+            backgroundColor = c;
     }
     if (j.contains(QStringLiteral("backgroundPaddingPx")))
         backgroundPaddingPx = j.value(QStringLiteral("backgroundPaddingPx")).toDouble(2.0);
     if (j.contains(QStringLiteral("backgroundRadiusPx")))
-        backgroundRadiusPx  = j.value(QStringLiteral("backgroundRadiusPx")).toDouble(3.0);
+        backgroundRadiusPx = j.value(QStringLiteral("backgroundRadiusPx")).toDouble(3.0);
     if (j.contains(QStringLiteral("priorityField")))
         priorityField = j.value(QStringLiteral("priorityField")).toString();
     decimals = j.value(QStringLiteral("decimals")).toInt(-1);

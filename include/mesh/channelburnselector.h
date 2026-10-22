@@ -1,8 +1,10 @@
-/*!
- * \file   channelburnselector.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnselector.h
+ * @brief     Which conduits get burned, and their geometry — phase P1/P6 bridge of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1, §4.8, §16.4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Which conduits get burned, and their geometry — phase P1/P6 bridge of
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1, §4.8, §16.4).
@@ -31,7 +33,9 @@
  * station/elevation pairs, NOT from `XsectSampler::outline()`, which mirrors
  * half-widths and would throw away exactly the asymmetry a natural channel is
  * burned for (§16.1). Analytic shapes come from the engine's own width ladder.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_CHANNELBURNSELECTOR_H
 #define OPENSWMMVIS_MESH_CHANNELBURNSELECTOR_H
 
@@ -45,16 +49,16 @@
 #include <QStringList>
 #include <QVector>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief One conduit's verdict, and its geometry when accepted. */
-struct BurnCandidate
-{
-    QString      conduitId;
-    int          linkIndex = -1;
-    bool         accepted  = false;
-    QString      reason;    ///< Why it was rejected; empty when accepted.
-    ChannelInput input;     ///< Ready for \ref buildBurnProfile. Only when accepted.
+struct BurnCandidate {
+    QString conduitId;
+    int linkIndex = -1;
+    bool accepted = false;
+    QString reason;     ///< Why it was rejected; empty when accepted.
+    ChannelInput input; ///< Ready for \ref buildBurnProfile. Only when accepted.
 };
 
 /*!
@@ -73,14 +77,10 @@ struct BurnCandidate
  * Every conduit is returned, accepted or not, so the burn report can say why
  * something was skipped rather than leaving the user to guess.
  */
-[[nodiscard]] QVector<BurnCandidate> resolveBurnSet(
-    SWMM_Engine eng,
-    const BurnSelector &sel,
-    const BurnOptions &opt,
-    const QHash<QString, QVector<QPointF>> &polylines,
-    bool si,
-    const QHash<QString, QVariantMap> &rows = {},
-    QStringList *warnings = nullptr);
+[[nodiscard]] QVector<BurnCandidate>
+resolveBurnSet(SWMM_Engine eng, const BurnSelector &sel, const BurnOptions &opt,
+               const QHash<QString, QVector<QPointF>> &polylines, bool si,
+               const QHash<QString, QVariantMap> &rows = {}, QStringList *warnings = nullptr);
 
 /*!
  * \brief The section of one conduit, by the rule in §16.4.

@@ -1,8 +1,12 @@
-/*!
- * \file   groundwaterexchangedialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      groundwaterexchangedialog.cpp
+ * @brief     [GROUNDWATER] receiving node + surface elevation + standard lateral-flow coefficients
+ *            (A1 B1 A2 B2 A3 Dsw Egwt) and the two [GWF] custom expressions (LATERAL / DEEP) with
+ *            live engine validation.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/groundwaterexchangedialog.h"
@@ -36,15 +40,15 @@
 
 using openswmmvis::ui::GwfExpressionEdit;
 
-namespace {
+namespace
+{
 constexpr double kBig = 1e12;
 // The engine's MISSING value. In [GROUNDWATER] it is Egwt `*`: use the
 // receiving node's invert as the lateral-flow threshold.
 constexpr double kMissing = -1.0e10;
 }
 
-GroundwaterExchangeDialog::GroundwaterExchangeDialog(SubcatchCompoundEditRef ref,
-                                                     QWidget *parent)
+GroundwaterExchangeDialog::GroundwaterExchangeDialog(SubcatchCompoundEditRef ref, QWidget *parent)
     : QDialog(parent), m_ref(std::move(ref))
 {
     // Naming wires the app-wide layout persistence (DialogLayoutPersistence).
@@ -55,14 +59,16 @@ GroundwaterExchangeDialog::GroundwaterExchangeDialog(SubcatchCompoundEditRef ref
     buildUi_();
     loadFromEngine_();
     if (m_ref.layer) {
-        connect(m_ref.layer, &QObject::destroyed, this, &GroundwaterExchangeDialog::invalidateContext);
+        connect(m_ref.layer, &QObject::destroyed, this,
+                &GroundwaterExchangeDialog::invalidateContext);
         connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
     }
 }
 
 int GroundwaterExchangeDialog::subIdx() const
 {
-    if (!m_ref.engine || m_ref.subName.isEmpty()) return -1;
+    if (!m_ref.engine || m_ref.subName.isEmpty())
+        return -1;
     return swmm_subcatch_index(m_ref.engine, m_ref.subName.toUtf8().constData());
 }
 
@@ -90,7 +96,8 @@ void GroundwaterExchangeDialog::buildUi_()
     outer->addWidget(m_header);
 
     m_hint = new QLabel(tr("Assign an aquifer in the property browser to "
-                           "enable groundwater exchange."), this);
+                           "enable groundwater exchange."),
+                        this);
     m_hint->setWordWrap(true);
     outer->addWidget(m_hint);
     m_writeError = new QLabel(this);
@@ -105,12 +112,11 @@ void GroundwaterExchangeDialog::buildUi_()
     auto *formLay = new QVBoxLayout(m_form);
     formLay->setContentsMargins(0, 0, 0, 0);
 
-    const QString L = UnitSystem::instance()
-                          ? UnitSystem::instance()->lengthLabel()
-                          : QStringLiteral("ft");
+    const QString L =
+        UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QStringLiteral("ft");
 
     // ── Receiving node ──────────────────────────────────────────────────────
-    auto *nodeGrp  = new QGroupBox(tr("Receiving node"), m_form);
+    auto *nodeGrp = new QGroupBox(tr("Receiving node"), m_form);
     auto *nodeForm = new QFormLayout(nodeGrp);
     m_node = new QComboBox(nodeGrp);
     m_node->setObjectName(QStringLiteral("gwNode"));
@@ -128,11 +134,11 @@ void GroundwaterExchangeDialog::buildUi_()
     formLay->addWidget(nodeGrp);
 
     // ── Standard lateral flow ───────────────────────────────────────────────
-    auto *stdGrp  = new QGroupBox(tr("Standard lateral flow"), m_form);
-    auto *stdLay  = new QVBoxLayout(stdGrp);
-    auto *formula = new QLabel(
-        QStringLiteral("Q<sub>lat</sub> = A1·(HGW − H*)<sup>B1</sup> − "
-                       "A2·(HSW − H*)<sup>B2</sup> + A3·HGW·HSW"), stdGrp);
+    auto *stdGrp = new QGroupBox(tr("Standard lateral flow"), m_form);
+    auto *stdLay = new QVBoxLayout(stdGrp);
+    auto *formula = new QLabel(QStringLiteral("Q<sub>lat</sub> = A1·(HGW − H*)<sup>B1</sup> − "
+                                              "A2·(HSW − H*)<sup>B2</sup> + A3·HGW·HSW"),
+                               stdGrp);
     formula->setTextFormat(Qt::RichText);
     formula->setToolTip(tr("HGW: water table height above aquifer bottom; "
                            "HSW: receiving-node water depth above aquifer "
@@ -147,12 +153,12 @@ void GroundwaterExchangeDialog::buildUi_()
         s->setDecimals(4);
         return s;
     };
-    m_a1    = mkSpin("gwA1");
-    m_b1    = mkSpin("gwB1");
-    m_a2    = mkSpin("gwA2");
-    m_b2    = mkSpin("gwB2");
-    m_a3    = mkSpin("gwA3");
-    m_tw    = mkSpin("gwTw");
+    m_a1 = mkSpin("gwA1");
+    m_b1 = mkSpin("gwB1");
+    m_a2 = mkSpin("gwA2");
+    m_b2 = mkSpin("gwB2");
+    m_a3 = mkSpin("gwA3");
+    m_tw = mkSpin("gwTw");
     m_hstar = mkSpin("gwHstar");
     m_tw->setSuffix(QStringLiteral(" %1").arg(L));
     m_hstar->setSuffix(QStringLiteral(" %1").arg(L));
@@ -176,18 +182,18 @@ void GroundwaterExchangeDialog::buildUi_()
     connect(m_egwtUseInvert, &QCheckBox::toggled, this, [this](bool useInvert) {
         m_hstar->setEnabled(!useInvert);
         if (useInvert)
-            m_hstar->setValue(m_hstar->minimum());   // shows the special text
+            m_hstar->setValue(m_hstar->minimum()); // shows the special text
         else if (m_hstar->value() == m_hstar->minimum())
             m_hstar->setValue(0.0);
     });
     auto *egwtRow = new QHBoxLayout;
     egwtRow->addWidget(m_hstar, 1);
     egwtRow->addWidget(m_egwtUseInvert);
-    stdForm->addRow(tr("A1 (&GW coeff.)"),    m_a1);
-    stdForm->addRow(tr("B1 (GW &expon.)"),    m_b1);
+    stdForm->addRow(tr("A1 (&GW coeff.)"), m_a1);
+    stdForm->addRow(tr("B1 (GW &expon.)"), m_b1);
     stdForm->addRow(tr("A2 (Surf. c&oeff.)"), m_a2);
     stdForm->addRow(tr("B2 (Surf. e&xpon.)"), m_b2);
-    stdForm->addRow(tr("A3 (interaction)"),   m_a3);
+    stdForm->addRow(tr("A3 (interaction)"), m_a3);
     stdForm->addRow(tr("Fixed surface-water depth (Dsw)"), m_tw);
     stdForm->addRow(tr("Threshold water-table elev. (Egwt)"), egwtRow);
     if (auto *label = qobject_cast<QLabel *>(stdForm->labelForField(egwtRow)))
@@ -200,15 +206,14 @@ void GroundwaterExchangeDialog::buildUi_()
     auto *gwfLay = new QVBoxLayout(gwfGrp);
 
     auto addRow = [this, gwfGrp, gwfLay](const QString &title, const QString &note,
-                                         const char *name,
-                                         GwfExpressionEdit **editOut,
+                                         const char *name, GwfExpressionEdit **editOut,
                                          QLabel **statusOut) {
         auto *cap = new QLabel(tr("%1 — %2").arg(title, note), gwfGrp);
         cap->setTextFormat(Qt::PlainText);
         cap->setWordWrap(true);
         gwfLay->addWidget(cap);
 
-        auto *row  = new QHBoxLayout;
+        auto *row = new QHBoxLayout;
         auto *edit = new GwfExpressionEdit(m_ref.engine, gwfGrp);
         edit->setObjectName(QString::fromLatin1(name));
         QString accessibleTitle = title;
@@ -228,13 +233,11 @@ void GroundwaterExchangeDialog::buildUi_()
         const QStringList descs = edit->variableDescriptions();
         for (int i = 0; i < names.size(); ++i) {
             const QString desc = i < descs.size() ? descs.at(i) : QString();
-            const QString text = desc.isEmpty()
-                ? names.at(i)
-                : QStringLiteral("%1 — %2").arg(names.at(i), desc);
+            const QString text =
+                desc.isEmpty() ? names.at(i) : QStringLiteral("%1 — %2").arg(names.at(i), desc);
             QAction *act = menu->addAction(text);
             const QString var = names.at(i);
-            connect(act, &QAction::triggered, edit,
-                    [edit, var]() { edit->insertAtCursor(var); });
+            connect(act, &QAction::triggered, edit, [edit, var]() { edit->insertAtCursor(var); });
         }
         insert->setMenu(menu);
         row->addWidget(insert);
@@ -246,23 +249,22 @@ void GroundwaterExchangeDialog::buildUi_()
         status->setWordWrap(true);
         gwfLay->addWidget(status);
 
-        *editOut   = edit;
+        *editOut = edit;
         *statusOut = status;
     };
-    addRow(tr("&Lateral expression"), tr("Added to the standard lateral flow."),
-           "gwLateral", &m_lateral, &m_lateralStatus);
-    addRow(tr("&Deep expression"), tr("Replaces the standard deep percolation."),
-           "gwDeep", &m_deep, &m_deepStatus);
+    addRow(tr("&Lateral expression"), tr("Added to the standard lateral flow."), "gwLateral",
+           &m_lateral, &m_lateralStatus);
+    addRow(tr("&Deep expression"), tr("Replaces the standard deep percolation."), "gwDeep", &m_deep,
+           &m_deepStatus);
     bindExpression_(m_lateral, m_lateralStatus, &m_lateralOk);
-    bindExpression_(m_deep,    m_deepStatus,    &m_deepOk);
+    bindExpression_(m_deep, m_deepStatus, &m_deepOk);
     formLay->addWidget(gwfGrp);
     formLay->addStretch(1);
 
     outer->addWidget(OpenSWMM::Ui::wrapInScrollArea(m_form, this), 1);
 
     // ── Buttons ─────────────────────────────────────────────────────────────
-    m_buttons = new QDialogButtonBox(QDialogButtonBox::Apply | QDialogButtonBox::Close,
-                                     this);
+    m_buttons = new QDialogButtonBox(QDialogButtonBox::Apply | QDialogButtonBox::Close, this);
     m_applyBtn = m_buttons->button(QDialogButtonBox::Apply);
     m_applyBtn->setObjectName(QStringLiteral("gwApply"));
     connect(m_applyBtn, &QPushButton::clicked, this, &GroundwaterExchangeDialog::apply_);
@@ -270,8 +272,8 @@ void GroundwaterExchangeDialog::buildUi_()
     outer->addWidget(m_buttons);
 }
 
-void GroundwaterExchangeDialog::bindExpression_(GwfExpressionEdit *edit,
-                                                QLabel *status, bool *okFlag)
+void GroundwaterExchangeDialog::bindExpression_(GwfExpressionEdit *edit, QLabel *status,
+                                                bool *okFlag)
 {
     const QString description = edit->accessibleDescription();
     connect(edit, &GwfExpressionEdit::validationChanged, this,
@@ -280,19 +282,18 @@ void GroundwaterExchangeDialog::bindExpression_(GwfExpressionEdit *edit,
                 if (ok) {
                     status->setText(QString());
                 } else {
-                    status->setText(col >= 0
-                        ? tr("Column %1: %2").arg(col + 1).arg(msg)
-                        : msg);
+                    status->setText(col >= 0 ? tr("Column %1: %2").arg(col + 1).arg(msg) : msg);
                 }
                 edit->setAccessibleDescription(ok ? description
-                    : tr("%1 %2").arg(description, status->text()));
+                                                  : tr("%1 %2").arg(description, status->text()));
                 updateApplyState_();
             });
 }
 
 void GroundwaterExchangeDialog::updateApplyState_()
 {
-    if (!m_applyBtn) return;
+    if (!m_applyBtn)
+        return;
     const bool ok = canApply();
     m_applyBtn->setEnabled(ok);
     if (ok)
@@ -336,45 +337,51 @@ void GroundwaterExchangeDialog::loadFromEngine_()
 
     m_loadedOk = readSnapshot(m_loaded);
     if (m_loadedOk) {
-        m_node->setCurrentIndex(m_loaded.node >= 0
-            ? m_node->findText(m_loaded.nodeName) : 0);
+        m_node->setCurrentIndex(m_loaded.node >= 0 ? m_node->findText(m_loaded.nodeName) : 0);
         hydrateParams_(m_loaded.values);
         m_lateral->setExpression(m_loaded.lateral);
         m_deep->setExpression(m_loaded.deep);
     } else {
-        reportWriteError(tr("Groundwater values could not be loaded completely. Close and reopen the editor."));
+        reportWriteError(
+            tr("Groundwater values could not be loaded completely. Close and reopen the editor."));
     }
     updateApplyState_();
 }
 
 void GroundwaterExchangeDialog::hydrateParams_(const std::array<double, 8> &values)
 {
-    const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2, m_b2, m_a3, m_tw, m_hstar};
+    const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2,
+                                                m_b2,     m_a3, m_tw, m_hstar};
     for (size_t i = 0; i + 1 < spins.size(); ++i)
         OpenSWMM::Ui::setHydratedValue(spins[i], values[i]);
     const bool useInvert = values[7] == kMissing;
-    if (!useInvert) OpenSWMM::Ui::setHydratedValue(m_hstar, values[7]);
+    if (!useInvert)
+        OpenSWMM::Ui::setHydratedValue(m_hstar, values[7]);
     m_egwtUseInvert->setChecked(useInvert);
     m_hstar->setEnabled(!useInvert);
-    if (useInvert) m_hstar->setValue(m_hstar->minimum());
+    if (useInvert)
+        m_hstar->setValue(m_hstar->minimum());
 }
 
 bool GroundwaterExchangeDialog::readSnapshot(Snapshot &state) const
 {
     const int index = subIdx();
-    if (index < 0) return false;
+    if (index < 0)
+        return false;
     const auto e = m_ref.engine;
-    if (swmm_subcatch_get_aquifer(e, index, &state.aquifer) != SWMM_OK
-        || swmm_subcatch_get_gw_node(e, index, &state.node) != SWMM_OK
-        || swmm_subcatch_get_gw_params(e, index, &state.values[0], &state.values[1],
-            &state.values[2], &state.values[3], &state.values[4], &state.values[5],
-            &state.values[6], &state.values[7]) != SWMM_OK)
+    if (swmm_subcatch_get_aquifer(e, index, &state.aquifer) != SWMM_OK ||
+        swmm_subcatch_get_gw_node(e, index, &state.node) != SWMM_OK ||
+        swmm_subcatch_get_gw_params(e, index, &state.values[0], &state.values[1], &state.values[2],
+                                    &state.values[3], &state.values[4], &state.values[5],
+                                    &state.values[6], &state.values[7]) != SWMM_OK)
         return false;
     for (double value : state.values)
-        if (!std::isfinite(value)) return false;
+        if (!std::isfinite(value))
+            return false;
     const char *aq = state.aquifer < 0 ? nullptr : swmm_aquifer_id(e, state.aquifer);
     const char *nd = state.node < 0 ? nullptr : swmm_node_id(e, state.node);
-    if ((state.aquifer >= 0 && !aq) || (state.node >= 0 && !nd)) return false;
+    if ((state.aquifer >= 0 && !aq) || (state.node >= 0 && !nd))
+        return false;
     state.aquiferName = aq ? QString::fromUtf8(aq) : QString();
     state.nodeName = nd ? QString::fromUtf8(nd) : QString();
     const auto readExpression = [&](int type, QString &value) {
@@ -392,8 +399,8 @@ bool GroundwaterExchangeDialog::readSnapshot(Snapshot &state) const
         }
         return false;
     };
-    return readExpression(SWMM_GWF_LATERAL, state.lateral)
-        && readExpression(SWMM_GWF_DEEP, state.deep);
+    return readExpression(SWMM_GWF_LATERAL, state.lateral) &&
+           readExpression(SWMM_GWF_DEEP, state.deep);
 }
 
 void GroundwaterExchangeDialog::reportWriteError(const QString &message, QWidget *field)
@@ -401,7 +408,8 @@ void GroundwaterExchangeDialog::reportWriteError(const QString &message, QWidget
     m_writeError->setText(message);
     m_writeError->setVisible(!message.isEmpty());
     if (field) {
-        if (auto *scroll = findChild<QScrollArea *>()) scroll->ensureWidgetVisible(field);
+        if (auto *scroll = findChild<QScrollArea *>())
+            scroll->ensureWidgetVisible(field);
         field->setFocus(Qt::OtherFocusReason);
     }
 }
@@ -432,16 +440,19 @@ void GroundwaterExchangeDialog::notifyEdited()
 
 void GroundwaterExchangeDialog::apply_()
 {
-    if (!m_loadedOk) return;
+    if (!m_loadedOk)
+        return;
     reportWriteError(QString());
     Snapshot current;
     if (!readSnapshot(current) || current != m_loaded) {
-        reportWriteError(tr("Groundwater data changed or is no longer available. Your draft is retained; close and reopen this editor before applying."));
+        reportWriteError(tr(
+            "Groundwater data changed or is no longer available. Your draft is retained; close and reopen this editor before applying."));
         return;
     }
     const int selection = m_node->currentIndex();
-    const int node = selection == 0 ? -1
-        : swmm_node_index(m_ref.engine, m_node->currentText().toUtf8().constData());
+    const int node =
+        selection == 0 ? -1
+                       : swmm_node_index(m_ref.engine, m_node->currentText().toUtf8().constData());
     if (selection < 0 || (selection > 0 && node < 0)) {
         reportWriteError(tr("Select an available receiving node or (none)."), m_node);
         return;
@@ -450,33 +461,44 @@ void GroundwaterExchangeDialog::apply_()
     m_deep->validateNow();
     if (!canApply()) {
         auto *invalid = m_lateralOk ? m_deep : m_lateral;
-        if (auto *scroll = findChild<QScrollArea *>()) scroll->ensureWidgetVisible(invalid);
+        if (auto *scroll = findChild<QScrollArea *>())
+            scroll->ensureWidgetVisible(invalid);
         invalid->setFocus(Qt::OtherFocusReason);
         return;
     }
-    const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2, m_b2, m_a3, m_tw, m_hstar};
+    const std::array<QDoubleSpinBox *, 8> spins{m_surfEl, m_a1, m_b1, m_a2,
+                                                m_b2,     m_a3, m_tw, m_hstar};
     auto values = m_loaded.values;
     for (size_t i = 0; i < spins.size(); ++i) {
         values[i] = (spins[i] == m_hstar && m_egwtUseInvert->isChecked())
-            ? kMissing : OpenSWMM::Ui::preciseValue(spins[i]);
+                        ? kMissing
+                        : OpenSWMM::Ui::preciseValue(spins[i]);
         if (!std::isfinite(values[i])) {
             reportWriteError(tr("Enter a finite groundwater value."), spins[i]);
             return;
         }
     }
     const QString lateral = m_lateral->expression() == m_loaded.lateral
-        ? m_loaded.lateral : m_lateral->expression().trimmed();
-    const QString deep = m_deep->expression() == m_loaded.deep
-        ? m_loaded.deep : m_deep->expression().trimmed();
+                                ? m_loaded.lateral
+                                : m_lateral->expression().trimmed();
+    const QString deep =
+        m_deep->expression() == m_loaded.deep ? m_loaded.deep : m_deep->expression().trimmed();
     const auto e = m_ref.engine;
     const int index = subIdx();
     bool wrote = false;
     const auto check = [&](int rc, const QString &field) {
-        if (rc == SWMM_OK) { wrote = true; return true; }
-        reportWriteError(tr("Could not apply %1 (engine error %2). %3")
-            .arg(field).arg(rc).arg(wrote
-                ? tr("Earlier changes were applied and marked unsaved. Your remaining draft is retained; close and reopen before retrying.")
-                : tr("Your draft is retained. Retry when the model is editable.")));
+        if (rc == SWMM_OK) {
+            wrote = true;
+            return true;
+        }
+        reportWriteError(
+            tr("Could not apply %1 (engine error %2). %3")
+                .arg(field)
+                .arg(rc)
+                .arg(
+                    wrote
+                        ? tr("Earlier changes were applied and marked unsaved. Your remaining draft is retained; close and reopen before retrying.")
+                        : tr("Your draft is retained. Retry when the model is editable.")));
         if (wrote) {
             // Keep the old snapshot: a retry must not silently overwrite the
             // partially changed model. Dirty notification is still required.
@@ -484,18 +506,25 @@ void GroundwaterExchangeDialog::apply_()
         }
         return false;
     };
-    if (node != m_loaded.node
-        && !check(swmm_subcatch_set_gw_node(e, index, node), tr("receiving node"))) return;
-    if (values != m_loaded.values
-        && !check(swmm_subcatch_set_gw_params(e, index, values[0], values[1], values[2],
-            values[3], values[4], values[5], values[6], values[7]), tr("groundwater parameters"))) return;
-    if (lateral != m_loaded.lateral
-        && !check(swmm_subcatch_set_gwf_expression(e, index, SWMM_GWF_LATERAL,
-            lateral.toUtf8().constData()), tr("lateral expression"))) return;
-    if (deep != m_loaded.deep
-        && !check(swmm_subcatch_set_gwf_expression(e, index, SWMM_GWF_DEEP,
-            deep.toUtf8().constData()), tr("deep expression"))) return;
-    if (!wrote) return;
+    if (node != m_loaded.node &&
+        !check(swmm_subcatch_set_gw_node(e, index, node), tr("receiving node")))
+        return;
+    if (values != m_loaded.values &&
+        !check(swmm_subcatch_set_gw_params(e, index, values[0], values[1], values[2], values[3],
+                                           values[4], values[5], values[6], values[7]),
+               tr("groundwater parameters")))
+        return;
+    if (lateral != m_loaded.lateral &&
+        !check(swmm_subcatch_set_gwf_expression(e, index, SWMM_GWF_LATERAL,
+                                                lateral.toUtf8().constData()),
+               tr("lateral expression")))
+        return;
+    if (deep != m_loaded.deep &&
+        !check(swmm_subcatch_set_gwf_expression(e, index, SWMM_GWF_DEEP, deep.toUtf8().constData()),
+               tr("deep expression")))
+        return;
+    if (!wrote)
+        return;
     m_loaded.node = node;
     m_loaded.nodeName = node < 0 ? QString() : m_node->currentText();
     m_loaded.values = values;

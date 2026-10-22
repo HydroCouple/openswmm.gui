@@ -1,9 +1,9 @@
-/*!
- * \file   test_curve_editor_dialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.1 — CurveEditorDialog + CurveProvider +
+/**
+ * @file      test_curve_editor_dialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.1 — CurveEditorDialog + CurveProvider +
  *         CurveRegistry + CurvePointTableModel coverage.
  *
  * Coverage (12 cases):
@@ -19,6 +19,7 @@
  *  10. Dialog list selection swaps the bound provider in the table model.
  *  11. createNew factory starts in CreateNew mode; submit transitions to Edit.
  *  12. Add Row appends + Delete Rows removes selected.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "core/unitsystem.h"
@@ -57,14 +58,15 @@ using openswmmvis::curve::CurveType;
 using openswmmvis::ui::CurveEditorDialog;
 using openswmmvis::ui::CurvePointTableModel;
 
-namespace {
+namespace
+{
 
 QLineEdit *findCreateNameEdit(CurveEditorDialog *dlg)
 {
     const auto edits = dlg->findChildren<QLineEdit *>();
     for (QLineEdit *e : edits)
-        if (e->parentWidget() && e->parentWidget()->objectName()
-            == QStringLiteral("curveCreateCard"))
+        if (e->parentWidget() &&
+            e->parentWidget()->objectName() == QStringLiteral("curveCreateCard"))
             return e;
     return nullptr;
 }
@@ -73,9 +75,8 @@ QPushButton *findCreateBtn(CurveEditorDialog *dlg)
 {
     const auto btns = dlg->findChildren<QPushButton *>();
     for (QPushButton *b : btns)
-        if (b->text() == QStringLiteral("Create")
-            && b->parentWidget()
-            && b->parentWidget()->objectName() == QStringLiteral("curveCreateCard"))
+        if (b->text() == QStringLiteral("Create") && b->parentWidget() &&
+            b->parentWidget()->objectName() == QStringLiteral("curveCreateCard"))
             return b;
     return nullptr;
 }
@@ -97,7 +98,8 @@ private slots:
         CurveEditorDialog dialog(registry, &stack);
         dialog.show();
         delete registry;
-        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY2(!dialog.isEnabled(),
+                 "A closed registry must disable the editor before stale callbacks can mutate it.");
         QVERIFY(!dialog.isVisible());
         QCOMPARE(dialog.tableModel()->rowCount(), 0);
     }
@@ -125,8 +127,10 @@ private slots:
         CurveEditorDialog dialog(&registry, &stack);
         auto *table = dialog.pointTable();
         QVERIFY(table);
-        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
-        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+        QVERIFY2(!table->accessibleName().isEmpty(),
+                 "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(),
+                 "Live editors must explain that Close does not undo applied edits.");
     }
 
     void newDraftDoesNotBindAnExistingObject()
@@ -138,7 +142,9 @@ private slots:
         const bool hasNoProvider = dialog->currentProvider() == nullptr;
         const int rows = dialog->tableModel()->rowCount();
         delete dialog;
-        QVERIFY2(hasNoProvider, "Creating a new object must not silently expose the previously selected object for editing.");
+        QVERIFY2(
+            hasNoProvider,
+            "Creating a new object must not silently expose the previously selected object for editing.");
         QCOMPARE(rows, 0);
         QCOMPARE(registry.providerCount(), 1);
         QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
@@ -150,10 +156,13 @@ private slots:
         QVERIFY(registry.create(QStringLiteral("Owned"), CurveType::Storage));
         QUndoStack stack;
         QTimer::singleShot(0, [] {
-            if (auto *dialog = qobject_cast<CurveEditorDialog *>(QApplication::activeModalWidget())) dialog->reject();
+            if (auto *dialog = qobject_cast<CurveEditorDialog *>(QApplication::activeModalWidget()))
+                dialog->reject();
         });
         const QString selected = CurveEditorDialog::pickCurve(&registry, &stack, {});
-        QVERIFY2(selected.isEmpty(), "Closing an uncommitted new-object picker must not select an unrelated existing object.");
+        QVERIFY2(
+            selected.isEmpty(),
+            "Closing an uncommitted new-object picker must not select an unrelated existing object.");
         QCOMPARE(registry.providerCount(), 1);
     }
 
@@ -182,7 +191,7 @@ private slots:
         QCOMPARE(p.pointAt(1).y, 5.0);
         QCOMPARE(changed.size(), 1);
 
-        QVERIFY(!p.setYAt(99, 1.0));   // out of range
+        QVERIFY(!p.setYAt(99, 1.0)); // out of range
     }
 
     void setPointAt_EnforcesNeighbourMonotone()
@@ -204,8 +213,8 @@ private slots:
     {
         CurveProvider p(QStringLiteral("c"), CurveType::Storage);
         QCOMPARE(p.insertPoint(2.0, 20.0), 0);
-        QCOMPARE(p.insertPoint(1.0, 10.0), 0);   // inserts at front
-        QCOMPARE(p.insertPoint(3.0, 30.0), 2);   // inserts at end
+        QCOMPARE(p.insertPoint(1.0, 10.0), 0); // inserts at front
+        QCOMPARE(p.insertPoint(3.0, 30.0), 2); // inserts at end
         QCOMPARE(p.pointCount(), 3);
         QCOMPARE(p.pointAt(0).x, 1.0);
         QCOMPARE(p.pointAt(1).x, 2.0);
@@ -219,10 +228,9 @@ private slots:
     void removePointsAt_HandlesDuplicateAndReverse()
     {
         CurveProvider p(QStringLiteral("c"), CurveType::Storage);
-        QVERIFY(p.setAllPoints({{0.0, 0.0}, {1.0, 1.0}, {2.0, 2.0},
-                                {3.0, 3.0}, {4.0, 4.0}}));
+        QVERIFY(p.setAllPoints({{0.0, 0.0}, {1.0, 1.0}, {2.0, 2.0}, {3.0, 3.0}, {4.0, 4.0}}));
         // Reverse + duplicate indices.
-        p.removePointsAt({1, 3, 1});   // removes 3 and 1 (1 dedup'd)
+        p.removePointsAt({1, 3, 1}); // removes 3 and 1 (1 dedup'd)
         QCOMPARE(p.pointCount(), 3);
         QCOMPARE(p.pointAt(0).x, 0.0);
         QCOMPARE(p.pointAt(1).x, 2.0);
@@ -236,7 +244,7 @@ private slots:
         QSignalSpy typeSpy(&p, &CurveProvider::typeChanged);
         p.setType(CurveType::Pump3);
         QCOMPARE(typeSpy.size(), 1);
-        QCOMPARE(p.pointCount(), 2);   // unchanged
+        QCOMPARE(p.pointCount(), 2); // unchanged
     }
 
     // ── CurveRegistry ───────────────────────────────────────────────────────
@@ -247,7 +255,7 @@ private slots:
         auto *a = reg.create(QStringLiteral("CV_A"), CurveType::Storage);
         QVERIFY(a);
         QCOMPARE(reg.providerCount(), 1);
-        QCOMPARE(reg.findByName(QStringLiteral("cv_a")), a);   // case-insensitive
+        QCOMPARE(reg.findByName(QStringLiteral("cv_a")), a); // case-insensitive
 
         // Duplicate rejected.
         QVERIFY(reg.create(QStringLiteral("CV_A"), CurveType::Pump1) == nullptr);
@@ -255,7 +263,7 @@ private slots:
         // Rename happy path + collision rejection.
         auto *b = reg.create(QStringLiteral("CV_B"), CurveType::Rating);
         QVERIFY(b);
-        QVERIFY(!reg.rename(b, QStringLiteral("CV_A")));     // collision
+        QVERIFY(!reg.rename(b, QStringLiteral("CV_A"))); // collision
         QVERIFY(reg.rename(a, QStringLiteral("CV_NEW")));
         QCOMPARE(reg.findByName(QStringLiteral("CV_NEW")), a);
 
@@ -272,7 +280,7 @@ private slots:
         CurvePointTableModel m;
         m.setProvider(&p);
 
-        QCOMPARE(m.rowCount(),    3);
+        QCOMPARE(m.rowCount(), 3);
         QCOMPARE(m.columnCount(), 2);
         QCOMPARE(m.data(m.index(0, 0)).toDouble(), 0.0);
         QCOMPARE(m.data(m.index(0, 1)).toDouble(), 1.0);
@@ -335,7 +343,7 @@ private slots:
         QCOMPARE(int(dlg->mode()), int(CurveEditorDialog::Mode::CreateNew));
 
         auto *edit = findCreateNameEdit(dlg);
-        auto *btn  = findCreateBtn(dlg);
+        auto *btn = findCreateBtn(dlg);
         QVERIFY(edit && btn);
         QVERIFY(!dlg->isCreateEnabled());
 
@@ -405,7 +413,7 @@ private slots:
         auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
 
         CurveRegistry reg;
-        QCOMPARE(reg.loadFromEngine(eng), 0);   // binds the engine handle
+        QCOMPARE(reg.loadFromEngine(eng), 0); // binds the engine handle
         auto *p = reg.create(QStringLiteral("RC1"), CurveType::Rating);
         QVERIFY(p);
         QVERIFY(p->insertPoint(0.0, 0.0) >= 0);
@@ -467,7 +475,7 @@ private slots:
         QCOMPARE(swmm_table_index(eng, "PC1"), -1);
         QCOMPARE(swmm_table_index(eng, "LiftCurve"), idx);
         QCOMPARE(reg.saveToEngine(), 1);
-        QCOMPARE(swmm_table_count(eng), 1);   // no second copy after a flush
+        QCOMPARE(swmm_table_count(eng), 1); // no second copy after a flush
 
         // A timeseries may share a curve's name; it must not be mistaken
         // for the curve.

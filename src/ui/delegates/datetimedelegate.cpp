@@ -1,9 +1,12 @@
-/*!
- * \file   datetimedelegate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      datetimedelegate.cpp
+ * @brief     QDateTime.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/delegates/datetimedelegate.h"
 
 #include "core/swmmdatetimeformat.h"
@@ -11,16 +14,13 @@
 #include <QDateTime>
 #include <QDateTimeEdit>
 
-namespace openswmmvis::ui {
-
-DateTimeDelegate::DateTimeDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
+namespace openswmmvis::ui
 {
-}
 
-QWidget *DateTimeDelegate::createEditor(QWidget *parent,
-                                         const QStyleOptionViewItem & /*opt*/,
-                                         const QModelIndex & /*index*/) const
+DateTimeDelegate::DateTimeDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+
+QWidget *DateTimeDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+                                        const QModelIndex & /*index*/) const
 {
     auto *edit = new QDateTimeEdit(parent);
     edit->setDisplayFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
@@ -36,32 +36,36 @@ QWidget *DateTimeDelegate::createEditor(QWidget *parent,
 void DateTimeDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *edit = qobject_cast<QDateTimeEdit *>(editor);
-    if (!edit) { QStyledItemDelegate::setEditorData(editor, index); return; }
+    if (!edit) {
+        QStyledItemDelegate::setEditorData(editor, index);
+        return;
+    }
     // Seed with the FULL value, seconds included. They are not shown, but the
     // editor keeps them, so committing an edited minute does not zero them.
     const QDateTime dt = index.data(Qt::EditRole).toDateTime();
-    if (dt.isValid()) edit->setDateTime(dt);
+    if (dt.isValid())
+        edit->setDateTime(dt);
 }
 
 void DateTimeDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
-                                     const QModelIndex &index) const
+                                    const QModelIndex &index) const
 {
     auto *edit = qobject_cast<QDateTimeEdit *>(editor);
-    if (!edit) { QStyledItemDelegate::setModelData(editor, model, index); return; }
+    if (!edit) {
+        QStyledItemDelegate::setModelData(editor, model, index);
+        return;
+    }
     model->setData(index, edit->dateTime(), Qt::EditRole);
 }
 
-ReadOnlyDateTimeDelegate::ReadOnlyDateTimeDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
-{
-}
+ReadOnlyDateTimeDelegate::ReadOnlyDateTimeDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
 QWidget *ReadOnlyDateTimeDelegate::createEditor(QWidget *parent,
-                                                 const QStyleOptionViewItem & /*opt*/,
-                                                 const QModelIndex & /*index*/) const
+                                                const QStyleOptionViewItem & /*opt*/,
+                                                const QModelIndex & /*index*/) const
 {
     auto *w = new QDateTimeEdit(parent);
-    w->setTimeSpec(Qt::UTC);   // see class comment: never convert to local time
+    w->setTimeSpec(Qt::UTC); // see class comment: never convert to local time
     w->setReadOnly(true);
     w->setButtonSymbols(QAbstractSpinBox::NoButtons);
     w->setFrame(false);
@@ -76,7 +80,8 @@ QWidget *ReadOnlyDateTimeDelegate::createEditor(QWidget *parent,
 void ReadOnlyDateTimeDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *w = qobject_cast<QDateTimeEdit *>(editor);
-    if (!w) return;
+    if (!w)
+        return;
     const QVariant v = index.data(Qt::DisplayRole);
     if (v.canConvert<QDateTime>() && v.toDateTime().isValid())
         w->setDateTime(v.toDateTime());

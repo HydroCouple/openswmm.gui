@@ -1,9 +1,9 @@
-/*!
- * \file   customreportdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BH — Custom report query builder.
+/**
+ * @file      customreportdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BH — Custom report query builder.
  *
  * A small DSL surfaced as a tree-of-clauses lets the user assemble
  * custom reports against the .out file. Each row is a query that
@@ -12,7 +12,9 @@
  * supports CSV / Markdown export.
  *
  * Aggregates: max, min, mean, sum, peak-time, time-at-threshold.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_CUSTOMREPORTDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_CUSTOMREPORTDIALOG_H
 
@@ -26,14 +28,14 @@ class QTableView;
 class QStandardItemModel;
 class SWMMResultsLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class CustomReportDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit CustomReportDialog(SWMMResultsLayer *layer,
-                                 QWidget *parent = nullptr);
+    explicit CustomReportDialog(SWMMResultsLayer *layer, QWidget *parent = nullptr);
     ~CustomReportDialog() override;
 
 private slots:
@@ -48,9 +50,9 @@ private:
 
     QPointer<SWMMResultsLayer> m_layer;
 
-    QTableWidget       *m_clauseTable = nullptr;
+    QTableWidget *m_clauseTable = nullptr;
     QStandardItemModel *m_resultModel = nullptr;
-    QTableView         *m_resultTable = nullptr;
+    QTableView *m_resultTable = nullptr;
 };
 
 } // namespace openswmmvis::ui

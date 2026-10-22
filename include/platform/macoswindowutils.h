@@ -1,17 +1,20 @@
-/*!
- * \file   macoswindowutils.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  macOS-only helper to keep a dialog ordered above the application's
+/**
+ * @file      macoswindowutils.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     macOS-only helper to keep a dialog ordered above the application's
  *         own windows without floating above other applications.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PLATFORM_MACOSWINDOWUTILS_H
 #define OPENSWMMVIS_PLATFORM_MACOSWINDOWUTILS_H
 
 class QWidget;
 
-namespace openswmmvis::platform {
+namespace openswmmvis::platform
+{
 
 /*! \brief Attach \p dialog as an NSWindow child window of the nearest
  *  non-dialog top-level window above it (the main / project window).
@@ -33,7 +36,10 @@ namespace openswmmvis::platform {
  *
  *  Idempotent (safe to call again on re-show). No-op when \p dialog is not a
  *  window, has no non-dialog top-level ancestor, or the native windows aren't
- *  realised yet. Only defined on macOS — callers must guard with Q_OS_MACOS. */
+ *  realised yet. Only defined on macOS — callers must guard with Q_OS_MACOS.
+ * @param[in] dialog Borrowed GUI-thread widget; null/nonwindow/non-Cocoa inputs are ignored.
+ * @details May realize native windows via winId(), and reparents an existing child-window relation when needed. Qt QObject ownership remains unchanged.
+ */
 void attachAsChildWindow(QWidget *dialog);
 
 /*! \brief Detach \p dialog from its parent NSWindow (inverse of
@@ -50,7 +56,10 @@ void attachAsChildWindow(QWidget *dialog);
  *
  *  Idempotent. No-op when \p dialog is not a window, has no realised native
  *  window, or is not currently attached. Only defined on macOS — callers
- *  must guard the call with Q_OS_MACOS. */
+ *  must guard the call with Q_OS_MACOS.
+ * @param[in] dialog Borrowed GUI-thread widget; null/nonwindow/non-Cocoa/unrealized inputs are ignored.
+ * @details Does not force native-window creation; Qt QObject ownership remains unchanged.
+ */
 void detachFromParentWindow(QWidget *dialog);
 
 /*! \brief Hold a user-initiated NSProcessInfo activity while a simulation
@@ -58,11 +67,15 @@ void detachFromParentWindow(QWidget *dialog);
  *  Cmd-Tabbed away from could take far longer than the same deck in a
  *  terminal). Reference counted: nested begin/end pairs from overlapping
  *  runs hold one activity. Idle system sleep stays allowed. Only defined on
- *  macOS — callers must guard with Q_OS_MACOS. */
+ *  macOS — callers must guard with Q_OS_MACOS.
+ * @details Mutates a process-global unsynchronized reference count; callers must serialize begin/end pairs (normally on the GUI thread). The first call retains the AppKit activity token.
+ */
 void beginSimulationActivity();
 
 /*! \brief Release the activity taken by beginSimulationActivity(); ends it
- *  when the last overlapping run finishes. Extra calls are ignored. */
+ *  when the last overlapping run finishes. Extra calls are ignored.
+ * @details Releases the retained token at reference count zero; serialize with beginSimulationActivity().
+ */
 void endSimulationActivity();
 
 } // namespace openswmmvis::platform

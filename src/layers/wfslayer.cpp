@@ -1,6 +1,11 @@
-/*!
- * \file   wfslayer.cpp
- * \license GPL-3.0-or-later
+/**
+ * @file      wfslayer.cpp
+ * @brief     The feature half of the OGC family, which this GUI has never had: WMS, WMTS and WCS
+ *            all answer with pictures, and a WFS answers with the data.
+ * @license   GPL-3.0-or-later
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/wfslayer.h"
@@ -13,7 +18,8 @@
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 
-namespace {
+namespace
+{
 
 /*!
  * \brief What the service said when it would not answer.
@@ -21,11 +27,12 @@ namespace {
  * A WFS refuses in the body, under an HTTP 200 as often as not, so a
  * response that will not open has to be read as a document before it is
  * reported as gibberish.
+ * @param[in] body Copied-by-reference service XML/other response bytes; no network access.
+ * @return Shared WFS parser failure message, or empty when it accepts a capabilities document; used only as a fallback explanation after vector opening fails.
  */
 QString refusalText(const QByteArray &body)
 {
-    const HydroCouple::Ogc::WfsCapabilities report =
-        HydroCouple::Ogc::parseWfsCapabilities(body);
+    const HydroCouple::Ogc::WfsCapabilities report = HydroCouple::Ogc::parseWfsCapabilities(body);
 
     return report.ok ? QString() : report.message;
 }
@@ -52,9 +59,8 @@ QString WFSLayer::sourceDescription() const
     if (m_serviceUrl.isEmpty())
         return m_typeName;
 
-    return m_typeName.isEmpty()
-               ? m_serviceUrl
-               : QStringLiteral("%1 — %2").arg(m_typeName, m_serviceUrl);
+    return m_typeName.isEmpty() ? m_serviceUrl
+                                : QStringLiteral("%1 — %2").arg(m_typeName, m_serviceUrl);
 }
 
 bool WFSLayer::adoptResponse(const QByteArray &body, QString &message)
@@ -69,17 +75,15 @@ bool WFSLayer::adoptResponse(const QByteArray &body, QString &message)
     // Unique per layer: the dataset stays open over these bytes for the
     // layer's lifetime, so two layers sharing one name would have the
     // second's open file pulled out from under the first.
-    const QString path =
-        QStringLiteral("/vsimem/swmmvis-wfs-%1")
-            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString path = QStringLiteral("/vsimem/swmmvis-wfs-%1")
+                             .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
 
     // The buffer is copied rather than borrowed: `body` is the caller's and
     // will not outlive this call, but the dataset reads from it for as long
     // as the layer is alive.
     VSILFILE *file = VSIFileFromMemBuffer(
         path.toUtf8().constData(),
-        reinterpret_cast<GByte *>(CPLMalloc(static_cast<size_t>(body.size()))),
-        body.size(), TRUE);
+        reinterpret_cast<GByte *>(CPLMalloc(static_cast<size_t>(body.size()))), body.size(), TRUE);
 
     if (!file) {
         message = tr("The response could not be read.");
@@ -91,16 +95,14 @@ bool WFSLayer::adoptResponse(const QByteArray &body, QString &message)
     VSIFCloseL(file);
 
     auto *dataset = static_cast<GDALDataset *>(
-        GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr,
-                   nullptr));
+        GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
 
     if (!dataset || dataset->GetLayerCount() == 0) {
         const QString said = refusalText(body);
 
-        message = said.isEmpty()
-                      ? tr("The service's answer was not features this "
-                           "program can read.")
-                      : said;
+        message = said.isEmpty() ? tr("The service's answer was not features this "
+                                      "program can read.")
+                                 : said;
 
         if (dataset)
             GDALClose(dataset);

@@ -1,9 +1,9 @@
-/*!
- * \file   test_rendererpanelcontext.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.3b — Rule-aware Rule::setRendererById.
+/**
+ * @file      test_rendererpanelcontext.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.3b — Rule-aware Rule::setRendererById.
  *
  *         The Z.3b Rule path is encapsulated as Rule::setRendererById —
  *         a stateless renderer-class swap that the SymbologyTab delegates
@@ -27,6 +27,7 @@
  *             "categorized" / "rule" / "unclassed") resolve correctly.
  *           - Successful swap emits rendererReplaced + ruleChanged.
  *           - JSON round-trip preserves the swapped renderer class.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QSignalSpy>
@@ -123,11 +124,8 @@ void TestRendererPanelContext::setById_supportsAllFiveBuiltinIds()
 {
     Rule r;
     const QStringList ids = {
-        QStringLiteral("graduated"),
-        QStringLiteral("categorized"),
-        QStringLiteral("rule"),
-        QStringLiteral("unclassed"),
-        QStringLiteral("single"),
+        QStringLiteral("graduated"), QStringLiteral("categorized"), QStringLiteral("rule"),
+        QStringLiteral("unclassed"), QStringLiteral("single"),
     };
     for (const QString &id : ids) {
         QVERIFY2(r.setRendererById(id), qPrintable(id));

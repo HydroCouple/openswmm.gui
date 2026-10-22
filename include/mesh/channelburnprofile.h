@@ -1,8 +1,10 @@
-/*!
- * \file   channelburnprofile.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnprofile.h
+ * @brief     Open-channel bathymetry reconstruction — phase P0 of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1-§4.3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Open-channel bathymetry reconstruction — phase P0 of
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1-§4.3).
@@ -31,7 +33,9 @@
  *     supply a natural channel's real geometry (plan §16.1/12.3).
  * Resolving which producer a link needs touches the engine and therefore
  * belongs on the GUI thread, in the selector (P1), not here.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_CHANNELBURNPROFILE_H
 #define OPENSWMMVIS_MESH_CHANNELBURNPROFILE_H
 
@@ -43,15 +47,15 @@
 
 #include <cmath>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief Where `s = 0` sits on the authored section — i.e. what the digitised
  *         link polyline is taken to follow (plan D-D). */
-enum class SectionAnchor
-{
-    Thalweg,       ///< The deepest point. Default: a digitised polyline follows the visible channel.
-    BankMidpoint,  ///< Midway between the bank stations. For surveyed-section workflows.
-    StationZero    ///< Raw station 0, no shift.
+enum class SectionAnchor {
+    Thalweg,      ///< The deepest point. Default: a digitised polyline follows the visible channel.
+    BankMidpoint, ///< Midway between the bank stations. For surveyed-section workflows.
+    StationZero   ///< Raw station 0, no shift.
 };
 
 /*!
@@ -62,15 +66,14 @@ enum class SectionAnchor
  * \p elevation is absolute or relative — \ref normalizeSection only ever uses
  * differences.  Bank stations and the roughness triple are optional (NaN).
  */
-struct SectionGeometry
-{
+struct SectionGeometry {
     QVector<double> station;
     QVector<double> elevation;
-    double leftBank  = qQNaN();
+    double leftBank = qQNaN();
     double rightBank = qQNaN();
-    double nLeft     = qQNaN();
-    double nChannel  = qQNaN();
-    double nRight    = qQNaN();
+    double nLeft = qQNaN();
+    double nChannel = qQNaN();
+    double nRight = qQNaN();
 };
 
 /*!
@@ -80,48 +83,53 @@ struct SectionGeometry
  * The dialog converts horizontal lengths to mesh-CRS units and elevations to
  * output vertical units before preparing worker inputs.
  */
-struct BurnOptions
-{
+struct BurnOptions {
     // ── corridor geometry ────────────────────────────────────────────────
-    double forceHalfWidth = 2.0;   ///< R. |s| <= R: the section REPLACES the DEM (D2).
-    double maxHalfWidth   = 0.0;   ///< 0 = unbounded; else clip the corridor to +-this.
-    bool   clipToBanks    = true;  ///< Stop at the bank stations — no floodplain extension (D-C).
-    double bankPad        = 0.0;   ///< Extra distance beyond the banks before stopping.
+    double forceHalfWidth = 2.0; ///< R. |s| <= R: the section REPLACES the DEM (D2).
+    double maxHalfWidth = 0.0;   ///< 0 = unbounded; else clip the corridor to +-this.
+    bool clipToBanks = true;     ///< Stop at the bank stations — no floodplain extension (D-C).
+    double bankPad = 0.0;        ///< Extra distance beyond the banks before stopping.
 
     // ── resolution ───────────────────────────────────────────────────────
-    double chainageStep   = 0.0;   ///< 0 = retain geometric stations; never infer distance from raster degrees.
-    double lateralStep    = 0.0;   ///< 0 = off; else no two corridor offsets are further apart than this.
-    int    stringCount    = 2;     ///< Intermediate offset strings per side, beyond +-R, the banks and the extent.
+    double chainageStep =
+        0.0; ///< 0 = retain geometric stations; never infer distance from raster degrees.
+    double lateralStep =
+        0.0; ///< 0 = off; else no two corridor offsets are further apart than this.
+    int stringCount =
+        2; ///< Intermediate offset strings per side, beyond +-R, the banks and the extent.
 
     // ── longitudinal ─────────────────────────────────────────────────────
-    SectionAnchor anchor  = SectionAnchor::Thalweg;
-    double sectionBlend   = 0.0;   ///< 0 = prismatic per conduit; > 0 = morph e_rel over this distance
-                                   ///<     either side of a shared node (§4.3).
-    bool   enforceMonotone = false;///< Clamp the bed to a non-adverse slope. Default off (D-G): an
-                                   ///<     adverse reach is usually real data — warn, do not fix.
-    double maxIncision    = 0.0;   ///< 0 = unbounded; else never cut more than this below the DEM.
-                                   ///<     Applied by the rasterizer (P1), not here.
+    SectionAnchor anchor = SectionAnchor::Thalweg;
+    double sectionBlend = 0.0; ///< 0 = prismatic per conduit; > 0 = morph e_rel over this distance
+                               ///<     either side of a shared node (§4.3).
+    bool enforceMonotone = false; ///< Clamp the bed to a non-adverse slope. Default off (D-G): an
+                                  ///<     adverse reach is usually real data — warn, do not fix.
+    double maxIncision = 0.0;     ///< 0 = unbounded; else never cut more than this below the DEM.
+                                  ///<     Applied by the rasterizer (P1), not here.
 
     // ── selection ────────────────────────────────────────────────────────
-    bool   burnStreets    = false; ///< SWMM_XSECT_STREET opt-in (D-F). The engine classifies a street
-                                   ///<     as CLOSED, so the open-section gate already excludes it.
+    bool burnStreets = false; ///< SWMM_XSECT_STREET opt-in (D-F). The engine classifies a street
+                              ///<     as CLOSED, so the open-section gate already excludes it.
 
     // ── meshing ──────────────────────────────────────────────────────────
-    bool   emitStrings    = true;  ///< Corridor lattice rows into the PSLG.
-    bool   quadCorridor   = true;  ///< Corridor -> mesh::PatchMesh when quads are enabled (§16.2).
+    bool emitStrings = true;       ///< Corridor lattice rows into the PSLG.
+    bool quadCorridor = true;      ///< Corridor -> mesh::PatchMesh when quads are enabled (§16.2).
     double channelCellSize = 0.0;  ///< 0 = derive from the size field.
     double channelAspectMax = 4.0; ///< Streamwise-elongated cells are wanted here.
-    double geometryTolerance = 0.05; ///< Channel elevation tolerance, in metres (independent of DEM tolerance).
-    qint64 maxCorridorVertices = 2000000; ///< Preparation allocation guard; further limited by mesh cell budget.
-    bool   roughnessFromTransect = true; ///< n_left / n_channel / n_right -> per-cell Manning's n.
+    double geometryTolerance =
+        0.05; ///< Channel elevation tolerance, in metres (independent of DEM tolerance).
+    qint64 maxCorridorVertices =
+        2000000; ///< Preparation allocation guard; further limited by mesh cell budget.
+    bool roughnessFromTransect = true; ///< n_left / n_channel / n_right -> per-cell Manning's n.
 
     // ── network surgery (gated by D-A / D-B) ─────────────────────────────
-    bool   removeBurnedFrom1D    = true;
-    bool   convertInterfaceNodes = true;
-    bool   truncateAtBoundary    = true;
-    double connectorLength       = 0.0; ///< 1D stretch kept before a connector outfall; 0 = automatic
-                                        ///<     (routing step × √(g·D), at least two channel cells).
-    double routingStepSeconds    = 0.0; ///< Model routing step for the automatic length; not persisted.
+    bool removeBurnedFrom1D = true;
+    bool convertInterfaceNodes = true;
+    bool truncateAtBoundary = true;
+    double connectorLength = 0.0; ///< 1D stretch kept before a connector outfall; 0 = automatic
+                                  ///<     (routing step × √(g·D), at least two channel cells).
+    double routingStepSeconds =
+        0.0; ///< Model routing step for the automatic length; not persisted.
 };
 
 /*!
@@ -131,22 +139,20 @@ struct BurnOptions
  * in every attribute table and is filterable, so a parallel boolean would be a
  * second source of truth for the same thing.
  */
-struct BurnSelector
-{
-    enum class Mode
-    {
-        AllOpen,      ///< Every conduit with an open section.
-        ByQuery,      ///< A core/queryparser expression, e.g. Tag LIKE '%creek%'.
-        ExplicitList  ///< The map selection, or a saved list.
+struct BurnSelector {
+    enum class Mode {
+        AllOpen,     ///< Every conduit with an open section.
+        ByQuery,     ///< A core/queryparser expression, e.g. Tag LIKE '%creek%'.
+        ExplicitList ///< The map selection, or a saved list.
     };
 
-    Mode        mode = Mode::AllOpen;
-    QString     query;
+    Mode mode = Mode::AllOpen;
+    QString query;
     QStringList conduitIds;
     /*! The `fullProps().open` gate. On by default and meant to stay on: a
      *  culvert is a structure, not terrain, and burning it cuts a trench where
      *  there is a road (D-E). */
-    bool        requireOpenSection = true;
+    bool requireOpenSection = true;
 };
 
 /*!
@@ -155,16 +161,15 @@ struct BurnSelector
  * Kept here rather than beside \ref resolveBurnSet so the project serializer
  * can round-trip it without pulling in the engine headers.
  */
-struct ChannelBurnSettings
-{
-    bool         enabled = false;
+struct ChannelBurnSettings {
+    bool enabled = false;
     bool exportRaster = false;
     QString exportDemPath;
     QString exportDirectory;
     double exportRasterZToSI = 1.0;
     int maxMeshCells = 2000000;
     BurnSelector selector;
-    BurnOptions  options;
+    BurnOptions options;
 };
 
 /*!
@@ -174,33 +179,31 @@ struct ChannelBurnSettings
  * \p sMin is negative and \p sMax positive whenever the clip left the anchor
  * inside the section, which \ref normalizeSection enforces.
  */
-struct NormalizedSection
-{
+struct NormalizedSection {
     QVector<double> station;   ///< Signed lateral offset, strictly ascending. 0 = the anchor.
     QVector<double> relZ;      ///< Elevation above the thalweg; min is exactly 0.
     double sMin = qQNaN();     ///< Clipped extent, left.
     double sMax = qQNaN();     ///< Clipped extent, right.
-    double leftBank  = qQNaN();///< Bank stations in the same shifted frame (NaN when unset).
+    double leftBank = qQNaN(); ///< Bank stations in the same shifted frame (NaN when unset).
     double rightBank = qQNaN();
-    double nLeft     = qQNaN();
-    double nChannel  = qQNaN();
-    double nRight    = qQNaN();
+    double nLeft = qQNaN();
+    double nChannel = qQNaN();
+    double nRight = qQNaN();
 
     [[nodiscard]] bool isValid() const noexcept
     {
-        return station.size() >= 2 && station.size() == relZ.size()
-               && std::isfinite(sMin) && std::isfinite(sMax) && sMin < sMax;
+        return station.size() >= 2 && station.size() == relZ.size() && std::isfinite(sMin) &&
+               std::isfinite(sMax) && sMin < sMax;
     }
 };
 
 /*! \brief One conduit's inputs to the burn. */
-struct ChannelInput
-{
-    QString          conduitId;
-    QVector<QPointF> centerline;  ///< Map CRS, >= 2 points, as digitised.
-    double           zUp = 0.0;   ///< node1.invertElev + link.offset1 (profilebuilder.cpp:65).
-    double           zDn = 0.0;   ///< node2.invertElev + link.offset2 (profilebuilder.cpp:72).
-    SectionGeometry  section;
+struct ChannelInput {
+    QString conduitId;
+    QVector<QPointF> centerline; ///< Map CRS, >= 2 points, as digitised.
+    double zUp = 0.0;            ///< node1.invertElev + link.offset1 (profilebuilder.cpp:65).
+    double zDn = 0.0;            ///< node2.invertElev + link.offset2 (profilebuilder.cpp:72).
+    SectionGeometry section;
 };
 
 /*!
@@ -210,20 +213,19 @@ struct ChannelInput
  *       `nLeft` / `nChannel` / `nRight` fields live on \ref section, which the
  *       blending pass needs to carry anyway.
  */
-struct BurnProfile
-{
-    QString                  conduitId;
-    QVector<QPointF>         centerline;  ///< Densified.
-    QVector<double>          chainage;    ///< Parallel to \ref centerline, cumulative, ascending.
-    QVector<double>          bedZ;        ///< Invert at each chainage station.
-    QVector<double>          offsets;     ///< Lateral offsets s_k, ascending, signed, sMin..sMax.
-    QVector<QVector<double>> relZ;        ///< relZ[i][k] = elevation above bedZ[i] at offsets[k].
-    NormalizedSection        section;     ///< The section the profile was built from.
+struct BurnProfile {
+    QString conduitId;
+    QVector<QPointF> centerline;   ///< Densified.
+    QVector<double> chainage;      ///< Parallel to \ref centerline, cumulative, ascending.
+    QVector<double> bedZ;          ///< Invert at each chainage station.
+    QVector<double> offsets;       ///< Lateral offsets s_k, ascending, signed, sMin..sMax.
+    QVector<QVector<double>> relZ; ///< relZ[i][k] = elevation above bedZ[i] at offsets[k].
+    NormalizedSection section;     ///< The section the profile was built from.
 
     [[nodiscard]] bool isValid() const noexcept
     {
-        return chainage.size() >= 2 && chainage.size() == bedZ.size()
-               && chainage.size() == relZ.size() && offsets.size() >= 2;
+        return chainage.size() >= 2 && chainage.size() == bedZ.size() &&
+               chainage.size() == relZ.size() && offsets.size() >= 2;
     }
     [[nodiscard]] double length() const noexcept
     {
@@ -271,12 +273,10 @@ struct BurnProfile
  * (`Transect.cpp:455-456`).  The engine's internal UCF bookkeeping is NOT
  * reproduced — these values are already in model units.
  */
-[[nodiscard]] SectionGeometry sectionFromTransect(const QVector<double> &stations,
-                                                  const QVector<double> &elevations,
-                                                  double leftBank, double rightBank,
-                                                  double nLeft, double nChannel, double nRight,
-                                                  double stationMultiplier = 1.0,
-                                                  double elevationOffset   = 0.0);
+[[nodiscard]] SectionGeometry
+sectionFromTransect(const QVector<double> &stations, const QVector<double> &elevations,
+                    double leftBank, double rightBank, double nLeft, double nChannel, double nRight,
+                    double stationMultiplier = 1.0, double elevationOffset = 0.0);
 
 /*! \brief Empty string when \p s can be burned; the reason otherwise. */
 [[nodiscard]] QString validateSection(const SectionGeometry &s);
@@ -293,8 +293,7 @@ struct BurnProfile
  * \param warnings Soft problems (bank fallback, R wider than the section).
  * \param err      Set on hard failure; the result is then `!isValid()`.
  */
-[[nodiscard]] NormalizedSection normalizeSection(const SectionGeometry &s,
-                                                 const BurnOptions &opt,
+[[nodiscard]] NormalizedSection normalizeSection(const SectionGeometry &s, const BurnOptions &opt,
                                                  QStringList *warnings = nullptr,
                                                  QString *err = nullptr);
 
@@ -309,8 +308,7 @@ struct BurnProfile
  * stations, deduplicated, each clipped to the section extent; gaps wider than
  * `BurnOptions::lateralStep` are subdivided when that is set.
  */
-[[nodiscard]] QVector<double> corridorOffsets(const NormalizedSection &ns,
-                                              const BurnOptions &opt);
+[[nodiscard]] QVector<double> corridorOffsets(const NormalizedSection &ns, const BurnOptions &opt);
 
 // ── Profile assembly ───────────────────────────────────────────────────────
 
@@ -327,10 +325,8 @@ struct BurnProfile
  * The bed is linear in chainage between the two end inverts.  An adverse reach
  * warns; it is only clamped when `BurnOptions::enforceMonotone` is set.
  */
-[[nodiscard]] BurnProfile buildBurnProfile(const ChannelInput &in,
-                                           const BurnOptions &opt,
-                                           QStringList *warnings = nullptr,
-                                           QString *err = nullptr);
+[[nodiscard]] BurnProfile buildBurnProfile(const ChannelInput &in, const BurnOptions &opt,
+                                           QStringList *warnings = nullptr, QString *err = nullptr);
 
 /*! \brief Bed elevation at \p chainage (clamped to the profile's range). */
 [[nodiscard]] double bedZAt(const BurnProfile &p, double chainage);
@@ -353,8 +349,7 @@ struct BurnProfile
  * and a 30 m creek from producing a nonsense intermediate.
  */
 [[nodiscard]] NormalizedSection blendSections(const NormalizedSection &a,
-                                              const NormalizedSection &b,
-                                              double w);
+                                              const NormalizedSection &b, double w);
 
 /*!
  * \brief Morph both profiles' lateral shape across their shared node.

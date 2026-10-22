@@ -1,9 +1,9 @@
-/*!
- * \file   rulesymbologytab.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Rule-driven Symbology tab content (Slice Z.3).
+/**
+ * @file      rulesymbologytab.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Rule-driven Symbology tab content (Slice Z.3).
  *
  *         Replaces the per-kind tree-on-left layout from §X.3.2 with an
  *         Active Rule combo + Rule List, applied uniformly across every
@@ -32,6 +32,7 @@
  *         every ILayerStyleSubject on open and restores on Cancel; the
  *         Rule's Q_PROPERTYs ride that path via the §W default
  *         JsonPropertySnapshot).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_UI_DIALOGS_RULESYMBOLOGYTAB_H
@@ -46,12 +47,14 @@ class QListWidgetItem;
 class QPushButton;
 class QStackedWidget;
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class Rule;
 class RuleList;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class RuleSymbologyTab : public QWidget
 {
@@ -59,8 +62,7 @@ class RuleSymbologyTab : public QWidget
 public:
     /*! \param ruleList  Non-null. Outlives the widget.
      *  \param parent    Standard QWidget parent. */
-    explicit RuleSymbologyTab(OpenSWMM::Render::RuleList *ruleList,
-                              QWidget *parent = nullptr);
+    explicit RuleSymbologyTab(OpenSWMM::Render::RuleList *ruleList, QWidget *parent = nullptr);
     ~RuleSymbologyTab() override;
 
     /*! \brief Currently selected Rule (matches RuleList::activeRule()).
@@ -102,15 +104,16 @@ private:
 
     OpenSWMM::Render::RuleList *m_ruleList = nullptr;
 
-    QComboBox      *m_activeCombo  = nullptr;
-    QListWidget    *m_ruleListView = nullptr;
-    QPushButton    *m_btnAdd       = nullptr;
-    QPushButton    *m_btnDuplicate = nullptr;
-    QPushButton    *m_btnDelete    = nullptr;
-    QPushButton    *m_btnUp        = nullptr;
-    QPushButton    *m_btnDown      = nullptr;
-    QStackedWidget *m_body         = nullptr;
-    QComboBox      *m_rendererCombo = nullptr;   /*!< Renderer-class picker for the active Rule (Slice Z.3a). */
+    QComboBox *m_activeCombo = nullptr;
+    QListWidget *m_ruleListView = nullptr;
+    QPushButton *m_btnAdd = nullptr;
+    QPushButton *m_btnDuplicate = nullptr;
+    QPushButton *m_btnDelete = nullptr;
+    QPushButton *m_btnUp = nullptr;
+    QPushButton *m_btnDown = nullptr;
+    QStackedWidget *m_body = nullptr;
+    QComboBox *m_rendererCombo =
+        nullptr; /*!< Renderer-class picker for the active Rule (Slice Z.3a). */
 
     /*! Tracks the Rule whose rendererReplaced signal we're listening to,
      *  so we disconnect cleanly when the active Rule changes. QPointer

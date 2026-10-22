@@ -1,0 +1,34 @@
+{
+  "repository": "openswmm.gui",
+  "scope": {
+    "comments_and_format_only": 1659,
+    "comments_format_and_ledgered_parameter_names": 68,
+    "mixed_source_changes": 9,
+    "untracked_source": 1
+  },
+  "reviewed_source_files": 1737,
+  "project_function_documentation_complete": false,
+  "documentation_commit_excludes_unrelated_implementation": true,
+  "deferred_comment_files": [
+    "include/ui/dialogs/simoptions/enginecapabilities.h",
+    "include/ui/dialogs/simoptions/hydraulicspage.h",
+    "src/simulation/simulationrunner.cpp",
+    "src/ui/dialogs/simoptions/enginecapabilities.cpp",
+    "src/ui/dialogs/simoptions/hydraulicspage.cpp",
+    "src/ui/dialogs/simoptions/simoptionscontext.cpp",
+    "src/ui/dialogs/simulationoptionsdialog.cpp",
+    "tests/gui/test_implicit_fv_runner.cpp",
+    "tests/gui/test_simulationoptions_gates.cpp",
+    "tests/gui/test_simulationoptions_roundtrip.cpp"
+  ],
+  "coordinator_library_check": {
+    "extracted_functions": 2222,
+    "strict_gaps": 0,
+    "doxygen_documentation_warnings": 0
+  },
+  "simulation_settings_syntax": {
+    "owners": 18,
+    "failed": []
+  },
+  "new_simulation_settings_contracts": 265
+}

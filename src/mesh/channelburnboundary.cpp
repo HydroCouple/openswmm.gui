@@ -1,8 +1,10 @@
-/*!
- * \file   channelburnboundary.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      channelburnboundary.cpp
+ * @brief     Truncating a burned channel at the 2D domain boundary — phase P5 of
+ *            workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§7).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Truncating a burned channel at the 2D domain boundary
  * (CHANNEL_BURN_IN_PLAN_2026-09-21.md §7, phase P5).
@@ -13,7 +15,9 @@
  * no interval after it to sample — so it reads the ring point itself, where
  * point-in-polygon is undefined, and invents a crossing. Probing the interval
  * between consecutive candidates along the path has no such gap.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/channelburnboundary.h"
 
 #include "mesh/meshquadregion.h"
@@ -23,19 +27,23 @@
 #include <numeric>
 #include <QCryptographicHash>
 
-namespace mesh {
-
-namespace {
-
-bool pointOnRing(const QPolygonF &ring,const QPointF &p)
+namespace mesh
 {
-    for(int i=0;i<ring.size();++i) {
-        const QPointF a=ring[i],d=ring[(i+1)%ring.size()]-a;
-        const double length2=QPointF::dotProduct(d,d);
-        if(!(length2>0)) continue;
-        const double t=std::clamp(QPointF::dotProduct(p-a,d)/length2,0.0,1.0);
-        const QPointF delta=p-(a+d*t);
-        if(QPointF::dotProduct(delta,delta)<=1e-18*std::max(1.0,length2)) return true;
+
+namespace
+{
+
+bool pointOnRing(const QPolygonF &ring, const QPointF &p)
+{
+    for (int i = 0; i < ring.size(); ++i) {
+        const QPointF a = ring[i], d = ring[(i + 1) % ring.size()] - a;
+        const double length2 = QPointF::dotProduct(d, d);
+        if (!(length2 > 0))
+            continue;
+        const double t = std::clamp(QPointF::dotProduct(p - a, d) / length2, 0.0, 1.0);
+        const QPointF delta = p - (a + d * t);
+        if (QPointF::dotProduct(delta, delta) <= 1e-18 * std::max(1.0, length2))
+            return true;
     }
     return false;
 }
@@ -45,8 +53,7 @@ QVector<double> chainageOf(const QVector<QPointF> &path)
 {
     QVector<double> c(path.size(), 0.0);
     for (int i = 1; i < path.size(); ++i)
-        c[i] = c[i - 1] + std::hypot(path[i].x() - path[i - 1].x(),
-                                     path[i].y() - path[i - 1].y());
+        c[i] = c[i - 1] + std::hypot(path[i].x() - path[i - 1].x(), path[i].y() - path[i - 1].y());
     return c;
 }
 
@@ -54,15 +61,24 @@ QVector<double> chainageOf(const QVector<QPointF> &path)
 QPointF pointAt(const QVector<QPointF> &path, const QVector<double> &chain, double t,
                 int *segment = nullptr)
 {
-    if (path.isEmpty()) return {};
-    if (t <= chain.first()) { if (segment) *segment = 0; return path.first(); }
-    if (t >= chain.last())
-    { if (segment) *segment = int(path.size()) - 2; return path.last(); }
+    if (path.isEmpty())
+        return {};
+    if (t <= chain.first()) {
+        if (segment)
+            *segment = 0;
+        return path.first();
+    }
+    if (t >= chain.last()) {
+        if (segment)
+            *segment = int(path.size()) - 2;
+        return path.last();
+    }
 
     const auto it = std::upper_bound(chain.cbegin(), chain.cend(), t);
     const int hi = int(it - chain.cbegin());
     const int lo = hi - 1;
-    if (segment) *segment = lo;
+    if (segment)
+        *segment = lo;
     const double d = chain[hi] - chain[lo];
     const double f = (d > 0.0) ? (t - chain[lo]) / d : 0.0;
     return path[lo] + (path[hi] - path[lo]) * f;
@@ -73,25 +89,27 @@ void segmentRingHits(const QVector<QPointF> &path, const QVector<double> &chain,
                      const QPolygonF &ring, QVector<double> *out)
 {
     const int n = ring.size();
-    if (n < 3) return;
+    if (n < 3)
+        return;
     const QPointF &a = path[i];
     const QPointF &b = path[i + 1];
     const double dx = b.x() - a.x(), dy = b.y() - a.y();
     const double len = chain[i + 1] - chain[i];
 
-    for (int k = 0; k < n; ++k)
-    {
+    for (int k = 0; k < n; ++k) {
         const QPointF &p = ring[k];
         const QPointF &q = ring[(k + 1) % n];
         const double ex = q.x() - p.x(), ey = q.y() - p.y();
 
         const double den = dx * ey - dy * ex;
-        if (std::abs(den) < 1e-15) continue;           // parallel or degenerate
+        if (std::abs(den) < 1e-15)
+            continue; // parallel or degenerate
 
         const double ux = p.x() - a.x(), uy = p.y() - a.y();
-        const double t = (ux * ey - uy * ex) / den;    // along a→b
-        const double s = (ux * dy - uy * dx) / den;    // along p→q
-        if (t < 0.0 || t > 1.0 || s < 0.0 || s > 1.0) continue;
+        const double t = (ux * ey - uy * ex) / den; // along a→b
+        const double s = (ux * dy - uy * dx) / den; // along p→q
+        if (t < 0.0 || t > 1.0 || s < 0.0 || s > 1.0)
+            continue;
         out->append(chain[i] + len * t);
     }
 }
@@ -103,13 +121,15 @@ QVector<double> candidateChainages(const QVector<QPointF> &path, const QVector<d
                                    const BurnDomain &domain)
 {
     QVector<double> hits;
-    for (int i = 0; i + 1 < path.size(); ++i)
-    {
-        if (!(chain[i + 1] > chain[i])) continue;
-        for (const QPolygonF &r : domain.rings) segmentRingHits(path, chain, i, r, &hits);
+    for (int i = 0; i + 1 < path.size(); ++i) {
+        if (!(chain[i + 1] > chain[i]))
+            continue;
+        for (const QPolygonF &r : domain.rings)
+            segmentRingHits(path, chain, i, r, &hits);
         // A segment can only meet a hole whose bounds it touches.
         const QRectF box = QRectF(path[i], path[i + 1]).normalized();
-        for (const int k : domain.holesNear(box)) segmentRingHits(path, chain, i, domain.holes[k], &hits);
+        for (const int k : domain.holesNear(box))
+            segmentRingHits(path, chain, i, domain.holes[k], &hits);
     }
     std::sort(hits.begin(), hits.end());
 
@@ -117,7 +137,8 @@ QVector<double> candidateChainages(const QVector<QPointF> &path, const QVector<d
     QVector<double> uniq;
     uniq.reserve(hits.size());
     for (const double h : hits)
-        if (uniq.isEmpty() || h - uniq.last() > tol) uniq.append(h);
+        if (uniq.isEmpty() || h - uniq.last() > tol)
+            uniq.append(h);
     return uniq;
 }
 
@@ -127,24 +148,33 @@ bool BurnDomain::contains(const QPointF &p) const
 {
     bool inside = false;
     for (const QPolygonF &r : rings)
-        if (r.size() >= 3 && (pointInRing(r, p) || pointOnRing(r,p))) { inside = true; break; }
-    if (!inside) return false;
+        if (r.size() >= 3 && (pointInRing(r, p) || pointOnRing(r, p))) {
+            inside = true;
+            break;
+        }
+    if (!inside)
+        return false;
     const auto inHole = [&](int k) {
         const QPolygonF &h = holes[k];
-        return h.size() >= 3 && pointInRing(h, p) && !pointOnRing(h,p);
+        return h.size() >= 3 && pointInRing(h, p) && !pointOnRing(h, p);
     };
     if (m_gx == 0) {
         for (int k = 0; k < holes.size(); ++k)
-            if (inHole(k)) return false;
+            if (inHole(k))
+                return false;
         return true;
     }
-    if (!m_extent.contains(p)) return true;
-    const int cx = std::clamp(int((p.x() - m_extent.left()) / m_extent.width() * m_gx), 0, m_gx - 1);
-    const int cy = std::clamp(int((p.y() - m_extent.top()) / m_extent.height() * m_gy), 0, m_gy - 1);
+    if (!m_extent.contains(p))
+        return true;
+    const int cx =
+        std::clamp(int((p.x() - m_extent.left()) / m_extent.width() * m_gx), 0, m_gx - 1);
+    const int cy =
+        std::clamp(int((p.y() - m_extent.top()) / m_extent.height() * m_gy), 0, m_gy - 1);
     const int cell = cy * m_gx + cx;
     for (int i = m_cellStart[cell]; i < m_cellStart[cell + 1]; ++i) {
         const int k = m_cellItems[i];
-        if (m_holeBox[k].contains(p) && inHole(k)) return false;
+        if (m_holeBox[k].contains(p) && inHole(k))
+            return false;
     }
     return true;
 }
@@ -159,10 +189,11 @@ QVector<int> BurnDomain::holesNear(const QRectF &box) const
     }
     // QRectF::intersects is false for a zero-width box; compare edges.
     const auto meets = [&](const QRectF &b) {
-        return b.left() <= box.right() && box.left() <= b.right()
-            && b.top() <= box.bottom() && box.top() <= b.bottom();
+        return b.left() <= box.right() && box.left() <= b.right() && b.top() <= box.bottom() &&
+               box.top() <= b.bottom();
     };
-    if (!meets(m_extent)) return out;
+    if (!meets(m_extent))
+        return out;
     const auto cellOf = [&](double v, double lo, double span, int n) {
         return std::clamp(int((v - lo) / span * n), 0, n - 1);
     };
@@ -174,7 +205,8 @@ QVector<int> BurnDomain::holesNear(const QRectF &box) const
         for (int x = x0; x <= x1; ++x) {
             const int cell = y * m_gx + x;
             for (int i = m_cellStart[cell]; i < m_cellStart[cell + 1]; ++i)
-                if (meets(m_holeBox[m_cellItems[i]])) out.append(m_cellItems[i]);
+                if (meets(m_holeBox[m_cellItems[i]]))
+                    out.append(m_cellItems[i]);
         }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -183,9 +215,12 @@ QVector<int> BurnDomain::holesNear(const QRectF &box) const
 
 void BurnDomain::buildIndex()
 {
-    m_holeBox.clear(); m_cellStart.clear(); m_cellItems.clear();
+    m_holeBox.clear();
+    m_cellStart.clear();
+    m_cellItems.clear();
     m_gx = m_gy = 0;
-    if (holes.size() < 64) return;
+    if (holes.size() < 64)
+        return;
     m_holeBox.reserve(holes.size());
     QRectF extent;
     for (const QPolygonF &h : holes) {
@@ -197,7 +232,10 @@ void BurnDomain::buildIndex()
         m_holeBox.append(b);
         extent = extent.isNull() ? b : extent.united(b);
     }
-    if (!(extent.width() > 0) || !(extent.height() > 0)) { m_holeBox.clear(); return; }
+    if (!(extent.width() > 0) || !(extent.height() > 0)) {
+        m_holeBox.clear();
+        return;
+    }
     const double side = std::sqrt(extent.width() * extent.height() / double(holes.size()));
     m_gx = std::clamp(int(std::ceil(extent.width() / side)), 1, 4096);
     m_gy = std::clamp(int(std::ceil(extent.height() / side)), 1, 4096);
@@ -210,30 +248,39 @@ void BurnDomain::buildIndex()
     };
     m_cellStart.fill(0, m_gx * m_gy + 1);
     for (const QRectF &b : m_holeBox) {
-        int x0, x1, y0, y1; range(b, &x0, &x1, &y0, &y1);
-        for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) ++m_cellStart[y * m_gx + x + 1];
+        int x0, x1, y0, y1;
+        range(b, &x0, &x1, &y0, &y1);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                ++m_cellStart[y * m_gx + x + 1];
     }
-    for (int c = 0; c < m_gx * m_gy; ++c) m_cellStart[c + 1] += m_cellStart[c];
+    for (int c = 0; c < m_gx * m_gy; ++c)
+        m_cellStart[c + 1] += m_cellStart[c];
     m_cellItems.resize(m_cellStart.last());
     QVector<int> fill(m_cellStart.begin(), m_cellStart.end() - 1);
     for (int k = 0; k < m_holeBox.size(); ++k) {
-        int x0, x1, y0, y1; range(m_holeBox[k], &x0, &x1, &y0, &y1);
-        for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) m_cellItems[fill[y * m_gx + x]++] = k;
+        int x0, x1, y0, y1;
+        range(m_holeBox[k], &x0, &x1, &y0, &y1);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                m_cellItems[fill[y * m_gx + x]++] = k;
     }
 }
 
-QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,
-                                            const BurnDomain &domain)
+QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path, const BurnDomain &domain)
 {
     QVector<BoundaryCrossing> out;
-    if (path.size() < 2 || domain.isEmpty()) return out;
+    if (path.size() < 2 || domain.isEmpty())
+        return out;
 
     const QVector<double> chain = chainageOf(path);
     const double total = chain.last();
-    if (!(total > 0.0)) return out;
+    if (!(total > 0.0))
+        return out;
 
     const QVector<double> cand = candidateChainages(path, chain, domain);
-    if (cand.isEmpty()) return out;
+    if (cand.isEmpty())
+        return out;
 
     // Inside-ness of each interval between consecutive candidates (and the two
     // open ends). A candidate is a crossing only where the two neighbouring
@@ -249,16 +296,16 @@ QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,
     for (int i = 0; i + 1 < bounds.size(); ++i)
         insideOf.append(domain.contains(pointAt(path, chain, 0.5 * (bounds[i] + bounds[i + 1]))));
 
-    for (int k = 0; k < cand.size(); ++k)
-    {
+    for (int k = 0; k < cand.size(); ++k) {
         const bool before = insideOf[k];
-        const bool after  = insideOf[k + 1];
-        if (before == after) continue;                 // touched the ring, never left
+        const bool after = insideOf[k + 1];
+        if (before == after)
+            continue; // touched the ring, never left
 
         BoundaryCrossing c;
         c.chainage = cand[k];
-        c.point    = pointAt(path, chain, c.chainage, &c.segment);
-        c.t        = c.chainage / total;
+        c.point = pointAt(path, chain, c.chainage, &c.segment);
+        c.t = c.chainage / total;
         c.entering = after;
         out.append(c);
     }
@@ -269,7 +316,8 @@ QVector<QVector<QPointF>> clipPolylineToDomain(const QVector<QPointF> &path,
                                                const BurnDomain &domain)
 {
     QVector<QVector<QPointF>> runs;
-    if (path.size() < 2 || domain.isEmpty()) return runs;
+    if (path.size() < 2 || domain.isEmpty())
+        return runs;
 
     const QVector<BoundaryCrossing> xs = boundaryCrossings(path, domain);
     if (xs.isEmpty())
@@ -281,51 +329,54 @@ QVector<QVector<QPointF>> clipPolylineToDomain(const QVector<QPointF> &path,
     // run carries the original geometry and is cut exactly on the ring.
     QVector<QPointF> run;
     bool inside = domain.contains(path.first());
-    if (inside) run.append(path.first());
+    if (inside)
+        run.append(path.first());
 
     int next = 0;
-    for (int i = 0; i + 1 < path.size(); ++i)
-    {
-        while (next < xs.size() && xs[next].chainage <= chain[i + 1] + 1e-12)
-        {
-            if (xs[next].chainage < chain[i] - 1e-12) { ++next; continue; }
-            run.append(xs[next].point);
-            if (inside)
-            {
-                if (run.size() >= 2) runs.append(run);
-                run.clear();
+    for (int i = 0; i + 1 < path.size(); ++i) {
+        while (next < xs.size() && xs[next].chainage <= chain[i + 1] + 1e-12) {
+            if (xs[next].chainage < chain[i] - 1e-12) {
+                ++next;
+                continue;
             }
-            else
-            {
+            run.append(xs[next].point);
+            if (inside) {
+                if (run.size() >= 2)
+                    runs.append(run);
+                run.clear();
+            } else {
                 run = {xs[next].point};
             }
             inside = xs[next].entering;
             ++next;
         }
-        if (inside)
-        {
+        if (inside) {
             // Never repeat a vertex a crossing already placed there.
             if (run.isEmpty() || (path[i + 1] - run.last()).manhattanLength() > 1e-12)
                 run.append(path[i + 1]);
         }
     }
-    if (inside && run.size() >= 2) runs.append(run);
+    if (inside && run.size() >= 2)
+        runs.append(run);
     return runs;
 }
 
 bool truncationCrossing(const QVector<QPointF> &path, const BurnDomain &domain,
                         BoundaryCrossing *out, bool *allInside)
 {
-    if (allInside) *allInside = false;
-    if (path.size() < 2 || domain.isEmpty()) return false;
+    if (allInside)
+        *allInside = false;
+    if (path.size() < 2 || domain.isEmpty())
+        return false;
 
     const QVector<BoundaryCrossing> xs = boundaryCrossings(path, domain);
-    if (xs.isEmpty())
-    {
-        if (allInside) *allInside = domain.contains(path.first());
+    if (xs.isEmpty()) {
+        if (allInside)
+            *allInside = domain.contains(path.first());
         return false;
     }
-    if (out) *out = xs.first();
+    if (out)
+        *out = xs.first();
     return true;
 }
 
@@ -334,17 +385,20 @@ static double bankHeightAt(const BurnProfile &p, double c)
 {
     const double bed = bedZAt(p, c);
     double top = 0;
-    for (double offset : p.offsets) top = std::max(top, sectionZAt(p, c, offset) - bed);
+    for (double offset : p.offsets)
+        top = std::max(top, sectionZAt(p, c, offset) - bed);
     return top;
 }
 
 static double connectorLengthFor(const BurnProfile &p, double c, const BurnConnectorRule &rule)
 {
-    if (rule.fixedLength > 0) return rule.fixedLength;
+    if (rule.fixedLength > 0)
+        return rule.fixedLength;
     double length = 0;
     if (rule.routingStepS > 0 && rule.horizontalUnitToSI > 0) {
         const double depth = bankHeightAt(p, c) * rule.verticalUnitToSI;
-        if (depth > 0) length = rule.routingStepS * std::sqrt(9.81 * depth) / rule.horizontalUnitToSI;
+        if (depth > 0)
+            length = rule.routingStepS * std::sqrt(9.81 * depth) / rule.horizontalUnitToSI;
     }
     return std::max(length, 2 * rule.cellSize);
 }
@@ -352,8 +406,9 @@ static double connectorLengthFor(const BurnProfile &p, double c, const BurnConne
 // One partition of every profile into burned and retained intervals. With an
 // empty connectorNodes set this is the original boundary partition; otherwise
 // the burned end meeting each listed node keeps a connector stretch in 1D.
-static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const BurnNetwork &network,
-                                     const BurnDomain &domain, const BurnConnectorRule &rule,
+static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles,
+                                     const BurnNetwork &network, const BurnDomain &domain,
+                                     const BurnConnectorRule &rule,
                                      const QSet<QString> &connectorNodes)
 {
     BurnReplacementPlan plan;
@@ -364,65 +419,86 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
         links.insert(network.links[i].id, i);
         names.insert(network.links[i].id.toUpper());
     }
-    for (const auto &n : network.nodes) names.insert(n.id.toUpper());
+    for (const auto &n : network.nodes)
+        names.insert(n.id.toUpper());
     auto uniqueName = [&](const QString &id, int ordinal, const char *kind) {
-        const QString stem = QStringLiteral("B%1_%2_%3")
-            .arg(QString::fromLatin1(kind), QString::fromLatin1(
-                QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex().left(12)))
-            .arg(ordinal);
+        const QString stem =
+            QStringLiteral("B%1_%2_%3")
+                .arg(QString::fromLatin1(kind),
+                     QString::fromLatin1(
+                         QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256)
+                             .toHex()
+                             .left(12)))
+                .arg(ordinal);
         QString name = stem;
         int suffix = 0;
-        while (names.contains(name.toUpper())) name = stem + '_' + QString::number(++suffix);
+        while (names.contains(name.toUpper()))
+            name = stem + '_' + QString::number(++suffix);
         names.insert(name.toUpper());
         return name;
     };
     auto nodeName = [&](int n) {
         return n >= 0 && n < network.nodes.size() ? network.nodes[n].id : QString();
     };
-    struct Interval { double start, end; bool burned, connector, tooShort; };
+    struct Interval {
+        double start, end;
+        bool burned, connector, tooShort;
+    };
     for (const auto &p : profiles) {
-        bool valid=p.isValid() && p.length()>0;
-        for(int i=1;i<p.offsets.size();++i) valid=valid && p.offsets[i]>p.offsets[i-1];
-        if(!valid) {
-            plan.error=QStringLiteral("Channel %1 has an invalid profile or offset ladder.").arg(p.conduitId);
+        bool valid = p.isValid() && p.length() > 0;
+        for (int i = 1; i < p.offsets.size(); ++i)
+            valid = valid && p.offsets[i] > p.offsets[i - 1];
+        if (!valid) {
+            plan.error = QStringLiteral("Channel %1 has an invalid profile or offset ladder.")
+                             .arg(p.conduitId);
             return plan;
         }
         QVector<double> bounds{0.0};
         const double eps = std::max(1e-10, p.length() * 1e-12);
         // Only true changes in ownership need network splits; tangencies do not.
         for (const auto &c : boundaryCrossings(p.centerline, domain))
-            if (c.chainage > eps && c.chainage < p.length() - eps) bounds.append(c.chainage);
+            if (c.chainage > eps && c.chainage < p.length() - eps)
+                bounds.append(c.chainage);
         bounds.append(p.length());
         QVector<Interval> intervals;
         bool anyInside = false;
         for (int i = 0; i + 1 < bounds.size(); ++i) {
-            const bool in = domain.contains(pointAt(p.centerline, p.chainage, (bounds[i]+bounds[i+1])*0.5));
-            intervals.append({bounds[i], bounds[i+1], in, false, false});
+            const bool in = domain.contains(
+                pointAt(p.centerline, p.chainage, (bounds[i] + bounds[i + 1]) * 0.5));
+            intervals.append({bounds[i], bounds[i + 1], in, false, false});
             anyInside |= in;
         }
         if (!anyInside) {
-            plan.notes << QStringLiteral("%1: outside the mesh domain; retained in 1D").arg(p.conduitId);
+            plan.notes
+                << QStringLiteral("%1: outside the mesh domain; retained in 1D").arg(p.conduitId);
             continue;
         }
         const int li = links.value(p.conduitId, -1);
         if (li >= 0 && !network.links[li].replacementError.isEmpty()) {
             plan.error = QStringLiteral("%1 cannot be replaced: %2")
-                .arg(p.conduitId, network.links[li].replacementError);
+                             .arg(p.conduitId, network.links[li].replacementError);
             return plan;
         }
         if (li >= 0 && !connectorNodes.isEmpty()) {
-            const double startLength = intervals.first().burned
-                && connectorNodes.contains(nodeName(network.links[li].from)) ? connectorLengthFor(p, 0, rule) : 0;
-            const double endLength = intervals.last().burned
-                && connectorNodes.contains(nodeName(network.links[li].to)) ? connectorLengthFor(p, p.length(), rule) : 0;
+            const double startLength =
+                intervals.first().burned &&
+                        connectorNodes.contains(nodeName(network.links[li].from))
+                    ? connectorLengthFor(p, 0, rule)
+                    : 0;
+            const double endLength =
+                intervals.last().burned && connectorNodes.contains(nodeName(network.links[li].to))
+                    ? connectorLengthFor(p, p.length(), rule)
+                    : 0;
             const bool same = intervals.size() == 1;
             double headReserved = 0, tailReserved = 0;
             if (startLength > 0) {
                 Interval &iv = intervals.first();
                 const double other = same ? endLength : 0;
                 if (iv.end - iv.start - startLength - other < 1.5 * std::max(startLength, other)) {
-                    iv.burned = false; iv.tooShort = true;
-                } else headReserved = startLength;
+                    iv.burned = false;
+                    iv.tooShort = true;
+                } else
+                    headReserved = startLength;
             }
             if (endLength > 0 && intervals.last().burned) {
                 Interval &iv = intervals.last();
@@ -430,8 +506,10 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
                 // already covered both connectors, so this only fails for a
                 // separate tail interval.
                 if (iv.end - iv.start - (same ? headReserved : 0) - endLength < 1.5 * endLength) {
-                    iv.burned = false; iv.tooShort = true;
-                } else tailReserved = endLength;
+                    iv.burned = false;
+                    iv.tooShort = true;
+                } else
+                    tailReserved = endLength;
             }
             if (tailReserved > 0) {
                 const double end = intervals.last().end;
@@ -444,9 +522,12 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
                 intervals.prepend({start, start + headReserved, false, true, false});
             }
             bool anyBurned = false;
-            for (const auto &iv : intervals) anyBurned |= iv.burned;
+            for (const auto &iv : intervals)
+                anyBurned |= iv.burned;
             if (!anyBurned) {
-                plan.notes << QStringLiteral("%1: kept in 1D; too short for a connector to a coupled outfall").arg(p.conduitId);
+                plan.notes << QStringLiteral(
+                                  "%1: kept in 1D; too short for a connector to a coupled outfall")
+                                  .arg(p.conduitId);
                 continue;
             }
         }
@@ -456,16 +537,17 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
         double linkStart = 0;
         for (int i = 0; i < intervals.size(); ++i) {
             const Interval &iv = intervals[i];
-            const bool splitAfter = i + 1 < intervals.size() && iv.burned != intervals[i+1].burned;
+            const bool splitAfter =
+                i + 1 < intervals.size() && iv.burned != intervals[i + 1].burned;
             if (splitAfter) {
                 BurnSplit split;
                 split.linkId = currentId;
                 split.nodeId = uniqueName(p.conduitId, ++ordinal, "N");
                 split.downstreamId = uniqueName(p.conduitId, ordinal, "L");
-                split.t = (iv.end-linkStart)/(p.length()-linkStart);
+                split.t = (iv.end - linkStart) / (p.length() - linkStart);
                 split.xy = pointAt(p.centerline, p.chainage, iv.end);
                 split.bedZ = bedZAt(p, iv.end);
-                split.connector = iv.connector || intervals[i+1].connector;
+                split.connector = iv.connector || intervals[i + 1].connector;
                 plan.splits.append(split);
                 if (currentLink >= 0) {
                     const int node = plan.network.nodes.size();
@@ -478,33 +560,45 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
             if (iv.burned) {
                 BurnProfile slice = p;
                 slice.conduitId = currentId;
-                slice.centerline.clear(); slice.chainage.clear(); slice.bedZ.clear(); slice.relZ.clear();
+                slice.centerline.clear();
+                slice.chainage.clear();
+                slice.bedZ.clear();
+                slice.relZ.clear();
                 QVector<double> stations{iv.start};
                 for (double c : p.chainage)
-                    if (c > iv.start+eps && c < iv.end-eps) stations.append(c);
+                    if (c > iv.start + eps && c < iv.end - eps)
+                        stations.append(c);
                 stations.append(iv.end);
                 for (double c : stations) {
                     slice.centerline.append(pointAt(p.centerline, p.chainage, c));
-                    slice.chainage.append(c-iv.start);
-                    const double bed = bedZAt(p,c);
+                    slice.chainage.append(c - iv.start);
+                    const double bed = bedZAt(p, c);
                     slice.bedZ.append(bed);
                     QVector<double> row;
-                    for (double offset : p.offsets) row.append(sectionZAt(p,c,offset)-bed);
+                    for (double offset : p.offsets)
+                        row.append(sectionZAt(p, c, offset) - bed);
                     slice.relZ.append(row);
                 }
                 plan.profiles.append(std::move(slice));
                 plan.replacedIds.insert(currentId);
                 plan.intervalSource.insert(currentId, p.conduitId);
             }
-            plan.notes << QStringLiteral("%1 [%2, %3]: %4 (%5)").arg(p.conduitId)
-                .arg(iv.start,0,'g',12).arg(iv.end,0,'g',12)
-                .arg(iv.burned ? QStringLiteral("replace with mesh")
-                     : iv.connector ? QStringLiteral("retain in 1D as a connector to a coupled outfall")
-                     : iv.tooShort ? QStringLiteral("retain in 1D; too short for a connector")
-                     : QStringLiteral("retain in 1D"), currentId);
+            plan.notes << QStringLiteral("%1 [%2, %3]: %4 (%5)")
+                              .arg(p.conduitId)
+                              .arg(iv.start, 0, 'g', 12)
+                              .arg(iv.end, 0, 'g', 12)
+                              .arg(iv.burned ? QStringLiteral("replace with mesh")
+                                   : iv.connector
+                                       ? QStringLiteral(
+                                             "retain in 1D as a connector to a coupled outfall")
+                                   : iv.tooShort
+                                       ? QStringLiteral("retain in 1D; too short for a connector")
+                                       : QStringLiteral("retain in 1D"),
+                                   currentId);
             if (splitAfter) {
                 currentId = plan.splits.last().downstreamId;
-                if (currentLink >= 0) currentLink = plan.network.links.size()-1;
+                if (currentLink >= 0)
+                    currentLink = plan.network.links.size() - 1;
                 linkStart = iv.end;
             }
         }
@@ -514,8 +608,8 @@ static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const
 }
 
 BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
-                                         const BurnNetwork &network, const BurnDomain &domain,
-                                         const BurnConnectorRule &rule)
+                                        const BurnNetwork &network, const BurnDomain &domain,
+                                        const BurnConnectorRule &rule)
 {
     // Connectors are decided from a connector-free partition: a node that would
     // keep two or more surviving links cannot be the outfall (one link each), so
@@ -523,14 +617,16 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
     QSet<QString> connectorNodes;
     if (rule.enabled) {
         BurnReplacementPlan first = partition(profiles, network, domain, rule, {});
-        if (!first.error.isEmpty()) return first;
+        if (!first.error.isEmpty())
+            return first;
         for (const auto &node : first.nodes) {
             const int i = network.indexOfNode(node.nodeId);
-            if (node.role == BurnNodeRole::CoupledJunction && node.survivingLinks >= 2 && i >= 0
-                && network.nodes[i].isJunction && !network.nodes[i].preserve)
+            if (node.role == BurnNodeRole::CoupledJunction && node.survivingLinks >= 2 && i >= 0 &&
+                network.nodes[i].isJunction && !network.nodes[i].preserve)
                 connectorNodes.insert(node.nodeId);
         }
-        if (connectorNodes.isEmpty()) return first;
+        if (connectorNodes.isEmpty())
+            return first;
     }
     return partition(profiles, network, domain, rule, connectorNodes);
 }

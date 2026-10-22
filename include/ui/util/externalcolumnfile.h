@@ -1,9 +1,9 @@
-/*!
- * \file   externalcolumnfile.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Shared column enumeration + single-column reader for external
+/**
+ * @file      externalcolumnfile.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Shared column enumeration + single-column reader for external
  *         multi-column series files (CSV / TSV / PCSWMM .tsf).
  *
  * Extracted from TimeseriesEditorDialog::loadExternalFileIntoProvider_'s
@@ -21,7 +21,9 @@
  *     are data.
  * QtCore-only — safe for unit tests without widgets. The pure string /
  * datetime rules live in externalcolumnfilecore.h.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_UTIL_EXTERNALCOLUMNFILE_H
 #define OPENSWMMVIS_UI_UTIL_EXTERNALCOLUMNFILE_H
 
@@ -29,12 +31,13 @@
 #include <QStringList>
 #include <QVector>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*! \brief One parsed sample: SWMM DateTime (days since 1899-12-30) + value. */
 struct ExternalSeriesPoint {
     double timeJulian = 0.0;
-    double value      = 0.0;
+    double value = 0.0;
 };
 
 /*! \brief Enumerate the value-column names of \a path (time column excluded).
@@ -49,9 +52,12 @@ struct ExternalSeriesPoint {
  *                         by the engine, so callers must not persist it in a
  *                         "path:col" token — only the first data column of a
  *                         headerless file is addressable, via an EMPTY
- *                         selector (review B-4 / risk R1). */
-QStringList readHeaders(const QString& path, QString* errorOut = nullptr,
-                       bool* fabricatedOut = nullptr);
+ *                         selector (review B-4 / risk R1).
+ * @param[in] path Existing UTF-8 text series filename.
+ * @note Performs a header-only probe after skipping blank/comment lines; TSF skips the next two physical metadata rows. errorOut is not cleared on success. A whitespace-only format can produce no value columns without an IO diagnostic.
+ */
+QStringList readHeaders(const QString &path, QString *errorOut = nullptr,
+                        bool *fabricatedOut = nullptr);
 
 /*! \brief Read one column of \a path into \a pointsOut.
  *
@@ -74,12 +80,13 @@ QStringList readHeaders(const QString& path, QString* errorOut = nullptr,
  *  \param errorOut        Optional; human-readable reason on failure.
  *  \param fabricatedOut   Optional; see readHeaders().
  *  \returns the number of points loaded, or -1 when the file cannot be
- *           opened / has no usable header / the selector matched no column. */
-int readColumn(const QString& path, const QString& columnSelector,
-               QVector<ExternalSeriesPoint>& pointsOut,
-               QStringList* headersOut = nullptr,
-               QString* errorOut = nullptr,
-               bool* fabricatedOut = nullptr);
+ *           opened / has no usable header / the selector matched no column.
+ * @param[in] path Existing UTF-8 text series filename.
+ * @note Skips invalid timestamp, short and NaN-valued rows; strtod numeric prefixes and infinity are accepted. Equal timestamps retain file order during stable sorting. Read errors after opening are not independently surfaced by QTextStream status here.
+ */
+int readColumn(const QString &path, const QString &columnSelector,
+               QVector<ExternalSeriesPoint> &pointsOut, QStringList *headersOut = nullptr,
+               QString *errorOut = nullptr, bool *fabricatedOut = nullptr);
 
 /*! \brief The column selector \a path should carry, given \a current.
  *
@@ -98,8 +105,12 @@ int readColumn(const QString& path, const QString& columnSelector,
  *      (review B-4 / risk R1).
  *
  *  Callers compare the result with \a current and write only on a change, so a
- *  path edit that leaves the binding valid costs nothing. */
-QString reconcileColumnSelector(const QString& path, const QString& current);
+ *  path edit that leaves the binding valid costs nothing.
+ * @param[in] path New filename to probe; empty returns empty without opening.
+ * @param[in] current Existing selector matched case-insensitively to real headers.
+ * @return File-spelled matching header, otherwise first real header, or empty for absent/fabricated/unreadable headers. No model assignment occurs.
+ */
+QString reconcileColumnSelector(const QString &path, const QString &current);
 
 } // namespace openswmmvis::ui
 

@@ -1,3 +1,12 @@
+/**
+ * @file      plotpanelview.cpp
+ * @brief     Shared plot content lifecycle for dock and tab hosts.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/panels/plotpanelview.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -5,13 +14,15 @@
 #include <QHideEvent>
 #include <QShowEvent>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 PlotPanelView::PlotPanelView(QWidget *parent) : QWidget(parent) {}
 
 void PlotPanelView::setPlotActive(bool active)
 {
-    if (m_active == active) return;
+    if (m_active == active)
+        return;
     m_active = active;
     plotActivationChanged(active);
     emit plotActiveChanged(active);
@@ -19,7 +30,8 @@ void PlotPanelView::setPlotActive(bool active)
 
 void PlotPanelView::saveLayout()
 {
-    if (m_restored) saveDialogLayout(this, false);
+    if (m_restored)
+        saveDialogLayout(this, false);
 }
 
 void PlotPanelView::showEvent(QShowEvent *event)
@@ -30,7 +42,8 @@ void PlotPanelView::showEvent(QShowEvent *event)
     }
     QWidget::showEvent(event);
     // Standalone use (including widget tests) has no dock managing activation.
-    if (isWindow()) setPlotActive(true);
+    if (isWindow())
+        setPlotActive(true);
 }
 
 void PlotPanelView::hideEvent(QHideEvent *event)

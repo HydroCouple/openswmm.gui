@@ -1,8 +1,11 @@
-/*!
- * \file   featurefielddelegate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurefielddelegate.cpp
+ * @brief     The one cell editor for feature-layer columns
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §6 "Views", R3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/panels/featurefielddelegate.h"
@@ -22,9 +25,11 @@
 
 using namespace openswmmvis::feature;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 constexpr double kRealLimit = 1.0e12;
 
@@ -35,29 +40,35 @@ constexpr double kRealLimit = 1.0e12;
  * user just deleted) into a cell that was meant to stay empty. Tab, a click
  * elsewhere and Esc already commit before that happens.
  */
-template <class Spin>
-class EmptyableSpin : public Spin
+template <class Spin> class EmptyableSpin : public Spin
 {
 public:
     using Spin::Spin;
 
 protected:
+    /**
+     * @param[in] event Required borrowed keyboard event, not retained.
+     * @brief For Return/Enter with EMPTY cleanText, ignore and return so view commits before spin
+     *   refills previous numeric value; every other key delegates Spin base.
+     * @note Caller/view event routing owns commit/close. No direct setData/signal or value mutation
+     *   on empty-return path; intended template base QSpinBox/QDoubleSpinBox with cleanText.
+     *   GUI-thread only.
+     */
     void keyPressEvent(QKeyEvent *event) override
     {
-        if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
-            && this->cleanText().isEmpty()) {
-            event->ignore();   // the view commits and closes as usual
+        if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) &&
+            this->cleanText().isEmpty()) {
+            event->ignore(); // the view commits and closes as usual
             return;
         }
         Spin::keyPressEvent(event);
     }
 };
 
-}   // namespace
+} // namespace
 
 FeatureFieldDelegate::FeatureFieldDelegate(const FieldDef &field, QObject *parent)
-    : QStyledItemDelegate(parent)
-    , m_field(field)
+    : QStyledItemDelegate(parent), m_field(field)
 {
 }
 
@@ -70,11 +81,13 @@ QStringList FeatureFieldDelegate::columnValues(const QModelIndex &index)
 {
     QStringList out;
     const QAbstractItemModel *model = index.model();
-    if (!model) return out;
+    if (!model)
+        return out;
     for (int r = 0; r < model->rowCount(index.parent()); ++r) {
-        const QString v = model->index(r, index.column(), index.parent())
-                              .data(Qt::EditRole).toString().trimmed();
-        if (!v.isEmpty() && !out.contains(v)) out << v;
+        const QString v =
+            model->index(r, index.column(), index.parent()).data(Qt::EditRole).toString().trimmed();
+        if (!v.isEmpty() && !out.contains(v))
+            out << v;
     }
     std::sort(out.begin(), out.end(), [](const QString &a, const QString &b) {
         return a.compare(b, Qt::CaseInsensitive) < 0;
@@ -85,13 +98,15 @@ QStringList FeatureFieldDelegate::columnValues(const QModelIndex &index)
 bool FeatureFieldDelegate::isOutOfList(const QVariant &value) const
 {
     const QString v = value.toString().trimmed();
-    if (v.isEmpty()) return false;
+    if (v.isEmpty())
+        return false;
     switch (m_field.choiceSource) {
     case ChoiceSource::Fixed:
         return !m_field.choices.isEmpty() && m_field.choiceIndex(v) < 0;
     case ChoiceSource::Model: {
         // No provider (no project open) means nothing to check against.
-        if (!m_modelNames) return false;
+        if (!m_modelNames)
+            return false;
         return !modelNames().contains(v, Qt::CaseInsensitive);
     }
     case ChoiceSource::None:
@@ -103,7 +118,8 @@ bool FeatureFieldDelegate::isOutOfList(const QVariant &value) const
 
 QString FeatureFieldDelegate::textFor(const QVariant &value) const
 {
-    if (!value.isValid() || value.isNull()) return QString();
+    if (!value.isValid() || value.isNull())
+        return QString();
     if (m_field.type == FieldType::Boolean)
         return value.toBool() ? tr("Yes") : tr("No");
     if (m_field.choiceSource == ChoiceSource::Fixed)
@@ -122,8 +138,7 @@ bool FeatureFieldDelegate::appliesToRow(const QModelIndex &index) const
 {
     if (m_bcTypeColumn < 0 || !index.isValid() || index.column() == m_bcTypeColumn)
         return true;
-    const QString bcType = index.sibling(index.row(), m_bcTypeColumn)
-                               .data(Qt::EditRole).toString();
+    const QString bcType = index.sibling(index.row(), m_bcTypeColumn).data(Qt::EditRole).toString();
     return bcFieldApplies(bcType, m_field.name);
 }
 
@@ -131,7 +146,8 @@ void FeatureFieldDelegate::initStyleOption(QStyleOptionViewItem *option,
                                            const QModelIndex &index) const
 {
     QStyledItemDelegate::initStyleOption(option, index);
-    if (!option) return;
+    if (!option)
+        return;
     if (isOutOfList(index.data(Qt::EditRole))) {
         option->palette.setColor(QPalette::Text, m_warning);
         option->palette.setColor(QPalette::HighlightedText, m_warning);
@@ -143,8 +159,7 @@ void FeatureFieldDelegate::initStyleOption(QStyleOptionViewItem *option,
 }
 
 bool FeatureFieldDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
-                                     const QStyleOptionViewItem &option,
-                                     const QModelIndex &index)
+                                     const QStyleOptionViewItem &option, const QModelIndex &index)
 {
     if (event && event->type() == QEvent::ToolTip && index.isValid()) {
         const QVariant v = index.data(Qt::EditRole);
@@ -164,8 +179,7 @@ bool FeatureFieldDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
     return QStyledItemDelegate::helpEvent(event, view, option, index);
 }
 
-QWidget *FeatureFieldDelegate::createEditor(QWidget *parent,
-                                            const QStyleOptionViewItem &option,
+QWidget *FeatureFieldDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                                             const QModelIndex &index) const
 {
     const QVariant value = index.data(Qt::EditRole);
@@ -179,14 +193,16 @@ QWidget *FeatureFieldDelegate::createEditor(QWidget *parent,
         auto *combo = new QComboBox(parent);
         combo->addItem(tr("Yes"), true);
         combo->addItem(tr("No"), false);
-        if (empty) combo->addItem(tr("(none)"), QVariant());
+        if (empty)
+            combo->addItem(tr("(none)"), QVariant());
         return combo;
     }
 
     switch (m_field.choiceSource) {
     case ChoiceSource::Fixed: {
         auto *combo = new QComboBox(parent);
-        if (!m_field.required || empty) combo->addItem(tr("(none)"), QString());
+        if (!m_field.required || empty)
+            combo->addItem(tr("(none)"), QString());
         for (const FieldChoice &c : m_field.choices)
             combo->addItem(c.displayLabel(), c.value);
         // Never drop a value silently: one outside the list stays selectable
@@ -200,8 +216,8 @@ QWidget *FeatureFieldDelegate::createEditor(QWidget *parent,
         auto *combo = new QComboBox(parent);
         combo->setEditable(true);
         combo->setInsertPolicy(QComboBox::NoInsert);
-        combo->addItems(m_field.choiceSource == ChoiceSource::Model
-                            ? modelNames() : columnValues(index));
+        combo->addItems(m_field.choiceSource == ChoiceSource::Model ? modelNames()
+                                                                    : columnValues(index));
         return combo;
     }
     case ChoiceSource::None:
@@ -241,12 +257,14 @@ void FeatureFieldDelegate::setEditorData(QWidget *editor, const QModelIndex &ind
     }
     if (auto *spin = qobject_cast<QDoubleSpinBox *>(editor)) {
         spin->setValue(v.toDouble());
-        if (empty) spin->clear();   // no text: setModelData leaves the cell alone
+        if (empty)
+            spin->clear(); // no text: setModelData leaves the cell alone
         return;
     }
     if (auto *spin = qobject_cast<QSpinBox *>(editor)) {
         spin->setValue(v.toInt());
-        if (empty) spin->clear();
+        if (empty)
+            spin->clear();
         return;
     }
     QStyledItemDelegate::setEditorData(editor, index);
@@ -258,7 +276,8 @@ void FeatureFieldDelegate::setModelData(QWidget *editor, QAbstractItemModel *mod
     if (auto *combo = qobject_cast<QComboBox *>(editor)) {
         QVariant value;
         if (m_field.type == FieldType::Boolean) {
-            if (!combo->currentData().isValid()) return;   // "(none)": still empty
+            if (!combo->currentData().isValid())
+                return; // "(none)": still empty
             value = combo->currentData().toBool();
         } else {
             value = combo->isEditable() ? QVariant(combo->currentText().trimmed())
@@ -274,13 +293,15 @@ void FeatureFieldDelegate::setModelData(QWidget *editor, QAbstractItemModel *mod
     // A spin box left without text (an empty cell nobody typed into, or a
     // number deleted) changes nothing rather than writing 0.
     if (auto *spin = qobject_cast<QDoubleSpinBox *>(editor)) {
-        if (spin->cleanText().isEmpty()) return;
+        if (spin->cleanText().isEmpty())
+            return;
         spin->interpretText();
         model->setData(index, spin->value(), Qt::EditRole);
         return;
     }
     if (auto *spin = qobject_cast<QSpinBox *>(editor)) {
-        if (spin->cleanText().isEmpty()) return;
+        if (spin->cleanText().isEmpty())
+            return;
         spin->interpretText();
         model->setData(index, spin->value(), Qt::EditRole);
         return;
@@ -288,4 +309,4 @@ void FeatureFieldDelegate::setModelData(QWidget *editor, QAbstractItemModel *mod
     QStyledItemDelegate::setModelData(editor, model, index);
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

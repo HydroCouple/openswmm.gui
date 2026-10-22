@@ -1,7 +1,10 @@
-/*!
- * \file   queryparser.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      queryparser.cpp
+ * @brief     Tiny SQL-like WHERE-clause parser for the Attribute Table's filter bar.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "core/attributevalue.h"
@@ -13,38 +16,64 @@
 #include <climits>
 #include <cmath>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
-namespace {
+namespace
+{
 
 // ---------------------------------------------------------------------------
 // Tokenizer
 // ---------------------------------------------------------------------------
 
 enum class TokenKind {
-    End, Invalid,
+    End,
+    Invalid,
     Ident,
     Number,
     String,
-    Op,         ///< < <= = != > >=
-    LParen, RParen,
+    Op, ///< < <= = != > >=
+    LParen,
+    RParen,
     Comma,
-    KwAnd, KwOr, KwNot, KwLike, KwIn, KwBetween, KwIs, KwNull, KwTrue, KwFalse, KwWhere,
+    KwAnd,
+    KwOr,
+    KwNot,
+    KwLike,
+    KwIn,
+    KwBetween,
+    KwIs,
+    KwNull,
+    KwTrue,
+    KwFalse,
+    KwWhere,
 };
 
 struct Token {
     TokenKind kind = TokenKind::End;
-    QString   text;
-    int       pos = 0;
+    QString text;
+    int pos = 0;
 };
 
-class Tokenizer {
+class Tokenizer
+{
 public:
+    /**
+     * @brief Start scanning a borrowed query at UTF-16 offset zero.
+     * @param[in] input Query buffer that must outlive this tokenizer; no copy is retained.
+     */
     explicit Tokenizer(const QString &input) : m_in(input) {}
 
-    Token next() {
+    /**
+     * @brief Consume whitespace and the next SQL token.
+     * @return Token text and zero-based UTF-16 start offset. End marks exhausted input; Invalid carries a diagnostic for malformed operators, quotes or characters.
+     * @details Advances the cursor even for invalid characters. Quoted delimiters doubled inside a token are unescaped.
+     */
+    Token next()
+    {
         skipWs();
-        if (m_pos >= m_in.size()) return {TokenKind::End, {}, m_pos};
+        if (m_pos >= m_in.size())
+            return {TokenKind::End, {}, m_pos};
         const int start = m_pos;
         const QChar c = m_in[m_pos];
 
@@ -56,7 +85,10 @@ public:
             QString value;
             while (m_pos < m_in.size()) {
                 const QChar ch = m_in[m_pos++];
-                if (ch != close) { value += ch; continue; }
+                if (ch != close) {
+                    value += ch;
+                    continue;
+                }
                 if (m_pos < m_in.size() && m_in[m_pos] == close) {
                     value += close;
                     ++m_pos;
@@ -80,36 +112,55 @@ public:
 
         // Operators
         if (c == '<' || c == '>' || c == '=' || c == '!') {
-            QString s; s += m_in[m_pos++];
-            if (m_pos < m_in.size() && (m_in[m_pos] == '='
-                || (c == '<' && m_in[m_pos] == '>')))
+            QString s;
+            s += m_in[m_pos++];
+            if (m_pos < m_in.size() && (m_in[m_pos] == '=' || (c == '<' && m_in[m_pos] == '>')))
                 s += m_in[m_pos++];
             if (s == "!" || s == "==")
                 return {TokenKind::Invalid, QStringLiteral("Invalid comparison operator"), start};
             return {TokenKind::Op, s, start};
         }
-        if (c == '(') { ++m_pos; return {TokenKind::LParen, "(", start}; }
-        if (c == ')') { ++m_pos; return {TokenKind::RParen, ")", start}; }
-        if (c == ',') { ++m_pos; return {TokenKind::Comma,  ",", start}; }
+        if (c == '(') {
+            ++m_pos;
+            return {TokenKind::LParen, "(", start};
+        }
+        if (c == ')') {
+            ++m_pos;
+            return {TokenKind::RParen, ")", start};
+        }
+        if (c == ',') {
+            ++m_pos;
+            return {TokenKind::Comma, ",", start};
+        }
 
         // Bare identifier / keyword
         if (c.isLetter() || c == '_') {
             QString s;
-            while (m_pos < m_in.size()
-                   && (m_in[m_pos].isLetterOrNumber() || m_in[m_pos] == '_'))
+            while (m_pos < m_in.size() && (m_in[m_pos].isLetterOrNumber() || m_in[m_pos] == '_'))
                 s += m_in[m_pos++];
             const QString up = s.toUpper();
-            if (up == "AND")  return {TokenKind::KwAnd,  s, start};
-            if (up == "OR")   return {TokenKind::KwOr,   s, start};
-            if (up == "NOT")  return {TokenKind::KwNot,  s, start};
-            if (up == "LIKE") return {TokenKind::KwLike, s, start};
-            if (up == "IN")   return {TokenKind::KwIn,   s, start};
-            if (up == "BETWEEN") return {TokenKind::KwBetween, s, start};
-            if (up == "IS") return {TokenKind::KwIs, s, start};
-            if (up == "NULL") return {TokenKind::KwNull, s, start};
-            if (up == "TRUE") return {TokenKind::KwTrue, s, start};
-            if (up == "FALSE") return {TokenKind::KwFalse, s, start};
-            if (up == "WHERE") return {TokenKind::KwWhere, s, start};
+            if (up == "AND")
+                return {TokenKind::KwAnd, s, start};
+            if (up == "OR")
+                return {TokenKind::KwOr, s, start};
+            if (up == "NOT")
+                return {TokenKind::KwNot, s, start};
+            if (up == "LIKE")
+                return {TokenKind::KwLike, s, start};
+            if (up == "IN")
+                return {TokenKind::KwIn, s, start};
+            if (up == "BETWEEN")
+                return {TokenKind::KwBetween, s, start};
+            if (up == "IS")
+                return {TokenKind::KwIs, s, start};
+            if (up == "NULL")
+                return {TokenKind::KwNull, s, start};
+            if (up == "TRUE")
+                return {TokenKind::KwTrue, s, start};
+            if (up == "FALSE")
+                return {TokenKind::KwFalse, s, start};
+            if (up == "WHERE")
+                return {TokenKind::KwWhere, s, start};
             return {TokenKind::Ident, s, start};
         }
 
@@ -119,11 +170,16 @@ public:
     }
 
 private:
-    void skipWs() {
-        while (m_pos < m_in.size() && m_in[m_pos].isSpace()) ++m_pos;
+    /**
+     * @brief Advance the tokenizer past characters recognized by QChar::isSpace().
+     */
+    void skipWs()
+    {
+        while (m_pos < m_in.size() && m_in[m_pos].isSpace())
+            ++m_pos;
     }
     const QString &m_in;
-    int            m_pos = 0;
+    int m_pos = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -134,16 +190,29 @@ private:
 // front so eval() doesn't rebuild the regex once per row.
 QRegularExpression likeToRegex(const QString &pattern);
 
-class Parser {
+class Parser
+{
 public:
+    /**
+     * @brief Initialize recursive descent and fetch its first token.
+     * @param[in] input Borrowed query buffer that must outlive this parser.
+     */
     explicit Parser(const QString &input) : m_tok(input) { m_cur = m_tok.next(); }
 
-    QueryPredicate parse() {
+    /**
+     * @brief Parse an optional WHERE prefix and a complete boolean expression.
+     * @return Shared AST on success, empty match-all on empty input, or cleared root plus one-based position/message on syntax failure.
+     * @details Catches internal ParseException so callers receive diagnostics instead of parser exceptions.
+     */
+    QueryPredicate parse()
+    {
         QueryPredicate result;
-        if (m_cur.kind == TokenKind::End) return result;  // empty == match-all
+        if (m_cur.kind == TokenKind::End)
+            return result; // empty == match-all
         try {
             checkToken();
-            if (m_cur.kind == TokenKind::KwWhere) advance();
+            if (m_cur.kind == TokenKind::KwWhere)
+                advance();
             result.root = parseOr();
             if (m_cur.kind != TokenKind::End)
                 throwAt(QStringLiteral("Unexpected trailing token"));
@@ -157,77 +226,135 @@ public:
 
 private:
     struct ParseException {
-        int     position;
+        int position;
         QString message;
     };
 
-    void checkToken() {
-        if (m_cur.kind == TokenKind::Invalid) throwAt(m_cur.text);
+    /**
+     * @brief Reject an Invalid current token using the tokenizer diagnostic.
+     * @throws ParseException With the current token position when scanning failed.
+     */
+    void checkToken()
+    {
+        if (m_cur.kind == TokenKind::Invalid)
+            throwAt(m_cur.text);
     }
-    void advance() { m_cur = m_tok.next(); checkToken(); }
+    /**
+     * @brief Fetch and validate the next token, updating parser state.
+     * @throws ParseException When the next token is invalid.
+     */
+    void advance()
+    {
+        m_cur = m_tok.next();
+        checkToken();
+    }
 
-    QVariant parseValue() {
+    /**
+     * @brief Consume one numeric, string or boolean literal.
+     * @return Signed integer, unsigned integer, finite double, QString or bool QVariant, preserving integer range when possible.
+     * @throws ParseException For an absent literal or an unrepresentable/nonfinite number.
+     */
+    QVariant parseValue()
+    {
         QVariant value;
         if (m_cur.kind == TokenKind::Number) {
             bool ok = false;
             const auto integer = m_cur.text.toLongLong(&ok);
-            if (ok) value = integer;
+            if (ok)
+                value = integer;
             else {
                 const auto unsignedInteger = m_cur.text.toULongLong(&ok);
-                if (ok) value = unsignedInteger;
+                if (ok)
+                    value = unsignedInteger;
                 else {
                     const double number = m_cur.text.toDouble(&ok);
-                    if (!ok || !std::isfinite(number)) throwAt(QStringLiteral("Invalid number"));
+                    if (!ok || !std::isfinite(number))
+                        throwAt(QStringLiteral("Invalid number"));
                     value = number;
                 }
             }
-        } else if (m_cur.kind == TokenKind::String) value = m_cur.text;
-        else if (m_cur.kind == TokenKind::KwTrue) value = true;
-        else if (m_cur.kind == TokenKind::KwFalse) value = false;
-        else throwAt(QStringLiteral("Expected number, string or boolean"));
+        } else if (m_cur.kind == TokenKind::String)
+            value = m_cur.text;
+        else if (m_cur.kind == TokenKind::KwTrue)
+            value = true;
+        else if (m_cur.kind == TokenKind::KwFalse)
+            value = false;
+        else
+            throwAt(QStringLiteral("Expected number, string or boolean"));
         advance();
         return value;
     }
 
-    std::shared_ptr<QueryNode> negate(std::shared_ptr<QueryNode> node, bool negative) {
-        if (!negative) return node;
+    /**
+     * @brief Optionally wrap a completed expression in a NOT node.
+     * @param[in] node Shared subtree to reuse without mutation.
+     * @param[in] negative Whether to introduce logical negation.
+     * @return Original shared pointer when false; a new NOT node owning the subtree when true.
+     */
+    std::shared_ptr<QueryNode> negate(std::shared_ptr<QueryNode> node, bool negative)
+    {
+        if (!negative)
+            return node;
         auto outer = std::make_shared<QueryNode>();
         outer->kind = QueryNode::NotOp;
         outer->left = node;
         return outer;
     }
 
-    [[noreturn]] void throwAt(const QString &msg) {
-        throw ParseException{m_cur.pos + 1, msg};
-    }
+    /**
+     * @brief Abort parsing with a position attached to a diagnostic.
+     * @param[in] msg Human-readable syntax error.
+     * @throws ParseException Always, using current token offset plus one.
+     */
+    [[noreturn]] void throwAt(const QString &msg) { throw ParseException{m_cur.pos + 1, msg}; }
 
-    std::shared_ptr<QueryNode> parseOr() {
+    /**
+     * @brief Consume an AND expression followed by zero or more OR branches.
+     * @return Left-associated shared OR tree; consumes through the final operand.
+     * @throws ParseException If an operand is malformed.
+     */
+    std::shared_ptr<QueryNode> parseOr()
+    {
         auto left = parseAnd();
         while (m_cur.kind == TokenKind::KwOr) {
             advance();
             auto right = parseAnd();
             auto n = std::make_shared<QueryNode>();
             n->kind = QueryNode::OrOp;
-            n->left = left; n->right = right;
+            n->left = left;
+            n->right = right;
             left = n;
         }
         return left;
     }
 
-    std::shared_ptr<QueryNode> parseAnd() {
+    /**
+     * @brief Consume NOT expressions joined by higher-precedence AND operators.
+     * @return Left-associated shared AND tree.
+     * @throws ParseException If an operand is malformed.
+     */
+    std::shared_ptr<QueryNode> parseAnd()
+    {
         auto left = parseNot();
         while (m_cur.kind == TokenKind::KwAnd) {
             advance();
             auto right = parseNot();
             auto n = std::make_shared<QueryNode>();
             n->kind = QueryNode::AndOp;
-            n->left = left; n->right = right;
+            n->left = left;
+            n->right = right;
             left = n;
         }
         return left;
     }
 
-    std::shared_ptr<QueryNode> parseNot() {
+    /**
+     * @brief Consume recursively nested prefix NOT before a primary expression.
+     * @return Primary subtree or a shared chain of NOT nodes.
+     * @throws ParseException If the following primary is malformed.
+     */
+    std::shared_ptr<QueryNode> parseNot()
+    {
         if (m_cur.kind == TokenKind::KwNot) {
             advance();
             auto inner = parseNot();
@@ -239,7 +366,13 @@ private:
         return parsePrimary();
     }
 
-    std::shared_ptr<QueryNode> parsePrimary() {
+    /**
+     * @brief Consume a parenthesized expression or one field comparison.
+     * @return Shared expression subtree with delimiters removed.
+     * @throws ParseException For a missing closing parenthesis or invalid comparison.
+     */
+    std::shared_ptr<QueryNode> parsePrimary()
+    {
         if (m_cur.kind == TokenKind::LParen) {
             advance();
             auto inner = parseOr();
@@ -251,7 +384,13 @@ private:
         return parseComparison();
     }
 
-    std::shared_ptr<QueryNode> parseComparison() {
+    /**
+     * @brief Consume a named field and its comparison, membership, range or NULL predicate.
+     * @return Shared predicate node; postfix NOT is represented by an outer NOT node and LIKE patterns are compiled once.
+     * @throws ParseException For missing names, operators, literals or IN/BETWEEN delimiters.
+     */
+    std::shared_ptr<QueryNode> parseComparison()
+    {
         if (m_cur.kind != TokenKind::Ident)
             throwAt(QStringLiteral("Expected column name"));
         const QString field = m_cur.text;
@@ -260,8 +399,10 @@ private:
         if (m_cur.kind == TokenKind::KwIs) {
             advance();
             const bool negative = m_cur.kind == TokenKind::KwNot;
-            if (negative) advance();
-            if (m_cur.kind != TokenKind::KwNull) throwAt(QStringLiteral("Expected NULL after IS [NOT]"));
+            if (negative)
+                advance();
+            if (m_cur.kind != TokenKind::KwNull)
+                throwAt(QStringLiteral("Expected NULL after IS [NOT]"));
             advance();
             auto node = std::make_shared<QueryNode>();
             node->kind = QueryNode::IsNull;
@@ -271,8 +412,8 @@ private:
         const bool negative = m_cur.kind == TokenKind::KwNot;
         if (negative) {
             advance();
-            if (m_cur.kind != TokenKind::KwLike && m_cur.kind != TokenKind::KwIn
-                && m_cur.kind != TokenKind::KwBetween)
+            if (m_cur.kind != TokenKind::KwLike && m_cur.kind != TokenKind::KwIn &&
+                m_cur.kind != TokenKind::KwBetween)
                 throwAt(QStringLiteral("Expected LIKE, IN or BETWEEN after NOT"));
         }
         if (m_cur.kind == TokenKind::KwBetween) {
@@ -281,7 +422,8 @@ private:
             node->kind = QueryNode::Between;
             node->fieldName = field;
             node->inList.append(parseValue());
-            if (m_cur.kind != TokenKind::KwAnd) throwAt(QStringLiteral("Expected AND in BETWEEN"));
+            if (m_cur.kind != TokenKind::KwAnd)
+                throwAt(QStringLiteral("Expected AND in BETWEEN"));
             advance();
             node->inList.append(parseValue());
             return negate(node, negative);
@@ -336,7 +478,7 @@ private:
     }
 
     Tokenizer m_tok;
-    Token     m_cur;
+    Token m_cur;
 };
 
 // ---------------------------------------------------------------------------
@@ -345,30 +487,52 @@ private:
 
 // Typed comparisons preserve text identifiers and 64-bit numeric identity.
 // INT_MIN denotes SQL unknown (missing or incompatible operands).
-int cmpVariants(const QVariant &a, const QVariant &b) {
-    if (openswmmvis::isNullAttributeValue(a) || openswmmvis::isNullAttributeValue(b)) return INT_MIN;
+/**
+ * @brief Compare typed attribute values without losing 64-bit integer identity.
+ * @param[in] a Left operand; missing/null/nonfinite attributes produce SQL UNKNOWN.
+ * @param[in] b Right operand; a string paired with a numeric operand is parsed as an integer or double.
+ * @return Negative/zero/positive for ordered operands; INT_MIN for NULL or incompatible numeric/text values. Text/text uses case-sensitive QString comparison.
+ */
+int cmpVariants(const QVariant &a, const QVariant &b)
+{
+    if (openswmmvis::isNullAttributeValue(a) || openswmmvis::isNullAttributeValue(b))
+        return INT_MIN;
     const bool an = openswmmvis::isNumericValue(a), bn = openswmmvis::isNumericValue(b);
-    if (an && bn) return openswmmvis::compareAttributeNumbers(a, b);
-    if (!an && !bn) return QString::compare(a.toString(), b.toString());
+    if (an && bn)
+        return openswmmvis::compareAttributeNumbers(a, b);
+    if (!an && !bn)
+        return QString::compare(a.toString(), b.toString());
     // Preserve the existing convenience of quoted numeric operands, but never
     // compare a failed conversion lexically against a numeric value.
     const QString text = (an ? b : a).toString();
     bool ok = false;
     QVariant number = text.toLongLong(&ok);
-    if (!ok) number = text.toULongLong(&ok);
-    if (!ok) number = text.toDouble(&ok);
-    if (!ok || openswmmvis::isNullAttributeValue(number)) return INT_MIN;
+    if (!ok)
+        number = text.toULongLong(&ok);
+    if (!ok)
+        number = text.toDouble(&ok);
+    if (!ok || openswmmvis::isNullAttributeValue(number))
+        return INT_MIN;
     return an ? openswmmvis::compareAttributeNumbers(a, number)
               : openswmmvis::compareAttributeNumbers(number, b);
 }
 
 // SQL LIKE → regex.  `%` ⇒ `.*`, `_` ⇒ `.`.  Anchored.
-QRegularExpression likeToRegex(const QString &pattern) {
+/**
+ * @brief Compile SQL LIKE wildcards into a case-insensitive anchored expression.
+ * @param[in] pattern Literal pattern where percent matches any run and underscore matches one character; other regex characters are escaped.
+ * @return Compiled QRegularExpression reused for every evaluated row.
+ */
+QRegularExpression likeToRegex(const QString &pattern)
+{
     QString re = QStringLiteral("^");
     for (QChar c : pattern) {
-        if (c == '%')      re += QStringLiteral(".*");
-        else if (c == '_') re += QStringLiteral(".");
-        else               re += QRegularExpression::escape(QString(c));
+        if (c == '%')
+            re += QStringLiteral(".*");
+        else if (c == '_')
+            re += QStringLiteral(".");
+        else
+            re += QRegularExpression::escape(QString(c));
     }
     re += QStringLiteral("$");
     return QRegularExpression(re, QRegularExpression::CaseInsensitiveOption);
@@ -378,9 +542,17 @@ QRegularExpression likeToRegex(const QString &pattern) {
 // inconsistent casing ("max depth", "Max Depth", "MAX DEPTH"); SWMM
 // column labels themselves use mixed case ("Invert elev").  Fall back
 // to a linear case-insensitive scan if the exact key isn't present.
-QVariant lookupField(const QVariantMap &row, const QString &name) {
+/**
+ * @brief Resolve a column with exact-key priority and case-insensitive fallback.
+ * @param[in] row Read-only map of field values.
+ * @param[in] name User-spelled field identifier.
+ * @return Copied matching value or invalid QVariant (SQL NULL) when missing.
+ */
+QVariant lookupField(const QVariantMap &row, const QString &name)
+{
     auto it = row.constFind(name);
-    if (it != row.constEnd()) return it.value();
+    if (it != row.constEnd())
+        return it.value();
     for (auto cit = row.constBegin(); cit != row.constEnd(); ++cit)
         if (QString::compare(cit.key(), name, Qt::CaseInsensitive) == 0)
             return cit.value();
@@ -390,44 +562,75 @@ QVariant lookupField(const QVariantMap &row, const QString &name) {
 // Walk the AST appending every referenced field name, first-seen order,
 // no duplicates.  A predicate names one or two columns; the list stays
 // short enough that the linear `contains` is cheaper than a QSet.
-void collectFields(const QueryNode &n, QStringList &out) {
+/**
+ * @brief Traverse logical children and append referenced columns once.
+ * @param[in] n AST node; absent child pointers are tolerated.
+ * @param[in,out] out Existing names plus unseen exact spellings, in left-to-right first-encounter order.
+ */
+void collectFields(const QueryNode &n, QStringList &out)
+{
     switch (n.kind) {
     case QueryNode::OrOp:
     case QueryNode::AndOp:
-        if (n.left)  collectFields(*n.left,  out);
-        if (n.right) collectFields(*n.right, out);
+        if (n.left)
+            collectFields(*n.left, out);
+        if (n.right)
+            collectFields(*n.right, out);
         return;
     case QueryNode::NotOp:
-        if (n.left) collectFields(*n.left, out);
+        if (n.left)
+            collectFields(*n.left, out);
         return;
     case QueryNode::Compare:
     case QueryNode::Like:
     case QueryNode::In:
     case QueryNode::Between:
     case QueryNode::IsNull:
-        if (!out.contains(n.fieldName)) out.append(n.fieldName);
+        if (!out.contains(n.fieldName))
+            out.append(n.fieldName);
         return;
     }
 }
 
 enum class Truth { False, True, Unknown };
-Truth truth(bool value) { return value ? Truth::True : Truth::False; }
+/**
+ * @brief Lift a two-valued boolean into SQL truth state.
+ * @param[in] value Boolean result without NULL semantics.
+ * @return Truth::True or Truth::False.
+ */
+Truth truth(bool value)
+{
+    return value ? Truth::True : Truth::False;
+}
 
-Truth eval(const QueryNode &n, const QVariantMap &row) {
+/**
+ * @brief Evaluate a parser-built expression with SQL three-valued logic.
+ * @param[in] n Well-formed AST; required logical children and BETWEEN endpoints must exist.
+ * @param[in] row Read-only field values resolved by lookupField().
+ * @return TRUE, FALSE or UNKNOWN; AND/OR short-circuit when the first operand determines the result.
+ */
+Truth eval(const QueryNode &n, const QVariantMap &row)
+{
     switch (n.kind) {
     case QueryNode::OrOp:
     case QueryNode::AndOp: {
         const auto a = eval(*n.left, row);
-        if (n.kind == QueryNode::OrOp && a == Truth::True) return a;
-        if (n.kind == QueryNode::AndOp && a == Truth::False) return a;
+        if (n.kind == QueryNode::OrOp && a == Truth::True)
+            return a;
+        if (n.kind == QueryNode::AndOp && a == Truth::False)
+            return a;
         const auto b = eval(*n.right, row);
         if (n.kind == QueryNode::OrOp) {
-            if (a == Truth::True || b == Truth::True) return Truth::True;
-            if (a == Truth::Unknown || b == Truth::Unknown) return Truth::Unknown;
+            if (a == Truth::True || b == Truth::True)
+                return Truth::True;
+            if (a == Truth::Unknown || b == Truth::Unknown)
+                return Truth::Unknown;
             return Truth::False;
         }
-        if (a == Truth::False || b == Truth::False) return Truth::False;
-        if (a == Truth::Unknown || b == Truth::Unknown) return Truth::Unknown;
+        if (a == Truth::False || b == Truth::False)
+            return Truth::False;
+        if (a == Truth::Unknown || b == Truth::Unknown)
+            return Truth::Unknown;
         return Truth::True;
     }
     case QueryNode::NotOp: {
@@ -440,32 +643,43 @@ Truth eval(const QueryNode &n, const QVariantMap &row) {
     }
     case QueryNode::Compare: {
         const int c = cmpVariants(lookupField(row, n.fieldName), n.literal);
-        if (c == INT_MIN) return Truth::Unknown;
-        if (n.op == "<")  return truth(c <  0);
-        if (n.op == "<=") return truth(c <= 0);
-        if (n.op == "=")  return truth(c == 0);
-        if (n.op == "!=" || n.op == "<>") return truth(c != 0);
-        if (n.op == ">")  return truth(c >  0);
-        if (n.op == ">=") return truth(c >= 0);
+        if (c == INT_MIN)
+            return Truth::Unknown;
+        if (n.op == "<")
+            return truth(c < 0);
+        if (n.op == "<=")
+            return truth(c <= 0);
+        if (n.op == "=")
+            return truth(c == 0);
+        if (n.op == "!=" || n.op == "<>")
+            return truth(c != 0);
+        if (n.op == ">")
+            return truth(c > 0);
+        if (n.op == ">=")
+            return truth(c >= 0);
         return Truth::False;
     }
     case QueryNode::Like: {
         const auto value = lookupField(row, n.fieldName);
-        if (openswmmvis::isNullAttributeValue(value)) return Truth::Unknown;
+        if (openswmmvis::isNullAttributeValue(value))
+            return Truth::Unknown;
         return truth(n.likeRegex.match(value.toString()).hasMatch());
     }
     case QueryNode::In: {
         const auto value = lookupField(row, n.fieldName);
-        if (openswmmvis::isNullAttributeValue(value)) return Truth::Unknown;
+        if (openswmmvis::isNullAttributeValue(value))
+            return Truth::Unknown;
         for (const auto &literal : n.inList)
-            if (cmpVariants(value, literal) == 0) return Truth::True;
+            if (cmpVariants(value, literal) == 0)
+                return Truth::True;
         return Truth::False;
     }
     case QueryNode::Between: {
         const auto value = lookupField(row, n.fieldName);
         const int lower = cmpVariants(value, n.inList[0]);
         const int upper = cmpVariants(value, n.inList[1]);
-        if (lower == INT_MIN || upper == INT_MIN) return Truth::Unknown;
+        if (lower == INT_MIN || upper == INT_MIN)
+            return Truth::Unknown;
         return truth(lower >= 0 && upper <= 0);
     }
     }
@@ -478,57 +692,64 @@ Truth eval(const QueryNode &n, const QVariantMap &row) {
 // Public API
 // ---------------------------------------------------------------------------
 
-QueryPredicate parseQuery(const QString &whereClause) {
+QueryPredicate parseQuery(const QString &whereClause)
+{
     Parser p(whereClause);
     return p.parse();
 }
 
-QuerySuggestions suggestQuery(const QString &text, int cursor, const QStringList &fields) {
+QuerySuggestions suggestQuery(const QString &text, int cursor, const QStringList &fields)
+{
     cursor = qBound(0, cursor, int(text.size()));
     const QString prefix = text.left(cursor);
     Tokenizer tokenizer(prefix);
     QList<Token> tokens;
-    for (Token token = tokenizer.next(); token.kind != TokenKind::End;
-         token = tokenizer.next()) {
+    for (Token token = tokenizer.next(); token.kind != TokenKind::End; token = tokenizer.next()) {
         tokens.append(token);
-        if (token.kind == TokenKind::Invalid) break;
+        if (token.kind == TokenKind::Invalid)
+            break;
     }
     QuerySuggestions result;
     result.start = cursor;
     QString partial;
-    const bool unfinishedQuote = !tokens.isEmpty() && tokens.back().kind == TokenKind::Invalid
-        && tokens.back().text == QStringLiteral("Unterminated quoted token");
+    const bool unfinishedQuote = !tokens.isEmpty() && tokens.back().kind == TokenKind::Invalid &&
+                                 tokens.back().text == QStringLiteral("Unterminated quoted token");
     if (!tokens.isEmpty() && !prefix.isEmpty() && (!prefix.back().isSpace() || unfinishedQuote)) {
         const auto last = tokens.back();
-        if (last.kind == TokenKind::Ident || last.kind == TokenKind::Invalid
-            || (last.kind >= TokenKind::KwAnd && last.kind <= TokenKind::KwWhere)) {
+        if (last.kind == TokenKind::Ident || last.kind == TokenKind::Invalid ||
+            (last.kind >= TokenKind::KwAnd && last.kind <= TokenKind::KwWhere)) {
             result.start = last.pos;
             partial = prefix.mid(last.pos);
             tokens.removeLast();
         }
     }
     const auto last = tokens.isEmpty() ? TokenKind::End : tokens.back().kind;
-    const auto previous = tokens.size() < 2 ? TokenKind::End : tokens[tokens.size()-2].kind;
+    const auto previous = tokens.size() < 2 ? TokenKind::End : tokens[tokens.size() - 2].kind;
     QStringList candidates;
     const bool postfixNot = last == TokenKind::KwNot && previous == TokenKind::Ident;
-    if (postfixNot) candidates = {QStringLiteral("IN"), QStringLiteral("LIKE"), QStringLiteral("BETWEEN")};
+    if (postfixNot)
+        candidates = {QStringLiteral("IN"), QStringLiteral("LIKE"), QStringLiteral("BETWEEN")};
     else if (last == TokenKind::KwIs)
         candidates = {QStringLiteral("NULL"), QStringLiteral("NOT NULL")};
     else if (last == TokenKind::KwNot && previous == TokenKind::KwIs)
         candidates = {QStringLiteral("NULL")};
     else if (last == TokenKind::Ident)
-        candidates = {QStringLiteral("="), QStringLiteral("!="), QStringLiteral("<>"),
-                      QStringLiteral("<"), QStringLiteral("<="), QStringLiteral(">"), QStringLiteral(">="),
-                      QStringLiteral("LIKE"), QStringLiteral("NOT LIKE"), QStringLiteral("IN"),
-                      QStringLiteral("NOT IN"), QStringLiteral("BETWEEN"), QStringLiteral("NOT BETWEEN"),
-                      QStringLiteral("IS NULL"), QStringLiteral("IS NOT NULL")};
+        candidates = {QStringLiteral("="),           QStringLiteral("!="),
+                      QStringLiteral("<>"),          QStringLiteral("<"),
+                      QStringLiteral("<="),          QStringLiteral(">"),
+                      QStringLiteral(">="),          QStringLiteral("LIKE"),
+                      QStringLiteral("NOT LIKE"),    QStringLiteral("IN"),
+                      QStringLiteral("NOT IN"),      QStringLiteral("BETWEEN"),
+                      QStringLiteral("NOT BETWEEN"), QStringLiteral("IS NULL"),
+                      QStringLiteral("IS NOT NULL")};
     else if ((last == TokenKind::LParen && previous == TokenKind::KwIn) || last == TokenKind::Comma)
         candidates = {QStringLiteral("TRUE"), QStringLiteral("FALSE")};
-    else if ((last == TokenKind::Number || last == TokenKind::String || last == TokenKind::KwTrue
-              || last == TokenKind::KwFalse) && previous == TokenKind::KwBetween)
+    else if ((last == TokenKind::Number || last == TokenKind::String || last == TokenKind::KwTrue ||
+              last == TokenKind::KwFalse) &&
+             previous == TokenKind::KwBetween)
         candidates = {QStringLiteral("AND")};
-    else if (last == TokenKind::End || last == TokenKind::KwWhere || last == TokenKind::KwAnd
-             || last == TokenKind::KwOr || last == TokenKind::KwNot || last == TokenKind::LParen) {
+    else if (last == TokenKind::End || last == TokenKind::KwWhere || last == TokenKind::KwAnd ||
+             last == TokenKind::KwOr || last == TokenKind::KwNot || last == TokenKind::LParen) {
         for (const QString &field : fields) {
             QString escaped = field;
             if (partial.startsWith('[')) {
@@ -543,26 +764,33 @@ QuerySuggestions suggestQuery(const QString &text, int cursor, const QStringList
             }
         }
         candidates.append(QStringLiteral("NOT"));
-    } else if (last == TokenKind::Number || last == TokenKind::String || last == TokenKind::RParen
-               || last == TokenKind::KwTrue || last == TokenKind::KwFalse || last == TokenKind::KwNull)
+    } else if (last == TokenKind::Number || last == TokenKind::String ||
+               last == TokenKind::RParen || last == TokenKind::KwTrue ||
+               last == TokenKind::KwFalse || last == TokenKind::KwNull)
         candidates = {QStringLiteral("AND"), QStringLiteral("OR")};
     else if (last == TokenKind::Op || last == TokenKind::KwBetween || last == TokenKind::Comma)
         candidates = {QStringLiteral("TRUE"), QStringLiteral("FALSE")};
     for (const QString &candidate : candidates)
-        if (candidate.startsWith(partial, Qt::CaseInsensitive)) result.candidates.append(candidate);
+        if (candidate.startsWith(partial, Qt::CaseInsensitive))
+            result.candidates.append(candidate);
     result.candidates.removeDuplicates();
     return result;
 }
 
-bool evaluateQuery(const QueryPredicate &pred, const QVariantMap &row) {
-    if (!pred.error.isEmpty()) return false;
-    if (!pred.root) return true;
+bool evaluateQuery(const QueryPredicate &pred, const QVariantMap &row)
+{
+    if (!pred.error.isEmpty())
+        return false;
+    if (!pred.root)
+        return true;
     return eval(*pred.root, row) == Truth::True;
 }
 
-QStringList queryFieldNames(const QueryPredicate &pred) {
+QStringList queryFieldNames(const QueryPredicate &pred)
+{
     QStringList out;
-    if (pred.root) collectFields(*pred.root, out);
+    if (pred.root)
+        collectFields(*pred.root, out);
     return out;
 }
 

@@ -1,9 +1,10 @@
-/*!
- * \file   diagramspec.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  DiagramSpec impl + JSON round-trip (Slice Z.12-data).
+/**
+ * @file      diagramspec.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     DiagramSpec impl + JSON round-trip (Slice Z.12-data).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/diagramspec.h"
@@ -15,14 +16,18 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
-struct Mapping { DiagramType t; const char *token; };
+struct Mapping {
+    DiagramType t;
+    const char *token;
+};
 constexpr std::array<Mapping, 4> kTypeMap = {{
-    {DiagramType::Pie,        "pie"},
-    {DiagramType::Bar,        "bar"},
+    {DiagramType::Pie, "pie"},
+    {DiagramType::Bar, "bar"},
     {DiagramType::TimeSeries, "timeSeries"},
-    {DiagramType::Histogram,  "histogram"},
+    {DiagramType::Histogram, "histogram"},
 }};
 
 } // namespace
@@ -30,14 +35,16 @@ constexpr std::array<Mapping, 4> kTypeMap = {{
 QString diagramTypeToString(DiagramType t)
 {
     for (const auto &m : kTypeMap)
-        if (m.t == t) return QString::fromLatin1(m.token);
+        if (m.t == t)
+            return QString::fromLatin1(m.token);
     return QStringLiteral("pie");
 }
 
 DiagramType diagramTypeFromString(const QString &s)
 {
     for (const auto &m : kTypeMap)
-        if (s == QLatin1String(m.token)) return m.t;
+        if (s == QLatin1String(m.token))
+            return m.t;
     return DiagramType::Pie;
 }
 
@@ -50,7 +57,8 @@ QJsonObject DiagramSpec::toJson() const
         j[QStringLiteral("type")] = diagramTypeToString(type);
     if (!attributes.isEmpty()) {
         QJsonArray arr;
-        for (const QString &a : attributes) arr.append(a);
+        for (const QString &a : attributes)
+            arr.append(a);
         j[QStringLiteral("attributes")] = arr;
     }
     if (!seriesExpression.isEmpty())
@@ -80,18 +88,16 @@ DiagramSpec DiagramSpec::fromJson(const QJsonObject &j)
 {
     DiagramSpec s;
     s.enabled = j.value(QStringLiteral("enabled")).toBool(false);
-    s.type    = diagramTypeFromString(j.value(QStringLiteral("type")).toString());
+    s.type = diagramTypeFromString(j.value(QStringLiteral("type")).toString());
     const QJsonArray attrs = j.value(QStringLiteral("attributes")).toArray();
     s.attributes.reserve(attrs.size());
     for (const QJsonValue &v : attrs)
         s.attributes.append(v.toString());
     s.seriesExpression = j.value(QStringLiteral("seriesExpression")).toString();
-    s.sizePx = QSizeF(
-        j.value(QStringLiteral("sizeW")).toDouble(40.0),
-        j.value(QStringLiteral("sizeH")).toDouble(40.0));
-    s.offsetPx = QPointF(
-        j.value(QStringLiteral("offsetX")).toDouble(0.0),
-        j.value(QStringLiteral("offsetY")).toDouble(0.0));
+    s.sizePx = QSizeF(j.value(QStringLiteral("sizeW")).toDouble(40.0),
+                      j.value(QStringLiteral("sizeH")).toDouble(40.0));
+    s.offsetPx = QPointF(j.value(QStringLiteral("offsetX")).toDouble(0.0),
+                         j.value(QStringLiteral("offsetY")).toDouble(0.0));
     const QJsonArray pal = j.value(QStringLiteral("palette")).toArray();
     s.palette.reserve(pal.size());
     for (const QJsonValue &v : pal)
@@ -103,15 +109,11 @@ DiagramSpec DiagramSpec::fromJson(const QJsonObject &j)
 
 bool DiagramSpec::operator==(const DiagramSpec &other) const
 {
-    return enabled          == other.enabled
-        && type             == other.type
-        && attributes       == other.attributes
-        && seriesExpression == other.seriesExpression
-        && sizePx           == other.sizePx
-        && offsetPx         == other.offsetPx
-        && palette          == other.palette
-        && qFuzzyCompare(rangeMin + 1.0, other.rangeMin + 1.0)
-        && qFuzzyCompare(rangeMax + 1.0, other.rangeMax + 1.0);
+    return enabled == other.enabled && type == other.type && attributes == other.attributes &&
+           seriesExpression == other.seriesExpression && sizePx == other.sizePx &&
+           offsetPx == other.offsetPx && palette == other.palette &&
+           qFuzzyCompare(rangeMin + 1.0, other.rangeMin + 1.0) &&
+           qFuzzyCompare(rangeMax + 1.0, other.rangeMax + 1.0);
 }
 
 } // namespace OpenSWMM::Render

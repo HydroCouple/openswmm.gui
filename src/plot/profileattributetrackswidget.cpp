@@ -1,16 +1,19 @@
-/*!
- * \file   profileattributetrackswidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      profileattributetrackswidget.cpp
+ * @brief     selected result attribute, sharing the profile plot's x-axis.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * See profileattributetrackswidget.h for the design contract.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/profileattributetrackswidget.h"
 
 #include "plot/profileattributetrackoptions.h"
 #include "ui/theme/thememanager.h"
-#include "ui/theme/themetokens.h"   // ThemeColors is only fwd-declared above
+#include "ui/theme/themetokens.h" // ThemeColors is only fwd-declared above
 
 #include <QFontMetrics>
 #include <QMouseEvent>
@@ -22,19 +25,29 @@
 #include <cmath>
 #include <limits>
 
-namespace {
+namespace
+{
 
-constexpr int    kBottomAxisBase   = 34;  // x tick labels + x-axis label strip
-constexpr int    kTrackGapPx       = 4;   // visual gap between stacked tracks
-constexpr int    kYTickCount       = 3;
-constexpr int    kDefaultTrackH    = 110;
-constexpr int    kXTickCount       = 6;   // matches the profile's tick count
+constexpr int kBottomAxisBase = 34; // x tick labels + x-axis label strip
+constexpr int kTrackGapPx = 4;      // visual gap between stacked tracks
+constexpr int kYTickCount = 3;
+constexpr int kDefaultTrackH = 110;
+constexpr int kXTickCount = 6; // matches the profile's tick count
 
+/**
+ * @brief Resolve painter colours from the current application theme.
+ * @return Borrowed immutable token table; use on the GUI thread.
+ */
 inline const openswmmvis::ui::ThemeColors &plotTheme()
 {
     return openswmmvis::ui::ThemeManager::instance()->colors();
 }
 
+/**
+ * @brief Format track-axis numbers independently of the main profile's NumberFormat cache.
+ * @param[in] v Numeric tick value in existing display units.
+ * @return QString general-format text with four significant digits; no unit/finite filtering occurs.
+ */
 QString formatValue(double v)
 {
     return QString::number(v, 'g', 4);
@@ -42,8 +55,7 @@ QString formatValue(double v)
 
 } // namespace
 
-ProfileAttributeTracksWidget::ProfileAttributeTracksWidget(QWidget *parent)
-    : QWidget(parent)
+ProfileAttributeTracksWidget::ProfileAttributeTracksWidget(QWidget *parent) : QWidget(parent)
 {
     setMouseTracking(false);
     setMinimumHeight(0);
@@ -57,13 +69,12 @@ void ProfileAttributeTracksWidget::setVirtualChainage(const QVector<double> &tab
 
 void ProfileAttributeTracksWidget::setHorizontalMargins(int leftPx, int rightPx)
 {
-    m_marginLeft  = std::max(0, leftPx);
+    m_marginLeft = std::max(0, leftPx);
     m_marginRight = std::max(0, rightPx);
     update();
 }
 
-void ProfileAttributeTracksWidget::setRealChainageMapper(
-    std::function<double(double)> fn)
+void ProfileAttributeTracksWidget::setRealChainageMapper(std::function<double(double)> fn)
 {
     m_toRealChainage = std::move(fn);
     update();
@@ -79,15 +90,16 @@ void ProfileAttributeTracksWidget::setTracks(const QVector<Track> &tracks)
     update();
 }
 
-void ProfileAttributeTracksWidget::setOptions(
-    ProfileAttributeTrackOptions *options)
+void ProfileAttributeTracksWidget::setOptions(ProfileAttributeTrackOptions *options)
 {
     if (m_options)
         disconnect(m_options, nullptr, this, nullptr);
     m_options = options;
     if (m_options) {
-        connect(m_options, &ProfileAttributeTrackOptions::changed,
-                this, [this]() { updateSizeHint(); update(); });
+        connect(m_options, &ProfileAttributeTrackOptions::changed, this, [this]() {
+            updateSizeHint();
+            update();
+        });
     }
     updateSizeHint();
     update();
@@ -115,7 +127,8 @@ void ProfileAttributeTracksWidget::setVisibleXRange(double vxMin, double vxMax)
 
 void ProfileAttributeTracksWidget::setCurrentPeriod(int period)
 {
-    if (m_currentPeriod == period) return;
+    if (m_currentPeriod == period)
+        return;
     m_currentPeriod = period;
     update();
 }
@@ -130,7 +143,7 @@ int ProfileAttributeTracksWidget::preferredTrackHeight() const
 int ProfileAttributeTracksWidget::trackHeight() const
 {
     const int pref = preferredTrackHeight();
-    const int n    = m_tracks.size();
+    const int n = m_tracks.size();
     if (n <= 0)
         return pref;
     // Share whatever the splitter handed us across the tracks, but never go
@@ -150,9 +163,7 @@ QRectF ProfileAttributeTracksWidget::trackRect(int trackIdx) const
 {
     const int h = trackHeight();
     const double top = trackIdx * (h + kTrackGapPx);
-    return QRectF(m_marginLeft, top,
-                  std::max(1, width() - m_marginLeft - m_marginRight),
-                  h);
+    return QRectF(m_marginLeft, top, std::max(1, width() - m_marginLeft - m_marginRight), h);
 }
 
 void ProfileAttributeTracksWidget::updateSizeHint()
@@ -162,9 +173,7 @@ void ProfileAttributeTracksWidget::updateSizeHint()
     // height(), which the QScrollArea derives from this minimum. Feeding it
     // back in here would ratchet the minimum upward on every resize and the
     // pane could never be dragged small again.
-    const int h = n > 0
-        ? n * (preferredTrackHeight() + kTrackGapPx) + bottomAxisHeight()
-        : 0;
+    const int h = n > 0 ? n * (preferredTrackHeight() + kTrackGapPx) + bottomAxisHeight() : 0;
     setMinimumHeight(h);
 }
 
@@ -182,23 +191,27 @@ double ProfileAttributeTracksWidget::virtualXForPixel(double px) const
     return m_vxMin + frac * (m_vxMax - m_vxMin);
 }
 
-ProfileAttributeTracksWidget::YRange
-ProfileAttributeTracksWidget::yRangeFor(const Track &t) const
+ProfileAttributeTracksWidget::YRange ProfileAttributeTracksWidget::yRangeFor(const Track &t) const
 {
-    double lo =  std::numeric_limits<double>::infinity();
+    double lo = std::numeric_limits<double>::infinity();
     double hi = -std::numeric_limits<double>::infinity();
     for (const SourceProfile &s : t.sources) {
-        if (!s.data) continue;
+        if (!s.data)
+            continue;
         for (int i = 0; i < s.data->minByPath.size(); ++i) {
             const float mn = s.data->minByPath[i];
             const float mx = s.data->maxByPath[i];
-            if (std::isfinite(mn)) lo = std::min<double>(lo, mn);
-            if (std::isfinite(mx)) hi = std::max<double>(hi, mx);
+            if (std::isfinite(mn))
+                lo = std::min<double>(lo, mn);
+            if (std::isfinite(mx))
+                hi = std::max<double>(hi, mx);
         }
     }
     YRange r;
-    if (!std::isfinite(lo) || !std::isfinite(hi)) return r;   // {0,1}
-    if (hi <= lo) hi = lo + 1.0;
+    if (!std::isfinite(lo) || !std::isfinite(hi))
+        return r; // {0,1}
+    if (hi <= lo)
+        hi = lo + 1.0;
     // 5% head/foot room so peaks don't kiss the frame.
     const double pad = (hi - lo) * 0.05;
     r.lo = lo - pad;
@@ -224,10 +237,10 @@ void ProfileAttributeTracksWidget::paintEvent(QPaintEvent *)
 
 void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
 {
-    const Track  &t = m_tracks[trackIdx];
+    const Track &t = m_tracks[trackIdx];
     const YRange &yr = m_yRanges.value(trackIdx);
-    const QRectF  r  = trackRect(trackIdx);
-    const auto   &theme = plotTheme();
+    const QRectF r = trackRect(trackIdx);
+    const auto &theme = plotTheme();
 
     const auto yPix = [&](double v) {
         const double frac = (v - yr.lo) / (yr.hi - yr.lo);
@@ -253,11 +266,10 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
     const QFontMetrics fm(tickFont);
     for (int g = 0; g <= kYTickCount; ++g) {
         const double frac = double(g) / kYTickCount;
-        const double v  = yr.hi - frac * (yr.hi - yr.lo);
+        const double v = yr.hi - frac * (yr.hi - yr.lo);
         const double gy = r.top() + frac * r.height();
         const QString label = formatValue(v);
-        p.drawText(QPointF(r.left() - fm.horizontalAdvance(label) - 4,
-                           gy + fm.ascent() / 2.0 - 1),
+        p.drawText(QPointF(r.left() - fm.horizontalAdvance(label) - 4, gy + fm.ascent() / 2.0 - 1),
                    label);
     }
 
@@ -265,11 +277,12 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
     // neighbouring track or the y-tick gutter.
     p.setClipRect(r.adjusted(0.5, 0.5, -0.5, -0.5));
 
-    const bool   envOn  = !m_options || m_options->envelopesVisible();
-    const double envA   = m_options ? m_options->envelopeOpacity() : 0.25;
+    const bool envOn = !m_options || m_options->envelopesVisible();
+    const double envA = m_options ? m_options->envelopeOpacity() : 0.25;
 
     for (const SourceProfile &s : t.sources) {
-        if (!s.data || s.data->byPath.isEmpty()) continue;
+        if (!s.data || s.data->byPath.isEmpty())
+            continue;
         const auto &prof = *s.data;
 
         // Effective pen: single-source tracks use the track pen as-is;
@@ -290,9 +303,8 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
                 // bridging a gap would paint an envelope where none exists
                 // (the current-time polyline breaks at gaps; the band must
                 // agree with it).
-                const int n = std::min(std::min(prof.minByPath.size(),
-                                                prof.maxByPath.size()),
-                                       m_vx.size());
+                const int n =
+                    std::min(std::min(prof.minByPath.size(), prof.maxByPath.size()), m_vx.size());
                 int runStart = -1;
                 const auto flushRun = [&](int endExclusive) {
                     if (runStart < 0 || endExclusive - runStart < 2) {
@@ -301,32 +313,31 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
                     }
                     QPolygonF poly;
                     for (int i = runStart; i < endExclusive; ++i)
-                        poly << QPointF(pixelForVirtualX(m_vx[i]),
-                                        yPix(prof.maxByPath[i]));
+                        poly << QPointF(pixelForVirtualX(m_vx[i]), yPix(prof.maxByPath[i]));
                     for (int i = endExclusive - 1; i >= runStart; --i)
-                        poly << QPointF(pixelForVirtualX(m_vx[i]),
-                                        yPix(prof.minByPath[i]));
+                        poly << QPointF(pixelForVirtualX(m_vx[i]), yPix(prof.minByPath[i]));
                     p.drawPolygon(poly);
                     runStart = -1;
                 };
                 for (int i = 0; i < n; ++i) {
-                    const bool ok = std::isfinite(prof.minByPath[i])
-                                 && std::isfinite(prof.maxByPath[i]);
-                    if (ok && runStart < 0) runStart = i;
-                    else if (!ok)           flushRun(i);
+                    const bool ok =
+                        std::isfinite(prof.minByPath[i]) && std::isfinite(prof.maxByPath[i]);
+                    if (ok && runStart < 0)
+                        runStart = i;
+                    else if (!ok)
+                        flushRun(i);
                 }
                 flushRun(n);
             } else {
                 // Per-link min→max rectangle spanning the link's x extent.
-                for (int i = 0; i < prof.maxByPath.size()
-                                && i + 1 < m_vx.size(); ++i) {
+                for (int i = 0; i < prof.maxByPath.size() && i + 1 < m_vx.size(); ++i) {
                     const float mn = prof.minByPath.value(i);
                     const float mx = prof.maxByPath.value(i);
-                    if (!std::isfinite(mn) || !std::isfinite(mx)) continue;
+                    if (!std::isfinite(mn) || !std::isfinite(mx))
+                        continue;
                     const double x0 = pixelForVirtualX(m_vx[i]);
                     const double x1 = pixelForVirtualX(m_vx[i + 1]);
-                    p.drawRect(QRectF(QPointF(x0, yPix(mx)),
-                                      QPointF(x1, yPix(mn))));
+                    p.drawRect(QRectF(QPointF(x0, yPix(mx)), QPointF(x1, yPix(mn))));
                 }
             }
         }
@@ -338,29 +349,28 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
             if (t.isNodeAttribute) {
                 QPainterPath path;
                 bool open = false;
-                for (int i = 0; i < prof.byPath.size()
-                                && i < m_vx.size(); ++i) {
+                for (int i = 0; i < prof.byPath.size() && i < m_vx.size(); ++i) {
                     const auto &row = prof.byPath[i];
-                    if (m_currentPeriod >= row.size()
-                        || !std::isfinite(row[m_currentPeriod])) {
-                        open = false;   // gap — break the polyline
+                    if (m_currentPeriod >= row.size() || !std::isfinite(row[m_currentPeriod])) {
+                        open = false; // gap — break the polyline
                         continue;
                     }
-                    const QPointF pt(pixelForVirtualX(m_vx[i]),
-                                     yPix(row[m_currentPeriod]));
-                    if (open) path.lineTo(pt);
-                    else      { path.moveTo(pt); open = true; }
+                    const QPointF pt(pixelForVirtualX(m_vx[i]), yPix(row[m_currentPeriod]));
+                    if (open)
+                        path.lineTo(pt);
+                    else {
+                        path.moveTo(pt);
+                        open = true;
+                    }
                 }
                 p.drawPath(path);
             } else {
-                for (int i = 0; i < prof.byPath.size()
-                                && i + 1 < m_vx.size(); ++i) {
+                for (int i = 0; i < prof.byPath.size() && i + 1 < m_vx.size(); ++i) {
                     const auto &row = prof.byPath[i];
-                    if (m_currentPeriod >= row.size()
-                        || !std::isfinite(row[m_currentPeriod]))
+                    if (m_currentPeriod >= row.size() || !std::isfinite(row[m_currentPeriod]))
                         continue;
                     const double y = yPix(row[m_currentPeriod]);
-                    p.drawLine(QPointF(pixelForVirtualX(m_vx[i]),     y),
+                    p.drawLine(QPointF(pixelForVirtualX(m_vx[i]), y),
                                QPointF(pixelForVirtualX(m_vx[i + 1]), y));
                 }
             }
@@ -375,8 +385,7 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
         f.setPointSizeF(std::max(7.0, f.pointSizeF() - 1.0));
         p.setFont(f);
         p.setPen(t.pen.color());
-        p.drawText(QPointF(r.left() + 6, r.top() + QFontMetrics(f).ascent() + 3),
-                   t.title);
+        p.drawText(QPointF(r.left() + 6, r.top() + QFontMetrics(f).ascent() + 3), t.title);
     }
 
     p.restore();
@@ -387,7 +396,7 @@ void ProfileAttributeTracksWidget::paintBottomAxis(QPainter &p) const
     const auto &theme = plotTheme();
     const int n = m_tracks.size();
     const double axisTop = n * (trackHeight() + kTrackGapPx);
-    const double left  = m_marginLeft;
+    const double left = m_marginLeft;
     const double right = std::max<double>(left + 1, width() - m_marginRight);
 
     p.save();
@@ -404,13 +413,11 @@ void ProfileAttributeTracksWidget::paintBottomAxis(QPainter &p) const
         const double real = m_toRealChainage ? m_toRealChainage(vx) : vx;
         p.drawLine(QPointF(px, axisTop), QPointF(px, axisTop + 4));
         const QString label = formatValue(real);
-        p.drawText(QPointF(px - fm.horizontalAdvance(label) / 2.0,
-                           axisTop + 6 + fm.ascent()),
+        p.drawText(QPointF(px - fm.horizontalAdvance(label) / 2.0, axisTop + 6 + fm.ascent()),
                    label);
     }
     if (!m_xLabel.isEmpty()) {
-        p.drawText(QPointF((left + right) / 2.0
-                               - fm.horizontalAdvance(m_xLabel) / 2.0,
+        p.drawText(QPointF((left + right) / 2.0 - fm.horizontalAdvance(m_xLabel) / 2.0,
                            axisTop + 6 + fm.height() + fm.ascent()),
                    m_xLabel);
     }
@@ -422,8 +429,9 @@ void ProfileAttributeTracksWidget::paintBottomAxis(QPainter &p) const
 void ProfileAttributeTracksWidget::wheelEvent(QWheelEvent *event)
 {
     const double steps = event->angleDelta().y() / 120.0;
-    if (steps == 0.0) return;
-    const double factor = std::pow(0.85, steps);   // <1 zooms in
+    if (steps == 0.0)
+        return;
+    const double factor = std::pow(0.85, steps); // <1 zooms in
 
     // Anchor the virtual x under the cursor, like the profile's wheel zoom.
     const double anchor = virtualXForPixel(event->position().x());
@@ -439,8 +447,7 @@ void ProfileAttributeTracksWidget::wheelEvent(QWheelEvent *event)
 
 void ProfileAttributeTracksWidget::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton
-        || event->button() == Qt::MiddleButton) {
+    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
         m_panActive = true;
         m_lastMousePos = event->pos();
         setCursor(Qt::ClosedHandCursor);
@@ -468,9 +475,7 @@ void ProfileAttributeTracksWidget::mouseMoveEvent(QMouseEvent *event)
 
 void ProfileAttributeTracksWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (m_panActive
-        && (event->button() == Qt::LeftButton
-            || event->button() == Qt::MiddleButton)) {
+    if (m_panActive && (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)) {
         m_panActive = false;
         unsetCursor();
         event->accept();

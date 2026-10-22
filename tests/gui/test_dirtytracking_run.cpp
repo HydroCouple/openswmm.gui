@@ -1,9 +1,9 @@
-/*!
- * \file   test_dirtytracking_run.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The pre-run auto-save gate: engine mutations must mark the project
+/**
+ * @file      test_dirtytracking_run.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The pre-run auto-save gate: engine mutations must mark the project
  *         dirty, and view-only actions must not.
  *
  *         SWMMVis::onRunSimulation only saves the project when
@@ -21,7 +21,9 @@
  *
  *         Uses QTEST_MAIN because the last slot constructs a real
  *         SWMMVisProjectWindow (a QWidget).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -40,7 +42,8 @@
 #include <QTest>
 #include <QVector>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -112,8 +115,7 @@ void TestDirtyTrackingRun::nodeMoveMarksEdited()
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
     QVERIFY(mLayer->applyNodeMove(0, 123.0, 456.0));
-    QVERIFY2(spy.count() >= 1,
-             "moving a node writes [COORDINATES]; the project must be dirty");
+    QVERIFY2(spy.count() >= 1, "moving a node writes [COORDINATES]; the project must be dirty");
 }
 
 void TestDirtyTrackingRun::linkInteriorVerticesMarkEdited()
@@ -122,7 +124,7 @@ void TestDirtyTrackingRun::linkInteriorVerticesMarkEdited()
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    const QVector<QPointF> interior{ QPointF(500.0, 75.0) };
+    const QVector<QPointF> interior{QPointF(500.0, 75.0)};
     QVERIFY(mLayer->applyLinkInteriorVertices(0, interior));
     QVERIFY2(spy.count() >= 1,
              "link interior vertices are [VERTICES] data; the project must be dirty");
@@ -134,8 +136,8 @@ void TestDirtyTrackingRun::subcatchVerticesMarkEdited()
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    const QVector<QPointF> ring{ QPointF(-2100.0, 1900.0), QPointF(-1800.0, 1900.0),
-                                 QPointF(-1800.0, 2200.0), QPointF(-2100.0, 2200.0) };
+    const QVector<QPointF> ring{QPointF(-2100.0, 1900.0), QPointF(-1800.0, 1900.0),
+                                QPointF(-1800.0, 2200.0), QPointF(-2100.0, 2200.0)};
     QVERIFY(mLayer->applySubcatchVertices(0, ring));
     QVERIFY2(spy.count() >= 1,
              "subcatchment polygons are [Polygons] data; the project must be dirty");
@@ -159,15 +161,14 @@ void TestDirtyTrackingRun::curvePointEditMarksEdited()
 
     // Creating the provider is itself a mutation (providerAdded); take the spy
     // afterwards so the assertion is about the POINT edit alone.
-    CurveProvider *p = reg->create(QStringLiteral("dirty_probe_curve"),
-                                   openswmmvis::curve::CurveType::Storage);
+    CurveProvider *p =
+        reg->create(QStringLiteral("dirty_probe_curve"), openswmmvis::curve::CurveType::Storage);
     QVERIFY2(p, "could not create probe curve");
     QVERIFY(p->insertPoint(0.0, 1.0) >= 0);
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
     QVERIFY(p->setPointAt(0, 0.0, 2.0));
-    QVERIFY2(spy.count() >= 1,
-             "editing a curve point changes [CURVES]; the project must be dirty");
+    QVERIFY2(spy.count() >= 1, "editing a curve point changes [CURVES]; the project must be dirty");
 }
 
 void TestDirtyTrackingRun::patternFactorEditMarksEdited()
@@ -227,7 +228,7 @@ void TestDirtyTrackingRun::selectionDoesNotMarkEdited()
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    mLayer->setSelectedElements({ { QStringLiteral("J1"), SWMMModelLayer::kKindNode } });
+    mLayer->setSelectedElements({{QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
     mLayer->setSelectedElements({});
     QCOMPARE(spy.count(), 0);
 }
@@ -260,18 +261,15 @@ void TestDirtyTrackingRun::projectIsCleanAfterLoad()
     QVERIFY(workspace != nullptr);
     auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
     QList<QString> warnings, errors;
-    QVERIFY2(window->loadModel(warnings, errors),
-             "fixture failed to load into the project window");
+    QVERIFY2(window->loadModel(warnings, errors), "fixture failed to load into the project window");
 
     // Opening a project must not arm the pre-run auto-save. This is the
     // regression that would make every run of a large model rewrite the .inp.
-    QVERIFY2(!window->hasChanges(),
-             "a freshly loaded project must be clean");
+    QVERIFY2(!window->hasChanges(), "a freshly loaded project must be clean");
 
     QVERIFY2(window->modelLayer(), "project window has no model layer");
     window->modelLayer()->markEdited();
-    QVERIFY2(window->hasChanges(),
-             "modelEdited() must reach SWMMVisProjectWindow::setHasChanges");
+    QVERIFY2(window->hasChanges(), "modelEdited() must reach SWMMVisProjectWindow::setHasChanges");
 
     delete window;
 }

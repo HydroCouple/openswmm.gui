@@ -1,6 +1,6 @@
-/*!
- * \file   test_meshrenderchunkindex.cpp
- * \brief  Unit tests for MeshRenderChunkIndex (QSG-2D-1M Phase 4).
+/**
+ * @file      test_meshrenderchunkindex.cpp
+ * @brief     Unit tests for MeshRenderChunkIndex (QSG-2D-1M Phase 4).
  *
  * Phase 4 contract:
  *   - empty mesh tolerated,
@@ -10,6 +10,10 @@
  *   - chunk bbox is a superset of member cell bboxes,
  *   - rebuild replaces old data,
  *   - deterministic chunk ids for deterministic input.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -22,9 +26,19 @@
 
 using OpenSWMM::Render::MeshRenderChunkIndex;
 
-namespace {
+namespace
+{
 
 /*! n×n unit cells tiling [0,n]×[0,n]. */
+/**
+ *
+ * @brief Build unit cell bounding boxes in row-major square-grid order.
+ * @param n Nonnegative side count with n*n representable in int and Qt capacity;
+ * fixtures use small positive counts. No argument validation.
+ * @return Owned n*n rectangles tiling [0,n] in each scene coordinate, each 1x1.
+ * Allocation failures propagate; no real mesh/index mutation.
+ *
+ */
 QVector<QRectF> makeCellGrid(int n)
 {
     QVector<QRectF> out;
@@ -35,6 +49,14 @@ QVector<QRectF> makeCellGrid(int n)
     return out;
 }
 
+/**
+ *
+ * @brief Copy the union of cell identifiers stored by a chunk index.
+ * @param idx Borrowed stable chunk/member vectors, read without mutation.
+ * @return Owned QSet of all stored IDs, de-duplicated without range/coverage checks.
+ * Caller compares count/membership to detect missing/duplicated assignments.
+ *
+ */
 QSet<int> allCellIds(const MeshRenderChunkIndex &idx)
 {
     QSet<int> ids;
@@ -46,6 +68,11 @@ QSet<int> allCellIds(const MeshRenderChunkIndex &idx)
 
 } // namespace
 
+/**
+ *
+ * @brief Require building no geometry to yield empty index and empty query partitions.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, EmptyMeshYieldsEmptyIndex)
 {
     MeshRenderChunkIndex idx;
@@ -58,6 +85,12 @@ TEST(MeshRenderChunkIndexTest, EmptyMeshYieldsEmptyIndex)
     EXPECT_TRUE(q.boundary.isEmpty());
 }
 
+/**
+ *
+ * @brief Verify one chunk retains dense ID, all cells and bbox, and queries classify containing
+ * versus partial views.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, SingleChunkRoundTrip)
 {
     // Few cells + big target → everything lands in one chunk.
@@ -84,19 +117,32 @@ TEST(MeshRenderChunkIndexTest, SingleChunkRoundTrip)
     EXPECT_EQ(q.boundary.first(), 0);
 }
 
+/**
+ *
+ * @brief Require member counts and union to cover all 1024 cells exactly once across several
+ * chunks.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, NoDuplicateCellIdsAcrossChunks)
 {
-    const auto cells = makeCellGrid(32);   // 1024 cells
+    const auto cells = makeCellGrid(32); // 1024 cells
     MeshRenderChunkIndex idx;
     idx.build(cells, {}, /*targetCellsPerChunk=*/64);
     ASSERT_GT(idx.chunkCount(), 1);
 
     qint64 totalMembers = 0;
-    for (const auto &c : idx.chunks()) totalMembers += c.cellCount();
-    EXPECT_EQ(totalMembers, qint64(cells.size()));          // no duplication…
-    EXPECT_EQ(allCellIds(idx).size(), cells.size());        // …and no loss
+    for (const auto &c : idx.chunks())
+        totalMembers += c.cellCount();
+    EXPECT_EQ(totalMembers, qint64(cells.size()));   // no duplication…
+    EXPECT_EQ(allCellIds(idx).size(), cells.size()); // …and no loss
 }
 
+/**
+ *
+ * @brief Verify query partitions satisfy bbox containment/intersection and exclude completely
+ * outside chunks.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, FullyInsideVsBoundaryClassification)
 {
     const auto cells = makeCellGrid(32);
@@ -115,7 +161,7 @@ TEST(MeshRenderChunkIndexTest, FullyInsideVsBoundaryClassification)
         EXPECT_TRUE(half.contains(idx.chunks()[id].bbox)) << "chunk " << id;
     for (int id : q.boundary) {
         EXPECT_TRUE(half.intersects(idx.chunks()[id].bbox)) << "chunk " << id;
-        EXPECT_FALSE(half.contains(idx.chunks()[id].bbox))  << "chunk " << id;
+        EXPECT_FALSE(half.contains(idx.chunks()[id].bbox)) << "chunk " << id;
     }
 
     // Chunks completely outside never appear.
@@ -124,6 +170,12 @@ TEST(MeshRenderChunkIndexTest, FullyInsideVsBoundaryClassification)
     EXPECT_TRUE(none.boundary.isEmpty());
 }
 
+/**
+ *
+ * @brief Require each chunk bbox to enclose member cells and zero-height edge boxes, with all
+ * edges assigned once.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, ChunkBBoxIsSupersetOfMemberBBoxes)
 {
     const auto cells = makeCellGrid(16);
@@ -139,14 +191,11 @@ TEST(MeshRenderChunkIndexTest, ChunkBBoxIsSupersetOfMemberBBoxes)
     qint64 edgeMembers = 0;
     for (const auto &c : idx.chunks()) {
         for (int id : c.cellIds)
-            EXPECT_TRUE(c.bbox.contains(cells[id]))
-                << "chunk " << c.id << " cell " << id;
+            EXPECT_TRUE(c.bbox.contains(cells[id])) << "chunk " << c.id << " cell " << id;
         for (int id : c.edgeIds) {
             const QRectF &e = edges[id];
-            EXPECT_TRUE(c.bbox.left() <= e.left()
-                        && c.bbox.right() >= e.right()
-                        && c.bbox.top() <= e.top()
-                        && c.bbox.bottom() >= e.bottom())
+            EXPECT_TRUE(c.bbox.left() <= e.left() && c.bbox.right() >= e.right() &&
+                        c.bbox.top() <= e.top() && c.bbox.bottom() >= e.bottom())
                 << "chunk " << c.id << " edge " << id;
         }
         edgeMembers += c.edgeIds.size();
@@ -154,6 +203,12 @@ TEST(MeshRenderChunkIndexTest, ChunkBBoxIsSupersetOfMemberBBoxes)
     EXPECT_EQ(edgeMembers, qint64(edges.size()));
 }
 
+/**
+ *
+ * @brief Rebuild at a distant tiny mesh, require old-region queries empty, then verify clear
+ * empties index.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, RebuildReplacesOldData)
 {
     MeshRenderChunkIndex idx;
@@ -173,6 +228,12 @@ TEST(MeshRenderChunkIndexTest, RebuildReplacesOldData)
     EXPECT_TRUE(idx.isEmpty());
 }
 
+/**
+ *
+ * @brief Require identical inputs to produce identical dense IDs, bboxes and cell member
+ * ordering.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, DeterministicChunkIdsForDeterministicInput)
 {
     const auto cells = makeCellGrid(32);
@@ -182,18 +243,23 @@ TEST(MeshRenderChunkIndexTest, DeterministicChunkIdsForDeterministicInput)
 
     ASSERT_EQ(a.chunkCount(), b.chunkCount());
     for (int i = 0; i < a.chunkCount(); ++i) {
-        EXPECT_EQ(a.chunks()[i].id, i);            // dense ids
-        EXPECT_EQ(a.chunks()[i].id,      b.chunks()[i].id);
-        EXPECT_EQ(a.chunks()[i].bbox,    b.chunks()[i].bbox);
+        EXPECT_EQ(a.chunks()[i].id, i); // dense ids
+        EXPECT_EQ(a.chunks()[i].id, b.chunks()[i].id);
+        EXPECT_EQ(a.chunks()[i].bbox, b.chunks()[i].bbox);
         EXPECT_EQ(a.chunks()[i].cellIds, b.chunks()[i].cellIds);
     }
 }
 
+/**
+ *
+ * @brief Exclude null/negative boxes while retaining original neighboring source ID space.
+ *
+ */
 TEST(MeshRenderChunkIndexTest, InvalidBBoxesAreSkippedButIndexSpaceIsKept)
 {
     QVector<QRectF> cells = makeCellGrid(4);
-    cells[5] = QRectF();                            // null
-    cells[7] = QRectF(0, 0, -1, -1);                // negative
+    cells[5] = QRectF();             // null
+    cells[7] = QRectF(0, 0, -1, -1); // negative
 
     MeshRenderChunkIndex idx;
     idx.build(cells, {}, 1000);
@@ -201,5 +267,5 @@ TEST(MeshRenderChunkIndexTest, InvalidBBoxesAreSkippedButIndexSpaceIsKept)
     EXPECT_EQ(ids.size(), cells.size() - 2);
     EXPECT_FALSE(ids.contains(5));
     EXPECT_FALSE(ids.contains(7));
-    EXPECT_TRUE(ids.contains(6));                   // neighbours unaffected
+    EXPECT_TRUE(ids.contains(6)); // neighbours unaffected
 }

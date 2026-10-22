@@ -1,8 +1,8 @@
-/*!
- * \file test_species_attributes.cpp
- * \brief Y2a — the dynamic species attribute helpers (GUI plan D-G1).
+/**
+ * @file      test_species_attributes.cpp
+ * @brief     Y2a — the dynamic species attribute helpers (GUI plan D-G1).
  *
- * \details These pin the logic that decides, for every themeable species
+ * @details These pin the logic that decides, for every themeable species
  *          column, (a) what token is persisted in `.oswp`, (b) what the
  *          picker shows, (c) what unit is claimed, and (d) which engine
  *          output variable is read. Each has a defect it exists to catch:
@@ -22,6 +22,10 @@
  *          (the closure problem `tests/gui/CMakeLists.txt:1996` records
  *          for the options dialog), so the logic that can carry a defect
  *          was put where a test can reach it.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/speciesattributes.h"
@@ -51,11 +55,9 @@ private slots:
 void TestSpeciesAttributes::attributeTokenRoundTrips()
 {
     // The token is what lands in .oswp — it must carry the NAME.
-    QCOMPARE(speciesAttributeName(QStringLiteral("TSS")),
-             QStringLiteral("qual:TSS"));
+    QCOMPARE(speciesAttributeName(QStringLiteral("TSS")), QStringLiteral("qual:TSS"));
     QVERIFY(isSpeciesAttribute(QStringLiteral("qual:TSS")));
-    QCOMPARE(speciesFromAttribute(QStringLiteral("qual:TSS")),
-             QStringLiteral("TSS"));
+    QCOMPARE(speciesFromAttribute(QStringLiteral("qual:TSS")), QStringLiteral("TSS"));
 
     // Round-trip for a reserved species, whose name carries underscores.
     const QString age = QString::fromLatin1(kWaterAgeName);
@@ -75,7 +77,7 @@ void TestSpeciesAttributes::attributeTokenRoundTrips()
 
 void TestSpeciesAttributes::reservedSpeciesGetFriendlyLabelsAndUnits()
 {
-    const QString age  = QString::fromLatin1(kWaterAgeName);
+    const QString age = QString::fromLatin1(kWaterAgeName);
     const QString temp = QString::fromLatin1(kTemperatureName);
 
     QVERIFY(isReservedSpecies(age));
@@ -86,16 +88,13 @@ void TestSpeciesAttributes::reservedSpeciesGetFriendlyLabelsAndUnits()
     QVERIFY(!speciesDisplayLabel(age).contains(QStringLiteral("__")));
     QVERIFY(!speciesDisplayLabel(temp).contains(QStringLiteral("__")));
     // An ordinary pollutant shows its own name.
-    QCOMPARE(speciesDisplayLabel(QStringLiteral("TSS")),
-             QStringLiteral("TSS"));
+    QCOMPARE(speciesDisplayLabel(QStringLiteral("TSS")), QStringLiteral("TSS"));
 
     // Units: the reserved pair override whatever concentration unit the
     // run reports — this is the consumer side of engine A2b's name-keyed
     // unit decision.
-    QCOMPARE(speciesUnitLabel(age,  QStringLiteral("mg/L")),
-             QStringLiteral("h"));
-    QCOMPARE(speciesUnitLabel(temp, QStringLiteral("mg/L")),
-             QStringLiteral("°C"));
+    QCOMPARE(speciesUnitLabel(age, QStringLiteral("mg/L")), QStringLiteral("h"));
+    QCOMPARE(speciesUnitLabel(temp, QStringLiteral("mg/L")), QStringLiteral("°C"));
     QCOMPARE(speciesUnitLabel(QStringLiteral("TSS"), QStringLiteral("mg/L")),
              QStringLiteral("mg/L"));
     QCOMPARE(speciesUnitLabel(QStringLiteral("Lead"), QStringLiteral("ug/L")),
@@ -107,66 +106,57 @@ void TestSpeciesAttributes::outCodeResolvesAgainstTheRunsSpeciesList()
     // A run carrying two pollutants then the two reserved columns — the
     // order the engine writes them (pollutants first, reserved trailing).
     const QStringList species = {
-        QStringLiteral("TSS"), QStringLiteral("Lead"),
+        QStringLiteral("TSS"),
+        QStringLiteral("Lead"),
         QString::fromLatin1(kWaterAgeName),
         QString::fromLatin1(kTemperatureName),
     };
 
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), species, SWMM_OUT_NODE_POLLUT_BASE),
              int(SWMM_OUT_NODE_POLLUT_BASE) + 0);
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species, SWMM_OUT_NODE_POLLUT_BASE),
              int(SWMM_OUT_NODE_POLLUT_BASE) + 1);
-    QCOMPARE(speciesOutCode(speciesAttributeName(
-                                QString::fromLatin1(kWaterAgeName)),
-                            species, SWMM_OUT_NODE_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(speciesAttributeName(QString::fromLatin1(kWaterAgeName)), species,
+                            SWMM_OUT_NODE_POLLUT_BASE),
              int(SWMM_OUT_NODE_POLLUT_BASE) + 2);
 
     // Per-kind bases differ; the same token resolves to a different code
     // for links and subcatchments.
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species,
-                            SWMM_OUT_LINK_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species, SWMM_OUT_LINK_POLLUT_BASE),
              int(SWMM_OUT_LINK_POLLUT_BASE) + 1);
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species,
-                            SWMM_OUT_SUBCATCH_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species, SWMM_OUT_SUBCATCH_POLLUT_BASE),
              int(SWMM_OUT_SUBCATCH_POLLUT_BASE) + 1);
 
     // THE persistence claim: reordering the run's species moves the code,
     // and the SAME saved token still finds the right column. An index-
     // based design would silently read the other pollutant here.
     const QStringList reordered = {
-        QStringLiteral("Lead"), QStringLiteral("TSS"),
+        QStringLiteral("Lead"),
+        QStringLiteral("TSS"),
     };
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), reordered,
-                            SWMM_OUT_NODE_POLLUT_BASE),
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), reordered, SWMM_OUT_NODE_POLLUT_BASE),
              int(SWMM_OUT_NODE_POLLUT_BASE) + 1);
 }
 
 void TestSpeciesAttributes::outCodeRejectsUnknownAndMalformed()
 {
-    const QStringList species = { QStringLiteral("TSS") };
+    const QStringList species = {QStringLiteral("TSS")};
 
     // A theme saved against a species this run does not carry must resolve
     // to -1 — every call site already skips a negative code, which is what
     // turns "missing species" into "no theme" instead of "wrong column".
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE), -1);
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:Lead"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
     // A run with no quality at all.
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), QStringList(),
-                            SWMM_OUT_NODE_POLLUT_BASE), -1);
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:TSS"), QStringList(), SWMM_OUT_NODE_POLLUT_BASE),
+             -1);
     // Not a species token.
-    QCOMPARE(speciesOutCode(QStringLiteral("depth"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE), -1);
+    QCOMPARE(speciesOutCode(QStringLiteral("depth"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
     // Malformed: prefix with no name must not resolve to index 0.
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE), -1);
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
     // Case sensitivity: species names are engine identifiers, compared
     // exactly. A near-miss must fail loudly rather than pick a neighbour.
-    QCOMPARE(speciesOutCode(QStringLiteral("qual:tss"), species,
-                            SWMM_OUT_NODE_POLLUT_BASE), -1);
+    QCOMPARE(speciesOutCode(QStringLiteral("qual:tss"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
 }
-
 
 void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
 {
@@ -174,29 +164,23 @@ void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
     SpeciesMissWarner w;
 
     // First miss: words naming the token, the species, and the run.
-    const QString msg = w.noteMiss(QStringLiteral("qual:Lead"),
-                                   QStringLiteral("run1"));
+    const QString msg = w.noteMiss(QStringLiteral("qual:Lead"), QStringLiteral("run1"));
     QVERIFY(msg.contains(QStringLiteral("qual:Lead")));
     QVERIFY(msg.contains(QStringLiteral("Lead")));
     QVERIFY(msg.contains(QStringLiteral("run1")));
 
     // Same token again: silence — resolution runs per frame, and a
     // warning per frame is as useless as no warning at all.
-    QVERIFY(w.noteMiss(QStringLiteral("qual:Lead"),
-                       QStringLiteral("run1")).isEmpty());
+    QVERIFY(w.noteMiss(QStringLiteral("qual:Lead"), QStringLiteral("run1")).isEmpty());
     // A different token still warns.
-    QVERIFY(!w.noteMiss(QStringLiteral("qual:Zn"),
-                        QStringLiteral("run1")).isEmpty());
+    QVERIFY(!w.noteMiss(QStringLiteral("qual:Zn"), QStringLiteral("run1")).isEmpty());
     // Non-species attributes are never this class's business.
-    QVERIFY(w.noteMiss(QStringLiteral("depth"),
-                       QStringLiteral("run1")).isEmpty());
+    QVERIFY(w.noteMiss(QStringLiteral("depth"), QStringLiteral("run1")).isEmpty());
 
     // A new run (reset) may carry the species — the ledger starts over.
     w.reset();
-    QVERIFY(!w.noteMiss(QStringLiteral("qual:Lead"),
-                        QStringLiteral("run2")).isEmpty());
+    QVERIFY(!w.noteMiss(QStringLiteral("qual:Lead"), QStringLiteral("run2")).isEmpty());
 }
-
 
 void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
 {
@@ -205,12 +189,10 @@ void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
     // and temperature ABSENT (amendment §6: it keeps the dedicated-page
     // treatment until heat's round; an editor offering it would author
     // a row the engine only warns about and ignores).
-    const QStringList names = inflowConstituentNames(
-        {QStringLiteral("TSS"), QStringLiteral("Lead")});
-    QCOMPARE(names, (QStringList{QStringLiteral("FLOW"),
-                                 QStringLiteral("TSS"),
-                                 QStringLiteral("Lead"),
-                                 QString::fromLatin1(kWaterAgeName)}));
+    const QStringList names =
+        inflowConstituentNames({QStringLiteral("TSS"), QStringLiteral("Lead")});
+    QCOMPARE(names, (QStringList{QStringLiteral("FLOW"), QStringLiteral("TSS"),
+                                 QStringLiteral("Lead"), QString::fromLatin1(kWaterAgeName)}));
     QVERIFY(!names.contains(QString::fromLatin1(kTemperatureName)));
     // No pollutants: FLOW + age still offered (the pure-age model).
     QCOMPARE(inflowConstituentNames({}).size(), 2);
@@ -219,8 +201,7 @@ void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
     // row invites a mg/L-shaped number (amendment §6's unit warning).
     QVERIFY(inflowConstituentLabel(QString::fromLatin1(kWaterAgeName))
                 .contains(QStringLiteral("hours")));
-    QCOMPARE(inflowConstituentLabel(QStringLiteral("TSS")),
-             QStringLiteral("TSS"));
+    QCOMPARE(inflowConstituentLabel(QStringLiteral("TSS")), QStringLiteral("TSS"));
 
     // MASS stays pollutant-only: meaningless for FLOW, warned-and-
     // reinterpreted for age — the editor must not author it.

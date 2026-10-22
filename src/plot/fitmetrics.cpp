@@ -1,19 +1,25 @@
-/*!
- * \file   fitmetrics.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      fitmetrics.cpp
+ * @brief     Given two timestep-aligned series — baseline (treated as "observed" for NSE / PBIAS
+ *            sign conventions) and comparison ("simulated") — compute the classic hydrology fit
+ *            statistics displayed in the column-1 scatter title.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/fitmetrics.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-FitMetrics FitMetrics::compute(const std::vector<double>& observed,
-                               const std::vector<double>& simulated)
+FitMetrics FitMetrics::compute(const std::vector<double> &observed,
+                               const std::vector<double> &simulated)
 {
     FitMetrics m;
     const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -45,10 +51,10 @@ FitMetrics FitMetrics::compute(const std::vector<double>& observed,
     const double mean_s = sum_s / n_pairs;
 
     // Pass 2: variance / covariance / SSE / Σ(o), Σ(o-s).
-    double ss_o = 0.0;   // Σ(o - mean_o)²
-    double ss_s = 0.0;   // Σ(s - mean_s)²
-    double cov  = 0.0;   // Σ(o - mean_o)(s - mean_s)
-    double sse  = 0.0;   // Σ(o - s)²
+    double ss_o = 0.0;     // Σ(o - mean_o)²
+    double ss_s = 0.0;     // Σ(s - mean_s)²
+    double cov = 0.0;      // Σ(o - mean_o)(s - mean_s)
+    double sse = 0.0;      // Σ(o - s)²
     double sum_diff = 0.0; // Σ(s - o)  → pbias = 100*Σ(s-o)/Σ(o)
     for (std::size_t i = 0; i < n_in; ++i) {
         const double o = observed[i];
@@ -56,15 +62,15 @@ FitMetrics FitMetrics::compute(const std::vector<double>& observed,
         if (!std::isfinite(o) || !std::isfinite(s))
             continue;
         const double do_ = o - mean_o;
-        const double ds  = s - mean_s;
-        ss_o     += do_ * do_;
-        ss_s     += ds  * ds;
-        cov      += do_ * ds;
-        sse      += (o - s) * (o - s);
+        const double ds = s - mean_s;
+        ss_o += do_ * do_;
+        ss_s += ds * ds;
+        cov += do_ * ds;
+        sse += (o - s) * (o - s);
         sum_diff += (s - o);
     }
 
-    m.n    = n_pairs;
+    m.n = n_pairs;
     m.rmse = std::sqrt(sse / n_pairs);
 
     // NSE = 1 - SSE / Σ(o - mean_o)².  Undefined when SS_o == 0 (constant obs).

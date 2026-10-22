@@ -1,9 +1,15 @@
-/*!
- * \file   mesh2dresultsexportdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      mesh2dresultsexportdialog.cpp
+ * @brief     Collects the options for "Export 2D Results…" on the Analysis ribbon: output format
+ *            and path, which variables, which time steps (with an every-Nth stride for a long
+ *            run), whether to include the run maxima, and — for a raster — the pixel size, the
+ *            interpolation method and the dry mask.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/mesh2dresultsexportdialog.h"
 
 #include "io/gdaldrivers.h"
@@ -28,13 +34,15 @@
 
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::io::Mesh2DExportFormat;
 using openswmmvis::io::Mesh2DExportOptions;
 using openswmmvis::io::Mesh2DInterp;
 
-namespace {
+namespace
+{
 
 /*! A Shapefile's DBF caps a table at 255 fields; the export spends one on
  *  cell_id and one on `max`, so this is the most time steps it can carry. */
@@ -49,9 +57,8 @@ Mesh2DResultsExportDialog::Mesh2DResultsExportDialog(Mesh2DExportDialogInputs in
                                                      QWidget *parent)
     : QDialog(parent), m_in(std::move(inputs))
 {
-    setObjectName(QStringLiteral("Mesh2DResultsExportDialog"));   // layout persistence
-    setWindowTitle(m_in.live ? tr("Export 2D Results (run in progress)")
-                             : tr("Export 2D Results"));
+    setObjectName(QStringLiteral("Mesh2DResultsExportDialog")); // layout persistence
+    setWindowTitle(m_in.live ? tr("Export 2D Results (run in progress)") : tr("Export 2D Results"));
     setModal(true);
     buildUi();
     revalidate();
@@ -101,15 +108,15 @@ void Mesh2DResultsExportDialog::buildUi()
         return c;
     };
     m_depth = mkCheck(tr("&Depth"), "depthCheck", true);
-    m_head  = mkCheck(tr("&Water surface elevation"), "headCheck", true);
-    m_vmag  = mkCheck(tr("&Speed"), "vmagCheck", m_in.hasVelocity);
-    m_vx    = mkCheck(tr("Velocity &X"), "vxCheck", false);
-    m_vy    = mkCheck(tr("Velocity &Y"), "vyCheck", false);
+    m_head = mkCheck(tr("&Water surface elevation"), "headCheck", true);
+    m_vmag = mkCheck(tr("&Speed"), "vmagCheck", m_in.hasVelocity);
+    m_vx = mkCheck(tr("Velocity &X"), "vxCheck", false);
+    m_vy = mkCheck(tr("Velocity &Y"), "vyCheck", false);
     varGrid->addWidget(m_depth, 0, 0);
-    varGrid->addWidget(m_head,  0, 1);
-    varGrid->addWidget(m_vmag,  1, 0);
-    varGrid->addWidget(m_vx,    1, 1);
-    varGrid->addWidget(m_vy,    1, 2);
+    varGrid->addWidget(m_head, 0, 1);
+    varGrid->addWidget(m_vmag, 1, 0);
+    varGrid->addWidget(m_vx, 1, 1);
+    varGrid->addWidget(m_vy, 1, 2);
 
     if (!m_in.hasVelocity) {
         const QString why = tr("This run carries no velocity field. Re-run with "
@@ -121,10 +128,10 @@ void Mesh2DResultsExportDialog::buildUi()
         }
     }
 
-    m_includeMax = new QCheckBox(m_in.live
-                                     ? tr("Include the &maxima so far (depth, water surface, speed)")
-                                     : tr("Include the run &maxima (depth, water surface, speed)"),
-                                 varGroup);
+    m_includeMax =
+        new QCheckBox(m_in.live ? tr("Include the &maxima so far (depth, water surface, speed)")
+                                : tr("Include the run &maxima (depth, water surface, speed)"),
+                      varGroup);
     m_includeMax->setObjectName(QStringLiteral("includeMaxCheck"));
     m_includeMax->setChecked(true);
     m_includeMax->setToolTip(tr("Adds a \"max\" field to each vector layer, and a "
@@ -140,11 +147,10 @@ void Mesh2DResultsExportDialog::buildUi()
     m_steps->setSelectionMode(QAbstractItemView::ExtendedSelection);
     for (int i = 0; i < m_in.times.size(); ++i) {
         const QDateTime &dt = m_in.times.at(i);
-        m_steps->addItem(dt.isValid()
-                             ? QStringLiteral("%1  %2")
-                                   .arg(i + 1, 4, 10, QLatin1Char('0'))
-                                   .arg(dt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
-                             : QStringLiteral("%1").arg(i + 1, 4, 10, QLatin1Char('0')));
+        m_steps->addItem(dt.isValid() ? QStringLiteral("%1  %2")
+                                            .arg(i + 1, 4, 10, QLatin1Char('0'))
+                                            .arg(dt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
+                                      : QStringLiteral("%1").arg(i + 1, 4, 10, QLatin1Char('0')));
     }
     stepLayout->addWidget(m_steps, 1);
 
@@ -201,10 +207,10 @@ void Mesh2DResultsExportDialog::buildUi()
     m_interp->addItem(tr("Natural neighbour"), int(Mesh2DInterp::NaturalNeighbour));
     m_interp->addItem(tr("Inverse distance (k nearest)"), int(Mesh2DInterp::Idw));
     m_interp->addItem(tr("Green–Gauss gradient"), int(Mesh2DInterp::GreenGauss));
-    m_interp->setToolTip(tr(
-        "Natural neighbour is the smoothest and the slowest. Inverse distance is "
-        "a robust middle ground. Green–Gauss evaluates each cell's own gradient "
-        "and is the fastest; it never overshoots the neighbouring cells."));
+    m_interp->setToolTip(
+        tr("Natural neighbour is the smoothest and the slowest. Inverse distance is "
+           "a robust middle ground. Green–Gauss evaluates each cell's own gradient "
+           "and is the fastest; it never overshoots the neighbouring cells."));
     rasterForm->addRow(tr("&Interpolation"), m_interp);
 
     m_neighbours = new QSpinBox(m_rasterGroup);
@@ -234,20 +240,19 @@ void Mesh2DResultsExportDialog::buildUi()
     connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_browse, &QPushButton::clicked, this, &Mesh2DResultsExportDialog::onBrowse);
-    connect(m_format, &QComboBox::currentIndexChanged,
-            this, &Mesh2DResultsExportDialog::onFormatChanged);
+    connect(m_format, &QComboBox::currentIndexChanged, this,
+            &Mesh2DResultsExportDialog::onFormatChanged);
     connect(m_all, &QPushButton::clicked, this, &Mesh2DResultsExportDialog::onSelectAll);
     connect(m_none, &QPushButton::clicked, this, &Mesh2DResultsExportDialog::onSelectNone);
     connect(m_current, &QPushButton::clicked, this, &Mesh2DResultsExportDialog::onSelectCurrent);
-    connect(m_applyStride, &QPushButton::clicked,
-            this, &Mesh2DResultsExportDialog::onApplyStride);
-    connect(m_steps, &QListWidget::itemSelectionChanged,
-            this, &Mesh2DResultsExportDialog::revalidate);
+    connect(m_applyStride, &QPushButton::clicked, this, &Mesh2DResultsExportDialog::onApplyStride);
+    connect(m_steps, &QListWidget::itemSelectionChanged, this,
+            &Mesh2DResultsExportDialog::revalidate);
     connect(m_path, &QLineEdit::textChanged, this, &Mesh2DResultsExportDialog::revalidate);
-    connect(m_cellSize, &QDoubleSpinBox::valueChanged,
-            this, &Mesh2DResultsExportDialog::revalidate);
-    connect(m_interp, &QComboBox::currentIndexChanged,
-            this, &Mesh2DResultsExportDialog::revalidate);
+    connect(m_cellSize, &QDoubleSpinBox::valueChanged, this,
+            &Mesh2DResultsExportDialog::revalidate);
+    connect(m_interp, &QComboBox::currentIndexChanged, this,
+            &Mesh2DResultsExportDialog::revalidate);
     connect(m_includeMax, &QCheckBox::toggled, this, &Mesh2DResultsExportDialog::revalidate);
     for (QCheckBox *c : {m_depth, m_head, m_vx, m_vy, m_vmag})
         connect(c, &QCheckBox::toggled, this, &Mesh2DResultsExportDialog::revalidate);
@@ -260,16 +265,19 @@ void Mesh2DResultsExportDialog::buildUi()
 
 Mesh2DExportFormat Mesh2DResultsExportDialog::currentFormat() const
 {
-    if (!m_format || m_format->count() == 0) return Mesh2DExportFormat::GeoTiff;
+    if (!m_format || m_format->count() == 0)
+        return Mesh2DExportFormat::GeoTiff;
     return Mesh2DExportFormat(m_format->currentData().toInt());
 }
 
 std::vector<int> Mesh2DResultsExportDialog::selectedSteps() const
 {
     std::vector<int> out;
-    if (!m_steps) return out;
+    if (!m_steps)
+        return out;
     const auto rows = m_steps->selectionModel()->selectedRows();
-    for (const QModelIndex &idx : rows) out.push_back(idx.row());
+    for (const QModelIndex &idx : rows)
+        out.push_back(idx.row());
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -277,11 +285,16 @@ std::vector<int> Mesh2DResultsExportDialog::selectedSteps() const
 unsigned Mesh2DResultsExportDialog::selectedVariables() const
 {
     unsigned mask = 0;
-    if (m_depth && m_depth->isChecked()) mask |= openswmmvis::io::Mesh2DDepth;
-    if (m_head  && m_head->isChecked())  mask |= openswmmvis::io::Mesh2DHead;
-    if (m_vx    && m_vx->isChecked())    mask |= openswmmvis::io::Mesh2DVx;
-    if (m_vy    && m_vy->isChecked())    mask |= openswmmvis::io::Mesh2DVy;
-    if (m_vmag  && m_vmag->isChecked())  mask |= openswmmvis::io::Mesh2DVmag;
+    if (m_depth && m_depth->isChecked())
+        mask |= openswmmvis::io::Mesh2DDepth;
+    if (m_head && m_head->isChecked())
+        mask |= openswmmvis::io::Mesh2DHead;
+    if (m_vx && m_vx->isChecked())
+        mask |= openswmmvis::io::Mesh2DVx;
+    if (m_vy && m_vy->isChecked())
+        mask |= openswmmvis::io::Mesh2DVy;
+    if (m_vmag && m_vmag->isChecked())
+        mask |= openswmmvis::io::Mesh2DVmag;
     return mask;
 }
 
@@ -293,15 +306,15 @@ Mesh2DExportOptions Mesh2DResultsExportDialog::options() const
     o.basePath = fi.filePath().isEmpty()
                      ? QString()
                      : (fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName());
-    o.format        = currentFormat();
-    o.variables     = selectedVariables();
-    o.timeSteps     = selectedSteps();
-    o.includeMax    = m_includeMax && m_includeMax->isChecked();
-    o.cellSize      = m_cellSize ? m_cellSize->value() : 0.0;
-    o.interp        = m_interp ? Mesh2DInterp(m_interp->currentData().toInt())
-                               : Mesh2DInterp::NaturalNeighbour;
+    o.format = currentFormat();
+    o.variables = selectedVariables();
+    o.timeSteps = selectedSteps();
+    o.includeMax = m_includeMax && m_includeMax->isChecked();
+    o.cellSize = m_cellSize ? m_cellSize->value() : 0.0;
+    o.interp =
+        m_interp ? Mesh2DInterp(m_interp->currentData().toInt()) : Mesh2DInterp::NaturalNeighbour;
     o.idwNeighbours = m_neighbours ? m_neighbours->value() : 8;
-    o.maskDry       = m_maskDry && m_maskDry->isChecked();
+    o.maskDry = m_maskDry && m_maskDry->isChecked();
     return o;
 }
 
@@ -311,18 +324,25 @@ void Mesh2DResultsExportDialog::onBrowse()
     QString suffix;
     switch (currentFormat()) {
     case Mesh2DExportFormat::GeoTiff:
-        filter = tr("GeoTIFF (*.tif)");   suffix = QStringLiteral("tif");  break;
+        filter = tr("GeoTIFF (*.tif)");
+        suffix = QStringLiteral("tif");
+        break;
     case Mesh2DExportFormat::Shapefile:
-        filter = tr("ESRI Shapefile (*.shp)"); suffix = QStringLiteral("shp"); break;
+        filter = tr("ESRI Shapefile (*.shp)");
+        suffix = QStringLiteral("shp");
+        break;
     case Mesh2DExportFormat::GeoPackage:
-        filter = tr("GeoPackage (*.gpkg)"); suffix = QStringLiteral("gpkg"); break;
+        filter = tr("GeoPackage (*.gpkg)");
+        suffix = QStringLiteral("gpkg");
+        break;
     }
     const QString start = m_path->text().isEmpty()
                               ? (m_in.defaultDir.isEmpty() ? QDir::homePath() : m_in.defaultDir)
                               : m_path->text();
-    const QString chosen = QFileDialog::getSaveFileName(this, tr("Export 2D Results"),
-                                                        start, filter);
-    if (chosen.isEmpty()) return;
+    const QString chosen =
+        QFileDialog::getSaveFileName(this, tr("Export 2D Results"), start, filter);
+    if (chosen.isEmpty())
+        return;
     // Store the stem: one export writes several files off the same base.
     const QFileInfo fi(chosen);
     m_path->setText(fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName());
@@ -331,32 +351,38 @@ void Mesh2DResultsExportDialog::onBrowse()
 void Mesh2DResultsExportDialog::onFormatChanged()
 {
     const bool raster = currentFormat() == Mesh2DExportFormat::GeoTiff;
-    if (m_rasterGroup) m_rasterGroup->setEnabled(raster);
+    if (m_rasterGroup)
+        m_rasterGroup->setEnabled(raster);
     revalidate();
 }
 
 void Mesh2DResultsExportDialog::onSelectAll()
 {
-    if (m_steps) m_steps->selectAll();
+    if (m_steps)
+        m_steps->selectAll();
 }
 
 void Mesh2DResultsExportDialog::onSelectNone()
 {
-    if (m_steps) m_steps->clearSelection();
+    if (m_steps)
+        m_steps->clearSelection();
 }
 
 void Mesh2DResultsExportDialog::onSelectCurrent()
 {
-    if (!m_steps) return;
+    if (!m_steps)
+        return;
     m_steps->clearSelection();
-    if (m_in.currentIndex < 0 || m_in.currentIndex >= m_steps->count()) return;
+    if (m_in.currentIndex < 0 || m_in.currentIndex >= m_steps->count())
+        return;
     m_steps->setCurrentRow(m_in.currentIndex, QItemSelectionModel::ClearAndSelect);
     m_steps->scrollToItem(m_steps->item(m_in.currentIndex));
 }
 
 void Mesh2DResultsExportDialog::onApplyStride()
 {
-    if (!m_steps) return;
+    if (!m_steps)
+        return;
     const int n = m_stride ? m_stride->value() : 1;
     QItemSelection sel;
     m_steps->clearSelection();
@@ -381,24 +407,26 @@ QString Mesh2DResultsExportDialog::validationMessage() const
         return tr("Select at least one time step, or include the run maxima.");
 
     if (currentFormat() == Mesh2DExportFormat::Shapefile) {
-        const int fields = steps + (wantsMax ? 1 : 0) + 1;   // + cell_id
+        const int fields = steps + (wantsMax ? 1 : 0) + 1; // + cell_id
         if (fields > kShapefileFieldCap)
             return tr("A Shapefile holds at most %1 fields and this would need %2. "
                       "Select fewer time steps, use \"Every Nth\", or choose "
                       "GeoPackage.")
-                .arg(kShapefileFieldCap).arg(fields);
+                .arg(kShapefileFieldCap)
+                .arg(fields);
     }
     return QString();
 }
 
 void Mesh2DResultsExportDialog::revalidate()
 {
-    if (!m_buttons) return;
+    if (!m_buttons)
+        return;
 
     const int steps = int(selectedSteps().size());
     if (m_selection)
-        m_selection->setText(tr("%1 of %2 time steps selected")
-                                 .arg(steps).arg(m_steps ? m_steps->count() : 0));
+        m_selection->setText(
+            tr("%1 of %2 time steps selected").arg(steps).arg(m_steps ? m_steps->count() : 0));
 
     // Grid feedback: the actual raster dimensions and what one band costs, so
     // an unworkable cell size is obvious before anything is written.
@@ -410,24 +438,28 @@ void Mesh2DResultsExportDialog::revalidate()
             const double h = std::ceil(m_in.extentHeight / cs);
             const double pixels = w * h;
             m_gridInfo->setText(tr("%1 x %2 pixels, %3 MB per band")
-                                    .arg(w, 0, 'f', 0).arg(h, 0, 'f', 0)
+                                    .arg(w, 0, 'f', 0)
+                                    .arg(h, 0, 'f', 0)
                                     .arg(pixels * 4.0 / (1024.0 * 1024.0), 0, 'f', 1));
             if (pixels > kMaxRasterPixels)
                 gridProblem = tr("That cell size would make a %1 x %2 raster. "
                                  "Increase it.")
-                                  .arg(w, 0, 'f', 0).arg(h, 0, 'f', 0);
+                                  .arg(w, 0, 'f', 0)
+                                  .arg(h, 0, 'f', 0);
         } else {
             m_gridInfo->setText(QString());
         }
     }
     if (m_neighbours && m_interp)
-        m_neighbours->setEnabled(m_rasterGroup && m_rasterGroup->isEnabled()
-                                 && Mesh2DInterp(m_interp->currentData().toInt())
-                                        == Mesh2DInterp::Idw);
+        m_neighbours->setEnabled(m_rasterGroup && m_rasterGroup->isEnabled() &&
+                                 Mesh2DInterp(m_interp->currentData().toInt()) ==
+                                     Mesh2DInterp::Idw);
 
     QString problem = validationMessage();
-    if (problem.isEmpty()) problem = gridProblem;
-    if (m_validation) m_validation->setText(problem);
+    if (problem.isEmpty())
+        problem = gridProblem;
+    if (m_validation)
+        m_validation->setText(problem);
     m_buttons->button(QDialogButtonBox::Ok)->setEnabled(problem.isEmpty());
 }
 

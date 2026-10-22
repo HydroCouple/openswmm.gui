@@ -1,12 +1,16 @@
-/*!
- * \file   test_rainfallvisualizationdialog.cpp
- * \brief  Rainfall Visualization dialog — per-gage series assembly across all
+/**
+ * @file      test_rainfallvisualizationdialog.cpp
+ * @brief     Rainfall Visualization dialog — per-gage series assembly across all
  *         three source kinds, failed-file surfacing, basis switching, and the
  *         per-gage panels' shared time axis.
  *
  * Fixture: `gage_assignment_files.inp` — one TIMESERIES gage, one standard
  * rain-file (.dat, station) gage, one multi-column CSV gage, with the data
  * files alongside (`gage_files_rain.dat` / `gage_files_rain.csv`).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "dialog_a11y_checks.h"
@@ -34,7 +38,8 @@
 using openswmmvis::plot::RainfallSeriesModel;
 using openswmmvis::ui::RainfallVisualizationDialog;
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -43,10 +48,10 @@ QString dataDir()
 
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &inp)
 {
-    auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(inp), nullptr);
+    auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(inp), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
@@ -54,7 +59,8 @@ int lineSeriesCount(QChart *c)
 {
     int n = 0;
     for (auto *s : c->series())
-        if (qobject_cast<QLineSeries *>(s)) ++n;
+        if (qobject_cast<QLineSeries *>(s))
+            ++n;
     return n;
 }
 
@@ -62,8 +68,7 @@ int lineSeriesCount(QChart *c)
  *  only-the-first-gage; comparison tests want all series plotted). */
 void checkAllGages(RainfallVisualizationDialog &dlg)
 {
-    auto *statsTable =
-        dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
+    auto *statsTable = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
     QVERIFY(statsTable);
     for (int r = 0; r < statsTable->rowCount(); ++r)
         statsTable->item(r, 0)->setCheckState(Qt::Checked);
@@ -123,8 +128,7 @@ private slots:
         const auto &gages = dlg.model()->gages();
         QCOMPARE(gages.size(), 3);
         for (const auto &g : gages) {
-            QVERIFY2(g.hasData(), qPrintable(
-                QStringLiteral("gage %1 resolved no data").arg(g.id)));
+            QVERIFY2(g.hasData(), qPrintable(QStringLiteral("gage %1 resolved no data").arg(g.id)));
         }
 
         // Default: only ONE gage (the first with data) plots; the stats
@@ -133,8 +137,7 @@ private slots:
         QCOMPARE(dlg.visibleGages().size(), 1);
         QCOMPARE(lineSeriesCount(dlg.overlayChart()), 1);
         QCOMPARE(dlg.panelCharts().size(), 1);
-        auto *statsTable =
-            dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
+        auto *statsTable = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
         QVERIFY(statsTable);
         QCOMPARE(statsTable->rowCount(), 3);
         int checkedRows = 0;
@@ -174,15 +177,13 @@ private slots:
             }
         QVERIFY(sawFailed);
 
-        auto *statsTable =
-            dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
+        auto *statsTable = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
         QVERIFY(statsTable);
         QCOMPARE(statsTable->rowCount(), 3);
         bool sawStatus = false;
         for (int r = 0; r < statsTable->rowCount(); ++r) {
             if (statsTable->item(r, 0)->text() == QStringLiteral("CSV_SOUTH"))
-                sawStatus = statsTable->item(r, 11)->text().contains(
-                    QStringLiteral("failed"));
+                sawStatus = statsTable->item(r, 11)->text().contains(QStringLiteral("failed"));
         }
         QVERIFY(sawStatus);
 
@@ -205,14 +206,15 @@ private slots:
         QVERIFY(combo);
         QCOMPARE(dlg.basis(), RainfallSeriesModel::Basis::Intensity);
 
-        combo->setCurrentIndex(2);   // Cumulative depth
+        combo->setCurrentIndex(2); // Cumulative depth
         QTest::qWait(10);
         QCOMPARE(dlg.basis(), RainfallSeriesModel::Basis::CumulativeDepth);
 
         // Every plotted cumulative series is monotone non-decreasing.
         for (auto *s : dlg.overlayChart()->series()) {
             auto *line = qobject_cast<QLineSeries *>(s);
-            if (!line) continue;
+            if (!line)
+                continue;
             double prev = -1.0;
             for (const auto &pt : line->points()) {
                 QVERIFY(pt.y() >= prev - 1e-9);
@@ -228,7 +230,7 @@ private slots:
         RainfallVisualizationDialog dlg(layer.get());
         dlg.show();
         QTest::qWait(30);
-        checkAllGages(dlg);   // panels exist only for visible gages
+        checkAllGages(dlg); // panels exist only for visible gages
 
         const auto axes = dlg.panelTimeAxes();
         QVERIFY(axes.size() >= 2);
@@ -253,8 +255,7 @@ private slots:
         dlg.show();
         QTest::qWait(30);
 
-        auto *statsTable =
-            dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
+        auto *statsTable = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
         QVERIFY(statsTable);
         QCOMPARE(dlg.visibleGages().size(), 1);
 
@@ -285,10 +286,8 @@ private slots:
         QCOMPARE(lineSeriesCount(dlg.overlayChart()), 1);
         QCOMPARE(dlg.panelCharts().size(), 1);
         for (int r = 0; r < statsTable->rowCount(); ++r) {
-            const bool shouldCheck =
-                statsTable->item(r, 0)->text() == otherId;
-            QCOMPARE(statsTable->item(r, 0)->checkState() == Qt::Checked,
-                     shouldCheck);
+            const bool shouldCheck = statsTable->item(r, 0)->text() == otherId;
+            QCOMPARE(statsTable->item(r, 0)->checkState() == Qt::Checked, shouldCheck);
         }
 
         // An unknown id (stale ref) leaves the current view alone.

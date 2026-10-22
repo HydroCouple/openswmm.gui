@@ -1,0 +1,1372 @@
+{
+  "note": "These completed comments are preserved here because their working source files also contain independent pending implementation changes. The documentation commit stages file metadata/formatting against HEAD for those files and leaves their implementation edits untouched. Each comment includes its current source line and following token anchor. This is documentation content, not a claim that all functions in either project have been reviewed.",
+  "files": [
+    {
+      "file": "include/ui/dialogs/simoptions/enginecapabilities.h",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "fe80b0ad6b47fc61a1be95c6f5b40dbba7d58738eaef083920e713fca8a66f7d",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      enginecapabilities.h\n * @brief     One-shot engine capability probe for the Simulation Options dialog.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n *\n * One-shot engine capability probe for the Simulation Options dialog.\n *\n * Replaces the in-place `setEnabled()` calls of\n * `SimulationOptionsDialog::applyEngineConstraints()`. Probed once in the\n * dialog constructor and never re-probed: the engine's option surface does not\n * change while a model is open.\n *\n * Each field maps 1:1 onto one `if` block of the original\n * `applyEngineConstraints()`, and each carries a comment naming the block it\n * came from so the port stays auditable (HANDOFF \u00a72.1).\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "ifndef",
+            "ENGINECAPABILITIES_H",
+            "#",
+            "define",
+            "ENGINECAPABILITIES_H",
+            "#",
+            "include",
+            "<",
+            "QString",
+            ">",
+            "#",
+            "include",
+            "<",
+            "QJsonObject",
+            ">"
+          ]
+        },
+        {
+          "line": 48,
+          "text": "///< Read-only engine contract; empty on older builds.",
+          "following_tokens": [
+            "bool",
+            "implicitFv",
+            "=",
+            "false",
+            ";",
+            "bool",
+            "fv",
+            "=",
+            "false",
+            ";",
+            "bool",
+            "transport",
+            "=",
+            "false",
+            ";",
+            "bool"
+          ]
+        },
+        {
+          "line": 64,
+          "text": "///< OPENSWMM_HAS_2D and a non-null engine handle; no mesh query.",
+          "following_tokens": [
+            "}",
+            ";",
+            "EngineCapabilities",
+            "probeEngineCapabilities",
+            "(",
+            "SWMM_Engine",
+            "e",
+            ",",
+            "const",
+            "QString",
+            "&",
+            "version",
+            ")",
+            ";",
+            "}",
+            "#"
+          ]
+        },
+        {
+          "line": 67,
+          "text": "/**\n * @brief Snapshot the option-editor capability gates for one engine/version pair.\n * @param e Borrowed valid engine during this read, permitted null.\n * @param version Copied version text; an exact leading 5. marks legacy and\n * short-circuits all probes without trimming or version parsing.\n * @return Owned capability value. Nonlegacy ordinary feature flags require a\n * nonempty successful option read. Implicit-FV support requires parsed schema\n * version one, native true and BACKWARD_EULER integration; parsing retries five\n * buffers from 8 through 128 KiB. Parsed schema is retained even when unsupported.\n * For nonlegacy versions the four legacy-exclusion flags are true even with a\n * null handle. has2D checks only build-time 2D support and a non-null handle, not\n * runtime mesh existence. Does not mutate options, probe again later or own the engine.\n */",
+          "following_tokens": [
+            "EngineCapabilities",
+            "probeEngineCapabilities",
+            "(",
+            "SWMM_Engine",
+            "e",
+            ",",
+            "const",
+            "QString",
+            "&",
+            "version",
+            ")",
+            ";",
+            "}",
+            "#",
+            "endif"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "include/ui/dialogs/simoptions/hydraulicspage.h",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "3df6d22883a9e394fa286cee1ffc35b3877b5ac0747ebc347400ef459f752fde",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      hydraulicspage.h\n * @brief     Simulation Options \u2192 Routing & Hydraulics.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n *\n * Simulation Options \u2192 Routing & Hydraulics.\n *\n * The headline page of the restructure. FLOW_ROUTING sits in a header above\n * the tab bar because it gates three of the four tabs \u2014 it can neither live\n * inside one of them nor stay two sidebar rows away on Models / Processes,\n * which is where it used to be (PLAN \u00a72.1).\n *\n * Tabs: Routing \u00b7 Dynamic Wave \u00b7 Finite Volume \u00b7 Unsteady Friction.\n *\n * \"Skip steady state\" lands on the shared Routing tab rather than Dynamic\n * Wave: SWMMEngine::isInSteadyState() is called from the main routing step\n * with no routing-model guard, so SKIP_STEADY_STATE is honoured under every\n * method (PLAN \u00a77 Q1, resolved by measurement).\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "ifndef",
+            "HYDRAULICSPAGE_H",
+            "#",
+            "define",
+            "HYDRAULICSPAGE_H",
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/simoptionspage.h\"",
+            "#",
+            "include",
+            "<",
+            "QMap",
+            ">",
+            "class",
+            "QCheckBox"
+          ]
+        },
+        {
+          "line": 46,
+          "text": "/**\n     * @brief Construct routing and hydraulic draft controls from cached engine capabilities.\n     * @param ctx Borrowed GUI-thread context that must outlive the page; valid handles\n     * and a well-formed implicit schema are required whenever those paths are used.\n     * @param parent Optional widget owner; null leaves lifetime to the caller.\n     * Builds/tags controls; hydration and applying capability gates are separate.\n     */",
+          "following_tokens": [
+            "explicit",
+            "HydraulicsPage",
+            "(",
+            "SimOptionsContext",
+            "&",
+            "ctx",
+            ",",
+            "QWidget",
+            "*",
+            "parent",
+            "=",
+            "nullptr",
+            ")",
+            ";",
+            "[",
+            "["
+          ]
+        },
+        {
+          "line": 55,
+          "text": "/**\n     * @brief Return the localized sidebar caption.\n     * @return Owned Routing & Hydraulics string.\n     */",
+          "following_tokens": [
+            "[",
+            "[",
+            "nodiscard",
+            "]",
+            "]",
+            "QString",
+            "title",
+            "(",
+            ")",
+            "const",
+            "override",
+            ";",
+            "void",
+            "read",
+            "(",
+            ")"
+          ]
+        },
+        {
+          "line": 60,
+          "text": "/**\n     * @brief Hydrate hydraulic drafts from common options, preferences and fixed solver defaults.\n     * Local numeric readers accept a borrowed key plus numeric fallback, returning the\n     * converted value or fallback on conversion failure before widget clamping. Combo\n     * selector borrows a non-null combo and token, preserving selection on no match;\n     * boolean helper maps its scalar to YES/NO. Signals are not blocked, but m_reading\n     * suppresses Backward-Euler compatibility resets during hydration. Reads implicit\n     * text only when supported, then clears m_reading and refreshes intra-page gates.\n     * Does not call option setters, validate the complete draft or save files.\n     */",
+          "following_tokens": [
+            "void",
+            "read",
+            "(",
+            ")",
+            "override",
+            ";",
+            "int",
+            "write",
+            "(",
+            ")",
+            "override",
+            ";",
+            "void",
+            "applyCapabilities",
+            "(",
+            ")"
+          ]
+        },
+        {
+          "line": 71,
+          "text": "/**\n     * @brief Attempt common hydraulic and FV drafts independently through context comparison.\n     * @return Successful setter sum; no-op/refusal contributes zero and partial success\n     * has no rollback. Writes inactive/disabled solver drafts too; implicit method,\n     * preconditioner and text fields are included only when cached support is true.\n     * Numeric formatting follows each widget/key precision and implicit text is passed\n     * verbatim. SKIP_STEADY_STATE is read/tagged here but is not submitted by this\n     * implementation.\n     * LAT_FLOW_TOL and SYS_FLOW_TOL are submitted in percent. Does not invoke validate(),\n     * create undo or save files; the count does not certify a coherent complete solver setup.\n     */",
+          "following_tokens": [
+            "int",
+            "write",
+            "(",
+            ")",
+            "override",
+            ";",
+            "void",
+            "applyCapabilities",
+            "(",
+            ")",
+            "override",
+            ";",
+            "void",
+            "refreshGates",
+            "(",
+            ")"
+          ]
+        },
+        {
+          "line": 83,
+          "text": "/**\n     * @brief Disable unsupported solver choices/controls using the cached capability snapshot.\n     * A local helper borrows combo, exact item-data token, tooltip and fallback index;\n     * with a standard item model it disables the matching item and changes a currently\n     * selected unsupported item to that fallback. Null/nonstandard combos are ignored.\n     * FV falls back to dynamic wave, TPA/dynamic slot to EXTRAN and semi-implicit to\n     * explicit. Pressure closure/Anderson are disabled where unsupported; UF receives\n     * a tooltip while host gates control its tab. Does not re-probe, re-enable choices\n     * or write options, though fallback selection can emit normal gate signals.\n     */",
+          "following_tokens": [
+            "void",
+            "applyCapabilities",
+            "(",
+            ")",
+            "override",
+            ";",
+            "void",
+            "refreshGates",
+            "(",
+            ")",
+            "override",
+            ";",
+            "bool",
+            "validate",
+            "(",
+            "QString"
+          ]
+        },
+        {
+          "line": 94,
+          "text": "/**\n     * @brief Refresh intra-page controls for the current routing/integration/surcharge drafts.\n     * Native Backward Euler under FV enables the schema group/tab and disables explicit\n     * performance/reconstruction controls, skip-steady and friction-method selection.\n     * Other gates cover DPS/TPA celerity, second-order limiter, LTS tiers, UF coefficient\n     * and steady-flow tolerances. Uses cached capability flags; host controls other tabs.\n     * Assumes buildUi() completed, does not normalize incompatible drafts or write keys.\n     */",
+          "following_tokens": [
+            "void",
+            "refreshGates",
+            "(",
+            ")",
+            "override",
+            ";",
+            "bool",
+            "validate",
+            "(",
+            "QString",
+            "*",
+            "warn",
+            ")",
+            "override",
+            ";",
+            "enum"
+          ]
+        },
+        {
+          "line": 103,
+          "text": "/**\n     * @brief Check native implicit field input and Backward-Euler compatibility.\n     * @param warn Optional borrowed error output, overwritten on the first refusal and\n     * left unchanged on success; this method does not append diagnostics.\n     * @return True immediately without implicit support. Otherwise false for an active FV\n     * Backward-Euler draft with incompatible order/closure/backend/LTS/pressure-only/\n     * steady-skip/friction settings, unacceptable schema text or minimum step above\n     * maximum. Schema text is checked even when the native integrator is inactive.\n     * Requires schema editors for FV_IMPLICIT_MIN_STEP/MAX_STEP; does not repair drafts,\n     * validate every explicit hydraulic setting or change engine state.\n     */",
+          "following_tokens": [
+            "bool",
+            "validate",
+            "(",
+            "QString",
+            "*",
+            "warn",
+            ")",
+            "override",
+            ";",
+            "enum",
+            "Tab",
+            "{",
+            "TabRouting",
+            "=",
+            "0",
+            ","
+          ]
+        },
+        {
+          "line": 119,
+          "text": "/**\n     * @brief Expose the owned tab container for host gating/navigation.\n     * @return Borrowed container; caller must not delete or retain beyond page life.\n     */",
+          "following_tokens": [
+            "[",
+            "[",
+            "nodiscard",
+            "]",
+            "]",
+            "QTabWidget",
+            "*",
+            "tabs",
+            "(",
+            ")",
+            "const",
+            "{",
+            "return",
+            "m_tabs",
+            ";",
+            "}"
+          ]
+        },
+        {
+          "line": 124,
+          "text": "/**\n     * @brief Read the selected routing draft token.\n     * @return Owned STEADY, KINWAVE, DYNWAVE or FV item data, or empty without the combo.\n     * Does not query engine state or assert that the solver is supported/initialized.\n     */",
+          "following_tokens": [
+            "[",
+            "[",
+            "nodiscard",
+            "]",
+            "]",
+            "QString",
+            "flowRouting",
+            "(",
+            ")",
+            "const",
+            ";",
+            "void",
+            "setMinimumStep",
+            "(",
+            "double",
+            "seconds"
+          ]
+        },
+        {
+          "line": 130,
+          "text": "/**\n     * @brief Update the minimum-routing-step draft from the performance preset.\n     * @param seconds Desired seconds, clamped/rounded by the existing 0.01..360.0,\n     * three-decimal spin box. Missing editor is a no-op; does not set MINIMUM_STEP in\n     * the engine, change other controls or persist the draft.\n     */",
+          "following_tokens": [
+            "void",
+            "setMinimumStep",
+            "(",
+            "double",
+            "seconds",
+            ")",
+            ";",
+            "private",
+            ":",
+            "void",
+            "buildUi",
+            "(",
+            ")",
+            ";",
+            "void",
+            "tagWidgets"
+          ]
+        },
+        {
+          "line": 139,
+          "text": "/**\n     * @brief Create owned hydraulic controls, schema validators and gate connections once.\n     * Builds native methods/preconditioners/fields from the cached schema, using integer\n     * bounds or C-locale scientific validators with seventeen decimals. Flow/surcharge/\n     * order/friction index and LTS/skip toggles ignore scalar arguments and notify host\n     * gates; routing has two connections and can notify twice. Selecting Backward Euler\n     * outside read() resets pending drafts to first-order SLOT/CPU, LTS/pressure-only/\n     * skip-steady off and friction NONE, preserving cell count/celerity; it then refreshes\n     * gates and notifies. This is draft normalization, not an engine transaction.\n     * Time/decay/minimum-step fields use seconds; flow/slope tolerances use percent and\n     * FV cell lengths/celerities use project length units. DPS celerity is displayed m/s.\n     * Does not hydrate option values, start a solver or apply drafts.\n     */",
+          "following_tokens": [
+            "void",
+            "buildUi",
+            "(",
+            ")",
+            ";",
+            "void",
+            "tagWidgets",
+            "(",
+            ")",
+            ";",
+            "QTabWidget",
+            "*",
+            "m_tabs",
+            "=",
+            "nullptr",
+            ";"
+          ]
+        },
+        {
+          "line": 153,
+          "text": "/**\n     * @brief Tag fixed routing/hydraulic controls with their common option keys.\n     * Implicit schema widgets are tagged during buildUi(). Tags support reachability\n     * inspection and do not themselves prove a corresponding write() call exists.\n     */",
+          "following_tokens": [
+            "void",
+            "tagWidgets",
+            "(",
+            ")",
+            ";",
+            "QTabWidget",
+            "*",
+            "m_tabs",
+            "=",
+            "nullptr",
+            ";",
+            "QGroupBox",
+            "*",
+            "m_implicitGroup",
+            "=",
+            "nullptr"
+          ]
+        },
+        {
+          "line": 172,
+          "text": "// project length units; 0 = minimum cell count",
+          "following_tokens": [
+            "QSpinBox",
+            "*",
+            "m_fvCflCensusSpin",
+            "=",
+            "nullptr",
+            ";",
+            "QDoubleSpinBox",
+            "*",
+            "m_fvCflSpin",
+            "=",
+            "nullptr",
+            ";",
+            "QCheckBox",
+            "*",
+            "m_fvCompactionBox",
+            "="
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/simulation/simulationrunner.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "241d401fc0d559ae148d6a8fe6a53ad652add4ddc68d99a1fb914d3a15007c42",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      simulationrunner.cpp\n * @brief     Runs a single SWMM simulation on a worker thread and emits live progress, warnings,\n *            and completion signals back to the GUI thread.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"simulation/simulationrunner.h\"",
+            "#",
+            "include",
+            "\"simulation/runpathlease.h\"",
+            "#",
+            "include",
+            "\"simulation/twodbackendpolicy.h\"",
+            "#",
+            "include",
+            "\"simulation/snowledger.h\"",
+            "#",
+            "include",
+            "\"simulation/lidstaterecorder.h\"",
+            "#"
+          ]
+        },
+        {
+          "line": 65,
+          "text": "/**\n * @brief Probe an existing HDF5 destination for writable lock access without truncating it.\n * @param[in] path Output file path; empty/missing file succeeds without creating it.\n * @param[out] error Busy/access diagnostic on failure, unchanged on success.\n * @return True after a transient platform probe lock is acquired/released, or on platforms without a probe implementation; not a persistent runtime lock.\n */",
+          "following_tokens": [
+            "bool",
+            "twoDOutputAvailable",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "path",
+            ",",
+            "QString",
+            "&",
+            "error",
+            ")",
+            "{",
+            "if",
+            "(",
+            "path"
+          ]
+        },
+        {
+          "line": 122,
+          "text": "/**\n     * @brief Open an append-only diagnostic log beside the report.\n     * @param[in] rptPath Report path defining the .runlog.txt companion stem.\n     * @details Open failure leaves logging inert; run output validation/reservations are handled by the caller.\n     */",
+          "following_tokens": [
+            "explicit",
+            "RunLog",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "rptPath",
+            ")",
+            "{",
+            "const",
+            "QFileInfo",
+            "fi",
+            "(",
+            "rptPath",
+            ")",
+            ";"
+          ]
+        },
+        {
+          "line": 134,
+          "text": "/**\n     * @brief Append a timestamped line and request a flush.\n     * @param[in] text Diagnostic text.\n     * @details No-op when the log is not open; write/flush errors are not propagated. Worker access is serialized by its run.\n     */",
+          "following_tokens": [
+            "void",
+            "line",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "text",
+            ")",
+            "{",
+            "if",
+            "(",
+            "!",
+            "file",
+            ".",
+            "isOpen",
+            "("
+          ]
+        },
+        {
+          "line": 155,
+          "text": "/**\n     * @brief Match a configured test-fault phase exactly.\n     * @param[in] p Non-null Latin-1 phase name.\n     * @return True for exact configured phase text.\n     */",
+          "following_tokens": [
+            "bool",
+            "at",
+            "(",
+            "const",
+            "char",
+            "*",
+            "p",
+            ")",
+            "const",
+            "{",
+            "return",
+            "phase",
+            "==",
+            "QLatin1String",
+            "(",
+            "p"
+          ]
+        },
+        {
+          "line": 166,
+          "text": "/**\n * @brief Capture snow ledgers on the engine-owning worker and queue copied rows to the GUI.\n * @param[in] self Non-null runner kept alive through worker completion.\n * @param[in] jobId Correlation ID.\n * @param[in] eng Borrowed open worker engine.\n */",
+          "following_tokens": [
+            "void",
+            "emitSnowLedger",
+            "(",
+            "SimulationRunner",
+            "*",
+            "self",
+            ",",
+            "int",
+            "jobId",
+            ",",
+            "SWMM_Engine",
+            "eng",
+            ")",
+            "{",
+            "const",
+            "auto"
+          ]
+        },
+        {
+          "line": 180,
+          "text": "/**\n * @brief Queue current solver/backend/tier telemetry when readable.\n * @param[in] self Non-null retained runner receiver.\n * @param[in] jobId Correlation ID.\n * @param[in] eng Borrowed open worker engine; failed stats reads emit nothing.\n * @details At most eight tier counts are copied into the queued value payload.\n */",
+          "following_tokens": [
+            "void",
+            "emitTwoDSolverStats",
+            "(",
+            "SimulationRunner",
+            "*",
+            "self",
+            ",",
+            "int",
+            "jobId",
+            ",",
+            "SWMM_Engine",
+            "eng",
+            ")",
+            "{",
+            "SWMM_2DRunStats",
+            "st"
+          ]
+        },
+        {
+          "line": 216,
+          "text": "/**\n * @brief Convert a SWMM engine time (OADate: decimal days since\n *        1899-12-30 00:00:00 nominal calendar) to a QDateTime. Returns an invalid\n *        QDateTime for non-finite or clearly-bogus values (\u2264 epoch).\n * @param[in] oaDate Positive finite nominal SWMM days since 1899-12-30.\n * @return Shared UTC-basis calendar representation, or invalid for nonpositive/nonfinite input.\n */",
+          "following_tokens": [
+            "QDateTime",
+            "oaDateToQDateTime",
+            "(",
+            "double",
+            "oaDate",
+            ")",
+            "{",
+            "if",
+            "(",
+            "!",
+            "(",
+            "oaDate",
+            ">",
+            "0.0",
+            ")",
+            "||"
+          ]
+        },
+        {
+          "line": 239,
+          "text": "/**\n * @brief Find the legacy worker executable for a 5.x engine version.\n *\n * Workers are versioned: `openswmm-legacy-worker-<version>` (the 5.2.4 one is\n * built by cmake/EngineVersions.cmake). The unversioned `openswmm-legacy-worker`\n * the 6.x engine install ships IS the 5.3.0 worker, so it is accepted as a\n * fallback for LEGACY_SWMM_VERSION only \u2014 never for any other version, or a\n * missing 5.2.4 worker would silently run the model on 5.3.0.\n *\n * Searches, for each candidate name, in:\n *  1. Same directory as the current executable\n *  2. {app_dir}/bin/{CONFIG}/ (debug/release subdirs)\n *  3. {app_dir}/../bin/{CONFIG}/\n *\n * @return Absolute path to the worker, or an empty string if none was found.\n * @param[in] version Requested legacy version text used in executable names.\n * @details Checks file existence in application/build-relative locations, not PATH or executable permissions. Only the configured LEGACY_SWMM_VERSION may use an unversioned fallback.\n */",
+          "following_tokens": [
+            "QString",
+            "findLegacyWorker",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "version",
+            ")",
+            "{",
+            "#",
+            "ifdef",
+            "Q_OS_WIN",
+            "const",
+            "QString",
+            "exeSuffix",
+            "="
+          ]
+        },
+        {
+          "line": 317,
+          "text": "/**\n * @brief Remove an unquoted semicolon comment from an INP row.\n * @param[in] line UTF-8-decoded row copied for editing; quote state toggles at each double quote.\n * @return Trimmed content before the first semicolon outside quotes.\n */",
+          "following_tokens": [
+            "QString",
+            "withoutInpComment",
+            "(",
+            "QString",
+            "line",
+            ")",
+            "{",
+            "bool",
+            "quoted",
+            "=",
+            "false",
+            ";",
+            "for",
+            "(",
+            "int",
+            "i"
+          ]
+        },
+        {
+          "line": 338,
+          "text": "/**\n * @brief Split INP option rows using quote-aware whitespace/comma rules.\n * @param[in] line Comment-stripped row text.\n * @return Ordered tokens with surrounding quoted-field delimiters removed; interior commas in whitespace-delimited names are retained. Does not validate balanced quotes.\n */",
+          "following_tokens": [
+            "QStringList",
+            "optionTokens",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "line",
+            ")",
+            "{",
+            "bool",
+            "quoted",
+            "=",
+            "false",
+            ",",
+            "pureCsv",
+            "="
+          ]
+        },
+        {
+          "line": 402,
+          "text": "/**\n * @brief Scan declared built-in input/output resource slots for path protection.\n * @param[in] inp Model file read as UTF-8, with references resolved relative to its directory.\n * @return Owning path lists, empty for unreadable input; does not recurse through arbitrary plugin/nested datasource dependencies.\n */",
+          "following_tokens": [
+            "RunFileReferences",
+            "knownRunReferences",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "inp",
+            ")",
+            "{",
+            "RunFileReferences",
+            "references",
+            ";",
+            "QFile",
+            "file",
+            "(",
+            "inp"
+          ]
+        },
+        {
+          "line": 486,
+          "text": "/**\n * @brief Convert a path to filesystem-native representation.\n * @param[in] path Qt path text.\n * @return Wide Windows or UTF-8 non-Windows filesystem path.\n */",
+          "following_tokens": [
+            "std",
+            "::",
+            "filesystem",
+            "::",
+            "path",
+            "nativeRunPath",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "path",
+            ")",
+            "{",
+            "#",
+            "ifdef",
+            "Q_OS_WIN"
+          ]
+        },
+        {
+          "line": 500,
+          "text": "/**\n * @brief Compare file identities without requiring both paths to exist.\n * @param[in] left First path, empty returns false.\n * @param[in] right Second path, empty returns false.\n * @return Filesystem-equivalent/canonically equal or cleaned-absolute-equal paths, case-insensitive on Windows.\n */",
+          "following_tokens": [
+            "bool",
+            "sameRunFile",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "left",
+            ",",
+            "const",
+            "QString",
+            "&",
+            "right",
+            ")",
+            "{",
+            "if",
+            "("
+          ]
+        },
+        {
+          "line": 659,
+          "text": "/**\n * @brief Translate an escaped worker exception into a terminal failure value.\n * @param[in] phase Last known run phase, or empty for run fallback.\n * @param[in] what Exception description copied into the diagnostic.\n * @param[in] log Optional borrowed log receiving a timestamped exception record.\n * @return Failed result with SWMM_ERR_INTERNAL and captured phase; no engine handles escape.\n */",
+          "following_tokens": [
+            "SimulationResult",
+            "exceptionResult",
+            "(",
+            "const",
+            "QString",
+            "&",
+            "phase",
+            ",",
+            "const",
+            "QString",
+            "&",
+            "what",
+            ",",
+            "RunLog",
+            "*",
+            "log"
+          ]
+        },
+        {
+          "line": 722,
+          "text": "/**\n * @brief Isolate simulation workers from rendering/IO task starvation.\n * @return Borrowed process-lifetime pool capped at four concurrent run tasks.\n */",
+          "following_tokens": [
+            "QThreadPool",
+            "*",
+            "enginePool",
+            "(",
+            ")",
+            "{",
+            "static",
+            "QThreadPool",
+            "pool",
+            ";",
+            "static",
+            "const",
+            "bool",
+            "initialised",
+            "=",
+            "["
+          ]
+        },
+        {
+          "line": 877,
+          "text": "/**\n                 * @brief Close and destroy a linked-engine handle on normal return or exception.\n                 * @details No-op for null; executes on the engine-owning worker.\n                 */",
+          "following_tokens": [
+            "~",
+            "EngineGuard",
+            "(",
+            ")",
+            "{",
+            "if",
+            "(",
+            "!",
+            "eng",
+            ")",
+            "return",
+            ";",
+            "swmm_engine_close",
+            "(",
+            "eng",
+            ")"
+          ]
+        },
+        {
+          "line": 1050,
+          "text": "// The native transactional writer requires a fresh destination.",
+          "following_tokens": [
+            "QString",
+            "previousNativeOutput",
+            ";",
+            "const",
+            "QString",
+            "nativeOutput",
+            "=",
+            "QString",
+            "::",
+            "fromUtf8",
+            "(",
+            "out",
+            ")",
+            ";",
+            "if",
+            "("
+          ]
+        },
+        {
+          "line": 1051,
+          "text": "// The GUI already holds the output lease and has obtained its",
+          "following_tokens": [
+            "QString",
+            "previousNativeOutput",
+            ";",
+            "const",
+            "QString",
+            "nativeOutput",
+            "=",
+            "QString",
+            "::",
+            "fromUtf8",
+            "(",
+            "out",
+            ")",
+            ";",
+            "if",
+            "("
+          ]
+        },
+        {
+          "line": 1052,
+          "text": "// usual overwrite consent. Preserve the preceding binary results",
+          "following_tokens": [
+            "QString",
+            "previousNativeOutput",
+            ";",
+            "const",
+            "QString",
+            "nativeOutput",
+            "=",
+            "QString",
+            "::",
+            "fromUtf8",
+            "(",
+            "out",
+            ")",
+            ";",
+            "if",
+            "("
+          ]
+        },
+        {
+          "line": 1053,
+          "text": "// in a new sibling file, after successful native preflight.",
+          "following_tokens": [
+            "QString",
+            "previousNativeOutput",
+            ";",
+            "const",
+            "QString",
+            "nativeOutput",
+            "=",
+            "QString",
+            "::",
+            "fromUtf8",
+            "(",
+            "out",
+            ")",
+            ";",
+            "if",
+            "("
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/ui/dialogs/simoptions/enginecapabilities.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "6be033c422231df12d626eb9a66f2605183625f99956c6f0ff00891b07157788",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      enginecapabilities.cpp\n * @brief     One-shot engine capability probe for the Simulation Options dialog.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/enginecapabilities.h\"",
+            "#",
+            "include",
+            "<",
+            "QJsonDocument",
+            ">",
+            "#",
+            "include",
+            "<",
+            "QJsonArray",
+            ">",
+            "#",
+            "include",
+            "<"
+          ]
+        },
+        {
+          "line": 21,
+          "text": "/**\n * @brief Read one trimmed fixed-buffer engine option for capability detection.\n * @param e Borrowed engine, permitted null.\n * @param key Borrowed non-null null-terminated option key when e is present.\n * @return Owned UTF-8 text from a 256-byte buffer, empty on null engine, failed\n * getter or blank successful value. Nonempty text means key availability, including\n * a disabled-looking value such as NO; no boolean interpretation or setter call.\n */",
+          "following_tokens": [
+            "QString",
+            "probe",
+            "(",
+            "SWMM_Engine",
+            "e",
+            ",",
+            "const",
+            "char",
+            "*",
+            "key",
+            ")",
+            "{",
+            "if",
+            "(",
+            "!",
+            "e"
+          ]
+        },
+        {
+          "line": 52,
+          "text": "// The C getter reports success even when its output is truncated. Retry",
+          "following_tokens": [
+            "if",
+            "(",
+            "e",
+            ")",
+            "{",
+            "std",
+            "::",
+            "vector",
+            "<",
+            "char",
+            ">",
+            "schema",
+            "(",
+            "8192",
+            ",",
+            "'\\0'"
+          ]
+        },
+        {
+          "line": 53,
+          "text": "// until the growing capability schema parses, or leave the tab gated.",
+          "following_tokens": [
+            "if",
+            "(",
+            "e",
+            ")",
+            "{",
+            "std",
+            "::",
+            "vector",
+            "<",
+            "char",
+            ">",
+            "schema",
+            "(",
+            "8192",
+            ",",
+            "'\\0'"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "e3dbd04f996e836358703a691d8ca82c124ea4e2e6fcb2f34bbe4ad95cd4a1b7",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      hydraulicspage.cpp\n * @brief     Simulation Options \u2192 Routing & Hydraulics.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/hydraulicspage.h\"",
+            "#",
+            "include",
+            "<",
+            "QCheckBox",
+            ">",
+            "#",
+            "include",
+            "<",
+            "QComboBox",
+            ">",
+            "#",
+            "include",
+            "<"
+          ]
+        },
+        {
+          "line": 408,
+          "text": "// A separate tab keeps advanced controls within the dialog viewport.",
+          "following_tokens": [
+            "connect",
+            "(",
+            "m_fvTimeIntCombo",
+            ",",
+            "qOverload",
+            "<",
+            "int",
+            ">",
+            "(",
+            "&",
+            "QComboBox",
+            "::",
+            "currentIndexChanged",
+            ")",
+            ",",
+            "this"
+          ]
+        },
+        {
+          "line": 411,
+          "text": "// Pending widget edits only: Cancel leaves the model untouched.",
+          "following_tokens": [
+            "m_fvOrderCombo",
+            "->",
+            "setCurrentIndex",
+            "(",
+            "m_fvOrderCombo",
+            "->",
+            "findData",
+            "(",
+            "QStringLiteral",
+            "(",
+            "\"1\"",
+            ")",
+            ")",
+            ")",
+            ";",
+            "m_fvPressureClosureCombo"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/ui/dialogs/simoptions/simoptionscontext.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "c83b47824028444e45faf07a593d91602cec7ab2ef3cc682338f5887c05e25e2",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      simoptionscontext.cpp\n * @brief     The one thing every Simulation Options page is handed.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/simoptionscontext.h\"",
+            "#",
+            "include",
+            "\"layers/swmmmodellayer.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/simulationoptionsdialog.h\"",
+            "namespace",
+            "openswmmvis",
+            "::",
+            "ui",
+            "{",
+            "SimOptionsContext",
+            "::"
+          ]
+        },
+        {
+          "line": 41,
+          "text": "// Solver tolerances are much smaller than the general display-rounding",
+          "following_tokens": [
+            "const",
+            "bool",
+            "implicit",
+            "=",
+            "QByteArray",
+            "(",
+            "key",
+            ")",
+            ".",
+            "startsWith",
+            "(",
+            "\"FV_IMPLICIT_\"",
+            ")",
+            ";",
+            "const",
+            "QString"
+          ]
+        },
+        {
+          "line": 42,
+          "text": "// threshold. Compare their parsed values exactly so edits like 1e-11 to",
+          "following_tokens": [
+            "const",
+            "bool",
+            "implicit",
+            "=",
+            "QByteArray",
+            "(",
+            "key",
+            ")",
+            ".",
+            "startsWith",
+            "(",
+            "\"FV_IMPLICIT_\"",
+            ")",
+            ";",
+            "const",
+            "QString"
+          ]
+        },
+        {
+          "line": 43,
+          "text": "// 2e-11 are persisted instead of being mistaken for an unchanged zero.",
+          "following_tokens": [
+            "const",
+            "bool",
+            "implicit",
+            "=",
+            "QByteArray",
+            "(",
+            "key",
+            ")",
+            ".",
+            "startsWith",
+            "(",
+            "\"FV_IMPLICIT_\"",
+            ")",
+            ";",
+            "const",
+            "QString"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/ui/dialogs/simulationoptionsdialog.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "f350dc74802cbb7c70a3d342c9ebffe23e739dcddd721ae51d3695c8b0c76d16",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      simulationoptionsdialog.cpp\n * @brief     Simulation settings host and cross-page configuration coordination.\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"ui/dialogs/simulationoptionsdialog.h\"",
+            "#",
+            "include",
+            "\"ui/uiscrollhelpers.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/climatologydialog.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/heatconfigdialog.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/heatrasterassigndialog.h\"",
+            "#"
+          ]
+        },
+        {
+          "line": 151,
+          "text": "// Reapply restrictions from the once-captured shared capability snapshot.",
+          "following_tokens": [
+            "void",
+            "SimulationOptionsDialog",
+            "::",
+            "applyEngineConstraints",
+            "(",
+            ")",
+            "{",
+            "for",
+            "(",
+            "openswmmvis",
+            "::",
+            "ui",
+            "::",
+            "SimOptionsPage",
+            "*",
+            "p"
+          ]
+        },
+        {
+          "line": 513,
+          "text": "/**\n * @brief Apply a visible sidebar row's enablement and redirect if it becomes inactive.\n * @param list Optional borrowed list; null is a no-op.\n * @param row Zero-based row; negative or missing item is a no-op.\n * @param on True restores selectable/enabled flags; false clears all item flags.\n * @param reason Borrowed disabled tooltip, copied to the item; cleared when enabled.\n * An active disabled row redirects to row zero without searching its enablement.\n * Does not hide/remove items, own the list or mutate engine state.\n */",
+          "following_tokens": [
+            "void",
+            "applyRowGate",
+            "(",
+            "QListWidget",
+            "*",
+            "list",
+            ",",
+            "int",
+            "row",
+            ",",
+            "bool",
+            "on",
+            ",",
+            "const",
+            "QString",
+            "&"
+          ]
+        },
+        {
+          "line": 538,
+          "text": "/**\n * @brief Apply an inner tab's enablement and move away from a newly disabled active tab.\n * @param tabs Optional borrowed tab widget; null is a no-op.\n * @param idx Zero-based target tab; out-of-range indices are ignored.\n * @param on Desired enabled state, leaving the tab visible.\n * @param reason Borrowed disabled tooltip, copied to the tab; cleared when enabled.\n * If disabling the current tab, selects the first enabled tab when one exists;\n * otherwise no alternative selection is forced. Does not own widgets or write options.\n */",
+          "following_tokens": [
+            "void",
+            "applyTabGate",
+            "(",
+            "QTabWidget",
+            "*",
+            "tabs",
+            ",",
+            "int",
+            "idx",
+            ",",
+            "bool",
+            "on",
+            ",",
+            "const",
+            "QString",
+            "&"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "tests/gui/test_implicit_fv_runner.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "3f0fa679a89fe87e6ffb3222b6c3304e637346554504ac37669a666c37fbe6c6",
+      "comments": [
+        {
+          "line": 1,
+          "text": "// SPDX-License-Identifier: GPL-3.0-or-later",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"simulation/simulationrunner.h\"",
+            "#",
+            "include",
+            "<",
+            "QDir",
+            ">",
+            "#",
+            "include",
+            "<",
+            "QFile",
+            ">",
+            "#",
+            "include",
+            "<"
+          ]
+        },
+        {
+          "line": 3,
+          "text": "/**\n * @file      test_implicit_fv_runner.cpp\n * @brief     Tests for implicit fv runner.\n *\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n * @license   GPL-3.0-or-later\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"simulation/simulationrunner.h\"",
+            "#",
+            "include",
+            "<",
+            "QDir",
+            ">",
+            "#",
+            "include",
+            "<",
+            "QFile",
+            ">",
+            "#",
+            "include",
+            "<"
+          ]
+        },
+        {
+          "line": 23,
+          "text": "/**\n     *\n     * @brief Require two native FV runs to preserve prior output in one new backup, then refuse\n     * unsupported heat without changing results.\n     * Copies SWMMVIS_IMPLICIT_FIXTURE into cwd/native_runner, creates/replaces input/report/\n     * output/log and waits up to thirty seconds per worker completion. Requires a valid\n     * 16-cell BACKWARD_EULER fixture and isolated output folder; checks runlog lineage\n     * messages and retains all artifacts. Native rerun and failed-preflight paths execute\n     * through SimulationRunner, with no GUI project save.\n     *\n     */",
+          "following_tokens": [
+            "void",
+            "nativeRunRerunAndInvalidPreflightPreserveResults",
+            "(",
+            ")",
+            "{",
+            "const",
+            "QString",
+            "fixture",
+            "=",
+            "qEnvironmentVariable",
+            "(",
+            "\"SWMMVIS_IMPLICIT_FIXTURE\"",
+            ")",
+            ";",
+            "QVERIFY",
+            "("
+          ]
+        }
+      ]
+    },
+    {
+      "file": "tests/gui/test_simulationoptions_gates.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "478c135df70e37229239167ae85902a37d5c76a525ed0b1b2a0c7bebdd8b9925",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      test_simulationoptions_gates.cpp\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @brief     Structural contract for the Simulation Options dialog restructure\n *         (workplans/OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md \u00a76).\n *\n * Landed at phase T0, against the CURRENT (untabbed) layout, so the properties\n * the restructure must preserve are pinned BEFORE any widget moves:\n *\n *   objectNameCensus  every objectName the three page-level tests look up\n *                     still resolves, and its parent chain reaches the page\n *                     stack. A page built but never registered fails here.\n *   reachability      every widget tagged with an `optionKey` is laid out, and\n *                     every key the dialog writes has a tagged editor behind\n *                     it. A control orphaned by a page move fails here.\n *   structure         the sidebar rows, in order. Tab titles join this test as\n *                     each page gains its QTabWidget.\n *\n * Widgets are reached only through findChild(objectName) and the public\n * lastWriteKeys() accessor \u2014 the dialog has no friend classes and gains none.\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"layers/swmmmodellayer.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/simulationoptionsdialog.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/datespage.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/simoptions/filespage.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/hotstartsavesmodel.h\"",
+            "#"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "tests/gui/test_simulationoptions_roundtrip.cpp",
+      "reason": "Independent pending source implementation; keep functional edits out of documentation commit.",
+      "working_source_sha256": "e7e32d775bd77a620442342d1ac6cbd00237425505289688e4a78443b18fe57b",
+      "comments": [
+        {
+          "line": 1,
+          "text": "/**\n * @file      test_simulationoptions_roundtrip.cpp\n * @author    Caleb Buahin <caleb.buahin@gmail.com>\n * @date      2026\n * @license   GPL-3.0-or-later\n * @brief     Baseline: opening the Simulation Options dialog and pressing Apply\n *         with NO edits must write nothing.\n *\n * This is the safety net for the dialog restructure\n * (workplans/SIMULATION_OPTIONS_AND_PROCESS_GATING_PLAN_2026-09-04.md \u00a73.4,\n * EXECUTION_PLAN_\u2026 P0/P3): every page's read()/write() pair must be the\n * identity on an unedited model. Two independent assertions per deck:\n *\n *   1. `wroteAnyChanges()` is false after Apply \u2014 the dialog's own dirty count\n *      (writeIfChanged's numeric-aware compare) saw nothing to write.\n *   2. The model serialised BEFORE the dialog existed and AFTER Apply is\n *      byte-identical in every [OPTIONS]-class section \u2014 [OPTIONS],\n *      [REPORT], [FILES], [EVENTS], [2D_OPTIONS], [TITLE] \u2014 so a write the\n *      dirty count missed (e.g. a value re-formatted to the same number)\n *      still fails here, with a readable diff of the offending section.\n *\n * Decks: a 1D DYNWAVE deck, a 2D deck, and an FV variant derived from the 1D\n * deck (there is no FV fixture yet). All outputs go next to the fixtures\n * (reviewable, CLAUDE.md \u00a74.1).\n * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.\n */",
+          "following_tokens": [
+            "#",
+            "include",
+            "\"layers/swmmmodellayer.h\"",
+            "#",
+            "include",
+            "\"project/openswmmvisworkspace.h\"",
+            "#",
+            "include",
+            "\"swmmvisprojectwindow.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/simulationoptionsdialog.h\"",
+            "#",
+            "include",
+            "\"ui/dialogs/wateragesourcesdialog.h\"",
+            "#"
+          ]
+        }
+      ]
+    }
+  ]
+}

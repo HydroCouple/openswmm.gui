@@ -1,12 +1,17 @@
-/*!
- * \file   climatologydialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \license GPL-3.0-or-later
+/**
+ * @file      climatologydialog.cpp
+ * @brief     Climatology editor — edits the model's [TEMPERATURE], [EVAPORATION], [WINDSPEED],
+ *            HUMIDITY, SNOWMELT, areal-depletion (ADC) and [ADJUSTMENTS] configuration via the
+ *            engine's swmm_climate_* C API.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @license   GPL-3.0-or-later
  *
- * \see climatologydialog.h
- * \see Legacy reference: SWMM-GUI/Epaswmm5/Dclimate.pas (6-tab Climatology editor)
- * \see Engine API: openswmm/engine/openswmm_climate.h
+ * @see climatologydialog.h
+ * @see Legacy reference: SWMM-GUI/Epaswmm5/Dclimate.pas (6-tab Climatology editor)
+ * @see Engine API: openswmm/engine/openswmm_climate.h
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/climatologydialog.h"
 #include <openswmm/engine/openswmm_heat.h>
 
@@ -48,17 +53,15 @@
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_model.h>
 
-namespace {
+namespace
+{
 
-const char *const kMonths[12] = {
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-};
+const char *const kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
 // Legacy ADC presets (objprops.txt DefADCurve / NatADCurve).
 const double kDefADCurve[10] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
-const double kNatADCurve[10] = {0.10, 0.35, 0.53, 0.66, 0.75,
-                                0.82, 0.87, 0.92, 0.95, 0.98};
+const double kNatADCurve[10] = {0.10, 0.35, 0.53, 0.66, 0.75, 0.82, 0.87, 0.92, 0.95, 0.98};
 
 // Build a single-column, 12-row monthly grid (vertical header = month names).
 QTableWidget *makeMonthlyTable(const QString &header)
@@ -66,7 +69,8 @@ QTableWidget *makeMonthlyTable(const QString &header)
     auto *t = new QTableWidget(12, 1);
     t->setHorizontalHeaderLabels(QStringList{header});
     QStringList rows;
-    for (const char *m : kMonths) rows << QString::fromLatin1(m);
+    for (const char *m : kMonths)
+        rows << QString::fromLatin1(m);
     t->setVerticalHeaderLabels(rows);
     t->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int i = 0; i < 12; ++i)
@@ -77,12 +81,15 @@ QTableWidget *makeMonthlyTable(const QString &header)
 double cellValue(QTableWidget *t, int row, int col)
 {
     auto *it = t->item(row, col);
-    if(!it)return 0.0;
-    if(it->data(Qt::UserRole+80).isValid() && it->text()==it->data(Qt::UserRole+81).toString())return it->data(Qt::UserRole+80).toDouble();
+    if (!it)
+        return 0.0;
+    if (it->data(Qt::UserRole + 80).isValid() &&
+        it->text() == it->data(Qt::UserRole + 81).toString())
+        return it->data(Qt::UserRole + 80).toDouble();
     return it->text().toDouble();
 }
 
-double oaDate(const QDateTime& dateTime)
+double oaDate(const QDateTime &dateTime)
 {
     const QDate base(1899, 12, 30);
     return static_cast<double>(base.daysTo(dateTime.date())) +
@@ -99,61 +106,78 @@ QDateTime dateTimeFromOa(double date)
 QString evapPreviewStatus(int status)
 {
     switch (status) {
-    case SWMM_EVAP_PREVIEW_AVAILABLE: return QObject::tr("Available");
-    case SWMM_EVAP_PREVIEW_HELD: return QObject::tr("Held from previous value");
-    case SWMM_EVAP_PREVIEW_MISSING: return QObject::tr("Missing source data");
-    case SWMM_EVAP_PREVIEW_ESTIMATED: return QObject::tr("Daily estimate");
-    default: return QObject::tr("Unknown");
+    case SWMM_EVAP_PREVIEW_AVAILABLE:
+        return QObject::tr("Available");
+    case SWMM_EVAP_PREVIEW_HELD:
+        return QObject::tr("Held from previous value");
+    case SWMM_EVAP_PREVIEW_MISSING:
+        return QObject::tr("Missing source data");
+    case SWMM_EVAP_PREVIEW_ESTIMATED:
+        return QObject::tr("Daily estimate");
+    default:
+        return QObject::tr("Unknown");
     }
 }
 
 QString evapSourceName(int type)
 {
     switch (type) {
-    case SWMM_EVAP_CONSTANT: return QObject::tr("Constant rate");
-    case SWMM_EVAP_MONTHLY: return QObject::tr("Monthly rates");
-    case SWMM_EVAP_TIMESERIES: return QObject::tr("Time series");
-    case SWMM_EVAP_TEMPERATURE: return QObject::tr("Hargreaves from temperature");
-    case SWMM_EVAP_FILE: return QObject::tr("Climate-file pan evaporation");
-    default: return QObject::tr("Unknown source");
+    case SWMM_EVAP_CONSTANT:
+        return QObject::tr("Constant rate");
+    case SWMM_EVAP_MONTHLY:
+        return QObject::tr("Monthly rates");
+    case SWMM_EVAP_TIMESERIES:
+        return QObject::tr("Time series");
+    case SWMM_EVAP_TEMPERATURE:
+        return QObject::tr("Hargreaves from temperature");
+    case SWMM_EVAP_FILE:
+        return QObject::tr("Climate-file pan evaporation");
+    default:
+        return QObject::tr("Unknown source");
     }
 }
 
 void setCell(QTableWidget *t, int row, int col, double v)
 {
     auto *it = t->item(row, col);
-    if (!it) { it = new QTableWidgetItem; t->setItem(row, col, it); }
+    if (!it) {
+        it = new QTableWidgetItem;
+        t->setItem(row, col, it);
+    }
     it->setText(QString::number(v, 'g', 10));
-    it->setData(Qt::UserRole+80,v);it->setData(Qt::UserRole+81,it->text());
+    it->setData(Qt::UserRole + 80, v);
+    it->setData(Qt::UserRole + 81, it->text());
 }
 
 void readColumn(QTableWidget *t, int col, double *out, int n)
 {
-    for (int i = 0; i < n; ++i) out[i] = cellValue(t, i, col);
+    for (int i = 0; i < n; ++i)
+        out[i] = cellValue(t, i, col);
 }
 
 void writeColumn(QTableWidget *t, int col, const double *in, int n)
 {
-    for (int i = 0; i < n; ++i) setCell(t, i, col, in[i]);
+    for (int i = 0; i < n; ++i)
+        setCell(t, i, col, in[i]);
 }
 
 } // namespace
 
-ClimatologyDialog::ClimatologyDialog(SWMM_Engine engine, SWMMModelLayer *layer,
-                                     QWidget *parent)
+ClimatologyDialog::ClimatologyDialog(SWMM_Engine engine, SWMMModelLayer *layer, QWidget *parent)
     : QDialog(parent), m_engine(engine), m_layer(layer)
 {
     setWindowTitle(tr("Climatology"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("ClimatologyDialog"));
     int us = 0;
-    if (m_engine) swmm_get_unit_system(m_engine, &us);
+    if (m_engine)
+        swmm_get_unit_system(m_engine, &us);
     m_unitSystem = us;
 
     buildUi();
     readFromEngine();
     m_initialSig = serialize();
-    m_tempFile->setProperty("initialAbsolute",m_tempFile->absolutePath());
+    m_tempFile->setProperty("initialAbsolute", m_tempFile->absolutePath());
 }
 
 void ClimatologyDialog::setCurrentTab(int idx)
@@ -177,8 +201,7 @@ void ClimatologyDialog::buildUi()
     buildAdjustmentsTab(m_tabs);
     buildRadiationTab(m_tabs);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                    this);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     outer->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, this, &ClimatologyDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -196,8 +219,8 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
 
     m_tempSource = new QComboBox;
     m_tempSource->setObjectName(QStringLiteral("clim_tempSource"));
-    m_tempSource->addItem(tr("No Data"));            // 0
-    m_tempSource->addItem(tr("Time Series"));        // 1
+    m_tempSource->addItem(tr("No Data"));               // 0
+    m_tempSource->addItem(tr("Time Series"));           // 1
     m_tempSource->addItem(tr("External Climate File")); // 2
     form->addRow(tr("S&ource of Temperature Data:"), m_tempSource);
 
@@ -240,8 +263,8 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     m_tempUnits->addItem(tr("Degrees Fahrenheit (F)"), 2);
     form->addRow(tr("Climate-&file units:"), m_tempUnits);
 
-    connect(m_tempSource, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClimatologyDialog::onTempSourceChanged);
+    connect(m_tempSource, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClimatologyDialog::onTempSourceChanged);
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Temperature"));
 }
@@ -249,12 +272,17 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
 void ClimatologyDialog::onTempSourceChanged()
 {
     const int src = m_tempSource ? m_tempSource->currentIndex() : 0;
-    if (m_tempTs)    m_tempTs->setEnabled(src == 1);
+    if (m_tempTs)
+        m_tempTs->setEnabled(src == 1);
     const bool file = (src == 2);
-    if (m_tempFile)  m_tempFile->setEnabled(file);
-    if (m_tempStartCheck) m_tempStartCheck->setEnabled(file);
-    if (m_tempStartDate)  m_tempStartDate->setEnabled(file && m_tempStartCheck->isChecked());
-    if (m_tempUnits) m_tempUnits->setEnabled(file);
+    if (m_tempFile)
+        m_tempFile->setEnabled(file);
+    if (m_tempStartCheck)
+        m_tempStartCheck->setEnabled(file);
+    if (m_tempStartDate)
+        m_tempStartDate->setEnabled(file && m_tempStartCheck->isChecked());
+    if (m_tempUnits)
+        m_tempUnits->setEnabled(file);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,11 +296,11 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
 
     m_evapType = new QComboBox;
     m_evapType->setObjectName(QStringLiteral("clim_evapType"));
-    m_evapType->addItem(tr("Constant Value"), 0);          // CONSTANT
-    m_evapType->addItem(tr("Monthly Averages"), 1);        // MONTHLY
-    m_evapType->addItem(tr("Time Series"), 2);             // TIMESERIES
+    m_evapType->addItem(tr("Constant Value"), 0);            // CONSTANT
+    m_evapType->addItem(tr("Monthly Averages"), 1);          // MONTHLY
+    m_evapType->addItem(tr("Time Series"), 2);               // TIMESERIES
     m_evapType->addItem(tr("Temperatures (Hargreaves)"), 3); // TEMPERATURE
-    m_evapType->addItem(tr("Climate File (pan)"), 4);      // FILE/PAN
+    m_evapType->addItem(tr("Climate File (pan)"), 4);        // FILE/PAN
     form->addRow(tr("Sou&rce of Evaporation Rates:"), m_evapType);
 
     // Stacked controls — page index == engine evap_type enum.
@@ -281,7 +309,8 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
 
     // 0 CONSTANT
     {
-        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QFormLayout(w);
         m_evapConstant = new QDoubleSpinBox;
         m_evapConstant->setObjectName(QStringLiteral("clim_evapConstant"));
         m_evapConstant->setRange(0.0, 1.0e6);
@@ -291,7 +320,8 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     }
     // 1 MONTHLY
     {
-        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QVBoxLayout(w);
         l->addWidget(new QLabel(tr("Monthly Evaporation (%1)").arg(rate)));
         m_evapMonthly = makeMonthlyTable(rate);
         m_evapMonthly->setObjectName(QStringLiteral("clim_evapMonthly"));
@@ -300,8 +330,10 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     }
     // 2 TIMESERIES
     {
-        auto *w = new QWidget; auto *l = new QFormLayout(w);
-        m_evapTs = new QComboBox; m_evapTs->setEditable(true);
+        auto *w = new QWidget;
+        auto *l = new QFormLayout(w);
+        m_evapTs = new QComboBox;
+        m_evapTs->setEditable(true);
         m_evapTs->setObjectName(QStringLiteral("clim_evapTs"));
         m_evapTs->setAccessibleName(tr("Evaporation time series"));
         populateTimeseriesCombo(m_evapTs);
@@ -310,7 +342,8 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     }
     // 3 TEMPERATURE
     {
-        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QVBoxLayout(w);
         auto *lbl = new QLabel(tr("Evaporation is computed from the daily "
                                   "temperatures in the climate file selected on "
                                   "the Temperature page (Hargreaves method)."));
@@ -320,7 +353,8 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     }
     // 4 FILE / PAN
     {
-        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QVBoxLayout(w);
         l->addWidget(new QLabel(tr("Monthly Pan Coefficients")));
         m_panCoeff = makeMonthlyTable(tr("Pan Coeff"));
         m_panCoeff->setObjectName(QStringLiteral("clim_panCoeff"));
@@ -329,8 +363,9 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     }
     form->addRow(m_evapStack);
 
-    m_recovery = new QComboBox; m_recovery->setEditable(true);
-    m_recovery->addItem(QString());  // empty = none
+    m_recovery = new QComboBox;
+    m_recovery->setEditable(true);
+    m_recovery->addItem(QString()); // empty = none
     populatePatternCombo(m_recovery);
     form->addRow(tr("Soil Reco&very Pattern (optional):"), m_recovery);
 
@@ -343,15 +378,16 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     form->addRow(QString(), preview);
     connect(preview, &QPushButton::clicked, this, &ClimatologyDialog::onPreviewEvaporation);
 
-    connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClimatologyDialog::onEvapTypeChanged);
+    connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClimatologyDialog::onEvapTypeChanged);
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Evaporation"));
 }
 
 void ClimatologyDialog::onEvapTypeChanged()
 {
-    if (!m_evapType || !m_evapStack) return;
+    if (!m_evapType || !m_evapStack)
+        return;
     const int type = m_evapType->currentData().toInt();
     if (type >= 0 && type < m_evapStack->count())
         m_evapStack->setCurrentIndex(type);
@@ -359,11 +395,11 @@ void ClimatologyDialog::onEvapTypeChanged()
 
 void ClimatologyDialog::onPreviewEvaporation()
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
     double modelStart = 0.0, modelEnd = 0.0;
     if (swmm_options_get_start_date(m_engine, &modelStart) != SWMM_OK ||
-        swmm_options_get_end_date(m_engine, &modelEnd) != SWMM_OK ||
-        modelEnd <= modelStart) {
+        swmm_options_get_end_date(m_engine, &modelEnd) != SWMM_OK || modelEnd <= modelStart) {
         QMessageBox::warning(this, tr("Evaporation preview"),
                              tr("The model does not have a valid simulation time window."));
         return;
@@ -373,7 +409,9 @@ void ClimatologyDialog::onPreviewEvaporation()
     dialog.setWindowTitle(tr("Effective evaporation rates"));
     dialog.setObjectName(QStringLiteral("clim_evapPreviewDialog"));
     auto *layout = new QVBoxLayout(&dialog);
-    auto *intro = new QLabel(tr("Review source rates and monthly evaporation adjustments over a selected part of the simulation. Time-series rates follow the engine's stepwise schedule; climate-file pan rates hold their last valid value through missing days. Temperature-derived rates are daily estimates. Runtime climate and catchment forcing can override these values."), &dialog);
+    auto *intro = new QLabel(
+        tr("Review source rates and monthly evaporation adjustments over a selected part of the simulation. Time-series rates follow the engine's stepwise schedule; climate-file pan rates hold their last valid value through missing days. Temperature-derived rates are daily estimates. Runtime climate and catchment forcing can override these values."),
+        &dialog);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -383,11 +421,13 @@ void ClimatologyDialog::onPreviewEvaporation()
     auto *to = new QDateTimeEdit(dateTimeFromOa(modelEnd), window);
     from->setObjectName(QStringLiteral("clim_evapPreviewStart"));
     to->setObjectName(QStringLiteral("clim_evapPreviewEnd"));
-    from->setCalendarPopup(true); to->setCalendarPopup(true);
+    from->setCalendarPopup(true);
+    to->setCalendarPopup(true);
     from->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
     to->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
     const auto minTime = dateTimeFromOa(modelStart), maxTime = dateTimeFromOa(modelEnd);
-    from->setDateTimeRange(minTime, maxTime); to->setDateTimeRange(minTime, maxTime);
+    from->setDateTimeRange(minTime, maxTime);
+    to->setDateTimeRange(minTime, maxTime);
     // Open on the first month when a long simulation is configured, while
     // allowing the user to widen or move the window up to the model end.
     to->setDateTime(std::min(maxTime, from->dateTime().addDays(30)));
@@ -410,8 +450,8 @@ void ClimatologyDialog::onPreviewEvaporation()
     table->setObjectName(QStringLiteral("clim_evapPreviewTable"));
     const QString unit = isSI() ? tr("mm/day") : tr("in/day");
     table->setHorizontalHeaderLabels({tr("Date and time"), tr("Source (%1)").arg(unit),
-                                      tr("Adjustment (%1)").arg(unit), tr("Effective rate (%1)").arg(unit),
-                                      tr("Coverage")});
+                                      tr("Adjustment (%1)").arg(unit),
+                                      tr("Effective rate (%1)").arg(unit), tr("Coverage")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -450,7 +490,8 @@ void ClimatologyDialog::onPreviewEvaporation()
         config.temp_timeseries = tempTimeseries.constData();
         config.climate_file_path = climatePath.constData();
         config.climate_file_start = m_tempStartCheck->isChecked()
-            ? oaDate(QDateTime(m_tempStartDate->date(), QTime(0, 0))) : 0.0;
+                                        ? oaDate(QDateTime(m_tempStartDate->date(), QTime(0, 0)))
+                                        : 0.0;
         config.climate_file_temp_units = m_tempUnits->currentData().toInt();
         config.latitude = OpenSWMM::Ui::preciseValue(m_latitude);
         config.longitude_correction_minutes = OpenSWMM::Ui::preciseValue(m_longitude);
@@ -459,41 +500,53 @@ void ClimatologyDialog::onPreviewEvaporation()
         SWMM_EvapPreviewSummary summary{};
         char diagnostic[1024]{};
         if (swmm_climate_preview_evaporation_with_config(m_engine, &config, begin, end, step,
-                nullptr, 0, &count, &summary, diagnostic, sizeof(diagnostic)) != SWMM_OK) {
+                                                         nullptr, 0, &count, &summary, diagnostic,
+                                                         sizeof(diagnostic)) != SWMM_OK) {
             QMessageBox::warning(this, tr("Evaporation preview"), QString::fromUtf8(diagnostic));
             return;
         }
         if (count > 2000) {
-            QMessageBox::information(this, tr("Evaporation preview"),
-                tr("This window contains %1 samples. Choose a weekly or 30-day interval to keep the table readable.").arg(count));
+            QMessageBox::information(
+                this, tr("Evaporation preview"),
+                tr("This window contains %1 samples. Choose a weekly or 30-day interval to keep the table readable.")
+                    .arg(count));
             return;
         }
         QVector<SWMM_EvapPreviewSample> samples(count);
-        if (swmm_climate_preview_evaporation_with_config(m_engine, &config, begin, end, step,
-                samples.data(), samples.size(), &count, &summary,
-                diagnostic, sizeof(diagnostic)) != SWMM_OK) {
+        if (swmm_climate_preview_evaporation_with_config(
+                m_engine, &config, begin, end, step, samples.data(), samples.size(), &count,
+                &summary, diagnostic, sizeof(diagnostic)) != SWMM_OK) {
             QMessageBox::warning(this, tr("Evaporation preview"), QString::fromUtf8(diagnostic));
             return;
         }
         table->setRowCount(count);
         const auto rateText = [](double rate) { return QString::number(rate, 'g', 8); };
         for (int row = 0; row < count; ++row) {
-            const auto& sample = samples[row];
-            const QString date = dateTimeFromOa(sample.date).toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+            const auto &sample = samples[row];
+            const QString date =
+                dateTimeFromOa(sample.date).toString(QStringLiteral("yyyy-MM-dd HH:mm"));
             const QString values[]{date, rateText(sample.source_rate), rateText(sample.adjustment),
-                                   rateText(sample.effective_rate), evapPreviewStatus(sample.status)};
+                                   rateText(sample.effective_rate),
+                                   evapPreviewStatus(sample.status)};
             for (int column = 0; column < 5; ++column)
                 table->setItem(row, column, new QTableWidgetItem(values[column]));
         }
-        QString message = tr("Source: %1. Available: %2; held: %3; missing: %4; daily estimates: %5.")
-            .arg(evapSourceName(summary.source_type))
-            .arg(summary.available_count).arg(summary.held_count)
-            .arg(summary.missing_count).arg(summary.estimated_count);
+        QString message =
+            tr("Source: %1. Available: %2; held: %3; missing: %4; daily estimates: %5.")
+                .arg(evapSourceName(summary.source_type))
+                .arg(summary.available_count)
+                .arg(summary.held_count)
+                .arg(summary.missing_count)
+                .arg(summary.estimated_count);
         if (std::isfinite(summary.minimum_rate))
             message += tr(" Effective-rate range: %1 to %2 %3.")
-                .arg(summary.minimum_rate, 0, 'g', 8).arg(summary.maximum_rate, 0, 'g', 8).arg(unit);
-        if (diagnostic[0]) message += QStringLiteral("\n") + QString::fromUtf8(diagnostic);
-        message += tr("\nLive runtime forcing is not included because future prescriptions are only known during simulation.");
+                           .arg(summary.minimum_rate, 0, 'g', 8)
+                           .arg(summary.maximum_rate, 0, 'g', 8)
+                           .arg(unit);
+        if (diagnostic[0])
+            message += QStringLiteral("\n") + QString::fromUtf8(diagnostic);
+        message += tr(
+            "\nLive runtime forcing is not included because future prescriptions are only known during simulation.");
         summaryLabel->setText(message);
     });
     refresh->click();
@@ -522,8 +575,8 @@ void ClimatologyDialog::buildWindTab(QTabWidget *tabs)
     m_windMonthly = makeMonthlyTable(unit);
     lay->addWidget(m_windMonthly);
 
-    connect(m_windType, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClimatologyDialog::onWindTypeChanged);
+    connect(m_windType, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClimatologyDialog::onWindTypeChanged);
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Wind Speed"));
 }
@@ -550,23 +603,24 @@ void ClimatologyDialog::buildHumidityTab(QTabWidget *tabs)
 
     m_humVar = new QComboBox;
     m_humVar->setObjectName(QStringLiteral("clim_humVar"));
-    m_humVar->addItem(tr("Relative Humidity (%)"), 0);                 // RELATIVE
-    m_humVar->addItem(tr("Dew Point Temperature (%1)")
-                          .arg(isSI() ? tr("°C") : tr("°F")), 1); // DEWPOINT
+    m_humVar->addItem(tr("Relative Humidity (%)"), 0); // RELATIVE
+    m_humVar->addItem(tr("Dew Point Temperature (%1)").arg(isSI() ? tr("°C") : tr("°F")),
+                      1); // DEWPOINT
     form->addRow(tr("Q&uantity:"), m_humVar);
 
     m_humType = new QComboBox;
     m_humType->setObjectName(QStringLiteral("clim_humType"));
-    m_humType->addItem(tr("Constant Value"), 0);     // CONSTANT
-    m_humType->addItem(tr("Monthly Averages"), 1);   // MONTHLY
-    m_humType->addItem(tr("Time Series"), 2);        // TIMESERIES
+    m_humType->addItem(tr("Constant Value"), 0);   // CONSTANT
+    m_humType->addItem(tr("Monthly Averages"), 1); // MONTHLY
+    m_humType->addItem(tr("Time Series"), 2);      // TIMESERIES
     form->addRow(tr("&Source of Humidity Data:"), m_humType);
 
     // Stacked controls — page index == engine humidity_type enum.
     m_humStack = new QStackedWidget;
     // 0 CONSTANT
     {
-        auto *w = new QWidget; auto *l = new QFormLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QFormLayout(w);
         m_humConstant = new QDoubleSpinBox;
         m_humConstant->setObjectName(QStringLiteral("clim_humConstant"));
         m_humConstant->setRange(-200.0, 200.0);
@@ -576,32 +630,36 @@ void ClimatologyDialog::buildHumidityTab(QTabWidget *tabs)
     }
     // 1 MONTHLY
     {
-        auto *w = new QWidget; auto *l = new QVBoxLayout(w);
+        auto *w = new QWidget;
+        auto *l = new QVBoxLayout(w);
         m_humMonthly = makeMonthlyTable(tr("Value"));
         l->addWidget(m_humMonthly);
         m_humStack->addWidget(w);
     }
     // 2 TIMESERIES
     {
-        auto *w = new QWidget; auto *l = new QFormLayout(w);
-        m_humTs = new QComboBox; m_humTs->setEditable(true);
+        auto *w = new QWidget;
+        auto *l = new QFormLayout(w);
+        m_humTs = new QComboBox;
+        m_humTs->setEditable(true);
         populateTimeseriesCombo(m_humTs);
         l->addRow(tr("Time Series:"), m_humTs);
         m_humStack->addWidget(w);
     }
     form->addRow(m_humStack);
 
-    connect(m_humType, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClimatologyDialog::onHumidityTypeChanged);
-    connect(m_humVar, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClimatologyDialog::onHumidityVarChanged);
+    connect(m_humType, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClimatologyDialog::onHumidityTypeChanged);
+    connect(m_humVar, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClimatologyDialog::onHumidityVarChanged);
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Humidity"));
 }
 
 void ClimatologyDialog::onHumidityTypeChanged()
 {
-    if (!m_humType || !m_humStack) return;
+    if (!m_humType || !m_humStack)
+        return;
     const int type = m_humType->currentData().toInt();
     if (type >= 0 && type < m_humStack->count())
         m_humStack->setCurrentIndex(type);
@@ -609,20 +667,19 @@ void ClimatologyDialog::onHumidityTypeChanged()
 
 void ClimatologyDialog::onHumidityVarChanged()
 {
-    if (!m_humVar || !m_humConstant || !m_humMonthly) return;
+    if (!m_humVar || !m_humConstant || !m_humMonthly)
+        return;
     const bool dew = m_humVar->currentData().toInt() == 1;
     // RH is a percentage; a dew point is a temperature in project units.
     m_humConstant->setRange(dew ? -200.0 : 0.0, dew ? 200.0 : 100.0);
     m_humConstant->setSuffix(dew ? (isSI() ? tr(" °C") : tr(" °F")) : tr(" %"));
-    m_humMonthly->setHorizontalHeaderLabels(QStringList{
-        dew ? (isSI() ? tr("Dew Point (°C)") : tr("Dew Point (°F)"))
-            : tr("RH (%)")});
+    m_humMonthly->setHorizontalHeaderLabels(
+        QStringList{dew ? (isSI() ? tr("Dew Point (°C)") : tr("Dew Point (°F)")) : tr("RH (%)")});
 }
 
 // ---------------------------------------------------------------------------
 // Snow Melt
 // ---------------------------------------------------------------------------
-
 
 void ClimatologyDialog::buildRadiationTab(QTabWidget *tabs)
 {
@@ -631,12 +688,14 @@ void ClimatologyDialog::buildRadiationTab(QTabWidget *tabs)
     m_radiationSite = new QCheckBox(tr("Use one explicit site for snow and heat"), page);
     m_radiationSite->setObjectName(QStringLiteral("clim_radiationSite"));
     form->addRow(m_radiationSite);
-    const char *labels[] = {"Latitude (° north):", "Longitude (° east):", "UTC offset (hours):", "Elevation (m):"};
+    const char *labels[] = {
+        "Latitude (° north):", "Longitude (° east):", "UTC offset (hours):", "Elevation (m):"};
     const double lower[] = {-90, -180, -14, -500}, upper[] = {90, 180, 14, 10000};
     for (int i = 0; i < 4; ++i) {
         auto *spin = m_siteValues[i] = new QDoubleSpinBox(page);
         spin->setObjectName(QStringLiteral("clim_site%1").arg(i));
-        spin->setRange(lower[i], upper[i]); spin->setDecimals(8);
+        spin->setRange(lower[i], upper[i]);
+        spin->setDecimals(8);
         form->addRow(tr(labels[i]), spin);
         connect(m_radiationSite, &QCheckBox::toggled, spin, &QWidget::setEnabled);
     }
@@ -644,129 +703,182 @@ void ClimatologyDialog::buildRadiationTab(QTabWidget *tabs)
         auto *mode = m_radiationModes[i] = new QComboBox(page);
         mode->setObjectName(QStringLiteral("clim_radiationMode%1").arg(i));
         mode->addItem(i ? tr("Default (computed)") : tr("Use existing heat configuration"), -1);
-        mode->addItem(tr("Computed"), 0); mode->addItem(tr("Time series"), 1); mode->addItem(tr("Hourly met file"), 2);
+        mode->addItem(tr("Computed"), 0);
+        mode->addItem(tr("Time series"), 1);
+        mode->addItem(tr("Hourly met file"), 2);
         form->addRow(i ? tr("Longwave source:") : tr("Shortwave source:"), mode);
         auto *series = m_radiationSeries[i] = new QComboBox(page);
         series->setObjectName(QStringLiteral("clim_radiationSeries%1").arg(i));
-        series->setEditable(true); populateTimeseriesCombo(series);
+        series->setEditable(true);
+        populateTimeseriesCombo(series);
         form->addRow(i ? tr("Longwave series (W/m²):") : tr("Shortwave series (W/m²):"), series);
-        connect(mode, &QComboBox::currentIndexChanged, this, [mode, series] { series->setEnabled(mode->currentData().toInt() == 1); });
+        connect(mode, &QComboBox::currentIndexChanged, this,
+                [mode, series] { series->setEnabled(mode->currentData().toInt() == 1); });
     }
     m_metFile = new openswmmvis::ui::RelativePathPicker(page);
     m_metFile->setObjectName(QStringLiteral("clim_metFile"));
     m_metFile->setFileFilter(tr("Meteorology (*.dat *.txt *.met);;All files (*)"));
     form->addRow(tr("Hourly meteorology:"), m_metFile);
-    auto *preview=new QPushButton(tr("Preview meteorology and coverage…"),page);
-    preview->setObjectName(QStringLiteral("clim_metPreview"));form->addRow(preview);
-    connect(preview,&QPushButton::clicked,this,[this] {
-        SWMM_ClimateMetSummary summary{};char error[1024]{};
-        if(swmm_climate_preview_meteorology(m_engine,m_metFile->absolutePath().toUtf8().constData(),&summary,error,sizeof(error))!=SWMM_OK) {
-            QMessageBox::warning(this,tr("Hourly meteorology"),QString::fromUtf8(error));return;
+    auto *preview = new QPushButton(tr("Preview meteorology and coverage…"), page);
+    preview->setObjectName(QStringLiteral("clim_metPreview"));
+    form->addRow(preview);
+    connect(preview, &QPushButton::clicked, this, [this] {
+        SWMM_ClimateMetSummary summary{};
+        char error[1024]{};
+        if (swmm_climate_preview_meteorology(m_engine,
+                                             m_metFile->absolutePath().toUtf8().constData(),
+                                             &summary, error, sizeof(error)) != SWMM_OK) {
+            QMessageBox::warning(this, tr("Hourly meteorology"), QString::fromUtf8(error));
+            return;
         }
-        const auto date=[](double oa) {
-            const auto day=qint64(std::floor(oa));const auto seconds=qint64(std::round((oa-day)*86400));
-            return QDateTime(QDate(1899,12,30).addDays(day),QTime(0,0),QTimeZone::UTC).addSecs(seconds).toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        const auto date = [](double oa) {
+            const auto day = qint64(std::floor(oa));
+            const auto seconds = qint64(std::round((oa - day) * 86400));
+            return QDateTime(QDate(1899, 12, 30).addDays(day), QTime(0, 0), QTimeZone::UTC)
+                .addSecs(seconds)
+                .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         };
-        QString text=tr("%1 hourly records\nCoverage: %2 to %3 (end excluded)\n\nThis file supplies temperature, humidity, wind, shortwave and longwave. Its radiation overrides selected series and computed values.\n\n")
-            .arg(summary.records).arg(date(summary.first_date),date(summary.last_date));
-        const char* names[]{"Temperature (°C)","Humidity (%)","Wind (m/s)","Shortwave (W/m²)","Longwave (W/m²)"};
-        for(int i=0;i<5;++i)text+=tr("%1: %2 to %3\n").arg(tr(names[i])).arg(summary.minimum[i],0,'g',8).arg(summary.maximum[i],0,'g',8);
-        QMessageBox::information(this,tr("Hourly meteorology preview"),text);
+        QString text =
+            tr("%1 hourly records\nCoverage: %2 to %3 (end excluded)\n\nThis file supplies temperature, humidity, wind, shortwave and longwave. Its radiation overrides selected series and computed values.\n\n")
+                .arg(summary.records)
+                .arg(date(summary.first_date), date(summary.last_date));
+        const char *names[]{"Temperature (°C)", "Humidity (%)", "Wind (m/s)", "Shortwave (W/m²)",
+                            "Longwave (W/m²)"};
+        for (int i = 0; i < 5; ++i)
+            text += tr("%1: %2 to %3\n")
+                        .arg(tr(names[i]))
+                        .arg(summary.minimum[i], 0, 'g', 8)
+                        .arg(summary.maximum[i], 0, 'g', 8);
+        QMessageBox::information(this, tr("Hourly meteorology preview"), text);
     });
-    m_cloudMode = new QComboBox(page); m_cloudMode->setObjectName(QStringLiteral("clim_cloudMode"));
+    m_cloudMode = new QComboBox(page);
+    m_cloudMode->setObjectName(QStringLiteral("clim_cloudMode"));
     m_cloudMode->addItem(tr("Default (UEB atmospheric transmissivity)"), 0);
-    m_cloudMode->addItem(tr("Constant fraction"), 1); m_cloudMode->addItem(tr("Time series"), 2);
+    m_cloudMode->addItem(tr("Constant fraction"), 1);
+    m_cloudMode->addItem(tr("Time series"), 2);
     form->addRow(tr("Shared cloud cover:"), m_cloudMode);
-    m_cloudSeries = new QComboBox(page); m_cloudSeries->setObjectName(QStringLiteral("clim_cloudSeries"));
-    m_cloudSeries->setEditable(true); populateTimeseriesCombo(m_cloudSeries);
+    m_cloudSeries = new QComboBox(page);
+    m_cloudSeries->setObjectName(QStringLiteral("clim_cloudSeries"));
+    m_cloudSeries->setEditable(true);
+    populateTimeseriesCombo(m_cloudSeries);
     form->addRow(tr("Cloud fraction series:"), m_cloudSeries);
-    const char* cloudLabels[]{"Cloud fraction (0–1):", "Shortwave attenuation coefficient:", "Shortwave attenuation exponent:", "Longwave cloud coefficient:"};
-    for(int i=0;i<4;++i) {
-        auto *spin=m_cloudValues[i]=new QDoubleSpinBox(page);spin->setDecimals(8);spin->setRange(0,i?1e6:1);
-        spin->setObjectName(QStringLiteral("clim_cloud%1").arg(i));form->addRow(tr(cloudLabels[i]),spin);
+    const char *cloudLabels[]{"Cloud fraction (0–1):", "Shortwave attenuation coefficient:",
+                              "Shortwave attenuation exponent:", "Longwave cloud coefficient:"};
+    for (int i = 0; i < 4; ++i) {
+        auto *spin = m_cloudValues[i] = new QDoubleSpinBox(page);
+        spin->setDecimals(8);
+        spin->setRange(0, i ? 1e6 : 1);
+        spin->setObjectName(QStringLiteral("clim_cloud%1").arg(i));
+        form->addRow(tr(cloudLabels[i]), spin);
     }
-    connect(m_cloudMode,&QComboBox::currentIndexChanged,this,[this] {
-        const int mode=m_cloudMode->currentData().toInt();m_cloudSeries->setEnabled(mode==2);
-        for(int i=0;i<4;++i)m_cloudValues[i]->setEnabled(i?mode!=0:mode==1);
+    connect(m_cloudMode, &QComboBox::currentIndexChanged, this, [this] {
+        const int mode = m_cloudMode->currentData().toInt();
+        m_cloudSeries->setEnabled(mode == 2);
+        for (int i = 0; i < 4; ++i)
+            m_cloudValues[i]->setEnabled(i ? mode != 0 : mode == 1);
     });
-    auto *description = new QLabel(tr("Met-file values take precedence over the selected time series or computed radiation. Columns: MM/DD/YYYY HH:00, temperature (°C), humidity (%), wind (m/s), shortwave and longwave (W/m²). Each row represents the following hour. Coverage is checked before applying. Cloud settings are shared with Heat Configuration. Measured radiation already includes cloud effects."), page);
-    description->setWordWrap(true); form->addRow(description);
+    auto *description = new QLabel(
+        tr("Met-file values take precedence over the selected time series or computed radiation. Columns: MM/DD/YYYY HH:00, temperature (°C), humidity (%), wind (m/s), shortwave and longwave (W/m²). Each row represents the following hour. Coverage is checked before applying. Cloud settings are shared with Heat Configuration. Measured radiation already includes cloud effects."),
+        page);
+    description->setWordWrap(true);
+    form->addRow(description);
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("Radiation"));
 }
 
 void ClimatologyDialog::editUebParameters()
 {
-    QDialog dialog(this); dialog.setWindowTitle(tr("UEB parameters"));
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("UEB parameters"));
     dialog.setObjectName(QStringLiteral("UebOptionsDialog"));
     auto *outer = new QVBoxLayout(&dialog);
-    auto *tabs = new QTabWidget(&dialog); outer->addWidget(tabs);
-    QMap<QString, QFormLayout*> groups;
-    QMap<QString, QDoubleSpinBox*> spins;
-    for (const auto& field : openswmmvis::ui::uebFields) {
+    auto *tabs = new QTabWidget(&dialog);
+    outer->addWidget(tabs);
+    QMap<QString, QFormLayout *> groups;
+    QMap<QString, QDoubleSpinBox *> spins;
+    for (const auto &field : openswmmvis::ui::uebFields) {
         const QString group = QString::fromUtf8(field.group);
         if (!groups.contains(group)) {
-            auto *page = new QWidget; auto *form = new QFormLayout(page); groups[group] = form;
+            auto *page = new QWidget;
+            auto *form = new QFormLayout(page);
+            groups[group] = form;
             tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr(field.group));
         }
         auto *spin = new QDoubleSpinBox;
         spin->setObjectName(QStringLiteral("ueb_") + QString::fromLatin1(field.key));
-        spin->setDecimals(8); spin->setRange(field.minimum, field.maximum);
+        spin->setDecimals(8);
+        spin->setRange(field.minimum, field.maximum);
         spin->setValue(m_snowDraft.options.value(QString::fromLatin1(field.key)).toDouble());
         spin->setProperty("initialValue", spin->value());
-        groups[group]->addRow(tr(field.label), spin); spins[QString::fromLatin1(field.key)] = spin;
+        groups[group]->addRow(tr(field.label), spin);
+        spins[QString::fromLatin1(field.key)] = spin;
     }
     auto *scheme = new QComboBox;
     scheme->addItem(tr("Modified force-restore"), QStringLiteral("MODIFIED_FORCE_RESTORE"));
     scheme->addItem(tr("Equilibrium (1996 reference)"), QStringLiteral("EQUILIBRIUM"));
-    scheme->setCurrentIndex(scheme->findData(m_snowDraft.options.value(QStringLiteral("SURFACE_TEMP"))));
+    scheme->setCurrentIndex(
+        scheme->findData(m_snowDraft.options.value(QStringLiteral("SURFACE_TEMP"))));
     groups[QStringLiteral("Temperature scheme")]->insertRow(0, tr("Surface temperature"), scheme);
     auto *split = new QComboBox;
     split->addItem(tr("UEB linear temperature transition"), QStringLiteral("UEB"));
     split->addItem(tr("Legacy division temperature"), QStringLiteral("DIVT"));
-    split->setCurrentIndex(split->findData(m_snowDraft.options.value(QStringLiteral("PRECIP_SPLIT"))));
+    split->setCurrentIndex(
+        split->findData(m_snowDraft.options.value(QStringLiteral("PRECIP_SPLIT"))));
     groups[QStringLiteral("Precipitation")]->insertRow(0, tr("Rain / snow partition"), split);
-    auto *monthlyPage = new QWidget; auto *monthly = new QFormLayout(monthlyPage);
-    std::array<QDoubleSpinBox*, 12> ranges{};
+    auto *monthlyPage = new QWidget;
+    auto *monthly = new QFormLayout(monthlyPage);
+    std::array<QDoubleSpinBox *, 12> ranges{};
     for (int i = 0; i < 12; ++i) {
         auto *spin = ranges[i] = new QDoubleSpinBox;
-        spin->setRange(0, 100); spin->setDecimals(6); spin->setSpecialValueText(tr("From temperature source"));
-        spin->setValue(m_snowDraft.ranges[i]); monthly->addRow(tr(kMonths[i]), spin);
+        spin->setRange(0, 100);
+        spin->setDecimals(6);
+        spin->setSpecialValueText(tr("From temperature source"));
+        spin->setValue(m_snowDraft.ranges[i]);
+        monthly->addRow(tr(kMonths[i]), spin);
     }
-    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(monthlyPage, tabs), tr("Monthly temperature range (°C)"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(monthlyPage, tabs),
+                 tr("Monthly temperature range (°C)"));
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     outer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialog.resize(840, 550);
-    if (dialog.exec() != QDialog::Accepted) return;
+    if (dialog.exec() != QDialog::Accepted)
+        return;
     for (auto it = spins.cbegin(); it != spins.cend(); ++it)
         if (it.value()->value() != it.value()->property("initialValue").toDouble())
             m_snowDraft.options[it.key()] = QString::number(it.value()->value(), 'g', 17);
     m_snowDraft.options[QStringLiteral("SURFACE_TEMP")] = scheme->currentData().toString();
     m_snowDraft.options[QStringLiteral("PRECIP_SPLIT")] = split->currentData().toString();
-    for (int i = 0; i < 12; ++i) m_snowDraft.ranges[i] = ranges[i]->value();
+    for (int i = 0; i < 12; ++i)
+        m_snowDraft.ranges[i] = ranges[i]->value();
 }
 
 void ClimatologyDialog::updateSnowDraft()
 {
-    m_snowDraft.model = m_snowModel->currentData().toInt(); m_snowDraft.step = m_snowStep->value();
-    auto& site = m_snowDraft.radiation;
+    m_snowDraft.model = m_snowModel->currentData().toInt();
+    m_snowDraft.step = m_snowStep->value();
+    auto &site = m_snowDraft.radiation;
     site.explicit_site = m_radiationSite->isChecked();
     double *values[] = {&site.latitude, &site.longitude, &site.timezone, &site.elevation_m};
     for (int i = 0; i < 4; ++i)
-        if (m_siteValues[i]->value() != m_siteValues[i]->property("initialValue").toDouble()) *values[i] = m_siteValues[i]->value();
+        if (m_siteValues[i]->value() != m_siteValues[i]->property("initialValue").toDouble())
+            *values[i] = m_siteValues[i]->value();
     site.shortwave_authored = m_radiationModes[0]->currentData().toInt() >= 0;
     site.longwave_authored = m_radiationModes[1]->currentData().toInt() >= 0;
     site.shortwave_mode = qMax(0, m_radiationModes[0]->currentData().toInt());
     site.longwave_mode = qMax(0, m_radiationModes[1]->currentData().toInt());
-    for (int i = 0; i < 2; ++i) m_snowDraft.sources[i] = m_radiationSeries[i]->currentText().trimmed();
+    for (int i = 0; i < 2; ++i)
+        m_snowDraft.sources[i] = m_radiationSeries[i]->currentText().trimmed();
     if (m_metFile->absolutePath() != m_metFile->property("initialPath").toString())
         m_snowDraft.sources[2] = m_metFile->displayPath();
-    auto& cloud=m_snowDraft.cloud;cloud.mode=m_cloudMode->currentData().toInt();
-    m_snowDraft.cloudSeries=m_cloudSeries->currentText().trimmed();
-    double* cloudValues[]{&cloud.fraction,&cloud.shortwave_k,&cloud.shortwave_n,&cloud.longwave_k};
-    for(int i=0;i<4;++i)if(m_cloudValues[i]->value()!=m_cloudValues[i]->property("initialValue").toDouble())
-        *cloudValues[i]=m_cloudValues[i]->value();
+    auto &cloud = m_snowDraft.cloud;
+    cloud.mode = m_cloudMode->currentData().toInt();
+    m_snowDraft.cloudSeries = m_cloudSeries->currentText().trimmed();
+    double *cloudValues[]{&cloud.fraction, &cloud.shortwave_k, &cloud.shortwave_n,
+                          &cloud.longwave_k};
+    for (int i = 0; i < 4; ++i)
+        if (m_cloudValues[i]->value() != m_cloudValues[i]->property("initialValue").toDouble())
+            *cloudValues[i] = m_cloudValues[i]->value();
 }
 
 void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
@@ -781,14 +893,19 @@ void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
     form->addRow(tr("Default snow model:"), m_snowModel);
     m_snowStep = new QDoubleSpinBox(page);
     m_snowStep->setObjectName(QStringLiteral("clim_snowStep"));
-    m_snowStep->setRange(0.000001, 3600); m_snowStep->setDecimals(6); m_snowStep->setSuffix(tr(" s"));
-    m_snowStep->setToolTip(tr("UEB update interval for subcatchments and mesh cells. Degree-day snow retains the runoff timestep."));
+    m_snowStep->setRange(0.000001, 3600);
+    m_snowStep->setDecimals(6);
+    m_snowStep->setSuffix(tr(" s"));
+    m_snowStep->setToolTip(tr(
+        "UEB update interval for subcatchments and mesh cells. Degree-day snow retains the runoff timestep."));
     form->addRow(tr("UEB update interval:"), m_snowStep);
     auto *uebOptions = new QPushButton(tr("UEB parameters…"), page);
     uebOptions->setObjectName(QStringLiteral("clim_uebOptions"));
     connect(uebOptions, &QPushButton::clicked, this, &ClimatologyDialog::editUebParameters);
     form->addRow(uebOptions);
-    auto *legacyNote = new QLabel(tr("The settings below apply to degree-day snowpacks. Site values also provide defaults when no explicit shared site is set on Radiation."), page);
+    auto *legacyNote = new QLabel(
+        tr("The settings below apply to degree-day snowpacks. Site values also provide defaults when no explicit shared site is set on Radiation."),
+        page);
     legacyNote->setWordWrap(true);
     form->addRow(legacyNote);
 
@@ -797,28 +914,36 @@ void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
 
     m_snowTemp = new QDoubleSpinBox;
     m_snowTemp->setObjectName(QStringLiteral("clim_snowTemp"));
-    m_snowTemp->setRange(-100.0, 100.0); m_snowTemp->setDecimals(2);
+    m_snowTemp->setRange(-100.0, 100.0);
+    m_snowTemp->setDecimals(2);
     form->addRow(tr("Dividing Temperature (%1):").arg(tUnit), m_snowTemp);
 
     m_atiWeight = new QDoubleSpinBox;
-    m_atiWeight->setRange(0.0, 1.0); m_atiWeight->setDecimals(2); m_atiWeight->setSingleStep(0.05);
+    m_atiWeight->setRange(0.0, 1.0);
+    m_atiWeight->setDecimals(2);
+    m_atiWeight->setSingleStep(0.05);
     form->addRow(tr("ATI Wei&ght (fraction):"), m_atiWeight);
 
     m_negMelt = new QDoubleSpinBox;
-    m_negMelt->setRange(0.0, 1.0); m_negMelt->setDecimals(2); m_negMelt->setSingleStep(0.05);
+    m_negMelt->setRange(0.0, 1.0);
+    m_negMelt->setDecimals(2);
+    m_negMelt->setSingleStep(0.05);
     form->addRow(tr("Negative Melt Ratio (fraction):"), m_negMelt);
 
     m_elevation = new QDoubleSpinBox;
-    m_elevation->setRange(-1.0e5, 1.0e5); m_elevation->setDecimals(2);
+    m_elevation->setRange(-1.0e5, 1.0e5);
+    m_elevation->setDecimals(2);
     form->addRow(tr("Elevation above MSL (%1):").arg(eUnit), m_elevation);
 
     m_latitude = new QDoubleSpinBox;
     m_latitude->setObjectName(QStringLiteral("clim_latitude"));
-    m_latitude->setRange(-90.0, 90.0); m_latitude->setDecimals(2);
+    m_latitude->setRange(-90.0, 90.0);
+    m_latitude->setDecimals(2);
     form->addRow(tr("Latitude (degrees):"), m_latitude);
 
     m_longitude = new QDoubleSpinBox;
-    m_longitude->setRange(-1440.0, 1440.0); m_longitude->setDecimals(1);
+    m_longitude->setRange(-1440.0, 1440.0);
+    m_longitude->setDecimals(1);
     form->addRow(tr("Longitude Correction (+/- minutes):"), m_longitude);
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("S&now Melt"));
@@ -838,7 +963,8 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     m_adc->setObjectName(QStringLiteral("clim_adc"));
     m_adc->setHorizontalHeaderLabels(QStringList{tr("Impervious"), tr("Pervious")});
     QStringList ratios;
-    for (int i = 0; i < 10; ++i) ratios << QString::number(i * 0.1, 'f', 1);
+    for (int i = 0; i < 10; ++i)
+        ratios << QString::number(i * 0.1, 'f', 1);
     m_adc->setVerticalHeaderLabels(ratios);
     m_adc->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int r = 0; r < 10; ++r)
@@ -851,13 +977,15 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     auto *iNat = new QPushButton(tr("Impervious: Natural Area"));
     auto *pNo = new QPushButton(tr("Pervious: No Depletion"));
     auto *pNat = new QPushButton(tr("Pervious: Natural Area"));
-    btns->addWidget(iNo, 0, 0); btns->addWidget(iNat, 0, 1);
-    btns->addWidget(pNo, 1, 0); btns->addWidget(pNat, 1, 1);
+    btns->addWidget(iNo, 0, 0);
+    btns->addWidget(iNat, 0, 1);
+    btns->addWidget(pNo, 1, 0);
+    btns->addWidget(pNat, 1, 1);
     lay->addLayout(btns);
-    connect(iNo,  &QPushButton::clicked, this, [this]{ onAdcPreset(0, false); });
-    connect(iNat, &QPushButton::clicked, this, [this]{ onAdcPreset(0, true); });
-    connect(pNo,  &QPushButton::clicked, this, [this]{ onAdcPreset(1, false); });
-    connect(pNat, &QPushButton::clicked, this, [this]{ onAdcPreset(1, true); });
+    connect(iNo, &QPushButton::clicked, this, [this] { onAdcPreset(0, false); });
+    connect(iNat, &QPushButton::clicked, this, [this] { onAdcPreset(0, true); });
+    connect(pNo, &QPushButton::clicked, this, [this] { onAdcPreset(1, false); });
+    connect(pNat, &QPushButton::clicked, this, [this] { onAdcPreset(1, true); });
 
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Areal Depletion"));
 }
@@ -881,15 +1009,16 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
     m_adjust->setHorizontalHeaderLabels(
         QStringList{tr("Temp"), tr("Evap"), tr("Rain"), tr("Cond")});
     QStringList rows;
-    for (const char *m : kMonths) rows << QString::fromLatin1(m);
+    for (const char *m : kMonths)
+        rows << QString::fromLatin1(m);
     m_adjust->setVerticalHeaderLabels(rows);
     m_adjust->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int r = 0; r < 12; ++r)
         for (int c = 0; c < 4; ++c)
-            m_adjust->setItem(r, c, new QTableWidgetItem(
-                QStringLiteral("%1").arg(c == 0 ? 0 : 1)));
+            m_adjust->setItem(r, c, new QTableWidgetItem(QStringLiteral("%1").arg(c == 0 ? 0 : 1)));
     auto *help = new QLabel(tr("Temp = +/- offset; Evap = rate added to the source (%1); "
-                               "Rain and Cond = multipliers.").arg(isSI() ? tr("mm/day") : tr("in/day")));
+                               "Rain and Cond = multipliers.")
+                                .arg(isSI() ? tr("mm/day") : tr("in/day")));
     help->setObjectName(QStringLiteral("clim_adjustment_help"));
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -906,10 +1035,10 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
 void ClimatologyDialog::onClearAdjustments()
 {
     for (int r = 0; r < 12; ++r) {
-        setCell(m_adjust, r, 0, 0.0);   // temp offset
-        setCell(m_adjust, r, 1, 1.0);   // evap mult
-        setCell(m_adjust, r, 2, 1.0);   // rain mult
-        setCell(m_adjust, r, 3, 1.0);   // cond mult
+        setCell(m_adjust, r, 0, 0.0); // temp offset
+        setCell(m_adjust, r, 1, 1.0); // evap mult
+        setCell(m_adjust, r, 2, 1.0); // rain mult
+        setCell(m_adjust, r, 3, 1.0); // cond mult
     }
 }
 
@@ -919,21 +1048,25 @@ void ClimatologyDialog::onClearAdjustments()
 
 void ClimatologyDialog::populateTimeseriesCombo(QComboBox *combo) const
 {
-    if (!m_engine || !combo) return;
+    if (!m_engine || !combo)
+        return;
     const int n = swmm_table_count(m_engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_table_id(m_engine, i);
-        if (id) combo->addItem(QString::fromUtf8(id));
+        if (id)
+            combo->addItem(QString::fromUtf8(id));
     }
 }
 
 void ClimatologyDialog::populatePatternCombo(QComboBox *combo) const
 {
-    if (!m_engine || !combo) return;
+    if (!m_engine || !combo)
+        return;
     const int n = swmm_pattern_count(m_engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pattern_id(m_engine, i);
-        if (id) combo->addItem(QString::fromUtf8(id));
+        if (id)
+            combo->addItem(QString::fromUtf8(id));
     }
 }
 
@@ -947,19 +1080,24 @@ void ClimatologyDialog::setProjectAnchor(const QString &dir)
     m_projectAnchor = dir;
     // The picker exists by the time any caller can reach this (buildUi runs in
     // the constructor) and re-renders its display on anchor change.
-    if (m_tempFile) m_tempFile->setProjectAnchor(dir);
-    if (m_metFile) m_metFile->setProjectAnchor(dir);
+    if (m_tempFile)
+        m_tempFile->setProjectAnchor(dir);
+    if (m_metFile)
+        m_metFile->setProjectAnchor(dir);
     if (unchanged) {
         m_metFile->setProperty("initialPath", m_metFile->absolutePath());
-        m_tempFile->setProperty("initialAbsolute",m_tempFile->absolutePath());
+        m_tempFile->setProperty("initialAbsolute", m_tempFile->absolutePath());
         m_initialSig = serialize();
     }
 }
 
 void ClimatologyDialog::readFromEngine()
 {
-    if (!m_engine) return;
-    int i = 0; double d = 0.0; char buf[512] = {};
+    if (!m_engine)
+        return;
+    int i = 0;
+    double d = 0.0;
+    char buf[512] = {};
 
     // Temperature
     if (swmm_climate_get_temp_source(m_engine, &i) == SWMM_OK)
@@ -967,13 +1105,12 @@ void ClimatologyDialog::readFromEngine()
     if (swmm_climate_get_temp_timeseries(m_engine, buf, sizeof(buf)) == SWMM_OK)
         m_tempTs->setCurrentText(QString::fromUtf8(buf));
     char absb[512] = {}, orig[512] = {};
-    if (swmm_file_path_get(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
-                           absb, sizeof(absb), orig, sizeof(orig)) == SWMM_OK) {
+    if (swmm_file_path_get(m_engine, SWMM_FILE_CLIMATE_TEMP, "", absb, sizeof(absb), orig,
+                           sizeof(orig)) == SWMM_OK) {
         // The picker holds the absolute form and renders it against the
         // anchor; prefer the resolved path, falling back to the authored
         // token for a programmatic model the resolver never touched.
-        m_tempFile->setPath(absb[0] ? QString::fromUtf8(absb)
-                                    : QString::fromUtf8(orig));
+        m_tempFile->setPath(absb[0] ? QString::fromUtf8(absb) : QString::fromUtf8(orig));
     }
     if (swmm_climate_get_temp_file_start(m_engine, &d) == SWMM_OK && d > 0.0) {
         m_tempStartCheck->setChecked(true);
@@ -987,13 +1124,14 @@ void ClimatologyDialog::readFromEngine()
     // Evaporation
     if (swmm_climate_get_evap_type(m_engine, &i) == SWMM_OK) {
         const int idx = m_evapType->findData(i);
-        if (idx >= 0) m_evapType->setCurrentIndex(idx);
+        if (idx >= 0)
+            m_evapType->setCurrentIndex(idx);
     }
     {
         double m[12] = {};
         if (swmm_climate_get_evap_monthly(m_engine, m, 12) == SWMM_OK) {
             writeColumn(m_evapMonthly, 0, m, 12);
-            OpenSWMM::Ui::setHydratedValue(m_evapConstant,m[0]);
+            OpenSWMM::Ui::setHydratedValue(m_evapConstant, m[0]);
         }
         double pc[12] = {};
         if (swmm_climate_get_pan_coeff(m_engine, pc, 12) == SWMM_OK)
@@ -1010,7 +1148,8 @@ void ClimatologyDialog::readFromEngine()
     // Wind
     if (swmm_climate_get_wind_type(m_engine, &i) == SWMM_OK) {
         const int idx = m_windType->findData(i);
-        if (idx >= 0) m_windType->setCurrentIndex(idx);
+        if (idx >= 0)
+            m_windType->setCurrentIndex(idx);
     }
     {
         double w[12] = {};
@@ -1022,18 +1161,20 @@ void ClimatologyDialog::readFromEngine()
     // Humidity
     if (swmm_climate_get_humidity_variable(m_engine, &i) == SWMM_OK) {
         const int idx = m_humVar->findData(i);
-        if (idx >= 0) m_humVar->setCurrentIndex(idx);
+        if (idx >= 0)
+            m_humVar->setCurrentIndex(idx);
     }
-    onHumidityVarChanged();   // set ranges before values land
+    onHumidityVarChanged(); // set ranges before values land
     if (swmm_climate_get_humidity_type(m_engine, &i) == SWMM_OK) {
         const int idx = m_humType->findData(i);
-        if (idx >= 0) m_humType->setCurrentIndex(idx);
+        if (idx >= 0)
+            m_humType->setCurrentIndex(idx);
     }
     {
         double h[12] = {};
         if (swmm_climate_get_humidity_monthly(m_engine, h, 12) == SWMM_OK) {
             writeColumn(m_humMonthly, 0, h, 12);
-            OpenSWMM::Ui::setHydratedValue(m_humConstant,h[0]);
+            OpenSWMM::Ui::setHydratedValue(m_humConstant, h[0]);
         }
     }
     if (swmm_climate_get_humidity_timeseries(m_engine, buf, sizeof(buf)) == SWMM_OK)
@@ -1041,12 +1182,18 @@ void ClimatologyDialog::readFromEngine()
     onHumidityTypeChanged();
 
     // Snow melt
-    if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_snowTemp,d);
-    if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_atiWeight,d);
-    if (swmm_climate_get_neg_melt_ratio(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_negMelt,d);
-    if (swmm_climate_get_elevation(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_elevation,d);
-    if (swmm_climate_get_latitude(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_latitude,d);
-    if (swmm_climate_get_longitude_correction(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_longitude,d);
+    if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_snowTemp, d);
+    if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_atiWeight, d);
+    if (swmm_climate_get_neg_melt_ratio(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_negMelt, d);
+    if (swmm_climate_get_elevation(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_elevation, d);
+    if (swmm_climate_get_latitude(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_latitude, d);
+    if (swmm_climate_get_longitude_correction(m_engine, &d) == SWMM_OK)
+        OpenSWMM::Ui::setHydratedValue(m_longitude, d);
 
     // Areal depletion
     {
@@ -1075,15 +1222,17 @@ void ClimatologyDialog::readFromEngine()
     m_snowDraft.load(m_engine);
     m_cloudMode->setCurrentIndex(m_cloudMode->findData(m_snowDraft.cloud.mode));
     m_cloudSeries->setCurrentText(m_snowDraft.cloudSeries);
-    const double cloudValues[]{m_snowDraft.cloud.fraction,m_snowDraft.cloud.shortwave_k,m_snowDraft.cloud.shortwave_n,m_snowDraft.cloud.longwave_k};
-    for(int i=0;i<4;++i) {
-        m_cloudValues[i]->setValue(cloudValues[i]);m_cloudValues[i]->setProperty("initialValue",m_cloudValues[i]->value());
-        m_cloudValues[i]->setEnabled(i?m_snowDraft.cloud.mode!=0:m_snowDraft.cloud.mode==1);
+    const double cloudValues[]{m_snowDraft.cloud.fraction, m_snowDraft.cloud.shortwave_k,
+                               m_snowDraft.cloud.shortwave_n, m_snowDraft.cloud.longwave_k};
+    for (int i = 0; i < 4; ++i) {
+        m_cloudValues[i]->setValue(cloudValues[i]);
+        m_cloudValues[i]->setProperty("initialValue", m_cloudValues[i]->value());
+        m_cloudValues[i]->setEnabled(i ? m_snowDraft.cloud.mode != 0 : m_snowDraft.cloud.mode == 1);
     }
-    m_cloudSeries->setEnabled(m_snowDraft.cloud.mode==2);
+    m_cloudSeries->setEnabled(m_snowDraft.cloud.mode == 2);
     m_snowModel->setCurrentIndex(m_snowModel->findData(m_snowDraft.model));
     m_snowStep->setValue(m_snowDraft.step);
-    const auto& site = m_snowDraft.radiation;
+    const auto &site = m_snowDraft.radiation;
     m_radiationSite->setChecked(site.explicit_site);
     const double values[] = {site.latitude, site.longitude, site.timezone, site.elevation_m};
     for (int k = 0; k < 4; ++k) {
@@ -1092,7 +1241,8 @@ void ClimatologyDialog::readFromEngine()
         m_siteValues[k]->setEnabled(site.explicit_site);
     }
     for (int k = 0; k < 2; ++k) {
-        const int mode = k ? (site.longwave_authored ? site.longwave_mode : -1) : (site.shortwave_authored ? site.shortwave_mode : -1);
+        const int mode = k ? (site.longwave_authored ? site.longwave_mode : -1)
+                           : (site.shortwave_authored ? site.shortwave_mode : -1);
         m_radiationModes[k]->setCurrentIndex(m_radiationModes[k]->findData(mode));
         m_radiationSeries[k]->setCurrentText(m_snowDraft.sources[k]);
         m_radiationSeries[k]->setEnabled(mode == 1);
@@ -1105,91 +1255,197 @@ void ClimatologyDialog::readFromEngine()
 
 QString ClimatologyDialog::writeToEngine()
 {
-    if (!m_engine) return tr("No model is open.");
+    if (!m_engine)
+        return tr("No model is open.");
 
     // Temperature
-    do { if (swmm_climate_set_temp_source(m_engine, m_tempSource->currentIndex()) != SWMM_OK) return tr("The engine refused the temperature source. Check the selected data and values."); } while (false);
-    if (m_tempSource->currentIndex()==1 && !m_tempTs->currentText().trimmed().isEmpty())
-        do { if (swmm_climate_set_temp_timeseries(m_engine,
-            m_tempTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the temperature timeseries. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_temp_source(m_engine, m_tempSource->currentIndex()) != SWMM_OK)
+            return tr(
+                "The engine refused the temperature source. Check the selected data and values.");
+    } while (false);
+    if (m_tempSource->currentIndex() == 1 && !m_tempTs->currentText().trimmed().isEmpty())
+        do {
+            if (swmm_climate_set_temp_timeseries(
+                    m_engine, m_tempTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK)
+                return tr(
+                    "The engine refused the temperature timeseries. Check the selected data and values.");
+        } while (false);
     // Commit the DISPLAYED form: relative to the project when it can be, which
     // is what the .inp will carry anyway. displayPath() falls back to the
     // absolute path when no relative form exists (different volume).
-    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty() && m_tempFile->absolutePath()!=m_tempFile->property("initialAbsolute").toString())
-        do { if (swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
-                           m_tempFile->displayPath().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the climate file path. Check the selected data and values."); } while (false);
+    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty() &&
+        m_tempFile->absolutePath() != m_tempFile->property("initialAbsolute").toString())
+        do {
+            if (swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
+                                   m_tempFile->displayPath().toUtf8().constData()) != SWMM_OK)
+                return tr(
+                    "The engine refused the climate file path. Check the selected data and values.");
+        } while (false);
     if (m_tempStartCheck->isChecked())
-        do { if (swmm_climate_set_temp_file_start(m_engine,
-            openswmmvis::core::qDateTimeToSwmmDateTime(
-                QDateTime(m_tempStartDate->date(), QTime(0, 0)))) != SWMM_OK) return tr("The engine refused the temperature file start. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_temp_file_start(
+                    m_engine, openswmmvis::core::qDateTimeToSwmmDateTime(
+                                  QDateTime(m_tempStartDate->date(), QTime(0, 0)))) != SWMM_OK)
+                return tr(
+                    "The engine refused the temperature file start. Check the selected data and values.");
+        } while (false);
     else
-        do { if (swmm_climate_set_temp_file_start(m_engine, 0.0) != SWMM_OK) return tr("The engine refused the temperature file start. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_temp_units(m_engine, m_tempUnits->currentData().toInt()) != SWMM_OK) return tr("The engine refused the temperature units. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_temp_file_start(m_engine, 0.0) != SWMM_OK)
+                return tr(
+                    "The engine refused the temperature file start. Check the selected data and values.");
+        } while (false);
+    do {
+        if (swmm_climate_set_temp_units(m_engine, m_tempUnits->currentData().toInt()) != SWMM_OK)
+            return tr(
+                "The engine refused the temperature units. Check the selected data and values.");
+    } while (false);
 
     // Evaporation
     const int evapType = m_evapType->currentData().toInt();
-    do { if (swmm_climate_set_evap_type(m_engine, evapType) != SWMM_OK) return tr("The engine refused the evap type. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_evap_type(m_engine, evapType) != SWMM_OK)
+            return tr("The engine refused the evap type. Check the selected data and values.");
+    } while (false);
     {
         double m[12] = {};
         readColumn(m_evapMonthly, 0, m, 12);
         if (evapType == 0) {
-            const double value=OpenSWMM::Ui::preciseValue(m_evapConstant);
-            if(m_evapConstant->value()!=m_evapConstant->property("swmmDisplayedValue").toDouble())std::fill_n(m,12,value);
-            else m[0]=value;
+            const double value = OpenSWMM::Ui::preciseValue(m_evapConstant);
+            if (m_evapConstant->value() !=
+                m_evapConstant->property("swmmDisplayedValue").toDouble())
+                std::fill_n(m, 12, value);
+            else
+                m[0] = value;
         }
-        do { if (swmm_climate_set_evap_monthly(m_engine, m, 12) != SWMM_OK) return tr("The engine refused the evap monthly. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_evap_monthly(m_engine, m, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the evap monthly. Check the selected data and values.");
+        } while (false);
         double pc[12] = {};
         readColumn(m_panCoeff, 0, pc, 12);
-        do { if (swmm_climate_set_pan_coeff(m_engine, pc, 12) != SWMM_OK) return tr("The engine refused the pan coeff. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_pan_coeff(m_engine, pc, 12) != SWMM_OK)
+                return tr("The engine refused the pan coeff. Check the selected data and values.");
+        } while (false);
     }
     if (evapType == 2 && !m_evapTs->currentText().trimmed().isEmpty())
-        do { if (swmm_climate_set_evap_timeseries(m_engine,
-            m_evapTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the evap timeseries. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_evap_recovery(m_engine,
-        m_recovery->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the evap recovery. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_dry_only(m_engine, m_dryOnly->isChecked() ? 1 : 0) != SWMM_OK) return tr("The engine refused the dry only. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_evap_timeseries(
+                    m_engine, m_evapTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK)
+                return tr(
+                    "The engine refused the evap timeseries. Check the selected data and values.");
+        } while (false);
+    do {
+        if (swmm_climate_set_evap_recovery(
+                m_engine, m_recovery->currentText().trimmed().toUtf8().constData()) != SWMM_OK)
+            return tr("The engine refused the evap recovery. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_dry_only(m_engine, m_dryOnly->isChecked() ? 1 : 0) != SWMM_OK)
+            return tr("The engine refused the dry only. Check the selected data and values.");
+    } while (false);
 
     // Wind
-    do { if (swmm_climate_set_wind_type(m_engine, m_windType->currentData().toInt()) != SWMM_OK) return tr("The engine refused the wind type. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_wind_type(m_engine, m_windType->currentData().toInt()) != SWMM_OK)
+            return tr("The engine refused the wind type. Check the selected data and values.");
+    } while (false);
     {
         double w[12] = {};
         readColumn(m_windMonthly, 0, w, 12);
-        do { if (swmm_climate_set_wind_monthly(m_engine, w, 12) != SWMM_OK) return tr("The engine refused the wind monthly. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_wind_monthly(m_engine, w, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the wind monthly. Check the selected data and values.");
+        } while (false);
     }
 
     // Humidity
-    do { if (swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt()) != SWMM_OK) return tr("The engine refused the humidity variable. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt()) !=
+            SWMM_OK)
+            return tr(
+                "The engine refused the humidity variable. Check the selected data and values.");
+    } while (false);
     const int humType = m_humType->currentData().toInt();
-    do { if (swmm_climate_set_humidity_type(m_engine, humType) != SWMM_OK) return tr("The engine refused the humidity type. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_humidity_type(m_engine, humType) != SWMM_OK)
+            return tr("The engine refused the humidity type. Check the selected data and values.");
+    } while (false);
     {
         double h[12] = {};
         readColumn(m_humMonthly, 0, h, 12);
         if (humType == 0) {
-            const double value=OpenSWMM::Ui::preciseValue(m_humConstant);
-            if(m_humConstant->value()!=m_humConstant->property("swmmDisplayedValue").toDouble())std::fill_n(h,12,value);
-            else h[0]=value;
+            const double value = OpenSWMM::Ui::preciseValue(m_humConstant);
+            if (m_humConstant->value() != m_humConstant->property("swmmDisplayedValue").toDouble())
+                std::fill_n(h, 12, value);
+            else
+                h[0] = value;
         }
-        do { if (swmm_climate_set_humidity_monthly(m_engine, h, 12) != SWMM_OK) return tr("The engine refused the humidity monthly. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_humidity_monthly(m_engine, h, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the humidity monthly. Check the selected data and values.");
+        } while (false);
     }
     if (humType == 2 && !m_humTs->currentText().trimmed().isEmpty())
-        do { if (swmm_climate_set_humidity_timeseries(m_engine,
-            m_humTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the humidity timeseries. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_humidity_timeseries(
+                    m_engine, m_humTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK)
+                return tr(
+                    "The engine refused the humidity timeseries. Check the selected data and values.");
+        } while (false);
 
     // Snow melt
-    do { if (swmm_climate_set_snow_temp(m_engine, OpenSWMM::Ui::preciseValue(m_snowTemp)) != SWMM_OK) return tr("The engine refused the snow temperature. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_ati_weight(m_engine, OpenSWMM::Ui::preciseValue(m_atiWeight)) != SWMM_OK) return tr("The engine refused the ati weight. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_neg_melt_ratio(m_engine, OpenSWMM::Ui::preciseValue(m_negMelt)) != SWMM_OK) return tr("The engine refused the neg melt ratio. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_elevation(m_engine, OpenSWMM::Ui::preciseValue(m_elevation)) != SWMM_OK) return tr("The engine refused the elevation. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_latitude(m_engine, OpenSWMM::Ui::preciseValue(m_latitude)) != SWMM_OK) return tr("The engine refused the latitude. Check the selected data and values."); } while (false);
-    do { if (swmm_climate_set_longitude_correction(m_engine, OpenSWMM::Ui::preciseValue(m_longitude)) != SWMM_OK) return tr("The engine refused the longitude correction. Check the selected data and values."); } while (false);
+    do {
+        if (swmm_climate_set_snow_temp(m_engine, OpenSWMM::Ui::preciseValue(m_snowTemp)) != SWMM_OK)
+            return tr(
+                "The engine refused the snow temperature. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_ati_weight(m_engine, OpenSWMM::Ui::preciseValue(m_atiWeight)) !=
+            SWMM_OK)
+            return tr("The engine refused the ati weight. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_neg_melt_ratio(m_engine, OpenSWMM::Ui::preciseValue(m_negMelt)) !=
+            SWMM_OK)
+            return tr("The engine refused the neg melt ratio. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_elevation(m_engine, OpenSWMM::Ui::preciseValue(m_elevation)) !=
+            SWMM_OK)
+            return tr("The engine refused the elevation. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_latitude(m_engine, OpenSWMM::Ui::preciseValue(m_latitude)) != SWMM_OK)
+            return tr("The engine refused the latitude. Check the selected data and values.");
+    } while (false);
+    do {
+        if (swmm_climate_set_longitude_correction(
+                m_engine, OpenSWMM::Ui::preciseValue(m_longitude)) != SWMM_OK)
+            return tr(
+                "The engine refused the longitude correction. Check the selected data and values.");
+    } while (false);
 
     // Areal depletion
     {
         double imp[10] = {}, prv[10] = {};
         readColumn(m_adc, 0, imp, 10);
         readColumn(m_adc, 1, prv, 10);
-        do { if (swmm_climate_set_adc_impervious(m_engine, imp, 10) != SWMM_OK) return tr("The engine refused the adc impervious. Check the selected data and values."); } while (false);
-        do { if (swmm_climate_set_adc_pervious(m_engine, prv, 10) != SWMM_OK) return tr("The engine refused the adc pervious. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_adc_impervious(m_engine, imp, 10) != SWMM_OK)
+                return tr(
+                    "The engine refused the adc impervious. Check the selected data and values.");
+        } while (false);
+        do {
+            if (swmm_climate_set_adc_pervious(m_engine, prv, 10) != SWMM_OK)
+                return tr(
+                    "The engine refused the adc pervious. Check the selected data and values.");
+        } while (false);
     }
 
     // Adjustments
@@ -1201,10 +1457,26 @@ QString ClimatologyDialog::writeToEngine()
             r[k] = cellValue(m_adjust, k, 2);
             c[k] = cellValue(m_adjust, k, 3);
         }
-        do { if (swmm_climate_set_adjust_temperature(m_engine, t, 12) != SWMM_OK) return tr("The engine refused the adjust temperature. Check the selected data and values."); } while (false);
-        do { if (swmm_climate_set_adjust_evaporation(m_engine, e, 12) != SWMM_OK) return tr("The engine refused the adjust evaporation. Check the selected data and values."); } while (false);
-        do { if (swmm_climate_set_adjust_rainfall(m_engine, r, 12) != SWMM_OK) return tr("The engine refused the adjust rainfall. Check the selected data and values."); } while (false);
-        do { if (swmm_climate_set_adjust_conductivity(m_engine, c, 12) != SWMM_OK) return tr("The engine refused the adjust conductivity. Check the selected data and values."); } while (false);
+        do {
+            if (swmm_climate_set_adjust_temperature(m_engine, t, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the adjust temperature. Check the selected data and values.");
+        } while (false);
+        do {
+            if (swmm_climate_set_adjust_evaporation(m_engine, e, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the adjust evaporation. Check the selected data and values.");
+        } while (false);
+        do {
+            if (swmm_climate_set_adjust_rainfall(m_engine, r, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the adjust rainfall. Check the selected data and values.");
+        } while (false);
+        do {
+            if (swmm_climate_set_adjust_conductivity(m_engine, c, 12) != SWMM_OK)
+                return tr(
+                    "The engine refused the adjust conductivity. Check the selected data and values.");
+        } while (false);
     }
     return {};
 }
@@ -1213,18 +1485,24 @@ QString ClimatologyDialog::serialize() const
 {
     QString s;
     s += m_snowDraft.optionRows() + '|';
-    s += QString::number(m_snowModel->currentIndex()) + '|' + QString::number(m_snowStep->value(), 'g', 17) + '|';
+    s += QString::number(m_snowModel->currentIndex()) + '|' +
+         QString::number(m_snowStep->value(), 'g', 17) + '|';
     s += QString::number(m_radiationSite->isChecked()) + '|';
-    for (auto *value : m_siteValues) s += QString::number(value->value(), 'g', 17) + '|';
-    for (int i = 0; i < 2; ++i) s += QString::number(m_radiationModes[i]->currentIndex()) + '|' + m_radiationSeries[i]->currentText() + '|';
+    for (auto *value : m_siteValues)
+        s += QString::number(value->value(), 'g', 17) + '|';
+    for (int i = 0; i < 2; ++i)
+        s += QString::number(m_radiationModes[i]->currentIndex()) + '|' +
+             m_radiationSeries[i]->currentText() + '|';
     s += m_metFile->absolutePath() + '|';
     s += QString::number(m_cloudMode->currentIndex()) + '|' + m_cloudSeries->currentText() + '|';
-    for(auto* value:m_cloudValues)s += QString::number(value->value(),'g',17)+'|';
+    for (auto *value : m_cloudValues)
+        s += QString::number(value->value(), 'g', 17) + '|';
     s += QString::number(m_tempSource->currentIndex()) + '|';
     s += m_tempTs->currentText() + '|';
     s += m_tempFile->absolutePath() + '|';
-    s += (m_tempStartCheck->isChecked()
-              ? m_tempStartDate->date().toString(Qt::ISODate) : QString()) + '|';
+    s += (m_tempStartCheck->isChecked() ? m_tempStartDate->date().toString(Qt::ISODate)
+                                        : QString()) +
+         '|';
     s += QString::number(m_tempUnits->currentData().toInt()) + '|';
     s += QString::number(m_evapType->currentData().toInt()) + '|';
     s += QString::number(m_evapConstant->value()) + '|';
@@ -1245,7 +1523,7 @@ QString ClimatologyDialog::serialize() const
     const auto grid = [&s](QTableWidget *t, int rows, int cols) {
         for (int r = 0; r < rows; ++r)
             for (int c = 0; c < cols; ++c)
-                s += QString::number(cellValue(t,r,c),'g',17) + ',';
+                s += QString::number(cellValue(t, r, c), 'g', 17) + ',';
     };
     grid(m_evapMonthly, 12, 1);
     grid(m_panCoeff, 12, 1);
@@ -1263,46 +1541,89 @@ QString ClimatologyDialog::configurationSignature(SWMM_Engine engine, const QStr
     return current.serialize();
 }
 
-void ClimatologyDialog::invalidateEngine() { m_engine=nullptr;setEnabled(false);reject(); }
+void ClimatologyDialog::invalidateEngine()
+{
+    m_engine = nullptr;
+    setEnabled(false);
+    reject();
+}
 
 void ClimatologyDialog::onAccept()
 {
-    if(!m_engine){reject();return;}
-    if (serialize() == m_initialSig) { accept(); return; }
-    for(auto* table:{m_evapMonthly,m_panCoeff,m_windMonthly,m_humMonthly,m_adc,m_adjust})
-        for(int row=0;row<table->rowCount();++row)for(int col=0;col<table->columnCount();++col) {
-            const auto* item=table->item(row,col);bool valid=false;
-            const double value=item?item->text().toDouble(&valid):0;
-            if(!valid || !std::isfinite(value)) {
-                for(int tab=0;tab<m_tabs->count();++tab)if(m_tabs->widget(tab)->isAncestorOf(table))m_tabs->setCurrentIndex(tab);
-                table->setCurrentCell(row,col);table->setFocus();
-                QMessageBox::warning(this,tr("Climatology"),tr("Enter a finite number in row %1, column %2. No changes were applied.").arg(row+1).arg(col+1));
-                return;
+    if (!m_engine) {
+        reject();
+        return;
+    }
+    if (serialize() == m_initialSig) {
+        accept();
+        return;
+    }
+    for (auto *table : {m_evapMonthly, m_panCoeff, m_windMonthly, m_humMonthly, m_adc, m_adjust})
+        for (int row = 0; row < table->rowCount(); ++row)
+            for (int col = 0; col < table->columnCount(); ++col) {
+                const auto *item = table->item(row, col);
+                bool valid = false;
+                const double value = item ? item->text().toDouble(&valid) : 0;
+                if (!valid || !std::isfinite(value)) {
+                    for (int tab = 0; tab < m_tabs->count(); ++tab)
+                        if (m_tabs->widget(tab)->isAncestorOf(table))
+                            m_tabs->setCurrentIndex(tab);
+                    table->setCurrentCell(row, col);
+                    table->setFocus();
+                    QMessageBox::warning(
+                        this, tr("Climatology"),
+                        tr("Enter a finite number in row %1, column %2. No changes were applied.")
+                            .arg(row + 1)
+                            .arg(col + 1));
+                    return;
+                }
             }
-        }
-    const QString missing=m_tempSource->currentIndex()==1&&m_tempTs->currentText().isEmpty()?tr("Select a temperature time series."):
-        m_evapType->currentData().toInt()==2&&m_evapTs->currentText().isEmpty()?tr("Select an evaporation time series."):
-        m_humType->currentData().toInt()==2&&m_humTs->currentText().isEmpty()?tr("Select a humidity time series."):QString();
-    if(!missing.isEmpty()){QMessageBox::warning(this,tr("Climatology"),missing);return;}
-    if(configurationSignature(m_engine,m_projectAnchor)!=m_initialSig) {
-        QMessageBox::warning(this,tr("Climatology"),tr("Climate or shared radiation settings changed in another editor. Reopen this dialog before applying."));
+    const QString missing =
+        m_tempSource->currentIndex() == 1 && m_tempTs->currentText().isEmpty()
+            ? tr("Select a temperature time series.")
+        : m_evapType->currentData().toInt() == 2 && m_evapTs->currentText().isEmpty()
+            ? tr("Select an evaporation time series.")
+        : m_humType->currentData().toInt() == 2 && m_humTs->currentText().isEmpty()
+            ? tr("Select a humidity time series.")
+            : QString();
+    if (!missing.isEmpty()) {
+        QMessageBox::warning(this, tr("Climatology"), missing);
+        return;
+    }
+    if (configurationSignature(m_engine, m_projectAnchor) != m_initialSig) {
+        QMessageBox::warning(
+            this, tr("Climatology"),
+            tr("Climate or shared radiation settings changed in another editor. Reopen this dialog before applying."));
         return;
     }
     updateSnowDraft();
-    struct Edit { ClimatologyDialog* dialog; QString error; } edit{this,{}};
-    const int status=swmm_hydrothermal_edit_atomic(m_engine,[](SWMM_Engine,void* user) -> int {
-        auto& e=*static_cast<Edit*>(user); auto* d=e.dialog;
-        if(d->m_snowDraft.signature()!=d->m_initialSnowSig) e.error=d->m_snowDraft.apply(d->m_engine);
-        if(e.error.isEmpty()) e.error=d->writeToEngine();
-        if(e.error.isEmpty()&&OpenSWMM::Ui::ensureHeatConfigurationFile(d->m_engine)!=SWMM_OK)e.error=tr("The heat configuration could not be prepared for saving.");
-        return e.error.isEmpty()?SWMM_OK:SWMM_ERR_BADPARAM;
-    },&edit);
-    if(status!=SWMM_OK) {
-        QMessageBox::warning(this,tr("Climatology"),edit.error.isEmpty()
-            ? tr("Reset the simulation before editing climatology. No changes were applied.")
-            : edit.error+tr(" No changes were applied."));
+    struct Edit {
+        ClimatologyDialog *dialog;
+        QString error;
+    } edit{this, {}};
+    const int status = swmm_hydrothermal_edit_atomic(
+        m_engine,
+        [](SWMM_Engine, void *user) -> int {
+            auto &e = *static_cast<Edit *>(user);
+            auto *d = e.dialog;
+            if (d->m_snowDraft.signature() != d->m_initialSnowSig)
+                e.error = d->m_snowDraft.apply(d->m_engine);
+            if (e.error.isEmpty())
+                e.error = d->writeToEngine();
+            if (e.error.isEmpty() &&
+                OpenSWMM::Ui::ensureHeatConfigurationFile(d->m_engine) != SWMM_OK)
+                e.error = tr("The heat configuration could not be prepared for saving.");
+            return e.error.isEmpty() ? SWMM_OK : SWMM_ERR_BADPARAM;
+        },
+        &edit);
+    if (status != SWMM_OK) {
+        QMessageBox::warning(
+            this, tr("Climatology"),
+            edit.error.isEmpty()
+                ? tr("Reset the simulation before editing climatology. No changes were applied.")
+                : edit.error + tr(" No changes were applied."));
         return;
     }
-    m_wroteChanges=true;
+    m_wroteChanges = true;
     accept();
 }

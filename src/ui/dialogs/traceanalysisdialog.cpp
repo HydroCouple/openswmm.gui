@@ -1,3 +1,12 @@
+/**
+ * @file      traceanalysisdialog.cpp
+ * @brief     User interface for flow balance and travel-time analyses.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/util/numerictablewidgetitem.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui/dialogs/traceanalysisdialog.h"
@@ -69,23 +78,21 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     auto *d = p->findChild<TraceAnalysisDialog *>("flowTraceDialog", Qt::FindDirectChildrenOnly);
     if (!d)
         d = new TraceAnalysisDialog(p);
-    if (d->m_controller->busy())
-    {
+    if (d->m_controller->busy()) {
         d->m_progress->show();
         d->m_progress->raise();
         return d;
     }
     output = output ? output : p->activeResultsLayer();
-    if (!output)
-    {
-        const auto path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("results-1d"), p, tr("Choose completed output"), {},
-                                                       tr("SWMM output (*.out)"));
+    if (!output) {
+        const auto path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+            QStringLiteral("results-1d"), p, tr("Choose completed output"), {},
+            tr("SWMM output (*.out)"));
         if (path.isEmpty())
             return d;
         output = new SWMMResultsLayer(path, p->modelLayer(), p->modelLayer()->workspace());
         QList<QString> warnings, errors;
-        if (!output->openResults(warnings, errors))
-        {
+        if (!output->openResults(warnings, errors)) {
             delete output;
             QMessageBox::warning(p, tr("Cannot open output"), errors.join('\n'));
             return d;
@@ -95,8 +102,7 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     }
     d->m_runId = runId(p, output);
     auto run = p->statsRegistry()->run(d->m_runId);
-    if (!run.canAnalyze())
-    {
+    if (!run.canAnalyze()) {
         QMessageBox::information(p, tr("Analysis"),
                                  tr("Choose a completed output in Layers first."));
         return d;
@@ -120,8 +126,11 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     // start() and the map-click picker reuse this instead of walking the model again.
     d->m_snapshot = run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr)
                                            : Snapshot::fromJson(run.snapshot);
-    qCInfo(lcTracePerf).noquote() << QStringLiteral("trace.perf run=%1 stage=dialogSnapshot ms=%2 captured=%3")
-                                         .arg(d->m_runId).arg(timer.elapsed()).arg(run.snapshot.isEmpty());
+    qCInfo(lcTracePerf).noquote() << QStringLiteral(
+                                         "trace.perf run=%1 stage=dialogSnapshot ms=%2 captured=%3")
+                                         .arg(d->m_runId)
+                                         .arg(timer.elapsed())
+                                         .arg(run.snapshot.isEmpty());
     QStringList ids;
     for (const auto &node : d->m_snapshot.nodes)
         ids << node.id;
@@ -131,8 +140,7 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     d->m_nodes->setCompleter(completer);
     if (!nodes.isEmpty())
         d->start();
-    else
-    {
+    else {
         d->show();
         d->raise();
         p->canvas()->setCursor(Qt::CrossCursor);
@@ -170,40 +178,33 @@ TraceAnalysisDialog::TraceAnalysisDialog(SWMMVisProjectWindow *p)
     m_progress->hide();
     connect(m_progress, &QProgressDialog::canceled, m_controller, &TraceController::cancel);
     connect(m_controller, &TraceController::progress, this,
-            [this](int percent, const QString &stage)
-            {
+            [this](int percent, const QString &stage) {
                 if (!m_pending)
                     return;
                 m_progress->setRange(0, 100);
                 m_progress->setValue(percent);
                 m_progress->setLabelText(stage);
             });
-    connect(m_controller, &TraceController::resultReady, this,
-            [this](std::shared_ptr<Result> r)
-            {
-                if (m_pending && r->dataset->runId == m_runId &&
-                    !(m_recalculating && m_controller->hasOpenLayer(r->id)))
-                    m_controller->attachResult(r, m_travel);
-            });
-    connect(m_controller, &TraceController::failed, this,
-            [this](const QString &message)
-            {
-                if (!m_pending)
-                    return;
-                m_pending = false;
-                m_recalculating = false;
-                m_progress->hide();
-                QMessageBox::warning(m_project, tr("Analysis could not finish"), message);
-            });
-    connect(m_controller, &TraceController::finished, this,
-            [this](const QString &id, bool)
-            {
-                if (id != m_runId)
-                    return;
-                m_pending = false;
-                m_recalculating = false;
-                m_progress->hide();
-            });
+    connect(m_controller, &TraceController::resultReady, this, [this](std::shared_ptr<Result> r) {
+        if (m_pending && r->dataset->runId == m_runId &&
+            !(m_recalculating && m_controller->hasOpenLayer(r->id)))
+            m_controller->attachResult(r, m_travel);
+    });
+    connect(m_controller, &TraceController::failed, this, [this](const QString &message) {
+        if (!m_pending)
+            return;
+        m_pending = false;
+        m_recalculating = false;
+        m_progress->hide();
+        QMessageBox::warning(m_project, tr("Analysis could not finish"), message);
+    });
+    connect(m_controller, &TraceController::finished, this, [this](const QString &id, bool) {
+        if (id != m_runId)
+            return;
+        m_pending = false;
+        m_recalculating = false;
+        m_progress->hide();
+    });
     qApp->installEventFilter(this);
 }
 void TraceAnalysisDialog::setSeedNodes(const QStringList &nodes)
@@ -252,12 +253,10 @@ void TraceAnalysisDialog::start()
     if (m_snapshot.nodes.isEmpty() && run.snapshot.isEmpty())
         m_snapshot = Snapshot::capture(m_project->modelLayer(), nullptr);
     m_recalculating = m_recalculate->isChecked();
-    if (m_recalculating)
-    {
+    if (m_recalculating) {
         m_recalculate->setChecked(false); // one-shot; the next pick reuses the new package
         m_controller->recalculate(m_runId, seeds, m_upstream ? 1 : 0, m_snapshot);
-    }
-    else
+    } else
         m_controller->run(m_runId, seeds, m_upstream ? 1 : 0, {}, m_snapshot);
 }
 void TraceAnalysisDialog::recalculate(SWMMVisProjectWindow *p, const QString &runId)
@@ -267,8 +266,7 @@ void TraceAnalysisDialog::recalculate(SWMMVisProjectWindow *p, const QString &ru
     auto *d = p->findChild<TraceAnalysisDialog *>("flowTraceDialog", Qt::FindDirectChildrenOnly);
     if (!d)
         d = new TraceAnalysisDialog(p);
-    if (d->m_controller->busy())
-    {
+    if (d->m_controller->busy()) {
         d->m_progress->show();
         d->m_progress->raise();
         return;
@@ -282,9 +280,9 @@ void TraceAnalysisDialog::recalculate(SWMMVisProjectWindow *p, const QString &ru
     d->m_progress->setLabelText(tr("Rescanning the output and recomputing saved estimates…"));
     d->m_progress->show();
     const auto run = p->statsRegistry()->run(runId);
-    d->m_controller->recalculate(runId, {}, 0,
-                                 run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr)
-                                                        : Snapshot{});
+    d->m_controller->recalculate(
+        runId, {}, 0,
+        run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr) : Snapshot{});
 }
 bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
 {
@@ -300,8 +298,7 @@ bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
     if (mouse->button() != Qt::LeftButton)
         return false;
     const auto click = canvas->mapFromGlobal(mouse->globalPosition().toPoint());
-    if (m_snapshot.nodes.isEmpty())
-    {
+    if (m_snapshot.nodes.isEmpty()) {
         const auto run = m_project->statsRegistry()->run(m_runId);
         m_snapshot = run.snapshot.isEmpty() ? Snapshot::capture(m_project->modelLayer(), nullptr)
                                             : Snapshot::fromJson(run.snapshot);
@@ -315,8 +312,7 @@ bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
         return true;
     double best = 16;
     QString found;
-    for (const auto &node : snapshot.nodes)
-    {
+    for (const auto &node : snapshot.nodes) {
         if (!node.hasGeometry)
             continue;
         double x = node.point.x(), y = node.point.y();
@@ -325,16 +321,14 @@ bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
         int px, py;
         canvas->toPixelCoords(x, y, px, py);
         double distance = QLineF(click, QPointF(px, py)).length();
-        if (distance < best)
-        {
+        if (distance < best) {
             best = distance;
             found = node.id;
         }
     }
     if (ct)
         OGRCoordinateTransformation::DestroyCT(ct);
-    if (!found.isEmpty())
-    {
+    if (!found.isEmpty()) {
         setSeedNodes({found});
         start();
     }
@@ -356,24 +350,21 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
     layout->addWidget(tabs);
     QList<openswmmvis::ui::ClassificationEditor *> colorEditors;
     QList<std::function<bool()>> validSizes;
-    const auto fields = [](bool node, bool labels)
-    {
+    const auto fields = [](bool node, bool labels) {
         QStringList out{"ratio", "flow", "gross", "time", "local", "coverage"};
         if (node)
             out.append("volume");
         out.append(labels ? "id" : "uniform");
         return out;
     };
-    const auto fieldCombo = [&](bool node, bool labels, const QString &value)
-    {
+    const auto fieldCombo = [&](bool node, bool labels, const QString &value) {
         auto *combo = new QComboBox;
         for (const auto &key : fields(node, labels))
             combo->addItem(key == "id" ? tr("Object ID only") : fieldLabel(key, node), key);
         combo->setCurrentIndex(combo->findData(value));
         return combo;
     };
-    const auto spin = [](double value, double min, double max, int decimals, QString suffix = {})
-    {
+    const auto spin = [](double value, double min, double max, int decimals, QString suffix = {}) {
         auto *box = new QDoubleSpinBox;
         box->setDecimals(decimals);
         box->setRange(min, max);
@@ -382,8 +373,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
         box->setKeyboardTracking(false);
         return box;
     };
-    for (bool node : {false, true})
-    {
+    for (bool node : {false, true}) {
         auto *page = new QWidget;
         auto *pageLayout = new QVBoxLayout(page);
         auto *scroll = new QScrollArea;
@@ -399,20 +389,20 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
         colorForm->addRow(tr("Color by"), colorField);
         pageLayout->addLayout(colorForm);
         auto *binding = new openswmmvis::ui::SublayerSchemeBinding(
-            [style, color]
-            { return style ? color->colors : OpenSWMM::Render::ClassificationScheme{}; },
-            [style, color](const OpenSWMM::Render::ClassificationScheme &scheme)
-            {
+            [style, color] {
+                return style ? color->colors : OpenSWMM::Render::ClassificationScheme{};
+            },
+            [style, color](const OpenSWMM::Render::ClassificationScheme &scheme) {
                 if (!style)
                     return;
                 color->colors = scheme;
                 color->transform = "linear";
                 style->changed();
             },
-            [layer, color, node]
-            { return layer ? layer->samples(node, *color) : QVector<double>{}; },
-            [layer, color, node]
-            {
+            [layer, color, node] {
+                return layer ? layer->samples(node, *color) : QVector<double>{};
+            },
+            [layer, color, node] {
                 if (!layer)
                     return QPair<double, double>{0, 1};
                 auto automatic = *color;
@@ -425,8 +415,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
         colorEditors.append(editor);
         pageLayout->addWidget(editor);
         QObject::connect(colorField, &QComboBox::currentIndexChanged, dialog,
-                         [style, color, colorField, editor]
-                         {
+                         [style, color, colorField, editor] {
                              if (!style)
                                  return;
                              color->field = colorField->currentData().toString();
@@ -446,8 +435,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
         mode->setCurrentIndex(size->proportional ? 0 : 1);
         if (!node)
             form->addRow(tr("Scaling"), mode);
-        else
-        {
+        else {
             mode->setParent(sizeBox);
             mode->hide();
         }
@@ -488,16 +476,14 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
         auto *hint = new QLabel;
         hint->setWordWrap(true);
         form->addRow(hint);
-        const auto valid = [=]
-        {
+        const auto valid = [=] {
             bool proportional = !node && mode->currentData().toBool();
             return (proportional || minPixels->value() <= maxPixels->value()) &&
                    (automatic->isChecked() ||
                     maximum->value() > (proportional ? 0 : minimum->value()));
         };
         validSizes.append(valid);
-        const auto refresh = [=]
-        {
+        const auto refresh = [=] {
             bool proportional = !node && mode->currentData().toBool();
             transform->setEnabled(!proportional);
             minPixels->setEnabled(!proportional);
@@ -514,13 +500,11 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
                        : tr("Custom widths use these size limits. Uniform uses the maximum width; "
                             "custom scales do not preserve flow-width sums."));
         };
-        const auto update = [=]
-        {
+        const auto update = [=] {
             if (!style)
                 return;
             // Keep the displayed automatic limits tied to the chosen field.
-            if (automatic->isChecked() && layer)
-            {
+            if (automatic->isChecked() && layer) {
                 auto channel = *size;
                 channel.field = sizeField->currentData().toString();
                 channel.automatic = true;
@@ -550,17 +534,14 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
             QObject::connect(box, &QDoubleSpinBox::valueChanged, dialog, update);
         QObject::connect(automatic, &QCheckBox::toggled, dialog, update);
         refresh();
-        if (!node)
-        {
+        if (!node) {
             auto *arrows = new QCheckBox(tr("Flow direction arrows"));
             arrows->setChecked(style->arrows());
             pageLayout->addWidget(arrows);
-            QObject::connect(arrows, &QCheckBox::toggled, dialog,
-                             [style](bool value)
-                             {
-                                 if (style)
-                                     style->setArrows(value);
-                             });
+            QObject::connect(arrows, &QCheckBox::toggled, dialog, [style](bool value) {
+                if (style)
+                    style->setArrows(value);
+            });
             auto *hideRow = new QHBoxLayout;
             hideRow->addWidget(new QLabel(tr("Hide links and nodes carrying less than")));
             auto *threshold = new QDoubleSpinBox;
@@ -575,8 +556,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
             hideRow->addStretch();
             pageLayout->addLayout(hideRow);
             QObject::connect(threshold, &QDoubleSpinBox::valueChanged, dialog,
-                             [style](double percent)
-                             {
+                             [style](double percent) {
                                  if (style)
                                      style->setMinContribution(percent / 100);
                              });
@@ -593,8 +573,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
     labelLayout->addWidget(labelStack);
     QObject::connect(objects, &QComboBox::currentIndexChanged, labelStack,
                      &QStackedWidget::setCurrentIndex);
-    for (bool node : {false, true})
-    {
+    for (bool node : {false, true}) {
         auto *labels = node ? &style->nodeLabels : &style->linkLabels;
         auto *page = new QWidget;
         labelStack->addWidget(page);
@@ -642,28 +621,24 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
                "known-path coverage; missing values display Unavailable."));
         note->setWordWrap(true);
         form->addRow(note);
-        const auto refresh = [=]
-        {
+        const auto refresh = [=] {
             const auto key = field->currentData().toString();
             showId->setEnabled(key != "id");
             percent->setEnabled(key == "ratio" || key == "coverage");
             haloColor->setEnabled(halo->isChecked());
             haloSize->setEnabled(halo->isChecked());
             QString text;
-            if (layer)
-            {
+            if (layer) {
                 const auto &values = node ? layer->result()->nodes : layer->result()->links;
                 for (int i = 0; i < values.size(); ++i)
-                    if (layer->contributes(node, i))
-                    {
+                    if (layer->contributes(node, i)) {
                         text = layer->labelText(node, i);
                         break;
                     }
             }
             preview->setText(text.isEmpty() ? tr("Labels are hidden") : text);
         };
-        const auto update = [=]
-        {
+        const auto update = [=] {
             if (!style)
                 return;
             labels->appearance.enabled = enabled->isChecked();
@@ -683,22 +658,19 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
             QObject::connect(check, &QCheckBox::toggled, dialog, update);
         QObject::connect(field, &QComboBox::currentIndexChanged, dialog, update);
         QObject::connect(precision, &QSpinBox::valueChanged, dialog, update);
-        QObject::connect(font, &QPushButton::clicked, dialog,
-                         [=]
-                         {
-                             if (!style)
-                                 return;
-                             bool accepted = false;
-                             const auto chosen =
-                                 QFontDialog::getFont(&accepted, labels->appearance.effectiveFont(),
-                                                      dialog, tr("Label font"));
-                             if (!accepted || !style)
-                                 return;
-                             labels->appearance.font = chosen;
-                             font->setText(chosen.family() + "…");
-                             fontSize->setValue(chosen.pointSizeF());
-                             update();
-                         });
+        QObject::connect(font, &QPushButton::clicked, dialog, [=] {
+            if (!style)
+                return;
+            bool accepted = false;
+            const auto chosen = QFontDialog::getFont(&accepted, labels->appearance.effectiveFont(),
+                                                     dialog, tr("Label font"));
+            if (!accepted || !style)
+                return;
+            labels->appearance.font = chosen;
+            font->setText(chosen.family() + "…");
+            fontSize->setValue(chosen.pointSizeF());
+            update();
+        });
         for (auto *box : {fontSize, haloSize})
             QObject::connect(box, &QDoubleSpinBox::valueChanged, dialog, update);
         for (auto *button : {color, haloColor})
@@ -713,19 +685,16 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     layout->addWidget(buttons);
     QObject::connect(buttons, &QDialogButtonBox::accepted, dialog,
-                     [dialog, colorEditors, validSizes]
-                     {
+                     [dialog, colorEditors, validSizes] {
                          for (auto *editor : colorEditors)
-                             if (!editor->hasValidDraft())
-                             {
+                             if (!editor->hasValidDraft()) {
                                  QMessageBox::warning(
                                      dialog, tr("Check color scale"),
                                      tr("Correct the color range or class breaks before saving."));
                                  return;
                              }
                          for (const auto &valid : validSizes)
-                             if (!valid())
-                             {
+                             if (!valid()) {
                                  QMessageBox::warning(
                                      dialog, tr("Check size scale"),
                                      tr("Correct the value range and size limits before saving."));
@@ -734,21 +703,17 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
                          dialog->accept();
                      });
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-    QObject::connect(dialog, &QDialog::rejected, dialog,
-                     [style, snapshot]
-                     {
-                         if (style)
-                             style->fromJson(snapshot);
-                     });
-    QObject::connect(part, &QObject::destroyed, dialog,
-                     [dialog]
-                     {
-                         // The layer is being destroyed; rolling back its style
-                         // would emit invalidation through a partially destroyed
-                         // sublayer. Close without applying a Cancel rollback.
-                         QSignalBlocker blocker(dialog);
-                         dialog->reject();
-                     });
+    QObject::connect(dialog, &QDialog::rejected, dialog, [style, snapshot] {
+        if (style)
+            style->fromJson(snapshot);
+    });
+    QObject::connect(part, &QObject::destroyed, dialog, [dialog] {
+        // The layer is being destroyed; rolling back its style
+        // would emit invalidation through a partially destroyed
+        // sublayer. Close without applying a Cancel rollback.
+        QSignalBlocker blocker(dialog);
+        dialog->reject();
+    });
     dialog->show();
 }
 void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
@@ -778,11 +743,9 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
                                       tr("Status")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     layout->addWidget(table);
-    for (bool node : {true, false})
-    {
+    for (bool node : {true, false}) {
         const auto &values = node ? result->nodes : result->links;
-        for (int i = 0; i < values.size(); ++i)
-        {
+        for (int i = 0; i < values.size(); ++i) {
             const auto &v = values[i];
             if (!part->layer()->contributes(node, i))
                 continue;
@@ -805,46 +768,36 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
     table->setSortingEnabled(true);
     auto *exportButton = new QPushButton(tr("Export CSV…"));
     layout->addWidget(exportButton);
-    QObject::connect(
-        exportButton, &QPushButton::clicked, dialog,
-        [dialog, table, result]
-        {
-            const auto path =
-                QFileDialog::getSaveFileName(dialog, tr("Export analysis"), {}, tr("CSV (*.csv)"));
-            if (path.isEmpty())
-                return;
-            auto quote = [](QString text) { return '"' + text.replace('"', "\"\"") + '"'; };
-            QByteArray bytes = "Run,Analysis,Type,ID,Flow fraction,Mean flow m3/s,Time "
-                               "min,Coverage percent,Status\n";
-            for (int row = 0; row < table->rowCount(); ++row)
-            {
-                QStringList cells{quote(result->dataset->runId), quote(result->id)};
-                for (int col = 0; col < table->columnCount(); ++col)
-                    cells << quote(table->item(row, col)->text());
-                bytes += cells.join(',').toUtf8() + '\n';
-            }
-            QSaveFile file(path);
-            if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
-                !file.commit())
-                QMessageBox::warning(dialog, tr("Cannot save"), file.errorString());
-        });
-    if (!result->saved)
-    {
+    QObject::connect(exportButton, &QPushButton::clicked, dialog, [dialog, table, result] {
+        const auto path =
+            QFileDialog::getSaveFileName(dialog, tr("Export analysis"), {}, tr("CSV (*.csv)"));
+        if (path.isEmpty())
+            return;
+        auto quote = [](QString text) { return '"' + text.replace('"', "\"\"") + '"'; };
+        QByteArray bytes = "Run,Analysis,Type,ID,Flow fraction,Mean flow m3/s,Time "
+                           "min,Coverage percent,Status\n";
+        for (int row = 0; row < table->rowCount(); ++row) {
+            QStringList cells{quote(result->dataset->runId), quote(result->id)};
+            for (int col = 0; col < table->columnCount(); ++col)
+                cells << quote(table->item(row, col)->text());
+            bytes += cells.join(',').toUtf8() + '\n';
+        }
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+            QMessageBox::warning(dialog, tr("Cannot save"), file.errorString());
+    });
+    if (!result->saved) {
         auto *retry = new QPushButton(tr("Retry saving analysis"));
         layout->addWidget(retry);
-        QObject::connect(
-            retry, &QPushButton::clicked, dialog,
-            [dialog, result, retry]
-            {
-                QString error;
-                if (!AnalysisStore::save(result->dataset->packagePath, *result, &error))
-                    QMessageBox::warning(dialog, tr("Cannot save"), error);
-                else
-                {
-                    result->saved = true;
-                    retry->setEnabled(false);
-                }
-            });
+        QObject::connect(retry, &QPushButton::clicked, dialog, [dialog, result, retry] {
+            QString error;
+            if (!AnalysisStore::save(result->dataset->packagePath, *result, &error))
+                QMessageBox::warning(dialog, tr("Cannot save"), error);
+            else {
+                result->saved = true;
+                retry->setEnabled(false);
+            }
+        });
     }
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
     layout->addWidget(buttons);

@@ -1,8 +1,10 @@
-/*!
- * \file   pluginsdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      pluginsdialog.cpp
+ * @brief     Tools → Plugins.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/pluginsdialog.h"
@@ -19,8 +21,7 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-PluginsDialog::PluginsDialog(QWidget *parent)
-    : QDialog(parent)
+PluginsDialog::PluginsDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("Plugins"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -30,31 +31,24 @@ PluginsDialog::PluginsDialog(QWidget *parent)
     populate();
 
     connect(openswmmvis::FileFilterRegistry::instance(),
-            &openswmmvis::FileFilterRegistry::entriesChanged,
-            this, &PluginsDialog::populate);
+            &openswmmvis::FileFilterRegistry::entriesChanged, this, &PluginsDialog::populate);
 }
 
 void PluginsDialog::buildUi()
 {
     auto *outer = new QVBoxLayout(this);
 
-    auto *header = new QLabel(
-        tr("File-format filters available to Open / Save dialogs. Built-in "
-           "filters are bundled with SWMMVis; engine plugins are discovered "
-           "from the running engine. Enable / disable and user-installed "
-           "plugins arrive in a follow-up slice."),
-        this);
+    auto *header = new QLabel(tr("File-format filters available to Open / Save dialogs. Built-in "
+                                 "filters are bundled with SWMMVis; engine plugins are discovered "
+                                 "from the running engine. Enable / disable and user-installed "
+                                 "plugins arrive in a follow-up slice."),
+                              this);
     header->setWordWrap(true);
     outer->addWidget(header);
 
     m_tree = new QTreeWidget(this);
     m_tree->setColumnCount(4);
-    m_tree->setHeaderLabels({
-        tr("Description"),
-        tr("Patterns"),
-        tr("Plugin"),
-        tr("R/W")
-    });
+    m_tree->setHeaderLabels({tr("Description"), tr("Patterns"), tr("Plugin"), tr("R/W")});
     m_tree->setRootIsDecorated(true);
     m_tree->header()->setStretchLastSection(false);
     m_tree->setSortingEnabled(true);
@@ -88,7 +82,8 @@ void PluginsDialog::onRescan()
 
 void PluginsDialog::populate()
 {
-    if (!m_tree) return;
+    if (!m_tree)
+        return;
     m_tree->clear();
 
     using openswmmvis::FileFilterRegistry;
@@ -100,7 +95,8 @@ void PluginsDialog::populate()
     QHash<FilterKind, QTreeWidgetItem *> kindItems;
     auto kindRoot = [&](FilterKind k) -> QTreeWidgetItem * {
         auto it = kindItems.find(k);
-        if (it != kindItems.end()) return it.value();
+        if (it != kindItems.end())
+            return it.value();
         auto *parent = new QTreeWidgetItem(m_tree);
         parent->setText(0, tr(FileFilterRegistry::kindLabel(k)));
         parent->setFirstColumnSpanned(true);
@@ -109,19 +105,19 @@ void PluginsDialog::populate()
         return parent;
     };
 
-    for (const auto &e : entries)
-    {
+    for (const auto &e : entries) {
         auto *parent = kindRoot(e.kind);
         auto *child = new QTreeWidgetItem(parent);
         child->setText(0, e.description);
         child->setText(1, e.patterns.join(QLatin1String(" ")));
         child->setText(2, e.pluginId.isEmpty() ? tr("(built-in)") : e.pluginId);
         QString rw;
-        if (e.canRead)  rw += QLatin1Char('R');
-        if (e.canWrite) rw += QLatin1Char('W');
+        if (e.canRead)
+            rw += QLatin1Char('R');
+        if (e.canWrite)
+            rw += QLatin1Char('W');
         child->setText(3, rw);
-        if (!e.enabled)
-        {
+        if (!e.enabled) {
             for (int c = 0; c < m_tree->columnCount(); ++c)
                 child->setForeground(c, palette().color(QPalette::Disabled, QPalette::Text));
         }

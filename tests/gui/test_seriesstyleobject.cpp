@@ -1,8 +1,9 @@
-/*!
- * \file   test_seriesstyleobject.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_seriesstyleobject.cpp
+ * @brief     Tests for seriesstyleobject.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Pins the QObject-wrapped SeriesStyle contract:
  *   - Constructors expose every SeriesStyle field via Q_PROPERTY getters
@@ -14,7 +15,9 @@
  *     point-label format, area-fill brush)
  *   - The effective* fallbacks derive sensible colours from `color`
  *     when the per-aspect colours are invalid
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/seriesstyle.h"
 #include "plot/seriesstyleobject.h"
 #include "ui/widgets/seriesstyleeditor.h"
@@ -41,15 +44,78 @@ class TestSeriesStyleObject : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require the configured series-style fields to appear through QObject getters and
+     * selected aggregate snapshot fields.
+     *
+     */
     void gettersExposeInitialStyle();
+    /**
+     *
+     * @brief Require width/cap/shape edits to emit their per-field signals and one aggregate
+     * signal each; repeated width is silent.
+     *
+     */
     void typedSettersFireBothSignals();
+    /**
+     *
+     * @brief Require a multi-field style replacement to emit one aggregate notification and
+     * expose the new values.
+     *
+     */
     void setStyleEmitsOneAggregateSignal();
+    /**
+     *
+     * @brief Round-trip every assigned series appearance field, including RGBA, font, marker
+     * borders, labels and area fill.
+     * Requires invalid optional aspect colors to be omitted from compact JSON; no file IO.
+     *
+     */
     void jsonRoundTripsAllFields();
+    /**
+     *
+     * @brief Require a real QLineSeries to receive pen width/dash/cap/join, name, opacity,
+     * point-label format and fill brush alpha.
+     * Checks returned Qt properties, without rendering chart pixels.
+     *
+     */
     void applyToLineSeriesSetsPenAndLabels();
+    /**
+     *
+     * @brief Require valid aspect-color fallbacks and exact precedence for explicit
+     * marker/label/fill colors.
+     * Pins default marker fill to main color, distinct border and translucent area fill.
+     *
+     */
     void effectiveColorsFallBackToMainColor();
+    /**
+     *
+     * @brief Require selected style properties to use Identity/Line/Marker/Labels/Area prefixes
+     * and an unknown property to have no override label.
+     *
+     */
     void displayLabelsAreGroupPrefixed();
+    /**
+     *
+     * @brief Require the six listed QObject marker enum values to match their underlying
+     * SeriesStyle enum integers.
+     *
+     */
     void shapeEnumMirrorsMarkerShape();
+    /**
+     *
+     * @brief Require legend override to notify separately, ignore no-op repeats, survive setStyle
+     * and appear under Identity.
+     *
+     */
     void legendOverrideIsSpecLevelNotStyle();
+    /**
+     *
+     * @brief Require the style editor tree to use QPropertyModel and QPropertyItemDelegate; no
+     * editing dialog interaction is performed.
+     *
+     */
     void editorUsesQPropertyModelDelegate();
 };
 
@@ -57,32 +123,32 @@ private slots:
 void TestSeriesStyleObject::gettersExposeInitialStyle()
 {
     SeriesStyle s;
-    s.color             = QColor(10, 20, 30);
-    s.opacity           = 0.5;
-    s.legendName        = QStringLiteral("alpha");
-    s.lineWidth         = 2.4;
-    s.dash              = Qt::DashLine;
-    s.capStyle          = Qt::RoundCap;
-    s.joinStyle         = Qt::MiterJoin;
-    s.showMarkers       = true;
-    s.shape             = MarkerShape::Triangle;
-    s.markerSize        = 8.0;
+    s.color = QColor(10, 20, 30);
+    s.opacity = 0.5;
+    s.legendName = QStringLiteral("alpha");
+    s.lineWidth = 2.4;
+    s.dash = Qt::DashLine;
+    s.capStyle = Qt::RoundCap;
+    s.joinStyle = Qt::MiterJoin;
+    s.showMarkers = true;
+    s.shape = MarkerShape::Triangle;
+    s.markerSize = 8.0;
     s.markerBorderWidth = 1.5;
-    s.showPointLabels   = true;
+    s.showPointLabels = true;
     s.pointLabelPrecision = 3;
-    s.showAreaFill      = true;
+    s.showAreaFill = true;
 
     SeriesStyleObject obj(s);
-    QCOMPARE(obj.color(),             QColor(10, 20, 30));
-    QCOMPARE(obj.opacity(),           0.5);
-    QCOMPARE(obj.legendName(),        QStringLiteral("alpha"));
-    QCOMPARE(obj.lineWidth(),         2.4);
-    QCOMPARE(obj.dash(),              Qt::DashLine);
-    QCOMPARE(obj.capStyle(),          Qt::RoundCap);
-    QCOMPARE(obj.joinStyle(),         Qt::MiterJoin);
+    QCOMPARE(obj.color(), QColor(10, 20, 30));
+    QCOMPARE(obj.opacity(), 0.5);
+    QCOMPARE(obj.legendName(), QStringLiteral("alpha"));
+    QCOMPARE(obj.lineWidth(), 2.4);
+    QCOMPARE(obj.dash(), Qt::DashLine);
+    QCOMPARE(obj.capStyle(), Qt::RoundCap);
+    QCOMPARE(obj.joinStyle(), Qt::MiterJoin);
     QVERIFY(obj.showMarkers());
     QCOMPARE(static_cast<MarkerShape>(obj.shape()), MarkerShape::Triangle);
-    QCOMPARE(obj.markerSize(),        8.0);
+    QCOMPARE(obj.markerSize(), 8.0);
     QCOMPARE(obj.markerBorderWidth(), 1.5);
     QVERIFY(obj.showPointLabels());
     QCOMPARE(obj.pointLabelPrecision(), 3);
@@ -91,7 +157,7 @@ void TestSeriesStyleObject::gettersExposeInitialStyle()
     // The aggregate snapshot must mirror the held struct.
     const SeriesStyle out = obj.style();
     QCOMPARE(out.color, s.color);
-    QCOMPARE(out.dash,  s.dash);
+    QCOMPARE(out.dash, s.dash);
     QCOMPARE(out.shape, s.shape);
 }
 
@@ -99,24 +165,24 @@ void TestSeriesStyleObject::gettersExposeInitialStyle()
 void TestSeriesStyleObject::typedSettersFireBothSignals()
 {
     SeriesStyleObject obj;
-    QSignalSpy widthSpy  (&obj, &SeriesStyleObject::lineWidthChanged);
-    QSignalSpy capSpy    (&obj, &SeriesStyleObject::capStyleChanged);
-    QSignalSpy shapeSpy  (&obj, &SeriesStyleObject::shapeChanged);
-    QSignalSpy aggSpy    (&obj, &SeriesStyleObject::styleChanged);
+    QSignalSpy widthSpy(&obj, &SeriesStyleObject::lineWidthChanged);
+    QSignalSpy capSpy(&obj, &SeriesStyleObject::capStyleChanged);
+    QSignalSpy shapeSpy(&obj, &SeriesStyleObject::shapeChanged);
+    QSignalSpy aggSpy(&obj, &SeriesStyleObject::styleChanged);
 
     obj.setLineWidth(3.0);
     obj.setCapStyle(Qt::SquareCap);
     obj.setShape(SeriesStyleObject::MarkerShapeQ::Diamond);
 
     QCOMPARE(widthSpy.count(), 1);
-    QCOMPARE(capSpy.count(),   1);
+    QCOMPARE(capSpy.count(), 1);
     QCOMPARE(shapeSpy.count(), 1);
-    QCOMPARE(aggSpy.count(),   3);   // one aggregate per typed setter
+    QCOMPARE(aggSpy.count(), 3); // one aggregate per typed setter
 
     // No-op setters must not re-fire either signal.
     obj.setLineWidth(3.0);
     QCOMPARE(widthSpy.count(), 1);
-    QCOMPARE(aggSpy.count(),   3);
+    QCOMPARE(aggSpy.count(), 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -126,71 +192,71 @@ void TestSeriesStyleObject::setStyleEmitsOneAggregateSignal()
     QSignalSpy aggSpy(&obj, &SeriesStyleObject::styleChanged);
 
     SeriesStyle next;
-    next.color      = QColor(99, 0, 99);
-    next.opacity    = 0.42;
-    next.lineWidth  = 5.0;
-    next.dash       = Qt::DotLine;
+    next.color = QColor(99, 0, 99);
+    next.opacity = 0.42;
+    next.lineWidth = 5.0;
+    next.dash = Qt::DotLine;
     obj.setStyle(next);
 
     // setStyle() temporarily blocks per-field signals and emits the
     // aggregate exactly once at the end — even though many fields changed.
     QCOMPARE(aggSpy.count(), 1);
-    QCOMPARE(obj.color(),     QColor(99, 0, 99));
-    QCOMPARE(obj.opacity(),   0.42);
+    QCOMPARE(obj.color(), QColor(99, 0, 99));
+    QCOMPARE(obj.opacity(), 0.42);
     QCOMPARE(obj.lineWidth(), 5.0);
-    QCOMPARE(obj.dash(),      Qt::DotLine);
+    QCOMPARE(obj.dash(), Qt::DotLine);
 }
 
 // ---------------------------------------------------------------------------
 void TestSeriesStyleObject::jsonRoundTripsAllFields()
 {
     SeriesStyle s;
-    s.color             = QColor::fromRgb(11, 22, 33);
-    s.opacity           = 0.77;
-    s.legendName        = QStringLiteral("legend X");
-    s.showLine          = false;
-    s.lineWidth         = 4.25;
-    s.dash              = Qt::DashDotDotLine;
-    s.capStyle          = Qt::SquareCap;
-    s.joinStyle         = Qt::RoundJoin;
-    s.showMarkers       = true;
-    s.shape             = MarkerShape::Plus;
-    s.markerSize        = 11.0;
-    s.markerFillColor   = QColor(200, 100, 50);
+    s.color = QColor::fromRgb(11, 22, 33);
+    s.opacity = 0.77;
+    s.legendName = QStringLiteral("legend X");
+    s.showLine = false;
+    s.lineWidth = 4.25;
+    s.dash = Qt::DashDotDotLine;
+    s.capStyle = Qt::SquareCap;
+    s.joinStyle = Qt::RoundJoin;
+    s.showMarkers = true;
+    s.shape = MarkerShape::Plus;
+    s.markerSize = 11.0;
+    s.markerFillColor = QColor(200, 100, 50);
     s.markerBorderColor = QColor(40, 80, 120);
     s.markerBorderWidth = 2.5;
-    s.showPointLabels   = true;
-    s.pointLabelFont    = QFont(QStringLiteral("Courier"), 14);
-    s.pointLabelColor   = QColor(50, 50, 50);
+    s.showPointLabels = true;
+    s.pointLabelFont = QFont(QStringLiteral("Courier"), 14);
+    s.pointLabelColor = QColor(50, 50, 50);
     s.pointLabelPrecision = 4;
-    s.pointLabelFormat  = QStringLiteral("%.1f m");
-    s.showAreaFill      = true;
-    s.areaFillColor     = QColor(0, 128, 255, 60);
+    s.pointLabelFormat = QStringLiteral("%.1f m");
+    s.showAreaFill = true;
+    s.areaFillColor = QColor(0, 128, 255, 60);
 
     const QJsonObject j = s.toJson();
     const SeriesStyle back = SeriesStyle::fromJson(j);
 
-    QCOMPARE(back.color.rgba(),             s.color.rgba());
-    QCOMPARE(back.opacity,                  s.opacity);
-    QCOMPARE(back.legendName,               s.legendName);
-    QCOMPARE(back.showLine,                 s.showLine);
-    QCOMPARE(back.lineWidth,                s.lineWidth);
-    QCOMPARE(back.dash,                     s.dash);
-    QCOMPARE(back.capStyle,                 s.capStyle);
-    QCOMPARE(back.joinStyle,                s.joinStyle);
-    QCOMPARE(back.showMarkers,              s.showMarkers);
-    QCOMPARE(back.shape,                    s.shape);
-    QCOMPARE(back.markerSize,               s.markerSize);
-    QCOMPARE(back.markerFillColor.rgba(),   s.markerFillColor.rgba());
+    QCOMPARE(back.color.rgba(), s.color.rgba());
+    QCOMPARE(back.opacity, s.opacity);
+    QCOMPARE(back.legendName, s.legendName);
+    QCOMPARE(back.showLine, s.showLine);
+    QCOMPARE(back.lineWidth, s.lineWidth);
+    QCOMPARE(back.dash, s.dash);
+    QCOMPARE(back.capStyle, s.capStyle);
+    QCOMPARE(back.joinStyle, s.joinStyle);
+    QCOMPARE(back.showMarkers, s.showMarkers);
+    QCOMPARE(back.shape, s.shape);
+    QCOMPARE(back.markerSize, s.markerSize);
+    QCOMPARE(back.markerFillColor.rgba(), s.markerFillColor.rgba());
     QCOMPARE(back.markerBorderColor.rgba(), s.markerBorderColor.rgba());
-    QCOMPARE(back.markerBorderWidth,        s.markerBorderWidth);
-    QCOMPARE(back.showPointLabels,          s.showPointLabels);
+    QCOMPARE(back.markerBorderWidth, s.markerBorderWidth);
+    QCOMPARE(back.showPointLabels, s.showPointLabels);
     QCOMPARE(back.pointLabelFont.toString(), s.pointLabelFont.toString());
-    QCOMPARE(back.pointLabelColor.rgba(),   s.pointLabelColor.rgba());
-    QCOMPARE(back.pointLabelPrecision,      s.pointLabelPrecision);
-    QCOMPARE(back.pointLabelFormat,         s.pointLabelFormat);
-    QCOMPARE(back.showAreaFill,             s.showAreaFill);
-    QCOMPARE(back.areaFillColor.rgba(),     s.areaFillColor.rgba());
+    QCOMPARE(back.pointLabelColor.rgba(), s.pointLabelColor.rgba());
+    QCOMPARE(back.pointLabelPrecision, s.pointLabelPrecision);
+    QCOMPARE(back.pointLabelFormat, s.pointLabelFormat);
+    QCOMPARE(back.showAreaFill, s.showAreaFill);
+    QCOMPARE(back.areaFillColor.rgba(), s.areaFillColor.rgba());
 
     // Invalid per-aspect colours must NOT serialise (we use absence to mean
     // "derive from main colour"). Confirm the JSON omits them when invalid.
@@ -206,28 +272,28 @@ void TestSeriesStyleObject::jsonRoundTripsAllFields()
 void TestSeriesStyleObject::applyToLineSeriesSetsPenAndLabels()
 {
     SeriesStyle s;
-    s.color             = QColor(120, 30, 200);
-    s.opacity           = 0.8;
-    s.lineWidth         = 2.75;
-    s.dash              = Qt::DashLine;
-    s.capStyle          = Qt::RoundCap;
-    s.joinStyle         = Qt::MiterJoin;
-    s.showLine          = true;
-    s.legendName        = QStringLiteral("my series");
-    s.showPointLabels   = true;
+    s.color = QColor(120, 30, 200);
+    s.opacity = 0.8;
+    s.lineWidth = 2.75;
+    s.dash = Qt::DashLine;
+    s.capStyle = Qt::RoundCap;
+    s.joinStyle = Qt::MiterJoin;
+    s.showLine = true;
+    s.legendName = QStringLiteral("my series");
+    s.showPointLabels = true;
     s.pointLabelPrecision = 3;
-    s.pointLabelColor   = QColor(0, 0, 0);
-    s.showAreaFill      = true;
-    s.areaFillColor     = QColor(120, 30, 200, 80);
+    s.pointLabelColor = QColor(0, 0, 0);
+    s.showAreaFill = true;
+    s.areaFillColor = QColor(120, 30, 200, 80);
 
     QLineSeries series;
     openswmmvis::plot::applySeriesStyle(s, &series);
 
     const QPen pen = series.pen();
-    QCOMPARE(pen.style(),     Qt::DashLine);
-    QCOMPARE(pen.capStyle(),  Qt::RoundCap);
+    QCOMPARE(pen.style(), Qt::DashLine);
+    QCOMPARE(pen.capStyle(), Qt::RoundCap);
     QCOMPARE(pen.joinStyle(), Qt::MiterJoin);
-    QCOMPARE(pen.widthF(),    2.75);
+    QCOMPARE(pen.widthF(), 2.75);
 
     // Opacity baked into the pen colour AND on the series.
     QCOMPARE(series.opacity(), 0.8);
@@ -253,26 +319,26 @@ void TestSeriesStyleObject::effectiveColorsFallBackToMainColor()
     // must return colours derived from `color`.
 
     QVERIFY(s.effectiveMarkerFillColor().isValid());
-    QCOMPARE(s.effectiveMarkerFillColor(), s.color);  // fill defaults to main
+    QCOMPARE(s.effectiveMarkerFillColor(), s.color); // fill defaults to main
 
     QVERIFY(s.effectiveMarkerBorderColor().isValid());
-    QVERIFY(s.effectiveMarkerBorderColor() != s.color);  // border defaults to darker
+    QVERIFY(s.effectiveMarkerBorderColor() != s.color); // border defaults to darker
 
     QVERIFY(s.effectivePointLabelColor().isValid());
 
     const QColor area = s.effectiveAreaFillColor();
     QVERIFY(area.isValid());
-    QVERIFY(area.alpha() < 255);   // semi-transparent fallback
+    QVERIFY(area.alpha() < 255); // semi-transparent fallback
 
     // When explicit colours are set, they win.
-    s.markerFillColor   = QColor(1, 2, 3);
+    s.markerFillColor = QColor(1, 2, 3);
     s.markerBorderColor = QColor(4, 5, 6);
-    s.pointLabelColor   = QColor(7, 8, 9);
-    s.areaFillColor     = QColor(10, 11, 12, 200);
-    QCOMPARE(s.effectiveMarkerFillColor(),   QColor(1, 2, 3));
+    s.pointLabelColor = QColor(7, 8, 9);
+    s.areaFillColor = QColor(10, 11, 12, 200);
+    QCOMPARE(s.effectiveMarkerFillColor(), QColor(1, 2, 3));
     QCOMPARE(s.effectiveMarkerBorderColor(), QColor(4, 5, 6));
-    QCOMPARE(s.effectivePointLabelColor(),   QColor(7, 8, 9));
-    QCOMPARE(s.effectiveAreaFillColor(),     QColor(10, 11, 12, 200));
+    QCOMPARE(s.effectivePointLabelColor(), QColor(7, 8, 9));
+    QCOMPARE(s.effectiveAreaFillColor(), QColor(10, 11, 12, 200));
 }
 
 // ---------------------------------------------------------------------------
@@ -282,8 +348,10 @@ void TestSeriesStyleObject::displayLabelsAreGroupPrefixed()
     QVERIFY(obj.displayLabelFor(QStringLiteral("color")).startsWith(QStringLiteral("Identity")));
     QVERIFY(obj.displayLabelFor(QStringLiteral("lineWidth")).startsWith(QStringLiteral("Line")));
     QVERIFY(obj.displayLabelFor(QStringLiteral("shape")).startsWith(QStringLiteral("Marker")));
-    QVERIFY(obj.displayLabelFor(QStringLiteral("pointLabelFont")).startsWith(QStringLiteral("Labels")));
-    QVERIFY(obj.displayLabelFor(QStringLiteral("areaFillColor")).startsWith(QStringLiteral("Area")));
+    QVERIFY(
+        obj.displayLabelFor(QStringLiteral("pointLabelFont")).startsWith(QStringLiteral("Labels")));
+    QVERIFY(
+        obj.displayLabelFor(QStringLiteral("areaFillColor")).startsWith(QStringLiteral("Area")));
 
     // Unknown property → empty string so QPropertyModel falls back to
     // the auto-generated name.
@@ -293,14 +361,14 @@ void TestSeriesStyleObject::displayLabelsAreGroupPrefixed()
 // ---------------------------------------------------------------------------
 void TestSeriesStyleObject::shapeEnumMirrorsMarkerShape()
 {
-    using MS  = MarkerShape;
+    using MS = MarkerShape;
     using MSQ = SeriesStyleObject::MarkerShapeQ;
-    QCOMPARE(static_cast<int>(MSQ::Circle),   static_cast<int>(MS::Circle));
-    QCOMPARE(static_cast<int>(MSQ::Square),   static_cast<int>(MS::Square));
+    QCOMPARE(static_cast<int>(MSQ::Circle), static_cast<int>(MS::Circle));
+    QCOMPARE(static_cast<int>(MSQ::Square), static_cast<int>(MS::Square));
     QCOMPARE(static_cast<int>(MSQ::Triangle), static_cast<int>(MS::Triangle));
-    QCOMPARE(static_cast<int>(MSQ::Diamond),  static_cast<int>(MS::Diamond));
-    QCOMPARE(static_cast<int>(MSQ::Cross),    static_cast<int>(MS::Cross));
-    QCOMPARE(static_cast<int>(MSQ::Plus),     static_cast<int>(MS::Plus));
+    QCOMPARE(static_cast<int>(MSQ::Diamond), static_cast<int>(MS::Diamond));
+    QCOMPARE(static_cast<int>(MSQ::Cross), static_cast<int>(MS::Cross));
+    QCOMPARE(static_cast<int>(MSQ::Plus), static_cast<int>(MS::Plus));
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +386,7 @@ void TestSeriesStyleObject::legendOverrideIsSpecLevelNotStyle()
     obj.setLegendOverride(QStringLiteral("My custom label"));
     QCOMPARE(obj.legendOverride(), QStringLiteral("My custom label"));
     QCOMPARE(overSpy.count(), 1);
-    QCOMPARE(aggSpy.count(),  0);    // style untouched
+    QCOMPARE(aggSpy.count(), 0); // style untouched
 
     // No-op setter is a no-op.
     obj.setLegendOverride(QStringLiteral("My custom label"));
@@ -327,7 +395,7 @@ void TestSeriesStyleObject::legendOverrideIsSpecLevelNotStyle()
     // setStyle() leaves legendOverride alone — it only walks SeriesStyle
     // fields. Pre-existing override survives a full style swap.
     SeriesStyle next;
-    next.color     = QColor(99, 99, 99);
+    next.color = QColor(99, 99, 99);
     next.lineWidth = 3.5;
     obj.setStyle(next);
     QCOMPARE(obj.legendOverride(), QStringLiteral("My custom label"));

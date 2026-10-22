@@ -1,9 +1,9 @@
-/*!
- * \file   rastersymbologypanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Symbology tab content for a GISRasterLayer — the GIS-style raster
+/**
+ * @file      rastersymbologypanel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Symbology tab content for a GISRasterLayer — the GIS-style raster
  *         renderer chooser (QGIS "Singleband pseudocolor" / "Paletted" /
  *         "Multiband colour") mounted by LayerStyleDialog.
  *
@@ -29,7 +29,9 @@
  *         restore through StyleFileIO — the panel re-syncs from
  *         rasterRendererChanged (queued, so an edit never re-enters the
  *         editor that pushed it).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_RASTERSYMBOLOGYPANEL_H
 #define OPENSWMMVIS_UI_DIALOGS_RASTERSYMBOLOGYPANEL_H
 
@@ -48,13 +50,15 @@ class QStackedWidget;
 class QStandardItemModel;
 class QTableView;
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class GraduatedRasterRenderer;
 class MultiBandColorRenderer;
 class PalettedRasterRenderer;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ClassificationEditor;
 
@@ -77,9 +81,9 @@ public slots:
 
 private:
     [[nodiscard]] QGroupBox *buildSourceGroup();
-    [[nodiscard]] QWidget   *buildGraduatedPage();
-    [[nodiscard]] QWidget   *buildPalettedPage();
-    [[nodiscard]] QWidget   *buildMultiBandPage();
+    [[nodiscard]] QWidget *buildGraduatedPage();
+    [[nodiscard]] QWidget *buildPalettedPage();
+    [[nodiscard]] QWidget *buildMultiBandPage();
     [[nodiscard]] QGroupBox *buildHillshadeGroup();
 
     void onKindComboChanged(int index);
@@ -92,39 +96,39 @@ private:
     void pushHillshade();
 
     [[nodiscard]] OpenSWMM::Render::GraduatedRasterRenderer *graduated() const;
-    [[nodiscard]] OpenSWMM::Render::PalettedRasterRenderer  *paletted() const;
-    [[nodiscard]] OpenSWMM::Render::MultiBandColorRenderer  *multiband() const;
+    [[nodiscard]] OpenSWMM::Render::PalettedRasterRenderer *paletted() const;
+    [[nodiscard]] OpenSWMM::Render::MultiBandColorRenderer *multiband() const;
 
     QPointer<GISRasterLayer> m_layer;
 
-    QComboBox      *m_kindCombo   = nullptr;
-    QStackedWidget *m_stack       = nullptr;
+    QComboBox *m_kindCombo = nullptr;
+    QStackedWidget *m_stack = nullptr;
 
-    QGroupBox *m_sourceBox   = nullptr;
-    QSpinBox  *m_bandSpin    = nullptr;
-    QLabel    *m_nodataLabel = nullptr;
+    QGroupBox *m_sourceBox = nullptr;
+    QSpinBox *m_bandSpin = nullptr;
+    QLabel *m_nodataLabel = nullptr;
 
     ClassificationEditor *m_classEditor = nullptr;
 
-    QComboBox          *m_paletteCombo = nullptr;
-    QTableView         *m_palTable     = nullptr;
-    QStandardItemModel *m_palModel     = nullptr;
-    QPushButton        *m_classifyBtn  = nullptr;
-    QPushButton        *m_loadTableBtn = nullptr;
+    QComboBox *m_paletteCombo = nullptr;
+    QTableView *m_palTable = nullptr;
+    QStandardItemModel *m_palModel = nullptr;
+    QPushButton *m_classifyBtn = nullptr;
+    QPushButton *m_loadTableBtn = nullptr;
 
-    QSpinBox *m_redSpin   = nullptr;
+    QSpinBox *m_redSpin = nullptr;
     QSpinBox *m_greenSpin = nullptr;
-    QSpinBox *m_blueSpin  = nullptr;
+    QSpinBox *m_blueSpin = nullptr;
     QSpinBox *m_alphaSpin = nullptr;
 
-    QGroupBox      *m_hsBox      = nullptr;
-    QCheckBox      *m_hsEnable   = nullptr;
-    QDoubleSpinBox *m_hsAzimuth  = nullptr;
+    QGroupBox *m_hsBox = nullptr;
+    QCheckBox *m_hsEnable = nullptr;
+    QDoubleSpinBox *m_hsAzimuth = nullptr;
     QDoubleSpinBox *m_hsAltitude = nullptr;
-    QDoubleSpinBox *m_hsZFactor  = nullptr;
+    QDoubleSpinBox *m_hsZFactor = nullptr;
     QDoubleSpinBox *m_hsStrength = nullptr;
 
-    bool m_suppress = false;   // true while the panel itself writes controls
+    bool m_suppress = false; // true while the panel itself writes controls
 };
 
 } // namespace openswmmvis::ui

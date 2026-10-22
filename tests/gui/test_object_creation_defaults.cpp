@@ -1,6 +1,6 @@
-/*!
- * \file   test_object_creation_defaults.cpp
- * \brief  Creation-path tests for object defaults: a drawn object must land
+/**
+ * @file      test_object_creation_defaults.cpp
+ * @brief     Creation-path tests for object defaults: a drawn object must land
  *         in the engine with the configured ObjectDefaults for the active
  *         unit system, geometry-derived overrides must win, and undo must
  *         roll the whole object back.
@@ -9,6 +9,10 @@
  *  Uses the Add*Commands directly (canvas = nullptr) — the same choke point
  *  the draw tools and the GIS importer push through. Fixtures:
  *  data/object_defaults_cfs.inp (US) and data/object_defaults_cms.inp (SI).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -30,7 +34,8 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_gages.h>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -39,17 +44,16 @@ QString dataDir()
 
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 {
-    auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(fixture), nullptr);
+    auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
 //! Binds the UnitSystem facade to the layer's engine for the test scope and
 //! unbinds on destruction so cases stay independent.
-struct ScopedUnits
-{
+struct ScopedUnits {
     UnitSystem units;
     explicit ScopedUnits(SWMMModelLayer *layer)
     {
@@ -123,8 +127,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     // Conduit → circular 1.0 ft, n = 0.013, length 400 (no auto-length:
     // canvas is null, so the flag reads false).
     AddLinkCommand addConduit(layer.get(), QStringLiteral("C_NEW"),
-                              /*SWMM_LINK_CONDUIT*/ 0,
-                              QStringLiteral("J1"), QStringLiteral("J2"),
+                              /*SWMM_LINK_CONDUIT*/ 0, QStringLiteral("J1"), QStringLiteral("J2"),
                               {}, nullptr);
     addConduit.redo();
     const int li = swmm_link_index(eng, "C_NEW");
@@ -132,7 +135,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     int shape = -1;
     double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
     QCOMPARE(swmm_link_get_xsect(eng, li, &shape, &g1, &g2, &g3, &g4), 0);
-    QCOMPARE(shape, 0);          // CIRCULAR
+    QCOMPARE(shape, 0); // CIRCULAR
     QCOMPARE(g1, 1.0);
     double n = 0;
     QCOMPARE(swmm_link_get_roughness(eng, li, &n), 0);
@@ -143,9 +146,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
 
     // Subcatchment → width/slope/Horton family (fixture INFILTRATION HORTON).
     AddSubcatchmentCommand addSub(layer.get(), QStringLiteral("S_NEW"),
-                                  {QPointF(0, 0), QPointF(100, 0),
-                                   QPointF(50, 100)},
-                                  nullptr);
+                                  {QPointF(0, 0), QPointF(100, 0), QPointF(50, 100)}, nullptr);
     addSub.redo();
     const int si = swmm_subcatch_index(eng, "S_NEW");
     QVERIFY(si >= 0);
@@ -157,7 +158,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     // Infiltration family follows the project option (fixture = HORTON).
     int model = -1;
     QCOMPARE(swmm_subcatch_get_infil_model(eng, si, &model), 0);
-    QCOMPARE(model, 0);          // HORTON
+    QCOMPARE(model, 0); // HORTON
     double f0 = 0, fmin = 0, decay = 0, dry = 0;
     QCOMPARE(swmm_subcatch_get_infil_horton(eng, si, &f0, &fmin, &decay, &dry), 0);
     QCOMPARE(f0, 3.0);
@@ -168,14 +169,13 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     QCOMPARE(pctZero, 25.0);
 
     // Rain gage → 15-min intensity, catch factor 1.
-    AddGageCommand addGage(layer.get(), QStringLiteral("RG_NEW"),
-                           200.0, 200.0, nullptr);
+    AddGageCommand addGage(layer.get(), QStringLiteral("RG_NEW"), 200.0, 200.0, nullptr);
     addGage.redo();
     const int gi = swmm_gage_index(eng, "RG_NEW");
     QVERIFY(gi >= 0);
     double interval = 0;
     QCOMPARE(swmm_gage_get_rain_interval(eng, gi, &interval), 0);
-    QCOMPARE(interval, 900.0);   // 15 min in seconds
+    QCOMPARE(interval, 900.0); // 15 min in seconds
     double scf = 0;
     QCOMPARE(swmm_gage_get_snow_factor(eng, gi, &scf), 0);
     QCOMPARE(scf, 1.0);
@@ -189,22 +189,20 @@ void TestObjectCreationDefaults::siDefaults_selectedBySiProject()
     QVERIFY(scope.units.isSI());
     SWMM_Engine eng = layer->engine();
 
-    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_NEW"),
-                              0, QStringLiteral("J1"), QStringLiteral("J2"),
-                              {}, nullptr);
+    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_NEW"), 0, QStringLiteral("J1"),
+                              QStringLiteral("J2"), {}, nullptr);
     addConduit.redo();
     const int li = swmm_link_index(eng, "C_NEW");
     QVERIFY(li >= 0);
     int shape = -1;
     double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
     QCOMPARE(swmm_link_get_xsect(eng, li, &shape, &g1, &g2, &g3, &g4), 0);
-    QCOMPARE(g1, 0.3);           // SI diameter
+    QCOMPARE(g1, 0.3); // SI diameter
     double len = 0;
     QCOMPARE(swmm_link_get_length(eng, li, &len), 0);
-    QCOMPARE(len, 120.0);        // SI length
+    QCOMPARE(len, 120.0); // SI length
 
-    AddNodeCommand addStorage(layer.get(), QStringLiteral("ST1"),
-                              2, 100.0, 100.0, nullptr, 0.0);
+    AddNodeCommand addStorage(layer.get(), QStringLiteral("ST1"), 2, 100.0, 100.0, nullptr, 0.0);
     addStorage.redo();
     const int st = swmm_node_index(eng, "ST1");
     QVERIFY(st >= 0);
@@ -224,16 +222,14 @@ void TestObjectCreationDefaults::curveNumberProject_getsCurveNumberFamily()
     SWMM_Engine eng = layer->engine();
 
     AddSubcatchmentCommand addSub(layer.get(), QStringLiteral("S_CN"),
-                                  {QPointF(0, 0), QPointF(100, 0),
-                                   QPointF(50, 100)},
-                                  nullptr);
+                                  {QPointF(0, 0), QPointF(100, 0), QPointF(50, 100)}, nullptr);
     addSub.redo();
     const int si = swmm_subcatch_index(eng, "S_CN");
     QVERIFY(si >= 0);
 
     int model = -1;
     QCOMPARE(swmm_subcatch_get_infil_model(eng, si, &model), 0);
-    QCOMPARE(model, 4);          // CURVE_NUMBER
+    QCOMPARE(model, 4); // CURVE_NUMBER
     double cn = 0, cnDry = 0;
     QCOMPARE(swmm_subcatch_get_infil_curve_number(eng, si, &cn, &cnDry), 0);
     QCOMPARE(cn, 80.0);
@@ -274,12 +270,11 @@ void TestObjectCreationDefaults::editedPreference_flowsThroughToCreation()
 
     auto *p = PreferencesManager::instance();
     auto d = PreferencesManager::ObjectDefaults::usSeed();
-    d.conduitRoughness = 0.017;   // user picks corrugated metal
+    d.conduitRoughness = 0.017; // user picks corrugated metal
     p->setObjectDefaults(d, /*si=*/false);
 
-    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_EDIT"),
-                              0, QStringLiteral("J1"), QStringLiteral("J2"),
-                              {}, nullptr);
+    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_EDIT"), 0, QStringLiteral("J1"),
+                              QStringLiteral("J2"), {}, nullptr);
     addConduit.redo();
     const int li = swmm_link_index(eng, "C_EDIT");
     QVERIFY(li >= 0);
@@ -295,9 +290,8 @@ void TestObjectCreationDefaults::undo_rollsTheWholeObjectBack()
     ScopedUnits scope(layer.get());
     SWMM_Engine eng = layer->engine();
 
-    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_UNDO"),
-                              0, QStringLiteral("J1"), QStringLiteral("J2"),
-                              {}, nullptr);
+    AddLinkCommand addConduit(layer.get(), QStringLiteral("C_UNDO"), 0, QStringLiteral("J1"),
+                              QStringLiteral("J2"), {}, nullptr);
     addConduit.redo();
     QVERIFY(swmm_link_index(eng, "C_UNDO") >= 0);
     addConduit.undo();

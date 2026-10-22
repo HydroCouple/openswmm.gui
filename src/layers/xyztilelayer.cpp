@@ -1,8 +1,10 @@
-/*!
- * \file   xyztilelayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Slippy-map (XYZ / OSM-style) tile basemap layer.
+/**
+ * @file      xyztilelayer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Slippy-map (XYZ / OSM-style) tile basemap layer.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/xyztilelayer.h"
@@ -27,17 +29,22 @@
 #include <ogr_spatialref.h>
 #include <ogr_api.h>
 
-static constexpr double PI            = M_PI;
-static constexpr double DEG_TO_RAD    = PI / 180.0;
-static constexpr double RAD_TO_DEG    = 180.0 / PI;
+static constexpr double PI = M_PI;
+static constexpr double DEG_TO_RAD = PI / 180.0;
+static constexpr double RAD_TO_DEG = 180.0 / PI;
 
-namespace {
+namespace
+{
 // P1 — private pool for the reverse-projection row bands. render() itself
 // already runs on the GLOBAL QThreadPool (MapRenderJob's QtConcurrent::run);
 // fanning the bands out on that same pool could starve/deadlock when it is
 // saturated (raster tile warps, async file opens). A dedicated pool's
 // threads never wait on the global pool, so the outer thread blocking on
 // the bands cannot form a cycle.
+/**
+ * @brief Obtain the process-lifetime row-reprojection pool, separate from the global pool running outer render jobs.
+ * @return Borrowed static pool with max(1,idealThreadCount-1) workers initialized once; callers must not delete/reconfigure it while jobs are active. Render waits for its submitted row tasks before returning.
+ */
 QThreadPool *reprojectPool()
 {
     static QThreadPool pool;
@@ -52,14 +59,11 @@ QThreadPool *reprojectPool()
 
 // ---------------------------------------------------------------------------
 
-XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
-                           int tileSizePx,
-                           QObject *parent)
-    : OpenSWMMVisLayer(QStringLiteral("XYZ Tiles"), nullptr)
-    , m_urlTemplate(urlTemplate)
-    , m_nam(new QNetworkAccessManager(this))
-    , m_tileCache(400)  // max 400 tiles in LRU cache
-    , m_tileSizePx(tileSizePx > 0 ? tileSizePx : 256)
+XYZTileLayer::XYZTileLayer(const QString &urlTemplate, int tileSizePx, QObject *parent)
+    : OpenSWMMVisLayer(QStringLiteral("XYZ Tiles"), nullptr), m_urlTemplate(urlTemplate),
+      m_nam(new QNetworkAccessManager(this)), m_tileCache(400) // max 400 tiles in LRU cache
+      ,
+      m_tileSizePx(tileSizePx > 0 ? tileSizePx : 256)
 {
     Q_UNUSED(parent)
 
@@ -89,8 +93,7 @@ XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
     // and layerExtentInCanvasCRS() can reproject it for on-the-fly reprojection.
     // The XYZ tile service itself has no tighter geographic scope.
     constexpr double kMercHalfWorld = 20037508.342789244;
-    setExtent(MapExtent(-kMercHalfWorld, -kMercHalfWorld,
-                         kMercHalfWorld,  kMercHalfWorld));
+    setExtent(MapExtent(-kMercHalfWorld, -kMercHalfWorld, kMercHalfWorld, kMercHalfWorld));
 }
 
 XYZTileLayer::~XYZTileLayer()
@@ -126,7 +129,7 @@ void XYZTileLayer::rebuildTransforms(const SpatialReferenceSystem *canvasSRS)
 
     OGRCoordinateTransformation::DestroyCT(m_toWGS84);
     OGRCoordinateTransformation::DestroyCT(m_fromWGS84);
-    m_toWGS84   = nullptr;
+    m_toWGS84 = nullptr;
     m_fromWGS84 = nullptr;
 
     if (!canvasSRS)
@@ -138,9 +141,9 @@ void XYZTileLayer::rebuildTransforms(const SpatialReferenceSystem *canvasSRS)
 
     // Check if the canvas CRS is already WGS84
     if (canvasOGR->IsSame(m_wgs84))
-        return;  // no transforms needed — canvas is WGS84
+        return; // no transforms needed — canvas is WGS84
 
-    m_toWGS84   = OGRCreateCoordinateTransformation(canvasOGR, m_wgs84);
+    m_toWGS84 = OGRCreateCoordinateTransformation(canvasOGR, m_wgs84);
     m_fromWGS84 = OGRCreateCoordinateTransformation(m_wgs84, canvasOGR);
 }
 
@@ -152,21 +155,21 @@ void XYZTileLayer::rebuildTransforms(const SpatialReferenceSystem *canvasSRS)
 QRectF XYZTileLayer::tileBoundsWGS84(int z, int x, int y) const
 {
     const double n = std::pow(2.0, z);
-    const double lonMin =  x      / n * 360.0 - 180.0;
+    const double lonMin = x / n * 360.0 - 180.0;
     const double lonMax = (x + 1) / n * 360.0 - 180.0;
-    const double latMax = std::atan(std::sinh(PI * (1.0 - 2.0 *  y      / n))) * RAD_TO_DEG;
+    const double latMax = std::atan(std::sinh(PI * (1.0 - 2.0 * y / n))) * RAD_TO_DEG;
     const double latMin = std::atan(std::sinh(PI * (1.0 - 2.0 * (y + 1) / n))) * RAD_TO_DEG;
     // QRectF(x, y, w, h) where x=lonMin, y=latMin (lower-left)
     return QRectF(lonMin, latMin, lonMax - lonMin, latMax - latMin);
 }
 
-void XYZTileLayer::latLonToTileXY(double lat, double lon, int z,
-                                  int &tx, int &ty) const
+void XYZTileLayer::latLonToTileXY(double lat, double lon, int z, int &tx, int &ty) const
 {
-    const double n  = std::pow(2.0, z);
+    const double n = std::pow(2.0, z);
     const double lr = lat * DEG_TO_RAD;
     tx = static_cast<int>(std::floor((lon + 180.0) / 360.0 * n));
-    ty = static_cast<int>(std::floor((1.0 - std::log(std::tan(lr) + 1.0 / std::cos(lr)) / PI) / 2.0 * n));
+    ty = static_cast<int>(
+        std::floor((1.0 - std::log(std::tan(lr) + 1.0 / std::cos(lr)) / PI) / 2.0 * n));
     // Clamp to valid tile range
     tx = std::clamp(tx, 0, static_cast<int>(n) - 1);
     ty = std::clamp(ty, 0, static_cast<int>(n) - 1);
@@ -191,9 +194,7 @@ int XYZTileLayer::bestZoom(const QRectF &wgs84Extent, int vpWidth) const
     // covers the same geographic extent as a 256-px tile at the same zoom level.
     // Use the logical geographic tile size (tileSizePx / pixelRatio) so bestZoom
     // selects the correct zoom level rather than one level too coarse.
-    const int geoTileSize = (m_tilePixelRatio > 1)
-                            ? m_tileSizePx / m_tilePixelRatio
-                            : m_tileSizePx;
+    const int geoTileSize = (m_tilePixelRatio > 1) ? m_tileSizePx / m_tilePixelRatio : m_tileSizePx;
     const double idealZ = std::log2((vpWidth * 360.0) / (lonSpan * geoTileSize));
 
     // Round up when the fractional part >= 0.3 — biases toward sharper tiles
@@ -216,22 +217,20 @@ QRectF XYZTileLayer::wgs84ExtentOfCanvasExtent(const MapExtent &extent,
     // Web Mercator's valid range — beyond ±85.05° latitude the inverse
     // projection diverges, and longitudes wrap around at ±180°.
     constexpr double kLonMin = -180.0;
-    constexpr double kLonMax =  180.0;
+    constexpr double kLonMax = 180.0;
     constexpr double kLatMin = -85.05112878;
-    constexpr double kLatMax =  85.05112878;
+    constexpr double kLatMax = 85.05112878;
 
-    auto isFinite = [](double v) {
-        return std::isfinite(v);
-    };
+    auto isFinite = [](double v) { return std::isfinite(v); };
 
-    if (!m_toWGS84)
-    {
+    if (!m_toWGS84) {
         // Canvas is already WGS84 — clamp to valid range.
         const double lonMin = std::max(kLonMin, extent.xMin());
         const double lonMax = std::min(kLonMax, extent.xMax());
         const double latMin = std::max(kLatMin, extent.yMin());
         const double latMax = std::min(kLatMax, extent.yMax());
-        if (lonMin >= lonMax || latMin >= latMax) return {};
+        if (lonMin >= lonMax || latMin >= latMax)
+            return {};
         return QRectF(lonMin, latMin, lonMax - lonMin, latMax - latMin);
     }
 
@@ -241,8 +240,8 @@ QRectF XYZTileLayer::wgs84ExtentOfCanvasExtent(const MapExtent &extent,
     // when the user has zoomed way out). Sampling only the 4 corners misses
     // bulges; this is what QGIS does for raster reprojection sampling.
     constexpr int kGrid = 5;
-    double lonMin =  1e300, lonMax = -1e300;
-    double latMin =  1e300, latMax = -1e300;
+    double lonMin = 1e300, lonMax = -1e300;
+    double latMin = 1e300, latMax = -1e300;
 
     for (int j = 0; j < kGrid; ++j) {
         const double t = static_cast<double>(j) / (kGrid - 1);
@@ -259,8 +258,10 @@ QRectF XYZTileLayer::wgs84ExtentOfCanvasExtent(const MapExtent &extent,
             // they often signal the projection has wrapped around.
             if (tx < -360.0 || tx > 360.0 || ty < -90.0 || ty > 90.0)
                 continue;
-            lonMin = std::min(lonMin, tx);  lonMax = std::max(lonMax, tx);
-            latMin = std::min(latMin, ty);  latMax = std::max(latMax, ty);
+            lonMin = std::min(lonMin, tx);
+            lonMax = std::max(lonMax, tx);
+            latMin = std::min(latMin, ty);
+            latMax = std::max(latMax, ty);
         }
     }
 
@@ -280,25 +281,23 @@ QRectF XYZTileLayer::wgs84ExtentOfCanvasExtent(const MapExtent &extent,
     return QRectF(lonMin, latMin, lonMax - lonMin, latMax - latMin);
 }
 
-// Convert a WGS84 tile bounding box to canvas-CRS pixel rect in a viewport.
-// Returns a QRectF in *pixel* coordinates (top-left origin).
+// Convert WGS84 tile corners to their axis-aligned canvas-map bounds.
 QRectF XYZTileLayer::tileCanvasBounds(const QRectF &wgs84Bounds,
-                                       const SpatialReferenceSystem *canvasSRS) const
+                                      const SpatialReferenceSystem *canvasSRS) const
 {
     Q_UNUSED(canvasSRS)
     // We return canvas-CRS coordinates; the caller converts to pixels.
     // If there is a fromWGS84 transform, apply it to the corners.
-    if (!m_fromWGS84)
-    {
+    if (!m_fromWGS84) {
         // Canvas is WGS84 — return as-is
         return wgs84Bounds;
     }
 
-    double x0 = wgs84Bounds.left(),  y0 = wgs84Bounds.top();
+    double x0 = wgs84Bounds.left(), y0 = wgs84Bounds.top();
     double x1 = wgs84Bounds.right(), y1 = wgs84Bounds.bottom();
 
-    double xs[4] = { x0, x1, x0, x1 };
-    double ys[4] = { y0, y0, y1, y1 };
+    double xs[4] = {x0, x1, x0, x1};
+    double ys[4] = {y0, y0, y1, y1};
 
     if (!m_fromWGS84->Transform(4, xs, ys))
         return {};
@@ -317,9 +316,8 @@ QRectF XYZTileLayer::tileCanvasBounds(const QRectF &wgs84Bounds,
 
 QString XYZTileLayer::buildUrl(int z, int x, int y) const
 {
-    static const QStringList subdomains = { QStringLiteral("a"),
-                                            QStringLiteral("b"),
-                                            QStringLiteral("c") };
+    static const QStringList subdomains = {QStringLiteral("a"), QStringLiteral("b"),
+                                           QStringLiteral("c")};
     const QString &sub = subdomains[m_subdomainIdx % subdomains.size()];
 
     QString url = m_urlTemplate;
@@ -352,10 +350,8 @@ void XYZTileLayer::fetchTile(int z, int x, int y)
     ++m_subdomainIdx;
 
     QNetworkRequest req(QUrl(buildUrl(z, x, y)));
-    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
-                     QNetworkRequest::PreferCache);
-    req.setRawHeader("User-Agent",
-                     "OpenSWMMVis/1.0 (github.com/calebbuahin/openswmm.gui)");
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    req.setRawHeader("User-Agent", "OpenSWMMVis/1.0 (github.com/calebbuahin/openswmm.gui)");
 
     if (!m_authHeader.isEmpty())
         req.setRawHeader("Authorization", m_authHeader);
@@ -382,8 +378,7 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
         m_inflight.remove(key);
     }
 
-    if (reply->error() != QNetworkReply::NoError)
-    {
+    if (reply->error() != QNetworkReply::NoError) {
         qWarning() << "[XYZ] tile fetch failed key=" << key << reply->errorString();
         return;
     }
@@ -392,8 +387,7 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
     qDebug() << "[XYZ] tile reply key=" << key << "bytes=" << data.size()
              << "contentType=" << reply->header(QNetworkRequest::ContentTypeHeader).toString();
     auto *img = new QImage();
-    if (img->loadFromData(data))
-    {
+    if (img->loadFromData(data)) {
         const QSize sz = img->size();
         {
             // QCache::insert may also EVICT — the lock keeps a mid-render
@@ -401,14 +395,11 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
             QMutexLocker lock(&m_tileCacheMutex);
             m_tileCache.insert(key, img);
         }
-        ++m_tileEpoch;   // cache content changed → render memo is stale
+        ++m_tileEpoch; // cache content changed → render memo is stale
         qDebug() << "[XYZ] tile cached key=" << key << "size=" << sz;
         emit repaintRequested();
-    }
-    else
-    {
-        qWarning() << "[XYZ] tile decode failed key=" << key
-                   << "first64=" << data.left(64).toHex();
+    } else {
+        qWarning() << "[XYZ] tile decode failed key=" << key << "first64=" << data.left(64).toHex();
         delete img;
     }
 }
@@ -417,8 +408,7 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
 // fetchCache — called before each render pass
 // ---------------------------------------------------------------------------
 
-void XYZTileLayer::fetchCache(const MapExtent &extent,
-                              const QSize &viewportSize,
+void XYZTileLayer::fetchCache(const MapExtent &extent, const QSize &viewportSize,
                               const SpatialReferenceSystem *canvasSRS)
 {
     if (!canvasSRS || !isVisible())
@@ -466,9 +456,7 @@ void XYZTileLayer::fetchCache(const MapExtent &extent,
 // render — draw cached tiles for the current viewport
 // ---------------------------------------------------------------------------
 
-void XYZTileLayer::render(QPainter *painter,
-                          const MapExtent &extent,
-                          const QSize &imageSize,
+void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSize &imageSize,
                           const SpatialReferenceSystem *canvasSRS)
 {
     if (!painter || !canvasSRS || !isVisible())
@@ -515,8 +503,8 @@ void XYZTileLayer::render(QPainter *painter,
     // We rebuild dst at device-pixel size, set its DPR, and walk every
     // device pixel through the reverse-mapping pipeline.
     const qreal dpr = painterDevicePixelRatio(painter);
-    const int   devW = qRound(imageSize.width()  * dpr);
-    const int   devH = qRound(imageSize.height() * dpr);
+    const int devW = qRound(imageSize.width() * dpr);
+    const int devH = qRound(imageSize.height() * dpr);
 
     // Pixel-per-canvas in **device** pixels — anchor / per-pixel math below
     // operates in device coords for full Retina precision.
@@ -533,17 +521,13 @@ void XYZTileLayer::render(QPainter *painter,
     // tile-cache contents are unchanged (selection repaints, other layers'
     // tiles arriving). Skip the mosaic + reprojection entirely.
     const quint64 epochAtStart = m_tileEpoch.load();
-    if (!m_renderMemo.isNull()
-        && extent == m_memoExtent
-        && QSize(devW, devH) == m_memoDevSize
-        && z == m_memoZoom
-        && epochAtStart == m_memoEpoch)
-    {
+    if (!m_renderMemo.isNull() && extent == m_memoExtent && QSize(devW, devH) == m_memoDevSize &&
+        z == m_memoZoom && epochAtStart == m_memoEpoch) {
         painter->save();
         painter->setOpacity(opacity());
         painter->setRenderHint(QPainter::SmoothPixmapTransform,
-            m_renderParams.resampling
-                != OpenSWMM::Render::BasemapRenderParams::Nearest);
+                               m_renderParams.resampling !=
+                                   OpenSWMM::Render::BasemapRenderParams::Nearest);
         painter->drawImage(0, 0, m_renderMemo);
         painter->restore();
         return;
@@ -580,7 +564,7 @@ void XYZTileLayer::render(QPainter *painter,
         const double n = std::pow(2.0, zz);
         const double tileSize = (2.0 * kMercExtent) / n;
         const double xMin = -kMercExtent + x * tileSize;
-        const double yMax =  kMercExtent - y * tileSize; // tile y=0 is north
+        const double yMax = kMercExtent - y * tileSize; // tile y=0 is north
         return QRectF(xMin, yMax - tileSize, tileSize, tileSize);
     };
 
@@ -590,7 +574,8 @@ void XYZTileLayer::render(QPainter *painter,
             QRectF tb = tileBoundsMerc(tx, ty, z);
             srcBoundsMerc = srcBoundsMerc.isNull() ? tb : srcBoundsMerc.united(tb);
         }
-    if (srcBoundsMerc.isEmpty()) return;
+    if (srcBoundsMerc.isEmpty())
+        return;
 
     // Source buffer: assemble all tiles into a single Web Mercator image.
     // Width / height = tile count × m_tileSizePx (256 for standard XYZ, 512
@@ -599,7 +584,8 @@ void XYZTileLayer::render(QPainter *painter,
     const int tilesY = tyMax - tyMin + 1;
     const int srcW = tilesX * m_tileSizePx;
     const int srcH = tilesY * m_tileSizePx;
-    if (srcW <= 0 || srcH <= 0 || srcW > 65536 || srcH > 65536) return;
+    if (srcW <= 0 || srcH <= 0 || srcW > 65536 || srcH > 65536)
+        return;
 
     QImage srcBuf(srcW, srcH, QImage::Format_ARGB32_Premultiplied);
     srcBuf.fill(Qt::transparent);
@@ -617,32 +603,30 @@ void XYZTileLayer::render(QPainter *painter,
                 if (!tile) {
                     const int pz = z - 1;
                     if (pz >= 0) {
-                        const QString pk = QStringLiteral("%1/%2/%3")
-                                               .arg(pz).arg(tx / 2).arg(ty / 2);
+                        const QString pk =
+                            QStringLiteral("%1/%2/%3").arg(pz).arg(tx / 2).arg(ty / 2);
                         if (auto *fb = m_tileCache.object(pk)) {
                             // Render parent tile crop — quarter-rect for the child
                             const int cw = m_tileSizePx, ch = m_tileSizePx;
-                            const QRect srcRect((tx & 1) * (cw / 2),
-                                                (ty & 1) * (ch / 2),
-                                                cw / 2, ch / 2);
-                            sp.drawImage(QRect((tx - txMin) * cw, (ty - tyMin) * ch, cw, ch),
-                                         *fb, srcRect);
+                            const QRect srcRect((tx & 1) * (cw / 2), (ty & 1) * (ch / 2), cw / 2,
+                                                ch / 2);
+                            sp.drawImage(QRect((tx - txMin) * cw, (ty - tyMin) * ch, cw, ch), *fb,
+                                         srcRect);
                         }
                     }
                     continue;
                 }
-                sp.drawImage((tx - txMin) * m_tileSizePx,
-                             (ty - tyMin) * m_tileSizePx, *tile);
+                sp.drawImage((tx - txMin) * m_tileSizePx, (ty - tyMin) * m_tileSizePx, *tile);
             }
         }
     }
 
     // Helpers: source CRS (Mercator metres) ↔ source buffer pixel.
-    const double mercPerPxX =  srcBoundsMerc.width()  / srcW;
-    const double mercPerPxY =  srcBoundsMerc.height() / srcH;
+    const double mercPerPxX = srcBoundsMerc.width() / srcW;
+    const double mercPerPxY = srcBoundsMerc.height() / srcH;
     auto mercToSrcPx = [&](double mx, double my) -> QPointF {
-        return QPointF((mx - srcBoundsMerc.left())   / mercPerPxX,
-                       (srcBoundsMerc.top()  + srcBoundsMerc.height() - my) / mercPerPxY);
+        return QPointF((mx - srcBoundsMerc.left()) / mercPerPxX,
+                       (srcBoundsMerc.top() + srcBoundsMerc.height() - my) / mercPerPxY);
     };
 
     // Helper: lon/lat → Web Mercator metres.
@@ -662,30 +646,24 @@ void XYZTileLayer::render(QPainter *painter,
     dst.setDevicePixelRatio(dpr);
     dst.fill(Qt::transparent);
 
-    if (canvasOGR && m_merc3857 && canvasOGR->IsSame(m_merc3857))
-    {
+    if (canvasOGR && m_merc3857 && canvasOGR->IsSame(m_merc3857)) {
         // P1 — same-CRS fast path. The mosaic is already in Web Mercator ==
         // the canvas CRS, so canvas-px → mosaic-px is exactly affine: one
         // SIMD drawImage replaces the ~devW×devH scalar reverse projection.
         // (The mosaic covers the extent ±1 tile, so a partially-out-of-range
         // source rect only clips at the world boundary.)
-        const QRectF srcRectF(
-            (extent.xMin() - srcBoundsMerc.left()) / mercPerPxX,
-            (srcBoundsMerc.top() + srcBoundsMerc.height() - extent.yMax())
-                / mercPerPxY,
-            extent.width()  / mercPerPxX,
-            extent.height() / mercPerPxY);
-        QPainter dp(&dst);   // logical coords: dst is DPR-tagged
+        const QRectF srcRectF((extent.xMin() - srcBoundsMerc.left()) / mercPerPxX,
+                              (srcBoundsMerc.top() + srcBoundsMerc.height() - extent.yMax()) /
+                                  mercPerPxY,
+                              extent.width() / mercPerPxX, extent.height() / mercPerPxY);
+        QPainter dp(&dst); // logical coords: dst is DPR-tagged
         dp.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        dp.drawImage(QRectF(0, 0, imageSize.width(), imageSize.height()),
-                     srcBuf, srcRectF);
-    }
-    else
-    {
+        dp.drawImage(QRectF(0, 0, imageSize.width(), imageSize.height()), srcBuf, srcRectF);
+    } else {
         // Build sparse anchor grid: for every 32-px block on the OUTPUT canvas
         // image (in **device pixels**), compute the corresponding SOURCE BUFFER
         // pixel by canvas-px → canvas-CRS → WGS84 → Mercator → source-px.
-        constexpr int kBlock = 32;                       // device-pixel block size
+        constexpr int kBlock = 32; // device-pixel block size
         const int gridW = (devW + kBlock - 1) / kBlock + 1;
         const int gridH = (devH + kBlock - 1) / kBlock + 1;
 
@@ -721,29 +699,30 @@ void XYZTileLayer::render(QPainter *painter,
         // range so edge samples always return an opaque colour from the last
         // valid pixel.
         auto sampleSrc = [&](double sx, double sy) -> QRgb {
-            if (!std::isfinite(sx) || !std::isfinite(sy)) return 0;
+            if (!std::isfinite(sx) || !std::isfinite(sy))
+                return 0;
             sx = std::clamp(sx, 0.0, double(srcW - 1) - 1e-9);
             sy = std::clamp(sy, 0.0, double(srcH - 1) - 1e-9);
-            const int    x0 = static_cast<int>(sx);
-            const int    y0 = static_cast<int>(sy);
+            const int x0 = static_cast<int>(sx);
+            const int y0 = static_cast<int>(sy);
             const double dx = sx - x0;
             const double dy = sy - y0;
-            const QRgb p00 = srcBuf.pixel(x0,     y0);
+            const QRgb p00 = srcBuf.pixel(x0, y0);
             const QRgb p10 = srcBuf.pixel(x0 + 1, y0);
-            const QRgb p01 = srcBuf.pixel(x0,     y0 + 1);
+            const QRgb p01 = srcBuf.pixel(x0, y0 + 1);
             const QRgb p11 = srcBuf.pixel(x0 + 1, y0 + 1);
             const double w00 = (1.0 - dx) * (1.0 - dy);
-            const double w10 =        dx  * (1.0 - dy);
-            const double w01 = (1.0 - dx) *        dy;
-            const double w11 =        dx  *        dy;
-            const int r = static_cast<int>(std::round(
-                qRed(p00)   * w00 + qRed(p10)   * w10 + qRed(p01)   * w01 + qRed(p11)   * w11));
-            const int g = static_cast<int>(std::round(
-                qGreen(p00) * w00 + qGreen(p10) * w10 + qGreen(p01) * w01 + qGreen(p11) * w11));
-            const int b = static_cast<int>(std::round(
-                qBlue(p00)  * w00 + qBlue(p10)  * w10 + qBlue(p01)  * w01 + qBlue(p11)  * w11));
-            const int a = static_cast<int>(std::round(
-                qAlpha(p00) * w00 + qAlpha(p10) * w10 + qAlpha(p01) * w01 + qAlpha(p11) * w11));
+            const double w10 = dx * (1.0 - dy);
+            const double w01 = (1.0 - dx) * dy;
+            const double w11 = dx * dy;
+            const int r = static_cast<int>(
+                std::round(qRed(p00) * w00 + qRed(p10) * w10 + qRed(p01) * w01 + qRed(p11) * w11));
+            const int g = static_cast<int>(std::round(qGreen(p00) * w00 + qGreen(p10) * w10 +
+                                                      qGreen(p01) * w01 + qGreen(p11) * w11));
+            const int b = static_cast<int>(std::round(qBlue(p00) * w00 + qBlue(p10) * w10 +
+                                                      qBlue(p01) * w01 + qBlue(p11) * w11));
+            const int a = static_cast<int>(std::round(qAlpha(p00) * w00 + qAlpha(p10) * w10 +
+                                                      qAlpha(p01) * w01 + qAlpha(p11) * w11));
             return qRgba(r, g, b, a);
         };
 
@@ -761,7 +740,8 @@ void XYZTileLayer::render(QPainter *painter,
             double wx = cx, wy = cy;
             if (ct && !ct->Transform(1, &wx, &wy))
                 return QPointF(-1, -1);
-            if (!std::isfinite(wx) || !std::isfinite(wy)) return QPointF(-1, -1);
+            if (!std::isfinite(wx) || !std::isfinite(wy))
+                return QPointF(-1, -1);
             if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
                 return QPointF(-1, -1);
             const QPointF mp = wgs84ToMerc(wx, wy);
@@ -772,10 +752,9 @@ void XYZTileLayer::render(QPainter *painter,
         // 4 surrounding anchors to get its source-buffer position, sample.
         // Row-range worker so the walk can fan out across bands (rows are
         // independent; each band writes disjoint scanlines of dst).
-        uchar *const dstBits = dst.bits();   // force the alloc pre-fanout
+        uchar *const dstBits = dst.bits(); // force the alloc pre-fanout
         const qsizetype dstBpl = dst.bytesPerLine();
-        auto renderRows = [&](int py0, int py1,
-                              OGRCoordinateTransformation *ct) {
+        auto renderRows = [&](int py0, int py1, OGRCoordinateTransformation *ct) {
             for (int py = py0; py < py1; ++py) {
                 const int gy0 = py / kBlock;
                 const int gy1 = std::min(gy0 + 1, gridH - 1);
@@ -798,7 +777,8 @@ void XYZTileLayer::render(QPainter *painter,
                     // valid range are left transparent.
                     if (a00.x() < 0 || a10.x() < 0 || a01.x() < 0 || a11.x() < 0) {
                         const QPointF sp = projectPixel(px, py, ct);
-                        if (sp.x() < 0) continue;
+                        if (sp.x() < 0)
+                            continue;
                         line[px] = sampleSrc(sp.x(), sp.y());
                         continue;
                     }
@@ -815,19 +795,16 @@ void XYZTileLayer::render(QPainter *painter,
                     const double ay1 = std::max({a00.y(), a10.y(), a01.y(), a11.y()});
                     if (ax1 - ax0 > srcW * 0.5 || ay1 - ay0 > srcH * 0.5) {
                         const QPointF sp = projectPixel(px, py, ct);
-                        if (sp.x() < 0) continue;
+                        if (sp.x() < 0)
+                            continue;
                         line[px] = sampleSrc(sp.x(), sp.y());
                         continue;
                     }
 
-                    const double sx = (1 - fx) * (1 - fy) * a00.x()
-                                    +      fx  * (1 - fy) * a10.x()
-                                    + (1 - fx) *      fy  * a01.x()
-                                    +      fx  *      fy  * a11.x();
-                    const double sy = (1 - fx) * (1 - fy) * a00.y()
-                                    +      fx  * (1 - fy) * a10.y()
-                                    + (1 - fx) *      fy  * a01.y()
-                                    +      fx  *      fy  * a11.y();
+                    const double sx = (1 - fx) * (1 - fy) * a00.x() + fx * (1 - fy) * a10.x() +
+                                      (1 - fx) * fy * a01.x() + fx * fy * a11.x();
+                    const double sy = (1 - fx) * (1 - fy) * a00.y() + fx * (1 - fy) * a10.y() +
+                                      (1 - fx) * fy * a01.y() + fx * fy * a11.y();
 
                     line[px] = sampleSrc(sx, sy);
                 }
@@ -842,7 +819,8 @@ void XYZTileLayer::render(QPainter *painter,
         if (bands > 1 && m_toWGS84) {
             for (int i = 0; i < bands - 1; ++i) {
                 OGRCoordinateTransformation *c = m_toWGS84->Clone();
-                if (!c) break;
+                if (!c)
+                    break;
                 bandCTs.push_back(c);
             }
             if (static_cast<int>(bandCTs.size()) != bands - 1) {
@@ -858,11 +836,12 @@ void XYZTileLayer::render(QPainter *painter,
             for (int b = 1; b < bands; ++b) {
                 const int py0 = b * rowsPer;
                 const int py1 = std::min(devH, py0 + rowsPer);
-                if (py0 >= py1) continue;
+                if (py0 >= py1)
+                    continue;
                 OGRCoordinateTransformation *ct =
                     m_toWGS84 ? bandCTs[static_cast<size_t>(b - 1)] : nullptr;
-                sync.addFuture(QtConcurrent::run(reprojectPool(),
-                    [&renderRows, py0, py1, ct]() { renderRows(py0, py1, ct); }));
+                sync.addFuture(QtConcurrent::run(
+                    reprojectPool(), [&renderRows, py0, py1, ct]() { renderRows(py0, py1, ct); }));
             }
             renderRows(0, std::min(devH, rowsPer), m_toWGS84);
             sync.waitForFinished();
@@ -880,11 +859,11 @@ void XYZTileLayer::render(QPainter *painter,
 
     // P1 — memoize the composed output. epochAtStart (not the live counter)
     // so a tile that landed mid-render forces the next job to re-render.
-    m_renderMemo  = dst;
-    m_memoExtent  = extent;
+    m_renderMemo = dst;
+    m_memoExtent = extent;
     m_memoDevSize = QSize(devW, devH);
-    m_memoZoom    = z;
-    m_memoEpoch   = epochAtStart;
+    m_memoZoom = z;
+    m_memoEpoch = epochAtStart;
 
     painter->save();
     painter->setOpacity(opacity());
@@ -896,12 +875,12 @@ void XYZTileLayer::render(QPainter *painter,
     painter->restore();
 }
 
-void XYZTileLayer::setBasemapRenderParams(
-    const OpenSWMM::Render::BasemapRenderParams &p)
+void XYZTileLayer::setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p)
 {
-    if (m_renderParams == p) return;
+    if (m_renderParams == p)
+        return;
     m_renderParams = p;
-    ++m_tileEpoch;   // params are baked into the memoized output (applyTo)
+    ++m_tileEpoch; // params are baked into the memoized output (applyTo)
     emit basemapRenderParamsChanged();
     emit repaintRequested();
 }
@@ -909,6 +888,6 @@ void XYZTileLayer::setBasemapRenderParams(
 void XYZTileLayer::setTileCacheMaxSize(int count)
 {
     QMutexLocker lock(&m_tileCacheMutex);
-    m_tileCache.setMaxCost(count);   // may evict
+    m_tileCache.setMaxCost(count); // may evict
     ++m_tileEpoch;
 }

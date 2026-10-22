@@ -1,8 +1,11 @@
-/*!
- * \file   maptoolfeaturedraw.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolfeaturedraw.cpp
+ * @brief     Digitising tools that draw into a FeatureLayer
+ *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "map/tools/maptoolfeaturedraw.h"
@@ -25,7 +28,8 @@
 using namespace openswmmvis::feature;
 using openswmmvis::map::AddFeatureCommand;
 
-namespace {
+namespace
+{
 
 /*! The SWMM model layer on the canvas, if any — the snap source.
  *
@@ -33,31 +37,39 @@ namespace {
  *  every other drawing tool does today. Snapping to another FEATURE layer's
  *  vertices needs SnapEngine's SWMMModelLayer* parameter to become a provider
  *  list (PLAN §3.4); that refactor is deliberately not in this drop, so the
- *  existing snap behaviour is provably unchanged. */
+ *  existing snap behaviour is provably unchanged.
+ * @param[in] canvas Optional borrowed canvas, null returns null.
+ * @return Borrowed FIRST model layer in canvas list, no visibility/opacity/editability filter; used
+ *   only for SWMM snapping, never feature-to-feature snap or ownership transfer.
+ */
 SWMMModelLayer *activeModelLayer(MapCanvas *canvas)
 {
-    if (!canvas) return nullptr;
+    if (!canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : canvas->layers())
-        if (auto *ml = qobject_cast<SWMMModelLayer *>(l)) return ml;
+        if (auto *ml = qobject_cast<SWMMModelLayer *>(l))
+            return ml;
     return nullptr;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Base
 // ---------------------------------------------------------------------------
 
-OpenSWMMVisMapToolFeatureDrawBase::OpenSWMMVisMapToolFeatureDrawBase(
-        const QString &toolName, MapCanvas *canvas, QObject *parent)
+OpenSWMMVisMapToolFeatureDrawBase::OpenSWMMVisMapToolFeatureDrawBase(const QString &toolName,
+                                                                     MapCanvas *canvas,
+                                                                     QObject *parent)
     : OpenSWMMVisMapTool(toolName, canvas, parent)
 {
 }
 
 void OpenSWMMVisMapToolFeatureDrawBase::setTargetLayer(FeatureLayer *layer)
 {
-    if (m_target == layer) return;
-    cancel();                 // a half-drawn shape belongs to the old target
+    if (m_target == layer)
+        return;
+    cancel(); // a half-drawn shape belongs to the old target
     m_target = layer;
 }
 
@@ -81,15 +93,18 @@ void OpenSWMMVisMapToolFeatureDrawBase::deactivate()
 QPointF OpenSWMMVisMapToolFeatureDrawBase::canvasToLayer(const QPointF &canvasPt) const
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer || !m_canvas) return canvasPt;
+    if (!layer || !m_canvas)
+        return canvasPt;
 
     const SpatialReferenceSystem *canvasSRS = m_canvas->canvasSRS();
-    const SpatialReferenceSystem *layerSRS  = layer->srs();
+    const SpatialReferenceSystem *layerSRS = layer->srs();
 
     // A layer that declares no CRS is assumed to be in canvas CRS already —
     // the long-standing GISVectorLayer assumption, announced via crsAssumed.
-    if (!canvasSRS || !layerSRS) return canvasPt;
-    if (canvasSRS == layerSRS)   return canvasPt;
+    if (!canvasSRS || !layerSRS)
+        return canvasPt;
+    if (canvasSRS == layerSRS)
+        return canvasPt;
 
     // The table is created in the canvas CRS by FeatureLayer::create, so in
     // practice this is the identity. It is kept as a hook: a layer restored
@@ -101,20 +116,25 @@ QPointF OpenSWMMVisMapToolFeatureDrawBase::canvasToLayer(const QPointF &canvasPt
 
 void OpenSWMMVisMapToolFeatureDrawBase::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     FeatureLayer *layer = m_target.data();
-    if (!layer || !layer->isEditable()) return;
+    if (!layer || !layer->isEditable())
+        return;
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
     if (event->button() == Qt::RightButton) {
-        if (m_vertices.size() > 1) m_vertices.removeLast();
-        else                       cancel();
+        if (m_vertices.size() > 1)
+            m_vertices.removeLast();
+        else
+            cancel();
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("feature-draw-rubber"));
         return;
     }
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     SWMMModelLayer *model = activeModelLayer(m_canvas);
     if (!m_drawing)
@@ -128,14 +148,15 @@ void OpenSWMMVisMapToolFeatureDrawBase::mousePressEvent(QMouseEvent *event)
         model->transformLayerToCanvas(m_snap.x, m_snap.y, px, py);
 
     m_vertices << QPointF(px, py);
-    m_cursor  = QPointF(px, py);
+    m_cursor = QPointF(px, py);
     m_drawing = true;
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("feature-draw-rubber"));
 }
 
 void OpenSWMMVisMapToolFeatureDrawBase::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
@@ -153,7 +174,8 @@ void OpenSWMMVisMapToolFeatureDrawBase::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolFeatureDrawBase::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton || !m_canvas) return;
+    if (event->button() != Qt::LeftButton || !m_canvas)
+        return;
 
     // Same normalisation as maptooladdsubcatchment.cpp: whether or not this
     // platform sent a MouseButtonPress ahead of the DblClick, the
@@ -172,8 +194,7 @@ void OpenSWMMVisMapToolFeatureDrawBase::mouseDoubleClickEvent(QMouseEvent *event
     if (!m_vertices.isEmpty()) {
         int lx = 0, ly = 0;
         toPixelCoords(m_vertices.last().x(), m_vertices.last().y(), lx, ly);
-        if (std::abs(lx - event->pos().x()) <= 2
-            && std::abs(ly - event->pos().y()) <= 2)
+        if (std::abs(lx - event->pos().x()) <= 2 && std::abs(ly - event->pos().y()) <= 2)
             m_vertices.removeLast();
     }
     m_vertices << QPointF(px, py);
@@ -188,11 +209,11 @@ void OpenSWMMVisMapToolFeatureDrawBase::keyPressEvent(QKeyEvent *event)
         commit();
 }
 
-void OpenSWMMVisMapToolFeatureDrawBase::paint(QPainter *painter,
-                                              const MapExtent &,
+void OpenSWMMVisMapToolFeatureDrawBase::paint(QPainter *painter, const MapExtent &,
                                               const SpatialReferenceSystem *)
 {
-    if (!m_drawing || m_vertices.isEmpty() || !painter) return;
+    if (!m_drawing || m_vertices.isEmpty() || !painter)
+        return;
 
     painter->save();
 
@@ -204,7 +225,8 @@ void OpenSWMMVisMapToolFeatureDrawBase::paint(QPainter *painter,
 
     QVector<QPoint> pts;
     pts.reserve(m_vertices.size() + 1);
-    for (const QPointF &v : m_vertices) pts << toPixel(v);
+    for (const QPointF &v : m_vertices)
+        pts << toPixel(v);
     pts << toPixel(m_cursor);
 
     // Blue, to read as "feature layer" against the green the subcatchment tool
@@ -222,7 +244,8 @@ void OpenSWMMVisMapToolFeatureDrawBase::paint(QPainter *painter,
 
     painter->setBrush(accent);
     painter->setPen(Qt::NoPen);
-    for (const QPoint &p : std::as_const(pts)) painter->drawEllipse(p, 4, 4);
+    for (const QPoint &p : std::as_const(pts))
+        painter->drawEllipse(p, 4, 4);
 
     if (isClosed() && pts.size() >= 2) {
         painter->setPen(QPen(accent, 1, Qt::DotLine));
@@ -237,7 +260,7 @@ void OpenSWMMVisMapToolFeatureDrawBase::cancel()
 {
     m_vertices.clear();
     m_drawing = false;
-    m_snap    = {};
+    m_snap = {};
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("feature-draw-cancel"));
 }
@@ -245,8 +268,14 @@ void OpenSWMMVisMapToolFeatureDrawBase::cancel()
 void OpenSWMMVisMapToolFeatureDrawBase::commit()
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer || !layer->isEditable()) { cancel(); return; }
-    if (m_vertices.size() < minimumVertices()) { cancel(); return; }
+    if (!layer || !layer->isEditable()) {
+        cancel();
+        return;
+    }
+    if (m_vertices.size() < minimumVertices()) {
+        cancel();
+        return;
+    }
 
     Ring ring;
     ring.pts.reserve(m_vertices.size());
@@ -269,7 +298,7 @@ void OpenSWMMVisMapToolFeatureDrawBase::commit()
     geom.normalizeOrientation();
 
     Feature f;
-    f.geometry   = geom;
+    f.geometry = geom;
     f.attributes = layer->schema().defaultAttributes();
 
     auto *cmd = new AddFeatureCommand(layer, f, m_canvas);
@@ -293,8 +322,7 @@ void OpenSWMMVisMapToolFeatureDrawBase::commit()
 // Point
 // ---------------------------------------------------------------------------
 
-OpenSWMMVisMapToolDrawPoint::OpenSWMMVisMapToolDrawPoint(MapCanvas *canvas,
-                                                          QObject *parent)
+OpenSWMMVisMapToolDrawPoint::OpenSWMMVisMapToolDrawPoint(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapToolFeatureDrawBase(QStringLiteral("Draw Point"), canvas, parent)
 {
 }
@@ -324,8 +352,7 @@ FeatureGeometry OpenSWMMVisMapToolDrawPoint::buildGeometry(const Ring &ring) con
 // Line
 // ---------------------------------------------------------------------------
 
-OpenSWMMVisMapToolDrawLine::OpenSWMMVisMapToolDrawLine(MapCanvas *canvas,
-                                                        QObject *parent)
+OpenSWMMVisMapToolDrawLine::OpenSWMMVisMapToolDrawLine(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapToolFeatureDrawBase(QStringLiteral("Draw Line"), canvas, parent)
 {
 }
@@ -335,9 +362,8 @@ FeatureGeometry OpenSWMMVisMapToolDrawLine::buildGeometry(const Ring &ring) cons
     FeatureLayer *layer = m_target.data();
     const GeometryType t = layer ? layer->geometryType() : GeometryType::LineString;
 
-    FeatureGeometry g(t == GeometryType::MultiLineString
-                          ? GeometryType::MultiLineString
-                          : GeometryType::LineString);
+    FeatureGeometry g(t == GeometryType::MultiLineString ? GeometryType::MultiLineString
+                                                         : GeometryType::LineString);
     Part p;
     p.exterior = ring;
     g.addPart(p);
@@ -348,8 +374,7 @@ FeatureGeometry OpenSWMMVisMapToolDrawLine::buildGeometry(const Ring &ring) cons
 // Polygon
 // ---------------------------------------------------------------------------
 
-OpenSWMMVisMapToolDrawPolygon::OpenSWMMVisMapToolDrawPolygon(MapCanvas *canvas,
-                                                              QObject *parent)
+OpenSWMMVisMapToolDrawPolygon::OpenSWMMVisMapToolDrawPolygon(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapToolFeatureDrawBase(QStringLiteral("Draw Polygon"), canvas, parent)
 {
 }

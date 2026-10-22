@@ -1,14 +1,20 @@
-/*!
- * \file   sublayerselectiondialog.h
- * \author SWMMVis
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sublayerselectiondialog.h
+ * @brief     Modal multi-select picker for the layers inside a multi-layer vector datasource
+ *            (GeoPackage, Esri File GDB, multi-layer GML/KML, …).
+ * @author    SWMMVis
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Modal multi-select picker for the layers inside a multi-layer vector
  * datasource (GeoPackage, Esri File GDB, multi-layer GML/KML, …). Presents one
  * checkable row per OGR sublayer (name, geometry, feature count, CRS); the
  * caller creates one GISVectorLayer per checked entry.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SUBLAYERSELECTIONDIALOG_H
 #define SUBLAYERSELECTIONDIALOG_H
 
@@ -16,7 +22,7 @@
 #include <QList>
 #include <QStringList>
 
-#include "layers/gisvectorlayer.h"   // GISVectorLayer::OgrSublayerInfo
+#include "layers/gisvectorlayer.h" // GISVectorLayer::OgrSublayerInfo
 
 class QLineEdit;
 class QTableWidget;
@@ -36,10 +42,9 @@ public:
      *                    GISVectorLayer::enumerateSublayers()).
      * \param parent      Parent widget.
      */
-    explicit SublayerSelectionDialog(
-        const QString &sourcePath,
-        const QList<GISVectorLayer::OgrSublayerInfo> &sublayers,
-        QWidget *parent = nullptr);
+    explicit SublayerSelectionDialog(const QString &sourcePath,
+                                     const QList<GISVectorLayer::OgrSublayerInfo> &sublayers,
+                                     QWidget *parent = nullptr);
 
     /*! \brief OGR names of the checked sublayers, in listed order. */
     [[nodiscard]] QStringList selectedLayerNames() const;
@@ -54,8 +59,8 @@ private:
     void applyNameFilter(const QString &text);
 
     QList<GISVectorLayer::OgrSublayerInfo> m_sublayers;
-    QTableWidget *m_table  = nullptr;
-    QLineEdit    *m_filter = nullptr;
+    QTableWidget *m_table = nullptr;
+    QLineEdit *m_filter = nullptr;
 };
 
 #endif // SUBLAYERSELECTIONDIALOG_H

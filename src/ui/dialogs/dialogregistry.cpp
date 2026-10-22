@@ -1,11 +1,14 @@
-/*!
- * \file   dialogregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      dialogregistry.cpp
+ * @brief     order, plus the dialog stacking strategy.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * See dialogregistry.h for the design contract.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/dialogregistry.h"
 
 #include <QApplication>
@@ -18,19 +21,18 @@
 #include <QTimer>
 #include <QWidget>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 const char *const kStackingEnvVar = "OPENSWMM_DIALOG_STACKING";
-const char *const kStackingKey    = "Window/DialogStacking";
+const char *const kStackingKey = "Window/DialogStacking";
 
-}   // namespace
+} // namespace
 
-DialogRegistry::DialogRegistry(QObject *parent)
-    : QObject(parent)
-{
-}
+DialogRegistry::DialogRegistry(QObject *parent) : QObject(parent) {}
 
 DialogRegistry *DialogRegistry::instance()
 {
@@ -43,13 +45,17 @@ DialogRegistry::StackingMode DialogRegistry::configuredStackingMode()
     // Environment first so a tester can flip strategies for one run without
     // writing to (and having to clean up) the user's preferences.
     const QByteArray env = qgetenv(kStackingEnvVar).trimmed().toLower();
-    if (env == "qt")     return StackingMode::QtRaiseOnActivate;
-    if (env == "native") return StackingMode::NativeChildWindow;
+    if (env == "qt")
+        return StackingMode::QtRaiseOnActivate;
+    if (env == "native")
+        return StackingMode::NativeChildWindow;
 
-    const QString pref = QSettings().value(QString::fromLatin1(kStackingKey))
-                             .toString().trimmed().toLower();
-    if (pref == QLatin1String("qt"))     return StackingMode::QtRaiseOnActivate;
-    if (pref == QLatin1String("native")) return StackingMode::NativeChildWindow;
+    const QString pref =
+        QSettings().value(QString::fromLatin1(kStackingKey)).toString().trimmed().toLower();
+    if (pref == QLatin1String("qt"))
+        return StackingMode::QtRaiseOnActivate;
+    if (pref == QLatin1String("native"))
+        return StackingMode::NativeChildWindow;
 
 #ifdef Q_OS_MACOS
     // Default stays on the shipped behaviour; the Qt path is opt-in until it
@@ -91,15 +97,23 @@ QDialog *DialogRegistry::trackableDialog(QObject *watched)
 
 void DialogRegistry::trackOrPromote(QDialog *dlg)
 {
-    if (!dlg) return;
+    if (!dlg)
+        return;
 
     bool alreadyTracked = false;
-    bool prunedDead     = false;
+    bool prunedDead = false;
     for (int i = mOrder.size() - 1; i >= 0; --i) {
-        if (mOrder.at(i).isNull()) { mOrder.removeAt(i); prunedDead = true; continue; }
-        if (mOrder.at(i) == dlg)   { mOrder.removeAt(i); alreadyTracked = true; }
+        if (mOrder.at(i).isNull()) {
+            mOrder.removeAt(i);
+            prunedDead = true;
+            continue;
+        }
+        if (mOrder.at(i) == dlg) {
+            mOrder.removeAt(i);
+            alreadyTracked = true;
+        }
     }
-    mOrder.append(QPointer<QDialog>(dlg));   // most recently used goes last
+    mOrder.append(QPointer<QDialog>(dlg)); // most recently used goes last
 
     // Only announce SET changes. A pure MRU reorder happens on every click
     // into a dialog, and the Window menu rebuilds from this signal — firing
@@ -114,7 +128,7 @@ void DialogRegistry::forget(QDialog *dlg)
     bool removedLive = false;
     for (int i = mOrder.size() - 1; i >= 0; --i) {
         if (mOrder.at(i).isNull()) {
-            mOrder.removeAt(i);          // dead entry — housekeeping, not news
+            mOrder.removeAt(i); // dead entry — housekeeping, not news
             continue;
         }
         if (mOrder.at(i) == dlg) {
@@ -182,7 +196,7 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
 
     case QEvent::WindowActivate:
         if (QDialog *dlg = trackableDialog(watched)) {
-            trackOrPromote(dlg);   // MRU: clicking a dialog moves it to the end
+            trackOrPromote(dlg); // MRU: clicking a dialog moves it to the end
             // Keep the other open plots above the main window too. Raising
             // only the active dialog can bury its siblings, including with
             // macOS native child-window stacking.
@@ -195,8 +209,8 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
             // Qt::Window specifically: menus, popups and tooltips are also
             // top-level widgets and activate constantly, and restacking on
             // every menu open would be both pointless and visibly jumpy.
-            if (mMode == StackingMode::QtRaiseOnActivate
-                && w->isWindow() && w->windowType() == Qt::Window)
+            if (mMode == StackingMode::QtRaiseOnActivate && w->isWindow() &&
+                w->windowType() == Qt::Window)
                 scheduleRestack();
         }
         break;
@@ -206,8 +220,8 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
         // ApplicationActivate event type is gone). Re-assert dialog stacking
         // after an app switch, which is where the native attachment used to
         // do the work.
-        if (mMode == StackingMode::QtRaiseOnActivate
-            && QGuiApplication::applicationState() == Qt::ApplicationActive)
+        if (mMode == StackingMode::QtRaiseOnActivate &&
+            QGuiApplication::applicationState() == Qt::ApplicationActive)
             scheduleRestack();
         break;
 
@@ -234,4 +248,4 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
     return QObject::eventFilter(watched, event);
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

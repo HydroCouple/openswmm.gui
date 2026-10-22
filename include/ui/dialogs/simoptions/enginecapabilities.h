@@ -1,8 +1,9 @@
-/*!
- * \file   enginecapabilities.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      enginecapabilities.h
+ * @brief     One-shot engine capability probe for the Simulation Options dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * One-shot engine capability probe for the Simulation Options dialog.
  *
@@ -14,7 +15,9 @@
  * Each field maps 1:1 onto one `if` block of the original
  * `applyEngineConstraints()`, and each carries a comment naming the block it
  * came from so the port stays auditable (HANDOFF §2.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef ENGINECAPABILITIES_H
 #define ENGINECAPABILITIES_H
 
@@ -33,30 +36,29 @@ namespace openswmmvis::ui
  * version string alone. `legacy` is the one exception: a 5.x engine is
  * identified by version because it predates the whole option surface.
  */
-struct EngineCapabilities
-{
-    QString engineVersion;   ///< As handed to the dialog, e.g. "6.0.0".
+struct EngineCapabilities {
+    QString engineVersion; ///< As handed to the dialog, e.g. "6.0.0".
 
     /// engineVersion starts with "5." — the legacy solver. Gates the four
     /// legacy-only blocks below and short-circuits every probe.
     bool legacy = false;
 
     // ---- probed keys: one field per `if` block of applyEngineConstraints ----
-    bool fv          = false;  ///< probe FV_CFL              (FLOW_ROUTING FV item)
-    bool transport   = false;  ///< probe QUALITY_SOLVER      (solver combo, outfall backflow,
-                               ///<                            ARD + LARD groups, water age, heat)
-    bool tpa         = false;  ///< probe TPA_CELERITY        (SURCHARGE_METHOD TPA item + celerity)
-    bool fvPressure  = false;  ///< probe FV_PRESSURE_CLOSURE (FV pressure-closure combo)
-    bool uf          = false;  ///< probe UNSTEADY_FRICTION   (was: m_ufSupported)
-    bool signedHeads = false;  ///< probe REPORT_SIGNED_HEADS (signed-heads check)
+    bool fv = false;          ///< probe FV_CFL              (FLOW_ROUTING FV item)
+    bool transport = false;   ///< probe QUALITY_SOLVER      (solver combo, outfall backflow,
+                              ///<                            ARD + LARD groups, water age, heat)
+    bool tpa = false;         ///< probe TPA_CELERITY        (SURCHARGE_METHOD TPA item + celerity)
+    bool fvPressure = false;  ///< probe FV_PRESSURE_CLOSURE (FV pressure-closure combo)
+    bool uf = false;          ///< probe UNSTEADY_FRICTION   (was: m_ufSupported)
+    bool signedHeads = false; ///< probe REPORT_SIGNED_HEADS (signed-heads check)
 
     // ---- legacy-only blocks: false on a 5.x engine, true otherwise ----
-    bool dynSlot       = false;  ///< SURCHARGE_METHOD DYNAMIC_SLOT item
-    bool semiImplicit  = false;  ///< NODE_CONTINUITY SEMI_IMPLICIT item
-    bool andersonAccel = false;  ///< ANDERSON_ACCEL check box
-    bool pluginWriters = false;  ///< writers group + [PLUGINS] table
+    bool dynSlot = false;       ///< SURCHARGE_METHOD DYNAMIC_SLOT item
+    bool semiImplicit = false;  ///< NODE_CONTINUITY SEMI_IMPLICIT item
+    bool andersonAccel = false; ///< ANDERSON_ACCEL check box
+    bool pluginWriters = false; ///< writers group + [PLUGINS] table
 
-    bool has2D = false;  ///< OPENSWMM_HAS_2D && the engine reports a 2D surface.
+    bool has2D = false; ///< OPENSWMM_HAS_2D && the engine reports a 2D surface.
 };
 
 /*!

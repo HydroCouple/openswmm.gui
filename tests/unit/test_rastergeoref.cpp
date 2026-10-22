@@ -1,6 +1,6 @@
-/*!
- * \file   test_rastergeoref.cpp
- * \brief  Unit tests for the world-file → PAM georeferencing helpers
+/**
+ * @file      test_rastergeoref.cpp
+ * @brief     Unit tests for the world-file → PAM georeferencing helpers
  *         (openswmmvis::io::rastergeoref — LOCAL_RASTER_BASEMAP plan Phase 2).
  *
  * Links src/io/rastergeoref.cpp + src/io/gdaldrivers.cpp + GDAL; needs
@@ -8,7 +8,12 @@
  * written to test_artifacts/localraster/ — a reviewable location, not a temp
  * dir (CLAUDE.md §4.1) — injected as RASTERGEOREF_OUT_DIR by
  * tests/unit/CMakeLists.txt.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QDir>
@@ -24,8 +29,17 @@
 
 using namespace openswmmvis::io;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Create/resolve the persistent world-file and PAM fixture directory.
+ * @return RASTERGEOREF_OUT_DIR text unchanged, which need not be absolute. Attempts
+ * recursive creation without checking success. Existing artifacts remain for
+ * inspection and individual tests replace their own files.
+ *
+ */
 QString outDir()
 {
     const QString dir = QStringLiteral(RASTERGEOREF_OUT_DIR);
@@ -33,6 +47,16 @@ QString outDir()
     return dir;
 }
 
+/**
+ *
+ * @brief Truncate/write raw fixture bytes and close the file on return.
+ * @param path Borrowed test-owned destination; parent directory must already exist.
+ * @param content Borrowed bytes written without text-mode newline conversion.
+ * @return True only if opening succeeds and one write reports the full byte count;
+ * false on open failure or short write. Earlier content is lost once opened and
+ * partial output can remain. Does not report close/flush errors or guarantee fsync.
+ *
+ */
 bool writeTextFile(const QString &path, const QByteArray &content)
 {
     QFile f(path);
@@ -87,8 +111,8 @@ TEST(RasterGeoref, ParseWorldFileMissingFile)
 {
     rastergeoref::WorldFileParams wf{};
     QString err;
-    EXPECT_FALSE(rastergeoref::parseWorldFile(
-        outDir() + QStringLiteral("/no_such_file.tfw"), &wf, &err));
+    EXPECT_FALSE(
+        rastergeoref::parseWorldFile(outDir() + QStringLiteral("/no_such_file.tfw"), &wf, &err));
     EXPECT_FALSE(err.isEmpty());
 }
 
@@ -98,15 +122,15 @@ TEST(RasterGeoref, ParseWorldFileMissingFile)
 // top-left CORNER: gt[0] = C − A/2 − B/2, gt[3] = F − D/2 − E/2.
 TEST(RasterGeoref, WorldFileToGeoTransformCenterToCorner)
 {
-    const rastergeoref::WorldFileParams wf{
-        /*a*/ 2.0, /*d*/ 0.0, /*b*/ 0.0, /*e*/ -2.0,
-        /*c*/ 400001.0, /*f*/ 119999.0};
+    const rastergeoref::WorldFileParams wf{/*a*/ 2.0,      /*d*/ 0.0,
+                                           /*b*/ 0.0,      /*e*/ -2.0,
+                                           /*c*/ 400001.0, /*f*/ 119999.0};
     double gt[6];
     rastergeoref::worldFileToGeoTransform(wf, gt);
-    EXPECT_DOUBLE_EQ(gt[0], 400000.0);  // 400001 − 2/2 − 0/2
+    EXPECT_DOUBLE_EQ(gt[0], 400000.0); // 400001 − 2/2 − 0/2
     EXPECT_DOUBLE_EQ(gt[1], 2.0);
     EXPECT_DOUBLE_EQ(gt[2], 0.0);
-    EXPECT_DOUBLE_EQ(gt[3], 120000.0);  // 119999 − 0/2 − (−2)/2
+    EXPECT_DOUBLE_EQ(gt[3], 120000.0); // 119999 − 0/2 − (−2)/2
     EXPECT_DOUBLE_EQ(gt[4], 0.0);
     EXPECT_DOUBLE_EQ(gt[5], -2.0);
 }
@@ -114,13 +138,12 @@ TEST(RasterGeoref, WorldFileToGeoTransformCenterToCorner)
 // Rotation terms participate in the corner shift too.
 TEST(RasterGeoref, WorldFileToGeoTransformWithRotation)
 {
-    const rastergeoref::WorldFileParams wf{
-        /*a*/ 1.0, /*d*/ 0.2, /*b*/ 0.4, /*e*/ -1.0,
-        /*c*/ 100.0, /*f*/ 200.0};
+    const rastergeoref::WorldFileParams wf{/*a*/ 1.0,   /*d*/ 0.2,  /*b*/ 0.4, /*e*/ -1.0,
+                                           /*c*/ 100.0, /*f*/ 200.0};
     double gt[6];
     rastergeoref::worldFileToGeoTransform(wf, gt);
-    EXPECT_DOUBLE_EQ(gt[0], 100.0 - 0.5 - 0.2);  // C − A/2 − B/2
-    EXPECT_DOUBLE_EQ(gt[3], 200.0 - 0.1 + 0.5);  // F − D/2 − E/2
+    EXPECT_DOUBLE_EQ(gt[0], 100.0 - 0.5 - 0.2); // C − A/2 − B/2
+    EXPECT_DOUBLE_EQ(gt[3], 200.0 - 0.1 + 0.5); // F − D/2 − E/2
     EXPECT_DOUBLE_EQ(gt[2], 0.4);
     EXPECT_DOUBLE_EQ(gt[4], 0.2);
 }
@@ -129,20 +152,18 @@ TEST(RasterGeoref, WorldFileToGeoTransformWithRotation)
 
 TEST(RasterGeoref, WorldFileCandidatesPng)
 {
-    const QStringList c =
-        rastergeoref::worldFileCandidates(QStringLiteral("/maps/site.png"));
+    const QStringList c = rastergeoref::worldFileCandidates(QStringLiteral("/maps/site.png"));
     ASSERT_FALSE(c.isEmpty());
-    EXPECT_EQ(c.first(), QStringLiteral("/maps/site.pgw"));  // conventional first
+    EXPECT_EQ(c.first(), QStringLiteral("/maps/site.pgw")); // conventional first
     EXPECT_TRUE(c.contains(QStringLiteral("/maps/site.pngw")));
     EXPECT_TRUE(c.contains(QStringLiteral("/maps/site.wld")));
 }
 
 TEST(RasterGeoref, WorldFileCandidatesTiff)
 {
-    const QStringList c =
-        rastergeoref::worldFileCandidates(QStringLiteral("/maps/dem.tiff"));
+    const QStringList c = rastergeoref::worldFileCandidates(QStringLiteral("/maps/dem.tiff"));
     ASSERT_FALSE(c.isEmpty());
-    EXPECT_EQ(c.first(), QStringLiteral("/maps/dem.tfw"));   // .tiff → .tfw
+    EXPECT_EQ(c.first(), QStringLiteral("/maps/dem.tfw")); // .tiff → .tfw
     EXPECT_TRUE(c.contains(QStringLiteral("/maps/dem.tiffw")));
     EXPECT_TRUE(c.contains(QStringLiteral("/maps/dem.wld")));
 }
@@ -163,42 +184,37 @@ TEST(RasterGeoref, ApplyPamGeorefOnCrsLessPng)
     // Off-name on purpose: worldFileCandidates() would never find this one,
     // exercising the explicit world-file path of the dialog.
     const QString worldFile = dir + QStringLiteral("/tiny_georef.txt");
-    QFile::remove(png + QStringLiteral(".aux.xml"));  // idempotent reruns
+    QFile::remove(png + QStringLiteral(".aux.xml")); // idempotent reruns
 
     QImage img(8, 8, QImage::Format_RGB32);
     img.fill(qRgb(40, 110, 60));
     ASSERT_TRUE(img.save(png, "PNG"));
 
-    ASSERT_TRUE(writeTextFile(worldFile,
-                              "2.0\n0.0\n0.0\n-2.0\n400001.0\n119999.0\n"));
+    ASSERT_TRUE(writeTextFile(worldFile, "2.0\n0.0\n0.0\n-2.0\n400001.0\n119999.0\n"));
 
     rastergeoref::WorldFileParams wf{};
     QString err;
-    ASSERT_TRUE(rastergeoref::parseWorldFile(worldFile, &wf, &err))
-        << err.toStdString();
+    ASSERT_TRUE(rastergeoref::parseWorldFile(worldFile, &wf, &err)) << err.toStdString();
     double gt[6];
     rastergeoref::worldFileToGeoTransform(wf, gt);
 
-    const QString wkt =
-        rastergeoref::authCodeToWkt(QStringLiteral("EPSG:26985"), &err);
+    const QString wkt = rastergeoref::authCodeToWkt(QStringLiteral("EPSG:26985"), &err);
     ASSERT_FALSE(wkt.isEmpty()) << err.toStdString();
 
-    ASSERT_TRUE(rastergeoref::applyPamGeoref(png, gt, wkt, &err))
-        << err.toStdString();
+    ASSERT_TRUE(rastergeoref::applyPamGeoref(png, gt, wkt, &err)) << err.toStdString();
 
     // Plain read-only reopen — exactly what GISRasterLayer's open paths do.
-    GDALDatasetH h = GDALOpenEx(png.toUtf8().constData(),
-                                GDAL_OF_RASTER | GDAL_OF_READONLY,
+    GDALDatasetH h = GDALOpenEx(png.toUtf8().constData(), GDAL_OF_RASTER | GDAL_OF_READONLY,
                                 nullptr, nullptr, nullptr);
     ASSERT_NE(h, nullptr);
     auto *ds = GDALDataset::FromHandle(h);
 
     double got[6] = {};
     ASSERT_EQ(ds->GetGeoTransform(got), CE_None);
-    EXPECT_NEAR(got[0], 400000.0, 1e-6);  // corner-adjusted C
+    EXPECT_NEAR(got[0], 400000.0, 1e-6); // corner-adjusted C
     EXPECT_NEAR(got[1], 2.0, 1e-9);
     EXPECT_NEAR(got[2], 0.0, 1e-9);
-    EXPECT_NEAR(got[3], 120000.0, 1e-6);  // corner-adjusted F
+    EXPECT_NEAR(got[3], 120000.0, 1e-6); // corner-adjusted F
     EXPECT_NEAR(got[4], 0.0, 1e-9);
     EXPECT_NEAR(got[5], -2.0, 1e-9);
 
@@ -236,7 +252,6 @@ TEST(RasterGeoref, ProbeGeorefOnPlainPngReportsNothing)
 TEST(RasterGeoref, AuthCodeToWktRejectsGarbage)
 {
     QString err;
-    EXPECT_TRUE(rastergeoref::authCodeToWkt(
-                    QStringLiteral("EPSG:not-a-code"), &err).isEmpty());
+    EXPECT_TRUE(rastergeoref::authCodeToWkt(QStringLiteral("EPSG:not-a-code"), &err).isEmpty());
     EXPECT_FALSE(err.isEmpty());
 }

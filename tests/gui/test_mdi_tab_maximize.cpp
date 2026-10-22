@@ -14,6 +14,16 @@
 //     hands the maximized state to the incoming window when an outgoing
 //     one is BOTH maximized and visible, and TabbedView never hides an
 //     inactive sub-window.
+
+/**
+ * @file      test_mdi_tab_maximize.cpp
+ * @brief     Tests for mdi tab maximize.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QApplication>
@@ -35,7 +45,8 @@ using openswmmvis::ui::darkColors;
 using openswmmvis::ui::installMdiWorkspaceChrome;
 using openswmmvis::ui::lightColors;
 
-namespace {
+namespace
+{
 
 /*!
  * \brief The app's central widget, built exactly as uic emits it
@@ -47,8 +58,7 @@ namespace {
  * QMdiArea's pendingPlacements rather than through the normal activation
  * path. Reproducing that ordering is the whole point of this fixture.
  */
-struct Workspace
-{
+struct Workspace {
     QMainWindow win;
     QMdiArea *area = nullptr;
     QWidget *welcome = nullptr;
@@ -143,8 +153,7 @@ int visibleStrays(QMdiArea *area)
         return 0;
     int n = 0;
     for (QMdiSubWindow *s : area->subWindowList())
-        if (s != active && s->isVisible() && !s->isMaximized()
-            && zIndex(s) > zIndex(active))
+        if (s != active && s->isVisible() && !s->isMaximized() && zIndex(s) > zIndex(active))
             ++n;
     return n;
 }
@@ -163,15 +172,13 @@ bool coversOpaquely(QMdiSubWindow *active, QMdiSubWindow *other)
     if (!active || !other)
         return false;
     QWidget *content = active->widget();
-    const bool opaque = content
-        && (content->autoFillBackground()
-            || content->testAttribute(Qt::WA_OpaquePaintEvent));
-    return zIndex(active) > zIndex(other)
-        && active->geometry().contains(other->geometry())
-        && opaque;
+    const bool opaque = content && (content->autoFillBackground() ||
+                                    content->testAttribute(Qt::WA_OpaquePaintEvent));
+    return zIndex(active) > zIndex(other) && active->geometry().contains(other->geometry()) &&
+           opaque;
 }
 
-}   // namespace
+} // namespace
 
 class TestMdiTabMaximize : public QObject
 {
@@ -206,8 +213,7 @@ void TestMdiTabMaximize::backdropMatchesWindowSurface()
     // welcome tab used to show through.
     installMdiWorkspaceChrome(w.area);
 
-    QCOMPARE(w.area->background().color(),
-             qApp->palette().color(QPalette::Window));
+    QCOMPARE(w.area->background().color(), qApp->palette().color(QPalette::Window));
     QCOMPARE(w.area->background().color(), lightColors().surfaceWindow);
     QVERIFY(w.area->background().isOpaque());
 }
@@ -244,20 +250,17 @@ void TestMdiTabMaximize::welcomeIsMaximizedOnFirstShow()
 void TestMdiTabMaximize::welcomePaintsItsOwnBackground()
 {
     Workspace w;
-    QVERIFY(!w.welcome->autoFillBackground());      // as uic emits it
+    QVERIFY(!w.welcome->autoFillBackground()); // as uic emits it
     installMdiWorkspaceChrome(w.area, w.welcome);
     w.show();
 
     QVERIFY(w.welcome->autoFillBackground());
-    QCOMPARE(w.welcome->palette().color(QPalette::Window),
-             lightColors().surfaceWindow);
-    QCOMPARE(w.welcome->palette().color(QPalette::Window),
-             w.area->background().color());
+    QCOMPARE(w.welcome->palette().color(QPalette::Window), lightColors().surfaceWindow);
+    QCOMPARE(w.welcome->palette().color(QPalette::Window), w.area->background().color());
 
     ThemeManager::instance()->setMode(ThemeManager::Mode::Dark);
     QApplication::processEvents();
-    QCOMPARE(w.welcome->palette().color(QPalette::Window),
-             darkColors().surfaceWindow);
+    QCOMPARE(w.welcome->palette().color(QPalette::Window), darkColors().surfaceWindow);
 }
 
 /*!
@@ -325,7 +328,7 @@ void TestMdiTabMaximize::hiddenWelcomeDoesNotStrandTheNextTab()
     QMdiSubWindow *welcome = w.welcomeSub();
     QVERIFY(welcome->isMaximized());
 
-    welcome->hide();            // hidden WHILE maximized
+    welcome->hide(); // hidden WHILE maximized
     QApplication::processEvents();
 
     QMdiSubWindow *model = w.addProject(QStringLiteral("ModelA"));
@@ -367,17 +370,17 @@ void TestMdiTabMaximize::hiddenSubWindowIsNotResurrected()
 {
     Workspace w;
     installMdiWorkspaceChrome(w.area);
-    w.show();                   // spends Qt's one-shot maximize arm
+    w.show(); // spends Qt's one-shot maximize arm
 
     QMdiSubWindow *welcome = w.welcomeSub();
     QVERIFY(welcome);
-    welcome->showNormal();      // the state Qt leaves an outgoing tab in
-    welcome->hide();            // the tab-X close path: hidden AND normal
+    welcome->showNormal(); // the state Qt leaves an outgoing tab in
+    welcome->hide();       // the tab-X close path: hidden AND normal
     QApplication::processEvents();
 
     w.win.hide();
     QApplication::processEvents();
-    w.win.show();               // showEvent activates the hidden sub
+    w.win.show(); // showEvent activates the hidden sub
     QApplication::processEvents();
 
     QVERIFY(welcome->isHidden());

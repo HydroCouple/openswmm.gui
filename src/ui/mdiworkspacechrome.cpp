@@ -1,3 +1,13 @@
+/**
+ * @file      mdiworkspacechrome.cpp
+ * @brief     Correct QMdiArea's stale initial backdrop, and make the welcome tab paint one of its
+ *            own.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/mdiworkspacechrome.h"
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
@@ -9,7 +19,8 @@
 #include <QObject>
 #include <QWidget>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome)
 {
@@ -47,13 +58,11 @@ void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome)
         area->setBackground(ThemeManager::instance()->colors().surfaceWindow);
     };
     syncBackdrop();
-    QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged,
-                     area, syncBackdrop);
+    QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged, area, syncBackdrop);
 }
 
-void refreshSubWindowTabToolTips(
-    QMdiArea *area,
-    const std::function<QString(QMdiSubWindow *)> &pathFor)
+void refreshSubWindowTabToolTips(QMdiArea *area,
+                                 const std::function<QString(QMdiSubWindow *)> &pathFor)
 {
     if (!area)
         return;
@@ -62,8 +71,7 @@ void refreshSubWindowTabToolTips(
         return;
 
     const QList<QMdiSubWindow *> subs = area->subWindowList();
-    for (int i = 0; i < subs.size() && i < tabBar->count(); ++i)
-    {
+    for (int i = 0; i < subs.size() && i < tabBar->count(); ++i) {
         QMdiSubWindow *sub = subs.at(i);
         QString tip = pathFor ? QDir::toNativeSeparators(pathFor(sub)) : QString();
         if (tip.isEmpty())
@@ -72,4 +80,4 @@ void refreshSubWindowTabToolTips(
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

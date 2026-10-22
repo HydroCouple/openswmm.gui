@@ -1,7 +1,11 @@
-/*!
- * \file   nodecompoundeditdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      nodecompoundeditdialog.cpp
+ * @brief     One modal dialog with a stacked-widget body, one page per compound node attribute
+ *            (Inflows / DWF / RDII / Treatment).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/nodecompoundeditdialog.h"
@@ -12,7 +16,7 @@
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
 #include "ui/widgets/treatmentexpressionedit.h"
-#include "layers/speciesattributes.h"   // Y4 — age as an inflow constituent
+#include "layers/speciesattributes.h" // Y4 — age as an inflow constituent
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
@@ -40,30 +44,27 @@
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
-#include <openswmm/engine/openswmm_reactions.h>   // U2: MSX inflow constituents
+#include <openswmm/engine/openswmm_reactions.h> // U2: MSX inflow constituents
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_tables.h>
 
-NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
-                                               QWidget *parent)
+NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref, QWidget *parent)
     : QDialog(parent), m_ref(std::move(ref))
 {
     const char *titles[] = {
-        "External Inflows", "Dry Weather Flow", "RDII", "Pollutant Treatment",
-        "Groundwater Sources",   // no page here (G5); keeps titles[kind] in range
+        "External Inflows",    "Dry Weather Flow", "RDII", "Pollutant Treatment",
+        "Groundwater Sources", // no page here (G5); keeps titles[kind] in range
     };
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("NodeCompoundEditDialog"));
-    setWindowTitle(tr("%1 — %2")
-                       .arg(QString::fromLatin1(titles[m_ref.kind]),
-                            m_ref.nodeName));
+    setWindowTitle(tr("%1 — %2").arg(QString::fromLatin1(titles[m_ref.kind]), m_ref.nodeName));
     resize(560, 380);
 
     m_stack = new QStackedWidget(this);
-    buildInflowsPage();    // index 0
-    buildDwfPage();        // index 1
-    buildRdiiPage();       // index 2
-    buildTreatmentPage();  // index 3
+    buildInflowsPage();   // index 0
+    buildDwfPage();       // index 1
+    buildRdiiPage();      // index 2
+    buildTreatmentPage(); // index 3
     m_stack->setCurrentIndex(int(m_ref.kind));
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
@@ -75,7 +76,8 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
     lay->addWidget(m_buttons);
 
     refreshActivePage();
-    setAccessibleDescription(tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    setAccessibleDescription(
+        tr("Changes are applied immediately. Closing this editor does not undo changes."));
     if (m_ref.layer) {
         connect(m_ref.layer, &QObject::destroyed, this, &NodeCompoundEditDialog::invalidateContext);
         connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
@@ -93,12 +95,14 @@ void NodeCompoundEditDialog::invalidateContext()
 
 void NodeCompoundEditDialog::checkContext()
 {
-    if (nodeIdx() < 0) invalidateContext();
+    if (nodeIdx() < 0)
+        invalidateContext();
 }
 
 int NodeCompoundEditDialog::nodeIdx() const
 {
-    if (!m_ref.engine || m_ref.nodeName.isEmpty()) return -1;
+    if (!m_ref.engine || m_ref.nodeName.isEmpty())
+        return -1;
     return swmm_node_index(m_ref.engine, m_ref.nodeName.toUtf8().constData());
 }
 
@@ -108,7 +112,8 @@ int NodeCompoundEditDialog::nodeIdx() const
 
 void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
 {
-    if (!c || !m_ref.engine) return;
+    if (!c || !m_ref.engine)
+        return;
     QSignalBlocker block(c);
     c->clear();
     // Y4 (amendment D-Y4): FLOW + pollutants + the reserved age species.
@@ -118,7 +123,8 @@ void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
     const int n = swmm_pollutant_count(m_ref.engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pollutant_id(m_ref.engine, i);
-        if (id && *id) pollutants << QString::fromUtf8(id);
+        if (id && *id)
+            pollutants << QString::fromUtf8(id);
     }
     // U2 (2026-09-07): reactions-component BULK species are inflow
     // constituents on the same footing as pollutants — CONCEN multiplies
@@ -130,30 +136,35 @@ void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
         char name[128] = {0}, units[32] = {0};
         int isWall = 0;
         double atol = 0.0, rtol = 0.0;
-        if (swmm_reaction_species_get(m_ref.engine, m, name, sizeof(name), &isWall,
-                                      units, sizeof(units), &atol, &rtol) != SWMM_OK)
+        if (swmm_reaction_species_get(m_ref.engine, m, name, sizeof(name), &isWall, units,
+                                      sizeof(units), &atol, &rtol) != SWMM_OK)
             continue;
-        if (isWall || !name[0]) continue;
+        if (isWall || !name[0])
+            continue;
         const QString nm = QString::fromUtf8(name);
-        if (!pollutants.contains(nm)) pollutants << nm;
+        if (!pollutants.contains(nm))
+            pollutants << nm;
     }
-    const QStringList names =
-        OpenSWMMVis::Species::inflowConstituentNames(pollutants);
+    const QStringList names = OpenSWMMVis::Species::inflowConstituentNames(pollutants);
     for (const QString &name : names)
         c->addItem(OpenSWMMVis::Species::inflowConstituentLabel(name), name);
 }
 
 void NodeCompoundEditDialog::populateTimeSeriesCombo(LabeledPickerCombo *p)
 {
-    if (!p || !m_ref.engine) return;
+    if (!p || !m_ref.engine)
+        return;
     QStringList items;
     const int n = swmm_table_count(m_ref.engine);
     for (int i = 0; i < n; ++i) {
         int t = -1;
-        if (swmm_table_get_type(m_ref.engine, i, &t) != SWMM_OK) continue;
-        if (t != 0) continue;  // TIMESERIES == 0; CURVE_* are 1..11
+        if (swmm_table_get_type(m_ref.engine, i, &t) != SWMM_OK)
+            continue;
+        if (t != 0)
+            continue; // TIMESERIES == 0; CURVE_* are 1..11
         const char *id = swmm_table_id(m_ref.engine, i);
-        if (id && *id) items << QString::fromUtf8(id);
+        if (id && *id)
+            items << QString::fromUtf8(id);
     }
     const QString current = p->currentText();
     p->setItems(items, current);
@@ -161,12 +172,14 @@ void NodeCompoundEditDialog::populateTimeSeriesCombo(LabeledPickerCombo *p)
 
 void NodeCompoundEditDialog::populatePatternCombo(LabeledPickerCombo *p)
 {
-    if (!p || !m_ref.engine) return;
+    if (!p || !m_ref.engine)
+        return;
     QStringList items;
     const int n = swmm_pattern_count(m_ref.engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pattern_id(m_ref.engine, i);
-        if (id && *id) items << QString::fromUtf8(id);
+        if (id && *id)
+            items << QString::fromUtf8(id);
     }
     const QString current = p->currentText();
     p->setItems(items, current);
@@ -174,7 +187,8 @@ void NodeCompoundEditDialog::populatePatternCombo(LabeledPickerCombo *p)
 
 void NodeCompoundEditDialog::populateUhGroupCombo(LabeledPickerCombo *p)
 {
-    if (!p || !m_ref.engine) return;
+    if (!p || !m_ref.engine)
+        return;
     QStringList items;
     const int n = swmm_hydrograph_group_count(m_ref.engine);
     char buf[128];
@@ -182,18 +196,19 @@ void NodeCompoundEditDialog::populateUhGroupCombo(LabeledPickerCombo *p)
         buf[0] = '\0';
         if (swmm_hydrograph_group_id(m_ref.engine, i, buf, sizeof(buf)) != SWMM_OK)
             continue;
-        if (buf[0]) items << QString::fromUtf8(buf);
+        if (buf[0])
+            items << QString::fromUtf8(buf);
     }
     const QString current = p->currentText();
     p->setItems(items, current);
 }
 
-QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
-                                                    const QString &currentName)
+QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory, const QString &currentName)
 {
     // Picker buttons require a bound layer for engine + registry access.
     if (!m_ref.layer) {
-        QMessageBox::information(this, tr("Edit Data Object"),
+        QMessageBox::information(
+            this, tr("Edit Data Object"),
             tr("This dialog wasn't bound to a project layer, so it can't "
                "open the editor. Use Data → Edit… in the main window instead."));
         return {};
@@ -204,20 +219,24 @@ QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
     case SWMMModelLayer::DataTimeSeries: {
         auto *reg = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
             m_ref.layer->ensureTimeseriesRegistry());
-        if (!reg) return {};
-        return openswmmvis::ui::TimeseriesEditorDialog::pickTimeseries(
-            reg, /*undoStack=*/nullptr, currentName, this);
+        if (!reg)
+            return {};
+        return openswmmvis::ui::TimeseriesEditorDialog::pickTimeseries(reg, /*undoStack=*/nullptr,
+                                                                       currentName, this);
     }
     case SWMMModelLayer::DataPatterns: {
-        QPointer<openswmmvis::pattern::PatternRegistry> reg = qobject_cast<openswmmvis::pattern::PatternRegistry *>(
-            m_ref.layer->ensurePatternRegistry());
-        if (!reg) return {};
+        QPointer<openswmmvis::pattern::PatternRegistry> reg =
+            qobject_cast<openswmmvis::pattern::PatternRegistry *>(
+                m_ref.layer->ensurePatternRegistry());
+        if (!reg)
+            return {};
         const QString picked = openswmmvis::ui::PatternEditorDialog::pickPattern(
             reg, /*undoStack=*/nullptr, currentName, this);
         // PatternRegistry::create only mutates the registry; flush so the
         // combo's repopulate (which reads via swmm_pattern_count) sees a
         // brand-new pattern.
-        if (m_ref.engine && reg) reg->saveToEngine(m_ref.engine);
+        if (m_ref.engine && reg)
+            reg->saveToEngine(m_ref.engine);
         return picked;
     }
     case SWMMModelLayer::DataHydrographs:
@@ -225,40 +244,44 @@ QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
 
     default:
         // Categories without a complex editor — surface the gap tooltip.
-        QMessageBox::information(this, tr("Edit"),
-            ObjectBrowserPanel::gapTooltipFor(cat));
+        QMessageBox::information(this, tr("Edit"), ObjectBrowserPanel::gapTooltipFor(cat));
         return {};
     }
 }
 
-void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
-                                          int dataCategory,
-                                          void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo*))
+void NodeCompoundEditDialog::wirePicker(
+    LabeledPickerCombo *picker, int dataCategory,
+    void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo *))
 {
-    if (!picker) return;
+    if (!picker)
+        return;
     connect(picker, &LabeledPickerCombo::pickerClicked, this,
             [this, picker, dataCategory, repopulate]() {
-        const QString currentSel = picker->currentText().trimmed();
-        const QString resultName = launchObjectEditor(dataCategory, currentSel);
-        if (resultName.isEmpty()) return;
-        (this->*repopulate)(picker);
-        picker->setCurrentText(resultName);
-    });
+                const QString currentSel = picker->currentText().trimmed();
+                const QString resultName = launchObjectEditor(dataCategory, currentSel);
+                if (resultName.isEmpty())
+                    return;
+                (this->*repopulate)(picker);
+                picker->setCurrentText(resultName);
+            });
 }
 
 void NodeCompoundEditDialog::updateInflowsMassEnabled()
 {
-    if (!m_inflowsConstCombo || !m_inflowsTypeCombo) return;
+    if (!m_inflowsConstCombo || !m_inflowsTypeCombo)
+        return;
     // Y4: pollutant-only — disabled for FLOW and the age species (the
     // engine would take a MASS-typed age row as hours with a warning).
-    const bool isFlow = !OpenSWMMVis::Species::inflowMassAllowed(
-        m_inflowsConstCombo->currentData().toString());
+    const bool isFlow =
+        !OpenSWMMVis::Species::inflowMassAllowed(m_inflowsConstCombo->currentData().toString());
     // QComboBox doesn't expose per-item enable directly; reach into its
     // underlying QStandardItemModel.
     auto *model = qobject_cast<QStandardItemModel *>(m_inflowsTypeCombo->model());
-    if (!model) return;
-    QStandardItem *massItem = model->item(2);  // 0=FLOW, 1=CONCEN, 2=MASS
-    if (!massItem) return;
+    if (!model)
+        return;
+    QStandardItem *massItem = model->item(2); // 0=FLOW, 1=CONCEN, 2=MASS
+    if (!massItem)
+        return;
     Qt::ItemFlags f = massItem->flags();
     if (isFlow) {
         f &= ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
@@ -267,9 +290,7 @@ void NodeCompoundEditDialog::updateInflowsMassEnabled()
         // is "the inflow carries age A", exactly CONCEN's shape).
         if (m_inflowsTypeCombo->currentIndex() == 2)
             m_inflowsTypeCombo->setCurrentIndex(
-                m_inflowsConstCombo->currentData().toString() ==
-                        QLatin1String("FLOW")
-                    ? 0 : 1);
+                m_inflowsConstCombo->currentData().toString() == QLatin1String("FLOW") ? 0 : 1);
     } else {
         f |= Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     }
@@ -296,9 +317,9 @@ void NodeCompoundEditDialog::buildInflowsPage()
 
     m_inflowsTable = new QTableWidget(0, 7, page);
     m_inflowsTable->setAccessibleName(tr("External inflows"));
-    m_inflowsTable->setHorizontalHeaderLabels({
-        tr("Constituent"), tr("Type"), tr("Time Series"),
-        tr("Baseline"), tr("M-Factor"), tr("S-Factor"), tr("Pattern")});
+    m_inflowsTable->setHorizontalHeaderLabels({tr("Constituent"), tr("Type"), tr("Time Series"),
+                                               tr("Baseline"), tr("M-Factor"), tr("S-Factor"),
+                                               tr("Pattern")});
     m_inflowsTable->horizontalHeader()->setStretchLastSection(false);
     m_inflowsTable->verticalHeader()->setVisible(false);
     m_inflowsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -309,20 +330,21 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsRemoveBtn = new QPushButton(tr("Remove Selected"), page);
     m_inflowsRemoveBtn->setEnabled(false);
     vlay->addWidget(m_inflowsRemoveBtn);
-    connect(m_inflowsTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, [this]() {
-        m_inflowsRemoveBtn->setEnabled(!m_inflowsTable->selectedItems().isEmpty());
-    });
+    connect(
+        m_inflowsTable->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+        [this]() { m_inflowsRemoveBtn->setEnabled(!m_inflowsTable->selectedItems().isEmpty()); });
     connect(m_inflowsRemoveBtn, &QPushButton::clicked, this, [this]() {
         const auto rows = m_inflowsTable->selectionModel()->selectedRows();
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty())
+            return;
         QTableWidgetItem *first = m_inflowsTable->item(rows.first().row(), 0);
-        if (!first) return;
+        if (!first)
+            return;
         const int globalIdx = first->data(Qt::UserRole).toInt();
         const int rc = swmm_ext_inflow_remove(m_ref.engine, globalIdx);
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Remove Inflow"),
-                tr("Engine rejected inflow remove (error %1).").arg(rc));
+                                 tr("Engine rejected inflow remove (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -337,25 +359,24 @@ void NodeCompoundEditDialog::buildInflowsPage()
 
     // Type: FLOW/CONCEN/MASS. MASS is pollutant-only — gated by constituent.
     m_inflowsTypeCombo = new QComboBox(grp);
-    m_inflowsTypeCombo->addItems({QStringLiteral("FLOW"),
-                                  QStringLiteral("CONCEN"),
-                                  QStringLiteral("MASS")});
+    m_inflowsTypeCombo->addItems(
+        {QStringLiteral("FLOW"), QStringLiteral("CONCEN"), QStringLiteral("MASS")});
     connect(m_inflowsConstCombo, &QComboBox::currentTextChanged, this,
-            [this](const QString &){ updateInflowsMassEnabled(); });
+            [this](const QString &) { updateInflowsMassEnabled(); });
     updateInflowsMassEnabled();
 
     // Time series + Pattern pickers.
-    m_inflowsTsPicker  = new LabeledPickerCombo({}, grp);
+    m_inflowsTsPicker = new LabeledPickerCombo({}, grp);
     populateTimeSeriesCombo(m_inflowsTsPicker);
     wirePicker(m_inflowsTsPicker, SWMMModelLayer::DataTimeSeries,
-                &NodeCompoundEditDialog::populateTimeSeriesCombo);
+               &NodeCompoundEditDialog::populateTimeSeriesCombo);
 
     m_inflowsPatPicker = new LabeledPickerCombo({}, grp);
     populatePatternCombo(m_inflowsPatPicker);
     wirePicker(m_inflowsPatPicker, SWMMModelLayer::DataPatterns,
-                &NodeCompoundEditDialog::populatePatternCombo);
+               &NodeCompoundEditDialog::populatePatternCombo);
 
-    m_inflowsBaseSpin  = new QDoubleSpinBox(grp);
+    m_inflowsBaseSpin = new QDoubleSpinBox(grp);
     m_inflowsBaseSpin->setRange(0.0, 1e12);
     m_inflowsBaseSpin->setDecimals(4);
     m_inflowsMFactSpin = new QDoubleSpinBox(grp);
@@ -367,25 +388,25 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsSFactSpin->setDecimals(4);
     m_inflowsSFactSpin->setValue(1.0);
 
-    form->addRow(tr("C&onstituent"),     m_inflowsConstCombo);
-    form->addRow(tr("T&ype"),            m_inflowsTypeCombo);
-    form->addRow(tr("T&ime Series"),     m_inflowsTsPicker);
-    form->addRow(tr("Bas&eline"),        m_inflowsBaseSpin);
-    form->addRow(tr("M&ultiplier (M)"),  m_inflowsMFactSpin);
-    form->addRow(tr("Scale &Factor (S)"),m_inflowsSFactSpin);
-    form->addRow(tr("&Pattern"),         m_inflowsPatPicker);
+    form->addRow(tr("C&onstituent"), m_inflowsConstCombo);
+    form->addRow(tr("T&ype"), m_inflowsTypeCombo);
+    form->addRow(tr("T&ime Series"), m_inflowsTsPicker);
+    form->addRow(tr("Bas&eline"), m_inflowsBaseSpin);
+    form->addRow(tr("M&ultiplier (M)"), m_inflowsMFactSpin);
+    form->addRow(tr("Scale &Factor (S)"), m_inflowsSFactSpin);
+    form->addRow(tr("&Pattern"), m_inflowsPatPicker);
 
     auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
-        if (idx < 0) return;
-        const QString constituent =
-            m_inflowsConstCombo->currentData().toString();
+        if (idx < 0)
+            return;
+        const QString constituent = m_inflowsConstCombo->currentData().toString();
         const QByteArray cons = constituent.toUtf8();
-        const QByteArray ts   = m_inflowsTsPicker->currentText().toUtf8();
+        const QByteArray ts = m_inflowsTsPicker->currentText().toUtf8();
         const QByteArray type = m_inflowsTypeCombo->currentText().toUtf8();
-        const QByteArray pat  = m_inflowsPatPicker->currentText().toUtf8();
+        const QByteArray pat = m_inflowsPatPicker->currentText().toUtf8();
 
         // SWMM allows only one inflow per (node, constituent). Walk the
         // SoA backwards (so the index we're about to remove doesn't
@@ -396,10 +417,9 @@ void NodeCompoundEditDialog::buildInflowsPage()
         for (int i = total - 1; i >= 0; --i) {
             int ni = -1;
             double mf = 0.0, sf = 0.0, base = 0.0;
-            if (swmm_ext_inflow_get(m_ref.engine, i, &ni,
-                                      cBuf, sizeof(cBuf), tBuf, sizeof(tBuf),
-                                      tyBuf, sizeof(tyBuf), &mf, &sf, &base,
-                                      pBuf, sizeof(pBuf)) != SWMM_OK)
+            if (swmm_ext_inflow_get(m_ref.engine, i, &ni, cBuf, sizeof(cBuf), tBuf, sizeof(tBuf),
+                                    tyBuf, sizeof(tyBuf), &mf, &sf, &base, pBuf,
+                                    sizeof(pBuf)) != SWMM_OK)
                 continue;
             if (ni == idx && constituent == QString::fromUtf8(cBuf)) {
                 dupIdx = i;
@@ -407,22 +427,24 @@ void NodeCompoundEditDialog::buildInflowsPage()
             }
         }
         if (dupIdx >= 0) {
-            const auto r = QMessageBox::question(this, tr("Replace Inflow"),
-                tr("An inflow for <b>%1</b> already exists on this node. "
-                   "Replace it with the new values?").arg(constituent),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-            if (r != QMessageBox::Yes) return;
+            const auto r =
+                QMessageBox::question(this, tr("Replace Inflow"),
+                                      tr("An inflow for <b>%1</b> already exists on this node. "
+                                         "Replace it with the new values?")
+                                          .arg(constituent),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (r != QMessageBox::Yes)
+                return;
             swmm_ext_inflow_remove(m_ref.engine, dupIdx);
         }
 
-        const int rc = swmm_ext_inflow_add(
-            m_ref.engine, idx, cons.constData(), ts.constData(),
-            type.constData(), m_inflowsMFactSpin->value(),
-            m_inflowsSFactSpin->value(), m_inflowsBaseSpin->value(),
-            pat.constData());
+        const int rc = swmm_ext_inflow_add(m_ref.engine, idx, cons.constData(), ts.constData(),
+                                           type.constData(), m_inflowsMFactSpin->value(),
+                                           m_inflowsSFactSpin->value(), m_inflowsBaseSpin->value(),
+                                           pat.constData());
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Add Inflow"),
-                tr("Engine rejected inflow add (error %1).").arg(rc));
+                                 tr("Engine rejected inflow add (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -432,7 +454,8 @@ void NodeCompoundEditDialog::buildInflowsPage()
     // and tweak values before clicking Add/Update to commit a replace.
     connect(m_inflowsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         const auto sel = m_inflowsTable->selectionModel()->selectedRows();
-        if (sel.isEmpty()) return;
+        if (sel.isEmpty())
+            return;
         const int row = sel.first().row();
         auto cellText = [this, row](int col) -> QString {
             QTableWidgetItem *it = m_inflowsTable->item(row, col);
@@ -442,7 +465,8 @@ void NodeCompoundEditDialog::buildInflowsPage()
             // The table shows engine names; the combo labels the reserved
             // species — match by item DATA.
             const int ci = m_inflowsConstCombo->findData(cellText(0));
-            if (ci >= 0) m_inflowsConstCombo->setCurrentIndex(ci);
+            if (ci >= 0)
+                m_inflowsConstCombo->setCurrentIndex(ci);
         }
         m_inflowsTypeCombo->setCurrentText(cellText(1));
         m_inflowsTsPicker->setCurrentText(cellText(2));
@@ -475,9 +499,8 @@ void NodeCompoundEditDialog::buildDwfPage()
 
     m_dwfTable = new QTableWidget(0, 6, page);
     m_dwfTable->setAccessibleName(tr("Dry weather inflows"));
-    m_dwfTable->setHorizontalHeaderLabels({
-        tr("Constituent"), tr("Average"),
-        tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")});
+    m_dwfTable->setHorizontalHeaderLabels({tr("Constituent"), tr("Average"), tr("Monthly"),
+                                           tr("Daily"), tr("Hourly"), tr("Weekend")});
     m_dwfTable->horizontalHeader()->setStretchLastSection(false);
     m_dwfTable->verticalHeader()->setVisible(false);
     m_dwfTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -488,20 +511,20 @@ void NodeCompoundEditDialog::buildDwfPage()
     m_dwfRemoveBtn = new QPushButton(tr("Remove Selected"), page);
     m_dwfRemoveBtn->setEnabled(false);
     vlay->addWidget(m_dwfRemoveBtn);
-    connect(m_dwfTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, [this]() {
-        m_dwfRemoveBtn->setEnabled(!m_dwfTable->selectedItems().isEmpty());
-    });
+    connect(m_dwfTable->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this]() { m_dwfRemoveBtn->setEnabled(!m_dwfTable->selectedItems().isEmpty()); });
     connect(m_dwfRemoveBtn, &QPushButton::clicked, this, [this]() {
         const auto rows = m_dwfTable->selectionModel()->selectedRows();
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty())
+            return;
         QTableWidgetItem *first = m_dwfTable->item(rows.first().row(), 0);
-        if (!first) return;
+        if (!first)
+            return;
         const int globalIdx = first->data(Qt::UserRole).toInt();
         const int rc = swmm_dwf_remove(m_ref.engine, globalIdx);
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Remove DWF"),
-                tr("Engine rejected DWF remove (error %1).").arg(rc));
+                                 tr("Engine rejected DWF remove (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -513,7 +536,7 @@ void NodeCompoundEditDialog::buildDwfPage()
     m_dwfConstCombo = new QComboBox(grp);
     populateConstituentCombo(m_dwfConstCombo);
 
-    m_dwfAvgSpin   = new QDoubleSpinBox(grp);
+    m_dwfAvgSpin = new QDoubleSpinBox(grp);
     m_dwfAvgSpin->setRange(0.0, 1e12);
     m_dwfAvgSpin->setDecimals(4);
 
@@ -521,31 +544,31 @@ void NodeCompoundEditDialog::buildDwfPage()
     m_dwfPat2Picker = new LabeledPickerCombo({}, grp);
     m_dwfPat3Picker = new LabeledPickerCombo({}, grp);
     m_dwfPat4Picker = new LabeledPickerCombo({}, grp);
-    for (LabeledPickerCombo *p : {m_dwfPat1Picker, m_dwfPat2Picker,
-                                     m_dwfPat3Picker, m_dwfPat4Picker}) {
+    for (LabeledPickerCombo *p :
+         {m_dwfPat1Picker, m_dwfPat2Picker, m_dwfPat3Picker, m_dwfPat4Picker}) {
         populatePatternCombo(p);
-        wirePicker(p, SWMMModelLayer::DataPatterns,
-                    &NodeCompoundEditDialog::populatePatternCombo);
+        wirePicker(p, SWMMModelLayer::DataPatterns, &NodeCompoundEditDialog::populatePatternCombo);
     }
 
-    form->addRow(tr("Constituent"),        m_dwfConstCombo);
-    form->addRow(tr("A&verage Value"),      m_dwfAvgSpin);
-    form->addRow(tr("Mont&hly Pattern"),    m_dwfPat1Picker);
-    form->addRow(tr("&Daily Pattern"),      m_dwfPat2Picker);
-    form->addRow(tr("Hou&rly Pattern"),     m_dwfPat3Picker);
-    form->addRow(tr("&Weekend Pattern"),    m_dwfPat4Picker);
+    form->addRow(tr("Constituent"), m_dwfConstCombo);
+    form->addRow(tr("A&verage Value"), m_dwfAvgSpin);
+    form->addRow(tr("Mont&hly Pattern"), m_dwfPat1Picker);
+    form->addRow(tr("&Daily Pattern"), m_dwfPat2Picker);
+    form->addRow(tr("Hou&rly Pattern"), m_dwfPat3Picker);
+    form->addRow(tr("&Weekend Pattern"), m_dwfPat4Picker);
 
     auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
-        if (idx < 0) return;
+        if (idx < 0)
+            return;
         const QString constituent = m_dwfConstCombo->currentText();
         const QByteArray cons = constituent.toUtf8();
-        const QByteArray p1   = m_dwfPat1Picker->currentText().toUtf8();
-        const QByteArray p2   = m_dwfPat2Picker->currentText().toUtf8();
-        const QByteArray p3   = m_dwfPat3Picker->currentText().toUtf8();
-        const QByteArray p4   = m_dwfPat4Picker->currentText().toUtf8();
+        const QByteArray p1 = m_dwfPat1Picker->currentText().toUtf8();
+        const QByteArray p2 = m_dwfPat2Picker->currentText().toUtf8();
+        const QByteArray p3 = m_dwfPat3Picker->currentText().toUtf8();
+        const QByteArray p4 = m_dwfPat4Picker->currentText().toUtf8();
 
         int dupIdx = -1;
         const int total = swmm_dwf_count(m_ref.engine);
@@ -553,32 +576,32 @@ void NodeCompoundEditDialog::buildDwfPage()
         for (int i = total - 1; i >= 0; --i) {
             int ni = -1;
             double avg = 0.0;
-            if (swmm_dwf_get(m_ref.engine, i, &ni,
-                              cBuf, sizeof(cBuf), &avg,
-                              p1Buf, sizeof(p1Buf),
-                              p2Buf, sizeof(p2Buf),
-                              p3Buf, sizeof(p3Buf),
-                              p4Buf, sizeof(p4Buf)) != SWMM_OK) continue;
+            if (swmm_dwf_get(m_ref.engine, i, &ni, cBuf, sizeof(cBuf), &avg, p1Buf, sizeof(p1Buf),
+                             p2Buf, sizeof(p2Buf), p3Buf, sizeof(p3Buf), p4Buf,
+                             sizeof(p4Buf)) != SWMM_OK)
+                continue;
             if (ni == idx && constituent == QString::fromUtf8(cBuf)) {
                 dupIdx = i;
                 break;
             }
         }
         if (dupIdx >= 0) {
-            const auto r = QMessageBox::question(this, tr("Replace DWF"),
-                tr("A DWF entry for <b>%1</b> already exists on this node. "
-                   "Replace it with the new values?").arg(constituent),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-            if (r != QMessageBox::Yes) return;
+            const auto r =
+                QMessageBox::question(this, tr("Replace DWF"),
+                                      tr("A DWF entry for <b>%1</b> already exists on this node. "
+                                         "Replace it with the new values?")
+                                          .arg(constituent),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (r != QMessageBox::Yes)
+                return;
             swmm_dwf_remove(m_ref.engine, dupIdx);
         }
 
-        const int rc = swmm_dwf_add(m_ref.engine, idx, cons.constData(),
-            m_dwfAvgSpin->value(), p1.constData(), p2.constData(),
-            p3.constData(), p4.constData());
+        const int rc = swmm_dwf_add(m_ref.engine, idx, cons.constData(), m_dwfAvgSpin->value(),
+                                    p1.constData(), p2.constData(), p3.constData(), p4.constData());
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Add DWF"),
-                tr("Engine rejected DWF add (error %1).").arg(rc));
+                                 tr("Engine rejected DWF add (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -586,7 +609,8 @@ void NodeCompoundEditDialog::buildDwfPage()
 
     connect(m_dwfTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         const auto sel = m_dwfTable->selectionModel()->selectedRows();
-        if (sel.isEmpty()) return;
+        if (sel.isEmpty())
+            return;
         const int row = sel.first().row();
         auto cellText = [this, row](int col) -> QString {
             QTableWidgetItem *it = m_dwfTable->item(row, col);
@@ -630,20 +654,20 @@ void NodeCompoundEditDialog::buildRdiiPage()
     m_rdiiRemoveBtn = new QPushButton(tr("Remove Selected"), page);
     m_rdiiRemoveBtn->setEnabled(false);
     vlay->addWidget(m_rdiiRemoveBtn);
-    connect(m_rdiiTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, [this]() {
-        m_rdiiRemoveBtn->setEnabled(!m_rdiiTable->selectedItems().isEmpty());
-    });
+    connect(m_rdiiTable->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this]() { m_rdiiRemoveBtn->setEnabled(!m_rdiiTable->selectedItems().isEmpty()); });
     connect(m_rdiiRemoveBtn, &QPushButton::clicked, this, [this]() {
         const auto rows = m_rdiiTable->selectionModel()->selectedRows();
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty())
+            return;
         QTableWidgetItem *first = m_rdiiTable->item(rows.first().row(), 0);
-        if (!first) return;
+        if (!first)
+            return;
         const int globalIdx = first->data(Qt::UserRole).toInt();
         const int rc = swmm_rdii_remove(m_ref.engine, globalIdx);
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Remove RDII"),
-                tr("Engine rejected RDII remove (error %1).").arg(rc));
+                                 tr("Engine rejected RDII remove (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -661,32 +685,31 @@ void NodeCompoundEditDialog::buildRdiiPage()
     m_rdiiUhPicker = new LabeledPickerCombo({}, grp);
     populateUhGroupCombo(m_rdiiUhPicker);
     wirePicker(m_rdiiUhPicker, SWMMModelLayer::DataHydrographs,
-                &NodeCompoundEditDialog::populateUhGroupCombo);
+               &NodeCompoundEditDialog::populateUhGroupCombo);
 
     m_rdiiAreaSpin = new QDoubleSpinBox(grp);
     m_rdiiAreaSpin->setRange(0.0, 1e9);
     m_rdiiAreaSpin->setDecimals(4);
 
     form->addRow(tr("UH &Group Name"), m_rdiiUhPicker);
-    form->addRow(tr("Sewer Area"),    m_rdiiAreaSpin);
+    form->addRow(tr("Sewer Area"), m_rdiiAreaSpin);
 
     auto *addBtn = new QPushButton(tr("Add"), grp);
     form->addRow(QString(), addBtn);
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
-        if (idx < 0) return;
+        if (idx < 0)
+            return;
         const QString uhName = m_rdiiUhPicker->currentText();
         if (uhName.isEmpty()) {
-            QMessageBox::warning(this, tr("Add RDII"),
-                tr("Provide a UH group name."));
+            QMessageBox::warning(this, tr("Add RDII"), tr("Provide a UH group name."));
             return;
         }
         const QByteArray uh = uhName.toUtf8();
-        const int rc = swmm_rdii_add(m_ref.engine, idx,
-                                       uh.constData(), m_rdiiAreaSpin->value());
+        const int rc = swmm_rdii_add(m_ref.engine, idx, uh.constData(), m_rdiiAreaSpin->value());
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Add RDII"),
-                tr("Engine rejected RDII add (error %1).").arg(rc));
+                                 tr("Engine rejected RDII add (error %1).").arg(rc));
             return;
         }
         refreshActivePage();
@@ -696,7 +719,8 @@ void NodeCompoundEditDialog::buildRdiiPage()
     // a new assignment for a different UH).
     connect(m_rdiiTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         const auto sel = m_rdiiTable->selectionModel()->selectedRows();
-        if (sel.isEmpty()) return;
+        if (sel.isEmpty())
+            return;
         const int row = sel.first().row();
         auto cellText = [this, row](int col) -> QString {
             QTableWidgetItem *it = m_rdiiTable->item(row, col);
@@ -731,25 +755,23 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     m_treatmentSummary->setWordWrap(true);
     vlay->addWidget(m_treatmentSummary);
 
-    auto *hint = new QLabel(
-        tr("<i>Edit a removal expression per pollutant — e.g. "
-           "<tt>R = 0.5 * exp(-0.1 * DT)</tt> or "
-           "<tt>C = 0.3 * C</tt>. Clear a cell to remove the expression. "
-           "Variables: <tt>R</tt> (removal fraction), <tt>C</tt> "
-           "(concentration), <tt>DT</tt> (step seconds), "
-           "<tt>HRT</tt> (hyd. residence time), <tt>Q</tt> (flow), "
-           "<tt>V</tt> (volume), <tt>D</tt> (depth), <tt>AREA</tt> "
-           "(surface area). Functions: <tt>exp log ln sqrt min max abs "
-           "sgn step</tt>. Ctrl+Space completes.</i>"),
-        page);
+    auto *hint = new QLabel(tr("<i>Edit a removal expression per pollutant — e.g. "
+                               "<tt>R = 0.5 * exp(-0.1 * DT)</tt> or "
+                               "<tt>C = 0.3 * C</tt>. Clear a cell to remove the expression. "
+                               "Variables: <tt>R</tt> (removal fraction), <tt>C</tt> "
+                               "(concentration), <tt>DT</tt> (step seconds), "
+                               "<tt>HRT</tt> (hyd. residence time), <tt>Q</tt> (flow), "
+                               "<tt>V</tt> (volume), <tt>D</tt> (depth), <tt>AREA</tt> "
+                               "(surface area). Functions: <tt>exp log ln sqrt min max abs "
+                               "sgn step</tt>. Ctrl+Space completes.</i>"),
+                            page);
     hint->setWordWrap(true);
     hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     vlay->addWidget(hint);
 
     m_treatmentTable = new QTableWidget(0, 2, page);
     m_treatmentTable->setAccessibleName(tr("Pollutant treatment expressions"));
-    m_treatmentTable->setHorizontalHeaderLabels(
-        {tr("Pollutant"), tr("Expression")});
+    m_treatmentTable->setHorizontalHeaderLabels({tr("Pollutant"), tr("Expression")});
     m_treatmentTable->horizontalHeader()->setStretchLastSection(false);
     m_treatmentTable->verticalHeader()->setVisible(false);
     m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -758,40 +780,41 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     // Iteration 4 — expression cells edit through the highlighting /
     // completing / live-validating editor (the [TREATMENT] peer of the
     // control rules editor); the banner mirrors the validator verdict.
-    auto *delegate = new openswmmvis::ui::TreatmentExpressionDelegate(
-        m_ref.engine, m_treatmentTable);
+    auto *delegate =
+        new openswmmvis::ui::TreatmentExpressionDelegate(m_ref.engine, m_treatmentTable);
     m_treatmentTable->setItemDelegateForColumn(1, delegate);
 
     m_treatmentBanner = new QLabel(page);
     m_treatmentBanner->setWordWrap(true);
     m_treatmentBanner->setVisible(false);
     vlay->addWidget(m_treatmentBanner);
-    connect(delegate,
-            &openswmmvis::ui::TreatmentExpressionDelegate::validationChanged,
-            this, [this](bool ok, const QString &msg, int col) {
-        using namespace openswmmvis::ui::theme;
-        if (ok && msg.isEmpty()) {
-            m_treatmentBanner->setText(tr("● Valid expression"));
-            m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Success));
-        } else {
-            m_treatmentBanner->setText(
-                col >= 0 ? tr("⚠ Column %1: %2").arg(col + 1).arg(msg)
-                         : tr("⚠ %1").arg(msg));
-            m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Error));
-        }
-        m_treatmentBanner->setVisible(true);
-    });
+    connect(delegate, &openswmmvis::ui::TreatmentExpressionDelegate::validationChanged, this,
+            [this](bool ok, const QString &msg, int col) {
+                using namespace openswmmvis::ui::theme;
+                if (ok && msg.isEmpty()) {
+                    m_treatmentBanner->setText(tr("● Valid expression"));
+                    m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Success));
+                } else {
+                    m_treatmentBanner->setText(col >= 0
+                                                   ? tr("⚠ Column %1: %2").arg(col + 1).arg(msg)
+                                                   : tr("⚠ %1").arg(msg));
+                    m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Error));
+                }
+                m_treatmentBanner->setVisible(true);
+            });
 
     // Cell commit → engine. The first column (Pollutant) is non-editable
     // (flags cleared in refresh); only column 1 (Expression) reaches
     // this commit path.
-    connect(m_treatmentTable, &QTableWidget::itemChanged,
-            this, [this](QTableWidgetItem *item) {
-        if (!item || m_treatmentSuppressCommit) return;
-        if (item->column() != 1) return;
+    connect(m_treatmentTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
+        if (!item || m_treatmentSuppressCommit)
+            return;
+        if (item->column() != 1)
+            return;
         const int idx = nodeIdx();
-        if (idx < 0) return;
-        const int polIdx = item->row();  // row == pollutant index
+        if (idx < 0)
+            return;
+        const int polIdx = item->row(); // row == pollutant index
         const QString expr = item->text().trimmed();
         int rc = SWMM_OK;
         if (expr.isEmpty()) {
@@ -805,19 +828,21 @@ void NodeCompoundEditDialog::buildTreatmentPage()
             // position the bare set call never had.
             char errbuf[512] = {};
             int col = -1;
-            swmm_treatment_validate_expression(
-                m_ref.engine, expr.toUtf8().constData(),
-                errbuf, sizeof(errbuf), &col);
+            swmm_treatment_validate_expression(m_ref.engine, expr.toUtf8().constData(), errbuf,
+                                               sizeof(errbuf), &col);
             const QString why = QString::fromUtf8(errbuf);
             QMessageBox::warning(this, tr("Treatment"),
-                why.isEmpty()
-                    ? tr("Engine rejected the expression (error %1). "
-                         "The cell will revert.").arg(rc)
-                    : (col >= 0
-                           ? tr("Invalid expression at column %1: %2\n"
-                                "The cell will revert.").arg(col + 1).arg(why)
-                           : tr("Invalid expression: %1\n"
-                                "The cell will revert.").arg(why)));
+                                 why.isEmpty()
+                                     ? tr("Engine rejected the expression (error %1). "
+                                          "The cell will revert.")
+                                           .arg(rc)
+                                     : (col >= 0 ? tr("Invalid expression at column %1: %2\n"
+                                                      "The cell will revert.")
+                                                       .arg(col + 1)
+                                                       .arg(why)
+                                                 : tr("Invalid expression: %1\n"
+                                                      "The cell will revert.")
+                                                       .arg(why)));
         }
         // Always re-read so a rejected edit reverts and an accepted
         // one normalises (engine may canonicalise whitespace).
@@ -849,40 +874,31 @@ void NodeCompoundEditDialog::refreshActivePage()
         for (int i = 0; i < total; ++i) {
             int ni = -1;
             double mf = 0.0, sf = 0.0, base = 0.0;
-            if (swmm_ext_inflow_get(m_ref.engine, i, &ni,
-                                      consBuf, sizeof(consBuf),
-                                      tsBuf,   sizeof(tsBuf),
-                                      typeBuf, sizeof(typeBuf),
-                                      &mf, &sf, &base,
-                                      patBuf,  sizeof(patBuf)) != SWMM_OK)
+            if (swmm_ext_inflow_get(m_ref.engine, i, &ni, consBuf, sizeof(consBuf), tsBuf,
+                                    sizeof(tsBuf), typeBuf, sizeof(typeBuf), &mf, &sf, &base,
+                                    patBuf, sizeof(patBuf)) != SWMM_OK)
                 continue;
-            if (ni != idx) continue;
+            if (ni != idx)
+                continue;
             const int row = m_inflowsTable->rowCount();
             m_inflowsTable->insertRow(row);
             auto *consItem = new QTableWidgetItem(QString::fromUtf8(consBuf));
             // Stash the global engine index on column 0 so Remove can find it.
             consItem->setData(Qt::UserRole, i);
             m_inflowsTable->setItem(row, 0, consItem);
-            m_inflowsTable->setItem(row, 1,
-                new QTableWidgetItem(QString::fromUtf8(typeBuf)));
-            m_inflowsTable->setItem(row, 2,
-                new QTableWidgetItem(QString::fromUtf8(tsBuf)));
-            m_inflowsTable->setItem(row, 3,
-                new QTableWidgetItem(QString::number(base, 'g', 6)));
-            m_inflowsTable->setItem(row, 4,
-                new QTableWidgetItem(QString::number(mf, 'g', 6)));
-            m_inflowsTable->setItem(row, 5,
-                new QTableWidgetItem(QString::number(sf, 'g', 6)));
-            m_inflowsTable->setItem(row, 6,
-                new QTableWidgetItem(QString::fromUtf8(patBuf)));
+            m_inflowsTable->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(typeBuf)));
+            m_inflowsTable->setItem(row, 2, new QTableWidgetItem(QString::fromUtf8(tsBuf)));
+            m_inflowsTable->setItem(row, 3, new QTableWidgetItem(QString::number(base, 'g', 6)));
+            m_inflowsTable->setItem(row, 4, new QTableWidgetItem(QString::number(mf, 'g', 6)));
+            m_inflowsTable->setItem(row, 5, new QTableWidgetItem(QString::number(sf, 'g', 6)));
+            m_inflowsTable->setItem(row, 6, new QTableWidgetItem(QString::fromUtf8(patBuf)));
             ++matched;
         }
-        m_inflowsSummary->setText(tr(
-            "<b>%1</b> external inflow(s) on this node "
-            "(model total: %2).").arg(matched).arg(total));
-        m_ref.summary = (matched > 0)
-            ? tr("(%1 entries)").arg(matched)
-            : tr("(none)");
+        m_inflowsSummary->setText(tr("<b>%1</b> external inflow(s) on this node "
+                                     "(model total: %2).")
+                                      .arg(matched)
+                                      .arg(total));
+        m_ref.summary = (matched > 0) ? tr("(%1 entries)").arg(matched) : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::Dwf: {
@@ -894,41 +910,30 @@ void NodeCompoundEditDialog::refreshActivePage()
         for (int i = 0; i < total; ++i) {
             int ni = -1;
             double avg = 0.0;
-            if (swmm_dwf_get(m_ref.engine, i, &ni,
-                              consBuf, sizeof(consBuf),
-                              &avg,
-                              p1Buf, sizeof(p1Buf),
-                              p2Buf, sizeof(p2Buf),
-                              p3Buf, sizeof(p3Buf),
-                              p4Buf, sizeof(p4Buf)) != SWMM_OK)
+            if (swmm_dwf_get(m_ref.engine, i, &ni, consBuf, sizeof(consBuf), &avg, p1Buf,
+                             sizeof(p1Buf), p2Buf, sizeof(p2Buf), p3Buf, sizeof(p3Buf), p4Buf,
+                             sizeof(p4Buf)) != SWMM_OK)
                 continue;
-            if (ni != idx) continue;
+            if (ni != idx)
+                continue;
             const int row = m_dwfTable->rowCount();
             m_dwfTable->insertRow(row);
             auto *consItem = new QTableWidgetItem(QString::fromUtf8(consBuf));
             consItem->setData(Qt::UserRole, i);
             m_dwfTable->setItem(row, 0, consItem);
-            m_dwfTable->setItem(row, 1,
-                new QTableWidgetItem(QString::number(avg, 'g', 6)));
-            m_dwfTable->setItem(row, 2,
-                new QTableWidgetItem(QString::fromUtf8(p1Buf)));
-            m_dwfTable->setItem(row, 3,
-                new QTableWidgetItem(QString::fromUtf8(p2Buf)));
-            m_dwfTable->setItem(row, 4,
-                new QTableWidgetItem(QString::fromUtf8(p3Buf)));
-            m_dwfTable->setItem(row, 5,
-                new QTableWidgetItem(QString::fromUtf8(p4Buf)));
+            m_dwfTable->setItem(row, 1, new QTableWidgetItem(QString::number(avg, 'g', 6)));
+            m_dwfTable->setItem(row, 2, new QTableWidgetItem(QString::fromUtf8(p1Buf)));
+            m_dwfTable->setItem(row, 3, new QTableWidgetItem(QString::fromUtf8(p2Buf)));
+            m_dwfTable->setItem(row, 4, new QTableWidgetItem(QString::fromUtf8(p3Buf)));
+            m_dwfTable->setItem(row, 5, new QTableWidgetItem(QString::fromUtf8(p4Buf)));
             ++matched;
         }
-        m_dwfSummary->setText(tr(
-            "<b>%1</b> DWF entr%2 on this node "
-            "(model total: %3).")
-                .arg(matched)
-                .arg(matched == 1 ? "y" : "ies")
-                .arg(total));
-        m_ref.summary = (matched > 0)
-            ? tr("(%1 entries)").arg(matched)
-            : tr("(none)");
+        m_dwfSummary->setText(tr("<b>%1</b> DWF entr%2 on this node "
+                                 "(model total: %3).")
+                                  .arg(matched)
+                                  .arg(matched == 1 ? "y" : "ies")
+                                  .arg(total));
+        m_ref.summary = (matched > 0) ? tr("(%1 entries)").arg(matched) : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::Rdii: {
@@ -939,25 +944,25 @@ void NodeCompoundEditDialog::refreshActivePage()
         int matched = 0;
         char uhBuf[128];
         for (int i = 0; i < total; ++i) {
-            int ni = -1; double area = 0.0;
-            if (swmm_rdii_get(m_ref.engine, i, &ni, uhBuf,
-                               sizeof(uhBuf), &area) != SWMM_OK) continue;
-            if (ni != idx) continue;
+            int ni = -1;
+            double area = 0.0;
+            if (swmm_rdii_get(m_ref.engine, i, &ni, uhBuf, sizeof(uhBuf), &area) != SWMM_OK)
+                continue;
+            if (ni != idx)
+                continue;
             const int row = m_rdiiTable->rowCount();
             m_rdiiTable->insertRow(row);
             auto *uhItem = new QTableWidgetItem(QString::fromUtf8(uhBuf));
             uhItem->setData(Qt::UserRole, i);
             m_rdiiTable->setItem(row, 0, uhItem);
-            m_rdiiTable->setItem(row, 1,
-                new QTableWidgetItem(QString::number(area, 'g', 6)));
+            m_rdiiTable->setItem(row, 1, new QTableWidgetItem(QString::number(area, 'g', 6)));
             ++matched;
         }
-        m_rdiiSummary->setText(tr(
-            "<b>%1</b> RDII assignment(s) on this node "
-            "(model total: %2).").arg(matched).arg(total));
-        m_ref.summary = (matched > 0)
-            ? tr("(%1 entries)").arg(matched)
-            : tr("(none)");
+        m_rdiiSummary->setText(tr("<b>%1</b> RDII assignment(s) on this node "
+                                  "(model total: %2).")
+                                   .arg(matched)
+                                   .arg(total));
+        m_ref.summary = (matched > 0) ? tr("(%1 entries)").arg(matched) : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::Treatment: {
@@ -975,8 +980,8 @@ void NodeCompoundEditDialog::refreshActivePage()
             const int row = m_treatmentTable->rowCount();
             m_treatmentTable->insertRow(row);
 
-            auto *nameItem = new QTableWidgetItem(
-                pName ? QString::fromUtf8(pName) : tr("(pollutant %1)").arg(p));
+            auto *nameItem = new QTableWidgetItem(pName ? QString::fromUtf8(pName)
+                                                        : tr("(pollutant %1)").arg(p));
             // Pollutant column is identification only — not editable.
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_treatmentTable->setItem(row, 0, nameItem);
@@ -985,27 +990,28 @@ void NodeCompoundEditDialog::refreshActivePage()
             swmm_treatment_get(m_ref.engine, idx, p, exprBuf, sizeof(exprBuf));
             auto *exprItem = new QTableWidgetItem(QString::fromUtf8(exprBuf));
             m_treatmentTable->setItem(row, 1, exprItem);
-            if (exprBuf[0] != '\0') ++active;
+            if (exprBuf[0] != '\0')
+                ++active;
         }
         m_treatmentSuppressCommit = false;
 
         if (nPollut == 0) {
-            m_treatmentSummary->setText(tr(
-                "<i>No pollutants defined in the model — add pollutants "
-                "(Project → Data → Pollutants) before authoring treatment "
-                "expressions.</i>"));
+            m_treatmentSummary->setText(
+                tr("<i>No pollutants defined in the model — add pollutants "
+                   "(Project → Data → Pollutants) before authoring treatment "
+                   "expressions.</i>"));
         } else {
-            m_treatmentSummary->setText(tr(
-                "<b>%1</b> of <b>%2</b> pollutant(s) have a treatment "
-                "expression on this node.").arg(active).arg(nPollut));
+            m_treatmentSummary->setText(tr("<b>%1</b> of <b>%2</b> pollutant(s) have a treatment "
+                                           "expression on this node.")
+                                            .arg(active)
+                                            .arg(nPollut));
         }
-        m_ref.summary = (active > 0)
-            ? tr("(%1 / %2 pollutants)").arg(active).arg(nPollut)
-            : tr("(none)");
+        m_ref.summary =
+            (active > 0) ? tr("(%1 / %2 pollutants)").arg(active).arg(nPollut) : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::GroundwaterSources:
     case NodeCompoundEditRef::LidBottomConnection:
-        break;   // no page here — NodeCompoundEditButton routes it elsewhere
+        break; // no page here — NodeCompoundEditButton routes it elsewhere
     }
 }

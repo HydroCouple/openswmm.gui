@@ -1,9 +1,12 @@
-/*!
- * \file   maskclipresolver.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maskclipresolver.cpp
+ * @brief     Z.14-paint).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/maskclipresolver.h"
 
 #include "layers/gisvectorlayer.h"
@@ -18,7 +21,8 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 /*! Slice Z.14-paint-cache — per-process cache of resolved clip paths
  *  keyed by source-layer id. The cached entry holds a `QPointer` to
@@ -28,9 +32,12 @@ namespace {
  *  (layer destroyed), the next hit detects the staleness and rebuilds. */
 struct CacheEntry {
     QPointer<OpenSWMMVisLayer> source;
-    QPainterPath              path;
+    QPainterPath path;
 };
 
+/** @brief Access unsynchronized process-lifetime cached clip paths.
+ * @return Borrowed mutable hash, used only on the owning GUI thread; callers
+ * preserve ID/live-pointer validity and explicitly invalidate in-place source edits. */
 QHash<QString, CacheEntry> &maskClipCache()
 {
     static QHash<QString, CacheEntry> c;
@@ -39,12 +46,16 @@ QHash<QString, CacheEntry> &maskClipCache()
 
 /*! Walk the layer tree rooted at \p root looking for a layer whose
  *  `layerId()` matches \p id. Recursive descent over children().
- *  Returns nullptr if no match. */
-[[nodiscard]] OpenSWMMVisLayer *
-findLayerByIdRecursive(OpenSWMMVisLayer *root, const QString &id)
+ * @param root Optional borrowed root in an acyclic layer tree.
+ * @param id Exact case-sensitive layer ID to find.
+ * @return Borrowed first depth-first match, including root, or nullptr. No
+ * visibility/type filter or ownership transfer occurs. */
+[[nodiscard]] OpenSWMMVisLayer *findLayerByIdRecursive(OpenSWMMVisLayer *root, const QString &id)
 {
-    if (!root) return nullptr;
-    if (root->layerId() == id) return root;
+    if (!root)
+        return nullptr;
+    if (root->layerId() == id)
+        return root;
     for (OpenSWMMVisLayer *child : root->children()) {
         if (auto *match = findLayerByIdRecursive(child, id))
             return match;
@@ -52,11 +63,15 @@ findLayerByIdRecursive(OpenSWMMVisLayer *root, const QString &id)
     return nullptr;
 }
 
-/*! Search every session inside \p workspace for a layer with id \p id. */
-[[nodiscard]] OpenSWMMVisLayer *
-findLayerById(OpenSWMMVisWorkspace *workspace, const QString &id)
+/** @brief Find an exact layer ID through workspace sessions, then QObject-owned layers.
+ * @param workspace Optional borrowed workspace on its owning GUI thread.
+ * @param id Exact ID; empty returns nullptr without searching.
+ * @return Borrowed first match, or nullptr; duplicate IDs resolve by traversal
+ * order and no source geometry/type/visibility validation occurs here. */
+[[nodiscard]] OpenSWMMVisLayer *findLayerById(OpenSWMMVisWorkspace *workspace, const QString &id)
 {
-    if (!workspace || id.isEmpty()) return nullptr;
+    if (!workspace || id.isEmpty())
+        return nullptr;
     for (OpenSWMMVisSession *session : workspace->layers()) {
         if (auto *match = findLayerByIdRecursive(session, id))
             return match;
@@ -64,7 +79,8 @@ findLayerById(OpenSWMMVisWorkspace *workspace, const QString &id)
     // Current project windows also own layers directly through the workspace;
     // those layers need not belong to a registered legacy session.
     for (auto *layer : workspace->findChildren<OpenSWMMVisLayer *>()) {
-        if (auto *match = findLayerByIdRecursive(layer, id)) return match;
+        if (auto *match = findLayerByIdRecursive(layer, id))
+            return match;
     }
     return nullptr;
 }
@@ -79,10 +95,9 @@ MaskClipResult resolveMaskClip(OpenSWMMVisLayer *hostLayer, const MaskSpec &spec
     result.mode = spec.mode;
 
     if (!spec.enabled || !hostLayer || spec.sourceLayerId.isEmpty())
-        return result;   // ok stays false → host skips clipping
+        return result; // ok stays false → host skips clipping
 
-    OpenSWMMVisLayer *src = findLayerById(hostLayer->workspace(),
-                                          spec.sourceLayerId);
+    OpenSWMMVisLayer *src = findLayerById(hostLayer->workspace(), spec.sourceLayerId);
     if (!src)
         return result;
 
@@ -108,7 +123,7 @@ MaskClipResult resolveMaskClip(OpenSWMMVisLayer *hostLayer, const MaskSpec &spec
             // don't re-walk an OGR layer that has nothing to give.
             if (!it->path.isEmpty()) {
                 result.path = it->path;
-                result.ok   = true;
+                result.ok = true;
             }
             return result;
         }
@@ -120,14 +135,13 @@ MaskClipResult resolveMaskClip(OpenSWMMVisLayer *hostLayer, const MaskSpec &spec
     QPainterPath path;
     vec->appendScenePolygonsTo(path);
 
-    cache.insert(spec.sourceLayerId,
-                 CacheEntry{ QPointer<OpenSWMMVisLayer>(src), path });
+    cache.insert(spec.sourceLayerId, CacheEntry{QPointer<OpenSWMMVisLayer>(src), path});
 
     if (path.isEmpty())
         return result;
 
     result.path = std::move(path);
-    result.ok   = true;
+    result.ok = true;
     return result;
 }
 

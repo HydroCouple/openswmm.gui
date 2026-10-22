@@ -1,16 +1,18 @@
-/*!
- * \file   test_asyncload.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Coverage for commit 82fc82b (feat(load): async model load) —
+/**
+ * @file      test_asyncload.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Coverage for commit 82fc82b (feat(load): async model load) —
  *         SWMMModelLayer::openEngineForPath()/adoptOpenEngine() and
  *         SWMMVisProjectWindow::loadModelAsync().
  *
  *         Uses QTEST_MAIN (not QTEST_APPLESS_MAIN) because the last slot
  *         constructs a real SWMMVisProjectWindow (a QWidget), which needs
  *         a QApplication event loop even under the offscreen QPA.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -52,26 +54,38 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <stdexcept>
 
-namespace {
+namespace
+{
 
 // Keep the actual open queued until the GUI-side ownership/path change has
 // happened. This makes stale-context regressions independent of disk speed.
-class QueuedOpenBarrier {
+class QueuedOpenBarrier
+{
 public:
-    QueuedOpenBarrier() : oldMaximum(QThreadPool::globalInstance()->maxThreadCount()) {
+    QueuedOpenBarrier() : oldMaximum(QThreadPool::globalInstance()->maxThreadCount())
+    {
         QThreadPool::globalInstance()->waitForDone();
         QThreadPool::globalInstance()->setMaxThreadCount(1);
-        blocker = QtConcurrent::run([this] { entered.release(); resume.acquire(); });
+        blocker = QtConcurrent::run([this] {
+            entered.release();
+            resume.acquire();
+        });
         entered.acquire();
     }
-    void release() {
-        if (!released) { released = true; resume.release(); }
+    void release()
+    {
+        if (!released) {
+            released = true;
+            resume.release();
+        }
     }
-    ~QueuedOpenBarrier() {
+    ~QueuedOpenBarrier()
+    {
         release();
         QThreadPool::globalInstance()->waitForDone();
         QThreadPool::globalInstance()->setMaxThreadCount(oldMaximum);
     }
+
 private:
     int oldMaximum;
     bool released = false;
@@ -82,12 +96,12 @@ private:
 // Capture openswmm.load.* telemetry emitted during a scoped block so the
 // timing regression guard can assert on the category channel (load timing
 // now goes to openswmm.load.model, not the layer's `warnings` list).
-QStringList     g_loadLog;
+QStringList g_loadLog;
 QtMessageHandler g_prevHandler = nullptr;
 void loadLogHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
 {
-    if (ctx.category
-        && QString::fromLatin1(ctx.category).startsWith(QStringLiteral("openswmm.load")))
+    if (ctx.category &&
+        QString::fromLatin1(ctx.category).startsWith(QStringLiteral("openswmm.load")))
         g_loadLog << msg;
     if (g_prevHandler)
         g_prevHandler(type, ctx, msg);
@@ -105,31 +119,28 @@ QString fixturePath()
 
 QString malformedFixturePath()
 {
-    return QDir(dataDir()).filePath(
-        QStringLiteral("typed_selection_malformed_fixture.inp"));
+    return QDir(dataDir()).filePath(QStringLiteral("typed_selection_malformed_fixture.inp"));
 }
 
 QString nonexistentPath()
 {
-    return QDir(dataDir()).filePath(
-        QStringLiteral("typed_selection_does_not_exist.inp"));
+    return QDir(dataDir()).filePath(QStringLiteral("typed_selection_does_not_exist.inp"));
 }
 
 int totalNodeCount(const SWMMModelLayer &l)
 {
-    return l.categoryCount(SWMMModelLayer::CatJunctions)
-         + l.categoryCount(SWMMModelLayer::CatOutfalls)
-         + l.categoryCount(SWMMModelLayer::CatStorage)
-         + l.categoryCount(SWMMModelLayer::CatDividers);
+    return l.categoryCount(SWMMModelLayer::CatJunctions) +
+           l.categoryCount(SWMMModelLayer::CatOutfalls) +
+           l.categoryCount(SWMMModelLayer::CatStorage) +
+           l.categoryCount(SWMMModelLayer::CatDividers);
 }
 
 int totalLinkCount(const SWMMModelLayer &l)
 {
-    return l.categoryCount(SWMMModelLayer::CatConduits)
-         + l.categoryCount(SWMMModelLayer::CatPumps)
-         + l.categoryCount(SWMMModelLayer::CatOrifices)
-         + l.categoryCount(SWMMModelLayer::CatWeirs)
-         + l.categoryCount(SWMMModelLayer::CatOutlets);
+    return l.categoryCount(SWMMModelLayer::CatConduits) +
+           l.categoryCount(SWMMModelLayer::CatPumps) +
+           l.categoryCount(SWMMModelLayer::CatOrifices) +
+           l.categoryCount(SWMMModelLayer::CatWeirs) + l.categoryCount(SWMMModelLayer::CatOutlets);
 }
 
 } // namespace
@@ -154,12 +165,9 @@ private slots:
         // `import OpenSWMM 1.0` fails and the canvas silently has no GPU
         // renderers — blankProjectAddedObjectsRender's QSG row would then
         // fail for a harness reason rather than the one it pins.
-        qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
-                                               "SWMMLayerQSGRenderer");
-        qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
-                                                "SWMM2DMeshQSGRenderer");
-        qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
-                                                   "SWMM2DResultsQSGRenderer");
+        qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
+        qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
+        qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
         // main.cpp §QSG-5 sets a 6-sample default surface format before any
         // overlay QQuickWidget exists; MapCanvas inherits it. Mirror that so
         // the overlay's FBO matches the app's (SWMMVIS_TEST_QSG_SAMPLES
@@ -167,7 +175,8 @@ private slots:
         {
             bool ok = false;
             int samples = qEnvironmentVariableIntValue("SWMMVIS_TEST_QSG_SAMPLES", &ok);
-            if (!ok) samples = 6;
+            if (!ok)
+                samples = 6;
             QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
             fmt.setSamples(samples);
             QSurfaceFormat::setDefaultFormat(fmt);
@@ -186,8 +195,7 @@ private slots:
         QString detail2;
         SWMM_Engine eng2 = SWMMModelLayer::openEngineForPath(nonexistentPath(), &detail2);
         QVERIFY(eng2 == nullptr);
-        QVERIFY2(detail2.contains(QStringLiteral("Model file not found")),
-                 qPrintable(detail2));
+        QVERIFY2(detail2.contains(QStringLiteral("Model file not found")), qPrintable(detail2));
     }
 
     void binaryInpRejected_data()
@@ -197,12 +205,14 @@ private slots:
         QTest::addColumn<QString>("byteDescription");
         QTest::newRow("utf16") << QByteArray("\xff\xfe[\0", 4) << 1 << QStringLiteral("NUL byte");
         QTest::newRow("timeseries-name")
-            << QByteArray("[TIMESERIES]\r\nStorm") + QByteArray(1, '\0') + " 0:00 1\r\n" << 2 << QStringLiteral("NUL byte");
-        QTest::newRow("comment")
-            << QByteArray("[TITLE]\n; broken") + QByteArray(1, '\0') + "comment\n" << 2 << QStringLiteral("NUL byte");
+            << QByteArray("[TIMESERIES]\r\nStorm") + QByteArray(1, '\0') + " 0:00 1\r\n"
+            << 2 << QStringLiteral("NUL byte");
+        QTest::newRow("comment") << QByteArray("[TITLE]\n; broken") + QByteArray(1, '\0') +
+                                        "comment\n"
+                                 << 2 << QStringLiteral("NUL byte");
         QTest::newRow("after-read-chunk")
-            << QByteArray("; ") + QByteArray(1024 * 1024, 'x') + "\n"
-                + QByteArray(1, '\0') << 2 << QStringLiteral("NUL byte");
+            << QByteArray("; ") + QByteArray(1024 * 1024, 'x') + "\n" + QByteArray(1, '\0') << 2
+            << QStringLiteral("NUL byte");
         QTest::newRow("name-control-character")
             << QByteArray("[TIMESERIES]\nVS_y1") + QByteArray(1, char(0x1d)) + "41 0:00 1\n"
             << 2 << QStringLiteral("Control byte 0x1d");
@@ -225,7 +235,10 @@ private slots:
         QString detail;
         SWMM_Engine eng = SWMMModelLayer::openEngineForPath(path, &detail);
         const bool opened = eng != nullptr;
-        if (eng) { swmm_engine_close(eng); swmm_engine_destroy(eng); }
+        if (eng) {
+            swmm_engine_close(eng);
+            swmm_engine_destroy(eng);
+        }
         QVERIFY2(!opened, "binary corruption must fail even with lenient open");
         QVERIFY2(detail.contains(QStringLiteral("%1 at line %2").arg(byteDescription).arg(line)),
                  qPrintable(detail));
@@ -237,8 +250,8 @@ private slots:
         QFile fixture(fixturePath());
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         // Valid UTF-8 and older eight-bit comment text are not binary corruption.
-        const QByteArray contents = QByteArray("; Rivi\xc3\xa8re\n; legacy \xe9 comment\n")
-            + fixture.readAll();
+        const QByteArray contents =
+            QByteArray("; Rivi\xc3\xa8re\n; legacy \xe9 comment\n") + fixture.readAll();
         const QString path = QDir(dataDir()).filePath(QStringLiteral("text_comments.inp"));
         QFile file(path);
         QVERIFY(file.open(QIODevice::WriteOnly));
@@ -271,7 +284,8 @@ private slots:
         for (int i = 0; i < n; ++i) {
             const QString msg = QString::fromUtf8(swmm_get_error_at(eng, i));
             QVERIFY2(!msg.contains(QStringLiteral("Out of memory")), qPrintable(msg));
-            if (msg.contains(QStringLiteral("GHOST"))) namesGhost = true;
+            if (msg.contains(QStringLiteral("GHOST")))
+                namesGhost = true;
         }
         QVERIFY(namesGhost);
         swmm_engine_destroy(eng);
@@ -335,9 +349,8 @@ private slots:
         for (const QString &m : g_loadLog)
             if (m.contains(QStringLiteral("load timing (ms)")))
                 foundTiming = true;
-        QVERIFY2(foundTiming,
-                 "expected a '... load timing (ms): ...' line in the "
-                 "openswmm.load.model category");
+        QVERIFY2(foundTiming, "expected a '... load timing (ms): ...' line in the "
+                              "openswmm.load.model category");
     }
 
     // 5. Async completion: SWMMVisProjectWindow::loadModelAsync() must emit
@@ -404,8 +417,12 @@ private slots:
         }
         int successes = 0, failures = 0;
         for (const auto &args : spy) {
-            if (args.at(0).toBool()) ++successes;
-            else { ++failures; QVERIFY(!args.at(2).value<QList<QString>>().isEmpty()); }
+            if (args.at(0).toBool())
+                ++successes;
+            else {
+                ++failures;
+                QVERIFY(!args.at(2).value<QList<QString>>().isEmpty());
+            }
         }
         QCOMPARE(successes, 1);
         QCOMPARE(failures, 1);
@@ -492,11 +509,14 @@ private slots:
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
         auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
         QSignalSpy spy(window, &SWMMVisProjectWindow::modelLoadFinished);
-        window->mAsyncLoadWorkerTestHook = [] { throw std::runtime_error("injected open failure"); };
+        window->mAsyncLoadWorkerTestHook = [] {
+            throw std::runtime_error("injected open failure");
+        };
         window->loadModelAsync();
         QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
         QVERIFY(!spy.at(0).at(0).toBool());
-        QVERIFY(spy.at(0).at(2).value<QList<QString>>().join(' ').contains("injected open failure"));
+        QVERIFY(
+            spy.at(0).at(2).value<QList<QString>>().join(' ').contains("injected open failure"));
         QVERIFY(window->modelLayer()->engine() == nullptr);
         QCOMPARE(window->modelLayer()->cachedNodeCount(), 0);
         window->mAsyncLoadWorkerTestHook = {};
@@ -529,7 +549,10 @@ private slots:
                         {"asyncOwnerTeardown:" + owner, "-o", "-,txt"});
             QVERIFY(child.waitForStarted());
             const bool ended = child.waitForFinished(30000);
-            if (!ended) { child.kill(); child.waitForFinished(); }
+            if (!ended) {
+                child.kill();
+                child.waitForFinished();
+            }
             const QByteArray details = child.readAllStandardOutput() + child.readAllStandardError();
             QVERIFY2(ended, details.constData());
             QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
@@ -544,8 +567,9 @@ private slots:
         {
             QueuedOpenBarrier barrier;
             window->loadModelAsync();
-            if (owner == "window") { delete window; }
-            else if (owner == "layer") {
+            if (owner == "window") {
+                delete window;
+            } else if (owner == "layer") {
                 const int index = window->canvas()->layers().indexOf(layer);
                 QVERIFY(index >= 0);
                 window->canvas()->takeLayer(index, false);
@@ -612,10 +636,9 @@ private slots:
         char buf[32] = {};
         QVERIFY(window->modelLayer() != nullptr);
         QVERIFY(window->modelLayer()->engine() != nullptr);
-        QCOMPARE(swmm_options_get(window->modelLayer()->engine(),
-                                  "LINK_OFFSETS", buf, sizeof(buf)), 0);
-        QCOMPARE(QString::fromLatin1(buf).trimmed().toUpper(),
-                 QStringLiteral("ELEVATION"));
+        QCOMPARE(swmm_options_get(window->modelLayer()->engine(), "LINK_OFFSETS", buf, sizeof(buf)),
+                 0);
+        QCOMPARE(QString::fromLatin1(buf).trimmed().toUpper(), QStringLiteral("ELEVATION"));
 
         // ...and the project window's flag agrees, which is what the status
         // bar hydrates from.
@@ -635,13 +658,13 @@ private slots:
     void blankEngineDefaultsRoundTrip()
     {
         SWMMModelLayer::NewProjectSpec spec;
-        spec.name          = QStringLiteral("Untitled");
-        spec.forNewEngine  = true;
+        spec.name = QStringLiteral("Untitled");
+        spec.forNewEngine = true;
         spec.startDateTime = QDateTime(QDate(2026, 8, 6), QTime(0, 0));
-        spec.endDateTime   = spec.startDateTime.addSecs(24 * 3600);
-        spec.sim           = PreferencesManager::SimulationDefaults{};
-        spec.sim.threads   = 4;
-        spec.twoD          = PreferencesManager::TwoDDefaults{};
+        spec.endDateTime = spec.startDateTime.addSecs(24 * 3600);
+        spec.sim = PreferencesManager::SimulationDefaults{};
+        spec.sim.threads = 4;
+        spec.twoD = PreferencesManager::TwoDDefaults{};
 
         QString detail;
         SWMM_Engine eng = SWMMModelLayer::createBlankEngine(spec, &detail);
@@ -654,18 +677,18 @@ private slots:
         };
 
 #ifdef OPENSWMM_HAS_2D
-        char backend[32]={};
-        QCOMPARE(swmm_options_get_ext(eng,"BACKEND",backend,sizeof backend),0);
-        QCOMPARE(QByteArray(backend),QByteArray("CPU"));
+        char backend[32] = {};
+        QCOMPARE(swmm_options_get_ext(eng, "BACKEND", backend, sizeof backend), 0);
+        QCOMPARE(QByteArray(backend), QByteArray("CPU"));
 #endif
 
         const auto &d = spec.sim;
-        QCOMPARE(get("FLOW_UNITS"),   d.flowUnits);
+        QCOMPARE(get("FLOW_UNITS"), d.flowUnits);
         QCOMPARE(get("FLOW_ROUTING"), d.flowRouting);
         QCOMPARE(get("INFILTRATION").left(6), d.infiltrationModel.left(6));
         QCOMPARE(get("LINK_OFFSETS"), QStringLiteral("DEPTH"));
-        QCOMPARE(get("START_DATE"),   QStringLiteral("08/06/2026"));
-        QCOMPARE(get("END_DATE"),     QStringLiteral("08/07/2026"));
+        QCOMPARE(get("START_DATE"), QStringLiteral("08/06/2026"));
+        QCOMPARE(get("END_DATE"), QStringLiteral("08/07/2026"));
         QCOMPARE(get("MAX_TRIALS").toInt(), d.maxTrials);
         QCOMPARE(get("THREADS").toInt(), 4);
         QCOMPARE(get("REPORT_STEP").toDouble(), double(d.reportStepSec));
@@ -679,8 +702,8 @@ private slots:
         // BUILDING-state write: the first Save As path with zero objects.
         // Written into the working directory (build tree) — reviewable on
         // failure, never in the tracked data dir.
-        const QString outPath = QDir::current().filePath(
-            QStringLiteral("blank_new_engine_roundtrip.inp"));
+        const QString outPath =
+            QDir::current().filePath(QStringLiteral("blank_new_engine_roundtrip.inp"));
         QFile::remove(outPath);
         const QByteArray outUtf8 = outPath.toUtf8();
         QCOMPARE(swmm_model_write(eng, outUtf8.constData()), 0);
@@ -689,8 +712,7 @@ private slots:
 
         // The written .inp reopens with the same options.
         QString openDetail;
-        SWMM_Engine reopened =
-            SWMMModelLayer::openEngineForPath(outPath, &openDetail);
+        SWMM_Engine reopened = SWMMModelLayer::openEngineForPath(outPath, &openDetail);
         QVERIFY2(reopened != nullptr, qPrintable(openDetail));
         char buf[64] = {};
         QCOMPARE(swmm_options_get(reopened, "FLOW_ROUTING", buf, sizeof(buf)), 0);
@@ -705,15 +727,18 @@ private slots:
     void adoptNewEngineKeepsNameAndDerivesLocalCrs()
     {
         SWMMModelLayer::NewProjectSpec spec;
-        spec.name          = QStringLiteral("Untitled");
+        spec.name = QStringLiteral("Untitled");
         spec.startDateTime = QDateTime(QDate(2026, 8, 6), QTime(0, 0));
-        spec.endDateTime   = spec.startDateTime.addSecs(3600);
-        spec.sim           = PreferencesManager::SimulationDefaults{};
+        spec.endDateTime = spec.startDateTime.addSecs(3600);
+        spec.sim = PreferencesManager::SimulationDefaults{};
 
-        struct Case { QString flowUnits; QString wantCrs; };
+        struct Case {
+            QString flowUnits;
+            QString wantCrs;
+        };
         const Case cases[] = {
-            { QStringLiteral("CFS"), QStringLiteral("Local (ft)") },
-            { QStringLiteral("CMS"), QStringLiteral("Local (m)")  },
+            {QStringLiteral("CFS"), QStringLiteral("Local (ft)")},
+            {QStringLiteral("CMS"), QStringLiteral("Local (m)")},
         };
         for (const Case &c : cases) {
             spec.sim.flowUnits = c.flowUnits;
@@ -737,10 +762,10 @@ private slots:
         QVERIFY(workspace != nullptr);
 
         SWMMModelLayer::NewProjectSpec spec;
-        spec.name          = QStringLiteral("Untitled");
+        spec.name = QStringLiteral("Untitled");
         spec.startDateTime = QDateTime(QDate(2026, 8, 6), QTime(0, 0));
-        spec.endDateTime   = spec.startDateTime.addSecs(3600);
-        spec.sim           = PreferencesManager::SimulationDefaults{};
+        spec.endDateTime = spec.startDateTime.addSecs(3600);
+        spec.sim = PreferencesManager::SimulationDefaults{};
 
         auto *window = new SWMMVisProjectWindow(workspace, QString(), nullptr);
         window->markUntitled();
@@ -757,26 +782,30 @@ private slots:
 
         // Close prompt: Cancel keeps the window alive, Discard closes it —
         // drive the modal from a queued lambda since exec() blocks.
-        auto clickButton = [](QMessageBox::StandardButton std,
-                              const char *fallbackText) {
+        auto clickButton = [](QMessageBox::StandardButton std, const char *fallbackText) {
             QTimer::singleShot(0, [std, fallbackText]() {
-                auto *box = qobject_cast<QMessageBox *>(
-                    QApplication::activeModalWidget());
-                if (!box) return;
-                if (QAbstractButton *b = box->button(std)) { b->click(); return; }
+                auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                if (!box)
+                    return;
+                if (QAbstractButton *b = box->button(std)) {
+                    b->click();
+                    return;
+                }
                 const auto buttons = box->buttons();
                 for (QAbstractButton *b : buttons)
-                    if (b->text().contains(QLatin1String(fallbackText)))
-                        { b->click(); return; }
+                    if (b->text().contains(QLatin1String(fallbackText))) {
+                        b->click();
+                        return;
+                    }
             });
         };
 
         clickButton(QMessageBox::Cancel, "Cancel");
-        QVERIFY(!window->close());        // Cancel → close refused
+        QVERIFY(!window->close()); // Cancel → close refused
         QVERIFY(window->isUntitled());
 
         clickButton(QMessageBox::Discard, "Discard");
-        QVERIFY(window->close());         // Discard → closes
+        QVERIFY(window->close()); // Discard → closes
 
         delete window;
         delete workspace;
@@ -792,7 +821,7 @@ private slots:
     {
         QTest::addColumn<bool>("qsg");
         QTest::newRow("cpu-layeritem") << false;
-        QTest::newRow("qsg-overlay")   << true;
+        QTest::newRow("qsg-overlay") << true;
     }
     void blankProjectAddedObjectsRender()
     {
@@ -803,21 +832,23 @@ private slots:
         // 80% of a grab — decorations (scale bar, coordinates) live at the
         // edges, so this counts drawn network geometry only.
         auto nonBackground = [](const QImage &img) {
-            if (img.isNull()) return -1;
+            if (img.isNull())
+                return -1;
             const QRgb bg = img.pixel(5, 5);
-            const int x0 = img.width()  / 10, x1 = img.width()  - x0;
+            const int x0 = img.width() / 10, x1 = img.width() - x0;
             const int y0 = img.height() / 10, y1 = img.height() - y0;
             int n = 0;
             for (int y = y0; y < y1; ++y)
                 for (int x = x0; x < x1; ++x)
-                    if (img.pixel(x, y) != bg) ++n;
+                    if (img.pixel(x, y) != bg)
+                        ++n;
             return n;
         };
 
         // The GPU row needs two things this harness cannot take for granted.
         if (qsg) {
             auto *ws2 = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
-            auto *w2  = new SWMMVisProjectWindow(ws2, fixturePath(), nullptr);
+            auto *w2 = new SWMMVisProjectWindow(ws2, fixturePath(), nullptr);
             QList<QString> lw, le;
             QVERIFY2(w2->loadModel(lw, le), qPrintable(le.join(QStringLiteral("; "))));
             w2->resize(900, 700);
@@ -845,9 +876,9 @@ private slots:
                 probe.show();
                 QTest::qWait(100);
                 auto *r = probe.rootObject()
-                    ? probe.rootObject()->findChild<SWMMLayerQSGRenderer *>(
-                          QStringLiteral("swmmRenderer"))
-                    : nullptr;
+                              ? probe.rootObject()->findChild<SWMMLayerQSGRenderer *>(
+                                    QStringLiteral("swmmRenderer"))
+                              : nullptr;
                 QVERIFY2(r, "swmmlayer.qml did not yield a SWMMLayerQSGRenderer "
                             "(QML types registered in initTestCase, resource in the target)");
                 r->setLayer(w2->modelLayer());
@@ -855,8 +886,10 @@ private slots:
                 QTest::qWait(100);
                 const int px = nonBackground(probe.grabFramebuffer());
                 r->setLayer(nullptr);
-                qInfo().noquote() << QStringLiteral(
-                    "[control] fresh overlay widget drawing the loaded model: nonBg=%1").arg(px);
+                qInfo().noquote()
+                    << QStringLiteral(
+                           "[control] fresh overlay widget drawing the loaded model: nonBg=%1")
+                           .arg(px);
                 if (px <= 0) {
                     delete w2;
                     delete ws2;
@@ -876,24 +909,28 @@ private slots:
                 w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(K2::QsgNone));
                 QTest::qWait(150);
                 const int cpuPx = nonBackground(c2->grab().toImage());
-                w2->modelLayer()->setQsgRenderKinds(K2::QsgKinds(
-                    K2::QsgNodes | K2::QsgLinks | K2::QsgCatch | K2::QsgGages));
+                w2->modelLayer()->setQsgRenderKinds(
+                    K2::QsgKinds(K2::QsgNodes | K2::QsgLinks | K2::QsgCatch | K2::QsgGages));
                 QTest::qWait(150);
                 const QImage qsgImg = c2->grab().toImage();
                 qsgImg.save(QDir::current().filePath(
                     QStringLiteral("newproject_render_control_loaded_qsg.png")));
                 const int qsgPx = nonBackground(qsgImg);
-                qInfo().noquote() << QStringLiteral(
-                    "[control] loaded fixture non-background pixels: cpu=%1 qsg=%2")
-                    .arg(cpuPx).arg(qsgPx);
+                qInfo().noquote()
+                    << QStringLiteral(
+                           "[control] loaded fixture non-background pixels: cpu=%1 qsg=%2")
+                           .arg(cpuPx)
+                           .arg(qsgPx);
                 delete w2;
                 delete ws2;
                 QVERIFY2(cpuPx > 0, "control: CPU path drew nothing for a loaded model");
                 QVERIFY2(qsgPx * 10 >= cpuPx,
                          qPrintable(QStringLiteral(
-                             "loaded model: the QSG overlay drew (almost) nothing after "
-                             "the CPU→QSG hand-off (cpu=%1 qsg=%2) — buckets that were "
-                             "empty once never render again").arg(cpuPx).arg(qsgPx)));
+                                        "loaded model: the QSG overlay drew (almost) nothing after "
+                                        "the CPU→QSG hand-off (cpu=%1 qsg=%2) — buckets that were "
+                                        "empty once never render again")
+                                        .arg(cpuPx)
+                                        .arg(qsgPx)));
             }
         }
 
@@ -901,13 +938,13 @@ private slots:
         QVERIFY(workspace != nullptr);
 
         SWMMModelLayer::NewProjectSpec spec;
-        spec.name          = QStringLiteral("Untitled");
-        spec.forNewEngine  = true;
+        spec.name = QStringLiteral("Untitled");
+        spec.forNewEngine = true;
         spec.startDateTime = QDateTime(QDate(2026, 9, 5), QTime(0, 0));
-        spec.endDateTime   = spec.startDateTime.addSecs(3600);
-        spec.sim           = PreferencesManager::SimulationDefaults{};
-        spec.sim.flowUnits = QStringLiteral("CFS");     // → Local (ft)
-        spec.twoD          = PreferencesManager::TwoDDefaults{};
+        spec.endDateTime = spec.startDateTime.addSecs(3600);
+        spec.sim = PreferencesManager::SimulationDefaults{};
+        spec.sim.flowUnits = QStringLiteral("CFS"); // → Local (ft)
+        spec.twoD = PreferencesManager::TwoDDefaults{};
 
         auto *window = new SWMMVisProjectWindow(workspace, QString(), nullptr);
         window->markUntitled();
@@ -918,27 +955,27 @@ private slots:
         window->resize(900, 700);
         window->show();
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        QTest::qWait(150);   // finishModelLoad's canvas-sized retry + refresh timers
+        QTest::qWait(150); // finishModelLoad's canvas-sized retry + refresh timers
 
-        MapCanvas       *canvas = window->canvas();
-        SWMMModelLayer  *layer  = window->modelLayer();
+        MapCanvas *canvas = window->canvas();
+        SWMMModelLayer *layer = window->modelLayer();
         QVERIFY(canvas && layer);
-        QVERIFY2(canvas->width() > 200 && canvas->height() > 200,
-                 qPrintable(QStringLiteral("canvas %1x%2")
-                                .arg(canvas->width()).arg(canvas->height())));
+        QVERIFY2(
+            canvas->width() > 200 && canvas->height() > 200,
+            qPrintable(QStringLiteral("canvas %1x%2").arg(canvas->width()).arg(canvas->height())));
         QVERIFY(canvas->extent().isValid());
         QVERIFY(canvas->canvasSRS() != nullptr);
         QCOMPARE(canvas->canvasSRS()->description(), QStringLiteral("Local (ft)"));
         QVERIFY(layer->isVisible());
 
         using K = SWMMModelLayer;
-        layer->setQsgRenderKinds(qsg ? K::QsgKinds(K::QsgNodes | K::QsgLinks
-                                                   | K::QsgCatch | K::QsgGages)
-                                     : K::QsgKinds(K::QsgNone));
+        layer->setQsgRenderKinds(
+            qsg ? K::QsgKinds(K::QsgNodes | K::QsgLinks | K::QsgCatch | K::QsgGages)
+                : K::QsgKinds(K::QsgNone));
         QTest::qWait(100);
         const QImage before = canvas->grab().toImage();
-        before.save(QDir::current().filePath(
-            QStringLiteral("newproject_render_%1_before.png").arg(tag)));
+        before.save(
+            QDir::current().filePath(QStringLiteral("newproject_render_%1_before.png").arg(tag)));
 
         // Two junctions + one conduit, exactly as the toolbar does it.
         const QPoint pA(int(canvas->width() * 0.30), int(canvas->height() * 0.40));
@@ -956,10 +993,13 @@ private slots:
             double mx = 0, my = 0, nx = 0, ny = 0;
             canvas->toMapCoords(pA.x(), pA.y(), mx, my);
             QVERIFY(layer->cachedNodeCoord(0, &nx, &ny));
-            QVERIFY2(qAbs(nx - mx) < 1e-6 * qMax(1.0, qAbs(mx))
-                     && qAbs(ny - my) < 1e-6 * qMax(1.0, qAbs(my)),
+            QVERIFY2(qAbs(nx - mx) < 1e-6 * qMax(1.0, qAbs(mx)) &&
+                         qAbs(ny - my) < 1e-6 * qMax(1.0, qAbs(my)),
                      qPrintable(QStringLiteral("node (%1,%2) vs click (%3,%4)")
-                                    .arg(nx).arg(ny).arg(mx).arg(my)));
+                                    .arg(nx)
+                                    .arg(ny)
+                                    .arg(mx)
+                                    .arg(my)));
         }
         {
             OpenSWMMVisMapToolAddLink addC(canvas, 0, QStringLiteral("conduit"));
@@ -970,10 +1010,10 @@ private slots:
         }
         QCOMPARE(layer->cachedLinkCount(), 1);
 
-        QTest::qWait(250);   // Scene-channel debounce + refresh timer
+        QTest::qWait(250); // Scene-channel debounce + refresh timer
         const QImage after = canvas->grab().toImage();
-        after.save(QDir::current().filePath(
-            QStringLiteral("newproject_render_%1_after.png").arg(tag)));
+        after.save(
+            QDir::current().filePath(QStringLiteral("newproject_render_%1_after.png").arg(tag)));
         QCOMPARE(after.size(), before.size());
 
         // Count pixels that changed inside a box around each click and at the
@@ -985,7 +1025,8 @@ private slots:
                 for (int x = c.x() - half; x <= c.x() + half; ++x) {
                     if (x < 0 || y < 0 || x >= after.width() || y >= after.height())
                         continue;
-                    if (after.pixel(x, y) != before.pixel(x, y)) ++n;
+                    if (after.pixel(x, y) != before.pixel(x, y))
+                        ++n;
                 }
             return n;
         };
@@ -994,12 +1035,15 @@ private slots:
         const int nA = changedAround(dA, 12 * dpr);
         const int nB = changedAround(dB, 12 * dpr);
         const int nM = changedAround(dM, 6 * dpr);
-        const QString why = QStringLiteral(
-            "[%1] changed pixels: nodeA=%2 nodeB=%3 conduitMid=%4 "
-            "(canvas %5x%6, extent %7)")
-            .arg(tag).arg(nA).arg(nB).arg(nM)
-            .arg(canvas->width()).arg(canvas->height())
-            .arg(canvas->extent().toString());
+        const QString why = QStringLiteral("[%1] changed pixels: nodeA=%2 nodeB=%3 conduitMid=%4 "
+                                           "(canvas %5x%6, extent %7)")
+                                .arg(tag)
+                                .arg(nA)
+                                .arg(nB)
+                                .arg(nM)
+                                .arg(canvas->width())
+                                .arg(canvas->height())
+                                .arg(canvas->extent().toString());
         qInfo().noquote() << why;
         QVERIFY2(nA > 0, qPrintable("junction A never reached the canvas: " + why));
         QVERIFY2(nB > 0, qPrintable("junction B never reached the canvas: " + why));
@@ -1027,23 +1071,22 @@ private slots:
         panel.setProject(&layer, &selMgr, nullptr);
 
         // Seed a bus selection (first junction).
-        const QString firstJunction =
-            layer.objectNameAt(SWMMModelLayer::CatJunctions, 0);
+        const QString firstJunction = layer.objectNameAt(SWMMModelLayer::CatJunctions, 0);
         QVERIFY(!firstJunction.isEmpty());
-        selMgr.select(SWMMObjectRef{SWMMObjectRef::Node, firstJunction},
-                      SelectionManager::Replace);
+        selMgr.select(SWMMObjectRef{SWMMObjectRef::Node, firstJunction}, SelectionManager::Replace);
         QCOMPARE(selMgr.selection().size(), 1);
 
         // Focus the Junctions category — bus selection must survive.
         panel.selectCategory(SWMMModelLayer::CatJunctions);
         QCOMPARE(selMgr.selection().size(), 1);
-        QVERIFY(selMgr.contains(
-            SWMMObjectRef{SWMMObjectRef::Node, firstJunction}));
+        QVERIFY(selMgr.contains(SWMMObjectRef{SWMMObjectRef::Node, firstJunction}));
 
         auto *view = panel.findChild<QTreeView *>();
         QVERIFY(view);
         QVERIFY(view->currentIndex().isValid());
-        QVERIFY(view->currentIndex().data(Qt::DisplayRole).toString()
+        QVERIFY(view->currentIndex()
+                    .data(Qt::DisplayRole)
+                    .toString()
                     .contains(QStringLiteral("Junction")));
 
         // Empty/hidden category → graceful no-op (fixture has no LID rows).
@@ -1078,8 +1121,10 @@ private slots:
         QVERIFY2(ok, qPrintable(errors.join(QStringLiteral("; "))));
         qInfo().noquote() << "=== PROFILE" << inp
                           << QStringLiteral("(nodes=%1 links=%2 subcatch=%3 gages=%4) ===")
-                                 .arg(layer.cachedNodeCount()).arg(layer.cachedLinkCount())
-                                 .arg(layer.cachedSubcatchCount()).arg(layer.cachedGageCount());
+                                 .arg(layer.cachedNodeCount())
+                                 .arg(layer.cachedLinkCount())
+                                 .arg(layer.cachedSubcatchCount())
+                                 .arg(layer.cachedGageCount());
         for (const QString &m : g_loadLog)
             qInfo().noquote() << "  " << m;
     }

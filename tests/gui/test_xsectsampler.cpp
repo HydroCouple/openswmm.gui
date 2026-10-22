@@ -1,6 +1,6 @@
-/*!
- * \file   test_xsectsampler.cpp
- * \brief  Slice SP.1 — engine cross-section sampler contract.
+/**
+ * @file      test_xsectsampler.cpp
+ * @brief     Slice SP.1 — engine cross-section sampler contract.
  *
  * Pins the three things the section-preview panels depend on:
  *   1. Every shape the GUI's picker surfaces produces a valid engine handle
@@ -12,6 +12,10 @@
  *   3. Shape ids round-trip. openswmm_xsect.h takes SWMM_XSectShape codes from
  *      openswmm_links.h, the same numbering xsectshapegeom.h uses; this test
  *      is what fails loudly if a future engine renumbering breaks that.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest>
@@ -22,7 +26,7 @@
 
 #include <openswmm/engine/openswmm_links.h>
 
-#include <QtMath>   // guarantees M_PI on MSVC
+#include <QtMath> // guarantees M_PI on MSVC
 
 #include <cmath>
 
@@ -64,15 +68,14 @@ void TestXsectSampler::invalidSamplerIsInert()
     QVERIFY(!s.isValid());
     QCOMPARE(s.shape(), -1);
     QVERIFY(s.outline().isEmpty());
-    QVERIFY(s.widthsAtDepths({ 0.0, 1.0 }).isEmpty());
+    QVERIFY(s.widthsAtDepths({0.0, 1.0}).isEmpty());
 
     const XsectFullProps p = s.fullProps();
     QCOMPARE(p.yFull, 0.0);
     QCOMPARE(p.aFull, 0.0);
 
     // A degenerate request must fail rather than produce a zero-size section.
-    XsectSampler bad = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR,
-                                               0.0, 0, 0, 0, true);
+    XsectSampler bad = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR, 0.0, 0, 0, 0, true);
     QVERIFY(!bad.isValid());
 }
 
@@ -91,7 +94,7 @@ void TestXsectSampler::circularMatchesClosedForm()
 
     // Width at mid-depth is the diameter; at the springline of a circle the
     // chord is widest.
-    const QVector<double> w = s.widthsAtDepths({ D / 2.0 });
+    const QVector<double> w = s.widthsAtDepths({D / 2.0});
     QCOMPARE(w.size(), 1);
     QVERIFY(std::abs(w.at(0) - D) < 1.0e-3);
 }
@@ -112,20 +115,18 @@ void TestXsectSampler::everySurfacedShapeBuilds()
     // IRREGULAR / CUSTOM / STREET are tabulated — they have no standalone
     // geometry and are drawn from their tables, not from geom1..4. DUMMY has
     // no geometry by definition.
-    if (shape == SWMM_XSECT_IRREGULAR || shape == SWMM_XSECT_CUSTOM
-        || shape == SWMM_XSECT_STREET || shape == SWMM_XSECT_DUMMY)
+    if (shape == SWMM_XSECT_IRREGULAR || shape == SWMM_XSECT_CUSTOM || shape == SWMM_XSECT_STREET ||
+        shape == SWMM_XSECT_DUMMY)
         QSKIP("tabulated or geometry-less shape");
 
     double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
     openswmmvis::sectionview::nominalGeomsFor(shape, g1, g2, g3, g4);
 
     XsectSampler s = XsectSampler::fromShape(shape, g1, g2, g3, g4, true);
-    QVERIFY2(s.isValid(),
-             qPrintable(QStringLiteral("%1 rejected its nominal geoms").arg(name)));
+    QVERIFY2(s.isValid(), qPrintable(QStringLiteral("%1 rejected its nominal geoms").arg(name)));
 
     const QPolygonF outline = s.outline(64);
-    QVERIFY2(outline.size() >= 3,
-             qPrintable(QStringLiteral("%1 produced no outline").arg(name)));
+    QVERIFY2(outline.size() >= 3, qPrintable(QStringLiteral("%1 produced no outline").arg(name)));
 }
 
 void TestXsectSampler::outlineMatchesFullProperties_data()
@@ -134,12 +135,12 @@ void TestXsectSampler::outlineMatchesFullProperties_data()
     QTest::addColumn<double>("g1");
     QTest::addColumn<double>("g2");
 
-    QTest::newRow("circular")    << int(SWMM_XSECT_CIRCULAR)    << 1.5 << 0.0;
+    QTest::newRow("circular") << int(SWMM_XSECT_CIRCULAR) << 1.5 << 0.0;
     QTest::newRow("rect_closed") << int(SWMM_XSECT_RECT_CLOSED) << 2.0 << 1.2;
-    QTest::newRow("egg")         << int(SWMM_XSECT_EGGSHAPED)   << 1.8 << 0.0;
-    QTest::newRow("horseshoe")   << int(SWMM_XSECT_HORSESHOE)   << 1.4 << 0.0;
-    QTest::newRow("triangular")  << int(SWMM_XSECT_TRIANGULAR)  << 1.0 << 2.0;
-    QTest::newRow("horiz_ell")   << int(SWMM_XSECT_HORIZ_ELLIPSE) << 1.0 << 1.6;
+    QTest::newRow("egg") << int(SWMM_XSECT_EGGSHAPED) << 1.8 << 0.0;
+    QTest::newRow("horseshoe") << int(SWMM_XSECT_HORSESHOE) << 1.4 << 0.0;
+    QTest::newRow("triangular") << int(SWMM_XSECT_TRIANGULAR) << 1.0 << 2.0;
+    QTest::newRow("horiz_ell") << int(SWMM_XSECT_HORIZ_ELLIPSE) << 1.0 << 1.6;
 }
 
 void TestXsectSampler::outlineMatchesFullProperties()
@@ -160,8 +161,7 @@ void TestXsectSampler::outlineMatchesFullProperties()
     // The outline's own extents must reproduce what the engine reports, which
     // is the whole point of sampling rather than approximating.
     QVERIFY2(std::abs(b.height() - p.yFull) < 1.0e-6,
-             qPrintable(QStringLiteral("height %1 vs yFull %2")
-                            .arg(b.height()).arg(p.yFull)));
+             qPrintable(QStringLiteral("height %1 vs yFull %2").arg(b.height()).arg(p.yFull)));
     // Width gets a RELATIVE tolerance because the two numbers do not come from
     // the same place in the engine. wMax is reported from the shape parameter;
     // the widths come from swmm_xsect_width_of_depth, which for the shapes
@@ -172,7 +172,8 @@ void TestXsectSampler::outlineMatchesFullProperties()
     // Analytic shapes (CIRCULAR) hit wMax exactly.
     QVERIFY2(b.width() <= p.wMax + 1.0e-9 && b.width() >= 0.999 * p.wMax,
              qPrintable(QStringLiteral("width %1 vs wMax %2 (ratio %3)")
-                            .arg(b.width()).arg(p.wMax)
+                            .arg(b.width())
+                            .arg(p.wMax)
                             .arg(p.wMax > 0 ? b.width() / p.wMax : 0.0)));
 
     // y is measured up from the invert, so the ring starts on y = 0.
@@ -181,8 +182,7 @@ void TestXsectSampler::outlineMatchesFullProperties()
 
 void TestXsectSampler::outlineIsSymmetricAndClosed()
 {
-    XsectSampler s = XsectSampler::fromShape(SWMM_XSECT_EGGSHAPED,
-                                             1.5, 0, 0, 0, true);
+    XsectSampler s = XsectSampler::fromShape(SWMM_XSECT_EGGSHAPED, 1.5, 0, 0, 0, true);
     QVERIFY(s.isValid());
 
     constexpr int kSamples = 32;
@@ -193,8 +193,8 @@ void TestXsectSampler::outlineIsSymmetricAndClosed()
     for (int i = 0; i <= kSamples; ++i) {
         const QPointF r = outline.at(i);
         const QPointF l = outline.at(outline.size() - 1 - i);
-        QVERIFY(std::abs(r.x() + l.x()) < 1.0e-9);   // mirrored in x
-        QVERIFY(std::abs(r.y() - l.y()) < 1.0e-9);   // at the same depth
+        QVERIFY(std::abs(r.x() + l.x()) < 1.0e-9); // mirrored in x
+        QVERIFY(std::abs(r.y() - l.y()) < 1.0e-9); // at the same depth
     }
 }
 
@@ -205,8 +205,7 @@ void TestXsectSampler::outlineIsDenserWhereCurvatureIsHighest()
     // those visibly faceted. Assert the distribution rather than the look —
     // the outer tenth of the depth range must hold more points than the
     // middle tenth, which is exactly backwards for a uniform ladder.
-    XsectSampler s = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR,
-                                             1.0, 0, 0, 0, true);
+    XsectSampler s = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR, 1.0, 0, 0, 0, true);
     QVERIFY(s.isValid());
 
     const int kSamples = 64;
@@ -214,14 +213,17 @@ void TestXsectSampler::outlineIsDenserWhereCurvatureIsHighest()
     const double yFull = s.fullProps().yFull;
 
     int nearInvert = 0, nearMid = 0;
-    for (int i = 0; i <= kSamples; ++i) {          // right half only
+    for (int i = 0; i <= kSamples; ++i) { // right half only
         const double y = outline.at(i).y();
-        if (y < 0.10 * yFull)                                  ++nearInvert;
-        if (y > 0.45 * yFull && y < 0.55 * yFull)              ++nearMid;
+        if (y < 0.10 * yFull)
+            ++nearInvert;
+        if (y > 0.45 * yFull && y < 0.55 * yFull)
+            ++nearMid;
     }
     QVERIFY2(nearInvert > nearMid,
              qPrintable(QStringLiteral("invert %1 vs mid %2 — ladder looks uniform")
-                            .arg(nearInvert).arg(nearMid)));
+                            .arg(nearInvert)
+                            .arg(nearMid)));
 
     // Mid-depth must still be sampled EXACTLY for even sample counts: that is
     // where a circle's widest chord lies, and the outline's bounding box is
@@ -242,19 +244,21 @@ void TestXsectSampler::dummyHasNoGeometry()
 void TestXsectSampler::shapeIdRoundTrips()
 {
     for (const auto &row : openswmmvis::kXsectShapes) {
-        if (row.engineId == SWMM_XSECT_IRREGULAR
-            || row.engineId == SWMM_XSECT_CUSTOM
-            || row.engineId == SWMM_XSECT_STREET)
+        if (row.engineId == SWMM_XSECT_IRREGULAR || row.engineId == SWMM_XSECT_CUSTOM ||
+            row.engineId == SWMM_XSECT_STREET)
             continue;
 
         double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
         openswmmvis::sectionview::nominalGeomsFor(row.engineId, g1, g2, g3, g4);
         XsectSampler s = XsectSampler::fromShape(row.engineId, g1, g2, g3, g4, true);
-        if (!s.isValid()) continue;
+        if (!s.isValid())
+            continue;
 
         QVERIFY2(s.shape() == row.engineId,
                  qPrintable(QStringLiteral("%1: asked %2, engine reports %3")
-                                .arg(row.name).arg(row.engineId).arg(s.shape())));
+                                .arg(row.name)
+                                .arg(row.engineId)
+                                .arg(s.shape())));
     }
 }
 
@@ -265,25 +269,23 @@ void TestXsectSampler::moveTransfersOwnership()
 
     XsectSampler b = std::move(a);
     QVERIFY(b.isValid());
-    QVERIFY(!a.isValid());          // NOLINT(bugprone-use-after-move) — checked
+    QVERIFY(!a.isValid()); // NOLINT(bugprone-use-after-move) — checked
 
     XsectSampler c;
     c = std::move(b);
     QVERIFY(c.isValid());
-    QVERIFY(!b.isValid());          // NOLINT(bugprone-use-after-move) — checked
+    QVERIFY(!b.isValid()); // NOLINT(bugprone-use-after-move) — checked
     // Destruction of all three must not double-free the handle; the test
     // passing under ASan is the assertion.
 }
 
 void TestXsectSampler::openChannelsReportOpen()
 {
-    XsectSampler open = XsectSampler::fromShape(SWMM_XSECT_RECT_OPEN,
-                                                1.0, 1.0, 0, 0, true);
+    XsectSampler open = XsectSampler::fromShape(SWMM_XSECT_RECT_OPEN, 1.0, 1.0, 0, 0, true);
     QVERIFY(open.isValid());
     QVERIFY(open.fullProps().open);
 
-    XsectSampler closed = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR,
-                                                  1.0, 0, 0, 0, true);
+    XsectSampler closed = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR, 1.0, 0, 0, 0, true);
     QVERIFY(closed.isValid());
     QVERIFY(!closed.fullProps().open);
 }
@@ -296,17 +298,17 @@ void TestXsectSampler::irregularFromTransectData()
 {
     // Symmetric compound channel: overbanks at elevation 1.0, main channel
     // invert at 0.0 → 1.0 deep, 12.0 wide at the top of bank.
-    const QVector<double> stations   { 0.0, 2.0, 4.0, 5.0,  7.0,  8.0, 10.0, 12.0 };
-    const QVector<double> elevations { 1.0, 0.7, 0.55, 0.0, 0.0, 0.55, 0.7,  1.0 };
+    const QVector<double> stations{0.0, 2.0, 4.0, 5.0, 7.0, 8.0, 10.0, 12.0};
+    const QVector<double> elevations{1.0, 0.7, 0.55, 0.0, 0.0, 0.55, 0.7, 1.0};
 
-    XsectSampler s = XsectSampler::fromTransect(
-        stations, elevations, 4.0, 8.0, 0.05, 0.03, 0.05, 1.0, true);
+    XsectSampler s =
+        XsectSampler::fromTransect(stations, elevations, 4.0, 8.0, 0.05, 0.03, 0.05, 1.0, true);
     QVERIFY2(s.isValid(), "engine rejected a well-formed transect");
 
     const XsectFullProps p = s.fullProps();
     QVERIFY(p.yFull > 0.0);
-    QVERIFY(p.wMax  > 0.0);
-    QVERIFY(p.open);                       // a natural channel is open at the top
+    QVERIFY(p.wMax > 0.0);
+    QVERIFY(p.open); // a natural channel is open at the top
 
     const QPolygonF outline = s.outline(128);
     QVERIFY(outline.size() >= 3);
@@ -314,7 +316,7 @@ void TestXsectSampler::irregularFromTransectData()
     // as for the parametric shapes — that equivalence is the whole reason the
     // panels can treat tabulated and parametric sections identically.
     QVERIFY(std::abs(outline.boundingRect().height() - p.yFull) < 1.0e-6);
-    QVERIFY(std::abs(outline.boundingRect().width()  - p.wMax)  < 1.0e-3);
+    QVERIFY(std::abs(outline.boundingRect().width() - p.wMax) < 1.0e-3);
 }
 
 void TestXsectSampler::irregularRejectsBadInput()
@@ -322,12 +324,10 @@ void TestXsectSampler::irregularRejectsBadInput()
     // Fewer than two stations, and a zero channel roughness (which would make
     // the conveyance-weighted hydraulic-radius table meaningless), must both
     // fail rather than produce a bogus section.
-    QVERIFY(!XsectSampler::fromTransect({ 0.0 }, { 1.0 },
-                                        0.0, 0.0, 0.03, 0.03, 0.03, 1.0, true)
-                 .isValid());
-    QVERIFY(!XsectSampler::fromTransect({ 0.0, 1.0 }, { 1.0, 0.0 },
-                                        0.0, 1.0, 0.03, /*nChannel=*/0.0, 0.03,
-                                        1.0, true)
+    QVERIFY(
+        !XsectSampler::fromTransect({0.0}, {1.0}, 0.0, 0.0, 0.03, 0.03, 0.03, 1.0, true).isValid());
+    QVERIFY(!XsectSampler::fromTransect({0.0, 1.0}, {1.0, 0.0}, 0.0, 1.0, 0.03, /*nChannel=*/0.0,
+                                        0.03, 1.0, true)
                  .isValid());
 }
 
@@ -351,18 +351,18 @@ void TestXsectSampler::streetFromParameters()
     QVERIFY(s.outline(128).size() >= 3);
 
     // A street with no width is not a street.
-    QVERIFY(!XsectSampler::fromStreet(0.0, 0.15, 2.0, 0.016, 0.0, 0.0, 2,
-                                      0.0, 0.0, 0.016, true).isValid());
+    QVERIFY(!XsectSampler::fromStreet(0.0, 0.15, 2.0, 0.016, 0.0, 0.0, 2, 0.0, 0.0, 0.016, true)
+                 .isValid());
     // sides must be 1 or 2.
-    QVERIFY(!XsectSampler::fromStreet(6.0, 0.15, 2.0, 0.016, 0.0, 0.0, 3,
-                                      0.0, 0.0, 0.016, true).isValid());
+    QVERIFY(!XsectSampler::fromStreet(6.0, 0.15, 2.0, 0.016, 0.0, 0.0, 3, 0.0, 0.0, 0.016, true)
+                 .isValid());
 }
 
 void TestXsectSampler::customFromShapeCurve()
 {
     // Normalized SHAPE curve: y/yFull against w/wMax.
-    const QVector<double> depths { 0.0, 0.25, 0.50, 0.75, 1.0 };
-    const QVector<double> widths { 0.35, 0.85, 1.0, 0.85, 0.30 };
+    const QVector<double> depths{0.0, 0.25, 0.50, 0.75, 1.0};
+    const QVector<double> widths{0.35, 0.85, 1.0, 0.85, 0.30};
 
     XsectSampler s = XsectSampler::fromCurve(2.0, depths, widths, true);
     QVERIFY2(s.isValid(), "engine rejected a well-formed shape curve");
@@ -370,7 +370,7 @@ void TestXsectSampler::customFromShapeCurve()
     QVERIFY(s.outline(128).size() >= 3);
 
     QVERIFY(!XsectSampler::fromCurve(0.0, depths, widths, true).isValid());
-    QVERIFY(!XsectSampler::fromCurve(2.0, { 0.0 }, { 1.0 }, true).isValid());
+    QVERIFY(!XsectSampler::fromCurve(2.0, {0.0}, {1.0}, true).isValid());
 }
 
 void TestXsectSampler::everyShapeGetsANonPlaceholderIcon_data()
@@ -403,8 +403,7 @@ void TestXsectSampler::everyShapeGetsANonPlaceholderIcon()
     // regression this test exists to catch (a bare !isNull() cannot see it —
     // the placeholder isn't null either).
     const QImage placeholder =
-        openswmmvis::sectionview::xsectShapeIcon(SWMM_XSECT_DUMMY, sz, pal)
-            .pixmap(sz).toImage();
+        openswmmvis::sectionview::xsectShapeIcon(SWMM_XSECT_DUMMY, sz, pal).pixmap(sz).toImage();
     QVERIFY2(rendered != placeholder,
              "shape fell back to the placeholder tile instead of drawing its section");
 }

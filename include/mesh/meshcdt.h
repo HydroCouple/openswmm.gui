@@ -1,8 +1,10 @@
-/*!
- * \file   meshcdt.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshcdt.h
+ * @brief     Constrained Delaunay triangulation kernel (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md
+ *            Stage 4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Constrained Delaunay triangulation kernel
  * (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md Stage 4). Replaces Triangle
@@ -29,7 +31,9 @@
  *
  * Duplicate input points (bit-identical coordinates) map to one vertex.
  * Vertex ids are stable: input point i is vertex i (after dedup mapping).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_MESHCDT_H
 #define OPENSWMMVIS_MESH_MESHCDT_H
 
@@ -43,16 +47,16 @@
 #include <functional>
 #include <limits>
 
-namespace mesh {
+namespace mesh
+{
 
 class ConstrainedDelaunay
 {
 public:
-    struct Triangle
-    {
-        int  v[3];            ///< Counter-clockwise.
-        int  adj[3];          ///< Neighbour across the edge opposite v[i] (v[i+1], v[i+2]); -1 = none.
-        bool constrained[3];  ///< Edge opposite v[i] is a constraint.
+    struct Triangle {
+        int v[3];   ///< Counter-clockwise.
+        int adj[3]; ///< Neighbour across the edge opposite v[i] (v[i+1], v[i+2]); -1 = none.
+        bool constrained[3]; ///< Edge opposite v[i] is a constraint.
         bool alive;
     };
 
@@ -78,7 +82,10 @@ public:
      * failure leaves the mesh untouched. Input and constraint vertices are
      * protected. Vertex ids stay stable; removed vertices become unreferenced. */
     bool removeVertex(int v);
-    [[nodiscard]] bool isVertexActive(int v) const { return v >= 0 && v < m_vertexTri.size() && m_vertexTri[v] >= 0; }
+    [[nodiscard]] bool isVertexActive(int v) const
+    {
+        return v >= 0 && v < m_vertexTri.size() && m_vertexTri[v] >= 0;
+    }
 
     /*! \brief Drop every triangle reachable from the super-triangle without
      *  crossing a constrained edge (the exterior of a constrained boundary). */
@@ -90,11 +97,10 @@ public:
     int removeRegionLeftOf(int a, int b);
     [[nodiscard]] int inputVertexCount() const { return m_superBase; }
 
-    int removeRegionAt(const QPointF &p);   ///< Returns how many triangles it removed.
+    int removeRegionAt(const QPointF &p); ///< Returns how many triangles it removed.
 
     /*! \brief Options for refineQuality(). */
-    struct QualityOptions
-    {
+    struct QualityOptions {
         /*! Target edge length h at (x, y): a triangle is split when its area
          *  exceeds the equilateral triangle of side h(centroid). Null, or
          *  <= 0 at a point, = no size bound there. */
@@ -137,7 +143,7 @@ public:
          *  guarantee is implied by the practical 33-degree UI limit. */
         double minAngleDeg = 30.0;
         /*! Safety cap on inserted vertices (segment splits included). */
-        int    maxInsertions = std::numeric_limits<int>::max();
+        int maxInsertions = std::numeric_limits<int>::max();
         /*! Floor against refinement cascades (an angle bound near the limit
          *  on an awkward input can otherwise shrink edges towards rounding
          *  error): a triangle whose shortest edge is below this is not split
@@ -147,15 +153,15 @@ public:
         /*! Polled every 4096 insertions; returning true stops refinement. */
         std::function<bool()> cancelled;
     };
-    struct QualityReport
-    {
-        int  inserted = 0;        ///< Vertices added, segment splits included.
-        int  segmentSplits = 0;
-        int  blockedByFixed = 0;  ///< Bad triangles left because their point would encroach a fixed edge.
-        int  sizeInsertions = 0, qualityInsertions = 0, terrainInsertions = 0;
-        int  terrainUnresolved = 0, terrainUnknown = 0;
+    struct QualityReport {
+        int inserted = 0; ///< Vertices added, segment splits included.
+        int segmentSplits = 0;
+        int blockedByFixed =
+            0; ///< Bad triangles left because their point would encroach a fixed edge.
+        int sizeInsertions = 0, qualityInsertions = 0, terrainInsertions = 0;
+        int terrainUnresolved = 0, terrainUnknown = 0;
         double maxTerrainError = 0.0;
-        bool capped = false;      ///< Stopped at maxInsertions.
+        bool capped = false; ///< Stopped at maxInsertions.
         bool cancelled = false;
         int coarsenRemoved = 0, coarsenRejectedAngle = 0, coarsenRejectedSize = 0;
         int coarsenRejectedTerrain = 0, coarsenRejectedEdge = 0, coarsenAttempts = 0;
@@ -183,11 +189,26 @@ public:
 
     // Optional diagnostic provenance. Bits may overlap at coincident inputs;
     // endpoint associations are not a causal explanation of final cell counts.
-    enum Origin : quint32 { Domain=1, Hole=2, Line=4, Patch=8, Node=16,
-        Breakline=32, Region=64, Lattice=128, Size=256, Angle=512,
-        Terrain=1024, SegmentSplit=2048 };
-    void enableProvenance() { m_origins.fill(0,m_pts.size()); }
-    void addVertexOrigin(int v, quint32 origin) { if (!m_origins.isEmpty() && v>=0 && v<m_origins.size()) m_origins[v]|=origin; }
+    enum Origin : quint32 {
+        Domain = 1,
+        Hole = 2,
+        Line = 4,
+        Patch = 8,
+        Node = 16,
+        Breakline = 32,
+        Region = 64,
+        Lattice = 128,
+        Size = 256,
+        Angle = 512,
+        Terrain = 1024,
+        SegmentSplit = 2048
+    };
+    void enableProvenance() { m_origins.fill(0, m_pts.size()); }
+    void addVertexOrigin(int v, quint32 origin)
+    {
+        if (!m_origins.isEmpty() && v >= 0 && v < m_origins.size())
+            m_origins[v] |= origin;
+    }
     [[nodiscard]] const QVector<quint32> &vertexOrigins() const { return m_origins; }
 
     // ── Read-out ───────────────────────────────────────────────────────
@@ -204,7 +225,10 @@ public:
      *  when vertices lying on the segment or refinement split it. Empty when
      *  no such chain. */
     [[nodiscard]] QVector<int> constrainedChain(int a, int b) const;
-    [[nodiscard]] bool isSuperVertex(int v) const { return v >= m_superBase && v < m_superBase + 3; }
+    [[nodiscard]] bool isSuperVertex(int v) const
+    {
+        return v >= m_superBase && v < m_superBase + 3;
+    }
     [[nodiscard]] QString errorMsg() const { return m_errorMsg; }
 
 private:
@@ -216,36 +240,39 @@ private:
     void commitRemoval(int v, const Removal &removal);
     double orient(int a, int b, int c) const;
     double orient(int a, int b, const QPointF &p) const;
-    bool   inCircle(int a, int b, int c, int d) const;
-    int    findTriangle(const QPointF &p, int start) const;
-    int    triangleWithEdge(int a, int b, int *edgeIndex) const;
-    void   legalize(int t, int e);
-    void   flip(int t, int e);
-    void   setAdj(int t, int e, int n);
-    void   splitTriangle(int t, int v);
-    void   splitEdge(int t, int e, int v);
-    int    edgeIndex(int t, int v) const;
-    void   trianglesAround(int v, QVector<int> *out) const;
-    void   markConstrained(int a, int b);
-    bool   insertConstraintImpl(int a, int b, quint64 origin);
-    int    splitSubsegment(int a, int b);
-    bool   subsegmentEncroached(int a, int b) const;
-    bool   isFixedSub(int a, int b) const;
-    bool   exemptShortestEdge(int u, int v) const;
+    bool inCircle(int a, int b, int c, int d) const;
+    int findTriangle(const QPointF &p, int start) const;
+    int triangleWithEdge(int a, int b, int *edgeIndex) const;
+    void legalize(int t, int e);
+    void flip(int t, int e);
+    void setAdj(int t, int e, int n);
+    void splitTriangle(int t, int v);
+    void splitEdge(int t, int e, int v);
+    int edgeIndex(int t, int v) const;
+    void trianglesAround(int v, QVector<int> *out) const;
+    void markConstrained(int a, int b);
+    bool insertConstraintImpl(int a, int b, quint64 origin);
+    int splitSubsegment(int a, int b);
+    bool subsegmentEncroached(int a, int b) const;
+    bool isFixedSub(int a, int b) const;
+    bool exemptShortestEdge(int u, int v) const;
 
-    QVector<QPointF>  m_pts;
+    QVector<QPointF> m_pts;
     QVector<quint32> m_origins;
-    QVector<double>   m_terrainElevations;
+    QVector<double> m_terrainElevations;
     QVector<Triangle> m_tris;
-    QVector<int>      m_vertexTri;   ///< Some live triangle incident to each vertex.
-    int               m_superBase = 0;
-    int               m_lastLocate = 0;
-    QString           m_errorMsg;
-    QHash<quint64, quint64> m_segOrigin;   ///< constrained subsegment → the input segment it came from (edge keys)
-    QMultiHash<quint64, quint64> m_segOriginExtra; ///< further input segments sharing that subsegment (overlaps)
-    QHash<quint64, quint64> m_segPiece;    ///< constrained subsegment → the edge it was inserted as (input piece)
-    QHash<int, quint64>     m_vertexSeg;   ///< vertex added on a segment by refinement → its input piece
-    QSet<quint64>           m_fixedSub;    ///< subsegments refinement may not split
+    QVector<int> m_vertexTri; ///< Some live triangle incident to each vertex.
+    int m_superBase = 0;
+    int m_lastLocate = 0;
+    QString m_errorMsg;
+    QHash<quint64, quint64>
+        m_segOrigin; ///< constrained subsegment → the input segment it came from (edge keys)
+    QMultiHash<quint64, quint64>
+        m_segOriginExtra; ///< further input segments sharing that subsegment (overlaps)
+    QHash<quint64, quint64>
+        m_segPiece; ///< constrained subsegment → the edge it was inserted as (input piece)
+    QHash<int, quint64> m_vertexSeg; ///< vertex added on a segment by refinement → its input piece
+    QSet<quint64> m_fixedSub;        ///< subsegments refinement may not split
     // Installed only during refinement. Every geometric edit invalidates the
     // affected work, including flips outside the inserted vertex's final star.
     std::function<void(int)> m_triangleChanged;

@@ -1,9 +1,9 @@
-/*!
- * \file   test_layertreecategories.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice LTR-2026-05-30 — verifies the layer-tree category bucketing
+/**
+ * @file      test_layertreecategories.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice LTR-2026-05-30 — verifies the layer-tree category bucketing
  *         (categoryForLayerType + categoryInfo) extracted from
  *         layertreepanel.cpp. Headless: no MapCanvas / no Qt widgets.
  *
@@ -18,6 +18,7 @@
  *              icon aliases.
  *           5. Unknown ordinals fall back to CatFeatureLayers without
  *              throwing.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QString>
@@ -40,9 +41,9 @@ private slots:
     void swmmModelGoesToSwmmGroup();
     void swmm1DResultsGoesTo1DOutputsGroup();
     void swmm2DResultsGoesTo2DOutputsGroup();
-    void swmm2DMeshGoesToMeshesGroup();      // regression: was Feature Layers
+    void swmm2DMeshGoesToMeshesGroup(); // regression: was Feature Layers
     void vectorGisSubprojectGoToFeatureLayers();
-    void annotationGoesToFeatureLayers();    // explicit, no warn
+    void annotationGoesToFeatureLayers(); // explicit, no warn
     void rasterGoesToRasterLayers();
     void imageryWmsWmtsGoToBasemaps();
     void tabularGoesToTables();
@@ -59,8 +60,7 @@ private slots:
 
 void TestLayerTreeCategories::swmmModelGoesToSwmmGroup()
 {
-    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMModelLayer),
-             openswmmvis::ui::CatSwmm);
+    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMModelLayer), openswmmvis::ui::CatSwmm);
 }
 
 void TestLayerTreeCategories::swmm1DResultsGoesTo1DOutputsGroup()
@@ -80,8 +80,7 @@ void TestLayerTreeCategories::swmm2DResultsGoesTo2DOutputsGroup()
 void TestLayerTreeCategories::swmm2DMeshGoesToMeshesGroup()
 {
     // Pre-LTR this hit the default-warn branch and went to CatFeatureLayers.
-    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMM2DMeshLayer),
-             openswmmvis::ui::CatMeshes);
+    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMM2DMeshLayer), openswmmvis::ui::CatMeshes);
 }
 
 void TestLayerTreeCategories::vectorGisSubprojectGoToFeatureLayers()
@@ -111,10 +110,8 @@ void TestLayerTreeCategories::imageryWmsWmtsGoToBasemaps()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMImageryLayer),
              openswmmvis::ui::CatBasemaps);
-    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMSLayer),
-             openswmmvis::ui::CatBasemaps);
-    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMTSLayer),
-             openswmmvis::ui::CatBasemaps);
+    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMSLayer), openswmmvis::ui::CatBasemaps);
+    QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMTSLayer), openswmmvis::ui::CatBasemaps);
 }
 
 void TestLayerTreeCategories::tabularGoesToTables()
@@ -140,10 +137,8 @@ void TestLayerTreeCategories::unknownOrdinalFallsBackToFeatureLayers()
 
 void TestLayerTreeCategories::categoryInfoLabelsMatchPlan()
 {
-    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatSwmm).name),
-             QStringLiteral("SWMM"));
-    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatMeshes).name),
-             QStringLiteral("Meshes"));
+    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatSwmm).name), QStringLiteral("SWMM"));
+    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatMeshes).name), QStringLiteral("Meshes"));
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatSwmm1DOutputs).name),
              QStringLiteral("SWMM 1D Outputs"));
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatSwmm2DOutputs).name),
@@ -152,10 +147,8 @@ void TestLayerTreeCategories::categoryInfoLabelsMatchPlan()
              QStringLiteral("Feature Layers"));
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatRasterLayers).name),
              QStringLiteral("Raster Layers"));
-    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatBasemaps).name),
-             QStringLiteral("Basemaps"));
-    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatTables).name),
-             QStringLiteral("Tables"));
+    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatBasemaps).name), QStringLiteral("Basemaps"));
+    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatTables).name), QStringLiteral("Tables"));
 }
 
 void TestLayerTreeCategories::categoryInfoMeshAnd2DReuseCreateMeshIcon()

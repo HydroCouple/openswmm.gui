@@ -1,8 +1,10 @@
-/*!
- * \file   mesh2dresultsexport.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      mesh2dresultsexport.h
+ * @brief     Export a 2D results run (an IMesh2DSource — the engine's CF/UGRID `.h5`, or any
+ *            in-memory source) to GIS.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Export a 2D results run (an IMesh2DSource — the engine's CF/UGRID `.h5`,
  * or any in-memory source) to GIS:
@@ -18,19 +20,21 @@
  *     a per-cell Green–Gauss gradient reconstruction.
  *
  * The `t0001`-style field names exist because a Shapefile's DBF caps field
- * names at 10 characters; \ref writeTimesCsv's sidecar
+ * names at 10 characters; `writeTimesCsv()`'s sidecar
  * (`<base>_times.csv`) maps each name back to its frame index and datetime.
  *
  * The module is deliberately widget-free (CLAUDE.md §5.1): the dialog
- * collects a \ref Mesh2DExportOptions and this code does the work, so the
+ * collects a \ref openswmmvis::io::Mesh2DExportOptions and this code does the work, so the
  * export is testable headless and could be driven from a script later.
  *
  * Units: every coordinate and value is written in the MODEL's display unit
  * system. The engine's 2D solver runs in SI, so the caller supplies
- * \ref Mesh2DExportInputs::unitFactor (the layer's `depthToMeshUnits()`) and
+ * @ref openswmmvis::io::Mesh2DExportInputs::unitFactor (the layer's `depthToMeshUnits()`) and
  * every x/y/z, depth, head and velocity is multiplied by it. The dry-depth
  * comparison happens in metres, before scaling.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_IO_MESH2DRESULTSEXPORT_H
 #define OPENSWMMVIS_IO_MESH2DRESULTSEXPORT_H
 
@@ -42,32 +46,30 @@
 
 class IMesh2DSource;
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
 /*! \brief Output container. Vector formats share one OGR code path. */
-enum class Mesh2DExportFormat
-{
-    Shapefile,    ///< one `.shp` set per variable ("ESRI Shapefile")
-    GeoPackage,   ///< one `.gpkg`, one layer per variable ("GPKG")
-    GeoTiff       ///< one `.tif` per variable, one band per step ("GTiff")
+enum class Mesh2DExportFormat {
+    Shapefile,  ///< one `.shp` set per variable ("ESRI Shapefile")
+    GeoPackage, ///< one `.gpkg`, one layer per variable ("GPKG")
+    GeoTiff     ///< one `.tif` per variable, one band per step ("GTiff")
 };
 
 /*! \brief How cell-centred values are carried to raster pixels. */
-enum class Mesh2DInterp
-{
-    NaturalNeighbour,  ///< Sibson weights over the cell-centroid Delaunay
-    Idw,               ///< Shepard over the k nearest centroids
-    GreenGauss         ///< containing cell + its Green–Gauss gradient (fastest)
+enum class Mesh2DInterp {
+    NaturalNeighbour, ///< Sibson weights over the cell-centroid Delaunay
+    Idw,              ///< Shepard over the k nearest centroids
+    GreenGauss        ///< containing cell + its Green–Gauss gradient (fastest)
 };
 
 /*! \brief Exportable fields, as a bitmask. */
-enum Mesh2DVariable : unsigned
-{
-    Mesh2DDepth = 1u << 0,   ///< overland flow depth
-    Mesh2DHead  = 1u << 1,   ///< water-surface elevation
-    Mesh2DVx    = 1u << 2,   ///< velocity, x component
-    Mesh2DVy    = 1u << 3,   ///< velocity, y component
-    Mesh2DVmag  = 1u << 4    ///< speed |v|
+enum Mesh2DVariable : unsigned {
+    Mesh2DDepth = 1u << 0, ///< overland flow depth
+    Mesh2DHead = 1u << 1,  ///< water-surface elevation
+    Mesh2DVx = 1u << 2,    ///< velocity, x component
+    Mesh2DVy = 1u << 3,    ///< velocity, y component
+    Mesh2DVmag = 1u << 4   ///< speed |v|
 };
 
 /*! \brief NoData written into every raster band (dry / outside the mesh). */
@@ -78,8 +80,7 @@ constexpr float kMesh2DNoData = -9999.0f;
 constexpr unsigned kMesh2DMaxVariables = Mesh2DDepth | Mesh2DHead | Mesh2DVmag;
 
 /*! \brief What to export. Collected by the dialog, consumed by \ref exportMesh2DResults. */
-struct Mesh2DExportOptions
-{
+struct Mesh2DExportOptions {
     /*! Output directory + base name, WITHOUT extension. Each variable appends
      *  its own suffix (`_depth.shp`, `_depth.tif`, …); GeoPackage appends only
      *  `.gpkg` and puts the variables in layers. */
@@ -99,7 +100,7 @@ struct Mesh2DExportOptions
     bool includeMax = true;
 
     // ── Raster only ────────────────────────────────────────────────────
-    /*! Square pixel size in MODEL units. <= 0 means \ref suggestedRasterCellSize. */
+    /*! Square pixel size in MODEL units. <= 0 means \ref Mesh2DGridHint::suggestedCellSize. */
     double cellSize = 0.0;
     Mesh2DInterp interp = Mesh2DInterp::NaturalNeighbour;
     /*! Neighbour count for \ref Mesh2DInterp::Idw. */
@@ -112,9 +113,8 @@ struct Mesh2DExportOptions
 };
 
 /*! \brief The run to export plus the unit / CRS context the source cannot state. */
-struct Mesh2DExportInputs
-{
-    IMesh2DSource *source = nullptr;   ///< not owned; must outlive the call
+struct Mesh2DExportInputs {
+    IMesh2DSource *source = nullptr; ///< not owned; must outlive the call
     /*! SI metres → model units, for coordinates AND values (the layer's
      *  `depthToMeshUnits()`; 1.0 for a metric model, 1/0.3048 for a US one). */
     double unitFactor = 1.0;
@@ -125,17 +125,15 @@ struct Mesh2DExportInputs
 };
 
 /*! \brief What was written, or why nothing was. */
-struct Mesh2DExportReport
-{
-    QStringList files;      ///< every path created (in creation order)
-    QString     error;      ///< empty on success; "Cancelled" when the caller stopped it
-    QStringList warnings;   ///< non-fatal, e.g. natural neighbour fell back to IDW
+struct Mesh2DExportReport {
+    QStringList files;    ///< every path created (in creation order)
+    QString error;        ///< empty on success; "Cancelled" when the caller stopped it
+    QStringList warnings; ///< non-fatal, e.g. natural neighbour fell back to IDW
 };
 
 /*! \brief Progress sink. Return false to cancel — every file written so far is
  *  then deleted, so a cancelled export leaves nothing half-written behind. */
-using Mesh2DExportProgress =
-    std::function<bool(int done, int total, const QString &what)>;
+using Mesh2DExportProgress = std::function<bool(int done, int total, const QString &what)>;
 
 /*!
  * \brief Run the export described by \p options against \p inputs.
@@ -143,22 +141,26 @@ using Mesh2DExportProgress =
  * \param report   Optional; receives the files written, warnings, and the
  *                 failure reason.
  * \returns true when every requested file was written.
+ * @param[in] inputs Borrowed source and SI-to-display scale/CRS context; source must outlive the synchronous call.
+ * @param[in] options Requested variables, report frame indices, whole-run maxima, and output/interpolation settings.
+ * @details Source reads and callbacks occur on the caller thread. A live caller must pin history for the duration; a changed history generation aborts export. Failure/cancellation removes tracked outputs but cannot restore replaced files.
  */
-bool exportMesh2DResults(const Mesh2DExportInputs &inputs,
-                         const Mesh2DExportOptions &options,
-                         const Mesh2DExportProgress &progress,
-                         Mesh2DExportReport *report);
+bool exportMesh2DResults(const Mesh2DExportInputs &inputs, const Mesh2DExportOptions &options,
+                         const Mesh2DExportProgress &progress, Mesh2DExportReport *report);
 
 /*! \brief What a caller needs to size a raster before running the export. */
-struct Mesh2DGridHint
-{
-    double extentWidth  = 0.0;   ///< mesh bounding box, model units
+struct Mesh2DGridHint {
+    double extentWidth = 0.0; ///< mesh bounding box, model units
     double extentHeight = 0.0;
     /*! Half the square root of the median cell area — about two pixels across
      *  a typical cell, so the mesh resolution survives the resampling without
      *  exploding the raster. */
     double suggestedCellSize = 0.0;
 
+    /**
+     * @brief Test whether extent dimensions and suggested pixel size are positive.
+     * @return True when all three quantities compare above zero; this does not independently validate a source or reject positive infinities.
+     */
     bool isValid() const
     {
         return extentWidth > 0.0 && extentHeight > 0.0 && suggestedCellSize > 0.0;
@@ -170,14 +172,23 @@ struct Mesh2DGridHint
  *        show the resulting raster's dimensions before anything is written.
  * \returns a default-constructed (invalid) hint when the source has no usable
  *          geometry.
+ * @param[in] source Borrowed synchronous geometry source, or null for an invalid hint.
+ * @param[in] unitFactor SI-to-model multiplier applied to coordinates before computing the extent and median area.
+ * @details Performs geometry reads but writes no files. The source must support access from the calling thread.
  */
 Mesh2DGridHint mesh2DGridHint(IMesh2DSource *source, double unitFactor);
 
 /*! \brief Lower-case single-word name of \p variable (`"depth"`, `"vmag"`, …),
- *  used for file suffixes, layer names and the sidecar's `field` column. */
+ *  used for file suffixes, layer names and the sidecar's `field` column.
+ * @param[in] variable One supported Mesh2DVariable value, rather than a combined mask.
+ * @return Stable suffix key, or an empty string for an unsupported value.
+ */
 QString mesh2DVariableKey(Mesh2DVariable variable);
 
-/*! \brief Human label for \p variable, e.g. "Water surface elevation". */
+/*! \brief Human label for \p variable, e.g. "Water surface elevation".
+ * @param[in] variable One supported Mesh2DVariable value.
+ * @return Readable variable label, or an empty string for an unsupported value.
+ */
 QString mesh2DVariableLabel(Mesh2DVariable variable);
 
 } // namespace openswmmvis::io

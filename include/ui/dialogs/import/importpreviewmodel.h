@@ -1,14 +1,18 @@
-/*!
- * \file   importpreviewmodel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importpreviewmodel.h
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — read-only table model over an ImportPlan: one row per
+ *            feature, columns Action | Name | Detail.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * FEATURE_LAYER_TO_SWMM_IMPORT — read-only table model over an
  * ImportPlan: one row per feature, columns Action | Name | Detail.
  * After execution the same model displays the result plan (actions in
  * past tense via setResultMode).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTPREVIEWMODEL_H
 #define OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTPREVIEWMODEL_H
 
@@ -16,7 +20,8 @@
 
 #include <QAbstractTableModel>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 class ImportPreviewModel : public QAbstractTableModel
 {
@@ -40,12 +45,11 @@ public:
     [[nodiscard]] int rowCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] int columnCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] QVariant data(const QModelIndex &idx, int role) const override;
-    [[nodiscard]] QVariant headerData(int section, Qt::Orientation o,
-                                      int role) const override;
+    [[nodiscard]] QVariant headerData(int section, Qt::Orientation o, int role) const override;
 
 private:
     ImportPlan m_plan;
-    bool       m_resultMode = false;
+    bool m_resultMode = false;
 };
 
 } // namespace openswmmvis::import

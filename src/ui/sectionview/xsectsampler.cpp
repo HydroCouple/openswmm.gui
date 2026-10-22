@@ -1,8 +1,10 @@
-/*!
- * \file   xsectsampler.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      xsectsampler.cpp
+ * @brief     Slice SP.1 (workplans/SECTION_PREVIEW_WORKPLAN.md).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/sectionview/xsectsampler.h"
@@ -12,19 +14,35 @@
 #include <openswmm/engine/openswmm_xsect.h>
 
 #include <algorithm>
-#include <QtMath>   // M_PI on MSVC
+#include <QtMath> // M_PI on MSVC
 
 #include <cmath>
 #include <utility>
 
-namespace openswmmvis::sectionview {
+namespace openswmmvis::sectionview
+{
 
-namespace {
+namespace
+{
 
 //! Engine handles are `void*`; keep the cast in one place.
-inline SWMM_XSect h(void *p) { return static_cast<SWMM_XSect>(p); }
+/**
+ * @param[in] p Borrowed opaque handle, null permitted as cast value; no ownership transfer.
+ * @return Same pointer cast to engine alias, no validation/dereference/free.
+ */
+inline SWMM_XSect h(void *p)
+{
+    return static_cast<SWMM_XSect>(p);
+}
 
-inline int unitCode(bool si) { return si ? SWMM_UNITS_SI : SWMM_UNITS_US; }
+/**
+ * @param[in] si True SI, false US.
+ * @return SWMM_UNITS_SI or SWMM_UNITS_US, pure mapping independent of global UnitSystem.
+ */
+inline int unitCode(bool si)
+{
+    return si ? SWMM_UNITS_SI : SWMM_UNITS_US;
+}
 
 } // namespace
 
@@ -59,19 +77,19 @@ void XsectSampler::reset() noexcept
 // Construction
 // ---------------------------------------------------------------------------
 
-XsectSampler XsectSampler::fromShape(int shape, double geom1, double geom2,
-                                     double geom3, double geom4, bool si)
+XsectSampler XsectSampler::fromShape(int shape, double geom1, double geom2, double geom3,
+                                     double geom4, bool si)
 {
     SWMM_XSect x = nullptr;
-    if (swmm_xsect_create(shape, geom1, geom2, geom3, geom4,
-                          unitCode(si), &x) != SWMM_OK)
+    if (swmm_xsect_create(shape, geom1, geom2, geom3, geom4, unitCode(si), &x) != SWMM_OK)
         return {};
     return XsectSampler(x);
 }
 
 XsectSampler XsectSampler::fromLink(SWMM_Engine engine, int linkIdx)
 {
-    if (!engine || linkIdx < 0) return {};
+    if (!engine || linkIdx < 0)
+        return {};
     SWMM_XSect x = nullptr;
     // Returns SWMM_ERR_LIFECYCLE while the model is still BUILDING, and
     // SWMM_ERR_BADPARAM for links with no cross-section (pumps). Both are
@@ -82,50 +100,44 @@ XsectSampler XsectSampler::fromLink(SWMM_Engine engine, int linkIdx)
 }
 
 XsectSampler XsectSampler::fromTransect(const QVector<double> &stations,
-                                        const QVector<double> &elevations,
-                                        double xLeftBank, double xRightBank,
-                                        double nLeft, double nChannel,
-                                        double nRight, double lengthFactor,
-                                        bool si)
+                                        const QVector<double> &elevations, double xLeftBank,
+                                        double xRightBank, double nLeft, double nChannel,
+                                        double nRight, double lengthFactor, bool si)
 {
     const int n = static_cast<int>(std::min(stations.size(), elevations.size()));
-    if (n < 2 || nChannel <= 0.0) return {};
+    if (n < 2 || nChannel <= 0.0)
+        return {};
 
     SWMM_XSect x = nullptr;
-    if (swmm_xsect_create_irregular(stations.constData(), elevations.constData(),
-                                    n, xLeftBank, xRightBank,
-                                    nLeft, nChannel, nRight, lengthFactor,
-                                    unitCode(si), &x) != SWMM_OK)
+    if (swmm_xsect_create_irregular(stations.constData(), elevations.constData(), n, xLeftBank,
+                                    xRightBank, nLeft, nChannel, nRight, lengthFactor, unitCode(si),
+                                    &x) != SWMM_OK)
         return {};
     return XsectSampler(x);
 }
 
-XsectSampler XsectSampler::fromStreet(double width, double curbHeight,
-                                      double slope, double roughness,
-                                      double gutterDepression,
-                                      double gutterWidth, int sides,
-                                      double backWidth, double backSlope,
+XsectSampler XsectSampler::fromStreet(double width, double curbHeight, double slope,
+                                      double roughness, double gutterDepression, double gutterWidth,
+                                      int sides, double backWidth, double backSlope,
                                       double backRoughness, bool si)
 {
     SWMM_XSect x = nullptr;
-    if (swmm_xsect_create_street(width, curbHeight, slope, roughness,
-                                 gutterDepression, gutterWidth, sides,
-                                 backWidth, backSlope, backRoughness,
-                                 unitCode(si), &x) != SWMM_OK)
+    if (swmm_xsect_create_street(width, curbHeight, slope, roughness, gutterDepression, gutterWidth,
+                                 sides, backWidth, backSlope, backRoughness, unitCode(si),
+                                 &x) != SWMM_OK)
         return {};
     return XsectSampler(x);
 }
 
-XsectSampler XsectSampler::fromCurve(double yFull,
-                                     const QVector<double> &normDepths,
+XsectSampler XsectSampler::fromCurve(double yFull, const QVector<double> &normDepths,
                                      const QVector<double> &normWidths, bool si)
 {
     const int n = static_cast<int>(std::min(normDepths.size(), normWidths.size()));
-    if (n < 2 || yFull <= 0.0) return {};
+    if (n < 2 || yFull <= 0.0)
+        return {};
 
     SWMM_XSect x = nullptr;
-    if (swmm_xsect_create_custom(yFull, normDepths.constData(),
-                                 normWidths.constData(), n,
+    if (swmm_xsect_create_custom(yFull, normDepths.constData(), normWidths.constData(), n,
                                  unitCode(si), &x) != SWMM_OK)
         return {};
     return XsectSampler(x);
@@ -137,19 +149,22 @@ XsectSampler XsectSampler::fromCurve(double yFull,
 
 int XsectSampler::shape() const
 {
-    if (!m_handle) return -1;
+    if (!m_handle)
+        return -1;
     int s = -1;
-    if (swmm_xsect_get_shape(h(m_handle), &s) != SWMM_OK) return -1;
+    if (swmm_xsect_get_shape(h(m_handle), &s) != SWMM_OK)
+        return -1;
     return s;
 }
 
 XsectFullProps XsectSampler::fullProps() const
 {
     XsectFullProps p;
-    if (!m_handle) return p;
+    if (!m_handle)
+        return p;
 
-    if (swmm_xsect_full_properties(h(m_handle), &p.yFull, &p.aFull, &p.rFull,
-                                   &p.wMax, &p.sFull, &p.aMax) != SWMM_OK)
+    if (swmm_xsect_full_properties(h(m_handle), &p.yFull, &p.aFull, &p.rFull, &p.wMax, &p.sFull,
+                                   &p.aMax) != SWMM_OK)
         return XsectFullProps{};
 
     int isOpen = 0;
@@ -160,26 +175,27 @@ XsectFullProps XsectSampler::fullProps() const
 
 QVector<double> XsectSampler::widthsAtDepths(const QVector<double> &depths) const
 {
-    if (!m_handle || depths.isEmpty()) return {};
+    if (!m_handle || depths.isEmpty())
+        return {};
 
     QVector<double> widths(depths.size(), 0.0);
     // A single out-of-domain input fails the whole call, so the caller's
     // depth ladder must already be finite and non-negative — outline() below
     // builds it from yFull, which fullProps() guarantees.
     if (swmm_xsect_width_of_depth_array(h(m_handle), depths.constData(),
-                                        static_cast<int>(depths.size()),
-                                        widths.data()) != SWMM_OK)
+                                        static_cast<int>(depths.size()), widths.data()) != SWMM_OK)
         return {};
     return widths;
 }
 
 QPolygonF XsectSampler::outline(int samples) const
 {
-    if (!m_handle) return {};
+    if (!m_handle)
+        return {};
 
     const XsectFullProps p = fullProps();
     if (!(p.yFull > 0.0) || !std::isfinite(p.yFull))
-        return {};   // DUMMY, or a degenerate section — nothing to draw.
+        return {}; // DUMMY, or a degenerate section — nothing to draw.
 
     const int n = std::clamp(samples, 8, 512);
 
@@ -205,10 +221,11 @@ QPolygonF XsectSampler::outline(int samples) const
     // Guard the ends against rounding drift so the polygon still closes exactly
     // on the invert and the crown.
     depths.front() = 0.0;
-    depths.back()  = p.yFull;
+    depths.back() = p.yFull;
 
     const QVector<double> widths = widthsAtDepths(depths);
-    if (widths.size() != depths.size()) return {};
+    if (widths.size() != depths.size())
+        return {};
 
     // Right half bottom→top, then the mirrored left half top→bottom, so the
     // result is a single closed ring in CCW order with y measured up from the
@@ -232,30 +249,27 @@ XsectSampler samplerFromStreetIndex(SWMM_Engine engine, int streetIdx, bool si)
 
     double tCrown = 0.0, hCurb = 0.0, sx = 0.0, nRoad = 0.0;
     double gutterDepress = 0.0, gutterWidth = 0.0;
-    int    sides = 1;
+    int sides = 1;
     double backWidth = 0.0, backSlope = 0.0, backN = 0.0;
 
-    if (swmm_street_get_params(engine, streetIdx, &tCrown, &hCurb, &sx, &nRoad,
-                               &gutterDepress, &gutterWidth, &sides,
-                               &backWidth, &backSlope, &backN) != SWMM_OK)
+    if (swmm_street_get_params(engine, streetIdx, &tCrown, &hCurb, &sx, &nRoad, &gutterDepress,
+                               &gutterWidth, &sides, &backWidth, &backSlope, &backN) != SWMM_OK)
         return {};
 
-    return XsectSampler::fromStreet(tCrown, hCurb, sx, nRoad,
-                                    gutterDepress, gutterWidth, sides,
+    return XsectSampler::fromStreet(tCrown, hCurb, sx, nRoad, gutterDepress, gutterWidth, sides,
                                     backWidth, backSlope, backN, si);
 }
 
-XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx, int shape,
-                            double g1, double g2, double g3, double g4,
-                            bool si)
+XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx, int shape, double g1, double g2,
+                            double g3, double g4, bool si)
 {
     if (shape == SWMM_XSECT_IRREGULAR)
         return XsectSampler::fromLink(engine, linkIdx);
 
     if (shape == SWMM_XSECT_STREET) {
-        XsectSampler s = samplerFromStreetIndex(
-            engine, static_cast<int>(std::lround(g1)), si);
-        if (s.isValid()) return s;
+        XsectSampler s = samplerFromStreetIndex(engine, static_cast<int>(std::lround(g1)), si);
+        if (s.isValid())
+            return s;
         return XsectSampler::fromLink(engine, linkIdx);
     }
     if (shape == SWMM_XSECT_CUSTOM)
@@ -264,16 +278,14 @@ XsectSampler samplerForLink(SWMM_Engine engine, int linkIdx, int shape,
     return XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
 }
 
-double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape,
-                     double g1, double g2, double g3, double g4,
-                     bool si, bool *outOpenTop)
+double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape, double g1, double g2, double g3,
+                     double g4, bool si, bool *outOpenTop)
 {
     // Shapes whose geom1 is a table index, not a dimension, plus CUSTOM whose
     // depth lives on the referenced SHAPE curve. Everything else already has
     // its full depth in g1, so skip building a sampler for the common case.
-    const bool needsSampler = (shape == SWMM_XSECT_STREET)
-                           || (shape == SWMM_XSECT_IRREGULAR)
-                           || (shape == SWMM_XSECT_CUSTOM);
+    const bool needsSampler = (shape == SWMM_XSECT_STREET) || (shape == SWMM_XSECT_IRREGULAR) ||
+                              (shape == SWMM_XSECT_CUSTOM);
 
     // A street is hydraulically closed to the solver but must be DRAWN open:
     // the engine's isOpen() whitelist omits STREET_XSECT by design, and
@@ -283,25 +295,25 @@ double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape,
 
     if (!needsSampler) {
         if (outOpenTop) {
-            const XsectSampler s =
-                XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
+            const XsectSampler s = XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
             *outOpenTop = s.isValid() ? s.fullProps().open : false;
         }
         return g1;
     }
 
-    const XsectSampler s =
-        samplerForLink(engine, linkIdx, shape, g1, g2, g3, g4, si);
+    const XsectSampler s = samplerForLink(engine, linkIdx, shape, g1, g2, g3, g4, si);
     if (!s.isValid()) {
         // Unresolvable geometry (BUILDING lifecycle, missing table). Report no
         // depth rather than the index that sits in g1 — a crown drawn at
         // invert + streetIndex is worse than no crown at all.
-        if (outOpenTop) *outOpenTop = streetOpen;
+        if (outOpenTop)
+            *outOpenTop = streetOpen;
         return 0.0;
     }
 
     const XsectFullProps p = s.fullProps();
-    if (outOpenTop) *outOpenTop = p.open || streetOpen;
+    if (outOpenTop)
+        *outOpenTop = p.open || streetOpen;
     return p.yFull;
 }
 

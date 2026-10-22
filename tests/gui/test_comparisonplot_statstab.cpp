@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_statstab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_statstab.cpp
+ * @brief     Tests for comparisonplot statstab.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.3 — pins `computeStatistics()`:
  *   - count, mean, median, stddev, min, max, percentiles, sum
@@ -11,7 +12,9 @@
  *   - percentile interpolation between order statistics
  *
  * Self-contained: links only `seriesstatistics.cpp`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/seriesstatistics.h"
 
 #include <QObject>
@@ -29,11 +32,43 @@ class TestComparisonPlotStatsTab : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require empty statistics count zero and NaN mean/median/stddev/sum; other fields are
+     * not asserted here.
+     *
+     */
     void emptyInputReturnsZeroCountAllNan();
+    /**
+     *
+     * @brief Pin count, mean, median, extrema and sum for the sequence one through five.
+     *
+     */
     void simpleRangeMeanMedianSum();
+    /**
+     *
+     * @brief Require NaN and both infinities to be excluded from count/mean/extrema.
+     *
+     */
     void nanInfSamplesAreSkipped();
+    /**
+     *
+     * @brief Require exact quartiles for zero through ten and p05/p95 strictly between the
+     * adjacent end samples.
+     *
+     */
     void percentilesAreLinearlyInterpolated();
+    /**
+     *
+     * @brief Require eight-sample mean five and sample deviation sqrt(32/7) within 1e-9.
+     *
+     */
     void stddevMatchesSampleFormula();
+    /**
+     *
+     * @brief Require decimal/significant/custom-unit formatting and an em dash for NaN.
+     *
+     */
     void statisticFormatterHonoursNumberFormat();
 };
 
@@ -81,8 +116,8 @@ void TestComparisonPlotStatsTab::percentilesAreLinearlyInterpolated()
     QCOMPARE(s.p25, 2.5);
     QCOMPARE(s.p75, 7.5);
     // p05 / p95 are interior values for 11 samples.
-    QVERIFY(s.p05 > 0.0 && s.p05 < 1.0);    // ≈ 0.5
-    QVERIFY(s.p95 > 9.0 && s.p95 < 10.0);   // ≈ 9.5
+    QVERIFY(s.p05 > 0.0 && s.p05 < 1.0);  // ≈ 0.5
+    QVERIFY(s.p95 > 9.0 && s.p95 < 10.0); // ≈ 9.5
 }
 
 void TestComparisonPlotStatsTab::stddevMatchesSampleFormula()
@@ -98,18 +133,16 @@ void TestComparisonPlotStatsTab::stddevMatchesSampleFormula()
 
 void TestComparisonPlotStatsTab::statisticFormatterHonoursNumberFormat()
 {
-    QCOMPARE(formatStatisticValue(
-                 1234.567, NumberFormat{NumberFormatMode::Decimals, 2, {}}),
+    QCOMPARE(formatStatisticValue(1234.567, NumberFormat{NumberFormatMode::Decimals, 2, {}}),
              QStringLiteral("1234.57"));
-    QCOMPARE(formatStatisticValue(
-                 1234.567, NumberFormat{NumberFormatMode::SignificantFigures, 4, {}}),
-             QStringLiteral("1235"));
+    QCOMPARE(
+        formatStatisticValue(1234.567, NumberFormat{NumberFormatMode::SignificantFigures, 4, {}}),
+        QStringLiteral("1235"));
     QCOMPARE(formatStatisticValue(
                  12.345, NumberFormat{NumberFormatMode::Decimals, 2, QStringLiteral("%.1f ft")}),
              QStringLiteral("12.3 ft"));
-    QCOMPARE(formatStatisticValue(
-                 std::numeric_limits<double>::quiet_NaN(),
-                 NumberFormat{NumberFormatMode::Decimals, 2, {}}),
+    QCOMPARE(formatStatisticValue(std::numeric_limits<double>::quiet_NaN(),
+                                  NumberFormat{NumberFormatMode::Decimals, 2, {}}),
              QStringLiteral("—"));
 }
 

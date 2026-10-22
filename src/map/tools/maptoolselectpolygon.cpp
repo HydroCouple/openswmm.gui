@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolselectpolygon.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolselectpolygon.cpp
+ * @brief     Selects SWMM model objects and vector features by a drawn polygon.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolselectpolygon.h"
@@ -17,8 +20,7 @@
 #include <QPolygonF>
 #include <QSet>
 
-OpenSWMMVisMapToolSelectPolygon::OpenSWMMVisMapToolSelectPolygon(MapCanvas *canvas,
-                                                                 QObject *parent)
+OpenSWMMVisMapToolSelectPolygon::OpenSWMMVisMapToolSelectPolygon(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("SelectByPolygon"), canvas, parent)
 {
 }
@@ -44,8 +46,7 @@ void OpenSWMMVisMapToolSelectPolygon::deactivate()
 void OpenSWMMVisMapToolSelectPolygon::requestRepaint()
 {
     if (m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
-                             QStringLiteral("select-polygon"));
+        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("select-polygon"));
 }
 
 void OpenSWMMVisMapToolSelectPolygon::cancel()
@@ -59,15 +60,12 @@ void OpenSWMMVisMapToolSelectPolygon::cancel()
 
 void OpenSWMMVisMapToolSelectPolygon::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton)
-    {
+    if (event->button() == Qt::LeftButton) {
         m_vertices.append(event->pos());
-        m_cursorPx   = event->pos();
+        m_cursorPx = event->pos();
         m_haveCursor = true;
         requestRepaint();
-    }
-    else if (event->button() == Qt::RightButton)
-    {
+    } else if (event->button() == Qt::RightButton) {
         // Right-click closes the polygon and performs the selection.
         finalizeSelection(event->modifiers());
     }
@@ -77,7 +75,7 @@ void OpenSWMMVisMapToolSelectPolygon::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_vertices.isEmpty())
         return;
-    m_cursorPx   = event->pos();
+    m_cursorPx = event->pos();
     m_haveCursor = true;
     requestRepaint();
 }
@@ -96,22 +94,19 @@ void OpenSWMMVisMapToolSelectPolygon::mouseDoubleClickEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolSelectPolygon::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape)
-    {
+    if (event->key() == Qt::Key_Escape) {
         cancel();
         event->accept();
         return;
     }
-    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
-    {
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
         finalizeSelection(event->modifiers());
         event->accept();
         return;
     }
 }
 
-void OpenSWMMVisMapToolSelectPolygon::paint(QPainter *painter,
-                                            const MapExtent & /*canvasExtent*/,
+void OpenSWMMVisMapToolSelectPolygon::paint(QPainter *painter, const MapExtent & /*canvasExtent*/,
                                             const SpatialReferenceSystem * /*canvasSRS*/)
 {
     if (m_vertices.isEmpty())
@@ -128,8 +123,7 @@ void OpenSWMMVisMapToolSelectPolygon::paint(QPainter *painter,
     painter->setRenderHint(QPainter::Antialiasing);
 
     // Translucent fill of the closed preview.
-    if (poly.size() >= 3)
-    {
+    if (poly.size() >= 3) {
         painter->setPen(Qt::NoPen);
         painter->setBrush(m_fillColor);
         painter->drawPolygon(poly);
@@ -144,8 +138,7 @@ void OpenSWMMVisMapToolSelectPolygon::paint(QPainter *painter,
         painter->drawLine(m_vertices[i - 1], m_vertices[i]);
 
     // Rubber-band edge to the cursor and the closing edge — dashed.
-    if (m_haveCursor)
-    {
+    if (m_haveCursor) {
         QPen dashed(m_lineColor, 1.5, Qt::DashLine);
         dashed.setCosmetic(true);
         painter->setPen(dashed);
@@ -166,8 +159,7 @@ void OpenSWMMVisMapToolSelectPolygon::paint(QPainter *painter,
 
 void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mods)
 {
-    if (!m_canvas || m_vertices.size() < 3)
-    {
+    if (!m_canvas || m_vertices.size() < 3) {
         cancel();
         return;
     }
@@ -175,19 +167,16 @@ void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mo
     // Build the polygon in canvas/map CRS from the pixel vertices.
     QPolygonF mapPoly;
     mapPoly.reserve(m_vertices.size());
-    for (const QPoint &p : m_vertices)
-    {
+    for (const QPoint &p : m_vertices) {
         double mx = 0.0, my = 0.0;
         toMapCoords(p.x(), p.y(), mx, my);
         mapPoly << QPointF(mx, my);
     }
 
-    for (OpenSWMMVisLayer *l : m_canvas->layers())
-    {
+    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         if (!l->isVisible())
             continue;
-        if (auto *vl = qobject_cast<GISVectorLayer *>(l))
-        {
+        if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
             const QSet<long long> hit = vl->featureIdsInPolygon(mapPoly, m_canvas->canvasSRS());
             QSet<long long> ids;
             if (mods & Qt::ControlModifier)
@@ -216,12 +205,12 @@ void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mo
         const QStringList sh = sl->subcatchmentsInPolygon(mapPoly);
 
         QVector<SWMMModelLayer::SelectedElement> sel;
-        if (mods & Qt::ControlModifier)
-        {
+        if (mods & Qt::ControlModifier) {
             // Subtract: strip enclosed kinds from the existing selection.
             QHash<QString, quint8> hitBits;
             const auto collect = [&hitBits](const QStringList &names, quint8 kind) {
-                for (const QString &n : names) hitBits[n] |= kind;
+                for (const QString &n : names)
+                    hitBits[n] |= kind;
             };
             collect(nh, SWMMModelLayer::kKindNode);
             collect(gh, SWMMModelLayer::kKindGage);
@@ -229,21 +218,24 @@ void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mo
             collect(sh, SWMMModelLayer::kKindCatch);
             for (const auto &e : sl->selectedElements()) {
                 const quint8 kinds = e.kinds & ~hitBits.value(e.name, 0);
-                if (kinds) sel.append({e.name, kinds});
+                if (kinds)
+                    sel.append({e.name, kinds});
             }
-        }
-        else
-        {
+        } else {
             // Replace, or Shift = union with the existing selection.
             if (mods & Qt::ShiftModifier)
                 sel = sl->selectedElements();
-            QHash<QString, int> at;   // name → index in sel
+            QHash<QString, int> at; // name → index in sel
             at.reserve(sel.size());
-            for (int i = 0; i < sel.size(); ++i) at.insert(sel[i].name, i);
+            for (int i = 0; i < sel.size(); ++i)
+                at.insert(sel[i].name, i);
             const auto merge = [&sel, &at](const QStringList &names, quint8 kind) {
                 for (const QString &n : names) {
                     const auto it = at.constFind(n);
-                    if (it != at.constEnd()) { sel[it.value()].kinds |= kind; continue; }
+                    if (it != at.constEnd()) {
+                        sel[it.value()].kinds |= kind;
+                        continue;
+                    }
                     at.insert(n, sel.size());
                     sel.append({n, kind});
                 }

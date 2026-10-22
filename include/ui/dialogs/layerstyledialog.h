@@ -1,9 +1,9 @@
-/*!
- * \file   layerstyledialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Unified, multitab styling dialog for every OpenSWMMVisLayer.
+/**
+ * @file      layerstyledialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Unified, multitab styling dialog for every OpenSWMMVisLayer.
  *
  *         Slice X.1 — refactored to a QGIS-aligned fixed tab set with a
  *         vertical sidebar (`tabPosition = West`).  The dialog hosts six
@@ -22,7 +22,9 @@
  *         The optional \p initialRoutingId focuses the Symbology tab on
  *         the matching kind / sublayer when launched from a sub-row
  *         context menu.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_LAYERSTYLEDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LAYERSTYLEDIALOG_H
 
@@ -48,9 +50,10 @@ class QTableWidget;
 class QTabWidget;
 
 class OpenSWMMVisLayer;
-class QUndoStack;   // #36 — optional app-level undo for symbology edits
+class QUndoStack; // #36 — optional app-level undo for symbology edits
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ILayerStyleSubject;
 
@@ -64,14 +67,13 @@ class ILayerStyleSubject;
  *        the §X.3.1 table.  The dialog skips any tab whose capability
  *        flag is false — no empty placeholders.
  */
-enum class LayerCapability : unsigned int
-{
+enum class LayerCapability : unsigned int {
     Information = 1u << 0,
-    Source      = 1u << 1,
-    Symbology   = 1u << 2,
-    Labels      = 1u << 3,
-    Rendering   = 1u << 4,
-    Metadata    = 1u << 5,
+    Source = 1u << 1,
+    Symbology = 1u << 2,
+    Labels = 1u << 3,
+    Rendering = 1u << 4,
+    Metadata = 1u << 5,
     // VS.5 — the deferred-feature tabs (Temporal / Mask / AuxStorage /
     // Joins / Diagrams) were removed from the dialog for simplicity. Their
     // capability bits are retired; the standalone tab widget classes are
@@ -88,10 +90,9 @@ class LayerStyleDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit LayerStyleDialog(OpenSWMMVisLayer *layer,
-                              QString initialRoutingId = {},
+    explicit LayerStyleDialog(OpenSWMMVisLayer *layer, QString initialRoutingId = {},
                               QWidget *parent = nullptr,
-                              QUndoStack *undoStack = nullptr);   // #36 — optional
+                              QUndoStack *undoStack = nullptr); // #36 — optional
     ~LayerStyleDialog() override;
 
 public slots:
@@ -138,7 +139,7 @@ private:
     void focusInitialSubject();
 
     QPointer<OpenSWMMVisLayer> m_layer;
-    LayerCapabilities          m_caps;
+    LayerCapabilities m_caps;
 
     // Subject wrappers are owned by the dialog; the property objects they
     // point at are the layer's PERSISTENT adapters (adapter-ownership
@@ -156,42 +157,42 @@ private:
     // EditLayerStyleCommand(before,after) onto m_undoStack so the symbology
     // edit is undoable after the dialog closes. Null stack → no command
     // (back-compat for callers without one).
-    QPointer<QUndoStack>     m_undoStack;
-    QJsonObject              m_undoBaseline;
-    QJsonObject               m_undoStyleBaseline;
+    QPointer<QUndoStack> m_undoStack;
+    QJsonObject m_undoBaseline;
+    QJsonObject m_undoStyleBaseline;
 
     QJsonObject m_undoGeneralBefore;
     QJsonObject m_undoGeneralAfter;
     bool m_sessionFinished = false;
 
-    QString  m_initialRoutingId;
+    QString m_initialRoutingId;
 
     // Vertical sidebar (tabPosition = West).
     QTabWidget *m_tabs = nullptr;
 
     // Information tab widgets.
-    QLineEdit *m_nameEdit  = nullptr;
-    QLabel    *m_typeLabel = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QLabel *m_typeLabel = nullptr;
     QPlainTextEdit *m_infoText = nullptr;
 
     // Source tab widgets.
-    QLabel      *m_sourceLabel = nullptr;   // populated in readFromLayer()
-    QLabel      *m_crsLabel  = nullptr;
+    QLabel *m_sourceLabel = nullptr; // populated in readFromLayer()
+    QLabel *m_crsLabel = nullptr;
     QToolButton *m_crsButton = nullptr;
-    QString      m_pendingCRSAuthority;
+    QString m_pendingCRSAuthority;
 
     // Rendering tab widgets.
-    QCheckBox *m_visibleBox    = nullptr;
-    QSlider   *m_opacitySlider = nullptr;
-    QSpinBox  *m_opacitySpin   = nullptr;
+    QCheckBox *m_visibleBox = nullptr;
+    QSlider *m_opacitySlider = nullptr;
+    QSpinBox *m_opacitySpin = nullptr;
 
     // Slice X.26 — basemap render adjustments (only created when the
     // active layer is a basemap kind: XYZ / WMTS / WMS / WCS).
-    QGroupBox      *m_basemapAdjustBox  = nullptr;
-    QSlider        *m_brightnessSlider  = nullptr;
-    QSlider        *m_contrastSlider    = nullptr;
-    QSlider        *m_saturationSlider  = nullptr;
-    QComboBox      *m_resamplingCombo   = nullptr;
+    QGroupBox *m_basemapAdjustBox = nullptr;
+    QSlider *m_brightnessSlider = nullptr;
+    QSlider *m_contrastSlider = nullptr;
+    QSlider *m_saturationSlider = nullptr;
+    QComboBox *m_resamplingCombo = nullptr;
 
     // Metadata tab — read-only Name/Value table (common block + the layer's
     // type-specific extendedMetadata()).
@@ -199,8 +200,8 @@ private:
 
     // General / Rendering snapshot for Cancel rollback.
     QString m_snapshotName;
-    bool    m_snapshotVisible = true;
-    double  m_snapshotOpacity = 1.0;
+    bool m_snapshotVisible = true;
+    double m_snapshotOpacity = 1.0;
 };
 
 } // namespace openswmmvis::ui

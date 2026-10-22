@@ -1,9 +1,12 @@
-/*!
- * \file   sizechanneleditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sizechanneleditor.cpp
+ * @brief     by result value), bound to the kind's sublayer style.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/sizechanneleditor.h"
 
 #include "render/sublayers/feature/featuresublayerstyle.h"
@@ -20,7 +23,8 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::LineFeatureSublayerStyle;
 using OpenSWMM::Render::PointFeatureSublayerStyle;
@@ -36,8 +40,8 @@ SizeChannelEditor::SizeChannelEditor(OpenSWMM::Render::FeatureSublayerStyle *sty
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    auto *box = new QGroupBox(m_point ? tr("Size scale — node area")
-                                      : tr("Size scale — line width"), this);
+    auto *box =
+        new QGroupBox(m_point ? tr("Size scale — node area") : tr("Size scale — line width"), this);
     outer->addWidget(box);
     outer->addStretch();
     auto *form = new QFormLayout(box);
@@ -122,10 +126,10 @@ SizeChannelEditor::SizeChannelEditor(OpenSWMM::Render::FeatureSublayerStyle *sty
     m_hint = new QLabel(box);
     m_hint->setWordWrap(true);
     m_hint->setText(m_point
-        ? tr("Marker area follows the selected value scale, independently of the "
-             "colour renderer.")
-        : tr("Line width follows the selected value scale, independently of the "
-             "colour renderer."));
+                        ? tr("Marker area follows the selected value scale, independently of the "
+                             "colour renderer.")
+                        : tr("Line width follows the selected value scale, independently of the "
+                             "colour renderer."));
     form->addRow(m_hint);
 
     auto pushLater = [this] { push(); };
@@ -137,8 +141,8 @@ SizeChannelEditor::SizeChannelEditor(OpenSWMM::Render::FeatureSublayerStyle *sty
         connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), this, pushLater);
 
     if (m_style)
-        connect(m_style, &OpenSWMM::Render::SublayerStyle::styleChanged,
-                this, &SizeChannelEditor::refreshFromModel);
+        connect(m_style, &OpenSWMM::Render::SublayerStyle::styleChanged, this,
+                &SizeChannelEditor::refreshFromModel);
     refreshFromModel();
 }
 
@@ -153,13 +157,14 @@ SizeChannel SizeChannelEditor::channel() const
 
 void SizeChannelEditor::refreshFromModel()
 {
-    if (!m_style || m_suppress) return;
+    if (!m_style || m_suppress)
+        return;
     SizeChannel ch = channel();
     // Q4 — a channel never switched on starts from the kind's colour
     // attribute and its static size → 3× that.
     if (!ch.enabled && ch.attribute.isEmpty()) {
-        const int colourRow = m_attribute->findData(m_style->attribute(), Qt::UserRole,
-                                                    Qt::MatchFixedString);
+        const int colourRow =
+            m_attribute->findData(m_style->attribute(), Qt::UserRole, Qt::MatchFixedString);
         if (colourRow >= 0)
             ch.attribute = m_attribute->itemData(colourRow).toString();
         else if (m_attribute->count() > 0)
@@ -209,19 +214,20 @@ void SizeChannelEditor::updateEnabled()
 
 void SizeChannelEditor::push()
 {
-    if (m_suppress || !m_style) return;
+    if (m_suppress || !m_style)
+        return;
     updateEnabled();
     SizeChannel ch = channel();
-    ch.enabled   = m_enabled->isChecked();
+    ch.enabled = m_enabled->isChecked();
     ch.attribute = m_attribute->currentData().toString();
     ch.transform = static_cast<SizeChannel::Transform>(m_transform->currentData().toInt());
     ch.rangeMode = static_cast<RangeMode>(m_range->currentData().toInt());
-    ch.userMin   = std::min(m_userMin->value(), m_userMax->value());
-    ch.userMax   = std::max(m_userMin->value(), m_userMax->value());
+    ch.userMin = std::min(m_userMin->value(), m_userMax->value());
+    ch.userMax = std::max(m_userMin->value(), m_userMax->value());
     ch.zeroBased = m_zeroBased->isChecked();
-    ch.minPx     = std::min(m_minPx->value(), m_maxPx->value());
-    ch.maxPx     = std::max(m_minPx->value(), m_maxPx->value());
-    m_suppress = true;   // the style's styleChanged would re-seed mid-edit
+    ch.minPx = std::min(m_minPx->value(), m_maxPx->value());
+    ch.maxPx = std::max(m_minPx->value(), m_maxPx->value());
+    m_suppress = true; // the style's styleChanged would re-seed mid-edit
     if (auto *ps = qobject_cast<PointFeatureSublayerStyle *>(m_style.data()))
         ps->setSizeChannel(ch);
     else if (auto *ls = qobject_cast<LineFeatureSublayerStyle *>(m_style.data()))

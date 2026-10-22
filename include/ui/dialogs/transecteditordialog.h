@@ -1,9 +1,9 @@
-/*!
- * \file   transecteditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.4 — three-pane non-modal editor for SWMM transects.
+/**
+ * @file      transecteditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.4 — three-pane non-modal editor for SWMM transects.
  *
  * Layout (left → right):
  *
@@ -33,7 +33,9 @@
  *
  * Per Slice BM.0-Add-New the dialog exposes a static `createNew(...)`
  * factory used by the Object Browser Add-New dispatch.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_TRANSECTEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_TRANSECTEDITORDIALOG_H
 
@@ -56,12 +58,14 @@ class QUndoStack;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::transect {
+namespace openswmmvis::transect
+{
 class TransectProvider;
 class TransectRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class TransectListModel;
 class TransectStationTableModel;
@@ -74,17 +78,13 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    TransectEditorDialog(openswmmvis::transect::TransectRegistry *registry,
-                          SWMMModelLayer *layer,
-                          QUndoStack *undoStack,
-                          QWidget *parent = nullptr);
+    TransectEditorDialog(openswmmvis::transect::TransectRegistry *registry, SWMMModelLayer *layer,
+                         QUndoStack *undoStack, QWidget *parent = nullptr);
     ~TransectEditorDialog() override;
 
-    static TransectEditorDialog *createNew(
-        openswmmvis::transect::TransectRegistry *registry,
-        SWMMModelLayer *layer,
-        QUndoStack *undoStack,
-        QWidget *parent = nullptr);
+    static TransectEditorDialog *createNew(openswmmvis::transect::TransectRegistry *registry,
+                                           SWMMModelLayer *layer, QUndoStack *undoStack,
+                                           QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point — mirrors
      *  `TimeseriesEditorDialog::pickTimeseries`. Empty \p initialName
@@ -93,12 +93,9 @@ public:
      *  the dialog on close, or empty if no commit happened. After
      *  close the registry is flushed to the engine so the chosen
      *  name resolves through engine setters. */
-    static QString pickTransect(
-        openswmmvis::transect::TransectRegistry *registry,
-        SWMMModelLayer *layer,
-        QUndoStack    *undoStack,
-        const QString &initialName,
-        QWidget       *parent = nullptr);
+    static QString pickTransect(openswmmvis::transect::TransectRegistry *registry,
+                                SWMMModelLayer *layer, QUndoStack *undoStack,
+                                const QString &initialName, QWidget *parent = nullptr);
 
     void openForTransect(const QString &name);
 
@@ -107,14 +104,14 @@ public:
 
     // ── Test hooks ──────────────────────────────────────────────────────────
 
-    QListView                 *listView()       const noexcept { return m_listView; }
-    QTableView                *stationTable()   const noexcept { return m_table; }
-    TransectChartView         *chartView()      const noexcept { return m_chartView; }
-    QTreeView                 *propertyTree()   const noexcept { return m_propertyTree; }
-    TransectListModel         *listModel()      const noexcept { return m_listModel; }
-    TransectStationTableModel *tableModel()     const noexcept { return m_tableModel; }
-    QLineEdit                 *nameEdit()       const noexcept { return m_nameEdit; }
-    QTextEdit                 *commentsEdit()   const noexcept { return m_commentsEdit; }
+    QListView *listView() const noexcept { return m_listView; }
+    QTableView *stationTable() const noexcept { return m_table; }
+    TransectChartView *chartView() const noexcept { return m_chartView; }
+    QTreeView *propertyTree() const noexcept { return m_propertyTree; }
+    TransectListModel *listModel() const noexcept { return m_listModel; }
+    TransectStationTableModel *tableModel() const noexcept { return m_tableModel; }
+    QLineEdit *nameEdit() const noexcept { return m_nameEdit; }
+    QTextEdit *commentsEdit() const noexcept { return m_commentsEdit; }
 
     /*! \brief Reveal the create-card (mirrors the "+ New" button). */
     void invokeNew();
@@ -138,8 +135,8 @@ private slots:
     void onCommentsEdited_();
     void onProviderAdded_(openswmmvis::transect::TransectProvider *p);
     void onProviderRemoved_(openswmmvis::transect::TransectProvider *p);
-    void onProviderRenamed_(openswmmvis::transect::TransectProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::transect::TransectProvider *p, const QString &prev,
+                            const QString &now);
     void onMutationRejected_(const QString &reason);
     void onChartContextMenu_(const QPoint &globalPos);
     void onZoomToExtentClicked_();
@@ -169,39 +166,39 @@ private:
 
     bool m_contextValid = true;
     QPointer<openswmmvis::transect::TransectRegistry> m_registry;
-    QPointer<SWMMModelLayer>                            m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     QPointer<QUndoStack> m_undoStack;
-    QPointer<openswmmvis::transect::TransectProvider>   m_current;
-    Mode                                                m_mode = Mode::Edit;
+    QPointer<openswmmvis::transect::TransectProvider> m_current;
+    Mode m_mode = Mode::Edit;
 
     // Layout
-    QSplitter   *m_splitter   = nullptr;
+    QSplitter *m_splitter = nullptr;
 
     // Left pane.
-    QListView          *m_listView   = nullptr;
-    TransectListModel  *m_listModel  = nullptr;
-    QPushButton        *m_addBtn     = nullptr;
-    QPushButton        *m_delBtn     = nullptr;
+    QListView *m_listView = nullptr;
+    TransectListModel *m_listModel = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_delBtn = nullptr;
 
     // Middle pane.
-    QLineEdit                  *m_nameEdit       = nullptr;
-    QTextEdit                  *m_commentsEdit   = nullptr;
-    QTreeView                  *m_propertyTree   = nullptr;
-    QObject                    *m_propertyBag    = nullptr;   ///< QObject holding Q_PROPERTYs for the property tree.
-    QTableView                 *m_table          = nullptr;
-    TransectStationTableModel  *m_tableModel     = nullptr;
-    QPushButton                *m_addRowBtn      = nullptr;
-    QPushButton                *m_delRowBtn      = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QTextEdit *m_commentsEdit = nullptr;
+    QTreeView *m_propertyTree = nullptr;
+    QObject *m_propertyBag = nullptr; ///< QObject holding Q_PROPERTYs for the property tree.
+    QTableView *m_table = nullptr;
+    TransectStationTableModel *m_tableModel = nullptr;
+    QPushButton *m_addRowBtn = nullptr;
+    QPushButton *m_delRowBtn = nullptr;
 
     // Right pane.
-    QToolBar          *m_toolBar         = nullptr;
-    QAction           *m_panAction       = nullptr;
-    QAction           *m_editAction      = nullptr;
-    QAction           *m_insertVertexAction = nullptr;
-    QAction           *m_deleteVertexAction = nullptr;
-    TransectChartView *m_chartView       = nullptr;
-    QStatusBar        *m_status          = nullptr;
-    QLabel            *m_countLabel      = nullptr;
+    QToolBar *m_toolBar = nullptr;
+    QAction *m_panAction = nullptr;
+    QAction *m_editAction = nullptr;
+    QAction *m_insertVertexAction = nullptr;
+    QAction *m_deleteVertexAction = nullptr;
+    TransectChartView *m_chartView = nullptr;
+    QStatusBar *m_status = nullptr;
+    QLabel *m_countLabel = nullptr;
 
     bool m_suppressPropertyRefresh = false;
     bool m_suppressTableSelectionSync = false;

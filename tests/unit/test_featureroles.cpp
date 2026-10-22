@@ -1,16 +1,18 @@
-/*!
- * \file   test_featureroles.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The feature-layer role registry
+/**
+ * @file      test_featureroles.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The feature-layer role registry
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R1, R5, R6).
  *
  * Pure data: no GDAL, no widgets. Pins the persisted role tokens (an .oswp
  * written before the Corridor role existed must read back unchanged), the
  * §4 field tables, the readers' aliases, and the "Update fields to role…"
  * plan for an old Region layer.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <gtest/gtest.h>
 
 #include "feature/featureroles.h"
@@ -22,8 +24,17 @@
 
 using namespace openswmmvis::feature;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Construct an otherwise default field definition for role-schema fixtures.
+ * @param name Borrowed null-terminated Latin-1 field name, copied.
+ * @param t Field storage type, copied without value coercion.
+ * @return Owned field with default remaining metadata; no schema insertion/validation.
+ *
+ */
 FieldDef field(const char *name, FieldType t)
 {
     FieldDef f;
@@ -47,7 +58,7 @@ Schema oldRegionSchema()
     return s;
 }
 
-}   // namespace
+} // namespace
 
 TEST(FeatureRoles, EveryRoleHasFieldsAndGeometryKinds)
 {
@@ -75,14 +86,14 @@ TEST(FeatureRoles, TokensAreUniqueAndStable)
 {
     // These tokens are what .oswp files store; changing one strands layers.
     const QList<QPair<FeatureLayerRole, QString>> pinned = {
-        {FeatureLayerRole::General,           QStringLiteral("general")},
-        {FeatureLayerRole::DomainBoundary,    QStringLiteral("domain")},
-        {FeatureLayerRole::Breakline,         QStringLiteral("breakline")},
-        {FeatureLayerRole::Region,            QStringLiteral("region")},
-        {FeatureLayerRole::ParameterZone,     QStringLiteral("zone")},
-        {FeatureLayerRole::SwmmDelineation,   QStringLiteral("swmm")},
+        {FeatureLayerRole::General, QStringLiteral("general")},
+        {FeatureLayerRole::DomainBoundary, QStringLiteral("domain")},
+        {FeatureLayerRole::Breakline, QStringLiteral("breakline")},
+        {FeatureLayerRole::Region, QStringLiteral("region")},
+        {FeatureLayerRole::ParameterZone, QStringLiteral("zone")},
+        {FeatureLayerRole::SwmmDelineation, QStringLiteral("swmm")},
         {FeatureLayerRole::BoundaryCondition, QStringLiteral("bc")},
-        {FeatureLayerRole::Corridor,          QStringLiteral("corridor")},
+        {FeatureLayerRole::Corridor, QStringLiteral("corridor")},
     };
     QSet<QString> seen;
     for (const auto &p : pinned) {
@@ -96,8 +107,7 @@ TEST(FeatureRoles, TokensAreUniqueAndStable)
     EXPECT_EQ(int(FeatureLayerRole::BoundaryCondition), 6);
     EXPECT_EQ(int(FeatureLayerRole::Corridor), 7);
     // Unknown tokens fall back to General rather than failing a project load.
-    EXPECT_EQ(featureLayerRoleFromToken(QStringLiteral("no-such-role")),
-              FeatureLayerRole::General);
+    EXPECT_EQ(featureLayerRoleFromToken(QStringLiteral("no-such-role")), FeatureLayerRole::General);
 }
 
 TEST(FeatureRoles, FixedChoiceListsAreNonEmptyAndUnique)
@@ -128,8 +138,8 @@ TEST(FeatureRoles, FixedChoiceListsAreNonEmptyAndUnique)
 TEST(FeatureRoles, RegionTemplateIsTheTriangleEngineOne)
 {
     const Schema t = featureLayerRoleTemplate(FeatureLayerRole::Region);
-    EXPECT_EQ(t.names(), (QStringList{QStringLiteral("h"), QStringLiteral("cells"),
-                                      QStringLiteral("tag")}));
+    EXPECT_EQ(t.names(),
+              (QStringList{QStringLiteral("h"), QStringLiteral("cells"), QStringLiteral("tag")}));
     const FieldDef *h = t.field(QStringLiteral("h"));
     ASSERT_TRUE(h);
     EXPECT_EQ(h->type, FieldType::Real);
@@ -149,8 +159,8 @@ TEST(FeatureRoles, RegionTemplateIsTheTriangleEngineOne)
 
 TEST(FeatureRoles, BoundaryConditionTypesAreTheMeshTokens)
 {
-    const FieldDef *bc = featureRoleSpec(FeatureLayerRole::BoundaryCondition)
-                             .field(QStringLiteral("bc_type"));
+    const FieldDef *bc =
+        featureRoleSpec(FeatureLayerRole::BoundaryCondition).field(QStringLiteral("bc_type"));
     ASSERT_TRUE(bc);
     ASSERT_EQ(bc->choices.size(), 7);
     for (const FieldChoice &c : bc->choices) {
@@ -161,12 +171,12 @@ TEST(FeatureRoles, BoundaryConditionTypesAreTheMeshTokens)
         EXPECT_EQ(mesh::MeshBCTypes::label(t), c.label);
     }
     EXPECT_EQ(bc->defaultValue.toString(), QStringLiteral("WALL"));
-    const FieldDef *conv = featureRoleSpec(FeatureLayerRole::BoundaryCondition)
-                               .field(QStringLiteral("conveyance"));
+    const FieldDef *conv =
+        featureRoleSpec(FeatureLayerRole::BoundaryCondition).field(QStringLiteral("conveyance"));
     ASSERT_TRUE(conv);
     EXPECT_DOUBLE_EQ(conv->defaultValue.toDouble(), 1.0);
-    const FieldDef *ts = featureRoleSpec(FeatureLayerRole::BoundaryCondition)
-                             .field(QStringLiteral("tseries"));
+    const FieldDef *ts =
+        featureRoleSpec(FeatureLayerRole::BoundaryCondition).field(QStringLiteral("tseries"));
     ASSERT_TRUE(ts);
     EXPECT_EQ(ts->choiceSource, ChoiceSource::Model);
     EXPECT_EQ(ts->modelList, ModelList::TimeSeries);
@@ -247,17 +257,18 @@ TEST(FeatureRoles, UpdatePlanForAnOldRegionLayer)
 
     ASSERT_EQ(plan.retired.size(), 5);
     QHash<QString, int> retired;
-    for (const auto &r : plan.retired) retired.insert(r.first, r.second);
+    for (const auto &r : plan.retired)
+        retired.insert(r.first, r.second);
     EXPECT_EQ(retired.value(QStringLiteral("max_area")), 3);
     EXPECT_EQ(retired.value(QStringLiteral("quad_mode")), 2);
     EXPECT_EQ(retired.value(QStringLiteral("quad_angle")), 0);
-    EXPECT_FALSE(retired.contains(QStringLiteral("quad_spacing")))
-        << "renamed, not dropped";
+    EXPECT_FALSE(retired.contains(QStringLiteral("quad_spacing"))) << "renamed, not dropped";
 
     // tag exists but carries no stored description; h (after the rename)
     // gets its default and description attached.
     QStringList attached;
-    for (const FieldDef &f : plan.attach) attached << f.name;
+    for (const FieldDef &f : plan.attach)
+        attached << f.name;
     EXPECT_TRUE(attached.contains(QStringLiteral("tag")));
     EXPECT_TRUE(attached.contains(QStringLiteral("h")));
     EXPECT_FALSE(plan.isEmpty());
@@ -265,9 +276,9 @@ TEST(FeatureRoles, UpdatePlanForAnOldRegionLayer)
 
 TEST(FeatureRoles, UpdatePlanIsEmptyForACurrentLayer)
 {
-    const FieldUpdatePlan plan = planFieldUpdate(
-        FeatureLayerRole::BoundaryCondition,
-        featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition), {});
+    const FieldUpdatePlan plan =
+        planFieldUpdate(FeatureLayerRole::BoundaryCondition,
+                        featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition), {});
     EXPECT_TRUE(plan.isEmpty());
 }
 

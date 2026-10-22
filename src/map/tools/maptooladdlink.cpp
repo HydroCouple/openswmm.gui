@@ -1,7 +1,10 @@
-/*!
- * \file   maptooladdlink.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      maptooladdlink.cpp
+ * @brief     Two-click polyline tool that creates a SWMM link between two nodes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooladdlink.h"
@@ -24,13 +27,10 @@
 #include <algorithm>
 #include <cmath>
 
-OpenSWMMVisMapToolAddLink::OpenSWMMVisMapToolAddLink(MapCanvas *canvas,
-                                                      int linkType,
-                                                      const QString &elementKind,
-                                                      QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("Add Link"), canvas, parent)
-    , m_linkType(linkType)
-    , m_elementKind(elementKind)
+OpenSWMMVisMapToolAddLink::OpenSWMMVisMapToolAddLink(MapCanvas *canvas, int linkType,
+                                                     const QString &elementKind, QObject *parent)
+    : OpenSWMMVisMapTool(QStringLiteral("Add Link"), canvas, parent), m_linkType(linkType),
+      m_elementKind(elementKind)
 {
 }
 
@@ -53,16 +53,17 @@ void OpenSWMMVisMapToolAddLink::deactivate()
 
 SWMMModelLayer *OpenSWMMVisMapToolAddLink::activeModelLayer() const
 {
-    if (!m_canvas) return nullptr;
+    if (!m_canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : m_canvas->layers())
-        if (auto *ml = qobject_cast<SWMMModelLayer *>(l)) return ml;
+        if (auto *ml = qobject_cast<SWMMModelLayer *>(l))
+            return ml;
     return nullptr;
 }
 
 QString OpenSWMMVisMapToolAddLink::nextAvailableName(SWMMModelLayer *layer) const
 {
-    const QString prefix =
-        PreferencesManager::instance()->elementNamePrefix(m_elementKind);
+    const QString prefix = PreferencesManager::instance()->elementNamePrefix(m_elementKind);
     for (int n = 1; n < 100000; ++n) {
         const QString candidate = prefix + QString::number(n);
         if (layer->linkIndex(candidate) < 0)
@@ -71,9 +72,8 @@ QString OpenSWMMVisMapToolAddLink::nextAvailableName(SWMMModelLayer *layer) cons
     return prefix + QStringLiteral("_X");
 }
 
-QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
-                                               double mapX, double mapY,
-                                               double *snapX, double *snapY) const
+QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer, double mapX, double mapY,
+                                              double *snapX, double *snapY) const
 {
     // Build a small map-space tolerance box from the preference snap radius.
     const int snapPx = PreferencesManager::instance()->snapTolerancePx();
@@ -83,18 +83,21 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     toMapCoords(0, 0, mx0, my0);
     const double tolX = std::abs(mx2 - mx0);
     const double tolY = std::abs(my2 - my0);
-    const double tol  = std::max(tolX, tolY);
+    const double tol = std::max(tolX, tolY);
 
     // identifyAt returns the nearest feature within tol.
     const QVariantMap hit = layer->identifyAt(mapX, mapY, nullptr, tol);
     const QString type = hit.value(QStringLiteral("elementType")).toString();
-    if (type != QStringLiteral("Node")) return {};
+    if (type != QStringLiteral("Node"))
+        return {};
 
     const QString name = hit.value(QStringLiteral("elementName")).toString();
-    if (name.isEmpty()) return {};
+    if (name.isEmpty())
+        return {};
 
     const int idx = layer->nodeIndex(name);
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
 
     // Virtual junctions accept exactly two conduits, both fixed by the split
     // that created them — never a drawn endpoint (non-conduits are outright
@@ -103,7 +106,8 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     // Inlet junctions need no test of their own: every inlet junction is a
     // virtual junction (swmm_node_set_inlet sets is_virtual too), so this
     // check already rejects them — and it must, for the same pair rule.
-    if (layer->nodeIsVirtual(idx)) return {};
+    if (layer->nodeIsVirtual(idx))
+        return {};
 
     // cachedNodeCoord returns layer-CRS coords; the caller compares
     // these against (mapX, mapY) which are canvas-CRS, and feeds them
@@ -115,16 +119,20 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     layer->cachedNodeCoord(idx, &nx, &ny);
     double cnx = nx, cny = ny;
     layer->transformLayerToCanvas(nx, ny, cnx, cny);
-    if (snapX) *snapX = cnx;
-    if (snapY) *snapY = cny;
+    if (snapX)
+        *snapX = cnx;
+    if (snapY)
+        *snapY = cny;
     return name;
 }
 
 void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     SWMMModelLayer *layer = activeModelLayer();
-    if (!layer) return;
+    if (!layer)
+        return;
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
@@ -139,18 +147,20 @@ void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     double sx = mx, sy = my;
     const QString snapName = snapToNode(layer, mx, my, &sx, &sy);
 
     if (m_state == State::Idle) {
-        if (snapName.isEmpty()) return; // must start on a node
-        m_fromNode   = snapName;
-        m_fromPt     = QPointF(sx, sy);
-        m_cursor     = QPointF(sx, sy); // prevent flash to (0,0) before first mouse-move
-        m_snapPt     = m_fromPt;
-        m_state      = State::Drawing;
+        if (snapName.isEmpty())
+            return; // must start on a node
+        m_fromNode = snapName;
+        m_fromPt = QPointF(sx, sy);
+        m_cursor = QPointF(sx, sy); // prevent flash to (0,0) before first mouse-move
+        m_snapPt = m_fromPt;
+        m_state = State::Drawing;
         m_vertices.clear();
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addlink-rubber"));
         return;
@@ -162,7 +172,8 @@ void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
         commit(layer, snapName, sx, sy);
         return;
     }
-    if (!snapName.isEmpty()) return; // clicked same node — ignore
+    if (!snapName.isEmpty())
+        return; // clicked same node — ignore
 
     // Add an intermediate vertex — snap if a vertex candidate is available.
     // SnapEngine returns the snapped point in layer CRS; m_vertices is kept
@@ -177,7 +188,8 @@ void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddLink::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas || m_state == State::Idle) return;
+    if (!m_canvas || m_state == State::Idle)
+        return;
     SWMMModelLayer *layer = activeModelLayer();
 
     double mx = 0, my = 0;
@@ -189,7 +201,7 @@ void OpenSWMMVisMapToolAddLink::mouseMoveEvent(QMouseEvent *event)
     if (layer) {
         const QString snap = snapToNode(layer, mx, my, &sx, &sy);
         m_snapTarget = snap;
-        m_snapPt     = snap.isEmpty() ? QPointF(mx, my) : QPointF(sx, sy);
+        m_snapPt = snap.isEmpty() ? QPointF(mx, my) : QPointF(sx, sy);
     }
 
     // General vertex snap for the rubber-band tip (only when NOT targeting an end-node).
@@ -203,7 +215,8 @@ void OpenSWMMVisMapToolAddLink::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddLink::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
     // The second press of the double-click already fired through
     // mousePressEvent and may have added an intermediate vertex (or
     // chained into a new link). Drop any stray trailing vertex and
@@ -215,14 +228,15 @@ void OpenSWMMVisMapToolAddLink::mouseDoubleClickEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddLink::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape) cancel();
+    if (event->key() == Qt::Key_Escape)
+        cancel();
 }
 
-void OpenSWMMVisMapToolAddLink::paint(QPainter *painter,
-                                       const MapExtent &,
-                                       const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolAddLink::paint(QPainter *painter, const MapExtent &,
+                                      const SpatialReferenceSystem *)
 {
-    if (m_state == State::Idle || !m_canvas) return;
+    if (m_state == State::Idle || !m_canvas)
+        return;
 
     painter->save();
 
@@ -281,7 +295,7 @@ void OpenSWMMVisMapToolAddLink::paint(QPainter *painter,
 
 void OpenSWMMVisMapToolAddLink::cancel()
 {
-    m_state      = State::Idle;
+    m_state = State::Idle;
     m_fromNode.clear();
     m_vertices.clear();
     m_snapTarget.clear();
@@ -292,7 +306,7 @@ void OpenSWMMVisMapToolAddLink::cancel()
 
 void OpenSWMMVisMapToolAddLink::setTerrain(GISRasterLayer *layer, double offset, double factor)
 {
-    m_terrainLayer  = layer;
+    m_terrainLayer = layer;
     m_terrainOffset = offset;
     m_terrainFactor = factor;
 }
@@ -301,7 +315,8 @@ double OpenSWMMVisMapToolAddLink::invertElevationToOffset(SWMMModelLayer *layer,
                                                           const QString &nodeName,
                                                           double invertElevation)
 {
-    if (!layer || !layer->engine() || !std::isfinite(invertElevation)) return 0.0;
+    if (!layer || !layer->engine() || !std::isfinite(invertElevation))
+        return 0.0;
     const int idx = swmm_node_index(layer->engine(), nodeName.toUtf8().constData());
     double nodeInvert = 0.0;
     if (idx < 0 || swmm_node_get_invert_elev(layer->engine(), idx, &nodeInvert) != SWMM_OK)
@@ -309,9 +324,8 @@ double OpenSWMMVisMapToolAddLink::invertElevationToOffset(SWMMModelLayer *layer,
     return std::max(0.0, invertElevation - nodeInvert);
 }
 
-void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
-                                        const QString  &toNodeName,
-                                        double toCanvasX, double toCanvasY)
+void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer, const QString &toNodeName,
+                                       double toCanvasX, double toCanvasY)
 {
     // Estimate invert offsets from terrain at each endpoint. Both endpoints
     // are read in layer CRS — m_fromPt is canvas CRS (set by snapToNode
@@ -324,13 +338,12 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
         layer->transformCanvasToLayer(m_fromPt.x(), m_fromPt.y(), fromLX, fromLY);
 
         bool okFrom = false;
-        const double zFrom = m_terrainLayer->valueAt(fromLX, fromLY,
-                                                      layer->srs(), 1, &okFrom);
+        const double zFrom = m_terrainLayer->valueAt(fromLX, fromLY, layer->srs(), 1, &okFrom);
         // The terrain gives an invert ELEVATION; the engine stores a depth
         // above the end node's invert.
         if (okFrom)
-            offsetUp = invertElevationToOffset(
-                layer, m_fromNode, zFrom * m_terrainFactor + m_terrainOffset);
+            offsetUp = invertElevationToOffset(layer, m_fromNode,
+                                               zFrom * m_terrainFactor + m_terrainOffset);
 
         // Resolve to-node coordinates from the layer geometry cache.
         const int toIdx = layer->nodeIndex(toNodeName);
@@ -338,11 +351,10 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
             double toX = 0.0, toY = 0.0;
             layer->cachedNodeCoord(toIdx, &toX, &toY);
             bool okTo = false;
-            const double zTo = m_terrainLayer->valueAt(toX, toY,
-                                                       layer->srs(), 1, &okTo);
+            const double zTo = m_terrainLayer->valueAt(toX, toY, layer->srs(), 1, &okTo);
             if (okTo)
-                offsetDn = invertElevationToOffset(
-                    layer, toNodeName, zTo * m_terrainFactor + m_terrainOffset);
+                offsetDn = invertElevationToOffset(layer, toNodeName,
+                                                   zTo * m_terrainFactor + m_terrainOffset);
         }
     }
 
@@ -360,10 +372,8 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
     }
 
     const QString name = nextAvailableName(layer);
-    auto *cmd = new AddLinkCommand(layer, name, m_linkType,
-                                    m_fromNode, toNodeName,
-                                    layerVertices, m_canvas,
-                                    offsetUp, offsetDn);
+    auto *cmd = new AddLinkCommand(layer, name, m_linkType, m_fromNode, toNodeName, layerVertices,
+                                   m_canvas, offsetUp, offsetDn);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
@@ -375,14 +385,14 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
     // Chain into a new link starting at the just-committed end node so the
     // user can draw a connected polyline without re-arming the tool. Right-
     // click / Escape still routes to cancel() for a full exit.
-    m_fromNode   = toNodeName;
-    m_fromPt     = QPointF(toCanvasX, toCanvasY);
-    m_cursor     = m_fromPt;
-    m_snapPt     = m_fromPt;
+    m_fromNode = toNodeName;
+    m_fromPt = QPointF(toCanvasX, toCanvasY);
+    m_cursor = m_fromPt;
+    m_snapPt = m_fromPt;
     m_vertices.clear();
     m_snapTarget.clear();
     m_vertexSnap = {};
-    m_state      = State::Drawing;
+    m_state = State::Drawing;
     if (m_canvas)
         // Scene, not Overlay alone: a link was just added to the model, so
         // layer content changed. Overlay only repaints the widget from the

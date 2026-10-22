@@ -1,8 +1,12 @@
-/*!
- * \file   nodepicksession.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      nodepicksession.cpp
+ * @brief     Creating a session saves the canvas's active tool, pushes a
+ *            OpenSWMMVisMapToolPickNode and forwards its picks; finishing (or destroying) the
+ *            session restores the previous tool.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "map/nodepicksession.h"
@@ -19,21 +23,21 @@ NodePickSession::NodePickSession(MapCanvas *canvas, QObject *parent)
     }
     m_previous = canvas->activeTool();
     m_tool = new OpenSWMMVisMapToolPickNode(canvas, this);
-    connect(m_tool, &OpenSWMMVisMapToolPickNode::nodePicked,
-            this, &NodePickSession::nodePicked);
+    connect(m_tool, &OpenSWMMVisMapToolPickNode::nodePicked, this, &NodePickSession::nodePicked);
     connect(m_tool, &OpenSWMMVisMapToolPickNode::cancelled, this, [this]() {
         finish();
         emit cancelled();
     });
     // The user reached for another tool mid-pick: nothing to restore, the
     // wait is over.
-    connect(canvas, &MapCanvas::activeToolChanged, this,
-            [this](OpenSWMMVisMapTool *tool) {
-                if (m_finished || tool == m_tool) return;
-                m_finished = true;
-                if (m_tool) m_tool->deleteLater();
-                emit cancelled();
-            });
+    connect(canvas, &MapCanvas::activeToolChanged, this, [this](OpenSWMMVisMapTool *tool) {
+        if (m_finished || tool == m_tool)
+            return;
+        m_finished = true;
+        if (m_tool)
+            m_tool->deleteLater();
+        emit cancelled();
+    });
     canvas->setActiveTool(m_tool);
 }
 
@@ -49,9 +53,11 @@ bool NodePickSession::isActive() const
 
 void NodePickSession::finish()
 {
-    if (m_finished) return;
-    m_finished = true;   // before setActiveTool: its activeToolChanged must not read as a cancel
+    if (m_finished)
+        return;
+    m_finished = true; // before setActiveTool: its activeToolChanged must not read as a cancel
     if (m_canvas && m_tool && m_canvas->activeTool() == m_tool)
         m_canvas->setActiveTool(m_previous ? m_previous.data() : nullptr);
-    if (m_tool) m_tool->deleteLater();
+    if (m_tool)
+        m_tool->deleteLater();
 }

@@ -1,11 +1,13 @@
 #include <QSet>
-/*!
- * \file   outputstatsregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      outputstatsregistry.cpp
+ * @brief     per-project registry that tags every loaded SWMMResultsLayer with a stable identity.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice QA.1 — implementation. See outputstatsregistry.h for design notes.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "output/outputstatsregistry.h"
@@ -20,35 +22,34 @@
 #include <QDir>
 #include <QDateTime>
 
-namespace openswmmvis {
-
-OutputStatsRegistry::OutputStatsRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis
 {
-}
+
+OutputStatsRegistry::OutputStatsRegistry(QObject *parent) : QObject(parent) {}
 
 OutputStatsRegistry::~OutputStatsRegistry() = default;
 
-void OutputStatsRegistry::registerLayer(SWMMResultsLayer *layer,
-                                        const QString    &resultsFilePath)
+void OutputStatsRegistry::registerLayer(SWMMResultsLayer *layer, const QString &resultsFilePath)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
 
     // Idempotent by pointer identity — re-registering the same layer is
     // a no-op so callers can safely wire registerLayer to both
     // resultsOpened and a one-shot construction hook without thinking
     // about ordering.
     for (const auto &s : m_slots) {
-        if (s.layer.data() == layer) return;
+        if (s.layer.data() == layer)
+            return;
     }
 
     Slot s;
-    s.stableId    = QUuid::createUuid();
+    s.stableId = QUuid::createUuid();
     s.tooltipPath = QFileInfo(resultsFilePath).absoluteFilePath();
-    s.layer       = layer;
+    s.layer = layer;
     const auto stored = layer->property("traceStoredRunId").toString();
-    auto run=stored.isEmpty() ? latestRun(s.tooltipPath) : this->run(stored);
-    s.runId=run.id.isEmpty()?importRun(s.tooltipPath):run.id;
+    auto run = stored.isEmpty() ? latestRun(s.tooltipPath) : this->run(stored);
+    s.runId = run.id.isEmpty() ? importRun(s.tooltipPath) : run.id;
     // shortLabel will be filled by recomputeLabels() below; leaving it
     // blank here means a midflight observer would never see a partial
     // state. recomputeLabels reads from s.tooltipPath, not from the
@@ -61,7 +62,8 @@ void OutputStatsRegistry::registerLayer(SWMMResultsLayer *layer,
 
 void OutputStatsRegistry::unregisterLayer(SWMMResultsLayer *layer)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
 
     bool removed = false;
     for (int i = 0; i < m_slots.size(); ++i) {
@@ -71,7 +73,8 @@ void OutputStatsRegistry::unregisterLayer(SWMMResultsLayer *layer)
             break;
         }
     }
-    if (!removed) return;
+    if (!removed)
+        return;
 
     recomputeLabels();
     emit identitiesChanged();
@@ -83,13 +86,13 @@ QList<OutputIdentity> OutputStatsRegistry::identities() const
     out.reserve(m_slots.size());
     for (const auto &s : m_slots) {
         OutputIdentity id;
-        id.stableId    = s.stableId;
-        id.shortLabel  = s.shortLabel;
+        id.stableId = s.stableId;
+        id.shortLabel = s.shortLabel;
         id.tooltipPath = s.tooltipPath;
         // QPointer::data() yields nullptr after the layer is destroyed;
         // consumers null-check before dispatch.
-        id.layer       = s.layer.data();
-        id.runId       = s.runId;
+        id.layer = s.layer.data();
+        id.runId = s.runId;
         out.append(id);
     }
     return out;
@@ -97,15 +100,16 @@ QList<OutputIdentity> OutputStatsRegistry::identities() const
 
 OutputIdentity OutputStatsRegistry::identityFor(const QUuid &id) const
 {
-    if (id.isNull()) return {};
+    if (id.isNull())
+        return {};
     for (const auto &s : m_slots) {
         if (s.stableId == id) {
             OutputIdentity out;
-            out.stableId    = s.stableId;
-            out.shortLabel  = s.shortLabel;
+            out.stableId = s.stableId;
+            out.shortLabel = s.shortLabel;
             out.tooltipPath = s.tooltipPath;
-            out.layer       = s.layer.data();
-            out.runId       = s.runId;
+            out.layer = s.layer.data();
+            out.runId = s.runId;
             return out;
         }
     }
@@ -129,8 +133,9 @@ void OutputStatsRegistry::recomputeLabels()
             s.shortLabel = QStringLiteral("%1 (%2)").arg(base).arg(count + 1);
         }
         seen[base] = count + 1;
-        auto version=run(s.runId);
-        if(!version.id.isEmpty())s.shortLabel+=QStringLiteral(" · Run %1 · %2").arg(version.number).arg(version.state);
+        auto version = run(s.runId);
+        if (!version.id.isEmpty())
+            s.shortLabel += QStringLiteral(" · Run %1 · %2").arg(version.number).arg(version.state);
     }
 }
 
@@ -172,8 +177,7 @@ QString OutputStatsRegistry::beginRun(const QString &path, const QJsonObject &sn
 {
     QString id = importRun(path);
     for (auto &r : m_runs)
-        if (r.id == id)
-        {
+        if (r.id == id) {
             r.state = QStringLiteral("Running");
             r.native = true;
             r.snapshot = snapshot;
@@ -192,8 +196,7 @@ QString OutputStatsRegistry::beginRun(const QString &path, const QJsonObject &sn
 void OutputStatsRegistry::finishRun(const QString &id, bool success, bool cancelled)
 {
     for (auto &r : m_runs)
-        if (r.id == id)
-        {
+        if (r.id == id) {
             r.state = success
                           ? QStringLiteral("Complete")
                           : (cancelled ? QStringLiteral("Cancelled") : QStringLiteral("Failed"));
@@ -209,8 +212,7 @@ void OutputStatsRegistry::finishRun(const QString &id, bool success, bool cancel
 void OutputStatsRegistry::contentOpened(SWMMResultsLayer *layer, const QString &path, bool live)
 {
     for (auto &s : m_slots)
-        if (s.layer == layer)
-        {
+        if (s.layer == layer) {
             auto r = run(s.runId);
             QFileInfo f(path);
             if (r.id.isEmpty() || r.path != f.absoluteFilePath() ||
@@ -219,8 +221,7 @@ void OutputStatsRegistry::contentOpened(SWMMResultsLayer *layer, const QString &
                 s.runId = importRun(path);
             s.tooltipPath = f.absoluteFilePath();
             for (auto &v : m_runs)
-                if (v.id == s.runId)
-                {
+                if (v.id == s.runId) {
                     if (live && !v.native)
                         v.state = QStringLiteral("Running");
                     else if (!live && !v.native)
@@ -238,8 +239,7 @@ void OutputStatsRegistry::attachAnalysis(const QString &id, const QString &finge
                                          const QString &package, const QJsonObject &snapshot)
 {
     for (auto &r : m_runs)
-        if (r.id == id)
-        {
+        if (r.id == id) {
             r.fingerprint = fingerprint;
             r.packagePath = package;
             r.snapshot = snapshot;
@@ -251,8 +251,7 @@ void OutputStatsRegistry::adoptAnalysis(const QString &id, const QString &source
                                         const QString &fingerprint, const QString &package,
                                         const QJsonObject &snapshot)
 {
-    if (run(id).id.isEmpty())
-    {
+    if (run(id).id.isEmpty()) {
         OutputRun r;
         r.id = id;
         r.sourceId = sourceId;
@@ -266,8 +265,7 @@ void OutputStatsRegistry::adoptAnalysis(const QString &id, const QString &source
 void OutputStatsRegistry::recordOutputFile(const QString &id)
 {
     for (auto &r : m_runs)
-        if (r.id == id && r.state != QStringLiteral("Running"))
-        {
+        if (r.id == id && r.state != QStringLiteral("Running")) {
             QFileInfo f(r.retainedPath.isEmpty() ? r.path : r.retainedPath);
             r.size = f.size();
             r.modified = f.lastModified().toMSecsSinceEpoch();
@@ -311,8 +309,7 @@ void OutputStatsRegistry::restoreRuns(const QJsonArray &a, const QString &base)
     m_runs.clear();
     QDir dir(base);
     QSet<QString> ids;
-    for (auto v : a)
-    {
+    for (auto v : a) {
         auto j = v.toObject();
         OutputRun r;
         r.id = j["id"].toString();

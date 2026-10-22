@@ -1,9 +1,12 @@
-/*!
- * \file   filespage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      filespage.cpp
+ * @brief     Simulation Options → Files / Output / Plugins.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/filespage.h"
 
 #include "ui/dialogs/simulationoptionsdialog.h"
@@ -24,7 +27,7 @@
 #include "ui/widgets/relativepathpicker.h"
 #include "ui/dialogs/pathbrowsedelegate.h"
 #include "ui/dialogs/pluginstablemodel.h"
-#include "ui/dialogs/processcomponentsmodel.h"   // U1
+#include "ui/dialogs/processcomponentsmodel.h" // U1
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "mesh/inpmeshwriter.h"
@@ -61,7 +64,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSet>             // Slice RC.4 — built-in plugin-id lookup
+#include <QSet> // Slice RC.4 — built-in plugin-id lookup
 #include <QSettings>
 #include <QLineEdit>
 #include <QSpinBox>
@@ -84,8 +87,7 @@
 namespace openswmmvis::ui
 {
 
-FilesPage::FilesPage(SimOptionsContext &ctx, QWidget *parent)
-    : SimOptionsPage(ctx, parent)
+FilesPage::FilesPage(SimOptionsContext &ctx, QWidget *parent) : SimOptionsPage(ctx, parent)
 {
     buildUi();
     tagWidgets();
@@ -99,7 +101,7 @@ QString FilesPage::title() const
 void FilesPage::read()
 {
     readPluginsFromEngine();
-    readProcessComponentsFromEngine();   // U1
+    readProcessComponentsFromEngine(); // U1
     readFilesSectionFromEngine();
     readWriterCombosFromEngine();
     readReportContentsFromEngine();
@@ -110,7 +112,7 @@ int FilesPage::write()
 {
     int n = 0;
     n += writePluginsToEngine();
-    n += writeProcessComponentsToEngine();   // U1
+    n += writeProcessComponentsToEngine(); // U1
     n += writeFilesSectionToEngine();
     n += writeWriterCombosToEngine();
     n += writeReportContentsToEngine();
@@ -142,10 +144,9 @@ void FilesPage::tagWidgets()
 void FilesPage::applyCapabilities()
 {
     const EngineCapabilities &c = ctx_.caps();
-    const QString mixedFlowTip =
-        c.legacy ? tr("Not available in SWMM 5 (legacy engine).")
-                 : tr("This engine build predates the mixed-flow "
-                      "(TPA / unsteady-friction) option surface.");
+    const QString mixedFlowTip = c.legacy ? tr("Not available in SWMM 5 (legacy engine).")
+                                          : tr("This engine build predates the mixed-flow "
+                                               "(TPA / unsteady-friction) option surface.");
 
     // Signed-heads output option.
     if (!c.signedHeads && m_signedHeadsCheck) {
@@ -160,9 +161,9 @@ void FilesPage::applyCapabilities()
             m_writersGroup->setEnabled(false);
             m_writersGroup->setToolTip(tip);
         }
-        for (QWidget *w : {static_cast<QWidget *>(m_pluginsView),
-                           static_cast<QWidget *>(m_pluginsAddBtn),
-                           static_cast<QWidget *>(m_pluginsRemoveBtn)}) {
+        for (QWidget *w :
+             {static_cast<QWidget *>(m_pluginsView), static_cast<QWidget *>(m_pluginsAddBtn),
+              static_cast<QWidget *>(m_pluginsRemoveBtn)}) {
             if (w) {
                 w->setEnabled(false);
                 w->setToolTip(tip);
@@ -193,8 +194,8 @@ bool FilesPage::validateFilesTab(QString *warn)
             if (id.isEmpty()) {
                 anyInvalid = true;
                 if (warn)
-                    warn->append(tr("[PLUGINS] row %1: plugin id / path is required.\n")
-                                     .arg(r + 1));
+                    warn->append(
+                        tr("[PLUGINS] row %1: plugin id / path is required.\n").arg(r + 1));
             }
         }
     }
@@ -213,40 +214,37 @@ bool FilesPage::validateFilesTab(QString *warn)
             if (p.isEmpty()) {
                 anyInvalid = true;
                 if (warn)
-                    warn->append(tr("Hot-start save row %1: path is required.\n")
-                                     .arg(r + 1));
+                    warn->append(tr("Hot-start save row %1: path is required.\n").arg(r + 1));
             }
         }
     }
 
     // ── Non-blocking warnings ──────────────────────────────────────────
     if (warn) {
-        auto checkSelector = [warn](QRadioButton *some, QLineEdit *list,
-                                    const QString &label) {
-            if (!some || !list) return;
+        auto checkSelector = [warn](QRadioButton *some, QLineEdit *list, const QString &label) {
+            if (!some || !list)
+                return;
             if (some->isChecked() && list->text().trimmed().isEmpty()) {
-                *warn += FilesPage::tr(
-                    "%1: \"Selected\" is chosen but the name list is empty "
-                    "(will be written as NONE).\n").arg(label);
+                *warn += FilesPage::tr("%1: \"Selected\" is chosen but the name list is empty "
+                                       "(will be written as NONE).\n")
+                             .arg(label);
             }
         };
-        checkSelector(m_rptSubcatchSomeRadio, m_rptSubcatchListEdit,
-                      tr("Subcatchments"));
-        checkSelector(m_rptNodeSomeRadio,     m_rptNodeListEdit,
-                      tr("Nodes"));
-        checkSelector(m_rptLinkSomeRadio,     m_rptLinkListEdit,
-                      tr("Links"));
+        checkSelector(m_rptSubcatchSomeRadio, m_rptSubcatchListEdit, tr("Subcatchments"));
+        checkSelector(m_rptNodeSomeRadio, m_rptNodeListEdit, tr("Nodes"));
+        checkSelector(m_rptLinkSomeRadio, m_rptLinkListEdit, tr("Links"));
 
         auto checkParentDir = [warn](QLineEdit *edit, const QString &label) {
-            if (!edit) return;
+            if (!edit)
+                return;
             const QString path = edit->text().trimmed();
-            if (path.isEmpty()) return;
+            if (path.isEmpty())
+                return;
             const QFileInfo fi(path);
             const QDir parent = fi.absoluteDir();
             if (!parent.exists()) {
-                *warn += FilesPage::tr(
-                    "%1: parent directory does not exist (%2).\n")
-                    .arg(label, QDir::toNativeSeparators(parent.absolutePath()));
+                *warn += FilesPage::tr("%1: parent directory does not exist (%2).\n")
+                             .arg(label, QDir::toNativeSeparators(parent.absolutePath()));
             }
         };
         checkParentDir(m_reportFilePathEdit, tr("Report file"));
@@ -264,31 +262,29 @@ bool FilesPage::validateFilesTab(QString *warn)
 // RPT_CONTROLS / RPT_AVERAGES / RPT_LINK_STEPS (booleans, YES/NO) plus RPT_SUBCATCHMENTS /
 // RPT_NODES / RPT_LINKS (selectors, "ALL" / "NONE" / "name1,name2,...").
 
-void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
-                                                       QWidget *page)
+void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout, QWidget *page)
 {
     auto *grp = new QGroupBox(tr("Report contents ([REPORT])"), page);
     auto *vlay = new QVBoxLayout(grp);
-    grp->setToolTip(tr(
-        "Controls which summary sections and which objects appear in the "
-        "simulation report (.rpt) and binary output (.out) files."));
+    grp->setToolTip(tr("Controls which summary sections and which objects appear in the "
+                       "simulation report (.rpt) and binary output (.out) files."));
 
     // ---- bool flags row ------------------------------------------------
     auto *flagsGroup = new QGroupBox(tr("Summary sections"), grp);
-    auto *flagsForm  = new QFormLayout(flagsGroup);
+    auto *flagsForm = new QFormLayout(flagsGroup);
 
-    m_rptDisabledBox   = new QCheckBox(tr("Disable all reporting (DISABLED)"),  flagsGroup);
-    m_rptInputBox      = new QCheckBox(tr("Echo input summary (INPUT)"),         flagsGroup);
-    m_rptContinuityBox = new QCheckBox(tr("Continuity errors (CONTINUITY)"),     flagsGroup);
-    m_rptFlowstatsBox  = new QCheckBox(tr("Flow statistics (FLOWSTATS)"),        flagsGroup);
-    m_rptControlsBox   = new QCheckBox(tr("Control rule actions (CONTROLS)"),    flagsGroup);
-    m_rptAveragesBox   = new QCheckBox(tr("Time-averaged results (AVERAGES)"),   flagsGroup);
-    m_rptLinkStepsBox  = new QCheckBox(tr("Conduit time step summary (LINK_STEPS)"), flagsGroup);
-    m_rptLinkStepsBox->setToolTip(tr(
-        "Per-conduit minimum / average / maximum local time step, percent of "
-        "time in each step range below the routing step, and percent of steps "
-        "converged. Dynamic wave reports the CFL step each conduit allows; "
-        "FV reports the local step each conduit took."));
+    m_rptDisabledBox = new QCheckBox(tr("Disable all reporting (DISABLED)"), flagsGroup);
+    m_rptInputBox = new QCheckBox(tr("Echo input summary (INPUT)"), flagsGroup);
+    m_rptContinuityBox = new QCheckBox(tr("Continuity errors (CONTINUITY)"), flagsGroup);
+    m_rptFlowstatsBox = new QCheckBox(tr("Flow statistics (FLOWSTATS)"), flagsGroup);
+    m_rptControlsBox = new QCheckBox(tr("Control rule actions (CONTROLS)"), flagsGroup);
+    m_rptAveragesBox = new QCheckBox(tr("Time-averaged results (AVERAGES)"), flagsGroup);
+    m_rptLinkStepsBox = new QCheckBox(tr("Conduit time step summary (LINK_STEPS)"), flagsGroup);
+    m_rptLinkStepsBox->setToolTip(
+        tr("Per-conduit minimum / average / maximum local time step, percent of "
+           "time in each step range below the routing step, and percent of steps "
+           "converged. Dynamic wave reports the CFL step each conduit allows; "
+           "FV reports the local step each conduit took."));
 
     flagsForm->addRow(QString(), m_rptDisabledBox);
     flagsForm->addRow(QString(), m_rptInputBox);
@@ -302,22 +298,22 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
     // controls when it's on so the user knows nothing else matters.
     auto syncDisabledShortCircuit = [this, flagsGroup]() {
         const bool disabled = m_rptDisabledBox && m_rptDisabledBox->isChecked();
-        for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
-                               m_rptFlowstatsBox, m_rptControlsBox,
-                               m_rptAveragesBox, m_rptLinkStepsBox })
-            if (cb) cb->setEnabled(!disabled);
+        for (QCheckBox *cb : {m_rptInputBox, m_rptContinuityBox, m_rptFlowstatsBox,
+                              m_rptControlsBox, m_rptAveragesBox, m_rptLinkStepsBox})
+            if (cb)
+                cb->setEnabled(!disabled);
         Q_UNUSED(flagsGroup);
     };
-    connect(m_rptDisabledBox, &QCheckBox::toggled,
-            this, [syncDisabledShortCircuit](bool) { syncDisabledShortCircuit(); });
+    connect(m_rptDisabledBox, &QCheckBox::toggled, this,
+            [syncDisabledShortCircuit](bool) { syncDisabledShortCircuit(); });
 
     vlay->addWidget(flagsGroup);
 
     // REPORT_SIGNED_HEADS ([OPTIONS], engine issue #156 O-6; GUI issue #10).
     // Output option for any routing model; deliberately outside the
     // RPT_DISABLED short-circuit — it shapes the .out, not the .rpt.
-    m_signedHeadsCheck = new QCheckBox(
-        tr("Report signed piezometric heads (sub-atmospheric)"), grp);
+    m_signedHeadsCheck =
+        new QCheckBox(tr("Report signed piezometric heads (sub-atmospheric)"), grp);
     m_signedHeadsCheck->setToolTip(
         tr("When on, the binary output's HEAD variable carries the signed "
            "piezometric head, so sub-atmospheric full-pipe pressure (e.g. "
@@ -329,27 +325,22 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
     // ---- selectors -----------------------------------------------------
     // Per-kind: a row with [○ None] [○ All] [○ Selected] [name list edit].
     // The line-edit greys out unless Selected is chosen.
-    auto buildSelector = [this, grp](const QString &label,
-                                      QRadioButton **noneR,
-                                      QRadioButton **allR,
-                                      QRadioButton **someR,
-                                      QLineEdit    **listE)
-    {
+    auto buildSelector = [this, grp](const QString &label, QRadioButton **noneR,
+                                     QRadioButton **allR, QRadioButton **someR, QLineEdit **listE) {
         auto *row = new QGroupBox(label, grp);
         auto *h = new QHBoxLayout(row);
 
-        *noneR = new QRadioButton(tr("None"),     row);
-        *allR  = new QRadioButton(tr("All"),      row);
+        *noneR = new QRadioButton(tr("None"), row);
+        *allR = new QRadioButton(tr("All"), row);
         *someR = new QRadioButton(tr("Selected:"), row);
 
         auto *bg = new QButtonGroup(row);
         bg->addButton(*noneR, 0);
-        bg->addButton(*allR,  1);
+        bg->addButton(*allR, 1);
         bg->addButton(*someR, 2);
 
         *listE = new QLineEdit(row);
-        (*listE)->setPlaceholderText(
-            tr("comma- or space-separated object names"));
+        (*listE)->setPlaceholderText(tr("comma- or space-separated object names"));
         (*listE)->setEnabled(false);
 
         h->addWidget(*noneR);
@@ -363,62 +354,60 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
         return row;
     };
 
-    vlay->addWidget(buildSelector(tr("Subcatchments"),
-        &m_rptSubcatchNoneRadio, &m_rptSubcatchAllRadio,
-        &m_rptSubcatchSomeRadio, &m_rptSubcatchListEdit));
-    vlay->addWidget(buildSelector(tr("Nodes"),
-        &m_rptNodeNoneRadio, &m_rptNodeAllRadio,
-        &m_rptNodeSomeRadio, &m_rptNodeListEdit));
-    vlay->addWidget(buildSelector(tr("Links"),
-        &m_rptLinkNoneRadio, &m_rptLinkAllRadio,
-        &m_rptLinkSomeRadio, &m_rptLinkListEdit));
+    vlay->addWidget(buildSelector(tr("Subcatchments"), &m_rptSubcatchNoneRadio,
+                                  &m_rptSubcatchAllRadio, &m_rptSubcatchSomeRadio,
+                                  &m_rptSubcatchListEdit));
+    vlay->addWidget(buildSelector(tr("Nodes"), &m_rptNodeNoneRadio, &m_rptNodeAllRadio,
+                                  &m_rptNodeSomeRadio, &m_rptNodeListEdit));
+    vlay->addWidget(buildSelector(tr("Links"), &m_rptLinkNoneRadio, &m_rptLinkAllRadio,
+                                  &m_rptLinkSomeRadio, &m_rptLinkListEdit));
 
     parentLayout->addWidget(grp);
 }
 
 void FilesPage::readReportContentsFromEngine()
 {
-    if (!ctx_.engine()) return;
+    if (!ctx_.engine())
+        return;
 
     // Bool keys ---------------------------------------------------------
     auto setBox = [this](QCheckBox *box, const char *key, bool fallback) {
-        if (!box) return;
-        const QString v = ctx_.option(key, fallback ? QStringLiteral("YES")
-                                                  : QStringLiteral("NO"));
+        if (!box)
+            return;
+        const QString v = ctx_.option(key, fallback ? QStringLiteral("YES") : QStringLiteral("NO"));
         QSignalBlocker blk(box);
         box->setChecked(SimulationOptionsDialog::parseEngineBool(v) == Qt::Checked);
     };
-    setBox(m_rptDisabledBox,   "RPT_DISABLED",   false);
-    setBox(m_rptInputBox,      "RPT_INPUT",      false);
+    setBox(m_rptDisabledBox, "RPT_DISABLED", false);
+    setBox(m_rptInputBox, "RPT_INPUT", false);
     setBox(m_rptContinuityBox, "RPT_CONTINUITY", true);
-    setBox(m_rptFlowstatsBox,  "RPT_FLOWSTATS",  true);
-    setBox(m_rptControlsBox,   "RPT_CONTROLS",   false);
-    setBox(m_rptAveragesBox,   "RPT_AVERAGES",   false);
-    setBox(m_rptLinkStepsBox,  "RPT_LINK_STEPS", false);
+    setBox(m_rptFlowstatsBox, "RPT_FLOWSTATS", true);
+    setBox(m_rptControlsBox, "RPT_CONTROLS", false);
+    setBox(m_rptAveragesBox, "RPT_AVERAGES", false);
+    setBox(m_rptLinkStepsBox, "RPT_LINK_STEPS", false);
     setBox(m_signedHeadsCheck, "REPORT_SIGNED_HEADS", false);
 
     // Sync the disabled-short-circuit state once after the initial read.
     if (m_rptDisabledBox) {
         const bool disabled = m_rptDisabledBox->isChecked();
-        for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
-                               m_rptFlowstatsBox, m_rptControlsBox,
-                               m_rptAveragesBox, m_rptLinkStepsBox })
-            if (cb) cb->setEnabled(!disabled);
+        for (QCheckBox *cb : {m_rptInputBox, m_rptContinuityBox, m_rptFlowstatsBox,
+                              m_rptControlsBox, m_rptAveragesBox, m_rptLinkStepsBox})
+            if (cb)
+                cb->setEnabled(!disabled);
     }
 
     // Selector keys -----------------------------------------------------
-    auto setSelector = [this](QRadioButton *noneR, QRadioButton *allR,
-                              QRadioButton *someR, QLineEdit *listE,
-                              const char *key) {
-        if (!noneR || !allR || !someR || !listE) return;
+    auto setSelector = [this](QRadioButton *noneR, QRadioButton *allR, QRadioButton *someR,
+                              QLineEdit *listE, const char *key) {
+        if (!noneR || !allR || !someR || !listE)
+            return;
         const QString v = ctx_.option(key, QStringLiteral("ALL")).trimmed();
         QSignalBlocker b1(noneR), b2(allR), b3(someR), b4(listE);
         if (v.compare(QStringLiteral("NONE"), Qt::CaseInsensitive) == 0) {
             noneR->setChecked(true);
             listE->clear();
             listE->setEnabled(false);
-        } else if (v.isEmpty()
-                || v.compare(QStringLiteral("ALL"), Qt::CaseInsensitive) == 0) {
+        } else if (v.isEmpty() || v.compare(QStringLiteral("ALL"), Qt::CaseInsensitive) == 0) {
             allR->setChecked(true);
             listE->clear();
             listE->setEnabled(false);
@@ -428,20 +417,18 @@ void FilesPage::readReportContentsFromEngine()
             listE->setEnabled(true);
         }
     };
-    setSelector(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio,
-                m_rptSubcatchSomeRadio, m_rptSubcatchListEdit,
-                "RPT_SUBCATCHMENTS");
-    setSelector(m_rptNodeNoneRadio, m_rptNodeAllRadio,
-                m_rptNodeSomeRadio, m_rptNodeListEdit,
+    setSelector(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio, m_rptSubcatchSomeRadio,
+                m_rptSubcatchListEdit, "RPT_SUBCATCHMENTS");
+    setSelector(m_rptNodeNoneRadio, m_rptNodeAllRadio, m_rptNodeSomeRadio, m_rptNodeListEdit,
                 "RPT_NODES");
-    setSelector(m_rptLinkNoneRadio, m_rptLinkAllRadio,
-                m_rptLinkSomeRadio, m_rptLinkListEdit,
+    setSelector(m_rptLinkNoneRadio, m_rptLinkAllRadio, m_rptLinkSomeRadio, m_rptLinkListEdit,
                 "RPT_LINKS");
 }
 
 int FilesPage::writeReportContentsToEngine()
 {
-    if (!ctx_.engine()) return 0;
+    if (!ctx_.engine())
+        return 0;
     int n = 0;
     // Routed through the context so the key is recorded for the
     // reachability seam and the numeric-aware compare stays in one place.
@@ -450,40 +437,40 @@ int FilesPage::writeReportContentsToEngine()
     };
 
     auto boolStr = [](QCheckBox *box, bool def) {
-        return box ? SimulationOptionsDialog::engineBoolString(box->isChecked()) : SimulationOptionsDialog::engineBoolString(def);
+        return box ? SimulationOptionsDialog::engineBoolString(box->isChecked())
+                   : SimulationOptionsDialog::engineBoolString(def);
     };
-    writeIfChanged("RPT_DISABLED",   boolStr(m_rptDisabledBox,   false));
-    writeIfChanged("RPT_INPUT",      boolStr(m_rptInputBox,      false));
+    writeIfChanged("RPT_DISABLED", boolStr(m_rptDisabledBox, false));
+    writeIfChanged("RPT_INPUT", boolStr(m_rptInputBox, false));
     writeIfChanged("RPT_CONTINUITY", boolStr(m_rptContinuityBox, true));
-    writeIfChanged("RPT_FLOWSTATS",  boolStr(m_rptFlowstatsBox,  true));
-    writeIfChanged("RPT_CONTROLS",   boolStr(m_rptControlsBox,   false));
-    writeIfChanged("RPT_AVERAGES",   boolStr(m_rptAveragesBox,   false));
-    writeIfChanged("RPT_LINK_STEPS", boolStr(m_rptLinkStepsBox,  false));
+    writeIfChanged("RPT_FLOWSTATS", boolStr(m_rptFlowstatsBox, true));
+    writeIfChanged("RPT_CONTROLS", boolStr(m_rptControlsBox, false));
+    writeIfChanged("RPT_AVERAGES", boolStr(m_rptAveragesBox, false));
+    writeIfChanged("RPT_LINK_STEPS", boolStr(m_rptLinkStepsBox, false));
     writeIfChanged("REPORT_SIGNED_HEADS", boolStr(m_signedHeadsCheck, false));
 
-    auto selectorStr = [](QRadioButton *noneR, QRadioButton *allR,
-                          QRadioButton *someR, QLineEdit *listE) {
-        if (!noneR || !allR || !someR || !listE) return QStringLiteral("ALL");
-        if (noneR->isChecked()) return QStringLiteral("NONE");
-        if (allR->isChecked())  return QStringLiteral("ALL");
+    auto selectorStr = [](QRadioButton *noneR, QRadioButton *allR, QRadioButton *someR,
+                          QLineEdit *listE) {
+        if (!noneR || !allR || !someR || !listE)
+            return QStringLiteral("ALL");
+        if (noneR->isChecked())
+            return QStringLiteral("NONE");
+        if (allR->isChecked())
+            return QStringLiteral("ALL");
         // Selected — but empty list collapses to NONE so we don't push
         // an invalid empty SOME state through the engine.
         const QString text = listE->text().trimmed();
         return text.isEmpty() ? QStringLiteral("NONE") : text;
     };
-    writeIfChanged("RPT_SUBCATCHMENTS",
-        selectorStr(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio,
-                    m_rptSubcatchSomeRadio, m_rptSubcatchListEdit));
-    writeIfChanged("RPT_NODES",
-        selectorStr(m_rptNodeNoneRadio, m_rptNodeAllRadio,
-                    m_rptNodeSomeRadio, m_rptNodeListEdit));
-    writeIfChanged("RPT_LINKS",
-        selectorStr(m_rptLinkNoneRadio, m_rptLinkAllRadio,
-                    m_rptLinkSomeRadio, m_rptLinkListEdit));
+    writeIfChanged("RPT_SUBCATCHMENTS", selectorStr(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio,
+                                                    m_rptSubcatchSomeRadio, m_rptSubcatchListEdit));
+    writeIfChanged("RPT_NODES", selectorStr(m_rptNodeNoneRadio, m_rptNodeAllRadio,
+                                            m_rptNodeSomeRadio, m_rptNodeListEdit));
+    writeIfChanged("RPT_LINKS", selectorStr(m_rptLinkNoneRadio, m_rptLinkAllRadio,
+                                            m_rptLinkSomeRadio, m_rptLinkListEdit));
 
     return n;
 }
-
 
 void FilesPage::buildUi()
 {
@@ -509,15 +496,15 @@ void FilesPage::buildUi()
     auto *vlay = new QVBoxLayout(filesPage);
 
     // ── [FILES] secondary references group ─────────────────────────────
-    auto *secondary = new QGroupBox(
-        tr("Secondary file references (.inp [FILES] section)"), filesPage);
+    auto *secondary =
+        new QGroupBox(tr("Secondary file references (.inp [FILES] section)"), filesPage);
     auto *secForm = new QFormLayout(secondary);
 
     auto makeModeCombo = [secondary] {
         auto *c = new QComboBox(secondary);
         c->addItem(tr("(off)"), QString());
-        c->addItem(tr("USE"),   QStringLiteral("USE"));
-        c->addItem(tr("SAVE"),  QStringLiteral("SAVE"));
+        c->addItem(tr("USE"), QStringLiteral("USE"));
+        c->addItem(tr("SAVE"), QStringLiteral("SAVE"));
         return c;
     };
     // Slice IO-11a — every [FILES] row is a RelativePathPicker so the
@@ -537,18 +524,14 @@ void FilesPage::buildUi()
             : QString();
 
     auto makePathRow = [secondary, secForm, this, projectAnchor](
-                            const QString &label,
-                            openswmmvis::ui::RelativePathPicker **edit,
-                            QComboBox *modeCombo,
-                            bool defaultSave,
-                            const QString &dialogTitle,
-                            const QString &filter) {
+                           const QString &label, openswmmvis::ui::RelativePathPicker **edit,
+                           QComboBox *modeCombo, bool defaultSave, const QString &dialogTitle,
+                           const QString &filter) {
         auto *picker = new openswmmvis::ui::RelativePathPicker(secondary);
         picker->setProjectAnchor(projectAnchor);
         picker->setFileFilter(filter);
         picker->setDialogCaption(dialogTitle);
-        picker->setAcceptMode(defaultSave ? QFileDialog::AcceptSave
-                                          : QFileDialog::AcceptOpen);
+        picker->setAcceptMode(defaultSave ? QFileDialog::AcceptSave : QFileDialog::AcceptOpen);
         *edit = picker;
 
         auto *row = new QHBoxLayout();
@@ -558,42 +541,41 @@ void FilesPage::buildUi()
             row->addWidget(modeCombo);
 
             // Mode change → pick the right file-dialog flavour on next browse.
-            connect(modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                    picker, [picker, modeCombo, defaultSave] {
-                bool save = defaultSave;
-                const QString m = modeCombo->currentData().toString();
-                if (!m.isEmpty())
-                    save = (m.compare(QLatin1String("SAVE"),
-                                       Qt::CaseInsensitive) == 0);
-                picker->setAcceptMode(save ? QFileDialog::AcceptSave
-                                            : QFileDialog::AcceptOpen);
-            });
+            connect(modeCombo, qOverload<int>(&QComboBox::currentIndexChanged), picker,
+                    [picker, modeCombo, defaultSave] {
+                        bool save = defaultSave;
+                        const QString m = modeCombo->currentData().toString();
+                        if (!m.isEmpty())
+                            save = (m.compare(QLatin1String("SAVE"), Qt::CaseInsensitive) == 0);
+                        picker->setAcceptMode(save ? QFileDialog::AcceptSave
+                                                   : QFileDialog::AcceptOpen);
+                    });
         }
         secForm->addRow(label, row);
     };
 
     const QString textFilter = tr("Text files (*.txt *.dat);;All Files (*)");
-    const QString csvFilter  = tr("Text / CSV (*.txt *.dat *.csv);;All Files (*)");
-    const QString hsfFilter  = tr("Hot-start files (*.hsf);;All Files (*)");
+    const QString csvFilter = tr("Text / CSV (*.txt *.dat *.csv);;All Files (*)");
+    const QString hsfFilter = tr("Hot-start files (*.hsf);;All Files (*)");
 
     m_rainfallModeCombo = makeModeCombo();
-    makePathRow(tr("Rainfall:"), &m_rainfallPathEdit, m_rainfallModeCombo,
-                false, tr("Choose Rainfall File"), textFilter);
+    makePathRow(tr("Rainfall:"), &m_rainfallPathEdit, m_rainfallModeCombo, false,
+                tr("Choose Rainfall File"), textFilter);
 
     m_runoffModeCombo = makeModeCombo();
-    makePathRow(tr("Runoff:"),   &m_runoffPathEdit,   m_runoffModeCombo,
-                false, tr("Choose Runoff File"), textFilter);
+    makePathRow(tr("Runoff:"), &m_runoffPathEdit, m_runoffModeCombo, false,
+                tr("Choose Runoff File"), textFilter);
 
     m_rdiiModeCombo = makeModeCombo();
-    makePathRow(tr("RDII:"),     &m_rdiiPathEdit,     m_rdiiModeCombo,
-                false, tr("Choose RDII File"), textFilter);
+    makePathRow(tr("RDII:"), &m_rdiiPathEdit, m_rdiiModeCombo, false, tr("Choose RDII File"),
+                textFilter);
 
-    makePathRow(tr("Inflows (USE only):"),   &m_inflowsPathEdit,  nullptr,
-                false, tr("Choose Inflows File"),  csvFilter);
-    makePathRow(tr("Outflows (SAVE only):"), &m_outflowsPathEdit, nullptr,
-                true,  tr("Choose Outflows File"), csvFilter);
-    makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit,  nullptr,
-                false, tr("Choose Hot-Start File"), hsfFilter);
+    makePathRow(tr("Inflows (USE only):"), &m_inflowsPathEdit, nullptr, false,
+                tr("Choose Inflows File"), csvFilter);
+    makePathRow(tr("Outflows (SAVE only):"), &m_outflowsPathEdit, nullptr, true,
+                tr("Choose Outflows File"), csvFilter);
+    makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit, nullptr, false,
+                tr("Choose Hot-Start File"), hsfFilter);
     m_hotstartUseEdit->setObjectName(QStringLiteral("hotstartUsePathEdit"));
 
     vlay->addWidget(secondary);
@@ -608,32 +590,30 @@ void FilesPage::buildUi()
     // save path inline; HotstartSavesDateTimeDelegate renders each
     // datetime cell as a QDateTimeEdit with the "(end of run)" sentinel.
     // Persistent editors keep both widgets visible without click-to-edit.
-    auto *hsSaves = new QGroupBox(
-        tr("Scheduled hot-start saves (.inp [FILES] SAVE HOTSTART)"), filesPage);
+    auto *hsSaves =
+        new QGroupBox(tr("Scheduled hot-start saves (.inp [FILES] SAVE HOTSTART)"), filesPage);
     auto *hsSavesLay = new QVBoxLayout(hsSaves);
 
-    m_hotstartSavesModel   = new HotstartSavesModel(this);
-    m_hotstartSavesPathDel = new PathBrowseDelegate(
-        PathBrowseDelegate::SaveFile,
-        tr("Choose Hot-Start Save File"),
-        tr("Hot-start files (*.hsf);;All Files (*)"),
-        tr("path relative to the .inp directory"),
-        this);
+    m_hotstartSavesModel = new HotstartSavesModel(this);
+    m_hotstartSavesPathDel =
+        new PathBrowseDelegate(PathBrowseDelegate::SaveFile, tr("Choose Hot-Start Save File"),
+                               tr("Hot-start files (*.hsf);;All Files (*)"),
+                               tr("path relative to the .inp directory"), this);
     // Slice IO-11c — feed the same project anchor into the delegate so
     // file picks under the .inp directory commit as relative tokens,
     // matching the [FILES] picker behaviour set up immediately above.
     m_hotstartSavesPathDel->setProjectAnchor(projectAnchor);
-    m_hotstartSavesDtDel   = new HotstartSavesDateTimeDelegate(this);
-    m_hotstartSavesFmtDel  = new HotstartSavesFormatDelegate(this);
+    m_hotstartSavesDtDel = new HotstartSavesDateTimeDelegate(this);
+    m_hotstartSavesFmtDel = new HotstartSavesFormatDelegate(this);
 
     m_hotstartSavesView = new QTableView(hsSaves);
     m_hotstartSavesView->setModel(m_hotstartSavesModel);
-    m_hotstartSavesView->setItemDelegateForColumn(
-        HotstartSavesModel::ColPath, m_hotstartSavesPathDel);
-    m_hotstartSavesView->setItemDelegateForColumn(
-        HotstartSavesModel::ColDateTime, m_hotstartSavesDtDel);
-    m_hotstartSavesView->setItemDelegateForColumn(
-        HotstartSavesModel::ColFormat, m_hotstartSavesFmtDel);
+    m_hotstartSavesView->setItemDelegateForColumn(HotstartSavesModel::ColPath,
+                                                  m_hotstartSavesPathDel);
+    m_hotstartSavesView->setItemDelegateForColumn(HotstartSavesModel::ColDateTime,
+                                                  m_hotstartSavesDtDel);
+    m_hotstartSavesView->setItemDelegateForColumn(HotstartSavesModel::ColFormat,
+                                                  m_hotstartSavesFmtDel);
     // Interactive resize: both columns are user-draggable.  Set sensible
     // defaults — path column takes the leftover space initially, datetime
     // is sized to fit the picker — but neither is locked.
@@ -645,27 +625,28 @@ void FilesPage::buildUi()
         hdr->setMinimumSectionSize(60);
         // Width hint: ~2/3 path, ~1/3 datetime — refined once the view is
         // shown (Qt will clamp later if the dialog is resized).
-        hdr->resizeSection(HotstartSavesModel::ColPath,     360);
+        hdr->resizeSection(HotstartSavesModel::ColPath, 360);
         hdr->resizeSection(HotstartSavesModel::ColDateTime, 200);
-        hdr->resizeSection(HotstartSavesModel::ColFormat,   100);
+        hdr->resizeSection(HotstartSavesModel::ColFormat, 100);
     }
     m_hotstartSavesView->verticalHeader()->setVisible(false);
     m_hotstartSavesView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_hotstartSavesView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_hotstartSavesView->setEditTriggers(QAbstractItemView::AllEditTriggers);
-    m_hotstartSavesView->setToolTip(tr(
-        "Each row schedules one hot-start save during the run.\n"
-        "Leave Datetime empty (\"(end of run)\") to save at the end of the\n"
-        "simulation; otherwise the engine writes the file at the end of the\n"
-        "first time step that reaches the chosen datetime (not at all if\n"
-        "the run ends first).\n"
-        "Format: Native also keeps water age, reaction species, the aquifer,\n"
-        "storage-node LIDs and snow; SWMM 5 cannot read it. Auto is the\n"
-        "SWMM 5 file, or native when storage nodes carry LIDs."));
+    m_hotstartSavesView->setToolTip(
+        tr("Each row schedules one hot-start save during the run.\n"
+           "Leave Datetime empty (\"(end of run)\") to save at the end of the\n"
+           "simulation; otherwise the engine writes the file at the end of the\n"
+           "first time step that reaches the chosen datetime (not at all if\n"
+           "the run ends first).\n"
+           "Format: Native also keeps water age, reaction species, the aquifer,\n"
+           "storage-node LIDs and snow; SWMM 5 cannot read it. Auto is the\n"
+           "SWMM 5 file, or native when storage nodes carry LIDs."));
     hsSavesLay->addWidget(m_hotstartSavesView);
 
     auto openPersistentForRow = [this](int row) {
-        if (!m_hotstartSavesView || !m_hotstartSavesModel) return;
+        if (!m_hotstartSavesView || !m_hotstartSavesModel)
+            return;
         m_hotstartSavesView->openPersistentEditor(
             m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
         m_hotstartSavesView->openPersistentEditor(
@@ -676,25 +657,26 @@ void FilesPage::buildUi()
     // Open persistent editors on every newly-inserted row so the path
     // line-edit + browse button and the QDateTimeEdit are visible by
     // default without click-to-edit.
-    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted,
-            this, [openPersistentForRow](const QModelIndex &, int first, int last) {
-        for (int r = first; r <= last; ++r) openPersistentForRow(r);
-    });
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted, this,
+            [openPersistentForRow](const QModelIndex &, int first, int last) {
+                for (int r = first; r <= last; ++r)
+                    openPersistentForRow(r);
+            });
     connect(m_hotstartSavesModel, &QAbstractItemModel::modelReset, this,
             [this, openPersistentForRow] {
-        if (!m_hotstartSavesModel) return;
-        for (int r = 0; r < m_hotstartSavesModel->rowCount(); ++r)
-            openPersistentForRow(r);
-    });
+                if (!m_hotstartSavesModel)
+                    return;
+                for (int r = 0; r < m_hotstartSavesModel->rowCount(); ++r)
+                    openPersistentForRow(r);
+            });
 
     auto *hsBtnRow = new QHBoxLayout();
-    m_hotstartSavesAddBtn    = new QPushButton(tr("Add…"),     hsSaves);
-    m_hotstartSavesBrowseBtn = new QPushButton(tr("Browse…"),  hsSaves);
-    m_hotstartSavesRemoveBtn = new QPushButton(tr("Remove"),   hsSaves);
-    m_hotstartSavesUpBtn     = new QPushButton(tr("Move up"),  hsSaves);
-    m_hotstartSavesDownBtn   = new QPushButton(tr("Move down"),hsSaves);
-    m_hotstartSavesBrowseBtn->setToolTip(
-        tr("Choose a save-as path for the selected row"));
+    m_hotstartSavesAddBtn = new QPushButton(tr("Add…"), hsSaves);
+    m_hotstartSavesBrowseBtn = new QPushButton(tr("Browse…"), hsSaves);
+    m_hotstartSavesRemoveBtn = new QPushButton(tr("Remove"), hsSaves);
+    m_hotstartSavesUpBtn = new QPushButton(tr("Move up"), hsSaves);
+    m_hotstartSavesDownBtn = new QPushButton(tr("Move down"), hsSaves);
+    m_hotstartSavesBrowseBtn->setToolTip(tr("Choose a save-as path for the selected row"));
     hsBtnRow->addWidget(m_hotstartSavesAddBtn);
     hsBtnRow->addWidget(m_hotstartSavesBrowseBtn);
     hsBtnRow->addWidget(m_hotstartSavesRemoveBtn);
@@ -706,37 +688,34 @@ void FilesPage::buildUi()
 
     auto updateHsButtons = [this] {
         const int row = (m_hotstartSavesView && m_hotstartSavesView->currentIndex().isValid())
-                            ? m_hotstartSavesView->currentIndex().row() : -1;
-        const int n   = m_hotstartSavesModel ? m_hotstartSavesModel->rowCount() : 0;
+                            ? m_hotstartSavesView->currentIndex().row()
+                            : -1;
+        const int n = m_hotstartSavesModel ? m_hotstartSavesModel->rowCount() : 0;
         const bool hasSel = row >= 0;
-        if (m_hotstartSavesBrowseBtn) m_hotstartSavesBrowseBtn->setEnabled(hasSel);
-        if (m_hotstartSavesRemoveBtn) m_hotstartSavesRemoveBtn->setEnabled(hasSel);
-        if (m_hotstartSavesUpBtn)     m_hotstartSavesUpBtn->setEnabled(hasSel && row > 0);
-        if (m_hotstartSavesDownBtn)   m_hotstartSavesDownBtn->setEnabled(hasSel && row < n - 1);
+        if (m_hotstartSavesBrowseBtn)
+            m_hotstartSavesBrowseBtn->setEnabled(hasSel);
+        if (m_hotstartSavesRemoveBtn)
+            m_hotstartSavesRemoveBtn->setEnabled(hasSel);
+        if (m_hotstartSavesUpBtn)
+            m_hotstartSavesUpBtn->setEnabled(hasSel && row > 0);
+        if (m_hotstartSavesDownBtn)
+            m_hotstartSavesDownBtn->setEnabled(hasSel && row < n - 1);
     };
     updateHsButtons();
-    connect(m_hotstartSavesView->selectionModel(),
-            &QItemSelectionModel::currentChanged,
-            this, [updateHsButtons](const QModelIndex &, const QModelIndex &) {
-        updateHsButtons();
-    });
-    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted,
-            this, updateHsButtons);
-    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsRemoved,
-            this, updateHsButtons);
-    connect(m_hotstartSavesModel, &QAbstractItemModel::modelReset,
-            this, updateHsButtons);
+    connect(m_hotstartSavesView->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [updateHsButtons](const QModelIndex &, const QModelIndex &) { updateHsButtons(); });
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted, this, updateHsButtons);
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsRemoved, this, updateHsButtons);
+    connect(m_hotstartSavesModel, &QAbstractItemModel::modelReset, this, updateHsButtons);
 
-    connect(m_hotstartSavesAddBtn,    &QPushButton::clicked,
-            this, &FilesPage::onHotstartSaveAddRow);
-    connect(m_hotstartSavesBrowseBtn, &QPushButton::clicked,
-            this, &FilesPage::onHotstartSaveBrowseRow);
-    connect(m_hotstartSavesRemoveBtn, &QPushButton::clicked,
-            this, &FilesPage::onHotstartSaveRemoveRow);
-    connect(m_hotstartSavesUpBtn,     &QPushButton::clicked,
-            this, &FilesPage::onHotstartSaveMoveRowUp);
-    connect(m_hotstartSavesDownBtn,   &QPushButton::clicked,
-            this, &FilesPage::onHotstartSaveMoveRowDown);
+    connect(m_hotstartSavesAddBtn, &QPushButton::clicked, this, &FilesPage::onHotstartSaveAddRow);
+    connect(m_hotstartSavesBrowseBtn, &QPushButton::clicked, this,
+            &FilesPage::onHotstartSaveBrowseRow);
+    connect(m_hotstartSavesRemoveBtn, &QPushButton::clicked, this,
+            &FilesPage::onHotstartSaveRemoveRow);
+    connect(m_hotstartSavesUpBtn, &QPushButton::clicked, this, &FilesPage::onHotstartSaveMoveRowUp);
+    connect(m_hotstartSavesDownBtn, &QPushButton::clicked, this,
+            &FilesPage::onHotstartSaveMoveRowDown);
 
     vlay->addStretch(1);
     subTabs->addTab(filesPage, tr("Files"));
@@ -755,19 +734,17 @@ void FilesPage::buildUi()
     // entry adds the corresponding [PLUGINS] row on Apply.
     m_writersGroup = new QGroupBox(tr("Writer / Container"), outputPage);
     auto *writerGroup = m_writersGroup;
-    auto *writerForm  = new QFormLayout(writerGroup);
+    auto *writerForm = new QFormLayout(writerGroup);
 
     auto populateWriterCombo = [](QComboBox *combo, openswmmvis::FilterKind k) {
         // First entry: built-in (empty plugin id = engine default).
         const char *defaultLabel =
-            (k == openswmmvis::FilterKind::InputRead)
-                ? "(built-in: .inp writer)"
-                : (k == openswmmvis::FilterKind::ResultsWrite)
-                      ? "(built-in: .out writer)"
-                      : "(built-in: .rpt writer)";
+            (k == openswmmvis::FilterKind::InputRead)      ? "(built-in: .inp writer)"
+            : (k == openswmmvis::FilterKind::ResultsWrite) ? "(built-in: .out writer)"
+                                                           : "(built-in: .rpt writer)";
         combo->addItem(QObject::tr(defaultLabel), QString());
         auto *registry = openswmmvis::FileFilterRegistry::instance();
-        QStringList seen;  // dedupe by pluginId
+        QStringList seen; // dedupe by pluginId
         // Phase 3.10.6 (2026-05-22): the engine SDK has no INPUT_WRITE
         // role — plugins that handle the model input file advertise
         // INPUT_READ only (the GUI registry marks those entries writable,
@@ -776,19 +753,22 @@ void FilesPage::buildUi()
         // input plugin from the Input writer combo.  All three combos show every
         // plugin id advertising the matching role, deduped.
         for (const auto &entry : registry->entriesFor(k)) {
-            if (entry.pluginId.isEmpty()) continue;
-            if (seen.contains(entry.pluginId)) continue;
+            if (entry.pluginId.isEmpty())
+                continue;
+            if (seen.contains(entry.pluginId))
+                continue;
             seen << entry.pluginId;
-            const QString label = entry.description.isEmpty()
-                ? entry.pluginId
-                : QStringLiteral("%1 (%2)").arg(entry.description, entry.pluginId);
+            const QString label =
+                entry.description.isEmpty()
+                    ? entry.pluginId
+                    : QStringLiteral("%1 (%2)").arg(entry.description, entry.pluginId);
             combo->addItem(label, entry.pluginId);
         }
     };
 
-    m_inputWriterCombo  = new QComboBox(writerGroup);
+    m_inputWriterCombo = new QComboBox(writerGroup);
     populateWriterCombo(m_inputWriterCombo, openswmmvis::FilterKind::InputRead);
-    writerForm->addRow(tr("Input writer:"),  m_inputWriterCombo);
+    writerForm->addRow(tr("Input writer:"), m_inputWriterCombo);
 
     m_outputWriterCombo = new QComboBox(writerGroup);
     populateWriterCombo(m_outputWriterCombo, openswmmvis::FilterKind::ResultsWrite);
@@ -799,8 +779,7 @@ void FilesPage::buildUi()
     writerForm->addRow(tr("Report writer:"), m_reportWriterCombo);
 
     m_singleContainerBox = new QCheckBox(
-        tr("Single container (write input, output, and report to one file)"),
-        writerGroup);
+        tr("Single container (write input, output, and report to one file)"), writerGroup);
     m_singleContainerBox->setToolTip(
         tr("Enabled when the chosen Input writer plugin advertises input, "
            "output, and report roles for the same extension (e.g., GeoPackage). "
@@ -809,11 +788,9 @@ void FilesPage::buildUi()
     m_singleContainerBox->setEnabled(false);
     writerForm->addRow(QString(), m_singleContainerBox);
 
-    connect(m_inputWriterCombo,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) { updateSingleContainerEnabled(); });
-    connect(m_singleContainerBox, &QCheckBox::toggled,
-            this, &FilesPage::onSingleContainerToggled);
+    connect(m_inputWriterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) { updateSingleContainerEnabled(); });
+    connect(m_singleContainerBox, &QCheckBox::toggled, this, &FilesPage::onSingleContainerToggled);
 
     outVlay->addWidget(writerGroup);
 
@@ -822,38 +799,38 @@ void FilesPage::buildUi()
 
     // ── Report file path (Slice AA-4) ────────────────────────────────────
     auto *rptGroup = new QGroupBox(tr("Report file"), outputPage);
-    auto *rptForm  = new QFormLayout(rptGroup);
+    auto *rptForm = new QFormLayout(rptGroup);
 
     auto *rptPathRow = new QHBoxLayout();
     m_reportFilePathEdit = new QLineEdit(rptGroup);
-    m_reportFilePathEdit->setPlaceholderText(tr("(auto — sibling of input file with .rpt extension)"));
-    m_reportFilePathEdit->setToolTip(tr(
-        "Override path for the simulation report file. Leave blank to "
-        "derive the path automatically from the input file location. "
-        "The format is determined by the Report writer combo above."));
+    m_reportFilePathEdit->setPlaceholderText(
+        tr("(auto — sibling of input file with .rpt extension)"));
+    m_reportFilePathEdit->setToolTip(
+        tr("Override path for the simulation report file. Leave blank to "
+           "derive the path automatically from the input file location. "
+           "The format is determined by the Report writer combo above."));
     rptPathRow->addWidget(m_reportFilePathEdit, 1);
     auto *rptBrowse = new QPushButton(tr("Browse…"), rptGroup);
-    connect(rptBrowse, &QPushButton::clicked,
-            this, &FilesPage::browseForReportFile);
+    connect(rptBrowse, &QPushButton::clicked, this, &FilesPage::browseForReportFile);
     rptPathRow->addWidget(rptBrowse);
     rptForm->addRow(tr("Report file path:"), rptPathRow);
     outVlay->addWidget(rptGroup);
 
     // ── Output (results) file path (Slice AA-4) ──────────────────────────
     auto *outGroup = new QGroupBox(tr("Results output file"), outputPage);
-    auto *outForm  = new QFormLayout(outGroup);
+    auto *outForm = new QFormLayout(outGroup);
 
     auto *outPathRow = new QHBoxLayout();
     m_outputFilePathEdit = new QLineEdit(outGroup);
-    m_outputFilePathEdit->setPlaceholderText(tr("(auto — sibling of input file with .out extension)"));
-    m_outputFilePathEdit->setToolTip(tr(
-        "Override path for the binary results output file. Leave blank to "
-        "derive the path automatically from the input file location. "
-        "The format is determined by the Output writer combo above."));
+    m_outputFilePathEdit->setPlaceholderText(
+        tr("(auto — sibling of input file with .out extension)"));
+    m_outputFilePathEdit->setToolTip(
+        tr("Override path for the binary results output file. Leave blank to "
+           "derive the path automatically from the input file location. "
+           "The format is determined by the Output writer combo above."));
     outPathRow->addWidget(m_outputFilePathEdit, 1);
     auto *outBrowse = new QPushButton(tr("Browse…"), outGroup);
-    connect(outBrowse, &QPushButton::clicked,
-            this, &FilesPage::browseForOutputFile);
+    connect(outBrowse, &QPushButton::clicked, this, &FilesPage::browseForOutputFile);
     outPathRow->addWidget(outBrowse);
     outForm->addRow(tr("Output file path:"), outPathRow);
     outVlay->addWidget(outGroup);
@@ -867,14 +844,14 @@ void FilesPage::buildUi()
     auto *pluginsPage = new QWidget(subTabs);
     auto *plVlay = new QVBoxLayout(pluginsPage);
 
-    auto *intro = new QLabel(
-        tr("Plugins listed in the model's <b>[PLUGINS]</b> section.  Each row "
-           "names a writer / output / report plugin (by id, <i>id:version</i>, "
-           "or shared-library path) and any free-form arguments to pass to "
-           "its initialize() call.  The first input-capable row is also used "
-           "by File → Save As when picking a non-<code>.inp</code> "
-           "extension."),
-        pluginsPage);
+    auto *intro =
+        new QLabel(tr("Plugins listed in the model's <b>[PLUGINS]</b> section.  Each row "
+                      "names a writer / output / report plugin (by id, <i>id:version</i>, "
+                      "or shared-library path) and any free-form arguments to pass to "
+                      "its initialize() call.  The first input-capable row is also used "
+                      "by File → Save As when picking a non-<code>.inp</code> "
+                      "extension."),
+                   pluginsPage);
     intro->setWordWrap(true);
     plVlay->addWidget(intro);
 
@@ -883,24 +860,21 @@ void FilesPage::buildUi()
     // path field carries an inline "…" browse button targeting the
     // platform's shared-library extensions.  Column 1 (arguments)
     // uses the default QLineEdit delegate (free-form text).
-    m_pluginsModel   = new PluginsTableModel(this);
-    m_pluginsPathDel = new PathBrowseDelegate(
-        PathBrowseDelegate::OpenFile,
-        tr("Choose Plugin Library"),
+    m_pluginsModel = new PluginsTableModel(this);
+    m_pluginsPathDel =
+        new PathBrowseDelegate(PathBrowseDelegate::OpenFile, tr("Choose Plugin Library"),
 #if defined(Q_OS_WIN)
-        tr("Plugin libraries (*.dll);;All Files (*)"),
+                               tr("Plugin libraries (*.dll);;All Files (*)"),
 #elif defined(Q_OS_MACOS)
-        tr("Plugin libraries (*.dylib *.so *.bundle);;All Files (*)"),
+                               tr("Plugin libraries (*.dylib *.so *.bundle);;All Files (*)"),
 #else
-        tr("Plugin libraries (*.so);;All Files (*)"),
+                               tr("Plugin libraries (*.so);;All Files (*)"),
 #endif
-        tr("plugin id, id:version, or library path"),
-        this);
+                               tr("plugin id, id:version, or library path"), this);
 
     m_pluginsView = new QTableView(pluginsPage);
     m_pluginsView->setModel(m_pluginsModel);
-    m_pluginsView->setItemDelegateForColumn(
-        PluginsTableModel::ColPath, m_pluginsPathDel);
+    m_pluginsView->setItemDelegateForColumn(PluginsTableModel::ColPath, m_pluginsPathDel);
     m_pluginsView->verticalHeader()->setVisible(false);
     m_pluginsView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_pluginsView->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -919,23 +893,25 @@ void FilesPage::buildUi()
     // "…" button is visible without click-to-edit.  Args column keeps
     // the default click-to-edit behaviour.
     auto openPersistentPluginPath = [this](int row) {
-        if (!m_pluginsView || !m_pluginsModel) return;
-        m_pluginsView->openPersistentEditor(
-            m_pluginsModel->index(row, PluginsTableModel::ColPath));
+        if (!m_pluginsView || !m_pluginsModel)
+            return;
+        m_pluginsView->openPersistentEditor(m_pluginsModel->index(row, PluginsTableModel::ColPath));
     };
     connect(m_pluginsModel, &QAbstractItemModel::rowsInserted, this,
             [openPersistentPluginPath](const QModelIndex &, int first, int last) {
-        for (int r = first; r <= last; ++r) openPersistentPluginPath(r);
-    });
+                for (int r = first; r <= last; ++r)
+                    openPersistentPluginPath(r);
+            });
     connect(m_pluginsModel, &QAbstractItemModel::modelReset, this,
             [this, openPersistentPluginPath] {
-        if (!m_pluginsModel) return;
-        for (int r = 0; r < m_pluginsModel->rowCount(); ++r)
-            openPersistentPluginPath(r);
-    });
+                if (!m_pluginsModel)
+                    return;
+                for (int r = 0; r < m_pluginsModel->rowCount(); ++r)
+                    openPersistentPluginPath(r);
+            });
 
     auto *btnRow = new QHBoxLayout();
-    m_pluginsAddBtn    = new QPushButton(tr("Add"), pluginsPage);
+    m_pluginsAddBtn = new QPushButton(tr("Add"), pluginsPage);
     m_pluginsRemoveBtn = new QPushButton(tr("Remove"), pluginsPage);
     m_pluginsRemoveBtn->setEnabled(false);
     btnRow->addWidget(m_pluginsAddBtn);
@@ -944,15 +920,17 @@ void FilesPage::buildUi()
     plVlay->addLayout(btnRow);
 
     connect(m_pluginsAddBtn, &QPushButton::clicked, this, [this] {
-        if (!m_pluginsModel || !m_pluginsView) return;
+        if (!m_pluginsModel || !m_pluginsView)
+            return;
         const int row = m_pluginsModel->appendRow(QString(), QString());
-        m_pluginsView->setCurrentIndex(
-            m_pluginsModel->index(row, PluginsTableModel::ColPath));
+        m_pluginsView->setCurrentIndex(m_pluginsModel->index(row, PluginsTableModel::ColPath));
     });
     connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this] {
-        if (!m_pluginsModel || !m_pluginsView) return;
+        if (!m_pluginsModel || !m_pluginsView)
+            return;
         const QModelIndex cur = m_pluginsView->currentIndex();
-        if (cur.isValid()) m_pluginsModel->removeRows(cur.row(), 1);
+        if (cur.isValid())
+            m_pluginsModel->removeRows(cur.row(), 1);
     });
     // Slice RC.4 — Plugins tab honours `is_builtin` from the engine's
     // plugin discovery API. Built-ins (today: Default Input / Output /
@@ -970,47 +948,44 @@ void FilesPage::buildUi()
         }
         return ids;
     }();
-    connect(m_pluginsView->selectionModel(),
-            &QItemSelectionModel::currentChanged, this,
+    connect(m_pluginsView->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this, builtInPluginIds](const QModelIndex &cur, const QModelIndex &) {
-        if (!cur.isValid()) {
-            m_pluginsRemoveBtn->setEnabled(false);
-            m_pluginsRemoveBtn->setToolTip(QString());
-            return;
-        }
-        const QString rowPath = m_pluginsModel
-            ? m_pluginsModel->pathAt(cur.row()).trimmed()
-            : QString();
-        const bool isBuiltIn = builtInPluginIds.contains(rowPath);
-        m_pluginsRemoveBtn->setEnabled(!isBuiltIn);
-        m_pluginsRemoveBtn->setToolTip(
-            isBuiltIn
-              ? tr("\"%1\" is a built-in plugin statically linked into "
-                   "the engine — removing the row would have no effect "
-                   "(the plugin stays loaded in-process).").arg(rowPath)
-              : QString());
-    });
+                if (!cur.isValid()) {
+                    m_pluginsRemoveBtn->setEnabled(false);
+                    m_pluginsRemoveBtn->setToolTip(QString());
+                    return;
+                }
+                const QString rowPath =
+                    m_pluginsModel ? m_pluginsModel->pathAt(cur.row()).trimmed() : QString();
+                const bool isBuiltIn = builtInPluginIds.contains(rowPath);
+                m_pluginsRemoveBtn->setEnabled(!isBuiltIn);
+                m_pluginsRemoveBtn->setToolTip(
+                    isBuiltIn ? tr("\"%1\" is a built-in plugin statically linked into "
+                                   "the engine — removing the row would have no effect "
+                                   "(the plugin stays loaded in-process).")
+                                    .arg(rowPath)
+                              : QString());
+            });
 
     // U1 (2026-09-07) — [PROCESS_COMPONENTS] table. Same MVC shape as the
     // plugins table above: model over the engine registrations, combo
     // delegate for the id (engine's built-in catalogue, free text allowed),
     // PathBrowseDelegate for the config file. Reaction editor auto-registers
     // its component straight into the engine; this table re-reads on open.
-    auto *compGroup = new QGroupBox(tr("Process components ([PROCESS_COMPONENTS])"),
-                                    pluginsPage);
+    auto *compGroup = new QGroupBox(tr("Process components ([PROCESS_COMPONENTS])"), pluginsPage);
     auto *compLay = new QVBoxLayout(compGroup);
-    auto *compIntro = new QLabel(
-        tr("Transport / reaction components bound to this model and the "
-           "config file each reads (relative to the model file). The "
-           "reactions component is registered automatically by the Reaction "
-           "System editor's first save; other ids are listed from the "
-           "engine's catalogue."),
-        compGroup);
+    auto *compIntro =
+        new QLabel(tr("Transport / reaction components bound to this model and the "
+                      "config file each reads (relative to the model file). The "
+                      "reactions component is registered automatically by the Reaction "
+                      "System editor's first save; other ids are listed from the "
+                      "engine's catalogue."),
+                   compGroup);
     compIntro->setWordWrap(true);
     compLay->addWidget(compIntro);
 
-    m_componentsModel   = new ProcessComponentsModel(this);
-    m_componentsIdDel   = new ProcessComponentIdDelegate(this);
+    m_componentsModel = new ProcessComponentsModel(this);
+    m_componentsIdDel = new ProcessComponentIdDelegate(this);
     m_componentsPathDel = new PathBrowseDelegate(
         PathBrowseDelegate::OpenFile, tr("Choose Component Config File"),
         tr("Component config (*.rxn *.ard *.lard *.heat *.age *.i2d *.txt);;All Files (*)"),
@@ -1018,8 +993,7 @@ void FilesPage::buildUi()
     m_componentsView = new QTableView(compGroup);
     m_componentsView->setObjectName(QStringLiteral("processComponentsView"));
     m_componentsView->setModel(m_componentsModel);
-    m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColId,
-                                               m_componentsIdDel);
+    m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColId, m_componentsIdDel);
     m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColConfig,
                                                m_componentsPathDel);
     m_componentsView->verticalHeader()->setVisible(false);
@@ -1036,7 +1010,7 @@ void FilesPage::buildUi()
     compLay->addWidget(m_componentsView, 1);
 
     auto *compBtnRow = new QHBoxLayout();
-    m_componentsAddBtn    = new QPushButton(tr("Add"), compGroup);
+    m_componentsAddBtn = new QPushButton(tr("Add"), compGroup);
     m_componentsAddBtn->setObjectName(QStringLiteral("processComponentsAddBtn"));
     m_componentsRemoveBtn = new QPushButton(tr("Remove"), compGroup);
     m_componentsRemoveBtn->setObjectName(QStringLiteral("processComponentsRemoveBtn"));
@@ -1053,51 +1027,56 @@ void FilesPage::buildUi()
     });
     connect(m_componentsRemoveBtn, &QPushButton::clicked, this, [this] {
         const QModelIndex cur = m_componentsView->currentIndex();
-        if (cur.isValid()) m_componentsModel->removeRows(cur.row(), 1);
+        if (cur.isValid())
+            m_componentsModel->removeRows(cur.row(), 1);
     });
-    connect(m_componentsView->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, [this](const QModelIndex &cur, const QModelIndex &) {
+    connect(m_componentsView->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex &cur, const QModelIndex &) {
                 m_componentsRemoveBtn->setEnabled(cur.isValid());
             });
     plVlay->addWidget(compGroup);
 
     subTabs->addTab(pluginsPage, tr("Plu&gins"));
-
 }
 
 void FilesPage::readProcessComponentsFromEngine()
 {
-    if (!m_componentsModel) return;
-    const QString dir = ctx_.modelLayer() ? QFileInfo(ctx_.modelLayer()->modelFilePath()).absolutePath()
-                                : QString();
+    if (!m_componentsModel)
+        return;
+    const QString dir = ctx_.modelLayer()
+                            ? QFileInfo(ctx_.modelLayer()->modelFilePath()).absolutePath()
+                            : QString();
     m_componentsModel->load(ctx_.engine(), dir);
 }
 
 int FilesPage::writeProcessComponentsToEngine()
 {
-    if (!m_componentsModel || !ctx_.engine()) return 0;
+    if (!m_componentsModel || !ctx_.engine())
+        return 0;
     return m_componentsModel->commit(ctx_.engine());
 }
 
 void FilesPage::readPluginsFromEngine()
 {
-    if (!m_pluginsModel) return;
+    if (!m_pluginsModel)
+        return;
     m_pluginsModel->clearRows();
-    if (!ctx_.engine()) return;
+    if (!ctx_.engine())
+        return;
 
     int count = 0;
-    if (swmm_plugins_count(ctx_.engine(), &count) != 0) return;
+    if (swmm_plugins_count(ctx_.engine(), &count) != 0)
+        return;
 
     char path_buf[1024];
     char args_buf[2048];
     for (int i = 0; i < count; ++i) {
         path_buf[0] = '\0';
         args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i,
-                            path_buf, sizeof(path_buf),
-                            args_buf, sizeof(args_buf)) != 0) continue;
-        m_pluginsModel->appendRow(QString::fromUtf8(path_buf),
-                                  QString::fromUtf8(args_buf));
+        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
+                            sizeof(args_buf)) != 0)
+            continue;
+        m_pluginsModel->appendRow(QString::fromUtf8(path_buf), QString::fromUtf8(args_buf));
     }
 }
 
@@ -1111,33 +1090,45 @@ void FilesPage::readPluginsFromEngine()
 // rows the user may have added manually via the table below.
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 // Find the first plugin id in the current [PLUGINS] section that advertises
 // @p role per the engine's grouped discovery.  Returns empty string when
 // no such plugin is loaded (caller treats empty as "built-in default").
+/**
+ * @brief Find the first readable configured plugin id whose discovery entry has a requested role.
+ * @param engine Borrowed handle valid during count/get calls; null returns empty.
+ * @param role Engine SDK role enum, compared exactly against discovery entries.
+ * @return Owned exact id from the first matching model row, empty on no match/count
+ * failure. Uses 1024-byte id and 512-byte ignored-args buffers; failed row reads are
+ * skipped. Does not resolve id:version/library paths to catalog ids or load libraries.
+ */
 QString findActivePluginForRole(SWMM_Engine engine, openswmm::PluginRole role)
 {
-    if (!engine) return {};
+    if (!engine)
+        return {};
     int count = 0;
-    if (swmm_plugins_count(engine, &count) != 0 || count == 0) return {};
+    if (swmm_plugins_count(engine, &count) != 0 || count == 0)
+        return {};
 
     // Build the role index once: plugin_id → roles-bitset.
     auto plugins = openswmm::discover_plugins_by_id();
 
     char path_buf[1024];
-    char args_buf[512];  // ignored
+    char args_buf[512]; // ignored
     for (int i = 0; i < count; ++i) {
         path_buf[0] = '\0';
         args_buf[0] = '\0';
-        if (swmm_plugin_get(engine, i,
-                            path_buf, sizeof(path_buf),
-                            args_buf, sizeof(args_buf)) != 0) continue;
+        if (swmm_plugin_get(engine, i, path_buf, sizeof(path_buf), args_buf, sizeof(args_buf)) != 0)
+            continue;
         const QString rowId = QString::fromUtf8(path_buf);
         for (const auto &p : plugins) {
-            if (QString::fromStdString(p.plugin_id) != rowId) continue;
+            if (QString::fromStdString(p.plugin_id) != rowId)
+                continue;
             for (auto r : p.roles) {
-                if (r == role) return rowId;
+                if (r == role)
+                    return rowId;
             }
         }
     }
@@ -1146,25 +1137,45 @@ QString findActivePluginForRole(SWMM_Engine engine, openswmm::PluginRole role)
 
 // True when the plugin advertises all three writer roles (INPUT_READ,
 // OUTPUT_WRITE, REPORT_WRITE) — the "Single container" precondition.
+/**
+ * @brief Test whether one discovered exact id advertises all three writer-related roles.
+ * @param pluginId Borrowed exact catalog id; empty returns false.
+ * @return True for INPUT_READ, OUTPUT_WRITE and REPORT_WRITE together on the first
+ * matching discovery entry, false otherwise. Does not require one common extension,
+ * probe an installed device/library or verify real input-writing support.
+ */
 bool isTriRolePlugin(const QString &pluginId)
 {
-    if (pluginId.isEmpty()) return false;
+    if (pluginId.isEmpty())
+        return false;
     for (const auto &p : openswmm::discover_plugins_by_id()) {
-        if (QString::fromStdString(p.plugin_id) != pluginId) continue;
+        if (QString::fromStdString(p.plugin_id) != pluginId)
+            continue;
         bool hasIn = false, hasOut = false, hasRpt = false;
         for (auto r : p.roles) {
-            if      (r == openswmm::PluginRole::INPUT_READ)   hasIn  = true;
-            else if (r == openswmm::PluginRole::OUTPUT_WRITE) hasOut = true;
-            else if (r == openswmm::PluginRole::REPORT_WRITE) hasRpt = true;
+            if (r == openswmm::PluginRole::INPUT_READ)
+                hasIn = true;
+            else if (r == openswmm::PluginRole::OUTPUT_WRITE)
+                hasOut = true;
+            else if (r == openswmm::PluginRole::REPORT_WRITE)
+                hasRpt = true;
         }
         return hasIn && hasOut && hasRpt;
     }
     return false;
 }
 
+/**
+ * @brief Select a plugin-id item or the first built-in fallback.
+ * @param c Optional borrowed combo; null is a no-op.
+ * @param pluginId Borrowed item-data value sought using the combo's default findData rules.
+ * Uses index zero when no match, including an empty combo whose resulting index may be
+ * invalid. Does not block currentIndexChanged, add missing ids or write engine rows.
+ */
 void selectComboByPluginId(QComboBox *c, const QString &pluginId)
 {
-    if (!c) return;
+    if (!c)
+        return;
     const int idx = c->findData(pluginId);
     c->setCurrentIndex(idx >= 0 ? idx : 0);
 }
@@ -1174,37 +1185,47 @@ void selectComboByPluginId(QComboBox *c, const QString &pluginId)
 void FilesPage::readWriterCombosFromEngine()
 {
     selectComboByPluginId(m_inputWriterCombo,
-        findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::INPUT_READ));
-    selectComboByPluginId(m_outputWriterCombo,
+                          findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::INPUT_READ));
+    selectComboByPluginId(
+        m_outputWriterCombo,
         findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::OUTPUT_WRITE));
-    selectComboByPluginId(m_reportWriterCombo,
+    selectComboByPluginId(
+        m_reportWriterCombo,
         findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::REPORT_WRITE));
 
     updateSingleContainerEnabled();
     if (m_singleContainerBox && m_singleContainerBox->isEnabled()) {
         // Auto-check when all three combos already resolve to the same id
         // — the simulation was previously set up as a single-container.
-        const QString in  = m_inputWriterCombo  ? m_inputWriterCombo ->currentData().toString() : QString();
-        const QString out = m_outputWriterCombo ? m_outputWriterCombo->currentData().toString() : QString();
-        const QString rpt = m_reportWriterCombo ? m_reportWriterCombo->currentData().toString() : QString();
+        const QString in =
+            m_inputWriterCombo ? m_inputWriterCombo->currentData().toString() : QString();
+        const QString out =
+            m_outputWriterCombo ? m_outputWriterCombo->currentData().toString() : QString();
+        const QString rpt =
+            m_reportWriterCombo ? m_reportWriterCombo->currentData().toString() : QString();
         if (!in.isEmpty() && in == out && in == rpt) {
             QSignalBlocker block(m_singleContainerBox);
             m_singleContainerBox->setChecked(true);
             // Also disable the locked combos so the UI is consistent.
-            if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(false);
-            if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(false);
+            if (m_outputWriterCombo)
+                m_outputWriterCombo->setEnabled(false);
+            if (m_reportWriterCombo)
+                m_reportWriterCombo->setEnabled(false);
         }
     }
 }
 
 int FilesPage::writeWriterCombosToEngine()
 {
-    if (!ctx_.engine()) return 0;
+    if (!ctx_.engine())
+        return 0;
     QStringList wanted;
     auto addWanted = [&](QComboBox *c) {
-        if (!c) return;
+        if (!c)
+            return;
         const QString id = c->currentData().toString();
-        if (!id.isEmpty() && !wanted.contains(id)) wanted << id;
+        if (!id.isEmpty() && !wanted.contains(id))
+            wanted << id;
     };
     addWanted(m_inputWriterCombo);
     addWanted(m_outputWriterCombo);
@@ -1221,15 +1242,16 @@ int FilesPage::writeWriterCombosToEngine()
     for (int i = 0; i < count; ++i) {
         path_buf[0] = '\0';
         args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i,
-                            path_buf, sizeof(path_buf),
-                            args_buf, sizeof(args_buf)) != 0) continue;
+        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
+                            sizeof(args_buf)) != 0)
+            continue;
         existing.insert(QString::fromUtf8(path_buf));
     }
 
     int added = 0;
     for (const QString &id : wanted) {
-        if (existing.contains(id)) continue;
+        if (existing.contains(id))
+            continue;
         const QByteArray utf = id.toUtf8();
         if (swmm_plugin_set(ctx_.engine(), utf.constData(), nullptr) == SWMM_OK)
             ++added;
@@ -1244,24 +1266,24 @@ int FilesPage::writeWriterCombosToEngine()
 
 void FilesPage::readOutputPathsFromSettings()
 {
-    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit) return;
+    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit)
+        return;
     QSettings s;
-    const QString base = QStringLiteral("SWMMVis/Project/%1/")
-                             .arg(ctx_.modelLayer()->modelFilePath());
+    const QString base =
+        QStringLiteral("SWMMVis/Project/%1/").arg(ctx_.modelLayer()->modelFilePath());
     m_reportFilePathEdit->setText(s.value(base + QStringLiteral("ReportFilePath")).toString());
     m_outputFilePathEdit->setText(s.value(base + QStringLiteral("OutputFilePath")).toString());
 }
 
 void FilesPage::writeOutputPathsToSettings()
 {
-    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit) return;
+    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit)
+        return;
     QSettings s;
-    const QString base = QStringLiteral("SWMMVis/Project/%1/")
-                             .arg(ctx_.modelLayer()->modelFilePath());
-    s.setValue(base + QStringLiteral("ReportFilePath"),
-               m_reportFilePathEdit->text().trimmed());
-    s.setValue(base + QStringLiteral("OutputFilePath"),
-               m_outputFilePathEdit->text().trimmed());
+    const QString base =
+        QStringLiteral("SWMMVis/Project/%1/").arg(ctx_.modelLayer()->modelFilePath());
+    s.setValue(base + QStringLiteral("ReportFilePath"), m_reportFilePathEdit->text().trimmed());
+    s.setValue(base + QStringLiteral("OutputFilePath"), m_outputFilePathEdit->text().trimmed());
 }
 
 void FilesPage::browseForReportFile()
@@ -1270,11 +1292,10 @@ void FilesPage::browseForReportFile()
     using openswmmvis::FilterKind;
     auto *reg = FileFilterRegistry::instance();
     const QString filter = reg->filterFor(FilterKind::ReportWrite);
-    const QString current = m_reportFilePathEdit ? m_reportFilePathEdit->text().trimmed() : QString();
+    const QString current =
+        m_reportFilePathEdit ? m_reportFilePathEdit->text().trimmed() : QString();
     const QString path = QFileDialog::getSaveFileName(
-        this,
-        tr("Choose Report File"),
-        current.isEmpty() ? QString() : current,
+        this, tr("Choose Report File"), current.isEmpty() ? QString() : current,
         filter.isEmpty() ? tr("All Files (*)") : filter);
     if (!path.isEmpty() && m_reportFilePathEdit)
         m_reportFilePathEdit->setText(path);
@@ -1286,11 +1307,10 @@ void FilesPage::browseForOutputFile()
     using openswmmvis::FilterKind;
     auto *reg = FileFilterRegistry::instance();
     const QString filter = reg->filterFor(FilterKind::ResultsWrite);
-    const QString current = m_outputFilePathEdit ? m_outputFilePathEdit->text().trimmed() : QString();
+    const QString current =
+        m_outputFilePathEdit ? m_outputFilePathEdit->text().trimmed() : QString();
     const QString path = QFileDialog::getSaveFileName(
-        this,
-        tr("Choose Output File"),
-        current.isEmpty() ? QString() : current,
+        this, tr("Choose Output File"), current.isEmpty() ? QString() : current,
         filter.isEmpty() ? tr("All Files (*)") : filter);
     if (!path.isEmpty() && m_outputFilePathEdit)
         m_outputFilePathEdit->setText(path);
@@ -1304,6 +1324,13 @@ void FilesPage::browseForOutputFile()
 // names (water age, reaction species, the 2D aquifer, storage-node LIDs —
 // swmm_hotstart_legacy_omits), and on any model with a 2D mesh. Everywhere
 // else it is AUTO, the long-standing behaviour.
+/**
+ * @brief Choose a new draft row's hot-start serialization preference from current model state.
+ * @param e Borrowed optional engine valid during vertex/legacy-omission queries.
+ * @return Native for positive vertex count or nonzero legacy-omission mask, Auto
+ * otherwise, including null handle or queries leaving initialized zeros. Getter status
+ * is ignored; this does not create a schedule row or write a hot-start file.
+ */
 static int defaultHotstartSaveFormat(SWMM_Engine e)
 {
     int verts = 0, omits = 0;
@@ -1311,137 +1338,163 @@ static int defaultHotstartSaveFormat(SWMM_Engine e)
         swmm_2d_vertex_count(e, &verts);
         swmm_hotstart_legacy_omits(e, &omits);
     }
-    return (verts > 0 || omits != 0) ? SWMM_HOTSTART_FORMAT_NATIVE
-                                     : SWMM_HOTSTART_FORMAT_AUTO;
+    return (verts > 0 || omits != 0) ? SWMM_HOTSTART_FORMAT_NATIVE : SWMM_HOTSTART_FORMAT_AUTO;
 }
 
 void FilesPage::onHotstartSaveAddRow()
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
-    const int row = m_hotstartSavesModel->appendRow(
-        QString{}, 0.0, defaultHotstartSaveFormat(ctx_.engine()));
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
+    const int row =
+        m_hotstartSavesModel->appendRow(QString{}, 0.0, defaultHotstartSaveFormat(ctx_.engine()));
     m_hotstartSavesView->setCurrentIndex(
         m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
-    onHotstartSaveBrowseRow();   // prompt for the save-as path immediately
+    onHotstartSaveBrowseRow(); // prompt for the save-as path immediately
 }
 
 void FilesPage::onHotstartSaveBrowseRow()
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
     const QModelIndex cur = m_hotstartSavesView->currentIndex();
     const int row = cur.isValid() ? cur.row() : -1;
-    if (row < 0 || row >= m_hotstartSavesModel->rowCount()) return;
+    if (row < 0 || row >= m_hotstartSavesModel->rowCount())
+        return;
 
     const QString current = m_hotstartSavesModel->pathAt(row).trimmed();
-    const QString path = QFileDialog::getSaveFileName(
-        this,
-        tr("Choose Hot-Start Save File"),
-        current.isEmpty() ? QString() : current,
-        tr("Hot-start files (*.hsf);;All Files (*)"));
-    if (path.isEmpty()) return;
-    m_hotstartSavesModel->setData(
-        m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath),
-        path, Qt::EditRole);
+    const QString path = QFileDialog::getSaveFileName(this, tr("Choose Hot-Start Save File"),
+                                                      current.isEmpty() ? QString() : current,
+                                                      tr("Hot-start files (*.hsf);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+    m_hotstartSavesModel->setData(m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath),
+                                  path, Qt::EditRole);
 }
 
 void FilesPage::onHotstartSaveRemoveRow()
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
     const QModelIndex cur = m_hotstartSavesView->currentIndex();
     const int row = cur.isValid() ? cur.row() : -1;
-    if (row < 0) return;
+    if (row < 0)
+        return;
     m_hotstartSavesModel->removeRows(row, 1);
 }
 
 void FilesPage::onHotstartSaveMoveRowUp()
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
     const QModelIndex cur = m_hotstartSavesView->currentIndex();
     const int row = cur.isValid() ? cur.row() : -1;
-    if (row <= 0) return;
+    if (row <= 0)
+        return;
     moveHotstartSaveRow(row, row - 1);
 }
 
 void FilesPage::onHotstartSaveMoveRowDown()
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
     const QModelIndex cur = m_hotstartSavesView->currentIndex();
     const int row = cur.isValid() ? cur.row() : -1;
-    if (row < 0 || row >= m_hotstartSavesModel->rowCount() - 1) return;
+    if (row < 0 || row >= m_hotstartSavesModel->rowCount() - 1)
+        return;
     moveHotstartSaveRow(row, row + 1);
 }
 
 void FilesPage::moveHotstartSaveRow(int from, int to)
 {
-    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
-    if (!m_hotstartSavesModel->swapRows(from, to)) return;
+    if (!m_hotstartSavesModel || !m_hotstartSavesView)
+        return;
+    if (!m_hotstartSavesModel->swapRows(from, to))
+        return;
     m_hotstartSavesView->setCurrentIndex(
         m_hotstartSavesModel->index(to, HotstartSavesModel::ColPath));
 }
 
 void FilesPage::updateSingleContainerEnabled()
 {
-    if (!m_singleContainerBox || !m_inputWriterCombo) return;
+    if (!m_singleContainerBox || !m_inputWriterCombo)
+        return;
     const QString id = m_inputWriterCombo->currentData().toString();
     const bool eligible = isTriRolePlugin(id);
     m_singleContainerBox->setEnabled(eligible);
     if (!eligible && m_singleContainerBox->isChecked()) {
         QSignalBlocker b(m_singleContainerBox);
         m_singleContainerBox->setChecked(false);
-        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(true);
-        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(true);
+        if (m_outputWriterCombo)
+            m_outputWriterCombo->setEnabled(true);
+        if (m_reportWriterCombo)
+            m_reportWriterCombo->setEnabled(true);
     }
 }
 
 void FilesPage::onSingleContainerToggled(bool on)
 {
-    if (!m_inputWriterCombo) return;
+    if (!m_inputWriterCombo)
+        return;
     const QString id = m_inputWriterCombo->currentData().toString();
 
     if (on) {
         selectComboByPluginId(m_outputWriterCombo, id);
         selectComboByPluginId(m_reportWriterCombo, id);
-        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(false);
-        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(false);
+        if (m_outputWriterCombo)
+            m_outputWriterCombo->setEnabled(false);
+        if (m_reportWriterCombo)
+            m_reportWriterCombo->setEnabled(false);
     } else {
-        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(true);
-        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(true);
+        if (m_outputWriterCombo)
+            m_outputWriterCombo->setEnabled(true);
+        if (m_reportWriterCombo)
+            m_reportWriterCombo->setEnabled(true);
     }
 }
 
 void FilesPage::readFilesSectionFromEngine()
 {
-    if (!ctx_.engine()) return;
+    if (!ctx_.engine())
+        return;
     char buf[1024];
 
     auto getStr = [&](const char *key) -> QString {
         buf[0] = '\0';
-        if (swmm_files_get(ctx_.engine(), key, buf, sizeof(buf)) != SWMM_OK) return {};
+        if (swmm_files_get(ctx_.engine(), key, buf, sizeof(buf)) != SWMM_OK)
+            return {};
         return QString::fromUtf8(buf);
     };
     // The page writes paths absolute (see writeFilesSectionToEngine); show
     // them relative to the .inp folder, as the file itself does.
     const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
     auto shown = [&](const QString &path) -> QString {
-        if (path.isEmpty() || inpPath.isEmpty() || !QDir::isAbsolutePath(path)) return path;
+        if (path.isEmpty() || inpPath.isEmpty() || !QDir::isAbsolutePath(path))
+            return path;
         return ProjectSerializer::toRelativePath(path, inpPath);
     };
     auto getPath = [&](const char *key) { return shown(getStr(key)); };
     auto setMode = [&](QComboBox *c, const QString &mode) {
-        if (!c) return;
+        if (!c)
+            return;
         const int idx = c->findData(mode, Qt::UserRole, Qt::MatchFixedString);
         c->setCurrentIndex(idx >= 0 ? idx : 0);
     };
 
-    if (m_rainfallPathEdit) m_rainfallPathEdit->setPath(getPath("RAINFALL_PATH"));
+    if (m_rainfallPathEdit)
+        m_rainfallPathEdit->setPath(getPath("RAINFALL_PATH"));
     setMode(m_rainfallModeCombo, getStr("RAINFALL_MODE"));
-    if (m_runoffPathEdit)   m_runoffPathEdit->setPath(getPath("RUNOFF_PATH"));
-    setMode(m_runoffModeCombo,   getStr("RUNOFF_MODE"));
-    if (m_rdiiPathEdit)     m_rdiiPathEdit->setPath(getPath("RDII_PATH"));
-    setMode(m_rdiiModeCombo,     getStr("RDII_MODE"));
-    if (m_inflowsPathEdit)  m_inflowsPathEdit->setPath(getPath("INFLOWS_PATH"));
-    if (m_outflowsPathEdit) m_outflowsPathEdit->setPath(getPath("OUTFLOWS_PATH"));
-    if (m_hotstartUseEdit)  m_hotstartUseEdit->setPath(getPath("HOTSTART_USE_PATH"));
+    if (m_runoffPathEdit)
+        m_runoffPathEdit->setPath(getPath("RUNOFF_PATH"));
+    setMode(m_runoffModeCombo, getStr("RUNOFF_MODE"));
+    if (m_rdiiPathEdit)
+        m_rdiiPathEdit->setPath(getPath("RDII_PATH"));
+    setMode(m_rdiiModeCombo, getStr("RDII_MODE"));
+    if (m_inflowsPathEdit)
+        m_inflowsPathEdit->setPath(getPath("INFLOWS_PATH"));
+    if (m_outflowsPathEdit)
+        m_outflowsPathEdit->setPath(getPath("OUTFLOWS_PATH"));
+    if (m_hotstartUseEdit)
+        m_hotstartUseEdit->setPath(getPath("HOTSTART_USE_PATH"));
 
     // Multi-row SAVE HOTSTART table (Slice BV-01).  Phase 3.10.5 — pull
     // each entry from the engine's hotstart_saves vector into the
@@ -1450,7 +1503,8 @@ void FilesPage::readFilesSectionFromEngine()
     if (m_hotstartSavesModel) {
         m_hotstartSavesModel->clearRows();
         int count = 0;
-        if (swmm_hotstart_saves_count(ctx_.engine(), &count) != SWMM_OK) count = 0;
+        if (swmm_hotstart_saves_count(ctx_.engine(), &count) != SWMM_OK)
+            count = 0;
         for (int i = 0; i < count; ++i) {
             char pbuf[1024] = {0};
             double dt = 0.0;
@@ -1458,15 +1512,16 @@ void FilesPage::readFilesSectionFromEngine()
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &dt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &fmt);
-            m_hotstartSavesModel->appendRow(shown(QString::fromUtf8(pbuf)),
-                                            dt > 0.0 ? dt : 0.0, fmt);
+            m_hotstartSavesModel->appendRow(shown(QString::fromUtf8(pbuf)), dt > 0.0 ? dt : 0.0,
+                                            fmt);
         }
     }
 }
 
 int FilesPage::writeFilesSectionToEngine()
 {
-    if (!ctx_.engine()) return 0;
+    if (!ctx_.engine())
+        return 0;
     int written = 0;
     char buf[1024];
 
@@ -1485,14 +1540,15 @@ int FilesPage::writeFilesSectionToEngine()
     const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
     const QDir inpDir = QFileInfo(inpPath).absoluteDir();
     auto toAbsolute = [&](const QString &raw) -> QString {
-        if (raw.isEmpty() || inpPath.isEmpty() || QDir::isAbsolutePath(raw)
-            || raw.startsWith(QLatin1Char('<')))
+        if (raw.isEmpty() || inpPath.isEmpty() || QDir::isAbsolutePath(raw) ||
+            raw.startsWith(QLatin1Char('<')))
             return raw;
         return QDir::cleanPath(inpDir.filePath(raw));
     };
 
     auto writeIfChanged = [&](const char *key, const QString &newVal) {
-        if (getCurrent(key) == newVal) return;
+        if (getCurrent(key) == newVal)
+            return;
         const QByteArray utf = newVal.toUtf8();
         if (swmm_files_set(ctx_.engine(), key, utf.constData()) == SWMM_OK)
             ++written;
@@ -1501,47 +1557,50 @@ int FilesPage::writeFilesSectionToEngine()
     // rewritten just because the engine holds it relative.
     auto writePathIfChanged = [&](const char *key, const QString &rawText) {
         const QString path = toAbsolute(rawText.trimmed());
-        if (toAbsolute(getCurrent(key)) == path) return;
+        if (toAbsolute(getCurrent(key)) == path)
+            return;
         writeIfChanged(key, path);
     };
 
     if (m_rainfallPathEdit)
         writePathIfChanged("RAINFALL_PATH", m_rainfallPathEdit->absolutePath());
     if (m_rainfallModeCombo)
-        writeIfChanged("RAINFALL_MODE",
-                       m_rainfallModeCombo->currentData().toString());
+        writeIfChanged("RAINFALL_MODE", m_rainfallModeCombo->currentData().toString());
     if (m_runoffPathEdit)
-        writePathIfChanged("RUNOFF_PATH",   m_runoffPathEdit->absolutePath());
+        writePathIfChanged("RUNOFF_PATH", m_runoffPathEdit->absolutePath());
     if (m_runoffModeCombo)
-        writeIfChanged("RUNOFF_MODE",
-                       m_runoffModeCombo->currentData().toString());
+        writeIfChanged("RUNOFF_MODE", m_runoffModeCombo->currentData().toString());
     if (m_rdiiPathEdit)
-        writePathIfChanged("RDII_PATH",     m_rdiiPathEdit->absolutePath());
+        writePathIfChanged("RDII_PATH", m_rdiiPathEdit->absolutePath());
     if (m_rdiiModeCombo)
-        writeIfChanged("RDII_MODE",
-                       m_rdiiModeCombo->currentData().toString());
+        writeIfChanged("RDII_MODE", m_rdiiModeCombo->currentData().toString());
     if (m_inflowsPathEdit)
-        writePathIfChanged("INFLOWS_PATH",  m_inflowsPathEdit->absolutePath());
+        writePathIfChanged("INFLOWS_PATH", m_inflowsPathEdit->absolutePath());
     if (m_outflowsPathEdit)
         writePathIfChanged("OUTFLOWS_PATH", m_outflowsPathEdit->absolutePath());
     if (m_hotstartUseEdit)
-        writePathIfChanged("HOTSTART_USE_PATH",  m_hotstartUseEdit->absolutePath());
+        writePathIfChanged("HOTSTART_USE_PATH", m_hotstartUseEdit->absolutePath());
 
     // Multi-row SAVE HOTSTART (Slice BV-01).  The vector API is simpler
     // to drive than per-slot diffing: snapshot the engine's current
     // entries, compare against the model contents (path + datetime),
     // and only rebuild the vector when something actually changed.
     if (m_hotstartSavesModel) {
-        struct HsRow { QString path; double dt; int fmt; };
+        struct HsRow {
+            QString path;
+            double dt;
+            int fmt;
+        };
         QList<HsRow> desired;
         const int nRows = m_hotstartSavesModel->rowCount();
         for (int row = 0; row < nRows; ++row) {
             const QString path = toAbsolute(m_hotstartSavesModel->pathAt(row).trimmed());
-            const double dt    = m_hotstartSavesModel->oaDateAt(row);
+            const double dt = m_hotstartSavesModel->oaDateAt(row);
 
             // Skip empty rows entirely — an empty path with no datetime
             // is a stub the user never filled in.
-            if (path.isEmpty() && dt == 0.0) continue;
+            if (path.isEmpty() && dt == 0.0)
+                continue;
             desired.push_back({path, dt, m_hotstartSavesModel->formatAt(row)});
         }
 
@@ -1556,9 +1615,12 @@ int FilesPage::writeFilesSectionToEngine()
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &curDt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &curFmt);
-            if (toAbsolute(QString::fromUtf8(pbuf)) != desired[i].path) changed = true;
-            else if (curDt != desired[i].dt)                changed = true;
-            else if (curFmt != desired[i].fmt)              changed = true;
+            if (toAbsolute(QString::fromUtf8(pbuf)) != desired[i].path)
+                changed = true;
+            else if (curDt != desired[i].dt)
+                changed = true;
+            else if (curFmt != desired[i].fmt)
+                changed = true;
         }
         if (changed) {
             swmm_hotstart_saves_clear(ctx_.engine());
@@ -1575,7 +1637,8 @@ int FilesPage::writeFilesSectionToEngine()
 
 int FilesPage::writePluginsToEngine()
 {
-    if (!m_pluginsModel || !ctx_.engine()) return 0;
+    if (!m_pluginsModel || !ctx_.engine())
+        return 0;
 
     // Snapshot existing engine rows by key so we can compute the
     // additions, replacements, and removals that the table represents.
@@ -1588,20 +1651,20 @@ int FilesPage::writePluginsToEngine()
     for (int i = 0; i < existingCount; ++i) {
         path_buf[0] = '\0';
         args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i,
-                            path_buf, sizeof(path_buf),
-                            args_buf, sizeof(args_buf)) != 0) continue;
-        existing.insert(QString::fromUtf8(path_buf),
-                        QString::fromUtf8(args_buf));
+        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
+                            sizeof(args_buf)) != 0)
+            continue;
+        existing.insert(QString::fromUtf8(path_buf), QString::fromUtf8(args_buf));
     }
 
     int written = 0;
     QSet<QString> seen;
     const int nRows = m_pluginsModel->rowCount();
     for (int row = 0; row < nRows; ++row) {
-        const QString key  = m_pluginsModel->pathAt(row).trimmed();
+        const QString key = m_pluginsModel->pathAt(row).trimmed();
         const QString args = m_pluginsModel->argsAt(row).trimmed();
-        if (key.isEmpty()) continue;
+        if (key.isEmpty())
+            continue;
         seen.insert(key);
 
         // Only call set when the row is new or its args changed —

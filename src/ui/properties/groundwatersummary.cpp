@@ -1,8 +1,12 @@
-/*!
- * \file   groundwatersummary.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      groundwatersummary.cpp
+ * @brief     configuration, shared by the property browser's Groundwater row, the attribute
+ *            table's Groundwater column and the GroundwaterExchangeDialog so every surface reads
+ *            the same text.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/groundwatersummary.h"
@@ -13,13 +17,21 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Test whether one authored groundwater formula is nonempty.
+ * @param[in] e Borrowed engine.
+ * @param[in] subIdx Zero-based subcatchment index.
+ * @param[in] type SWMM_GWF_LATERAL or SWMM_GWF_DEEP selector.
+ * @return True after a successful read with nonempty UTF-8 buffer; false on absence/read failure.
+ */
 bool hasGwfExpression(SWMM_Engine e, int subIdx, int type)
 {
     char buf[512] = {};
-    return swmm_subcatch_get_gwf_expression(e, subIdx, type, buf, sizeof(buf)) == SWMM_OK
-           && buf[0] != '\0';
+    return swmm_subcatch_get_gwf_expression(e, subIdx, type, buf, sizeof(buf)) == SWMM_OK &&
+           buf[0] != '\0';
 }
 
 } // namespace
@@ -27,13 +39,15 @@ bool hasGwfExpression(SWMM_Engine e, int subIdx, int type)
 QString groundwaterSummary(SWMM_Engine engine, int subIdx)
 {
     const QString none = QCoreApplication::translate("GroundwaterSummary", "(none)");
-    if (!engine || subIdx < 0) return none;
+    if (!engine || subIdx < 0)
+        return none;
 
     int aq = -1;
     if (swmm_subcatch_get_aquifer(engine, subIdx, &aq) != SWMM_OK || aq < 0)
         return none;
     const char *aqId = swmm_aquifer_id(engine, aq);
-    if (!aqId || !*aqId) return none;
+    if (!aqId || !*aqId)
+        return none;
 
     QString node;
     int nd = -1;
@@ -44,8 +58,8 @@ QString groundwaterSummary(SWMM_Engine engine, int subIdx)
         node = QCoreApplication::translate("GroundwaterSummary", "(no node)");
 
     QString text = QStringLiteral("%1 → %2").arg(QString::fromUtf8(aqId), node);
-    if (hasGwfExpression(engine, subIdx, SWMM_GWF_LATERAL)
-        || hasGwfExpression(engine, subIdx, SWMM_GWF_DEEP))
+    if (hasGwfExpression(engine, subIdx, SWMM_GWF_LATERAL) ||
+        hasGwfExpression(engine, subIdx, SWMM_GWF_DEEP))
         text += QCoreApplication::translate("GroundwaterSummary", " (custom)");
     return text;
 }

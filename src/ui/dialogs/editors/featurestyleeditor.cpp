@@ -1,14 +1,17 @@
-/*!
- * \file   featurestyleeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurestyleeditor.cpp
+ * @brief     archetypes).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/featurestyleeditor.h"
 #include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
-#include "render/iattributeprovider.h"   // L-1 — available label fields
+#include "render/iattributeprovider.h" // L-1 — available label fields
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "ui/dialogs/editors/kindrendererpanel.h"
@@ -30,7 +33,8 @@
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::FeatureSublayerStyle;
 using OpenSWMM::Render::PointFeatureSublayerStyle;
@@ -57,14 +61,13 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
     m_attributeCombo = new QComboBox(this);
     m_attributeCombo->setEditable(true);
     m_attributeCombo->setInsertPolicy(QComboBox::NoInsert);
-    if (auto *sub = m_style
-            ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
-            : nullptr) {
+    if (auto *sub = m_style ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
+                            : nullptr) {
         if (auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent())) {
             if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host)) {
                 for (const auto &f : prov->availableAttributes(sub->category())) {
                     if (f.type == QMetaType::QString)
-                        continue;   // colour ramp / sizing need numerics
+                        continue; // colour ramp / sizing need numerics
                     m_attributeCombo->addItem(f.displayName, f.name);
                 }
             }
@@ -81,34 +84,30 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
 
     // Subscribe to the style bag's NOTIFY signal so external mutations
     // (Cancel rollback, .oswp load) refresh the UI.
-    connect(m_style, &FeatureSublayerStyle::styleChanged,
-            this, &FeatureStyleEditorBase::refreshFromModel,
-            Qt::UniqueConnection);
+    connect(m_style, &FeatureSublayerStyle::styleChanged, this,
+            &FeatureStyleEditorBase::refreshFromModel, Qt::UniqueConnection);
 }
 
 void FeatureStyleEditorBase::buildCommonRows()
 {
     // Bindings — pushed via setters which fire styleChanged.
-    connect(m_attributeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int row) {
-        m_style->setAttribute(m_attributeCombo->itemData(row).isValid()
-                                  ? m_attributeCombo->itemData(row).toString()
-                                  : m_attributeCombo->itemText(row));
-    });
-    connect(m_attributeCombo->lineEdit(), &QLineEdit::editingFinished,
-            this, [this]() {
+    connect(m_attributeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int row) {
+                m_style->setAttribute(m_attributeCombo->itemData(row).isValid()
+                                          ? m_attributeCombo->itemData(row).toString()
+                                          : m_attributeCombo->itemText(row));
+            });
+    connect(m_attributeCombo->lineEdit(), &QLineEdit::editingFinished, this, [this]() {
         // Free-typed attribute name (editable combo, no matching entry).
         const int row = m_attributeCombo->findText(m_attributeCombo->currentText());
         m_style->setAttribute(row >= 0 && m_attributeCombo->itemData(row).isValid()
                                   ? m_attributeCombo->itemData(row).toString()
                                   : m_attributeCombo->currentText());
     });
-    connect(m_singleColorBtn, &ColorButton::colorChanged, this, [this](const QColor &c) {
-        m_style->setColor(c);
-    });
-    connect(m_useRampBox, &QCheckBox::toggled, this, [this](bool v) {
-        m_style->setUseColorRamp(v);
-    });
+    connect(m_singleColorBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_style->setColor(c); });
+    connect(m_useRampBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_style->setUseColorRamp(v); });
 
     // ── L-1 — per-sublayer Labels group ─────────────────────────────────
     // LAYER_STYLING_LABELING_PLAN_2026-08-16 — full-fidelity LabelConfig
@@ -123,13 +122,11 @@ void FeatureStyleEditorBase::buildCommonRows()
 
     // Populate the available-field hint from the host layer's attribute
     // provider for this sublayer's category (plus the always-available name).
-    if (auto *sub = m_style
-            ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
-            : nullptr) {
+    if (auto *sub = m_style ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
+                            : nullptr) {
         if (auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent())) {
             if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
-                m_labelEditor->setAvailableFields(
-                    prov->availableAttributes(sub->category()));
+                m_labelEditor->setAvailableFields(prov->availableAttributes(sub->category()));
         }
     }
 
@@ -138,7 +135,8 @@ void FeatureStyleEditorBase::buildCommonRows()
 
     connect(m_labelEditor, &LabelConfigEditor::configChanged, this,
             [this](const OpenSWMM::Render::LabelConfig &cfg) {
-                if (m_style) m_style->setLabelConfig(cfg);
+                if (m_style)
+                    m_style->setLabelConfig(cfg);
             });
 }
 
@@ -171,7 +169,8 @@ void FeatureStyleEditorBase::addPreviewRow()
 
 void FeatureStyleEditorBase::refreshFromModel()
 {
-    if (!m_style) return;
+    if (!m_style)
+        return;
     QSignalBlocker b1(m_attributeCombo), b2(m_singleColorBtn), b3(m_useRampBox);
     const QString attr = m_style->attribute();
     int row = m_attributeCombo->findData(attr);
@@ -195,15 +194,14 @@ void FeatureStyleEditorBase::refreshFromModel()
 // Point archetype
 // ---------------------------------------------------------------------------
 
-PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *style,
-                                                  QWidget *parent)
+PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *style, QWidget *parent)
     : FeatureStyleEditorBase(style, parent), m_pointStyle(style)
 {
     auto *symbolBox = new QGroupBox(tr("Marker"), this);
     auto *form = new QFormLayout(symbolBox);
 
     m_sizeSpin = new QDoubleSpinBox(this);
-    m_sizeSpin->setObjectName(QStringLiteral("baseSymbolSize"));   // feedback C2
+    m_sizeSpin->setObjectName(QStringLiteral("baseSymbolSize")); // feedback C2
     m_sizeSpin->setRange(0.5, 60.0);
     m_sizeSpin->setDecimals(1);
     m_sizeSpin->setSingleStep(0.5);
@@ -211,21 +209,21 @@ PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *styl
     form->addRow(tr("Si&ze:"), m_sizeSpin);
 
     m_shapeCombo = new MarkerShapeCombo(this);
-    m_shapeCombo->populateDefault(false);  // No Cross — matches the 5-shape enum.
+    m_shapeCombo->populateDefault(false); // No Cross — matches the 5-shape enum.
     form->addRow(tr("S&hape:"), m_shapeCombo);
 
     layout()->addWidget(symbolBox);
     buildCommonRows();
     addPreviewRow();
 
-    if (m_preview) m_preview->setKind(StylePreviewSwatch::PointKind);
+    if (m_preview)
+        m_preview->setKind(StylePreviewSwatch::PointKind);
 
-    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_pointStyle->setMarkerSizePx(v); });
-    connect(m_shapeCombo, &MarkerShapeCombo::shapeValueChanged,
-            this, [this](int v) {
-                m_pointStyle->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(v));
-            });
+    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_pointStyle->setMarkerSizePx(v); });
+    connect(m_shapeCombo, &MarkerShapeCombo::shapeValueChanged, this, [this](int v) {
+        m_pointStyle->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(v));
+    });
 
     refreshFromModel();
 }
@@ -233,7 +231,8 @@ PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *styl
 void PointFeatureStyleEditor::refreshFromModel()
 {
     FeatureStyleEditorBase::refreshFromModel();
-    if (!m_pointStyle) return;
+    if (!m_pointStyle)
+        return;
     QSignalBlocker bs(m_sizeSpin), bc(m_shapeCombo);
     m_sizeSpin->setValue(m_pointStyle->markerSizePx());
     m_shapeCombo->setShapeValue(int(m_pointStyle->shape()));
@@ -242,7 +241,8 @@ void PointFeatureStyleEditor::refreshFromModel()
 
 void PointFeatureStyleEditor::updatePreview()
 {
-    if (!m_preview || !m_pointStyle) return;
+    if (!m_preview || !m_pointStyle)
+        return;
     m_preview->setColor(m_pointStyle->color());
     m_preview->setMarkerSizePx(m_pointStyle->markerSizePx());
     m_preview->setMarkerShape(int(m_pointStyle->shape()));
@@ -252,15 +252,14 @@ void PointFeatureStyleEditor::updatePreview()
 // Line archetype
 // ---------------------------------------------------------------------------
 
-LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
-                                                QWidget *parent)
+LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style, QWidget *parent)
     : FeatureStyleEditorBase(style, parent), m_lineStyle(style)
 {
     auto *lineBox = new QGroupBox(tr("Line"), this);
     auto *lineForm = new QFormLayout(lineBox);
 
     m_widthSpin = new QDoubleSpinBox(this);
-    m_widthSpin->setObjectName(QStringLiteral("baseSymbolSize"));   // feedback C2
+    m_widthSpin->setObjectName(QStringLiteral("baseSymbolSize")); // feedback C2
     m_widthSpin->setRange(0.25, 30.0);
     m_widthSpin->setDecimals(2);
     m_widthSpin->setSingleStep(0.25);
@@ -304,22 +303,23 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     buildCommonRows();
     addPreviewRow();
 
-    if (m_preview) m_preview->setKind(StylePreviewSwatch::LineKind);
+    if (m_preview)
+        m_preview->setKind(StylePreviewSwatch::LineKind);
 
-    connect(m_widthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_lineStyle->setLineWidthPx(v); });
-    connect(m_dashCombo, &DashStyleCombo::penStyleChanged,
-            this, [this](Qt::PenStyle s) { m_lineStyle->setDashPattern(s); });
-    connect(m_renderAsLineBox, &QCheckBox::toggled,
-            this, [this](bool v) { m_lineStyle->setRenderAsLine(v); });
-    connect(m_showArrowsBox, &QCheckBox::toggled,
-            this, [this](bool v) { m_lineStyle->setShowFlowArrows(v); });
-    connect(m_arrowLenSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_lineStyle->setArrowLengthPx(v); });
-    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_lineStyle->setArrowWidthPx(v); });
-    connect(m_arrowColorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_lineStyle->setArrowColor(c); });
+    connect(m_widthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_lineStyle->setLineWidthPx(v); });
+    connect(m_dashCombo, &DashStyleCombo::penStyleChanged, this,
+            [this](Qt::PenStyle s) { m_lineStyle->setDashPattern(s); });
+    connect(m_renderAsLineBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_lineStyle->setRenderAsLine(v); });
+    connect(m_showArrowsBox, &QCheckBox::toggled, this,
+            [this](bool v) { m_lineStyle->setShowFlowArrows(v); });
+    connect(m_arrowLenSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_lineStyle->setArrowLengthPx(v); });
+    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_lineStyle->setArrowWidthPx(v); });
+    connect(m_arrowColorBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_lineStyle->setArrowColor(c); });
 
     refreshFromModel();
 }
@@ -327,10 +327,10 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
 void LineFeatureStyleEditor::refreshFromModel()
 {
     FeatureStyleEditorBase::refreshFromModel();
-    if (!m_lineStyle) return;
-    QSignalBlocker bw(m_widthSpin), bd(m_dashCombo), bra(m_renderAsLineBox),
-                   bsa(m_showArrowsBox), bal(m_arrowLenSpin), baw(m_arrowWidSpin),
-                   bac(m_arrowColorBtn);
+    if (!m_lineStyle)
+        return;
+    QSignalBlocker bw(m_widthSpin), bd(m_dashCombo), bra(m_renderAsLineBox), bsa(m_showArrowsBox),
+        bal(m_arrowLenSpin), baw(m_arrowWidSpin), bac(m_arrowColorBtn);
     m_widthSpin->setValue(m_lineStyle->lineWidthPx());
     m_dashCombo->setPenStyle(m_lineStyle->dashPattern());
     m_renderAsLineBox->setChecked(m_lineStyle->renderAsLine());
@@ -343,7 +343,8 @@ void LineFeatureStyleEditor::refreshFromModel()
 
 void LineFeatureStyleEditor::updatePreview()
 {
-    if (!m_preview || !m_lineStyle) return;
+    if (!m_preview || !m_lineStyle)
+        return;
     m_preview->setColor(m_lineStyle->color());
     QPen pen;
     pen.setStyle(m_lineStyle->dashPattern());
@@ -357,7 +358,7 @@ void LineFeatureStyleEditor::updatePreview()
 // ---------------------------------------------------------------------------
 
 PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle *style,
-                                                      QWidget *parent)
+                                                     QWidget *parent)
     : FeatureStyleEditorBase(style, parent), m_polyStyle(style)
 {
     auto *polyBox = new QGroupBox(tr("Polygon"), this);
@@ -383,14 +384,15 @@ PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle
     buildCommonRows();
     addPreviewRow();
 
-    if (m_preview) m_preview->setKind(StylePreviewSwatch::PolygonKind);
+    if (m_preview)
+        m_preview->setKind(StylePreviewSwatch::PolygonKind);
 
-    connect(m_outlineColorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_polyStyle->setOutlineColor(c); });
-    connect(m_outlineWidthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_polyStyle->setOutlineWidthPx(v); });
-    connect(m_fillOpacitySpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_polyStyle->setFillOpacity(v); });
+    connect(m_outlineColorBtn, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_polyStyle->setOutlineColor(c); });
+    connect(m_outlineWidthSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_polyStyle->setOutlineWidthPx(v); });
+    connect(m_fillOpacitySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_polyStyle->setFillOpacity(v); });
 
     refreshFromModel();
 }
@@ -398,9 +400,9 @@ PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle
 void PolygonFeatureStyleEditor::refreshFromModel()
 {
     FeatureStyleEditorBase::refreshFromModel();
-    if (!m_polyStyle) return;
-    QSignalBlocker boc(m_outlineColorBtn), bow(m_outlineWidthSpin),
-                   bfo(m_fillOpacitySpin);
+    if (!m_polyStyle)
+        return;
+    QSignalBlocker boc(m_outlineColorBtn), bow(m_outlineWidthSpin), bfo(m_fillOpacitySpin);
     m_outlineColorBtn->setColor(m_polyStyle->outlineColor());
     m_outlineWidthSpin->setValue(m_polyStyle->outlineWidthPx());
     m_fillOpacitySpin->setValue(m_polyStyle->fillOpacity());
@@ -409,7 +411,8 @@ void PolygonFeatureStyleEditor::refreshFromModel()
 
 void PolygonFeatureStyleEditor::updatePreview()
 {
-    if (!m_preview || !m_polyStyle) return;
+    if (!m_preview || !m_polyStyle)
+        return;
     m_preview->setColor(m_polyStyle->color());
     QPen outline(m_polyStyle->outlineColor());
     outline.setWidthF(m_polyStyle->outlineWidthPx());
@@ -421,28 +424,25 @@ void PolygonFeatureStyleEditor::updatePreview()
 // Registry hookup — static at the bottom of this TU.
 // ---------------------------------------------------------------------------
 
-REGISTER_STYLE_EDITOR(
-    PointFeatureSublayerStyle,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *s = qobject_cast<PointFeatureSublayerStyle *>(obj))
-            return new PointFeatureStyleEditor(s, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(PointFeatureSublayerStyle,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *s = qobject_cast<PointFeatureSublayerStyle *>(obj))
+                              return new PointFeatureStyleEditor(s, parent);
+                          return nullptr;
+                      })
 
-REGISTER_STYLE_EDITOR(
-    LineFeatureSublayerStyle,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *s = qobject_cast<LineFeatureSublayerStyle *>(obj))
-            return new LineFeatureStyleEditor(s, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(LineFeatureSublayerStyle,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *s = qobject_cast<LineFeatureSublayerStyle *>(obj))
+                              return new LineFeatureStyleEditor(s, parent);
+                          return nullptr;
+                      })
 
-REGISTER_STYLE_EDITOR(
-    PolygonFeatureSublayerStyle,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *s = qobject_cast<PolygonFeatureSublayerStyle *>(obj))
-            return new PolygonFeatureStyleEditor(s, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(PolygonFeatureSublayerStyle,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *s = qobject_cast<PolygonFeatureSublayerStyle *>(obj))
+                              return new PolygonFeatureStyleEditor(s, parent);
+                          return nullptr;
+                      })
 
 } // namespace openswmmvis::ui

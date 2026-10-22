@@ -1,14 +1,15 @@
-/*!
- * \file   test_featurefielddelegate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  FeatureFieldDelegate — one editor per feature column
+/**
+ * @file      test_featurefielddelegate.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     FeatureFieldDelegate — one editor per feature column
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R3).
  *
  * Leaf test: the delegate against a QStandardItemModel, with the role
  * registry supplying the fields. The edits-push-one-undo-command half of R3
  * needs a FeatureLayer and a MapCanvas and lives in test_featurelayer_editors.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "feature/featureroles.h"
@@ -29,7 +30,8 @@
 using namespace openswmmvis::feature;
 using openswmmvis::ui::FeatureFieldDelegate;
 
-namespace {
+namespace
+{
 
 FieldDef roleField(FeatureLayerRole role, const char *name)
 {
@@ -59,7 +61,7 @@ public:
     }
 };
 
-}   // namespace
+} // namespace
 
 class TestFeatureFieldDelegate : public QObject
 {
@@ -80,7 +82,7 @@ private slots:
         auto *combo = qobject_cast<QComboBox *>(editor.get());
         QVERIFY(combo);
         QVERIFY(!combo->isEditable());
-        QCOMPARE(combo->count(), 7);   // bc_type is required: no "(none)"
+        QCOMPARE(combo->count(), 7); // bc_type is required: no "(none)"
         d.setEditorData(combo, idx);
         QCOMPARE(combo->currentData().toString(), QStringLiteral("TS_STAGE"));
 
@@ -99,7 +101,7 @@ private slots:
         std::unique_ptr<QWidget> editor(d.createEditor(&host, QStyleOptionViewItem(), idx));
         auto *combo = qobject_cast<QComboBox *>(editor.get());
         QVERIFY(combo);
-        QCOMPARE(combo->count(), 8);   // (none) + 7 groups
+        QCOMPARE(combo->count(), 8); // (none) + 7 groups
         combo->setCurrentIndex(0);
         d.setModelData(combo, model.get(), idx);
         QCOMPARE(idx.data(Qt::EditRole).toString(), QString());
@@ -109,7 +111,7 @@ private slots:
     {
         ProbeDelegate d(roleField(FeatureLayerRole::Region, "cells"));
         d.setWarningColor(QColor(Qt::red));
-        auto model = columnModel({QStringLiteral("Mapped")});   // a retired quad mode
+        auto model = columnModel({QStringLiteral("Mapped")}); // a retired quad mode
         const QModelIndex idx = model->index(0, 0);
         QVERIFY(d.isOutOfList(idx.data()));
         QCOMPARE(d.displayText(idx.data(), QLocale()), QStringLiteral("Mapped"));
@@ -128,8 +130,8 @@ private slots:
     void suggestedOffersTheValuesInTheColumn()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::Region, "tag"));
-        auto model = columnModel({QStringLiteral("park"), QStringLiteral("Road"),
-                                  QStringLiteral("park"), QString()});
+        auto model = columnModel(
+            {QStringLiteral("park"), QStringLiteral("Road"), QStringLiteral("park"), QString()});
         const QModelIndex idx = model->index(3, 0);
         QWidget host;
         std::unique_ptr<QWidget> editor(d.createEditor(&host, QStyleOptionViewItem(), idx));
@@ -139,7 +141,7 @@ private slots:
         QCOMPARE(combo->count(), 2);
         QCOMPARE(combo->itemText(0), QStringLiteral("park"));
         QCOMPARE(combo->itemText(1), QStringLiteral("Road"));
-        combo->setCurrentText(QStringLiteral("  wetland "));   // anything may be typed
+        combo->setCurrentText(QStringLiteral("  wetland ")); // anything may be typed
         d.setModelData(combo, model.get(), idx);
         QCOMPARE(idx.data(Qt::EditRole).toString(), QStringLiteral("wetland"));
         QVERIFY(!d.isOutOfList(idx.data()));
@@ -273,7 +275,7 @@ private slots:
         // behind the spin box's own Enter handling, which used to refill an
         // empty box with its last value (0, or a number just deleted).
         FeatureFieldDelegate d(roleField(FeatureLayerRole::Region, "h"));
-        d.setLengthUnit(QStringLiteral("m"));   // a suffix keeps the text non-empty
+        d.setLengthUnit(QStringLiteral("m")); // a suffix keeps the text non-empty
         QStandardItemModel model(1, 1);
         QTableView view;
         view.setModel(&model);
@@ -287,8 +289,10 @@ private slots:
             view.setCurrentIndex(idx);
             view.edit(idx);
             QWidget *editor = view.indexWidget(idx);
-            if (!qobject_cast<QDoubleSpinBox *>(editor)) return false;
-            for (Qt::Key k : keys) QTest::keyClick(editor, k);
+            if (!qobject_cast<QDoubleSpinBox *>(editor))
+                return false;
+            for (Qt::Key k : keys)
+                QTest::keyClick(editor, k);
             QTest::keyClick(editor, Qt::Key_Return);
             // Committed and closed (both queued).
             return QTest::qWaitFor([&] { return !view.indexWidget(idx); }, 2000);
@@ -296,7 +300,7 @@ private slots:
 
         QVERIFY(typeThenEnter({Qt::Key_Backspace, Qt::Key_Home, Qt::Key_Left}));
         QCOMPARE(writes.count(), 0);
-        QVERIFY(typeThenEnter({Qt::Key_5, Qt::Key_Backspace}));   // typed, then deleted
+        QVERIFY(typeThenEnter({Qt::Key_5, Qt::Key_Backspace})); // typed, then deleted
         QCOMPARE(writes.count(), 0);
         QVERIFY(!model.data(idx, Qt::EditRole).isValid());
 

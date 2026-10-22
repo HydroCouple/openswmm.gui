@@ -1,6 +1,6 @@
-/*!
- * \file   test_twod_defaults_prefs.cpp
- * \brief  Pins PreferencesManager::TwoDDefaults — the 2D Defaults
+/**
+ * @file      test_twod_defaults_prefs.cpp
+ * @brief     Pins PreferencesManager::TwoDDefaults — the 2D Defaults
  *         preference bundle (iteration 4).
  *
  * Three contracts:
@@ -13,6 +13,10 @@
  *     QSettings.
  *  3. setTwoDDefaults emits preferenceChanged("Defaults", "TwoDDefaults")
  *     so live-bound consumers refresh.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -29,10 +33,47 @@ class TestTwoDDefaultsPrefs : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Select dedicated Qt identity and INI user-scope path under persistent mesh-controls
+     * verification output, then clear TwoDDefaults.
+     * Global format/path/app identity changes are not restored. Directory creation is
+     * asserted; settings sync errors unchecked and tests require isolated serialized use.
+     *
+     */
     void initTestCase();
+    /**
+     *
+     * @brief Pin listed 2D solver/coupling/rainfall/output and mesh-generation defaults,
+     * including unset optional resolution sources.
+     * Lengths use the struct documented metres, steps seconds and angles degrees;
+     * reads local defaults without running a solver or mesh generator.
+     *
+     */
     void compiledDefaultsPinTheContract();
+    /**
+     *
+     * @brief Persist/read the explicitly listed solver and mesh default fields, then restore a
+     * compiled-default bundle on success.
+     * Early assertions can skip that reset; this is same-process QSettings verification,
+     * not a restart test or proof that future added fields are covered.
+     *
+     */
     void roundTripPersistsAllFields();
+    /**
+     *
+     * @brief Seed legacy mesh spacing/coarsening keys, require metre-based migration and persist
+     * an explicit optional resolution bundle.
+     * Checks JSON equality including terrain Off, then resets defaults on success.
+     *
+     */
     void explicitResolutionAndLegacyPreferences();
+    /**
+     *
+     * @brief Require setting compiled TwoDDefaults to emit one Defaults/TwoDDefaults
+     * notification.
+     *
+     */
     void setterEmitsPreferenceChanged();
 };
 
@@ -40,11 +81,11 @@ void TestTwoDDefaultsPrefs::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("twoddefaults-test"));
-    const QString output=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
-        .filePath("../../verification/mesh_controls_2026-10-13/preferences");
+    const QString output = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                               .filePath("../../verification/mesh_controls_2026-10-13/preferences");
     QVERIFY(QDir().mkpath(output));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,output);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, output);
     QSettings settings;
     settings.remove(QStringLiteral("SWMMVis/Preferences/TwoDDefaults"));
     settings.sync();
@@ -201,28 +242,31 @@ void TestTwoDDefaultsPrefs::setterEmitsPreferenceChanged()
 
 void TestTwoDDefaultsPrefs::explicitResolutionAndLegacyPreferences()
 {
-    auto *p=PreferencesManager::instance();
+    auto *p = PreferencesManager::instance();
     QSettings settings;
-    const QString prefix="SWMMVis/Preferences/TwoDDefaults/";
-    settings.remove(prefix+"MeshResolutionJson");
-    settings.setValue(prefix+"MeshCellSizeM",6.096);
-    settings.setValue(prefix+"MeshMinCellSizeM",6.096);
-    settings.setValue(prefix+"MeshCoarsenFactor",1000.0);
-    settings.setValue(prefix+"MeshTerrainToleranceM",6.096);
+    const QString prefix = "SWMMVis/Preferences/TwoDDefaults/";
+    settings.remove(prefix + "MeshResolutionJson");
+    settings.setValue(prefix + "MeshCellSizeM", 6.096);
+    settings.setValue(prefix + "MeshMinCellSizeM", 6.096);
+    settings.setValue(prefix + "MeshCoarsenFactor", 1000.0);
+    settings.setValue(prefix + "MeshTerrainToleranceM", 6.096);
     settings.sync();
-    const auto migrated=p->twoDDefaults().resolutionSettings();
-    QCOMPARE(migrated.maximumM.value(),6096.0);
-    QCOMPARE(migrated.toleranceM.value(),6.096);
-    QCOMPARE(migrated.breaklineToleranceM.value(),6.096);
+    const auto migrated = p->twoDDefaults().resolutionSettings();
+    QCOMPARE(migrated.maximumM.value(), 6096.0);
+    QCOMPARE(migrated.toleranceM.value(), 6.096);
+    QCOMPARE(migrated.breaklineToleranceM.value(), 6.096);
 
-    auto d=p->twoDDefaults();
-    auto r=migrated;
-    r.maximumM.reset(); r.featureM.reset(); r.toleranceM=.1524;
-    r.breaklineToleranceM=.6096; r.averagingM=3.048;
-    r.terrain=mesh::ResolutionSettings::Terrain::Off;
-    d.meshResolution=r;
+    auto d = p->twoDDefaults();
+    auto r = migrated;
+    r.maximumM.reset();
+    r.featureM.reset();
+    r.toleranceM = .1524;
+    r.breaklineToleranceM = .6096;
+    r.averagingM = 3.048;
+    r.terrain = mesh::ResolutionSettings::Terrain::Off;
+    d.meshResolution = r;
     p->setTwoDDefaults(d);
-    QCOMPARE(p->twoDDefaults().resolutionSettings().toJson(),r.toJson());
+    QCOMPARE(p->twoDDefaults().resolutionSettings().toJson(), r.toJson());
     p->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
 }
 

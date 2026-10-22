@@ -1,3 +1,14 @@
+/**
+ * @file      shortcuteditorwidget.cpp
+ * @brief     UI redesign P8 — the Keyboard page of Preferences: browse every ActionRegistry
+ *            command grouped by category, rebind with a QKeySequenceEdit, and reset one or all
+ *            bindings.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/widgets/shortcuteditorwidget.h"
 
 #include "ui/actioncatalog.h"
@@ -14,27 +25,36 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 enum Column { ColCommand = 0, ColShortcut, ColDefault };
 constexpr int kIdRole = Qt::UserRole + 1;
 
 /*! Sequences the platform reserves for window/system management —
  *  rebinding over them works but is warned against (Qt::CTRL is Cmd on
- *  macOS, where these are sacred; on Win/Linux they're merely common). */
+ *  macOS, where these are sacred; on Win/Linux they're merely common).
+ * @param[in] seq Candidate key sequence compared exactly against the fixed Ctrl+Q/W/H/M/Tab/Space list.
+ * @return True for a listed sequence; this is a warning heuristic, not an operating-system reservation query.
+ */
 bool isReservedSequence(const QKeySequence &seq)
 {
     static const QList<QKeySequence> kReserved = {
-        QKeySequence(QStringLiteral("Ctrl+Q")), QKeySequence(QStringLiteral("Ctrl+W")),
-        QKeySequence(QStringLiteral("Ctrl+H")), QKeySequence(QStringLiteral("Ctrl+M")),
-        QKeySequence(QStringLiteral("Ctrl+Tab")),
-        QKeySequence(QStringLiteral("Ctrl+Space")),
+        QKeySequence(QStringLiteral("Ctrl+Q")),   QKeySequence(QStringLiteral("Ctrl+W")),
+        QKeySequence(QStringLiteral("Ctrl+H")),   QKeySequence(QStringLiteral("Ctrl+M")),
+        QKeySequence(QStringLiteral("Ctrl+Tab")), QKeySequence(QStringLiteral("Ctrl+Space")),
     };
     return kReserved.contains(seq);
 }
 
+/**
+ * @brief Remove mnemonic ampersands from an action's display text.
+ * @param[in] action Required borrowed action.
+ * @return Text copy with every ampersand removed.
+ */
 QString cleanText(const QAction *action)
 {
     QString text = action->text();
@@ -42,10 +62,9 @@ QString cleanText(const QAction *action)
     return text;
 }
 
-}   // namespace
+} // namespace
 
-ShortcutEditorWidget::ShortcutEditorWidget(QWidget *parent)
-    : QWidget(parent)
+ShortcutEditorWidget::ShortcutEditorWidget(QWidget *parent) : QWidget(parent)
 {
     auto *layout = new QVBoxLayout(this);
 
@@ -90,23 +109,20 @@ ShortcutEditorWidget::ShortcutEditorWidget(QWidget *parent)
     mResetAll = new QPushButton(tr("Reset A&ll to Defaults"), this);
     bottomRow->addWidget(mResetAll);
 
-    connect(mFilter, &QLineEdit::textChanged,
-            this, &ShortcutEditorWidget::onFilterChanged);
-    connect(mTree, &QTreeWidget::currentItemChanged,
-            this, [this](QTreeWidgetItem *, QTreeWidgetItem *) {
-                onSelectionChanged();
-            });
-    connect(mSequenceEdit, &QKeySequenceEdit::keySequenceChanged,
-            this, [this](const QKeySequence &) { onSequenceChanged(); });
-    connect(mAssign,  &QPushButton::clicked, this, &ShortcutEditorWidget::onAssign);
-    connect(mClear,   &QPushButton::clicked, this, &ShortcutEditorWidget::onClear);
-    connect(mReset,   &QPushButton::clicked, this, &ShortcutEditorWidget::onReset);
+    connect(mFilter, &QLineEdit::textChanged, this, &ShortcutEditorWidget::onFilterChanged);
+    connect(mTree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *, QTreeWidgetItem *) { onSelectionChanged(); });
+    connect(mSequenceEdit, &QKeySequenceEdit::keySequenceChanged, this,
+            [this](const QKeySequence &) { onSequenceChanged(); });
+    connect(mAssign, &QPushButton::clicked, this, &ShortcutEditorWidget::onAssign);
+    connect(mClear, &QPushButton::clicked, this, &ShortcutEditorWidget::onClear);
+    connect(mReset, &QPushButton::clicked, this, &ShortcutEditorWidget::onReset);
     connect(mResetAll, &QPushButton::clicked, this, &ShortcutEditorWidget::onResetAll);
 
     // External changes (another editor instance, palette-driven resets)
     // refresh the visible rows.
-    connect(ActionRegistry::instance(), &ActionRegistry::shortcutChanged,
-            this, [this](const QString &) { reload(); });
+    connect(ActionRegistry::instance(), &ActionRegistry::shortcutChanged, this,
+            [this](const QString &) { reload(); });
 
     reload();
     onSelectionChanged();
@@ -119,7 +135,7 @@ void ShortcutEditorWidget::reload()
 
     auto *registry = ActionRegistry::instance();
     QHash<QString, QTreeWidgetItem *> categoryItems;
-    const QStringList ids = registry->registeredIds();   // catalog order
+    const QStringList ids = registry->registeredIds(); // catalog order
     for (const QString &id : ids) {
         QAction *action = registry->action(id);
         const ActionCatalogEntry *entry = registry->catalogEntry(id);
@@ -150,13 +166,11 @@ void ShortcutEditorWidget::refreshItem(QTreeWidgetItem *item)
     auto *registry = ActionRegistry::instance();
     const QString id = item->data(0, kIdRole).toString();
     const auto effective = registry->effectiveShortcuts(id);
-    const auto defaults  = registry->defaultShortcuts(id);
-    const QString effectiveText = effective.isEmpty()
-        ? QString()
-        : effective.first().toString(QKeySequence::NativeText);
-    const QString defaultText = defaults.isEmpty()
-        ? QString()
-        : defaults.first().toString(QKeySequence::NativeText);
+    const auto defaults = registry->defaultShortcuts(id);
+    const QString effectiveText =
+        effective.isEmpty() ? QString() : effective.first().toString(QKeySequence::NativeText);
+    const QString defaultText =
+        defaults.isEmpty() ? QString() : defaults.first().toString(QKeySequence::NativeText);
     item->setText(ColShortcut, effectiveText);
     item->setText(ColDefault, defaultText);
     QFont font = item->font(ColShortcut);
@@ -193,9 +207,9 @@ void ShortcutEditorWidget::onFilterChanged(const QString &text)
         int visibleChildren = 0;
         for (int i = 0; i < category->childCount(); ++i) {
             QTreeWidgetItem *item = category->child(i);
-            const bool match = needle.isEmpty()
-                || item->text(ColCommand).contains(needle, Qt::CaseInsensitive)
-                || category->text(ColCommand).contains(needle, Qt::CaseInsensitive);
+            const bool match = needle.isEmpty() ||
+                               item->text(ColCommand).contains(needle, Qt::CaseInsensitive) ||
+                               category->text(ColCommand).contains(needle, Qt::CaseInsensitive);
             item->setHidden(!match);
             if (match)
                 ++visibleChildren;
@@ -211,14 +225,12 @@ void ShortcutEditorWidget::onSelectionChanged()
     mSequenceEdit->setEnabled(hasSelection);
     mAssign->setEnabled(false);
     mClear->setEnabled(hasSelection);
-    mReset->setEnabled(hasSelection
-                       && ActionRegistry::instance()->hasUserShortcut(id));
+    mReset->setEnabled(hasSelection && ActionRegistry::instance()->hasUserShortcut(id));
     mConflict->clear();
     if (hasSelection) {
         const auto effective = ActionRegistry::instance()->effectiveShortcuts(id);
         QSignalBlocker block(mSequenceEdit);
-        mSequenceEdit->setKeySequence(
-            effective.isEmpty() ? QKeySequence() : effective.first());
+        mSequenceEdit->setKeySequence(effective.isEmpty() ? QKeySequence() : effective.first());
     } else {
         QSignalBlocker block(mSequenceEdit);
         mSequenceEdit->clear();
@@ -238,8 +250,7 @@ void ShortcutEditorWidget::onSequenceChanged()
         mAssign->setEnabled(false);
         return;
     }
-    const QString holder =
-        ActionRegistry::instance()->conflictingActionId(seq, id);
+    const QString holder = ActionRegistry::instance()->conflictingActionId(seq, id);
     if (!holder.isEmpty()) {
         QAction *other = ActionRegistry::instance()->action(holder);
         mConflict->setStyleSheet(theme::errorTextStyle());
@@ -294,4 +305,4 @@ void ShortcutEditorWidget::onResetAll()
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

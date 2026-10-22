@@ -1,8 +1,9 @@
-/*!
- * \file   mesh2dgroundwaterdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      mesh2dgroundwaterdialog.h
+ * @brief     GG1-GG4, GG6 (2026-09-07) — the 2D two-zone groundwater editor.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * GG1-GG4, GG6 (2026-09-07) — the 2D two-zone groundwater editor.
  *
@@ -28,7 +29,9 @@
  * kernel at initialize, so a mid-run edit would be silently dropped. The
  * dialog reads that state up front and disables the editors with a reason
  * rather than letting Apply fail.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_MESH2DGROUNDWATERDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_MESH2DGROUNDWATERDIALOG_H
 
@@ -54,9 +57,10 @@ class QSpinBox;
 class QTableView;
 class QTabWidget;
 
-class UnitSystem;   // core/unitsystem.h — global scope, as every other dialog declares it
+class UnitSystem; // core/unitsystem.h — global scope, as every other dialog declares it
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class Mesh2DAquiferModel;
 class Mesh2DAquiferNodeModel;
@@ -68,12 +72,19 @@ class Mesh2DGroundwaterDialog : public QDialog
 
 public:
     /*! \brief Which page opens first. */
-    enum class Page { AquiferProperties, InitialConditions, Options, State, NodeBeds, EdgeBoundaries };
-    void focusNode(const QString& node);
-    void setNodeUndoStack(QUndoStack*,std::function<bool()> current,std::function<void()> edited);
+    enum class Page {
+        AquiferProperties,
+        InitialConditions,
+        Options,
+        State,
+        NodeBeds,
+        EdgeBoundaries
+    };
+    void focusNode(const QString &node);
+    void setNodeUndoStack(QUndoStack *, std::function<bool()> current,
+                          std::function<void()> edited);
 
-    explicit Mesh2DGroundwaterDialog(SWMM_Engine engine,
-                                     QWidget *parent = nullptr,
+    explicit Mesh2DGroundwaterDialog(SWMM_Engine engine, QWidget *parent = nullptr,
                                      Page initialPage = Page::AquiferProperties,
                                      const UnitSystem *units = nullptr);
 
@@ -110,68 +121,68 @@ private:
     QWidget *buildStatePage();
     QWidget *buildTransportPage();
     QWidget *buildBoundaryPage();
-    Mesh2DAquiferBoundaryModel *m_boundaries=nullptr;
-    QWidget *m_boundaryPage=nullptr;
-    QMap<QString,QWidget*> m_transportOptions;
-    std::vector<QWidget*> m_thermalFields;
+    Mesh2DAquiferBoundaryModel *m_boundaries = nullptr;
+    QWidget *m_boundaryPage = nullptr;
+    QMap<QString, QWidget *> m_transportOptions;
+    std::vector<QWidget *> m_thermalFields;
 
     void loadFromEngine();
-    QMap<QString,QString> optionDraft() const;
-    QMap<QString,QString> readOptions() const;
-    QMap<QString,QString> m_loadedOptions, m_displayedOptions;
+    QMap<QString, QString> optionDraft() const;
+    QMap<QString, QString> readOptions() const;
+    QMap<QString, QString> m_loadedOptions, m_displayedOptions;
     QString applyOptions();
-    bool    applyChanges();
-    void    setEditable(bool on, const QString &whyNot);
-    void    refreshThermalGates();
+    bool applyChanges();
+    void setEditable(bool on, const QString &whyNot);
+    void refreshThermalGates();
 
     QPointer<QUndoStack> m_nodeUndo;
     std::function<bool()> m_undoCurrent;
     std::function<void()> m_undoEdited;
-    SWMM_Engine                    m_engine = nullptr;
-    const UnitSystem              *m_units  = nullptr;
+    SWMM_Engine m_engine = nullptr;
+    const UnitSystem *m_units = nullptr;
 
-    QDialogButtonBox *m_buttons      = nullptr;
-    bool            m_editable      = false;
-    bool            m_porousThermalOptionsSupported = false;
+    QDialogButtonBox *m_buttons = nullptr;
+    bool m_editable = false;
+    bool m_porousThermalOptionsSupported = false;
 
-    QTabWidget     *m_tabs           = nullptr;
-    QLabel         *m_banner         = nullptr;
-    QLabel         *m_thermalStatus  = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    QLabel *m_banner = nullptr;
+    QLabel *m_thermalStatus = nullptr;
 
     // Options
-    QComboBox      *m_soilCombo      = nullptr;
-    QComboBox      *m_closureCombo   = nullptr;
-    QSpinBox       *m_layersSpin     = nullptr;
-    QCheckBox      *m_capillaryCheck = nullptr;
-    QDoubleSpinBox *m_cgwSpin        = nullptr;
-    QDoubleSpinBox *m_ccolSpin       = nullptr;
-    QCheckBox      *m_forceCfCheck   = nullptr;
-    QCheckBox      *m_dunneCheck     = nullptr;
-    QComboBox      *m_modeCombo      = nullptr;
-    QComboBox      *m_gwEtCombo      = nullptr;
-    QComboBox      *m_surfaceThermalKind = nullptr;
-    QLineEdit      *m_surfaceThermalValue = nullptr;
-    QComboBox      *m_deepThermalKind = nullptr;
-    QLineEdit      *m_deepThermalValue = nullptr;
+    QComboBox *m_soilCombo = nullptr;
+    QComboBox *m_closureCombo = nullptr;
+    QSpinBox *m_layersSpin = nullptr;
+    QCheckBox *m_capillaryCheck = nullptr;
+    QDoubleSpinBox *m_cgwSpin = nullptr;
+    QDoubleSpinBox *m_ccolSpin = nullptr;
+    QCheckBox *m_forceCfCheck = nullptr;
+    QCheckBox *m_dunneCheck = nullptr;
+    QComboBox *m_modeCombo = nullptr;
+    QComboBox *m_gwEtCombo = nullptr;
+    QComboBox *m_surfaceThermalKind = nullptr;
+    QLineEdit *m_surfaceThermalValue = nullptr;
+    QComboBox *m_deepThermalKind = nullptr;
+    QLineEdit *m_deepThermalValue = nullptr;
     QDoubleSpinBox *m_deepThermalDepth = nullptr;
 
     // Tables
-    QComboBox* m_bottomNode=nullptr;
-    QComboBox* m_bottomDestination=nullptr;
-    QLabel* m_bottomSummary=nullptr;
-    QPushButton* m_useFootprint=nullptr;
-    QTableView             *m_aquiferView = nullptr;
-    Mesh2DAquiferModel     *m_aquifer     = nullptr;
-    QTableView             *m_nodeView    = nullptr;
-    Mesh2DAquiferNodeModel *m_nodes       = nullptr;
-    QPushButton            *m_addRowBtn   = nullptr;
-    QPushButton            *m_delRowBtn   = nullptr;
-    QPushButton            *m_addBedBtn   = nullptr;
-    QPushButton            *m_delBedBtn   = nullptr;
+    QComboBox *m_bottomNode = nullptr;
+    QComboBox *m_bottomDestination = nullptr;
+    QLabel *m_bottomSummary = nullptr;
+    QPushButton *m_useFootprint = nullptr;
+    QTableView *m_aquiferView = nullptr;
+    Mesh2DAquiferModel *m_aquifer = nullptr;
+    QTableView *m_nodeView = nullptr;
+    Mesh2DAquiferNodeModel *m_nodes = nullptr;
+    QPushButton *m_addRowBtn = nullptr;
+    QPushButton *m_delRowBtn = nullptr;
+    QPushButton *m_addBedBtn = nullptr;
+    QPushButton *m_delBedBtn = nullptr;
 
     // State
-    QPlainTextEdit *m_stateText   = nullptr;
-    QPushButton    *m_refreshBtn  = nullptr;
+    QPlainTextEdit *m_stateText = nullptr;
+    QPushButton *m_refreshBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

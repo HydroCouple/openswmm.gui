@@ -1,9 +1,15 @@
-/*!
- * \file   seriesstyle.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      seriesstyle.cpp
+ * @brief     One `SeriesStyle` describes everything the chart needs to render a single line on a
+ *            `QChart`: pen (colour / width / dash / cap / join), marker (visible / shape / size /
+ *            fill / border), point labels (visible / font / colour / precision), area fill
+ *            (visible / colour), opacity, and a user-editable legend name.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/seriesstyle.h"
 
 #include <QImage>
@@ -13,22 +19,23 @@
 #include <QScatterSeries>
 #include <QXYSeries>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
 // Matplotlib "tab10" + a few extra warmer tones for 12-cycle wrap.
 static const QColor kCycle[12] = {
-    QColor( 31, 119, 180),  // tab:blue
-    QColor(255, 127,  14),  // tab:orange
-    QColor( 44, 160,  44),  // tab:green
-    QColor(214,  39,  40),  // tab:red
-    QColor(148, 103, 189),  // tab:purple
-    QColor(140,  86,  75),  // tab:brown
-    QColor(227, 119, 194),  // tab:pink
-    QColor(127, 127, 127),  // tab:gray
-    QColor(188, 189,  34),  // tab:olive
-    QColor( 23, 190, 207),  // tab:cyan
-    QColor(255, 187, 120),  // light orange
-    QColor(174, 199, 232),  // light blue
+    QColor(31, 119, 180),  // tab:blue
+    QColor(255, 127, 14),  // tab:orange
+    QColor(44, 160, 44),   // tab:green
+    QColor(214, 39, 40),   // tab:red
+    QColor(148, 103, 189), // tab:purple
+    QColor(140, 86, 75),   // tab:brown
+    QColor(227, 119, 194), // tab:pink
+    QColor(127, 127, 127), // tab:gray
+    QColor(188, 189, 34),  // tab:olive
+    QColor(23, 190, 207),  // tab:cyan
+    QColor(255, 187, 120), // light orange
+    QColor(174, 199, 232), // light blue
 };
 
 SeriesStyle defaultStyleForCycle(int cycleIndex)
@@ -56,102 +63,150 @@ QColor SeriesStyle::effectivePointLabelColor() const
 
 QColor SeriesStyle::effectiveAreaFillColor() const
 {
-    if (areaFillColor.isValid()) return areaFillColor;
+    if (areaFillColor.isValid())
+        return areaFillColor;
     QColor c = color;
-    c.setAlphaF(0.25);  // semi-transparent fill under the line
+    c.setAlphaF(0.25); // semi-transparent fill under the line
     return c;
 }
 
 QString markerShapeToString(MarkerShape s)
 {
     switch (s) {
-    case MarkerShape::Circle:   return QStringLiteral("circle");
-    case MarkerShape::Square:   return QStringLiteral("square");
-    case MarkerShape::Triangle: return QStringLiteral("triangle");
-    case MarkerShape::Diamond:  return QStringLiteral("diamond");
-    case MarkerShape::Cross:    return QStringLiteral("cross");
-    case MarkerShape::Plus:     return QStringLiteral("plus");
+    case MarkerShape::Circle:
+        return QStringLiteral("circle");
+    case MarkerShape::Square:
+        return QStringLiteral("square");
+    case MarkerShape::Triangle:
+        return QStringLiteral("triangle");
+    case MarkerShape::Diamond:
+        return QStringLiteral("diamond");
+    case MarkerShape::Cross:
+        return QStringLiteral("cross");
+    case MarkerShape::Plus:
+        return QStringLiteral("plus");
     }
     return QStringLiteral("circle");
 }
 
-MarkerShape markerShapeFromString(const QString& s)
+MarkerShape markerShapeFromString(const QString &s)
 {
-    if (s == QStringLiteral("square"))   return MarkerShape::Square;
-    if (s == QStringLiteral("triangle")) return MarkerShape::Triangle;
-    if (s == QStringLiteral("diamond"))  return MarkerShape::Diamond;
-    if (s == QStringLiteral("cross"))    return MarkerShape::Cross;
-    if (s == QStringLiteral("plus"))     return MarkerShape::Plus;
+    if (s == QStringLiteral("square"))
+        return MarkerShape::Square;
+    if (s == QStringLiteral("triangle"))
+        return MarkerShape::Triangle;
+    if (s == QStringLiteral("diamond"))
+        return MarkerShape::Diamond;
+    if (s == QStringLiteral("cross"))
+        return MarkerShape::Cross;
+    if (s == QStringLiteral("plus"))
+        return MarkerShape::Plus;
     return MarkerShape::Circle;
 }
 
 QString penStyleToString(Qt::PenStyle s)
 {
     switch (s) {
-    case Qt::SolidLine:      return QStringLiteral("solid");
-    case Qt::DashLine:       return QStringLiteral("dash");
-    case Qt::DotLine:        return QStringLiteral("dot");
-    case Qt::DashDotLine:    return QStringLiteral("dash-dot");
-    case Qt::DashDotDotLine: return QStringLiteral("dash-dot-dot");
-    default:                 return QStringLiteral("solid");
+    case Qt::SolidLine:
+        return QStringLiteral("solid");
+    case Qt::DashLine:
+        return QStringLiteral("dash");
+    case Qt::DotLine:
+        return QStringLiteral("dot");
+    case Qt::DashDotLine:
+        return QStringLiteral("dash-dot");
+    case Qt::DashDotDotLine:
+        return QStringLiteral("dash-dot-dot");
+    default:
+        return QStringLiteral("solid");
     }
 }
 
-Qt::PenStyle penStyleFromString(const QString& s)
+Qt::PenStyle penStyleFromString(const QString &s)
 {
-    if (s == QStringLiteral("dash"))         return Qt::DashLine;
-    if (s == QStringLiteral("dot"))          return Qt::DotLine;
-    if (s == QStringLiteral("dash-dot"))     return Qt::DashDotLine;
-    if (s == QStringLiteral("dash-dot-dot")) return Qt::DashDotDotLine;
+    if (s == QStringLiteral("dash"))
+        return Qt::DashLine;
+    if (s == QStringLiteral("dot"))
+        return Qt::DotLine;
+    if (s == QStringLiteral("dash-dot"))
+        return Qt::DashDotLine;
+    if (s == QStringLiteral("dash-dot-dot"))
+        return Qt::DashDotDotLine;
     return Qt::SolidLine;
 }
 
 QString penCapStyleToString(Qt::PenCapStyle s)
 {
     switch (s) {
-    case Qt::FlatCap:   return QStringLiteral("flat");
-    case Qt::SquareCap: return QStringLiteral("square");
-    case Qt::RoundCap:  return QStringLiteral("round");
-    default:            return QStringLiteral("flat");
+    case Qt::FlatCap:
+        return QStringLiteral("flat");
+    case Qt::SquareCap:
+        return QStringLiteral("square");
+    case Qt::RoundCap:
+        return QStringLiteral("round");
+    default:
+        return QStringLiteral("flat");
     }
 }
 
-Qt::PenCapStyle penCapStyleFromString(const QString& s)
+Qt::PenCapStyle penCapStyleFromString(const QString &s)
 {
-    if (s == QStringLiteral("square")) return Qt::SquareCap;
-    if (s == QStringLiteral("round"))  return Qt::RoundCap;
+    if (s == QStringLiteral("square"))
+        return Qt::SquareCap;
+    if (s == QStringLiteral("round"))
+        return Qt::RoundCap;
     return Qt::FlatCap;
 }
 
 QString penJoinStyleToString(Qt::PenJoinStyle s)
 {
     switch (s) {
-    case Qt::BevelJoin:    return QStringLiteral("bevel");
-    case Qt::MiterJoin:    return QStringLiteral("miter");
-    case Qt::RoundJoin:    return QStringLiteral("round");
-    case Qt::SvgMiterJoin: return QStringLiteral("svg-miter");
-    default:               return QStringLiteral("bevel");
+    case Qt::BevelJoin:
+        return QStringLiteral("bevel");
+    case Qt::MiterJoin:
+        return QStringLiteral("miter");
+    case Qt::RoundJoin:
+        return QStringLiteral("round");
+    case Qt::SvgMiterJoin:
+        return QStringLiteral("svg-miter");
+    default:
+        return QStringLiteral("bevel");
     }
 }
 
-Qt::PenJoinStyle penJoinStyleFromString(const QString& s)
+Qt::PenJoinStyle penJoinStyleFromString(const QString &s)
 {
-    if (s == QStringLiteral("miter"))     return Qt::MiterJoin;
-    if (s == QStringLiteral("round"))     return Qt::RoundJoin;
-    if (s == QStringLiteral("svg-miter")) return Qt::SvgMiterJoin;
+    if (s == QStringLiteral("miter"))
+        return Qt::MiterJoin;
+    if (s == QStringLiteral("round"))
+        return Qt::RoundJoin;
+    if (s == QStringLiteral("svg-miter"))
+        return Qt::SvgMiterJoin;
     return Qt::BevelJoin;
 }
 
-namespace {
+namespace
+{
 
-QString colorToJsonString(const QColor& c)
+/**
+ * @brief Encode an optional colour while preserving its alpha.
+ * @param[in] c Colour, possibly invalid.
+ * @return HexArgb string for valid input, empty for invalid.
+ */
+QString colorToJsonString(const QColor &c)
 {
     return c.isValid() ? c.name(QColor::HexArgb) : QString();
 }
 
-QColor colorFromJson(const QJsonValue& v)
+/**
+ * @brief Decode an optional persisted colour.
+ * @param[in] v JSON string; nonstrings/empty strings are treated as unset.
+ * @return Parsed QColor, possibly invalid for unset or unrecognized colour text.
+ */
+QColor colorFromJson(const QJsonValue &v)
 {
-    if (!v.isString()) return QColor();
+    if (!v.isString())
+        return QColor();
     const QString s = v.toString();
     return s.isEmpty() ? QColor() : QColor(s);
 }
@@ -162,31 +217,31 @@ QJsonObject SeriesStyle::toJson() const
 {
     QJsonObject o;
     // Identity
-    o[QStringLiteral("color")]       = color.name(QColor::HexArgb);
-    o[QStringLiteral("opacity")]     = opacity;
+    o[QStringLiteral("color")] = color.name(QColor::HexArgb);
+    o[QStringLiteral("opacity")] = opacity;
     if (!legendName.isEmpty())
         o[QStringLiteral("legendName")] = legendName;
 
     // Line
-    o[QStringLiteral("showLine")]    = showLine;
-    o[QStringLiteral("lineWidth")]   = lineWidth;
-    o[QStringLiteral("dash")]        = penStyleToString(dash);
-    o[QStringLiteral("capStyle")]    = penCapStyleToString(capStyle);
-    o[QStringLiteral("joinStyle")]   = penJoinStyleToString(joinStyle);
+    o[QStringLiteral("showLine")] = showLine;
+    o[QStringLiteral("lineWidth")] = lineWidth;
+    o[QStringLiteral("dash")] = penStyleToString(dash);
+    o[QStringLiteral("capStyle")] = penCapStyleToString(capStyle);
+    o[QStringLiteral("joinStyle")] = penJoinStyleToString(joinStyle);
 
     // Markers
-    o[QStringLiteral("showMarkers")]       = showMarkers;
-    o[QStringLiteral("shape")]             = markerShapeToString(shape);
-    o[QStringLiteral("markerSize")]        = markerSize;
+    o[QStringLiteral("showMarkers")] = showMarkers;
+    o[QStringLiteral("shape")] = markerShapeToString(shape);
+    o[QStringLiteral("markerSize")] = markerSize;
     if (markerFillColor.isValid())
-        o[QStringLiteral("markerFillColor")]   = colorToJsonString(markerFillColor);
+        o[QStringLiteral("markerFillColor")] = colorToJsonString(markerFillColor);
     if (markerBorderColor.isValid())
         o[QStringLiteral("markerBorderColor")] = colorToJsonString(markerBorderColor);
     o[QStringLiteral("markerBorderWidth")] = markerBorderWidth;
 
     // Point labels
-    o[QStringLiteral("showPointLabels")]     = showPointLabels;
-    o[QStringLiteral("pointLabelFont")]      = pointLabelFont.toString();
+    o[QStringLiteral("showPointLabels")] = showPointLabels;
+    o[QStringLiteral("pointLabelFont")] = pointLabelFont.toString();
     if (pointLabelColor.isValid())
         o[QStringLiteral("pointLabelColor")] = colorToJsonString(pointLabelColor);
     o[QStringLiteral("pointLabelPrecision")] = pointLabelPrecision;
@@ -202,7 +257,7 @@ QJsonObject SeriesStyle::toJson() const
     return o;
 }
 
-SeriesStyle SeriesStyle::fromJson(const QJsonObject& obj)
+SeriesStyle SeriesStyle::fromJson(const QJsonObject &obj)
 {
     SeriesStyle s;
     // Identity
@@ -267,7 +322,7 @@ SeriesStyle SeriesStyle::fromJson(const QJsonObject& obj)
 // Apply helpers
 // ---------------------------------------------------------------------------
 
-QPen penForStyle(const SeriesStyle& style)
+QPen penForStyle(const SeriesStyle &style)
 {
     QColor c = style.color;
     if (style.opacity < 1.0 && c.isValid())
@@ -281,11 +336,17 @@ QPen penForStyle(const SeriesStyle& style)
     return p;
 }
 
-namespace {
+namespace
+{
 
 // Render the requested marker glyph as a small pixmap for QScatterSeries
 // to use as its light marker. Built per-style change; cheap (one pixmap).
-QPixmap buildMarkerPixmap(const SeriesStyle& style)
+/**
+ * @brief Rasterize a style's marker glyph for an existing scatter overlay.
+ * @param[in] style Marker size/shape/fill/border and opacity; dimensions should be finite nonnegative pixels and opacity within [0,1].
+ * @return Transparent-background antialiased pixmap at least four pixels per side. Border is suppressed at nonpositive width; cross/plus use fill colour strokes. No device-pixel scaling is applied.
+ */
+QPixmap buildMarkerPixmap(const SeriesStyle &style)
 {
     const int side = std::max(4, qRound(style.markerSize) + 2);
     QImage img(side, side, QImage::Format_ARGB32_Premultiplied);
@@ -297,7 +358,7 @@ QPixmap buildMarkerPixmap(const SeriesStyle& style)
     const QPointF c(side * 0.5, side * 0.5);
     const qreal r = style.markerSize * 0.5;
 
-    QColor fill   = style.effectiveMarkerFillColor();
+    QColor fill = style.effectiveMarkerFillColor();
     QColor border = style.effectiveMarkerBorderColor();
     if (style.opacity < 1.0) {
         fill.setAlphaF(fill.alphaF() * style.opacity);
@@ -306,7 +367,8 @@ QPixmap buildMarkerPixmap(const SeriesStyle& style)
 
     QPen borderPen(border);
     borderPen.setWidthF(std::max(0.0, style.markerBorderWidth));
-    if (style.markerBorderWidth <= 0.0) borderPen = Qt::NoPen;
+    if (style.markerBorderWidth <= 0.0)
+        borderPen = Qt::NoPen;
     painter.setPen(borderPen);
     painter.setBrush(fill);
 
@@ -319,17 +381,14 @@ QPixmap buildMarkerPixmap(const SeriesStyle& style)
         break;
     case MarkerShape::Triangle: {
         QPolygonF tri;
-        tri << QPointF(c.x(), c.y() - r)
-            << QPointF(c.x() + r * 0.866, c.y() + r * 0.5)
+        tri << QPointF(c.x(), c.y() - r) << QPointF(c.x() + r * 0.866, c.y() + r * 0.5)
             << QPointF(c.x() - r * 0.866, c.y() + r * 0.5);
         painter.drawPolygon(tri);
         break;
     }
     case MarkerShape::Diamond: {
         QPolygonF dia;
-        dia << QPointF(c.x(),     c.y() - r)
-            << QPointF(c.x() + r, c.y())
-            << QPointF(c.x(),     c.y() + r)
+        dia << QPointF(c.x(), c.y() - r) << QPointF(c.x() + r, c.y()) << QPointF(c.x(), c.y() + r)
             << QPointF(c.x() - r, c.y());
         painter.drawPolygon(dia);
         break;
@@ -339,7 +398,7 @@ QPixmap buildMarkerPixmap(const SeriesStyle& style)
         strokePen.setWidthF(std::max(1.0, r * 0.4));
         strokePen.setCapStyle(Qt::FlatCap);
         painter.setPen(strokePen);
-        const qreal d = r * 0.707;  // 45° offsets
+        const qreal d = r * 0.707; // 45° offsets
         painter.drawLine(QPointF(c.x() - d, c.y() - d), QPointF(c.x() + d, c.y() + d));
         painter.drawLine(QPointF(c.x() - d, c.y() + d), QPointF(c.x() + d, c.y() - d));
         break;
@@ -361,11 +420,10 @@ QPixmap buildMarkerPixmap(const SeriesStyle& style)
 
 } // anonymous
 
-void applySeriesStyle(const SeriesStyle& style,
-                      QXYSeries* series,
-                      QScatterSeries* markerOverlay)
+void applySeriesStyle(const SeriesStyle &style, QXYSeries *series, QScatterSeries *markerOverlay)
 {
-    if (!series) return;
+    if (!series)
+        return;
 
     // ---- Line / pen ---------------------------------------------------------
     series->setPen(penForStyle(style));
@@ -375,7 +433,7 @@ void applySeriesStyle(const SeriesStyle& style,
         series->setName(style.legendName);
 
     // ---- Markers ------------------------------------------------------------
-    auto *asScatter = qobject_cast<QScatterSeries*>(series);
+    auto *asScatter = qobject_cast<QScatterSeries *>(series);
     if (asScatter) {
         // The series itself is a scatter — apply marker fields directly.
         asScatter->setMarkerSize(style.markerSize);
@@ -402,8 +460,8 @@ void applySeriesStyle(const SeriesStyle& style,
     if (style.showPointLabels) {
         series->setPointLabelsFont(style.pointLabelFont);
         series->setPointLabelsColor(style.effectivePointLabelColor());
-        const NumberFormat labelFmt{ style.pointLabelFormatMode, style.pointLabelPrecision,
-                                     style.pointLabelFormat };
+        const NumberFormat labelFmt{style.pointLabelFormatMode, style.pointLabelPrecision,
+                                    style.pointLabelFormat};
         series->setPointLabelsFormat(labelFmt.printfSpec());
     }
 

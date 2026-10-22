@@ -1,10 +1,10 @@
-/*!
- * \file test_heatconfigdialog.cpp
- * \brief G4g — the Heat Configuration editor, driven through its widgets
+/**
+ * @file      test_heatconfigdialog.cpp
+ * @brief     G4g — the Heat Configuration editor, driven through its widgets
  *        against a synthetic BUILDING engine (the WaterAgeSourcesDialog
  *        precedent: dependency-light, so the wiring has an observer).
  *
- * \details The claims:
+ * @details The claims:
  *          1. Hydration — configured sources land checked with their °C,
  *             unconfigured ones land unchecked at the 20 °C default;
  *             module toggles and radiative scalars hydrate.
@@ -20,6 +20,10 @@
  *          6. Enabling cloud with untouched values still configures it
  *             (writing any parameter marks it configured), and
  *             unchecking clears it.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/heatconfigdialog.h"
@@ -64,8 +68,17 @@
 
 using OpenSWMMVis::HeatConfigDialog;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Allocate a synthetic BUILDING model with junctions J0/J1.
+ * @return Owned engine handle for the caller to destroy; allocation is asserted
+ * only in assertion-enabled builds and node-add statuses are unchecked. Does not
+ * open a file, initialize a simulation or configure heat sources.
+ *
+ */
 SWMM_Engine makeHeatEngine()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -75,18 +88,40 @@ SWMM_Engine makeHeatEngine()
     return e;
 }
 
+/**
+ *
+ * @brief Find the source-temperature configuration checkbox by its numeric object name.
+ * @param dlg Borrowed live heat dialog retaining ownership of the widget.
+ * @param source SWMM_HEAT_SRC_* enum value embedded into hc_srcCheck_N.
+ * @return Borrowed checkbox or nullptr if missing; callers check or dereference it.
+ *
+ */
 QCheckBox *srcCheck(HeatConfigDialog &dlg, int source)
 {
-    return dlg.findChild<QCheckBox *>(
-        QStringLiteral("hc_srcCheck_%1").arg(source));
+    return dlg.findChild<QCheckBox *>(QStringLiteral("hc_srcCheck_%1").arg(source));
 }
 
+/**
+ *
+ * @brief Find the source-temperature editor by its numeric object name.
+ * @param dlg Borrowed live heat dialog retaining ownership of the widget.
+ * @param source SWMM_HEAT_SRC_* enum value embedded into hc_srcSpin_N.
+ * @return Borrowed Celsius editor or nullptr if missing; no engine access or mutation.
+ *
+ */
 QDoubleSpinBox *srcSpin(HeatConfigDialog &dlg, int source)
 {
-    return dlg.findChild<QDoubleSpinBox *>(
-        QStringLiteral("hc_srcSpin_%1").arg(source));
+    return dlg.findChild<QDoubleSpinBox *>(QStringLiteral("hc_srcSpin_%1").arg(source));
 }
 
+/**
+ *
+ * @brief Click the expected dialog OK button through its button box.
+ * @param dlg Borrowed live dialog whose acceptance may validate/write the engine.
+ * QVERIFY records a missing button-box failure and returns only from this helper;
+ * the outer test continues. Assumes the found box contains an OK button.
+ *
+ */
 void clickOk(HeatConfigDialog &dlg)
 {
     auto *bb = dlg.findChild<QDialogButtonBox *>();
@@ -98,31 +133,62 @@ struct OpenedMini2D {
     QTemporaryDir outputs;
     SWMM_Engine engine = nullptr;
 
+    /**
+     *
+     * @brief Open mini_2d.inp with report/binary paths in the fixture temporary directory.
+     * @return True on located input, valid temporary directory, allocated engine and
+     * successful open; false otherwise. A failed-open handle remains owned by this
+     * fixture for destructor cleanup. Intended for one call on a fresh fixture.
+     *
+     */
     bool open()
     {
         const QString input = QFINDTESTDATA("data/mini_2d.inp");
-        if (input.isEmpty() || !outputs.isValid()) return false;
+        if (input.isEmpty() || !outputs.isValid())
+            return false;
         engine = swmm_engine_create();
-        if (!engine) return false;
+        if (!engine)
+            return false;
         const auto report = outputs.filePath(QStringLiteral("runtime-overview.rpt")).toUtf8();
         const auto binary = outputs.filePath(QStringLiteral("runtime-overview.out")).toUtf8();
         return swmm_engine_open(engine, input.toUtf8().constData(), report.constData(),
                                 binary.constData(), nullptr) == SWMM_OK;
     }
 
+    /**
+     *
+     * @brief Configure coupled heat controls, initialize, start without saved results and end
+     * immediately.
+     * @param temperature Enable mesh temperature transport when true.
+     * @param surface Enable mesh surface heat exchange when true.
+     * @param heatEnabled Enable network/lumped heat transport; defaults true.
+     * @return True if each checked setter/lifecycle call succeeds, false at the first
+     * failure; earlier options/lifecycle changes remain. Requires open() success.
+     * Disables radiative and bed heat exchange; takes no routing steps.
+     *
+     */
     bool initializeAndStart(bool temperature, bool surface, bool heatEnabled = true)
     {
-        if (!engine || swmm_options_set(engine, "HEAT_TRANSPORT", heatEnabled ? "YES" : "NO") != SWMM_OK ||
+        if (!engine ||
+            swmm_options_set(engine, "HEAT_TRANSPORT", heatEnabled ? "YES" : "NO") != SWMM_OK ||
             swmm_options_set_ext(engine, "HEAT_MODEL", "COUPLED") != SWMM_OK ||
-            swmm_options_set_ext(engine, "TRANSPORT_TEMPERATURE", temperature ? "YES" : "NO") != SWMM_OK ||
-            swmm_options_set_ext(engine, "HEAT_SURFACE_EXCHANGE", surface ? "YES" : "NO") != SWMM_OK ||
+            swmm_options_set_ext(engine, "TRANSPORT_TEMPERATURE", temperature ? "YES" : "NO") !=
+                SWMM_OK ||
+            swmm_options_set_ext(engine, "HEAT_SURFACE_EXCHANGE", surface ? "YES" : "NO") !=
+                SWMM_OK ||
             swmm_options_set_ext(engine, "HEAT_RADIATIVE_EXCHANGE", "NO") != SWMM_OK ||
             swmm_options_set_ext(engine, "BED_HEAT_MODEL", "NONE") != SWMM_OK)
             return false;
-        return swmm_engine_initialize(engine) == SWMM_OK && swmm_engine_start(engine, 0) == SWMM_OK &&
-               swmm_engine_end(engine) == SWMM_OK;
+        return swmm_engine_initialize(engine) == SWMM_OK &&
+               swmm_engine_start(engine, 0) == SWMM_OK && swmm_engine_end(engine) == SWMM_OK;
     }
 
+    /**
+     *
+     * @brief Close and destroy the owned engine if allocated, then let the temporary-directory
+     * member remove fixture outputs.
+     *
+     */
     ~OpenedMini2D()
     {
         if (engine) {
@@ -132,20 +198,33 @@ struct OpenedMini2D {
     }
 };
 
+/**
+ *
+ * @brief Read and close the runtime-overview modal through a repeating event-loop timer.
+ * @param dialog Borrowed live heat dialog with runtime-overview button.
+ * @return Owned plain text, empty if the button/browser is absent. Polls every
+ * ten milliseconds, captures the expected modal and clicks Close when present.
+ * There is no overall timeout; a modal without the expected close button can block.
+ *
+ */
 QString showRuntimeOverview(HeatConfigDialog &dialog)
 {
     QString text;
-    auto *button = dialog.findChild<QPushButton*>(QStringLiteral("hc_runtimeOverview"));
-    if (!button) return text;
+    auto *button = dialog.findChild<QPushButton *>(QStringLiteral("hc_runtimeOverview"));
+    if (!button)
+        return text;
     QTimer closer;
     closer.setInterval(10);
     QObject::connect(&closer, &QTimer::timeout, [&] {
-        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog")) return;
-        if (auto *browser = modal->findChild<QTextBrowser*>(QStringLiteral("hc_runtimeOverviewText")))
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog"))
+            return;
+        if (auto *browser =
+                modal->findChild<QTextBrowser *>(QStringLiteral("hc_runtimeOverviewText")))
             text = browser->toPlainText();
-        if (auto *buttons = modal->findChild<QDialogButtonBox*>())
-            if (auto *close = buttons->button(QDialogButtonBox::Close)) close->click();
+        if (auto *buttons = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = buttons->button(QDialogButtonBox::Close))
+                close->click();
     });
     closer.start();
     button->click();
@@ -158,7 +237,7 @@ QString showRuntimeOverview(HeatConfigDialog &dialog)
 class TestHeatConfigDialog : public QObject
 {
     Q_OBJECT
-    private slots:
+private slots:
     void undoPreservesDefaultsAndRefusesExternalChanges();
     void climateAdjustmentsRollBackTogether();
     void dryPolicySurvivesInputExport();
@@ -199,20 +278,30 @@ class TestHeatConfigDialog : public QObject
     void failedWriteRetainsDraftAndPartialChangeFlag();
 };
 
+/**
+ *
+ * @brief Require construction without an engine to retain a source checkbox without dereferencing
+ * a model.
+ *
+ */
 void TestHeatConfigDialog::constructsWithNullEngine()
 {
     HeatConfigDialog dlg(nullptr);
     QVERIFY(srcCheck(dlg, SWMM_HEAT_SRC_DWF) != nullptr);
 }
 
+/**
+ *
+ * @brief Require configured groundwater temperature, radiative exchange and albedo to hydrate
+ * while unconfigured DWF remains unchecked at 20 Celsius.
+ *
+ */
 void TestHeatConfigDialog::hydratesSourcesAndModules()
 {
     SWMM_Engine e = makeHeatEngine();
     QCOMPARE(swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 11.5), SWMM_OK);
-    QCOMPARE(swmm_heat_set_module(e, SWMM_HEAT_RADIATIVE_EXCHANGE, 1),
-             SWMM_OK);
-    QCOMPARE(swmm_heat_set_radiative(e, SWMM_HEAT_RAD_ALBEDO, 0.12),
-             SWMM_OK);
+    QCOMPARE(swmm_heat_set_module(e, SWMM_HEAT_RADIATIVE_EXCHANGE, 1), SWMM_OK);
+    QCOMPARE(swmm_heat_set_radiative(e, SWMM_HEAT_RAD_ALBEDO, 0.12), SWMM_OK);
 
     HeatConfigDialog dlg(e);
     QVERIFY(srcCheck(dlg, SWMM_HEAT_SRC_GW)->isChecked());
@@ -223,14 +312,20 @@ void TestHeatConfigDialog::hydratesSourcesAndModules()
     auto *mod = dlg.findChild<QCheckBox *>(
         QStringLiteral("hc_module_%1").arg(SWMM_HEAT_RADIATIVE_EXCHANGE));
     QVERIFY(mod && mod->isChecked());
-    auto *alb = dlg.findChild<QDoubleSpinBox *>(
-        QStringLiteral("hc_rad_%1").arg(SWMM_HEAT_RAD_ALBEDO));
+    auto *alb =
+        dlg.findChild<QDoubleSpinBox *>(QStringLiteral("hc_rad_%1").arg(SWMM_HEAT_RAD_ALBEDO));
     QVERIFY(alb);
     QCOMPARE(alb->value(), 0.12);
 
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require OK to configure groundwater temperature at 14.25 Celsius and enable surface
+ * exchange, reporting changes.
+ *
+ */
 void TestHeatConfigDialog::writesEditedSourceAndModuleOnOk()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -238,8 +333,8 @@ void TestHeatConfigDialog::writesEditedSourceAndModuleOnOk()
 
     srcCheck(dlg, SWMM_HEAT_SRC_GW)->setChecked(true);
     srcSpin(dlg, SWMM_HEAT_SRC_GW)->setValue(14.25);
-    auto *mod = dlg.findChild<QCheckBox *>(
-        QStringLiteral("hc_module_%1").arg(SWMM_HEAT_SURFACE_EXCHANGE));
+    auto *mod =
+        dlg.findChild<QCheckBox *>(QStringLiteral("hc_module_%1").arg(SWMM_HEAT_SURFACE_EXCHANGE));
     QVERIFY(mod);
     mod->setChecked(true);
     clickOk(dlg);
@@ -249,16 +344,20 @@ void TestHeatConfigDialog::writesEditedSourceAndModuleOnOk()
     int configured = 0, on = 0;
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &t), SWMM_OK);
     QCOMPARE(t, 14.25);
-    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_GW,
-                                             &configured), SWMM_OK);
+    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_GW, &configured), SWMM_OK);
     QCOMPARE(configured, 1);
-    QCOMPARE(swmm_heat_get_module(e, SWMM_HEAT_SURFACE_EXCHANGE, &on),
-             SWMM_OK);
+    QCOMPARE(swmm_heat_get_module(e, SWMM_HEAT_SURFACE_EXCHANGE, &on), SWMM_OK);
     QCOMPARE(on, 1);
 
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require unchanged OK to record zero writes without inventing a groundwater source or
+ * cloud configuration.
+ *
+ */
 void TestHeatConfigDialog::noOpOkWritesNothing()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -271,8 +370,7 @@ void TestHeatConfigDialog::noOpOkWritesNothing()
 
     // In particular: no invented [HEAT_SOURCES] rows, no invented cloud.
     int configured = 0;
-    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_GW,
-                                             &configured), SWMM_OK);
+    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_GW, &configured), SWMM_OK);
     QCOMPARE(configured, 0);
     QCOMPARE(swmm_heat_get_cloud_configured(e, &configured), SWMM_OK);
     QCOMPARE(configured, 0);
@@ -280,6 +378,12 @@ void TestHeatConfigDialog::noOpOkWritesNothing()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require clearing the RDII source checkbox to remove its authored configuration and
+ * restore the unconfigured 20 Celsius default.
+ *
+ */
 void TestHeatConfigDialog::uncheckingClearsAConfiguredSource()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -293,31 +397,34 @@ void TestHeatConfigDialog::uncheckingClearsAConfiguredSource()
 
     int configured = 1;
     double t = 0.0;
-    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_RDII,
-                                             &configured), SWMM_OK);
+    QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_RDII, &configured), SWMM_OK);
     QCOMPARE(configured, 0);
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_RDII, &t), SWMM_OK);
-    QCOMPARE(t, 20.0);   // back to the default, not a stored 20 °C row
+    QCOMPARE(t, 20.0); // back to the default, not a stored 20 °C row
 
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require a new node-override row to offer exactly DWF and EXTERNAL_INFLOW, excluding
+ * groundwater.
+ *
+ */
 void TestHeatConfigDialog::overrideSourcesAreParserScoped()
 {
     SWMM_Engine e = makeHeatEngine();
     HeatConfigDialog dlg(e);
 
-    auto *add = dlg.findChild<QPushButton *>(
-        QStringLiteral("hc_addOverride"));
+    auto *add = dlg.findChild<QPushButton *>(QStringLiteral("hc_addOverride"));
     QVERIFY(add);
     add->click();
-    auto *table = dlg.findChild<QTableWidget *>(
-        QStringLiteral("hc_overrideTable"));
+    auto *table = dlg.findChild<QTableWidget *>(QStringLiteral("hc_overrideTable"));
     QVERIFY(table);
     QCOMPARE(table->rowCount(), 1);
     auto *combo = qobject_cast<QComboBox *>(table->cellWidget(0, 0));
     QVERIFY(combo);
-    QCOMPARE(combo->count(), 2);   // DWF + EXTERNAL_INFLOW, nothing else
+    QCOMPARE(combo->count(), 2); // DWF + EXTERNAL_INFLOW, nothing else
     QVERIFY(combo->findData(SWMM_HEAT_SRC_DWF) >= 0);
     QVERIFY(combo->findData(SWMM_HEAT_SRC_EXTERNAL_INFLOW) >= 0);
     QVERIFY(combo->findData(SWMM_HEAT_SRC_GW) < 0);
@@ -325,13 +432,18 @@ void TestHeatConfigDialog::overrideSourcesAreParserScoped()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require enabling cloud with fraction 0.4 to configure it and a later unchecked
+ * acceptance to clear its configured flag.
+ *
+ */
 void TestHeatConfigDialog::cloudEnableConfiguresAndUncheckClears()
 {
     SWMM_Engine e = makeHeatEngine();
     {
         HeatConfigDialog dlg(e);
-        auto *en = dlg.findChild<QCheckBox *>(
-            QStringLiteral("hc_cloudEnable"));
+        auto *en = dlg.findChild<QCheckBox *>(QStringLiteral("hc_cloudEnable"));
         QVERIFY(en);
         en->setChecked(true);
         auto *frac = dlg.findChild<QDoubleSpinBox *>(
@@ -350,8 +462,7 @@ void TestHeatConfigDialog::cloudEnableConfiguresAndUncheckClears()
 
     {
         HeatConfigDialog dlg(e);
-        auto *en = dlg.findChild<QCheckBox *>(
-            QStringLiteral("hc_cloudEnable"));
+        auto *en = dlg.findChild<QCheckBox *>(QStringLiteral("hc_cloudEnable"));
         QVERIFY(en && en->isChecked());
         en->setChecked(false);
         clickOk(dlg);
@@ -363,6 +474,12 @@ void TestHeatConfigDialog::cloudEnableConfiguresAndUncheckClears()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require the saved shortwave series to preselect by name, untouched OK to write nothing
+ * and a changed choice to rebind to alt_series.
+ *
+ */
 void TestHeatConfigDialog::boundTimeseriesNamesDisplayAndRebindOnlyOnChange()
 {
     // The G4g gap, closed end to end: the engine getters (d868b2c3) hand
@@ -373,42 +490,41 @@ void TestHeatConfigDialog::boundTimeseriesNamesDisplayAndRebindOnlyOnChange()
     QCOMPARE(swmm_timeseries_add(e, "alt_series"), SWMM_OK);
     QCOMPARE(swmm_heat_set_shortwave_timeseries(e, "sw_series"), SWMM_OK);
 
-    {   // Displays the binding, and an untouched OK is still a no-op —
+    { // Displays the binding, and an untouched OK is still a no-op —
         // reselecting what was shown must not count as a rebind.
         HeatConfigDialog dlg(e);
-        auto *combo = dlg.findChild<QComboBox *>(
-            QStringLiteral("hc_swTsCombo"));
+        auto *combo = dlg.findChild<QComboBox *>(QStringLiteral("hc_swTsCombo"));
         QVERIFY(combo);
-        QCOMPARE(combo->currentData().toString(),
-                 QStringLiteral("sw_series"));
+        QCOMPARE(combo->currentData().toString(), QStringLiteral("sw_series"));
         // No binding on the cloud side: the placeholder row is selected.
-        auto *cloud = dlg.findChild<QComboBox *>(
-            QStringLiteral("hc_cloudTsCombo"));
+        auto *cloud = dlg.findChild<QComboBox *>(QStringLiteral("hc_cloudTsCombo"));
         QVERIFY(cloud);
         QVERIFY(cloud->currentData().toString().isEmpty());
         clickOk(dlg);
         QVERIFY(!dlg.wroteAnyChanges());
     }
 
-    {   // A real rebind writes, and the getter sees the new name.
+    { // A real rebind writes, and the getter sees the new name.
         HeatConfigDialog dlg(e);
-        auto *radio = dlg.findChild<QRadioButton *>(
-            QStringLiteral("hc_swTimeseries"));
+        auto *radio = dlg.findChild<QRadioButton *>(QStringLiteral("hc_swTimeseries"));
         QVERIFY(radio);
         radio->setChecked(true);
-        auto *combo = dlg.findChild<QComboBox *>(
-            QStringLiteral("hc_swTsCombo"));
+        auto *combo = dlg.findChild<QComboBox *>(QStringLiteral("hc_swTsCombo"));
         combo->setCurrentIndex(combo->findData(QStringLiteral("alt_series")));
         clickOk(dlg);
         QVERIFY(dlg.wroteAnyChanges());
         char buf[64] = {0};
-        QCOMPARE(swmm_heat_get_shortwave_timeseries(e, buf, sizeof buf),
-                 SWMM_OK);
+        QCOMPARE(swmm_heat_get_shortwave_timeseries(e, buf, sizeof buf), SWMM_OK);
         QCOMPARE(QString::fromUtf8(buf), QStringLiteral("alt_series"));
     }
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Register edit modes none, unrelated module and explicit source-temperature change.
+ *
+ */
 void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay_data()
 {
     QTest::addColumn<QString>("edit");
@@ -416,6 +532,13 @@ void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay_data()
         QTest::newRow(name) << QString::fromLatin1(name);
 }
 
+/**
+ *
+ * @brief Require rounded displays to preserve exact source, override, albedo, latitude and cloud
+ * values except the explicitly changed source.
+ * Consumes edit and checks unchanged acceptance has zero writes.
+ *
+ */
 void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay()
 {
     QFETCH(QString, edit);
@@ -427,8 +550,10 @@ void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay()
     QCOMPARE(swmm_heat_set_cloud(e, SWMM_HEAT_CLOUD_FRACTION, 0.23456789), SWMM_OK);
     HeatConfigDialog dlg(e);
     if (edit == "unrelated")
-        dlg.findChild<QCheckBox *>(QStringLiteral("hc_module_%1").arg(SWMM_HEAT_SURFACE_EXCHANGE))->setChecked(true);
-    if (edit == "explicit") srcSpin(dlg, SWMM_HEAT_SRC_DWF)->setValue(14.25);
+        dlg.findChild<QCheckBox *>(QStringLiteral("hc_module_%1").arg(SWMM_HEAT_SURFACE_EXCHANGE))
+            ->setChecked(true);
+    if (edit == "explicit")
+        srcSpin(dlg, SWMM_HEAT_SRC_DWF)->setValue(14.25);
     clickOk(dlg);
     double actual = 0;
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_DWF, &actual), SWMM_OK);
@@ -442,17 +567,32 @@ void TestHeatConfigDialog::exactValuesSurviveRoundedDisplay()
     QCOMPARE(swmm_heat_get_cloud(e, SWMM_HEAT_CLOUD_FRACTION, &actual), SWMM_OK);
     QCOMPARE(actual, 0.23456789);
     QCOMPARE(dlg.wroteAnyChanges(), edit != "none");
-    if (edit == "none") QCOMPARE(dlg.lastWriteCount(), 0);
+    if (edit == "none")
+        QCOMPARE(dlg.lastWriteCount(), 0);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Register invalid duplicate override, missing source/node and missing shortwave-series
+ * choices.
+ *
+ */
 void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites_data()
 {
     QTest::addColumn<QString>("invalid");
-    for (const char *name : {"duplicate", "missing-source", "missing-node", "missing-shortwave-series"})
+    for (const char *name :
+         {"duplicate", "missing-source", "missing-node", "missing-shortwave-series"})
         QTest::newRow(name) << QString::fromLatin1(name);
 }
 
+/**
+ *
+ * @brief Require the invalid draft to retain engine values, emit no changes and focus the
+ * offending field on its correct tab.
+ * Consumes invalid; checks rejection also leaves the original source unchanged.
+ *
+ */
 void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites()
 {
     QFETCH(QString, invalid);
@@ -479,7 +619,9 @@ void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites()
         }
     }
     dlg.setCurrentTab(HeatConfigDialog::TabCloud);
-    dlg.show(); dlg.activateWindow(); QTest::qWait(1);
+    dlg.show();
+    dlg.activateWindow();
+    QTest::qWait(1);
     clickOk(dlg);
     QVERIFY(dlg.isVisible());
     QVERIFY(!dlg.wroteAnyChanges());
@@ -493,8 +635,9 @@ void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites()
     QCOMPARE(count, 0);
     auto *error = dlg.findChild<QLabel *>(QStringLiteral("hc_validationError"));
     QVERIFY(error && !error->text().isEmpty());
-    QCOMPARE(tabs->currentIndex(), int(invalid == "missing-shortwave-series"
-        ? HeatConfigDialog::TabRadiative : HeatConfigDialog::TabSources));
+    QCOMPARE(tabs->currentIndex(),
+             int(invalid == "missing-shortwave-series" ? HeatConfigDialog::TabRadiative
+                                                       : HeatConfigDialog::TabSources));
     QTRY_VERIFY(invalidField->hasFocus());
     dlg.reject();
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
@@ -502,6 +645,12 @@ void TestHeatConfigDialog::invalidDraftRefusesBeforeWrites()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require shortwave/cloud selectors to include a time series and exclude a unified-table
+ * storage curve.
+ *
+ */
 void TestHeatConfigDialog::timeseriesChoicesExcludeCurves()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -522,6 +671,11 @@ void TestHeatConfigDialog::timeseriesChoicesExcludeCurves()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Register cancel and corrected-retry paths following an engine-refused heat draft.
+ *
+ */
 void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag_data()
 {
     QTest::addColumn<bool>("retry");
@@ -529,6 +683,15 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag_data()
     QTest::newRow("correct-and-retry") << true;
 }
 
+/**
+ *
+ * @brief Require rejected albedo 1.5 to roll back the entire edit while retaining the draft and
+ * focused error.
+ * Consumes retry; cancellation preserves the original source, while corrected retry
+ * accepts its staged 18 Celsius value with one write and one applied signal. The
+ * legacy test name does not imply partial engine writes survive the atomic refusal.
+ *
+ */
 void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
 {
     QFETCH(bool, retry);
@@ -537,14 +700,17 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
     HeatConfigDialog dlg(e);
     QSignalSpy applied(&dlg, &HeatConfigDialog::changesApplied);
     srcSpin(dlg, SWMM_HEAT_SRC_GW)->setValue(18.0);
-    auto *albedo = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("hc_rad_%1").arg(SWMM_HEAT_RAD_ALBEDO));
+    auto *albedo =
+        dlg.findChild<QDoubleSpinBox *>(QStringLiteral("hc_rad_%1").arg(SWMM_HEAT_RAD_ALBEDO));
     QVERIFY(albedo);
     // Inject a real engine refusal through the widget without a production
     // callback seam. Normal input is bounded, but setter failures must still
-    // retain drafts and report the successful earlier source write.
+    // retain drafts while the atomic operation rolls back all engine writes.
     albedo->setMaximum(2.0);
     albedo->setValue(1.5);
-    dlg.show(); dlg.activateWindow(); QTest::qWait(1);
+    dlg.show();
+    dlg.activateWindow();
+    QTest::qWait(1);
     clickOk(dlg);
     QVERIFY(dlg.isVisible());
     QVERIFY(!dlg.wroteAnyChanges());
@@ -560,13 +726,13 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
     QCOMPARE(swmm_heat_get_radiative(e, SWMM_HEAT_RAD_ALBEDO, &value), SWMM_OK);
     QVERIFY(value != 1.5);
     if (retry) {
-        // Restore the unchanged engine value: the retry writes nothing but
-        // must retain the earlier partial-write notification.
+        // Correct the refused albedo: retry applies the still-staged source edit.
         albedo->setValue(value);
         clickOk(dlg);
         QCOMPARE(dlg.result(), int(QDialog::Accepted));
         QCOMPARE(dlg.lastWriteCount(), 1);
-    } else dlg.reject();
+    } else
+        dlg.reject();
     QCOMPARE(dlg.wroteAnyChanges(), retry);
     QCOMPARE(applied.count(), retry ? 1 : 0);
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
@@ -574,6 +740,12 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require engine invalidation to hide/disable the dialog and late acceptance to remain
+ * rejected after handle destruction.
+ *
+ */
 void TestHeatConfigDialog::invalidationDiscardsDraftAndGuardsLaterSignals()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -590,6 +762,12 @@ void TestHeatConfigDialog::invalidationDiscardsDraftAndGuardsLaterSignals()
     QVERIFY(!dlg.wroteAnyChanges());
 }
 
+/**
+ *
+ * @brief Require source/override tables and editors to expose names and updated row/field
+ * descriptions after removing a row.
+ *
+ */
 void TestHeatConfigDialog::tableControlsExposeFieldAndRowContext()
 {
     SWMM_Engine e = makeHeatEngine();
@@ -605,8 +783,10 @@ void TestHeatConfigDialog::tableControlsExposeFieldAndRowContext()
     auto *remove = dlg.findChild<QPushButton *>(QStringLiteral("hc_removeOverride"));
     QVERIFY(!add->autoDefault());
     QVERIFY(!remove->autoDefault());
-    add->click(); add->click();
-    overrides->setCurrentCell(0, 0); remove->click();
+    add->click();
+    add->click();
+    overrides->setCurrentCell(0, 0);
+    remove->click();
     for (int col = 0; col < overrides->columnCount(); ++col) {
         auto *field = overrides->cellWidget(0, col);
         auto *accessible = QAccessible::queryAccessibleInterface(field);
@@ -618,54 +798,99 @@ void TestHeatConfigDialog::tableControlsExposeFieldAndRowContext()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require sediment controls to retain precise untouched values and save authored initial
+ * temperature/dry policy while heat remains off.
+ * Checks inactive-domain guidance, saved component text and no-op reopening. Writes
+ * a persistent bed-controls project beside mini_2d.inp; optionally writes the
+ * SWMMVIS_HYDROTHERMAL_SCREENSHOT path when that variable is set.
+ *
+ */
 void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
 {
-    auto e=makeHeatEngine();
-    QCOMPARE(swmm_heat_set_sediment(e,5,1.23456789e-5),SWMM_OK);
+    auto e = makeHeatEngine();
+    QCOMPARE(swmm_heat_set_sediment(e, 5, 1.23456789e-5), SWMM_OK);
     HeatConfigDialog dialog(e);
-    bool meshGuidance=false;for(auto* label:dialog.findChildren<QLabel*>())if(label->text().contains("2D mesh-bed materials")&&label->text().contains("Assign Groundwater"))meshGuidance=true;QVERIFY(meshGuidance);
-    auto* status=dialog.findChild<QLabel*>("hc_processStatus");
+    bool meshGuidance = false;
+    for (auto *label : dialog.findChildren<QLabel *>())
+        if (label->text().contains("2D mesh-bed materials") &&
+            label->text().contains("Assign Groundwater"))
+            meshGuidance = true;
+    QVERIFY(meshGuidance);
+    auto *status = dialog.findChild<QLabel *>("hc_processStatus");
     QVERIFY(status->text().contains("off"));
-    auto* module=dialog.findChild<QCheckBox*>("hc_module_3");QVERIFY(module);
+    auto *module = dialog.findChild<QCheckBox *>("hc_module_3");
+    QVERIFY(module);
     module->setChecked(true);
     QVERIFY(status->text().contains("inactive"));
-    auto* moduleStatus=dialog.findChild<QLabel*>("hc_moduleStatus_3");QVERIFY(moduleStatus);
-    QVERIFY(moduleStatus->text().contains("Inactive for network and lumped domains because temperature transport is off"));
+    auto *moduleStatus = dialog.findChild<QLabel *>("hc_moduleStatus_3");
+    QVERIFY(moduleStatus);
+    QVERIFY(moduleStatus->text().contains(
+        "Inactive for network and lumped domains because temperature transport is off"));
     QVERIFY(moduleStatus->text().contains("mesh heat has separate activation controls"));
     QVERIFY(moduleStatus->text().contains("1D channel and conduit sediment beds"));
     QVERIFY(module->toolTip().contains("Spatial Overrides"));
-    dialog.findChild<QCheckBox*>("hc_initialConfigured")->setChecked(true);
-    dialog.findChild<QDoubleSpinBox*>("hc_bed_8")->setValue(8.75);
-    dialog.findChild<QComboBox*>("hc_dryPolicy")->setCurrentIndex(1);
-    dialog.resize(1000,780);dialog.setCurrentTab(HeatConfigDialog::TabBed);dialog.show();QTest::qWait(20);
-    if(qEnvironmentVariableIsSet("SWMMVIS_HYDROTHERMAL_SCREENSHOT"))
+    dialog.findChild<QCheckBox *>("hc_initialConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox *>("hc_bed_8")->setValue(8.75);
+    dialog.findChild<QComboBox *>("hc_dryPolicy")->setCurrentIndex(1);
+    dialog.resize(1000, 780);
+    dialog.setCurrentTab(HeatConfigDialog::TabBed);
+    dialog.show();
+    QTest::qWait(20);
+    if (qEnvironmentVariableIsSet("SWMMVIS_HYDROTHERMAL_SCREENSHOT"))
         QVERIFY(dialog.grab().save(qEnvironmentVariable("SWMMVIS_HYDROTHERMAL_SCREENSHOT")));
-    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    int on=0;swmm_heat_get_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,&on);QCOMPARE(on,1);
-    swmm_heat_get_enabled(e,&on);QCOMPARE(on,0);
-    const int component=swmm_process_component_find(e,"org.hydrocouple.openswmm.heat");QVERIFY(component>=0);
-    const QDir saved(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath()+"/hydrothermal_gis_2026-10-17/bed-controls");QVERIFY(QDir().mkpath(saved.path()));
-    QCOMPARE(swmm_model_write(e,saved.filePath("project.inp").toUtf8().constData()),SWMM_OK);
-    char id[256]{},config[4096]{},resolved[4096]{};
-    swmm_process_component_get(e,component,id,sizeof id,config,sizeof config,resolved,sizeof resolved);
-    QFile file(saved.filePath(QString::fromUtf8(config)));QVERIFY(file.open(QIODevice::ReadOnly));
-    const auto data=file.readAll();QVERIFY(data.contains("SEDIMENT_EXCHANGE ON"));QVERIFY(data.contains("DRY_ELEMENT_TEMPERATURE AIR"));
+    clickOk(dialog);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    int on = 0;
+    swmm_heat_get_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, &on);
+    QCOMPARE(on, 1);
+    swmm_heat_get_enabled(e, &on);
+    QCOMPARE(on, 0);
+    const int component = swmm_process_component_find(e, "org.hydrocouple.openswmm.heat");
+    QVERIFY(component >= 0);
+    const QDir saved(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath() +
+                     "/hydrothermal_gis_2026-10-17/bed-controls");
+    QVERIFY(QDir().mkpath(saved.path()));
+    QCOMPARE(swmm_model_write(e, saved.filePath("project.inp").toUtf8().constData()), SWMM_OK);
+    char id[256]{}, config[4096]{}, resolved[4096]{};
+    swmm_process_component_get(e, component, id, sizeof id, config, sizeof config, resolved,
+                               sizeof resolved);
+    QFile file(saved.filePath(QString::fromUtf8(config)));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto data = file.readAll();
+    QVERIFY(data.contains("SEDIMENT_EXCHANGE ON"));
+    QVERIFY(data.contains("DRY_ELEMENT_TEMPERATURE AIR"));
 
-    double value=0;swmm_heat_get_sediment(e,5,&value);QCOMPARE(value,1.23456789e-5);
-    swmm_heat_get_sediment(e,8,&value);QCOMPARE(value,8.75);
-    int policy=0;swmm_heat_get_dry_policy(e,&policy);QCOMPARE(policy,1);
-    HeatConfigDialog reopened(e);QVERIFY(reopened.findChild<QCheckBox*>("hc_initialConfigured")->isChecked());
-    clickOk(reopened);QCOMPARE(reopened.lastWriteCount(),0);
+    double value = 0;
+    swmm_heat_get_sediment(e, 5, &value);
+    QCOMPARE(value, 1.23456789e-5);
+    swmm_heat_get_sediment(e, 8, &value);
+    QCOMPARE(value, 8.75);
+    int policy = 0;
+    swmm_heat_get_dry_policy(e, &policy);
+    QCOMPARE(policy, 1);
+    HeatConfigDialog reopened(e);
+    QVERIFY(reopened.findChild<QCheckBox *>("hc_initialConfigured")->isChecked());
+    clickOk(reopened);
+    QCOMPARE(reopened.lastWriteCount(), 0);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require overview text to separate saved-off transport from an enabled editor draft and
+ * unavailable runtime receipts.
+ * A ten-millisecond modal closer captures text; no overall timeout bounds the modal.
+ *
+ */
 void TestHeatConfigDialog::runtimeOverviewSeparatesDraftFromUninitializedRuntime()
 {
     auto e = makeHeatEngine();
     QCOMPARE(swmm_heat_set_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, 1), SWMM_OK);
     HeatConfigDialog dialog(e);
-    auto *transport = dialog.findChild<QCheckBox*>(QStringLiteral("hc_heatEnabled"));
-    auto *overview = dialog.findChild<QPushButton*>(QStringLiteral("hc_runtimeOverview"));
+    auto *transport = dialog.findChild<QCheckBox *>(QStringLiteral("hc_heatEnabled"));
+    auto *overview = dialog.findChild<QPushButton *>(QStringLiteral("hc_runtimeOverview"));
     QVERIFY(transport && overview && overview->isEnabled());
     transport->setChecked(true); // editor draft only; the engine remains off
 
@@ -674,13 +899,16 @@ void TestHeatConfigDialog::runtimeOverviewSeparatesDraftFromUninitializedRuntime
     QTimer closeOverview;
     closeOverview.setInterval(10);
     QObject::connect(&closeOverview, &QTimer::timeout, [&] {
-        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog")) return;
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog"))
+            return;
         opened = true;
-        if (auto *browser = modal->findChild<QTextBrowser*>(QStringLiteral("hc_runtimeOverviewText")))
+        if (auto *browser =
+                modal->findChild<QTextBrowser *>(QStringLiteral("hc_runtimeOverviewText")))
             text = browser->toPlainText();
-        if (auto *buttons = modal->findChild<QDialogButtonBox*>())
-            if (auto *close = buttons->button(QDialogButtonBox::Close)) close->click();
+        if (auto *buttons = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = buttons->button(QDialogButtonBox::Close))
+                close->click();
     });
     closeOverview.start();
     overview->click();
@@ -688,12 +916,20 @@ void TestHeatConfigDialog::runtimeOverviewSeparatesDraftFromUninitializedRuntime
     QVERIFY(opened);
     QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: off")));
     QVERIFY(text.contains(QStringLiteral("Current editor draft: on")));
-    QVERIFY(text.contains(QStringLiteral("Runtime activation and energy receipts are not available")));
+    QVERIFY(
+        text.contains(QStringLiteral("Runtime activation and energy receipts are not available")));
     QVERIFY(text.contains(QStringLiteral("inactive for network and lumped domains")));
-    QVERIFY(text.contains(QStringLiteral("pollutant, reaction, MSX and water-age settings remain independent")));
+    QVERIFY(text.contains(
+        QStringLiteral("pollutant, reaction, MSX and water-age settings remain independent")));
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require initialized overview to distinguish network heat enabled from inactive mesh
+ * temperature and surface exchange.
+ *
+ */
 void TestHeatConfigDialog::runtimeOverviewDistinguishesMeshTemperatureOff()
 {
     OpenedMini2D model;
@@ -702,10 +938,17 @@ void TestHeatConfigDialog::runtimeOverviewDistinguishesMeshTemperatureOff()
     HeatConfigDialog dialog(model.engine);
     const QString text = showRuntimeOverview(dialog);
     QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: on")));
-    QVERIFY(text.contains(QStringLiteral("2D heat reason: Saved; inactive because mesh temperature transport is off.")));
+    QVERIFY(text.contains(QStringLiteral(
+        "2D heat reason: Saved; inactive because mesh temperature transport is off.")));
     QVERIFY(text.contains(QStringLiteral("2D surface heat: inactive")));
 }
 
+/**
+ *
+ * @brief Require enabled mesh temperature with all heat exchanges off to report an initialized
+ * coupled model without active surface heat.
+ *
+ */
 void TestHeatConfigDialog::runtimeOverviewReportsNoCompatibleHeatOwner()
 {
     OpenedMini2D model;
@@ -714,9 +957,16 @@ void TestHeatConfigDialog::runtimeOverviewReportsNoCompatibleHeatOwner()
     HeatConfigDialog dialog(model.engine);
     const QString text = showRuntimeOverview(dialog);
     QVERIFY(text.contains(QStringLiteral("2D surface heat: inactive")));
-    QVERIFY(text.contains(QStringLiteral("Coupled model is initialized; all mesh heat exchanges are off.")));
+    QVERIFY(text.contains(
+        QStringLiteral("Coupled model is initialized; all mesh heat exchanges are off.")));
 }
 
+/**
+ *
+ * @brief Require surface heat to report active even when its immediately ended run has a
+ * zero-joule signed receipt.
+ *
+ */
 void TestHeatConfigDialog::runtimeOverviewSeparatesActiveProcessFromZeroReceipts()
 {
     OpenedMini2D model;
@@ -726,368 +976,693 @@ void TestHeatConfigDialog::runtimeOverviewSeparatesActiveProcessFromZeroReceipts
     const QString text = showRuntimeOverview(dialog);
     QVERIFY(text.contains(QStringLiteral("2D surface heat: active")));
     QVERIFY(text.contains(QStringLiteral("mesh atmosphere 0 J")));
-    QVERIFY(text.contains(QStringLiteral("a zero signed total does not mean that a process is disabled")));
+    QVERIFY(text.contains(
+        QStringLiteral("a zero signed total does not mean that a process is disabled")));
 }
 
+/**
+ *
+ * @brief Require heat-off overview to retain groundwater MSX transport, show ended state and
+ * avoid claiming all water quality is off.
+ *
+ */
 void TestHeatConfigDialog::runtimeOverviewKeepsReactionTransportIndependentOfHeat()
 {
     OpenedMini2D model;
     QVERIFY(model.open());
-    QCOMPARE(swmm_options_set(model.engine,"IGNORE_QUALITY","NO"),SWMM_OK);
-    QCOMPARE(swmm_gw_transport_option_set(model.engine,"TRANSPORT_MSX","YES"),SWMM_OK);
-    QCOMPARE(swmm_gw_transport_option_set(model.engine,"TRANSPORT_TEMPERATURE","NO"),SWMM_OK);
-    QVERIFY(model.initializeAndStart(false,false,false));
+    QCOMPARE(swmm_options_set(model.engine, "IGNORE_QUALITY", "NO"), SWMM_OK);
+    QCOMPARE(swmm_gw_transport_option_set(model.engine, "TRANSPORT_MSX", "YES"), SWMM_OK);
+    QCOMPARE(swmm_gw_transport_option_set(model.engine, "TRANSPORT_TEMPERATURE", "NO"), SWMM_OK);
+    QVERIFY(model.initializeAndStart(false, false, false));
     HeatConfigDialog dialog(model.engine);
-    const QString text=showRuntimeOverview(dialog);
+    const QString text = showRuntimeOverview(dialog);
     QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: off")));
-    QVERIFY(text.contains(QStringLiteral("Temperature transport is off; pollutant, reaction, MSX and water-age settings remain independent.")));
+    QVERIFY(text.contains(QStringLiteral(
+        "Temperature transport is off; pollutant, reaction, MSX and water-age settings remain independent.")));
     QVERIFY(text.contains(QStringLiteral("Simulation state: ended.")));
     QVERIFY(!text.contains(QStringLiteral("Water quality is off")));
     char reactions[32]{};
-    QCOMPARE(swmm_gw_transport_option_get(model.engine,"TRANSPORT_MSX",reactions,sizeof reactions),SWMM_OK);
-    QCOMPARE(QString::fromUtf8(reactions),QStringLiteral("YES"));
+    QCOMPARE(
+        swmm_gw_transport_option_get(model.engine, "TRANSPORT_MSX", reactions, sizeof reactions),
+        SWMM_OK);
+    QCOMPARE(QString::fromUtf8(reactions), QStringLiteral("YES"));
 }
 
+/**
+ *
+ * @brief Require the groundwater settings shortcut to accept the current dialog and emit exactly
+ * one navigation request.
+ *
+ */
 void TestHeatConfigDialog::groundwaterThermalSettingsShortcutAppliesAndRequestsNavigation()
 {
-    SWMM_Engine engine=makeHeatEngine();
+    SWMM_Engine engine = makeHeatEngine();
     HeatConfigDialog dialog(engine);
-    QSignalSpy requested(&dialog,&HeatConfigDialog::groundwaterSettingsRequested);
-    auto* button=dialog.findChild<QPushButton*>(QStringLiteral("hc_groundwaterSettings"));
+    QSignalSpy requested(&dialog, &HeatConfigDialog::groundwaterSettingsRequested);
+    auto *button = dialog.findChild<QPushButton *>(QStringLiteral("hc_groundwaterSettings"));
     QVERIFY(button);
     button->click();
-    QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    QCOMPARE(requested.size(),1);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QCOMPARE(requested.size(), 1);
     swmm_engine_destroy(engine);
 }
 
+/**
+ *
+ * @brief Require saved channel-contact preview to filter missing names, show C1 coverage/cells
+ * and preserve the heat configuration signature.
+ * Builds an open-channel mini_2d variant in a temporary directory and checks
+ * header section sizes against hints; no assignment is committed.
+ *
+ */
 void TestHeatConfigDialog::channelContactPreviewShowsSavedCoverageWithoutEditingModel()
 {
-    const QString sourcePath=QFINDTESTDATA("data/mini_2d.inp");
+    const QString sourcePath = QFINDTESTDATA("data/mini_2d.inp");
     QVERIFY(!sourcePath.isEmpty());
-    QFile source(sourcePath);QVERIFY(source.open(QIODevice::ReadOnly));
-    QByteArray deck=source.readAll();
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QByteArray deck = source.readAll();
     deck.replace("C1      100     0.013", "C1      8       0.013");
     deck.replace("C1      CIRCULAR  1      0      0      0      1",
                  "C1      RECT_OPEN  1      2      0      0      1");
     deck.append("\n[COORDINATES]\nJ1 1 3\nO1 9 3\n");
-    QTemporaryDir temp;QVERIFY(temp.isValid());
-    const QString inputPath=temp.filePath(QStringLiteral("channel-preview.inp"));
-    QFile input(inputPath);QVERIFY(input.open(QIODevice::WriteOnly));QCOMPARE(input.write(deck),qint64(deck.size()));input.close();
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString inputPath = temp.filePath(QStringLiteral("channel-preview.inp"));
+    QFile input(inputPath);
+    QVERIFY(input.open(QIODevice::WriteOnly));
+    QCOMPARE(input.write(deck), qint64(deck.size()));
+    input.close();
 
-    auto engine=swmm_engine_create();QVERIFY(engine);
-    QCOMPARE(swmm_engine_open(engine,inputPath.toUtf8().constData(),
-        temp.filePath(QStringLiteral("channel-preview.rpt")).toUtf8().constData(),nullptr,nullptr),SWMM_OK);
-    QCOMPARE(swmm_heat_set_element_override(engine,SWMM_HEAT_ATTR_GROUND_SOURCE,
-        SWMM_HEAT_SCOPE_LINK,"C1",1.0),SWMM_OK);
-    const QString before=HeatConfigDialog::configurationSignature(engine);
+    auto engine = swmm_engine_create();
+    QVERIFY(engine);
+    QCOMPARE(
+        swmm_engine_open(engine, inputPath.toUtf8().constData(),
+                         temp.filePath(QStringLiteral("channel-preview.rpt")).toUtf8().constData(),
+                         nullptr, nullptr),
+        SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(engine, SWMM_HEAT_ATTR_GROUND_SOURCE,
+                                            SWMM_HEAT_SCOPE_LINK, "C1", 1.0),
+             SWMM_OK);
+    const QString before = HeatConfigDialog::configurationSignature(engine);
     HeatConfigDialog dialog(engine);
-    auto* button=dialog.findChild<QPushButton*>(QStringLiteral("hc_channelGroundPreview"));QVERIFY(button);
-    auto* filter=dialog.findChild<QLineEdit*>(QStringLiteral("hc_channelGroundPreviewFilter"));QVERIFY(filter);
-    auto* table=dialog.findChild<QTableWidget*>(QStringLiteral("hc_channelGroundPreviewTable"));QVERIFY(table);
+    auto *button = dialog.findChild<QPushButton *>(QStringLiteral("hc_channelGroundPreview"));
+    QVERIFY(button);
+    auto *filter = dialog.findChild<QLineEdit *>(QStringLiteral("hc_channelGroundPreviewFilter"));
+    QVERIFY(filter);
+    auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("hc_channelGroundPreviewTable"));
+    QVERIFY(table);
     filter->setText(QStringLiteral("missing"));
     button->click();
-    QCOMPARE(table->rowCount(),0);
-    QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("hc_channelGroundPreviewStatus"))->text().contains(QStringLiteral("No saved MESH_CONTACTS links match")));
+    QCOMPARE(table->rowCount(), 0);
+    QVERIFY(dialog.findChild<QLabel *>(QStringLiteral("hc_channelGroundPreviewStatus"))
+                ->text()
+                .contains(QStringLiteral("No saved MESH_CONTACTS links match")));
     filter->clear();
     button->click();
-    QCOMPARE(table->rowCount(),1);
-    QCOMPARE(table->item(0,0)->text(),QStringLiteral("C1"));
-    QCOMPARE(table->item(0,1)->text(),QStringLiteral("1, 2"));
-    QVERIFY(table->item(0,2)->text().contains(QStringLiteral("8")));
-    QVERIFY(table->item(0,3)->text().contains(QStringLiteral("Complete XY coverage")));
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 0)->text(), QStringLiteral("C1"));
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("1, 2"));
+    QVERIFY(table->item(0, 2)->text().contains(QStringLiteral("8")));
+    QVERIFY(table->item(0, 3)->text().contains(QStringLiteral("Complete XY coverage")));
     for (int column = 0; column < table->columnCount(); ++column)
         QVERIFY(table->horizontalHeader()->sectionSize(column) >=
                 table->horizontalHeader()->sectionSizeHint(column));
-    QCOMPARE(HeatConfigDialog::configurationSignature(engine),before);
-    swmm_engine_close(engine);swmm_engine_destroy(engine);
+    QCOMPARE(HeatConfigDialog::configurationSignature(engine), before);
+    swmm_engine_close(engine);
+    swmm_engine_destroy(engine);
 }
 
+/**
+ *
+ * @brief Require explicitly enabling the default zero-latitude site to allow computed shortwave
+ * selection and save its sited flag in one acceptance.
+ *
+ */
 void TestHeatConfigDialog::zeroLatitudeSiteAndComputedRadiationInOneVisit()
 {
-    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
-    auto* computed=dialog.findChild<QRadioButton*>("hc_swComputed");QVERIFY(!computed->isEnabled());
-    dialog.findChild<QCheckBox*>("hc_explicitSite")->setChecked(true);
-    QVERIFY(computed->isEnabled());computed->setChecked(true);clickOk(dialog);
-    QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    int mode=-1;swmm_heat_get_shortwave_mode(e,&mode);QCOMPARE(mode,int(SWMM_HEAT_SW_COMPUTED));
-    int sited=0;swmm_heat_get_solar_sited(e,&sited);QCOMPARE(sited,1);
+    auto e = makeHeatEngine();
+    HeatConfigDialog dialog(e);
+    auto *computed = dialog.findChild<QRadioButton *>("hc_swComputed");
+    QVERIFY(!computed->isEnabled());
+    dialog.findChild<QCheckBox *>("hc_explicitSite")->setChecked(true);
+    QVERIFY(computed->isEnabled());
+    computed->setChecked(true);
+    clickOk(dialog);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    int mode = -1;
+    swmm_heat_get_shortwave_mode(e, &mode);
+    QCOMPARE(mode, int(SWMM_HEAT_SW_COMPUTED));
+    int sited = 0;
+    swmm_heat_get_solar_sited(e, &sited);
+    QCOMPARE(sited, 1);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require a deliberately failing atomic callback to restore sediment
+ * enable/configured-temperature flags and remove its new heat component.
+ * The callback borrows the supplied engine, ignores null user data, enables
+ * sediment exchange, authors seven Celsius and returns SWMM_ERR_BADPARAM.
+ *
+ */
 void TestHeatConfigDialog::atomicEditRestoresModuleAndAuthoredTemperature()
 {
-    auto e=makeHeatEngine();
-    const auto fail=[](SWMM_Engine e,void*) -> int {
-        swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,1);
-        swmm_heat_set_sediment(e,SWMM_HEAT_SED_INITIAL_TEMPERATURE,7);
+    auto e = makeHeatEngine();
+    const auto fail = [](SWMM_Engine e, void *) -> int {
+        swmm_heat_set_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, 1);
+        swmm_heat_set_sediment(e, SWMM_HEAT_SED_INITIAL_TEMPERATURE, 7);
         OpenSWMM::Ui::ensureHeatConfigurationFile(e);
         return SWMM_ERR_BADPARAM;
     };
-    QCOMPARE(swmm_hydrothermal_edit_atomic(e,fail,nullptr),SWMM_ERR_BADPARAM);
-    int flag=-1;swmm_heat_get_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,&flag);QCOMPARE(flag,0);
-    swmm_heat_sediment_temperature_configured(e,SWMM_HEAT_SED_INITIAL_TEMPERATURE,&flag);QCOMPARE(flag,0);
-    QCOMPARE(swmm_process_component_count(e),0);
+    QCOMPARE(swmm_hydrothermal_edit_atomic(e, fail, nullptr), SWMM_ERR_BADPARAM);
+    int flag = -1;
+    swmm_heat_get_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, &flag);
+    QCOMPARE(flag, 0);
+    swmm_heat_sediment_temperature_configured(e, SWMM_HEAT_SED_INITIAL_TEMPERATURE, &flag);
+    QCOMPARE(flag, 0);
+    QCOMPARE(swmm_process_component_count(e), 0);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require node J0 albedo override to change from 0.13 to 0.29 and a later selected-row
+ * removal to clear the override list.
+ *
+ */
 void TestHeatConfigDialog::spatialOverridesCanBeEditedAndRemoved()
 {
-    auto e=makeHeatEngine();
-    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_NODE,"J0",.13),SWMM_OK);
-    HeatConfigDialog dialog(e);auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");
-    QCOMPARE(table->rowCount(),1);
-    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.29);clickOk(dialog);
-    QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    double value=0;swmm_heat_get_element_override(e,0,nullptr,nullptr,nullptr,0,&value);QCOMPARE(value,.29);
-    HeatConfigDialog remove(e);auto* rows=remove.findChild<QTableWidget*>("hc_elementTable");rows->selectRow(0);
-    remove.findChild<QPushButton*>("hc_removeElement")->click();clickOk(remove);
-    int count=-1;swmm_heat_element_override_count(e,&count);QCOMPARE(count,0);
+    auto e = makeHeatEngine();
+    QCOMPARE(
+        swmm_heat_set_element_override(e, SWMM_HEAT_ATTR_ALBEDO, SWMM_HEAT_SCOPE_NODE, "J0", .13),
+        SWMM_OK);
+    HeatConfigDialog dialog(e);
+    auto *table = dialog.findChild<QTableWidget *>("hc_elementTable");
+    QCOMPARE(table->rowCount(), 1);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3))->setValue(.29);
+    clickOk(dialog);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    double value = 0;
+    swmm_heat_get_element_override(e, 0, nullptr, nullptr, nullptr, 0, &value);
+    QCOMPARE(value, .29);
+    HeatConfigDialog remove(e);
+    auto *rows = remove.findChild<QTableWidget *>("hc_elementTable");
+    rows->selectRow(0);
+    remove.findChild<QPushButton *>("hc_removeElement")->click();
+    clickOk(remove);
+    int count = -1;
+    swmm_heat_element_override_count(e, &count);
+    QCOMPARE(count, 0);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require clearing authored 11.25 Celsius landcover temperature to restore NaN inheritance
+ * and make subsequent unchanged acceptance a no-op.
+ *
+ */
 void TestHeatConfigDialog::landcoverCanReturnToAirTemperatureInheritance()
 {
-    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
-    dialog.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(true);
-    dialog.findChild<QDoubleSpinBox*>("hc_rad_8")->setValue(11.25);clickOk(dialog);
-    double value=0;swmm_heat_get_radiative(e,8,&value);QCOMPARE(value,11.25);
-    HeatConfigDialog reset(e);reset.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(false);clickOk(reset);
-    swmm_heat_get_radiative(e,8,&value);QVERIFY(std::isnan(value));
-    HeatConfigDialog untouched(e);clickOk(untouched);QCOMPARE(untouched.lastWriteCount(),0);
+    auto e = makeHeatEngine();
+    HeatConfigDialog dialog(e);
+    dialog.findChild<QCheckBox *>("hc_landcoverConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox *>("hc_rad_8")->setValue(11.25);
+    clickOk(dialog);
+    double value = 0;
+    swmm_heat_get_radiative(e, 8, &value);
+    QCOMPARE(value, 11.25);
+    HeatConfigDialog reset(e);
+    reset.findChild<QCheckBox *>("hc_landcoverConfigured")->setChecked(false);
+    clickOk(reset);
+    swmm_heat_get_radiative(e, 8, &value);
+    QVERIFY(std::isnan(value));
+    HeatConfigDialog untouched(e);
+    clickOk(untouched);
+    QCOMPARE(untouched.lastWriteCount(), 0);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require a stale groundwater temperature draft to report another editor and preserve its
+ * externally authored 13 Celsius value.
+ *
+ */
 void TestHeatConfigDialog::externalEditIsNotOverwritten()
 {
-    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
-    srcCheck(dialog,SWMM_HEAT_SRC_GW)->setChecked(true);srcSpin(dialog,SWMM_HEAT_SRC_GW)->setValue(7);
-    swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,13);clickOk(dialog);
+    auto e = makeHeatEngine();
+    HeatConfigDialog dialog(e);
+    srcCheck(dialog, SWMM_HEAT_SRC_GW)->setChecked(true);
+    srcSpin(dialog, SWMM_HEAT_SRC_GW)->setValue(7);
+    swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 13);
+    clickOk(dialog);
     QVERIFY(!dialog.wroteAnyChanges());
-    QVERIFY(dialog.findChild<QLabel*>("hc_validationError")->text().contains("another editor"));
-    double value=0;swmm_heat_get_source_temp(e,SWMM_HEAT_SRC_GW,&value);QCOMPARE(value,13.);
+    QVERIFY(dialog.findChild<QLabel *>("hc_validationError")->text().contains("another editor"));
+    double value = 0;
+    swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value);
+    QCOMPARE(value, 13.);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require temperature draft preview to report enabled without saving heat, then honor
+ * draft ignore-quality as user-disabled.
+ *
+ */
 void TestHeatConfigDialog::transportPreviewDoesNotApplyDraft()
 {
-    auto e=makeHeatEngine();SWMM_TransportDraft draft{};
-    draft.heat=1;draft.groundwater=-1;
-    for(int& enabled:draft.surface_class)enabled=1;
+    auto e = makeHeatEngine();
+    SWMM_TransportDraft draft{};
+    draft.heat = 1;
+    draft.groundwater = -1;
+    for (int &enabled : draft.surface_class)
+        enabled = 1;
     SWMM_TransportMatrix matrix{};
-    QCOMPARE(swmm_preview_transport_matrix(e,&draft,&matrix),SWMM_OK);
-    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_ENABLED);
-    int enabled=1;swmm_heat_get_enabled(e,&enabled);QCOMPARE(enabled,0);
-    draft.ignore_quality=1;QCOMPARE(swmm_preview_transport_matrix(e,&draft,&matrix),SWMM_OK);
-    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_DISABLED_BY_USER);
+    QCOMPARE(swmm_preview_transport_matrix(e, &draft, &matrix), SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,
+             SWMM_TRANSPORT_ENABLED);
+    int enabled = 1;
+    swmm_heat_get_enabled(e, &enabled);
+    QCOMPARE(enabled, 0);
+    draft.ignore_quality = 1;
+    QCOMPARE(swmm_preview_transport_matrix(e, &draft, &matrix), SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,
+             SWMM_TRANSPORT_DISABLED_BY_USER);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require heat undo/redo to restore component existence and unset defaults, then refuse
+ * stale undo after an external source edit.
+ * Checks one error and two change callbacks, with the external 19 Celsius retained;
+ * callback engine/owner lifetimes enclose the undo stack.
+ *
+ */
 void TestHeatConfigDialog::undoPreservesDefaultsAndRefusesExternalChanges()
 {
-    auto e=makeHeatEngine();QObject owner;int changes=0,errors=0;
-    OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(e));QVERIFY(before);
-    const auto beforeId=HeatConfigDialog::configurationSignature(e);
-    swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,1);
-    swmm_heat_set_sediment(e,8,7.25);
-    QCOMPARE(OpenSWMM::Ui::ensureHeatConfigurationFile(e),SWMM_OK);
-    QCOMPARE(swmm_process_component_count(e),1);
-    OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(e));QVERIFY(after);
-    const auto afterId=HeatConfigDialog::configurationSignature(e);
+    auto e = makeHeatEngine();
+    QObject owner;
+    int changes = 0, errors = 0;
+    OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(e));
+    QVERIFY(before);
+    const auto beforeId = HeatConfigDialog::configurationSignature(e);
+    swmm_heat_set_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, 1);
+    swmm_heat_set_sediment(e, 8, 7.25);
+    QCOMPARE(OpenSWMM::Ui::ensureHeatConfigurationFile(e), SWMM_OK);
+    QCOMPARE(swmm_process_component_count(e), 1);
+    OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(e));
+    QVERIFY(after);
+    const auto afterId = HeatConfigDialog::configurationSignature(e);
     {
         QUndoStack stack;
-        stack.push(new OpenSWMMVis::HeatConfigurationUndo(&owner,e,std::move(before),std::move(after),beforeId,afterId,
-            [e]{return e;},HeatConfigDialog::configurationSignature,[&]{++changes;},[&](QString){++errors;}));
-        stack.undo();QCOMPARE(HeatConfigDialog::configurationSignature(e),beforeId);
-        QCOMPARE(swmm_process_component_count(e),0);
-        int configured=1;swmm_heat_sediment_temperature_configured(e,8,&configured);QCOMPARE(configured,0);
-        stack.redo();QCOMPARE(HeatConfigDialog::configurationSignature(e),afterId);
-        swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,19.);
-        stack.undo();QCOMPARE(errors,1);QCOMPARE(changes,2);
-        double value=0;swmm_heat_get_source_temp(e,SWMM_HEAT_SRC_GW,&value);QCOMPARE(value,19.);
+        stack.push(new OpenSWMMVis::HeatConfigurationUndo(
+            &owner, e, std::move(before), std::move(after), beforeId, afterId, [e] { return e; },
+            HeatConfigDialog::configurationSignature, [&] { ++changes; },
+            [&](QString) { ++errors; }));
+        stack.undo();
+        QCOMPARE(HeatConfigDialog::configurationSignature(e), beforeId);
+        QCOMPARE(swmm_process_component_count(e), 0);
+        int configured = 1;
+        swmm_heat_sediment_temperature_configured(e, 8, &configured);
+        QCOMPARE(configured, 0);
+        stack.redo();
+        QCOMPARE(HeatConfigDialog::configurationSignature(e), afterId);
+        swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 19.);
+        stack.undo();
+        QCOMPARE(errors, 1);
+        QCOMPARE(changes, 2);
+        double value = 0;
+        swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value);
+        QCOMPARE(value, 19.);
     }
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require a failed atomic callback to restore all twelve evaporation/rainfall adjustment
+ * values to zero/one.
+ * The callback borrows its engine, ignores null user data, writes twelve 2.5 values
+ * to each adjustment array and returns SWMM_ERR_BADPARAM.
+ *
+ */
 void TestHeatConfigDialog::climateAdjustmentsRollBackTogether()
 {
-    auto e=makeHeatEngine();
-    const auto callback=[](SWMM_Engine engine,void*) -> int {
-        double values[12];std::fill_n(values,12,2.5);
-        swmm_climate_set_adjust_evaporation(engine,values,12);
-        swmm_climate_set_adjust_rainfall(engine,values,12);
+    auto e = makeHeatEngine();
+    const auto callback = [](SWMM_Engine engine, void *) -> int {
+        double values[12];
+        std::fill_n(values, 12, 2.5);
+        swmm_climate_set_adjust_evaporation(engine, values, 12);
+        swmm_climate_set_adjust_rainfall(engine, values, 12);
         return SWMM_ERR_BADPARAM;
     };
-    QCOMPARE(swmm_hydrothermal_edit_atomic(e,callback,nullptr),SWMM_ERR_BADPARAM);
-    double values[12]{};swmm_climate_get_adjust_evaporation(e,values,12);
-    for(double value:values)QCOMPARE(value,0.);
-    swmm_climate_get_adjust_rainfall(e,values,12);for(double value:values)QCOMPARE(value,1.);
+    QCOMPARE(swmm_hydrothermal_edit_atomic(e, callback, nullptr), SWMM_ERR_BADPARAM);
+    double values[12]{};
+    swmm_climate_get_adjust_evaporation(e, values, 12);
+    for (double value : values)
+        QCOMPARE(value, 0.);
+    swmm_climate_get_adjust_rainfall(e, values, 12);
+    for (double value : values)
+        QCOMPARE(value, 1.);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require external node rename or tag changes to invalidate a staged rainfall-temperature
+ * edit before it is configured.
+ *
+ */
 void TestHeatConfigDialog::elementRenamesAndTagsInvalidateDraft()
 {
-    for(bool rename:{false,true}) {
-        auto e=makeHeatEngine();HeatConfigDialog dialog(e);
-        srcCheck(dialog,SWMM_HEAT_SRC_RAINFALL)->setChecked(true);srcSpin(dialog,SWMM_HEAT_SRC_RAINFALL)->setValue(14.);
-        QCOMPARE(rename?swmm_node_rename(e,0,"Renamed"):swmm_node_set_tag(e,0,"New tag"),SWMM_OK);
-        clickOk(dialog);QVERIFY(dialog.result()!=QDialog::Accepted);QVERIFY(!dialog.wroteAnyChanges());
-        int configured=1;QCOMPARE(swmm_heat_get_source_configured(e,SWMM_HEAT_SRC_RAINFALL,&configured),SWMM_OK);QCOMPARE(configured,0);
+    for (bool rename : {false, true}) {
+        auto e = makeHeatEngine();
+        HeatConfigDialog dialog(e);
+        srcCheck(dialog, SWMM_HEAT_SRC_RAINFALL)->setChecked(true);
+        srcSpin(dialog, SWMM_HEAT_SRC_RAINFALL)->setValue(14.);
+        QCOMPARE(rename ? swmm_node_rename(e, 0, "Renamed") : swmm_node_set_tag(e, 0, "New tag"),
+                 SWMM_OK);
+        clickOk(dialog);
+        QVERIFY(dialog.result() != QDialog::Accepted);
+        QVERIFY(!dialog.wroteAnyChanges());
+        int configured = 1;
+        QCOMPARE(swmm_heat_get_source_configured(e, SWMM_HEAT_SRC_RAINFALL, &configured), SWMM_OK);
+        QCOMPARE(configured, 0);
         swmm_engine_destroy(e);
     }
 }
 
+/**
+ *
+ * @brief Require tag-based albedo preview to resolve its draft, clear when edited again and
+ * retain the original effective engine value/signature.
+ *
+ */
 void TestHeatConfigDialog::resolvedDraftPreviewLeavesEngineUnchanged()
 {
-    auto e=makeHeatEngine();QCOMPARE(swmm_node_set_tag(e,0,"forest"),SWMM_OK);
-    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_TAG,"forest",.2),SWMM_OK);
-    HeatConfigDialog dialog(e);const auto original=HeatConfigDialog::configurationSignature(e);
-    dialog.setCurrentTab(HeatConfigDialog::TabSpatial);auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");QCOMPARE(table->rowCount(),1);table->setCurrentCell(0,0);
-    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.7);
-    dialog.findChild<QPushButton*>("hc_previewElements")->click();auto* resolved=dialog.findChild<QTableWidget*>("hc_resolvedElements");QCOMPARE(resolved->rowCount(),1);QCOMPARE(resolved->item(0,0)->text(),QString("J0"));QCOMPARE(resolved->item(0,1)->text().toDouble(),.7);
-    QCOMPARE(HeatConfigDialog::configurationSignature(e),original);
-    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.8);QCOMPARE(resolved->rowCount(),0);
-    double value=0;int source=-1;char name[100]{};QCOMPARE(swmm_heat_get_effective_element(e,0,SWMM_HEAT_SCOPE_NODE,"J0",&value,&source,name,sizeof name),SWMM_OK);QCOMPARE(value,.2);QCOMPARE(source,1);
+    auto e = makeHeatEngine();
+    QCOMPARE(swmm_node_set_tag(e, 0, "forest"), SWMM_OK);
+    QCOMPARE(
+        swmm_heat_set_element_override(e, SWMM_HEAT_ATTR_ALBEDO, SWMM_HEAT_SCOPE_TAG, "forest", .2),
+        SWMM_OK);
+    HeatConfigDialog dialog(e);
+    const auto original = HeatConfigDialog::configurationSignature(e);
+    dialog.setCurrentTab(HeatConfigDialog::TabSpatial);
+    auto *table = dialog.findChild<QTableWidget *>("hc_elementTable");
+    QCOMPARE(table->rowCount(), 1);
+    table->setCurrentCell(0, 0);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3))->setValue(.7);
+    dialog.findChild<QPushButton *>("hc_previewElements")->click();
+    auto *resolved = dialog.findChild<QTableWidget *>("hc_resolvedElements");
+    QCOMPARE(resolved->rowCount(), 1);
+    QCOMPARE(resolved->item(0, 0)->text(), QString("J0"));
+    QCOMPARE(resolved->item(0, 1)->text().toDouble(), .7);
+    QCOMPARE(HeatConfigDialog::configurationSignature(e), original);
+    qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3))->setValue(.8);
+    QCOMPARE(resolved->rowCount(), 0);
+    double value = 0;
+    int source = -1;
+    char name[100]{};
+    QCOMPARE(swmm_heat_get_effective_element(e, 0, SWMM_HEAT_SCOPE_NODE, "J0", &value, &source,
+                                             name, sizeof name),
+             SWMM_OK);
+    QCOMPARE(value, .2);
+    QCOMPARE(source, 1);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require mesh-tag and one-based-cell overrides to preview without writes, save and reopen
+ * with exact values and names.
+ * Uses temporary model/component/report/output files; also checks cell validation
+ * and refusal of unsupported ground-source scope without configuration changes.
+ *
+ */
 void TestHeatConfigDialog::meshOverridesCanBePreviewedSavedAndReopened()
 {
-    const auto input=QFINDTESTDATA("data/mini_2d.inp");QVERIFY(!input.isEmpty());
-    QTemporaryDir directory;QVERIFY(directory.isValid());
-    auto e=swmm_engine_create();QVERIFY(e);
-    const auto report=directory.filePath("before.rpt").toUtf8();
-    const auto output=directory.filePath("before.out").toUtf8();
-    QCOMPARE(swmm_engine_open(e,input.toUtf8().constData(),report.constData(),output.constData(),nullptr),SWMM_OK);
-    QCOMPARE(swmm_process_component_register(e,"org.hydrocouple.openswmm.heat","heat.cfg"),SWMM_OK);
-    int cells=0;QCOMPARE(swmm_2d_cell_count(e,&cells),SWMM_OK);QCOMPARE(cells,2);
-    QCOMPARE(swmm_2d_set_triangle_tag(e,0,"north"),SWMM_OK);
-    QCOMPARE(swmm_2d_set_triangle_tag(e,1,"north"),SWMM_OK);
-    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_THERMAL_DIFFUSIVITY,
-        SWMM_HEAT_SCOPE_MESH_TAG,"north",.012),SWMM_OK);
-    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,
-        SWMM_HEAT_SCOPE_CELL2D,"2",.22),SWMM_OK);
+    const auto input = QFINDTESTDATA("data/mini_2d.inp");
+    QVERIFY(!input.isEmpty());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    auto e = swmm_engine_create();
+    QVERIFY(e);
+    const auto report = directory.filePath("before.rpt").toUtf8();
+    const auto output = directory.filePath("before.out").toUtf8();
+    QCOMPARE(swmm_engine_open(e, input.toUtf8().constData(), report.constData(), output.constData(),
+                              nullptr),
+             SWMM_OK);
+    QCOMPARE(swmm_process_component_register(e, "org.hydrocouple.openswmm.heat", "heat.cfg"),
+             SWMM_OK);
+    int cells = 0;
+    QCOMPARE(swmm_2d_cell_count(e, &cells), SWMM_OK);
+    QCOMPARE(cells, 2);
+    QCOMPARE(swmm_2d_set_triangle_tag(e, 0, "north"), SWMM_OK);
+    QCOMPARE(swmm_2d_set_triangle_tag(e, 1, "north"), SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(e, SWMM_HEAT_ATTR_THERMAL_DIFFUSIVITY,
+                                            SWMM_HEAT_SCOPE_MESH_TAG, "north", .012),
+             SWMM_OK);
+    QCOMPARE(
+        swmm_heat_set_element_override(e, SWMM_HEAT_ATTR_ALBEDO, SWMM_HEAT_SCOPE_CELL2D, "2", .22),
+        SWMM_OK);
 
-    HeatConfigDialog dialog(e);dialog.setCurrentTab(HeatConfigDialog::TabSpatial);
-    auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");QVERIFY(table);QCOMPARE(table->rowCount(),2);
-    auto* scope=qobject_cast<QComboBox*>(table->cellWidget(0,1));
-    auto* property=qobject_cast<QComboBox*>(table->cellWidget(0,0));
-    auto* target=qobject_cast<QComboBox*>(table->cellWidget(0,2));
-    QVERIFY(scope&&property&&target);
-    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_MESH_TAG)),QString("Mesh region tag"));
-    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_CELL2D)),QString("2D cell"));
-    QCOMPARE(scope->currentData().toInt(),SWMM_HEAT_SCOPE_MESH_TAG);
-    QVERIFY(target->findText("north")>=0);
-    QCOMPARE(target->currentText(),QString("north"));
-    QVERIFY(property->findData(SWMM_HEAT_ATTR_MESH_POROSITY)>=0);
-    QVERIFY(property->findData(SWMM_HEAT_ATTR_GROUND_SOURCE)>=0);
+    HeatConfigDialog dialog(e);
+    dialog.setCurrentTab(HeatConfigDialog::TabSpatial);
+    auto *table = dialog.findChild<QTableWidget *>("hc_elementTable");
+    QVERIFY(table);
+    QCOMPARE(table->rowCount(), 2);
+    auto *scope = qobject_cast<QComboBox *>(table->cellWidget(0, 1));
+    auto *property = qobject_cast<QComboBox *>(table->cellWidget(0, 0));
+    auto *target = qobject_cast<QComboBox *>(table->cellWidget(0, 2));
+    QVERIFY(scope && property && target);
+    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_MESH_TAG)),
+             QString("Mesh region tag"));
+    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_CELL2D)), QString("2D cell"));
+    QCOMPARE(scope->currentData().toInt(), SWMM_HEAT_SCOPE_MESH_TAG);
+    QVERIFY(target->findText("north") >= 0);
+    QCOMPARE(target->currentText(), QString("north"));
+    QVERIFY(property->findData(SWMM_HEAT_ATTR_MESH_POROSITY) >= 0);
+    QVERIFY(property->findData(SWMM_HEAT_ATTR_GROUND_SOURCE) >= 0);
 
-    auto* preview=dialog.findChild<QPushButton*>("hc_previewElements");QVERIFY(preview);
-    auto* resolved=dialog.findChild<QTableWidget*>("hc_resolvedElements");QVERIFY(resolved);
-    auto* value=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));QVERIFY(value);value->setValue(.018);
-    table->setCurrentCell(0,0);
-    const auto original=HeatConfigDialog::configurationSignature(e);
-    preview->click();QCOMPARE(resolved->rowCount(),2);
-    QCOMPARE(resolved->item(0,0)->text(),QString("1"));QCOMPARE(resolved->item(1,0)->text(),QString("2"));
-    QCOMPARE(resolved->item(0,1)->text().toDouble(),.018);QCOMPARE(HeatConfigDialog::configurationSignature(e),original);
+    auto *preview = dialog.findChild<QPushButton *>("hc_previewElements");
+    QVERIFY(preview);
+    auto *resolved = dialog.findChild<QTableWidget *>("hc_resolvedElements");
+    QVERIFY(resolved);
+    auto *value = qobject_cast<QDoubleSpinBox *>(table->cellWidget(0, 3));
+    QVERIFY(value);
+    value->setValue(.018);
+    table->setCurrentCell(0, 0);
+    const auto original = HeatConfigDialog::configurationSignature(e);
+    preview->click();
+    QCOMPARE(resolved->rowCount(), 2);
+    QCOMPARE(resolved->item(0, 0)->text(), QString("1"));
+    QCOMPARE(resolved->item(1, 0)->text(), QString("2"));
+    QCOMPARE(resolved->item(0, 1)->text().toDouble(), .018);
+    QCOMPARE(HeatConfigDialog::configurationSignature(e), original);
 
-    table->setCurrentCell(1,0);preview->click();QCOMPARE(resolved->rowCount(),1);
-    QCOMPARE(resolved->item(0,0)->text(),QString("2"));QCOMPARE(resolved->item(0,1)->text().toDouble(),.22);
-    auto* cellScope=qobject_cast<QComboBox*>(table->cellWidget(1,1));
-    auto* cellName=qobject_cast<QComboBox*>(table->cellWidget(1,2));
-    QCOMPARE(cellScope->currentData().toInt(),SWMM_HEAT_SCOPE_CELL2D);
-    QVERIFY(cellName->isEditable());QVERIFY(cellName->lineEdit()->validator());QCOMPARE(cellName->currentText(),QString("2"));
+    table->setCurrentCell(1, 0);
+    preview->click();
+    QCOMPARE(resolved->rowCount(), 1);
+    QCOMPARE(resolved->item(0, 0)->text(), QString("2"));
+    QCOMPARE(resolved->item(0, 1)->text().toDouble(), .22);
+    auto *cellScope = qobject_cast<QComboBox *>(table->cellWidget(1, 1));
+    auto *cellName = qobject_cast<QComboBox *>(table->cellWidget(1, 2));
+    QCOMPARE(cellScope->currentData().toInt(), SWMM_HEAT_SCOPE_CELL2D);
+    QVERIFY(cellName->isEditable());
+    QVERIFY(cellName->lineEdit()->validator());
+    QCOMPARE(cellName->currentText(), QString("2"));
 
-    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    int count=0;QCOMPARE(swmm_heat_element_override_count(e,&count),SWMM_OK);QCOMPARE(count,2);
-    const auto saved=directory.filePath("saved.inp").toUtf8();QCOMPARE(swmm_model_write(e,saved.constData()),SWMM_OK);
-    auto reopened=swmm_engine_create();QVERIFY(reopened);
-    const auto reopenedReport=directory.filePath("reopened.rpt").toUtf8();
-    const auto reopenedOut=directory.filePath("reopened.out").toUtf8();
-    QCOMPARE(swmm_engine_open(reopened,saved.constData(),reopenedReport.constData(),reopenedOut.constData(),nullptr),SWMM_OK);
-    QCOMPARE(swmm_heat_element_override_count(reopened,&count),SWMM_OK);QCOMPARE(count,2);
-    bool meshTag=false,cell=false;
-    for(int i=0;i<count;++i) {
-        int attr=0,scopeValue=0;double configured=0;char name[128]{};
-        QCOMPARE(swmm_heat_get_element_override(reopened,i,&attr,&scopeValue,name,sizeof name,&configured),SWMM_OK);
-        if(scopeValue==SWMM_HEAT_SCOPE_MESH_TAG) {meshTag=true;QCOMPARE(QString::fromUtf8(name),QString("north"));QCOMPARE(configured,.018);}
-        if(scopeValue==SWMM_HEAT_SCOPE_CELL2D) {cell=true;QCOMPARE(QString::fromUtf8(name),QString("2"));QCOMPARE(configured,.22);}
+    clickOk(dialog);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    int count = 0;
+    QCOMPARE(swmm_heat_element_override_count(e, &count), SWMM_OK);
+    QCOMPARE(count, 2);
+    const auto saved = directory.filePath("saved.inp").toUtf8();
+    QCOMPARE(swmm_model_write(e, saved.constData()), SWMM_OK);
+    auto reopened = swmm_engine_create();
+    QVERIFY(reopened);
+    const auto reopenedReport = directory.filePath("reopened.rpt").toUtf8();
+    const auto reopenedOut = directory.filePath("reopened.out").toUtf8();
+    QCOMPARE(swmm_engine_open(reopened, saved.constData(), reopenedReport.constData(),
+                              reopenedOut.constData(), nullptr),
+             SWMM_OK);
+    QCOMPARE(swmm_heat_element_override_count(reopened, &count), SWMM_OK);
+    QCOMPARE(count, 2);
+    bool meshTag = false, cell = false;
+    for (int i = 0; i < count; ++i) {
+        int attr = 0, scopeValue = 0;
+        double configured = 0;
+        char name[128]{};
+        QCOMPARE(swmm_heat_get_element_override(reopened, i, &attr, &scopeValue, name, sizeof name,
+                                                &configured),
+                 SWMM_OK);
+        if (scopeValue == SWMM_HEAT_SCOPE_MESH_TAG) {
+            meshTag = true;
+            QCOMPARE(QString::fromUtf8(name), QString("north"));
+            QCOMPARE(configured, .018);
+        }
+        if (scopeValue == SWMM_HEAT_SCOPE_CELL2D) {
+            cell = true;
+            QCOMPARE(QString::fromUtf8(name), QString("2"));
+            QCOMPARE(configured, .22);
+        }
     }
-    QVERIFY(meshTag);QVERIFY(cell);
-    const auto configuredSignature=HeatConfigDialog::configurationSignature(e);
-    HeatConfigDialog unsupported(e);auto* unsupportedTable=unsupported.findChild<QTableWidget*>("hc_elementTable");
-    auto* unsupportedProperty=qobject_cast<QComboBox*>(unsupportedTable->cellWidget(1,0));
-    unsupportedProperty->setCurrentIndex(unsupportedProperty->findData(SWMM_HEAT_ATTR_GROUND_SOURCE));
-    auto* unsupportedValue=qobject_cast<QDoubleSpinBox*>(unsupportedTable->cellWidget(1,3));
-    QCOMPARE(unsupportedValue->decimals(),0);QCOMPARE(unsupportedValue->minimum(),0.);QCOMPARE(unsupportedValue->maximum(),1.);
-    clickOk(unsupported);QVERIFY(unsupported.result()!=QDialog::Accepted);QVERIFY(!unsupported.wroteAnyChanges());
-    QCOMPARE(HeatConfigDialog::configurationSignature(e),configuredSignature);
-    swmm_engine_destroy(reopened);swmm_engine_destroy(e);
-}
-
-void TestHeatConfigDialog::dryPolicySurvivesInputExport()
-{
-    auto e=makeHeatEngine();const QDir directory(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath()+"/hydrothermal_gis_2026-10-17/dry-policy");QVERIFY(QDir().mkpath(directory.path()));
-    QCOMPARE(swmm_process_component_register(e,"org.hydrocouple.openswmm.heat","heat.cfg"),SWMM_OK);
-    for(int policy:{1,2}) {
-        QCOMPARE(swmm_heat_set_dry_policy(e,policy),SWMM_OK);
-        const auto path=directory.filePath("heat.inp");
-        QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
-        QFile file(directory.filePath("heat.cfg"));QVERIFY(file.open(QIODevice::ReadOnly));
-        QVERIFY(file.readAll().contains(policy==1?"DRY_ELEMENT_TEMPERATURE AIR":"DRY_ELEMENT_TEMPERATURE DEFAULT"));
-    }
-    swmm_heat_set_dry_policy(e,0);
-    swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,13.25);
-    const auto path=directory.filePath("heat.inp");QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
-    swmm_heat_clear_source_temp(e,SWMM_HEAT_SRC_GW);
-    QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
-    QFile cleared(directory.filePath("heat.cfg"));QVERIFY(cleared.open(QIODevice::ReadOnly));
-    const auto text=cleared.readAll();QVERIFY(!text.contains("13.25"));QVERIFY(!text.contains("DRY_ELEMENT_TEMPERATURE"));QVERIFY(!text.trimmed().isEmpty());
+    QVERIFY(meshTag);
+    QVERIFY(cell);
+    const auto configuredSignature = HeatConfigDialog::configurationSignature(e);
+    HeatConfigDialog unsupported(e);
+    auto *unsupportedTable = unsupported.findChild<QTableWidget *>("hc_elementTable");
+    auto *unsupportedProperty = qobject_cast<QComboBox *>(unsupportedTable->cellWidget(1, 0));
+    unsupportedProperty->setCurrentIndex(
+        unsupportedProperty->findData(SWMM_HEAT_ATTR_GROUND_SOURCE));
+    auto *unsupportedValue = qobject_cast<QDoubleSpinBox *>(unsupportedTable->cellWidget(1, 3));
+    QCOMPARE(unsupportedValue->decimals(), 0);
+    QCOMPARE(unsupportedValue->minimum(), 0.);
+    QCOMPARE(unsupportedValue->maximum(), 1.);
+    clickOk(unsupported);
+    QVERIFY(unsupported.result() != QDialog::Accepted);
+    QVERIFY(!unsupported.wroteAnyChanges());
+    QCOMPARE(HeatConfigDialog::configurationSignature(e), configuredSignature);
+    swmm_engine_destroy(reopened);
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require AIR/DEFAULT dry policies to appear in exported heat.cfg and cleared
+ * defaults/source values to disappear without an empty component file.
+ * Rewrites persistent heat.inp and heat.cfg under the fixture dry-policy directory.
+ *
+ */
+void TestHeatConfigDialog::dryPolicySurvivesInputExport()
+{
+    auto e = makeHeatEngine();
+    const QDir directory(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath() +
+                         "/hydrothermal_gis_2026-10-17/dry-policy");
+    QVERIFY(QDir().mkpath(directory.path()));
+    QCOMPARE(swmm_process_component_register(e, "org.hydrocouple.openswmm.heat", "heat.cfg"),
+             SWMM_OK);
+    for (int policy : {1, 2}) {
+        QCOMPARE(swmm_heat_set_dry_policy(e, policy), SWMM_OK);
+        const auto path = directory.filePath("heat.inp");
+        QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+        QFile file(directory.filePath("heat.cfg"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(file.readAll().contains(policy == 1 ? "DRY_ELEMENT_TEMPERATURE AIR"
+                                                    : "DRY_ELEMENT_TEMPERATURE DEFAULT"));
+    }
+    swmm_heat_set_dry_policy(e, 0);
+    swmm_heat_set_source_temp(e, SWMM_HEAT_SRC_GW, 13.25);
+    const auto path = directory.filePath("heat.inp");
+    QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+    swmm_heat_clear_source_temp(e, SWMM_HEAT_SRC_GW);
+    QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+    QFile cleared(directory.filePath("heat.cfg"));
+    QVERIFY(cleared.open(QIODevice::ReadOnly));
+    const auto text = cleared.readAll();
+    QVERIFY(!text.contains("13.25"));
+    QVERIFY(!text.contains("DRY_ELEMENT_TEMPERATURE"));
+    QVERIFY(!text.trimmed().isEmpty());
+    swmm_engine_destroy(e);
+}
+
+/**
+ *
+ * @brief Require saved/reopened heat enablement, sediment parameters, landcover, dry policy and
+ * overrides to persist, then cleared settings to reopen cleared.
+ * Rewrites input/component/report/output files in the persistent saved-heat fixture
+ * directory. Groundwater transport activation is checked before saving.
+ *
+ */
 void TestHeatConfigDialog::savedProjectReopensWithHeatSettings()
 {
-    const auto input=QFINDTESTDATA("data/mini_2d.inp");QVERIFY(!input.isEmpty());
-    const QDir directory(QFileInfo(input).absolutePath()+"/hydrothermal_gis_2026-10-17/saved-heat");QVERIFY(QDir().mkpath(directory.path()));
-    auto e=swmm_engine_create();QVERIFY(e);
-    QCOMPARE(swmm_engine_open(e,input.toUtf8().constData(),directory.filePath("before.rpt").toUtf8().constData(),directory.filePath("before.out").toUtf8().constData(),nullptr),SWMM_OK);
-    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_NODE,"J1",.4),SWMM_OK);
-    HeatConfigDialog dialog(e);dialog.findChild<QCheckBox*>("hc_heatEnabled")->setChecked(true);
-    dialog.findChild<QCheckBox*>("hc_module_3")->setChecked(true);
-    dialog.findChild<QCheckBox*>("hc_groundConfigured")->setChecked(true);
-    dialog.findChild<QDoubleSpinBox*>("hc_bed_4")->setValue(9.);
-    dialog.findChild<QDoubleSpinBox*>("hc_bed_5")->setValue(1e-6);
-    dialog.findChild<QComboBox*>("hc_dryPolicy")->setCurrentIndex(1);
-    dialog.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(true);
-    dialog.findChild<QDoubleSpinBox*>("hc_rad_8")->setValue(15.5);
-    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
-    QCOMPARE(swmm_gw2d_row_add(e,0,nullptr,-1,1.,5.,.45,.1,2.),SWMM_OK);
-    SWMM_TransportMatrix matrix{};QCOMPARE(swmm_get_transport_matrix(e,&matrix),SWMM_OK);
-    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_GROUNDWATER][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_ENABLED);
-    const auto path=directory.filePath("saved.inp");QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
-    auto reopened=swmm_engine_create();QVERIFY(reopened);
-    QCOMPARE(swmm_engine_open(reopened,path.toUtf8().constData(),directory.filePath("after.rpt").toUtf8().constData(),directory.filePath("after.out").toUtf8().constData(),nullptr),SWMM_OK);
-    int enabled=0;swmm_heat_get_enabled(reopened,&enabled);QCOMPARE(enabled,1);
-    swmm_heat_get_module(reopened,SWMM_HEAT_SEDIMENT_EXCHANGE,&enabled);QCOMPARE(enabled,1);
-    double value=0;swmm_heat_get_sediment(reopened,4,&value);QCOMPARE(value,9.);
-    swmm_heat_get_sediment(reopened,5,&value);QCOMPARE(value,1e-6);
-    swmm_heat_sediment_temperature_configured(reopened,8,&enabled);QCOMPARE(enabled,0);
-    swmm_heat_get_radiative(reopened,8,&value);QCOMPARE(value,15.5);
-    int policy=0;swmm_heat_get_dry_policy(reopened,&policy);QCOMPARE(policy,1);
-    int count=0;swmm_heat_element_override_count(reopened,&count);QCOMPARE(count,1);
+    const auto input = QFINDTESTDATA("data/mini_2d.inp");
+    QVERIFY(!input.isEmpty());
+    const QDir directory(QFileInfo(input).absolutePath() +
+                         "/hydrothermal_gis_2026-10-17/saved-heat");
+    QVERIFY(QDir().mkpath(directory.path()));
+    auto e = swmm_engine_create();
+    QVERIFY(e);
+    QCOMPARE(swmm_engine_open(e, input.toUtf8().constData(),
+                              directory.filePath("before.rpt").toUtf8().constData(),
+                              directory.filePath("before.out").toUtf8().constData(), nullptr),
+             SWMM_OK);
+    QCOMPARE(
+        swmm_heat_set_element_override(e, SWMM_HEAT_ATTR_ALBEDO, SWMM_HEAT_SCOPE_NODE, "J1", .4),
+        SWMM_OK);
+    HeatConfigDialog dialog(e);
+    dialog.findChild<QCheckBox *>("hc_heatEnabled")->setChecked(true);
+    dialog.findChild<QCheckBox *>("hc_module_3")->setChecked(true);
+    dialog.findChild<QCheckBox *>("hc_groundConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox *>("hc_bed_4")->setValue(9.);
+    dialog.findChild<QDoubleSpinBox *>("hc_bed_5")->setValue(1e-6);
+    dialog.findChild<QComboBox *>("hc_dryPolicy")->setCurrentIndex(1);
+    dialog.findChild<QCheckBox *>("hc_landcoverConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox *>("hc_rad_8")->setValue(15.5);
+    clickOk(dialog);
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QCOMPARE(swmm_gw2d_row_add(e, 0, nullptr, -1, 1., 5., .45, .1, 2.), SWMM_OK);
+    SWMM_TransportMatrix matrix{};
+    QCOMPARE(swmm_get_transport_matrix(e, &matrix), SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_GROUNDWATER][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,
+             SWMM_TRANSPORT_ENABLED);
+    const auto path = directory.filePath("saved.inp");
+    QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+    auto reopened = swmm_engine_create();
+    QVERIFY(reopened);
+    QCOMPARE(swmm_engine_open(reopened, path.toUtf8().constData(),
+                              directory.filePath("after.rpt").toUtf8().constData(),
+                              directory.filePath("after.out").toUtf8().constData(), nullptr),
+             SWMM_OK);
+    int enabled = 0;
+    swmm_heat_get_enabled(reopened, &enabled);
+    QCOMPARE(enabled, 1);
+    swmm_heat_get_module(reopened, SWMM_HEAT_SEDIMENT_EXCHANGE, &enabled);
+    QCOMPARE(enabled, 1);
+    double value = 0;
+    swmm_heat_get_sediment(reopened, 4, &value);
+    QCOMPARE(value, 9.);
+    swmm_heat_get_sediment(reopened, 5, &value);
+    QCOMPARE(value, 1e-6);
+    swmm_heat_sediment_temperature_configured(reopened, 8, &enabled);
+    QCOMPARE(enabled, 0);
+    swmm_heat_get_radiative(reopened, 8, &value);
+    QCOMPARE(value, 15.5);
+    int policy = 0;
+    swmm_heat_get_dry_policy(reopened, &policy);
+    QCOMPARE(policy, 1);
+    int count = 0;
+    swmm_heat_element_override_count(reopened, &count);
+    QCOMPARE(count, 1);
     swmm_engine_destroy(reopened);
-    swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,0);swmm_heat_set_dry_policy(e,0);
-    swmm_heat_clear_sediment_temperature(e,4);swmm_heat_set_sediment(e,5,0);
-    swmm_heat_set_radiative(e,8,std::numeric_limits<double>::quiet_NaN());swmm_heat_remove_element_override(e,0);
-    QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
-    reopened=swmm_engine_create();QVERIFY(reopened);
-    QCOMPARE(swmm_engine_open(reopened,path.toUtf8().constData(),directory.filePath("cleared.rpt").toUtf8().constData(),directory.filePath("cleared.out").toUtf8().constData(),nullptr),SWMM_OK);
-    swmm_heat_get_module(reopened,SWMM_HEAT_SEDIMENT_EXCHANGE,&enabled);QCOMPARE(enabled,0);
-    swmm_heat_get_radiative(reopened,8,&value);QVERIFY(std::isnan(value));
-    swmm_heat_get_dry_policy(reopened,&policy);QCOMPARE(policy,0);
-    swmm_heat_element_override_count(reopened,&count);QCOMPARE(count,0);
-    swmm_engine_destroy(reopened);swmm_engine_destroy(e);
+    swmm_heat_set_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, 0);
+    swmm_heat_set_dry_policy(e, 0);
+    swmm_heat_clear_sediment_temperature(e, 4);
+    swmm_heat_set_sediment(e, 5, 0);
+    swmm_heat_set_radiative(e, 8, std::numeric_limits<double>::quiet_NaN());
+    swmm_heat_remove_element_override(e, 0);
+    QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+    reopened = swmm_engine_create();
+    QVERIFY(reopened);
+    QCOMPARE(swmm_engine_open(reopened, path.toUtf8().constData(),
+                              directory.filePath("cleared.rpt").toUtf8().constData(),
+                              directory.filePath("cleared.out").toUtf8().constData(), nullptr),
+             SWMM_OK);
+    swmm_heat_get_module(reopened, SWMM_HEAT_SEDIMENT_EXCHANGE, &enabled);
+    QCOMPARE(enabled, 0);
+    swmm_heat_get_radiative(reopened, 8, &value);
+    QVERIFY(std::isnan(value));
+    swmm_heat_get_dry_policy(reopened, &policy);
+    QCOMPARE(policy, 0);
+    swmm_heat_element_override_count(reopened, &count);
+    QCOMPARE(count, 0);
+    swmm_engine_destroy(reopened);
+    swmm_engine_destroy(e);
 }
 
 QTEST_MAIN(TestHeatConfigDialog)

@@ -1,18 +1,21 @@
-/*!
- * \file   swmmnodepropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      swmmnodepropertyadapter.cpp
+ * @brief     Slice Z.5.3 / AG.3 — Property-tree adapter for SWMM nodes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include "core/unitsystem.h"
-#include "layers/gwsourcesummary.h"        // G5 — groundwaterSourcesRef()
+#include "layers/gwsourcesummary.h" // G5 — groundwaterSourcesRef()
 #include "layers/swmmmodellayer.h"
-#include "layers/swmmresultslayer.h"        // Slice QA.2 — stats dispatch
-#include "output/outputstatsregistry.h"     // Slice QA.2
+#include "layers/swmmresultslayer.h"    // Slice QA.2 — stats dispatch
+#include "output/outputstatsregistry.h" // Slice QA.2
 
-#include "ui/properties/xsectshapegeom.h"   // kXsectStreetId (approachStreet)
+#include "ui/properties/xsectshapegeom.h" // kXsectStreetId (approachStreet)
 
 #include <algorithm>
 #include <cmath>
@@ -26,40 +29,40 @@
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_tables.h>
 
-SWMMNodePropertyAdapter::SWMMNodePropertyAdapter(SWMM_Engine engine,
-                                                   QString name,
-                                                   QObject *parent)
-    : QObject(parent)
-    , m_engine(engine)
-    , m_name(std::move(name))
+SWMMNodePropertyAdapter::SWMMNodePropertyAdapter(SWMM_Engine engine, QString name, QObject *parent)
+    : QObject(parent), m_engine(engine), m_name(std::move(name))
 {
     // Forward UnitSystem switches so the Property Browser can repaint
     // length / area / rate suffixes ("(ft)" ↔ "(m)") in place.
-    if (auto *u = UnitSystem::instance())
-    {
-        connect(u, &UnitSystem::unitsChanged,
-                this, [this]{ emit displayLabelsChanged(); });
+    if (auto *u = UnitSystem::instance()) {
+        connect(u, &UnitSystem::unitsChanged, this, [this] { emit displayLabelsChanged(); });
     }
 }
 
 QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 {
     auto *u = UnitSystem::instance();
-    const QString L  = u ? u->lengthLabel()                        : QStringLiteral("ft");
-    const QString L2 = L + QStringLiteral("²");               // ft² / m²
-    const QString R  = (u && u->isSI()) ? QStringLiteral("mm/hr")
-                                        : QStringLiteral("in/hr");
+    const QString L = u ? u->lengthLabel() : QStringLiteral("ft");
+    const QString L2 = L + QStringLiteral("²"); // ft² / m²
+    const QString R = (u && u->isSI()) ? QStringLiteral("mm/hr") : QStringLiteral("in/hr");
 
-    if (property == QLatin1String("lidBottomConnection")) return tr("Bottom Connection");
-    if (property == QLatin1String("lidControl")) return tr("LID Control");
-    if (property == QLatin1String("lidInitialSaturation")) return tr("LID Initial Saturation (%)");
+    if (property == QLatin1String("lidBottomConnection"))
+        return tr("Bottom Connection");
+    if (property == QLatin1String("lidControl"))
+        return tr("LID Control");
+    if (property == QLatin1String("lidInitialSaturation"))
+        return tr("LID Initial Saturation (%)");
     // Base — common to every node type.
-    if (property == QLatin1String("name"))           return tr("Name");
-    if (property == QLatin1String("nodeKind"))       return tr("Node Type");
-    if (property == QLatin1String("invertElev"))     return tr("Invert Elev. (%1)").arg(L);
+    if (property == QLatin1String("name"))
+        return tr("Name");
+    if (property == QLatin1String("nodeKind"))
+        return tr("Node Type");
+    if (property == QLatin1String("invertElev"))
+        return tr("Invert Elev. (%1)").arg(L);
 
     // Junction / Storage / Divider depth columns.
-    if (property == QLatin1String("maxDepth"))       return tr("Max Depth (%1)").arg(L);
+    if (property == QLatin1String("maxDepth"))
+        return tr("Max Depth (%1)").arg(L);
     // Virtual junctions: the solver's max depth is the derived pipe crown, so
     // the editable depth here is the ground surface used for drawing only.
     // The property browser has no per-row tooltip, so the label says it.
@@ -67,44 +70,67 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // threshold (the optional [INLET_JUNCTIONS] MaxDepth), so it gets the
     // name a street-drainage modeller expects.
     if (property == QLatin1String("rimDepth"))
-        return (nodeKind() == InletJunction)
-            ? tr("Street Max Depth (%1)").arg(L)
-            : tr("Max Depth, Display (%1)").arg(L);
-    if (property == QLatin1String("initialDepth"))   return tr("Initial Depth (%1)").arg(L);
-    if (property == QLatin1String("surchargeDepth")) return tr("Surcharge Depth (%1)").arg(L);
-    if (property == QLatin1String("pondedArea"))     return tr("Ponded Area (%1)").arg(L2);
-    if (property == QLatin1String("seepRate"))       return tr("Seepage Rate (%1)").arg(R);
+        return (nodeKind() == InletJunction) ? tr("Street Max Depth (%1)").arg(L)
+                                             : tr("Max Depth, Display (%1)").arg(L);
+    if (property == QLatin1String("initialDepth"))
+        return tr("Initial Depth (%1)").arg(L);
+    if (property == QLatin1String("surchargeDepth"))
+        return tr("Surcharge Depth (%1)").arg(L);
+    if (property == QLatin1String("pondedArea"))
+        return tr("Ponded Area (%1)").arg(L2);
+    if (property == QLatin1String("seepRate"))
+        return tr("Seepage Rate (%1)").arg(R);
 
     // Coordinates (Slice DB).
-    if (property == QLatin1String("xCoord"))         return tr("X Coordinate");
-    if (property == QLatin1String("yCoord"))         return tr("Y Coordinate");
+    if (property == QLatin1String("xCoord"))
+        return tr("X Coordinate");
+    if (property == QLatin1String("yCoord"))
+        return tr("Y Coordinate");
 
     // [TAGS] free-form label.
-    if (property == QLatin1String("tag"))            return tr("Tag");
+    if (property == QLatin1String("tag"))
+        return tr("Tag");
 
     // Read-only summary block (Slice DB).
-    if (property == QLatin1String("crownElev"))       return tr("Crown Elev. (%1)").arg(L);
-    if (property == QLatin1String("fullVolume"))      return tr("Full Volume (%1³)").arg(L);
-    if (property == QLatin1String("degree"))          return tr("Connected Links");
-    if (property == QLatin1String("statMaxDepth"))    return tr("Max Depth, Sim. (%1)").arg(L);
-    if (property == QLatin1String("statMaxOverflow")) return tr("Max Overflow (%1)").arg(u ? u->flowUnitLabel() : QStringLiteral("CFS"));
-    if (property == QLatin1String("statVolFlooded"))  return tr("Vol. Flooded (%1³)").arg(L);
-    if (property == QLatin1String("statTimeFlooded")) return tr("Time Flooded (hr)");
+    if (property == QLatin1String("crownElev"))
+        return tr("Crown Elev. (%1)").arg(L);
+    if (property == QLatin1String("fullVolume"))
+        return tr("Full Volume (%1³)").arg(L);
+    if (property == QLatin1String("degree"))
+        return tr("Connected Links");
+    if (property == QLatin1String("statMaxDepth"))
+        return tr("Max Depth, Sim. (%1)").arg(L);
+    if (property == QLatin1String("statMaxOverflow"))
+        return tr("Max Overflow (%1)").arg(u ? u->flowUnitLabel() : QStringLiteral("CFS"));
+    if (property == QLatin1String("statVolFlooded"))
+        return tr("Vol. Flooded (%1³)").arg(L);
+    if (property == QLatin1String("statTimeFlooded"))
+        return tr("Time Flooded (hr)");
 
     // Outfall.
-    if (property == QLatin1String("outfallType"))     return tr("Outfall Type");
-    if (property == QLatin1String("outfallFlapGate")) return tr("Flap Gate");
+    if (property == QLatin1String("outfallType"))
+        return tr("Outfall Type");
+    if (property == QLatin1String("outfallFlapGate"))
+        return tr("Flap Gate");
     // Slice DA.4.3 — outfall stage-data rows.
-    if (property == QLatin1String("outfallStage"))      return tr("Stage Elev. (%1)").arg(L);
-    if (property == QLatin1String("outfallTidalCurve")) return tr("Tidal Curve");
-    if (property == QLatin1String("outfallTimeseries")) return tr("Stage Time Series");
+    if (property == QLatin1String("outfallStage"))
+        return tr("Stage Elev. (%1)").arg(L);
+    if (property == QLatin1String("outfallTidalCurve"))
+        return tr("Tidal Curve");
+    if (property == QLatin1String("outfallTimeseries"))
+        return tr("Stage Time Series");
 
     // Slice AG.4 — storage geometry rows.
-    if (property == QLatin1String("storageShape"))   return tr("Storage Shape");
-    if (property == QLatin1String("storageCurve"))   return tr("Storage Curve");
-    if (property == QLatin1String("storageCoeffA"))  return tr("Functional Coeff. (A)");
-    if (property == QLatin1String("storageExpB"))    return tr("Functional Exponent (B)");
-    if (property == QLatin1String("storageConstC"))  return tr("Functional Constant (C) (%1)").arg(L2);
+    if (property == QLatin1String("storageShape"))
+        return tr("Storage Shape");
+    if (property == QLatin1String("storageCurve"))
+        return tr("Storage Curve");
+    if (property == QLatin1String("storageCoeffA"))
+        return tr("Functional Coeff. (A)");
+    if (property == QLatin1String("storageExpB"))
+        return tr("Functional Exponent (B)");
+    if (property == QLatin1String("storageConstC"))
+        return tr("Functional Constant (C) (%1)").arg(L2);
     // The three raw dimensions mean different things per shape ("Major Axis Length"
     // for a cone, "Base Length" for a pyramid, …), but these labels must stay STABLE:
     // PropertiesPanel::setRowEditable finds a row by matching this string against the
@@ -113,71 +139,108 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // moment the user switched shapes. The shape-specific name is surfaced as the
     // tooltip instead (openswmmvis::storageGeomLabel) — same compromise the link
     // xsect rows make for geom1..geom4.
-    if (property == QLatin1String("storageParam1")) return tr("Shape Param 1 (%1)").arg(L);
-    if (property == QLatin1String("storageParam2")) return tr("Shape Param 2 (%1)").arg(L);
-    if (property == QLatin1String("storageParam3")) return tr("Shape Param 3");
+    if (property == QLatin1String("storageParam1"))
+        return tr("Shape Param 1 (%1)").arg(L);
+    if (property == QLatin1String("storageParam2"))
+        return tr("Shape Param 2 (%1)").arg(L);
+    if (property == QLatin1String("storageParam3"))
+        return tr("Shape Param 3");
 
     // Divider.
-    if (property == QLatin1String("dividerType"))     return tr("Divider Type");
+    if (property == QLatin1String("dividerType"))
+        return tr("Divider Type");
 
     // 1D↔2D coupling ([2D_NODE_COUPLING]); blank text rows = the default.
-    if (property == QLatin1String("coupleable"))              return tr("2D Coupleable");
-    if (property == QLatin1String("couplingType"))            return tr("2D Coupling Structure");
-    if (property == QLatin1String("couplingDiameter"))        return tr("2D Manhole Diameter (%1)").arg(L);
-    if (property == QLatin1String("couplingPerimeter"))       return tr("2D Inlet Perimeter (%1)").arg(L);
-    if (property == QLatin1String("couplingStructureArea"))   return tr("2D Opening Area (%1)").arg(L2);
-    if (property == QLatin1String("couplingChamberArea"))     return tr("2D Chamber Area (%1)").arg(L2);
-    if (property == QLatin1String("couplingLidOpenFraction")) return tr("2D Lid Open Fraction");
-    if (property == QLatin1String("couplingCrest"))           return tr("2D Crest Elevation");
-    if (property == QLatin1String("couplingLaw"))             return tr("2D Exchange Law");
-    if (property == QLatin1String("couplingCoeffs"))          return tr("2D Coefficients");
-    if (property == QLatin1String("couplingCw"))              return tr("2D Weir Coeff. (Cw)");
-    if (property == QLatin1String("couplingCsw"))             return tr("2D Submerged Weir Coeff. (Csw)");
-    if (property == QLatin1String("couplingCoi"))             return tr("2D Orifice Coeff. In (Coi)");
-    if (property == QLatin1String("couplingCoo"))             return tr("2D Orifice Coeff. Out (Coo)");
-    if (property == QLatin1String("couplingSpread"))          return tr("2D Discharge Spread (%1)").arg(L);
-    if (property == QLatin1String("couplingTailwaterRelax"))  return tr("2D Tailwater Relaxation (s)");
+    if (property == QLatin1String("coupleable"))
+        return tr("2D Coupleable");
+    if (property == QLatin1String("couplingType"))
+        return tr("2D Coupling Structure");
+    if (property == QLatin1String("couplingDiameter"))
+        return tr("2D Manhole Diameter (%1)").arg(L);
+    if (property == QLatin1String("couplingPerimeter"))
+        return tr("2D Inlet Perimeter (%1)").arg(L);
+    if (property == QLatin1String("couplingStructureArea"))
+        return tr("2D Opening Area (%1)").arg(L2);
+    if (property == QLatin1String("couplingChamberArea"))
+        return tr("2D Chamber Area (%1)").arg(L2);
+    if (property == QLatin1String("couplingLidOpenFraction"))
+        return tr("2D Lid Open Fraction");
+    if (property == QLatin1String("couplingCrest"))
+        return tr("2D Crest Elevation");
+    if (property == QLatin1String("couplingLaw"))
+        return tr("2D Exchange Law");
+    if (property == QLatin1String("couplingCoeffs"))
+        return tr("2D Coefficients");
+    if (property == QLatin1String("couplingCw"))
+        return tr("2D Weir Coeff. (Cw)");
+    if (property == QLatin1String("couplingCsw"))
+        return tr("2D Submerged Weir Coeff. (Csw)");
+    if (property == QLatin1String("couplingCoi"))
+        return tr("2D Orifice Coeff. In (Coi)");
+    if (property == QLatin1String("couplingCoo"))
+        return tr("2D Orifice Coeff. Out (Coo)");
+    if (property == QLatin1String("couplingSpread"))
+        return tr("2D Discharge Spread (%1)").arg(L);
+    if (property == QLatin1String("couplingTailwaterRelax"))
+        return tr("2D Tailwater Relaxation (s)");
 
     // Inlet junction (§3.4). Depression height/width are the LOCAL gutter
     // depression at this inlet, distinct from the street's own gutter.
-    if (property == QLatin1String("inletDesign"))      return tr("Inlet Design");
-    if (property == QLatin1String("captureNode"))      return tr("Capture Node");
-    if (property == QLatin1String("numInlets"))        return tr("Number of Inlets");
-    if (property == QLatin1String("pctClogged"))       return tr("% Clogged");
+    if (property == QLatin1String("inletDesign"))
+        return tr("Inlet Design");
+    if (property == QLatin1String("captureNode"))
+        return tr("Capture Node");
+    if (property == QLatin1String("numInlets"))
+        return tr("Number of Inlets");
+    if (property == QLatin1String("pctClogged"))
+        return tr("% Clogged");
     if (property == QLatin1String("flowRestriction"))
-        return tr("Flow Restriction (%1)").arg(u ? u->flowUnitLabel()
-                                                 : QStringLiteral("CFS"));
-    if (property == QLatin1String("depressionHeight")) return tr("Local Depression Height (%1)").arg(L);
-    if (property == QLatin1String("depressionWidth"))  return tr("Local Depression Width (%1)").arg(L);
-    if (property == QLatin1String("placement"))        return tr("Placement");
-    if (property == QLatin1String("approachStreet"))   return tr("Approach Street");
+        return tr("Flow Restriction (%1)").arg(u ? u->flowUnitLabel() : QStringLiteral("CFS"));
+    if (property == QLatin1String("depressionHeight"))
+        return tr("Local Depression Height (%1)").arg(L);
+    if (property == QLatin1String("depressionWidth"))
+        return tr("Local Depression Width (%1)").arg(L);
+    if (property == QLatin1String("placement"))
+        return tr("Placement");
+    if (property == QLatin1String("approachStreet"))
+        return tr("Approach Street");
 
     // Compound editors (Slice DB.2).
-    if (property == QLatin1String("inflows"))         return tr("External Inflows");
-    if (property == QLatin1String("dwf"))             return tr("Dry Weather Flow");
-    if (property == QLatin1String("rdii"))            return tr("RDII");
-    if (property == QLatin1String("treatment"))       return tr("Pollutant Treatment");
-    if (property == QLatin1String("groundwaterSources")) return tr("Groundwater Sources");
+    if (property == QLatin1String("inflows"))
+        return tr("External Inflows");
+    if (property == QLatin1String("dwf"))
+        return tr("Dry Weather Flow");
+    if (property == QLatin1String("rdii"))
+        return tr("RDII");
+    if (property == QLatin1String("treatment"))
+        return tr("Pollutant Treatment");
+    if (property == QLatin1String("groundwaterSources"))
+        return tr("Groundwater Sources");
     // USER_FLAGS Phase 4.
-    if (property == QLatin1String("userFlags"))       return tr("User Flags");
+    if (property == QLatin1String("userFlags"))
+        return tr("User Flags");
     // Initial-quality UI round.
-    if (property == QLatin1String("initialQuality"))  return tr("Initial Quality");
+    if (property == QLatin1String("initialQuality"))
+        return tr("Initial Quality");
 
     return {};
 }
 
 int SWMMNodePropertyAdapter::nodeIdx() const
 {
-    if (!m_engine || m_name.isEmpty()) return -1;
+    if (!m_engine || m_name.isEmpty())
+        return -1;
     return swmm_node_index(m_engine, m_name.toUtf8().constData());
 }
 
 SWMMNodePropertyAdapter::NodeKind SWMMNodePropertyAdapter::nodeKind() const
 {
     const int idx = nodeIdx();
-    if (idx < 0) return Junction;
+    if (idx < 0)
+        return Junction;
     int t = 0;
-    if (swmm_node_get_type(m_engine, idx, &t) != SWMM_OK) return Junction;
+    if (swmm_node_get_type(m_engine, idx, &t) != SWMM_OK)
+        return Junction;
     if (t == 0) {
         // An inlet junction carries BOTH flags, so it is tested first.
         int isInlet = 0;
@@ -195,15 +258,23 @@ SWMMNodePropertyAdapter::NodeKind SWMMNodePropertyAdapter::nodeKind() const
 // (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md §3.4).
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 /*! Read the node's usage row. Returns false when the node has none — every
  *  getter below then reports the engine's own defaults so the rows are
- *  readable on a half-configured node instead of blank. */
+ *  readable on a half-configured node instead of blank.
+ * @param[in] engine Borrowed engine, possibly nullptr.
+ * @param[in] nodeIdx Zero-based host node index.
+ * @param[out] out Destination usage record, requiring non-null storage; missing/invalid inputs are rejected without a read.
+ * @return True for a found, readable usage row; false when absent or an engine read fails.
+ */
 bool readNodeUsage(SWMM_Engine engine, int nodeIdx, SWMM_InletUsage *out)
 {
-    if (!engine || nodeIdx < 0 || !out) return false;
+    if (!engine || nodeIdx < 0 || !out)
+        return false;
     const int row = swmm_inlet_usage_find_node(engine, nodeIdx);
-    if (row < 0) return false;
+    if (row < 0)
+        return false;
     return swmm_inlet_usage_get(engine, row, out) == SWMM_OK;
 }
 } // namespace
@@ -212,30 +283,32 @@ bool readNodeUsage(SWMM_Engine engine, int nodeIdx, SWMM_InletUsage *out)
 // mutator receives the current row (or an engine-default one when the node
 // has none yet) and returns false to cancel — which is how an unresolvable
 // name pick (design / capture node) leaves the model untouched.
-void SWMMNodePropertyAdapter::writeInletUsage(
-        const std::function<bool(SWMM_InletUsage &)> &mutate)
+void SWMMNodePropertyAdapter::writeInletUsage(const std::function<bool(SWMM_InletUsage &)> &mutate)
 {
     const int idx = nodeIdx();
-    if (idx < 0 || !m_layer) return;
+    if (idx < 0 || !m_layer)
+        return;
 
     SWMM_InletUsage u{};
     if (!readNodeUsage(m_engine, idx, &u)) {
         // Defaults match swmm_conduit_split_inlet's: one inlet, unclogged,
         // no flow limit, no local depression, AUTOMATIC placement.
-        u.host_kind        = SWMM_INLET_HOST_NODE;
-        u.host_idx         = idx;
-        u.design_idx       = -1;
+        u.host_kind = SWMM_INLET_HOST_NODE;
+        u.host_idx = idx;
+        u.design_idx = -1;
         u.capture_node_idx = -1;
-        u.num_inlets       = 1;
-        u.placement        = SWMM_INLET_AUTOMATIC;
+        u.num_inlets = 1;
+        u.placement = SWMM_INLET_AUTOMATIC;
     }
     u.host_kind = SWMM_INLET_HOST_NODE;
-    u.host_idx  = idx;
+    u.host_idx = idx;
 
-    if (!mutate(u)) return;
+    if (!mutate(u))
+        return;
     // The engine rejects an incomplete row; hold the edit until both
     // identity fields are resolved (the setup dialog fills them at insert).
-    if (u.design_idx < 0 || u.capture_node_idx < 0) return;
+    if (u.design_idx < 0 || u.capture_node_idx < 0)
+        return;
 
     m_layer->pushInletUsageEdit(u);
     emit changed();
@@ -245,8 +318,8 @@ DataObjectRef SWMMNodePropertyAdapter::inletDesignRef() const
 {
     DataObjectRef r;
     r.engine = m_engine;
-    r.layer  = m_layer;
-    r.kind   = DataObjectRef::Inlet;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::Inlet;
     // typeLock carries the host's cross-section shape so "…" can open the
     // Inlets editor filtered to compatible designs. An inlet junction sits
     // between two STREET conduits, so that is what it advertises.
@@ -261,11 +334,12 @@ DataObjectRef SWMMNodePropertyAdapter::inletDesignRef() const
 void SWMMNodePropertyAdapter::setInletDesignRef(const DataObjectRef &r)
 {
     const QByteArray id = r.currentName.toUtf8();
-    const int design = r.currentName.isEmpty()
-        ? -1 : swmm_inlet_index(m_engine, id.constData());
-    if (design < 0) return;                      // unknown / cleared → no-op
+    const int design = r.currentName.isEmpty() ? -1 : swmm_inlet_index(m_engine, id.constData());
+    if (design < 0)
+        return; // unknown / cleared → no-op
     writeInletUsage([design](SWMM_InletUsage &u) {
-        if (u.design_idx == design) return false;
+        if (u.design_idx == design)
+            return false;
         u.design_idx = design;
         return true;
     });
@@ -275,8 +349,8 @@ DataObjectRef SWMMNodePropertyAdapter::captureNodeRef() const
 {
     DataObjectRef r;
     r.engine = m_engine;
-    r.layer  = m_layer;
-    r.kind   = DataObjectRef::CaptureNode;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::CaptureNode;
     r.hostNodeIdx = nodeIdx();
     SWMM_InletUsage u{};
     if (readNodeUsage(m_engine, nodeIdx(), &u))
@@ -288,11 +362,12 @@ DataObjectRef SWMMNodePropertyAdapter::captureNodeRef() const
 void SWMMNodePropertyAdapter::setCaptureNodeRef(const DataObjectRef &r)
 {
     const QByteArray id = r.currentName.toUtf8();
-    const int capture = r.currentName.isEmpty()
-        ? -1 : swmm_node_index(m_engine, id.constData());
-    if (capture < 0) return;                     // unknown / cleared → no-op
+    const int capture = r.currentName.isEmpty() ? -1 : swmm_node_index(m_engine, id.constData());
+    if (capture < 0)
+        return; // unknown / cleared → no-op
     writeInletUsage([capture](SWMM_InletUsage &u) {
-        if (u.capture_node_idx == capture) return false;
+        if (u.capture_node_idx == capture)
+            return false;
         u.capture_node_idx = capture;
         return true;
     });
@@ -308,7 +383,8 @@ void SWMMNodePropertyAdapter::setNumInlets(int v)
 {
     const int n = qBound(1, v, 5);
     writeInletUsage([n](SWMM_InletUsage &u) {
-        if (u.num_inlets == n) return false;
+        if (u.num_inlets == n)
+            return false;
         u.num_inlets = n;
         return true;
     });
@@ -324,7 +400,8 @@ void SWMMNodePropertyAdapter::setPctClogged(double v)
 {
     const double p = qBound(0.0, v, 99.0);
     writeInletUsage([p](SWMM_InletUsage &u) {
-        if (qFuzzyCompare(u.pct_clogged + 1.0, p + 1.0)) return false;
+        if (qFuzzyCompare(u.pct_clogged + 1.0, p + 1.0))
+            return false;
         u.pct_clogged = p;
         return true;
     });
@@ -340,7 +417,8 @@ void SWMMNodePropertyAdapter::setFlowRestriction(double v)
 {
     const double f = qMax(0.0, v);
     writeInletUsage([f](SWMM_InletUsage &u) {
-        if (qFuzzyCompare(u.flow_limit + 1.0, f + 1.0)) return false;
+        if (qFuzzyCompare(u.flow_limit + 1.0, f + 1.0))
+            return false;
         u.flow_limit = f;
         return true;
     });
@@ -356,7 +434,8 @@ void SWMMNodePropertyAdapter::setDepressionHeight(double v)
 {
     const double d = qMax(0.0, v);
     writeInletUsage([d](SWMM_InletUsage &u) {
-        if (qFuzzyCompare(u.local_depress + 1.0, d + 1.0)) return false;
+        if (qFuzzyCompare(u.local_depress + 1.0, d + 1.0))
+            return false;
         u.local_depress = d;
         return true;
     });
@@ -372,17 +451,18 @@ void SWMMNodePropertyAdapter::setDepressionWidth(double v)
 {
     const double w = qMax(0.0, v);
     writeInletUsage([w](SWMM_InletUsage &u) {
-        if (qFuzzyCompare(u.local_width + 1.0, w + 1.0)) return false;
+        if (qFuzzyCompare(u.local_width + 1.0, w + 1.0))
+            return false;
         u.local_width = w;
         return true;
     });
 }
 
-SWMMNodePropertyAdapter::InletPlacement
-SWMMNodePropertyAdapter::placement() const
+SWMMNodePropertyAdapter::InletPlacement SWMMNodePropertyAdapter::placement() const
 {
     SWMM_InletUsage u{};
-    if (!readNodeUsage(m_engine, nodeIdx(), &u)) return AUTOMATIC;
+    if (!readNodeUsage(m_engine, nodeIdx(), &u))
+        return AUTOMATIC;
     return static_cast<InletPlacement>(u.placement);
 }
 
@@ -390,7 +470,8 @@ void SWMMNodePropertyAdapter::setPlacement(InletPlacement v)
 {
     const int p = static_cast<int>(v);
     writeInletUsage([p](SWMM_InletUsage &u) {
-        if (u.placement == p) return false;
+        if (u.placement == p)
+            return false;
         u.placement = p;
         return true;
     });
@@ -399,7 +480,8 @@ void SWMMNodePropertyAdapter::setPlacement(InletPlacement v)
 QString SWMMNodePropertyAdapter::approachStreet() const
 {
     const int idx = nodeIdx();
-    if (!m_engine || idx < 0) return {};
+    if (!m_engine || idx < 0)
+        return {};
     // The upstream conduit of the pair — its STREET cross section names the
     // gutter the inlet drains. geom1 is the street INDEX for SWMM_XSECT_STREET.
     const int nLinks = swmm_link_count(m_engine);
@@ -411,9 +493,11 @@ QString SWMMNodePropertyAdapter::approachStreet() const
         double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
         if (swmm_link_get_xsect(m_engine, i, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
             continue;
-        if (shape != openswmmvis::kXsectStreetId) continue;
+        if (shape != openswmmvis::kXsectStreetId)
+            continue;
         const int sIdx = static_cast<int>(std::lround(g1));
-        if (sIdx < 0 || sIdx >= swmm_street_count(m_engine)) continue;
+        if (sIdx < 0 || sIdx >= swmm_street_count(m_engine))
+            continue;
         if (const char *id = swmm_street_id(m_engine, sIdx))
             return QString::fromUtf8(id);
     }
@@ -423,51 +507,63 @@ QString SWMMNodePropertyAdapter::approachStreet() const
 SWMMNodePropertyAdapter::OutfallType SWMMNodePropertyAdapter::outfallType() const
 {
     const int idx = nodeIdx();
-    if (idx < 0) return FREE;
+    if (idx < 0)
+        return FREE;
     int t = 0;
-    if (swmm_node_get_outfall_type(m_engine, idx, &t) != SWMM_OK) return FREE;
+    if (swmm_node_get_outfall_type(m_engine, idx, &t) != SWMM_OK)
+        return FREE;
     return static_cast<OutfallType>(t);
 }
 
 SWMMNodePropertyAdapter::FlapGate SWMMNodePropertyAdapter::outfallFlapGate() const
 {
     const int idx = nodeIdx();
-    if (idx < 0) return NO;
+    if (idx < 0)
+        return NO;
     int v = 0;
-    if (swmm_node_get_outfall_flap_gate(m_engine, idx, &v) != SWMM_OK) return NO;
+    if (swmm_node_get_outfall_flap_gate(m_engine, idx, &v) != SWMM_OK)
+        return NO;
     return v ? YES : NO;
 }
 
 SWMMNodePropertyAdapter::DividerType SWMMNodePropertyAdapter::dividerType() const
 {
     const int idx = nodeIdx();
-    if (idx < 0) return CUTOFF;
+    if (idx < 0)
+        return CUTOFF;
     int t = 0;
-    if (swmm_node_get_divider_type(m_engine, idx, &t) != SWMM_OK) return CUTOFF;
+    if (swmm_node_get_divider_type(m_engine, idx, &t) != SWMM_OK)
+        return CUTOFF;
     return static_cast<DividerType>(t);
 }
 
 void SWMMNodePropertyAdapter::setName(const QString &newName)
 {
     const QString trimmed = newName.trimmed();
-    if (trimmed.isEmpty() || trimmed == m_name) return;
+    if (trimmed.isEmpty() || trimmed == m_name)
+        return;
     // The attribute panel listens and calls SWMMModelLayer::applyRename() which
     // does the engine rename + cache rebuild. We emit the old name so the
     // panel can locate and update the adapter's m_name on success.
     emit renameRequested(m_name, trimmed);
 }
 
-QString SWMMNodePropertyAdapter::tag() const {
+QString SWMMNodePropertyAdapter::tag() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     char buf[256] = {0};
-    if (swmm_node_get_tag(m_engine, idx, buf, sizeof(buf)) != SWMM_OK) return {};
+    if (swmm_node_get_tag(m_engine, idx, buf, sizeof(buf)) != SWMM_OK)
+        return {};
     return QString::fromUtf8(buf);
 }
 
-void SWMMNodePropertyAdapter::setTag(const QString &t) {
+void SWMMNodePropertyAdapter::setTag(const QString &t)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     const QByteArray bytes = t.toUtf8();
     if (swmm_node_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
         emit changed();
@@ -477,12 +573,15 @@ void SWMMNodePropertyAdapter::setTag(const QString &t) {
 // 1D↔2D coupling ([2D_NODE_COUPLING])
 // ---------------------------------------------------------------------------
 
-namespace {
-const QStringList kCrestTokens  = {QString(), QStringLiteral("NODE_RIM"), QStringLiteral("MESH_BED"),
-                                   QStringLiteral("MAX"), QStringLiteral("MIN")};
-const QStringList kCoeffsTokens = {QString(), QStringLiteral("DEFAULT"), QStringLiteral("RUBINATO2017"),
-                                   QStringLiteral("RUBINATO2017_LOWER"), QStringLiteral("RUBINATO2017_UPPER")};
-const QStringList kLawTokens    = {QString(), QStringLiteral("ORIFICE"), QStringLiteral("WEIR_ORIFICE")};
+namespace
+{
+const QStringList kCrestTokens = {QString(), QStringLiteral("NODE_RIM"), QStringLiteral("MESH_BED"),
+                                  QStringLiteral("MAX"), QStringLiteral("MIN")};
+const QStringList kCoeffsTokens = {
+    QString(), QStringLiteral("DEFAULT"), QStringLiteral("RUBINATO2017"),
+    QStringLiteral("RUBINATO2017_LOWER"), QStringLiteral("RUBINATO2017_UPPER")};
+const QStringList kLawTokens = {QString(), QStringLiteral("ORIFICE"),
+                                QStringLiteral("WEIR_ORIFICE")};
 } // namespace
 
 QString SWMMNodePropertyAdapter::couplingParam(const QString &key) const
@@ -494,20 +593,26 @@ QString SWMMNodePropertyAdapter::couplingParam(const QString &key) const
 void SWMMNodePropertyAdapter::writeCoupling(const nodecoupling2d::State &s)
 {
     nodecoupling2d::State now;
-    if (nodecoupling2d::read(m_engine, m_name, &now) && now == s) return;
-    if (m_layer) m_layer->pushNodeCoupling2DEdits({s}, tr("Edit 2D Coupling"));
-    else nodecoupling2d::write(m_engine, s);
-    emit changed();   // a refused edit re-reads the engine's value
+    if (nodecoupling2d::read(m_engine, m_name, &now) && now == s)
+        return;
+    if (m_layer)
+        m_layer->pushNodeCoupling2DEdits({s}, tr("Edit 2D Coupling"));
+    else
+        nodecoupling2d::write(m_engine, s);
+    emit changed(); // a refused edit re-reads the engine's value
 }
 
 void SWMMNodePropertyAdapter::setCouplingParam(const QString &key, const QString &token)
 {
     nodecoupling2d::State s;
-    if (!nodecoupling2d::read(m_engine, m_name, &s)) return;
+    if (!nodecoupling2d::read(m_engine, m_name, &s))
+        return;
     const QString t = token.trimmed();
-    if (t.isEmpty()) s.params.remove(key);
-    else s.params.insert(key, t);
-    s.authored = true;   // a parameter authors the row at the current type
+    if (t.isEmpty())
+        s.params.remove(key);
+    else
+        s.params.insert(key, t);
+    s.authored = true; // a parameter authors the row at the current type
     writeCoupling(s);
 }
 
@@ -525,10 +630,16 @@ bool SWMMNodePropertyAdapter::coupleable() const
 void SWMMNodePropertyAdapter::setCouplingType(Coupling2DType v)
 {
     nodecoupling2d::State s;
-    if (!nodecoupling2d::read(m_engine, m_name, &s)) return;
-    if (!nodecoupling2d::allowedTypes(m_engine, m_name).contains(int(v))) { emit changed(); return; }
-    if (s.authored && s.type == int(v)) return;
-    if (s.type != int(v)) s.params.clear();   // parameters belong to a structure
+    if (!nodecoupling2d::read(m_engine, m_name, &s))
+        return;
+    if (!nodecoupling2d::allowedTypes(m_engine, m_name).contains(int(v))) {
+        emit changed();
+        return;
+    }
+    if (s.authored && s.type == int(v))
+        return;
+    if (s.type != int(v))
+        s.params.clear(); // parameters belong to a structure
     s.authored = true;
     s.type = int(v);
     writeCoupling(s);
@@ -537,35 +648,56 @@ void SWMMNodePropertyAdapter::setCouplingType(Coupling2DType v)
 void SWMMNodePropertyAdapter::setCoupleable(bool on)
 {
     nodecoupling2d::State s;
-    if (!nodecoupling2d::read(m_engine, m_name, &s) || on == (s.type != nodecoupling2d::None)) return;
+    if (!nodecoupling2d::read(m_engine, m_name, &s) || on == (s.type != nodecoupling2d::None))
+        return;
     const int def = nodecoupling2d::defaultType(m_engine, m_name);
     s.params.clear();
-    if (!on) { s.authored = true; s.type = nodecoupling2d::None; }
-    else if (def != nodecoupling2d::None) { s.authored = false; s.type = def; }
-    else { s.authored = true; s.type = nodecoupling2d::Manhole; }
+    if (!on) {
+        s.authored = true;
+        s.type = nodecoupling2d::None;
+    } else if (def != nodecoupling2d::None) {
+        s.authored = false;
+        s.type = def;
+    } else {
+        s.authored = true;
+        s.type = nodecoupling2d::Manhole;
+    }
     writeCoupling(s);
 }
 
 SWMMNodePropertyAdapter::Coupling2DCrest SWMMNodePropertyAdapter::couplingCrest() const
 {
-    return Coupling2DCrest(std::max<qsizetype>(0, kCrestTokens.indexOf(couplingParam(QStringLiteral("CREST")))));
+    return Coupling2DCrest(
+        std::max<qsizetype>(0, kCrestTokens.indexOf(couplingParam(QStringLiteral("CREST")))));
 }
 SWMMNodePropertyAdapter::Coupling2DCoeffs SWMMNodePropertyAdapter::couplingCoeffs() const
 {
-    return Coupling2DCoeffs(std::max<qsizetype>(0, kCoeffsTokens.indexOf(couplingParam(QStringLiteral("COEFFS")))));
+    return Coupling2DCoeffs(
+        std::max<qsizetype>(0, kCoeffsTokens.indexOf(couplingParam(QStringLiteral("COEFFS")))));
 }
 SWMMNodePropertyAdapter::Coupling2DLaw SWMMNodePropertyAdapter::couplingLaw() const
 {
-    return Coupling2DLaw(std::max<qsizetype>(0, kLawTokens.indexOf(couplingParam(QStringLiteral("LAW")))));
+    return Coupling2DLaw(
+        std::max<qsizetype>(0, kLawTokens.indexOf(couplingParam(QStringLiteral("LAW")))));
 }
-void SWMMNodePropertyAdapter::setCouplingCrest(Coupling2DCrest v)   { setCouplingParam(QStringLiteral("CREST"), kCrestTokens.value(v)); }
-void SWMMNodePropertyAdapter::setCouplingCoeffs(Coupling2DCoeffs v) { setCouplingParam(QStringLiteral("COEFFS"), kCoeffsTokens.value(v)); }
-void SWMMNodePropertyAdapter::setCouplingLaw(Coupling2DLaw v)       { setCouplingParam(QStringLiteral("LAW"), kLawTokens.value(v)); }
+void SWMMNodePropertyAdapter::setCouplingCrest(Coupling2DCrest v)
+{
+    setCouplingParam(QStringLiteral("CREST"), kCrestTokens.value(v));
+}
+void SWMMNodePropertyAdapter::setCouplingCoeffs(Coupling2DCoeffs v)
+{
+    setCouplingParam(QStringLiteral("COEFFS"), kCoeffsTokens.value(v));
+}
+void SWMMNodePropertyAdapter::setCouplingLaw(Coupling2DLaw v)
+{
+    setCouplingParam(QStringLiteral("LAW"), kLawTokens.value(v));
+}
 
 void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
 {
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_node_set_outfall_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -573,7 +705,8 @@ void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
 void SWMMNodePropertyAdapter::setOutfallFlapGate(FlapGate v)
 {
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_node_set_outfall_flap_gate(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -581,29 +714,32 @@ void SWMMNodePropertyAdapter::setOutfallFlapGate(FlapGate v)
 void SWMMNodePropertyAdapter::setDividerType(DividerType v)
 {
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_node_set_divider_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
 
-#define GETTER(method, engineGet)                                   \
-double SWMMNodePropertyAdapter::method() const {                    \
-    const int idx = nodeIdx();                                      \
-    if (idx < 0) return 0.0;                                        \
-    double v = 0.0;                                                 \
-    engineGet(m_engine, idx, &v);                                   \
-    return v;                                                       \
-}
+#define GETTER(method, engineGet)                                                                  \
+    double SWMMNodePropertyAdapter::method() const                                                 \
+    {                                                                                              \
+        const int idx = nodeIdx();                                                                 \
+        if (idx < 0)                                                                               \
+            return 0.0;                                                                            \
+        double v = 0.0;                                                                            \
+        engineGet(m_engine, idx, &v);                                                              \
+        return v;                                                                                  \
+    }
 
-GETTER(invertElev,     swmm_node_get_invert_elev)
-GETTER(maxDepth,       swmm_node_get_max_depth)
-GETTER(rimDepth,       swmm_node_get_rim_depth)
-GETTER(initialDepth,   swmm_node_get_initial_depth)
+GETTER(invertElev, swmm_node_get_invert_elev)
+GETTER(maxDepth, swmm_node_get_max_depth)
+GETTER(rimDepth, swmm_node_get_rim_depth)
+GETTER(initialDepth, swmm_node_get_initial_depth)
 GETTER(surchargeDepth, swmm_node_get_surcharge_depth)
-GETTER(pondedArea,     swmm_node_get_ponded_area)
-GETTER(seepRate,       swmm_node_get_storage_seep_rate)
-GETTER(crownElev,        swmm_node_get_crown_elev)
-GETTER(fullVolume,       swmm_node_get_full_volume)
+GETTER(pondedArea, swmm_node_get_ponded_area)
+GETTER(seepRate, swmm_node_get_storage_seep_rate)
+GETTER(crownElev, swmm_node_get_crown_elev)
+GETTER(fullVolume, swmm_node_get_full_volume)
 // Slice QA.2 — stats getters now dispatch on m_statsSourceId.
 //   - null UUID  → today's behaviour: read from m_engine's ambient
 //                   post-run stats via swmm_node_get_stat_*. Preserves
@@ -613,28 +749,39 @@ GETTER(fullVolume,       swmm_node_get_full_volume)
 //                   registry; call layer->nodeStatMax*(name).
 // Null-checks at every hop (registry, layer ptr post-QPointer) keep
 // the getter exception-free even mid-teardown.
-#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                  \
-double SWMMNodePropertyAdapter::METHOD() const {                    \
-    if (m_statsSourceId.isNull() || !m_statsRegistry) {             \
-        const int idx = nodeIdx();                                  \
-        if (idx < 0) return 0.0;                                    \
-        double v = 0.0;                                             \
-        ENGINE_GET(m_engine, idx, &v);                              \
-        return v;                                                   \
-    }                                                               \
-    const auto id = m_statsRegistry->identityFor(m_statsSourceId);  \
-    if (!id.layer) return 0.0; /* layer destroyed since combo set */ \
-    return id.layer->LAYER_GET(m_name);                             \
-}
+#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                                                 \
+    double SWMMNodePropertyAdapter::METHOD() const                                                 \
+    {                                                                                              \
+        if (m_statsSourceId.isNull() || !m_statsRegistry) {                                        \
+            const int idx = nodeIdx();                                                             \
+            if (idx < 0)                                                                           \
+                return 0.0;                                                                        \
+            double v = 0.0;                                                                        \
+            ENGINE_GET(m_engine, idx, &v);                                                         \
+            return v;                                                                              \
+        }                                                                                          \
+        const auto id = m_statsRegistry->identityFor(m_statsSourceId);                             \
+        if (!id.layer)                                                                             \
+            return 0.0; /* layer destroyed since combo set */                                      \
+        return id.layer->LAYER_GET(m_name);                                                        \
+    }
 
-STAT_GETTER(statMaxDepth,    swmm_node_get_stat_max_depth,    nodeStatMaxDepth)
+STAT_GETTER(statMaxDepth, swmm_node_get_stat_max_depth, nodeStatMaxDepth)
 STAT_GETTER(statMaxOverflow, swmm_node_get_stat_max_overflow, nodeStatMaxOverflow)
-STAT_GETTER(statVolFlooded,  swmm_node_get_stat_vol_flooded,  nodeStatVolFlooded)
+STAT_GETTER(statVolFlooded, swmm_node_get_stat_vol_flooded, nodeStatVolFlooded)
 
 // The engine accumulates flooded time in SECONDS (+= dt_routing) while the
 // "(hr)" label and SWMMResultsLayer::nodeStatTimeFlooded are hours — convert
 // on the engine path (same wrapper the Attribute Table uses).
-static int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v) {
+/**
+ * @brief Adapt ambient flooded-time seconds to the property's hour unit.
+ * @param[in] e Borrowed engine.
+ * @param[in] idx Zero-based node index.
+ * @param[out] v Non-null destination, set to seconds/3600; initialized seconds make failures read as zero.
+ * @return Original engine getter status.
+ */
+static int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v)
+{
     double seconds = 0.0;
     const int rc = swmm_node_get_stat_time_flooded(e, idx, &seconds);
     *v = seconds / 3600.0;
@@ -644,8 +791,7 @@ STAT_GETTER(statTimeFlooded, nodeTimeFloodedHoursGet, nodeStatTimeFlooded)
 
 #undef STAT_GETTER
 
-void SWMMNodePropertyAdapter::setStatsRegistry(
-        openswmmvis::OutputStatsRegistry *registry)
+void SWMMNodePropertyAdapter::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry)
 {
     m_statsRegistry = registry;
     // No emit changed() — registry availability isn't a value change.
@@ -655,7 +801,8 @@ void SWMMNodePropertyAdapter::setStatsRegistry(
 
 void SWMMNodePropertyAdapter::setStatsSource(const QUuid &id)
 {
-    if (m_statsSourceId == id) return;
+    if (m_statsSourceId == id)
+        return;
     m_statsSourceId = id;
     // Re-prompt QPropertyModel to re-read every property so the four
     // stat rows refresh against the new source. Matches the refresh()
@@ -664,52 +811,63 @@ void SWMMNodePropertyAdapter::setStatsSource(const QUuid &id)
     emit changed();
 }
 
-int SWMMNodePropertyAdapter::degree() const {
+int SWMMNodePropertyAdapter::degree() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0;
+    if (idx < 0)
+        return 0;
     int v = 0;
     swmm_node_get_degree(m_engine, idx, &v);
     return v;
 }
 
-double SWMMNodePropertyAdapter::xCoord() const {
+double SWMMNodePropertyAdapter::xCoord() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double x = 0.0, y = 0.0;
     swmm_spatial_get_node_coord(m_engine, idx, &x, &y);
     return x;
 }
 
-double SWMMNodePropertyAdapter::yCoord() const {
+double SWMMNodePropertyAdapter::yCoord() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double x = 0.0, y = 0.0;
     swmm_spatial_get_node_coord(m_engine, idx, &x, &y);
     return y;
 }
 
-#define SETTER(method, engineSet)                                   \
-void SWMMNodePropertyAdapter::method(double v) {                    \
-    const int idx = nodeIdx();                                      \
-    if (idx < 0) return;                                            \
-    if (engineSet(m_engine, idx, v) == SWMM_OK)                     \
-        emit changed();                                             \
-}
+#define SETTER(method, engineSet)                                                                  \
+    void SWMMNodePropertyAdapter::method(double v)                                                 \
+    {                                                                                              \
+        const int idx = nodeIdx();                                                                 \
+        if (idx < 0)                                                                               \
+            return;                                                                                \
+        if (engineSet(m_engine, idx, v) == SWMM_OK)                                                \
+            emit changed();                                                                        \
+    }
 
-SETTER(setInvertElev,     swmm_node_set_invert_elev)
-SETTER(setMaxDepth,       swmm_node_set_max_depth)
-SETTER(setRimDepth,       swmm_node_set_rim_depth)
-SETTER(setInitialDepth,   swmm_node_set_initial_depth)
+SETTER(setInvertElev, swmm_node_set_invert_elev)
+SETTER(setMaxDepth, swmm_node_set_max_depth)
+SETTER(setRimDepth, swmm_node_set_rim_depth)
+SETTER(setInitialDepth, swmm_node_set_initial_depth)
 SETTER(setSurchargeDepth, swmm_node_set_surcharge_depth)
-SETTER(setPondedArea,     swmm_node_set_pond_area)
-SETTER(setSeepRate,       swmm_node_set_storage_seep_rate)
+SETTER(setPondedArea, swmm_node_set_pond_area)
+SETTER(setSeepRate, swmm_node_set_storage_seep_rate)
 
-void SWMMNodePropertyAdapter::setXCoord(double v) {
+void SWMMNodePropertyAdapter::setXCoord(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double cx = 0.0, cy = 0.0;
     swmm_spatial_get_node_coord(m_engine, idx, &cx, &cy);
-    if (v == cx) return;
+    if (v == cx)
+        return;
     // Defer the write to PropertiesPanel → SWMMModelLayer::applyNodeMove so
     // the cached scene coords + attached-link bboxes refresh in lockstep
     // with the engine. A bare `swmm_spatial_set_node_coord` here would let
@@ -717,12 +875,15 @@ void SWMMNodePropertyAdapter::setXCoord(double v) {
     emit coordChangeRequested(v, cy);
 }
 
-void SWMMNodePropertyAdapter::setYCoord(double v) {
+void SWMMNodePropertyAdapter::setYCoord(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double cx = 0.0, cy = 0.0;
     swmm_spatial_get_node_coord(m_engine, idx, &cx, &cy);
-    if (v == cy) return;
+    if (v == cy)
+        return;
     emit coordChangeRequested(cx, v);
 }
 
@@ -739,12 +900,13 @@ void SWMMNodePropertyAdapter::setYCoord(double v) {
 // global total until `swmm_inflow_get` / `swmm_dwf_get` land via the
 // AG.0 batch). Treatment has no engine API — summary stays static.
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::inflowsRef() const {
+NodeCompoundEditRef SWMMNodePropertyAdapter::inflowsRef() const
+{
     NodeCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.nodeName = m_name;
-    r.layer    = m_layer;
-    r.kind     = NodeCompoundEditRef::Inflows;
+    r.layer = m_layer;
+    r.kind = NodeCompoundEditRef::Inflows;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
         const int total = swmm_ext_inflow_count(m_engine);
@@ -753,28 +915,25 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::inflowsRef() const {
         for (int i = 0; i < total; ++i) {
             int ni = -1;
             double mf = 0.0, sf = 0.0, base = 0.0;
-            if (swmm_ext_inflow_get(m_engine, i, &ni,
-                                      consBuf, sizeof(consBuf),
-                                      tsBuf,   sizeof(tsBuf),
-                                      typeBuf, sizeof(typeBuf),
-                                      &mf, &sf, &base,
-                                      patBuf,  sizeof(patBuf)) != SWMM_OK)
+            if (swmm_ext_inflow_get(m_engine, i, &ni, consBuf, sizeof(consBuf), tsBuf,
+                                    sizeof(tsBuf), typeBuf, sizeof(typeBuf), &mf, &sf, &base,
+                                    patBuf, sizeof(patBuf)) != SWMM_OK)
                 continue;
-            if (ni == idx) ++matched;
+            if (ni == idx)
+                ++matched;
         }
-        r.summary = (matched > 0)
-            ? tr("%1 entries").arg(matched)
-            : tr("(none)");
+        r.summary = (matched > 0) ? tr("%1 entries").arg(matched) : tr("(none)");
     }
     return r;
 }
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::dwfRef() const {
+NodeCompoundEditRef SWMMNodePropertyAdapter::dwfRef() const
+{
     NodeCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.nodeName = m_name;
-    r.layer    = m_layer;
-    r.kind     = NodeCompoundEditRef::Dwf;
+    r.layer = m_layer;
+    r.kind = NodeCompoundEditRef::Dwf;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
         const int total = swmm_dwf_count(m_engine);
@@ -783,53 +942,50 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::dwfRef() const {
         for (int i = 0; i < total; ++i) {
             int ni = -1;
             double avg = 0.0;
-            if (swmm_dwf_get(m_engine, i, &ni,
-                              consBuf, sizeof(consBuf),
-                              &avg,
-                              p1Buf, sizeof(p1Buf),
-                              p2Buf, sizeof(p2Buf),
-                              p3Buf, sizeof(p3Buf),
-                              p4Buf, sizeof(p4Buf)) != SWMM_OK)
+            if (swmm_dwf_get(m_engine, i, &ni, consBuf, sizeof(consBuf), &avg, p1Buf, sizeof(p1Buf),
+                             p2Buf, sizeof(p2Buf), p3Buf, sizeof(p3Buf), p4Buf,
+                             sizeof(p4Buf)) != SWMM_OK)
                 continue;
-            if (ni == idx) ++matched;
+            if (ni == idx)
+                ++matched;
         }
-        r.summary = (matched > 0)
-            ? tr("%1 entries").arg(matched)
-            : tr("(none)");
+        r.summary = (matched > 0) ? tr("%1 entries").arg(matched) : tr("(none)");
     }
     return r;
 }
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::rdiiRef() const {
+NodeCompoundEditRef SWMMNodePropertyAdapter::rdiiRef() const
+{
     NodeCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.nodeName = m_name;
-    r.layer    = m_layer;
-    r.kind     = NodeCompoundEditRef::Rdii;
+    r.layer = m_layer;
+    r.kind = NodeCompoundEditRef::Rdii;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
         const int total = swmm_rdii_count(m_engine);
         int matched = 0;
         char uhBuf[128];
         for (int i = 0; i < total; ++i) {
-            int ni = -1; double area = 0.0;
-            if (swmm_rdii_get(m_engine, i, &ni, uhBuf,
-                               sizeof(uhBuf), &area) != SWMM_OK) continue;
-            if (ni == idx) ++matched;
+            int ni = -1;
+            double area = 0.0;
+            if (swmm_rdii_get(m_engine, i, &ni, uhBuf, sizeof(uhBuf), &area) != SWMM_OK)
+                continue;
+            if (ni == idx)
+                ++matched;
         }
-        r.summary = (matched > 0)
-            ? tr("%1 entries").arg(matched)
-            : tr("(none)");
+        r.summary = (matched > 0) ? tr("%1 entries").arg(matched) : tr("(none)");
     }
     return r;
 }
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const {
+NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const
+{
     NodeCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.nodeName = m_name;
-    r.layer    = m_layer;
-    r.kind     = NodeCompoundEditRef::Treatment;
+    r.layer = m_layer;
+    r.kind = NodeCompoundEditRef::Treatment;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
         // Count pollutants that have a non-empty treatment expression on
@@ -844,47 +1000,48 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const {
             buf[0] = '\0';
             if (swmm_treatment_get(m_engine, idx, p, buf, sizeof(buf)) != SWMM_OK)
                 continue;
-            if (buf[0] != '\0') ++active;
+            if (buf[0] != '\0')
+                ++active;
         }
-        r.summary = (active > 0)
-            ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
-            : tr("(none)");
+        r.summary = (active > 0) ? tr("%1 / %2 pollutants").arg(active).arg(nPollut) : tr("(none)");
     }
     return r;
 }
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::groundwaterSourcesRef() const {
+NodeCompoundEditRef SWMMNodePropertyAdapter::groundwaterSourcesRef() const
+{
     NodeCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.nodeName = m_name;
-    r.layer    = m_layer;
-    r.kind     = NodeCompoundEditRef::GroundwaterSources;
+    r.layer = m_layer;
+    r.kind = NodeCompoundEditRef::GroundwaterSources;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
         const QStringList subs =
             OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(m_engine, idx);
-        r.summary = subs.isEmpty()
-            ? tr("(none)")
-            : tr("from %1").arg(subs.join(QStringLiteral(", ")));
+        r.summary =
+            subs.isEmpty() ? tr("(none)") : tr("from %1").arg(subs.join(QStringLiteral(", ")));
     }
     return r;
 }
 
-UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const {
+UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const
+{
     UserFlagsEditRef r;
     r.objectType = QStringLiteral("NODE");
     r.objectName = m_name;
-    r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
-    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
+    r.model = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
+    r.summary = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
     return r;
 }
 
-InitialQualityEditRef SWMMNodePropertyAdapter::initialQualityRef() const {
+InitialQualityEditRef SWMMNodePropertyAdapter::initialQualityRef() const
+{
     InitialQualityEditRef r;
-    r.engine      = m_engine;
-    r.isLink      = 0;
+    r.engine = m_engine;
+    r.isLink = 0;
     r.elementName = m_name;
-    r.summary     = initialQualitySummaryFor(m_engine, 0, m_name);
+    r.summary = initialQualitySummaryFor(m_engine, 0, m_name);
     return r;
 }
 
@@ -899,20 +1056,24 @@ InitialQualityEditRef SWMMNodePropertyAdapter::initialQualityRef() const {
 // for inapplicable rows. PropertiesPanel additionally greys those rows
 // out via setRowEditable so the user sees they don't apply.
 
-double SWMMNodePropertyAdapter::outfallStage() const {
+double SWMMNodePropertyAdapter::outfallStage() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
-    if (outfallType() != FIXED) return 0.0;
+    if (idx < 0)
+        return 0.0;
+    if (outfallType() != FIXED)
+        return 0.0;
     double v = 0.0;
     swmm_node_get_outfall_param(m_engine, idx, &v);
     return v;
 }
 
-DataObjectRef SWMMNodePropertyAdapter::outfallTidalCurveRef() const {
+DataObjectRef SWMMNodePropertyAdapter::outfallTidalCurveRef() const
+{
     DataObjectRef r;
     r.engine = m_engine;
-    r.layer  = m_layer;
-    r.kind   = DataObjectRef::TidalCurve;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::TidalCurve;
     const int idx = nodeIdx();
     if (idx >= 0 && outfallType() == TIDAL) {
         int curveIdx = -1;
@@ -924,11 +1085,12 @@ DataObjectRef SWMMNodePropertyAdapter::outfallTidalCurveRef() const {
     return r;
 }
 
-DataObjectRef SWMMNodePropertyAdapter::outfallTimeseriesRef() const {
+DataObjectRef SWMMNodePropertyAdapter::outfallTimeseriesRef() const
+{
     DataObjectRef r;
     r.engine = m_engine;
-    r.layer  = m_layer;
-    r.kind   = DataObjectRef::TimeSeries;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::TimeSeries;
     const int idx = nodeIdx();
     if (idx >= 0 && outfallType() == TIMESERIES) {
         int tsIdx = -1;
@@ -940,29 +1102,37 @@ DataObjectRef SWMMNodePropertyAdapter::outfallTimeseriesRef() const {
     return r;
 }
 
-void SWMMNodePropertyAdapter::setOutfallStage(double v) {
+void SWMMNodePropertyAdapter::setOutfallStage(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     // Engine setter also flips outfall_type to FIXED — that's intentional;
     // setting a stage value only makes sense for a FIXED outfall.
     if (swmm_node_set_outfall_stage(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setOutfallTidalCurveRef(const DataObjectRef &r) {
+void SWMMNodePropertyAdapter::setOutfallTidalCurveRef(const DataObjectRef &r)
+{
     const int idx = nodeIdx();
-    if (idx < 0 || r.currentName.isEmpty()) return;
+    if (idx < 0 || r.currentName.isEmpty())
+        return;
     const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
-    if (curveIdx < 0) return;
+    if (curveIdx < 0)
+        return;
     if (swmm_node_set_outfall_tidal(m_engine, idx, curveIdx) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r) {
+void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r)
+{
     const int idx = nodeIdx();
-    if (idx < 0 || r.currentName.isEmpty()) return;
+    if (idx < 0 || r.currentName.isEmpty())
+        return;
     const int tsIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
-    if (tsIdx < 0) return;
+    if (tsIdx < 0)
+        return;
     if (swmm_node_set_outfall_timeseries(m_engine, idx, tsIdx) == SWMM_OK)
         emit changed();
 }
@@ -981,9 +1151,11 @@ void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r) {
 // the engine's real shape field. Our enum's ordinals match SWMM_StorageShape, so
 // the int passes straight through.
 
-SWMMNodePropertyAdapter::StorageShape SWMMNodePropertyAdapter::storageShape() const {
+SWMMNodePropertyAdapter::StorageShape SWMMNodePropertyAdapter::storageShape() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return Functional;
+    if (idx < 0)
+        return Functional;
     int shape = static_cast<int>(Functional);
     if (swmm_node_get_storage_shape(m_engine, idx, &shape) != SWMM_OK)
         return Functional;
@@ -992,16 +1164,16 @@ SWMMNodePropertyAdapter::StorageShape SWMMNodePropertyAdapter::storageShape() co
     return static_cast<StorageShape>(shape);
 }
 
-DataObjectRef SWMMNodePropertyAdapter::storageCurveRef() const {
+DataObjectRef SWMMNodePropertyAdapter::storageCurveRef() const
+{
     DataObjectRef r;
     r.engine = m_engine;
-    r.layer  = m_layer;
-    r.kind   = DataObjectRef::StorageCurve;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::StorageCurve;
     const int idx = nodeIdx();
     if (idx >= 0) {
         int curveIdx = -1;
-        if (swmm_node_get_storage_curve(m_engine, idx, &curveIdx) == SWMM_OK
-            && curveIdx >= 0) {
+        if (swmm_node_get_storage_curve(m_engine, idx, &curveIdx) == SWMM_OK && curveIdx >= 0) {
             if (const char *id = swmm_table_id(m_engine, curveIdx))
                 r.currentName = QString::fromUtf8(id);
         }
@@ -1011,39 +1183,50 @@ DataObjectRef SWMMNodePropertyAdapter::storageCurveRef() const {
 
 // Functional coefficients — the engine exposes them only as an atomic
 // (A, B, C) triple, so each getter reads the triple and returns one term.
-double SWMMNodePropertyAdapter::storageCoeffA() const {
+double SWMMNodePropertyAdapter::storageCoeffA() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     return a;
 }
 
-double SWMMNodePropertyAdapter::storageExpB() const {
+double SWMMNodePropertyAdapter::storageExpB() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     return b;
 }
 
-double SWMMNodePropertyAdapter::storageConstC() const {
+double SWMMNodePropertyAdapter::storageConstC() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     return c;
 }
 
-void SWMMNodePropertyAdapter::setStorageShape(StorageShape v) {
+void SWMMNodePropertyAdapter::setStorageShape(StorageShape v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
 
     if (v == Tabular) {
         // Tabular — keep the current curve if one is already assigned.
         int curveIdx = -1;
         swmm_node_get_storage_curve(m_engine, idx, &curveIdx);
-        if (curveIdx >= 0) { emit changed(); return; }
+        if (curveIdx >= 0) {
+            emit changed();
+            return;
+        }
         // Otherwise assign the first [STORAGE]-type curve (table type 1) in the
         // model. If none exist the switch can't complete; re-read leaves the row
         // on its previous shape so the combobox snaps back — the user must create
@@ -1053,7 +1236,7 @@ void SWMMNodePropertyAdapter::setStorageShape(StorageShape v) {
             int t = -1;
             if (swmm_table_get_type(m_engine, i, &t) == SWMM_OK && t == 1) {
                 if (swmm_node_set_storage_curve(m_engine, idx, i) == SWMM_OK)
-                    emit changed();   // engine sets shape = TABULAR alongside the curve
+                    emit changed(); // engine sets shape = TABULAR alongside the curve
                 return;
             }
         }
@@ -1088,60 +1271,74 @@ void SWMMNodePropertyAdapter::setStorageShape(StorageShape v) {
 //     paraboloid) and rejects the whole write atomically, so a half-typed value
 //     leaves the node on its last valid geometry instead of corrupting it.
 
-double SWMMNodePropertyAdapter::storageParam1() const {
+double SWMMNodePropertyAdapter::storageParam1() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     return p1;
 }
 
-double SWMMNodePropertyAdapter::storageParam2() const {
+double SWMMNodePropertyAdapter::storageParam2() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     return p2;
 }
 
-double SWMMNodePropertyAdapter::storageParam3() const {
+double SWMMNodePropertyAdapter::storageParam3() const
+{
     const int idx = nodeIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     return p3;
 }
 
-void SWMMNodePropertyAdapter::setStorageParam1(double v) {
+void SWMMNodePropertyAdapter::setStorageParam1(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     if (swmm_node_set_storage_geometry(m_engine, idx, v, p2, p3) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setStorageParam2(double v) {
+void SWMMNodePropertyAdapter::setStorageParam2(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     if (swmm_node_set_storage_geometry(m_engine, idx, p1, v, p3) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setStorageParam3(double v) {
+void SWMMNodePropertyAdapter::setStorageParam3(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     if (swmm_node_set_storage_geometry(m_engine, idx, p1, p2, v) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r) {
+void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (r.currentName.isEmpty()) {
         // Clearing the curve reverts the node to the functional form.
         if (swmm_node_set_storage_curve(m_engine, idx, -1) == SWMM_OK)
@@ -1149,69 +1346,105 @@ void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r) {
         return;
     }
     const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
-    if (curveIdx < 0) return;
+    if (curveIdx < 0)
+        return;
     if (swmm_node_set_storage_curve(m_engine, idx, curveIdx) == SWMM_OK)
         emit changed();
 }
 
 // Coefficient setters — read-modify-write the atomic (A, B, C) triple so one
 // row edits a single term without clobbering the others.
-void SWMMNodePropertyAdapter::setStorageCoeffA(double v) {
+void SWMMNodePropertyAdapter::setStorageCoeffA(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, v, b, c) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setStorageExpB(double v) {
+void SWMMNodePropertyAdapter::setStorageExpB(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, a, v, c) == SWMM_OK)
         emit changed();
 }
 
-void SWMMNodePropertyAdapter::setStorageConstC(double v) {
+void SWMMNodePropertyAdapter::setStorageConstC(double v)
+{
     const int idx = nodeIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, a, b, v) == SWMM_OK)
         emit changed();
 }
 
-DataObjectRef SWMMNodePropertyAdapter::lidControlRef() const {
-    DataObjectRef r; r.engine = m_engine; r.layer = m_layer; r.kind = DataObjectRef::LidControl;
-    int control = -1; double sat = 0;
-    if (nodeIdx() >= 0 && swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat) == SWMM_OK && control >= 0)
+DataObjectRef SWMMNodePropertyAdapter::lidControlRef() const
+{
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer = m_layer;
+    r.kind = DataObjectRef::LidControl;
+    int control = -1;
+    double sat = 0;
+    if (nodeIdx() >= 0 && swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat) == SWMM_OK &&
+        control >= 0)
         r.currentName = QString::fromUtf8(swmm_lid_id(m_engine, control));
     return r;
 }
-double SWMMNodePropertyAdapter::lidInitialSaturation() const {
-    int control = -1; double sat = 0;
-    if (nodeIdx() >= 0) swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat);
+double SWMMNodePropertyAdapter::lidInitialSaturation() const
+{
+    int control = -1;
+    double sat = 0;
+    if (nodeIdx() >= 0)
+        swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat);
     return sat;
 }
-void SWMMNodePropertyAdapter::setLidControlRef(const DataObjectRef& r) {
-    if (nodeIdx() < 0) return;
-    const int c = r.currentName.isEmpty() ? -1 : swmm_lid_index(m_engine, r.currentName.toUtf8().constData());
-    if (!r.currentName.isEmpty() && c < 0) return;
-    if (swmm_node_set_lid(m_engine, nodeIdx(), c, lidInitialSaturation()) == SWMM_OK) emit changed();
+void SWMMNodePropertyAdapter::setLidControlRef(const DataObjectRef &r)
+{
+    if (nodeIdx() < 0)
+        return;
+    const int c =
+        r.currentName.isEmpty() ? -1 : swmm_lid_index(m_engine, r.currentName.toUtf8().constData());
+    if (!r.currentName.isEmpty() && c < 0)
+        return;
+    if (swmm_node_set_lid(m_engine, nodeIdx(), c, lidInitialSaturation()) == SWMM_OK)
+        emit changed();
 }
-void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat) {
-    if (nodeIdx() < 0) return;
-    int c = -1; double old = 0;
-    if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 && swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK) emit changed();
+void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat)
+{
+    if (nodeIdx() < 0)
+        return;
+    int c = -1;
+    double old = 0;
+    if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 &&
+        swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK)
+        emit changed();
 }
 
-NodeCompoundEditRef SWMMNodePropertyAdapter::lidBottomConnectionRef()const {
-    NodeCompoundEditRef r;r.engine=m_engine;r.layer=m_layer;r.nodeName=m_name;r.kind=NodeCompoundEditRef::LidBottomConnection;
-    int mode=0,control=-1;double sat=0;
-    if(nodeIdx()>=0&&swmm_node_get_lid(m_engine,nodeIdx(),&control,&sat)==SWMM_OK&&control>=0&&swmm_node_get_lid_bottom(m_engine,nodeIdx(),&mode)==SWMM_OK)
-        r.summary=mode==2?tr("Mesh aquifer"):mode==1?tr("Sealed"):tr("Keep current behavior");
-    else r.summary=tr("No storage LID");
+NodeCompoundEditRef SWMMNodePropertyAdapter::lidBottomConnectionRef() const
+{
+    NodeCompoundEditRef r;
+    r.engine = m_engine;
+    r.layer = m_layer;
+    r.nodeName = m_name;
+    r.kind = NodeCompoundEditRef::LidBottomConnection;
+    int mode = 0, control = -1;
+    double sat = 0;
+    if (nodeIdx() >= 0 && swmm_node_get_lid(m_engine, nodeIdx(), &control, &sat) == SWMM_OK &&
+        control >= 0 && swmm_node_get_lid_bottom(m_engine, nodeIdx(), &mode) == SWMM_OK)
+        r.summary = mode == 2   ? tr("Mesh aquifer")
+                    : mode == 1 ? tr("Sealed")
+                                : tr("Keep current behavior");
+    else
+        r.summary = tr("No storage LID");
     return r;
 }

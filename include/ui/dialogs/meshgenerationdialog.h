@@ -1,8 +1,9 @@
-/*!
- * \file   meshgenerationdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshgenerationdialog.h
+ * @brief     Tools → Generate Mesh… dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AU.4 — Tools → Generate Mesh… dialog.
  *
@@ -18,7 +19,9 @@
  * Hole support: every interior ring of a boundary polygon is turned into
  * a set of constraint segments + a centroid seed point that tells Triangle
  * to leave that region unmeshed (OGR interior rings → g.addHole()).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef MESHGENERATIONDIALOG_H
 #define MESHGENERATIONDIALOG_H
 
@@ -64,7 +67,6 @@ class MeshGenerationDialog : public QDialog
     Q_OBJECT
 
 public:
-
     // -----------------------------------------------------------------------
     // Data types exchanged between the main thread and the worker thread.
     // -----------------------------------------------------------------------
@@ -72,24 +74,23 @@ public:
     /*! \brief Elevation interpolation method for the no-DTM fallback. */
     enum class ElevInterpMethod { IDW, NaturalNeighbour };
     /*! \brief Natural-neighbour weighting variant. */
-    enum class NNVariant        { Sibson, Laplace };
+    enum class NNVariant { Sibson, Laplace };
 
     /*! \brief All inputs needed by the pipeline worker.
      *         Collected on the main thread by collectInputs() so the worker
      *         never touches Qt widgets or SWMMModelLayer. */
-    struct PipelineInputs
-    {
+    struct PipelineInputs {
         // Files
         QString inpPath;
         QString dtmPath;
 
         // Domain (outer boundaries — setDomains feeds these to Triangle)
-        QVector<QPolygonF>               domains;
+        QVector<QPolygonF> domains;
 
         // Holes: interior rings of domain polygons.  Each entry is one
         // closed ring of vertices; a centroid seed point is derived from it
         // inside runMeshPipeline and passed to MeshGenerator::addHole().
-        QVector<QVector<QPointF>>        holeRings;
+        QVector<QVector<QPointF>> holeRings;
 
         // ── Boundary source identity ─────────────────────────────────────
         // collectInputs records only WHICH boundary to use; the worker
@@ -100,9 +101,9 @@ public:
         // filled by the worker in its own copy of this struct.
         enum class BoundaryKind { AutoBBox, Subcatchments, VectorFile };
         BoundaryKind boundaryKind = BoundaryKind::AutoBBox;
-        QString boundaryPath;        ///< VectorFile: datasource path
-        QString boundaryLayerName;   ///< VectorFile: OGR layer name ("" = first)
-        QString boundaryCRSWkt;      ///< VectorFile: source SRS WKT ("" = mesh CRS)
+        QString boundaryPath;      ///< VectorFile: datasource path
+        QString boundaryLayerName; ///< VectorFile: OGR layer name ("" = first)
+        QString boundaryCRSWkt;    ///< VectorFile: source SRS WKT ("" = mesh CRS)
         /*! Close, open and simplify the dissolved boundary at minCellSize
          *  (building holes and gaps narrower than a cell; redundant
          *  vertices). Off here so other callers keep their geometry; the
@@ -118,8 +119,8 @@ public:
         /*! 0 = triangles only, 1 = quads in corridors and strips only,
          *  2 = also automatic open-area quad blocks. */
         int quadMode = 2;
-        QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
-        MapExtent modelExtent;       ///< AutoBBox fallback frame
+        QVector<QVector<QPointF>> subcatchPolys; ///< Subcatchments: raw rings (mesh CRS)
+        MapExtent modelExtent;                   ///< AutoBBox fallback frame
 
         // ── Unfiltered feature candidates ────────────────────────────────
         // Collected without the in-domain test (domains are unknown on the
@@ -127,22 +128,35 @@ public:
         // domains and assigns PSLG markers in the original collectInputs
         // order — junctions → conduits → aux points → aux lines → region
         // markers — so marker numbering is unchanged.
-        struct CandidateNode { QString name; QPointF xy; double rimZ = 0.0; bool hasRim = false; };
+        struct CandidateNode {
+            QString name;
+            QPointF xy;
+            double rimZ = 0.0;
+            bool hasRim = false;
+        };
         QVector<CandidateNode> candidateNodes;
         QVector<QPair<QString, QVector<QPointF>>> candidateLinks;
-        struct AuxPoint { QPointF xy; double z = 0.0; bool hasZ = false; };
+        struct AuxPoint {
+            QPointF xy;
+            double z = 0.0;
+            bool hasZ = false;
+        };
         QVector<AuxPoint> auxPoints;
-        struct AuxLine { QVector<QPointF> path; QVector<double> z; bool hasZ = false; };
+        struct AuxLine {
+            QVector<QPointF> path;
+            QVector<double> z;
+            bool hasZ = false;
+        };
         QVector<AuxLine> auxLines;
         QVector<QPair<QString, QPointF>> subcatchSeeds;
         bool includeJunctions = false;
-        bool includeConduits  = false;
-        bool includeSubcatch  = false;
+        bool includeConduits = false;
+        bool includeSubcatch = false;
 
         // PSLG: pre-extracted from the SWMM model and aux layers
-        QVector<mesh::SteinerPoint>      steinerPoints;
+        QVector<mesh::SteinerPoint> steinerPoints;
         QVector<mesh::ConstraintSegment> constraintSegs;
-        QVector<mesh::RegionMarker>      regionMarkers;
+        QVector<mesh::RegionMarker> regionMarkers;
 
         // Coupling-map lookup tables
         QHash<int, QString> nodeMarkerToTag;
@@ -162,26 +176,31 @@ public:
         QString meshCRSWkt;
 
         // ── Resolution (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
-        std::optional<mesh::ResolutionSettings> resolution; ///< Version 2 settings in SI; legacy callers may omit.
+        std::optional<mesh::ResolutionSettings>
+            resolution;              ///< Version 2 settings in SI; legacy callers may omit.
         double maximumCellSize = -1; ///< -1 derives legacy multiplier; 0 is unbounded.
-        double breaklineTolerance = -1; ///< -1 retains legacy shared tolerance; 0 estimates independently.
+        double breaklineTolerance =
+            -1; ///< -1 retains legacy shared tolerance; 0 estimates independently.
         double terrainAveragingSize = 0; ///< 0 matches minimum.
-        double cellSize      = 0.0;   ///< Target cell size at features (map units).
-        double coarsenFactor = 20.0;  ///< h_max = cellSize × this away from features.
-        double sizeRatio     = 1.5;   ///< Allowed size ratio between neighbouring cells.
-        double minCellSize   = 0.0;   ///< Floor h_min (map units); 0 = cellSize / 4.
+        double cellSize = 0.0;           ///< Target cell size at features (map units).
+        double coarsenFactor = 20.0;     ///< h_max = cellSize × this away from features.
+        double sizeRatio = 1.5;          ///< Allowed size ratio between neighbouring cells.
+        double minCellSize = 0.0;        ///< Floor h_min (map units); 0 = cellSize / 4.
         /*! Terrain tolerance (mesh vertical units): > 0 bounds the size field
          *  wherever the DEM deviates from a cell-sized plane by more than
          *  this (mesh::TerrainSizeField). No terrain vertices are generated. */
         double terrainTolerance = 0.0;
-        bool terrainAdaptive = true; ///< Certify/refine actual triangles rather than a block size surrogate.
-        bool terrainAutoTolerance = false; ///< GUI's automatic setting; explicit callers retain 0 = off.
+        bool terrainAdaptive =
+            true; ///< Certify/refine actual triangles rather than a block size surrogate.
+        bool terrainAutoTolerance =
+            false; ///< GUI's automatic setting; explicit callers retain 0 = off.
         bool terrainBreaklines = true;
-        bool refineAtFeatures = true; ///< Constraints remain mandatory when this size influence is disabled.
+        bool refineAtFeatures =
+            true; ///< Constraints remain mandatory when this size influence is disabled.
         int terrainCacheMiB = 64;
         // ── Boundaries ──────────────────────────────────────────────
-        double trimTurnDeg   = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
-        double trimDeviation = 0.0;   ///< Straightness trimming: max deviation (map units).
+        double trimTurnDeg = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
+        double trimDeviation = 0.0; ///< Straightness trimming: max deviation (map units).
         /*! Conduit quad strip width (map units); 0 = conduits are plain
          *  constrained edges (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.4). */
         double conduitStripWidth = 0.0;
@@ -209,7 +228,9 @@ public:
         // cross threads). One mesh::QuadRegion per feature exterior ring,
         // reprojected to the mesh CRS when crsWkt differs from meshCRSWkt;
         // fields "h"/"quad_spacing" and "tag".
-        struct QuadRegionLayerSpec { QString path, layerName, crsWkt; };
+        struct QuadRegionLayerSpec {
+            QString path, layerName, crsWkt;
+        };
         QVector<QuadRegionLayerSpec> quadRegionLayers;
         // Vertical unit conversion: multiply all DTM-sampled Z values by this
         // factor before writing to the mesh.  Accounts for DTM being in a
@@ -235,38 +256,38 @@ public:
         // elevCache by coordinate so PSLG simplification can't desync a
         // per-vertex z carried on the (simplified) constraint segment.
         QVector<QPointF> featureZSeedXY;
-        QVector<double>  featureZSeedZ;
+        QVector<double> featureZSeedZ;
 
         // Node rim-flatten: when nodes use rim elevation and a flatten radius
         // is set, every terrain / refinement vertex within radius of a node is
         // forced to that node's rim elevation (invert + maxDepth).  Removes the
         // sliver triangles that terrain/rim misalignment creates around nodes.
         QVector<QPointF> nodeRimXY;
-        QVector<double>  nodeRimZ;
-        double           nodeFlattenRadius = 0.0;  // mesh units; 0 = off
-        bool             nodesUseRim       = false;
+        QVector<double> nodeRimZ;
+        double nodeFlattenRadius = 0.0; // mesh units; 0 = off
+        bool nodesUseRim = false;
 
         // Minimum node separation (mesh units; <= 0 = off): a node candidate
         // within this distance of an already-kept node is not pinned as a
         // Steiner vertex — it stays in couplingNodes and the post-generation
         // mapper couples it to its containing cell instead.
-        double           nodeMinSeparation = 0.0;
+        double nodeMinSeparation = 0.0;
 
         // Elevation interpolation for the no-DTM fallback.  IDW (configurable
         // Shepard power) or natural neighbour (Sibson / Laplace); NN falls back
         // to IDW outside the seed convex hull.  Ignored when a DTM is set.
         ElevInterpMethod elevInterpMethod = ElevInterpMethod::IDW;
-        NNVariant        nnVariant        = NNVariant::Sibson;
-        double           idwPower         = 2.0;
+        NNVariant nnVariant = NNVariant::Sibson;
+        double idwPower = 2.0;
 
         // Output
-        mesh::MeshOutputMode outputMode    = mesh::MeshOutputMode::External;
-        QString              meshOutputPath;
+        mesh::MeshOutputMode outputMode = mesh::MeshOutputMode::External;
+        QString meshOutputPath;
         // Uniform per-cell hydraulic seeds, written onto every generated
         // triangle. Spatially varying values are assigned afterwards from the
         // Mesh 2D ribbon (cell editor / Cell Data assignment).
-        double               manningsN     = 0.035;
-        double               initDepth     = 0.0;   // mesh length units
+        double manningsN = 0.035;
+        double initDepth = 0.0; // mesh length units
 
         // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
         // Read out of MeshRegionDefaultsWidget by collectInputs() and copied
@@ -286,36 +307,36 @@ public:
         // uses the inheritance model. Keyed by MeshTriangle::tag, and empty
         // until a region row is given a value of its own — while it is empty
         // every triangle takes manningsN/initDepth exactly as it does today.
-        struct RegionHydraulics { double manningsN = 0.0; double initDepth = 0.0; };
+        struct RegionHydraulics {
+            double manningsN = 0.0;
+            double initDepth = 0.0;
+        };
         QHash<QString, RegionHydraulics> regionHydraulics;
-
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
      *         main thread inside onMeshFinished(). */
-    struct PipelineResult
-    {
-        bool              ok        = false;
-        QString           errorMsg;
+    struct PipelineResult {
+        bool ok = false;
+        QString errorMsg;
         QString summary;
         QJsonObject metrics;
         QVector<int> exceptionCells;
-        QStringList       alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
-        mesh::MeshResult  meshResult;
-        mesh::GenerationStats generationStats; ///< Strips placed/dropped, triangles under the angle bound.
+        QStringList alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
+        mesh::MeshResult meshResult;
+        mesh::GenerationStats
+            generationStats; ///< Strips placed/dropped, triangles under the angle bound.
         double terrainToleranceUsed = 0.0;
         double verticalUnitToSI = 1.0;
         mesh::CouplingMap coupling;
-        QString           meshPath;
-        bool              meshUnitsSI = false; ///< Units of the pending generated mesh.
+        QString meshPath;
+        bool meshUnitsSI = false; ///< Units of the pending generated mesh.
         mesh::MeshOutputMode outputMode = mesh::MeshOutputMode::External;
         QVector<mesh::CorridorSource> corridorSources;
         QVector<mesh::CorridorSourceStamp> corridorSourceStamps;
-
     };
 
-    explicit MeshGenerationDialog(SWMMVisProjectWindow *pw,
-                                  QWidget *parent = nullptr);
+    explicit MeshGenerationDialog(SWMMVisProjectWindow *pw, QWidget *parent = nullptr);
     ~MeshGenerationDialog() override;
 
 public slots:
@@ -342,7 +363,7 @@ private:
     void restoreOptions();
     void populateLayerCombos();
     void updateUnitDisplay();
-    void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
+    void updateZFactor(); // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
 
     /*! Region tags the generated mesh will carry, in the order collectInputs()
      *  creates their markers. Empty when no region source is selected, which
@@ -369,103 +390,104 @@ private:
     QVector<QMetaObject::Connection> m_generationConnections;
 
     // ── Sources ─────────────────────────────────────────────────────
-    QComboBox      *m_dtmCombo          = nullptr;
-    QLabel         *m_domainLabel       = nullptr;
-    QLabel         *m_dtmVertUnitLabel  = nullptr;  // shows auto-detected DTM vertical unit
-    QComboBox      *m_meshVertCRSCombo  = nullptr;  // output mesh vertical unit
-    QDoubleSpinBox *m_zFactorSpin       = nullptr;  // user-editable Z conversion factor
+    QComboBox *m_dtmCombo = nullptr;
+    QLabel *m_domainLabel = nullptr;
+    QLabel *m_dtmVertUnitLabel = nullptr;    // shows auto-detected DTM vertical unit
+    QComboBox *m_meshVertCRSCombo = nullptr; // output mesh vertical unit
+    QDoubleSpinBox *m_zFactorSpin = nullptr; // user-editable Z conversion factor
 
     // ── Auxiliary feature-layer constraints (all optional) ──────────
-    QComboBox     *m_boundaryLayerCombo = nullptr;
-    QCheckBox     *m_conditionBoundaryBox = nullptr;  // footprint conditioning (D-R3)
-    QListWidget   *m_pointLayersList    = nullptr;
-    QListWidget   *m_lineLayersList     = nullptr;
+    QComboBox *m_boundaryLayerCombo = nullptr;
+    QCheckBox *m_conditionBoundaryBox = nullptr; // footprint conditioning (D-R3)
+    QListWidget *m_pointLayersList = nullptr;
+    QListWidget *m_lineLayersList = nullptr;
 
     // One row per vector layer in the point / line lists.  Each row carries
     // an "include" checkbox and a "use feature Z" checkbox; the latter is
     // enabled only when the layer's geometry is 3D.
-    struct AuxLayerRow
-    {
-        GISVectorLayer *layer   = nullptr;
-        QCheckBox      *include = nullptr;
-        QCheckBox      *useZ    = nullptr;
-        bool            is3D    = false;
+    struct AuxLayerRow {
+        GISVectorLayer *layer = nullptr;
+        QCheckBox *include = nullptr;
+        QCheckBox *useZ = nullptr;
+        bool is3D = false;
     };
     QVector<AuxLayerRow> m_pointLayerRows;
     QVector<AuxLayerRow> m_lineLayerRows;
 
     // ── Constraints (SWMM-aware tagging) ────────────────────────────
-    QCheckBox     *m_includeJunctions = nullptr;
-    QCheckBox     *m_includeConduits  = nullptr;
-    QCheckBox     *m_includeSubcatch  = nullptr;
-    QCheckBox     *m_mapNodesAfterGen = nullptr;  // Plan Part B: post-gen mapper
+    QCheckBox *m_includeJunctions = nullptr;
+    QCheckBox *m_includeConduits = nullptr;
+    QCheckBox *m_includeSubcatch = nullptr;
+    QCheckBox *m_mapNodesAfterGen = nullptr; // Plan Part B: post-gen mapper
     // 1D2D fine-scale coupling §7.2: map only nodes whose 2D coupling type is
     // not NONE; "Set coupleable…" opens the node coupling selector.
-    QCheckBox     *m_mapOnlyCoupleable = nullptr;
-    QLabel        *m_coupleableReadout = nullptr;
-    void           updateCoupleableReadout();
-    QCheckBox      *m_nodesUseRim     = nullptr;  // rim elevation instead of terrain
-    QDoubleSpinBox *m_nodeFlattenSpin = nullptr;  // flatten terrain within radius of nodes
-    QCheckBox      *m_nodeMinSepBox   = nullptr;  // enforce minimum node separation
-    QDoubleSpinBox *m_nodeMinSepSpin  = nullptr;  // separation distance (map units)
+    QCheckBox *m_mapOnlyCoupleable = nullptr;
+    QLabel *m_coupleableReadout = nullptr;
+    void updateCoupleableReadout();
+    QCheckBox *m_nodesUseRim = nullptr;          // rim elevation instead of terrain
+    QDoubleSpinBox *m_nodeFlattenSpin = nullptr; // flatten terrain within radius of nodes
+    QCheckBox *m_nodeMinSepBox = nullptr;        // enforce minimum node separation
+    QDoubleSpinBox *m_nodeMinSepSpin = nullptr;  // separation distance (map units)
 
     // ── Elevation interpolation (no-DTM fallback) ───────────────────
-    QGroupBox      *m_elevInterpGroup = nullptr;  // whole group (disabled when DTM set)
-    QComboBox      *m_elevMethodCombo = nullptr;  // IDW | Natural neighbour
-    QComboBox      *m_nnVariantCombo  = nullptr;  // Sibson | Laplace
-    QDoubleSpinBox *m_idwPowerSpin    = nullptr;  // Shepard exponent
+    QGroupBox *m_elevInterpGroup = nullptr;   // whole group (disabled when DTM set)
+    QComboBox *m_elevMethodCombo = nullptr;   // IDW | Natural neighbour
+    QComboBox *m_nnVariantCombo = nullptr;    // Sibson | Laplace
+    QDoubleSpinBox *m_idwPowerSpin = nullptr; // Shepard exponent
 
     // ── Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3, MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5) ──
     // Resolution
     MeshResolutionWidget *m_resolutionWidget = nullptr;
-    QDoubleSpinBox *m_cellSizeSpin     = nullptr;  ///< cell size at features (map units)
-    QDoubleSpinBox *m_sizeRatioSpin    = nullptr;  ///< size ratio between neighbouring cells
-    QDoubleSpinBox *m_minCellSizeSpin  = nullptr;  ///< floor (map units); (cell size / 4) at 0
-    QDoubleSpinBox *m_terrainTolSpin   = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
-    QComboBox      *m_terrainModeCombo = nullptr;
-    QCheckBox      *m_terrainBreaklinesBox = nullptr;
-    QCheckBox      *m_refineFeaturesBox = nullptr;
-    QCheckBox      *m_qualityOrderBox = nullptr;
-    QComboBox      *m_terrainReferenceCombo = nullptr;
-    QComboBox      *m_quadModeCombo = nullptr;
-    QCheckBox      *m_latticeSeedingBox = nullptr;
-    QSpinBox       *m_smoothingSpin = nullptr;
-    QSpinBox       *m_maxBreaklinesSpin = nullptr;
-    QSpinBox       *m_terrainCacheSpin = nullptr;
-    QSpinBox       *m_maxCellsSpin = nullptr;
-    QLabel        *m_terrainReportLabel = nullptr;
+    QDoubleSpinBox *m_cellSizeSpin = nullptr;    ///< cell size at features (map units)
+    QDoubleSpinBox *m_sizeRatioSpin = nullptr;   ///< size ratio between neighbouring cells
+    QDoubleSpinBox *m_minCellSizeSpin = nullptr; ///< floor (map units); (cell size / 4) at 0
+    QDoubleSpinBox *m_terrainTolSpin = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
+    QComboBox *m_terrainModeCombo = nullptr;
+    QCheckBox *m_terrainBreaklinesBox = nullptr;
+    QCheckBox *m_refineFeaturesBox = nullptr;
+    QCheckBox *m_qualityOrderBox = nullptr;
+    QComboBox *m_terrainReferenceCombo = nullptr;
+    QComboBox *m_quadModeCombo = nullptr;
+    QCheckBox *m_latticeSeedingBox = nullptr;
+    QSpinBox *m_smoothingSpin = nullptr;
+    QSpinBox *m_maxBreaklinesSpin = nullptr;
+    QSpinBox *m_terrainCacheSpin = nullptr;
+    QSpinBox *m_maxCellsSpin = nullptr;
+    QLabel *m_terrainReportLabel = nullptr;
     // Shape
-    QDoubleSpinBox *m_minAngleSpin     = nullptr;  ///< minimum triangle angle (deg)
-    QCheckBox      *m_streetQuadsBox   = nullptr;  ///< quads between facing break lines
-    QDoubleSpinBox *m_conduitStripSpin = nullptr;  ///< conduit quad strip width (map units); (off) at 0
-    QComboBox      *m_quadRegionLayerCombo   = nullptr; ///< "(none)" + polygon GISVectorLayers (fields h, angle, tag)
-    QLineEdit      *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
+    QDoubleSpinBox *m_minAngleSpin = nullptr; ///< minimum triangle angle (deg)
+    QCheckBox *m_streetQuadsBox = nullptr;    ///< quads between facing break lines
+    QDoubleSpinBox *m_conduitStripSpin =
+        nullptr; ///< conduit quad strip width (map units); (off) at 0
+    QComboBox *m_quadRegionLayerCombo =
+        nullptr; ///< "(none)" + polygon GISVectorLayers (fields h, angle, tag)
+    QLineEdit *m_quadRegionSubcatchEdit = nullptr; ///< comma-separated subcatchment IDs
     CorridorSourcesWidget *m_corridorSources = nullptr;
     // Boundaries
-    QDoubleSpinBox *m_trimTurnSpin     = nullptr;  ///< straightness trim: max turn (deg); (off) at 0
+    QDoubleSpinBox *m_trimTurnSpin = nullptr; ///< straightness trim: max turn (deg); (off) at 0
     QDoubleSpinBox *m_trimDeviationSpin = nullptr; ///< straightness trim: max deviation (map units)
 
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
     // These two stay the editors for the '*' row; the region-defaults table
     // below mirrors them read-only (GG0d, GUI plan §3.3).
-    QDoubleSpinBox *m_manningsValueSpin  = nullptr;
-    QDoubleSpinBox *m_initDepthSpin      = nullptr;
+    QDoubleSpinBox *m_manningsValueSpin = nullptr;
+    QDoubleSpinBox *m_initDepthSpin = nullptr;
 
     // ── Region defaults table (GG0d) ────────────────────────────────
     MeshRegionDefaultsWidget *m_regionDefaults = nullptr;
 
     // ── Output ──────────────────────────────────────────────────────
-    QRadioButton  *m_outputExternal = nullptr;
-    QRadioButton  *m_outputInline   = nullptr;
-    QLineEdit     *m_meshPathEdit   = nullptr;
-    QPushButton   *m_browseMeshBtn  = nullptr;
+    QRadioButton *m_outputExternal = nullptr;
+    QRadioButton *m_outputInline = nullptr;
+    QLineEdit *m_meshPathEdit = nullptr;
+    QPushButton *m_browseMeshBtn = nullptr;
 
     // ── Thread / embedded progress ─────────────────────────────────
-    QFutureWatcher<PipelineResult> *m_watcher     = nullptr;
-    QProgressBar                   *m_progressBar = nullptr;
-    QLabel                         *m_progressLabel = nullptr;
-    QPushButton                    *m_generateBtn = nullptr;  ///< "Generate" — disabled while running.
-    QPushButton                    *m_cancelBtn   = nullptr;  ///< "Cancel" / "Cancel Generation".
+    QFutureWatcher<PipelineResult> *m_watcher = nullptr;
+    QProgressBar *m_progressBar = nullptr;
+    QLabel *m_progressLabel = nullptr;
+    QPushButton *m_generateBtn = nullptr; ///< "Generate" — disabled while running.
+    QPushButton *m_cancelBtn = nullptr;   ///< "Cancel" / "Cancel Generation".
 };
 
 #endif // MESHGENERATIONDIALOG_H

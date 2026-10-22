@@ -1,6 +1,6 @@
-/*!
- * \file   test_layertree_canvas_rebind.cpp
- * \brief  The Layers dock and the Terrain toolbar must survive the canvas
+/**
+ * @file      test_layertree_canvas_rebind.cpp
+ * @brief     The Layers dock and the Terrain toolbar must survive the canvas
  *         they are bound to being destroyed underneath them.
  *
  * Two crash reports (2026-09-04, 2026-09-05) segfault in QObject::disconnect
@@ -11,7 +11,12 @@
  * disconnected from freed memory. Both holders are QPointers now and a
  * null → null rebind still resets the rows. This test is the reproduction:
  * on the unfixed tree the first case dies in QObject::disconnect.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QtTest>
 
 #include "layers/swmm2dresultslayer.h"
@@ -25,6 +30,14 @@ class TestLayerTreeCanvasRebind : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require layer-dock rebinding to clear guarded canvas/rows after destruction and
+     * accept later live/null targets.
+     * Uses a borrowed stack results layer and deletes both heap canvases; checks one
+     * row before deletion and zero after, without loading model or result files.
+     *
+     */
     void layersDockSurvivesDeletionOfTheBoundCanvas()
     {
         LayerTreePanel panel;
@@ -60,6 +73,13 @@ private slots:
         QCOMPARE(panel.model()->rowCount(), 0);
     }
 
+    /**
+     *
+     * @brief Exercise terrain-toolbar rebinding after each bound canvas is destroyed.
+     * Success is reaching the final assertion without dereferencing a dead target;
+     * there is no additional toolbar-state or pixel assertion.
+     *
+     */
     void terrainToolbarSurvivesDeletionOfTheBoundCanvas()
     {
         TerrainToolbar bar(QStringLiteral("Terrain"));
@@ -68,11 +88,11 @@ private slots:
 
         bar.rebindCanvas(a);
         bar.rebindCanvas(b);
-        delete b;                 // dies while bound
-        bar.rebindCanvas(a);      // used to disconnect() from freed memory
+        delete b;            // dies while bound
+        bar.rebindCanvas(a); // used to disconnect() from freed memory
         delete a;
         bar.rebindCanvas(nullptr);
-        QVERIFY(true);            // reaching here is the assertion
+        QVERIFY(true); // reaching here is the assertion
     }
 };
 

@@ -1,7 +1,10 @@
-/*!
- * \file   maptooladdgage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      maptooladdgage.cpp
+ * @brief     Interactive placement of rain gages on the map.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooladdgage.h"
@@ -20,13 +23,18 @@ OpenSWMMVisMapToolAddGage::OpenSWMMVisMapToolAddGage(MapCanvas *canvas, QObject 
 {
 }
 
-QCursor OpenSWMMVisMapToolAddGage::cursor() const { return Qt::CrossCursor; }
+QCursor OpenSWMMVisMapToolAddGage::cursor() const
+{
+    return Qt::CrossCursor;
+}
 
 SWMMModelLayer *OpenSWMMVisMapToolAddGage::activeModelLayer() const
 {
-    if (!m_canvas) return nullptr;
+    if (!m_canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : m_canvas->layers())
-        if (auto *ml = qobject_cast<SWMMModelLayer *>(l)) return ml;
+        if (auto *ml = qobject_cast<SWMMModelLayer *>(l))
+            return ml;
     return nullptr;
 }
 
@@ -34,8 +42,8 @@ QString OpenSWMMVisMapToolAddGage::nextAvailableName(SWMMModelLayer *layer) cons
 {
     // Feedback C12 — honour Preferences → Naming like the node/link tools
     // do (this used to hard-code "RG").
-    const QString prefix = PreferencesManager::instance()->elementNamePrefix(
-        QStringLiteral("raingage"));
+    const QString prefix =
+        PreferencesManager::instance()->elementNamePrefix(QStringLiteral("raingage"));
     for (int n = 1; n < 100000; ++n) {
         const QString candidate = prefix + QString::number(n);
         const QByteArray utf8 = candidate.toUtf8();
@@ -47,9 +55,11 @@ QString OpenSWMMVisMapToolAddGage::nextAvailableName(SWMMModelLayer *layer) cons
 
 void OpenSWMMVisMapToolAddGage::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton || !m_canvas) return;
+    if (event->button() != Qt::LeftButton || !m_canvas)
+        return;
     SWMMModelLayer *layer = activeModelLayer();
-    if (!layer) return;
+    if (!layer)
+        return;
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
@@ -71,6 +81,5 @@ void OpenSWMMVisMapToolAddGage::mousePressEvent(QMouseEvent *event)
 
     layer->setSelectedElements({{name, SWMMModelLayer::kKindGage}});
     emit gageAdded(name, px, py);
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                          QStringLiteral("addgage-commit"));
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QStringLiteral("addgage-commit"));
 }

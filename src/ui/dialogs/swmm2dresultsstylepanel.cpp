@@ -1,15 +1,17 @@
-/*!
- * \file   swmm2dresultsstylepanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  O2-1 / VS.8 — multi-tab styling panel for SWMM2DResultsLayer.
+/**
+ * @file      swmm2dresultsstylepanel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     O2-1 / VS.8 — multi-tab styling panel for SWMM2DResultsLayer.
  *
  *         Pattern: each control is initialised from the style bag BEFORE
  *         its change-signal is connected, so construction never fires
  *         spurious writes; afterwards every edit applies live (the same
  *         apply-on-edit model the rest of the styling UI uses).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 
 #include "layers/swmm2dresultslayer.h"
@@ -52,9 +54,11 @@
 
 #include <functional>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 using OpenSWMM::Render::ContourBandStyle;
 using OpenSWMM::Render::ISublayer;
@@ -77,19 +81,19 @@ using OpenSWMM::Render::VelocityVectorStyle;
  *  ClassificationEditor::onRampChanged does (ClassificationScheme::
  *  setCustomRamp), not just the name. */
 struct ColorSourceBindings {
-    std::function<QString()>            rampName;
+    std::function<QString()> rampName;
     std::function<void(const QString &)> setRampName;
-    std::function<bool()>               invert;
-    std::function<void(bool)>           setInvert;
-    std::function<QColor()>             lowColor;
+    std::function<bool()> invert;
+    std::function<void(bool)> setInvert;
+    std::function<QColor()> lowColor;
     std::function<void(const QColor &)> setLowColor;
-    std::function<QColor()>             highColor;
+    std::function<QColor()> highColor;
     std::function<void(const QColor &)> setHighColor;
 };
 
 QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
 {
-    auto *box  = new QGroupBox(QObject::tr("Colour"), parent);
+    auto *box = new QGroupBox(QObject::tr("Colour"), parent);
     auto *form = new QFormLayout(box);
 
     const bool usingRamp = !b.rampName().isEmpty();
@@ -102,7 +106,8 @@ QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
     form->addRow(QObject::tr("Source:"), source);
 
     auto *ramp = new ColorRampComboBox(box);
-    if (usingRamp) ramp->setCurrentRampByName(b.rampName());
+    if (usingRamp)
+        ramp->setCurrentRampByName(b.rampName());
     ramp->setMinimumWidth(kComboMinWidthPx);
     form->addRow(QObject::tr("Ramp:"), ramp);
 
@@ -129,17 +134,16 @@ QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
     applyEnabled();
 
     QObject::connect(source, qOverload<int>(&QComboBox::currentIndexChanged), box,
-        [b, ramp, applyEnabled](int idx) {
-            applyEnabled();
-            b.setRampName(idx == 0 ? ramp->currentText() : QString());
-        });
+                     [b, ramp, applyEnabled](int idx) {
+                         applyEnabled();
+                         b.setRampName(idx == 0 ? ramp->currentText() : QString());
+                     });
     QObject::connect(ramp, &ColorRampComboBox::rampChanged, box,
-        [b, source, ramp](const RasterColorRamp &) {
-            if (source->currentIndex() == 0)
-                b.setRampName(ramp->currentText());
-        });
-    QObject::connect(invert, &QCheckBox::toggled, box,
-                     [b](bool on) { b.setInvert(on); });
+                     [b, source, ramp](const RasterColorRamp &) {
+                         if (source->currentIndex() == 0)
+                             b.setRampName(ramp->currentText());
+                     });
+    QObject::connect(invert, &QCheckBox::toggled, box, [b](bool on) { b.setInvert(on); });
     QObject::connect(low, &ColorButton::colorChanged, box,
                      [b](const QColor &c) { b.setLowColor(c); });
     QObject::connect(high, &ColorButton::colorChanged, box,
@@ -158,7 +162,8 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     auto *tabs = new QTabWidget(this);
     root->addWidget(tabs, 1);
 
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
 
     auto *water = new QGroupBox(tr("Water visibility"), this);
     auto *waterForm = new QFormLayout(water);
@@ -172,17 +177,20 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     filmDepth->setSuffix(tr(" m"));
     auto *showFilms = new QCheckBox(tr("Show thin films"), water);
     showFilms->setObjectName(QStringLiteral("showThinFilms"));
-    auto *hint = new QLabel(tr("Hide water in cells that are shallow everywhere. "
-        "Partially wet cells retain their shoreline. Applies to maps and profiles; "
-        "simulation results are unchanged."), water);
+    auto *hint =
+        new QLabel(tr("Hide water in cells that are shallow everywhere. "
+                      "Partially wet cells retain their shoreline. Applies to maps and profiles; "
+                      "simulation results are unchanged."),
+                   water);
     hint->setWordWrap(true);
     waterForm->addRow(modelDepth);
     waterForm->addRow(tr("Thin-film depth:"), filmDepth);
     waterForm->addRow(showFilms);
     waterForm->addRow(hint);
     root->insertWidget(0, water);
-    const auto syncWater = [this,modelDepth,filmDepth,showFilms] {
-        if (!m_layer) return;
+    const auto syncWater = [this, modelDepth, filmDepth, showFilms] {
+        if (!m_layer)
+            return;
         const QSignalBlocker a(modelDepth), b(filmDepth), c(showFilms);
         modelDepth->setChecked(m_layer->usesModelThinFilmDepth());
         filmDepth->setValue(m_layer->thinFilmDepth());
@@ -190,13 +198,19 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
         showFilms->setChecked(m_layer->showThinFilms());
     };
     syncWater();
-    connect(modelDepth, &QCheckBox::toggled, this, [this,filmDepth](bool on) {
-        if (m_layer) m_layer->setThinFilmDepth(on ? -1.0 : filmDepth->value());
+    connect(modelDepth, &QCheckBox::toggled, this, [this, filmDepth](bool on) {
+        if (m_layer)
+            m_layer->setThinFilmDepth(on ? -1.0 : filmDepth->value());
     });
     connect(filmDepth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double depth) { if (m_layer) m_layer->setThinFilmDepth(depth); });
-    connect(showFilms, &QCheckBox::toggled, this,
-            [this](bool show) { if (m_layer) m_layer->setShowThinFilms(show); });
+            [this](double depth) {
+                if (m_layer)
+                    m_layer->setThinFilmDepth(depth);
+            });
+    connect(showFilms, &QCheckBox::toggled, this, [this](bool show) {
+        if (m_layer)
+            m_layer->setShowThinFilms(show);
+    });
     connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged, this, syncWater);
 
     // Each page sits in a scroll area so a narrow/short dialog scrolls
@@ -215,14 +229,15 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     auto addTab = [tabs, &wrapScroll](QWidget *page, const QString &label,
                                       OpenSWMM::Render::ISublayer *sub) {
         const int idx = tabs->addTab(wrapScroll(page), label);
-        if (sub) tabs->setTabToolTip(idx, sub->id());
+        if (sub)
+            tabs->setTabToolTip(idx, sub->id());
     };
 
     // The two direct-mesh depth fills (flat per-cell / Gouraud per-vertex).
     // Both sublayers pre-date this panel but had no styling UI at all — the
     // only "smooth" control users could find was the contour-band boundary
     // interpolation checkbox, which is a different knob entirely.
-    auto *cellSub   = m_layer->cellDepthFillSublayer();
+    auto *cellSub = m_layer->cellDepthFillSublayer();
     auto *smoothSub = m_layer->smoothDepthFillSublayer();
     addTab(buildScalarFillTab(cellSub, cellSub ? cellSub->fillStyle() : nullptr,
                               tr("Show cell depth fill"), tabs),
@@ -233,134 +248,186 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     // 2026-06-21 — the "Depth Fill" (depth color ramp) and "Flow Arrows" tabs
     // were removed: contour bands now provide the depth fill, and velocity
     // vectors already convey flow direction.
-    addTab(buildContourBandTab(tabs), tr("D&epth Contours"),  m_layer->contourBandSublayer());
-    addTab(buildIsolineTab(tabs),     tr("De&pth Isolines"),  m_layer->isolineSublayer());
-    addTab(buildVelocityTab(tabs),    tr("&Flow Velocity"),   m_layer->velocityVectorSublayer());
+    addTab(buildContourBandTab(tabs), tr("D&epth Contours"), m_layer->contourBandSublayer());
+    addTab(buildIsolineTab(tabs), tr("De&pth Isolines"), m_layer->isolineSublayer());
+    addTab(buildVelocityTab(tabs), tr("&Flow Velocity"), m_layer->velocityVectorSublayer());
     addTab(buildFlowStreakTab(tabs), tr("Flow &Streaks"), m_layer->flowStreakSublayer());
     // Issue 6 — Edges/Vertices were previously only editable via the generic
     // property grid; give them dedicated tabs so the edge colour/width (the
     // knobs behind the dark-edge artifact) and the vertex markers are tunable
     // here. The slope-emphasis and tagged-vertex groups are omitted because the
     // results renderer does not honour them (no dead knobs).
-    addTab(buildMeshEdgeTab(tabs),     tr("&Mesh Edges"),    m_layer->meshEdgeSublayer());
-    addTab(buildMeshNodeTab(tabs),     tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
-    tabs->addTab(wrapScroll(buildAdditionalResultsTab(tabs)),tr("Additional &Results"));
-    connect(m_layer,&QObject::destroyed,this,[this,tabs] {
-        m_layer.clear(); m_refreshResultData={}; setEnabled(false);
-        m_resultList=nullptr; m_resultCatalog=nullptr; m_resultDetailHost=nullptr;
-        while(tabs->count()) {
-            auto *page=tabs->widget(0); tabs->removeTab(0);
+    addTab(buildMeshEdgeTab(tabs), tr("&Mesh Edges"), m_layer->meshEdgeSublayer());
+    addTab(buildMeshNodeTab(tabs), tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
+    tabs->addTab(wrapScroll(buildAdditionalResultsTab(tabs)), tr("Additional &Results"));
+    connect(m_layer, &QObject::destroyed, this, [this, tabs] {
+        m_layer.clear();
+        m_refreshResultData = {};
+        setEnabled(false);
+        m_resultList = nullptr;
+        m_resultCatalog = nullptr;
+        m_resultDetailHost = nullptr;
+        while (tabs->count()) {
+            auto *page = tabs->widget(0);
+            tabs->removeTab(0);
             page->setEnabled(false);
             // Silence pending editor callbacks without disconnecting Qt's
             // internal destroyed/model bookkeeping. destroyed() is emitted
             // even while signals are blocked, so deferred deletion stays safe.
-            for(auto *object:page->findChildren<QObject *>()) object->blockSignals(true);
-            page->hide(); page->setParent(nullptr); page->deleteLater();
+            for (auto *object : page->findChildren<QObject *>())
+                object->blockSignals(true);
+            page->hide();
+            page->setParent(nullptr);
+            page->deleteLater();
         }
     });
 }
 
 QWidget *Swmm2DResultsStylePanel::buildAdditionalResultsTab(QWidget *parent)
 {
-    auto *page=new QWidget(parent);
-    auto *layout=new QVBoxLayout(page);
-    m_resultList=new QListWidget(page);
+    auto *page = new QWidget(parent);
+    auto *layout = new QVBoxLayout(page);
+    m_resultList = new QListWidget(page);
     m_resultList->setObjectName("additionalResultList");
     m_resultList->setAccessibleName(tr("Configured result layers"));
     m_resultList->setMaximumHeight(100);
     layout->addWidget(m_resultList);
-    auto *row=new QHBoxLayout;
-    m_resultCatalog=new QComboBox(page);
+    auto *row = new QHBoxLayout;
+    m_resultCatalog = new QComboBox(page);
     m_resultCatalog->setObjectName("additionalResultCatalog");
     m_resultCatalog->setAccessibleName(tr("Result variable to add"));
-    row->addWidget(m_resultCatalog,1);
-    auto *add=new QPushButton(tr("&Add result"),page); add->setObjectName("additionalResultAdd");
+    row->addWidget(m_resultCatalog, 1);
+    auto *add = new QPushButton(tr("&Add result"), page);
+    add->setObjectName("additionalResultAdd");
     row->addWidget(add);
-    auto *remove=new QPushButton(tr("&Remove result"),page); remove->setObjectName("additionalResultRemove");
-    row->addWidget(remove); layout->addLayout(row);
-    m_resultDetailHost=new QWidget(page); new QVBoxLayout(m_resultDetailHost);
+    auto *remove = new QPushButton(tr("&Remove result"), page);
+    remove->setObjectName("additionalResultRemove");
+    row->addWidget(remove);
+    layout->addLayout(row);
+    m_resultDetailHost = new QWidget(page);
+    new QVBoxLayout(m_resultDetailHost);
     layout->addWidget(m_resultDetailHost);
-    connect(add,&QPushButton::clicked,this,[this] {
-        if(!m_layer || m_resultCatalog->currentIndex()<0) return;
-        auto *sub=m_layer->addResultSublayer(m_resultCatalog->currentData().toString());
-        if(!sub) return;
-        for(int i=0;i<m_resultList->count();++i)
-            if(m_resultList->item(i)->data(Qt::UserRole).toString()==sub->id()) m_resultList->setCurrentRow(i);
+    connect(add, &QPushButton::clicked, this, [this] {
+        if (!m_layer || m_resultCatalog->currentIndex() < 0)
+            return;
+        auto *sub = m_layer->addResultSublayer(m_resultCatalog->currentData().toString());
+        if (!sub)
+            return;
+        for (int i = 0; i < m_resultList->count(); ++i)
+            if (m_resultList->item(i)->data(Qt::UserRole).toString() == sub->id())
+                m_resultList->setCurrentRow(i);
     });
-    connect(remove,&QPushButton::clicked,this,[this] {
-        if(m_layer && m_resultList->currentItem())
-            m_layer->removeResultSublayer(m_resultList->currentItem()->data(Qt::UserRole).toString());
+    connect(remove, &QPushButton::clicked, this, [this] {
+        if (m_layer && m_resultList->currentItem())
+            m_layer->removeResultSublayer(
+                m_resultList->currentItem()->data(Qt::UserRole).toString());
     });
-    connect(m_resultList,&QListWidget::currentRowChanged,this,[this,remove](int row) {
-        remove->setEnabled(row>=0); rebuildResultDetails();
+    connect(m_resultList, &QListWidget::currentRowChanged, this, [this, remove](int row) {
+        remove->setEnabled(row >= 0);
+        rebuildResultDetails();
     });
-    connect(m_layer,&SWMM2DResultsLayer::resultSublayersChanged,this,&Swmm2DResultsStylePanel::refreshAdditionalResults);
-    connect(m_layer,&SWMM2DResultsLayer::timeRangeChanged,this,&Swmm2DResultsStylePanel::refreshAdditionalResults);
-    connect(m_layer,&SWMM2DResultsLayer::currentTimeChanged,this,[this]{if(m_refreshResultData)m_refreshResultData();});
-    connect(m_layer,&SWMM2DResultsLayer::highlightedCellsChanged,this,[this]{if(m_refreshResultData)m_refreshResultData();});
+    connect(m_layer, &SWMM2DResultsLayer::resultSublayersChanged, this,
+            &Swmm2DResultsStylePanel::refreshAdditionalResults);
+    connect(m_layer, &SWMM2DResultsLayer::timeRangeChanged, this,
+            &Swmm2DResultsStylePanel::refreshAdditionalResults);
+    connect(m_layer, &SWMM2DResultsLayer::currentTimeChanged, this, [this] {
+        if (m_refreshResultData)
+            m_refreshResultData();
+    });
+    connect(m_layer, &SWMM2DResultsLayer::highlightedCellsChanged, this, [this] {
+        if (m_refreshResultData)
+            m_refreshResultData();
+    });
     refreshAdditionalResults();
-    add->setEnabled(m_resultCatalog->count()>0); remove->setEnabled(m_resultList->currentRow()>=0);
-    connect(m_resultCatalog,qOverload<int>(&QComboBox::currentIndexChanged),add,[add](int row){add->setEnabled(row>=0);});
+    add->setEnabled(m_resultCatalog->count() > 0);
+    remove->setEnabled(m_resultList->currentRow() >= 0);
+    connect(m_resultCatalog, qOverload<int>(&QComboBox::currentIndexChanged), add,
+            [add](int row) { add->setEnabled(row >= 0); });
     return page;
 }
 
-namespace {
+namespace
+{
 QString resultVariableLabel(const openswmmvis::io::Mesh2DResultVariable &v)
 {
-    using V=openswmmvis::io::Mesh2DResultVariable;
-    QString domain=v.domain==V::Domain::Groundwater?QObject::tr("Groundwater"):QObject::tr("Surface");
-    if(v.zone==V::Zone::Saturated) domain+=QObject::tr(" / saturated");
-    else if(v.zone==V::Zone::Unsaturated) domain+=QObject::tr(" / unsaturated");
-    else if(v.zone==V::Zone::Sigma) domain+=QObject::tr(" / sigma %1").arg(v.layer);
-    const QString label=v.label.isEmpty()?v.dataset:v.label;
-    const QString named=label.startsWith(domain,Qt::CaseInsensitive)
-        ?label:QStringLiteral("%1 — %2").arg(domain,label);
-    return QStringLiteral("%1 [%2]").arg(named,v.unitsKnown?v.units:QObject::tr("units unknown"));
+    using V = openswmmvis::io::Mesh2DResultVariable;
+    QString domain =
+        v.domain == V::Domain::Groundwater ? QObject::tr("Groundwater") : QObject::tr("Surface");
+    if (v.zone == V::Zone::Saturated)
+        domain += QObject::tr(" / saturated");
+    else if (v.zone == V::Zone::Unsaturated)
+        domain += QObject::tr(" / unsaturated");
+    else if (v.zone == V::Zone::Sigma)
+        domain += QObject::tr(" / sigma %1").arg(v.layer);
+    const QString label = v.label.isEmpty() ? v.dataset : v.label;
+    const QString named = label.startsWith(domain, Qt::CaseInsensitive)
+                              ? label
+                              : QStringLiteral("%1 — %2").arg(domain, label);
+    return QStringLiteral("%1 [%2]").arg(named,
+                                         v.unitsKnown ? v.units : QObject::tr("units unknown"));
 }
 }
 
 bool Swmm2DResultsStylePanel::focusResult(const QString &id)
 {
-    if(!m_resultList)return false;
-    for(int row=0;row<m_resultList->count();++row) {
-        if(m_resultList->item(row)->data(Qt::UserRole).toString()!=id)continue;
+    if (!m_resultList)
+        return false;
+    for (int row = 0; row < m_resultList->count(); ++row) {
+        if (m_resultList->item(row)->data(Qt::UserRole).toString() != id)
+            continue;
         m_resultList->setCurrentRow(row);
-        for(auto *tabs:findChildren<QTabWidget *>())
-            for(int i=0;i<tabs->count();++i)
-                if(tabs->widget(i)->isAncestorOf(m_resultList))tabs->setCurrentIndex(i);
-        m_resultList->setFocus();return true;
+        for (auto *tabs : findChildren<QTabWidget *>())
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->widget(i)->isAncestorOf(m_resultList))
+                    tabs->setCurrentIndex(i);
+        m_resultList->setFocus();
+        return true;
     }
     return false;
 }
 
 void Swmm2DResultsStylePanel::refreshAdditionalResults()
 {
-    if(!m_layer || !m_resultList) return;
-    const QString selected=m_resultList->currentItem()?m_resultList->currentItem()->data(Qt::UserRole).toString():QString();
-    const QString adding=m_resultCatalog->currentData().toString();
+    if (!m_layer || !m_resultList)
+        return;
+    const QString selected = m_resultList->currentItem()
+                                 ? m_resultList->currentItem()->data(Qt::UserRole).toString()
+                                 : QString();
+    const QString adding = m_resultCatalog->currentData().toString();
     {
         QSignalBlocker block(m_resultCatalog);
         m_resultCatalog->clear();
-        for(const auto &v:m_layer->resultVariables()) m_resultCatalog->addItem(resultVariableLabel(v),v.key());
-        const int index=m_resultCatalog->findData(adding);
-        if(index>=0) m_resultCatalog->setCurrentIndex(index);
+        for (const auto &v : m_layer->resultVariables())
+            m_resultCatalog->addItem(resultVariableLabel(v), v.key());
+        const int index = m_resultCatalog->findData(adding);
+        if (index >= 0)
+            m_resultCatalog->setCurrentIndex(index);
     }
     {
-        QSignalBlocker block(m_resultList); m_resultList->clear();
-        int row=0,chosen=-1;
-        for(auto *base:m_layer->sublayers()) if(auto *sub=qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base)) {
-            QString label=tr("Unavailable — %1").arg(sub->variableKey());
-            for(const auto &v:m_layer->resultVariables())
-                if(v.key()==sub->variableKey()){label=resultVariableLabel(v);break;}
-            auto *item=new QListWidgetItem(label,m_resultList);
-            item->setData(Qt::UserRole,sub->id()); item->setToolTip(sub->variableKey());
-            if(sub->id()==selected) chosen=row;
-            ++row;
-        }
-        m_resultList->setCurrentRow(chosen>=0?chosen:(row>0?0:-1));
+        QSignalBlocker block(m_resultList);
+        m_resultList->clear();
+        int row = 0, chosen = -1;
+        for (auto *base : m_layer->sublayers())
+            if (auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base)) {
+                QString label = tr("Unavailable — %1").arg(sub->variableKey());
+                for (const auto &v : m_layer->resultVariables())
+                    if (v.key() == sub->variableKey()) {
+                        label = resultVariableLabel(v);
+                        break;
+                    }
+                auto *item = new QListWidgetItem(label, m_resultList);
+                item->setData(Qt::UserRole, sub->id());
+                item->setToolTip(sub->variableKey());
+                if (sub->id() == selected)
+                    chosen = row;
+                ++row;
+            }
+        m_resultList->setCurrentRow(chosen >= 0 ? chosen : (row > 0 ? 0 : -1));
     }
-    if(auto *add=findChild<QPushButton *>("additionalResultAdd")) add->setEnabled(m_resultCatalog->count()>0);
-    if(auto *remove=findChild<QPushButton *>("additionalResultRemove")) remove->setEnabled(m_resultList->currentRow()>=0);
+    if (auto *add = findChild<QPushButton *>("additionalResultAdd"))
+        add->setEnabled(m_resultCatalog->count() > 0);
+    if (auto *remove = findChild<QPushButton *>("additionalResultRemove"))
+        remove->setEnabled(m_resultList->currentRow() >= 0);
     rebuildResultDetails();
 }
 
@@ -368,208 +435,409 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
 {
     using namespace OpenSWMM::Render;
     using namespace openswmmvis::io;
-    m_refreshResultData={};
-    if(!m_resultDetailHost) return;
+    m_refreshResultData = {};
+    if (!m_resultDetailHost)
+        return;
     // A change can arrive inside a child signal callback. Remove old controls
     // from discovery/focus immediately, but defer their destruction safely.
-    auto *layout=qobject_cast<QVBoxLayout *>(m_resultDetailHost->layout());
-    while(auto *item=layout->takeAt(0)) {
-        if(auto *w=item->widget()) {w->setEnabled(false); w->hide(); w->setParent(nullptr); w->deleteLater();}
+    auto *layout = qobject_cast<QVBoxLayout *>(m_resultDetailHost->layout());
+    while (auto *item = layout->takeAt(0)) {
+        if (auto *w = item->widget()) {
+            w->setEnabled(false);
+            w->hide();
+            w->setParent(nullptr);
+            w->deleteLater();
+        }
         delete item;
     }
-    if(!m_layer || !m_resultList->currentItem()) return;
-    QPointer<ResultScalarSublayer> sub=qobject_cast<ResultScalarSublayer *>(
-        ISublayerHost::findSublayer(*m_layer,m_resultList->currentItem()->data(Qt::UserRole).toString()));
-    if(!sub) return;
-    QPointer<SWMM2DResultsLayer> layer=m_layer;
-    QPointer<ResultScalarStyle> style=sub->fillStyle();
-    auto *page=new QWidget(m_resultDetailHost); layout->addWidget(page);
-    auto *form=new QFormLayout(page);
+    if (!m_layer || !m_resultList->currentItem())
+        return;
+    QPointer<ResultScalarSublayer> sub =
+        qobject_cast<ResultScalarSublayer *>(ISublayerHost::findSublayer(
+            *m_layer, m_resultList->currentItem()->data(Qt::UserRole).toString()));
+    if (!sub)
+        return;
+    QPointer<SWMM2DResultsLayer> layer = m_layer;
+    QPointer<ResultScalarStyle> style = sub->fillStyle();
+    auto *page = new QWidget(m_resultDetailHost);
+    layout->addWidget(page);
+    auto *form = new QFormLayout(page);
     form->setFormAlignment(Qt::AlignTop);
-    auto *variable=new QComboBox(page); variable->setObjectName("additionalResultVariable");
+    auto *variable = new QComboBox(page);
+    variable->setObjectName("additionalResultVariable");
     variable->setAccessibleName(tr("Configured result variable"));
     QStringList warnings;
-    const auto variables=layer->resultVariables(&warnings);
-    for(const auto &v:variables) variable->addItem(resultVariableLabel(v),v.key());
-    int current=variable->findData(sub->variableKey());
-    if(current<0) {
-        current=variable->count(); variable->addItem(tr("Unavailable — %1").arg(sub->variableKey()),sub->variableKey());
-        if(auto *model=qobject_cast<QStandardItemModel *>(variable->model())) model->item(current)->setEnabled(false);
+    const auto variables = layer->resultVariables(&warnings);
+    for (const auto &v : variables)
+        variable->addItem(resultVariableLabel(v), v.key());
+    int current = variable->findData(sub->variableKey());
+    if (current < 0) {
+        current = variable->count();
+        variable->addItem(tr("Unavailable — %1").arg(sub->variableKey()), sub->variableKey());
+        if (auto *model = qobject_cast<QStandardItemModel *>(variable->model()))
+            model->item(current)->setEnabled(false);
     }
-    variable->setCurrentIndex(current); form->addRow(tr("&Variable:"),variable);
-    connect(variable,qOverload<int>(&QComboBox::currentIndexChanged),page,[this,sub,variable](int index) {
-        if(sub && index>=0) {sub->setVariableKey(variable->itemData(index).toString()); refreshAdditionalResults();}
+    variable->setCurrentIndex(current);
+    form->addRow(tr("&Variable:"), variable);
+    connect(variable, qOverload<int>(&QComboBox::currentIndexChanged), page,
+            [this, sub, variable](int index) {
+                if (sub && index >= 0) {
+                    sub->setVariableKey(variable->itemData(index).toString());
+                    refreshAdditionalResults();
+                }
+            });
+    auto *presentation = new QComboBox(page);
+    presentation->setObjectName("additionalResultPresentation");
+    presentation->setAccessibleName(tr("Result presentation"));
+    presentation->addItems(
+        {tr("Cell fill"), tr("Contours (display interpolation)"), tr("Native cell labels")});
+    presentation->setCurrentIndex(int(style->presentation()));
+    form->addRow(tr("&Presentation:"), presentation);
+    connect(presentation, qOverload<int>(&QComboBox::currentIndexChanged), page,
+            [style](int index) {
+                if (style)
+                    style->setPresentation(ResultScalarStyle::Presentation(index));
+            });
+    auto *lineBox = new QGroupBox(tr("Contours and labels"), page);
+    auto *lineForm = new QFormLayout(lineBox);
+    form->addRow(lineBox);
+    QPointer<IsolineStyle> line = style->contourStyle();
+    auto *mode = new QComboBox(lineBox);
+    mode->addItems({tr("Level count"), tr("Fixed interval")});
+    mode->setCurrentIndex(int(line->levelMode()));
+    lineForm->addRow(tr("Levels:"), mode);
+    connect(mode, qOverload<int>(&QComboBox::currentIndexChanged), page, [line](int i) {
+        if (line)
+            line->setLevelMode(IsolineStyle::LevelMode(i));
     });
-    auto *presentation=new QComboBox(page);presentation->setObjectName("additionalResultPresentation");presentation->setAccessibleName(tr("Result presentation"));
-    presentation->addItems({tr("Cell fill"),tr("Contours (display interpolation)"),tr("Native cell labels")});presentation->setCurrentIndex(int(style->presentation()));
-    form->addRow(tr("&Presentation:"),presentation);
-    connect(presentation,qOverload<int>(&QComboBox::currentIndexChanged),page,[style](int index){if(style)style->setPresentation(ResultScalarStyle::Presentation(index));});
-    auto *lineBox=new QGroupBox(tr("Contours and labels"),page);auto *lineForm=new QFormLayout(lineBox);form->addRow(lineBox);
-    QPointer<IsolineStyle> line=style->contourStyle();
-    auto *mode=new QComboBox(lineBox);mode->addItems({tr("Level count"),tr("Fixed interval")});mode->setCurrentIndex(int(line->levelMode()));lineForm->addRow(tr("Levels:"),mode);
-    connect(mode,qOverload<int>(&QComboBox::currentIndexChanged),page,[line](int i){if(line)line->setLevelMode(IsolineStyle::LevelMode(i));});
-    auto number=[&](const QString &label,double value,double lo,double hi,int decimals,auto setter){auto *spin=new QDoubleSpinBox(lineBox);spin->setRange(lo,hi);spin->setDecimals(decimals);spin->setValue(value);spin->setAccessibleName(label);lineForm->addRow(label,spin);connect(spin,qOverload<double>(&QDoubleSpinBox::valueChanged),page,[line,setter](double v){if(line)(line.data()->*setter)(v);});return spin;};
-    auto integer=[&](const QString &label,int value,int lo,int hi,auto setter){auto *spin=new QSpinBox(lineBox);spin->setRange(lo,hi);spin->setValue(value);spin->setAccessibleName(label);lineForm->addRow(label,spin);connect(spin,qOverload<int>(&QSpinBox::valueChanged),page,[line,setter](int v){if(line)(line.data()->*setter)(v);});return spin;};
-    integer(tr("Level count"),line->isoValueCount(),1,256,&IsolineStyle::setIsoValueCount);
-    number(tr("Interval (native units)"),line->levelInterval(),.000001,1e12,6,&IsolineStyle::setLevelInterval);
-    number(tr("Base level (native units)"),line->baseLevel(),-1e12,1e12,6,&IsolineStyle::setBaseLevel);
-    number(tr("Line width (px)"),line->lineWidthPx(),.1,10,2,&IsolineStyle::setLineWidthPx);
-    integer(tr("Index every N levels (0 off)"),line->indexEvery(),0,256,&IsolineStyle::setIndexEvery);
-    number(tr("Index width (px)"),line->indexWidthPx(),.1,20,2,&IsolineStyle::setIndexWidthPx);
-    auto *lineColor=new ColorButton(lineBox);lineColor->setShowAlpha(true);lineColor->setColor(line->color());lineColor->setAccessibleName(tr("Contour and label color"));lineForm->addRow(tr("Color:"),lineColor);
-    connect(lineColor,&ColorButton::colorChanged,page,[line](const QColor &c){if(line)line->setColor(c);});
-    auto *dash=new DashStyleCombo(lineBox);dash->setPenStyle(line->dashPattern());dash->setAccessibleName(tr("Contour stroke style"));lineForm->addRow(tr("Stroke style:"),dash);
-    connect(dash,&DashStyleCombo::penStyleChanged,page,[line](Qt::PenStyle p){if(line)line->setDashPattern(p);});
-    auto *labels=new QCheckBox(tr("Label contours"),lineBox);labels->setChecked(line->labels());lineForm->addRow(labels);connect(labels,&QCheckBox::toggled,page,[line](bool b){if(line)line->setLabels(b);});
-    integer(tr("Label decimal places"),line->labelDecimals(),0,12,&IsolineStyle::setLabelDecimals);
-    number(tr("Label font (pt)"),line->labelFontPt(),6,40,1,&IsolineStyle::setLabelFontPt);
-    auto *halo=new QCheckBox(tr("Label halo"),lineBox);halo->setChecked(line->labelHalo());lineForm->addRow(halo);connect(halo,&QCheckBox::toggled,page,[line](bool b){if(line)line->setLabelHalo(b);});
-    lineBox->setVisible(style->presentation()!=ResultScalarStyle::Presentation::Fill);
-    connect(presentation,qOverload<int>(&QComboBox::currentIndexChanged),lineBox,[lineBox](int i){lineBox->setVisible(i!=0);});
-    auto *visible=new QCheckBox(tr("Show result layer"),page); visible->setChecked(sub->isVisible());
-    visible->setObjectName("additionalResultVisible"); form->addRow(visible);
-    connect(visible,&QCheckBox::toggled,page,[sub](bool value){if(sub)sub->setVisible(value);});
-    auto *opacity=new QDoubleSpinBox(page); opacity->setObjectName("additionalResultOpacity");
-    opacity->setRange(0,100); opacity->setSuffix(tr(" %")); opacity->setValue(sub->opacity()*100);
-    form->addRow(tr("&Opacity:"),opacity);
-    connect(opacity,qOverload<double>(&QDoubleSpinBox::valueChanged),page,[sub](double value){if(sub)sub->setOpacity(value/100);});
-    auto frameFor=[layer,sub,style] {
-        return layer&&sub&&style?layer->resultFrame(sub->variableKey(),layer->currentTimeIndex(),
-            !style->rangeScheme().useCustomRange() && style->rangeScheme().rangeMode()==RangeMode::FixedOverRun):std::shared_ptr<const Mesh2DScalarFrame>();
+    auto number = [&](const QString &label, double value, double lo, double hi, int decimals,
+                      auto setter) {
+        auto *spin = new QDoubleSpinBox(lineBox);
+        spin->setRange(lo, hi);
+        spin->setDecimals(decimals);
+        spin->setValue(value);
+        spin->setAccessibleName(label);
+        lineForm->addRow(label, spin);
+        connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged), page,
+                [line, setter](double v) {
+                    if (line)
+                        (line.data()->*setter)(v);
+                });
+        return spin;
     };
-    auto *binding=new SublayerSchemeBinding(
-        [style]{return style?style->rangeScheme():ClassificationScheme();},
-        [style](const ClassificationScheme&s){if(style){if(style->presentation()==ResultScalarStyle::Presentation::Contours)style->contourStyle()->setScheme(s);else style->setScheme(s);}},
-        [frameFor]{auto f=frameFor();return f?f->samples:QVector<double>();},
-        [frameFor]{auto f=frameFor();const double nan=std::numeric_limits<double>::quiet_NaN();
-            return f?qMakePair(f->minimum,f->maximum):qMakePair(nan,nan);},true,true);
-    auto *classification=new ClassificationEditor(binding,true,page);
-    classification->setObjectName("additionalResultClassification"); form->addRow(classification);
-    auto addColor=[&](const QString &label,const char *name,QColor value,auto setter) {
-        auto *button=new ColorButton(page); button->setObjectName(name); button->setAccessibleName(label);
-        button->setShowAlpha(true); button->setColor(value); form->addRow(label,button);
-        connect(button,&ColorButton::colorChanged,page,[style,setter](const QColor &c){if(style)(style.data()->*setter)(c);});
+    auto integer = [&](const QString &label, int value, int lo, int hi, auto setter) {
+        auto *spin = new QSpinBox(lineBox);
+        spin->setRange(lo, hi);
+        spin->setValue(value);
+        spin->setAccessibleName(label);
+        lineForm->addRow(label, spin);
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged), page, [line, setter](int v) {
+            if (line)
+                (line.data()->*setter)(v);
+        });
+        return spin;
     };
-    addColor(tr("Missing data:"),"additionalResultMissing",style->missingColor(),&ResultScalarStyle::setMissingColor);
-    addColor(tr("Waterless cell:"),"additionalResultWaterless",style->waterlessColor(),&ResultScalarStyle::setWaterlessColor);
-    addColor(tr("Not applicable:"),"additionalResultNotApplicable",style->notApplicableColor(),&ResultScalarStyle::setNotApplicableColor);
-    auto *status=new QLabel(page); status->setObjectName("additionalResultStatus");
-    status->setTextFormat(Qt::PlainText); status->setWordWrap(true); status->setAccessibleName(tr("Result availability"));
+    integer(tr("Level count"), line->isoValueCount(), 1, 256, &IsolineStyle::setIsoValueCount);
+    number(tr("Interval (native units)"), line->levelInterval(), .000001, 1e12, 6,
+           &IsolineStyle::setLevelInterval);
+    number(tr("Base level (native units)"), line->baseLevel(), -1e12, 1e12, 6,
+           &IsolineStyle::setBaseLevel);
+    number(tr("Line width (px)"), line->lineWidthPx(), .1, 10, 2, &IsolineStyle::setLineWidthPx);
+    integer(tr("Index every N levels (0 off)"), line->indexEvery(), 0, 256,
+            &IsolineStyle::setIndexEvery);
+    number(tr("Index width (px)"), line->indexWidthPx(), .1, 20, 2, &IsolineStyle::setIndexWidthPx);
+    auto *lineColor = new ColorButton(lineBox);
+    lineColor->setShowAlpha(true);
+    lineColor->setColor(line->color());
+    lineColor->setAccessibleName(tr("Contour and label color"));
+    lineForm->addRow(tr("Color:"), lineColor);
+    connect(lineColor, &ColorButton::colorChanged, page, [line](const QColor &c) {
+        if (line)
+            line->setColor(c);
+    });
+    auto *dash = new DashStyleCombo(lineBox);
+    dash->setPenStyle(line->dashPattern());
+    dash->setAccessibleName(tr("Contour stroke style"));
+    lineForm->addRow(tr("Stroke style:"), dash);
+    connect(dash, &DashStyleCombo::penStyleChanged, page, [line](Qt::PenStyle p) {
+        if (line)
+            line->setDashPattern(p);
+    });
+    auto *labels = new QCheckBox(tr("Label contours"), lineBox);
+    labels->setChecked(line->labels());
+    lineForm->addRow(labels);
+    connect(labels, &QCheckBox::toggled, page, [line](bool b) {
+        if (line)
+            line->setLabels(b);
+    });
+    integer(tr("Label decimal places"), line->labelDecimals(), 0, 12,
+            &IsolineStyle::setLabelDecimals);
+    number(tr("Label font (pt)"), line->labelFontPt(), 6, 40, 1, &IsolineStyle::setLabelFontPt);
+    auto *halo = new QCheckBox(tr("Label halo"), lineBox);
+    halo->setChecked(line->labelHalo());
+    lineForm->addRow(halo);
+    connect(halo, &QCheckBox::toggled, page, [line](bool b) {
+        if (line)
+            line->setLabelHalo(b);
+    });
+    lineBox->setVisible(style->presentation() != ResultScalarStyle::Presentation::Fill);
+    connect(presentation, qOverload<int>(&QComboBox::currentIndexChanged), lineBox,
+            [lineBox](int i) { lineBox->setVisible(i != 0); });
+    auto *visible = new QCheckBox(tr("Show result layer"), page);
+    visible->setChecked(sub->isVisible());
+    visible->setObjectName("additionalResultVisible");
+    form->addRow(visible);
+    connect(visible, &QCheckBox::toggled, page, [sub](bool value) {
+        if (sub)
+            sub->setVisible(value);
+    });
+    auto *opacity = new QDoubleSpinBox(page);
+    opacity->setObjectName("additionalResultOpacity");
+    opacity->setRange(0, 100);
+    opacity->setSuffix(tr(" %"));
+    opacity->setValue(sub->opacity() * 100);
+    form->addRow(tr("&Opacity:"), opacity);
+    connect(opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), page, [sub](double value) {
+        if (sub)
+            sub->setOpacity(value / 100);
+    });
+    auto frameFor = [layer, sub, style] {
+        return layer && sub && style
+                   ? layer->resultFrame(sub->variableKey(), layer->currentTimeIndex(),
+                                        !style->rangeScheme().useCustomRange() &&
+                                            style->rangeScheme().rangeMode() ==
+                                                RangeMode::FixedOverRun)
+                   : std::shared_ptr<const Mesh2DScalarFrame>();
+    };
+    auto *binding = new SublayerSchemeBinding(
+        [style] { return style ? style->rangeScheme() : ClassificationScheme(); },
+        [style](const ClassificationScheme &s) {
+            if (style) {
+                if (style->presentation() == ResultScalarStyle::Presentation::Contours)
+                    style->contourStyle()->setScheme(s);
+                else
+                    style->setScheme(s);
+            }
+        },
+        [frameFor] {
+            auto f = frameFor();
+            return f ? f->samples : QVector<double>();
+        },
+        [frameFor] {
+            auto f = frameFor();
+            const double nan = std::numeric_limits<double>::quiet_NaN();
+            return f ? qMakePair(f->minimum, f->maximum) : qMakePair(nan, nan);
+        },
+        true, true);
+    auto *classification = new ClassificationEditor(binding, true, page);
+    classification->setObjectName("additionalResultClassification");
+    form->addRow(classification);
+    auto addColor = [&](const QString &label, const char *name, QColor value, auto setter) {
+        auto *button = new ColorButton(page);
+        button->setObjectName(name);
+        button->setAccessibleName(label);
+        button->setShowAlpha(true);
+        button->setColor(value);
+        form->addRow(label, button);
+        connect(button, &ColorButton::colorChanged, page, [style, setter](const QColor &c) {
+            if (style)
+                (style.data()->*setter)(c);
+        });
+    };
+    addColor(tr("Missing data:"), "additionalResultMissing", style->missingColor(),
+             &ResultScalarStyle::setMissingColor);
+    addColor(tr("Waterless cell:"), "additionalResultWaterless", style->waterlessColor(),
+             &ResultScalarStyle::setWaterlessColor);
+    addColor(tr("Not applicable:"), "additionalResultNotApplicable", style->notApplicableColor(),
+             &ResultScalarStyle::setNotApplicableColor);
+    auto *status = new QLabel(page);
+    status->setObjectName("additionalResultStatus");
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    status->setAccessibleName(tr("Result availability"));
     form->addRow(status);
-    auto *table=new QTableWidget(0,4,page); table->setObjectName("additionalResultInspection");
+    auto *table = new QTableWidget(0, 4, page);
+    table->setObjectName("additionalResultInspection");
     table->setMaximumHeight(90);
-    table->setAccessibleName(tr("Selected cell result")); table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->setHorizontalHeaderLabels({tr("Cell"),tr("Status"),tr("Raw value"),tr("Units")});
-    table->setToolTip(tr("Select a mesh cell on the map to inspect this variable. Missing and waterless values are not physical zeros."));
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive); form->addRow(table);
-    auto *exportButton=new QPushButton(tr("Export current variable to CSV…"),page);
+    table->setAccessibleName(tr("Selected cell result"));
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setHorizontalHeaderLabels({tr("Cell"), tr("Status"), tr("Raw value"), tr("Units")});
+    table->setToolTip(tr(
+        "Select a mesh cell on the map to inspect this variable. Missing and waterless values are not physical zeros."));
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    form->addRow(table);
+    auto *exportButton = new QPushButton(tr("Export current variable to CSV…"), page);
     exportButton->setObjectName("additionalResultExport");
-    exportButton->setToolTip(tr("Exports all cells for this variable at the current report frame, with native units and availability status."));
+    exportButton->setToolTip(tr(
+        "Exports all cells for this variable at the current report frame, with native units and availability status."));
     form->addRow(exportButton);
-    auto *gisButton=new QPushButton(tr("Export current variable to GIS…"),page);gisButton->setObjectName("additionalResultGisExport");
-    gisButton->setToolTip(tr("Captures this frame for asynchronous GeoPackage or GeoTIFF export with native units and explicit availability."));form->addRow(gisButton);
-    connect(gisButton,&QPushButton::clicked,page,[layer,sub,status,page]{
-        if(!layer||!sub||!layer->source())return;QString error;
-        auto snapshot=openswmmvis::io::captureMesh2DVariableGis(*layer->source(),sub->variableKey(),layer->currentTimeIndex(),layer->depthToMeshUnits(),layer->srs()?layer->srs()->toWkt():QString(),&error);
-        if(!snapshot){status->setText(error);return;}
-        auto *dialog=new ResultVariableExportDialog(std::move(snapshot),page);dialog->show();
+    auto *gisButton = new QPushButton(tr("Export current variable to GIS…"), page);
+    gisButton->setObjectName("additionalResultGisExport");
+    gisButton->setToolTip(tr(
+        "Captures this frame for asynchronous GeoPackage or GeoTIFF export with native units and explicit availability."));
+    form->addRow(gisButton);
+    connect(gisButton, &QPushButton::clicked, page, [layer, sub, status, page] {
+        if (!layer || !sub || !layer->source())
+            return;
+        QString error;
+        auto snapshot = openswmmvis::io::captureMesh2DVariableGis(
+            *layer->source(), sub->variableKey(), layer->currentTimeIndex(),
+            layer->depthToMeshUnits(), layer->srs() ? layer->srs()->toWkt() : QString(), &error);
+        if (!snapshot) {
+            status->setText(error);
+            return;
+        }
+        auto *dialog = new ResultVariableExportDialog(std::move(snapshot), page);
+        dialog->show();
     });
-    m_refreshResultData=[layer,sub,classification,status,table,exportButton,gisButton,warnings] {
-        if(!layer || !sub)return;
-        const auto frame=layer->resultFrame(sub->variableKey(),layer->currentTimeIndex());
-        const bool available=frame && frame->error.isEmpty();
+    m_refreshResultData = [layer, sub, classification, status, table, exportButton, gisButton,
+                           warnings] {
+        if (!layer || !sub)
+            return;
+        const auto frame = layer->resultFrame(sub->variableKey(), layer->currentTimeIndex());
+        const bool available = frame && frame->error.isEmpty();
         // Keep the editor and any invalid visible draft intact during animation
         // and selection changes. Only refresh a complete, valid draft.
-        if(classification->hasValidDraft()) classification->refresh();
-        classification->setEnabled(available && std::isfinite(frame->minimum) && std::isfinite(frame->maximum));
+        if (classification->hasValidDraft())
+            classification->refresh();
+        classification->setEnabled(available && std::isfinite(frame->minimum) &&
+                                   std::isfinite(frame->maximum));
         table->setRowCount(0);
-        QStringList messages=warnings;
-        if(!available) messages<< (frame?frame->error:tr("Result data unavailable."));
+        QStringList messages = warnings;
+        if (!available)
+            messages << (frame ? frame->error : tr("Result data unavailable."));
         else {
-            const auto &v=frame->descriptor;
-            messages<< (v.unitsKnown?tr("Native units: %1.").arg(v.units):tr("Units are unknown. Raw inspection is available; scientific export is disabled."));
-            switch(v.temporal) {
-            case Mesh2DResultVariable::Temporal::Held: messages<<tr("Held result sampled at report times; this is not the solver firing time."); break;
-            case Mesh2DResultVariable::Temporal::Static: messages<<tr("Static result; independent of report time."); break;
-            case Mesh2DResultVariable::Temporal::Envelope: messages<<tr("Run envelope; values need not occur simultaneously."); break;
-            default: messages<<tr("Result at the current report frame."); break;
+            const auto &v = frame->descriptor;
+            messages
+                << (v.unitsKnown
+                        ? tr("Native units: %1.").arg(v.units)
+                        : tr("Units are unknown. Raw inspection is available; scientific export is disabled."));
+            switch (v.temporal) {
+            case Mesh2DResultVariable::Temporal::Held:
+                messages << tr(
+                    "Held result sampled at report times; this is not the solver firing time.");
+                break;
+            case Mesh2DResultVariable::Temporal::Static:
+                messages << tr("Static result; independent of report time.");
+                break;
+            case Mesh2DResultVariable::Temporal::Envelope:
+                messages << tr("Run envelope; values need not occur simultaneously.");
+                break;
+            default:
+                messages << tr("Result at the current report frame.");
+                break;
             }
         }
-        if(available && sub->fillStyle()->presentation()!=ResultScalarStyle::Presentation::Fill) {
-            const auto *line=sub->fillStyle()->contourStyle();const bool contours=sub->fillStyle()->presentation()==ResultScalarStyle::Presentation::Contours;
-            const auto levels=contours?sub->fillStyle()->contourLevels(frame->minimum,frame->maximum,frame->samples):std::vector<double>();
-            const auto geometry=layer->resultScalarGeometry(frame,levels,!contours);
-            messages<< (contours?tr("Contours reconstruct nodal display values from valid cell values; they are not native cell measurements."):tr("Labels display native valid cell values; screen collisions reduce visible labels."));
-            if(!geometry->error.isEmpty())messages<<geometry->error;
+        if (available &&
+            sub->fillStyle()->presentation() != ResultScalarStyle::Presentation::Fill) {
+            const auto *line = sub->fillStyle()->contourStyle();
+            const bool contours =
+                sub->fillStyle()->presentation() == ResultScalarStyle::Presentation::Contours;
+            const auto levels = contours ? sub->fillStyle()->contourLevels(
+                                               frame->minimum, frame->maximum, frame->samples)
+                                         : std::vector<double>();
+            const auto geometry = layer->resultScalarGeometry(frame, levels, !contours);
+            messages
+                << (contours
+                        ? tr("Contours reconstruct nodal display values from valid cell values; they are not native cell measurements.")
+                        : tr("Labels display native valid cell values; screen collisions reduce visible labels."));
+            if (!geometry->error.isEmpty())
+                messages << geometry->error;
         }
         status->setText(messages.join('\n'));
         QSet<int> selectedCells;
-        const auto &triCell=layer->triCellMap();
-        for(int triangle:layer->highlightedCells())
-            if(triangle>=0 && size_t(triangle)<triCell.size())selectedCells.insert(triCell[size_t(triangle)]);
-        if(available && !selectedCells.isEmpty()) {
-            const int cell=*std::min_element(selectedCells.begin(),selectedCells.end());
-            if(cell>=0 && cell<int(frame->values.size()) && cell<int(frame->status.size())) {
+        const auto &triCell = layer->triCellMap();
+        for (int triangle : layer->highlightedCells())
+            if (triangle >= 0 && size_t(triangle) < triCell.size())
+                selectedCells.insert(triCell[size_t(triangle)]);
+        if (available && !selectedCells.isEmpty()) {
+            const int cell = *std::min_element(selectedCells.begin(), selectedCells.end());
+            if (cell >= 0 && cell < int(frame->values.size()) && cell < int(frame->status.size())) {
                 QString state;
-                switch(frame->status[size_t(cell)]) {
-                case Mesh2DValueStatus::Valid:state=tr("Valid");break;
-                case Mesh2DValueStatus::Missing:state=tr("Missing");break;
-                case Mesh2DValueStatus::Waterless:state=tr("Waterless");break;
-                case Mesh2DValueStatus::NotApplicable:state=tr("Not applicable");break;
+                switch (frame->status[size_t(cell)]) {
+                case Mesh2DValueStatus::Valid:
+                    state = tr("Valid");
+                    break;
+                case Mesh2DValueStatus::Missing:
+                    state = tr("Missing");
+                    break;
+                case Mesh2DValueStatus::Waterless:
+                    state = tr("Waterless");
+                    break;
+                case Mesh2DValueStatus::NotApplicable:
+                    state = tr("Not applicable");
+                    break;
                 }
                 table->setRowCount(1);
-                const double raw=frame->values[size_t(cell)];
-                const QStringList cells={tr("%1 (first of %2 selected)").arg(cell+1).arg(selectedCells.size()),state,
-                    std::isfinite(raw)?QString::number(raw,'g',9):tr("Unavailable"),frame->descriptor.unitsKnown?frame->descriptor.units:tr("Unknown")};
-                for(int i=0;i<cells.size();++i)table->setItem(0,i,new QTableWidgetItem(cells[i]));
+                const double raw = frame->values[size_t(cell)];
+                const QStringList cells = {
+                    tr("%1 (first of %2 selected)").arg(cell + 1).arg(selectedCells.size()), state,
+                    std::isfinite(raw) ? QString::number(raw, 'g', 9) : tr("Unavailable"),
+                    frame->descriptor.unitsKnown ? frame->descriptor.units : tr("Unknown")};
+                for (int i = 0; i < cells.size(); ++i)
+                    table->setItem(0, i, new QTableWidgetItem(cells[i]));
             }
         }
 
-        exportButton->setEnabled(available && frame->descriptor.unitsKnown && !frame->descriptor.units.isEmpty());
+        exportButton->setEnabled(available && frame->descriptor.unitsKnown &&
+                                 !frame->descriptor.units.isEmpty());
         gisButton->setEnabled(exportButton->isEnabled());
     };
     m_refreshResultData();
-    connect(style,&SublayerStyle::styleChanged,page,[this]{if(m_refreshResultData)m_refreshResultData();});
+    connect(style, &SublayerStyle::styleChanged, page, [this] {
+        if (m_refreshResultData)
+            m_refreshResultData();
+    });
 
-    connect(exportButton,&QPushButton::clicked,page,[this,layer,sub,status] {
-        if(!layer || !sub || !layer->source())return;
-        const QString key=sub->variableKey(); const int time=layer->currentTimeIndex();
-        const quint64 revision=layer->sourceRevision(); auto *source=layer->source();
-        QPointer<QLabel> safeStatus=status;
-        const QString path=QFileDialog::getSaveFileName(this,tr("Export result variable"),QString(),tr("CSV files (*.csv)"));
-        if(path.isEmpty() || !safeStatus)return;
-        if(!layer || !sub || layer->source()!=source || layer->sourceRevision()!=revision ||
-           layer->currentTimeIndex()!=time || sub->variableKey()!=key) {
-            safeStatus->setText(tr("The result source or selection changed. Reopen export for the current result."));return;
+    connect(exportButton, &QPushButton::clicked, page, [this, layer, sub, status] {
+        if (!layer || !sub || !layer->source())
+            return;
+        const QString key = sub->variableKey();
+        const int time = layer->currentTimeIndex();
+        const quint64 revision = layer->sourceRevision();
+        auto *source = layer->source();
+        QPointer<QLabel> safeStatus = status;
+        const QString path = QFileDialog::getSaveFileName(this, tr("Export result variable"),
+                                                          QString(), tr("CSV files (*.csv)"));
+        if (path.isEmpty() || !safeStatus)
+            return;
+        if (!layer || !sub || layer->source() != source || layer->sourceRevision() != revision ||
+            layer->currentTimeIndex() != time || sub->variableKey() != key) {
+            safeStatus->setText(tr(
+                "The result source or selection changed. Reopen export for the current result."));
+            return;
         }
         QString error;
-        if(!exportMesh2DVariableCsv(*source,key,time,path,&error))safeStatus->setText(error);
-        else safeStatus->setText(tr("Exported %1").arg(path));
+        if (!exportMesh2DVariableCsv(*source, key, time, path, &error))
+            safeStatus->setText(error);
+        else
+            safeStatus->setText(tr("Exported %1").arg(path));
     });
 }
 
 // ─── Scalar depth fills (cell / smooth) ─────────────────────────────────────
 
-QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
-    OpenSWMM::Render::ISublayer *sub, OpenSWMM::Render::ScalarFillStyle *st,
-    const QString &showLabel, QWidget *parent)
+QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(OpenSWMM::Render::ISublayer *sub,
+                                                     OpenSWMM::Render::ScalarFillStyle *st,
+                                                     const QString &showLabel, QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     lay->addWidget(makeSublayerHeader(page, sub, showLabel));
 
     if (st) {
-        auto *attrBox  = new QGroupBox(tr("Attribute"), page);
+        auto *attrBox = new QGroupBox(tr("Attribute"), page);
         auto *attrForm = new QFormLayout(attrBox);
         auto *attr = new QComboBox(attrBox);
-        attr->addItem(tr("Depth"),     QStringLiteral("depth"));
+        attr->addItem(tr("Depth"), QStringLiteral("depth"));
         const int cur = attr->findData(st->attribute());
-        if(cur<0) {
-            attr->addItem(tr("Unsupported — %1").arg(st->attribute()),st->attribute());
-            if(auto *model=qobject_cast<QStandardItemModel *>(attr->model()))model->item(attr->count()-1)->setEnabled(false);
+        if (cur < 0) {
+            attr->addItem(tr("Unsupported — %1").arg(st->attribute()), st->attribute());
+            if (auto *model = qobject_cast<QStandardItemModel *>(attr->model()))
+                model->item(attr->count() - 1)->setEnabled(false);
         }
-        attr->setCurrentIndex(cur>=0?cur:attr->count()-1);
+        attr->setCurrentIndex(cur >= 0 ? cur : attr->count() - 1);
         attr->setMinimumWidth(kComboMinWidthPx);
         attrForm->addRow(tr("&Attribute:"), attr);
         lay->addWidget(attrBox);
@@ -583,8 +851,7 @@ QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
         auto *binding = new SublayerSchemeBinding(
             [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            [] { return QVector<double>{}; },
-            [L] { return qMakePair(0.0, L->maxDepth()); },
+            [] { return QVector<double>{}; }, [L] { return qMakePair(0.0, L->maxDepth()); },
             /*supportsContinuousMode=*/true,
             /*supportsRangeModes=*/true);
         lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));
@@ -598,7 +865,7 @@ QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
 QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->contourBandSublayer();
     ContourBandStyle *st = sub ? sub->bandStyle() : nullptr;
@@ -614,16 +881,16 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
         auto *binding = new SublayerSchemeBinding(
             [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            [] { return QVector<double>{}; },            // table preview only; map samples per frame
+            [] { return QVector<double>{}; }, // table preview only; map samples per frame
             [L] { return qMakePair(0.0, L->maxDepth()); },
             /*supportsContinuousMode=*/false,
             /*supportsRangeModes=*/false);
         lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));
 
-        auto *renderBox  = new QGroupBox(tr("Rendering"), page);
+        auto *renderBox = new QGroupBox(tr("Rendering"), page);
         auto *renderForm = new QFormLayout(renderBox);
-        auto *smooth = new QCheckBox(tr("Interpolate band boundaries (marching triangles)"),
-                                     renderBox);
+        auto *smooth =
+            new QCheckBox(tr("Interpolate band boundaries (marching triangles)"), renderBox);
         smooth->setChecked(st->smoothBands());
         smooth->setToolTip(tr("On: class boundaries are interpolated through "
                               "cells (marching triangles). Off: each cell is "
@@ -633,8 +900,7 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
         renderForm->addRow(QString(), smooth);
         lay->addWidget(renderBox);
 
-        connect(smooth, &QCheckBox::toggled, this,
-                [st](bool on) { st->setSmoothBands(on); });
+        connect(smooth, &QCheckBox::toggled, this, [st](bool on) { st->setSmoothBands(on); });
     }
     lay->addStretch();
     return page;
@@ -645,7 +911,7 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
 QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->isolineSublayer();
     IsolineStyle *st = sub ? sub->isolineStyle() : nullptr;
@@ -655,11 +921,11 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
     if (st) {
         using LM = IsolineStyle::LevelMode;
 
-        auto *levelBox  = new QGroupBox(tr("Levels"), page);
+        auto *levelBox = new QGroupBox(tr("Levels"), page);
         auto *levelForm = new QFormLayout(levelBox);
         auto *mode = new QComboBox(levelBox);
-        mode->addItem(tr("Fixed count"),             int(LM::Count));
-        mode->addItem(tr("Fixed interval + base"),   int(LM::FixedInterval));
+        mode->addItem(tr("Fixed count"), int(LM::Count));
+        mode->addItem(tr("Fixed interval + base"), int(LM::FixedInterval));
         mode->setCurrentIndex(mode->findData(int(st->levelMode())));
         mode->setMinimumWidth(kComboMinWidthPx);
         levelForm->addRow(tr("M&ode:"), mode);
@@ -670,20 +936,18 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         // std-dev bin the wet-cell depths). FixedInterval ignores it.
         using BM = OpenSWMM::Render::BinMethod;
         auto *method = new QComboBox(levelBox);
-        method->addItem(tr("Equal interval"),         int(BM::EqualInterval));
-        method->addItem(tr("Quantile"),               int(BM::Quantile));
+        method->addItem(tr("Equal interval"), int(BM::EqualInterval));
+        method->addItem(tr("Quantile"), int(BM::Quantile));
         method->addItem(tr("Natural breaks (Jenks)"), int(BM::NaturalBreaks));
-        method->addItem(tr("Standard deviation"),     int(BM::StdDev));
-        method->addItem(tr("Logarithmic"),            int(BM::Logarithmic));
-        method->addItem(tr("Exponential"),            int(BM::Exponential));
+        method->addItem(tr("Standard deviation"), int(BM::StdDev));
+        method->addItem(tr("Logarithmic"), int(BM::Logarithmic));
+        method->addItem(tr("Exponential"), int(BM::Exponential));
         method->setCurrentIndex(method->findData(int(st->scheme().method())));
         method->setMinimumWidth(kComboMinWidthPx);
         levelForm->addRow(tr("Me&thod:"), method);
-        auto *interval = makeDSpin(levelBox, 1e-6, 1e6, 0.1, 3,
-                                   st->levelInterval(), tr(" m"));
+        auto *interval = makeDSpin(levelBox, 1e-6, 1e6, 0.1, 3, st->levelInterval(), tr(" m"));
         levelForm->addRow(tr("&Interval:"), interval);
-        auto *base = makeDSpin(levelBox, -1e6, 1e6, 0.1, 3,
-                               st->baseLevel(), tr(" m"));
+        auto *base = makeDSpin(levelBox, -1e6, 1e6, 0.1, 3, st->baseLevel(), tr(" m"));
         base->setToolTip(tr("Contours fall at base + k × interval"));
         levelForm->addRow(tr("B&ase level:"), base);
         lay->addWidget(levelBox);
@@ -696,14 +960,13 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         };
         applyMode(st->levelMode());
 
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
         symForm->addRow(tr("Co&lour:"), color);
-        auto *width = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
-                                st->lineWidthPx(), tr(" px"));
+        auto *width = makeDSpin(symBox, 0.25, 20.0, 0.25, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("&Width:"), width);
         auto *dash = new DashStyleCombo(symBox);
         dash->setPenStyle(st->dashPattern());
@@ -714,23 +977,20 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         idxEvery->setToolTip(tr("Emphasise every Nth contour (topographic "
                                 "index contours); 0 disables"));
         symForm->addRow(tr("I&ndex contour every:"), idxEvery);
-        auto *idxWidth = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
-                                   st->indexWidthPx(), tr(" px"));
+        auto *idxWidth = makeDSpin(symBox, 0.25, 20.0, 0.25, 2, st->indexWidthPx(), tr(" px"));
         idxWidth->setEnabled(st->indexEvery() >= 2);
         symForm->addRow(tr("Inde&x width:"), idxWidth);
         lay->addWidget(symBox);
 
-        auto *labelBox  = new QGroupBox(tr("Labels"), page);
+        auto *labelBox = new QGroupBox(tr("Labels"), page);
         auto *labelForm = new QFormLayout(labelBox);
-        auto *labelsOn = new QCheckBox(tr("Label contour values along lines"),
-                                       labelBox);
+        auto *labelsOn = new QCheckBox(tr("Label contour values along lines"), labelBox);
         labelsOn->setChecked(st->labels());
         labelForm->addRow(QString(), labelsOn);
         auto *decimals = makeSpin(labelBox, 0, 9, st->labelDecimals());
         decimals->setEnabled(st->labels());
         labelForm->addRow(tr("Decimals:"), decimals);
-        auto *fontPt = makeDSpin(labelBox, 4.0, 72.0, 0.5, 1,
-                                 st->labelFontPt(), tr(" pt"));
+        auto *fontPt = makeDSpin(labelBox, 4.0, 72.0, 0.5, 1, st->labelFontPt(), tr(" pt"));
         fontPt->setEnabled(st->labels());
         labelForm->addRow(tr("Font si&ze:"), fontPt);
         auto *halo = new QCheckBox(tr("White halo"), labelBox);
@@ -747,13 +1007,11 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
                 });
         connect(count, qOverload<int>(&QSpinBox::valueChanged), this,
                 [st](int n) { st->setIsoValueCount(n); });
-        connect(method, qOverload<int>(&QComboBox::currentIndexChanged), this,
-                [st, method](int i) {
-                    auto s = st->scheme();
-                    s.setMethod(static_cast<OpenSWMM::Render::BinMethod>(
-                        method->itemData(i).toInt()));
-                    st->setScheme(s);
-                });
+        connect(method, qOverload<int>(&QComboBox::currentIndexChanged), this, [st, method](int i) {
+            auto s = st->scheme();
+            s.setMethod(static_cast<OpenSWMM::Render::BinMethod>(method->itemData(i).toInt()));
+            st->setScheme(s);
+        });
         connect(interval, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setLevelInterval(v); });
         connect(base, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
@@ -764,26 +1022,23 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
                 [st](double w) { st->setLineWidthPx(w); });
         connect(dash, &DashStyleCombo::penStyleChanged, this,
                 [st](Qt::PenStyle s) { st->setDashPattern(s); });
-        connect(idxEvery, qOverload<int>(&QSpinBox::valueChanged), this,
-                [st, idxWidth](int n) {
-                    idxWidth->setEnabled(n >= 2);
-                    st->setIndexEvery(n);
-                });
+        connect(idxEvery, qOverload<int>(&QSpinBox::valueChanged), this, [st, idxWidth](int n) {
+            idxWidth->setEnabled(n >= 2);
+            st->setIndexEvery(n);
+        });
         connect(idxWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double w) { st->setIndexWidthPx(w); });
-        connect(labelsOn, &QCheckBox::toggled, this,
-                [st, decimals, fontPt, halo](bool on) {
-                    decimals->setEnabled(on);
-                    fontPt->setEnabled(on);
-                    halo->setEnabled(on);
-                    st->setLabels(on);
-                });
+        connect(labelsOn, &QCheckBox::toggled, this, [st, decimals, fontPt, halo](bool on) {
+            decimals->setEnabled(on);
+            fontPt->setEnabled(on);
+            halo->setEnabled(on);
+            st->setLabels(on);
+        });
         connect(decimals, qOverload<int>(&QSpinBox::valueChanged), this,
                 [st](int n) { st->setLabelDecimals(n); });
         connect(fontPt, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setLabelFontPt(v); });
-        connect(halo, &QCheckBox::toggled, this,
-                [st](bool on) { st->setLabelHalo(on); });
+        connect(halo, &QCheckBox::toggled, this, [st](bool on) { st->setLabelHalo(on); });
     }
     lay->addStretch();
     return page;
@@ -794,7 +1049,7 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
 QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->velocityVectorSublayer();
     VelocityVectorStyle *st = sub ? sub->vectorStyle() : nullptr;
@@ -804,10 +1059,10 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
     if (st) {
         using LS = VelocityVectorStyle::LengthScaling;
 
-        auto *sizeBox  = new QGroupBox(tr("Sizing"), page);
+        auto *sizeBox = new QGroupBox(tr("Sizing"), page);
         auto *sizeForm = new QFormLayout(sizeBox);
         auto *scaling = new QComboBox(sizeBox);
-        scaling->addItem(tr("Linear"),      int(LS::Linear));
+        scaling->addItem(tr("Linear"), int(LS::Linear));
         scaling->addItem(tr("Square root"), int(LS::SquareRoot));
         scaling->addItem(tr("Logarithmic"), int(LS::Log));
         scaling->setCurrentIndex(scaling->findData(int(st->lengthScaling())));
@@ -815,25 +1070,20 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
                                "min/max clamps"));
         scaling->setMinimumWidth(kComboMinWidthPx);
         sizeForm->addRow(tr("Len&gth scaling:"), scaling);
-        auto *scale = makeDSpin(sizeBox, 0.1, 500.0, 1.0, 1,
-                                st->glyphLengthScalePxPerMps(),
+        auto *scale = makeDSpin(sizeBox, 0.1, 500.0, 1.0, 1, st->glyphLengthScalePxPerMps(),
                                 tr(" px per m/s"));
         sizeForm->addRow(tr("Scale:"), scale);
-        auto *minLen = makeDSpin(sizeBox, 0.0, 200.0, 1.0, 1,
-                                 st->glyphLengthMinPx(), tr(" px"));
+        auto *minLen = makeDSpin(sizeBox, 0.0, 200.0, 1.0, 1, st->glyphLengthMinPx(), tr(" px"));
         sizeForm->addRow(tr("Min length:"), minLen);
-        auto *maxLen = makeDSpin(sizeBox, 1.0, 500.0, 1.0, 1,
-                                 st->glyphLengthMaxPx(), tr(" px"));
+        auto *maxLen = makeDSpin(sizeBox, 1.0, 500.0, 1.0, 1, st->glyphLengthMaxPx(), tr(" px"));
         sizeForm->addRow(tr("Max length:"), maxLen);
-        auto *head = makeDSpin(sizeBox, 0.0, 50.0, 0.5, 1,
-                               st->headSizePx(), tr(" px"));
+        auto *head = makeDSpin(sizeBox, 0.0, 50.0, 0.5, 1, st->headSizePx(), tr(" px"));
         sizeForm->addRow(tr("Head size:"), head);
-        auto *shaft = makeDSpin(sizeBox, 0.1, 10.0, 0.1, 1,
-                                st->shaftWidthPx(), tr(" px"));
+        auto *shaft = makeDSpin(sizeBox, 0.1, 10.0, 0.1, 1, st->shaftWidthPx(), tr(" px"));
         sizeForm->addRow(tr("Shaft width:"), shaft);
         lay->addWidget(sizeBox);
 
-        auto *colorBox  = new QGroupBox(tr("Colour"), page);
+        auto *colorBox = new QGroupBox(tr("Colour"), page);
         auto *colorForm = new QFormLayout(colorBox);
         auto *byMag = new QCheckBox(tr("Colour by magnitude"), colorBox);
         byMag->setChecked(st->colorByMagnitude());
@@ -855,8 +1105,7 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
             [] { return QVector<double>{}; },
             [st] {
                 const double lo = st->speedMinMps();
-                const double hi = (st->speedMaxMps() > lo) ? st->speedMaxMps()
-                                                           : lo + 1.0;
+                const double hi = (st->speedMaxMps() > lo) ? st->speedMaxMps() : lo + 1.0;
                 return qMakePair(lo, hi);
             },
             /*supportsContinuousMode=*/true,
@@ -865,24 +1114,21 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
         classEditor->setEnabled(st->colorByMagnitude());
         lay->addWidget(classEditor);
 
-        auto *placeBox  = new QGroupBox(tr("Placement && filtering"), page);
+        auto *placeBox = new QGroupBox(tr("Placement && filtering"), page);
         auto *placeForm = new QFormLayout(placeBox);
-        auto *spacing = makeDSpin(placeBox, 1.0, 500.0, 5.0, 0,
-                                  st->glyphSpacingPx(), tr(" px"));
+        auto *spacing = makeDSpin(placeBox, 1.0, 500.0, 5.0, 0, st->glyphSpacingPx(), tr(" px"));
         spacing->setToolTip(tr("Minimum on-screen spacing between arrows "
                                "(strongest cell per grid slot wins); 1 px "
                                "draws every wet cell"));
         placeForm->addRow(tr("Spacing:"), spacing);
-        auto *dryCut = makeDSpin(placeBox, 0.0, 1000.0, 0.01, 3,
-                                 st->dryDepthCutoff(), tr(" m"));
+        auto *dryCut = makeDSpin(placeBox, 0.0, 1000.0, 0.01, 3, st->dryDepthCutoff(), tr(" m"));
         dryCut->setToolTip(tr("Suppress arrows where depth is below this"));
         placeForm->addRow(tr("Dr&y depth cutoff:"), dryCut);
         lay->addWidget(placeBox);
 
         connect(scaling, qOverload<int>(&QComboBox::currentIndexChanged), this,
                 [st, scaling](int i) {
-                    st->setLengthScaling(
-                        static_cast<LS>(scaling->itemData(i).toInt()));
+                    st->setLengthScaling(static_cast<LS>(scaling->itemData(i).toInt()));
                 });
         connect(scale, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setGlyphLengthScalePxPerMps(v); });
@@ -894,14 +1140,12 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
                 [st](double v) { st->setHeadSizePx(v); });
         connect(shaft, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setShaftWidthPx(v); });
-        connect(byMag, &QCheckBox::toggled, this,
-                [st, flat, classEditor](bool on) {
-                    flat->setEnabled(!on);
-                    classEditor->setEnabled(on);
-                    st->setColorByMagnitude(on);
-                });
-        connect(flat, &ColorButton::colorChanged, this,
-                [st](const QColor &c) { st->setColor(c); });
+        connect(byMag, &QCheckBox::toggled, this, [st, flat, classEditor](bool on) {
+            flat->setEnabled(!on);
+            classEditor->setEnabled(on);
+            st->setColorByMagnitude(on);
+        });
+        connect(flat, &ColorButton::colorChanged, this, [st](const QColor &c) { st->setColor(c); });
         connect(spacing, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setGlyphSpacingPx(v); });
         connect(dryCut, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
@@ -915,99 +1159,230 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
 
 QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
 {
-    auto *page=new QWidget(parent);page->setObjectName("flowStreakTab");auto *lay=new QVBoxLayout(page);
-    auto *sub=m_layer->flowStreakSublayer();auto *st=sub->streakStyle();
-    lay->addWidget(makeSublayerHeader(page,sub,tr("Show flow streaks")));
-    auto *help=new QLabel(tr("Shows flow direction, with slower movement boosted for visibility. "
-        "Colours by speed use the recorded velocities."),page);help->setWordWrap(true);lay->addWidget(help);
-    auto *form=new QFormLayout;form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);lay->addLayout(form);
-    auto *colourRow=new QWidget(page);auto *colourLayout=new QHBoxLayout(colourRow);colourLayout->setContentsMargins(0,0,0,0);
-    auto *colour=new ColorButton(colourRow);colour->setShowAlpha(true);colour->setColor(st->color());colour->setObjectName("flowStreakColor");
-    auto *bySpeed=new QCheckBox(tr("By speed"),colourRow);bySpeed->setSizePolicy(QSizePolicy::Minimum,QSizePolicy::Fixed);bySpeed->setObjectName("colorByMagnitude");bySpeed->setChecked(st->colorByMagnitude());
-    colourLayout->addWidget(colour);colourLayout->addWidget(bySpeed);colourLayout->addStretch();form->addRow(tr("Colour:"),colourRow);
-    connect(colour,&ColorButton::colorChanged,st,&OpenSWMM::Render::FlowStreakStyle::setColor);
-    connect(bySpeed,&QCheckBox::toggled,st,&OpenSWMM::Render::FlowStreakStyle::setColorByMagnitude);
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,colour,[st,colour,bySpeed] {
-        QSignalBlocker a(colour),b(bySpeed);colour->setColor(st->color());bySpeed->setChecked(st->colorByMagnitude());colour->setEnabled(!st->colorByMagnitude());
-    });colour->setEnabled(!st->colorByMagnitude());
-    auto presets=[&](const char *name,const QString &label,const QStringList &labels,const QList<double> &values,const char *property) {
-        auto *row=new QWidget(page);row->setObjectName(name);auto *layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);layout->setSpacing(0);
-        auto *group=new QButtonGroup(row);auto *custom=new QLabel(row);custom->setObjectName(QString::fromLatin1(name)+"Custom");
-        for(int i=0;i<labels.size();++i) {
-            auto *button=new QPushButton(labels[i],row);button->setCheckable(true);button->setObjectName(QString::fromLatin1(name)+QString::number(i));
-            button->setStyleSheet(QStringLiteral("QPushButton { padding: 4px 10px; border: 1px solid palette(mid); border-radius: 4px; } "
+    auto *page = new QWidget(parent);
+    page->setObjectName("flowStreakTab");
+    auto *lay = new QVBoxLayout(page);
+    auto *sub = m_layer->flowStreakSublayer();
+    auto *st = sub->streakStyle();
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show flow streaks")));
+    auto *help = new QLabel(tr("Shows flow direction, with slower movement boosted for visibility. "
+                               "Colours by speed use the recorded velocities."),
+                            page);
+    help->setWordWrap(true);
+    lay->addWidget(help);
+    auto *form = new QFormLayout;
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    lay->addLayout(form);
+    auto *colourRow = new QWidget(page);
+    auto *colourLayout = new QHBoxLayout(colourRow);
+    colourLayout->setContentsMargins(0, 0, 0, 0);
+    auto *colour = new ColorButton(colourRow);
+    colour->setShowAlpha(true);
+    colour->setColor(st->color());
+    colour->setObjectName("flowStreakColor");
+    auto *bySpeed = new QCheckBox(tr("By speed"), colourRow);
+    bySpeed->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    bySpeed->setObjectName("colorByMagnitude");
+    bySpeed->setChecked(st->colorByMagnitude());
+    colourLayout->addWidget(colour);
+    colourLayout->addWidget(bySpeed);
+    colourLayout->addStretch();
+    form->addRow(tr("Colour:"), colourRow);
+    connect(colour, &ColorButton::colorChanged, st, &OpenSWMM::Render::FlowStreakStyle::setColor);
+    connect(bySpeed, &QCheckBox::toggled, st,
+            &OpenSWMM::Render::FlowStreakStyle::setColorByMagnitude);
+    connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, colour, [st, colour, bySpeed] {
+        QSignalBlocker a(colour), b(bySpeed);
+        colour->setColor(st->color());
+        bySpeed->setChecked(st->colorByMagnitude());
+        colour->setEnabled(!st->colorByMagnitude());
+    });
+    colour->setEnabled(!st->colorByMagnitude());
+    auto presets = [&](const char *name, const QString &label, const QStringList &labels,
+                       const QList<double> &values, const char *property) {
+        auto *row = new QWidget(page);
+        row->setObjectName(name);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        auto *group = new QButtonGroup(row);
+        auto *custom = new QLabel(row);
+        custom->setObjectName(QString::fromLatin1(name) + "Custom");
+        for (int i = 0; i < labels.size(); ++i) {
+            auto *button = new QPushButton(labels[i], row);
+            button->setCheckable(true);
+            button->setObjectName(QString::fromLatin1(name) + QString::number(i));
+            button->setStyleSheet(QStringLiteral(
+                "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); border-radius: 4px; } "
                 "QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); }"));
-            group->addButton(button,i);layout->addWidget(button);
+            group->addButton(button, i);
+            layout->addWidget(button);
         }
-        layout->addWidget(custom);layout->addStretch();form->addRow(label,row);
-        connect(group,&QButtonGroup::idClicked,st,[st,property,values](int id){st->setProperty(property,values[id]);});
-        auto refresh=[st,property,values,group,custom] {
-            const double value=st->property(property).toDouble();int selected=-1;
-            for(int i=0;i<values.size();++i)if(std::abs(value-values[i])<1e-6)selected=i;
-            group->setExclusive(false);for(auto *button:group->buttons())button->setChecked(group->id(button)==selected);group->setExclusive(true);
-            custom->setText(tr("Custom (%1)").arg(value,0,'g',4));custom->setVisible(selected<0);
+        layout->addWidget(custom);
+        layout->addStretch();
+        form->addRow(label, row);
+        connect(group, &QButtonGroup::idClicked, st,
+                [st, property, values](int id) { st->setProperty(property, values[id]); });
+        auto refresh = [st, property, values, group, custom] {
+            const double value = st->property(property).toDouble();
+            int selected = -1;
+            for (int i = 0; i < values.size(); ++i)
+                if (std::abs(value - values[i]) < 1e-6)
+                    selected = i;
+            group->setExclusive(false);
+            for (auto *button : group->buttons())
+                button->setChecked(group->id(button) == selected);
+            group->setExclusive(true);
+            custom->setText(tr("Custom (%1)").arg(value, 0, 'g', 4));
+            custom->setVisible(selected < 0);
         };
-        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,row,refresh);refresh();
+        connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, row, refresh);
+        refresh();
     };
-    presets("flowDensity",tr("Density:"),{tr("Sparse"),tr("Normal"),tr("Dense"),tr("Very dense")},{56,40,28,14},"spacingPx");
-    auto *motionRow=new QWidget(page);auto *motionLayout=new QHBoxLayout(motionRow);motionLayout->setContentsMargins(0,0,0,0);
-    auto *motion=new QSlider(Qt::Horizontal,motionRow);motion->setObjectName("flowMotion");motion->setRange(25,400);motion->setTickPosition(QSlider::TicksBelow);motion->setTickInterval(100);
-    auto *motionValue=new QLabel(motionRow);motionValue->setObjectName("flowMotionValue");motionLayout->addWidget(motion,1);motionLayout->addWidget(motionValue);
-    form->addRow(tr("Motion:"),motionRow);
-    connect(motion,&QSlider::valueChanged,st,[st](int v){st->setSpeedMultiplier(v/100.);});
-    auto refreshMotion=[st,motion,motionValue] {
-        QSignalBlocker block(motion);motion->setValue(int(std::clamp(st->speedMultiplier()*100,25.,400.)));
-        motionValue->setText(std::abs(st->speedMultiplier()-1)<1e-6?tr("Normal"):tr("%1×").arg(st->speedMultiplier(),0,'g',3));
+    presets("flowDensity", tr("Density:"),
+            {tr("Sparse"), tr("Normal"), tr("Dense"), tr("Very dense")}, {56, 40, 28, 14},
+            "spacingPx");
+    auto *motionRow = new QWidget(page);
+    auto *motionLayout = new QHBoxLayout(motionRow);
+    motionLayout->setContentsMargins(0, 0, 0, 0);
+    auto *motion = new QSlider(Qt::Horizontal, motionRow);
+    motion->setObjectName("flowMotion");
+    motion->setRange(25, 400);
+    motion->setTickPosition(QSlider::TicksBelow);
+    motion->setTickInterval(100);
+    auto *motionValue = new QLabel(motionRow);
+    motionValue->setObjectName("flowMotionValue");
+    motionLayout->addWidget(motion, 1);
+    motionLayout->addWidget(motionValue);
+    form->addRow(tr("Motion:"), motionRow);
+    connect(motion, &QSlider::valueChanged, st, [st](int v) { st->setSpeedMultiplier(v / 100.); });
+    auto refreshMotion = [st, motion, motionValue] {
+        QSignalBlocker block(motion);
+        motion->setValue(int(std::clamp(st->speedMultiplier() * 100, 25., 400.)));
+        motionValue->setText(std::abs(st->speedMultiplier() - 1) < 1e-6
+                                 ? tr("Normal")
+                                 : tr("%1×").arg(st->speedMultiplier(), 0, 'g', 3));
     };
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,motion,refreshMotion);refreshMotion();
-    presets("flowTrail",tr("Trail:"),{tr("Short"),tr("Normal"),tr("Long")},{.75,1.5,3},"trailDurationSeconds");
-    auto *mapping=new QLabel(page);mapping->setObjectName("flowMotionMapping");mapping->setWordWrap(true);lay->addWidget(mapping);
-    auto *binding=new SublayerSchemeBinding([st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &v){st->setScheme(v);},
-        []{return QVector<double>{};},[st]{return qMakePair(st->scheme().rangeMin(),st->scheme().rangeMax());},true,false);
-    auto *classification=new ClassificationEditor(binding,true,page);classification->setObjectName("flowClassification");classification->setVisible(st->colorByMagnitude());lay->addWidget(classification);
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,classification,
-        [style=QPointer<OpenSWMM::Render::FlowStreakStyle>(st),classification,last=st->scheme().toJson()]() mutable {
-        if(!style)return;classification->setVisible(style->colorByMagnitude());const auto current=style->scheme().toJson();
-        if(current!=last){last=current;classification->refresh();}
-    },Qt::QueuedConnection);
-    auto *advancedToggle=new QToolButton(page);advancedToggle->setObjectName("flowAdvancedToggle");advancedToggle->setText(tr("Advanced"));advancedToggle->setCheckable(true);
-    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);advancedToggle->setArrowType(Qt::RightArrow);lay->addWidget(advancedToggle,0,Qt::AlignLeft);
-    auto *advanced=new QWidget(page);advanced->setObjectName("flowAdvanced");advanced->setVisible(false);auto *details=new QFormLayout(advanced);lay->addWidget(advanced);
-    connect(advancedToggle,&QToolButton::toggled,advanced,[advanced,advancedToggle](bool open){advanced->setVisible(open);advancedToggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);});
-    auto number=[&](const char *key,const QString &label,double minimum,int decimals,const QString &suffix) {
-        auto *box=makeDSpin(advanced,minimum,OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),.5,decimals,st->property(key).toDouble(),suffix);
-        box->setObjectName(key);box->setKeyboardTracking(false);box->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
-        box->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);box->setMaximumWidth(220);details->addRow(label,box);
-        connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double value){st->setProperty(key,value);});
-        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box]{QSignalBlocker block(box);box->setValue(st->property(key).toDouble());});
+    connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, motion, refreshMotion);
+    refreshMotion();
+    presets("flowTrail", tr("Trail:"), {tr("Short"), tr("Normal"), tr("Long")}, {.75, 1.5, 3},
+            "trailDurationSeconds");
+    auto *mapping = new QLabel(page);
+    mapping->setObjectName("flowMotionMapping");
+    mapping->setWordWrap(true);
+    lay->addWidget(mapping);
+    auto *binding = new SublayerSchemeBinding(
+        [st] { return st->scheme(); },
+        [st](const OpenSWMM::Render::ClassificationScheme &v) { st->setScheme(v); },
+        [] { return QVector<double>{}; },
+        [st] { return qMakePair(st->scheme().rangeMin(), st->scheme().rangeMax()); }, true, false);
+    auto *classification = new ClassificationEditor(binding, true, page);
+    classification->setObjectName("flowClassification");
+    classification->setVisible(st->colorByMagnitude());
+    lay->addWidget(classification);
+    connect(
+        st, &OpenSWMM::Render::SublayerStyle::styleChanged, classification,
+        [style = QPointer<OpenSWMM::Render::FlowStreakStyle>(st), classification,
+         last = st->scheme().toJson()]() mutable {
+            if (!style)
+                return;
+            classification->setVisible(style->colorByMagnitude());
+            const auto current = style->scheme().toJson();
+            if (current != last) {
+                last = current;
+                classification->refresh();
+            }
+        },
+        Qt::QueuedConnection);
+    auto *advancedToggle = new QToolButton(page);
+    advancedToggle->setObjectName("flowAdvancedToggle");
+    advancedToggle->setText(tr("Advanced"));
+    advancedToggle->setCheckable(true);
+    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    advancedToggle->setArrowType(Qt::RightArrow);
+    lay->addWidget(advancedToggle, 0, Qt::AlignLeft);
+    auto *advanced = new QWidget(page);
+    advanced->setObjectName("flowAdvanced");
+    advanced->setVisible(false);
+    auto *details = new QFormLayout(advanced);
+    lay->addWidget(advanced);
+    connect(advancedToggle, &QToolButton::toggled, advanced, [advanced, advancedToggle](bool open) {
+        advanced->setVisible(open);
+        advancedToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+    });
+    auto number = [&](const char *key, const QString &label, double minimum, int decimals,
+                      const QString &suffix) {
+        auto *box =
+            makeDSpin(advanced, minimum, OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),
+                      .5, decimals, st->property(key).toDouble(), suffix);
+        box->setObjectName(key);
+        box->setKeyboardTracking(false);
+        box->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+        box->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        box->setMaximumWidth(220);
+        details->addRow(label, box);
+        connect(box, qOverload<double>(&QDoubleSpinBox::valueChanged), st,
+                [st, key](double value) { st->setProperty(key, value); });
+        connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, box, [st, key, box] {
+            QSignalBlocker block(box);
+            box->setValue(st->property(key).toDouble());
+        });
     };
-    number("spacingPx",tr("Exact spacing:"),2,1,tr(" px"));
-    auto *exactMotion=makeDSpin(advanced,0,48*OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),1,2,48*st->speedMultiplier(),tr(" px/s"));
-    exactMotion->setObjectName("motionPixelsPerSecond");exactMotion->setKeyboardTracking(false);exactMotion->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);exactMotion->setMaximumWidth(220);
-    details->addRow(tr("Reference motion:"),exactMotion);
-    connect(exactMotion,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st](double value){st->setSpeedMultiplier(value/48);});
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,exactMotion,[st,exactMotion]{QSignalBlocker block(exactMotion);exactMotion->setValue(48*st->speedMultiplier());});
-    number("trailDurationSeconds",tr("Exact trail duration:"),.1,2,tr(" s"));
-    number("minimumLifetimeSeconds",tr("Minimum lifetime:"),.1,1,tr(" s"));number("maximumLifetimeSeconds",tr("Maximum lifetime:"),.1,1,tr(" s"));
-    number("widthPx",tr("Trail width:"),.1,1,tr(" px"));number("headWidthPx",tr("Head width:"),.1,1,tr(" px"));number("lifetimeFadeSeconds",tr("Fade duration:"),0,1,tr(" s"));
-    auto *status=new QLabel(advanced);status->setObjectName("flowDiagnostics");status->setWordWrap(true);details->addRow(status);
-    auto updateStatus=[layer=m_layer,mapping,status] {
-        if(!layer)return;const auto d=layer->flowParticleDiagnostics();const auto *style=layer->flowStreakSublayer()->streakStyle();
-        QString text=style->motionWasMigrated()?tr("Old motion setting reset to Normal. "):QString();
-        text+=d.referenceSpeedSI>0?tr("Reference: %1 px/s at %2 m/s. Slower flow is boosted.").arg(d.referencePixelsPerSecond,0,'f',0).arg(d.referenceSpeedSI,0,'g',3)
-            :tr("Normal motion uses a 48 px/s reference. Slower flow is boosted.");
-        const auto availability=layer->flowStreakAvailability();if(!availability.isEmpty())text=availability;
-        mapping->setText(text);status->setText(layer->flowStreakStatus());
+    number("spacingPx", tr("Exact spacing:"), 2, 1, tr(" px"));
+    auto *exactMotion =
+        makeDSpin(advanced, 0, 48 * OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(), 1, 2,
+                  48 * st->speedMultiplier(), tr(" px/s"));
+    exactMotion->setObjectName("motionPixelsPerSecond");
+    exactMotion->setKeyboardTracking(false);
+    exactMotion->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    exactMotion->setMaximumWidth(220);
+    details->addRow(tr("Reference motion:"), exactMotion);
+    connect(exactMotion, qOverload<double>(&QDoubleSpinBox::valueChanged), st,
+            [st](double value) { st->setSpeedMultiplier(value / 48); });
+    connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, exactMotion, [st, exactMotion] {
+        QSignalBlocker block(exactMotion);
+        exactMotion->setValue(48 * st->speedMultiplier());
+    });
+    number("trailDurationSeconds", tr("Exact trail duration:"), .1, 2, tr(" s"));
+    number("minimumLifetimeSeconds", tr("Minimum lifetime:"), .1, 1, tr(" s"));
+    number("maximumLifetimeSeconds", tr("Maximum lifetime:"), .1, 1, tr(" s"));
+    number("widthPx", tr("Trail width:"), .1, 1, tr(" px"));
+    number("headWidthPx", tr("Head width:"), .1, 1, tr(" px"));
+    number("lifetimeFadeSeconds", tr("Fade duration:"), 0, 1, tr(" s"));
+    auto *status = new QLabel(advanced);
+    status->setObjectName("flowDiagnostics");
+    status->setWordWrap(true);
+    details->addRow(status);
+    auto updateStatus = [layer = m_layer, mapping, status] {
+        if (!layer)
+            return;
+        const auto d = layer->flowParticleDiagnostics();
+        const auto *style = layer->flowStreakSublayer()->streakStyle();
+        QString text =
+            style->motionWasMigrated() ? tr("Old motion setting reset to Normal. ") : QString();
+        text += d.referenceSpeedSI > 0
+                    ? tr("Reference: %1 px/s at %2 m/s. Slower flow is boosted.")
+                          .arg(d.referencePixelsPerSecond, 0, 'f', 0)
+                          .arg(d.referenceSpeedSI, 0, 'g', 3)
+                    : tr("Normal motion uses a 48 px/s reference. Slower flow is boosted.");
+        const auto availability = layer->flowStreakAvailability();
+        if (!availability.isEmpty())
+            text = availability;
+        mapping->setText(text);
+        status->setText(layer->flowStreakStatus());
     };
-    connect(m_layer,&SWMM2DResultsLayer::flowStreaksChanged,status,updateStatus);connect(sub,&OpenSWMM::Render::ISublayer::invalidated,status,updateStatus);
-    connect(m_layer,&SWMM2DResultsLayer::repaintRequested,status,updateStatus);updateStatus();
-    lay->addStretch();return page;
+    connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, status, updateStatus);
+    connect(sub, &OpenSWMM::Render::ISublayer::invalidated, status, updateStatus);
+    connect(m_layer, &SWMM2DResultsLayer::repaintRequested, status, updateStatus);
+    updateStatus();
+    lay->addStretch();
+    return page;
 }
 
 QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshEdgeSublayer();
     MeshEdgeStyle *st = sub ? sub->edgeStyle() : nullptr;
@@ -1019,7 +1394,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
         // omitted: the 2D results edge pass uses a single uniform width + flat
         // colour (the wide-colour split needs per-edge colour the flat edge node
         // can't carry), so surfacing those knobs would be misleading.
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *color = new ColorButton(symBox);
@@ -1030,8 +1405,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
                              "darkens where cells meet."));
         symForm->addRow(tr("Colour:"), color);
 
-        auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2,
-                                st->lineWidthPx(), tr(" px"));
+        auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("Width:"), width);
 
         auto *dash = new DashStyleCombo(symBox);
@@ -1057,7 +1431,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
 QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshNodeSublayer();
     MeshNodeStyle *st = sub ? sub->nodeStyle() : nullptr;
@@ -1068,7 +1442,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
         // Symbology + outline only — the shape and tagged-vertex groups are
         // omitted: the results renderer draws a fixed marker and carries no
         // tagged-vertex data, so those knobs would be no-ops here.
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *color = new ColorButton(symBox);
@@ -1076,8 +1450,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
         color->setColor(st->color());
         symForm->addRow(tr("Colour:"), color);
 
-        auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1,
-                               st->markerSizePx(), tr(" px"));
+        auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1, st->markerSizePx(), tr(" px"));
         symForm->addRow(tr("Marker size:"), size);
 
         auto *outlineColor = new ColorButton(symBox);
@@ -1085,8 +1458,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
         outlineColor->setColor(st->outlineColor());
         symForm->addRow(tr("Outline colour:"), outlineColor);
 
-        auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2,
-                                       st->outlineWidthPx(), tr(" px"));
+        auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2, st->outlineWidthPx(), tr(" px"));
         symForm->addRow(tr("Outline width:"), outlineWidth);
 
         lay->addWidget(symBox);

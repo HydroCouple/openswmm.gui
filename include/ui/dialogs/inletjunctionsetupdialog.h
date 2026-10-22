@@ -1,9 +1,9 @@
-/*!
- * \file   inletjunctionsetupdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Floating (non-modal) panel that collects the three things an inlet
+/**
+ * @file      inletjunctionsetupdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Floating (non-modal) panel that collects the three things an inlet
  *         junction needs BEFORE it is created: an inlet design, a capture
  *         node, and a placement mode.
  *
@@ -22,7 +22,9 @@
  *
  * The same dialog serves the Convert-To flow, which promotes an existing
  * junction instead of splitting a conduit.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_INLETJUNCTIONSETUPDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_INLETJUNCTIONSETUPDIALOG_H
 
@@ -31,7 +33,7 @@
 #include <QString>
 #include <QVector>
 
-#include <openswmm/engine/openswmm_callbacks.h>   // SWMM_Engine
+#include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine
 
 class QComboBox;
 class QDialogButtonBox;
@@ -40,7 +42,8 @@ class LabeledPickerCombo;
 class NodePickSession;
 class SWMMModelLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class InletJunctionSetupDialog : public QDialog
 {
@@ -54,8 +57,7 @@ public:
      *                      or the node being promoted for the convert flow.
      *                      Virtual and inlet junctions are excluded already
      *                      (engine rule 627). */
-    InletJunctionSetupDialog(SWMMModelLayer *layer,
-                             QVector<int> excludeNodes,
+    InletJunctionSetupDialog(SWMMModelLayer *layer, QVector<int> excludeNodes,
                              QWidget *parent = nullptr);
     ~InletJunctionSetupDialog() override;
 
@@ -89,14 +91,14 @@ private:
     void refreshCaptureItems();
     void setPickHint(const QString &text);
 
-    SWMMModelLayer     *m_layer = nullptr;
-    QVector<int>        m_exclude;
+    SWMMModelLayer *m_layer = nullptr;
+    QVector<int> m_exclude;
 
-    LabeledPickerCombo *m_designPicker  = nullptr;
+    LabeledPickerCombo *m_designPicker = nullptr;
     LabeledPickerCombo *m_capturePicker = nullptr;
-    QComboBox          *m_placement     = nullptr;
-    QLabel             *m_pickHint      = nullptr;
-    QDialogButtonBox   *m_buttons       = nullptr;
+    QComboBox *m_placement = nullptr;
+    QLabel *m_pickHint = nullptr;
+    QDialogButtonBox *m_buttons = nullptr;
     QPointer<NodePickSession> m_pick;
 };
 

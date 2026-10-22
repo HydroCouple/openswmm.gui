@@ -1,8 +1,14 @@
-/*!
- * \file   multibandcolorrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      multibandcolorrenderer.cpp
+ * @brief     Replaces GISRasterLayer's former "three or more bands ⇒ RGB" hard-wire with a
+ *            renderer the user can see and switch away from: it names which bands feed the red /
+ *            green / blue (/ alpha) channels, and installing any other IRasterRenderer on a
+ *            multi-band raster puts the layer back on the single-band colour path for the chosen
+ *            render band.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/multibandcolorrenderer.h"
@@ -23,9 +29,9 @@ MultiBandColorRenderer::MultiBandColorRenderer(int red, int green, int blue, int
 
 void MultiBandColorRenderer::setBands(int red, int green, int blue, int alpha)
 {
-    m_red   = std::max(1, red);
+    m_red = std::max(1, red);
     m_green = std::max(1, green);
-    m_blue  = std::max(1, blue);
+    m_blue = std::max(1, blue);
     m_alpha = std::max(0, alpha);
 }
 
@@ -39,22 +45,21 @@ QColor MultiBandColorRenderer::colorForValue(double /*value*/, bool /*isNoData*/
 QList<LegendSymbolItem> MultiBandColorRenderer::legendSymbolItems() const
 {
     LegendSymbolItem item;
-    item.label = QStringLiteral("RGB (bands %1, %2, %3)")
-                     .arg(m_red).arg(m_green).arg(m_blue);
+    item.label = QStringLiteral("RGB (bands %1, %2, %3)").arg(m_red).arg(m_green).arg(m_blue);
     SymbolLayer sl;
     sl.kind = SymbolLayerKind::SimpleFill;
     SymbolProps::writeColor(sl.props, QStringLiteral("color"), QColor(128, 128, 128));
     item.symbol.layers.append(sl);
-    return { item };
+    return {item};
 }
 
 QJsonObject MultiBandColorRenderer::toJson() const
 {
     QJsonObject obj;
-    obj.insert(QStringLiteral("id"),        rendererId());
-    obj.insert(QStringLiteral("redBand"),   m_red);
+    obj.insert(QStringLiteral("id"), rendererId());
+    obj.insert(QStringLiteral("redBand"), m_red);
     obj.insert(QStringLiteral("greenBand"), m_green);
-    obj.insert(QStringLiteral("blueBand"),  m_blue);
+    obj.insert(QStringLiteral("blueBand"), m_blue);
     obj.insert(QStringLiteral("alphaBand"), m_alpha);
     return obj;
 }

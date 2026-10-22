@@ -1,9 +1,15 @@
-/*!
- * \file   sublayerselectiondialog.cpp
- * \author SWMMVis
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sublayerselectiondialog.cpp
+ * @brief     Modal multi-select picker for the layers inside a multi-layer vector datasource
+ *            (GeoPackage, Esri File GDB, multi-layer GML/KML, …).
+ * @author    SWMMVis
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/sublayerselectiondialog.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/util/numerictablewidgetitem.h"
@@ -21,11 +27,9 @@
 #include <QVBoxLayout>
 
 SublayerSelectionDialog::SublayerSelectionDialog(
-    const QString &sourcePath,
-    const QList<GISVectorLayer::OgrSublayerInfo> &sublayers,
+    const QString &sourcePath, const QList<GISVectorLayer::OgrSublayerInfo> &sublayers,
     QWidget *parent)
-    : QDialog(parent)
-    , m_sublayers(sublayers)
+    : QDialog(parent), m_sublayers(sublayers)
 {
     setWindowTitle(tr("Select Layers to Add"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -38,11 +42,10 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
 {
     auto *root = new QVBoxLayout(this);
 
-    auto *header = new QLabel(
-        tr("<b>%1</b><br>%2 layer(s) found — check the ones to add:")
-            .arg(QFileInfo(sourcePath).fileName())
-            .arg(m_sublayers.size()),
-        this);
+    auto *header = new QLabel(tr("<b>%1</b><br>%2 layer(s) found — check the ones to add:")
+                                  .arg(QFileInfo(sourcePath).fileName())
+                                  .arg(m_sublayers.size()),
+                              this);
     header->setTextFormat(Qt::RichText);
     header->setTextInteractionFlags(Qt::TextSelectableByMouse);
     root->addWidget(header);
@@ -59,8 +62,7 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
 
     // ── Table ────────────────────────────────────────────────────────────────
     m_table = new QTableWidget(m_sublayers.size(), 4, this);
-    m_table->setHorizontalHeaderLabels(
-        {tr("Layer"), tr("Geometry"), tr("Features"), tr("CRS")});
+    m_table->setHorizontalHeaderLabels({tr("Layer"), tr("Geometry"), tr("Features"), tr("CRS")});
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -72,14 +74,16 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
         auto *nameItem = new QTableWidgetItem(s.name);
         nameItem->setData(Qt::UserRole, r);
         nameItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-        nameItem->setCheckState(Qt::Checked);   // default: add all
+        nameItem->setCheckState(Qt::Checked); // default: add all
         m_table->setItem(r, 0, nameItem);
 
         m_table->setItem(r, 1, new QTableWidgetItem(s.geometryType));
-        m_table->setItem(r, 2, new openswmmvis::ui::NumericTableWidgetItem(
-            s.featureCount < 0 ? tr("?") : QString::number(s.featureCount)));
-        m_table->setItem(r, 3, new QTableWidgetItem(
-            s.crsDescription.isEmpty() ? tr("(unknown)") : s.crsDescription));
+        m_table->setItem(r, 2,
+                         new openswmmvis::ui::NumericTableWidgetItem(
+                             s.featureCount < 0 ? tr("?") : QString::number(s.featureCount)));
+        m_table->setItem(
+            r, 3,
+            new QTableWidgetItem(s.crsDescription.isEmpty() ? tr("(unknown)") : s.crsDescription));
     }
     m_table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     m_table->setSortingEnabled(true);
@@ -88,16 +92,16 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
     root->addWidget(m_table, 1);
 
     // ── Select all / none / invert ───────────────────────────────────────────
-    auto *btnRow  = new QHBoxLayout;
-    auto *allBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectAll")),
-                                    tr("Select all"), this);
-    auto *noneBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectNone")),
-                                    tr("Select none"), this);
-    auto *invBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("InvertSelection")),
-                                    tr("Invert"), this);
-    connect(allBtn,  &QPushButton::clicked, this, [this] { setAllChecked(true); });
+    auto *btnRow = new QHBoxLayout;
+    auto *allBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectAll")),
+                                   tr("Select all"), this);
+    auto *noneBtn = new QPushButton(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectNone")), tr("Select none"), this);
+    auto *invBtn = new QPushButton(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("InvertSelection")), tr("Invert"), this);
+    connect(allBtn, &QPushButton::clicked, this, [this] { setAllChecked(true); });
     connect(noneBtn, &QPushButton::clicked, this, [this] { setAllChecked(false); });
-    connect(invBtn,  &QPushButton::clicked, this, [this] { invertChecked(); });
+    connect(invBtn, &QPushButton::clicked, this, [this] { invertChecked(); });
     btnRow->addWidget(allBtn);
     btnRow->addWidget(noneBtn);
     btnRow->addWidget(invBtn);
@@ -105,8 +109,7 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
     root->addLayout(btnRow);
 
     // ── OK / Cancel ──────────────────────────────────────────────────────────
-    auto *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     root->addWidget(buttons);
@@ -128,16 +131,15 @@ void SublayerSelectionDialog::invertChecked()
         if (m_table->isRowHidden(r))
             continue;
         if (auto *it = m_table->item(r, 0))
-            it->setCheckState(it->checkState() == Qt::Checked ? Qt::Unchecked
-                                                              : Qt::Checked);
+            it->setCheckState(it->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
     }
 }
 
 void SublayerSelectionDialog::applyNameFilter(const QString &text)
 {
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        const bool match = text.isEmpty()
-            || m_table->item(r, 0)->text().contains(text, Qt::CaseInsensitive);
+        const bool match =
+            text.isEmpty() || m_table->item(r, 0)->text().contains(text, Qt::CaseInsensitive);
         m_table->setRowHidden(r, !match);
     }
 }
@@ -152,8 +154,7 @@ QStringList SublayerSelectionDialog::selectedLayerNames() const
     return names;
 }
 
-QList<GISVectorLayer::OgrSublayerInfo>
-SublayerSelectionDialog::selectedSublayers() const
+QList<GISVectorLayer::OgrSublayerInfo> SublayerSelectionDialog::selectedSublayers() const
 {
     QList<GISVectorLayer::OgrSublayerInfo> out;
     for (int r = 0; r < m_table->rowCount(); ++r)

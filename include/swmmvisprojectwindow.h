@@ -1,12 +1,15 @@
-/*!
- * \file   swmmvisprojectwindow.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmmvisprojectwindow.h
+ * @brief     MDI sub-window that hosts a single SWMM model session.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * MDI sub-window that hosts a single SWMM model session.
  * Each opened .inp file gets its own window with a dedicated MapCanvas and tools.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SWMMVISPROJECTWINDOW_H
 #define SWMMVISPROJECTWINDOW_H
 
@@ -24,9 +27,9 @@
 #include <QVector>
 #include <functional>
 
-#include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux relay)
+#include "plot/plotattribute.h" // PlotAttribute (edge flow vs flux relay)
 #include "plot/resultdescriptor.h"
-#include "layers/swmmmodellayer.h"  // SWMMModelLayer::NewProjectSpec (nested)
+#include "layers/swmmmodellayer.h" // SWMMModelLayer::NewProjectSpec (nested)
 
 class OpenSWMMVisWorkspace;
 class MapCanvas;
@@ -54,7 +57,10 @@ class QComboBox;
 class QLabel;
 class QFrame;
 
-namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
+namespace openswmmvis
+{
+class OutputStatsRegistry;
+} // Slice QA.2
 
 /**
  * @brief MDI sub-window owning a MapCanvas, SWMMModelLayer, and map tools.
@@ -66,17 +72,14 @@ class SWMMVisProjectWindow : public QMdiSubWindow
     Q_OBJECT
 
 public:
-    explicit SWMMVisProjectWindow(
-        OpenSWMMVisWorkspace *workspace,
-        const QString &filePath = QString(),
-        QWidget *parent = nullptr
-    );
-    
+    explicit SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
+                                  const QString &filePath = QString(), QWidget *parent = nullptr);
+
     ~SWMMVisProjectWindow() override;
 
-    MapCanvas        *canvas()           const;
-    SWMMModelLayer   *modelLayer()       const;
-    UnitSystem       *unitSystem()       const;
+    MapCanvas *canvas() const;
+    SWMMModelLayer *modelLayer() const;
+    UnitSystem *unitSystem() const;
     SelectionManager *selectionManager() const;
 
     /** Offset mode (LINK_OFFSETS option). True = ELEVATION, false = DEPTH. */
@@ -153,8 +156,7 @@ public:
      *        synchronously. The window keeps its empty model path until the
      *        first Save As.
      */
-    bool initializeBlankModel(const SWMMModelLayer::NewProjectSpec &spec,
-                              QList<QString> &warnings,
+    bool initializeBlankModel(const SWMMModelLayer::NewProjectSpec &spec, QList<QString> &warnings,
                               QList<QString> &errors);
 
     /**
@@ -266,24 +268,29 @@ public:
     /*! Same direct-access pattern for Slice BC's profile tool — lets
      *  SWMMVis connect `profilePathSelected` to the ProfilePlotDialog
      *  spawner. */
-    class OpenSWMMVisMapToolSelectProfile *selectProfileTool() const
-    { return mSelectProfileTool; }
+    class OpenSWMMVisMapToolSelectProfile *selectProfileTool() const { return mSelectProfileTool; }
 
     /*! Virtual-junction insertion tool (click-a-conduit split). Exposed so
      *  SWMMVis can route its statusMessageChanged to the status bar. */
     class OpenSWMMVisMapToolAddVirtualNode *addVirtualJunctionTool() const
-    { return mAddVirtualJunctionTool; }
+    {
+        return mAddVirtualJunctionTool;
+    }
 
     /*! The generic add-node tools (junction / outfall / storage / divider),
      *  which also split a conduit when the click lands on one. Exposed so
      *  SWMMVis can route their statusMessageChanged to the status bar. */
     QList<OpenSWMMVisMapToolAddNode *> addNodeTools() const
-    { return { mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddDividerTool }; }
+    {
+        return {mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddDividerTool};
+    }
 
     /*! Inlet-junction insertion tool (click-a-street-conduit split). Exposed
      *  for the same reason as the virtual-junction tool above. */
     class OpenSWMMVisMapToolAddInletNode *addInletJunctionTool() const
-    { return mAddInletJunctionTool; }
+    {
+        return mAddInletJunctionTool;
+    }
 
     /*! Slice CF.3 — Pick 2D mesh cells tool (box + lasso). Returns null
      *  until a SWMM2DResultsLayer exists on the canvas (created lazily
@@ -300,8 +307,7 @@ public:
      *  read from this single source of truth so the "which output
      *  produced these stats?" answer is uniform across the GUI.
      *  Never null. */
-    class openswmmvis::OutputStatsRegistry *statsRegistry() const
-    { return mStatsRegistry; }
+    class openswmmvis::OutputStatsRegistry *statsRegistry() const { return mStatsRegistry; }
 
     // ── Active analysis layers (results-analysis demarcation) ────────────────
     //
@@ -336,9 +342,10 @@ public:
      *  Consumed once by the 2D auto-load; entries carry absolute .h5 paths
      *  plus the persisted layer settings and sublayer styles. */
     void setPending2DResultsRestore(const QJsonArray &entries)
-    { mPending2DResultsRestore = entries; }
-    [[nodiscard]] QJsonArray pending2DResultsRestore() const
-    { return mPending2DResultsRestore; }
+    {
+        mPending2DResultsRestore = entries;
+    }
+    [[nodiscard]] QJsonArray pending2DResultsRestore() const { return mPending2DResultsRestore; }
     void clearPending2DResultsRestore() { mPending2DResultsRestore = {}; }
 
     /*! Maps each tool pointer to a stable action-object-name key so the
@@ -398,7 +405,9 @@ public:
      *  here. This is the first mesh-dialog state to persist at all — the quad
      *  and patch groups remain unpersisted. */
     [[nodiscard]] const mesh::ChannelBurnSettings &channelBurnSettings() const
-    { return mChannelBurn; }
+    {
+        return mChannelBurn;
+    }
     void setChannelBurnSettings(const mesh::ChannelBurnSettings &s) { mChannelBurn = s; }
     /** Last mesh-dialog options, including canceled/failed attempts. Values
      *  are separate from adopted mesh artifacts and saved in the .oswp. */
@@ -408,9 +417,13 @@ public:
     /** Last successfully adopted GIS corridor recipe. Dialog drafts remain
      *  local until generation succeeds; project Save publishes this state. */
     [[nodiscard]] const QVector<mesh::CorridorSource> &corridorSources() const
-    { return mCorridorSources; }
+    {
+        return mCorridorSources;
+    }
     void setCorridorSources(const QVector<mesh::CorridorSource> &sources)
-    { mCorridorSources = sources; }
+    {
+        mCorridorSources = sources;
+    }
     [[nodiscard]] QString corridorRecipeLoadError() const { return mCorridorRecipeLoadError; }
     void setCorridorRecipeLoadError(const QString &error) { mCorridorRecipeLoadError = error; }
 
@@ -466,9 +479,7 @@ public:
      * \param linkOffset         Saved link invert offset.
      * \param vertUnit           Saved vertical unit ("m" or "ft").
      */
-    void restoreTerrainState(const QString &absoluteLayerPath,
-                             double nodeOffset,
-                             double linkOffset,
+    void restoreTerrainState(const QString &absoluteLayerPath, double nodeOffset, double linkOffset,
                              const QString &vertUnit = QString());
 
 signals:
@@ -480,8 +491,7 @@ signals:
      *  on the GUI thread, after the model is fully adopted (success) or the
      *  open failed. Warnings/errors carry the same diagnostics the sync
      *  loadModel() returns via out-params. */
-    void modelLoadFinished(bool ok, const QList<QString> &warnings,
-                           const QList<QString> &errors);
+    void modelLoadFinished(bool ok, const QList<QString> &warnings, const QList<QString> &errors);
     /*! Fired after a SUCCESSFUL save whose engine write emitted warnings —
      *  the save-time analogue of the open path's warning routing. The list is
      *  the delta across this write only. Data-loss notices (embedded
@@ -493,8 +503,7 @@ signals:
      *  intended destination (published only by Save), and is empty on failure.
      *  An untitled project's first Save As may relocate that destination.
      *  \p message is an error or summary plus any reader warning. */
-    void meshImportFinished(bool ok, const QString &message,
-                            const QString &meshPath);
+    void meshImportFinished(bool ok, const QString &message, const QString &meshPath);
 
     void hasChangesChanged(bool dirty);
     void editSessionChanged(bool active);
@@ -509,9 +518,8 @@ signals:
 
     /*! Slice CF.3 — forwards MapToolPick2DCells::cellsPicked up to the
      *  main window so it can open the Comparison Plot Dialog. */
-    void pick2DCellsPicked(class SWMM2DResultsLayer *layer,
-                            const QVector<int> &triIdxList,
-                            const QVector<openswmmvis::plot::ResultDescriptor> &attrs);
+    void pick2DCellsPicked(class SWMM2DResultsLayer *layer, const QVector<int> &triIdxList,
+                           const QVector<openswmmvis::plot::ResultDescriptor> &attrs);
 
     /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
      *  so it can open the MeshProfilePlotDialog. The polyline is in scene
@@ -583,66 +591,69 @@ private:
      *  changes and active-2D-layer changes (results-analysis demarcation). */
     void refreshActive2DCellHighlight();
 
-    OpenSWMMVisWorkspace *mWorkspace          = nullptr;
-    MapCanvas            *mCanvas             = nullptr;
-    SWMMModelLayer       *mModelLayer         = nullptr;
-    UnitSystem           *mUnits              = nullptr;
-    SelectionManager     *mSelectionManager   = nullptr;
-    bool                 mCanvasCRSAdopted    = false;  // true after first successful loadModel
-    bool                 mHasChanges          = false;
-    bool                 mEditSessionActive   = false;
-    bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
-    bool                 mUntitled            = false;  // Slice Y — never saved
-    bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
-    bool                 mClosing             = false;  // see isClosing()
-    bool                 mAsyncLoadInProgress = false;  // GUI-thread request/adoption guard
-    quint64              mMeshImportSerial     = 0;      // only the latest import may be adopted
-    QStringList          mLastSaveWarnings;   // delta across the last successful engine write
-    QString              mEngineVersion       = "6.0.0";  // Default to newest version
-    QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
-    mesh::ChannelBurnSettings mChannelBurn;               // Channel burn-in tab state
+    OpenSWMMVisWorkspace *mWorkspace = nullptr;
+    MapCanvas *mCanvas = nullptr;
+    SWMMModelLayer *mModelLayer = nullptr;
+    UnitSystem *mUnits = nullptr;
+    SelectionManager *mSelectionManager = nullptr;
+    bool mCanvasCRSAdopted = false; // true after first successful loadModel
+    bool mHasChanges = false;
+    bool mEditSessionActive = false;
+    bool mElevationOffsetMode = false;      // OPTIONS LINK_OFFSETS = ELEVATION
+    bool mUntitled = false;                 // Slice Y — never saved
+    bool mClosePromptActive = false;        // re-entrancy guard for closeEvent's prompt
+    bool mClosing = false;                  // see isClosing()
+    bool mAsyncLoadInProgress = false;      // GUI-thread request/adoption guard
+    quint64 mMeshImportSerial = 0;          // only the latest import may be adopted
+    QStringList mLastSaveWarnings;          // delta across the last successful engine write
+    QString mEngineVersion = "6.0.0";       // Default to newest version
+    QString mNotesHtml;                     // [TITLE] notes (rich HTML)
+    mesh::ChannelBurnSettings mChannelBurn; // Channel burn-in tab state
     QJsonObject mMeshGenerationOptions;
-    QVector<mesh::CorridorSource> mCorridorSources;        // adopted GIS corridor recipe
-    QString mCorridorRecipeLoadError;                    // prevents overwriting an unsupported recipe
-    QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries
+    QVector<mesh::CorridorSource> mCorridorSources; // adopted GIS corridor recipe
+    QString mCorridorRecipeLoadError;               // prevents overwriting an unsupported recipe
+    QJsonArray mPending2DResultsRestore;            // .oswp 2D results entries
 
-    OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
-    OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;
-    OpenSWMMVisMapToolZoom        *mZoomOutTool       = nullptr;
-    OpenSWMMVisMapToolSelect      *mSelectTool        = nullptr;
+    OpenSWMMVisMapToolPan *mPanTool = nullptr;
+    OpenSWMMVisMapToolZoom *mZoomInTool = nullptr;
+    OpenSWMMVisMapToolZoom *mZoomOutTool = nullptr;
+    OpenSWMMVisMapToolSelect *mSelectTool = nullptr;
     OpenSWMMVisMapToolSelectPolygon *mSelectPolygonTool = nullptr;
-    OpenSWMMVisMapToolMeasure     *mMeasureTool       = nullptr;
+    OpenSWMMVisMapToolMeasure *mMeasureTool = nullptr;
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
-    OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
+    OpenSWMMVisMapToolAddNode *mAddJunctionTool = nullptr;
     OpenSWMMVisMapToolAddVirtualNode *mAddVirtualJunctionTool = nullptr;
     class OpenSWMMVisMapToolAddInletNode *mAddInletJunctionTool = nullptr;
-    OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
-    OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
-    OpenSWMMVisMapToolAddNode     *mAddLidTool        = nullptr;
-    OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;
-    OpenSWMMVisMapToolAddLink     *mAddConduitTool    = nullptr;
-    OpenSWMMVisMapToolAddLink     *mAddPumpTool       = nullptr;
-    OpenSWMMVisMapToolAddLink     *mAddOrificeTool    = nullptr;
-    OpenSWMMVisMapToolAddLink     *mAddWeirTool       = nullptr;
-    OpenSWMMVisMapToolAddLink     *mAddOutletTool     = nullptr;
-    OpenSWMMVisMapToolAddGage     *mAddGageTool       = nullptr;
+    OpenSWMMVisMapToolAddNode *mAddOutfallTool = nullptr;
+    OpenSWMMVisMapToolAddNode *mAddStorageTool = nullptr;
+    OpenSWMMVisMapToolAddNode *mAddLidTool = nullptr;
+    OpenSWMMVisMapToolAddNode *mAddDividerTool = nullptr;
+    OpenSWMMVisMapToolAddLink *mAddConduitTool = nullptr;
+    OpenSWMMVisMapToolAddLink *mAddPumpTool = nullptr;
+    OpenSWMMVisMapToolAddLink *mAddOrificeTool = nullptr;
+    OpenSWMMVisMapToolAddLink *mAddWeirTool = nullptr;
+    OpenSWMMVisMapToolAddLink *mAddOutletTool = nullptr;
+    OpenSWMMVisMapToolAddGage *mAddGageTool = nullptr;
     OpenSWMMVisMapToolAddSubcatchment *mAddSubcatchTool = nullptr;
-    OpenSWMMVisMapToolAddText     *mAddTextTool      = nullptr;
-    OpenSWMMVisAnnotationLayer    *mAnnotationLayer  = nullptr;  ///< lazy; created on first text op
-    class MapToolPick2DCells          *mPick2DCellsTool = nullptr;  ///< CF.3 — lazy
-    class MapToolMeshProfile          *mMeshProfileTool = nullptr;  ///< mesh-toolbar (bed-only) profile-trace — lazy
-    class MapToolMeshProfile          *mAnalysisMeshProfileTool = nullptr; ///< US.A1 — analysis (ground+depth) profile-trace — lazy
-    class MapToolMeshProfile          *mTerrainProfileTool = nullptr; ///< terrain-toolbar (DEM raster) profile-trace — lazy
-    class MapToolMeshSelectVertex     *mMeshSelectVertexTool = nullptr; ///< §V.VB — lazy
-    class MapToolMeshSelectEdge       *mMeshSelectEdgeTool   = nullptr; ///< §V.VB — lazy
+    OpenSWMMVisMapToolAddText *mAddTextTool = nullptr;
+    OpenSWMMVisAnnotationLayer *mAnnotationLayer = nullptr; ///< lazy; created on first text op
+    class MapToolPick2DCells *mPick2DCellsTool = nullptr;   ///< CF.3 — lazy
+    class MapToolMeshProfile *mMeshProfileTool =
+        nullptr; ///< mesh-toolbar (bed-only) profile-trace — lazy
+    class MapToolMeshProfile *mAnalysisMeshProfileTool =
+        nullptr; ///< US.A1 — analysis (ground+depth) profile-trace — lazy
+    class MapToolMeshProfile *mTerrainProfileTool =
+        nullptr; ///< terrain-toolbar (DEM raster) profile-trace — lazy
+    class MapToolMeshSelectVertex *mMeshSelectVertexTool = nullptr; ///< §V.VB — lazy
+    class MapToolMeshSelectEdge *mMeshSelectEdgeTool = nullptr;     ///< §V.VB — lazy
 
     // Measure tool floating panel (child of mCanvas)
-    QFrame    *mMeasurePanel       = nullptr;
-    QComboBox *mMeasureModeCombo   = nullptr;
-    QComboBox *mMeasureUnitCombo   = nullptr;
-    QLabel    *mMeasureTotalLabel  = nullptr;
+    QFrame *mMeasurePanel = nullptr;
+    QComboBox *mMeasureModeCombo = nullptr;
+    QComboBox *mMeasureUnitCombo = nullptr;
+    QLabel *mMeasureTotalLabel = nullptr;
 
-    bool                           mAutoLengthEnabled = false;
+    bool mAutoLengthEnabled = false;
 
     // Slice QA.2 — output identity registry. Owned via QObject parent
     // (constructed with `this` as parent in the .cpp constructor) so
@@ -652,15 +663,15 @@ private:
     // Active analysis layers (results-analysis demarcation). QPointer so a
     // layer destroyed/removed from the canvas auto-nulls the active pointer
     // without a dangling reference.
-    QPointer<SWMMResultsLayer>   mActiveResultsLayer;
+    QPointer<SWMMResultsLayer> mActiveResultsLayer;
     QPointer<SWMM2DResultsLayer> mActive2DResultsLayer;
 
     // Terrain editing state (per-project, persisted to .oswp)
-    GISRasterLayer *mActiveTerrain      = nullptr;
-    double          mTerrainNodeOffset  = 0.0;
-    double          mTerrainLinkOffset  = 0.0;
-    QString         mTerrainVertUnit    = QStringLiteral("m"); // raster vertical unit
-    double          mTerrainVertFactor  = 1.0;                 // rasterUnit → modelUnit
+    GISRasterLayer *mActiveTerrain = nullptr;
+    double mTerrainNodeOffset = 0.0;
+    double mTerrainLinkOffset = 0.0;
+    QString mTerrainVertUnit = QStringLiteral("m"); // raster vertical unit
+    double mTerrainVertFactor = 1.0;                // rasterUnit → modelUnit
 };
 
 #endif // SWMMVISPROJECTWINDOW_H

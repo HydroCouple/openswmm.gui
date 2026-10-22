@@ -1,8 +1,13 @@
-/*!
- * \file   labelstab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \license GPL-3.0-or-later
+/**
+ * @file      labelstab.cpp
+ * @brief     A GIS-aligned label-style editor — Enabled toggle, font family + size + bold/italic,
+ *            text colour, halo (colour + radius), placement (auto / above / below / left / right /
+ *            centre), field picker and expression builder, and visibility scale window.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/labelstab.h"
 #include "layers/swmmmodellayer.h"
 #include "render/iattributeprovider.h"
@@ -11,10 +16,10 @@
 #include <QSet>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
-    : QWidget(parent), m_layer(layer)
+LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent) : QWidget(parent), m_layer(layer)
 {
     setMinimumWidth(OpenSWMM::Ui::kComboMinWidthPx + 240);
     auto *layout = new QVBoxLayout(this);
@@ -32,14 +37,16 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
 
 void LabelsTab::refreshFromModel()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     QVector<OpenSWMM::Render::AttributeField> fields;
     QSet<QString> seen;
     if (auto *provider = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(m_layer.data())) {
         for (int category = 0; category < SWMMModelLayer::NumCategories; ++category) {
-            for (const auto &field : provider->availableAttributes(
-                     static_cast<OpenSWMMVis::SwmmCategory>(category))) {
-                if (seen.contains(field.name)) continue;
+            for (const auto &field :
+                 provider->availableAttributes(static_cast<OpenSWMMVis::SwmmCategory>(category))) {
+                if (seen.contains(field.name))
+                    continue;
                 seen.insert(field.name);
                 fields.append(field);
             }
@@ -51,7 +58,8 @@ void LabelsTab::refreshFromModel()
 
 void LabelsTab::pushToModel()
 {
-    if (m_layer) m_layer->setLabelConfig(m_editor->config());
+    if (m_layer)
+        m_layer->setLabelConfig(m_editor->config());
 }
 
 } // namespace openswmmvis::ui

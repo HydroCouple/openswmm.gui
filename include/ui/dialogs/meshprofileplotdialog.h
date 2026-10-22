@@ -1,9 +1,9 @@
-/*!
- * \file   meshprofileplotdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Host dialog for the 2D-mesh longitudinal profile.  Builds a
+/**
+ * @file      meshprofileplotdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Host dialog for the 2D-mesh longitudinal profile.  Builds a
  *         MeshProfile from a traced polyline, hosts a MeshProfilePlotWidget,
  *         and drives the animated depth column from the 2D results layer's
  *         frame changes (which the global AnimationController advances).
@@ -11,7 +11,9 @@
  *         Widget content hosted in a PlotDock tab. Project closure severs
  *         source connections before removing the tab; activation owns the
  *         canvas overlay and map marker tool.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef MESH_PROFILE_PLOT_DIALOG_H
 #define MESH_PROFILE_PLOT_DIALOG_H
 
@@ -47,12 +49,10 @@ class MeshProfilePlotDialog : public openswmmvis::ui::PlotPanelView
 {
     Q_OBJECT
 public:
-    MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
-                          SWMM2DResultsLayer     *results,    // may be null
-                          AnimationController    *anim,
-                          const QVector<QPointF> &scenePolyline,
-                          SWMMVisProjectWindow   *projectWindow,
-                          QWidget                *parent = nullptr);
+    MeshProfilePlotDialog(SWMM2DMeshLayer *mesh,
+                          SWMM2DResultsLayer *results, // may be null
+                          AnimationController *anim, const QVector<QPointF> &scenePolyline,
+                          SWMMVisProjectWindow *projectWindow, QWidget *parent = nullptr);
     ~MeshProfilePlotDialog() override;
     ProfileSection::Definition definition() const;
     bool setDefinition(const ProfileSection::Definition &, QString *error = nullptr);
@@ -72,32 +72,32 @@ private:
     QString sourceId(SWMM2DResultsLayer *) const;
     void exportSectionImage();
     void exportSectionTable();
-    void rebuildProfile();          // full resample (geometry + envelope)
-    void requestEnvelope();         // ask the layer for the temporal maximum
-    void applyEnvelope();           // sample that maximum onto the profile
+    void rebuildProfile();  // full resample (geometry + envelope)
+    void requestEnvelope(); // ask the layer for the temporal maximum
+    void applyEnvelope();   // sample that maximum onto the profile
     void plotActivationChanged(bool active) override;
-    void refreshCurrentDepths();    // per-frame depth-column update
+    void refreshCurrentDepths(); // per-frame depth-column update
     void openDisplayOptions();
 
     // Persistent map overlay (profile line + position arrow) + the map-drag
     // tool that scrubs the arrow. Lifetime tied to this dialog.
     void setupMapOverlay();
     void removeOverlay();
-    void setMarkerToolActive(bool on);   // toggle map-side dragging
+    void setMarkerToolActive(bool on); // toggle map-side dragging
 
-    QPointer<SWMM2DMeshLayer>     m_mesh;
-    QPointer<SWMM2DResultsLayer>  m_results;
+    QPointer<SWMM2DMeshLayer> m_mesh;
+    QPointer<SWMM2DResultsLayer> m_results;
     QPointer<AnimationController> m_anim;
     QPointer<SWMMVisProjectWindow> m_projectWindow;
-    QVector<QPointF>              m_scenePolyline;
+    QVector<QPointF> m_scenePolyline;
 
-    MeshProfilePlotWidget        *m_plot    = nullptr;
-    MeshProfilePlotOptions       *m_options = nullptr;
+    MeshProfilePlotWidget *m_plot = nullptr;
+    MeshProfilePlotOptions *m_options = nullptr;
 
     ProfileSection::Definition m_definition;
     QList<QPointer<SWMM2DResultsLayer>> m_sectionSources;
     QVector<QMetaObject::Connection> m_sectionConnections;
-    QHash<QString,QPair<quint64,QVector<ProfileSection::SeriesStation>>> m_seriesStations;
+    QHash<QString, QPair<quint64, QVector<ProfileSection::SeriesStation>>> m_seriesStations;
     MeshProfileTracksWidget *m_tracks = nullptr;
     MeshProfileSamplesModel *m_samplesModel = nullptr;
     MeshProfileSeriesEditor *m_seriesEditor = nullptr;
@@ -109,15 +109,15 @@ private:
     bool m_loadingDefinition = false;
     bool m_settingTimeFromAnimation = false;
     bool m_rebuildingProfile = false;
-    bool m_seriesRefreshed = false;   // set by refreshSectionSeries()
+    bool m_seriesRefreshed = false; // set by refreshSectionSeries()
     bool m_contextValid = true;
     double m_verticalScale = 1.0;
     double m_mapUnitsPerMetre = 1.0;
 
-    QAction                      *m_markerAction = nullptr;
-    MeshProfileOverlay           *m_overlay    = nullptr;  // owned by map scene
-    MapToolProfileMarker         *m_markerTool = nullptr;  // parented to dialog
-    QPointer<OpenSWMMVisMapTool>  m_prevTool;              // restore on toggle-off/close
+    QAction *m_markerAction = nullptr;
+    MeshProfileOverlay *m_overlay = nullptr;      // owned by map scene
+    MapToolProfileMarker *m_markerTool = nullptr; // parented to dialog
+    QPointer<OpenSWMMVisMapTool> m_prevTool;      // restore on toggle-off/close
 
     // Cached profile — geometry/envelope stay static across animation frames;
     // only the depth column is re-sampled per tick (cheap vs a full rebuild).

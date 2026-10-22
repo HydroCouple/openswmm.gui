@@ -1,6 +1,6 @@
-/*!
- * \file   test_gisrastercrs.cpp
- * \brief  QtTest: a GIS raster layer adopts the CRS its file declares and
+/**
+ * @file      test_gisrastercrs.cpp
+ * @brief     QtTest: a GIS raster layer adopts the CRS its file declares and
  *         reprojects onto a canvas in a different CRS.
  *
  * Companion to the vector-side cases in test_gisvectorpopulate.cpp. The vector
@@ -11,6 +11,10 @@
  * projections in warpToCanvas(), plus an extent transform in
  * buildWindowedSource()), so it was NOT affected — these cases exist to pin
  * that down, because nothing covered raster CRS at all.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/gisrasterlayer.h"
@@ -29,43 +33,79 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select the directory for the synthetic raster CRS fixture.
+ * @return SWMMVIS_GUI_TEST_OUT or current-directory dot; not created or validated.
+ *
+ */
 QString outDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_OUT", QStringLiteral("."));
 }
 
-QString tifPath() { return outDir() + QStringLiteral("/crs_utm33n.tif"); }
+/**
+ *
+ * @brief Join the fixed synthetic raster filename to outDir().
+ * @return Path ending crs_utm33n.tif; no existence check or file IO.
+ *
+ */
+QString tifPath()
+{
+    return outDir() + QStringLiteral("/crs_utm33n.tif");
+}
 
 /*! A 100x100 GeoTIFF in EPSG:32633 (UTM 33N) whose origin is 500000 E /
  *  4601000 N at 10 m pixels — a 1 km square around 15 E, 41.5 N. Every pixel
  *  is 200 so any rendered coverage is unambiguous against a 0 background. */
+/**
+ *
+ * @brief Create the 100-by-100 constant-byte UTM 33N raster used by CRS tests.
+ * @return False on missing GTiff driver, create/EPSG-import/pixel-write failure;
+ * true after raster close. Registers GDAL globally, removes an existing tifPath(),
+ * and writes value 200 at 10-m pixels with EPSG:32633 georeferencing. Directory
+ * creation, removal, geotransform/projection/export/close errors are not checked;
+ * a failed run can leave a partial file. Requires writable outDir, GDAL GTiff and
+ * EPSG data. No input raster is modified other than the designated fixture path.
+ *
+ */
 bool buildTif()
 {
     GDALAllRegister();
     GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-    if (!drv) return false;
+    if (!drv)
+        return false;
 
     const QByteArray p = tifPath().toUtf8();
-    if (QFile::exists(tifPath())) QFile::remove(tifPath());
+    if (QFile::exists(tifPath()))
+        QFile::remove(tifPath());
 
     GDALDataset *ds = drv->Create(p.constData(), 100, 100, 1, GDT_Byte, nullptr);
-    if (!ds) return false;
+    if (!ds)
+        return false;
 
-    double gt[6] = { 500000.0, 10.0, 0.0, 4601000.0, 0.0, -10.0 };
+    double gt[6] = {500000.0, 10.0, 0.0, 4601000.0, 0.0, -10.0};
     ds->SetGeoTransform(gt);
 
     OGRSpatialReference srs;
-    if (srs.importFromEPSG(32633) != OGRERR_NONE) { GDALClose(ds); return false; }
+    if (srs.importFromEPSG(32633) != OGRERR_NONE) {
+        GDALClose(ds);
+        return false;
+    }
     char *wkt = nullptr;
     srs.exportToWkt(&wkt);
-    if (wkt) { ds->SetProjection(wkt); CPLFree(wkt); }
+    if (wkt) {
+        ds->SetProjection(wkt);
+        CPLFree(wkt);
+    }
 
     std::vector<GByte> row(100, 200);
     for (int y = 0; y < 100; ++y) {
-        if (ds->GetRasterBand(1)->RasterIO(GF_Write, 0, y, 100, 1, row.data(),
-                                           100, 1, GDT_Byte, 0, 0) != CE_None) {
+        if (ds->GetRasterBand(1)->RasterIO(GF_Write, 0, y, 100, 1, row.data(), 100, 1, GDT_Byte, 0,
+                                           0) != CE_None) {
             GDALClose(ds);
             return false;
         }
@@ -81,6 +121,12 @@ class TestGisRasterCRS : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require successful synthetic GeoTIFF creation before CRS cases.
+     * Writes/overwrites tifPath(); failure records a QtTest setup assertion.
+     *
+     */
     void initTestCase() { QVERIFY(buildTif()); }
 
     /*! The layer adopts the CRS declared by the file. */
@@ -88,8 +134,7 @@ private slots:
     {
         GISRasterLayer layer(tifPath());
         SpatialReferenceSystem *s = layer.srs();
-        QVERIFY2(s != nullptr,
-                 "raster layer has no SRS after opening a file declaring EPSG:32633");
+        QVERIFY2(s != nullptr, "raster layer has no SRS after opening a file declaring EPSG:32633");
         QCOMPARE(s->code(), 32633);
         QVERIFY(s->isProjected());
     }
@@ -119,7 +164,7 @@ private slots:
                 layer.fetchCache(e, img.size(), &canvas);
                 QSignalSpy repaint(&layer, &GISRasterLayer::repaintRequested);
                 if (!repaint.wait(250) && round > 2)
-                    break;   // settled: no more tiles arriving
+                    break; // settled: no more tiles arriving
             }
 
             QPainter pr(&img);
@@ -129,7 +174,8 @@ private slots:
             int painted = 0;
             for (int y = 0; y < img.height(); ++y)
                 for (int x = 0; x < img.width(); ++x)
-                    if (qAlpha(img.pixel(x, y)) != 0) ++painted;
+                    if (qAlpha(img.pixel(x, y)) != 0)
+                        ++painted;
             return painted;
         };
 
@@ -141,10 +187,9 @@ private slots:
         // longitude, so coverage there would prove nothing.)
         const int atElsewhere = coverage(MapExtent(-100.0, 10.0, -99.0, 11.0));
 
-        QVERIFY2(atLonLat > 0,
-                 qPrintable(QStringLiteral("no raster coverage at the reprojected "
-                                           "lon/lat footprint (painted=%1)")
-                                .arg(atLonLat)));
+        QVERIFY2(atLonLat > 0, qPrintable(QStringLiteral("no raster coverage at the reprojected "
+                                                         "lon/lat footprint (painted=%1)")
+                                              .arg(atLonLat)));
         QVERIFY2(atElsewhere == 0,
                  qPrintable(QStringLiteral("raster painted at 100 W / 10 N, nowhere "
                                            "near its UTM 33N footprint (painted=%1)")

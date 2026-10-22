@@ -1,10 +1,12 @@
-/*!
- * \file   userflagsdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  UserFlagsDialog implementation — see userflagsdialog.h.
+/**
+ * @file      userflagsdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     UserFlagsDialog implementation — see userflagsdialog.h.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/userflagsdialog.h"
 
 #include <QComboBox>
@@ -21,7 +23,8 @@
 using openswmmvis::ui::UserFlagsModel;
 using FlagType = UserFlagsModel::FlagType;
 
-namespace {
+namespace
+{
 
 enum Column { ColName = 0, ColType = 1, ColDescription = 2, ColCount = 3 };
 
@@ -32,10 +35,8 @@ QComboBox *makeTypeCombo(FlagType current)
                    static_cast<int>(FlagType::Boolean));
     combo->addItem(UserFlagsModel::typeLabel(FlagType::Integer),
                    static_cast<int>(FlagType::Integer));
-    combo->addItem(UserFlagsModel::typeLabel(FlagType::Real),
-                   static_cast<int>(FlagType::Real));
-    combo->addItem(UserFlagsModel::typeLabel(FlagType::String),
-                   static_cast<int>(FlagType::String));
+    combo->addItem(UserFlagsModel::typeLabel(FlagType::Real), static_cast<int>(FlagType::Real));
+    combo->addItem(UserFlagsModel::typeLabel(FlagType::String), static_cast<int>(FlagType::String));
     combo->setCurrentIndex(combo->findData(static_cast<int>(current)));
     return combo;
 }
@@ -43,24 +44,21 @@ QComboBox *makeTypeCombo(FlagType current)
 } // namespace
 
 UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
-    : QDialog(parent)
-    , m_model(model)
+    : QDialog(parent), m_model(model)
 {
     setWindowTitle(tr("User Flags"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("UserFlagsDialog"));
     resize(560, 380);
 
-    auto *intro = new QLabel(
-        tr("User flags attach typed metadata to model objects (nodes, links, "
-           "subcatchments, …). Define the available flags here; assign "
-           "per-object values in the Attribute Table or the Attributes "
-           "panel."));
+    auto *intro = new QLabel(tr("User flags attach typed metadata to model objects (nodes, links, "
+                                "subcatchments, …). Define the available flags here; assign "
+                                "per-object values in the Attribute Table or the Attributes "
+                                "panel."));
     intro->setWordWrap(true);
 
     m_table = new QTableWidget(0, ColCount, this);
-    m_table->setHorizontalHeaderLabels(
-        {tr("Name"), tr("Type"), tr("Description")});
+    m_table->setHorizontalHeaderLabels({tr("Name"), tr("Type"), tr("Description")});
     // User-resizable columns; Description absorbs leftover width but can
     // still be dragged since only the last section stretches.
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -71,9 +69,9 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
 
-    m_addButton    = new QPushButton(tr("Add"), this);
+    m_addButton = new QPushButton(tr("Add"), this);
     m_removeButton = new QPushButton(tr("Remove"), this);
-    connect(m_addButton,    &QPushButton::clicked, this, &UserFlagsDialog::onAddClicked);
+    connect(m_addButton, &QPushButton::clicked, this, &UserFlagsDialog::onAddClicked);
     connect(m_removeButton, &QPushButton::clicked, this, &UserFlagsDialog::onRemoveClicked);
 
     auto *sideButtons = new QVBoxLayout;
@@ -85,14 +83,12 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     tableRow->addWidget(m_table, 1);
     tableRow->addLayout(sideButtons);
 
-    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok |
-                                       QDialogButtonBox::Cancel |
-                                       QDialogButtonBox::Apply, this);
-    connect(m_buttonBox, &QDialogButtonBox::accepted,
-            this, &UserFlagsDialog::onAccepted);
+    m_buttonBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
+    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &UserFlagsDialog::onAccepted);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(m_buttonBox->button(QDialogButtonBox::Apply), &QPushButton::clicked,
-            this, &UserFlagsDialog::onApplyClicked);
+    connect(m_buttonBox->button(QDialogButtonBox::Apply), &QPushButton::clicked, this,
+            &UserFlagsDialog::onApplyClicked);
 
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(intro);
@@ -105,13 +101,13 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
 void UserFlagsDialog::reloadFromModel()
 {
     m_table->setRowCount(0);
-    if (!m_model) return;
+    if (!m_model)
+        return;
     for (const auto &def : m_model->defs())
         addRow(def.name, def.type, def.description);
 }
 
-void UserFlagsDialog::addRow(const QString &name, FlagType type,
-                             const QString &description)
+void UserFlagsDialog::addRow(const QString &name, FlagType type, const QString &description)
 {
     const int row = m_table->rowCount();
     m_table->insertRow(row);
@@ -122,10 +118,8 @@ void UserFlagsDialog::addRow(const QString &name, FlagType type,
 
 UserFlagsModel::FlagType UserFlagsDialog::rowType(int row) const
 {
-    const auto *combo =
-        qobject_cast<QComboBox *>(m_table->cellWidget(row, ColType));
-    return combo ? static_cast<FlagType>(combo->currentData().toInt())
-                 : FlagType::String;
+    const auto *combo = qobject_cast<QComboBox *>(m_table->cellWidget(row, ColType));
+    return combo ? static_cast<FlagType>(combo->currentData().toInt()) : FlagType::String;
 }
 
 void UserFlagsDialog::onAddClicked()
@@ -139,22 +133,23 @@ void UserFlagsDialog::onAddClicked()
 void UserFlagsDialog::onRemoveClicked()
 {
     const int row = m_table->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
 
-    const QString name =
-        m_table->item(row, ColName)
-            ? m_table->item(row, ColName)->text().trimmed().toUpper()
-            : QString();
+    const QString name = m_table->item(row, ColName)
+                             ? m_table->item(row, ColName)->text().trimmed().toUpper()
+                             : QString();
     // Removing a flag that exists in the engine also removes every value
     // assigned to objects — confirm before staging the removal.
-    if (m_confirmationsEnabled && m_model && !name.isEmpty()
-        && m_model->isDefined(name)) {
-        const auto answer = QMessageBox::question(
-            this, tr("Remove User Flag"),
-            tr("Removing the flag \"%1\" also removes every value assigned "
-               "to objects. Remove it?").arg(name),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (answer != QMessageBox::Yes) return;
+    if (m_confirmationsEnabled && m_model && !name.isEmpty() && m_model->isDefined(name)) {
+        const auto answer =
+            QMessageBox::question(this, tr("Remove User Flag"),
+                                  tr("Removing the flag \"%1\" also removes every value assigned "
+                                     "to objects. Remove it?")
+                                      .arg(name),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return;
     }
     m_table->removeRow(row);
 }
@@ -162,20 +157,24 @@ void UserFlagsDialog::onRemoveClicked()
 bool UserFlagsDialog::applyChanges(QString *outError)
 {
     if (!m_model) {
-        if (outError) *outError = tr("No project is open.");
+        if (outError)
+            *outError = tr("No project is open.");
         return false;
     }
 
     // ---- Collect + validate the staged rows -------------------------------
-    struct Row { QString name; FlagType type; QString description; };
+    struct Row {
+        QString name;
+        FlagType type;
+        QString description;
+    };
     QVector<Row> staged;
     staged.reserve(m_table->rowCount());
     QSet<QString> seen;
     for (int r = 0; r < m_table->rowCount(); ++r) {
         Row row;
-        row.name = m_table->item(r, ColName)
-                       ? m_table->item(r, ColName)->text().trimmed().toUpper()
-                       : QString();
+        row.name = m_table->item(r, ColName) ? m_table->item(r, ColName)->text().trimmed().toUpper()
+                                             : QString();
         row.type = rowType(r);
         row.description = m_table->item(r, ColDescription)
                               ? m_table->item(r, ColDescription)->text().trimmed()
@@ -189,7 +188,8 @@ bool UserFlagsDialog::applyChanges(QString *outError)
             if (outError)
                 *outError = tr("The flag name \"%1\" appears more than once. "
                                "Flag names are case-insensitive and must be "
-                               "unique.").arg(row.name);
+                               "unique.")
+                                .arg(row.name);
             return false;
         }
         seen.insert(row.name);
@@ -208,14 +208,15 @@ bool UserFlagsDialog::applyChanges(QString *outError)
             if (def.name == row.name && def.type != row.type)
                 typeChanged << row.name;
     if (!typeChanged.isEmpty() && m_confirmationsEnabled) {
-        const auto answer = QMessageBox::question(
-            this, tr("Change Flag Type"),
-            tr("Changing the type of %1 clears every value currently "
-               "assigned for the flag(s). Continue?")
-                .arg(typeChanged.join(QStringLiteral(", "))),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        const auto answer =
+            QMessageBox::question(this, tr("Change Flag Type"),
+                                  tr("Changing the type of %1 clears every value currently "
+                                     "assigned for the flag(s). Continue?")
+                                      .arg(typeChanged.join(QStringLiteral(", "))),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) {
-            if (outError) *outError = tr("Type change cancelled.");
+            if (outError)
+                *outError = tr("Type change cancelled.");
             return false;
         }
     }
@@ -236,18 +237,21 @@ bool UserFlagsDialog::applyChanges(QString *outError)
     for (const auto &row : staged) {
         const UserFlagsModel::Def *existing = nullptr;
         for (const auto &def : before)
-            if (def.name == row.name) { existing = &def; break; }
+            if (def.name == row.name) {
+                existing = &def;
+                break;
+            }
 
-        if (existing && existing->type == row.type
-            && existing->description == row.description)
-            continue;  // unchanged
+        if (existing && existing->type == row.type && existing->description == row.description)
+            continue; // unchanged
 
         if (existing && existing->type != row.type)
             m_model->undefine(row.name);
 
         QString err;
         if (!m_model->define(row.name, row.type, row.description, &err)) {
-            if (outError) *outError = err;
+            if (outError)
+                *outError = err;
             return false;
         }
         wrote = true;
@@ -271,7 +275,7 @@ void UserFlagsDialog::onAccepted()
     if (!applyChanges(&err)) {
         if (m_confirmationsEnabled)
             QMessageBox::warning(this, tr("User Flags"), err);
-        return;  // keep the dialog open so the user can fix the row
+        return; // keep the dialog open so the user can fix the row
     }
     accept();
 }

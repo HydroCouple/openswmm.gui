@@ -1,8 +1,10 @@
-/*!
- * \file   sectiondiagram.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sectiondiagram.cpp
+ * @brief     Slice SP.2 (workplans/SECTION_PREVIEW_WORKPLAN.md).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/sectionview/sectiondiagram.h"
@@ -18,60 +20,80 @@
 #include <algorithm>
 #include <cmath>
 
-namespace openswmmvis::sectionview {
+namespace openswmmvis::sectionview
+{
 
-namespace {
+namespace
+{
 
 // ── Layout constants (device-independent pixels) ────────────────────────────
-constexpr double kMarginX      = 14.0;
-constexpr double kMarginTop    = 8.0;
+constexpr double kMarginX = 14.0;
+constexpr double kMarginTop = 8.0;
 constexpr double kMarginBottom = 8.0;
-constexpr double kTitleH       = 18.0;
-constexpr double kSubtitleH    = 14.0;
-constexpr double kFooterH      = 16.0;
+constexpr double kTitleH = 18.0;
+constexpr double kSubtitleH = 14.0;
+constexpr double kFooterH = 16.0;
 //! Extra room reserved around the drawing for dimension lines + leaders.
 constexpr double kAnnotationPad = 46.0;
-constexpr double kArrowSize     = 6.5;
+constexpr double kArrowSize = 6.5;
 constexpr double kPlanInsetSize = 96.0;
 //! Buffer above the first dial and between stacked dials. Without it the top
 //! dial's spoke labels, which reach past its ring, are written over the
 //! subtitle sitting directly above.
-constexpr double kPlanInsetGap    = 10.0;
+constexpr double kPlanInsetGap = 10.0;
 //! Band under each dial for its "Inlet · J1" caption, kept OUTSIDE the dial's
 //! own square so the caption cannot land on the ring or on a spoke label.
 constexpr double kPlanInsetTitleH = 14.0;
 
 //! Below these widths/heights annotations are progressively dropped.
 constexpr double kMinWidthForLeaders = 300.0;
-constexpr double kMinWidthForDims    = 220.0;
+constexpr double kMinWidthForDims = 220.0;
 constexpr double kMinHeightForFooter = 150.0;
 
 //! Translations for this file live under one context, matching the builders.
+/**
+ * @param[in] s Required borrowed NUL-terminated source text.
+ * @return Translation in openswmmvis::sectionview context, source fallback. No persistent/model
+ *   mutation.
+ */
 inline QString tr_(const char *s)
 {
     return QCoreApplication::translate("openswmmvis::sectionview", s);
 }
 
 /*! Blend \p over onto \p base by \p t (0..1) — keeps derived fills tied to the
- *  palette so dark themes stay legible without a second colour table. */
+ *  palette so dark themes stay legible without a second colour table.
+ * @param[in] base Borrowed first QColor.
+ * @param[in] over Borrowed second QColor.
+ * @param[in] t Expected finite interpolation weight [0,1]; not explicitly clamped.
+ * @return RGB component-wise linear blend, alpha defaults fully opaque rather than compositing
+ *   either input alpha. No gamma correction/colour-space conversion or mutation. Out-of-range
+ *   inputs follow QColor::fromRgbF behavior.
+ */
 QColor mix(const QColor &base, const QColor &over, qreal t)
 {
-    return QColor::fromRgbF(base.redF()   * (1 - t) + over.redF()   * t,
+    return QColor::fromRgbF(base.redF() * (1 - t) + over.redF() * t,
                             base.greenF() * (1 - t) + over.greenF() * t,
-                            base.blueF()  * (1 - t) + over.blueF()  * t);
+                            base.blueF() * (1 - t) + over.blueF() * t);
 }
 
-void drawArrowHead(QPainter &p, const QPointF &tip, double angleRad,
-                   const QColor &color)
+/**
+ * @param[in,out] p Active logical-pixel painter; pen becomes NoPen and brush=color without
+ *   save/restore.
+ * @param[in] tip Finite screen-coordinate apex.
+ * @param[in] angleRad Finite direction radians, 0 points +x; head extends backwards.
+ * @param[in] color Copied fill colour including alpha.
+ * @brief Draw fixed 6.5 pixel triangular arrowhead, half-width 0.38×length. No input
+ *   validation/clipping setup, caller manages outer state.
+ */
+void drawArrowHead(QPainter &p, const QPointF &tip, double angleRad, const QColor &color)
 {
     const double c = std::cos(angleRad), s = std::sin(angleRad);
     auto rot = [&](double dx, double dy) {
         return QPointF(tip.x() + dx * c - dy * s, tip.y() + dx * s + dy * c);
     };
     QPolygonF head;
-    head << tip
-         << rot(-kArrowSize,  kArrowSize * 0.38)
-         << rot(-kArrowSize, -kArrowSize * 0.38);
+    head << tip << rot(-kArrowSize, kArrowSize * 0.38) << rot(-kArrowSize, -kArrowSize * 0.38);
     p.setPen(Qt::NoPen);
     p.setBrush(color);
     p.drawPolygon(head);
@@ -83,10 +105,13 @@ void drawArrowHead(QPainter &p, const QPointF &tip, double angleRad,
  * A texture must look identical on every repaint — one that reshuffles when the
  * panel resizes reads as noise rather than as material — so this is a hash, not
  * a random generator, and carries no state.
+ * @param[in] key Integer deterministic key, cast to quint32 with modular hash arithmetic.
+ * @return Reproducible value [-1,1] from low 16 hashed bits; same key always same result, no random
+ *   state/thread mutation.
  */
 double jitter(int key)
 {
-    quint32 h = static_cast<quint32>(key) * 2654435761u;   // Knuth
+    quint32 h = static_cast<quint32>(key) * 2654435761u; // Knuth
     h ^= h >> 15;
     h *= 2246822519u;
     h ^= h >> 13;
@@ -100,14 +125,25 @@ double jitter(int key)
  * clipped to it, so the grain stays a constant visual size as the user zooms —
  * the same convention as a hatch on a drawing sheet, and it avoids a stipple
  * collapsing into a solid block when zoomed out.
+ * @param[in,out] p Active screen-coordinate painter; saves/restores all state around clipped
+ *   pattern.
+ * @param[in] shape Finite screen-space polygon, at least 3 points and bbox >= 2 pixels on each axis
+ *   needed.
+ * @param[in] texture Material enum, None no-op, unknown produces no recognized pattern.
+ * @param[in] ink Base pattern RGB; alpha replaced with 0.55 regardless of input.
+ * @note Intersects existing clip with polygon. Grain spacing/radius fixed in screen pixels,
+ *   deterministic indexed jitter; Brick row height at least 6 pixels or half bbox height. Loops
+ *   cover FULL polygon bbox even outside viewport clip; caller bounds geometry/work. Does not fill
+ *   base material or mutate inputs.
  */
-void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
-                  const QColor &ink)
+void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture, const QColor &ink)
 {
-    if (texture == DiagramTexture::None || shape.size() < 3) return;
+    if (texture == DiagramTexture::None || shape.size() < 3)
+        return;
 
     const QRectF b = shape.boundingRect();
-    if (b.width() < 2.0 || b.height() < 2.0) return;
+    if (b.width() < 2.0 || b.height() < 2.0)
+        return;
 
     p.save();
     QPainterPath clip;
@@ -122,14 +158,14 @@ void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
     case DiagramTexture::Stipple:
     case DiagramTexture::Sand: {
         const double step = (texture == DiagramTexture::Sand) ? 5.0 : 8.0;
-        const double r    = (texture == DiagramTexture::Sand) ? 0.6 : 0.9;
+        const double r = (texture == DiagramTexture::Sand) ? 0.6 : 0.9;
         p.setPen(Qt::NoPen);
         p.setBrush(c);
         int k = 0;
         for (double y = b.top() + 2.0; y < b.bottom(); y += step)
             for (double x = b.left() + 2.0; x < b.right(); x += step, ++k)
-                p.drawEllipse(QPointF(x + jitter(k) * step * 0.35,
-                                      y + jitter(k + 7919) * step * 0.35), r, r);
+                p.drawEllipse(
+                    QPointF(x + jitter(k) * step * 0.35, y + jitter(k + 7919) * step * 0.35), r, r);
         break;
     }
     case DiagramTexture::Gravel: {
@@ -144,8 +180,8 @@ void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
         for (double y = b.top() + 5.0; y < b.bottom(); y += step)
             for (double x = b.left() + 5.0; x < b.right(); x += step, ++k) {
                 const double rr = 2.6 + jitter(k) * 0.9;
-                p.drawEllipse(QPointF(x + jitter(k + 104729) * 3.0,
-                                      y + jitter(k + 15485863) * 3.0), rr, rr);
+                p.drawEllipse(QPointF(x + jitter(k + 104729) * 3.0, y + jitter(k + 15485863) * 3.0),
+                              rr, rr);
             }
         break;
     }
@@ -178,8 +214,7 @@ void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
         p.setBrush(Qt::NoBrush);
         const double step = 8.0;
         for (double x = b.left() - b.height(); x < b.right(); x += step)
-            p.drawLine(QPointF(x, b.bottom()),
-                       QPointF(x + b.height(), b.top()));
+            p.drawLine(QPointF(x, b.bottom()), QPointF(x + b.height(), b.top()));
         break;
     }
     case DiagramTexture::Lattice: {
@@ -222,24 +257,39 @@ void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
  * Profile sheets are annotated "V:H 10:1", not "V:H 14.7:1" — a ratio that
  * drifts with the pane width tells the reader nothing they can hold on to.
  * Rounding DOWN keeps the drawing no more distorted than the annotation says.
+ * @param[in] ve Requested ratio; finite positive normally, no separate validation.
+ * @return Greatest conventional 1..100 entry <= request, floored at 1 and capped 100. NaN yields 1,
+ *   positive infinity 100. Pure lookup, not nearest-rounding or arbitrary larger-scale extension.
  */
 double snapExaggeration(double ve)
 {
-    static constexpr double kNice[] = { 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0,
-                                        7.5, 10.0, 15.0, 20.0, 25.0, 30.0,
-                                        40.0, 50.0, 75.0, 100.0 };
-    if (ve <= kNice[0]) return kNice[0];
+    static constexpr double kNice[] = {1.0,  1.5,  2.0,  2.5,  3.0,  4.0,  5.0,  7.5,  10.0,
+                                       15.0, 20.0, 25.0, 30.0, 40.0, 50.0, 75.0, 100.0};
+    if (ve <= kNice[0])
+        return kNice[0];
     double best = kNice[0];
     for (double n : kNice)
-        if (n <= ve) best = n;
+        if (n <= ve)
+            best = n;
     return best;
 }
 
-/*! One shrub (a stem with two pairs of leaves) or one grass tuft. */
-void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
-                const QColor &green, int key)
+/*! One shrub (a stem with two pairs of leaves) or one grass tuft.
+ * @param[in,out] p Active screen painter; changes pen/brush, no save/restore.
+ * @param[in] base Finite screen-coordinate root point.
+ * @param[in] heightPx Finite plant height in pixels, below 3 ignored.
+ * @param[in] grass True three turf blades, false stem/two leaf pairs.
+ * @param[in] green Stroke QColor.
+ * @param[in] key Deterministic jitter seed; intermediate signed key additions must be
+ *   representable.
+ * @note Plant extends upward in Y-down screen, stem width clamped [0.8,2.2]. Decorative geometry
+ *   only, no model/palette/engine lookup. Caller manages clip/state.
+ */
+void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass, const QColor &green,
+                int key)
 {
-    if (heightPx < 3.0) return;
+    if (heightPx < 3.0)
+        return;
 
     QPen stem(green);
     stem.setWidthF(std::clamp(heightPx * 0.09, 0.8, 2.2));
@@ -251,10 +301,9 @@ void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
         // Three splayed blades — turf / swale bottom.
         for (int i = -1; i <= 1; ++i) {
             const double lean = (i * 0.30) + jitter(key + i) * 0.12;
-            const double h    = heightPx * (0.75 + 0.25 * (i == 0 ? 1.0 : 0.6));
+            const double h = heightPx * (0.75 + 0.25 * (i == 0 ? 1.0 : 0.6));
             QPainterPath blade(base);
-            blade.quadTo(base + QPointF(lean * h * 0.4, -h * 0.6),
-                         base + QPointF(lean * h, -h));
+            blade.quadTo(base + QPointF(lean * h * 0.4, -h * 0.6), base + QPointF(lean * h, -h));
             p.drawPath(blade);
         }
         return;
@@ -263,11 +312,11 @@ void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
     // Shrub: upright stem plus two leaf pairs.
     const QPointF top = base + QPointF(jitter(key) * heightPx * 0.08, -heightPx);
     p.drawLine(base, top);
-    for (double f : { 0.45, 0.75 }) {
+    for (double f : {0.45, 0.75}) {
         const QPointF at = base + (top - base) * f;
-        const double  L  = heightPx * 0.30;
+        const double L = heightPx * 0.30;
         p.drawLine(at, at + QPointF(-L, -L * 0.75));
-        p.drawLine(at, at + QPointF( L, -L * 0.75));
+        p.drawLine(at, at + QPointF(L, -L * 0.75));
     }
 }
 
@@ -278,33 +327,40 @@ void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
  * the same ripple whatever the drawing's scale — the ripple is notation, not
  * geometry, and an amplitude in model units would read as a claim about wave
  * height.
+ * @param[in,out] p Active screen painter; draws using current pen/brush, does not set state.
+ * @param[in] px Finite polyline in screen coordinates, fewer than 2 points ignored.
+ * @note Each segment >= 1 pixel restarts alternating quadratic half-waves, wavelength 13
+ *   pixels/amplitude 1.9 pixels, stopping within 0.5 pixel of end. Constant notation size, no real
+ *   wave-height claim. Does not mutate polygon/fit or scale to model units.
  */
 void drawWaveTrain(QPainter &p, const QPolygonF &px)
 {
-    if (px.size() < 2) return;
+    if (px.size() < 2)
+        return;
 
     constexpr double kWaveLen = 13.0;
-    constexpr double kAmp     = 1.9;
+    constexpr double kAmp = 1.9;
 
     QPainterPath path;
     for (int i = 1; i < px.size(); ++i) {
         const QPointF a = px.at(i - 1), b = px.at(i);
-        const double  dx = b.x() - a.x(), dy = b.y() - a.y();
-        const double  len = std::hypot(dx, dy);
-        if (len < 1.0) continue;
-        const QPointF u(dx / len, dy / len);          // along
-        const QPointF n(-u.y(),   u.x());             // across
+        const double dx = b.x() - a.x(), dy = b.y() - a.y();
+        const double len = std::hypot(dx, dy);
+        if (len < 1.0)
+            continue;
+        const QPointF u(dx / len, dy / len); // along
+        const QPointF n(-u.y(), u.x());      // across
 
         path.moveTo(a);
         // Half-wave arcs, alternating side; the last partial wave is clipped by
         // stopping at the segment end rather than overshooting it.
-        int   half = 0;
-        double s   = 0.0;
+        int half = 0;
+        double s = 0.0;
         while (s < len - 0.5) {
             const double step = std::min(kWaveLen * 0.5, len - s);
             const QPointF from = a + u * s;
-            const QPointF to   = a + u * (s + step);
-            const double  side = (half % 2 == 0) ? 1.0 : -1.0;
+            const QPointF to = a + u * (s + step);
+            const double side = (half % 2 == 0) ? 1.0 : -1.0;
             path.quadTo(from + u * (step * 0.5) + n * (kAmp * 2.0 * side), to);
             s += step;
             ++half;
@@ -320,15 +376,27 @@ void drawWaveTrain(QPainter &p, const QPolygonF &px)
  * model gives no dimensions for (a pump curve is not a casing size), so drawing
  * them to scale would be inventing numbers. \p flip mirrors the glyph so it
  * faces the direction its flow runs.
+ * @param[in,out] p Active screen painter; saves/restores translation/scale/pen/brush.
+ * @param[in] at Finite screen anchor.
+ * @param[in] kind Device glyph; unknown draws nothing.
+ * @param[in] s Finite nominal pixel size, below 6 ignored. Pump/nozzles/cover may extend beyond
+ *   nominal square.
+ * @param[in] flip True mirror horizontally around anchor.
+ * @param[in] ink Outline QColor.
+ * @param[in] fill Fill QColor.
+ * @note Fixed pixel P&ID-style symbols, not measured physical device casing. No model/palette
+ *   lookup, unit conversion or fit contribution. Outer caller handles clipping.
  */
-void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
-                 double s, bool flip, const QColor &ink, const QColor &fill)
+void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind, double s, bool flip,
+                 const QColor &ink, const QColor &fill)
 {
-    if (s < 6.0) return;
+    if (s < 6.0)
+        return;
 
     p.save();
     p.translate(at);
-    if (flip) p.scale(-1.0, 1.0);
+    if (flip)
+        p.scale(-1.0, 1.0);
 
     QPen pen(ink);
     pen.setWidthF(std::clamp(s * 0.07, 1.0, 2.0));
@@ -347,8 +415,7 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
         // Discharge: up out of the casing, then over — the elbow that makes the
         // glyph read as a pump rather than as a valve.
         QPolygonF disch;
-        disch << QPointF(0.0, -r)
-              << QPointF(0.0, -r - s * 0.42)
+        disch << QPointF(0.0, -r) << QPointF(0.0, -r - s * 0.42)
               << QPointF(r + s * 0.34, -r - s * 0.42);
         p.drawPolyline(disch);
         // Suction stub.
@@ -361,11 +428,9 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
         for (int i = 0; i < 3; ++i) {
             const double a0 = i * (2.0 * M_PI / 3.0);
             const QPointF hub(std::cos(a0) * r * 0.20, std::sin(a0) * r * 0.20);
-            const QPointF tip(std::cos(a0 + 0.7) * r * 0.72,
-                              std::sin(a0 + 0.7) * r * 0.72);
+            const QPointF tip(std::cos(a0 + 0.7) * r * 0.72, std::sin(a0 + 0.7) * r * 0.72);
             QPainterPath v(hub);
-            v.quadTo(QPointF(std::cos(a0 + 0.15) * r * 0.55,
-                             std::sin(a0 + 0.15) * r * 0.55), tip);
+            v.quadTo(QPointF(std::cos(a0 + 0.15) * r * 0.55, std::sin(a0 + 0.15) * r * 0.55), tip);
             p.drawPath(v);
         }
         break;
@@ -378,10 +443,8 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
         p.drawLine(QPointF(0.0, 0.0), QPointF(0.0, h * 0.10));
         p.setBrush(fill);
         QPolygonF plate;
-        plate << QPointF(-h * 0.06, h * 0.06)
-              << QPointF( h * 0.34, h * 0.86)
-              << QPointF( h * 0.22, h * 0.94)
-              << QPointF(-h * 0.18, h * 0.12);
+        plate << QPointF(-h * 0.06, h * 0.06) << QPointF(h * 0.34, h * 0.86)
+              << QPointF(h * 0.22, h * 0.94) << QPointF(-h * 0.18, h * 0.12);
         p.drawPolygon(plate);
         p.setBrush(ink);
         p.drawEllipse(QPointF(0.0, 0.0), s * 0.075, s * 0.075);
@@ -391,8 +454,8 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
         // Frame and cover in section: a shallow lip with the cover seated in it.
         const double w = s * 0.60, h = s * 0.20;
         QPolygonF frame;
-        frame << QPointF(-w, 0.0) << QPointF(w, 0.0)
-              << QPointF(w * 0.82, -h) << QPointF(-w * 0.82, -h);
+        frame << QPointF(-w, 0.0) << QPointF(w, 0.0) << QPointF(w * 0.82, -h)
+              << QPointF(-w * 0.82, -h);
         p.drawPolygon(frame);
         p.setBrush(Qt::NoBrush);
         p.drawLine(QPointF(-w * 0.62, -h * 0.5), QPointF(w * 0.62, -h * 0.5));
@@ -425,23 +488,33 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
 QColor diagramFillColor(DiagramRole role, const QPalette &palette)
 {
     const QColor base = palette.color(QPalette::Base);
-    const QColor hi   = palette.color(QPalette::Highlight);
+    const QColor hi = palette.color(QPalette::Highlight);
     const QColor text = palette.color(QPalette::WindowText);
 
     switch (role) {
-    case DiagramRole::Conduit:    return mix(base, hi,   0.18);
-    case DiagramRole::Structure:  return mix(base, text, 0.12);
+    case DiagramRole::Conduit:
+        return mix(base, hi, 0.18);
+    case DiagramRole::Structure:
+        return mix(base, text, 0.12);
     // Redder and stronger than Soil, which it may sit next to: a tank shell has
     // to be the most saturated thing in a node profile or "brown structure"
     // just reads as a dirty grey manhole.
-    case DiagramRole::Storage:    return mix(base, QColor(146,  92,  48), 0.40);
-    case DiagramRole::Soil:       return mix(base, QColor(150, 120,  70), 0.30);
-    case DiagramRole::Media:      return mix(base, QColor(160, 130,  80), 0.42);
-    case DiagramRole::Gravel:     return mix(base, text, 0.18);
-    case DiagramRole::Vegetation: return mix(base, QColor( 90, 160,  90), 0.32);
-    case DiagramRole::Water:      return mix(base, hi,   0.36);
-    case DiagramRole::Muted:      return mix(base, text, 0.07);
-    case DiagramRole::Accent:     return mix(base, hi,   0.30);
+    case DiagramRole::Storage:
+        return mix(base, QColor(146, 92, 48), 0.40);
+    case DiagramRole::Soil:
+        return mix(base, QColor(150, 120, 70), 0.30);
+    case DiagramRole::Media:
+        return mix(base, QColor(160, 130, 80), 0.42);
+    case DiagramRole::Gravel:
+        return mix(base, text, 0.18);
+    case DiagramRole::Vegetation:
+        return mix(base, QColor(90, 160, 90), 0.32);
+    case DiagramRole::Water:
+        return mix(base, hi, 0.36);
+    case DiagramRole::Muted:
+        return mix(base, text, 0.07);
+    case DiagramRole::Accent:
+        return mix(base, hi, 0.30);
     }
     return base;
 }
@@ -450,13 +523,17 @@ QColor diagramStrokeColor(DiagramRole role, const QPalette &palette)
 {
     const QColor text = palette.color(QPalette::WindowText);
     switch (role) {
-    case DiagramRole::Muted:  return palette.color(QPalette::Mid);
-    case DiagramRole::Accent: return palette.color(QPalette::Highlight).darker(120);
+    case DiagramRole::Muted:
+        return palette.color(QPalette::Mid);
+    case DiagramRole::Accent:
+        return palette.color(QPalette::Highlight).darker(120);
     // Brown ink, not black: the shell outline is the widest stroke on a storage
     // profile, and leaving it the text colour made the fill look like a tint
     // rather than like a material.
-    case DiagramRole::Storage: return mix(text, QColor(104, 60, 28), 0.62);
-    default:                  return text;
+    case DiagramRole::Storage:
+        return mix(text, QColor(104, 60, 28), 0.62);
+    default:
+        return text;
     }
 }
 
@@ -468,28 +545,46 @@ QRectF SectionDiagramModel::computeBounds() const
 {
     // NB: a zero-size QRectF *is* null, so `isNull()` cannot be used as the
     // "nothing accumulated yet" flag — an explicit one is required.
-    bool   have = false;
+    bool have = false;
     QRectF r;
     auto add = [&r, &have](const QPointF &p) {
-        if (!have) { r = QRectF(p, QSizeF(0.0, 0.0)); have = true; return; }
-        r.setLeft  (std::min(r.left(),   p.x()));
-        r.setRight (std::max(r.right(),  p.x()));
-        r.setTop   (std::min(r.top(),    p.y()));
+        if (!have) {
+            r = QRectF(p, QSizeF(0.0, 0.0));
+            have = true;
+            return;
+        }
+        r.setLeft(std::min(r.left(), p.x()));
+        r.setRight(std::max(r.right(), p.x()));
+        r.setTop(std::min(r.top(), p.y()));
         r.setBottom(std::max(r.bottom(), p.y()));
     };
 
-    for (const auto &poly : polys)      for (const QPointF &p : poly.pts) add(p);
-    for (const auto &pl   : polylines)  for (const QPointF &p : pl.pts)   add(p);
-    for (const auto &g    : grounds)  { add({g.x0, g.y}); add({g.x1, g.y}); }
-    for (const auto &d    : dims)     { add(d.from); add(d.to); }
-    for (const auto &l    : leaders)    add(l.anchor);
+    for (const auto &poly : polys)
+        for (const QPointF &p : poly.pts)
+            add(p);
+    for (const auto &pl : polylines)
+        for (const QPointF &p : pl.pts)
+            add(p);
+    for (const auto &g : grounds) {
+        add({g.x0, g.y});
+        add({g.x1, g.y});
+    }
+    for (const auto &d : dims) {
+        add(d.from);
+        add(d.to);
+    }
+    for (const auto &l : leaders)
+        add(l.anchor);
 
-    if (!have) return {};
+    if (!have)
+        return {};
 
     // Guard against a zero-extent axis (a single horizontal ground line, a
     // DUMMY section) so the fit below never divides by zero.
-    if (r.width()  <= 0.0) r.adjust(-0.5, 0.0, 0.5, 0.0);
-    if (r.height() <= 0.0) r.adjust(0.0, -0.5, 0.0, 0.5);
+    if (r.width() <= 0.0)
+        r.adjust(-0.5, 0.0, 0.5, 0.0);
+    if (r.height() <= 0.0)
+        r.adjust(0.0, -0.5, 0.0, 0.5);
     return r;
 }
 
@@ -497,20 +592,17 @@ QRectF SectionDiagramModel::computeBounds() const
 // Painting
 // ---------------------------------------------------------------------------
 
-void paintSectionDiagram(QPainter &p, const QRectF &target,
-                         const SectionDiagramModel &model,
-                         const QPalette &palette,
-                         const DiagramViewport &viewport,
-                         QRectF *fitRectOut,
-                         double *achievedExaggerationOut)
+void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagramModel &model,
+                         const QPalette &palette, const DiagramViewport &viewport,
+                         QRectF *fitRectOut, double *achievedExaggerationOut)
 {
     p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    const QColor inkColor    = palette.color(QPalette::WindowText);
-    const QColor mutedColor  = palette.color(QPalette::Mid);
-    const QColor dimColor    = palette.color(QPalette::Highlight).darker(115);
+    const QColor inkColor = palette.color(QPalette::WindowText);
+    const QColor mutedColor = palette.color(QPalette::Mid);
+    const QColor dimColor = palette.color(QPalette::Highlight).darker(115);
     const QColor accentColor = palette.color(QPalette::Highlight);
 
     const QFont baseFont = p.font();
@@ -541,31 +633,31 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     if (model.isEmpty()) {
         p.setPen(mutedColor);
         p.drawText(area, Qt::AlignCenter | Qt::TextWordWrap,
-                   model.emptyText.isEmpty() ? QStringLiteral("—")
-                                             : model.emptyText);
+                   model.emptyText.isEmpty() ? QStringLiteral("—") : model.emptyText);
         p.restore();
         return;
     }
 
     // ── Decluttering budget ────────────────────────────────────────────────
-    const bool showLeaders = target.width()  >= kMinWidthForLeaders;
-    const bool showDims    = target.width()  >= kMinWidthForDims;
-    const bool showFooter  = !model.footer.isEmpty()
-                             && target.height() >= kMinHeightForFooter;
+    const bool showLeaders = target.width() >= kMinWidthForLeaders;
+    const bool showDims = target.width() >= kMinWidthForDims;
+    const bool showFooter = !model.footer.isEmpty() && target.height() >= kMinHeightForFooter;
 
-    if (showFooter) area.setBottom(area.bottom() - kFooterH);
+    if (showFooter)
+        area.setBottom(area.bottom() - kFooterH);
 
     // Reserve the exaggeration note's band BEFORE the drawing area is padded,
     // so it cannot be written over a bottom-most leader label (which is
     // clamped to area.bottom()) or, in a narrow pane where the pad shrinks to
     // 5 px, over the drawing itself.
     const bool showVeNote = model.annotateExaggeration && !model.uniformScale;
-    if (showVeNote) area.setBottom(area.bottom() - fm.height() - 2.0);
+    if (showVeNote)
+        area.setBottom(area.bottom() - fm.height() - 2.0);
 
     // ── Fit model bounds into the drawing area ─────────────────────────────
     const QRectF b = model.bounds.isNull() ? model.computeBounds() : model.bounds;
-    if (b.isNull() || b.width() <= 0.0 || b.height() <= 0.0
-        || area.width() <= 4.0 || area.height() <= 4.0) {
+    if (b.isNull() || b.width() <= 0.0 || b.height() <= 0.0 || area.width() <= 4.0 ||
+        area.height() <= 4.0) {
         p.restore();
         return;
     }
@@ -573,7 +665,10 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     const double pad = (showDims || showLeaders) ? kAnnotationPad : 10.0;
 
     // Padding, fit rect and both axis scales, resolved for one drawing area.
-    struct Fit { QRectF fitRect; double sx = 1.0, sy = 1.0, ve = 1.0; };
+    struct Fit {
+        QRectF fitRect;
+        double sx = 1.0, sy = 1.0, ve = 1.0;
+    };
 
     // Resolved MORE THAN ONCE: the plan insets are placed into whatever slack
     // the fit leaves over, and when there is none the drawing has to be
@@ -587,8 +682,8 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     //   minPadR   widen the annotation margin so a plan dial can be parked in
     //             it — cheaper than carving the dial's whole width out of the
     //             drawing, because the margin is largely reserved already.
-    auto layoutFor = [&](const QRectF &a, const Fit *est,
-                         double minPadL = 0.0, double minPadR = 0.0) -> Fit {
+    auto layoutFor = [&](const QRectF &a, const Fit *est, double minPadL = 0.0,
+                         double minPadR = 0.0) -> Fit {
         Fit f;
 
         // Leader labels are written in the margin on the side their offset
@@ -601,26 +696,26 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             const double cap = a.width() * 0.40;
             double wantL = 0.0, wantR = 0.0;
             for (const DiagramLeader &l : model.leaders) {
-                if (l.text.isEmpty()) continue;
+                if (l.text.isEmpty())
+                    continue;
                 // The elbow itself (pixelOffset + the 8 px landing) sits inside
                 // this margin, so the text needs room BEYOND it — reserving
                 // only the text width still elides by exactly the elbow.
                 const bool right = l.pixelOffset.x() >= 0.0;
-                double w = fm.horizontalAdvance(l.text)
-                           + std::abs(l.pixelOffset.x()) + 16.0;
+                double w = fm.horizontalAdvance(l.text) + std::abs(l.pixelOffset.x()) + 16.0;
                 // A leader anchored mid-reach writes its label over the
                 // drawing and needs no margin at all; only the part that
                 // overhangs the drawing's own edge does. Reserving the full
                 // label width for every leader is what squeezed a long
                 // profile into the middle third of a wide pane.
                 if (est && est->sx > 0.0) {
-                    const double toEdge = right ? (b.right() - l.anchor.x())
-                                                : (l.anchor.x() - b.left());
+                    const double toEdge =
+                        right ? (b.right() - l.anchor.x()) : (l.anchor.x() - b.left());
                     w = std::max(0.0, w - toEdge * est->sx);
                 }
                 (right ? wantR : wantL) = std::max(right ? wantR : wantL, w);
             }
-            padLeft  = std::clamp(wantL, pad, std::max(pad, cap));
+            padLeft = std::clamp(wantL, pad, std::max(pad, cap));
             padRight = std::clamp(wantR, pad, std::max(pad, cap));
         }
 
@@ -631,30 +726,29 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         double padTop = pad * 0.5, padBottom = pad * 0.5;
         if (showDims) {
             const double capV = a.height() * 0.30;
-            const double capH = a.width()  * 0.40;
+            const double capH = a.width() * 0.40;
             for (const DiagramDim &d : model.dims) {
                 const double need = std::abs(d.pixelOffset) + fm.height() + 4.0;
                 const bool horizontal =
                     std::abs(d.to.y() - d.from.y()) <= std::abs(d.to.x() - d.from.x());
                 if (horizontal) {
                     double &side = (d.pixelOffset < 0.0) ? padTop : padBottom;
-                    side = std::clamp(std::max(side, need), pad * 0.5,
-                                      std::max(pad * 0.5, capV));
+                    side = std::clamp(std::max(side, need), pad * 0.5, std::max(pad * 0.5, capV));
                 } else {
                     double &side = (d.pixelOffset < 0.0) ? padLeft : padRight;
-                    side = std::clamp(std::max(side, need), pad,
-                                      std::max(pad, capH));
+                    side = std::clamp(std::max(side, need), pad, std::max(pad, capH));
                 }
             }
         }
 
-        padLeft  = std::max(padLeft,  minPadL);
+        padLeft = std::max(padLeft, minPadL);
         padRight = std::max(padRight, minPadR);
 
         f.fitRect = a.adjusted(padLeft, padTop, -padRight, -padBottom);
-        if (f.fitRect.width() <= 2.0 || f.fitRect.height() <= 2.0) return f;
+        if (f.fitRect.width() <= 2.0 || f.fitRect.height() <= 2.0)
+            return f;
 
-        f.sx = f.fitRect.width()  / b.width();
+        f.sx = f.fitRect.width() / b.width();
         f.sy = f.fitRect.height() / b.height();
 
         // Resolve the vertical exaggeration, then fit the box while HOLDING
@@ -699,8 +793,12 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             // scale. Both branches fit inside fitRect: the unused axis simply
             // leaves slack, which is honest — better an under-filled pane than
             // a silently distorted gradient.
-            if (fillVE >= ve) { f.sy = f.sx * ve; }   // vertical has slack
-            else              { f.sx = f.sy / ve; }   // horizontal has slack
+            if (fillVE >= ve) {
+                f.sy = f.sx * ve;
+            } // vertical has slack
+            else {
+                f.sx = f.sy / ve;
+            } // horizontal has slack
             f.ve = ve;
         } else {
             f.sx = f.sy = std::min(f.sx, f.sy);
@@ -733,56 +831,51 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // third. The pair is placed or dropped together — half a compass pair is
     // worse than none, because the reader cannot tell which end is missing.
     QVector<QRectF> planRects(model.planInsets.size());
-    double leaderCeilL = 0.0, leaderCeilR = 0.0;     // 0 = no dial on that side
+    double leaderCeilL = 0.0, leaderCeilR = 0.0; // 0 = no dial on that side
     if (!model.planInsets.isEmpty()) {
         int nLeft = 0, nRight = 0;
         for (const PlanInset &pi : model.planInsets)
             (pi.side == PlanInset::Side::Left ? nLeft : nRight) += 1;
 
-        const int    tallest = std::max(nLeft, nRight);
-        const double cellH   = kPlanInsetSize + kPlanInsetTitleH;
+        const int tallest = std::max(nLeft, nRight);
+        const double cellH = kPlanInsetSize + kPlanInsetTitleH;
         // The leading gap is the buffer that keeps the first dial's spoke
         // labels off the drawing directly above it.
-        const double bandH   = kPlanInsetGap + tallest * (cellH + kPlanInsetGap);
-        const double colW    = kPlanInsetSize + kPlanInsetGap;
+        const double bandH = kPlanInsetGap + tallest * (cellH + kPlanInsetGap);
+        const double colW = kPlanInsetSize + kPlanInsetGap;
         // A drawing narrower than this is not worth keeping a compass for.
-        const double keepW   = 1.6 * kPlanInsetSize;
+        const double keepW = 1.6 * kPlanInsetSize;
 
         const double vSlack = fit.fitRect.height() - b.height() * fit.sy;
-        const bool   band   = vSlack >= bandH
-                              && area.height() > bandH + 40.0
-                              && area.width()  > (nLeft ? colW : 0.0)
-                                                 + (nRight ? colW : 0.0) + keepW;
+        const bool band = vSlack >= bandH && area.height() > bandH + 40.0 &&
+                          area.width() > (nLeft ? colW : 0.0) + (nRight ? colW : 0.0) + keepW;
 
         Fit trial = band ? layoutFor(area.adjusted(0.0, 0.0, 0.0, -bandH), &fit)
-                         : layoutFor(area, &fit, nLeft ? colW : 0.0,
-                                                 nRight ? colW : 0.0);
+                         : layoutFor(area, &fit, nLeft ? colW : 0.0, nRight ? colW : 0.0);
 
-        if (trial.fitRect.width() >= keepW && trial.fitRect.height() >= 20.0
-            && area.height() > bandH + 40.0) {
-            if (band) area.setBottom(area.bottom() - bandH);
+        if (trial.fitRect.width() >= keepW && trial.fitRect.height() >= 20.0 &&
+            area.height() > bandH + 40.0) {
+            if (band)
+                area.setBottom(area.bottom() - bandH);
             fit = trial;
 
             int usedL = 0, usedR = 0;
             for (int i = 0; i < model.planInsets.size(); ++i) {
                 const bool left = model.planInsets[i].side == PlanInset::Side::Left;
-                const int  row  = left ? usedL++ : usedR++;
+                const int row = left ? usedL++ : usedR++;
                 // In band mode the dials sit below the (already raised) area
                 // bottom, filling the freed strip downward; in margin mode
                 // they stack upward from the bottom of the margin beside it.
                 // Both anchor to the pane edge.
                 const double top =
-                    band ? area.bottom() + kPlanInsetGap
-                               + row * (cellH + kPlanInsetGap)
-                         : area.bottom() - kPlanInsetGap - cellH
-                               - row * (cellH + kPlanInsetGap);
-                const QRectF r(left ? area.left() : area.right() - kPlanInsetSize,
-                               top, kPlanInsetSize, kPlanInsetSize);
+                    band ? area.bottom() + kPlanInsetGap + row * (cellH + kPlanInsetGap)
+                         : area.bottom() - kPlanInsetGap - cellH - row * (cellH + kPlanInsetGap);
+                const QRectF r(left ? area.left() : area.right() - kPlanInsetSize, top,
+                               kPlanInsetSize, kPlanInsetSize);
                 planRects[i] = r;
                 if (!band) {
                     double &ceil = left ? leaderCeilL : leaderCeilR;
-                    ceil = (ceil <= 0.0) ? r.top() - 4.0
-                                         : std::min(ceil, r.top() - 4.0);
+                    ceil = (ceil <= 0.0) ? r.top() - 4.0 : std::min(ceil, r.top() - 4.0);
                 }
             }
         }
@@ -790,13 +883,15 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     }
 
     const QRectF fitRect = fit.fitRect;
-    if (fitRectOut) *fitRectOut = fitRect;
+    if (fitRectOut)
+        *fitRectOut = fitRect;
     if (fitRect.width() <= 2.0 || fitRect.height() <= 2.0) {
         p.restore();
         return;
     }
     double sx = fit.sx, sy = fit.sy;
-    if (achievedExaggerationOut) *achievedExaggerationOut = fit.ve;
+    if (achievedExaggerationOut)
+        *achievedExaggerationOut = fit.ve;
 
     // User zoom/pan layered over the fit. Scaling about the fit rect's centre
     // keeps "zoom out then in" returning to the same place.
@@ -805,10 +900,8 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     sy *= zoom;
 
     // Model y grows upward; screen y grows downward — hence the -sy.
-    const double cx = fitRect.center().x() - sx * (b.left() + b.width()  * 0.5)
-                      + viewport.panPx.x();
-    const double cy = fitRect.center().y() + sy * (b.top()  + b.height() * 0.5)
-                      + viewport.panPx.y();
+    const double cx = fitRect.center().x() - sx * (b.left() + b.width() * 0.5) + viewport.panPx.x();
+    const double cy = fitRect.center().y() + sy * (b.top() + b.height() * 0.5) + viewport.panPx.y();
     auto toPx = [sx, sy, cx, cy](const QPointF &m) {
         return QPointF(cx + sx * m.x(), cy - sy * m.y());
     };
@@ -822,32 +915,31 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     for (const DiagramGround &g : model.grounds) {
         const QPointF a = toPx({g.x0, g.y});
         const QPointF c = toPx({g.x1, g.y});
-        QPen groundPen(mix(palette.color(QPalette::Base),
-                           QColor(140, 110, 70), 0.75));
+        QPen groundPen(mix(palette.color(QPalette::Base), QColor(140, 110, 70), 0.75));
         groundPen.setWidthF(1.4);
         p.setPen(groundPen);
         p.setBrush(Qt::NoBrush);
         p.drawLine(a, c);
 
         const double step = 9.0;
-        const double len  = 8.0;
+        const double len = 8.0;
         groundPen.setWidthF(0.8);
         p.setPen(groundPen);
-        for (double x = std::min(a.x(), c.x()) + 3.0;
-             x < std::max(a.x(), c.x()); x += step)
-            p.drawLine(QPointF(x, a.y()),
-                       QPointF(x - len * 0.6, a.y() + len));
+        for (double x = std::min(a.x(), c.x()) + 3.0; x < std::max(a.x(), c.x()); x += step)
+            p.drawLine(QPointF(x, a.y()), QPointF(x - len * 0.6, a.y() + len));
     }
 
     // ── Filled shapes ──────────────────────────────────────────────────────
     for (const DiagramPoly &poly : model.polys) {
-        if (poly.pts.size() < 2) continue;
+        if (poly.pts.size() < 2)
+            continue;
 
         QPolygonF px;
         px.reserve(poly.pts.size());
-        for (const QPointF &m : poly.pts) px << toPx(m);
+        for (const QPointF &m : poly.pts)
+            px << toPx(m);
 
-        QColor fill   = diagramFillColor(poly.role, palette);
+        QColor fill = diagramFillColor(poly.role, palette);
         QColor stroke = diagramStrokeColor(poly.role, palette);
 
         p.setBrush(fill);
@@ -855,8 +947,9 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         // A tank wall is a heavier line than a manhole wall on a real drawing,
         // and here it is also the cue the user asked for: thicker + brown = a
         // storage unit, whatever the pane size.
-        pen.setWidthF(poly.role == DiagramRole::Storage ? 2.4
-                      : poly.role == DiagramRole::Conduit ? 1.6 : 1.2);
+        pen.setWidthF(poly.role == DiagramRole::Storage   ? 2.4
+                      : poly.role == DiagramRole::Conduit ? 1.6
+                                                          : 1.2);
         if (poly.unknown) {
             pen.setStyle(Qt::DashLine);
             p.setBrush(QBrush(fill, Qt::BDiagPattern));
@@ -875,12 +968,14 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             p.drawPolygon(px);
             p.setPen(pen);
             p.setBrush(Qt::NoBrush);
-            const int n   = static_cast<int>(px.size());
+            const int n = static_cast<int>(px.size());
             const int mid = n / 2;
             QPolygonF openRing;
             openRing.reserve(n + 1);
-            for (int i = mid; i < n; ++i) openRing << px.at(i);   // left, top→bottom
-            for (int i = 0; i < mid; ++i)  openRing << px.at(i);   // right, bottom→top
+            for (int i = mid; i < n; ++i)
+                openRing << px.at(i); // left, top→bottom
+            for (int i = 0; i < mid; ++i)
+                openRing << px.at(i); // right, bottom→top
             p.drawPolyline(openRing);
         } else {
             p.setPen(pen);
@@ -896,8 +991,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         if (!poly.insetLabel.isEmpty()) {
             // Label on a plate so it stays readable over a texture.
             const QRectF bb = px.boundingRect();
-            const QString txt = fm.elidedText(poly.insetLabel, Qt::ElideRight,
-                                              bb.width() - 8.0);
+            const QString txt = fm.elidedText(poly.insetLabel, Qt::ElideRight, bb.width() - 8.0);
             const QRectF tr(bb.center().x() - fm.horizontalAdvance(txt) * 0.5 - 4.0,
                             bb.center().y() - fm.height() * 0.5 - 1.0,
                             fm.horizontalAdvance(txt) + 8.0, fm.height() + 2.0);
@@ -915,35 +1009,36 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
     // ── Vegetation ─────────────────────────────────────────────────────────
     {
-        const QColor green = diagramStrokeColor(DiagramRole::Vegetation, palette)
-                                 .darker(105);
+        const QColor green = diagramStrokeColor(DiagramRole::Vegetation, palette).darker(105);
         for (const DiagramVegetation &v : model.vegetation) {
-            if (v.count < 1 || !(v.height > 0.0)) continue;
-            const QPointF a = toPx({ v.x0, v.y });
-            const QPointF b2 = toPx({ v.x1, v.y });
+            if (v.count < 1 || !(v.height > 0.0))
+                continue;
+            const QPointF a = toPx({v.x0, v.y});
+            const QPointF b2 = toPx({v.x1, v.y});
             // Height is in model units, so plants scale with the drawing —
             // shrubs that stayed a fixed pixel size would look like weeds on a
             // zoomed-in cell and like trees on a zoomed-out one.
-            const double hPx = std::abs(toPx({ v.x0, v.y + v.height }).y() - a.y());
+            const double hPx = std::abs(toPx({v.x0, v.y + v.height}).y() - a.y());
             const int n = std::clamp(v.count, 1, 64);
             for (int i = 0; i < n; ++i) {
                 const double t = (n == 1) ? 0.5 : (i + 0.5) / static_cast<double>(n);
                 QPointF at = a + (b2 - a) * t;
                 at.rx() += jitter(i * 31 + n) * 2.0;
-                paintPlant(p, at, hPx * (0.82 + 0.18 * std::abs(jitter(i * 17))),
-                           v.grass, green, i * 101 + n);
+                paintPlant(p, at, hPx * (0.82 + 0.18 * std::abs(jitter(i * 17))), v.grass, green,
+                           i * 101 + n);
             }
         }
     }
 
     // ── Circles (underdrain pipes, fittings) ───────────────────────────────
     for (const DiagramCircle &c : model.circles) {
-        if (!(c.radius > 0.0)) continue;
+        if (!(c.radius > 0.0))
+            continue;
         const QPointF ctr = toPx(c.centre);
         // Radius is a model length, but a hairline circle is useless — keep a
         // floor so an underdrain stays visible when the stack is zoomed out.
-        const double rx = std::max(std::abs(toPx({ c.centre.x() + c.radius,
-                                                   c.centre.y() }).x() - ctr.x()), 3.0);
+        const double rx =
+            std::max(std::abs(toPx({c.centre.x() + c.radius, c.centre.y()}).x() - ctr.x()), 3.0);
 
         p.setBrush(diagramFillColor(c.role, palette));
         QPen pen(diagramStrokeColor(c.role, palette));
@@ -966,10 +1061,11 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // ── Annotated arrows (inflow, infiltration, overflow) ──────────────────
     for (const DiagramArrow &a : model.arrows) {
         const QPointF from = toPx(a.from);
-        const QPointF to   = toPx(a.to);
+        const QPointF to = toPx(a.to);
         const double dx = to.x() - from.x(), dy = to.y() - from.y();
         const double len = std::hypot(dx, dy);
-        if (len < 2.0) continue;
+        if (len < 2.0)
+            continue;
 
         const QColor col = diagramStrokeColor(a.role, palette);
         QPen pen(col);
@@ -985,26 +1081,30 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             const bool rightward = dx >= 0.0;
             const QRectF tr(rightward ? from.x() - 120.0 : from.x() + 4.0,
                             from.y() - fm.height() - 2.0, 116.0, fm.height());
-            p.drawText(tr, (rightward ? Qt::AlignRight : Qt::AlignLeft)
-                               | Qt::AlignVCenter,
+            p.drawText(tr, (rightward ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter,
                        fm.elidedText(a.label, Qt::ElideRight, tr.width()));
         }
     }
 
     // ── Polylines ──────────────────────────────────────────────────────────
     for (const DiagramPolyline &pl : model.polylines) {
-        if (pl.pts.size() < 2) continue;
+        if (pl.pts.size() < 2)
+            continue;
         QPolygonF px;
         px.reserve(pl.pts.size());
-        for (const QPointF &m : pl.pts) px << toPx(m);
+        for (const QPointF &m : pl.pts)
+            px << toPx(m);
 
         QPen pen(diagramStrokeColor(pl.role, palette));
         pen.setWidthF(pl.wavy ? 1.4 : 1.0);
-        if (pl.dashed) pen.setStyle(Qt::DashLine);
+        if (pl.dashed)
+            pen.setStyle(Qt::DashLine);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
-        if (pl.wavy) drawWaveTrain(p, px);
-        else         p.drawPolyline(px);
+        if (pl.wavy)
+            drawWaveTrain(p, px);
+        else
+            p.drawPolyline(px);
 
         if (!pl.label.isEmpty()) {
             p.setPen(mutedColor);
@@ -1017,8 +1117,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // ends up under a pipe wall stops being a glyph.
     for (const DiagramSymbol &sym : model.symbols) {
         paintSymbol(p, toPx(sym.anchor), sym.kind, sym.pixelSize, sym.mirrored,
-                    diagramStrokeColor(sym.role, palette),
-                    diagramFillColor(sym.role, palette));
+                    diagramStrokeColor(sym.role, palette), diagramFillColor(sym.role, palette));
     }
 
     // ── Dimension lines ────────────────────────────────────────────────────
@@ -1026,9 +1125,10 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         for (const DiagramDim &d : model.dims) {
             const QPointF a = toPx(d.from);
             const QPointF c = toPx(d.to);
-            const double  dx = c.x() - a.x(), dy = c.y() - a.y();
-            const double  len = std::hypot(dx, dy);
-            if (len < 1.0) continue;
+            const double dx = c.x() - a.x(), dy = c.y() - a.y();
+            const double len = std::hypot(dx, dy);
+            if (len < 1.0)
+                continue;
 
             // Unit perpendicular, offset the dimension line off the feature.
             const QPointF n(-dy / len, dx / len);
@@ -1053,20 +1153,21 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             drawArrowHead(p, a2, ang + M_PI, col);
             drawArrowHead(p, c2, ang, col);
 
-            if (d.text.isEmpty()) continue;
+            if (d.text.isEmpty())
+                continue;
 
             // Text runs along the dimension line, flipped when it would read
             // upside down.
             p.save();
             const QPointF midPt = (a2 + c2) * 0.5;
             double deg = ang * 180.0 / M_PI;
-            if (deg > 90.0 || deg < -90.0) deg += 180.0;
+            if (deg > 90.0 || deg < -90.0)
+                deg += 180.0;
             p.translate(midPt);
             p.rotate(deg);
             p.setPen(col);
             const QString txt = fm.elidedText(d.text, Qt::ElideRight, len + 60.0);
-            const QRectF tr(-0.5 * (len + 60.0), -fm.height() - 2.0,
-                            len + 60.0, fm.height());
+            const QRectF tr(-0.5 * (len + 60.0), -fm.height() - 2.0, len + 60.0, fm.height());
             p.drawText(tr, Qt::AlignCenter, txt);
             p.restore();
         }
@@ -1088,11 +1189,9 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         // compass.
         const double bandTop = area.top() + halfLine;
         const double bandBottomL =
-            (leaderCeilL > 0.0 ? std::min(area.bottom(), leaderCeilL)
-                               : area.bottom()) - halfLine;
+            (leaderCeilL > 0.0 ? std::min(area.bottom(), leaderCeilL) : area.bottom()) - halfLine;
         const double bandBottomR =
-            (leaderCeilR > 0.0 ? std::min(area.bottom(), leaderCeilR)
-                               : area.bottom()) - halfLine;
+            (leaderCeilR > 0.0 ? std::min(area.bottom(), leaderCeilR) : area.bottom()) - halfLine;
         // One label per line: a node with several links at similar inverts
         // lands their leaders on the same y and writes them over each other.
         // Remember what each side has used and push a colliding label clear.
@@ -1105,7 +1204,11 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             for (int guard = 0; moved && guard < 24; ++guard) {
                 moved = false;
                 for (const double u : used) {
-                    if (std::abs(y - u) < step) { y += step; moved = true; break; }
+                    if (std::abs(y - u) < step) {
+                        y += step;
+                        moved = true;
+                        break;
+                    }
                 }
             }
             if (bandBottom > bandTop && y > bandBottom) {
@@ -1114,25 +1217,31 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
                 for (int guard = 0; guard < 24; ++guard) {
                     bool hit = false;
                     for (const double u : used)
-                        if (std::abs(y - u) < step) { y -= step; hit = true; break; }
-                    if (!hit) break;
+                        if (std::abs(y - u) < step) {
+                            y -= step;
+                            hit = true;
+                            break;
+                        }
+                    if (!hit)
+                        break;
                 }
             }
             used.push_back(y);
             return y;
         };
         for (const DiagramLeader &l : model.leaders) {
-            if (l.text.isEmpty()) continue;
-            const bool    right   = l.pixelOffset.x() >= 0.0;
-            const double  bandBottom = right ? bandBottomR : bandBottomL;
-            const QPointF a   = toPx(l.anchor);
-            QPointF       end = a + l.pixelOffset;
+            if (l.text.isEmpty())
+                continue;
+            const bool right = l.pixelOffset.x() >= 0.0;
+            const double bandBottom = right ? bandBottomR : bandBottomL;
+            const QPointF a = toPx(l.anchor);
+            QPointF end = a + l.pixelOffset;
             if (bandBottom > bandTop)
                 end.setY(std::clamp(end.y(), bandTop, bandBottom));
             end.setY(deconflict(end.y(), right));
             if (bandBottom > bandTop)
                 end.setY(std::clamp(end.y(), bandTop, bandBottom));
-            const double  landing = 8.0;
+            const double landing = 8.0;
             const QPointF land(end.x() + (right ? landing : -landing), end.y());
 
             p.setPen(lead);
@@ -1144,19 +1253,17 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             p.drawEllipse(a, 1.8, 1.8);
 
             p.setPen(dimColor);
-            const QRectF tr(right ? land.x() + 3.0 : area.left(),
-                            land.y() - halfLine,
-                            right ? area.right() - land.x() - 3.0
-                                  : land.x() - 3.0 - area.left(),
+            const QRectF tr(right ? land.x() + 3.0 : area.left(), land.y() - halfLine,
+                            right ? area.right() - land.x() - 3.0 : land.x() - 3.0 - area.left(),
                             fm.height());
-            if (tr.width() < 4.0) continue;   // no room on this side; skip
-            p.drawText(tr,
-                       (right ? Qt::AlignLeft : Qt::AlignRight) | Qt::AlignVCenter,
+            if (tr.width() < 4.0)
+                continue; // no room on this side; skip
+            p.drawText(tr, (right ? Qt::AlignLeft : Qt::AlignRight) | Qt::AlignVCenter,
                        fm.elidedText(l.text, Qt::ElideRight, tr.width()));
         }
     }
 
-    p.restore();   // end of the zoom/pan clip — chrome below is screen-space
+    p.restore(); // end of the zoom/pan clip — chrome below is screen-space
 
     // ── Plan-view insets ───────────────────────────────────────────────────
     // The dial is anchored to the pane edge, so a label ringed around it runs
@@ -1165,14 +1272,14 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // therefore leadered INBOARD instead: one stacked column on the side
     // facing the drawing, where the width to hold a name actually exists.
     for (int pi = 0; pi < planRects.size() && pi < model.planInsets.size(); ++pi) {
-        const QRectF   planRect = planRects[pi];
-        if (planRect.isNull()) continue;          // no room; drawing wins
-        const PlanInset &inset  = model.planInsets[pi];
+        const QRectF planRect = planRects[pi];
+        if (planRect.isNull())
+            continue; // no room; drawing wins
+        const PlanInset &inset = model.planInsets[pi];
         const QPointF ctr = planRect.center();
-        const double  r   = planRect.width() * 0.32;
+        const double r = planRect.width() * 0.32;
 
-        p.setBrush(mix(palette.color(QPalette::Base),
-                       palette.color(QPalette::WindowText), 0.05));
+        p.setBrush(mix(palette.color(QPalette::Base), palette.color(QPalette::WindowText), 0.05));
         QPen ring(mutedColor);
         ring.setWidthF(0.8);
         p.setPen(ring);
@@ -1183,7 +1290,11 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         p.drawEllipse(ctr, 6.0, 6.0);
 
         // Spokes first, collecting where each label has to point back to.
-        struct SpokeLabel { QPointF tip; QString text; double wantY; };
+        struct SpokeLabel {
+            QPointF tip;
+            QString text;
+            double wantY;
+        };
         QVector<SpokeLabel> labels;
         QPen spoke(inkColor);
         spoke.setWidthF(1.6);
@@ -1191,36 +1302,34 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             const double a = s.angleDeg * M_PI / 180.0;
             const QPointF dir(std::cos(a), -std::sin(a));
             const QPointF from = ctr + dir * 6.0;
-            const QPointF to   = ctr + dir * r;
+            const QPointF to = ctr + dir * r;
             p.setPen(spoke);
             p.setBrush(Qt::NoBrush);
             p.drawLine(from, to);
             // Inbound flows point at the node, outbound point away from it.
             if (s.inbound)
-                drawArrowHead(p, ctr + dir * 12.0,
-                              std::atan2(-dir.y(), -dir.x()), inkColor);
+                drawArrowHead(p, ctr + dir * 12.0, std::atan2(-dir.y(), -dir.x()), inkColor);
             else
                 drawArrowHead(p, to, std::atan2(dir.y(), dir.x()), inkColor);
 
             if (!s.label.isEmpty())
-                labels.push_back({ to, s.label, to.y() });
+                labels.push_back({to, s.label, to.y()});
         }
 
         if (!labels.isEmpty()) {
             // Toward the drawing: the dial on the left labels rightward, the
             // one on the right labels leftward. Both write into the pane
             // rather than off it.
-            const double sign  = (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
-            const double colX  = ctr.x() + sign * (r + 14.0);
-            const double rowH  = fm.height() + 3.0;
+            const double sign = (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
+            const double colX = ctr.x() + sign * (r + 14.0);
+            const double rowH = fm.height() + 3.0;
 
             // Stack in bearing order, top-most first, then lift the whole
             // column if it overran the box — keeping the order means a label
             // still reads as belonging to the spoke above the one below it.
-            std::stable_sort(labels.begin(), labels.end(),
-                             [](const SpokeLabel &a, const SpokeLabel &c) {
-                                 return a.wantY < c.wantY;
-                             });
+            std::stable_sort(
+                labels.begin(), labels.end(),
+                [](const SpokeLabel &a, const SpokeLabel &c) { return a.wantY < c.wantY; });
             double y = planRect.top() + rowH * 0.5;
             for (SpokeLabel &l : labels) {
                 l.wantY = std::max(l.wantY, y);
@@ -1234,24 +1343,24 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             // Room to the pane edge, less the margin the rest of the drawing
             // keeps. A name still elides eventually, but only once it is
             // genuinely too long for the pane rather than for a 60 px ring.
-            const double room = (sign > 0.0)
-                ? target.right() - kMarginX - (colX + 6.0)
-                : (colX - 6.0) - (target.left() + kMarginX);
+            const double room = (sign > 0.0) ? target.right() - kMarginX - (colX + 6.0)
+                                             : (colX - 6.0) - (target.left() + kMarginX);
             const double textW = std::clamp(room, 0.0, 150.0);
 
             QPen lead(mutedColor);
             lead.setWidthF(0.7);
             for (const SpokeLabel &l : labels) {
-                if (textW < 12.0) break;          // nowhere to write it
+                if (textW < 12.0)
+                    break; // nowhere to write it
                 const QPointF land(colX, l.wantY);
                 p.setPen(lead);
                 p.setBrush(Qt::NoBrush);
                 p.drawLine(l.tip, land);
 
                 const QString txt = fm.elidedText(l.text, Qt::ElideRight, textW);
-                const double  w   = fm.horizontalAdvance(txt);
-                const QRectF  tr(sign > 0.0 ? land.x() + 5.0 : land.x() - 5.0 - w,
-                                 land.y() - fm.height() * 0.5, w, fm.height());
+                const double w = fm.horizontalAdvance(txt);
+                const QRectF tr(sign > 0.0 ? land.x() + 5.0 : land.x() - 5.0 - w,
+                                land.y() - fm.height() * 0.5, w, fm.height());
                 // On a plate: in margin placement this column is written over
                 // the drawing, and a link name lost in a pipe wall is no
                 // better than one cut off at the pane edge.
@@ -1271,24 +1380,19 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         // So it is allowed to run inboard past the dial's own box, the same
         // direction and for the same reason as the spoke labels.
         {
-            const double sign =
-                (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
-            const double room = (sign > 0.0)
-                ? (target.right() - kMarginX) - planRect.left()
-                : planRect.right() - (target.left() + kMarginX);
-            const QString cap = inset.title.isEmpty()
-                                    ? QStringLiteral("plan")
-                                    : fm.elidedText(inset.title, Qt::ElideRight,
-                                                    std::clamp(room, 0.0, 220.0));
+            const double sign = (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
+            const double room = (sign > 0.0) ? (target.right() - kMarginX) - planRect.left()
+                                             : planRect.right() - (target.left() + kMarginX);
+            const QString cap = inset.title.isEmpty() ? QStringLiteral("plan")
+                                                      : fm.elidedText(inset.title, Qt::ElideRight,
+                                                                      std::clamp(room, 0.0, 220.0));
             const double w = fm.horizontalAdvance(cap);
 
             // Centred under the dial while it fits there; only a caption that
             // does not fit reaches inboard, so the common case is unchanged.
             const bool wide = w > planRect.width() - 4.0;
-            QRectF cr(sign > 0.0 || !wide ? planRect.left()
-                                          : planRect.right() - w,
-                      planRect.bottom(),
-                      wide ? w : planRect.width(), kPlanInsetTitleH);
+            QRectF cr(sign > 0.0 || !wide ? planRect.left() : planRect.right() - w,
+                      planRect.bottom(), wide ? w : planRect.width(), kPlanInsetTitleH);
 
             // Plated like the spoke labels: a caption that reached inboard is
             // over the drawing in margin placement. Over bare background the
@@ -1300,8 +1404,10 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             p.drawRoundedRect(cr.adjusted(-3.0, 0.0, 3.0, 0.0), 3.0, 3.0);
 
             p.setPen(mutedColor);
-            p.drawText(cr, (wide ? (sign > 0.0 ? Qt::AlignLeft : Qt::AlignRight)
-                                 : Qt::AlignHCenter) | Qt::AlignVCenter, cap);
+            p.drawText(cr,
+                       (wide ? (sign > 0.0 ? Qt::AlignLeft : Qt::AlignRight) : Qt::AlignHCenter) |
+                           Qt::AlignVCenter,
+                       cap);
         }
     }
 
@@ -1318,24 +1424,20 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         if (std::abs(fit.ve - 1.0) < 1.0e-9)
             note = tr_("true scale (V:H 1:1)");
         else if (fit.ve > 1.0)
-            note = tr_("vertical exaggeration V:H %1:1")
-                       .arg(fit.ve, 0, 'g', 3);
+            note = tr_("vertical exaggeration V:H %1:1").arg(fit.ve, 0, 'g', 3);
         else
-            note = tr_("horizontal exaggeration H:V %1:1")
-                       .arg(1.0 / fit.ve, 0, 'g', 3);
+            note = tr_("horizontal exaggeration H:V %1:1").arg(1.0 / fit.ve, 0, 'g', 3);
 
         p.setPen(mutedColor);
         // The band reserved above sits just below `area`'s new bottom edge.
-        const QRectF nr(area.left(), area.bottom() + 1.0,
-                        area.width(), fm.height());
+        const QRectF nr(area.left(), area.bottom() + 1.0, area.width(), fm.height());
         p.drawText(nr, Qt::AlignRight | Qt::AlignVCenter,
                    fm.elidedText(note, Qt::ElideRight, nr.width()));
     }
 
     // ── Footer ─────────────────────────────────────────────────────────────
     if (showFooter) {
-        const QRectF fr(target.left() + kMarginX,
-                        target.bottom() - kMarginBottom - kFooterH,
+        const QRectF fr(target.left() + kMarginX, target.bottom() - kMarginBottom - kFooterH,
                         target.width() - 2 * kMarginX, kFooterH);
         QPen sep(mutedColor);
         sep.setWidthF(0.7);

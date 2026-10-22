@@ -1,9 +1,10 @@
-/*!
- * \file   polylineoffset.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Polyline offset algorithm (Slice Z.5b).
+/**
+ * @file      polylineoffset.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Polyline offset algorithm (Slice Z.5b).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/polylineoffset.h"
@@ -16,7 +17,8 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 /*! Unit-length perpendicular to segment (a → b), pointing to the
  *  **visually-right** side of the forward direction in Qt image
@@ -29,41 +31,49 @@ namespace {
  *  visual result is a clockwise rotation, which matches the spec
  *  contract that positive offsetPx goes right of forward.)
  *
- *  Returns nullopt when the segment has zero length. */
+ * @param a Finite segment start in Qt image coordinates.
+ * @param b Finite segment end in the same planar units.
+ * @return Dimensionless unit normal (-dy,dx)/length, or nullopt when the
+ * segment length is at most 1e-9 input units. */
 std::optional<QPointF> rightNormal(const QPointF &a, const QPointF &b)
 {
     const qreal dx = b.x() - a.x();
     const qreal dy = b.y() - a.y();
     const qreal len = std::hypot(dx, dy);
-    if (len <= 1e-9) return std::nullopt;
+    if (len <= 1e-9)
+        return std::nullopt;
     return QPointF(-dy / len, dx / len);
 }
 
 /*! Intersect two infinite lines, each defined by a point + direction.
- *  Returns nullopt when the directions are parallel (cross ≈ 0). */
-std::optional<QPointF> lineIntersection(const QPointF &p1, const QPointF &d1,
-                                         const QPointF &p2, const QPointF &d2)
+ * @param p1 Finite point on the first infinite line in planar input units.
+ * @param d1 Finite direction of the first line, normally unit length.
+ * @param p2 Finite point on the second line in the same units.
+ * @param d2 Finite direction of the second line, normally unit length.
+ * @return Intersection in input units, or nullopt when the direction cross
+ * product has absolute magnitude at most 1e-12. Segment extents are not tested. */
+std::optional<QPointF> lineIntersection(const QPointF &p1, const QPointF &d1, const QPointF &p2,
+                                        const QPointF &d2)
 {
     const qreal cross = d1.x() * d2.y() - d1.y() * d2.x();
-    if (std::abs(cross) <= 1e-12) return std::nullopt;
+    if (std::abs(cross) <= 1e-12)
+        return std::nullopt;
     const qreal dx = p2.x() - p1.x();
     const qreal dy = p2.y() - p1.y();
-    const qreal t  = (dx * d2.y() - dy * d2.x()) / cross;
+    const qreal t = (dx * d2.y() - dy * d2.x()) / cross;
     return QPointF(p1.x() + t * d1.x(), p1.y() + t * d1.y());
 }
 
 } // namespace
 
-QPolygonF offsetPolyline(const QPolygonF &input,
-                          qreal offsetPx,
-                          qreal miterLimit)
+QPolygonF offsetPolyline(const QPolygonF &input, qreal offsetPx, qreal miterLimit)
 {
     const int n = input.size();
     if (n < 2 || qFuzzyIsNull(offsetPx))
         return input;
 
     QPolygonF out;
-    out.reserve(n + 4);   // bevel joins can add a few extra vertices
+    out.reserve(n + 4); // bevel joins can add a few extra vertices
 
     // Pre-compute right-normal for every segment that is non-degenerate.
     // We'll re-use them at join time.
@@ -79,29 +89,28 @@ QPolygonF offsetPolyline(const QPolygonF &input,
         while (firstValid < normals.size() && !normals[firstValid].has_value())
             ++firstValid;
         if (firstValid >= normals.size())
-            return input;  // all-coincident — nothing to offset
+            return input; // all-coincident — nothing to offset
         const QPointF nrm = normals[firstValid].value();
-        out.append(QPointF(input[0].x() + offsetPx * nrm.x(),
-                           input[0].y() + offsetPx * nrm.y()));
+        out.append(QPointF(input[0].x() + offsetPx * nrm.x(), input[0].y() + offsetPx * nrm.y()));
     }
 
     // Interior vertices: miter / bevel join.
     for (int i = 1; i < n - 1; ++i) {
-        const auto nrmA = normals[i - 1];   // segment ending at vertex i
-        const auto nrmB = normals[i];       // segment starting at vertex i
+        const auto nrmA = normals[i - 1]; // segment ending at vertex i
+        const auto nrmB = normals[i];     // segment starting at vertex i
 
         if (!nrmA.has_value() && !nrmB.has_value())
-            continue;  // both degenerate; skip this vertex
+            continue; // both degenerate; skip this vertex
         if (!nrmA.has_value()) {
             // Only the outgoing segment is real — emit its shifted start.
-            out.append(QPointF(input[i].x() + offsetPx * nrmB->x(),
-                               input[i].y() + offsetPx * nrmB->y()));
+            out.append(
+                QPointF(input[i].x() + offsetPx * nrmB->x(), input[i].y() + offsetPx * nrmB->y()));
             continue;
         }
         if (!nrmB.has_value()) {
             // Only the incoming segment is real — emit its shifted end.
-            out.append(QPointF(input[i].x() + offsetPx * nrmA->x(),
-                               input[i].y() + offsetPx * nrmA->y()));
+            out.append(
+                QPointF(input[i].x() + offsetPx * nrmA->x(), input[i].y() + offsetPx * nrmA->y()));
             continue;
         }
 

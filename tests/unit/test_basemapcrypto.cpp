@@ -1,10 +1,14 @@
-/*!
- * \file   test_basemapcrypto.cpp
- * \brief  Unit tests for BasemapCrypto — AES-256-CBC encrypt / decrypt.
+/**
+ * @file      test_basemapcrypto.cpp
+ * @brief     Unit tests for BasemapCrypto — AES-256-CBC encrypt / decrypt.
  *
  * Tests run on the local machine, so the machine-derived passphrase is the
  * same for both encrypt and decrypt.  All tests are self-contained; no files
  * or network are needed.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -18,6 +22,11 @@
 // Encrypt / decrypt round-trip
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require nonempty encrypted ASCII secret to decrypt exactly on the same machine.
+ *
+ */
 TEST(BasemapCrypto, EncryptDecryptRoundTrip_ASCII)
 {
     const QString plain = QStringLiteral("MySecretPassword123!");
@@ -29,6 +38,11 @@ TEST(BasemapCrypto, EncryptDecryptRoundTrip_ASCII)
     EXPECT_EQ(recovered, plain);
 }
 
+/**
+ *
+ * @brief Verify non-ASCII UTF-8 plaintext survives the local encrypt/decrypt round trip.
+ *
+ */
 TEST(BasemapCrypto, EncryptDecryptRoundTrip_Unicode)
 {
     // Non-ASCII characters must survive the UTF-8 round-trip.
@@ -39,6 +53,11 @@ TEST(BasemapCrypto, EncryptDecryptRoundTrip_Unicode)
     EXPECT_EQ(BasemapCrypto::decrypt(cipher), plain);
 }
 
+/**
+ *
+ * @brief Verify a 1024-character plaintext encrypts nonempty and decrypts without truncation.
+ *
+ */
 TEST(BasemapCrypto, EncryptDecryptRoundTrip_LongString)
 {
     const QString plain = QString(512, QChar('A')) + QString(512, QChar('z'));
@@ -52,11 +71,21 @@ TEST(BasemapCrypto, EncryptDecryptRoundTrip_LongString)
 // Empty input handling
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require empty plaintext to produce empty encrypted bytes.
+ *
+ */
 TEST(BasemapCrypto, EmptyPlaintextProducesEmptyOutput)
 {
     EXPECT_TRUE(BasemapCrypto::encrypt(QString()).isEmpty());
 }
 
+/**
+ *
+ * @brief Require empty encrypted bytes to decode to an empty QString.
+ *
+ */
 TEST(BasemapCrypto, DecryptEmptyInputProducesEmptyString)
 {
     EXPECT_TRUE(BasemapCrypto::decrypt(QByteArray()).isEmpty());
@@ -66,6 +95,12 @@ TEST(BasemapCrypto, DecryptEmptyInputProducesEmptyString)
 // Ciphertext properties
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Check decoded encrypted bytes do not contain the literal ASCII secret.
+ * This case checks that representation property, not a general cryptographic guarantee.
+ *
+ */
 TEST(BasemapCrypto, CiphertextDiffersFromPlaintext)
 {
     const QString plain = QStringLiteral("password");
@@ -77,6 +112,11 @@ TEST(BasemapCrypto, CiphertextDiffersFromPlaintext)
     EXPECT_FALSE(decoded.contains(plain.toUtf8()));
 }
 
+/**
+ *
+ * @brief Require independently salted encryptions of one plaintext to be nonempty and unequal.
+ *
+ */
 TEST(BasemapCrypto, TwoEncryptionsOfSamePlaintextProduceDifferentCiphertext)
 {
     // A random salt per encryption means two calls must differ.
@@ -94,6 +134,12 @@ TEST(BasemapCrypto, TwoEncryptionsOfSamePlaintextProduceDifferentCiphertext)
 // Garbage / tampered input
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Check malformed Base64 input completes decryption without throwing or aborting.
+ * Despite the case name, it deliberately makes no assertion about returned text.
+ *
+ */
 TEST(BasemapCrypto, DecryptNonBase64ReturnsEmpty)
 {
     const QByteArray garbage("not!valid!base64!!!");
@@ -106,12 +152,16 @@ TEST(BasemapCrypto, DecryptNonBase64ReturnsEmpty)
     SUCCEED();
 }
 
+/**
+ *
+ * @brief Require a decoded blob too short for crypto header fields to return empty text.
+ *
+ */
 TEST(BasemapCrypto, DecryptTruncatedCiphertextReturnsEmpty)
 {
     // Real cipher is salt(16) + IV(16) + ciphertext, Base64-encoded.
     // Feed a Base64 blob that is too short to contain even the salt.
     const QByteArray tooShort = QByteArray("AAAA").toBase64(); // 3 bytes decoded
     const QString result = BasemapCrypto::decrypt(tooShort);
-    EXPECT_TRUE(result.isEmpty())
-        << "decrypt() of truncated input should return empty QString";
+    EXPECT_TRUE(result.isEmpty()) << "decrypt() of truncated input should return empty QString";
 }

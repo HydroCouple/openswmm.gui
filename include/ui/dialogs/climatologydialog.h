@@ -1,8 +1,11 @@
-/*!
- * \file   climatologydialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      climatologydialog.h
+ * @brief     Climatology editor — edits the model's [TEMPERATURE], [EVAPORATION], [WINDSPEED],
+ *            HUMIDITY, SNOWMELT, areal-depletion (ADC) and [ADJUSTMENTS] configuration via the
+ *            engine's swmm_climate_* C API.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Climatology editor — edits the model's [TEMPERATURE], [EVAPORATION],
  * [WINDSPEED], HUMIDITY, SNOWMELT, areal-depletion (ADC) and [ADJUSTMENTS]
@@ -11,7 +14,9 @@
  * Wind Speed, Snow Melt, Areal Depletion, Adjustments; a Humidity tab (the
  * heat model's relative-humidity / dew-point input) sits after Wind Speed.
  * Reads on construction, writes on OK.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef CLIMATOLOGYDIALOG_H
 #define CLIMATOLOGYDIALOG_H
 
@@ -33,7 +38,10 @@ class QStackedWidget;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::ui { class RelativePathPicker; }
+namespace openswmmvis::ui
+{
+class RelativePathPicker;
+}
 
 /*!
  * \class ClimatologyDialog
@@ -48,16 +56,15 @@ public:
     enum Tab {
         TabTemperature = 0,
         TabEvaporation = 1,
-        TabWind        = 2,
-        TabHumidity    = 3,
-        TabSnowMelt    = 4,
+        TabWind = 2,
+        TabHumidity = 3,
+        TabSnowMelt = 4,
         TabArealDepletion = 5,
         TabAdjustments = 6,
         TabRadiation = 7
     };
 
-    explicit ClimatologyDialog(SWMM_Engine engine,
-                               SWMMModelLayer *layer = nullptr,
+    explicit ClimatologyDialog(SWMM_Engine engine, SWMMModelLayer *layer = nullptr,
                                QWidget *parent = nullptr);
     ~ClimatologyDialog() override = default;
 
@@ -112,51 +119,51 @@ private:
     void populateTimeseriesCombo(QComboBox *combo) const;
     void populatePatternCombo(QComboBox *combo) const;
 
-    SWMM_Engine     m_engine = nullptr;
-    SWMMModelLayer *m_layer  = nullptr;
-    QTabWidget     *m_tabs   = nullptr;
-    bool            m_wroteChanges = false;
-    int             m_unitSystem = 0;   // 0=US, 1=SI
-    QString         m_initialSig;       // widget signature captured after read
+    SWMM_Engine m_engine = nullptr;
+    SWMMModelLayer *m_layer = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    bool m_wroteChanges = false;
+    int m_unitSystem = 0; // 0=US, 1=SI
+    QString m_initialSig; // widget signature captured after read
 
     // --- Temperature ---
-    QComboBox      *m_tempSource     = nullptr;  // 0 None / 1 TimeSeries / 2 File
-    QComboBox      *m_tempTs         = nullptr;
+    QComboBox *m_tempSource = nullptr; // 0 None / 1 TimeSeries / 2 File
+    QComboBox *m_tempTs = nullptr;
     openswmmvis::ui::RelativePathPicker *m_tempFile = nullptr;
-    QString         m_projectAnchor;  ///< .inp dir; see setProjectAnchor.
-    QCheckBox      *m_tempStartCheck = nullptr;
-    QDateEdit      *m_tempStartDate  = nullptr;
-    QComboBox      *m_tempUnits      = nullptr;  // -1 Auto / 0 C10 / 1 C / 2 F
+    QString m_projectAnchor; ///< .inp dir; see setProjectAnchor.
+    QCheckBox *m_tempStartCheck = nullptr;
+    QDateEdit *m_tempStartDate = nullptr;
+    QComboBox *m_tempUnits = nullptr; // -1 Auto / 0 C10 / 1 C / 2 F
 
     // --- Evaporation ---
-    QComboBox      *m_evapType       = nullptr;  // engine enum via itemData
-    QStackedWidget *m_evapStack      = nullptr;
-    QDoubleSpinBox *m_evapConstant   = nullptr;
-    QTableWidget   *m_evapMonthly    = nullptr;  // 12 rows
-    QComboBox      *m_evapTs         = nullptr;
-    QTableWidget   *m_panCoeff       = nullptr;  // 12 rows
-    QComboBox      *m_recovery       = nullptr;
-    QCheckBox      *m_dryOnly        = nullptr;
+    QComboBox *m_evapType = nullptr; // engine enum via itemData
+    QStackedWidget *m_evapStack = nullptr;
+    QDoubleSpinBox *m_evapConstant = nullptr;
+    QTableWidget *m_evapMonthly = nullptr; // 12 rows
+    QComboBox *m_evapTs = nullptr;
+    QTableWidget *m_panCoeff = nullptr; // 12 rows
+    QComboBox *m_recovery = nullptr;
+    QCheckBox *m_dryOnly = nullptr;
 
     // --- Wind ---
-    QComboBox      *m_windType       = nullptr;  // 0 Monthly / 1 File
-    QTableWidget   *m_windMonthly    = nullptr;  // 12 rows
+    QComboBox *m_windType = nullptr;       // 0 Monthly / 1 File
+    QTableWidget *m_windMonthly = nullptr; // 12 rows
 
     // --- Humidity ([TEMPERATURE] HUMIDITY) ---
-    QComboBox      *m_humVar         = nullptr;  // 0 Relative % / 1 Dew point
-    QComboBox      *m_humType        = nullptr;  // 0 Constant / 1 Monthly / 2 TimeSeries
-    QStackedWidget *m_humStack       = nullptr;
-    QDoubleSpinBox *m_humConstant    = nullptr;
-    QTableWidget   *m_humMonthly     = nullptr;  // 12 rows
-    QComboBox      *m_humTs          = nullptr;
+    QComboBox *m_humVar = nullptr;  // 0 Relative % / 1 Dew point
+    QComboBox *m_humType = nullptr; // 0 Constant / 1 Monthly / 2 TimeSeries
+    QStackedWidget *m_humStack = nullptr;
+    QDoubleSpinBox *m_humConstant = nullptr;
+    QTableWidget *m_humMonthly = nullptr; // 12 rows
+    QComboBox *m_humTs = nullptr;
 
     // --- Snow Melt ---
-    QDoubleSpinBox *m_snowTemp       = nullptr;
-    QDoubleSpinBox *m_atiWeight      = nullptr;
-    QDoubleSpinBox *m_negMelt        = nullptr;
-    QDoubleSpinBox *m_elevation      = nullptr;
-    QDoubleSpinBox *m_latitude       = nullptr;
-    QDoubleSpinBox *m_longitude      = nullptr;
+    QDoubleSpinBox *m_snowTemp = nullptr;
+    QDoubleSpinBox *m_atiWeight = nullptr;
+    QDoubleSpinBox *m_negMelt = nullptr;
+    QDoubleSpinBox *m_elevation = nullptr;
+    QDoubleSpinBox *m_latitude = nullptr;
+    QDoubleSpinBox *m_longitude = nullptr;
     QComboBox *m_snowModel = nullptr;
     QDoubleSpinBox *m_snowStep = nullptr;
     QCheckBox *m_radiationSite = nullptr;
@@ -171,10 +178,10 @@ private:
     QString m_initialSnowSig;
 
     // --- Areal depletion ---
-    QTableWidget   *m_adc            = nullptr;  // 10 rows x 2 cols (imperv, perv)
+    QTableWidget *m_adc = nullptr; // 10 rows x 2 cols (imperv, perv)
 
     // --- Adjustments ---
-    QTableWidget   *m_adjust         = nullptr;  // 12 rows x 4 cols
+    QTableWidget *m_adjust = nullptr; // 12 rows x 4 cols
 };
 
 #endif // CLIMATOLOGYDIALOG_H

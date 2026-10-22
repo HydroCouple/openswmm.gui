@@ -1,9 +1,12 @@
-/*!
- * \file   modelspage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      modelspage.cpp
+ * @brief     Simulation Options → Models / Processes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/modelspage.h"
 
 #include <QAbstractItemView>
@@ -32,43 +35,46 @@
 namespace openswmmvis::ui
 {
 
-namespace {
+namespace
+{
 
-/*!
- * \brief True when the .inp already carries 2D content.
- *
- * The engine activates the 2D solver from the presence of mesh sections,
- * not from any module key — so a file with [2D_OPTIONS] / [2D_VERTICES] /
- * [2D_TRIANGLES] / [2D_MESH_FILE] has the module enabled by construction.
- * Used as the module-checkbox default when the per-project QSettings flag
- * has never been written (pre-built demos, files authored outside this
- * GUI's mesh-generation flow).
+/**
+ * @brief Look for recognizable 2D section substrings in a UTF-8 input file.
+ * @param inpPath Borrowed file path read synchronously in full as text; may be empty.
+ * @return True when a case-insensitive occurrence of [2D_OPTIONS], [2D_VERTICES],
+ * [2D_TRIANGLES] or [2D_MESH_FILE] exists anywhere, including comments. False for
+ * empty/unreadable/no-match files. This is a UI default heuristic, not syntax parsing,
+ * mesh validation or proof of runtime module activation; never modifies the file.
  */
 bool inpCarries2DSections(const QString &inpPath)
 {
-    if (inpPath.isEmpty()) return false;
+    if (inpPath.isEmpty())
+        return false;
     QFile f(inpPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
     const QString text = QString::fromUtf8(f.readAll());
-    for (const auto *sect : { "[2D_OPTIONS]", "[2D_VERTICES]",
-                              "[2D_TRIANGLES]", "[2D_MESH_FILE]" }) {
+    for (const auto *sect : {"[2D_OPTIONS]", "[2D_VERTICES]", "[2D_TRIANGLES]", "[2D_MESH_FILE]"}) {
         if (text.indexOf(QLatin1String(sect), 0, Qt::CaseInsensitive) >= 0)
             return true;
     }
     return false;
 }
 
-/*! Per-project key holding the module toggle's UI intent. */
+/**
+ * @brief Compose the per-model key storing 2D module UI intent.
+ * @param layer Borrowed non-null layer valid during modelFilePath() access.
+ * @return Owned SWMMVis/Project/path/Module2DEnabled string using the path verbatim,
+ * without canonicalization, existence checks or any QSettings read/write.
+ */
 QString module2DSettingsKey(const SWMMModelLayer *layer)
 {
-    return QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
-        .arg(layer->modelFilePath());
+    return QStringLiteral("SWMMVis/Project/%1/Module2DEnabled").arg(layer->modelFilePath());
 }
 
 } // namespace
 
-ModelsPage::ModelsPage(SimOptionsContext &ctx, QWidget *parent)
-    : SimOptionsPage(ctx, parent)
+ModelsPage::ModelsPage(SimOptionsContext &ctx, QWidget *parent) : SimOptionsPage(ctx, parent)
 {
     buildUi();
     tagWidgets();
@@ -94,10 +100,10 @@ void ModelsPage::setModule2DEnabled(bool on)
 
 void ModelsPage::setFlowRoutingText(const QString &routing)
 {
-    if (!m_routingMirror) return;
-    m_routingMirror->setText(
-        tr("<b>%1</b> — <a href=\"#\">change on Routing &amp; Hydraulics</a>")
-            .arg(routing.isEmpty() ? tr("(unset)") : routing));
+    if (!m_routingMirror)
+        return;
+    m_routingMirror->setText(tr("<b>%1</b> — <a href=\"#\">change on Routing &amp; Hydraulics</a>")
+                                 .arg(routing.isEmpty() ? tr("(unset)") : routing));
 }
 
 void ModelsPage::setTransport2DHooks(std::function<bool(int)> getter,
@@ -115,20 +121,23 @@ void ModelsPage::buildUi()
     m_tabs->setObjectName(QStringLiteral("modelsTabs"));
     root->addWidget(m_tabs, 1);
 
-    auto *domTab = new QWidget(m_tabs); auto *domLay = new QVBoxLayout(domTab);
-    auto *modTab = new QWidget(m_tabs); auto *modLay = new QVBoxLayout(modTab);
-    auto *flgTab = new QWidget(m_tabs); auto *flgLay = new QVBoxLayout(flgTab);
+    auto *domTab = new QWidget(m_tabs);
+    auto *domLay = new QVBoxLayout(domTab);
+    auto *modTab = new QWidget(m_tabs);
+    auto *modLay = new QVBoxLayout(modTab);
+    auto *flgTab = new QWidget(m_tabs);
+    auto *flgLay = new QVBoxLayout(flgTab);
 
     // ── Domains & Processes ────────────────────────────────────────────
     auto *procGroup = new QGroupBox(tr("Process models"), domTab);
-    auto *procForm  = new QFormLayout(procGroup);
+    auto *procForm = new QFormLayout(procGroup);
 
     m_infiltrationCombo = new QComboBox(procGroup);
-    m_infiltrationCombo->addItem(tr("Horton"),                        QStringLiteral("HORTON"));
-    m_infiltrationCombo->addItem(tr("Modified Horton"),               QStringLiteral("MOD_HORTON"));
-    m_infiltrationCombo->addItem(tr("Green-Ampt"),                    QStringLiteral("GREEN_AMPT"));
-    m_infiltrationCombo->addItem(tr("Modified Green-Ampt"),           QStringLiteral("MOD_GREEN_AMPT"));
-    m_infiltrationCombo->addItem(tr("Curve Number"),                  QStringLiteral("CURVE_NUMBER"));
+    m_infiltrationCombo->addItem(tr("Horton"), QStringLiteral("HORTON"));
+    m_infiltrationCombo->addItem(tr("Modified Horton"), QStringLiteral("MOD_HORTON"));
+    m_infiltrationCombo->addItem(tr("Green-Ampt"), QStringLiteral("GREEN_AMPT"));
+    m_infiltrationCombo->addItem(tr("Modified Green-Ampt"), QStringLiteral("MOD_GREEN_AMPT"));
+    m_infiltrationCombo->addItem(tr("Curve Number"), QStringLiteral("CURVE_NUMBER"));
     m_infiltrationCombo->setToolTip(
         tr("Infiltration model used on every subcatchment (option INFILTRATION)."));
     procForm->addRow(tr("Infiltr&ation model:"), m_infiltrationCombo);
@@ -155,19 +164,24 @@ void ModelsPage::buildUi()
     // unchecked = engine ignores the process (writes IGNORE_X YES). The
     // .inp surface keeps the legacy IGNORE_* keys — only the UI flips.
     auto *ignoreGroup = new QGroupBox(tr("Active processes"), domTab);
-    auto *ignoreLay   = new QVBoxLayout(ignoreGroup);
-    m_ignoreRainfallBox    = new QCheckBox(tr("Rainfall / runoff"),  ignoreGroup);
-    m_ignoreSnowmeltBox    = new QCheckBox(tr("Snowmelt"),           ignoreGroup);
-    m_ignoreGroundwaterBox = new QCheckBox(tr("Groundwater"),        ignoreGroup);
-    m_ignoreRDIIBox        = new QCheckBox(tr("RDII"),               ignoreGroup);
-    m_ignoreQualityBox     = new QCheckBox(tr("Water quality"),      ignoreGroup);
-    m_ignoreRoutingBox     = new QCheckBox(tr("Flow routing"),       ignoreGroup);
-    m_ignoreRainfallBox   ->setToolTip(tr("Unchecking writes IGNORE_RAINFALL YES — engine skips runoff entirely."));
-    m_ignoreSnowmeltBox   ->setToolTip(tr("Unchecking writes IGNORE_SNOWMELT YES — engine skips snowmelt."));
-    m_ignoreGroundwaterBox->setToolTip(tr("Unchecking writes IGNORE_GROUNDWATER YES — engine skips groundwater."));
-    m_ignoreRDIIBox       ->setToolTip(tr("Unchecking writes IGNORE_RDII YES — engine skips RDII."));
-    m_ignoreQualityBox    ->setToolTip(tr("Unchecking writes IGNORE_QUALITY YES — engine skips water-quality routing."));
-    m_ignoreRoutingBox    ->setToolTip(tr("Unchecking writes IGNORE_ROUTING YES — engine skips flow routing."));
+    auto *ignoreLay = new QVBoxLayout(ignoreGroup);
+    m_ignoreRainfallBox = new QCheckBox(tr("Rainfall / runoff"), ignoreGroup);
+    m_ignoreSnowmeltBox = new QCheckBox(tr("Snowmelt"), ignoreGroup);
+    m_ignoreGroundwaterBox = new QCheckBox(tr("Groundwater"), ignoreGroup);
+    m_ignoreRDIIBox = new QCheckBox(tr("RDII"), ignoreGroup);
+    m_ignoreQualityBox = new QCheckBox(tr("Water quality"), ignoreGroup);
+    m_ignoreRoutingBox = new QCheckBox(tr("Flow routing"), ignoreGroup);
+    m_ignoreRainfallBox->setToolTip(
+        tr("Unchecking writes IGNORE_RAINFALL YES — engine skips runoff entirely."));
+    m_ignoreSnowmeltBox->setToolTip(
+        tr("Unchecking writes IGNORE_SNOWMELT YES — engine skips snowmelt."));
+    m_ignoreGroundwaterBox->setToolTip(
+        tr("Unchecking writes IGNORE_GROUNDWATER YES — engine skips groundwater."));
+    m_ignoreRDIIBox->setToolTip(tr("Unchecking writes IGNORE_RDII YES — engine skips RDII."));
+    m_ignoreQualityBox->setToolTip(
+        tr("Unchecking writes IGNORE_QUALITY YES — engine skips water-quality routing."));
+    m_ignoreRoutingBox->setToolTip(
+        tr("Unchecking writes IGNORE_ROUTING YES — engine skips flow routing."));
     ignoreLay->addWidget(m_ignoreRainfallBox);
     ignoreLay->addWidget(m_ignoreSnowmeltBox);
     ignoreLay->addWidget(m_ignoreGroundwaterBox);
@@ -185,9 +199,9 @@ void ModelsPage::buildUi()
     // the Quality page and the reactions component — they re-evaluate on
     // Apply.
     auto *matrixGroup = new QGroupBox(tr("Transport by domain"), domTab);
-    auto *matrixLay   = new QVBoxLayout(matrixGroup);
-    m_transportMatrixTable = new QTableWidget(SWMM_TRANSPORT_DOMAIN_COUNT,
-                                              SWMM_TRANSPORT_CLASS_COUNT, matrixGroup);
+    auto *matrixLay = new QVBoxLayout(matrixGroup);
+    m_transportMatrixTable =
+        new QTableWidget(SWMM_TRANSPORT_DOMAIN_COUNT, SWMM_TRANSPORT_CLASS_COUNT, matrixGroup);
     m_transportMatrixTable->setObjectName(QStringLiteral("transportMatrixTable"));
     {
         QStringList cols, rows;
@@ -211,18 +225,20 @@ void ModelsPage::buildUi()
     m_transportMatrixTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
     m_transportMatrixTable->setMaximumHeight(200);
     matrixLay->addWidget(m_transportMatrixTable);
-    auto *matrixNote = new QLabel(
-        tr("Inherit-on: a class enabled for the project runs in every domain "
-           "whose solver carries it. Lumped groundwater has no transported quality "
-           "(legacy parity); MSX needs a reactions component."),
-        matrixGroup);
+    auto *matrixNote =
+        new QLabel(tr("Inherit-on: a class enabled for the project runs in every domain "
+                      "whose solver carries it. Lumped groundwater has no transported quality "
+                      "(legacy parity); MSX needs a reactions component."),
+                   matrixGroup);
     matrixNote->setWordWrap(true);
     matrixLay->addWidget(matrixNote);
     domLay->addWidget(matrixGroup);
     connect(m_transportMatrixTable, &QTableWidget::itemChanged, this,
             [this](QTableWidgetItem *item) {
-                if (m_matrixSyncing || !item || !m_transport2DSet) return;
-                if (item->row() != SWMM_TRANSPORT_DOMAIN_SURFACE_2D) return;
+                if (m_matrixSyncing || !item || !m_transport2DSet)
+                    return;
+                if (item->row() != SWMM_TRANSPORT_DOMAIN_SURFACE_2D)
+                    return;
                 m_matrixSyncing = true;
                 m_transport2DSet(item->column(), item->checkState() == Qt::Checked);
                 m_matrixSyncing = false;
@@ -239,7 +255,7 @@ void ModelsPage::buildUi()
     // the parameters would look like. Toggle persists per-.inp under
     // QSettings so reopening a project remembers the choice.
     auto *modulesGroup = new QGroupBox(tr("Modules"), modTab);
-    auto *modulesLay   = new QVBoxLayout(modulesGroup);
+    auto *modulesLay = new QVBoxLayout(modulesGroup);
 
     m_module1DBox = new QCheckBox(tr("1D Hydraulics (always on)"), modulesGroup);
     m_module1DBox->setChecked(true);
@@ -256,17 +272,15 @@ void ModelsPage::buildUi()
     // compile time only affects the parameter knobs on the 2D Surface
     // Routing page; the Mesh page + this toggle are GUI concerns.
 #ifdef OPENSWMM_HAS_2D
-    m_module2DBox->setToolTip(
-        tr("Enable the optional 2D surface-routing module. When on, the "
-           "Mesh + 2D Surface Routing pages become editable and the engine "
-           "runs the 2D solver coupled to the 1D network."));
+    m_module2DBox->setToolTip(tr("Enable the optional 2D surface-routing module. When on, the "
+                                 "Mesh + 2D Surface Routing pages become editable and the engine "
+                                 "runs the 2D solver coupled to the 1D network."));
 #else
-    m_module2DBox->setToolTip(
-        tr("Project-level 2D module flag. Mesh selection page becomes "
-           "interactive when checked. The engine 2D solver itself is not "
-           "compiled in this binary — rebuild with -DOPENSWMM_BUILD_2D=ON "
-           "(requires SUNDIALS) for end-to-end coupled runs; mesh "
-           "generation works regardless."));
+    m_module2DBox->setToolTip(tr("Project-level 2D module flag. Mesh selection page becomes "
+                                 "interactive when checked. The engine 2D solver itself is not "
+                                 "compiled in this binary — rebuild with -DOPENSWMM_BUILD_2D=ON "
+                                 "(requires SUNDIALS) for end-to-end coupled runs; mesh "
+                                 "generation works regardless."));
 #endif
     modulesLay->addWidget(m_module2DBox);
     modLay->addWidget(modulesGroup);
@@ -281,9 +295,9 @@ void ModelsPage::buildUi()
 
     // ── Flags ──────────────────────────────────────────────────────────
     auto *flagsGroup = new QGroupBox(tr("Options / flags"), flgTab);
-    auto *flagsLay   = new QVBoxLayout(flagsGroup);
+    auto *flagsLay = new QVBoxLayout(flagsGroup);
 
-    m_allowPondingBox  = new QCheckBox(tr("Allow ponding at nodes (ALLOW_PONDING)"), flagsGroup);
+    m_allowPondingBox = new QCheckBox(tr("Allow ponding at nodes (ALLOW_PONDING)"), flagsGroup);
     flagsLay->addWidget(m_allowPondingBox);
 
     flgLay->addWidget(flagsGroup);
@@ -319,15 +333,18 @@ void ModelsPage::tagWidgets()
 
 void ModelsPage::refreshTransportMatrix()
 {
-    if (!m_transportMatrixTable) return;
+    if (!m_transportMatrixTable)
+        return;
     m_matrixSyncing = true;
     SWMM_Engine e = ctx_.engine();
     SWMM_TransportMatrix m{};
     SWMM_TransportDraft draft{};
-    if(m_draftHook)draft=m_draftHook();
-    draft.ignore_quality=!m_ignoreQualityBox->isChecked();
-    draft.ignore_2d=!m_module2DBox->isChecked();
-    const bool ok = e && (m_draftHook ? swmm_preview_transport_matrix(e,&draft,&m) : swmm_get_transport_matrix(e,&m)) == SWMM_OK;
+    if (m_draftHook)
+        draft = m_draftHook();
+    draft.ignore_quality = !m_ignoreQualityBox->isChecked();
+    draft.ignore_2d = !m_module2DBox->isChecked();
+    const bool ok = e && (m_draftHook ? swmm_preview_transport_matrix(e, &draft, &m)
+                                      : swmm_get_transport_matrix(e, &m)) == SWMM_OK;
     for (int d = 0; d < SWMM_TRANSPORT_DOMAIN_COUNT; ++d) {
         for (int c = 0; c < SWMM_TRANSPORT_CLASS_COUNT; ++c) {
             auto *item = m_transportMatrixTable->item(d, c);
@@ -337,28 +354,35 @@ void ModelsPage::refreshTransportMatrix()
                 m_transportMatrixTable->setItem(d, c, item);
             }
             item->setFlags(Qt::ItemIsEnabled);
-            if (!ok) { item->setText(QStringLiteral("—")); item->setToolTip(QString()); continue; }
+            if (!ok) {
+                item->setText(QStringLiteral("—"));
+                item->setToolTip(QString());
+                continue;
+            }
             const SWMM_TransportCell &cell = m.cell[d][c];
             QString text, tip;
             switch (cell.state) {
             case SWMM_TRANSPORT_ENABLED:
                 text = tr("Planned (%1)").arg(cell.count);
-                tip  = cell.reason[0] ? QString::fromUtf8(cell.reason)
-                                      : tr("%1 row(s) configured for transport. Runtime activity is confirmed after initialization.").arg(cell.count);
+                tip =
+                    cell.reason[0]
+                        ? QString::fromUtf8(cell.reason)
+                        : tr("%1 row(s) configured for transport. Runtime activity is confirmed after initialization.")
+                              .arg(cell.count);
                 break;
             case SWMM_TRANSPORT_DISABLED_BY_USER:
                 text = tr("off");
-                tip  = tr("Switched off by %1").arg(QString::fromUtf8(cell.reason));
+                tip = tr("Switched off by %1").arg(QString::fromUtf8(cell.reason));
                 break;
             default:
                 text = tr("n/a");
-                tip  = QString::fromUtf8(cell.reason);
+                tip = QString::fromUtf8(cell.reason);
                 break;
             }
             item->setText(text);
             item->setToolTip(tip);
-            item->setForeground(cell.state == SWMM_TRANSPORT_UNAVAILABLE
-                                    ? QBrush(Qt::gray) : QBrush());
+            item->setForeground(cell.state == SWMM_TRANSPORT_UNAVAILABLE ? QBrush(Qt::gray)
+                                                                         : QBrush());
             // The 2D column is editable whenever the class is available on
             // the surface at all: the checkbox IS the TRANSPORT_* key, and
             // the dialog value (not the engine's last-applied one) drives
@@ -367,7 +391,7 @@ void ModelsPage::refreshTransportMatrix()
                 const bool on = m_transport2DGet(c);
                 item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
                 item->setCheckState(on ? Qt::Checked : Qt::Unchecked);
-                if(on && cell.state!=SWMM_TRANSPORT_ENABLED)
+                if (on && cell.state != SWMM_TRANSPORT_ENABLED)
                     item->setText(tr("Saved On\nInactive"));
                 if (!on) {
                     item->setText(tr("off"));
@@ -385,44 +409,50 @@ void ModelsPage::read()
     using SOD = SimulationOptionsDialog;
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
-        if (idx >= 0) c->setCurrentIndex(idx);
+        if (idx >= 0)
+            c->setCurrentIndex(idx);
     };
     // Source every fallback from PreferencesManager so the dialog shows the
     // user-preferred default whenever the engine has no value for a key.
     const auto sim = PreferencesManager::instance()->simulationDefaults();
-    const auto ynStr = [](bool v) {
-        return v ? QStringLiteral("YES") : QStringLiteral("NO");
-    };
+    const auto ynStr = [](bool v) { return v ? QStringLiteral("YES") : QStringLiteral("NO"); };
 
-    selectComboByData(m_infiltrationCombo,
-                      ctx_.option("INFILTRATION", sim.infiltrationModel));
+    selectComboByData(m_infiltrationCombo, ctx_.option("INFILTRATION", sim.infiltrationModel));
 
     m_allowPondingBox->setChecked(
-        SOD::parseEngineBool(ctx_.option("ALLOW_PONDING", ynStr(sim.allowPonding)))
-            == Qt::Checked);
+        SOD::parseEngineBool(ctx_.option("ALLOW_PONDING", ynStr(sim.allowPonding))) == Qt::Checked);
     // Inverted UI: checked = process active = engine IGNORE_X is NO.
-    m_ignoreRainfallBox->setChecked(   SOD::parseEngineBool(ctx_.option("IGNORE_RAINFALL",    ynStr(sim.ignoreRainfall)))    != Qt::Checked);
-    m_ignoreSnowmeltBox->setChecked(   SOD::parseEngineBool(ctx_.option("IGNORE_SNOWMELT",    ynStr(sim.ignoreSnowmelt)))    != Qt::Checked);
-    m_ignoreGroundwaterBox->setChecked(SOD::parseEngineBool(ctx_.option("IGNORE_GROUNDWATER", ynStr(sim.ignoreGroundwater))) != Qt::Checked);
-    m_ignoreRDIIBox->setChecked(       SOD::parseEngineBool(ctx_.option("IGNORE_RDII",        ynStr(sim.ignoreRdii)))        != Qt::Checked);
-    m_ignoreQualityBox->setChecked(    SOD::parseEngineBool(ctx_.option("IGNORE_QUALITY",     ynStr(sim.ignoreQuality)))     != Qt::Checked);
-    m_ignoreRoutingBox->setChecked(    SOD::parseEngineBool(ctx_.option("IGNORE_ROUTING",     ynStr(sim.ignoreRouting)))     != Qt::Checked);
+    m_ignoreRainfallBox->setChecked(
+        SOD::parseEngineBool(ctx_.option("IGNORE_RAINFALL", ynStr(sim.ignoreRainfall))) !=
+        Qt::Checked);
+    m_ignoreSnowmeltBox->setChecked(
+        SOD::parseEngineBool(ctx_.option("IGNORE_SNOWMELT", ynStr(sim.ignoreSnowmelt))) !=
+        Qt::Checked);
+    m_ignoreGroundwaterBox->setChecked(
+        SOD::parseEngineBool(ctx_.option("IGNORE_GROUNDWATER", ynStr(sim.ignoreGroundwater))) !=
+        Qt::Checked);
+    m_ignoreRDIIBox->setChecked(
+        SOD::parseEngineBool(ctx_.option("IGNORE_RDII", ynStr(sim.ignoreRdii))) != Qt::Checked);
+    m_ignoreQualityBox->setChecked(SOD::parseEngineBool(ctx_.option(
+                                       "IGNORE_QUALITY", ynStr(sim.ignoreQuality))) != Qt::Checked);
+    m_ignoreRoutingBox->setChecked(SOD::parseEngineBool(ctx_.option(
+                                       "IGNORE_ROUTING", ynStr(sim.ignoreRouting))) != Qt::Checked);
 
     // Context-sensitive availability (mirrors the legacy Delphi Analysis Options
     // form, Doptions.pas:314-332): a process toggle is disabled when the model
     // has no objects of the class it controls. The box still shows its stored
     // value; it just cannot be edited. Counts come from the engine C API.
     if (SWMM_Engine e = ctx_.engine()) {
-        const int nGages     = swmm_gage_count(e);
-        const int nAquifers  = swmm_aquifer_count(e);
-        const int nLinks     = swmm_link_count(e);
-        const int nPolluts   = swmm_pollutant_count(e);
-        const int nHydros    = swmm_hydrograph_count(e);
-        m_ignoreRainfallBox   ->setEnabled(nGages > 0);
+        const int nGages = swmm_gage_count(e);
+        const int nAquifers = swmm_aquifer_count(e);
+        const int nLinks = swmm_link_count(e);
+        const int nPolluts = swmm_pollutant_count(e);
+        const int nHydros = swmm_hydrograph_count(e);
+        m_ignoreRainfallBox->setEnabled(nGages > 0);
         m_ignoreGroundwaterBox->setEnabled(nAquifers > 0);
-        m_ignoreRDIIBox       ->setEnabled(nGages > 0 && nHydros > 0);
-        m_ignoreQualityBox    ->setEnabled(nPolluts > 0);
-        m_ignoreRoutingBox    ->setEnabled(nLinks > 0);
+        m_ignoreRDIIBox->setEnabled(nGages > 0 && nHydros > 0);
+        m_ignoreQualityBox->setEnabled(nPolluts > 0);
+        m_ignoreRoutingBox->setEnabled(nLinks > 0);
     }
 
     // ---- 2D module toggle ----------------------------------------------
@@ -432,8 +462,7 @@ void ModelsPage::read()
     // stored preference the default is inferred from the .inp itself: a
     // file that already carries 2D sections (pre-built demos, externally
     // authored models) shows the module ON; a fresh blank .inp shows OFF.
-    if (m_module2DBox && ctx_.modelLayer())
-    {
+    if (m_module2DBox && ctx_.modelLayer()) {
         QSettings s;
         const QString key = module2DSettingsKey(ctx_.modelLayer());
         // The engine's IGNORE_2D flag is authoritative when set — it is what
@@ -449,13 +478,12 @@ void ModelsPage::read()
         // Apply.
         m_module2DIntentKnown = s.contains(key);
         const bool ignored2d =
-            SOD::parseEngineBool(ctx_.option("IGNORE_2D", QStringLiteral("NO")))
-                == Qt::Checked;
-        const bool enabled = !ignored2d &&
-            (s.contains(key)
-                 ? s.value(key).toBool()
-                 : inpCarries2DSections(ctx_.modelLayer()->modelFilePath()));
-        QSignalBlocker blk(m_module2DBox);   // seeding is not an intent
+            SOD::parseEngineBool(ctx_.option("IGNORE_2D", QStringLiteral("NO"))) == Qt::Checked;
+        const bool enabled =
+            !ignored2d &&
+            (s.contains(key) ? s.value(key).toBool()
+                             : inpCarries2DSections(ctx_.modelLayer()->modelFilePath()));
+        QSignalBlocker blk(m_module2DBox); // seeding is not an intent
         m_module2DBox->setChecked(enabled);
     }
 
@@ -475,10 +503,11 @@ void ModelsPage::refreshSnowSummary()
         return;
     }
     m_ignoreSnowmeltBox->setEnabled(swmm_snowpack_count(e) > 0 ||
-        swmm_snow2d_defaults_count(e) > 0 || swmm_snow2d_cells_count(e) > 0);
+                                    swmm_snow2d_defaults_count(e) > 0 ||
+                                    swmm_snow2d_cells_count(e) > 0);
     m_snowSummary->setText(tr("%1 · %2 s — <a href=\"#\">edit snow and radiation…</a>")
-        .arg(model == 1 ? tr("UEB energy balance") : tr("Degree day"))
-        .arg(step));
+                               .arg(model == 1 ? tr("UEB energy balance") : tr("Degree day"))
+                               .arg(step));
 }
 
 int ModelsPage::write()
@@ -486,10 +515,9 @@ int ModelsPage::write()
     using SOD = SimulationOptionsDialog;
     int n = 0;
 
-    n += ctx_.writeIfChanged("INFILTRATION",
-                             m_infiltrationCombo->currentData().toString());
-    n += ctx_.writeIfChanged("ALLOW_PONDING",
-                             SOD::engineBoolString(m_allowPondingBox->isChecked()));
+    n += ctx_.writeIfChanged("INFILTRATION", m_infiltrationCombo->currentData().toString());
+    n +=
+        ctx_.writeIfChanged("ALLOW_PONDING", SOD::engineBoolString(m_allowPondingBox->isChecked()));
     // Inverted UI: checked = active = IGNORE_X NO. Unchecked = ignore.
     n += ctx_.writeIfChanged("IGNORE_RAINFALL",
                              SOD::engineBoolString(!m_ignoreRainfallBox->isChecked()));
@@ -497,8 +525,7 @@ int ModelsPage::write()
                              SOD::engineBoolString(!m_ignoreSnowmeltBox->isChecked()));
     n += ctx_.writeIfChanged("IGNORE_GROUNDWATER",
                              SOD::engineBoolString(!m_ignoreGroundwaterBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_RDII",
-                             SOD::engineBoolString(!m_ignoreRDIIBox->isChecked()));
+    n += ctx_.writeIfChanged("IGNORE_RDII", SOD::engineBoolString(!m_ignoreRDIIBox->isChecked()));
     n += ctx_.writeIfChanged("IGNORE_QUALITY",
                              SOD::engineBoolString(!m_ignoreQualityBox->isChecked()));
     n += ctx_.writeIfChanged("IGNORE_ROUTING",
@@ -513,8 +540,7 @@ int ModelsPage::write()
     // unchecked box merely describes the .inp, and materialising IGNORE_2D
     // from it made every no-edit Apply dirty the project.
     if (m_module2DBox && m_module2DIntentKnown) {
-        n += ctx_.writeIfChanged("IGNORE_2D",
-                                 SOD::engineBoolString(!m_module2DBox->isChecked()));
+        n += ctx_.writeIfChanged("IGNORE_2D", SOD::engineBoolString(!m_module2DBox->isChecked()));
         if (SWMMModelLayer *layer = ctx_.modelLayer()) {
             // Same condition as the IGNORE_2D write above: persisting an
             // inferred state would make s.contains(key) true on the next open,

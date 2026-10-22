@@ -1,9 +1,9 @@
-/*!
- * \file   test_tutorial_phase2.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Regressions from the tutorial bug report (2026-10-17), Phase 2:
+/**
+ * @file      test_tutorial_phase2.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Regressions from the tutorial bug report (2026-10-17), Phase 2:
  *
  *         - Terrain-assisted links wrote the sampled invert ELEVATION through
  *           the engine's depth-semantics offset setter, so new pipes got
@@ -16,7 +16,9 @@
  *
  *         Outputs (the round-trip .oswp) go to <test binary dir>/output/
  *         tutorial_phase2 so they can be reviewed.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/displaynumber.h"
 #include "core/preferencesmanager.h"
 #include "dialog_a11y_checks.h"
@@ -82,12 +84,12 @@
 #include <cmath>
 #include <memory>
 
-namespace {
+namespace
+{
 
 QString fixture(const QString &name)
 {
-    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
-        .filePath(name);
+    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))).filePath(name);
 }
 
 QString outputDir()
@@ -98,7 +100,10 @@ QString outputDir()
     return dir;
 }
 
-bool near(double a, double b, double tol) { return std::abs(a - b) <= tol; }
+bool near(double a, double b, double tol)
+{
+    return std::abs(a - b) <= tol;
+}
 
 } // namespace
 
@@ -168,15 +173,17 @@ void TestTutorialPhase2::savedExtentSurvivesRepeatedReopenResizes()
     const double width0 = saved.width();
 
     for (int cycle = 0; cycle < 3; ++cycle) {
-        canvas.setExtent(saved, false);          // sidecar restore
-        canvas.resize(300, 600);                 // hidden/default geometry
+        canvas.setExtent(saved, false); // sidecar restore
+        canvas.resize(300, 600);        // hidden/default geometry
         QCoreApplication::processEvents();
-        canvas.resize(800, 450);                 // maximized
+        canvas.resize(800, 450); // maximized
         QCoreApplication::processEvents();
-        saved = canvas.extent();                 // next save
+        saved = canvas.extent(); // next save
         QVERIFY2(near(saved.width(), width0, 1e-6 * width0),
                  qPrintable(QStringLiteral("cycle %1: width %2 vs %3")
-                                .arg(cycle).arg(saved.width()).arg(width0)));
+                                .arg(cycle)
+                                .arg(saved.width())
+                                .arg(width0)));
     }
 }
 
@@ -271,13 +278,17 @@ void TestTutorialPhase2::dialogsHaveNoStrayAmpersands()
     swmmvis_test::assertNoStrayAmpersands(&preferences);
 }
 
-namespace {
+namespace
+{
 /*! A layer of a given type, for stack-order checks without real data. */
 class TypedStubLayer : public OpenSWMMVisAnnotationLayer
 {
 public:
     TypedStubLayer(const QString &name, OpenSWMMVisLayer::OpenSWMMVisLayerType type)
-        : OpenSWMMVisAnnotationLayer(name) { setLayerType(type); }
+        : OpenSWMMVisAnnotationLayer(name)
+    {
+        setLayerType(type);
+    }
 };
 } // namespace
 
@@ -288,9 +299,14 @@ void TestTutorialPhase2::basemapStaysBelowRasterLayers()
     for (const bool basemapFirst : {false, true}) {
         TypedStubLayer dem(QStringLiteral("dem"), OpenSWMMVisLayer::SWMMRasterLayer);
         TypedStubLayer basemap(QStringLiteral("osm"), OpenSWMMVisLayer::SWMMImageryLayer);
-        MapCanvas canvas;   // declared after the layers: destroyed first
-        if (basemapFirst) { canvas.addLayer(&basemap, false); canvas.addLayer(&dem, false); }
-        else              { canvas.addLayer(&dem, false);     canvas.addLayer(&basemap, false); }
+        MapCanvas canvas; // declared after the layers: destroyed first
+        if (basemapFirst) {
+            canvas.addLayer(&basemap, false);
+            canvas.addLayer(&dem, false);
+        } else {
+            canvas.addLayer(&dem, false);
+            canvas.addLayer(&basemap, false);
+        }
         const auto layers = canvas.layers();
         QVERIFY2(layers.indexOf(&basemap) < layers.indexOf(&dem),
                  basemapFirst ? "basemap added first" : "basemap added after the DEM");
@@ -303,23 +319,30 @@ void TestTutorialPhase2::demStyleDialogShowsRasterSymbology()
     // (fixed 84809234).
     const QString tif = QDir(outputDir()).filePath(QStringLiteral("dem.tif"));
     GDALAllRegister();
-    auto *ds = GetGDALDriverManager()->GetDriverByName("GTiff")
-                   ->Create(tif.toUtf8().constData(), 8, 8, 1, GDT_Float32, nullptr);
+    auto *ds = GetGDALDriverManager()->GetDriverByName("GTiff")->Create(tif.toUtf8().constData(), 8,
+                                                                        8, 1, GDT_Float32, nullptr);
     QVERIFY(ds);
-    OGRSpatialReference srs; srs.importFromEPSG(25832);
-    char *wkt = nullptr; srs.exportToWkt(&wkt); ds->SetProjection(wkt); CPLFree(wkt);
+    OGRSpatialReference srs;
+    srs.importFromEPSG(25832);
+    char *wkt = nullptr;
+    srs.exportToWkt(&wkt);
+    ds->SetProjection(wkt);
+    CPLFree(wkt);
     double gt[] = {590000, 10, 0, 6140000, 0, -10};
     ds->SetGeoTransform(gt);
     std::vector<float> z(64, 12.5f);
-    QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 8, 8, z.data(), 8, 8,
-                                            GDT_Float32, 0, 0), CE_None);
+    QCOMPARE(
+        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 8, 8, z.data(), 8, 8, GDT_Float32, 0, 0),
+        CE_None);
     GDALClose(ds);
 
     GISRasterLayer dem(tif);
     QCOMPARE(dem.bandCount(), 1);
     openswmmvis::ui::LayerStyleDialog dialog(&dem);
-    QVERIFY2(dialog.findChild<openswmmvis::ui::RasterSymbologyPanel *>(), "a DEM must get raster symbology");
-    QVERIFY2(!dialog.findChild<openswmmvis::ui::SymbologyTab *>(), "a DEM must not get the vector renderer page");
+    QVERIFY2(dialog.findChild<openswmmvis::ui::RasterSymbologyPanel *>(),
+             "a DEM must get raster symbology");
+    QVERIFY2(!dialog.findChild<openswmmvis::ui::SymbologyTab *>(),
+             "a DEM must not get the vector renderer page");
 }
 
 void TestTutorialPhase2::provisionalProjectTakesTheChosenCrs()
@@ -409,14 +432,15 @@ void TestTutorialPhase2::sidecarDoesNotRecordAnUnassignedCrs()
     delete ws;
 }
 
-namespace {
+namespace
+{
 QStringList pickerItems(const DataObjectRef &ref)
 {
     DataObjectPickerEditor editor;
     editor.setValue(ref);
     QStringList out;
     if (auto *combo = editor.findChild<QComboBox *>())
-        for (int i = 1; i < combo->count(); ++i)   // 0 is "(none)"
+        for (int i = 1; i < combo->count(); ++i) // 0 is "(none)"
             out << combo->itemText(i);
     return out;
 }
@@ -473,26 +497,38 @@ void TestTutorialPhase2::everyDataObjectKindReachesTheEngineAtCreation()
     SWMM_Engine eng = layer.engine();
     const QByteArray n = "Fresh";
 
-    auto *ts = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(layer.ensureTimeseriesRegistry());
+    auto *ts = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
+        layer.ensureTimeseriesRegistry());
     QVERIFY(ts && ts->create(QString::fromLatin1(n)));
     QVERIFY(layer.tableIdsOfType(0).contains(QString::fromLatin1(n)));
 
-    auto *tr = qobject_cast<openswmmvis::transect::TransectRegistry *>(layer.ensureTransectRegistry());
+    auto *tr =
+        qobject_cast<openswmmvis::transect::TransectRegistry *>(layer.ensureTransectRegistry());
     auto *st = qobject_cast<openswmmvis::street::StreetRegistry *>(layer.ensureStreetRegistry());
     auto *in = qobject_cast<openswmmvis::inlet::InletRegistry *>(layer.ensureInletRegistry());
-    auto *li = qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer.ensureLidControlRegistry());
-    auto *sp = qobject_cast<openswmmvis::snowpack::SnowpackRegistry *>(layer.ensureSnowpackRegistry());
+    auto *li =
+        qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer.ensureLidControlRegistry());
+    auto *sp =
+        qobject_cast<openswmmvis::snowpack::SnowpackRegistry *>(layer.ensureSnowpackRegistry());
     auto *aq = qobject_cast<openswmmvis::aquifer::AquiferRegistry *>(layer.ensureAquiferRegistry());
-    auto *po = qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer.ensurePollutantRegistry());
+    auto *po =
+        qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer.ensurePollutantRegistry());
     QVERIFY(tr && st && in && li && sp && aq && po);
 
-    auto *trP = tr->create(QString::fromLatin1(n)); QVERIFY(trP);
-    auto *stP = st->create(QString::fromLatin1(n)); QVERIFY(stP);
-    auto *inP = in->create(QString::fromLatin1(n)); QVERIFY(inP);
-    auto *liP = li->create(QString::fromLatin1(n)); QVERIFY(liP);
-    auto *spP = sp->create(QString::fromLatin1(n)); QVERIFY(spP);
-    auto *aqP = aq->create(QString::fromLatin1(n)); QVERIFY(aqP);
-    auto *poP = po->create(QString::fromLatin1(n)); QVERIFY(poP);
+    auto *trP = tr->create(QString::fromLatin1(n));
+    QVERIFY(trP);
+    auto *stP = st->create(QString::fromLatin1(n));
+    QVERIFY(stP);
+    auto *inP = in->create(QString::fromLatin1(n));
+    QVERIFY(inP);
+    auto *liP = li->create(QString::fromLatin1(n));
+    QVERIFY(liP);
+    auto *spP = sp->create(QString::fromLatin1(n));
+    QVERIFY(spP);
+    auto *aqP = aq->create(QString::fromLatin1(n));
+    QVERIFY(aqP);
+    auto *poP = po->create(QString::fromLatin1(n));
+    QVERIFY(poP);
 
     QVERIFY2(swmm_transect_index(eng, n) >= 0, "transect");
     QVERIFY2(swmm_street_index(eng, n) >= 0, "street");
@@ -503,7 +539,10 @@ void TestTutorialPhase2::everyDataObjectKindReachesTheEngineAtCreation()
     QVERIFY2(swmm_pollutant_index(eng, n) >= 0, "pollutant");
 
     // Deleting (or undoing the create) leaves no engine copy behind.
-    st->remove(stP); li->remove(liP); sp->remove(spP); po->remove(poP);
+    st->remove(stP);
+    li->remove(liP);
+    sp->remove(spP);
+    po->remove(poP);
     QCOMPARE(swmm_street_index(eng, n), -1);
     QCOMPARE(swmm_lid_index(eng, n), -1);
     QCOMPARE(swmm_snowpack_index(eng, n), -1);

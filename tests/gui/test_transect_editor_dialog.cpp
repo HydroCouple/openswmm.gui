@@ -1,9 +1,9 @@
-/*!
- * \file   test_transect_editor_dialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.4 — TransectProvider + TransectRegistry +
+/**
+ * @file      test_transect_editor_dialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.4 — TransectProvider + TransectRegistry +
  *         TransectListModel + TransectStationTableModel + TransectChartView
  *         + TransectEditorDialog coverage.
  *
@@ -47,6 +47,7 @@
  *  23. Dialog opens with first provider bound; list selection rebinds table
  *      and chart.
  *  24. Delete confirmation bypass (deleteCurrentSilently) removes provider.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "dialog_a11y_checks.h"
@@ -97,7 +98,8 @@ private slots:
         TransectEditorDialog dialog(registry, nullptr, &stack);
         dialog.show();
         delete registry;
-        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY2(!dialog.isEnabled(),
+                 "A closed registry must disable the editor before stale callbacks can mutate it.");
         QVERIFY(!dialog.isVisible());
         QCOMPARE(dialog.tableModel()->rowCount(), 0);
     }
@@ -125,8 +127,10 @@ private slots:
         TransectEditorDialog dialog(&registry, nullptr, &stack);
         auto *table = dialog.stationTable();
         QVERIFY(table);
-        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
-        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+        QVERIFY2(!table->accessibleName().isEmpty(),
+                 "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(),
+                 "Live editors must explain that Close does not undo applied edits.");
     }
 
     // ── TransectProvider ────────────────────────────────────────────────────
@@ -211,11 +215,11 @@ private slots:
     {
         TransectProvider p(QStringLiteral("T7"));
         QSignalSpy spy(&p, &TransectProvider::roughnessChanged);
-        p.setRoughness(0.030, 0.030, 0.030);   // matches default → no-op
+        p.setRoughness(0.030, 0.030, 0.030); // matches default → no-op
         QCOMPARE(spy.size(), 0);
         p.setRoughness(0.040, 0.030, 0.030);
         QCOMPARE(spy.size(), 1);
-        p.setRoughness(0.040, 0.030, 0.030);   // no change
+        p.setRoughness(0.040, 0.030, 0.030); // no change
         QCOMPARE(spy.size(), 1);
     }
 
@@ -238,7 +242,7 @@ private slots:
     {
         TransectProvider p(QStringLiteral("T9"));
         QSignalSpy spy(&p, &TransectProvider::modifiersChanged);
-        p.setModifiers(1.0, 0.0, 1.0);   // defaults — no change
+        p.setModifiers(1.0, 0.0, 1.0); // defaults — no change
         QCOMPARE(spy.size(), 0);
         p.setModifiers(2.0, 1.0, 1.5);
         QCOMPARE(spy.size(), 1);
@@ -251,8 +255,8 @@ private slots:
     {
         TransectProvider p(QStringLiteral("T10"));
         QSignalSpy nameSpy(&p, &TransectProvider::nameChanged);
-        QSignalSpy comSpy (&p, &TransectProvider::commentsChanged);
-        p.setName(QStringLiteral("T10"));   // no change
+        QSignalSpy comSpy(&p, &TransectProvider::commentsChanged);
+        p.setName(QStringLiteral("T10")); // no change
         QCOMPARE(nameSpy.size(), 0);
         p.setName(QStringLiteral("T10-renamed"));
         QCOMPARE(nameSpy.size(), 1);
@@ -269,9 +273,9 @@ private slots:
     {
         TransectRegistry reg;
         QVERIFY(reg.create(QStringLiteral("A")) != nullptr);
-        QCOMPARE(reg.create(QStringLiteral("A")), nullptr);   // exact dup
-        QCOMPARE(reg.create(QStringLiteral("a")), nullptr);   // case-insensitive
-        QCOMPARE(reg.create(QString()), nullptr);             // empty
+        QCOMPARE(reg.create(QStringLiteral("A")), nullptr); // exact dup
+        QCOMPARE(reg.create(QStringLiteral("a")), nullptr); // case-insensitive
+        QCOMPARE(reg.create(QString()), nullptr);           // empty
         QCOMPARE(reg.providerCount(), 1);
     }
 
@@ -408,8 +412,8 @@ private slots:
         p.setBankStations(3.0, 7.0);
         view.setProvider(&p);
 
-        QVERIFY(view.leftOverbankLine()  != nullptr);
-        QVERIFY(view.channelLine()       != nullptr);
+        QVERIFY(view.leftOverbankLine() != nullptr);
+        QVERIFY(view.channelLine() != nullptr);
         QVERIFY(view.rightOverbankLine() != nullptr);
 
         // Left shoulder: covers (0.0 → 3.0), so 2 vertices.
@@ -441,12 +445,12 @@ private slots:
         QVERIFY(p.setAllPoints({{0.0, 10.0}, {2.0, 4.0}, {5.0, 0.0}, {8.0, 4.0}, {10.0, 10.0}}));
         p.setBankStations(2.0, 8.0);
         view.setProvider(&p);
-        const int leftCntInitial  = view.leftOverbankLine()->count();
+        const int leftCntInitial = view.leftOverbankLine()->count();
         const int rightCntInitial = view.rightOverbankLine()->count();
 
         // Tighten the channel: shoulders should grow.
         p.setBankStations(3.0, 7.0);
-        QVERIFY(view.leftOverbankLine()->count()  >= leftCntInitial);
+        QVERIFY(view.leftOverbankLine()->count() >= leftCntInitial);
         QVERIFY(view.rightOverbankLine()->count() >= rightCntInitial);
         // Channel endpoints must hit the new bank stations exactly.
         QVERIFY(view.channelLine()->count() >= 2);
@@ -527,9 +531,9 @@ private slots:
         QCOMPARE(p.nLeftBank(), 0.07);
         // Push from provider → bag.
         p.setRoughness(0.05, 0.06, 0.08);
-        QCOMPARE(bag.nLeftBank(),  0.05);
+        QCOMPARE(bag.nLeftBank(), 0.05);
         QCOMPARE(bag.nRightBank(), 0.06);
-        QCOMPARE(bag.nChannel(),   0.08);
+        QCOMPARE(bag.nChannel(), 0.08);
     }
 
     // ── Undo / redo commands ────────────────────────────────────────────────
@@ -539,20 +543,19 @@ private slots:
         TransectProvider p(QStringLiteral("U1"));
         p.setRoughness(0.030, 0.030, 0.030);
         QUndoStack stack;
-        stack.push(new openswmmvis::transect::SetRoughnessCommand(
-            &p, 0.05, 0.06, 0.08));
-        QCOMPARE(p.nLeftBank(),  0.05);
+        stack.push(new openswmmvis::transect::SetRoughnessCommand(&p, 0.05, 0.06, 0.08));
+        QCOMPARE(p.nLeftBank(), 0.05);
         QCOMPARE(p.nRightBank(), 0.06);
-        QCOMPARE(p.nChannel(),   0.08);
+        QCOMPARE(p.nChannel(), 0.08);
 
         stack.undo();
-        QCOMPARE(p.nLeftBank(),  0.030);
+        QCOMPARE(p.nLeftBank(), 0.030);
         QCOMPARE(p.nRightBank(), 0.030);
-        QCOMPARE(p.nChannel(),   0.030);
+        QCOMPARE(p.nChannel(), 0.030);
 
         stack.redo();
-        QCOMPARE(p.nLeftBank(),  0.05);
-        QCOMPARE(p.nChannel(),   0.08);
+        QCOMPARE(p.nLeftBank(), 0.05);
+        QCOMPARE(p.nChannel(), 0.08);
     }
 
     void undoCommand_BankAndEncroachmentIndependent()
@@ -561,15 +564,15 @@ private slots:
         QUndoStack stack;
         stack.push(new openswmmvis::transect::SetBankStationsCommand(&p, 1.0, 9.0));
         stack.push(new openswmmvis::transect::SetEncroachmentStationsCommand(&p, 0.5, 9.5));
-        QCOMPARE(p.xLeftBank(),  1.0);
+        QCOMPARE(p.xLeftBank(), 1.0);
         QCOMPARE(p.xRightBank(), 9.0);
-        QCOMPARE(p.xLeftEncroachment(),  0.5);
+        QCOMPARE(p.xLeftEncroachment(), 0.5);
         QCOMPARE(p.xRightEncroachment(), 9.5);
 
-        stack.undo();  // undoes encroachment
-        QCOMPARE(p.xLeftEncroachment(),  0.0);
-        QCOMPARE(p.xLeftBank(),          1.0);   // bank unaffected
-        stack.undo();  // undoes bank
+        stack.undo(); // undoes encroachment
+        QCOMPARE(p.xLeftEncroachment(), 0.0);
+        QCOMPARE(p.xLeftBank(), 1.0); // bank unaffected
+        stack.undo();                 // undoes bank
         QCOMPARE(p.xLeftBank(), 0.0);
     }
 
@@ -579,13 +582,13 @@ private slots:
         QUndoStack stack;
         stack.push(new openswmmvis::transect::SetModifiersCommand(&p, 2.0, 1.0, 1.5));
         QCOMPARE(p.stationMultiplier(), 2.0);
-        QCOMPARE(p.elevationOffset(),   1.0);
-        QCOMPARE(p.meanderFactor(),     1.5);
+        QCOMPARE(p.elevationOffset(), 1.0);
+        QCOMPARE(p.meanderFactor(), 1.5);
 
         stack.undo();
-        QCOMPARE(p.stationMultiplier(), 1.0);   // default
-        QCOMPARE(p.elevationOffset(),   0.0);
-        QCOMPARE(p.meanderFactor(),     1.0);
+        QCOMPARE(p.stationMultiplier(), 1.0); // default
+        QCOMPARE(p.elevationOffset(), 0.0);
+        QCOMPARE(p.meanderFactor(), 1.0);
     }
 
     void undoCommand_CommentsRoundTrip()
@@ -593,8 +596,8 @@ private slots:
         TransectProvider p(QStringLiteral("U4"));
         p.setComments(QStringLiteral("original"));
         QUndoStack stack;
-        stack.push(new openswmmvis::transect::SetCommentsCommand(
-            &p, QStringLiteral("new comment")));
+        stack.push(
+            new openswmmvis::transect::SetCommentsCommand(&p, QStringLiteral("new comment")));
         QCOMPARE(p.comments(), QStringLiteral("new comment"));
         stack.undo();
         QCOMPARE(p.comments(), QStringLiteral("original"));
@@ -612,19 +615,19 @@ private slots:
         QUndoStack stack;
         // Pre-drag state at idx 1 = (5.0, 0.0). Imagine dragging to (4.5, -1.0).
         // The chart view reverted to (5.0, 0.0) before pushing.
-        QCOMPARE(p.pointAt(1).station,   5.0);
+        QCOMPARE(p.pointAt(1).station, 5.0);
         QCOMPARE(p.pointAt(1).elevation, 0.0);
-        stack.push(new openswmmvis::transect::MoveStationPointCommand(
-            &p, 1, /*old*/ 5.0, 0.0, /*new*/ 4.5, -1.0));
-        QCOMPARE(p.pointAt(1).station,   4.5);
+        stack.push(new openswmmvis::transect::MoveStationPointCommand(&p, 1, /*old*/ 5.0, 0.0,
+                                                                      /*new*/ 4.5, -1.0));
+        QCOMPARE(p.pointAt(1).station, 4.5);
         QCOMPARE(p.pointAt(1).elevation, -1.0);
 
         stack.undo();
-        QCOMPARE(p.pointAt(1).station,   5.0);
+        QCOMPARE(p.pointAt(1).station, 5.0);
         QCOMPARE(p.pointAt(1).elevation, 0.0);
 
         stack.redo();
-        QCOMPARE(p.pointAt(1).station,   4.5);
+        QCOMPARE(p.pointAt(1).station, 4.5);
         QCOMPARE(p.pointAt(1).elevation, -1.0);
     }
 
@@ -635,7 +638,7 @@ private slots:
         QUndoStack stack;
         stack.push(new openswmmvis::transect::InsertStationCommand(&p, 1.0, 5.0));
         QCOMPARE(p.pointCount(), 3);
-        QCOMPARE(p.pointAt(1).station,   1.0);
+        QCOMPARE(p.pointAt(1).station, 1.0);
         QCOMPARE(p.pointAt(1).elevation, 5.0);
 
         stack.undo();
@@ -659,12 +662,12 @@ private slots:
         QCOMPARE(p.pointCount(), 4);
         // Order restored — insertPoint sorts by station so we expect
         // {0, 3, 6, 9} with original elevations.
-        QCOMPARE(p.pointAt(0).station,  0.0);
-        QCOMPARE(p.pointAt(1).station,  3.0);
+        QCOMPARE(p.pointAt(0).station, 0.0);
+        QCOMPARE(p.pointAt(1).station, 3.0);
         QCOMPARE(p.pointAt(1).elevation, 5.0);
-        QCOMPARE(p.pointAt(2).station,  6.0);
+        QCOMPARE(p.pointAt(2).station, 6.0);
         QCOMPARE(p.pointAt(2).elevation, 0.0);
-        QCOMPARE(p.pointAt(3).station,  9.0);
+        QCOMPARE(p.pointAt(3).station, 9.0);
     }
 
     void undoCommand_RenameRoundTripViaRegistry()
@@ -672,8 +675,8 @@ private slots:
         TransectRegistry reg;
         auto *p = reg.create(QStringLiteral("Alpha"));
         QUndoStack stack;
-        stack.push(new openswmmvis::transect::RenameTransectCommand(
-            &reg, p, QStringLiteral("Beta")));
+        stack.push(
+            new openswmmvis::transect::RenameTransectCommand(&reg, p, QStringLiteral("Beta")));
         QCOMPARE(p->name(), QStringLiteral("Beta"));
         QVERIFY(reg.findByName(QStringLiteral("Beta")) == p);
 
@@ -691,24 +694,22 @@ private slots:
         auto *p = reg.create(QStringLiteral("Mix"));
         QVERIFY(p->setAllPoints({{0.0, 10.0}, {5.0, 0.0}, {10.0, 10.0}}));
         const auto initialPoints = p->allPoints();
-        const auto initialN_L    = p->nLeftBank();
+        const auto initialN_L = p->nLeftBank();
 
         QUndoStack stack;
-        stack.push(new openswmmvis::transect::RenameTransectCommand(
-            &reg, p, QStringLiteral("Mix-renamed")));
-        stack.push(new openswmmvis::transect::SetRoughnessCommand(
-            p, 0.07, 0.07, 0.05));
-        stack.push(new openswmmvis::transect::MoveStationPointCommand(
-            p, 1, 5.0, 0.0, 4.0, -2.0));
+        stack.push(new openswmmvis::transect::RenameTransectCommand(&reg, p,
+                                                                    QStringLiteral("Mix-renamed")));
+        stack.push(new openswmmvis::transect::SetRoughnessCommand(p, 0.07, 0.07, 0.05));
+        stack.push(new openswmmvis::transect::MoveStationPointCommand(p, 1, 5.0, 0.0, 4.0, -2.0));
         stack.push(new openswmmvis::transect::DeleteStationsCommand(p, {0}));
         QCOMPARE(p->pointCount(), 2);
 
-        stack.undo();   // restore deleted row
-        stack.undo();   // unmove
-        stack.undo();   // restore roughness
-        stack.undo();   // restore name
+        stack.undo(); // restore deleted row
+        stack.undo(); // unmove
+        stack.undo(); // restore roughness
+        stack.undo(); // restore name
 
-        QCOMPARE(p->name(),      QStringLiteral("Mix"));
+        QCOMPARE(p->name(), QStringLiteral("Mix"));
         QCOMPARE(p->nLeftBank(), initialN_L);
         QCOMPARE(p->allPoints(), initialPoints);
     }
@@ -734,8 +735,8 @@ private slots:
         QVERIFY(m);
 
         const QModelIndex root = tree->rootIndex();
-        QVERIFY(root.isValid());   // not the invisible model root
-        QCOMPARE(m->rowCount(root), 10);   // 10 Q_PROPERTYs of TransectPropertyBag
+        QVERIFY(root.isValid());         // not the invisible model root
+        QCOMPARE(m->rowCount(root), 10); // 10 Q_PROPERTYs of TransectPropertyBag
     }
 
     // The editor used to be dismissable only from the title bar. The Close

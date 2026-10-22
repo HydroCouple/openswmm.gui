@@ -1,6 +1,6 @@
-/*!
- * \file   test_importplanning.cpp
- * \brief  FEATURE_LAYER_TO_SWMM_IMPORT — unit coverage for the pure
+/**
+ * @file      test_importplanning.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — unit coverage for the pure
  *         planning core: target registry schema, mapping JSON
  *         round-trip, value coercion, and the endpoint-resolution /
  *         conflict-policy matrix of buildImportPlan().
@@ -8,7 +8,12 @@
  * Everything under test is Qt-Core-only (no GDAL / engine / widgets) —
  * see importplanning.h. Synthetic SourceFeatures play the role of OGR
  * features already transformed into the model CRS.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QJsonDocument>
@@ -22,22 +27,44 @@
 
 using namespace openswmmvis::import;
 
-namespace {
+namespace
+{
 
-SourceFeature pointFeat(long long fid, const QString &name,
-                        double x, double y,
+/**
+ *
+ * @brief Build one already-transformed point import fixture.
+ * @param fid Copied source feature ID, not resolved in a dataset.
+ * @param name Copied ID attribute, replacing any ID entry in extra.
+ * @param x X in the model CRS coordinate units.
+ * @param y Y in the same units.
+ * @param extra By-value attributes moved into the result before assigning ID.
+ * @return Owned one-point source feature. No coordinate/attribute validation,
+ * reprojection or persistent model mutation.
+ *
+ */
+SourceFeature pointFeat(long long fid, const QString &name, double x, double y,
                         QVariantMap extra = {})
 {
     SourceFeature f;
     f.fid = fid;
-    f.points = { QPointF(x, y) };
+    f.points = {QPointF(x, y)};
     f.attrs = std::move(extra);
     f.attrs.insert(QStringLiteral("ID"), name);
     return f;
 }
 
-SourceFeature lineFeat(long long fid, const QString &name,
-                       const QVector<QPointF> &pts,
+/**
+ *
+ * @brief Build an already-transformed line import fixture.
+ * @param fid Copied source feature ID.
+ * @param name Copied ID attribute, replacing any ID entry in extra.
+ * @param pts Borrowed ordered model-CRS coordinates, copied verbatim; invalid/short
+ * polylines are deliberately retained for downstream validation.
+ * @param extra By-value attributes moved into the feature before assigning ID.
+ * @return Owned source feature without dataset access or engine mutation.
+ *
+ */
+SourceFeature lineFeat(long long fid, const QString &name, const QVector<QPointF> &pts,
                        QVariantMap extra = {})
 {
     SourceFeature f;
@@ -48,6 +75,14 @@ SourceFeature lineFeat(long long fid, const QString &name,
     return f;
 }
 
+/**
+ *
+ * @brief Build the minimum target/name binding for pure import planning.
+ * @param kind Target element family copied into the mapping.
+ * @return Owned mapping with target name bound to source ID; all conflict/endpoint
+ * policies retain defaults. Does not query schema, validate data or perform an import.
+ *
+ */
 ImportMapping baseMapping(TargetKind kind)
 {
     ImportMapping m;
@@ -75,7 +110,8 @@ TEST(ImportTargetRegistry, NameIsFirstAndRequiredForEveryKind)
         // Exactly one required attribute in v1 — the identifier.
         int requiredCount = 0;
         for (const auto &a : attrs)
-            if (a.required) ++requiredCount;
+            if (a.required)
+                ++requiredCount;
         EXPECT_EQ(requiredCount, 1);
     }
 }
@@ -98,11 +134,12 @@ TEST(ImportTargetRegistry, LinkKindsCarryEndpointRows)
     const auto attrs = ImportTargetRegistry::attributesFor(TargetKind::Conduit);
     bool from = false, to = false;
     for (const auto &a : attrs) {
-        if (a.key == QLatin1String("fromNode")) from = true;
-        if (a.key == QLatin1String("toNode"))   to   = true;
+        if (a.key == QLatin1String("fromNode"))
+            from = true;
+        if (a.key == QLatin1String("toNode"))
+            to = true;
         // Endpoint keys are ctor-consumed → no adapter property.
-        if (a.key == QLatin1String("fromNode")
-            || a.key == QLatin1String("toNode"))
+        if (a.key == QLatin1String("fromNode") || a.key == QLatin1String("toNode"))
             EXPECT_TRUE(a.adapterProperty.isEmpty());
     }
     EXPECT_TRUE(from);
@@ -116,26 +153,23 @@ TEST(ImportTargetRegistry, LinkKindsCarryEndpointRows)
 TEST(ImportMapping, JsonRoundTripsLosslessly)
 {
     ImportMapping m = baseMapping(TargetKind::Conduit);
-    m.ensureBinding(QStringLiteral("roughness")).sourceField
-        = QStringLiteral("N_VALUE");
+    m.ensureBinding(QStringLiteral("roughness")).sourceField = QStringLiteral("N_VALUE");
     m.ensureBinding(QStringLiteral("barrels")).defaultValue = 2;
-    m.endpointsFromFields   = true;
-    m.endpointsSnap         = false;
+    m.endpointsFromFields = true;
+    m.endpointsSnap = false;
     m.snapToleranceMapUnits = 3.5;
-    m.autoCreateJunctions   = true;
-    m.autoNodePrefix        = QStringLiteral("N_");
-    m.conflict              = ImportMapping::Conflict::Update;
-    m.updateAttributes      = false;
-    m.updateGeometry        = true;
-    m.selectedFeaturesOnly  = true;
+    m.autoCreateJunctions = true;
+    m.autoNodePrefix = QStringLiteral("N_");
+    m.conflict = ImportMapping::Conflict::Update;
+    m.updateAttributes = false;
+    m.updateGeometry = true;
+    m.selectedFeaturesOnly = true;
 
     const auto back = ImportMapping::fromJson(m.toJson());
     ASSERT_TRUE(back.has_value());
     EXPECT_EQ(back->kind, TargetKind::Conduit);
-    EXPECT_EQ(back->binding(QStringLiteral("name"))->sourceField,
-              QStringLiteral("ID"));
-    EXPECT_EQ(back->binding(QStringLiteral("roughness"))->sourceField,
-              QStringLiteral("N_VALUE"));
+    EXPECT_EQ(back->binding(QStringLiteral("name"))->sourceField, QStringLiteral("ID"));
+    EXPECT_EQ(back->binding(QStringLiteral("roughness"))->sourceField, QStringLiteral("N_VALUE"));
     EXPECT_EQ(back->binding(QStringLiteral("barrels"))->defaultValue.toInt(), 2);
     EXPECT_TRUE(back->endpointsFromFields);
     EXPECT_FALSE(back->endpointsSnap);
@@ -162,13 +196,11 @@ TEST(ImportMapping, FromJsonRejectsGarbage)
 TEST(CoerceValue, NumbersAndNumericStrings)
 {
     const TargetAttribute d =
-        ImportTargetRegistry::attribute(TargetKind::Junction,
-                                        QStringLiteral("invertElev"));
+        ImportTargetRegistry::attribute(TargetKind::Junction, QStringLiteral("invertElev"));
     bool ok = false;
     EXPECT_DOUBLE_EQ(coerceValue(12.5, d, &ok).toDouble(), 12.5);
     EXPECT_TRUE(ok);
-    EXPECT_DOUBLE_EQ(coerceValue(QStringLiteral("101.25"), d, &ok).toDouble(),
-                     101.25);
+    EXPECT_DOUBLE_EQ(coerceValue(QStringLiteral("101.25"), d, &ok).toDouble(), 101.25);
     EXPECT_TRUE(ok);
     coerceValue(QStringLiteral("not-a-number"), d, &ok);
     EXPECT_FALSE(ok);
@@ -177,25 +209,23 @@ TEST(CoerceValue, NumbersAndNumericStrings)
 TEST(CoerceValue, EnumAcceptsCodeAndLabel)
 {
     const TargetAttribute t =
-        ImportTargetRegistry::attribute(TargetKind::Outfall,
-                                        QStringLiteral("outfallType"));
+        ImportTargetRegistry::attribute(TargetKind::Outfall, QStringLiteral("outfallType"));
     ASSERT_FALSE(t.enumChoices.isEmpty());
     bool ok = false;
     EXPECT_EQ(coerceValue(QStringLiteral("fixed"), t, &ok).toInt(), 2);
     EXPECT_TRUE(ok);
-    EXPECT_EQ(coerceValue(4, t, &ok).toInt(), 4);        // TIMESERIES
+    EXPECT_EQ(coerceValue(4, t, &ok).toInt(), 4); // TIMESERIES
     EXPECT_TRUE(ok);
     coerceValue(QStringLiteral("BOGUS"), t, &ok);
     EXPECT_FALSE(ok);
-    coerceValue(99, t, &ok);                              // out-of-range code
+    coerceValue(99, t, &ok); // out-of-range code
     EXPECT_FALSE(ok);
 }
 
 TEST(CoerceValue, NullMeansNotProvided)
 {
     const TargetAttribute d =
-        ImportTargetRegistry::attribute(TargetKind::Junction,
-                                        QStringLiteral("maxDepth"));
+        ImportTargetRegistry::attribute(TargetKind::Junction, QStringLiteral("maxDepth"));
     bool ok = false;
     const QVariant v = coerceValue(QVariant(), d, &ok);
     EXPECT_TRUE(ok);
@@ -209,15 +239,13 @@ TEST(CoerceValue, NullMeansNotProvided)
 TEST(BuildImportPlan, CreatesPointNodesWithMappedAttributes)
 {
     ImportMapping m = baseMapping(TargetKind::Junction);
-    m.ensureBinding(QStringLiteral("invertElev")).sourceField
-        = QStringLiteral("INV");
+    m.ensureBinding(QStringLiteral("invertElev")).sourceField = QStringLiteral("INV");
 
     ModelSnapshot snap;
     const QVector<SourceFeature> feats = {
-        pointFeat(1, QStringLiteral("J1"), 10.0, 20.0,
-                  { {QStringLiteral("INV"), 100.5} }),
+        pointFeat(1, QStringLiteral("J1"), 10.0, 20.0, {{QStringLiteral("INV"), 100.5}}),
         pointFeat(2, QStringLiteral("J2"), 30.0, 40.0,
-                  { {QStringLiteral("INV"), QStringLiteral("88.25")} }),
+                  {{QStringLiteral("INV"), QStringLiteral("88.25")}}),
     };
 
     const ImportPlan plan = buildImportPlan(m, snap, feats);
@@ -226,23 +254,23 @@ TEST(BuildImportPlan, CreatesPointNodesWithMappedAttributes)
     EXPECT_EQ(plan.errorCount, 0);
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Create);
     EXPECT_DOUBLE_EQ(plan.items[0].x, 10.0);
-    EXPECT_DOUBLE_EQ(
-        plan.items[0].attributeValues.value(QStringLiteral("invertElev"))
-            .toDouble(), 100.5);
-    EXPECT_DOUBLE_EQ(
-        plan.items[1].attributeValues.value(QStringLiteral("invertElev"))
-            .toDouble(), 88.25);
+    EXPECT_DOUBLE_EQ(plan.items[0].attributeValues.value(QStringLiteral("invertElev")).toDouble(),
+                     100.5);
+    EXPECT_DOUBLE_EQ(plan.items[1].attributeValues.value(QStringLiteral("invertElev")).toDouble(),
+                     88.25);
 }
 
 TEST(BuildImportPlan, DuplicateAndEmptyIdsBecomeErrors)
 {
     const ImportMapping m = baseMapping(TargetKind::Junction);
     ModelSnapshot snap;
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        pointFeat(1, QStringLiteral("A"), 0, 0),
-        pointFeat(2, QStringLiteral("A"), 1, 1),     // duplicate
-        pointFeat(3, QString(), 2, 2),               // empty id
-    });
+    const ImportPlan plan =
+        buildImportPlan(m, snap,
+                        {
+                            pointFeat(1, QStringLiteral("A"), 0, 0),
+                            pointFeat(2, QStringLiteral("A"), 1, 1), // duplicate
+                            pointFeat(3, QString(), 2, 2),           // empty id
+                        });
     EXPECT_EQ(plan.createCount, 1);
     EXPECT_EQ(plan.errorCount, 2);
 }
@@ -250,18 +278,15 @@ TEST(BuildImportPlan, DuplicateAndEmptyIdsBecomeErrors)
 TEST(BuildImportPlan, ConflictSkipAndUpdateSplit)
 {
     ImportMapping m = baseMapping(TargetKind::Junction);
-    m.ensureBinding(QStringLiteral("maxDepth")).sourceField
-        = QStringLiteral("DEPTH");
+    m.ensureBinding(QStringLiteral("maxDepth")).sourceField = QStringLiteral("DEPTH");
 
     ModelSnapshot snap;
     snap.nodes.insert(QStringLiteral("EXISTING"), QPointF(5, 5));
-    snap.nodeTypes.insert(QStringLiteral("EXISTING"), 0);   // Junction
+    snap.nodeTypes.insert(QStringLiteral("EXISTING"), 0); // Junction
 
     const QVector<SourceFeature> feats = {
-        pointFeat(1, QStringLiteral("EXISTING"), 5, 5,
-                  { {QStringLiteral("DEPTH"), 3.0} }),
-        pointFeat(2, QStringLiteral("NEW"), 9, 9,
-                  { {QStringLiteral("DEPTH"), 4.0} }),
+        pointFeat(1, QStringLiteral("EXISTING"), 5, 5, {{QStringLiteral("DEPTH"), 3.0}}),
+        pointFeat(2, QStringLiteral("NEW"), 9, 9, {{QStringLiteral("DEPTH"), 4.0}}),
     };
 
     // Skip policy.
@@ -276,8 +301,7 @@ TEST(BuildImportPlan, ConflictSkipAndUpdateSplit)
     EXPECT_EQ(plan.updateCount, 1);
     EXPECT_EQ(plan.createCount, 1);
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Update);
-    EXPECT_TRUE(plan.items[0].attributeValues.contains(
-        QStringLiteral("maxDepth")));
+    EXPECT_TRUE(plan.items[0].attributeValues.contains(QStringLiteral("maxDepth")));
 }
 
 TEST(BuildImportPlan, TypeMismatchKeepsOnlyCommonAttributes)
@@ -285,25 +309,24 @@ TEST(BuildImportPlan, TypeMismatchKeepsOnlyCommonAttributes)
     // Incoming Outfall matches an existing Junction.
     ImportMapping m = baseMapping(TargetKind::Outfall);
     m.conflict = ImportMapping::Conflict::Update;
-    m.ensureBinding(QStringLiteral("invertElev")).sourceField
-        = QStringLiteral("INV");
-    m.ensureBinding(QStringLiteral("outfallType")).defaultValue
-        = QStringLiteral("FREE");
+    m.ensureBinding(QStringLiteral("invertElev")).sourceField = QStringLiteral("INV");
+    m.ensureBinding(QStringLiteral("outfallType")).defaultValue = QStringLiteral("FREE");
 
     ModelSnapshot snap;
     snap.nodes.insert(QStringLiteral("N1"), QPointF(0, 0));
-    snap.nodeTypes.insert(QStringLiteral("N1"), 0);   // Junction ≠ Outfall
+    snap.nodeTypes.insert(QStringLiteral("N1"), 0); // Junction ≠ Outfall
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        pointFeat(1, QStringLiteral("N1"), 0, 0,
-                  { {QStringLiteral("INV"), 42.0} }),
-    });
+    const ImportPlan plan = buildImportPlan(
+        m, snap,
+        {
+            pointFeat(1, QStringLiteral("N1"), 0, 0, {{QStringLiteral("INV"), 42.0}}),
+        });
     ASSERT_EQ(plan.items.size(), 1);
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Update);
-    EXPECT_TRUE(plan.items[0].attributeValues.contains(
-        QStringLiteral("invertElev")));                       // common → kept
+    EXPECT_TRUE(
+        plan.items[0].attributeValues.contains(QStringLiteral("invertElev"))); // common → kept
     EXPECT_FALSE(plan.items[0].attributeValues.contains(
-        QStringLiteral("outfallType")));                      // specific → dropped
+        QStringLiteral("outfallType"))); // specific → dropped
 }
 
 TEST(BuildImportPlan, UpdateGeometryDetection)
@@ -319,10 +342,12 @@ TEST(BuildImportPlan, UpdateGeometryDetection)
     snap.nodes.insert(QStringLiteral("N2"), QPointF(7, 7));
     snap.nodeTypes.insert(QStringLiteral("N2"), 0);
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        pointFeat(1, QStringLiteral("N1"), 100, 200),   // moved
-        pointFeat(2, QStringLiteral("N2"), 7, 7),       // unchanged
-    });
+    const ImportPlan plan =
+        buildImportPlan(m, snap,
+                        {
+                            pointFeat(1, QStringLiteral("N1"), 100, 200), // moved
+                            pointFeat(2, QStringLiteral("N2"), 7, 7),     // unchanged
+                        });
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Update);
     EXPECT_TRUE(plan.items[0].geometryDiffers);
     // Nothing to do for the unchanged one → downgraded to Skip.
@@ -339,10 +364,8 @@ TEST(BuildImportPlan, EndpointFieldsStrategy)
     m.endpointsFromFields = true;
     m.endpointsSnap = false;
     m.autoCreateJunctions = false;
-    m.ensureBinding(QStringLiteral("fromNode")).sourceField
-        = QStringLiteral("US");
-    m.ensureBinding(QStringLiteral("toNode")).sourceField
-        = QStringLiteral("DS");
+    m.ensureBinding(QStringLiteral("fromNode")).sourceField = QStringLiteral("US");
+    m.ensureBinding(QStringLiteral("toNode")).sourceField = QStringLiteral("DS");
 
     ModelSnapshot snap;
     snap.nodes.insert(QStringLiteral("A"), QPointF(0, 0));
@@ -350,16 +373,16 @@ TEST(BuildImportPlan, EndpointFieldsStrategy)
     snap.nodes.insert(QStringLiteral("B"), QPointF(10, 0));
     snap.nodeTypes.insert(QStringLiteral("B"), 0);
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        lineFeat(1, QStringLiteral("C1"),
-                 { QPointF(0, 0), QPointF(5, 1), QPointF(10, 0) },
-                 { {QStringLiteral("US"), QStringLiteral("A")},
-                   {QStringLiteral("DS"), QStringLiteral("B")} }),
-        lineFeat(2, QStringLiteral("C2"),
-                 { QPointF(0, 0), QPointF(10, 0) },
-                 { {QStringLiteral("US"), QStringLiteral("MISSING")},
-                   {QStringLiteral("DS"), QStringLiteral("B")} }),
-    });
+    const ImportPlan plan = buildImportPlan(
+        m, snap,
+        {
+            lineFeat(1, QStringLiteral("C1"), {QPointF(0, 0), QPointF(5, 1), QPointF(10, 0)},
+                     {{QStringLiteral("US"), QStringLiteral("A")},
+                      {QStringLiteral("DS"), QStringLiteral("B")}}),
+            lineFeat(2, QStringLiteral("C2"), {QPointF(0, 0), QPointF(10, 0)},
+                     {{QStringLiteral("US"), QStringLiteral("MISSING")},
+                      {QStringLiteral("DS"), QStringLiteral("B")}}),
+        });
     ASSERT_EQ(plan.items.size(), 2);
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Create);
     EXPECT_EQ(plan.items[0].fromNode, QStringLiteral("A"));
@@ -384,14 +407,14 @@ TEST(BuildImportPlan, EndpointSnapStrategyHonorsTolerance)
     snap.nodes.insert(QStringLiteral("B"), QPointF(10, 0));
     snap.nodeTypes.insert(QStringLiteral("B"), 0);
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        // Endpoints within 0.5 of A and B → snaps.
-        lineFeat(1, QStringLiteral("OK"),
-                 { QPointF(0.2, 0.1), QPointF(10.1, -0.2) }),
-        // Downstream end 2 units away → unresolved.
-        lineFeat(2, QStringLiteral("FAR"),
-                 { QPointF(0.0, 0.0), QPointF(12.0, 0.0) }),
-    });
+    const ImportPlan plan = buildImportPlan(
+        m, snap,
+        {
+            // Endpoints within 0.5 of A and B → snaps.
+            lineFeat(1, QStringLiteral("OK"), {QPointF(0.2, 0.1), QPointF(10.1, -0.2)}),
+            // Downstream end 2 units away → unresolved.
+            lineFeat(2, QStringLiteral("FAR"), {QPointF(0.0, 0.0), QPointF(12.0, 0.0)}),
+        });
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Create);
     EXPECT_EQ(plan.items[0].fromNode, QStringLiteral("A"));
     EXPECT_EQ(plan.items[0].toNode, QStringLiteral("B"));
@@ -411,24 +434,23 @@ TEST(BuildImportPlan, EndpointAutoCreateStrategy)
     snap.nodes.insert(QStringLiteral("A"), QPointF(0, 0));
     snap.nodeTypes.insert(QStringLiteral("A"), 0);
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        lineFeat(1, QStringLiteral("C1"),
-                 { QPointF(0, 0), QPointF(50, 50) }),
-        // Second feature's upstream end coincides with the first's
-        // auto-created node → snaps to it instead of creating another.
-        lineFeat(2, QStringLiteral("C2"),
-                 { QPointF(50, 50), QPointF(80, 80) }),
-    });
+    const ImportPlan plan =
+        buildImportPlan(m, snap,
+                        {
+                            lineFeat(1, QStringLiteral("C1"), {QPointF(0, 0), QPointF(50, 50)}),
+                            // Second feature's upstream end coincides with the first's
+                            // auto-created node → snaps to it instead of creating another.
+                            lineFeat(2, QStringLiteral("C2"), {QPointF(50, 50), QPointF(80, 80)}),
+                        });
     ASSERT_EQ(plan.items.size(), 2);
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Create);
     ASSERT_EQ(plan.items[0].autoNodeNames.size(), 1);
-    EXPECT_TRUE(plan.items[0].autoNodeNames[0]
-                    .startsWith(QStringLiteral("AJ_")));
+    EXPECT_TRUE(plan.items[0].autoNodeNames[0].startsWith(QStringLiteral("AJ_")));
     EXPECT_EQ(plan.items[0].toNode, plan.items[0].autoNodeNames[0]);
 
     EXPECT_EQ(plan.items[1].action, PlannedItem::Action::Create);
     EXPECT_EQ(plan.items[1].fromNode, plan.items[0].autoNodeNames[0]);
-    ASSERT_EQ(plan.items[1].autoNodeNames.size(), 1);   // only downstream new
+    ASSERT_EQ(plan.items[1].autoNodeNames.size(), 1); // only downstream new
 }
 
 TEST(BuildImportPlan, SelfLoopAndShortLinesAreErrors)
@@ -441,15 +463,15 @@ TEST(BuildImportPlan, SelfLoopAndShortLinesAreErrors)
     snap.nodes.insert(QStringLiteral("A"), QPointF(0, 0));
     snap.nodeTypes.insert(QStringLiteral("A"), 0);
 
-    SourceFeature bad = lineFeat(2, QStringLiteral("SHORT"),
-                                 { QPointF(1, 1) });   // 1 vertex
+    SourceFeature bad = lineFeat(2, QStringLiteral("SHORT"), {QPointF(1, 1)}); // 1 vertex
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        // Both ends within tolerance of the SAME node → self loop.
-        lineFeat(1, QStringLiteral("LOOP"),
-                 { QPointF(0.5, 0.0), QPointF(0.0, 0.5) }),
-        bad,
-    });
+    const ImportPlan plan = buildImportPlan(
+        m, snap,
+        {
+            // Both ends within tolerance of the SAME node → self loop.
+            lineFeat(1, QStringLiteral("LOOP"), {QPointF(0.5, 0.0), QPointF(0.0, 0.5)}),
+            bad,
+        });
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Error);
     EXPECT_EQ(plan.items[1].action, PlannedItem::Action::Error);
     EXPECT_EQ(plan.errorCount, 2);
@@ -464,8 +486,9 @@ TEST(BuildImportPlan, GageNamespaceIsIndependentOfNodes)
     snap.nodes.insert(QStringLiteral("G1"), QPointF(0, 0));
     snap.nodeTypes.insert(QStringLiteral("G1"), 0);
 
-    const ImportPlan plan = buildImportPlan(m, snap, {
-        pointFeat(1, QStringLiteral("G1"), 3, 3),
-    });
+    const ImportPlan plan = buildImportPlan(m, snap,
+                                            {
+                                                pointFeat(1, QStringLiteral("G1"), 3, 3),
+                                            });
     EXPECT_EQ(plan.items[0].action, PlannedItem::Action::Create);
 }

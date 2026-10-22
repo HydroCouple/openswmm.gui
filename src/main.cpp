@@ -1,16 +1,13 @@
- /*!
- * \file   main.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version see
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      main.cpp
+ * @brief     Application entry point and startup configuration.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -49,58 +46,50 @@
 // (and any handler a test installs LATER, which replaces this one) is
 // unchanged.  Messages arrive from worker threads too, hence the mutex.
 
-namespace {
+namespace
+{
 
 QtMessageHandler g_prevMessageHandler = nullptr;
-FILE            *g_logFileHandle      = nullptr;
-QBasicMutex      g_logFileMutex;
+FILE *g_logFileHandle = nullptr;
+QBasicMutex g_logFileMutex;
 
-void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
-                           const QString &msg)
+void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
 {
     {
         QMutexLocker lock(&g_logFileMutex);
-        if (g_logFileHandle)
-        {
+        if (g_logFileHandle) {
             const QByteArray line =
-                QDateTime::currentDateTime()
-                    .toString(QStringLiteral("hh:mm:ss.zzz "))
-                    .toUtf8()
-                + (ctx.category ? QByteArray(ctx.category) + ": "
-                                : QByteArray())
-                + msg.toUtf8() + '\n';
-            std::fwrite(line.constData(), 1, size_t(line.size()),
-                        g_logFileHandle);
+                QDateTime::currentDateTime().toString(QStringLiteral("hh:mm:ss.zzz ")).toUtf8() +
+                (ctx.category ? QByteArray(ctx.category) + ": " : QByteArray()) + msg.toUtf8() +
+                '\n';
+            std::fwrite(line.constData(), 1, size_t(line.size()), g_logFileHandle);
             std::fflush(g_logFileHandle);
         }
     }
-    if (g_prevMessageHandler) g_prevMessageHandler(type, ctx, msg);
+    if (g_prevMessageHandler)
+        g_prevMessageHandler(type, ctx, msg);
 }
 
 void installFileTeeIfRequested()
 {
     const QByteArray req = qgetenv("SWMM_LOG_FILE");
-    if (req.isEmpty()) return;
+    if (req.isEmpty())
+        return;
 
     QString path = QString::fromLocal8Bit(req);
-    if (path == QLatin1String("1") || path.compare(QLatin1String("auto"),
-                                                   Qt::CaseInsensitive) == 0)
-    {
-        const QString dir = QStandardPaths::writableLocation(
-                                QStandardPaths::AppDataLocation)
-                            + QStringLiteral("/logs");
+    if (path == QLatin1String("1") ||
+        path.compare(QLatin1String("auto"), Qt::CaseInsensitive) == 0) {
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
+                            QStringLiteral("/logs");
         QDir().mkpath(dir);
-        path = dir + QStringLiteral("/swmmvis-")
-             + QDateTime::currentDateTime().toString(
-                   QStringLiteral("yyyyMMdd-hhmmss"))
-             + QStringLiteral(".log");
+        path = dir + QStringLiteral("/swmmvis-") +
+               QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-hhmmss")) +
+               QStringLiteral(".log");
     }
 
     g_logFileHandle = std::fopen(QFile::encodeName(path).constData(), "a");
-    if (!g_logFileHandle)
-    {
-        std::fprintf(stderr, "SWMM_LOG_FILE: cannot open '%s' for append\n",
-                     qPrintable(path));
+    if (!g_logFileHandle) {
+        std::fprintf(stderr, "SWMM_LOG_FILE: cannot open '%s' for append\n", qPrintable(path));
         return;
     }
     std::fprintf(g_logFileHandle, "== SWMMVis log %s ==\n",
@@ -119,7 +108,7 @@ void installFileTeeIfRequested()
  * \return The exit code of the application.
  */
 int main(int argc, char *argv[])
-    {
+{
     // Perf-plan Phase 0 — opt-in file logging (SWMM_LOG_FILE).  Installed
     // before anything can log so early open phases are captured.
     installFileTeeIfRequested();
@@ -131,9 +120,13 @@ int main(int argc, char *argv[])
     std::set_terminate([]() {
         std::string what = "unknown";
         if (auto ex = std::current_exception()) {
-            try { std::rethrow_exception(ex); }
-            catch (const std::exception &e) { what = e.what(); }
-            catch (...) { what = "non-standard exception"; }
+            try {
+                std::rethrow_exception(ex);
+            } catch (const std::exception &e) {
+                what = e.what();
+            } catch (...) {
+                what = "non-standard exception";
+            }
         }
         qCritical("SWMMVis: terminating on an uncaught exception: %s", what.c_str());
         std::abort();
@@ -183,7 +176,6 @@ int main(int argc, char *argv[])
     // Alternatively, for Qt 6, force Metal:
     // qputenv("QSG_RHI_BACKEND", "metal");
 
-
     QCoreApplication *applicationInstance = nullptr;
 
     // Register the QML types used by MapCanvas's QQuickWidget overlay BEFORE
@@ -194,21 +186,20 @@ int main(int argc, char *argv[])
     // with "module is not installed" if these registrations haven't run yet,
     // silently dropping every GPU renderer for the whole session.
     // (Phase B.RHI of docs/RENDERING_5M_PLAN.md.)
-    qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
-                                           "SWMMLayerQSGRenderer");
-    qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
-                                            "SWMM2DMeshQSGRenderer");
+    qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
+    qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
     // VS.8 — GPU renderer for the 2D results layer (Gouraud depth fill,
     // contour bands, isolines, velocity arrows).
-    qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
-                                               "SWMM2DResultsQSGRenderer");
+    qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QCoreApplication::translate("main", "SWMMVis"));
     QCommandLineOption helpOption = parser.addHelpOption();
     QCommandLineOption versionOption = parser.addVersionOption();
 
-    parser.addOption(QCommandLineOption(QStringList() << "c" << "cli", QCoreApplication::translate("main", "Run in command line mode.")));
+    parser.addOption(
+        QCommandLineOption(QStringList() << "c" << "cli",
+                           QCoreApplication::translate("main", "Run in command line mode.")));
 
     QStringList opts;
     for (int i = 0; i < argc; ++i)
@@ -243,7 +234,7 @@ int main(int argc, char *argv[])
         fmt.setSamples(6);
         QSurfaceFormat::setDefaultFormat(fmt);
     }
-    
+
     QScopedPointer<QCoreApplication> application(applicationInstance);
 
     QTranslator translator;
@@ -255,6 +246,6 @@ int main(int argc, char *argv[])
             break;
         }
     }
-  
+
     return application->exec();
 }

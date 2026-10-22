@@ -1,6 +1,6 @@
-/*!
- * \file   test_channelburn_convert.cpp
- * \brief  The engine contract behind ConvertNodeTypeCommand — the burn's
+/**
+ * @file      test_channelburn_convert.cpp
+ * @brief     The engine contract behind ConvertNodeTypeCommand — the burn's
  *         junction-to-coupled-outfall conversion, phase P4
  *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §6).
  *
@@ -21,7 +21,12 @@
  * UNGATED — a `Gated YES` flap gate blocks the 2D tailwater override
  * (2D_INPUT_FORMAT_SPEC §4.4), silently disabling the coupling the conversion
  * exists to create.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QDir>
@@ -35,25 +40,41 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 #ifndef SWMMVIS_BURNCONV_FIXTURE_DIR
-#  define SWMMVIS_BURNCONV_FIXTURE_DIR "."
+#define SWMMVIS_BURNCONV_FIXTURE_DIR "."
 #endif
 #ifndef SWMMVIS_BURNCONV_OUTPUT_DIR
-#  define SWMMVIS_BURNCONV_OUTPUT_DIR "."
+#define SWMMVIS_BURNCONV_OUTPUT_DIR "."
 #endif
 
-constexpr int kJunction     = SWMM_NODE_JUNCTION;
-constexpr int kOutfall      = SWMM_NODE_OUTFALL;
-constexpr int kOutfallNormal = 1;   // 0=FREE 1=NORMAL 2=FIXED 3=TIDAL 4=TIMESERIES
+constexpr int kJunction = SWMM_NODE_JUNCTION;
+constexpr int kOutfall = SWMM_NODE_OUTFALL;
+constexpr int kOutfallNormal = 1; // 0=FREE 1=NORMAL 2=FIXED 3=TIDAL 4=TIMESERIES
 
+/**
+ *
+ * @brief Resolve a bundled burn-conversion input path without opening it.
+ * @param name Borrowed null-terminated Latin-1 fixture filename under the configured
+ * SWMMVIS_BURNCONV_FIXTURE_DIR (default process cwd).
+ * @return Owned joined path; no existence check or directory creation.
+ *
+ */
 QString fixturePath(const char *name)
 {
-    return QDir(QStringLiteral(SWMMVIS_BURNCONV_FIXTURE_DIR)).filePath(
-        QString::fromLatin1(name));
+    return QDir(QStringLiteral(SWMMVIS_BURNCONV_FIXTURE_DIR)).filePath(QString::fromLatin1(name));
 }
 
+/**
+ *
+ * @brief Resolve a persistent conversion-test output path.
+ * @param name Borrowed null-terminated Latin-1 report/output filename.
+ * @return Owned path under SWMMVIS_BURNCONV_OUTPUT_DIR, default process cwd.
+ * Attempts directory creation without checking success; does not clear existing files.
+ *
+ */
 QString outputPath(const char *name)
 {
     QDir dir(QStringLiteral(SWMMVIS_BURNCONV_OUTPUT_DIR));
@@ -62,14 +83,23 @@ QString outputPath(const char *name)
 }
 
 /*! A snapshot of what the command records in its constructor. */
-struct NodeSnapshot
-{
-    int     type = -1;
-    double  invert = 0.0;
-    double  maxDepth = 0.0;
+struct NodeSnapshot {
+    int type = -1;
+    double invert = 0.0;
+    double maxDepth = 0.0;
     QString tag;
 };
 
+/**
+ *
+ * @brief Read the node fields the conversion command must restore.
+ * @param eng Borrowed live opened engine, not advanced or destroyed here.
+ * @param idx Valid zero-based node index in eng.
+ * @return Owned type, invert/maxDepth in engine project length units and UTF-8 tag.
+ * Numeric getter statuses are unchecked and can leave initial defaults; failed tag
+ * lookup leaves empty text and the fixed 256-byte buffer can limit accepted tags.
+ *
+ */
 NodeSnapshot snapshot(SWMM_Engine eng, int idx)
 {
     NodeSnapshot s;
@@ -86,6 +116,14 @@ NodeSnapshot snapshot(SWMM_Engine eng, int idx)
 class BurnConvertTest : public ::testing::Test
 {
 protected:
+    /**
+     *
+     * @brief Create/open the shared street-inlet deck and locate its first junction.
+     * Owns eng until TearDown, leaves it OPENED without initialization for edit APIs,
+     * and writes report/output under the configured persistent directory. Fatal setup
+     * assertions stop this callback; TearDown releases any successfully created handle.
+     *
+     */
     void SetUp() override
     {
         eng = swmm_engine_create();
@@ -95,25 +133,37 @@ protected:
         const QString inp = fixturePath("street_inlet.inp");
         const QString rpt = outputPath("channelburn_convert.rpt");
         const QString out = outputPath("channelburn_convert.out");
-        ASSERT_EQ(swmm_engine_open(eng, inp.toUtf8().constData(),
-                                   rpt.toUtf8().constData(),
-                                   out.toUtf8().constData(), nullptr), SWMM_OK)
+        ASSERT_EQ(swmm_engine_open(eng, inp.toUtf8().constData(), rpt.toUtf8().constData(),
+                                   out.toUtf8().constData(), nullptr),
+                  SWMM_OK)
             << inp.toStdString();
 
         // First junction in the deck — the burn converts junctions.
         const int n = swmm_node_count(eng);
         ASSERT_GT(n, 0);
-        for (int i = 0; i < n; ++i)
-        {
+        for (int i = 0; i < n; ++i) {
             int t = -1;
             swmm_node_get_type(eng, i, &t);
-            if (t == kJunction) { idx = i; break; }
+            if (t == kJunction) {
+                idx = i;
+                break;
+            }
         }
         ASSERT_GE(idx, 0) << "fixture has no junction";
     }
+    /**
+     *
+     * @brief Destroy the owned engine if creation succeeded, then clear its handle.
+     * Runs after each case including failed setup. Leaves report/output files for review;
+     * no engine pointer may be used after this callback.
+     *
+     */
     void TearDown() override
     {
-        if (eng) { swmm_engine_destroy(eng); eng = nullptr; }
+        if (eng) {
+            swmm_engine_destroy(eng);
+            eng = nullptr;
+        }
     }
 
     SWMM_Engine eng = nullptr;
@@ -132,8 +182,8 @@ TEST_F(BurnConvertTest, JunctionToCoupledOutfallRoundTripsExactly)
     ASSERT_EQ(swmm_node_convert(eng, idx, kOutfall, &res), SWMM_OK);
     swmm_conversion_result_free(&res);
 
-    const double burnedInvert = before.invert - 1.25;    // the channel bottom
-    const double burnedDepth  = 3.5;
+    const double burnedInvert = before.invert - 1.25; // the channel bottom
+    const double burnedDepth = 3.5;
     ASSERT_EQ(swmm_node_set_invert_elev(eng, idx, burnedInvert), SWMM_OK);
     ASSERT_EQ(swmm_node_set_max_depth(eng, idx, burnedDepth), SWMM_OK);
     ASSERT_EQ(swmm_node_set_outfall_type(eng, idx, kOutfallNormal), SWMM_OK);

@@ -1,8 +1,11 @@
-/*!
- * \file   featurecommands.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurecommands.cpp
+ * @brief     Undoable edits to a FeatureLayer
+ *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "map/featurecommands.h"
@@ -15,10 +18,17 @@ Q_LOGGING_CATEGORY(lcFeatureCmd, "openswmmvis.feature.command")
 
 using namespace openswmmvis::feature;
 
-namespace openswmmvis::map {
+namespace openswmmvis::map
+{
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Translate command/error source text using FeatureCommands context.
+ * @param[in] s Required NUL-terminated source text; borrowed for translation call.
+ * @return Translated QString value, source fallback when no catalog entry. No layer edits.
+ */
 QString tr_(const char *s)
 {
     return QCoreApplication::translate("FeatureCommands", s);
@@ -27,24 +37,28 @@ QString tr_(const char *s)
 /*! Ask the canvas to redraw after a layer write. Scene | Overlay is the
  *  channel pair OpenSWMMVisMapToolAddSubcatchment::commit uses
  *  (maptooladdsubcatchment.cpp:222-223): the layer's content changed, so the
- *  cached scene buffers must miss, not just the decorations. */
+ *  cached scene buffers must miss, not just the decorations.
+ * @param[in] canvas Optional borrowed canvas; null no-op.
+ * @param[in] reason Required Latin-1 NUL-terminated invalidation reason copied into QString when
+ *   canvas exists.
+ * @note Invalidates both Scene and Overlay, ensuring changed feature geometry/attributes are
+ *   redrawn rather than only decorations. Does not synchronously paint or modify layer/store.
+ */
 void repaint(MapCanvas *canvas, const char *reason)
 {
     if (canvas)
-        canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                           QString::fromLatin1(reason));
+        canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QString::fromLatin1(reason));
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // FeatureCommandBase
 // ---------------------------------------------------------------------------
 
-FeatureCommandBase::FeatureCommandBase(const QString &text, FeatureLayer *layer,
-                                       MapCanvas *canvas, QUndoCommand *parent)
-    : MapCommand(text, canvas, parent)
-    , m_layer(layer)
+FeatureCommandBase::FeatureCommandBase(const QString &text, FeatureLayer *layer, MapCanvas *canvas,
+                                       QUndoCommand *parent)
+    : MapCommand(text, canvas, parent), m_layer(layer)
 {
 }
 
@@ -58,17 +72,17 @@ void FeatureCommandBase::recordFailure(const QString &err) const
 // AddFeatureCommand
 // ---------------------------------------------------------------------------
 
-AddFeatureCommand::AddFeatureCommand(FeatureLayer *layer, const Feature &feature,
-                                     MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Add feature"), layer, canvas, parent)
-    , m_feature(feature)
+AddFeatureCommand::AddFeatureCommand(FeatureLayer *layer, const Feature &feature, MapCanvas *canvas,
+                                     QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Add feature"), layer, canvas, parent), m_feature(feature)
 {
 }
 
 void AddFeatureCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
 
     QString err;
     const FeatureId id = l->addFeature(m_feature, &err);
@@ -84,7 +98,8 @@ void AddFeatureCommand::redo()
 void AddFeatureCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l || m_feature.id == kInvalidFeatureId) return;
+    if (!l || m_feature.id == kInvalidFeatureId)
+        return;
 
     QString err;
     if (!l->removeFeature(m_feature.id, &err))
@@ -96,28 +111,29 @@ void AddFeatureCommand::undo()
 // DeleteFeaturesCommand
 // ---------------------------------------------------------------------------
 
-DeleteFeaturesCommand::DeleteFeaturesCommand(FeatureLayer *layer,
-                                             const QVector<FeatureId> &ids,
+DeleteFeaturesCommand::DeleteFeaturesCommand(FeatureLayer *layer, const QVector<FeatureId> &ids,
                                              MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(ids.size() == 1 ? tr_("Delete feature")
-                                         : tr_("Delete features"),
-                         layer, canvas, parent)
+    : FeatureCommandBase(ids.size() == 1 ? tr_("Delete feature") : tr_("Delete features"), layer,
+                         canvas, parent)
 {
     // Snapshot at CONSTRUCTION, not at redo: by the time redo runs the caller
     // may already have cleared its selection, and a snapshot taken then would
     // be of features that no longer exist.
-    if (!layer) return;
+    if (!layer)
+        return;
     m_removed.reserve(ids.size());
     for (FeatureId id : ids) {
         Feature f;
-        if (layer->feature(id, f)) m_removed.append(f);
+        if (layer->feature(id, f))
+            m_removed.append(f);
     }
 }
 
 void DeleteFeaturesCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
 
     for (const Feature &f : m_removed) {
         QString err;
@@ -130,7 +146,8 @@ void DeleteFeaturesCommand::redo()
 void DeleteFeaturesCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
 
     for (const Feature &f : m_removed) {
         QString err;
@@ -144,52 +161,50 @@ void DeleteFeaturesCommand::undo()
 // EditFeatureGeometryCommand
 // ---------------------------------------------------------------------------
 
-EditFeatureGeometryCommand::EditFeatureGeometryCommand(
-        FeatureLayer *layer, FeatureId id,
-        const FeatureGeometry &oldGeom, const FeatureGeometry &newGeom,
-        const QString &text, bool mergeable,
-        MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(text.isEmpty() ? tr_("Edit geometry") : text,
-                         layer, canvas, parent)
-    , m_id(id)
-    , m_old(oldGeom)
-    , m_new(newGeom)
-    , m_mergeable(mergeable)
+EditFeatureGeometryCommand::EditFeatureGeometryCommand(FeatureLayer *layer, FeatureId id,
+                                                       const FeatureGeometry &oldGeom,
+                                                       const FeatureGeometry &newGeom,
+                                                       const QString &text, bool mergeable,
+                                                       MapCanvas *canvas, QUndoCommand *parent)
+    : FeatureCommandBase(text.isEmpty() ? tr_("Edit geometry") : text, layer, canvas, parent),
+      m_id(id), m_old(oldGeom), m_new(newGeom), m_mergeable(mergeable)
 {
 }
 
 void EditFeatureGeometryCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->setGeometry(m_id, m_new, &err))
-        recordFailure(tr_("Could not change the geometry of feature %1: %2")
-                          .arg(m_id).arg(err));
+        recordFailure(tr_("Could not change the geometry of feature %1: %2").arg(m_id).arg(err));
     repaint(m_canvas, "feature-geom");
 }
 
 void EditFeatureGeometryCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->setGeometry(m_id, m_old, &err))
-        recordFailure(tr_("Could not undo the geometry change on feature %1: %2")
-                          .arg(m_id).arg(err));
+        recordFailure(
+            tr_("Could not undo the geometry change on feature %1: %2").arg(m_id).arg(err));
     repaint(m_canvas, "feature-geom-undo");
 }
 
 bool EditFeatureGeometryCommand::mergeWith(const QUndoCommand *other)
 {
-    if (!m_mergeable) return false;
+    if (!m_mergeable)
+        return false;
     const auto *o = dynamic_cast<const EditFeatureGeometryCommand *>(other);
     // Only merge consecutive edits of the same feature on the same layer —
     // otherwise a drag on one vertex would swallow an unrelated edit that
     // happened to follow it.
     if (!o || !o->m_mergeable || o->m_id != m_id || o->m_layer != m_layer)
         return false;
-    m_new = o->m_new;   // keep our original "before", take their "after"
+    m_new = o->m_new; // keep our original "before", take their "after"
     return true;
 }
 
@@ -197,36 +212,35 @@ bool EditFeatureGeometryCommand::mergeWith(const QUndoCommand *other)
 // EditFeatureAttributesCommand
 // ---------------------------------------------------------------------------
 
-EditFeatureAttributesCommand::EditFeatureAttributesCommand(
-        FeatureLayer *layer, FeatureId id,
-        const QVariantMap &oldAttrs, const QVariantMap &newAttrs,
-        MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Edit attributes"), layer, canvas, parent)
-    , m_id(id)
-    , m_old(oldAttrs)
-    , m_new(newAttrs)
+EditFeatureAttributesCommand::EditFeatureAttributesCommand(FeatureLayer *layer, FeatureId id,
+                                                           const QVariantMap &oldAttrs,
+                                                           const QVariantMap &newAttrs,
+                                                           MapCanvas *canvas, QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Edit attributes"), layer, canvas, parent), m_id(id), m_old(oldAttrs),
+      m_new(newAttrs)
 {
 }
 
 void EditFeatureAttributesCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->setAttributes(m_id, m_new, &err))
-        recordFailure(tr_("Could not change the attributes of feature %1: %2")
-                          .arg(m_id).arg(err));
+        recordFailure(tr_("Could not change the attributes of feature %1: %2").arg(m_id).arg(err));
     repaint(m_canvas, "feature-attrs");
 }
 
 void EditFeatureAttributesCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->setAttributes(m_id, m_old, &err))
-        recordFailure(tr_("Could not undo the attribute change on feature %1: %2")
-                          .arg(m_id).arg(err));
+        recordFailure(
+            tr_("Could not undo the attribute change on feature %1: %2").arg(m_id).arg(err));
     repaint(m_canvas, "feature-attrs-undo");
 }
 
@@ -234,34 +248,34 @@ void EditFeatureAttributesCommand::undo()
 // AddFieldCommand
 // ---------------------------------------------------------------------------
 
-AddFieldCommand::AddFieldCommand(FeatureLayer *layer, const FieldDef &field,
-                                 MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Add column \"%1\"").arg(field.name),
-                         layer, canvas, parent)
-    , m_field(field)
+AddFieldCommand::AddFieldCommand(FeatureLayer *layer, const FieldDef &field, MapCanvas *canvas,
+                                 QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Add column \"%1\"").arg(field.name), layer, canvas, parent),
+      m_field(field)
 {
 }
 
 void AddFieldCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->addField(m_field, &err))
-        recordFailure(tr_("Could not add the column \"%1\": %2")
-                          .arg(m_field.name, err));
+        recordFailure(tr_("Could not add the column \"%1\": %2").arg(m_field.name, err));
 }
 
 void AddFieldCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->removeField(m_field.name, &err)) {
         // Not fatal: the column stays and carries default values. Reported so
         // the user is not left believing the undo took effect.
-        recordFailure(tr_("The column \"%1\" could not be removed on undo: %2")
-                          .arg(m_field.name, err));
+        recordFailure(
+            tr_("The column \"%1\" could not be removed on undo: %2").arg(m_field.name, err));
     }
 }
 
@@ -271,11 +285,11 @@ void AddFieldCommand::undo()
 
 RemoveFieldCommand::RemoveFieldCommand(FeatureLayer *layer, const QString &fieldName,
                                        MapCanvas *canvas, QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Remove column \"%1\"").arg(fieldName),
-                         layer, canvas, parent)
+    : FeatureCommandBase(tr_("Remove column \"%1\"").arg(fieldName), layer, canvas, parent)
 {
-    if (!layer) return;
-    const Schema schema = layer->schema();   // by value: keep it alive for field()
+    if (!layer)
+        return;
+    const Schema schema = layer->schema(); // by value: keep it alive for field()
     if (const FieldDef *f = schema.field(fieldName))
         m_field = *f;
 
@@ -292,32 +306,35 @@ RemoveFieldCommand::RemoveFieldCommand(FeatureLayer *layer, const QString &field
 void RemoveFieldCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l || !m_field.isValid()) return;
+    if (!l || !m_field.isValid())
+        return;
     QString err;
     if (!l->removeField(m_field.name, &err))
-        recordFailure(tr_("Could not remove the column \"%1\": %2")
-                          .arg(m_field.name, err));
+        recordFailure(tr_("Could not remove the column \"%1\": %2").arg(m_field.name, err));
 }
 
 void RemoveFieldCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l || !m_field.isValid()) return;
+    if (!l || !m_field.isValid())
+        return;
 
     QString err;
     if (!l->addField(m_field, &err)) {
-        recordFailure(tr_("Could not restore the column \"%1\": %2")
-                          .arg(m_field.name, err));
+        recordFailure(tr_("Could not restore the column \"%1\": %2").arg(m_field.name, err));
         return;
     }
     for (auto it = m_values.constBegin(); it != m_values.constEnd(); ++it) {
         Feature f;
-        if (!l->feature(it.key(), f)) continue;
+        if (!l->feature(it.key(), f))
+            continue;
         f.attributes.insert(m_field.name, it.value());
         QString setErr;
         if (!l->setAttributes(f.id, f.attributes, &setErr))
             recordFailure(tr_("Could not restore \"%1\" on feature %2: %3")
-                              .arg(m_field.name).arg(it.key()).arg(setErr));
+                              .arg(m_field.name)
+                              .arg(it.key())
+                              .arg(setErr));
     }
 }
 
@@ -325,20 +342,19 @@ void RemoveFieldCommand::undo()
 // RenameFieldCommand
 // ---------------------------------------------------------------------------
 
-RenameFieldCommand::RenameFieldCommand(FeatureLayer *layer, const QString &from,
-                                       const QString &to, MapCanvas *canvas,
-                                       QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Rename column \"%1\" to \"%2\"").arg(from, to),
-                         layer, canvas, parent)
-    , m_from(from)
-    , m_to(sanitizeFieldName(to))
+RenameFieldCommand::RenameFieldCommand(FeatureLayer *layer, const QString &from, const QString &to,
+                                       MapCanvas *canvas, QUndoCommand *parent)
+    : FeatureCommandBase(tr_("Rename column \"%1\" to \"%2\"").arg(from, to), layer, canvas,
+                         parent),
+      m_from(from), m_to(sanitizeFieldName(to))
 {
 }
 
 void RenameFieldCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->renameField(m_from, m_to, &err))
         recordFailure(tr_("Could not rename the column \"%1\": %2").arg(m_from, err));
@@ -347,38 +363,36 @@ void RenameFieldCommand::redo()
 void RenameFieldCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     QString err;
     if (!l->renameField(m_to, m_from, &err))
-        recordFailure(tr_("The column \"%1\" could not be renamed back on undo: %2")
-                          .arg(m_to, err));
+        recordFailure(
+            tr_("The column \"%1\" could not be renamed back on undo: %2").arg(m_to, err));
 }
 
 // ---------------------------------------------------------------------------
 // SetFieldMetadataCommand
 // ---------------------------------------------------------------------------
 
-SetFieldMetadataCommand::SetFieldMetadataCommand(FeatureLayer *layer,
-                                                 const QString &fieldName,
-                                                 const FieldDef &meta,
-                                                 MapCanvas *canvas,
+SetFieldMetadataCommand::SetFieldMetadataCommand(FeatureLayer *layer, const QString &fieldName,
+                                                 const FieldDef &meta, MapCanvas *canvas,
                                                  QUndoCommand *parent)
-    : FeatureCommandBase(tr_("Update column \"%1\"").arg(fieldName),
-                         layer, canvas, parent)
-    , m_name(fieldName)
-    , m_new(meta)
+    : FeatureCommandBase(tr_("Update column \"%1\"").arg(fieldName), layer, canvas, parent),
+      m_name(fieldName), m_new(meta)
 {
 }
 
 void SetFieldMetadataCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     // Captured on the first redo, not at construction: inside the "Update
     // fields to role" macro the column may only exist once an earlier child
     // (a rename) has run.
     if (!m_old.isValid()) {
-        const Schema schema = l->schema();   // by value: keep it alive for field()
+        const Schema schema = l->schema(); // by value: keep it alive for field()
         const FieldDef *f = schema.field(m_name);
         if (!f) {
             recordFailure(tr_("There is no column named \"%1\".").arg(m_name));
@@ -394,23 +408,23 @@ void SetFieldMetadataCommand::redo()
 void SetFieldMetadataCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l || !m_old.isValid()) return;
+    if (!l || !m_old.isValid())
+        return;
     QString err;
     if (!l->setFieldMetadata(m_name, m_old, &err))
-        recordFailure(tr_("The column \"%1\" could not be restored on undo: %2")
-                          .arg(m_name, err));
+        recordFailure(tr_("The column \"%1\" could not be restored on undo: %2").arg(m_name, err));
 }
 
 // ---------------------------------------------------------------------------
 // ResampleZCommand
 // ---------------------------------------------------------------------------
 
-ResampleZCommand::ResampleZCommand(FeatureLayer *layer,
-                                   const QVector<FeatureId> &ids,
+ResampleZCommand::ResampleZCommand(FeatureLayer *layer, const QVector<FeatureId> &ids,
                                    MapCanvas *canvas, QUndoCommand *parent)
     : FeatureCommandBase(tr_("Resample Z"), layer, canvas, parent)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
     m_ids = ids.isEmpty() ? layer->featureIds() : ids;
 
     m_before.reserve(m_ids.size());
@@ -423,7 +437,8 @@ ResampleZCommand::ResampleZCommand(FeatureLayer *layer,
 void ResampleZCommand::redo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
 
     // The sampled result is computed once and cached: a later redo must not
     // re-sample, or an intervening change to the raster or the mesh would
@@ -442,8 +457,7 @@ void ResampleZCommand::redo()
     for (int i = 0; i < m_ids.size(); ++i) {
         QString err;
         if (!l->setGeometry(m_ids.at(i), m_after.value(i), &err))
-            recordFailure(tr_("Could not resample feature %1: %2")
-                              .arg(m_ids.at(i)).arg(err));
+            recordFailure(tr_("Could not resample feature %1: %2").arg(m_ids.at(i)).arg(err));
     }
     repaint(m_canvas, "feature-resample-z");
 }
@@ -451,14 +465,15 @@ void ResampleZCommand::redo()
 void ResampleZCommand::undo()
 {
     FeatureLayer *l = layer();
-    if (!l) return;
+    if (!l)
+        return;
     for (int i = 0; i < m_ids.size(); ++i) {
         QString err;
         if (!l->setGeometry(m_ids.at(i), m_before.value(i), &err))
-            recordFailure(tr_("Could not undo the resample of feature %1: %2")
-                              .arg(m_ids.at(i)).arg(err));
+            recordFailure(
+                tr_("Could not undo the resample of feature %1: %2").arg(m_ids.at(i)).arg(err));
     }
     repaint(m_canvas, "feature-resample-z-undo");
 }
 
-}   // namespace openswmmvis::map
+} // namespace openswmmvis::map

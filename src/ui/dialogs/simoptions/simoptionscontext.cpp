@@ -1,9 +1,12 @@
-/*!
- * \file   simoptionscontext.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      simoptionscontext.cpp
+ * @brief     The one thing every Simulation Options page is handed.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/simoptionscontext.h"
 
 #include "layers/swmmmodellayer.h"
@@ -12,8 +15,7 @@
 namespace openswmmvis::ui
 {
 
-SimOptionsContext::SimOptionsContext(SWMM_Engine e, SWMMModelLayer *layer,
-                                     SWMMVisProjectWindow *pw,
+SimOptionsContext::SimOptionsContext(SWMM_Engine e, SWMMModelLayer *layer, SWMMVisProjectWindow *pw,
                                      EngineCapabilities caps)
     : engine_(e), layer_(layer), pw_(pw), caps_(std::move(caps))
 {
@@ -21,7 +23,8 @@ SimOptionsContext::SimOptionsContext(SWMM_Engine e, SWMMModelLayer *layer,
 
 QString SimOptionsContext::option(const char *key, const QString &fallback) const
 {
-    if (!engine_) return fallback;
+    if (!engine_)
+        return fallback;
     char buf[256] = {};
     if (swmm_options_get(engine_, key, buf, sizeof(buf)) == 0)
         return QString::fromUtf8(buf).trimmed();
@@ -45,7 +48,8 @@ int SimOptionsContext::writeIfChanged(const char *key, const QString &newVal)
     if (layer_)
         return layer_->setOption(QByteArray(key), newVal) ? 1 : 0;
 
-    if (!engine_) return 0;
+    if (!engine_)
+        return 0;
     const QByteArray v = newVal.toUtf8();
     return swmm_options_set(engine_, key, v.constData()) == 0 ? 1 : 0;
 }

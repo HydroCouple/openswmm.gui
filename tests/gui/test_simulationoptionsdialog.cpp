@@ -1,12 +1,16 @@
-/*!
- * \file   test_simulationoptionsdialog.cpp
- * \brief  Slice G-1 QtTest: SimulationOptionsDialog pure helpers.
+/**
+ * @file      test_simulationoptionsdialog.cpp
+ * @brief     Slice G-1 QtTest: SimulationOptionsDialog pure helpers.
  *
  * The dialog itself round-trips through the engine and is not unit-tested
  * here (would need a SWMM_Engine + opening a model file). What we DO test is
  * the small static surface used to translate between Qt widget state and
  * the engine's option-string format — the most likely place a typo would
  * silently corrupt a model file on Save.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/simulationoptionsdialog.h"
@@ -55,37 +59,39 @@ private slots:
 
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
 {
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("YES"),   int(Qt::Checked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("yes"),   int(Qt::Checked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("TRUE"),  int(Qt::Checked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("1"),     int(Qt::Checked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("YES"), int(Qt::Checked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("yes"), int(Qt::Checked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("TRUE"), int(Qt::Checked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("1"), int(Qt::Checked));
 
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("NO"),    int(Qt::Unchecked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("no"),    int(Qt::Unchecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("NO"), int(Qt::Unchecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("no"), int(Qt::Unchecked));
     QCOMPARE(SimulationOptionsDialog::parseEngineBool("FALSE"), int(Qt::Unchecked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("0"),     int(Qt::Unchecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("0"), int(Qt::Unchecked));
 }
 
 void TestSimulationOptionsDialog::parseEngineBoolUnknownIsPartial()
 {
     // Anything else → Qt::PartiallyChecked so the UI surfaces the oddity
     // rather than silently coercing.
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool(""),       int(Qt::PartiallyChecked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("maybe"),  int(Qt::PartiallyChecked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool("12"),     int(Qt::PartiallyChecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool(""), int(Qt::PartiallyChecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("maybe"), int(Qt::PartiallyChecked));
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool("12"), int(Qt::PartiallyChecked));
 }
 
 void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
 {
     // Setter side: must emit the canonical strings the engine parses.
-    QCOMPARE(SimulationOptionsDialog::engineBoolString(true),  QStringLiteral("YES"));
+    QCOMPARE(SimulationOptionsDialog::engineBoolString(true), QStringLiteral("YES"));
     QCOMPARE(SimulationOptionsDialog::engineBoolString(false), QStringLiteral("NO"));
 
     // Round-trip through both helpers.
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool(
-                 SimulationOptionsDialog::engineBoolString(true)),  int(Qt::Checked));
-    QCOMPARE(SimulationOptionsDialog::parseEngineBool(
-                 SimulationOptionsDialog::engineBoolString(false)), int(Qt::Unchecked));
+    QCOMPARE(
+        SimulationOptionsDialog::parseEngineBool(SimulationOptionsDialog::engineBoolString(true)),
+        int(Qt::Checked));
+    QCOMPARE(
+        SimulationOptionsDialog::parseEngineBool(SimulationOptionsDialog::engineBoolString(false)),
+        int(Qt::Unchecked));
 }
 
 void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
@@ -95,13 +101,14 @@ void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
     // cores (the benchmark's 8 M-series P-cores), else its logical CPUs;
     // MINIMUM_STEP=1.0 s floors the 1D step the 2D coupling would collapse, while
     // keeping mass balance as good as or better than the as-shipped default.
-    int    threads = -1;
+    int threads = -1;
     double minStep = -1.0;
     SimulationOptionsDialog::fastPresetValues(threads, minStep);
     SWMM_ThreadInfo ti{};
     QCOMPARE(swmm_get_thread_info(&ti), int(SWMM_OK));
-    const int expected = ti.perf_cores > 0 ? ti.perf_cores
-                       : ti.logical_cpus > 0 ? ti.logical_cpus : 8;
+    const int expected = ti.perf_cores > 0     ? ti.perf_cores
+                         : ti.logical_cpus > 0 ? ti.logical_cpus
+                                               : 8;
     QCOMPARE(threads, expected);
     QVERIFY(threads >= 1);
     QCOMPARE(minStep, 1.0);
@@ -114,8 +121,8 @@ void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
     QDateTime dt(QDate(2026, 4, 22), QTime(13, 45, 7));
     QString d, t;
     SimulationOptionsDialog::formatEngineDateTime(dt, d, t);
-    QCOMPARE(d, QStringLiteral("04/22/2026"));   // engine wants MM/DD/YYYY
-    QCOMPARE(t, QStringLiteral("13:45:07"));     // 24-hour HH:MM:SS
+    QCOMPARE(d, QStringLiteral("04/22/2026")); // engine wants MM/DD/YYYY
+    QCOMPARE(t, QStringLiteral("13:45:07"));   // 24-hour HH:MM:SS
 }
 
 void TestSimulationOptionsDialog::parseEngineDateTimeRoundTrips()
@@ -139,7 +146,7 @@ void TestSimulationOptionsDialog::parseEngineDateTimeRejectsMalformed()
     // Bad time.
     QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("01/01/2026", "25:99:99").isValid());
     // Empty strings.
-    QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("",            "00:00:00").isValid());
+    QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("", "00:00:00").isValid());
     QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("01/01/2026", "").isValid());
 }
 
@@ -177,10 +184,10 @@ void TestSimulationOptionsDialog::oaDateRoundTripsArbitraryDates()
     // HH:MM precision per legacy SWMM 5 dialog: keep test inputs on
     // whole-minute boundaries so the floating-point round-trip is exact.
     const QList<QDateTime> samples = {
-        QDateTime(QDate(2000, 2, 29), QTime( 6, 15)),  // leap-day morning
-        QDateTime(QDate(2024, 7,  4), QTime(23, 59)),  // last minute of day
-        QDateTime(QDate(2026, 5, 21), QTime(14, 30)),  // slice-creation date
-        QDateTime(QDate(2099, 1,  1), QTime( 0,  0)),  // far-future midnight
+        QDateTime(QDate(2000, 2, 29), QTime(6, 15)),  // leap-day morning
+        QDateTime(QDate(2024, 7, 4), QTime(23, 59)),  // last minute of day
+        QDateTime(QDate(2026, 5, 21), QTime(14, 30)), // slice-creation date
+        QDateTime(QDate(2099, 1, 1), QTime(0, 0)),    // far-future midnight
     };
     for (const auto &dt : samples) {
         const double oa = SimulationOptionsDialog::oaDateFromQDateTime(dt);
@@ -218,13 +225,13 @@ void TestSimulationOptionsDialog::parseStepSecondsAcceptsEngineForms()
     // the next time the dialog was opened and OK'd.
     QCOMPARE(parse(QStringLiteral("900.000000"), kFallback), qint64(900));
     QCOMPARE(parse(QStringLiteral("300.000000"), kFallback), qint64(300));
-    QCOMPARE(parse(QStringLiteral("0.000000"),   kFallback), qint64(0));
+    QCOMPARE(parse(QStringLiteral("0.000000"), kFallback), qint64(0));
 
     // HH:MM:SS as written into the .inp — including the > 24 h hour field
     // legacy SWMM allows.
     QCOMPARE(parse(QStringLiteral("00:15:00"), kFallback), qint64(900));
     QCOMPARE(parse(QStringLiteral("48:00:00"), kFallback), qint64(172800));
-    QCOMPARE(parse(QStringLiteral("15:00"),    kFallback), qint64(900));
+    QCOMPARE(parse(QStringLiteral("15:00"), kFallback), qint64(900));
 
     // Surrounding whitespace is tolerated (getOption() already trims, but the
     // preference fallbacks feed through the same helper).
@@ -236,12 +243,12 @@ void TestSimulationOptionsDialog::parseStepSecondsFallsBackOnGarbage()
     constexpr qint64 kFallback = 60;
     const auto parse = &SimulationOptionsDialog::parseStepSeconds;
 
-    QCOMPARE(parse(QString(),                     kFallback), kFallback);
-    QCOMPARE(parse(QStringLiteral(""),            kFallback), kFallback);
-    QCOMPARE(parse(QStringLiteral("abc"),         kFallback), kFallback);
-    QCOMPARE(parse(QStringLiteral("00:15:xx"),    kFallback), kFallback);
-    QCOMPARE(parse(QStringLiteral("1:2:3:4"),     kFallback), kFallback);
-    QCOMPARE(parse(QStringLiteral("-900"),        kFallback), kFallback);
+    QCOMPARE(parse(QString(), kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral(""), kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("abc"), kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("00:15:xx"), kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("1:2:3:4"), kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("-900"), kFallback), kFallback);
 }
 
 // ---------------------------------------------------------------------------
@@ -256,13 +263,13 @@ void TestSimulationOptionsDialog::optionValueEqualsNumericForms()
     // while the dialog formats 'f',2 / 'f',3 / 'g',6 — those must compare
     // equal or every OK rewrites every key and dirties the project.
     QVERIFY(eq(QStringLiteral("900.000000"), QStringLiteral("900")));
-    QVERIFY(eq(QStringLiteral("0.000000"),   QStringLiteral("0.00")));
-    QVERIFY(eq(QStringLiteral("5"),          QStringLiteral("5.000000")));
-    QVERIFY(eq(QStringLiteral("  1.5 "),     QStringLiteral("1.50")));
+    QVERIFY(eq(QStringLiteral("0.000000"), QStringLiteral("0.00")));
+    QVERIFY(eq(QStringLiteral("5"), QStringLiteral("5.000000")));
+    QVERIFY(eq(QStringLiteral("  1.5 "), QStringLiteral("1.50")));
 
     // Genuinely different numbers are edits.
     QVERIFY(!eq(QStringLiteral("0.5"), QStringLiteral("0.6")));
-    QVERIFY(!eq(QStringLiteral("5"),   QStringLiteral("0.05")));
+    QVERIFY(!eq(QStringLiteral("5"), QStringLiteral("0.05")));
 }
 
 void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
@@ -271,12 +278,12 @@ void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
 
     // Non-numeric tokens compare as exact strings.
     QVERIFY(eq(QStringLiteral("DYNWAVE"), QStringLiteral("DYNWAVE")));
-    QVERIFY(!eq(QStringLiteral("YES"),    QStringLiteral("NO")));
+    QVERIFY(!eq(QStringLiteral("YES"), QStringLiteral("NO")));
 
     // Mixed numeric/non-numeric (and empty vs zero) are never equal — an
     // empty engine value followed by a numeric write is a real edit.
-    QVERIFY(!eq(QString(),               QStringLiteral("0")));
-    QVERIFY(!eq(QStringLiteral("AUTO"),  QStringLiteral("0")));
+    QVERIFY(!eq(QString(), QStringLiteral("0")));
+    QVERIFY(!eq(QStringLiteral("AUTO"), QStringLiteral("0")));
 }
 
 void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
@@ -295,9 +302,8 @@ void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
 
     // Single row selected → that row, even though selectedItems() is empty.
     table.selectRow(1);
-    QVERIFY(table.selectedItems().isEmpty());  // the premise of the old bug
-    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
-             (QList<int>{1}));
+    QVERIFY(table.selectedItems().isEmpty()); // the premise of the old bug
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table), (QList<int>{1}));
 
     // Multi-row selection → distinct rows, DESCENDING (removeRow-safe).
     auto *sel = table.selectionModel();
@@ -306,8 +312,7 @@ void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
                 QItemSelectionModel::Select | QItemSelectionModel::Rows);
     sel->select(table.model()->index(2, 0),
                 QItemSelectionModel::Select | QItemSelectionModel::Rows);
-    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
-             (QList<int>{2, 0}));
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table), (QList<int>{2, 0}));
 
     // Null table → empty, no crash.
     QVERIFY(SimulationOptionsDialog::selectedRowsDescending(nullptr).isEmpty());
@@ -326,9 +331,8 @@ void TestSimulationOptionsDialog::selectedRowsDescendingItemFallback()
     sel->select(table.model()->index(1, 0), QItemSelectionModel::Select);
     sel->select(table.model()->index(0, 1), QItemSelectionModel::Select);
 
-    QVERIFY(sel->selectedRows().isEmpty());   // no full row selected
-    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table),
-             (QList<int>{1, 0}));
+    QVERIFY(sel->selectedRows().isEmpty()); // no full row selected
+    QCOMPARE(SimulationOptionsDialog::selectedRowsDescending(&table), (QList<int>{1, 0}));
 }
 
 QTEST_MAIN(TestSimulationOptionsDialog)

@@ -1,8 +1,10 @@
-/*!
- * \file   licenseagreementdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      licenseagreementdialog.cpp
+ * @brief     Startup license agreement dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/licenseagreementdialog.h"
@@ -30,8 +32,7 @@ static const char kLicenseText[] =
     "You should have received a copy of the GNU General Public License "
     "along with this program. If not, see <https://www.gnu.org/licenses/>.";
 
-LicenseAgreementDialog::LicenseAgreementDialog(QWidget *parent)
-    : QDialog(parent)
+LicenseAgreementDialog::LicenseAgreementDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("License Agreement"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -77,8 +78,7 @@ void LicenseAgreementDialog::buildUi()
     layout->setSpacing(12);
     layout->setContentsMargins(16, 16, 16, 16);
 
-    auto *heading = new QLabel(
-        tr("<b>SWMMVis — GNU General Public License v3</b>"), this);
+    auto *heading = new QLabel(tr("<b>SWMMVis — GNU General Public License v3</b>"), this);
     heading->setWordWrap(true);
     layout->addWidget(heading);
 
@@ -94,7 +94,7 @@ void LicenseAgreementDialog::buildUi()
 
     m_buttons = new QDialogButtonBox(this);
     QPushButton *yesBtn = m_buttons->addButton(tr("Yes, I Agree"), QDialogButtonBox::AcceptRole);
-    QPushButton *noBtn  = m_buttons->addButton(tr("No, Exit"),     QDialogButtonBox::RejectRole);
+    QPushButton *noBtn = m_buttons->addButton(tr("No, Exit"), QDialogButtonBox::RejectRole);
     Q_UNUSED(yesBtn)
     Q_UNUSED(noBtn)
     layout->addWidget(m_buttons);

@@ -1,10 +1,14 @@
-/*!
- * \file   test_scalarramplut.cpp
- * \brief  Unit tests for ScalarRampLut (QSG-2D-1M Phase 8).
+/**
+ * @file      test_scalarramplut.cpp
+ * @brief     Unit tests for ScalarRampLut (QSG-2D-1M Phase 8).
  *
  * Locks the pure normalization/clamp contract the GLSL shader mirrors:
  * clamped [0,1] mapping, degenerate-range and non-finite safety, and the
  * texel round-trip used by the LUT baker.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -15,15 +19,25 @@
 
 using OpenSWMM::Render::ScalarRampLut;
 
+/**
+ *
+ * @brief Verify endpoints, midpoint and shifted-domain values map linearly to unit fractions.
+ *
+ */
 TEST(ScalarRampLutTest, NormalizeMapsRangeLinearly)
 {
-    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(0.0,  0.0, 10.0), 0.0);
-    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0,  0.0, 10.0), 0.5);
+    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(0.0, 0.0, 10.0), 0.0);
+    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0, 0.0, 10.0), 0.5);
     EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(10.0, 0.0, 10.0), 1.0);
     // Non-zero offset ranges too.
     EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(2.5, 2.0, 4.0), 0.25);
 }
 
+/**
+ *
+ * @brief Require out-of-range values to clamp to unit endpoints and extreme LUT indices.
+ *
+ */
 TEST(ScalarRampLutTest, ValuesOutsideRangeClamp)
 {
     EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(-1.0, 0.0, 10.0), 0.0);
@@ -32,10 +46,16 @@ TEST(ScalarRampLutTest, ValuesOutsideRangeClamp)
     EXPECT_EQ(ScalarRampLut::indexFor(99.0, 0.0, 10.0), ScalarRampLut::kSize - 1);
 }
 
+/**
+ *
+ * @brief Verify zero/inverted ranges and NaN map low, while positive infinity maps high for a
+ * valid range.
+ *
+ */
 TEST(ScalarRampLutTest, DegenerateAndNonFiniteInputsAreSafe)
 {
-    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0, 10.0, 10.0), 0.0);  // empty range
-    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0, 10.0,  0.0), 0.0);  // inverted
+    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0, 10.0, 10.0), 0.0); // empty range
+    EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(5.0, 10.0, 0.0), 0.0);  // inverted
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();
     EXPECT_DOUBLE_EQ(ScalarRampLut::normalize(nan, 0.0, 1.0), 0.0);
@@ -43,6 +63,12 @@ TEST(ScalarRampLutTest, DegenerateAndNonFiniteInputsAreSafe)
     EXPECT_EQ(ScalarRampLut::indexFor(nan, 0.0, 1.0), 0);
 }
 
+/**
+ *
+ * @brief Check sampled normalized values produce monotone in-range indices spanning both
+ * endpoints.
+ *
+ */
 TEST(ScalarRampLutTest, IndexIsMonotonicAndFullRange)
 {
     int prev = -1;
@@ -57,6 +83,12 @@ TEST(ScalarRampLutTest, IndexIsMonotonicAndFullRange)
     EXPECT_EQ(ScalarRampLut::indexFor(1.0, 0.0, 1.0), ScalarRampLut::kSize - 1);
 }
 
+/**
+ *
+ * @brief Require every texel center mapping to return its index and invalid texel positions to
+ * clamp.
+ *
+ */
 TEST(ScalarRampLutTest, TexelPositionRoundTrips)
 {
     for (int i = 0; i < ScalarRampLut::kSize; ++i) {

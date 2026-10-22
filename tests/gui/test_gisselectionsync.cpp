@@ -1,9 +1,9 @@
-/*!
- * \file   test_gisselectionsync.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  GIS feature layers ↔ SelectionManager ↔ Attribute Table, both
+/**
+ * @file      test_gisselectionsync.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     GIS feature layers ↔ SelectionManager ↔ Attribute Table, both
  *         directions (SVBC round B).
  *
  * Before this round both bridge signals were dead ends: the map tool's
@@ -16,7 +16,9 @@
  *
  * Fixture GPKG written under ./test_gisselectionsync_output/ (CLAUDE.md
  * §4.1 — reviewable location).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/gisobjectref.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/featurelayer.h"
@@ -51,46 +53,84 @@
 #include <QTableView>
 #include <QTest>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Ensure the relative GIS-selection evidence directory is requested.
+ * @return Owned test_gisselectionsync_output path relative to current working
+ * directory. Directory-creation success is unchecked; callers discover later IO failure.
+ *
+ */
 QString outDir()
 {
     QDir().mkpath(QStringLiteral("test_gisselectionsync_output"));
     return QStringLiteral("test_gisselectionsync_output");
 }
 
-QString gpkgPath() { return outDir() + QStringLiteral("/sync_polys.gpkg"); }
+/**
+ *
+ * @brief Resolve the persistent square/triangle selection GeoPackage path.
+ * @return Owned sync_polys.gpkg path under outDir(); requests directory creation
+ * but does not open or validate the dataset.
+ *
+ */
+QString gpkgPath()
+{
+    return outDir() + QStringLiteral("/sync_polys.gpkg");
+}
 
 /*! Three disjoint unit squares at x = 0, 10, 20 plus one right TRIANGLE at
  *  x = 30 whose bbox corner near (31, 1) is empty — the precise-vs-bbox
  *  rubber-band gate needs a feature whose geometry != its bbox. */
+/**
+ *
+ * @brief Recreate the persistent selection GeoPackage with three squares and one right triangle.
+ * @return True on checked driver/dataset/layer/field/feature creation, false on
+ * failure with partial artifacts possible. Registers GDAL globally and replaces
+ * sync_polys.gpkg; deletion and individual geometry/field setter statuses are
+ * unchecked. Coordinates have no declared CRS. The local add callback borrows its
+ * point list, closes a copied ring, writes sequential fixture attributes and
+ * destroys its OGR feature; the final triangle has null depth and an apostrophe name.
+ *
+ */
 bool buildFixture()
 {
     GDALAllRegister();
     GDALDriver *gpkg = GetGDALDriverManager()->GetDriverByName("GPKG");
-    if (!gpkg) return false;
+    if (!gpkg)
+        return false;
     const QByteArray gp = gpkgPath().toUtf8();
-    if (QFile::exists(gpkgPath())) gpkg->Delete(gp.constData());
+    if (QFile::exists(gpkgPath()))
+        gpkg->Delete(gp.constData());
 
     GDALDataset *ds = gpkg->Create(gp.constData(), 0, 0, 0, GDT_Unknown, nullptr);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
-    if (!layer) { GDALClose(ds); return false; }
+    if (!layer) {
+        GDALClose(ds);
+        return false;
+    }
 
     OGRFieldDefn depth("depth value", OFTReal), label("name", OFTString);
     if (layer->CreateField(&depth) != OGRERR_NONE || layer->CreateField(&label) != OGRERR_NONE) {
-        GDALClose(ds); return false;
+        GDALClose(ds);
+        return false;
     }
     int featureNumber = 0;
     const auto add = [&](std::initializer_list<QPointF> pts) {
         OGRLinearRing ring;
-        for (const QPointF &p : pts) ring.addPoint(p.x(), p.y());
+        for (const QPointF &p : pts)
+            ring.addPoint(p.x(), p.y());
         ring.closeRings();
         OGRPolygon poly;
         poly.addRing(&ring);
         OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
         f->SetGeometry(&poly);
-        if (featureNumber < 3) f->SetField("depth value", featureNumber == 0 ? 2.0 : featureNumber == 1 ? 10.0 : 30.0);
+        if (featureNumber < 3)
+            f->SetField("depth value", featureNumber == 0 ? 2.0 : featureNumber == 1 ? 10.0 : 30.0);
         f->SetField("name", featureNumber < 3 ? "Junction" : "O'Brien");
         ++featureNumber;
         const bool ok = (layer->CreateFeature(f) == OGRERR_NONE);
@@ -100,34 +140,58 @@ bool buildFixture()
     bool ok = true;
     for (double x0 : {0.0, 10.0, 20.0})
         ok = ok && add({{x0, 0.0}, {x0 + 1.0, 0.0}, {x0 + 1.0, 1.0}, {x0, 1.0}});
-    ok = ok && add({{30.0, 0.0}, {31.0, 0.0}, {30.0, 1.0}});   // triangle
+    ok = ok && add({{30.0, 0.0}, {31.0, 0.0}, {30.0, 1.0}}); // triangle
     GDALClose(ds);
     return ok;
 }
 
-QString polygonQueryPath() { return outDir() + QStringLiteral("/polygon_query.gpkg"); }
+/**
+ *
+ * @brief Resolve the persistent heterogeneous polygon-query GeoPackage path.
+ * @return Owned polygon_query.gpkg path under outDir(), without opening it.
+ *
+ */
+QString polygonQueryPath()
+{
+    return outDir() + QStringLiteral("/polygon_query.gpkg");
+}
 
+/**
+ *
+ * @brief Recreate EPSG:4326 mixed geometries with six explicit 64-bit feature identities starting
+ * at five billion.
+ * @return True on checked allocation/WKT parsing/feature writes, false otherwise.
+ * Requires GDAL registration, supplied by buildFixture in initTestCase. Replaces
+ * the GeoPackage and closes its dataset; deletion, CRS import and geometry setters
+ * are unchecked. Includes a polygon hole, multipart geometry and empty-bbox-corner point.
+ *
+ */
 bool buildPolygonQueryFixture()
 {
     GDALDriver *driver = GetGDALDriverManager()->GetDriverByName("GPKG");
-    if (!driver) return false;
+    if (!driver)
+        return false;
     const QByteArray path = polygonQueryPath().toUtf8();
-    if (QFile::exists(polygonQueryPath())) driver->Delete(path.constData());
+    if (QFile::exists(polygonQueryPath()))
+        driver->Delete(path.constData());
     auto *dataset = driver->Create(path.constData(), 0, 0, 0, GDT_Unknown, nullptr);
-    if (!dataset) return false;
+    if (!dataset)
+        return false;
     OGRSpatialReference srs;
     srs.importFromEPSG(4326);
     srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     auto *layer = dataset->CreateLayer("geometries", &srs, wkbUnknown, nullptr);
-    if (!layer) { GDALClose(dataset); return false; }
+    if (!layer) {
+        GDALClose(dataset);
+        return false;
+    }
     const char *geometries[] = {
         "POINT (0.5 0.5)",
         "LINESTRING (-1 0.75, 2 0.75)",
         "POLYGON ((0 0, 1 0, 0 1, 0 0))",
         "POLYGON ((3 0, 6 0, 6 3, 3 3, 3 0), (4 1, 4 2, 5 2, 5 1, 4 1))",
         "MULTIPOLYGON (((8 0, 9 0, 9 1, 8 1, 8 0)), ((12 0, 13 0, 13 1, 12 1, 12 0)))",
-        "POINT (0.85 0.85)"
-    };
+        "POINT (0.85 0.85)"};
     bool ok = true;
     long long fid = 5'000'000'000LL;
     for (const char *wkt : geometries) {
@@ -149,10 +213,19 @@ bool buildPolygonQueryFixture()
 /*! Everything one test needs, wired the way SWMMVisProjectWindow wires it. */
 struct Rig {
     MapCanvas canvas;
-    GISVectorLayer *layer;              // owned by the canvas
+    GISVectorLayer *layer; // owned by the canvas
     SelectionManager sel;
     GisSelectionBridge bridge{&sel, &canvas};
 
+    /**
+     *
+     * @brief Build canvas-owned GIS layer and bidirectional selection wiring.
+     * @param editable Use FeatureLayer/openTable when true, GISVectorLayer otherwise.
+     * Requires the persistent polys fixture; editable open status is deliberately
+     * unchecked. The canvas owns layer and receives it without undo. Selection and
+     * bridge are fixture members; the bridge is destroyed before their dependencies.
+     *
+     */
     explicit Rig(bool editable = false)
     {
         if (editable) {
@@ -166,10 +239,21 @@ struct Rig {
     }
 
     /*! fid of the square whose min-x is \p x0, straight from OGR. */
+    /**
+     *
+     * @brief Find the last fixture geometry whose envelope minimum X matches within half a
+     * coordinate unit.
+     * @param x0 Requested local-coordinate minimum X, normally zero/ten/twenty.
+     * @return Feature ID or -1 if no OGR layer/match. Borrows the layer, clears its
+     * spatial filter and resets its cursor before/after scanning; does not restore a
+     * prior filter and does not change dataset contents. Destroys each scanned feature.
+     *
+     */
     long long fidAt(double x0) const
     {
         OGRLayer *ol = layer->ogrLayer();
-        if (!ol) return -1;
+        if (!ol)
+            return -1;
         ol->SetSpatialFilter(nullptr);
         ol->ResetReading();
         OGRFeature *f = nullptr;
@@ -195,8 +279,26 @@ class TestGisSelectionSync : public QObject
     Q_OBJECT
 private slots:
 
-    void initTestCase() { QVERIFY(buildFixture()); QVERIFY(buildPolygonQueryFixture()); }
+    /**
+     *
+     * @brief Require both persistent GeoPackage fixtures to be created successfully before
+     * synchronization/query tests.
+     *
+     */
+    void initTestCase()
+    {
+        QVERIFY(buildFixture());
+        QVERIFY(buildPolygonQueryFixture());
+    }
 
+    /**
+     *
+     * @brief Require valid FID queries to synchronize layer/bus/table, invalid fields to preserve
+     * prior results and each query selection mode to use the full population.
+     * Checks Add/Subtract/Intersect/Invert/Replace, selected-only behavior and sort
+     * stability. The local mode selector borrows the panel and checks exact-label radios.
+     *
+     */
     void querySelectsGisRowsAndPreservesOnError()
     {
         Rig rig;
@@ -226,7 +328,8 @@ private slots:
 
         auto chooseMode = [&](const QString &label) {
             for (auto *button : panel.findChildren<QRadioButton *>())
-                if (button->text() == label) button->setChecked(true);
+                if (button->text() == label)
+                    button->setChecked(true);
         };
         // Filtering must not erase the pre-query selection before the operation.
         chooseMode("Add");
@@ -249,7 +352,8 @@ private slots:
 
         // Selected-only must not shrink the population used by query selection.
         for (auto *action : panel.findChildren<QAction *>())
-            if (action->text() == "Show selected only") action->setChecked(true);
+            if (action->text() == "Show selected only")
+                action->setChecked(true);
         query->setText(QString("FID NOT IN (%1)").arg(fid));
         QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
         QCOMPARE(rig.sel.size(), 3);
@@ -258,6 +362,12 @@ private slots:
         QCOMPARE(rig.sel.selection(), validSelection);
     }
 
+    /**
+     *
+     * @brief Require spaced-field NOT BETWEEN, null tests, escaped apostrophe strings and NOT
+     * LIKE to select expected GIS rows.
+     *
+     */
     void gisAttributesSupportNegationAndNull()
     {
         Rig rig;
@@ -279,12 +389,22 @@ private slots:
         QCOMPARE(view->model()->rowCount(), 1);
     }
 
+    /**
+     *
+     * @brief Require query selection across loaded model categories and all three mesh table
+     * kinds, while tabular filtering preserves the selection bus.
+     * Loads both committed input fixtures, creates a canvas-owned synthetic triangle
+     * and rewrites query-table.csv in the working directory; CSV byte count is unchecked.
+     *
+     */
     void queriesCoverModelDataMeshAndTabularSources()
     {
         // All categories actually selectable in either representative model.
-        for (const QString &fixture : {QString("typed_selection_fixture.inp"),
-                                       QString("data_object_table_fixture.inp")}) {
-            SWMMModelLayer model(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", ".")).filePath(fixture), nullptr);
+        for (const QString &fixture :
+             {QString("typed_selection_fixture.inp"), QString("data_object_table_fixture.inp")}) {
+            SWMMModelLayer model(
+                QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", ".")).filePath(fixture),
+                nullptr);
             QList<QString> warnings, errors;
             QVERIFY(model.loadModel(warnings, errors));
             MapCanvas canvas;
@@ -299,7 +419,8 @@ private slots:
             for (int category = 0; category < combo->count(); ++category) {
                 combo->setCurrentIndex(category);
                 const int total = view->model()->rowCount();
-                if (!total) continue;
+                if (!total)
+                    continue;
                 QString field = view->model()->headerData(0, Qt::Horizontal).toString();
                 field.replace('"', "\"\"");
                 query->setText(QString("\"%1\" NOT IN ('__no_such_object__')").arg(field));
@@ -317,11 +438,17 @@ private slots:
         MapCanvas canvas;
         SelectionManager selection;
         mesh::MeshResult result;
-        for (const QPointF &point : {QPointF(0,0), QPointF(1,0), QPointF(0,1)}) {
-            mesh::MeshVertex vertex; vertex.xy = point; result.vertices.append(vertex);
+        for (const QPointF &point : {QPointF(0, 0), QPointF(1, 0), QPointF(0, 1)}) {
+            mesh::MeshVertex vertex;
+            vertex.xy = point;
+            result.vertices.append(vertex);
         }
-        mesh::MeshTriangle triangle; triangle.v0 = 0; triangle.v1 = 1; triangle.v2 = 2;
-        result.triangles.append(triangle); result.ok = true;
+        mesh::MeshTriangle triangle;
+        triangle.v0 = 0;
+        triangle.v1 = 1;
+        triangle.v2 = 2;
+        result.triangles.append(triangle);
+        result.ok = true;
         auto *meshLayer = new SWMM2DMeshLayer(result, "query-test.2dm");
         canvas.addLayer(meshLayer, false);
         AttributeTablePanel panel;
@@ -340,7 +467,8 @@ private slots:
         }
         QFile csv("query-table.csv");
         QVERIFY(csv.open(QIODevice::WriteOnly));
-        csv.write("Name,Value\nA,2\nB,10\n"); csv.close();
+        csv.write("Name,Value\nA,2\nB,10\n");
+        csv.close();
         auto *tabular = new TabularDataLayer("query table");
         QVERIFY(tabular->loadFromFile(csv.fileName()));
         canvas.addLayer(tabular, false);
@@ -353,6 +481,14 @@ private slots:
         QCOMPARE(selection.selection(), before);
     }
 
+    /**
+     *
+     * @brief Require explicit query completion to replace only the cursor token, preserve
+     * suffix/cursor position and refresh fields after source changes.
+     * Writes checked attribute-query.png/query-suggestions.png captures and an
+     * unchecked-write completion-table.csv fixture in the current directory.
+     *
+     */
     void completionPreservesSuffixAndFollowsSource()
     {
         Rig rig;
@@ -384,17 +520,28 @@ private slots:
 
         QFile csv("completion-table.csv");
         QVERIFY(csv.open(QIODevice::WriteOnly));
-        csv.write("Other field\nvalue\n"); csv.close();
+        csv.write("Other field\nvalue\n");
+        csv.close();
         auto *tabular = new TabularDataLayer("completion source");
         QVERIFY(tabular->loadFromFile(csv.fileName()));
         rig.canvas.addLayer(tabular, false);
         panel.showLayerSource(tabular);
-        query->setText("Ot"); query->setCursorPosition(2);
+        query->setText("Ot");
+        query->setCursorPosition(2);
         QTest::keyClick(query, Qt::Key_Space, Qt::ControlModifier);
         QCOMPARE(completer->completionCount(), 1);
-        QCOMPARE(completer->completionModel()->index(0, 0).data().toString(), QString("\"Other field\""));
+        QCOMPARE(completer->completionModel()->index(0, 0).data().toString(),
+                 QString("\"Other field\""));
     }
 
+    /**
+     *
+     * @brief Require sorted/filtered sublayer and profile-path pickers to retain original
+     * dataset/path indices in selection and hover events.
+     * Uses metadata-only fixtures; does not open query.gpkg or route a model. Also
+     * checks the profile table retains interactive column resizing.
+     *
+     */
     void sortedPickersKeepOriginalIdentity()
     {
         QList<GISVectorLayer::OgrSublayerInfo> layers;
@@ -413,7 +560,8 @@ private slots:
         QVERIFY(table->isRowHidden(1));
 
         QVector<ProfileRouter::Path> paths(2);
-        paths[0].weight = 10; paths[1].weight = 2;
+        paths[0].weight = 10;
+        paths[1].weight = 2;
         ProfilePathPickerDialog picker(nullptr, paths);
         table = picker.findChild<QTableWidget *>();
         table->sortItems(1, Qt::AscendingOrder);
@@ -426,14 +574,21 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(buttons, "accepted"));
         QCOMPARE(picker.selectedPathIndex(), 1);
         for (int column = 0; column < table->columnCount(); ++column)
-            QCOMPARE(table->horizontalHeader()->sectionResizeMode(column), QHeaderView::Interactive);
+            QCOMPARE(table->horizontalHeader()->sectionResizeMode(column),
+                     QHeaderView::Interactive);
         QVERIFY(!table->horizontalHeader()->stretchLastSection());
     }
 
+    /**
+     *
+     * @brief Require a feature identity containing punctuation and a five-billion FID to
+     * round-trip exactly, while wrong-kind/malformed identities refuse.
+     *
+     */
     void gisObjectRef_roundTrips()
     {
-        const long long bigFid = 5'000'000'000LL;   // > 32 bits
-        const QString weirdId  = QStringLiteral("layer#7::odd");
+        const long long bigFid = 5'000'000'000LL; // > 32 bits
+        const QString weirdId = QStringLiteral("layer#7::odd");
         const SWMMObjectRef ref = GisObjectRef::feature(weirdId, bigFid);
         QCOMPARE(ref.objectType, SWMMObjectRef::Feature);
 
@@ -445,14 +600,18 @@ private slots:
 
         // Non-feature refs and malformed names are refused untouched.
         QVERIFY(!GisObjectRef::parseFeature(
-            SWMMObjectRef(SWMMObjectRef::Node, QStringLiteral("J1")),
-            nullptr, nullptr));
+            SWMMObjectRef(SWMMObjectRef::Node, QStringLiteral("J1")), nullptr, nullptr));
         QVERIFY(!GisObjectRef::parseFeature(
-            SWMMObjectRef(SWMMObjectRef::Feature, QStringLiteral("gis::x")),
-            nullptr, nullptr));
+            SWMMObjectRef(SWMMObjectRef::Feature, QStringLiteral("gis::x")), nullptr, nullptr));
     }
 
     /*! layer → bus → table rows (the direction the user reported dead). */
+    /**
+     *
+     * @brief Require layer-selected FIDs to appear as exact typed bus identities and matching
+     * selected table rows with a displayed FID column.
+     *
+     */
     void layerToBus_toTable()
     {
         Rig rig;
@@ -463,8 +622,7 @@ private slots:
         auto *view = panel.findChild<QTableView *>();
         QVERIFY(view && view->model());
         QCOMPARE(view->model()->rowCount(), 4);
-        QCOMPARE(view->model()->headerData(0, Qt::Horizontal).toString(),
-                 QStringLiteral("FID"));
+        QCOMPARE(view->model()->headerData(0, Qt::Horizontal).toString(), QStringLiteral("FID"));
 
         const long long f1 = rig.fidAt(0.0), f3 = rig.fidAt(20.0);
         QVERIFY(f1 >= 0 && f3 >= 0);
@@ -473,7 +631,8 @@ private slots:
         // Bus carries exactly the two Feature refs…
         int featureRefs = 0;
         for (const SWMMObjectRef &r : rig.sel.selection()) {
-            QString lid; long long fid = -1;
+            QString lid;
+            long long fid = -1;
             QVERIFY(GisObjectRef::parseFeature(r, &lid, &fid));
             QCOMPARE(lid, rig.layer->layerId());
             QVERIFY(fid == f1 || fid == f3);
@@ -483,16 +642,20 @@ private slots:
 
         // …and the table's selected rows display exactly those FIDs.
         QSet<QString> selectedFids;
-        for (const QModelIndex &idx :
-             view->selectionModel()->selectedRows(0))
+        for (const QModelIndex &idx : view->selectionModel()->selectedRows(0))
             selectedFids.insert(idx.data().toString());
-        QCOMPARE(selectedFids,
-                 (QSet<QString>{QString::number(f1), QString::number(f3)}));
+        QCOMPARE(selectedFids, (QSet<QString>{QString::number(f1), QString::number(f3)}));
     }
 
     /*! table rows → bus → layer, with exactly ONE bus emission for the
      *  gesture (busy guards on both bridge directions + the panel's
      *  applying-from-bus flag: nothing bounces). */
+    /**
+     *
+     * @brief Require selecting one table row to update the layer through exactly one
+     * selection-bus emission.
+     *
+     */
     void tableToBus_toLayer()
     {
         Rig rig;
@@ -504,17 +667,22 @@ private slots:
         QVERIFY(view && view->model());
         QSignalSpy spy(&rig.sel, &SelectionManager::selectionChanged);
 
-        view->selectionModel()->select(
-            view->model()->index(1, 0),
-            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        view->selectionModel()->select(view->model()->index(1, 0),
+                                       QItemSelectionModel::ClearAndSelect |
+                                           QItemSelectionModel::Rows);
 
         QCOMPARE(spy.count(), 1);
         const QString shownFid = view->model()->index(1, 0).data().toString();
-        QCOMPARE(rig.layer->selectedFeatureIds(),
-                 (QSet<long long>{shownFid.toLongLong()}));
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{shownFid.toLongLong()}));
     }
 
     /*! Precise geometry hits, not bbox hits, and modifier-free replace. */
+    /**
+     *
+     * @brief Require rectangle queries to select intersecting squares and exclude the right
+     * triangle empty bounding-box corner.
+     *
+     */
     void rectSelect_hitsExactFeatures()
     {
         Rig rig;
@@ -526,10 +694,15 @@ private slots:
 
         // The triangle's EMPTY bbox corner: overlaps its bounding box but
         // not its geometry — a bbox test would (wrongly) select it.
-        QVERIFY(rig.layer->featureIdsInRect(
-                        MapExtent(30.8, 0.8, 30.95, 0.95)).isEmpty());
+        QVERIFY(rig.layer->featureIdsInRect(MapExtent(30.8, 0.8, 30.95, 0.95)).isEmpty());
     }
 
+    /**
+     *
+     * @brief Register imported-vector and editable-feature layer variants for polygon gesture
+     * synchronization.
+     *
+     */
     void polygonSelect_syncsFeatures_data()
     {
         QTest::addColumn<bool>("editable");
@@ -537,6 +710,15 @@ private slots:
         QTest::newRow("editable feature") << true;
     }
 
+    /**
+     *
+     * @brief Require polygon queries to respect precise points/lines/concavity/holes/multipart
+     * geometry and 64-bit FIDs.
+     * Checks invalid two-point lasso refusal, restored spatial filter and retained
+     * attribute filter. The local box helper accepts four bounds in dataset degrees
+     * and returns a by-value four-corner polygon without validation or explicit closure.
+     *
+     */
     void polygonQuery_matchesGeometryAndPreservesFilters()
     {
         GISVectorLayer layer(polygonQueryPath(), QStringLiteral("geometries"));
@@ -551,16 +733,13 @@ private slots:
         // A nonrectangular lasso excludes the point in its empty bbox corner.
         QCOMPARE(layer.featureIdsInPolygon(QPolygonF{{0, 0}, {1, 0}, {0, 1}}),
                  (QSet<long long>{base, base + 1, base + 2}));
-        QCOMPARE(layer.featureIdsInPolygon(QPolygonF{{-0.1, -0.1}, {1.1, -0.1},
-                  {1.1, 0.3}, {0.3, 0.3}, {0.3, 1.1}, {-0.1, 1.1}}),
+        QCOMPARE(layer.featureIdsInPolygon(QPolygonF{
+                     {-0.1, -0.1}, {1.1, -0.1}, {1.1, 0.3}, {0.3, 0.3}, {0.3, 1.1}, {-0.1, 1.1}}),
                  (QSet<long long>{base + 1, base + 2}));
-        QCOMPARE(layer.featureIdsInPolygon(box(0.8, 0.8, 0.9, 0.9)),
-                 (QSet<long long>{base + 5}));
+        QCOMPARE(layer.featureIdsInPolygon(box(0.8, 0.8, 0.9, 0.9)), (QSet<long long>{base + 5}));
         QVERIFY(layer.featureIdsInPolygon(box(4.2, 1.2, 4.8, 1.8)).isEmpty());
-        QCOMPARE(layer.featureIdsInPolygon(box(5.5, 0.5, 6.5, 1.5)),
-                 (QSet<long long>{base + 3}));
-        QCOMPARE(layer.featureIdsInPolygon(box(12.2, 0.2, 12.8, 0.8)),
-                 (QSet<long long>{base + 4}));
+        QCOMPARE(layer.featureIdsInPolygon(box(5.5, 0.5, 6.5, 1.5)), (QSet<long long>{base + 3}));
+        QCOMPARE(layer.featureIdsInPolygon(box(12.2, 0.2, 12.8, 0.8)), (QSet<long long>{base + 4}));
         QVERIFY(layer.featureIdsInPolygon(QPolygonF{{0, 0}, {1, 1}}).isEmpty());
 
         layer.ogrLayer()->SetSpatialFilterRect(8, 0, 9, 1);
@@ -570,11 +749,16 @@ private slots:
         QCOMPARE(layer.ogrLayer()->GetSpatialFilter()->exportToWkt(), savedWkt);
         layer.ogrLayer()->SetSpatialFilter(nullptr);
         QVERIFY(layer.ogrLayer()->SetAttributeFilter("fid = 5000000001") == OGRERR_NONE);
-        QCOMPARE(layer.featureIdsInPolygon(box(0.4, 0.4, 0.6, 0.8)),
-                 (QSet<long long>{base + 1}));
+        QCOMPARE(layer.featureIdsInPolygon(box(0.4, 0.4, 0.6, 0.8)), (QSet<long long>{base + 1}));
         layer.ogrLayer()->SetAttributeFilter(nullptr);
     }
 
+    /**
+     *
+     * @brief Require an EPSG:3857 metre-coordinate lasso to select the same two geographic
+     * features with explicit canvas CRS and the no-CRS overload.
+     *
+     */
     void polygonQuery_reprojectsCanvasCoordinates()
     {
         GISVectorLayer layer(polygonQueryPath(), QStringLiteral("geometries"));
@@ -588,6 +772,17 @@ private slots:
         QCOMPARE(layer.featureIdsInPolygon(polygon), expected);
     }
 
+    /**
+     *
+     * @brief Require polygon mouse/key completion and modifiers to synchronize layer, bus and
+     * table for imported/editable layers.
+     * Consumes editable; checks replace/add/toggle, hidden-layer/cancel/incomplete
+     * retention and empty-hit clearing. The local draw callback borrows canvas, uses
+     * x0 in fixture coordinates, applies modifiers only at completion and maps finish
+     * zero/one/other to right click/Enter/double click. The row collector returns a
+     * copied FID set from column-zero selection; no dataset writes are requested.
+     *
+     */
     void polygonSelect_syncsFeatures()
     {
         QFETCH(bool, editable);
@@ -609,7 +804,7 @@ private slots:
         const long long f1 = rig.fidAt(0), f2 = rig.fidAt(10), f3 = rig.fidAt(20);
         const auto draw = [&](double x0, Qt::KeyboardModifiers mods, int finish) {
             for (const QPointF &p : {QPointF(x0 - 0.3, -0.3), QPointF(x0 + 1.3, -0.3),
-                                    QPointF(x0 + 1.3, 1.3), QPointF(x0 - 0.3, 1.3)}) {
+                                     QPointF(x0 + 1.3, 1.3), QPointF(x0 - 0.3, 1.3)}) {
                 int x, y;
                 rig.canvas.toPixelCoords(p.x(), p.y(), x, y);
                 QTest::mouseClick(&rig.canvas, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
@@ -632,7 +827,8 @@ private slots:
         busChanged.clear();
         draw(0, Qt::NoModifier, 0);
         QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f1}));
-        QCOMPARE(rig.sel.selection(), (QSet<SWMMObjectRef>{GisObjectRef::feature(rig.layer->layerId(), f1)}));
+        QCOMPARE(rig.sel.selection(),
+                 (QSet<SWMMObjectRef>{GisObjectRef::feature(rig.layer->layerId(), f1)}));
         QCOMPARE(selectedRows(), (QSet<long long>{f1}));
         QCOMPARE(busChanged.count(), 1);
         QCOMPARE(toolChanged.count(), 1);
@@ -664,6 +860,12 @@ private slots:
 
     /*! Feature refs on the bus leave non-GIS consumers untouched, and
      *  clearing the bus clears the layer. */
+    /**
+     *
+     * @brief Require adding a foreign node identity to leave feature selection intact and
+     * clearing the bus to clear the GIS layer.
+     *
+     */
     void busClear_clearsLayer_andForeignRefsAreInert()
     {
         Rig rig;

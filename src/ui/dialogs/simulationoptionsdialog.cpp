@@ -1,9 +1,12 @@
-/*!
- * \file   simulationoptionsdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      simulationoptionsdialog.cpp
+ * @brief     Simulation settings host and cross-page configuration coordination.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "ui/uiscrollhelpers.h"
@@ -59,15 +62,11 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
-                                                 SWMMModelLayer *layer,
+SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine, SWMMModelLayer *layer,
                                                  const QString &engineVersion,
                                                  SWMMVisProjectWindow *projectWindow,
                                                  QWidget *parent)
-    : QDialog(parent),
-      m_engine(engine),
-      m_layer(layer),
-      m_projectWindow(projectWindow),
+    : QDialog(parent), m_engine(engine), m_layer(layer), m_projectWindow(projectWindow),
       m_engineVersion(engineVersion)
 {
     setWindowTitle(tr("Simulation Options"));
@@ -75,46 +74,54 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
     // Probe once, then hand every page the same context. Both must exist
     // before buildUi(), which constructs the page classes.
     m_caps = openswmmvis::ui::probeEngineCapabilities(m_engine, m_engineVersion);
-    m_ctx  = std::make_unique<openswmmvis::ui::SimOptionsContext>(
-        m_engine, m_layer, m_projectWindow, m_caps);
+    m_ctx = std::make_unique<openswmmvis::ui::SimOptionsContext>(m_engine, m_layer, m_projectWindow,
+                                                                 m_caps);
     buildUi();
     readFromEngine();
     applyEngineConstraints();
     if (m_layer) {
-        connect(this, &SimulationOptionsDialog::changesApplied, m_layer, &SWMMModelLayer::markEdited);
-        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, &SimulationOptionsDialog::invalidateContext);
+        connect(this, &SimulationOptionsDialog::changesApplied, m_layer,
+                &SWMMModelLayer::markEdited);
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this,
+                &SimulationOptionsDialog::invalidateContext);
         connect(m_layer, &QObject::destroyed, this, &SimulationOptionsDialog::invalidateContext);
     }
     if (m_projectWindow) {
         connect(this, &SimulationOptionsDialog::changesApplied, m_projectWindow,
                 [project = m_projectWindow] { project->setHasChanges(true); });
-        connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this, &SimulationOptionsDialog::invalidateContext);
+        connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this,
+                &SimulationOptionsDialog::invalidateContext);
     }
     if (m_projectWindow && m_projectWindow->canvas())
         setUndoStack(m_projectWindow->canvas()->undoStack());
     // Cancel reverts nested edits accepted since the last Apply.
     connect(this, &QDialog::rejected, this, [this] {
-        if (m_session && m_session->cancel()) m_wroteChanges = m_wroteAtCommit;
+        if (m_session && m_session->cancel())
+            m_wroteChanges = m_wroteAtCommit;
     });
 }
 
 void SimulationOptionsDialog::setUndoStack(QUndoStack *stack)
 {
-    if (m_session) m_session->cancel();
+    if (m_session)
+        m_session->cancel();
     m_session.reset();
     if (m_layer && stack)
-        m_session = std::make_shared<OpenSWMMVis::ConfigurationSession>(m_layer, stack,
-            tr("Edit simulation options"), QFileInfo(m_layer->modelFilePath()).absolutePath());
+        m_session = std::make_shared<OpenSWMMVis::ConfigurationSession>(
+            m_layer, stack, tr("Edit simulation options"),
+            QFileInfo(m_layer->modelFilePath()).absolutePath());
 }
 
 void SimulationOptionsDialog::openNestedSegment()
 {
-    if (m_session) m_session->openSegment();
+    if (m_session)
+        m_session->openSegment();
 }
 
 bool SimulationOptionsDialog::runNestedClimatology(int tab)
 {
-    if (!m_engine) return false;
+    if (!m_engine)
+        return false;
     openNestedSegment();
     const QString anchor = m_layer ? QFileInfo(m_layer->modelFilePath()).absolutePath() : QString();
     OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(m_engine));
@@ -122,16 +129,20 @@ bool SimulationOptionsDialog::runNestedClimatology(int tab)
     ClimatologyDialog dialog(m_engine, m_layer, this);
     if (m_layer) {
         dialog.setProjectAnchor(anchor);
-        connect(m_layer, &SWMMModelLayer::engineAboutToClose, &dialog, &ClimatologyDialog::invalidateEngine);
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, &dialog,
+                &ClimatologyDialog::invalidateEngine);
         connect(m_layer, &QObject::destroyed, &dialog, &ClimatologyDialog::invalidateEngine);
     }
     dialog.setCurrentTab(tab);
     dialog.exec();
-    if (!m_engine || !dialog.wroteAnyChanges()) return false;
+    if (!m_engine || !dialog.wroteAnyChanges())
+        return false;
     m_wroteChanges = true;
-    if (m_layer) m_layer->markEdited();
+    if (m_layer)
+        m_layer->markEdited();
     OpenSWMMVis::pushConfigurationUndo(m_session ? m_session->stack() : nullptr, m_layer,
-            tr("Edit climatology"), std::move(before), beforeIdentity, anchor, {});
+                                       tr("Edit climatology"), std::move(before), beforeIdentity,
+                                       anchor, {});
     return true;
 }
 
@@ -189,18 +200,17 @@ void SimulationOptionsDialog::buildUi()
     // (same-row set is a no-op, so no signal loop).
     setObjectName(QStringLiteral("SimulationOptionsDialog"));
     m_pages->setObjectName(QStringLiteral("pages"));
-    connect(m_pages, &QStackedWidget::currentChanged,
-            m_categoryList, qOverload<int>(&QListWidget::setCurrentRow));
+    connect(m_pages, &QStackedWidget::currentChanged, m_categoryList,
+            qOverload<int>(&QListWidget::setCurrentRow));
     split->addWidget(m_pages, 1);
 
-    connect(m_categoryList, &QListWidget::currentRowChanged,
-            m_pages, &QStackedWidget::setCurrentIndex);
+    connect(m_categoryList, &QListWidget::currentRowChanged, m_pages,
+            &QStackedWidget::setCurrentIndex);
 
     addPage(new openswmmvis::ui::TitleNotesPage(*m_ctx, this));
     m_modelsPage = new openswmmvis::ui::ModelsPage(*m_ctx, this);
     addPage(m_modelsPage);
-    connect(m_modelsPage, &openswmmvis::ui::ModelsPage::showSnowSettingsRequested,
-            this, [this] {
+    connect(m_modelsPage, &openswmmvis::ui::ModelsPage::showSnowSettingsRequested, this, [this] {
         if (runNestedClimatology(ClimatologyDialog::TabSnowMelt))
             emit changesApplied();
         // Refresh only the mirror; preserve all unapplied options drafts.
@@ -213,76 +223,124 @@ void SimulationOptionsDialog::buildUi()
     m_hydraulicsRow = m_categoryList->count() - 1;
     // The mirror on Models is a label, not a second editor (PLAN §2.1): the
     // link just selects the row that owns the combo.
-    connect(m_modelsPage,
-            &openswmmvis::ui::ModelsPage::showFlowRoutingPageRequested,
-            this, [this] {
-                if (m_categoryList && m_hydraulicsRow >= 0)
-                    m_categoryList->setCurrentRow(m_hydraulicsRow);
-            });
+    connect(m_modelsPage, &openswmmvis::ui::ModelsPage::showFlowRoutingPageRequested, this, [this] {
+        if (m_categoryList && m_hydraulicsRow >= 0)
+            m_categoryList->setCurrentRow(m_hydraulicsRow);
+    });
     m_qualityPage = new openswmmvis::ui::QualityPage(*m_ctx, this);
-    connect(m_qualityPage,&openswmmvis::ui::QualityPage::showHeatSettingsRequested,this,[this] {
-        if(!m_engine)return;
+    connect(m_qualityPage, &openswmmvis::ui::QualityPage::showHeatSettingsRequested, this, [this] {
+        if (!m_engine)
+            return;
         openNestedSegment();
         OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(m_engine));
-        const auto beforeIdentity=OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine);
-        OpenSWMMVis::HeatConfigDialog dialog(m_engine,this);
+        const auto beforeIdentity = OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine);
+        OpenSWMMVis::HeatConfigDialog dialog(m_engine, this);
         dialog.setTransportRequested(m_qualityPage->heatEnabled());
-        bool assignRaster=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dialog,[&]{assignRaster=true;});
-        bool editRadiation=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dialog,[&]{editRadiation=true;});
-        bool editGroundwaterSettings=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::groundwaterSettingsRequested,&dialog,[&]{editGroundwaterSettings=true;});
+        bool assignRaster = false;
+        connect(&dialog, &OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested, &dialog,
+                [&] { assignRaster = true; });
+        bool editRadiation = false;
+        connect(&dialog, &OpenSWMMVis::HeatConfigDialog::radiationEditorRequested, &dialog,
+                [&] { editRadiation = true; });
+        bool editGroundwaterSettings = false;
+        connect(&dialog, &OpenSWMMVis::HeatConfigDialog::groundwaterSettingsRequested, &dialog,
+                [&] { editGroundwaterSettings = true; });
 #ifdef OPENSWMM_HAS_2D
-        bool openTwoDSettings=false;
+        bool openTwoDSettings = false;
         dialog.setTwoDTransportNavigationEnabled(m_twoDPage && m_2DRow >= 0);
-        connect(&dialog,&OpenSWMMVis::HeatConfigDialog::twoDSettingsRequested,&dialog,[&]{openTwoDSettings=true;});
+        connect(&dialog, &OpenSWMMVis::HeatConfigDialog::twoDSettingsRequested, &dialog,
+                [&] { openTwoDSettings = true; });
 #endif
-        if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);}
+        if (m_layer) {
+            connect(m_layer, &SWMMModelLayer::engineAboutToClose, &dialog,
+                    &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
+            connect(m_layer, &QObject::destroyed, &dialog,
+                    &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
+        }
         dialog.exec();
-        if(!m_engine)return;
-        if(dialog.wroteAnyChanges()){
-        m_wroteChanges=true;if(m_layer)m_layer->markEdited();
-        int enabled=0;swmm_heat_get_enabled(m_engine,&enabled);m_qualityPage->setHeatEnabled(enabled);
-        if(before&&m_session&&m_session->stack()) {
-            OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(m_engine));
-            if(after){QPointer<SWMMModelLayer> model(m_layer);
-                m_session->stack()->push(new OpenSWMMVis::HeatConfigurationUndo(model,m_engine,
-                    std::move(before),std::move(after),beforeIdentity,OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine),
-                    [model]{return model?model->engine():nullptr;},OpenSWMMVis::HeatConfigDialog::configurationSignature,
-                    [model]{if(model){model->markEdited();emit model->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});}},[](const QString& error){QMessageBox::warning(nullptr,QObject::tr("Heat configuration"),error);}));}
+        if (!m_engine)
+            return;
+        if (dialog.wroteAnyChanges()) {
+            m_wroteChanges = true;
+            if (m_layer)
+                m_layer->markEdited();
+            int enabled = 0;
+            swmm_heat_get_enabled(m_engine, &enabled);
+            m_qualityPage->setHeatEnabled(enabled);
+            if (before && m_session && m_session->stack()) {
+                OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(m_engine));
+                if (after) {
+                    QPointer<SWMMModelLayer> model(m_layer);
+                    m_session->stack()->push(new OpenSWMMVis::HeatConfigurationUndo(
+                        model, m_engine, std::move(before), std::move(after), beforeIdentity,
+                        OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine),
+                        [model] { return model ? model->engine() : nullptr; },
+                        OpenSWMMVis::HeatConfigDialog::configurationSignature,
+                        [model] {
+                            if (model) {
+                                model->markEdited();
+                                emit model->optionsChanged(
+                                    {"HEAT_TRANSPORT", "HEAT_FLUXES", "HEAT_SOURCES"});
+                            }
+                        },
+                        [](const QString &error) {
+                            QMessageBox::warning(nullptr, QObject::tr("Heat configuration"), error);
+                        }));
+                }
+            }
         }
+        if (assignRaster && m_layer && m_projectWindow) {
+            OpenSWMMVis::HeatRasterAssignDialog assignment(m_layer, m_projectWindow->canvas(),
+                                                           this);
+            assignment.exec();
         }
-        if(assignRaster&&m_layer&&m_projectWindow){OpenSWMMVis::HeatRasterAssignDialog assignment(m_layer,m_projectWindow->canvas(),this);assignment.exec();}
-        if(editRadiation&&runNestedClimatology(ClimatologyDialog::TabRadiation))m_modelsPage->refreshSnowSummary();
+        if (editRadiation && runNestedClimatology(ClimatologyDialog::TabRadiation))
+            m_modelsPage->refreshSnowSummary();
 #ifdef OPENSWMM_HAS_2D
-        if(editGroundwaterSettings&&m_engine&&m_layer) {
-            const QString anchor=QFileInfo(m_layer->modelFilePath()).absolutePath();
-            const QStringList optionKeys=openswmmvis::ui::Mesh2DGroundwaterDialog::configurationOptionKeys();
+        if (editGroundwaterSettings && m_engine && m_layer) {
+            const QString anchor = QFileInfo(m_layer->modelFilePath()).absolutePath();
+            const QStringList optionKeys =
+                openswmmvis::ui::Mesh2DGroundwaterDialog::configurationOptionKeys();
             OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(m_engine));
-            const QString beforeIdentity=OpenSWMMVis::configurationIdentity(m_engine,anchor,optionKeys);
-            openswmmvis::ui::Mesh2DGroundwaterDialog groundwater(m_engine,this,
-                openswmmvis::ui::Mesh2DGroundwaterDialog::Page::Options,
-                m_projectWindow?m_projectWindow->unitSystem():nullptr);
+            const QString beforeIdentity =
+                OpenSWMMVis::configurationIdentity(m_engine, anchor, optionKeys);
+            openswmmvis::ui::Mesh2DGroundwaterDialog groundwater(
+                m_engine, this, openswmmvis::ui::Mesh2DGroundwaterDialog::Page::Options,
+                m_projectWindow ? m_projectWindow->unitSystem() : nullptr);
             groundwater.setThermalOptionsOnly(true);
-            bool applied=false;
-            connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied,
-                    this,[this]{m_wroteChanges=true;if(m_layer)m_layer->markEdited();if(m_projectWindow)m_projectWindow->setHasChanges(true);});
-            connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::applied,
-                    &groundwater,[&applied]{applied=true;});
-            if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&groundwater,
-                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
-                connect(m_layer,&QObject::destroyed,&groundwater,
-                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);}
-            if(m_projectWindow)connect(m_projectWindow,&SWMMVisProjectWindow::aboutToClose,&groundwater,
-                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            bool applied = false;
+            connect(&groundwater,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, this,
+                    [this] {
+                        m_wroteChanges = true;
+                        if (m_layer)
+                            m_layer->markEdited();
+                        if (m_projectWindow)
+                            m_projectWindow->setHasChanges(true);
+                    });
+            connect(&groundwater, &openswmmvis::ui::Mesh2DGroundwaterDialog::applied, &groundwater,
+                    [&applied] { applied = true; });
+            if (m_layer) {
+                connect(m_layer, &SWMMModelLayer::engineAboutToClose, &groundwater,
+                        &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+                connect(m_layer, &QObject::destroyed, &groundwater,
+                        &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            }
+            if (m_projectWindow)
+                connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, &groundwater,
+                        &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
             groundwater.exec();
-            if(applied&&m_engine&&m_layer) {
-                m_wroteChanges=true;m_layer->markEdited();
-                OpenSWMMVis::pushConfigurationUndo(m_session?m_session->stack():nullptr,m_layer,
-                    tr("Edit 2D groundwater transport and thermal settings"),std::move(before),
-                    beforeIdentity,anchor,optionKeys);
+            if (applied && m_engine && m_layer) {
+                m_wroteChanges = true;
+                m_layer->markEdited();
+                OpenSWMMVis::pushConfigurationUndo(
+                    m_session ? m_session->stack() : nullptr, m_layer,
+                    tr("Edit 2D groundwater transport and thermal settings"), std::move(before),
+                    beforeIdentity, anchor, optionKeys);
                 emit m_layer->optionsChanged(optionKeys);
             }
         }
-        if(openTwoDSettings&&m_categoryList&&m_2DRow>=0)
+        if (openTwoDSettings && m_categoryList && m_2DRow >= 0)
             m_categoryList->setCurrentRow(m_2DRow);
 #endif
 
@@ -295,15 +353,16 @@ void SimulationOptionsDialog::buildUi()
         // T4: the preset now goes through the page, never through a widget
         // it does not own (PLAN §4.1).
         perf->setMinimumStepSetter([this](double v) {
-            if (m_hydraulicsPage) m_hydraulicsPage->setMinimumStep(v);
+            if (m_hydraulicsPage)
+                m_hydraulicsPage->setMinimumStep(v);
         });
         addPage(perf);
     }
     m_spatialPage = new openswmmvis::ui::SpatialPage(*m_ctx, this);
     // The CRS pick writes straight through, so the page reports the dirty
     // edit itself rather than going through the write pass.
-    connect(m_spatialPage, &openswmmvis::ui::SpatialPage::crsChanged,
-            this, [this] { m_wroteChanges = true; });
+    connect(m_spatialPage, &openswmmvis::ui::SpatialPage::crsChanged, this,
+            [this] { m_wroteChanges = true; });
     addPage(m_spatialPage);
 
     // Mesh configurations — file-management UI, lives outside any
@@ -314,7 +373,8 @@ void SimulationOptionsDialog::buildUi()
     {
         auto *mesh = new openswmmvis::ui::MeshPage(*m_ctx, this);
         mesh->set2DModuleSetter([this](bool on) {
-            if (m_modelsPage) m_modelsPage->setModule2DEnabled(on);
+            if (m_modelsPage)
+                m_modelsPage->setModule2DEnabled(on);
         });
         addPage(mesh);
     }
@@ -322,9 +382,9 @@ void SimulationOptionsDialog::buildUi()
 
 #ifdef OPENSWMM_HAS_2D
     m_twoDPage = new openswmmvis::ui::TwoDPage(*m_ctx, this);
-    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::showSnowAssignmentsRequested,
-            this, [this] {
-        if (!m_projectWindow || !m_layer || !m_engine) return;
+    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::showSnowAssignmentsRequested, this, [this] {
+        if (!m_projectWindow || !m_layer || !m_engine)
+            return;
         auto *canvas = m_projectWindow->canvas();
         QList<SWMM2DMeshLayer *> meshes;
         QStringList names;
@@ -335,39 +395,66 @@ void SimulationOptionsDialog::buildUi()
             }
         }
         if (meshes.isEmpty()) {
-            QMessageBox::information(this, tr("Mesh snow"), tr("Add a mesh to the project before assigning snow."));
+            QMessageBox::information(this, tr("Mesh snow"),
+                                     tr("Add a mesh to the project before assigning snow."));
             return;
         }
         int index = 0;
         if (meshes.size() > 1) {
             bool ok = false;
-            const auto name = QInputDialog::getItem(this, tr("Mesh snow"), tr("Mesh:"), names, 0, false, &ok);
-            if (!ok) return;
+            const auto name =
+                QInputDialog::getItem(this, tr("Mesh snow"), tr("Mesh:"), names, 0, false, &ok);
+            if (!ok)
+                return;
             index = names.indexOf(name);
         }
         openNestedSegment();
         openswmmvis::ui::MeshSnowDialog dialog(m_layer, meshes[index], canvas,
-                                             m_projectWindow->selectionManager(), this);
+                                               m_projectWindow->selectionManager(), this);
         dialog.exec();
         m_modelsPage->refreshSnowSummary();
     });
-    connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showEvaporationSettingsRequested,this,[this] {
-        if(runNestedClimatology(ClimatologyDialog::TabEvaporation))m_twoDPage->refreshGates();
+    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::showEvaporationSettingsRequested, this, [this] {
+        if (runNestedClimatology(ClimatologyDialog::TabEvaporation))
+            m_twoDPage->refreshGates();
     });
-    connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showGroundwaterAssignmentsRequested,this,[this] {
-        if(!m_projectWindow||!m_layer||!m_engine)return;
-        auto* canvas=m_projectWindow->canvas();QList<SWMM2DMeshLayer*> meshes;QStringList names;
-        for(auto* layer:canvas->layers())if(auto* mesh=qobject_cast<SWMM2DMeshLayer*>(layer)) {
-            meshes.append(mesh);names.append(tr("%1 — %2").arg(meshes.size()).arg(mesh->sourcePath()));
-        }
-        if(meshes.isEmpty()){QMessageBox::information(this,tr("Groundwater"),tr("Add a mesh before assigning groundwater."));return;}
-        int index=0;
-        if(meshes.size()>1){bool ok=false;const auto name=QInputDialog::getItem(this,tr("Groundwater"),tr("Mesh:"),names,0,false,&ok);if(!ok)return;index=names.indexOf(name);}
-        openNestedSegment();
-        openswmmvis::ui::GroundwaterAssignDialog dialog(m_layer,meshes[index],canvas,m_projectWindow->selectionManager(),m_projectWindow->unitSystem(),this);
-        connect(&dialog,&openswmmvis::ui::GroundwaterAssignDialog::applied,this,[this]{m_wroteChanges=true;m_twoDPage->refreshGates();m_modelsPage->refreshTransportMatrix();});
-        dialog.exec();
-    });
+    connect(
+        m_twoDPage, &openswmmvis::ui::TwoDPage::showGroundwaterAssignmentsRequested, this, [this] {
+            if (!m_projectWindow || !m_layer || !m_engine)
+                return;
+            auto *canvas = m_projectWindow->canvas();
+            QList<SWMM2DMeshLayer *> meshes;
+            QStringList names;
+            for (auto *layer : canvas->layers())
+                if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+                    meshes.append(mesh);
+                    names.append(tr("%1 — %2").arg(meshes.size()).arg(mesh->sourcePath()));
+                }
+            if (meshes.isEmpty()) {
+                QMessageBox::information(this, tr("Groundwater"),
+                                         tr("Add a mesh before assigning groundwater."));
+                return;
+            }
+            int index = 0;
+            if (meshes.size() > 1) {
+                bool ok = false;
+                const auto name = QInputDialog::getItem(this, tr("Groundwater"), tr("Mesh:"), names,
+                                                        0, false, &ok);
+                if (!ok)
+                    return;
+                index = names.indexOf(name);
+            }
+            openNestedSegment();
+            openswmmvis::ui::GroundwaterAssignDialog dialog(m_layer, meshes[index], canvas,
+                                                            m_projectWindow->selectionManager(),
+                                                            m_projectWindow->unitSystem(), this);
+            connect(&dialog, &openswmmvis::ui::GroundwaterAssignDialog::applied, this, [this] {
+                m_wroteChanges = true;
+                m_twoDPage->refreshGates();
+                m_modelsPage->refreshTransportMatrix();
+            });
+            dialog.exec();
+        });
     // Two of the 2D page's steps mirror the project schedule, and its
     // output-size estimate multiplies by the run length — read through the
     // owning page's accessors, never its widgets (PLAN §4.1).
@@ -376,30 +463,32 @@ void SimulationOptionsDialog::buildUi()
         [this] { return m_datesPage->reportStepSeconds(); },
         [this] { return m_datesPage->durationSeconds(); },
     });
-    connect(m_datesPage, &openswmmvis::ui::DatesPage::scheduleChanged,
-            m_twoDPage, &openswmmvis::ui::TwoDPage::scheduleChanged);
+    connect(m_datesPage, &openswmmvis::ui::DatesPage::scheduleChanged, m_twoDPage,
+            &openswmmvis::ui::TwoDPage::scheduleChanged);
     // The Models page's transport matrix and the 2D page's TRANSPORT_* boxes
     // are two views of one model (CLAUDE.md §5.1).
     m_modelsPage->setTransport2DHooks(
         [this](int c) { return m_twoDPage->transport2DEnabled(c); },
         [this](int c, bool on) { m_twoDPage->setTransport2DEnabled(c, on); });
-    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::transportSelectionChanged,
-            m_modelsPage, &openswmmvis::ui::ModelsPage::refreshTransportMatrix);
+    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::transportSelectionChanged, m_modelsPage,
+            &openswmmvis::ui::ModelsPage::refreshTransportMatrix);
     m_modelsPage->setDraftHook([this] {
         SWMM_TransportDraft draft{};
-        draft.heat=m_qualityPage->heatEnabled(); draft.age=m_qualityPage->ageEnabled();
-        for(int c=0;c<4;++c)draft.surface_class[c]=m_twoDPage->transport2DEnabled(c);
-        draft.groundwater=m_twoDPage->groundwaterRequested();
+        draft.heat = m_qualityPage->heatEnabled();
+        draft.age = m_qualityPage->ageEnabled();
+        for (int c = 0; c < 4; ++c)
+            draft.surface_class[c] = m_twoDPage->transport2DEnabled(c);
+        draft.groundwater = m_twoDPage->groundwaterRequested();
         return draft;
     });
-    connect(m_qualityPage,&openswmmvis::ui::SimOptionsPage::gateInputsChanged,
-        m_modelsPage,&openswmmvis::ui::ModelsPage::refreshTransportMatrix);
+    connect(m_qualityPage, &openswmmvis::ui::SimOptionsPage::gateInputsChanged, m_modelsPage,
+            &openswmmvis::ui::ModelsPage::refreshTransportMatrix);
     // Its Initial Quality editor writes straight to the engine, so the page
     // reports the dirty edit itself rather than through the write pass.
-    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::engineEditedDirectly,
-            this, [this] { m_wroteChanges = true; });
+    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::engineEditedDirectly, this,
+            [this] { m_wroteChanges = true; });
     addPage(m_twoDPage);
-    m_2DRow = m_categoryList->count() - 1;  // sidebar row for the 2D page.
+    m_2DRow = m_categoryList->count() - 1; // sidebar row for the 2D page.
 #endif
 
     // Slice AA-3.5 — Files / Plugins page (its own inner sub-tabs). Lives at
@@ -414,8 +503,8 @@ void SimulationOptionsDialog::buildUi()
     root->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, this, &SimulationOptionsDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked,
-            this, &SimulationOptionsDialog::onApply);
+    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked, this,
+            &SimulationOptionsDialog::onApply);
 
     // Every gate target exists by now, so the table is built once and
     // evaluated. Pages emit gateInputsChanged() when a control that feeds a
@@ -423,8 +512,8 @@ void SimulationOptionsDialog::buildUi()
     // page having to know which gates it affects.
     buildGateTable();
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
-        connect(p, &openswmmvis::ui::SimOptionsPage::gateInputsChanged,
-                this, &SimulationOptionsDialog::refreshGates);
+        connect(p, &openswmmvis::ui::SimOptionsPage::gateInputsChanged, this,
+                &SimulationOptionsDialog::refreshGates);
     refreshGates();
 }
 
@@ -432,14 +521,17 @@ void SimulationOptionsDialog::buildUi()
 // Gating — one mechanism (PLAN §4.3)
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! Grey a sidebar row without hiding it, and move off it if it was current. */
 void applyRowGate(QListWidget *list, int row, bool on, const QString &reason)
 {
-    if (!list || row < 0) return;
+    if (!list || row < 0)
+        return;
     QListWidgetItem *item = list->item(row);
-    if (!item) return;
+    if (!item)
+        return;
     // A QStackedWidget has no per-page "enabled tab", so gate at the sidebar
     // row instead: keep it visible but non-selectable when off.
     item->setFlags(on ? (Qt::ItemIsSelectable | Qt::ItemIsEnabled)
@@ -452,14 +544,18 @@ void applyRowGate(QListWidget *list, int row, bool on, const QString &reason)
 /*! Grey an inner tab, and redirect off it if it was showing. */
 void applyTabGate(QTabWidget *tabs, int idx, bool on, const QString &reason)
 {
-    if (!tabs || idx < 0 || idx >= tabs->count()) return;
+    if (!tabs || idx < 0 || idx >= tabs->count())
+        return;
     tabs->setTabEnabled(idx, on);
     tabs->setTabToolTip(idx, on ? QString() : reason);
     // Never leave a greyed tab showing: switching FLOW_ROUTING while viewing
     // the tab that just went away must land somewhere usable.
     if (!on && tabs->currentIndex() == idx) {
         for (int i = 0; i < tabs->count(); ++i) {
-            if (tabs->isTabEnabled(i)) { tabs->setCurrentIndex(i); break; }
+            if (tabs->isTabEnabled(i)) {
+                tabs->setCurrentIndex(i);
+                break;
+            }
         }
     }
 }
@@ -476,15 +572,19 @@ void SimulationOptionsDialog::refreshGates()
     // the combo (PLAN §2.1) — one key, one editor.
     if (m_modelsPage && m_hydraulicsPage)
         m_modelsPage->setFlowRoutingText(m_hydraulicsPage->flowRouting());
-    if(m_modelsPage)m_modelsPage->refreshTransportMatrix();
+    if (m_modelsPage)
+        m_modelsPage->refreshTransportMatrix();
     for (const PageGate &g : m_gates) {
-        if (!g.enabled) continue;
+        if (!g.enabled)
+            continue;
         const bool on = g.enabled();
         switch (g.target) {
         case PageGate::Target::SidebarRow:
-            applyRowGate(m_categoryList, g.row, on, g.reasonWhenOff); break;
+            applyRowGate(m_categoryList, g.row, on, g.reasonWhenOff);
+            break;
         case PageGate::Target::Tab:
-            applyTabGate(g.tabs, g.tabIndex, on, g.reasonWhenOff); break;
+            applyTabGate(g.tabs, g.tabIndex, on, g.reasonWhenOff);
+            break;
         case PageGate::Target::Widget:
             if (g.widget) {
                 g.widget->setEnabled(on);
@@ -498,9 +598,9 @@ void SimulationOptionsDialog::refreshGates()
 void SimulationOptionsDialog::buildGateTable()
 {
     m_gates.clear();
-    const auto rowGate = [this](int row, std::function<bool()> on,
-                                const QString &why) {
-        if (row < 0) return;
+    const auto rowGate = [this](int row, std::function<bool()> on, const QString &why) {
+        if (row < 0)
+            return;
         PageGate g;
         g.target = PageGate::Target::SidebarRow;
         g.row = row;
@@ -508,9 +608,10 @@ void SimulationOptionsDialog::buildGateTable()
         g.reasonWhenOff = why;
         m_gates << g;
     };
-    const auto tabGate = [this](QTabWidget *tabs, int idx,
-                                std::function<bool()> on, const QString &why) {
-        if (!tabs) return;
+    const auto tabGate = [this](QTabWidget *tabs, int idx, std::function<bool()> on,
+                                const QString &why) {
+        if (!tabs)
+            return;
         PageGate g;
         g.target = PageGate::Target::Tab;
         g.tabs = tabs;
@@ -521,9 +622,9 @@ void SimulationOptionsDialog::buildGateTable()
     };
 
 #ifdef OPENSWMM_HAS_2D
-    rowGate(m_2DRow,
-            [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
-            tr("Enable the 2D module on Models / Processes \u203A Modules"));
+    rowGate(
+        m_2DRow, [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
+        tr("Enable the 2D module on Models / Processes \u203A Modules"));
 #endif
     // Activation lives on this page: it must remain reachable even when
     // the project has no pollutants or reserved species yet.
@@ -534,20 +635,22 @@ void SimulationOptionsDialog::buildGateTable()
         QTabWidget *ht = m_hydraulicsPage->tabs();
         const auto routing = [this] { return m_hydraulicsPage->flowRouting(); };
         using HP = openswmmvis::ui::HydraulicsPage;
-        tabGate(ht, HP::TabDynamicWave,
-                [routing] { return routing() == QLatin1String("DYNWAVE"); },
-                tr("Applies to Dynamic Wave routing only"));
-        tabGate(ht, HP::TabFiniteVolume,
-                [this, routing] { return m_caps.fv && routing() == QLatin1String("FV"); },
-                m_caps.fv ? tr("Applies to Finite Volume routing only")
-                          : tr("This engine does not support FV"));
-        tabGate(ht, HP::TabUnsteadyFriction,
-                [this, routing] {
-                    return m_caps.uf && (routing() == QLatin1String("DYNWAVE")
-                                      || routing() == QLatin1String("FV"));
-                },
-                m_caps.uf ? tr("Unsteady friction applies to Dynamic Wave and Finite Volume")
-                          : tr("Not supported by this engine"));
+        tabGate(
+            ht, HP::TabDynamicWave, [routing] { return routing() == QLatin1String("DYNWAVE"); },
+            tr("Applies to Dynamic Wave routing only"));
+        tabGate(
+            ht, HP::TabFiniteVolume,
+            [this, routing] { return m_caps.fv && routing() == QLatin1String("FV"); },
+            m_caps.fv ? tr("Applies to Finite Volume routing only")
+                      : tr("This engine does not support FV"));
+        tabGate(
+            ht, HP::TabUnsteadyFriction,
+            [this, routing] {
+                return m_caps.uf &&
+                       (routing() == QLatin1String("DYNWAVE") || routing() == QLatin1String("FV"));
+            },
+            m_caps.uf ? tr("Unsteady friction applies to Dynamic Wave and Finite Volume")
+                      : tr("Not supported by this engine"));
     }
 
     // ---- Quality & Transport tabs (PLAN §4.3) ----
@@ -558,18 +661,18 @@ void SimulationOptionsDialog::buildGateTable()
         QTabWidget *qt = m_qualityPage->tabs();
         const auto solver = [this] { return m_qualityPage->qualitySolver(); };
         using QP = openswmmvis::ui::QualityPage;
-        tabGate(qt, QP::TabArd,
-                [this, solver] {
-                    return m_caps.transport && solver() == QLatin1String("EULERIAN_ARD");
-                },
-                m_caps.transport ? tr("Select the Eulerian ARD solver")
-                                 : tr("Not supported by this engine"));
-        tabGate(qt, QP::TabLard,
-                [this, solver] {
-                    return m_caps.transport && solver() == QLatin1String("LAGRANGIAN");
-                },
-                m_caps.transport ? tr("Select the Lagrangian solver")
-                                 : tr("Not supported by this engine"));
+        tabGate(
+            qt, QP::TabArd,
+            [this, solver] {
+                return m_caps.transport && solver() == QLatin1String("EULERIAN_ARD");
+            },
+            m_caps.transport ? tr("Select the Eulerian ARD solver")
+                             : tr("Not supported by this engine"));
+        tabGate(
+            qt, QP::TabLard,
+            [this, solver] { return m_caps.transport && solver() == QLatin1String("LAGRANGIAN"); },
+            m_caps.transport ? tr("Select the Lagrangian solver")
+                             : tr("Not supported by this engine"));
     }
 }
 
@@ -586,7 +689,8 @@ QStringList SimulationOptionsDialog::lastWriteKeys() const
 
 void SimulationOptionsDialog::addPage(openswmmvis::ui::SimOptionsPage *page)
 {
-    if (!page) return;
+    if (!page)
+        return;
     m_pageOrder << page;
     addCategory(page->title(), page);
     // One-shot per-widget disable/tooltip from the probe. Ported pages carry
@@ -595,15 +699,14 @@ void SimulationOptionsDialog::addPage(openswmmvis::ui::SimOptionsPage *page)
     page->applyCapabilities();
 }
 
-
-
 QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
 {
     QStringList lines;
     lines << tr("This machine: %1 logical processors").arg(ti.logical_cpus);
     if (ti.perf_cores > 0)
         lines << tr("Performance cores: %1 (efficiency cores slow the solvers "
-                    "and are avoided in auto mode)").arg(ti.perf_cores);
+                    "and are avoided in auto mode)")
+                     .arg(ti.perf_cores);
     if (!ti.omp_available)
         lines << tr("Engine built without OpenMP — every run is serial.");
     else if (ti.omp_max_threads < ti.logical_cpus)
@@ -612,10 +715,10 @@ QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
                      .arg(ti.omp_max_threads);
     if (ti.kokkos_omp_threads > 0)
         lines << tr("2D Kokkos backend already running with %1 threads "
-                    "(fixed until restart).").arg(ti.kokkos_omp_threads);
+                    "(fixed until restart).")
+                     .arg(ti.kokkos_omp_threads);
     return lines.join(QLatin1Char('\n'));
 }
-
 
 // ---------------------------------------------------------------------------
 // Engine ↔ widgets
@@ -634,11 +737,13 @@ void SimulationOptionsDialog::readFromEngine()
 
 int SimulationOptionsDialog::writeToEngine()
 {
-    if (!m_engine) return 0;
+    if (!m_engine)
+        return 0;
     // One write pass: the key record starts empty and collects every key this
     // pass considered, so lastWriteKeys() can be compared against the tagged
     // editors (the reachability seam).
-    if (m_ctx) m_ctx->beginWritePass();
+    if (m_ctx)
+        m_ctx->beginWritePass();
     int n = 0;
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
         n += p->write();
@@ -662,17 +767,20 @@ bool SimulationOptionsDialog::confirmBeforeWrite()
     // non-blocking.
     QString warn;
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder) {
-        if (p->validate(&warn)) continue;
+        if (p->validate(&warn))
+            continue;
         QMessageBox::warning(this, tr("Invalid entry on %1").arg(p->title()),
-            tr("One or more rows on %1 are missing a required value or are "
-               "out of order. Fix the highlighted rows first.").arg(p->title()));
+                             tr("One or more rows on %1 are missing a required value or are "
+                                "out of order. Fix the highlighted rows first.")
+                                 .arg(p->title()));
         return false;
     }
     if (!warn.isEmpty()) {
-        const auto choice = QMessageBox::warning(this, tr("Warnings"),
-            warn + tr("\nApply anyway?"),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        if (choice != QMessageBox::Yes) return false;
+        const auto choice =
+            QMessageBox::warning(this, tr("Warnings"), warn + tr("\nApply anyway?"),
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (choice != QMessageBox::Yes)
+            return false;
     }
     return true;
 }
@@ -681,30 +789,36 @@ void SimulationOptionsDialog::invalidateContext()
 {
     // The model is closing: leave accepted edits on the history; their own
     // identity checks refuse once the engine is gone.
-    if (m_session) m_session->abandon();
+    if (m_session)
+        m_session->abandon();
     m_session.reset();
     m_engine = nullptr;
     m_layer = nullptr;
     m_projectWindow = nullptr;
-    if (m_ctx) m_ctx->invalidate();
+    if (m_ctx)
+        m_ctx->invalidate();
     setEnabled(false);
     reject();
 }
 
 bool SimulationOptionsDialog::applyPass()
 {
-    if (!m_engine) return false;
-    if (!confirmBeforeWrite() || !m_engine) return false;
+    if (!m_engine)
+        return false;
+    if (!confirmBeforeWrite() || !m_engine)
+        return false;
     OpenSWMMVis::ConfigSnapshot before(m_session ? swmm_config_snapshot_create(m_engine) : nullptr);
     writeToEngine();
-    if (m_session) m_session->commit(std::move(before), lastWriteKeys());
+    if (m_session)
+        m_session->commit(std::move(before), lastWriteKeys());
     m_wroteAtCommit = m_wroteChanges;
     return true;
 }
 
 void SimulationOptionsDialog::onApply()
 {
-    if (!applyPass()) return;
+    if (!applyPass())
+        return;
     // Re-read after write so the controls reflect whatever the engine
     // actually accepted (some keys may be clamped or normalised).
     readFromEngine();
@@ -712,6 +826,7 @@ void SimulationOptionsDialog::onApply()
 
 void SimulationOptionsDialog::onAccept()
 {
-    if (!applyPass()) return;
+    if (!applyPass())
+        return;
     accept();
 }

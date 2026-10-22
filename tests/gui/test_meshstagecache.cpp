@@ -1,12 +1,15 @@
-/*!
- * \file   test_meshstagecache.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshstagecache.cpp
+ * @brief     Tests for meshstagecache.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * mesh::MeshStageCache — bit-exact payload round-trips, key sensitivity,
  * corrupt-entry rejection, pruning, and graceful degradation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -16,26 +19,46 @@
 
 using mesh::MeshStageCache;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Build a cache-payload fixture with fractional coordinates and hole metadata.
+ * @return Owned domain ring, two hole rings/seeds, true/false validity flags and one
+ * skipped ring. Coordinates use arbitrary common map units; no geometry validity
+ * assertion or cache write is performed here.
+ *
+ */
 MeshStageCache::BoundaryPrep sampleBoundary()
 {
     MeshStageCache::BoundaryPrep v;
     v.domains = {QPolygonF(QVector<QPointF>{
         {0.123456789012, 0.0}, {100.0, 0.0}, {100.0, 50.5}, {0.123456789012, 0.0}})};
-    v.holeRings = {
-        {{10, 10}, {12, 10}, {12, 12}, {10, 12}, {10, 10}},
-        {{20, 20}, {22, 20}, {21, 22}, {20, 20}}};
+    v.holeRings = {{{10, 10}, {12, 10}, {12, 12}, {10, 12}, {10, 10}},
+                   {{20, 20}, {22, 20}, {21, 22}, {20, 20}}};
     v.holeSeeds = {QPointF(11.000000001, 11.0), QPointF(21.0, 20.7)};
     v.holeValid = {true, false};
     v.skippedRings = 1;
     return v;
 }
 
+/**
+ *
+ * @brief Construct a synthetic file identity without touching the filesystem.
+ * @param p Borrowed path text copied into absPath; callers supply absolute-looking
+ * fixture names, but this helper does not resolve or validate them.
+ * @param mt Modification timestamp in milliseconds, copied verbatim.
+ * @param sz File byte count, copied verbatim.
+ * @return Owned identity retaining supplied metadata; no stat/hash/content reads.
+ *
+ */
 MeshStageCache::FileIdentity ident(const QString &p, qint64 mt, qint64 sz)
 {
     MeshStageCache::FileIdentity id;
-    id.absPath = p; id.mtimeMs = mt; id.sizeBytes = sz;
+    id.absPath = p;
+    id.mtimeMs = mt;
+    id.sizeBytes = sz;
     return id;
 }
 
@@ -47,6 +70,14 @@ class TestMeshStageCache : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require boundary cache miss/store/load and exact payload restoration, including one
+     * QPointF memcmp.
+     * Uses an owned temporary directory and rejects null output; does not require a real
+     * model/input-source file to exist.
+     *
+     */
     void boundaryRoundTrip_bitExact()
     {
         QTemporaryDir dir;
@@ -55,8 +86,8 @@ private slots:
         QVERIFY(cache.isUsable());
 
         const auto v = sampleBoundary();
-        const QByteArray key = MeshStageCache::boundaryKey(
-            ident("/a/b.gpkg", 111, 222), {}, "bnd", "WKT_B", "WKT_M", 0.1, 2.0);
+        const QByteArray key = MeshStageCache::boundaryKey(ident("/a/b.gpkg", 111, 222), {}, "bnd",
+                                                           "WKT_B", "WKT_M", 0.1, 2.0);
 
         QVERIFY(!cache.loadBoundary(key, nullptr));
         MeshStageCache::BoundaryPrep miss;
@@ -72,72 +103,77 @@ private slots:
         QCOMPARE(got.holeValid, v.holeValid);
         QCOMPARE(got.skippedRings, v.skippedRings);
         // Bit-exact doubles.
-        QVERIFY(std::memcmp(&got.holeSeeds[0], &v.holeSeeds[0],
-                            sizeof(QPointF)) == 0);
+        QVERIFY(std::memcmp(&got.holeSeeds[0], &v.holeSeeds[0], sizeof(QPointF)) == 0);
     }
 
+    /**
+     *
+     * @brief Require boundary cache identity to change for each explicitly varied
+     * file/CRS/layer/geometry/conditioning parameter.
+     * Also checks default minCellSize=0 and deterministic repeated key construction.
+     *
+     */
     void keys_changeWithEveryInput()
     {
-        const auto base = MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0);
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a2", 1, 2), {}, "L", "B", "M", 0.1, 2.0));   // path
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 9, 2), {}, "L", "B", "M", 0.1, 2.0));    // mtime
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 9), {}, "L", "B", "M", 0.1, 2.0));    // size
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), "H", "L", "B", "M", 0.1, 2.0));   // subcatch hash
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L2", "B", "M", 0.1, 2.0));   // layer
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B2", "M", 0.1, 2.0));   // boundary CRS
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M2", 0.1, 2.0));   // mesh CRS
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.2, 2.0));    // eps
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 3.0));    // maxLen
+        const auto base =
+            MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0);
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a2", 1, 2), {}, "L", "B", "M", 0.1,
+                                                    2.0)); // path
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 9, 2), {}, "L", "B", "M", 0.1,
+                                                    2.0)); // mtime
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 9), {}, "L", "B", "M", 0.1,
+                                                    2.0)); // size
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), "H", "L", "B", "M", 0.1,
+                                                    2.0)); // subcatch hash
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L2", "B", "M", 0.1,
+                                                    2.0)); // layer
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B2", "M", 0.1,
+                                                    2.0)); // boundary CRS
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M2", 0.1,
+                                                    2.0)); // mesh CRS
+        QVERIFY(base !=
+                MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.2, 2.0)); // eps
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1,
+                                                    3.0)); // maxLen
         // 2026-08-17 — the stored payload is CONDITIONED geometry when a
         // minimum cell size is set, so h has to be part of the identity.  A
         // stale hit here would silently mesh the wrong rings, and the hole
         // seeds stored alongside them were computed against those vertices.
-        QVERIFY(base != MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0));   // minCellSize
-        QVERIFY(MeshStageCache::boundaryKey(
-                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0)
-                != MeshStageCache::boundaryKey(
-                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
+        QVERIFY(base != MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0,
+                                                    5.0)); // minCellSize
+        QVERIFY(MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0) !=
+                MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
         // ...and the h = 0 (feature off) key is the default, so switching the
         // feature off returns to the entry an older build would have written.
-        QCOMPARE(base, MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 0.0));
+        QCOMPARE(base,
+                 MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 0.0));
         // Round-tripping h = 2 after h = 5 must land back on the h = 2 entry
         // (the "generate at 2, then 5, then 2 again" case in the handoff).
-        QCOMPARE(MeshStageCache::boundaryKey(
-                     ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0),
-                 MeshStageCache::boundaryKey(
-                     ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
+        QCOMPARE(MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0),
+                 MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
         // 2026-09-01 — enforcement mode changes what conditioning may do to
         // the stored rings, so it is part of the identity too.
-        QVERIFY(MeshStageCache::boundaryKey(
-                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0, true)
-                != MeshStageCache::boundaryKey(
-                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0, false));
-
+        QVERIFY(MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0,
+                                            true) !=
+                MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0,
+                                            false));
     }
 
+    /**
+     *
+     * @brief Require truncated and garbage-magic temporary cache entries to read as misses.
+     *
+     */
     void corruptEntry_isMiss()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         MeshStageCache cache(dir.filePath("model.inp"));
-        const QByteArray key = MeshStageCache::boundaryKey(
-            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0);
+        const QByteArray key =
+            MeshStageCache::boundaryKey(ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0);
         QVERIFY(cache.storeBoundary(key, sampleBoundary()));
 
-        const QString path =
-            cache.dir() + "/A-" + QString::fromLatin1(key) + ".bin";
+        const QString path = cache.dir() + "/A-" + QString::fromLatin1(key) + ".bin";
         QVERIFY(QFile::exists(path));
 
         // Truncate → miss.
@@ -158,34 +194,56 @@ private slots:
         QVERIFY(!cache.loadBoundary(key, &got));
     }
 
+    /**
+     *
+     * @brief Store twelve boundary entries and require pruning to leave eight files.
+     * This case checks retained count, not identities or timestamp order of survivors.
+     *
+     */
     void prune_keepsNewestPerStage()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         MeshStageCache cache(dir.filePath("model.inp"));
 
-        for (int i = 0; i < 12; ++i)
-        {
+        for (int i = 0; i < 12; ++i) {
             const QByteArray key = MeshStageCache::boundaryKey(
-                ident(QStringLiteral("/f%1").arg(i), i, i), {}, "L", "B", "M",
-                0.1, 2.0);
+                ident(QStringLiteral("/f%1").arg(i), i, i), {}, "L", "B", "M", 0.1, 2.0);
             QVERIFY(cache.storeBoundary(key, sampleBoundary()));
         }
         const QStringList entries =
             QDir(cache.dir()).entryList({QStringLiteral("A-*.bin")}, QDir::Files);
-        QCOMPARE(entries.size(), 8);   // storeBoundary prunes after each store
+        QCOMPARE(entries.size(), 8); // storeBoundary prunes after each store
     }
 
     // Stage L/T entries are written under tests/output so they can be inspected.
+    /**
+     *
+     * @brief Clear/recreate a persistent named cache verification directory.
+     * @param name Relative disposable fixture subdirectory under the stagecache artifact
+     * root derived from SWMMVIS_GUI_TEST_DATA (default cwd).
+     * @return Absolute path after recursive deletion and recreation, both statuses
+     * unchecked. Caller must close previous users first; this removes all prior contents
+     * of that named fixture directory and leaves new outputs for inspection.
+     *
+     */
     static QString reviewDir(const QString &name)
     {
-        const QString d = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
-            .absoluteFilePath("../../output/mesh_largedem_perf_2026-10/stagecache/" + name);
+        const QString d =
+            QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                .absoluteFilePath("../../output/mesh_largedem_perf_2026-10/stagecache/" + name);
         QDir(d).removeRecursively();
         QDir().mkpath(d);
         return d;
     }
 
+    /**
+     *
+     * @brief Require fractional breakline payload/metadata round-trip and keys sensitive to
+     * file/CRS/window/extraction parameters.
+     * Clears/recreates persistent breaklines review directory and leaves cache files.
+     *
+     */
     void breaklinesRoundTrip_bitExact()
     {
         MeshStageCache cache(reviewDir("breaklines") + "/model.inp");
@@ -195,23 +253,36 @@ private slots:
         const QByteArray key = MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 5, 1000);
         MeshStageCache::Breaklines v;
         v.lines = {{{0.1, 0.2}, {1.0 / 3.0, 2.5}}, {{7, 8}, {9, 10}, {11, 12.000000000000002}}};
-        v.medianLength = 3; v.dropped = 2; v.skipped = true;
+        v.medianLength = 3;
+        v.dropped = 2;
+        v.skipped = true;
         MeshStageCache::Breaklines got;
         QVERIFY(!cache.loadBreaklines(key, &got));
         QVERIFY(cache.storeBreaklines(key, v));
         QVERIFY(cache.loadBreaklines(key, &got));
         QCOMPARE(got.lines, v.lines);
-        QCOMPARE(got.medianLength, 3); QCOMPARE(got.dropped, qint64(2)); QVERIFY(got.skipped);
+        QCOMPARE(got.medianLength, 3);
+        QCOMPARE(got.dropped, qint64(2));
+        QVERIFY(got.skipped);
         // Every extraction input is part of the identity.
-        QVERIFY(key != MeshStageCache::breaklineKey(ident("/dem.tif", 7, 6), "M", window, .5, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(ident("/dem.tif", 7, 6), "M", window, .5, .7, 5,
+                                                    1000));
         QVERIFY(key != MeshStageCache::breaklineKey(dem, "M2", window, .5, .7, 5, 1000));
-        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window.adjusted(0, 0, 1, 0), .5, .7, 5, 1000));
+        QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window.adjusted(0, 0, 1, 0), .5, .7,
+                                                    5, 1000));
         QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .6, .7, 5, 1000));
         QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .8, 5, 1000));
         QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 6, 1000));
         QVERIFY(key != MeshStageCache::breaklineKey(dem, "M", window, .5, .7, 5, 1001));
     }
 
+    /**
+     *
+     * @brief Require terrain key/path sensitivity and pruning to retain two terrain-index files;
+     * empty-model cache yields no path.
+     * Replaces persistent terrainindex fixture directory; retention identities are not checked.
+     *
+     */
     void terrainIndexKeysAndPrune()
     {
         MeshStageCache cache(reviewDir("terrainindex") + "/model.inp");
@@ -220,18 +291,26 @@ private slots:
         QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, 11), 1.0));
         QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, 10), .3048));
         QVERIFY(key != MeshStageCache::terrainIndexKey(dem, "M2", QRectF(0, 0, 10, 10), 1.0));
-        QVERIFY(key != MeshStageCache::terrainIndexKey(ident("/dem.tif", 5, 7), "M", QRectF(0, 0, 10, 10), 1.0));
+        QVERIFY(key != MeshStageCache::terrainIndexKey(ident("/dem.tif", 5, 7), "M",
+                                                       QRectF(0, 0, 10, 10), 1.0));
         QVERIFY(cache.terrainIndexPath(key).endsWith("T-" + QString::fromLatin1(key) + ".bin"));
         // Terrain indexes can be gigabytes: prune keeps two.
         for (int i = 0; i < 4; ++i) {
-            QFile f(cache.terrainIndexPath(MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, i + 1), 1.0)));
-            QVERIFY(f.open(QIODevice::WriteOnly)); f.write("x");
+            QFile f(cache.terrainIndexPath(
+                MeshStageCache::terrainIndexKey(dem, "M", QRectF(0, 0, 10, i + 1), 1.0)));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("x");
         }
         cache.prune();
         QCOMPARE(QDir(cache.dir()).entryList({QStringLiteral("T-*.bin")}, QDir::Files).size(), 2);
         QVERIFY(MeshStageCache{QString()}.terrainIndexPath(key).isEmpty());
     }
 
+    /**
+     *
+     * @brief Require empty-model cache to refuse store/load and tolerate pruning without a crash.
+     *
+     */
     void unusableDir_degradesGracefully()
     {
         MeshStageCache empty{QString()};
@@ -239,7 +318,7 @@ private slots:
         QVERIFY(!empty.storeBoundary("00", sampleBoundary()));
         MeshStageCache::BoundaryPrep got;
         QVERIFY(!empty.loadBoundary("00", &got));
-        empty.prune();   // no crash
+        empty.prune(); // no crash
     }
 };
 

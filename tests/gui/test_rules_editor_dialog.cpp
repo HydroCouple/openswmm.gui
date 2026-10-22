@@ -1,6 +1,6 @@
-/*!
- * \file   test_rules_editor_dialog.cpp
- * \brief  Slice BR Phase 6.8.1/2 — focused tests for RulesEditorDialog,
+/**
+ * @file      test_rules_editor_dialog.cpp
+ * @brief     Slice BR Phase 6.8.1/2 — focused tests for RulesEditorDialog,
  *         RuleSyntaxHighlighter, and RuleCodeEditor.
  *
  * Tests focus on the surface verifiable without instantiating a real
@@ -13,6 +13,10 @@
  * is verified by manual smoke of the running app once this slice lands; the
  * engine round-trip itself is pinned by the test_engine_control_rule_validate
  * binary.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QApplication>
@@ -87,11 +91,10 @@ private slots:
     void highlighterAttachesToDocumentWithoutCrash()
     {
         QTextDocument doc;
-        doc.setPlainText(
-            QStringLiteral("RULE R1\n"
-                            "IF NODE J1 DEPTH > 5\n"
-                            "THEN PUMP P1 STATUS = ON\n"
-                            "; this is a comment\n"));
+        doc.setPlainText(QStringLiteral("RULE R1\n"
+                                        "IF NODE J1 DEPTH > 5\n"
+                                        "THEN PUMP P1 STATUS = ON\n"
+                                        "; this is a comment\n"));
         RuleSyntaxHighlighter h(&doc);
         // The highlighter rebuilds formats from the default-constructed
         // palette during construction; no assertion required — we're
@@ -113,8 +116,7 @@ private slots:
     {
         RuleCodeEditor ed;
         ed.setPlainText(QStringLiteral("RULE R\nIF NODE J1 DEPTH > 5"));
-        QCOMPARE(ed.toPlainText(),
-                 QStringLiteral("RULE R\nIF NODE J1 DEPTH > 5"));
+        QCOMPARE(ed.toPlainText(), QStringLiteral("RULE R\nIF NODE J1 DEPTH > 5"));
     }
 
     // ── RuleValidator — null layer falls back to Pending ────────────────
@@ -174,14 +176,38 @@ private slots:
 #include "layers/swmmmodellayer.h"
 #include <openswmm/engine/openswmm_engine.h>
 
-SWMM_Engine SWMMModelLayer::engine() const { return nullptr; }
-QObject *SWMMModelLayer::ensureControlRuleRegistry() { return nullptr; }
-bool SWMMModelLayer::applyControlRuleAdd(const QString&, const QString&, QString*) { return false; }
-bool SWMMModelLayer::applyControlRuleReplace(const QString&, const QString&, QString*) { return false; }
-bool SWMMModelLayer::applyControlRuleRename(const QString&, const QString&, QString*) { return false; }
-bool SWMMModelLayer::applyControlRuleRemove(const QString&, QString*) { return false; }
-int SWMMModelLayer::categoryCount(SWMMModelLayer::Category) const { return 0; }
-QString SWMMModelLayer::objectNameAt(SWMMModelLayer::Category, int) const { return {}; }
+SWMM_Engine SWMMModelLayer::engine() const
+{
+    return nullptr;
+}
+QObject *SWMMModelLayer::ensureControlRuleRegistry()
+{
+    return nullptr;
+}
+bool SWMMModelLayer::applyControlRuleAdd(const QString &, const QString &, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applyControlRuleReplace(const QString &, const QString &, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applyControlRuleRename(const QString &, const QString &, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applyControlRuleRemove(const QString &, QString *)
+{
+    return false;
+}
+int SWMMModelLayer::categoryCount(SWMMModelLayer::Category) const
+{
+    return 0;
+}
+QString SWMMModelLayer::objectNameAt(SWMMModelLayer::Category, int) const
+{
+    return {};
+}
 
 QTEST_MAIN(TestRulesEditorDialog)
 #include "test_rules_editor_dialog.moc"

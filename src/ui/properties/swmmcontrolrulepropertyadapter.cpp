@@ -1,7 +1,10 @@
-/*!
- * \file   swmmcontrolrulepropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      swmmcontrolrulepropertyadapter.cpp
+ * @brief     Property-tree adapter for [CONTROLS] rule blocks.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/swmmcontrolrulepropertyadapter.h"
@@ -13,24 +16,27 @@
 #include <vector>
 #include <string>
 
-QString SWMMControlRulePropertyAdapter::displayLabelFor(
-        const QString &property) const
+QString SWMMControlRulePropertyAdapter::displayLabelFor(const QString &property) const
 {
-    if (property == QLatin1String("name"))     return tr("Name");
-    if (property == QLatin1String("ruleText")) return tr("Rule Text");
+    if (property == QLatin1String("name"))
+        return tr("Name");
+    if (property == QLatin1String("ruleText"))
+        return tr("Rule Text");
     return {};
 }
 
 int SWMMControlRulePropertyAdapter::idx() const
 {
-    if (!m_engine || m_name.isEmpty()) return -1;
+    if (!m_engine || m_name.isEmpty())
+        return -1;
     const int n = swmm_control_count(m_engine);
     const QByteArray want = m_name.toUtf8();
     for (int i = 0; i < n; ++i) {
         char buf[256] = {};
         if (swmm_control_get_id(m_engine, i, buf, sizeof(buf)) != SWMM_OK)
             continue;
-        if (want == buf) return i;
+        if (want == buf)
+            return i;
     }
     return -1;
 }
@@ -38,7 +44,8 @@ int SWMMControlRulePropertyAdapter::idx() const
 QString SWMMControlRulePropertyAdapter::ruleText() const
 {
     const int i = idx();
-    if (i < 0) return {};
+    if (i < 0)
+        return {};
     char buf[8192] = {};
     if (swmm_control_get_rule(m_engine, i, buf, sizeof(buf)) != SWMM_OK)
         return {};
@@ -47,7 +54,8 @@ QString SWMMControlRulePropertyAdapter::ruleText() const
 
 void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
 {
-    if (!m_engine) return;
+    if (!m_engine)
+        return;
 
     // Slice BR Phase 6.8.1 — route inline edits through the layer's
     // apply helper so controlRulesChanged(name) fires and any other UI
@@ -89,7 +97,8 @@ void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
     // clear, and re-add with the target slot's text replaced. This is
     // O(N) text but N is small (typically < 100 rules).
     const int target = idx();
-    if (target < 0) return;
+    if (target < 0)
+        return;
     const int n = swmm_control_count(m_engine);
     std::vector<std::string> snapshot;
     snapshot.reserve(n);
@@ -99,17 +108,21 @@ void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
             continue;
         snapshot.emplace_back(buf);
     }
-    if (target >= static_cast<int>(snapshot.size())) return;
+    if (target >= static_cast<int>(snapshot.size()))
+        return;
     const std::vector<std::string> original = snapshot;
     snapshot[static_cast<std::size_t>(target)] = text.toStdString();
 
-    if (swmm_control_clear_rules(m_engine) != SWMM_OK) return;
+    if (swmm_control_clear_rules(m_engine) != SWMM_OK)
+        return;
     for (const auto &t : snapshot) {
-        if (swmm_control_add_rule(m_engine, t.c_str()) == SWMM_OK) continue;
+        if (swmm_control_add_rule(m_engine, t.c_str()) == SWMM_OK)
+            continue;
         // The clear ran first: put the pre-edit list back rather than lose
         // every rule after the rejected one.
         if (swmm_control_clear_rules(m_engine) == SWMM_OK)
-            for (const auto &kept : original) swmm_control_add_rule(m_engine, kept.c_str());
+            for (const auto &kept : original)
+                swmm_control_add_rule(m_engine, kept.c_str());
         return;
     }
 

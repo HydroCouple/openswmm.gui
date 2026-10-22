@@ -1,8 +1,10 @@
-/*!
- * \file   pathbrowsedelegate.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      pathbrowsedelegate.h
+ * @brief     Reusable QStyledItemDelegate that renders a {QLineEdit + "…" browse button} composite
+ *            editor for a path column.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Reusable QStyledItemDelegate that renders a {QLineEdit + "…" browse
  * button} composite editor for a path column. Used by the Simulation
@@ -13,7 +15,9 @@
  * open/save mode — pass these in via the constructor (or the matching
  * setters) so a single class can serve multiple columns with different
  * file pickers.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef PATHBROWSEDELEGATE_H
 #define PATHBROWSEDELEGATE_H
 
@@ -27,15 +31,12 @@ public:
     enum Mode { OpenFile, SaveFile };
 
     explicit PathBrowseDelegate(QObject *parent = nullptr);
-    PathBrowseDelegate(Mode mode,
-                       QString title,
-                       QString filter,
-                       QString placeholder = {},
+    PathBrowseDelegate(Mode mode, QString title, QString filter, QString placeholder = {},
                        QObject *parent = nullptr);
 
-    void setMode(Mode m)                  { m_mode = m; }
+    void setMode(Mode m) { m_mode = m; }
     void setDialogTitle(const QString &t) { m_title = t; }
-    void setFilter(const QString &f)      { m_filter = f; }
+    void setFilter(const QString &f) { m_filter = f; }
     void setPlaceholder(const QString &p) { m_placeholder = p; }
 
     /*! Slice IO-11c — directory the editor normalises picked paths against.
@@ -48,20 +49,18 @@ public:
     [[nodiscard]] QString projectAnchor() const { return m_anchor; }
 
     // QStyledItemDelegate ------------------------------------------------------
-    QWidget *createEditor(QWidget *parent,
-                          const QStyleOptionViewItem &opt,
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                           const QModelIndex &idx) const override;
-    void setEditorData(QWidget *editor,
-                       const QModelIndex &idx) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &idx) const override;
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &idx) const override;
 
 private:
-    Mode    m_mode  = OpenFile;
+    Mode m_mode = OpenFile;
     QString m_title;
     QString m_filter;
     QString m_placeholder;
-    QString m_anchor;   ///< IO-11c: relativise picked paths against this dir.
+    QString m_anchor; ///< IO-11c: relativise picked paths against this dir.
 };
 
 #endif // PATHBROWSEDELEGATE_H

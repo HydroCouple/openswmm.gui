@@ -1,8 +1,10 @@
-/*!
- * \file   exportlayerdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      exportlayerdialog.h
+ * @brief     One export dialog for every source the layer tree exports
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.3, R8–R10).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * One export dialog for every source the layer tree exports
  * (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.3, R8–R10).
@@ -19,6 +21,7 @@
  *   - CRS: the source's by default, or another picked with the CRS dialog;
  *     GeoJSON and KML say they are written in WGS 84.
  *   - Options: selected only; the run's statistics (SWMM); add to the map.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef EXPORTLAYERDIALOG_H
@@ -36,31 +39,30 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*! One output the dialog lists: an object type or a mesh table. */
-struct ExportItem
-{
-    int     id = 0;        ///< SWMMModelLayer::Category, or a MeshExportPart bit.
-    QString label;         ///< "Conduits".
-    QString stem;          ///< Output file / layer stem, "conduits".
-    bool    checked = true;
+struct ExportItem {
+    int id = 0;    ///< SWMMModelLayer::Category, or a MeshExportPart bit.
+    QString label; ///< "Conduits".
+    QString stem;  ///< Output file / layer stem, "conduits".
+    bool checked = true;
 };
 
 /*! What the dialog is exporting. */
-struct ExportDialogSetup
-{
+struct ExportDialogSetup {
     enum class Mode { SwmmObjects, VectorLayer, Mesh, Raster };
-    Mode    mode = Mode::VectorLayer;
+    Mode mode = Mode::VectorLayer;
     QString title;
-    QString sourceName;           ///< One line naming the source.
+    QString sourceName; ///< One line naming the source.
     /*! The outputs; a checklist is shown for SwmmObjects and Mesh. */
     QVector<ExportItem> items;
-    bool    hasSelection = false; ///< Enables "Selected features only".
-    bool    canIncludeResults = false;
-    bool    includeResults = false;
+    bool hasSelection = false; ///< Enables "Selected features only".
+    bool canIncludeResults = false;
+    bool includeResults = false;
     QString sourceSrsWkt;
-    QString sourceCrsLabel;       ///< e.g. "EPSG:25832"; empty = "none".
+    QString sourceCrsLabel; ///< e.g. "EPSG:25832"; empty = "none".
     QString defaultDir;
     QString defaultBaseName;
     /*! Files the export must never replace: every file open in the project
@@ -113,22 +115,22 @@ private:
     void refreshCrsLabel();
 
     ExportDialogSetup m_setup;
-    QString      m_targetWkt;
-    QString      m_targetLabel;
-    bool         m_destinationEdited = false;
+    QString m_targetWkt;
+    QString m_targetLabel;
+    bool m_destinationEdited = false;
 
-    QListWidget *m_items      = nullptr;
-    QComboBox   *m_format     = nullptr;
-    QLabel      *m_formatNote = nullptr;
-    QLineEdit   *m_dest       = nullptr;
-    QLabel      *m_crsLabel   = nullptr;
-    QPushButton *m_crsButton  = nullptr;
-    QPushButton *m_crsReset   = nullptr;
-    QCheckBox   *m_selected   = nullptr;
-    QCheckBox   *m_results    = nullptr;
-    QCheckBox   *m_addToMap   = nullptr;
+    QListWidget *m_items = nullptr;
+    QComboBox *m_format = nullptr;
+    QLabel *m_formatNote = nullptr;
+    QLineEdit *m_dest = nullptr;
+    QLabel *m_crsLabel = nullptr;
+    QPushButton *m_crsButton = nullptr;
+    QPushButton *m_crsReset = nullptr;
+    QCheckBox *m_selected = nullptr;
+    QCheckBox *m_results = nullptr;
+    QCheckBox *m_addToMap = nullptr;
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // EXPORTLAYERDIALOG_H

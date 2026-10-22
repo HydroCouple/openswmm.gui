@@ -1,8 +1,10 @@
-/*!
- * \file   nodecompoundeditdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      nodecompoundeditdialog.h
+ * @brief     One modal dialog with a stacked-widget body, one page per compound node attribute
+ *            (Inflows / DWF / RDII / Treatment).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice DB.2 — One modal dialog with a stacked-widget body, one page
  * per compound node attribute (Inflows / DWF / RDII / Treatment).
@@ -14,6 +16,7 @@
  * (node_idx, pollut_idx). Each page shows existing per-node entries in
  * a table with Add and Remove buttons; per-entry edits are
  * remove-and-readd via the table selection + form below.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef NODECOMPOUNDEDITDIALOG_H
@@ -38,8 +41,7 @@ class NodeCompoundEditDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit NodeCompoundEditDialog(NodeCompoundEditRef ref,
-                                    QWidget *parent = nullptr);
+    explicit NodeCompoundEditDialog(NodeCompoundEditRef ref, QWidget *parent = nullptr);
 
     /*! Refreshed summary string after the dialog closes — the cell's
      *  property adapter reads this back to update the row text without
@@ -89,7 +91,7 @@ private:
      *  closes the combo is repopulated and the worked-on item is
      *  re-selected. */
     void wirePicker(LabeledPickerCombo *picker, int dataCategory,
-                     void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo*));
+                    void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo *));
 
     /*! Apply the FLOW/MASS rule to the inflow Type combo based on the
      *  currently-selected constituent. MASS is pollutant-only — disable
@@ -99,49 +101,49 @@ private:
     NodeCompoundEditRef m_ref;
 
     // RDII page — `swmm_rdii_*`.
-    QTableWidget       *m_rdiiTable     = nullptr;
-    QPushButton        *m_rdiiRemoveBtn = nullptr;
-    LabeledPickerCombo *m_rdiiUhPicker  = nullptr;  // DB.4f — combo + "..." button
-    QDoubleSpinBox     *m_rdiiAreaSpin  = nullptr;
-    QLabel             *m_rdiiSummary   = nullptr;
+    QTableWidget *m_rdiiTable = nullptr;
+    QPushButton *m_rdiiRemoveBtn = nullptr;
+    LabeledPickerCombo *m_rdiiUhPicker = nullptr; // DB.4f — combo + "..." button
+    QDoubleSpinBox *m_rdiiAreaSpin = nullptr;
+    QLabel *m_rdiiSummary = nullptr;
 
     // Inflows page — `swmm_ext_inflow_*`.
-    QLabel             *m_inflowsSummary    = nullptr;
-    QTableWidget       *m_inflowsTable      = nullptr;
-    QPushButton        *m_inflowsRemoveBtn  = nullptr;
-    QComboBox          *m_inflowsConstCombo = nullptr;  // DB.4d — FLOW + pollutants
-    QComboBox          *m_inflowsTypeCombo  = nullptr;  // MASS disabled when FLOW
-    LabeledPickerCombo *m_inflowsTsPicker   = nullptr;  // time series + "..."
-    QDoubleSpinBox     *m_inflowsBaseSpin   = nullptr;
-    QDoubleSpinBox     *m_inflowsMFactSpin  = nullptr;
-    QDoubleSpinBox     *m_inflowsSFactSpin  = nullptr;
-    LabeledPickerCombo *m_inflowsPatPicker  = nullptr;  // pattern + "..."
+    QLabel *m_inflowsSummary = nullptr;
+    QTableWidget *m_inflowsTable = nullptr;
+    QPushButton *m_inflowsRemoveBtn = nullptr;
+    QComboBox *m_inflowsConstCombo = nullptr;        // DB.4d — FLOW + pollutants
+    QComboBox *m_inflowsTypeCombo = nullptr;         // MASS disabled when FLOW
+    LabeledPickerCombo *m_inflowsTsPicker = nullptr; // time series + "..."
+    QDoubleSpinBox *m_inflowsBaseSpin = nullptr;
+    QDoubleSpinBox *m_inflowsMFactSpin = nullptr;
+    QDoubleSpinBox *m_inflowsSFactSpin = nullptr;
+    LabeledPickerCombo *m_inflowsPatPicker = nullptr; // pattern + "..."
 
     // DWF page — `swmm_dwf_*`.
-    QLabel             *m_dwfSummary       = nullptr;
-    QTableWidget       *m_dwfTable         = nullptr;
-    QPushButton        *m_dwfRemoveBtn     = nullptr;
-    QComboBox          *m_dwfConstCombo    = nullptr;  // DB.4e
-    QDoubleSpinBox     *m_dwfAvgSpin       = nullptr;
-    LabeledPickerCombo *m_dwfPat1Picker    = nullptr;  // Monthly + "..."
-    LabeledPickerCombo *m_dwfPat2Picker    = nullptr;  // Daily   + "..."
-    LabeledPickerCombo *m_dwfPat3Picker    = nullptr;  // Hourly  + "..."
-    LabeledPickerCombo *m_dwfPat4Picker    = nullptr;  // Weekend + "..."
+    QLabel *m_dwfSummary = nullptr;
+    QTableWidget *m_dwfTable = nullptr;
+    QPushButton *m_dwfRemoveBtn = nullptr;
+    QComboBox *m_dwfConstCombo = nullptr; // DB.4e
+    QDoubleSpinBox *m_dwfAvgSpin = nullptr;
+    LabeledPickerCombo *m_dwfPat1Picker = nullptr; // Monthly + "..."
+    LabeledPickerCombo *m_dwfPat2Picker = nullptr; // Daily   + "..."
+    LabeledPickerCombo *m_dwfPat3Picker = nullptr; // Hourly  + "..."
+    LabeledPickerCombo *m_dwfPat4Picker = nullptr; // Weekend + "..."
 
     // Treatment — per-(node, pollutant) removal expression, edited
     // inline in a 2-col table (Pollutant | Expression). Writes route
     // through `swmm_treatment_set` / `swmm_treatment_clear` as the
     // user commits the Expression cell.
-    QLabel         *m_treatmentSummary = nullptr;
-    QTableWidget   *m_treatmentTable   = nullptr;
-    QLabel         *m_treatmentBanner  = nullptr;   // live validator verdict
+    QLabel *m_treatmentSummary = nullptr;
+    QTableWidget *m_treatmentTable = nullptr;
+    QLabel *m_treatmentBanner = nullptr; // live validator verdict
     // Re-entrancy guard: applying engine state to the table fires
     // QTableWidget::itemChanged for every cell, which would otherwise
     // bounce right back into the commit handler. Set to true while
     // populating; the cell-changed slot bails when set.
-    bool            m_treatmentSuppressCommit = false;
+    bool m_treatmentSuppressCommit = false;
 
-    QStackedWidget   *m_stack   = nullptr;
+    QStackedWidget *m_stack = nullptr;
     QDialogButtonBox *m_buttons = nullptr;
 };
 

@@ -1,8 +1,15 @@
-/*!
- * \file   basemaphttpheaderswidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      basemaphttpheaderswidget.cpp
+ * @brief     Layout: Referer: [____________________] ▼ Additional headers
+ *            ┌─────────────────┬─────────────────┐ │ Header          │ Value           │
+ *            ├─────────────────┼─────────────────┤ │ User-Agent      │ OpenSWMM/1.0    │
+ *            └─────────────────┴─────────────────┘ [Add row]  [Remove row].
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/widgets/basemaphttpheaderswidget.h"
 
 #include <QGroupBox>
@@ -14,8 +21,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent)
-    : QWidget(parent)
+BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent) : QWidget(parent)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -32,12 +38,12 @@ BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent)
     // --- Collapsible extras group ------------------------------------------
     m_extrasGroup = new QGroupBox(tr("Additional headers"), this);
     m_extrasGroup->setCheckable(true);
-    m_extrasGroup->setChecked(false);   // collapsed by default
+    m_extrasGroup->setChecked(false); // collapsed by default
     auto *gLayout = new QVBoxLayout(m_extrasGroup);
     gLayout->setSpacing(4);
 
     m_table = new QTableWidget(0, 2, m_extrasGroup);
-    m_table->setHorizontalHeaderLabels({ tr("Header"), tr("Value") });
+    m_table->setHorizontalHeaderLabels({tr("Header"), tr("Value")});
     m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_table->verticalHeader()->setVisible(false);
@@ -46,7 +52,7 @@ BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent)
     gLayout->addWidget(m_table);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn    = new QPushButton(tr("Add row"),    m_extrasGroup);
+    m_addBtn = new QPushButton(tr("Add row"), m_extrasGroup);
     m_removeBtn = new QPushButton(tr("Remove row"), m_extrasGroup);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_removeBtn);
@@ -55,7 +61,7 @@ BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent)
 
     root->addWidget(m_extrasGroup);
 
-    connect(m_addBtn,    &QPushButton::clicked, this, &BasemapHttpHeadersWidget::onAddRow);
+    connect(m_addBtn, &QPushButton::clicked, this, &BasemapHttpHeadersWidget::onAddRow);
     connect(m_removeBtn, &QPushButton::clicked, this, &BasemapHttpHeadersWidget::onRemoveRow);
 }
 
@@ -95,12 +101,8 @@ BasemapHttpHeaders BasemapHttpHeadersWidget::headers() const
         result.insert("referer", referer);
 
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        const QString key = m_table->item(r, 0)
-            ? m_table->item(r, 0)->text().trimmed()
-            : QString();
-        const QString val = m_table->item(r, 1)
-            ? m_table->item(r, 1)->text().trimmed()
-            : QString();
+        const QString key = m_table->item(r, 0) ? m_table->item(r, 0)->text().trimmed() : QString();
+        const QString val = m_table->item(r, 1) ? m_table->item(r, 1)->text().trimmed() : QString();
         if (!key.isEmpty())
             result.insert(key, val);
     }
@@ -113,7 +115,8 @@ void BasemapHttpHeadersWidget::setHeaders(const BasemapHttpHeaders &headers)
 
     m_table->setRowCount(0);
     for (auto it = headers.cbegin(); it != headers.cend(); ++it) {
-        if (it.key().toLower() == "referer") continue;
+        if (it.key().toLower() == "referer")
+            continue;
         const int row = m_table->rowCount();
         m_table->insertRow(row);
         m_table->setItem(row, 0, new QTableWidgetItem(it.key()));

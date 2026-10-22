@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      traceanalysisdialog.h
+ * @brief     User interface for flow balance and travel-time analyses.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #pragma once
 #include "output/tracedata.h"
 #include <QDialog>
@@ -18,7 +28,7 @@ class TraceSublayer;
 class TraceAnalysisDialog final : public QDialog
 {
     Q_OBJECT
-  public:
+public:
     static TraceAnalysisDialog *showFor(SWMMVisProjectWindow *, bool upstream, bool travel,
                                         const QString &seed = {},
                                         SWMMResultsLayer *output = nullptr);
@@ -32,11 +42,11 @@ class TraceAnalysisDialog final : public QDialog
     QJsonObject state() const;
     void restore(const QJsonObject &);
 
-  protected:
+protected:
     bool eventFilter(QObject *, QEvent *) override;
     void reject() override;
 
-  private:
+private:
     void start();
     SWMMVisProjectWindow *m_project;
     TraceController *m_controller;

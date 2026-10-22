@@ -1,33 +1,39 @@
-/*!
- * \file   basemaprenderparams.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      basemaprenderparams.cpp
+ * @brief     every basemap layer (XYZ / WMTS / WMS / WCS) holds one of these and applies it to its
+ *            composed tile QImage just before drawImage().
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/basemaprenderparams.h"
 
 #include <QRgb>
 
 #include <algorithm>
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 
 void BasemapRenderParams::applyTo(QImage &img) const
 {
-    if (isIdentity() || img.isNull()) return;
+    if (isIdentity() || img.isNull())
+        return;
 
     // Force an ARGB32 layout if we got something odd (Format_ARGB32 is
     // straight-alpha; ARGB32_Premultiplied complicates the per-channel
     // contrast scaling so we round-trip through straight-alpha).
-    if (img.format() != QImage::Format_ARGB32
-        && img.format() != QImage::Format_ARGB32_Premultiplied)
+    if (img.format() != QImage::Format_ARGB32 &&
+        img.format() != QImage::Format_ARGB32_Premultiplied)
         img = img.convertToFormat(QImage::Format_ARGB32);
 
     const bool premul = (img.format() == QImage::Format_ARGB32_Premultiplied);
 
     const double bright = std::clamp(brightness, -1.0, 1.0);
-    const double con    = std::clamp(contrast,    0.0, 4.0);
-    const double sat    = std::clamp(saturation, -1.0, 1.0);
+    const double con = std::clamp(contrast, 0.0, 4.0);
+    const double sat = std::clamp(saturation, -1.0, 1.0);
 
     const int H = img.height();
     const int W = img.width();
@@ -36,18 +42,23 @@ void BasemapRenderParams::applyTo(QImage &img) const
         for (int x = 0; x < W; ++x) {
             const QRgb px = row[x];
             int a = qAlpha(px);
-            if (a == 0) continue;
+            if (a == 0)
+                continue;
 
-            double r = qRed(px)   / 255.0;
+            double r = qRed(px) / 255.0;
             double g = qGreen(px) / 255.0;
-            double b = qBlue(px)  / 255.0;
+            double b = qBlue(px) / 255.0;
             if (premul && a > 0) {
                 const double aN = a / 255.0;
-                r /= aN; g /= aN; b /= aN;
+                r /= aN;
+                g /= aN;
+                b /= aN;
             }
 
             // Brightness: additive offset.
-            r += bright; g += bright; b += bright;
+            r += bright;
+            g += bright;
+            b += bright;
 
             // Contrast: pivot around 0.5.
             r = 0.5 + (r - 0.5) * con;
@@ -58,7 +69,7 @@ void BasemapRenderParams::applyTo(QImage &img) const
             if (!qFuzzyCompare(sat, 0.0)) {
                 const double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                 if (sat < 0.0) {
-                    const double k = 1.0 + sat;       // sat == -1 → all luma
+                    const double k = 1.0 + sat; // sat == -1 → all luma
                     r = luma + (r - luma) * k;
                     g = luma + (g - luma) * k;
                     b = luma + (b - luma) * k;
@@ -92,19 +103,24 @@ void BasemapRenderParams::applyTo(QImage &img) const
 QJsonObject BasemapRenderParams::toJson() const
 {
     QJsonObject j;
-    if (!qFuzzyCompare(brightness, 0.0)) j[QStringLiteral("brightness")] = brightness;
-    if (!qFuzzyCompare(contrast,   1.0)) j[QStringLiteral("contrast")]   = contrast;
-    if (!qFuzzyCompare(saturation, 0.0)) j[QStringLiteral("saturation")] = saturation;
-    if (resampling != Bilinear)          j[QStringLiteral("resampling")] = int(resampling);
+    if (!qFuzzyCompare(brightness, 0.0))
+        j[QStringLiteral("brightness")] = brightness;
+    if (!qFuzzyCompare(contrast, 1.0))
+        j[QStringLiteral("contrast")] = contrast;
+    if (!qFuzzyCompare(saturation, 0.0))
+        j[QStringLiteral("saturation")] = saturation;
+    if (resampling != Bilinear)
+        j[QStringLiteral("resampling")] = int(resampling);
     return j;
 }
 
 void BasemapRenderParams::fromJson(const QJsonObject &j)
 {
     brightness = j.value(QStringLiteral("brightness")).toDouble(0.0);
-    contrast   = j.value(QStringLiteral("contrast")).toDouble(1.0);
+    contrast = j.value(QStringLiteral("contrast")).toDouble(1.0);
     saturation = j.value(QStringLiteral("saturation")).toDouble(0.0);
-    resampling = static_cast<Resampling>(j.value(QStringLiteral("resampling")).toInt(int(Bilinear)));
+    resampling =
+        static_cast<Resampling>(j.value(QStringLiteral("resampling")).toInt(int(Bilinear)));
 }
 
 } // namespace OpenSWMM::Render

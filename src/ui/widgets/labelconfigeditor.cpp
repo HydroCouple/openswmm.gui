@@ -1,9 +1,15 @@
-/*!
- * \file   labelconfigeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      labelconfigeditor.cpp
+ * @brief     LAYER_STYLING_LABELING_PLAN_2026-08-16 — the per-sublayer label boxes (kind tree
+ *            panel, feature style editors) previously exposed only enabled / expression / colour,
+ *            silently dropping the other ~12 LabelConfig fields the paint paths honour (font,
+ *            halo, placement, scale window, background, priority).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/labelconfigeditor.h"
 
 #include "ui/dialogs/labelexpressiondialog.h"
@@ -24,29 +30,41 @@
 #include <QSpinBox>
 #include <QToolButton>
 
-namespace openswmmvis::ui {
-namespace {
+namespace openswmmvis::ui
+{
+namespace
+{
+/**
+ * @brief Read a selected field identity or a trimmed free-text legacy key.
+ * @param[in] combo Required editable picker; item data is used only while current text equals the selected display label.
+ * @return Stored field key or trimmed current text, including empty.
+ */
 QString fieldKey(const QComboBox *combo)
 {
     const int row = combo->currentIndex();
-    if (row >= 0 && combo->currentText() == combo->itemText(row)
-        && combo->itemData(row).isValid())
+    if (row >= 0 && combo->currentText() == combo->itemText(row) && combo->itemData(row).isValid())
         return combo->itemData(row).toString();
     return combo->currentText().trimmed();
 }
 
+/**
+ * @brief Select the first matching field payload or retain an unadvertised name as editable text.
+ * @param[in,out] combo Required editable picker.
+ * @param[in] key Exact field identity; no signal suppression is added here.
+ */
 void selectField(QComboBox *combo, const QString &key)
 {
     const int row = combo->findData(key);
-    if (row >= 0) combo->setCurrentIndex(row);
-    else combo->setCurrentText(key);
+    if (row >= 0)
+        combo->setCurrentIndex(row);
+    else
+        combo->setCurrentText(key);
 }
 }
 
 using OpenSWMM::Render::LabelConfig;
 
-LabelConfigEditor::LabelConfigEditor(QWidget *parent)
-    : QWidget(parent)
+LabelConfigEditor::LabelConfigEditor(QWidget *parent) : QWidget(parent)
 {
     auto *form = new QFormLayout(this);
     form->setContentsMargins(0, 0, 0, 0);
@@ -60,13 +78,12 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_fieldCombo = new QComboBox(this);
     m_fieldCombo->setEditable(true);
     m_fieldCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_fieldCombo->lineEdit()->setPlaceholderText(
-        tr("Leave blank to use element name"));
+    m_fieldCombo->lineEdit()->setPlaceholderText(tr("Leave blank to use element name"));
     form->addRow(tr("&Field:"), m_fieldCombo);
 
     // Expression + builder button share a row.
-    auto *exprRow  = new QWidget(this);
-    auto *exprLay  = new QHBoxLayout(exprRow);
+    auto *exprRow = new QWidget(this);
+    auto *exprLay = new QHBoxLayout(exprRow);
     exprLay->setContentsMargins(0, 0, 0, 0);
     exprLay->setSpacing(4);
     m_exprEdit = new QLineEdit(exprRow);
@@ -146,11 +163,11 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     form->addRow(QString(), haloRow);
 
     m_placementCombo = new QComboBox(this);
-    m_placementCombo->addItem(tr("Auto"),   int(LabelConfig::AutoPlacement));
-    m_placementCombo->addItem(tr("Above"),  int(LabelConfig::Above));
-    m_placementCombo->addItem(tr("Below"),  int(LabelConfig::Below));
-    m_placementCombo->addItem(tr("Left"),   int(LabelConfig::Left));
-    m_placementCombo->addItem(tr("Right"),  int(LabelConfig::Right));
+    m_placementCombo->addItem(tr("Auto"), int(LabelConfig::AutoPlacement));
+    m_placementCombo->addItem(tr("Above"), int(LabelConfig::Above));
+    m_placementCombo->addItem(tr("Below"), int(LabelConfig::Below));
+    m_placementCombo->addItem(tr("Left"), int(LabelConfig::Left));
+    m_placementCombo->addItem(tr("Right"), int(LabelConfig::Right));
     m_placementCombo->addItem(tr("Centre"), int(LabelConfig::Centre));
     form->addRow(tr("&Placement:"), m_placementCombo);
 
@@ -198,8 +215,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_priorityCombo = new QComboBox(this);
     m_priorityCombo->setEditable(true);
     m_priorityCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_priorityCombo->lineEdit()->setPlaceholderText(
-        tr("Attribute; higher values win collisions"));
+    m_priorityCombo->lineEdit()->setPlaceholderText(tr("Attribute; higher values win collisions"));
     form->addRow(tr("P&riority field:"), m_priorityCombo);
 
     // Wiring — every edit re-emits the whole value.
@@ -208,13 +224,11 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     connect(m_fieldCombo, &QComboBox::currentTextChanged, this, changed);
     connect(m_priorityCombo, &QComboBox::currentTextChanged, this, changed);
     connect(m_exprEdit, &QLineEdit::editingFinished, this, changed);
-    connect(m_exprBuildBtn, &QToolButton::clicked, this,
-            [this]() { openExpressionBuilder(); });
+    connect(m_exprBuildBtn, &QToolButton::clicked, this, [this]() { openExpressionBuilder(); });
     connect(m_decimalsSpin, qOverload<int>(&QSpinBox::valueChanged), this, changed);
     connect(m_fontCombo, &QFontComboBox::currentFontChanged, this,
             [this](const QFont &) { emitChanged(); });
-    connect(m_fontSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
+    connect(m_fontSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
     connect(m_boldBtn, &QToolButton::toggled, this, changed);
     connect(m_italicBtn, &QToolButton::toggled, this, changed);
     connect(m_colorBtn, &ColorButton::colorChanged, this,
@@ -222,21 +236,15 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     connect(m_haloChk, &QCheckBox::toggled, this, changed);
     connect(m_haloColorBtn, &ColorButton::colorChanged, this,
             [this](const QColor &) { emitChanged(); });
-    connect(m_haloRadSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
-    connect(m_placementCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, changed);
-    connect(m_minScaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
-    connect(m_maxScaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
+    connect(m_haloRadSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
+    connect(m_placementCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, changed);
+    connect(m_minScaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
+    connect(m_maxScaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
     connect(m_bgChk, &QCheckBox::toggled, this, changed);
     connect(m_bgColorBtn, &ColorButton::colorChanged, this,
             [this](const QColor &) { emitChanged(); });
-    connect(m_bgPadSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
-    connect(m_bgRadiusSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, changed);
+    connect(m_bgPadSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
+    connect(m_bgRadiusSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
 }
 
 void LabelConfigEditor::setConfig(const LabelConfig &cfg)
@@ -270,57 +278,53 @@ void LabelConfigEditor::setConfig(const LabelConfig &cfg)
 LabelConfig LabelConfigEditor::config() const
 {
     LabelConfig cfg = m_cfg;
-    cfg.enabled    = m_enabledChk->isChecked();
-    cfg.fieldName  = fieldKey(m_fieldCombo);
+    cfg.enabled = m_enabledChk->isChecked();
+    cfg.fieldName = fieldKey(m_fieldCombo);
     cfg.expression = m_exprEdit->text();
-    cfg.decimals   = m_decimalsSpin->value();
+    cfg.decimals = m_decimalsSpin->value();
     QFont f = m_fontCombo->currentFont();
     f.setBold(m_boldBtn->isChecked());
     f.setItalic(m_italicBtn->isChecked());
-    cfg.font       = f;
+    cfg.font = f;
     cfg.fontSizePt = m_fontSizeSpin->value();
-    cfg.color      = m_colorBtn->color();
-    cfg.haloEnabled  = m_haloChk->isChecked();
-    cfg.haloColor    = m_haloColorBtn->color();
+    cfg.color = m_colorBtn->color();
+    cfg.haloEnabled = m_haloChk->isChecked();
+    cfg.haloColor = m_haloColorBtn->color();
     cfg.haloRadiusPx = m_haloRadSpin->value();
-    cfg.placement  = static_cast<LabelConfig::Placement>(
-        m_placementCombo->currentData().toInt());
-    cfg.minScale   = m_minScaleSpin->value();
-    cfg.maxScale   = m_maxScaleSpin->value();
-    cfg.backgroundEnabled   = m_bgChk->isChecked();
-    cfg.backgroundColor     = m_bgColorBtn->color();
+    cfg.placement = static_cast<LabelConfig::Placement>(m_placementCombo->currentData().toInt());
+    cfg.minScale = m_minScaleSpin->value();
+    cfg.maxScale = m_maxScaleSpin->value();
+    cfg.backgroundEnabled = m_bgChk->isChecked();
+    cfg.backgroundColor = m_bgColorBtn->color();
     cfg.backgroundPaddingPx = m_bgPadSpin->value();
     cfg.backgroundRadiusPx = m_bgRadiusSpin->value();
-    cfg.priorityField       = fieldKey(m_priorityCombo);
+    cfg.priorityField = fieldKey(m_priorityCombo);
     return cfg;
 }
 
-void LabelConfigEditor::populateFieldCombo(QComboBox *combo,
-                                           bool numericOnly) const
+void LabelConfigEditor::populateFieldCombo(QComboBox *combo, bool numericOnly) const
 {
     // Keep whatever the config put there — refilling must never silently
     // change the value, including a legacy name this layer no longer lists.
     const QString keep = fieldKey(combo);
     QSignalBlocker block(combo);
     combo->clear();
-    combo->addItem(QString());          // blank = "use the element name"
+    combo->addItem(QString()); // blank = "use the element name"
     for (const auto &f : m_fields) {
         if (numericOnly && f.type == QMetaType::QString)
-            continue;                   // priority is sorted on
-        combo->addItem(f.displayName.isEmpty() ? f.name : f.displayName,
-                       f.name);
+            continue; // priority is sorted on
+        combo->addItem(f.displayName.isEmpty() ? f.name : f.displayName, f.name);
     }
     selectField(combo, keep);
 }
 
-void LabelConfigEditor::setAvailableFields(
-    const QVector<OpenSWMM::Render::AttributeField> &fields)
+void LabelConfigEditor::setAvailableFields(const QVector<OpenSWMM::Render::AttributeField> &fields)
 {
     m_fields = fields;
-    populateFieldCombo(m_fieldCombo,    /*numericOnly=*/false);
+    populateFieldCombo(m_fieldCombo, /*numericOnly=*/false);
     populateFieldCombo(m_priorityCombo, /*numericOnly=*/true);
 
-    QStringList tokens{ QStringLiteral("{name}") };
+    QStringList tokens{QStringLiteral("{name}")};
     for (const auto &f : m_fields)
         tokens << QStringLiteral("{%1}").arg(f.name);
     const QString hint = tokens.join(QStringLiteral("  "));
@@ -331,14 +335,16 @@ void LabelConfigEditor::setAvailableFields(
 void LabelConfigEditor::openExpressionBuilder()
 {
     LabelExpressionDialog dlg(m_fields, m_exprEdit->text(), this);
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted)
+        return;
     m_exprEdit->setText(dlg.expression());
     emitChanged();
 }
 
 void LabelConfigEditor::emitChanged()
 {
-    if (m_suppress) return;
+    if (m_suppress)
+        return;
     m_cfg = config();
     emit configChanged(m_cfg);
 }

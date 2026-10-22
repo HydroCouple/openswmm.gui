@@ -1,3 +1,12 @@
+/**
+ * @file      test_pollutanteditordialog.cpp
+ * @brief     Tests for pollutanteditordialog.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/dialogs/pollutanteditordialog.h"
 #include "pollutant/pollutantregistry.h"
 
@@ -136,9 +145,11 @@ void TestPollutantEditorDialog::ownerClosingDuringDeleteRefusesLateConfirmation(
     bool promptSeen = false;
     QTimer::singleShot(0, &dialog, [&] {
         auto *prompt = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-        if (!prompt) return;
+        if (!prompt)
+            return;
         auto *yes = prompt->button(QMessageBox::Yes);
-        if (!yes) return;
+        if (!yes)
+            return;
         promptSeen = true;
         // Click the real button so question() returns Yes. Model closure
         // follows before this callback returns and its nested loop unwinds.

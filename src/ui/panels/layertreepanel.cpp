@@ -1,24 +1,27 @@
 #include "layers/traceanalysislayer.h"
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "swmmvisprojectwindow.h"
-/*!
- * \file   layertreepanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      layertreepanel.cpp
+ * @brief     LayerTreeModel and displayed in a QTreeView with drag-reorder support.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/panels/layertreepanel.h"
-#include "ui/panels/layertreecategories.h"   // Slice LTR-2026-05-30 — extracted helpers
+#include "ui/panels/layertreecategories.h" // Slice LTR-2026-05-30 — extracted helpers
 #include "map/mapcanvas.h"
 #include "map/openswmmvisscene.h"
 #include "map/mapundostack.h"
 #include "layers/openswmmvislayer.h"
-#include "layers/swmmmodellayer.h"   // Slice BI-MK.LT — kind sub-rows
-#include "layers/swmmresultslayer.h" // Slice OUT.3 — output-layer kind sub-rows
-#include "layers/swmm2dresultslayer.h" // active 2D analysis layer (context menu)
-#include "layers/gisvectorlayer.h"     // zoom retry once async open finishes
+#include "layers/swmmmodellayer.h"      // Slice BI-MK.LT — kind sub-rows
+#include "layers/swmmresultslayer.h"    // Slice OUT.3 — output-layer kind sub-rows
+#include "layers/swmm2dresultslayer.h"  // active 2D analysis layer (context menu)
+#include "layers/gisvectorlayer.h"      // zoom retry once async open finishes
 #include "render/attributecandidates.h" // Slice CTX.3 — grey out empty Style items
-#include "render/ifeaturerenderer.h" // Slice CTX.2 — checkmark active style
+#include "render/ifeaturerenderer.h"    // Slice CTX.2 — checkmark active style
 // Slice S3 — sublayer-row pattern under ISublayerHost layers without kind rows.
 #include "render/isublayer.h"
 #include "render/isublayerhost.h"
@@ -63,25 +66,50 @@
 // The mirror exists so test code can compile without pulling Qt + the
 // layer object graph; these static_asserts live in this TU (which
 // already includes openswmmvislayer.h) and catch drift at build time.
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMDefaultLayer)            == OpenSWMMVisLayer::SWMMDefaultLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMModelLayer)              == OpenSWMMVisLayer::SWMMModelLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMResultsLayer)            == OpenSWMMVisLayer::SWMMResultsLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMGISLayer)                == OpenSWMMVisLayer::SWMMGISLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMVectorLayer)             == OpenSWMMVisLayer::SWMMVectorLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMRasterLayer)             == OpenSWMMVisLayer::SWMMRasterLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMImageryLayer)            == OpenSWMMVisLayer::SWMMImageryLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMTabularDataLayer)        == OpenSWMMVisLayer::SWMMTabularDataLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer) == OpenSWMMVisLayer::SWMMTabularyTimeSeriesLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMSubProjectLayer)         == OpenSWMMVisLayer::SWMMSubProjectLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMWMSLayer)                == OpenSWMMVisLayer::SWMMWMSLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMWMTSLayer)               == OpenSWMMVisLayer::SWMMWMTSLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DMeshLayer)             == OpenSWMMVisLayer::SWMM2DMeshLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DResultsLayer)          == OpenSWMMVisLayer::SWMM2DResultsLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMAnnotationLayer)         == OpenSWMMVisLayer::SWMMAnnotationLayer);
-static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMFeatureLayer)            == OpenSWMMVisLayer::SWMMFeatureLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMDefaultLayer) ==
+              OpenSWMMVisLayer::SWMMDefaultLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMModelLayer) ==
+              OpenSWMMVisLayer::SWMMModelLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMResultsLayer) ==
+              OpenSWMMVisLayer::SWMMResultsLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMGISLayer) ==
+              OpenSWMMVisLayer::SWMMGISLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMVectorLayer) ==
+              OpenSWMMVisLayer::SWMMVectorLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMRasterLayer) ==
+              OpenSWMMVisLayer::SWMMRasterLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMImageryLayer) ==
+              OpenSWMMVisLayer::SWMMImageryLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMTabularDataLayer) ==
+              OpenSWMMVisLayer::SWMMTabularDataLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer) ==
+              OpenSWMMVisLayer::SWMMTabularyTimeSeriesLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMSubProjectLayer) ==
+              OpenSWMMVisLayer::SWMMSubProjectLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMWMSLayer) ==
+              OpenSWMMVisLayer::SWMMWMSLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMWMTSLayer) ==
+              OpenSWMMVisLayer::SWMMWMTSLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DMeshLayer) ==
+              OpenSWMMVisLayer::SWMM2DMeshLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMM2DResultsLayer) ==
+              OpenSWMMVisLayer::SWMM2DResultsLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMAnnotationLayer) ==
+              OpenSWMMVisLayer::SWMMAnnotationLayer);
+static_assert(static_cast<int>(openswmmvis::ui::LayerTypeOrdinal::SWMMFeatureLayer) ==
+              OpenSWMMVisLayer::SWMMFeatureLayer);
 
-namespace {
+namespace
+{
 
+/**
+ * @param[in] canvas Optional borrowed canvas, output host must still be in its layer list.
+ * @param[in] trace Optional borrowed trace child, must belong to output parent current sublayers.
+ * @note Validate membership, depopulate trace analysis scene before detaching, invalidate to
+ *   trigger project dirty tracking, then deleteLater. Direct irreversible child-removal path
+ *   without undo; never deletes output host. Trace layer/dataset internals assumed initialized, no
+ *   null guard for trace->layer.
+ */
 void removeAnalysisSublayer(MapCanvas *canvas, openswmmvis::trace::TraceSublayer *trace)
 {
     auto *output = trace ? qobject_cast<SWMMResultsLayer *>(trace->parent()) : nullptr;
@@ -97,7 +125,13 @@ void removeAnalysisSublayer(MapCanvas *canvas, openswmmvis::trace::TraceSublayer
 }
 
 /*! The menu text for a row's export entry (FEATURE_LAYER_ROLES_AND_FIELDS
- *  plan §8.2): what is written, so the entry reads differently per row. */
+ *  plan §8.2): what is written, so the entry reads differently per row.
+ * @param[in] t Value export descriptor, kind/category/results flags only read.
+ * @param[in] kindLabel Display object/category name inserted only for category-qualified SWMM
+ *   export.
+ * @return Translated target-specific menu text or generic Export fallback, no validity/layer
+ *   lifetime check, dialog/file write or source mutation.
+ */
 QString exportActionText(const openswmmvis::ui::LayerExportTarget &t, const QString &kindLabel)
 {
     using K = openswmmvis::ui::LayerExportTarget::Kind;
@@ -108,18 +142,24 @@ QString exportActionText(const openswmmvis::ui::LayerExportTarget &t, const QStr
                                  : LayerTreePanel::tr("Export %1…").arg(kindLabel);
         return t.withResults ? LayerTreePanel::tr("Export with results…")
                              : LayerTreePanel::tr("SWMM objects…");
-    case K::VectorLayer: return LayerTreePanel::tr("Export…");
-    case K::Mesh:        return LayerTreePanel::tr("Export mesh…");
-    case K::Results2D:   return LayerTreePanel::tr("Export 2D Results…");
-    case K::Raster:      return LayerTreePanel::tr("Export raster…");
-    case K::None:        break;
+    case K::VectorLayer:
+        return LayerTreePanel::tr("Export…");
+    case K::Mesh:
+        return LayerTreePanel::tr("Export mesh…");
+    case K::Results2D:
+        return LayerTreePanel::tr("Export 2D Results…");
+    case K::Raster:
+        return LayerTreePanel::tr("Export raster…");
+    case K::None:
+        break;
     }
     return LayerTreePanel::tr("Export…");
 }
 
-}   // namespace
+} // namespace
 
-namespace {
+namespace
+{
 
 // Slice LTR-2026-05-30 — category bucketing now lives in
 // layertreecategories.{h,cpp} so it can be unit-tested headlessly. The
@@ -134,22 +174,28 @@ using openswmmvis::ui::CatCount;
 // Wrapper that keeps the qWarning() on unrecognised types — the extracted
 // helper is headless and can't log, so the GUI-side wrapper emits the
 // diagnostic before falling back to CatFeatureLayers.
+/**
+ * @param[in] t Concrete layer type mapped by extracted ordinal helper.
+ * @return CategoryId, Feature Layers fallback for unknown. Warn for fallback types outside known
+ *   feature family; mapping/log only, no source mutation.
+ */
 inline CategoryId categoryFor(OpenSWMMVisLayer::OpenSWMMVisLayerType t)
 {
     const CategoryId id = openswmmvis::ui::categoryForLayerType(int(t));
-    if (id == CatFeatureLayers
-        && t != OpenSWMMVisLayer::SWMMVectorLayer
-        && t != OpenSWMMVisLayer::SWMMGISLayer
-        && t != OpenSWMMVisLayer::SWMMFeatureLayer
-        && t != OpenSWMMVisLayer::SWMMSubProjectLayer
-        && t != OpenSWMMVisLayer::SWMMAnnotationLayer)
-    {
+    if (id == CatFeatureLayers && t != OpenSWMMVisLayer::SWMMVectorLayer &&
+        t != OpenSWMMVisLayer::SWMMGISLayer && t != OpenSWMMVisLayer::SWMMFeatureLayer &&
+        t != OpenSWMMVisLayer::SWMMSubProjectLayer && t != OpenSWMMVisLayer::SWMMAnnotationLayer) {
         qWarning() << "LayerTreeModel: unclassified layer type" << int(t)
                    << "— defaulting to Feature Layers";
     }
     return id;
 }
 
+/**
+ * @param[in] id Raw integer cast to CategoryId without local validation.
+ * @return Extracted helper metadata copy, invalid handling follows helper; no source
+ *   query/mutation.
+ */
 inline CategoryInfo categoryInfo(int id)
 {
     return openswmmvis::ui::categoryInfo(static_cast<CategoryId>(id));
@@ -165,36 +211,57 @@ inline CategoryInfo categoryInfo(int id)
 //
 // All returned aliases are registered in resources/swmmvis.qrc; no new
 // SVGs are introduced by this slice.
+/**
+ * @param[in] c SWMM spatial category, unsupported/sentinel uses generic Layers.
+ * @return Static resource-alias literal, no ownership transfer/resource-existence validation or
+ *   engine lookup.
+ */
 const char *iconAliasForSwmmCategory(OpenSWMMVis::SwmmCategory c)
 {
     using namespace OpenSWMMVis;
     switch (c) {
-    case CatJunctions:     return ":/swmmvis/Junction";
-    case CatOutfalls:      return ":/swmmvis/Outfall";
-    case CatStorage:       return ":/swmmvis/Storage";
-    case CatDividers:      return ":/swmmvis/Divider";
-    case CatConduits:      return ":/swmmvis/Polyline";
-    case CatPumps:         return ":/swmmvis/Pump";
-    case CatOrifices:      return ":/swmmvis/Orifice";
-    case CatWeirs:         return ":/swmmvis/Weir";
-    case CatOutlets:       return ":/swmmvis/Outlet";
-    case CatSubcatchments: return ":/swmmvis/Subcatchment";
-    case CatRainGages:     return ":/swmmvis/Rainfall";
-    case NumCategories:    break;
+    case CatJunctions:
+        return ":/swmmvis/Junction";
+    case CatOutfalls:
+        return ":/swmmvis/Outfall";
+    case CatStorage:
+        return ":/swmmvis/Storage";
+    case CatDividers:
+        return ":/swmmvis/Divider";
+    case CatConduits:
+        return ":/swmmvis/Polyline";
+    case CatPumps:
+        return ":/swmmvis/Pump";
+    case CatOrifices:
+        return ":/swmmvis/Orifice";
+    case CatWeirs:
+        return ":/swmmvis/Weir";
+    case CatOutlets:
+        return ":/swmmvis/Outlet";
+    case CatSubcatchments:
+        return ":/swmmvis/Subcatchment";
+    case CatRainGages:
+        return ":/swmmvis/Rainfall";
+    case NumCategories:
+        break;
     }
     return ":/swmmvis/Layers";
 }
 
-QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s,
-                             OpenSWMMVisLayer *parentLayer)
+/**
+ * @param[in] s Optional borrowed sublayer, null generic Layers.
+ * @param[in] parentLayer Optional borrowed host used for 1D FeatureSublayer category dispatch.
+ * @return Resource alias: 1D feature category glyph, otherwise sublayer kind
+ *   mesh/droplet/profile/move, generic fallback. No source write or resource-availability check.
+ */
+QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s, OpenSWMMVisLayer *parentLayer)
 {
-    if (!s) return QStringLiteral(":/swmmvis/Layers");
+    if (!s)
+        return QStringLiteral(":/swmmvis/Layers");
 
     // 1D path: FeatureSublayer carries its SwmmCategory, which maps to
     // the same glyph used by the SWMM model layer's kind rows.
-    if (parentLayer &&
-        parentLayer->layerType() == OpenSWMMVisLayer::SWMMResultsLayer)
-    {
+    if (parentLayer && parentLayer->layerType() == OpenSWMMVisLayer::SWMMResultsLayer) {
         if (auto *fs = qobject_cast<const OpenSWMM::Render::FeatureSublayer *>(s))
             return QString::fromLatin1(iconAliasForSwmmCategory(fs->category()));
     }
@@ -205,11 +272,16 @@ QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s,
     // icon already in the resource bundle.
     using K = OpenSWMM::Render::ISublayer::Kind;
     switch (s->kind()) {
-    case K::ColorRampFillKind: return QStringLiteral(":/swmmvis/Droplet");
-    case K::IsolineKind:       return QStringLiteral(":/swmmvis/Profile");
-    case K::ContourBandKind:   return QStringLiteral(":/swmmvis/Profile");
-    case K::VectorGlyphKind:   return QStringLiteral(":/swmmvis/Move");
-    case K::ArrowKind:         return QStringLiteral(":/swmmvis/Move");
+    case K::ColorRampFillKind:
+        return QStringLiteral(":/swmmvis/Droplet");
+    case K::IsolineKind:
+        return QStringLiteral(":/swmmvis/Profile");
+    case K::ContourBandKind:
+        return QStringLiteral(":/swmmvis/Profile");
+    case K::VectorGlyphKind:
+        return QStringLiteral(":/swmmvis/Move");
+    case K::ArrowKind:
+        return QStringLiteral(":/swmmvis/Move");
     case K::FillKind:
     case K::LineKind:
     case K::MarkerKind:
@@ -239,11 +311,18 @@ class LayerOpacityDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
-    QWidget *createEditor(QWidget *parent,
-                          const QStyleOptionViewItem & /*opt*/,
+    /**
+     * @param[in] parent Optional QWidget owner of new spin editor.
+     * @param[in] index Current view index, only opacity column 1 creates editor.
+     * @return New QSpinBox 0..100 with percent suffix, no frame/keyboard tracking, otherwise null.
+     *   Style option intentionally unnamed/unused. No model value read or write until
+     *   hydration/commit.
+     */
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
                           const QModelIndex &index) const override
     {
-        if (index.column() != 1) return nullptr;
+        if (index.column() != 1)
+            return nullptr;
         auto *sb = new QSpinBox(parent);
         sb->setRange(0, 100);
         sb->setSuffix(QStringLiteral(" %"));
@@ -252,6 +331,12 @@ public:
         return sb;
     }
 
+    /**
+     * @param[in] editor Borrowed QSpinBox, null/wrong widget ignored.
+     * @param[in] index Current cell UserRole expected raw 0..1 fraction; invalid data converts 0.
+     * @note Round fraction*100 and bound 0..100 before spin value. Sublayer model currently lacks
+     *   UserRole, therefore seeds 0; no source write or attempt to use EditRole fallback.
+     */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
         if (auto *sb = qobject_cast<QSpinBox *>(editor)) {
@@ -260,6 +345,13 @@ public:
         }
     }
 
+    /**
+     * @param[in] editor Borrowed QSpinBox, null/wrong widget ignored.
+     * @param[in] model Required mutable destination when matching spin supplied, no null guard.
+     * @param[in] index Current destination forwarded unchanged.
+     * @note Submit integer percent through EditRole, ignore model return. No editor interpretation,
+     *   own undo/history, engine save or ownership transfer.
+     */
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
@@ -280,8 +372,7 @@ public:
 // ===========================================================================
 
 LayerTreeModel::LayerTreeModel(MapCanvas *canvas, QObject *parent)
-    : QAbstractItemModel(parent),
-      m_canvas(nullptr)
+    : QAbstractItemModel(parent), m_canvas(nullptr)
 {
     // Slice LTR-2026-09-19: the category order used to be a global
     // QSettings preference cached here (layerTree/categoryDisplayOrder).
@@ -309,20 +400,16 @@ void LayerTreeModel::setCanvas(MapCanvas *canvas)
 
     m_canvas = canvas;
 
-    if (m_canvas)
-    {
-        connect(m_canvas, &MapCanvas::layerAdded,
-                this,     &LayerTreeModel::onLayerAdded);
-        connect(m_canvas, &MapCanvas::layerRemoved,
-                this,     &LayerTreeModel::onLayerRemoved);
-        connect(m_canvas, &MapCanvas::layerOrderChanged,
-                this,     &LayerTreeModel::onLayerOrderChanged);
-        connect(m_canvas, &MapCanvas::sublayerOrderChanged,
-                this,     &LayerTreeModel::onSublayerOrderChanged);
+    if (m_canvas) {
+        connect(m_canvas, &MapCanvas::layerAdded, this, &LayerTreeModel::onLayerAdded);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, &LayerTreeModel::onLayerRemoved);
+        connect(m_canvas, &MapCanvas::layerOrderChanged, this,
+                &LayerTreeModel::onLayerOrderChanged);
+        connect(m_canvas, &MapCanvas::sublayerOrderChanged, this,
+                &LayerTreeModel::onSublayerOrderChanged);
         // Backstop for any teardown path that never rebinds us first: drop
         // the rows before their layer pointers dangle.
-        connect(m_canvas, &QObject::destroyed,
-                this,     [this]() { setCanvas(nullptr); });
+        connect(m_canvas, &QObject::destroyed, this, [this]() { setCanvas(nullptr); });
     }
 
     rebuildCategories();
@@ -350,25 +437,24 @@ void LayerTreeModel::rebuildCategories()
     // matches paint order after every reorder, undo and redo.
     QVector<QVector<OpenSWMMVisLayer *>> buckets(CatCount);
     QVector<int> appearance;
-    for (int displayRow = 0; displayRow < m_canvas->layerCount(); ++displayRow)
-    {
+    for (int displayRow = 0; displayRow < m_canvas->layerCount(); ++displayRow) {
         const int canvasIdx = m_canvas->layerCount() - 1 - displayRow;
         OpenSWMMVisLayer *layer = m_canvas->layerAt(canvasIdx);
-        if (!layer) continue;
+        if (!layer)
+            continue;
         const int catId = categoryFor(layer->layerType());
         if (buckets[catId].isEmpty())
             appearance.append(catId);
         buckets[catId].append(layer);
     }
 
-    for (int catId : appearance)
-    {
+    for (int catId : appearance) {
         const CategoryInfo info = categoryInfo(catId);
         Category c;
-        c.id        = catId;
-        c.name      = QString::fromLatin1(info.name);
+        c.id = catId;
+        c.name = QString::fromLatin1(info.name);
         c.iconAlias = QString::fromLatin1(info.iconAlias);
-        c.layers    = buckets[catId];
+        c.layers = buckets[catId];
         const int catRow = m_categories.size();
         for (OpenSWMMVisLayer *layer : c.layers)
             m_layerToCategory.insert(layer, catRow);
@@ -382,13 +468,13 @@ void LayerTreeModel::rebuildCategories()
     // Disconnect-then-connect keeps repeated rebuilds idempotent; the
     // nullptr-slot disconnect only drops connections whose receiver is this
     // model, leaving the MapCanvas/legend connections intact.
-    for (auto it = m_layerToCategory.constBegin();
-         it != m_layerToCategory.constEnd(); ++it) {
+    for (auto it = m_layerToCategory.constBegin(); it != m_layerToCategory.constEnd(); ++it) {
         OpenSWMMVisLayer *layer = it.key();
-        if (!layer) continue;
-        QObject::disconnect(layer, &OpenSWMMVisLayer::opacityChanged,    this, nullptr);
+        if (!layer)
+            continue;
+        QObject::disconnect(layer, &OpenSWMMVisLayer::opacityChanged, this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::visibilityChanged, this, nullptr);
-        QObject::disconnect(layer, &OpenSWMMVisLayer::nameChanged,       this, nullptr);
+        QObject::disconnect(layer, &OpenSWMMVisLayer::nameChanged, this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::childrenChanged, this, nullptr);
         QObject::connect(layer, &OpenSWMMVisLayer::childrenChanged, this,
                          &LayerTreeModel::notifyHostSubOrderChanged);
@@ -439,10 +525,11 @@ void LayerTreeModel::rebuildKindRows()
             // programmatically and via the future MapSymbologyDialog; they
             // are no longer exposed as tree rows.
             auto *modelLayer = qobject_cast<SWMMModelLayer *>(layer);
-            if (!modelLayer) continue;
+            if (!modelLayer)
+                continue;
             auto &arr = m_kindRowStorage[layer];
             for (int k = 0; k < kKindsPerSwmmModelLayer; ++k) {
-                arr[k].layer       = layer;
+                arr[k].layer = layer;
                 arr[k].kindOrdinal = k;
                 m_kindRowPtrSet.insert(static_cast<const void *>(&arr[k]));
             }
@@ -452,31 +539,29 @@ void LayerTreeModel::rebuildKindRows()
             // Qt 6 asserts on Qt::UniqueConnection with non-PMF slots, so
             // disconnect first to keep repeated rebuilds idempotent.
             if (modelLayer) {
-                QObject::disconnect(modelLayer, &SWMMModelLayer::rendererChanged,
-                                    this, nullptr);
-                QObject::connect(modelLayer, &SWMMModelLayer::rendererChanged,
-                                  this, [this, layer]() {
-                                      const QModelIndex top    = createIndex(0, 0,
-                                          const_cast<void *>(static_cast<const void *>(layer)));
-                                      const QModelIndex bottom = createIndex(
-                                          kKindsPerSwmmModelLayer - 1, columnCount() - 1,
-                                          const_cast<void *>(static_cast<const void *>(layer)));
-                                      emit dataChanged(top, bottom);
-                                  });
+                QObject::disconnect(modelLayer, &SWMMModelLayer::rendererChanged, this, nullptr);
+                QObject::connect(
+                    modelLayer, &SWMMModelLayer::rendererChanged, this, [this, layer]() {
+                        const QModelIndex top =
+                            createIndex(0, 0, const_cast<void *>(static_cast<const void *>(layer)));
+                        const QModelIndex bottom =
+                            createIndex(kKindsPerSwmmModelLayer - 1, columnCount() - 1,
+                                        const_cast<void *>(static_cast<const void *>(layer)));
+                        emit dataChanged(top, bottom);
+                    });
                 // Adds / deletes change the per-kind element counts shown
                 // in the "<Kind> (count)" labels — without this the labels
                 // only repainted on the next incidental viewport update.
-                QObject::disconnect(modelLayer, &SWMMModelLayer::geometryChanged,
-                                    this, nullptr);
-                QObject::connect(modelLayer, &SWMMModelLayer::geometryChanged,
-                                  this, [this, layer]() {
-                                      const QModelIndex top    = createIndex(0, 0,
-                                          const_cast<void *>(static_cast<const void *>(layer)));
-                                      const QModelIndex bottom = createIndex(
-                                          kKindsPerSwmmModelLayer - 1, columnCount() - 1,
-                                          const_cast<void *>(static_cast<const void *>(layer)));
-                                      emit dataChanged(top, bottom);
-                                  });
+                QObject::disconnect(modelLayer, &SWMMModelLayer::geometryChanged, this, nullptr);
+                QObject::connect(
+                    modelLayer, &SWMMModelLayer::geometryChanged, this, [this, layer]() {
+                        const QModelIndex top =
+                            createIndex(0, 0, const_cast<void *>(static_cast<const void *>(layer)));
+                        const QModelIndex bottom =
+                            createIndex(kKindsPerSwmmModelLayer - 1, columnCount() - 1,
+                                        const_cast<void *>(static_cast<const void *>(layer)));
+                        emit dataChanged(top, bottom);
+                    });
             }
             // (Removed 2026-05-25): the resultsLayer kind-row branch is
             // dropped per the user-direction comment above. SWMMResultsLayer
@@ -528,13 +613,13 @@ void LayerTreeModel::rebuildSublayerRows()
             auto &storage = m_sublayerRowStorage[layer];
             storage.reserve(subs.size());
             for (int i = subs.size() - 1; i >= 0; --i) {
-                if (!subs[i]) continue;
+                if (!subs[i])
+                    continue;
                 SublayerRow row;
-                row.layer    = layer;
+                row.layer = layer;
                 row.sublayer = subs[i];
                 storage.push_back(row);
-                m_sublayerRowPtrSet.insert(
-                    static_cast<const void *>(&storage.back()));
+                m_sublayerRowPtrSet.insert(static_cast<const void *>(&storage.back()));
             }
 
             // Live update: re-emit dataChanged when any sublayer of this
@@ -542,28 +627,27 @@ void LayerTreeModel::rebuildSublayerRows()
             // Disconnect-then-connect keeps repeated rebuilds idempotent
             // (Qt 6 asserts on UniqueConnection with non-PMF slots).
             for (auto *sub : subs) {
-                if (!sub) continue;
-                QObject::disconnect(sub, &OpenSWMM::Render::ISublayer::invalidated,
-                                    this, nullptr);
-                QObject::connect(sub, &OpenSWMM::Render::ISublayer::invalidated,
-                                 this, [this, layer]() {
-                    const int catIdx = m_layerToCategory.value(layer, -1);
-                    if (catIdx < 0) return;
-                    const int layerRow =
-                        m_categories[catIdx].layers.indexOf(layer);
-                    if (layerRow < 0) return;
-                    const QModelIndex catIndex =
-                        createIndex(catIdx, 0, static_cast<void *>(nullptr));
-                    const QModelIndex layerIdx =
-                        index(layerRow, 0, catIndex);
-                    const int rows = rowCount(layerIdx);
-                    if (rows <= 0) return;
-                    const QModelIndex top =
-                        index(0, 0, layerIdx);
-                    const QModelIndex bottom =
-                        index(rows - 1, columnCount() - 1, layerIdx);
-                    emit dataChanged(top, bottom);
-                });
+                if (!sub)
+                    continue;
+                QObject::disconnect(sub, &OpenSWMM::Render::ISublayer::invalidated, this, nullptr);
+                QObject::connect(
+                    sub, &OpenSWMM::Render::ISublayer::invalidated, this, [this, layer]() {
+                        const int catIdx = m_layerToCategory.value(layer, -1);
+                        if (catIdx < 0)
+                            return;
+                        const int layerRow = m_categories[catIdx].layers.indexOf(layer);
+                        if (layerRow < 0)
+                            return;
+                        const QModelIndex catIndex =
+                            createIndex(catIdx, 0, static_cast<void *>(nullptr));
+                        const QModelIndex layerIdx = index(layerRow, 0, catIndex);
+                        const int rows = rowCount(layerIdx);
+                        if (rows <= 0)
+                            return;
+                        const QModelIndex top = index(0, 0, layerIdx);
+                        const QModelIndex bottom = index(rows - 1, columnCount() - 1, layerIdx);
+                        emit dataChanged(top, bottom);
+                    });
             }
         }
     }
@@ -574,13 +658,16 @@ void LayerTreeModel::rebuildSublayerRows()
 // build a QModelIndex when a sublayer fires invalidated().
 int LayerTreeModel::sublayerRowIndex(const void *p) const
 {
-    if (!p) return -1;
+    if (!p)
+        return -1;
     const auto *row = static_cast<const SublayerRow *>(p);
     auto it = m_sublayerRowStorage.constFind(row->layer);
-    if (it == m_sublayerRowStorage.constEnd()) return -1;
+    if (it == m_sublayerRowStorage.constEnd())
+        return -1;
     const auto &vec = it.value();
     for (size_t i = 0; i < vec.size(); ++i)
-        if (&vec[i] == row) return static_cast<int>(i);
+        if (&vec[i] == row)
+            return static_cast<int>(i);
     return -1;
 }
 
@@ -593,15 +680,13 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
     if (!hasIndex(row, column, parent))
         return {};
 
-    if (!parent.isValid())
-    {
+    if (!parent.isValid()) {
         // Top-level: a category row. internalPointer == nullptr distinguishes
         // categories from layers.
         return createIndex(row, column, static_cast<void *>(nullptr));
     }
 
-    if (parent.internalPointer() == nullptr)
-    {
+    if (parent.internalPointer() == nullptr) {
         // Parent is a category row → layer row.
         const int catIdx = parent.row();
         if (catIdx < 0 || catIdx >= m_categories.size())
@@ -617,7 +702,8 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
     auto *parentLayer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
     auto it = m_kindRowStorage.constFind(parentLayer);
     if (it != m_kindRowStorage.constEnd()) {
-        if (row < 0 || row >= kKindsPerSwmmModelLayer) return {};
+        if (row < 0 || row >= kKindsPerSwmmModelLayer)
+            return {};
         return createIndex(row, column,
                            const_cast<void *>(static_cast<const void *>(&it.value()[row])));
     }
@@ -626,9 +712,9 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
     auto subIt = m_sublayerRowStorage.constFind(parentLayer);
     if (subIt != m_sublayerRowStorage.constEnd()) {
         const auto &vec = subIt.value();
-        if (row < 0 || static_cast<size_t>(row) >= vec.size()) return {};
-        return createIndex(row, column,
-                           const_cast<void *>(static_cast<const void *>(&vec[row])));
+        if (row < 0 || static_cast<size_t>(row) >= vec.size())
+            return {};
+        return createIndex(row, column, const_cast<void *>(static_cast<const void *>(&vec[row])));
     }
     return {};
 }
@@ -640,16 +726,18 @@ QModelIndex LayerTreeModel::parent(const QModelIndex &child) const
 
     void *p = child.internalPointer();
     if (!p)
-        return {};   // child is a category — no parent
+        return {}; // child is a category — no parent
 
     // Slice BI-MK.LT — kind row: parent is the layer row.
     if (m_kindRowPtrSet.contains(p)) {
         const KindRow *kr = static_cast<const KindRow *>(p);
         OpenSWMMVisLayer *parentLayer = kr->layer;
         const int catIdx = m_layerToCategory.value(parentLayer, -1);
-        if (catIdx < 0) return {};
+        if (catIdx < 0)
+            return {};
         const int layerRow = m_categories[catIdx].layers.indexOf(parentLayer);
-        if (layerRow < 0) return {};
+        if (layerRow < 0)
+            return {};
         return createIndex(layerRow, 0, parentLayer);
     }
 
@@ -658,9 +746,11 @@ QModelIndex LayerTreeModel::parent(const QModelIndex &child) const
         const SublayerRow *sr = static_cast<const SublayerRow *>(p);
         OpenSWMMVisLayer *parentLayer = sr->layer;
         const int catIdx = m_layerToCategory.value(parentLayer, -1);
-        if (catIdx < 0) return {};
+        if (catIdx < 0)
+            return {};
         const int layerRow = m_categories[catIdx].layers.indexOf(parentLayer);
-        if (layerRow < 0) return {};
+        if (layerRow < 0)
+            return {};
         return createIndex(layerRow, 0, parentLayer);
     }
 
@@ -678,33 +768,31 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
         return 0;
     if (!parent.isValid())
         return m_categories.size();
-    if (parent.internalPointer() == nullptr)
-    {
+    if (parent.internalPointer() == nullptr) {
         // category row → number of layers in this category
         const int catIdx = parent.row();
-        return (catIdx >= 0 && catIdx < m_categories.size())
-                   ? m_categories[catIdx].layers.size()
-                   : 0;
+        return (catIdx >= 0 && catIdx < m_categories.size()) ? m_categories[catIdx].layers.size()
+                                                             : 0;
     }
     // Slice BI-MK.LT / S3 — layer row: has kind sub-rows for multi-kind
     // layers OR sublayer sub-rows for sublayer hosts (mutually exclusive
     // per the eligibility rule in rebuildSublayerRows).
-    if (!m_kindRowPtrSet.contains(parent.internalPointer())
-        && !m_sublayerRowPtrSet.contains(parent.internalPointer())) {
+    if (!m_kindRowPtrSet.contains(parent.internalPointer()) &&
+        !m_sublayerRowPtrSet.contains(parent.internalPointer())) {
         auto *layer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
         if (m_kindRowStorage.contains(layer))
             return kKindsPerSwmmModelLayer;
         auto subIt = m_sublayerRowStorage.constFind(layer);
         if (subIt != m_sublayerRowStorage.constEnd())
             return static_cast<int>(subIt.value().size());
-        return 0;   // leaf layer
+        return 0; // leaf layer
     }
-    return 0;   // kind rows and sublayer rows are leaves
+    return 0; // kind rows and sublayer rows are leaves
 }
 
 int LayerTreeModel::columnCount(const QModelIndex & /*parent*/) const
 {
-    return 2;  // Column 0: name + visibility; Column 1: opacity
+    return 2; // Column 0: name + visibility; Column 1: opacity
 }
 
 QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
@@ -718,7 +806,8 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
     if (p && m_sublayerRowPtrSet.contains(p)) {
         const SublayerRow *sr = static_cast<const SublayerRow *>(p);
         OpenSWMM::Render::ISublayer *s = sr->sublayer;
-        if (!s) return {};
+        if (!s)
+            return {};
         if (index.column() == 0) {
             switch (role) {
             case Qt::DisplayRole:
@@ -733,9 +822,8 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
             case Qt::ToolTipRole:
                 // The dynamic flag is the perf-relevant attribute users
                 // care about — surface it inline.
-                return s->isDynamic()
-                    ? QStringLiteral("%1 (animated)").arg(s->displayName())
-                    : QStringLiteral("%1 (static)").arg(s->displayName());
+                return s->isDynamic() ? QStringLiteral("%1 (animated)").arg(s->displayName())
+                                      : QStringLiteral("%1 (static)").arg(s->displayName());
             }
         } else if (index.column() == 1) {
             switch (role) {
@@ -751,14 +839,16 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
     // ---- Kind row (Slice BI-MK.LT + Slice OUT.3) ---------------------------
     if (p && m_kindRowPtrSet.contains(p)) {
         const KindRow *kr = static_cast<const KindRow *>(p);
-        auto *swmm    = qobject_cast<SWMMModelLayer   *>(kr->layer);
+        auto *swmm = qobject_cast<SWMMModelLayer *>(kr->layer);
         auto *results = qobject_cast<SWMMResultsLayer *>(kr->layer);
-        if (!swmm && !results) return {};
+        if (!swmm && !results)
+            return {};
         const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
         // Column 1 — per-kind opacity (SWMM model kinds only). Mirrors the
         // layer/sublayer opacity cell: DisplayRole "N%", UserRole qreal 0..1.
         if (index.column() == 1) {
-            if (!swmm) return {};
+            if (!swmm)
+                return {};
             switch (role) {
             case Qt::DisplayRole:
             case Qt::EditRole:
@@ -768,31 +858,30 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
             }
             return {};
         }
-        if (index.column() != 0) return {};
+        if (index.column() != 0)
+            return {};
         switch (role) {
         case Qt::DisplayRole: {
             if (swmm) {
                 // Label: "<Kind> (count)" for input layer.
                 const int total = swmm->categoryCount(cat);
-                return QStringLiteral("%1 (%2)")
-                    .arg(SWMMModelLayer::kindKey(cat))
-                    .arg(total);
+                return QStringLiteral("%1 (%2)").arg(SWMMModelLayer::kindKey(cat)).arg(total);
             }
             // Output layer: just the kind name (counts mirror the model layer).
             return SWMMModelLayer::kindKey(cat);
         }
         case Qt::CheckStateRole:
-            if (swmm) return swmm->categoryCheckState(cat);
-            return Qt::Checked;   // Output kind rows: no per-kind toggle v1
+            if (swmm)
+                return swmm->categoryCheckState(cat);
+            return Qt::Checked; // Output kind rows: no per-kind toggle v1
         case Qt::DecorationRole:
             // Per-kind icon. The SWMM instance (model) layer's kind rows use
             // the same per-object-type glyphs as the 1D results sublayers
             // (iconAliasForSwmmCategory), instead of the generic Layers icon.
             // SWMMModelLayer::Category aliases OpenSWMMVis::SwmmCategory, so
             // the ordinal maps straight through. Output kind rows keep Chart.
-            return QIcon(swmm
-                ? QString::fromLatin1(iconAliasForSwmmCategory(cat))
-                : QStringLiteral(":/swmmvis/Chart"));
+            return QIcon(swmm ? QString::fromLatin1(iconAliasForSwmmCategory(cat))
+                              : QStringLiteral(":/swmmvis/Chart"));
         case Qt::UserRole:
             return kr->kindOrdinal;
         }
@@ -802,22 +891,18 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
     auto *layer = static_cast<OpenSWMMVisLayer *>(p);
 
     // ---- Category row (layer == nullptr) -----------------------------------
-    if (!layer)
-    {
+    if (!layer) {
         const int catIdx = index.row();
         if (catIdx < 0 || catIdx >= m_categories.size())
             return {};
         const Category &c = m_categories[catIdx];
-        if (index.column() == 0)
-        {
-            switch (role)
-            {
+        if (index.column() == 0) {
+            switch (role) {
             case Qt::DisplayRole:
                 return QStringLiteral("%1 (%2)").arg(c.name).arg(c.layers.size());
             case Qt::DecorationRole:
                 return QIcon(c.iconAlias);
-            case Qt::FontRole:
-            {
+            case Qt::FontRole: {
                 QFont f;
                 f.setBold(true);
                 return f;
@@ -828,21 +913,17 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
     }
 
     // ---- Layer row ---------------------------------------------------------
-    if (index.column() == 0)
-    {
-        switch (role)
-        {
+    if (index.column() == 0) {
+        switch (role) {
         case Qt::DisplayRole:
         case Qt::EditRole:
             return layer->name();
         case Qt::CheckStateRole:
             return layer->isVisible() ? Qt::Checked : Qt::Unchecked;
-        case Qt::DecorationRole:
-        {
+        case Qt::DecorationRole: {
             // Per-layer-type icon from the Qt resource bundle. Aliases live in
             // resources/swmmvis.qrc under the :/swmmvis/ prefix.
-            switch (layer->layerType())
-            {
+            switch (layer->layerType()) {
             case OpenSWMMVisLayer::SWMMModelLayer:
                 return QIcon(QStringLiteral(":/swmmvis/Layers"));
             case OpenSWMMVisLayer::SWMMResultsLayer:
@@ -875,11 +956,8 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
         case Qt::UserRole:
             return QVariant::fromValue(layer);
         }
-    }
-    else if (index.column() == 1)
-    {
-        switch (role)
-        {
+    } else if (index.column() == 1) {
+        switch (role) {
         case Qt::DisplayRole:
         case Qt::EditRole:
             return QString::number(qRound(layer->opacity() * 100)) + QLatin1Char('%');
@@ -903,7 +981,8 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
     if (p && m_sublayerRowPtrSet.contains(p)) {
         const SublayerRow *sr = static_cast<const SublayerRow *>(p);
         OpenSWMM::Render::ISublayer *s = sr->sublayer;
-        if (!s) return false;
+        if (!s)
+            return false;
         if (index.column() == 0 && role == Qt::CheckStateRole) {
             s->setVisible(value.toInt() == Qt::Checked);
             emit dataChanged(index, index, {Qt::CheckStateRole});
@@ -912,7 +991,8 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
         if (index.column() == 1 && (role == Qt::EditRole || role == Qt::UserRole)) {
             bool ok = false;
             double op = value.toDouble(&ok);
-            if (!ok) op = value.toString().remove('%').trimmed().toDouble(&ok);
+            if (!ok)
+                op = value.toString().remove('%').trimmed().toDouble(&ok);
             if (ok) {
                 s->setOpacity(op / 100.0);
                 emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
@@ -927,7 +1007,8 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
     if (p && m_kindRowPtrSet.contains(p)) {
         const KindRow *kr = static_cast<const KindRow *>(p);
         auto *swmm = qobject_cast<SWMMModelLayer *>(kr->layer);
-        if (!swmm) return false;
+        if (!swmm)
+            return false;
         const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
         if (index.column() == 0 && role == Qt::CheckStateRole) {
             swmm->setCategoryVisible(cat, value.toInt() == Qt::Checked);
@@ -937,7 +1018,8 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
         if (index.column() == 1 && (role == Qt::EditRole || role == Qt::UserRole)) {
             bool ok = false;
             double op = value.toDouble(&ok);
-            if (!ok) op = value.toString().remove('%').trimmed().toDouble(&ok);
+            if (!ok)
+                op = value.toString().remove('%').trimmed().toDouble(&ok);
             if (ok) {
                 swmm->setCategoryOpacity(cat, op / 100.0);
                 emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
@@ -949,23 +1031,20 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
 
     auto *layer = static_cast<OpenSWMMVisLayer *>(p);
     if (!layer)
-        return false;   // category rows are not editable
+        return false; // category rows are not editable
 
-    if (index.column() == 0 && role == Qt::CheckStateRole)
-    {
+    if (index.column() == 0 && role == Qt::CheckStateRole) {
         layer->setVisible(value.toInt() == Qt::Checked);
         emit dataChanged(index, index, {Qt::CheckStateRole});
         return true;
     }
 
-    if (index.column() == 1 && (role == Qt::EditRole || role == Qt::UserRole))
-    {
+    if (index.column() == 1 && (role == Qt::EditRole || role == Qt::UserRole)) {
         bool ok = false;
         double opacity = value.toDouble(&ok);
         if (!ok)
             opacity = value.toString().remove('%').trimmed().toDouble(&ok);
-        if (ok)
-        {
+        if (ok) {
             layer->setOpacity(opacity / 100.0);
             emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
             return true;
@@ -988,10 +1067,11 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
     // within the same host); the row is drop-enabled so other sublayers
     // can land between them.
     if (p && m_sublayerRowPtrSet.contains(p)) {
-        Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable
-                        | Qt::ItemIsDropEnabled;
-        if (index.column() == 0) f |= Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled;
-        if (index.column() == 1) f |= Qt::ItemIsEditable;
+        Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDropEnabled;
+        if (index.column() == 0)
+            f |= Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled;
+        if (index.column() == 1)
+            f |= Qt::ItemIsEditable;
         return f;
     }
 
@@ -1004,7 +1084,7 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
         Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
         if (isModel && index.column() == 0)
             f |= Qt::ItemIsUserCheckable;
-        if (isModel && index.column() == 1)   // per-kind opacity editor
+        if (isModel && index.column() == 1) // per-kind opacity editor
             f |= Qt::ItemIsEditable;
         return f;
     }
@@ -1014,8 +1094,8 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
     // Category row: enabled + selectable + draggable (so the user can reorder
     // entire type groups) + drop-enabled (so other categories can land here).
     if (!layer)
-        return Qt::ItemIsEnabled | Qt::ItemIsSelectable
-             | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled;
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled |
+               Qt::ItemIsDropEnabled;
 
     Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     if (index.column() == 0)
@@ -1030,11 +1110,13 @@ QVariant LayerTreeModel::headerData(int section, Qt::Orientation orientation, in
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
         return {};
 
-    switch (section)
-    {
-    case 0: return tr("Layer");
-    case 1: return tr("Opacity");
-    default: return {};
+    switch (section) {
+    case 0:
+        return tr("Layer");
+    case 1:
+        return tr("Opacity");
+    default:
+        return {};
     }
 }
 
@@ -1044,8 +1126,7 @@ QVariant LayerTreeModel::headerData(int section, Qt::Orientation orientation, in
 
 QStringList LayerTreeModel::mimeTypes() const
 {
-    return {QStringLiteral("application/x-layerrow"),
-            QStringLiteral("application/x-layercategory"),
+    return {QStringLiteral("application/x-layerrow"), QStringLiteral("application/x-layercategory"),
             QStringLiteral("application/x-sublayerrow")};
 }
 
@@ -1070,12 +1151,21 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
     // pointer + the sublayer's position within sublayers().
     if (p && m_sublayerRowPtrSet.contains(p)) {
         const SublayerRow *sr = static_cast<const SublayerRow *>(p);
-        if (!sr->layer || !sr->sublayer) { delete mime; return nullptr; }
+        if (!sr->layer || !sr->sublayer) {
+            delete mime;
+            return nullptr;
+        }
         auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(sr->layer);
-        if (!host)             { delete mime; return nullptr; }
+        if (!host) {
+            delete mime;
+            return nullptr;
+        }
         const auto subs = host->sublayers();
         int idx = subs.indexOf(sr->sublayer);
-        if (idx < 0)           { delete mime; return nullptr; }
+        if (idx < 0) {
+            delete mime;
+            return nullptr;
+        }
         stream << reinterpret_cast<quintptr>(sr->layer) << qint32(idx);
         mime->setData(QStringLiteral("application/x-sublayerrow"), encoded);
         return mime;
@@ -1089,8 +1179,10 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
         // the row among NON-EMPTY categories, so the wrong group moved
         // whenever any category was empty.)
         const int treeRow = first.row();
-        if (treeRow < 0 || treeRow >= m_categories.size())
-        { delete mime; return nullptr; }
+        if (treeRow < 0 || treeRow >= m_categories.size()) {
+            delete mime;
+            return nullptr;
+        }
         stream << qint32(m_categories[treeRow].id);
         mime->setData(QStringLiteral("application/x-layercategory"), encoded);
         return mime;
@@ -1102,18 +1194,21 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
     return mime;
 }
 
-bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction action,
-                                     int row, int column,
-                                     const QModelIndex &parent) const
+bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction action, int row,
+                                     int column, const QModelIndex &parent) const
 {
-    Q_UNUSED(action) Q_UNUSED(column) Q_UNUSED(row)
+    Q_UNUSED(action)
+    Q_UNUSED(column)
+    Q_UNUSED(row)
 
     // Category drop: accept between category rows (parent invalid) or onto a
     // category row — NOT onto a layer row.
     if (data->hasFormat(QStringLiteral("application/x-layercategory"))) {
-        if (!parent.isValid()) return true;                         // between categories
-        if (parent.internalPointer() == nullptr) return true;      // on a category
-        return false;                                               // on a layer
+        if (!parent.isValid())
+            return true; // between categories
+        if (parent.internalPointer() == nullptr)
+            return true; // on a category
+        return false;    // on a layer
     }
 
     // Layer drop: only inside the layer's OWN category (between its
@@ -1121,11 +1216,14 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
     // layer's type decides its category, so a cross-category drop could
     // never be honoured — refuse it so the view shows the forbidden cursor.
     if (data->hasFormat(QStringLiteral("application/x-layerrow"))) {
-        if (!parent.isValid()) return false;
-        if (parent.internalPointer() != nullptr) return false;  // parent is a layer
+        if (!parent.isValid())
+            return false;
+        if (parent.internalPointer() != nullptr)
+            return false; // parent is a layer
         QByteArray buf = data->data(QStringLiteral("application/x-layerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
-        quintptr layerPtr = 0; ds >> layerPtr;
+        quintptr layerPtr = 0;
+        ds >> layerPtr;
         auto *src = reinterpret_cast<OpenSWMMVisLayer *>(layerPtr);
         return src && m_layerToCategory.value(src, -1) == parent.row();
     }
@@ -1135,22 +1233,26 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
     // row = insertion slot) and ONTO a sub-row (parent = that sub-row).
     // Both are accepted when the host matches the drag source.
     if (data->hasFormat(QStringLiteral("application/x-sublayerrow"))) {
-        if (!parent.isValid()) return false;
+        if (!parent.isValid())
+            return false;
         QByteArray buf = data->data(QStringLiteral("application/x-sublayerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
-        quintptr hostPtr = 0; qint32 ignoredIdx = 0;
+        quintptr hostPtr = 0;
+        qint32 ignoredIdx = 0;
         ds >> hostPtr >> ignoredIdx;
 
         void *pp = parent.internalPointer();
-        if (!pp) return false;                                      // category row
-        if (m_sublayerRowPtrSet.contains(pp)) {                     // onto a sub-row
+        if (!pp)
+            return false;                       // category row
+        if (m_sublayerRowPtrSet.contains(pp)) { // onto a sub-row
             const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
             return dst->layer && reinterpret_cast<quintptr>(dst->layer) == hostPtr;
         }
-        if (m_kindRowPtrSet.contains(pp)) return false;             // kind row
+        if (m_kindRowPtrSet.contains(pp))
+            return false; // kind row
         // Layer row: must be the host itself (and carry sublayer rows).
-        return reinterpret_cast<quintptr>(pp) == hostPtr
-            && m_sublayerRowStorage.contains(static_cast<OpenSWMMVisLayer *>(pp));
+        return reinterpret_cast<quintptr>(pp) == hostPtr &&
+               m_sublayerRowStorage.contains(static_cast<OpenSWMMVisLayer *>(pp));
     }
 
     return false;
@@ -1158,18 +1260,26 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
 
 bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
 {
-    if (!m_canvas) return false;
+    if (!m_canvas)
+        return false;
     int srcTreeRow = -1;
     for (int i = 0; i < m_categories.size(); ++i)
-        if (m_categories[i].id == categoryId) { srcTreeRow = i; break; }
-    if (srcTreeRow < 0) return false;
-    if (dstTreeRow < 0 || dstTreeRow >= m_categories.size()) return false;
-    if (srcTreeRow == dstTreeRow) return false;
+        if (m_categories[i].id == categoryId) {
+            srcTreeRow = i;
+            break;
+        }
+    if (srcTreeRow < 0)
+        return false;
+    if (dstTreeRow < 0 || dstTreeRow >= m_categories.size())
+        return false;
+    if (srcTreeRow == dstTreeRow)
+        return false;
 
     // New tree order (top first) among the displayed categories.
     QVector<int> treeOrder;
     treeOrder.reserve(m_categories.size());
-    for (const Category &c : m_categories) treeOrder.append(c.id);
+    for (const Category &c : m_categories)
+        treeOrder.append(c.id);
     treeOrder.move(srcTreeRow, dstTreeRow);
 
     // Canvas order: bottom→top = reverse of tree order; within a group keep
@@ -1184,7 +1294,8 @@ bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
                 desiredCanvasOrder.append(l);
         }
     }
-    if (desiredCanvasOrder.count() != m_canvas->layerCount()) return false;
+    if (desiredCanvasOrder.count() != m_canvas->layerCount())
+        return false;
 
     // Record the preference on the canvas (per project): the moved group
     // goes immediately before the group that now follows it in the tree,
@@ -1197,7 +1308,8 @@ bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
         insertAt = groupOrder.indexOf(treeOrder[dstTreeRow + 1]);
     else if (dstTreeRow > 0)
         insertAt = groupOrder.indexOf(treeOrder[dstTreeRow - 1]) + 1;
-    if (insertAt < 0) insertAt = groupOrder.size();
+    if (insertAt < 0)
+        insertAt = groupOrder.size();
     groupOrder.insert(insertAt, categoryId);
     m_canvas->setLayerGroupOrder(groupOrder);
 
@@ -1206,23 +1318,29 @@ bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
     return true;
 }
 
-bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
-                                   int row, int /*column*/,
-                                   const QModelIndex &parent)
+bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int row,
+                                  int /*column*/, const QModelIndex &parent)
 {
-    if (!m_canvas || action != Qt::MoveAction) return false;
+    if (!m_canvas || action != Qt::MoveAction)
+        return false;
 
     // ── Category drop ─────────────────────────────────────────────────────
     if (data->hasFormat(QStringLiteral("application/x-layercategory"))) {
         QByteArray buf = data->data(QStringLiteral("application/x-layercategory"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
-        qint32 srcCatId = -1; ds >> srcCatId;
-        if (srcCatId < 0 || srcCatId >= CatCount) return false;
+        qint32 srcCatId = -1;
+        ds >> srcCatId;
+        if (srcCatId < 0 || srcCatId >= CatCount)
+            return false;
 
         int srcTreeRow = -1;
         for (int i = 0; i < m_categories.size(); ++i)
-            if (m_categories[i].id == srcCatId) { srcTreeRow = i; break; }
-        if (srcTreeRow < 0) return false;
+            if (m_categories[i].id == srcCatId) {
+                srcTreeRow = i;
+                break;
+            }
+        if (srcTreeRow < 0)
+            return false;
 
         // Insertion slot in tree rows: between rows (parent invalid, row =
         // slot; row < 0 = after the last) or onto a category (= its slot).
@@ -1233,27 +1351,33 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
             slot = parent.row();
 
         int dstTreeRow = slot;
-        if (dstTreeRow > srcTreeRow) --dstTreeRow;
+        if (dstTreeRow > srcTreeRow)
+            --dstTreeRow;
         dstTreeRow = qBound(0, dstTreeRow, m_categories.size() - 1);
-        if (dstTreeRow == srcTreeRow) return false;
+        if (dstTreeRow == srcTreeRow)
+            return false;
 
         return reorderCategory(srcCatId, dstTreeRow);
     }
 
     // ── Sublayer drop ─────────────────────────────────────────────────────
     if (data->hasFormat(QStringLiteral("application/x-sublayerrow"))) {
-        if (!parent.isValid()) return false;
+        if (!parent.isValid())
+            return false;
         void *pp = parent.internalPointer();
-        if (!pp) return false;
+        if (!pp)
+            return false;
 
         QByteArray buf = data->data(QStringLiteral("application/x-sublayerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
-        quintptr hostPtr = 0; qint32 srcIdx = -1;
+        quintptr hostPtr = 0;
+        qint32 srcIdx = -1;
         ds >> hostPtr >> srcIdx;
-        if (srcIdx < 0) return false;
+        if (srcIdx < 0)
+            return false;
 
         OpenSWMMVisLayer *hostLayer = nullptr;
-        int dstIdx = -1;                       // paint index (0 = bottom)
+        int dstIdx = -1; // paint index (0 = bottom)
 
         if (m_sublayerRowPtrSet.contains(pp)) {
             // Onto a sub-row: take that sub-row's paint slot.
@@ -1262,27 +1386,34 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
                 return false;
             hostLayer = dst->layer;
             auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
-            if (!host) return false;
+            if (!host)
+                return false;
             dstIdx = host->sublayers().indexOf(dst->sublayer);
         } else {
             // Between sub-rows: parent is the host layer row, `row` is the
             // display slot (0 = top of paint stack). Convert display → paint:
             // display r of n is paint n-1-r; the classic "slot after source
             // shifts by one" adjustment happens in display space first.
-            if (m_kindRowPtrSet.contains(pp)) return false;
+            if (m_kindRowPtrSet.contains(pp))
+                return false;
             hostLayer = static_cast<OpenSWMMVisLayer *>(pp);
-            if (reinterpret_cast<quintptr>(hostLayer) != hostPtr) return false;
+            if (reinterpret_cast<quintptr>(hostLayer) != hostPtr)
+                return false;
             auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
-            if (!host) return false;
+            if (!host)
+                return false;
             const int n = host->sublayers().size();
-            if (srcIdx >= n) return false;
+            if (srcIdx >= n)
+                return false;
             const int srcDisplay = n - 1 - srcIdx;
             int dstDisplay = (row < 0) ? n : row;
-            if (dstDisplay > srcDisplay) --dstDisplay;
+            if (dstDisplay > srcDisplay)
+                --dstDisplay;
             dstDisplay = qBound(0, dstDisplay, n - 1);
             dstIdx = n - 1 - dstDisplay;
         }
-        if (dstIdx < 0 || dstIdx == srcIdx) return false;
+        if (dstIdx < 0 || dstIdx == srcIdx)
+            return false;
 
         // Undoable; sublayerOrderChanged → onSublayerOrderChanged rebuilds
         // the sub-rows.
@@ -1290,31 +1421,38 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
     }
 
     // ── Layer drop (within its own category only — see canDropMimeData) ──
-    if (!data->hasFormat(QStringLiteral("application/x-layerrow"))
-        || !parent.isValid() || parent.internalPointer() != nullptr)
+    if (!data->hasFormat(QStringLiteral("application/x-layerrow")) || !parent.isValid() ||
+        parent.internalPointer() != nullptr)
         return false;
 
     QByteArray encoded = data->data(QStringLiteral("application/x-layerrow"));
     QDataStream stream(&encoded, QIODevice::ReadOnly);
-    quintptr layerPtr = 0; stream >> layerPtr;
+    quintptr layerPtr = 0;
+    stream >> layerPtr;
     auto *srcLayer = reinterpret_cast<OpenSWMMVisLayer *>(layerPtr);
-    if (!srcLayer) return false;
+    if (!srcLayer)
+        return false;
 
     const int srcCatIdx = m_layerToCategory.value(srcLayer, -1);
     const int dstCatIdx = parent.row();
-    if (srcCatIdx < 0 || srcCatIdx != dstCatIdx) return false;
+    if (srcCatIdx < 0 || srcCatIdx != dstCatIdx)
+        return false;
 
     const Category &cat = m_categories[srcCatIdx];
     const int srcPos = cat.layers.indexOf(srcLayer);
-    if (srcPos < 0) return false;
+    if (srcPos < 0)
+        return false;
     int dstPos = (row < 0) ? cat.layers.size() : row;
-    if (dstPos > srcPos) --dstPos;
+    if (dstPos > srcPos)
+        --dstPos;
     dstPos = qBound(0, dstPos, cat.layers.size() - 1);
-    if (dstPos == srcPos) return false;
+    if (dstPos == srcPos)
+        return false;
 
     const int srcCanvas = m_canvas->layers().indexOf(srcLayer);
     const int dstCanvas = m_canvas->layers().indexOf(cat.layers[dstPos]);
-    if (srcCanvas < 0 || dstCanvas < 0) return false;
+    if (srcCanvas < 0 || dstCanvas < 0)
+        return false;
     m_canvas->moveLayer(srcCanvas, dstCanvas);
     return true;
 }
@@ -1324,7 +1462,8 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
     if (!index.isValid())
         return nullptr;
     void *p = index.internalPointer();
-    if (!p) return nullptr;
+    if (!p)
+        return nullptr;
     // Slice BI-MK.LT — kind sub-row: return its parent layer.
     if (m_kindRowPtrSet.contains(p))
         return static_cast<const KindRow *>(p)->layer;
@@ -1336,7 +1475,8 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
 
 int LayerTreeModel::categoryIdForIndex(const QModelIndex &index) const
 {
-    if (!index.isValid() || index.internalPointer() != nullptr) return -1;
+    if (!index.isValid() || index.internalPointer() != nullptr)
+        return -1;
     const int row = index.row();
     return (row >= 0 && row < m_categories.size()) ? m_categories[row].id : -1;
 }
@@ -1352,9 +1492,11 @@ QModelIndex LayerTreeModel::indexForCategory(int categoryId) const
 QModelIndex LayerTreeModel::indexForLayer(OpenSWMMVisLayer *layer) const
 {
     const int catIdx = m_layerToCategory.value(layer, -1);
-    if (catIdx < 0) return {};
+    if (catIdx < 0)
+        return {};
     const int row = m_categories[catIdx].layers.indexOf(layer);
-    if (row < 0) return {};
+    if (row < 0)
+        return {};
     return createIndex(row, 0, layer);
 }
 
@@ -1362,7 +1504,8 @@ QModelIndex LayerTreeModel::indexForSublayer(OpenSWMMVisLayer *layer,
                                              OpenSWMM::Render::ISublayer *sublayer) const
 {
     auto it = m_sublayerRowStorage.constFind(layer);
-    if (it == m_sublayerRowStorage.constEnd()) return {};
+    if (it == m_sublayerRowStorage.constEnd())
+        return {};
     const auto &vec = it.value();
     for (size_t i = 0; i < vec.size(); ++i)
         if (vec[i].sublayer == sublayer)
@@ -1380,20 +1523,21 @@ bool LayerTreeModel::isCategoryIndex(const QModelIndex &index) const
 
 bool LayerTreeModel::isKindIndex(const QModelIndex &index) const
 {
-    return index.isValid()
-        && index.internalPointer() != nullptr
-        && m_kindRowPtrSet.contains(index.internalPointer());
+    return index.isValid() && index.internalPointer() != nullptr &&
+           m_kindRowPtrSet.contains(index.internalPointer());
 }
 
 OpenSWMMVisLayer *LayerTreeModel::kindParentLayer(const QModelIndex &index) const
 {
-    if (!isKindIndex(index)) return nullptr;
+    if (!isKindIndex(index))
+        return nullptr;
     return static_cast<const KindRow *>(index.internalPointer())->layer;
 }
 
 int LayerTreeModel::kindOrdinal(const QModelIndex &index) const
 {
-    if (!isKindIndex(index)) return -1;
+    if (!isKindIndex(index))
+        return -1;
     return static_cast<const KindRow *>(index.internalPointer())->kindOrdinal;
 }
 
@@ -1401,21 +1545,21 @@ int LayerTreeModel::kindOrdinal(const QModelIndex &index) const
 
 bool LayerTreeModel::isSublayerIndex(const QModelIndex &index) const
 {
-    return index.isValid()
-        && index.internalPointer() != nullptr
-        && m_sublayerRowPtrSet.contains(index.internalPointer());
+    return index.isValid() && index.internalPointer() != nullptr &&
+           m_sublayerRowPtrSet.contains(index.internalPointer());
 }
 
 OpenSWMMVisLayer *LayerTreeModel::sublayerParentLayer(const QModelIndex &index) const
 {
-    if (!isSublayerIndex(index)) return nullptr;
+    if (!isSublayerIndex(index))
+        return nullptr;
     return static_cast<const SublayerRow *>(index.internalPointer())->layer;
 }
 
-OpenSWMM::Render::ISublayer *
-LayerTreeModel::sublayerForIndex(const QModelIndex &index) const
+OpenSWMM::Render::ISublayer *LayerTreeModel::sublayerForIndex(const QModelIndex &index) const
 {
-    if (!isSublayerIndex(index)) return nullptr;
+    if (!isSublayerIndex(index))
+        return nullptr;
     return static_cast<const SublayerRow *>(index.internalPointer())->sublayer;
 }
 
@@ -1451,12 +1595,14 @@ void LayerTreeModel::onLayerDataChanged(OpenSWMMVisLayer *layer)
     if (!layer)
         return;
     const int catIdx = m_layerToCategory.value(layer, -1);
-    if (catIdx < 0) return;
+    if (catIdx < 0)
+        return;
     const int row = m_categories[catIdx].layers.indexOf(layer);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     const QModelIndex parentIdx = createIndex(catIdx, 0, static_cast<void *>(nullptr));
-    const QModelIndex tl = index(row, 0,                  parentIdx);
-    const QModelIndex br = index(row, columnCount() - 1,  parentIdx);
+    const QModelIndex tl = index(row, 0, parentIdx);
+    const QModelIndex br = index(row, columnCount() - 1, parentIdx);
     emit dataChanged(tl, br);
 }
 
@@ -1485,8 +1631,7 @@ void LayerTreeModel::notifyHostSubOrderChanged()
 // ===========================================================================
 
 LayerTreePanel::LayerTreePanel(MapCanvas *canvas, QWidget *parent)
-    : QWidget(parent),
-      m_canvas(canvas)
+    : QWidget(parent), m_canvas(canvas)
 {
     setupUi();
 }
@@ -1502,7 +1647,8 @@ OpenSWMMVisLayer *LayerTreePanel::selectedLayer() const
 
 QModelIndex LayerTreePanel::toSourceIndex(const QModelIndex &proxyIdx) const
 {
-    if (!proxyIdx.isValid()) return {};
+    if (!proxyIdx.isValid())
+        return {};
     return m_proxy ? m_proxy->mapToSource(proxyIdx) : proxyIdx;
 }
 
@@ -1544,13 +1690,13 @@ void LayerTreePanel::setupUi()
     // opacity editor (gated by SelectedClicked so the user has to first
     // select the row, then click col 1 to begin editing — single clicks
     // elsewhere never start an edit).
-    m_treeView->setEditTriggers(QAbstractItemView::SelectedClicked
-                                | QAbstractItemView::EditKeyPressed);
+    m_treeView->setEditTriggers(QAbstractItemView::SelectedClicked |
+                                QAbstractItemView::EditKeyPressed);
     m_treeView->setItemDelegateForColumn(1, new LayerOpacityDelegate(m_treeView));
     m_treeView->setAlternatingRowColors(true);
     m_treeView->setHeaderHidden(false);
-    m_treeView->setRootIsDecorated(true);          // show category expand chevrons
-    m_treeView->setExpandsOnDoubleClick(false);    // double-click = zoom-to-layer
+    m_treeView->setRootIsDecorated(true);       // show category expand chevrons
+    m_treeView->setExpandsOnDoubleClick(false); // double-click = zoom-to-layer
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
     vlay->addWidget(m_treeView, 1);
 
@@ -1574,30 +1720,24 @@ void LayerTreePanel::setupUi()
 
     // Re-expand on every reset so newly-categorised layers (and the result
     // of filter changes) are visible without manual expand.
-    connect(m_model, &QAbstractItemModel::modelReset,
-            m_treeView, &QTreeView::expandAll);
-    connect(m_proxy, &QAbstractItemModel::modelReset,
-            m_treeView, &QTreeView::expandAll);
-    connect(m_proxy, &QAbstractItemModel::layoutChanged,
-            m_treeView, &QTreeView::expandAll);
+    connect(m_model, &QAbstractItemModel::modelReset, m_treeView, &QTreeView::expandAll);
+    connect(m_proxy, &QAbstractItemModel::modelReset, m_treeView, &QTreeView::expandAll);
+    connect(m_proxy, &QAbstractItemModel::layoutChanged, m_treeView, &QTreeView::expandAll);
 
     // Slice LTR-2026-09-19 — keep the moved row selected across the reset
     // every reorder (drop, menu, undo, redo) performs. Connected AFTER the
     // expandAll hooks so the restore runs on an expanded tree.
-    connect(m_model, &QAbstractItemModel::modelAboutToBeReset,
-            this, &LayerTreePanel::rememberCurrentRow);
-    connect(m_proxy, &QAbstractItemModel::modelReset,
-            this, &LayerTreePanel::restoreRememberedRow);
+    connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this,
+            &LayerTreePanel::rememberCurrentRow);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this, &LayerTreePanel::restoreRememberedRow);
 
     // Selection + interactions
-    connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &LayerTreePanel::onSelectionChanged);
-    connect(m_treeView, &QTreeView::doubleClicked,
-            this, &LayerTreePanel::onLayerDoubleClicked);
-    connect(m_treeView, &QTreeView::customContextMenuRequested,
-            this, &LayerTreePanel::onContextMenuRequested);
-    connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &LayerTreePanel::onSearchTextChanged);
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            &LayerTreePanel::onSelectionChanged);
+    connect(m_treeView, &QTreeView::doubleClicked, this, &LayerTreePanel::onLayerDoubleClicked);
+    connect(m_treeView, &QTreeView::customContextMenuRequested, this,
+            &LayerTreePanel::onContextMenuRequested);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &LayerTreePanel::onSearchTextChanged);
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,21 +1746,20 @@ void LayerTreePanel::setupUi()
 
 void LayerTreePanel::onRemoveSelectedLayer()
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     const auto index = toSourceIndex(m_treeView->currentIndex());
     if (m_model->isSublayerIndex(index)) {
         removeAnalysisSublayer(m_canvas, dynamic_cast<openswmmvis::trace::TraceSublayer *>(
-                                            m_model->sublayerForIndex(index)));
+                                             m_model->sublayerForIndex(index)));
         return; // Never resolve a child removal to its entire output layer.
     }
     OpenSWMMVisLayer *sel = selectedLayer();
     if (!sel)
         return;
 
-    for (int i = 0; i < m_canvas->layerCount(); ++i)
-    {
-        if (m_canvas->layerAt(i) == sel)
-        {
+    for (int i = 0; i < m_canvas->layerCount(); ++i) {
+        if (m_canvas->layerAt(i) == sel) {
             OpenSWMMVisLayer *taken = m_canvas->takeLayer(i);
             taken->deleteLater();
             return;
@@ -1647,47 +1786,55 @@ void LayerTreePanel::zoomToLayer(OpenSWMMVisLayer *layer)
     // Degenerate-but-real extent (single point, or a purely vertical /
     // horizontal feature set → zero width or height): pad it so the zoom
     // still lands on the data instead of silently doing nothing.
-    if (!ext.isNull() &&
-        std::isfinite(ext.xMin()) && std::isfinite(ext.yMin()) &&
-        std::isfinite(ext.xMax()) && std::isfinite(ext.yMax()) &&
-        ext.xMin() <= ext.xMax() && ext.yMin() <= ext.yMax()) {
+    if (!ext.isNull() && std::isfinite(ext.xMin()) && std::isfinite(ext.yMin()) &&
+        std::isfinite(ext.xMax()) && std::isfinite(ext.yMax()) && ext.xMin() <= ext.xMax() &&
+        ext.yMin() <= ext.yMax()) {
         const double span = std::max(ext.width(), ext.height());
-        const double buf  = (span > 0.0) ? span * 0.05 : 25.0;
-        m_canvas->setExtent(MapExtent(ext.xMin() - buf, ext.yMin() - buf,
-                                      ext.xMax() + buf, ext.yMax() + buf));
+        const double buf = (span > 0.0) ? span * 0.05 : 25.0;
+        m_canvas->setExtent(
+            MapExtent(ext.xMin() - buf, ext.yMin() - buf, ext.xMax() + buf, ext.yMax() + buf));
         return;
     }
 
     // Feature layers open asynchronously — the extent isn't known until the
     // dataset finishes loading. Retry once when it does.
     if (auto *gis = qobject_cast<GISVectorLayer *>(layer)) {
-        connect(gis, &GISVectorLayer::openFinished, this,
-                [this, gis](bool ok) { if (ok) zoomToLayer(gis); },
-                static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        connect(
+            gis, &GISVectorLayer::openFinished, this,
+            [this, gis](bool ok) {
+                if (ok)
+                    zoomToLayer(gis);
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
     }
 }
 
 void LayerTreePanel::moveSelectedLayerToRow(int targetRow)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
     OpenSWMMVisLayer *sel = m_model->layerForIndex(idx);
-    if (!sel) return;       // category row — nothing to move
+    if (!sel)
+        return; // category row — nothing to move
     const QModelIndex layerIdx = m_model->indexForLayer(sel);
-    if (!layerIdx.isValid()) return;
+    if (!layerIdx.isValid())
+        return;
     const QModelIndex catIdx = layerIdx.parent();
     const int rows = m_model->rowCount(catIdx);
     targetRow = qBound(0, targetRow, rows - 1);
-    if (targetRow == layerIdx.row()) return;
+    if (targetRow == layerIdx.row())
+        return;
 
     // The sibling's canvas index is the target: QList::move puts the layer
     // exactly there and shifts the sibling the other way.
-    OpenSWMMVisLayer *sibling =
-        m_model->layerForIndex(m_model->index(targetRow, 0, catIdx));
-    if (!sibling) return;
+    OpenSWMMVisLayer *sibling = m_model->layerForIndex(m_model->index(targetRow, 0, catIdx));
+    if (!sibling)
+        return;
     const int srcCanvas = m_canvas->layers().indexOf(sel);
     const int dstCanvas = m_canvas->layers().indexOf(sibling);
-    if (srcCanvas < 0 || dstCanvas < 0) return;
+    if (srcCanvas < 0 || dstCanvas < 0)
+        return;
     m_canvas->moveLayer(srcCanvas, dstCanvas);
 }
 
@@ -1707,10 +1854,12 @@ void LayerTreePanel::onMoveLayerDown()
 
 void LayerTreePanel::moveSelectedCategoryToRow(int targetRow)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
     const int catId = m_model->categoryIdForIndex(idx);
-    if (catId < 0) return;
+    if (catId < 0)
+        return;
     const int catCount = m_model->rowCount({});
     targetRow = qBound(0, targetRow, catCount - 1);
     m_model->reorderCategory(catId, targetRow);
@@ -1720,11 +1869,12 @@ void LayerTreePanel::rememberCurrentRow()
 {
     m_remembered = {};
     const QModelIndex idx = toSourceIndex(m_treeView->currentIndex());
-    if (!idx.isValid()) return;
+    if (!idx.isValid())
+        return;
     if (m_model->isCategoryIndex(idx)) {
         m_remembered.categoryId = m_model->categoryIdForIndex(idx);
     } else if (m_model->isSublayerIndex(idx)) {
-        m_remembered.layer    = m_model->sublayerParentLayer(idx);
+        m_remembered.layer = m_model->sublayerParentLayer(idx);
         m_remembered.sublayer = m_model->sublayerForIndex(idx);
     } else if (!m_model->isKindIndex(idx)) {
         m_remembered.layer = m_model->layerForIndex(idx);
@@ -1741,9 +1891,11 @@ void LayerTreePanel::restoreRememberedRow()
     else if (m_remembered.layer)
         src = m_model->indexForLayer(m_remembered.layer);
     m_remembered = {};
-    if (!src.isValid()) return;
+    if (!src.isValid())
+        return;
     const QModelIndex proxyIdx = m_proxy->mapFromSource(src);
-    if (!proxyIdx.isValid()) return;
+    if (!proxyIdx.isValid())
+        return;
     m_treeView->setCurrentIndex(proxyIdx);
     m_treeView->scrollTo(proxyIdx);
 }
@@ -1757,8 +1909,7 @@ void LayerTreePanel::onSelectionChanged()
     // (== SWMMModelLayer::Category) for category-level listeners.
     const QModelIndex srcIdx = toSourceIndex(m_treeView->currentIndex());
     if (m_model->isKindIndex(srcIdx))
-        emit kindSelected(m_model->kindParentLayer(srcIdx),
-                          m_model->kindOrdinal(srcIdx));
+        emit kindSelected(m_model->kindParentLayer(srcIdx), m_model->kindOrdinal(srcIdx));
 }
 
 void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
@@ -1797,46 +1948,50 @@ void LayerTreePanel::onMoveCategoryDown()
 void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 {
     const QModelIndex proxyIdx = m_treeView->indexAt(pos);
-    const QModelIndex idx      = toSourceIndex(proxyIdx);
+    const QModelIndex idx = toSourceIndex(proxyIdx);
     if (!idx.isValid())
         return;
     m_treeView->setCurrentIndex(proxyIdx);
 
     // ── Category row ────────────────────────────────────────────────────
-    if (m_model->isCategoryIndex(idx))
-    {
+    if (m_model->isCategoryIndex(idx)) {
         const int displayPos = idx.row();
-        const int catCount   = m_model->rowCount({});
+        const int catCount = m_model->rowCount({});
 
         QMenu menu(this);
         QStyle *s = QApplication::style();
-        QAction *actTop  = menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton),
-                                          tr("Move Category to Top"));
-        QAction *actUp   = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp),
-                                          tr("Move Category Up"));
-        QAction *actDown = menu.addAction(s->standardIcon(QStyle::SP_ArrowDown),
-                                          tr("Move Category Down"));
+        QAction *actTop = menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton),
+                                         tr("Move Category to Top"));
+        QAction *actUp =
+            menu.addAction(s->standardIcon(QStyle::SP_ArrowUp), tr("Move Category Up"));
+        QAction *actDown =
+            menu.addAction(s->standardIcon(QStyle::SP_ArrowDown), tr("Move Category Down"));
         QAction *actBottom = menu.addAction(s->standardIcon(QStyle::SP_TitleBarUnshadeButton),
                                             tr("Move Category to Bottom"));
-        actTop   ->setEnabled(displayPos > 0);
-        actUp    ->setEnabled(displayPos > 0);
-        actDown  ->setEnabled(displayPos < catCount - 1);
+        actTop->setEnabled(displayPos > 0);
+        actUp->setEnabled(displayPos > 0);
+        actDown->setEnabled(displayPos < catCount - 1);
         actBottom->setEnabled(displayPos < catCount - 1);
 
         QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-        if (!picked) return;
-        if      (picked == actTop)    moveSelectedCategoryToRow(0);
-        else if (picked == actUp)     onMoveCategoryUp();
-        else if (picked == actDown)   onMoveCategoryDown();
-        else if (picked == actBottom) moveSelectedCategoryToRow(catCount - 1);
+        if (!picked)
+            return;
+        if (picked == actTop)
+            moveSelectedCategoryToRow(0);
+        else if (picked == actUp)
+            onMoveCategoryUp();
+        else if (picked == actDown)
+            onMoveCategoryDown();
+        else if (picked == actBottom)
+            moveSelectedCategoryToRow(catCount - 1);
         return;
     }
 
     // ── Sublayer sub-row (Slice S3 — RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.1) ──
-    if (m_model->isSublayerIndex(idx))
-    {
+    if (m_model->isSublayerIndex(idx)) {
         OpenSWMM::Render::ISublayer *sub = m_model->sublayerForIndex(idx);
-        if (!sub) return;
+        if (!sub)
+            return;
         if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub)) {
             QPointer<openswmmvis::trace::TraceSublayer> guard(trace);
             QMenu menu(this);
@@ -1849,18 +2004,23 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             recalculate->setToolTip(tr("Rescan this output and recompute its saved estimates"));
             auto *visible = menu.addAction(trace->isVisible() ? tr("Hide") : tr("Show"));
             menu.addSeparator();
-            auto *remove = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
-                                          tr("Remove Layer"));
+            auto *remove =
+                menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")), tr("Remove Layer"));
             auto *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-            if (!guard) return;
-            if (picked == properties) openswmmvis::trace::TraceAnalysisDialog::showProperties(trace, this);
-            else if (picked == details) openswmmvis::trace::TraceAnalysisDialog::showDetails(trace, this);
+            if (!guard)
+                return;
+            if (picked == properties)
+                openswmmvis::trace::TraceAnalysisDialog::showProperties(trace, this);
+            else if (picked == details)
+                openswmmvis::trace::TraceAnalysisDialog::showDetails(trace, this);
             else if (picked == recalculate)
                 openswmmvis::trace::TraceAnalysisDialog::recalculate(
                     qobject_cast<SWMMVisProjectWindow *>(m_canvas ? m_canvas->parent() : nullptr),
                     trace->layer()->result()->dataset->runId);
-            else if (picked == visible) trace->setVisible(!trace->isVisible());
-            else if (picked == remove) removeAnalysisSublayer(m_canvas, trace);
+            else if (picked == visible)
+                trace->setVisible(!trace->isVisible());
+            else if (picked == remove)
+                removeAnalysisSublayer(m_canvas, trace);
             return;
         }
         OpenSWMMVisLayer *parentLayer = m_model->sublayerParentLayer(idx);
@@ -1874,23 +2034,22 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         // to whatever the user clicked. Sublayer rows route to the
         // matching sub-tab via the sublayer's id.
         QAction *actEditStyle = subMenu.addAction(
-            ss->standardIcon(QStyle::SP_FileDialogDetailedView),
-            tr("Properties…"));
+            ss->standardIcon(QStyle::SP_FileDialogDetailedView), tr("Properties…"));
         actEditStyle->setEnabled(sub->style() != nullptr);
         subMenu.addSeparator();
 
         // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — the sublayer's own
         // elements: a mesh's vertices / edges / cells table and export.
         openswmmvis::ui::LayerTreeRow subRow;
-        subRow.kind       = openswmmvis::ui::LayerTreeRow::Kind::Sublayer;
-        subRow.layer      = parentLayer;
-        subRow.layerType  = parentLayer ? int(parentLayer->layerType()) : 0;
+        subRow.kind = openswmmvis::ui::LayerTreeRow::Kind::Sublayer;
+        subRow.layer = parentLayer;
+        subRow.layerType = parentLayer ? int(parentLayer->layerType()) : 0;
         subRow.sublayerId = sub->id();
         // A 1D run's object-type sublayers ("results.<kind>") stand for that
         // SWMM object type.
         if (const auto *fs = qobject_cast<const OpenSWMM::Render::FeatureSublayer *>(sub))
             subRow.category = int(fs->category());
-        const auto subTable  = openswmmvis::ui::attributeTableTarget(subRow);
+        const auto subTable = openswmmvis::ui::attributeTableTarget(subRow);
         const auto subExport = openswmmvis::ui::layerExportTarget(subRow);
         QAction *actAttrTableS = subMenu.addAction(tr("Open Attribute Table"));
         actAttrTableS->setEnabled(subTable.isValid());
@@ -1903,51 +2062,58 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             plotObjects = subMenu.addMenu(tr("Plot Time Series…"));
             const auto category = feature->category();
             auto *objects = output->modelLayer();
-            for (int row = 0; row < objects->categoryCount(category) && plotObjects->actions().size() < 50; ++row) {
+            for (int row = 0;
+                 row < objects->categoryCount(category) && plotObjects->actions().size() < 50;
+                 ++row) {
                 const auto name = objects->objectNameAt(category, row);
-                const int index = category <= SWMMModelLayer::CatDividers ? output->nodeOutputIndex(name)
+                const int index =
+                    category <= SWMMModelLayer::CatDividers  ? output->nodeOutputIndex(name)
                     : category <= SWMMModelLayer::CatOutlets ? output->linkOutputIndex(name)
-                    : output->subcatchOutputIndex(name);
-                if (index >= 0) plotObjects->addAction(name);
+                                                             : output->subcatchOutputIndex(name);
+                if (index >= 0)
+                    plotObjects->addAction(name);
             }
             plotObjects->setEnabled(!plotObjects->actions().isEmpty());
         }
         subMenu.addSeparator();
-        if(auto *flow=qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub)) {
-            auto *action=subMenu.addAction(tr("Animate flow streaks"));action->setObjectName("flowMotionAction");action->setCheckable(true);
+        if (auto *flow = qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub)) {
+            auto *action = subMenu.addAction(tr("Animate flow streaks"));
+            action->setObjectName("flowMotionAction");
+            action->setCheckable(true);
             action->setChecked(flow->streakStyle()->animated());
-            connect(action,&QAction::toggled,flow->streakStyle(),&OpenSWMM::Render::FlowStreakStyle::setAnimated);
+            connect(action, &QAction::toggled, flow->streakStyle(),
+                    &OpenSWMM::Render::FlowStreakStyle::setAnimated);
         }
         subMenu.addSeparator();
-        QAction *actToggle = subMenu.addAction(
-            sub->isVisible() ? tr("Hide %1").arg(sub->displayName())
-                             : tr("Show %1").arg(sub->displayName()));
+        QAction *actToggle =
+            subMenu.addAction(sub->isVisible() ? tr("Hide %1").arg(sub->displayName())
+                                               : tr("Show %1").arg(sub->displayName()));
         subMenu.addSeparator();
 
         // Slice GUI-2026-05-30 §2 — sublayer reorder.  Up moves toward
         // the top of the paint stack (higher index); Down moves the
         // opposite way.  Disabled at the boundaries.
-        QAction *actTop = subMenu.addAction(
-            ss->standardIcon(QStyle::SP_TitleBarShadeButton), tr("Move to Top"));
-        QAction *actUp = subMenu.addAction(
-            ss->standardIcon(QStyle::SP_ArrowUp),   tr("Move Up"));
-        QAction *actDown = subMenu.addAction(
-            ss->standardIcon(QStyle::SP_ArrowDown), tr("Move Down"));
-        QAction *actBottom = subMenu.addAction(
-            ss->standardIcon(QStyle::SP_TitleBarUnshadeButton), tr("Move to Bottom"));
+        QAction *actTop =
+            subMenu.addAction(ss->standardIcon(QStyle::SP_TitleBarShadeButton), tr("Move to Top"));
+        QAction *actUp = subMenu.addAction(ss->standardIcon(QStyle::SP_ArrowUp), tr("Move Up"));
+        QAction *actDown =
+            subMenu.addAction(ss->standardIcon(QStyle::SP_ArrowDown), tr("Move Down"));
+        QAction *actBottom = subMenu.addAction(ss->standardIcon(QStyle::SP_TitleBarUnshadeButton),
+                                               tr("Move to Bottom"));
         int curPos = -1, nSubs = 0;
         if (host) {
             const auto subs = host->sublayers();
-            nSubs  = subs.size();
+            nSubs = subs.size();
             curPos = subs.indexOf(sub);
         }
-        actTop   ->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
-        actUp    ->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
-        actDown  ->setEnabled(host && curPos >  0);
-        actBottom->setEnabled(host && curPos >  0);
+        actTop->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
+        actUp->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
+        actDown->setEnabled(host && curPos > 0);
+        actBottom->setEnabled(host && curPos > 0);
 
         QAction *picked = subMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
-        if (!picked) return;
+        if (!picked)
+            return;
         if (plotObjects && picked->parent() == plotObjects) {
             emit plotKindObjectRequested(int(feature->category()), picked->text(), output);
         } else if (picked == actAttrTableS) {
@@ -1960,19 +2126,22 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             // Slice U-10 — route to the unified LayerStyleDialog focused
             // on this sublayer's tab via routingId=sub->id().
             if (parentLayer) {
-                auto *dlg = new openswmmvis::ui::LayerStyleDialog(
-                    parentLayer, sub->id(), this);
+                auto *dlg = new openswmmvis::ui::LayerStyleDialog(parentLayer, sub->id(), this);
                 dlg->setAttribute(Qt::WA_DeleteOnClose);
                 dlg->show();
             }
-        } else if (host && parentLayer && m_canvas
-                   && (picked == actUp || picked == actDown
-                       || picked == actTop || picked == actBottom)) {
+        } else if (host && parentLayer && m_canvas &&
+                   (picked == actUp || picked == actDown || picked == actTop ||
+                    picked == actBottom)) {
             int target = curPos;
-            if      (picked == actUp)     target = curPos + 1;
-            else if (picked == actDown)   target = curPos - 1;
-            else if (picked == actTop)    target = nSubs - 1;
-            else if (picked == actBottom) target = 0;
+            if (picked == actUp)
+                target = curPos + 1;
+            else if (picked == actDown)
+                target = curPos - 1;
+            else if (picked == actTop)
+                target = nSubs - 1;
+            else if (picked == actBottom)
+                target = 0;
             // Undoable (MoveSublayerCommand); the canvas's
             // sublayerOrderChanged signal rebuilds the model's sub-rows.
             m_canvas->moveSublayer(parentLayer, curPos, target);
@@ -1981,14 +2150,14 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     }
 
     // ── Kind sub-row (Slice BI-MK.LT + Slice OUT.3) ───────────────────────
-    if (m_model->isKindIndex(idx))
-    {
+    if (m_model->isKindIndex(idx)) {
         OpenSWMMVisLayer *parentLayer = m_model->kindParentLayer(idx);
-        auto *swmm    = qobject_cast<SWMMModelLayer   *>(parentLayer);
+        auto *swmm = qobject_cast<SWMMModelLayer *>(parentLayer);
         auto *results = qobject_cast<SWMMResultsLayer *>(parentLayer);
-        if (!swmm && !results) return;
+        if (!swmm && !results)
+            return;
         const int kindOrd = m_model->kindOrdinal(idx);
-        const auto cat    = static_cast<SWMMModelLayer::Category>(kindOrd);
+        const auto cat = static_cast<SWMMModelLayer::Category>(kindOrd);
         const QString kindLabel = SWMMModelLayer::kindKey(cat);
         // (`isLinkKind` was used by the dropped flow-arrow + Style submenu;
         //  preserved here as a no-op reference in case future menu items
@@ -2011,40 +2180,37 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         QAction *actToggleK = nullptr;
         if (swmm) {
             const Qt::CheckState st = swmm->categoryCheckState(cat);
-            actToggleK = kindMenu.addAction(
-                st == Qt::Unchecked ? tr("Show %1").arg(kindLabel)
-                                    : tr("Hide %1").arg(kindLabel));
+            actToggleK = kindMenu.addAction(st == Qt::Unchecked ? tr("Show %1").arg(kindLabel)
+                                                                : tr("Hide %1").arg(kindLabel));
             kindMenu.addSeparator();
         }
 
-        QAction *actPropsK = kindMenu.addAction(
-            ks->standardIcon(QStyle::SP_FileDialogInfoView),
-            tr("Properties…"));
+        QAction *actPropsK =
+            kindMenu.addAction(ks->standardIcon(QStyle::SP_FileDialogInfoView), tr("Properties…"));
 
         // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — this object type's
         // table (with this run's statistics under a results layer) and export.
         openswmmvis::ui::LayerTreeRow kindRow;
-        kindRow.kind      = openswmmvis::ui::LayerTreeRow::Kind::ObjectType;
-        kindRow.layer     = parentLayer;
+        kindRow.kind = openswmmvis::ui::LayerTreeRow::Kind::ObjectType;
+        kindRow.layer = parentLayer;
         kindRow.layerType = int(parentLayer->layerType());
-        kindRow.category  = kindOrd;
-        const auto kindTable  = openswmmvis::ui::attributeTableTarget(kindRow);
+        kindRow.category = kindOrd;
+        const auto kindTable = openswmmvis::ui::attributeTableTarget(kindRow);
         const auto kindExport = openswmmvis::ui::layerExportTarget(kindRow);
         kindMenu.addSeparator();
         QAction *actAttrTableK = kindMenu.addAction(tr("Open Attribute Table"));
         actAttrTableK->setEnabled(kindTable.isValid());
-        QAction *actExportK = kindMenu.addAction(
-            exportActionText(kindExport, kindLabel));
+        QAction *actExportK = kindMenu.addAction(exportActionText(kindExport, kindLabel));
         actExportK->setEnabled(kindExport.isValid());
 
         // X.7 — unused renderer-mode / arrow / reset actions retained as
         // nullptrs so the pickedK dispatcher below keeps compiling.
-        QAction *actStyleSingle      = nullptr;
-        QAction *actStyleGraduated   = nullptr;
+        QAction *actStyleSingle = nullptr;
+        QAction *actStyleGraduated = nullptr;
         QAction *actStyleCategorized = nullptr;
-        QAction *actArrows           = nullptr;
-        QAction *actReset            = nullptr;
-        QAction *actZoomK            = nullptr;
+        QAction *actArrows = nullptr;
+        QAction *actReset = nullptr;
+        QAction *actZoomK = nullptr;
 
         // Slice PT.1 — Plot timeseries submenu. Available on both
         // SWMMModelLayer and SWMMResultsLayer kind rows: the .out file
@@ -2055,33 +2221,30 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         QList<QAction *> plotObjActs;
         auto *objects = swmm ? swmm : results->modelLayer();
         const int featureCount = objects ? objects->categoryCount(cat) : 0;
-        if (objects && featureCount > 0
-            && (cat == SWMMModelLayer::CatJunctions
-                || cat == SWMMModelLayer::CatOutfalls
-                || cat == SWMMModelLayer::CatStorage
-                || cat == SWMMModelLayer::CatDividers
-                || cat == SWMMModelLayer::CatConduits
-                || cat == SWMMModelLayer::CatPumps
-                || cat == SWMMModelLayer::CatOrifices
-                || cat == SWMMModelLayer::CatWeirs
-                || cat == SWMMModelLayer::CatOutlets
-                || cat == SWMMModelLayer::CatSubcatchments)) {
+        if (objects && featureCount > 0 &&
+            (cat == SWMMModelLayer::CatJunctions || cat == SWMMModelLayer::CatOutfalls ||
+             cat == SWMMModelLayer::CatStorage || cat == SWMMModelLayer::CatDividers ||
+             cat == SWMMModelLayer::CatConduits || cat == SWMMModelLayer::CatPumps ||
+             cat == SWMMModelLayer::CatOrifices || cat == SWMMModelLayer::CatWeirs ||
+             cat == SWMMModelLayer::CatOutlets || cat == SWMMModelLayer::CatSubcatchments)) {
             kindMenu.addSeparator();
-            plotSubmenu = kindMenu.addMenu(
-                QIcon(QStringLiteral(":/swmmvis/Chart")),
-                tr("Plot timeseries…"));
+            plotSubmenu =
+                kindMenu.addMenu(QIcon(QStringLiteral(":/swmmvis/Chart")), tr("Plot timeseries…"));
             // Cap to first 50 to keep the menu reasonable on large
             // models. Users can use the Object Browser for full lists.
             const int cap = std::min(featureCount, 50);
             plotObjActs.reserve(cap);
             for (int i = 0; i < cap; ++i) {
                 const QString name = objects->objectNameAt(cat, i);
-                if (name.isEmpty()) continue;
+                if (name.isEmpty())
+                    continue;
                 if (results) {
-                    const int outputIndex = cat <= SWMMModelLayer::CatDividers ? results->nodeOutputIndex(name)
+                    const int outputIndex =
+                        cat <= SWMMModelLayer::CatDividers  ? results->nodeOutputIndex(name)
                         : cat <= SWMMModelLayer::CatOutlets ? results->linkOutputIndex(name)
-                        : results->subcatchOutputIndex(name);
-                    if (outputIndex < 0) continue;
+                                                            : results->subcatchOutputIndex(name);
+                    if (outputIndex < 0)
+                        continue;
                 }
                 plotObjActs.append(plotSubmenu->addAction(name));
             }
@@ -2097,7 +2260,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         // per-kind editor (a small button next to the renderer-mode combo).
         // The kind-row menu stays tight: Show/Hide + Properties + Plot.
         QAction *pickedK = kindMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
-        if (!pickedK) return;
+        if (!pickedK)
+            return;
 
         // Use parentLayer (works for both SWMMModelLayer and
         // SWMMResultsLayer) when emitting the style signal so the
@@ -2111,26 +2275,36 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             // LayerStyleDialog focused on this kind's adapter. Routing
             // ids match the convention used by SWMMModelLayer/Results
             // styleSubjects(): "model.<kind>" or "results.<kind>".
-            const QString prefix = swmm ? QStringLiteral("model.")
-                                         : QStringLiteral("results.");
+            const QString prefix = swmm ? QStringLiteral("model.") : QStringLiteral("results.");
             const QString suffix = [cat]() -> QString {
                 switch (cat) {
-                    case SWMMModelLayer::CatJunctions:     return QStringLiteral("junctions");
-                    case SWMMModelLayer::CatOutfalls:      return QStringLiteral("outfalls");
-                    case SWMMModelLayer::CatStorage:       return QStringLiteral("storage");
-                    case SWMMModelLayer::CatDividers:      return QStringLiteral("dividers");
-                    case SWMMModelLayer::CatConduits:      return QStringLiteral("conduits");
-                    case SWMMModelLayer::CatPumps:         return QStringLiteral("pumps");
-                    case SWMMModelLayer::CatOrifices:      return QStringLiteral("orifices");
-                    case SWMMModelLayer::CatWeirs:         return QStringLiteral("weirs");
-                    case SWMMModelLayer::CatOutlets:       return QStringLiteral("outlets");
-                    case SWMMModelLayer::CatSubcatchments: return QStringLiteral("subcatchments");
-                    case SWMMModelLayer::CatRainGages:     return QStringLiteral("raingages");
-                    default:                               return QString();
+                case SWMMModelLayer::CatJunctions:
+                    return QStringLiteral("junctions");
+                case SWMMModelLayer::CatOutfalls:
+                    return QStringLiteral("outfalls");
+                case SWMMModelLayer::CatStorage:
+                    return QStringLiteral("storage");
+                case SWMMModelLayer::CatDividers:
+                    return QStringLiteral("dividers");
+                case SWMMModelLayer::CatConduits:
+                    return QStringLiteral("conduits");
+                case SWMMModelLayer::CatPumps:
+                    return QStringLiteral("pumps");
+                case SWMMModelLayer::CatOrifices:
+                    return QStringLiteral("orifices");
+                case SWMMModelLayer::CatWeirs:
+                    return QStringLiteral("weirs");
+                case SWMMModelLayer::CatOutlets:
+                    return QStringLiteral("outlets");
+                case SWMMModelLayer::CatSubcatchments:
+                    return QStringLiteral("subcatchments");
+                case SWMMModelLayer::CatRainGages:
+                    return QStringLiteral("raingages");
+                default:
+                    return QString();
                 }
             }();
-            auto *dlg = new openswmmvis::ui::LayerStyleDialog(
-                parentLayer, prefix + suffix, this);
+            auto *dlg = new openswmmvis::ui::LayerStyleDialog(parentLayer, prefix + suffix, this);
             dlg->setAttribute(Qt::WA_DeleteOnClose);
             dlg->show();
         } else if (actToggleK && pickedK == actToggleK) {
@@ -2148,8 +2322,10 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         } else if (actArrows && pickedK == actArrows) {
             swmm->setLinkArrowsEnabled(cat, !swmm->linkArrowsEnabled(cat));
         } else if (pickedK == actReset) {
-            if (swmm) swmm->resetKindRendererToDefaults(cat);
-            else if (results) results->resetKindRendererToDefaults(cat);
+            if (swmm)
+                swmm->resetKindRendererToDefaults(cat);
+            else if (results)
+                results->resetKindRendererToDefaults(cat);
         } else if (plotSubmenu && plotObjActs.contains(pickedK)) {
             // Slice PT.1 — Plot timeseries… → emit so SWMMVis pops the
             // AttributePickerMenu and opens the Comparison Plot Dialog.
@@ -2172,21 +2348,21 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     QStyle *s = QApplication::style();
 
     // Layer-type checks for the disabled-but-visible policy.
-    const bool  isResults   = (qobject_cast<SWMMResultsLayer *>(layer) != nullptr);
+    const bool isResults = (qobject_cast<SWMMResultsLayer *>(layer) != nullptr);
     // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §7 / §8 — one predicate each
     // decides whether the entry is enabled AND what it opens or writes.
     openswmmvis::ui::LayerTreeRow layerRow;
-    layerRow.kind      = openswmmvis::ui::LayerTreeRow::Kind::Layer;
-    layerRow.layer     = layer;
+    layerRow.kind = openswmmvis::ui::LayerTreeRow::Kind::Layer;
+    layerRow.layer = layer;
     layerRow.layerType = int(layer->layerType());
-    const auto tableTarget  = openswmmvis::ui::attributeTableTarget(layerRow);
+    const auto tableTarget = openswmmvis::ui::attributeTableTarget(layerRow);
     const auto exportTarget = openswmmvis::ui::layerExportTarget(layerRow);
 
     // Group 1 — navigation
-    QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
-                                      tr("Zoom to Layer"));
+    QAction *actZoom =
+        menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")), tr("Zoom to Layer"));
     QAction *actOverview = menu.addAction(tr("Show in Overview"));
-    actOverview->setEnabled(false);                 // pending feature
+    actOverview->setEnabled(false); // pending feature
     menu.addSeparator();
 
     // Group 2 — data inspection
@@ -2195,8 +2371,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     // The model's export is a submenu (one entry today, room for more); every
     // other row has one entry named after what it writes.
     QAction *actExport = nullptr;
-    if (exportTarget.kind == openswmmvis::ui::LayerExportTarget::Kind::SwmmObjects
-        && !exportTarget.withResults) {
+    if (exportTarget.kind == openswmmvis::ui::LayerExportTarget::Kind::SwmmObjects &&
+        !exportTarget.withResults) {
         QMenu *exportMenu = menu.addMenu(tr("Export"));
         actExport = exportMenu->addAction(exportActionText(exportTarget, QString()));
     } else {
@@ -2204,19 +2380,22 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         actExport->setEnabled(exportTarget.isValid());
     }
     QAction *actFeatureCount = menu.addAction(tr("Show Feature Count"));
-    actFeatureCount->setEnabled(false);             // pending feature
+    actFeatureCount->setEnabled(false); // pending feature
     auto *results2D = qobject_cast<SWMM2DResultsLayer *>(layer);
     const bool is2DResults = (results2D != nullptr);
-    if(results2D) {
-        auto *action=menu.addAction(tr("Animate flow streaks"));action->setObjectName("flowMotionAction");action->setCheckable(true);
+    if (results2D) {
+        auto *action = menu.addAction(tr("Animate flow streaks"));
+        action->setObjectName("flowMotionAction");
+        action->setCheckable(true);
         action->setChecked(results2D->flowStreakSublayer()->streakStyle()->animated());
-        connect(action,&QAction::toggled,results2D->flowStreakSublayer()->streakStyle(),&OpenSWMM::Render::FlowStreakStyle::setAnimated);
+        connect(action, &QAction::toggled, results2D->flowStreakSublayer()->streakStyle(),
+                &OpenSWMM::Render::FlowStreakStyle::setAnimated);
     }
 
     QAction *actPlotTS = nullptr;
     if (isResults) {
-        actPlotTS = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
-                                    tr("Plot Time Series…"));
+        actPlotTS =
+            menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")), tr("Plot Time Series…"));
     }
     // "Set as Active Results Layer" — makes this the layer every analysis /
     // visualization tool targets. Checkable; checked when it is already active.
@@ -2225,7 +2404,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         actSetActive = menu.addAction(tr("Set as Active Results Layer"));
         actSetActive->setCheckable(true);
         const bool isActive =
-            (isResults  && qobject_cast<SWMMResultsLayer *>(layer) == m_activeResults1D) ||
+            (isResults && qobject_cast<SWMMResultsLayer *>(layer) == m_activeResults1D) ||
             (is2DResults && results2D == m_activeResults2D);
         actSetActive->setChecked(isActive);
     }
@@ -2235,82 +2414,90 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     // Slice LTR-2026-09-19 — all four bounded to the layer's own category:
     // the row among its siblings decides what is enabled.
     const int siblingRows = m_model->rowCount(idx.parent());
-    QAction *actMoveTop = menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton),
-                                          tr("Move to Top"));
+    QAction *actMoveTop =
+        menu.addAction(s->standardIcon(QStyle::SP_TitleBarShadeButton), tr("Move to Top"));
     actMoveTop->setEnabled(idx.row() > 0);
-    QAction *actUp   = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp),
-                                      tr("Move Up"));
+    QAction *actUp = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp), tr("Move Up"));
     actUp->setEnabled(idx.row() > 0);
-    QAction *actDown = menu.addAction(s->standardIcon(QStyle::SP_ArrowDown),
-                                      tr("Move Down"));
+    QAction *actDown = menu.addAction(s->standardIcon(QStyle::SP_ArrowDown), tr("Move Down"));
     actDown->setEnabled(idx.row() < siblingRows - 1);
-    QAction *actMoveBottom = menu.addAction(s->standardIcon(QStyle::SP_TitleBarUnshadeButton),
-                                             tr("Move to Bottom"));
+    QAction *actMoveBottom =
+        menu.addAction(s->standardIcon(QStyle::SP_TitleBarUnshadeButton), tr("Move to Bottom"));
     actMoveBottom->setEnabled(idx.row() < siblingRows - 1);
     menu.addSeparator();
 
     // Group 4 — lifecycle
     QAction *actRename = menu.addAction(tr("Rename Layer"));
-    actRename->setEnabled(false);                   // pending feature
+    actRename->setEnabled(false); // pending feature
     QAction *actDuplicate = menu.addAction(tr("Duplicate Layer"));
-    actDuplicate->setEnabled(false);                // pending feature
-    QAction *actRemove = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
-                                        tr("Remove Layer"));
+    actDuplicate->setEnabled(false); // pending feature
+    QAction *actRemove =
+        menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")), tr("Remove Layer"));
     menu.addSeparator();
 
     // Group 5 — query
     QAction *actFilter = menu.addAction(tr("Filter…"));
-    actFilter->setEnabled(false);                   // pending feature
+    actFilter->setEnabled(false); // pending feature
     QAction *actScaleVis = menu.addAction(tr("Set Layer Scale Visibility…"));
-    actScaleVis->setEnabled(false);                 // pending feature
+    actScaleVis->setEnabled(false); // pending feature
     menu.addSeparator();
 
     // Group 6 — visibility toggle (kept here near the bottom per QGIS)
-    QAction *actToggle = menu.addAction(layer->isVisible()
-                                            ? tr("Hide Layer")
-                                            : tr("Show Layer"));
+    QAction *actToggle = menu.addAction(layer->isVisible() ? tr("Hide Layer") : tr("Show Layer"));
     menu.addSeparator();
 
     // Group 7 — styling (always the last entries — `Properties…` is the
     // primary action and Styles ▸ is a placeholder for future copy/paste).
-    QAction *actProps = menu.addAction(s->standardIcon(QStyle::SP_FileDialogInfoView),
-                                       tr("Properties…"));
-    QMenu *stylesMenu = menu.addMenu(QIcon(QStringLiteral(":/swmmvis/Style")),
-                                      tr("Styles"));
+    QAction *actProps =
+        menu.addAction(s->standardIcon(QStyle::SP_FileDialogInfoView), tr("Properties…"));
+    QMenu *stylesMenu = menu.addMenu(QIcon(QStringLiteral(":/swmmvis/Style")), tr("Styles"));
     QAction *actEditSymbology = stylesMenu->addAction(tr("Edit Symbology…"));
     QAction *actCopyStyle = stylesMenu->addAction(tr("Copy Style"));
-    actCopyStyle->setEnabled(false);                // pending feature
+    actCopyStyle->setEnabled(false); // pending feature
     QAction *actPasteStyle = stylesMenu->addAction(tr("Paste Style"));
-    actPasteStyle->setEnabled(false);               // pending feature
+    actPasteStyle->setEnabled(false); // pending feature
 
     // Move enable/disable based on canvas position.
     int canvasIdx = -1;
     if (m_canvas)
         for (int i = 0; i < m_canvas->layerCount(); ++i)
-            if (m_canvas->layerAt(i) == layer) { canvasIdx = i; break; }
-    actUp->setEnabled  (m_canvas && canvasIdx >= 0 && canvasIdx < m_canvas->layerCount() - 1);
+            if (m_canvas->layerAt(i) == layer) {
+                canvasIdx = i;
+                break;
+            }
+    actUp->setEnabled(m_canvas && canvasIdx >= 0 && canvasIdx < m_canvas->layerCount() - 1);
     actDown->setEnabled(m_canvas && canvasIdx > 0);
 
     if (auto *output = qobject_cast<SWMMResultsLayer *>(layer)) {
         auto *analysis = menu.addMenu(tr("Flow balance / travel time"));
-        for (bool travel : {false, true}) for (bool upstream : {false, true}) {
-            auto *action = analysis->addAction(QStringLiteral("%1 %2…")
-                .arg(travel ? tr("Travel time") : tr("Flow balance"), upstream ? tr("upstream") : tr("downstream")));
-            connect(action, &QAction::triggered, this, [this, output, travel, upstream] {
-                auto *project = m_canvas ? qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent()) : nullptr;
-                if (project) {
-                    project->setActiveResultsLayer(output);
-                    openswmmvis::trace::TraceAnalysisDialog::showFor(project, upstream, travel, {}, output);
-                }
-            });
-        }
+        for (bool travel : {false, true})
+            for (bool upstream : {false, true}) {
+                auto *action = analysis->addAction(
+                    QStringLiteral("%1 %2…").arg(travel ? tr("Travel time") : tr("Flow balance"),
+                                                 upstream ? tr("upstream") : tr("downstream")));
+                connect(action, &QAction::triggered, this, [this, output, travel, upstream] {
+                    auto *project = m_canvas
+                                        ? qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent())
+                                        : nullptr;
+                    if (project) {
+                        project->setActiveResultsLayer(output);
+                        openswmmvis::trace::TraceAnalysisDialog::showFor(project, upstream, travel,
+                                                                         {}, output);
+                    }
+                });
+            }
     }
     QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-    if (!picked) return;
-    if      (picked == actZoom)        zoomToLayer(layer);
-    else if (picked == actAttrTable)   emit attributeTableRequested(tableTarget);
-    else if (picked == actExport)      emit exportRequested(exportTarget);
-    else if (picked == actProps)       emit layerPropertiesRequested(layer);
+    if (!picked)
+        return;
+    if (picked == actZoom)
+        zoomToLayer(layer);
+    else if (picked == actAttrTable)
+        emit attributeTableRequested(tableTarget);
+    else if (picked == actExport)
+        emit exportRequested(exportTarget);
+    else if (picked == actProps)
+        emit layerPropertiesRequested(layer);
     else if (picked == actEditSymbology)
         // Same dialog; the "symbology" sentinel makes it open on the
         // Symbology tab (LayerStyleDialog::focusInitialSubject).
@@ -2322,18 +2509,23 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             emit setActiveResultsLayerRequested(r1d);
         else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layer))
             emit setActive2DResultsLayerRequested(r2d);
-    }
-    else if (picked == actMoveTop)     moveSelectedLayerToRow(0);
-    else if (picked == actUp)          onMoveLayerUp();
-    else if (picked == actDown)        onMoveLayerDown();
-    else if (picked == actMoveBottom)  moveSelectedLayerToRow(siblingRows - 1);
-    else if (picked == actToggle)      layer->setVisible(!layer->isVisible());
-    else if (picked == actRemove) onRemoveSelectedLayer();
+    } else if (picked == actMoveTop)
+        moveSelectedLayerToRow(0);
+    else if (picked == actUp)
+        onMoveLayerUp();
+    else if (picked == actDown)
+        onMoveLayerDown();
+    else if (picked == actMoveBottom)
+        moveSelectedLayerToRow(siblingRows - 1);
+    else if (picked == actToggle)
+        layer->setVisible(!layer->isVisible());
+    else if (picked == actRemove)
+        onRemoveSelectedLayer();
 }
 
 void LayerTreePanel::setActiveResultsLayer(SWMMResultsLayer *layer)
 {
-    m_activeResults1D = layer;   // check-state only; menu reads it on next open
+    m_activeResults1D = layer; // check-state only; menu reads it on next open
 }
 
 void LayerTreePanel::setActive2DResultsLayer(SWMM2DResultsLayer *layer)
@@ -2343,7 +2535,8 @@ void LayerTreePanel::setActive2DResultsLayer(SWMM2DResultsLayer *layer)
 
 void LayerTreePanel::onSearchTextChanged(const QString &text)
 {
-    if (!m_proxy) return;
+    if (!m_proxy)
+        return;
     m_proxy->setFilterFixedString(text);
     // No drag-reorder on a filtered tree: hidden siblings make the drop
     // slot ambiguous. The context-menu moves keep working.

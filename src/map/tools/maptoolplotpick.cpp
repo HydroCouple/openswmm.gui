@@ -1,9 +1,12 @@
-/*!
- * \file   maptoolplotpick.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolplotpick.cpp
+ * @brief     Dialog harvest object picks from the canvas without leaving the dialog open.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "map/tools/maptoolplotpick.h"
 
 #include "layers/swmmmodellayer.h"
@@ -34,7 +37,8 @@ QCursor OpenSWMMVisMapToolPlotPick::cursor() const
 
 void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
 {
-    if (!event || !m_canvas) return;
+    if (!event || !m_canvas)
+        return;
     if (event->button() != Qt::LeftButton) {
         OpenSWMMVisMapTool::mousePressEvent(event);
         return;
@@ -57,7 +61,10 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty()) {
         QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForSystem(
             openswmmvis::plot::UnitSystem::US, widget);
-        if (!menu) { event->accept(); return; }
+        if (!menu) {
+            event->accept();
+            return;
+        }
         menu->setTitle(QObject::tr("Plot System Variable…"));
         QAction *picked = menu->exec(globalPt);
         const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
@@ -72,24 +79,39 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
     using PKind = openswmmvis::plot::ObjectRef::Kind;
     PKind kind = PKind::Unknown;
     switch (ref.objectType) {
-    case SWMMObjectRef::Node:         kind = PKind::Node;     break;
-    case SWMMObjectRef::Link:         kind = PKind::Link;     break;
-    case SWMMObjectRef::Subcatchment: kind = PKind::Subcatch; break;
-    default: break;
+    case SWMMObjectRef::Node:
+        kind = PKind::Node;
+        break;
+    case SWMMObjectRef::Link:
+        kind = PKind::Link;
+        break;
+    case SWMMObjectRef::Subcatchment:
+        kind = PKind::Subcatch;
+        break;
+    default:
+        break;
     }
-    if (kind == PKind::Unknown) { event->accept(); return; }
+    if (kind == PKind::Unknown) {
+        event->accept();
+        return;
+    }
 
     QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
         kind, openswmmvis::plot::UnitSystem::US, widget,
         hit.results ? hit.results->speciesNames() : m_speciesNames);
-    if (!menu) { event->accept(); return; }
+    if (!menu) {
+        event->accept();
+        return;
+    }
     QAction *picked = menu->exec(globalPt);
     const auto d = openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked);
     delete menu;
     if (picked) {
         // d is INVALID for the "All attributes" sentinel — owner fans out.
-        if (hit.results) emit objectPickedFromLayer(ref, d, hit.results);
-        else emit objectPicked(ref, d);
+        if (hit.results)
+            emit objectPickedFromLayer(ref, d, hit.results);
+        else
+            emit objectPicked(ref, d);
     }
     event->accept();
 }

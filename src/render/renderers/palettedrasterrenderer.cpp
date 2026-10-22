@@ -1,9 +1,10 @@
-/*!
- * \file   palettedrasterrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  VS.6 — categorical (paletted) raster renderer.
+/**
+ * @file      palettedrasterrenderer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     VS.6 — categorical (paletted) raster renderer.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/palettedrasterrenderer.h"
@@ -25,6 +26,10 @@ namespace
 // Build a single-fill legend swatch SymbolStyle for a class colour. Stores
 // both the fill spec props and a "color" hex (the legend colour readers look
 // for "color" on the first layer).
+/** @brief Build a single-fill legend swatch with a thin gray outline.
+ * @param c Color copied into canonical fillColor and color QVariant properties,
+ * including invalid input; no validation occurs.
+ * @return Owned single-pass style with default opacity and no expressions. */
 SymbolStyle swatchFor(const QColor &c)
 {
     FillSymbolLayerSpec fill;
@@ -63,7 +68,7 @@ QColor PalettedRasterRenderer::paletteColor(int index) const
     if (pal.isEmpty())
         return QColor(150, 150, 150);
     const int n = pal.size();
-    const int i = ((index % n) + n) % n;   // wrap, tolerate negatives
+    const int i = ((index % n) + n) % n; // wrap, tolerate negatives
     return pal.at(i);
 }
 
@@ -102,10 +107,10 @@ QList<LegendSymbolItem> PalettedRasterRenderer::legendSymbolItems() const
     int i = 0;
     for (const Class &c : m_classes) {
         LegendSymbolItem item;
-        item.label     = c.label.isEmpty() ? QString::number(c.value) : c.label;
-        item.symbol    = swatchFor(c.color);
+        item.label = c.label.isEmpty() ? QString::number(c.value) : c.label;
+        item.symbol = swatchFor(c.color);
         item.sortIndex = i;
-        item.classKey  = QString::number(c.value);
+        item.classKey = QString::number(c.value);
         items.append(item);
         ++i;
     }
@@ -131,8 +136,7 @@ QJsonObject PalettedRasterRenderer::toJson() const
 
 void PalettedRasterRenderer::fromJson(const QJsonObject &j)
 {
-    m_paletteName = j.value(QStringLiteral("paletteName"))
-                        .toString(QStringLiteral("Tab10"));
+    m_paletteName = j.value(QStringLiteral("paletteName")).toString(QStringLiteral("Tab10"));
     QList<Class> built;
     const QJsonArray arr = j.value(QStringLiteral("classes")).toArray();
     built.reserve(arr.size());

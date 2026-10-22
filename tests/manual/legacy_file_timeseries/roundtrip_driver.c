@@ -6,13 +6,38 @@
  *
  * Usage: roundtrip_driver <in.inp> <out.inp>
  */
+
+/**
+ * @file      roundtrip_driver.c
+ * @brief     Tests for roundtrip driver.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <stdio.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 
-int main(int argc, char** argv)
+/**
+ *
+ * @brief Open/save a deck through the native engine for manual round-trip inspection.
+ * @param argc Argument count, at least 3 for execution; extra arguments ignored.
+ * @param argv Borrowed process argument strings: program name, input .inp, output
+ * .inp, each null-terminated. Output is a test-owned writable path.
+ * @return 2 for usage error, 1 for engine open/write failure, otherwise 0 after close/
+ * destroy. Writes fixed roundtrip_driver.rpt in cwd and may replace the destination.
+ * Create failure is not separately checked; early error returns do not destroy eng.
+ * Prints diagnostics, but does not run/compare the saved model or roll back files.
+ *
+ */
+int main(int argc, char **argv)
 {
-    if (argc < 3) { fprintf(stderr, "usage: %s in.inp out.inp\n", argv[0]); return 2; }
+    if (argc < 3) {
+        fprintf(stderr, "usage: %s in.inp out.inp\n", argv[0]);
+        return 2;
+    }
 
     SWMM_Engine eng = swmm_engine_create();
     int rc = swmm_engine_open(eng, argv[1], "roundtrip_driver.rpt", NULL, NULL);

@@ -1,14 +1,18 @@
-/*!
- * \file   istyleeditorwidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      istyleeditorwidget.cpp
+ * @brief     Slice U-V1.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/istyleeditorwidget.h"
 
 #include <QMetaObject>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 StyleEditorRegistry &StyleEditorRegistry::instance()
 {
@@ -17,15 +21,16 @@ StyleEditorRegistry &StyleEditorRegistry::instance()
 }
 
 void StyleEditorRegistry::registerFactory(const QString &className,
-                                           StyleEditorRegistry::Factory factory)
+                                          StyleEditorRegistry::Factory factory)
 {
     m_entries.push_back({className, std::move(factory)});
 }
 
-IStyleEditorWidget *StyleEditorRegistry::createEditorFor(
-    QObject *propertyObject, QWidget *parent) const
+IStyleEditorWidget *StyleEditorRegistry::createEditorFor(QObject *propertyObject,
+                                                         QWidget *parent) const
 {
-    if (!propertyObject) return nullptr;
+    if (!propertyObject)
+        return nullptr;
 
     // Walk the metaobject chain looking for the first registered class.
     // Most-derived class wins because we walk from propertyObject->metaObject()

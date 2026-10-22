@@ -5,6 +5,16 @@
 // aliases yield null icons instead of crashing.
 //
 // Links the real swmmvis.qrc so aliases resolve exactly as in the app.
+
+/**
+ * @file      test_icon_factory.cpp
+ * @brief     Tests for icon factory.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QDir>
@@ -28,8 +38,13 @@ using openswmmvis::ui::IconFactory;
 using openswmmvis::ui::ThemeManager;
 using openswmmvis::ui::kActionCatalog;
 
-namespace {
-struct ReviewedIcon { const char *alias; const char *action; const char *label; };
+namespace
+{
+struct ReviewedIcon {
+    const char *alias;
+    const char *action;
+    const char *label;
+};
 const ReviewedIcon reviewedIcons[] = {
     {"Aquifer", "actionNewAquifer", "Aquifer (1D)"},
     {"GW2DParams", "actionMesh2DGWParams", "Aquifer parameters (2D)"},
@@ -53,6 +68,14 @@ const ReviewedIcon reviewedIcons[] = {
     {"ReactionSystem", "actionEditReactionSystem", "Reaction system / species"},
 };
 
+/**
+ *
+ * @brief Check whether the first matching catalog action uses the reviewed icon alias.
+ * @param icon Borrowed fixture with valid alias/action C strings.
+ * @return True for an exact action objectName and matching alias, false for a
+ * different alias or absent action. Does not inspect a live main-window action.
+ *
+ */
 bool receivesCatalogTheme(const ReviewedIcon &icon)
 {
     for (const auto &entry : kActionCatalog)
@@ -61,12 +84,21 @@ bool receivesCatalogTheme(const ReviewedIcon &icon)
     return false;
 }
 
+/**
+ *
+ * @brief Mirror the catalog icon sweep for one reviewed binding.
+ * @param icon Borrowed fixture with valid alias/action C strings.
+ * @return Owned themed icon for a matching catalog binding, otherwise a direct
+ * Qt resource icon. Missing resources can yield null; no action is mutated.
+ *
+ */
 QIcon effectiveReviewedIcon(const ReviewedIcon &icon)
 {
     // Mirrors the final registerActions() icon sweep. The sole uncatalogued
     // reviewed action currently starts with its raw qrc icon in swmmvis.cpp.
-    return receivesCatalogTheme(icon) ? IconFactory::icon(QLatin1String(icon.alias))
-        : QIcon(QStringLiteral(":/swmmvis/%1").arg(QLatin1String(icon.alias)));
+    return receivesCatalogTheme(icon)
+               ? IconFactory::icon(QLatin1String(icon.alias))
+               : QIcon(QStringLiteral(":/swmmvis/%1").arg(QLatin1String(icon.alias)));
 }
 }
 
@@ -88,11 +120,23 @@ private slots:
     void unknownAliasIsNull();
 };
 
+/**
+ *
+ * @brief Restore the process theme singleton to System mode after each case, rather than
+ * restoring the prior mode.
+ *
+ */
 void TestIconFactory::cleanup()
 {
     ThemeManager::instance()->setMode(ThemeManager::Mode::System);
 }
 
+/**
+ *
+ * @brief Require every nonempty catalog alias to resolve to a non-null icon and a non-null
+ * twenty-pixel pixmap.
+ *
+ */
 void TestIconFactory::allCatalogAliasesRender()
 {
     for (const auto &entry : kActionCatalog) {
@@ -105,11 +149,16 @@ void TestIconFactory::allCatalogAliasesRender()
                                 .arg(alias, QLatin1String(entry.id))));
         const QPixmap pm = icon.pixmap(20, 20);
         QVERIFY2(!pm.isNull(),
-                 qPrintable(QStringLiteral("alias '%1' rendered a null pixmap")
-                                .arg(alias)));
+                 qPrintable(QStringLiteral("alias '%1' rendered a null pixmap").arg(alias)));
     }
 }
 
+/**
+ *
+ * @brief Require the Open icon to render differently for light/dark schemes and normal/disabled
+ * modes at twenty-four pixels.
+ *
+ */
 void TestIconFactory::schemesAndModesDiffer()
 {
     auto *theme = ThemeManager::instance();
@@ -129,20 +178,37 @@ void TestIconFactory::schemesAndModesDiffer()
     QVERIFY2(light != lightDisabled, "normal and disabled renders are identical");
 }
 
+/**
+ *
+ * @brief Require two identical Save pixmap requests under Light mode to retain the same pixmap
+ * cache key.
+ *
+ */
 void TestIconFactory::cacheIsStable()
 {
     ThemeManager::instance()->setMode(ThemeManager::Mode::Light);
     const QIcon icon = IconFactory::icon(QStringLiteral("Save"));
-    const QPixmap first  = icon.pixmap(20, 20);
+    const QPixmap first = icon.pixmap(20, 20);
     const QPixmap second = icon.pixmap(20, 20);
-    QCOMPARE(first.cacheKey(), second.cacheKey());   // served from QPixmapCache
+    QCOMPARE(first.cacheKey(), second.cacheKey()); // served from QPixmapCache
 }
 
+/**
+ *
+ * @brief Require an unknown alias to return a null icon.
+ *
+ */
 void TestIconFactory::unknownAliasIsNull()
 {
     QVERIFY(IconFactory::icon(QStringLiteral("NoSuchAliasEver")).isNull());
 }
 
+/**
+ *
+ * @brief Require registered SVG resources to parse and adapt between light/dark, except the two
+ * intentionally full-color rule status badges.
+ *
+ */
 void TestIconFactory::registeredSvgResourcesHaveExplicitThemePolicy()
 {
     // These colored badges deliberately retain status color, white check/X,
@@ -153,7 +219,8 @@ void TestIconFactory::registeredSvgResourcesHaveExplicitThemePolicy()
         QFile file(QStringLiteral(":/swmmvis/%1").arg(alias));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray bytes = file.readAll();
-        if (!bytes.contains("<svg")) continue;
+        if (!bytes.contains("<svg"))
+            continue;
         ++svgCount;
         QVERIFY2(QSvgRenderer(bytes).isValid(), qPrintable(alias));
         const QIcon icon = IconFactory::icon(alias);
@@ -165,92 +232,152 @@ void TestIconFactory::registeredSvgResourcesHaveExplicitThemePolicy()
         if (fullColorAliases.contains(alias))
             QCOMPARE(light, dark);
         else
-            QVERIFY2(light != dark, qPrintable(QStringLiteral("%1 does not adapt; use a supported glyph token or document a full-color exception.").arg(alias)));
+            QVERIFY2(
+                light != dark,
+                qPrintable(
+                    QStringLiteral(
+                        "%1 does not adapt; use a supported glyph token or document a full-color exception.")
+                        .arg(alias)));
     }
     QVERIFY(svgCount > 0);
 }
 
+/**
+ *
+ * @brief Write optional reviewed icon-binding JSON and six light/dark state contact sheets.
+ * Returns without output unless SWMMVIS_ICON_REVIEW_OUTPUT is nonempty. Renders
+ * normal/disabled/selected states at native sizes and enlarged double-DPR samples;
+ * checks pixmaps/PNG saves but not the manifest byte count. Changes the shared theme
+ * during rendering; cleanup restores System. Existing named artifacts are replaced.
+ *
+ */
 void TestIconFactory::writeReviewContactSheets()
 {
     const QString output = qEnvironmentVariable("SWMMVIS_ICON_REVIEW_OUTPUT");
-    if (output.isEmpty()) return;
+    if (output.isEmpty())
+        return;
     QVERIFY2(QDir().mkpath(output), qPrintable(output));
     QJsonArray bindings;
     for (const auto &entry : reviewedIcons)
         bindings.append(QJsonObject{{"action", QLatin1String(entry.action)},
                                     {"alias", QLatin1String(entry.alias)},
                                     {"label", QLatin1String(entry.label)},
-                                    {"effectiveBinding", receivesCatalogTheme(entry) ? "IconFactory catalog sweep" : "direct QIcon resource"}});
+                                    {"effectiveBinding", receivesCatalogTheme(entry)
+                                                             ? "IconFactory catalog sweep"
+                                                             : "direct QIcon resource"}});
     QFile manifest(QDir(output).filePath(QStringLiteral("reviewed-bindings.json")));
     QVERIFY(manifest.open(QIODevice::WriteOnly));
     manifest.write(QJsonDocument(bindings).toJson());
     for (const auto scheme : {ThemeManager::Mode::Light, ThemeManager::Mode::Dark}) {
         ThemeManager::instance()->setMode(scheme);
         const auto &colors = ThemeManager::instance()->colors();
-        const QString schemeName = scheme == ThemeManager::Mode::Light ? QStringLiteral("light") : QStringLiteral("dark");
+        const QString schemeName =
+            scheme == ThemeManager::Mode::Light ? QStringLiteral("light") : QStringLiteral("dark");
         for (const auto mode : {QIcon::Normal, QIcon::Disabled, QIcon::Selected}) {
-            const QString modeName = mode == QIcon::Normal ? QStringLiteral("normal")
-                : mode == QIcon::Disabled ? QStringLiteral("disabled") : QStringLiteral("selected");
-            const QColor background = mode == QIcon::Selected ? colors.selectionFill : colors.surfaceWindow;
+            const QString modeName = mode == QIcon::Normal     ? QStringLiteral("normal")
+                                     : mode == QIcon::Disabled ? QStringLiteral("disabled")
+                                                               : QStringLiteral("selected");
+            const QColor background =
+                mode == QIcon::Selected ? colors.selectionFill : colors.surfaceWindow;
             const QColor text = mode == QIcon::Selected ? colors.selectionText : colors.text;
-            QImage sheet(780, 90 + int(std::size(reviewedIcons)) * 78, QImage::Format_ARGB32_Premultiplied);
+            QImage sheet(780, 90 + int(std::size(reviewedIcons)) * 78,
+                         QImage::Format_ARGB32_Premultiplied);
             sheet.fill(background);
             QPainter painter(&sheet);
             painter.setPen(text);
-            QFont font = painter.font(); font.setPixelSize(13); painter.setFont(font);
-            painter.drawText(QRect(16, 8, 752, 26), QStringLiteral("Effective action icons — %1 / %2").arg(schemeName, modeName));
-            painter.drawText(QRect(16, 35, 752, 22), QStringLiteral("Native pixels at 1×; last column is 32 logical pixels at 2× DPR, shown enlarged."));
+            QFont font = painter.font();
+            font.setPixelSize(13);
+            painter.setFont(font);
+            painter.drawText(
+                QRect(16, 8, 752, 26),
+                QStringLiteral("Effective action icons — %1 / %2").arg(schemeName, modeName));
+            painter.drawText(
+                QRect(16, 35, 752, 22),
+                QStringLiteral(
+                    "Native pixels at 1×; last column is 32 logical pixels at 2× DPR, shown enlarged."));
             const int sizes[] = {16, 20, 24, 32, 64};
             for (int column = 0; column < 5; ++column)
                 painter.drawText(QRect(325 + column * 88, 63, 86, 22), Qt::AlignCenter,
-                    column == 4 ? QStringLiteral("32 @ 2×") : QString::number(sizes[column]));
+                                 column == 4 ? QStringLiteral("32 @ 2×")
+                                             : QString::number(sizes[column]));
             int row = 0;
             for (const auto &entry : reviewedIcons) {
                 const int top = 90 + row * 78;
                 painter.drawText(QRect(16, top + 15, 300, 20), QLatin1String(entry.label));
-                painter.drawText(QRect(16, top + 37, 300, 20), QStringLiteral("%1 · %2").arg(QLatin1String(entry.alias),
-                    receivesCatalogTheme(entry) ? QStringLiteral("themed") : QStringLiteral("raw resource")));
+                painter.drawText(QRect(16, top + 37, 300, 20),
+                                 QStringLiteral("%1 · %2").arg(
+                                     QLatin1String(entry.alias),
+                                     receivesCatalogTheme(entry) ? QStringLiteral("themed")
+                                                                 : QStringLiteral("raw resource")));
                 const QIcon icon = effectiveReviewedIcon(entry);
                 for (int column = 0; column < 5; ++column) {
-                    QPixmap pixmap = column == 4 ? icon.pixmap(QSize(32, 32), 2.0, mode)
-                                               : icon.pixmap(QSize(sizes[column], sizes[column]), 1.0, mode);
+                    QPixmap pixmap =
+                        column == 4 ? icon.pixmap(QSize(32, 32), 2.0, mode)
+                                    : icon.pixmap(QSize(sizes[column], sizes[column]), 1.0, mode);
                     QVERIFY(!pixmap.isNull());
-                    QImage image = pixmap.toImage(); image.setDevicePixelRatio(1.0);
+                    QImage image = pixmap.toImage();
+                    image.setDevicePixelRatio(1.0);
                     painter.drawImage(QPoint(325 + column * 88 + (86 - image.width()) / 2,
-                                             top + (78 - image.height()) / 2), image);
+                                             top + (78 - image.height()) / 2),
+                                      image);
                 }
                 ++row;
             }
             painter.end();
-            QVERIFY(sheet.save(QDir(output).filePath(QStringLiteral("icons_%1_%2.png").arg(schemeName, modeName))));
+            QVERIFY(sheet.save(QDir(output).filePath(
+                QStringLiteral("icons_%1_%2.png").arg(schemeName, modeName))));
         }
     }
 }
 
+/**
+ *
+ * @brief Require actionPick2DCells to exist in the catalog with the SelectCell alias.
+ *
+ */
 void TestIconFactory::cellSelectionUsesThemedCatalogBinding()
 {
     bool found = false;
     for (const auto &entry : kActionCatalog) {
-        if (QLatin1String(entry.objectName) != QLatin1String("actionPick2DCells")) continue;
+        if (QLatin1String(entry.objectName) != QLatin1String("actionPick2DCells"))
+            continue;
         found = true;
         QCOMPARE(QLatin1String(entry.icon), QLatin1String("SelectCell"));
     }
-    QVERIFY2(found, "The actual cell-selection toolbar action bypasses the theme-aware catalog sweep.");
+    QVERIFY2(found,
+             "The actual cell-selection toolbar action bypasses the theme-aware catalog sweep.");
 }
 
+/**
+ *
+ * @brief Require five reviewed icons to have transparent outer pixel borders at thirty-two
+ * pixels, guarding clipped strokes.
+ *
+ */
 void TestIconFactory::reviewedGlyphsStayInsideCanvas()
 {
-    for (const char *alias : {"GW2DParams", "GW2DInit", "SelectByPolygon", "SelectCell", "ImportGIS"}) {
+    for (const char *alias :
+         {"GW2DParams", "GW2DInit", "SelectByPolygon", "SelectCell", "ImportGIS"}) {
         const QImage image = IconFactory::icon(QLatin1String(alias)).pixmap(32, 32).toImage();
         QVERIFY(!image.isNull());
         for (int pixel = 0; pixel < image.width(); ++pixel) {
-            QVERIFY2(qAlpha(image.pixel(pixel, 0)) == 0 && qAlpha(image.pixel(pixel, image.height() - 1)) == 0
-                     && qAlpha(image.pixel(0, pixel)) == 0 && qAlpha(image.pixel(image.width() - 1, pixel)) == 0,
-                     qPrintable(QStringLiteral("%1 touches the canvas boundary; check for clipped strokes.").arg(QLatin1String(alias))));
+            QVERIFY2(qAlpha(image.pixel(pixel, 0)) == 0 &&
+                         qAlpha(image.pixel(pixel, image.height() - 1)) == 0 &&
+                         qAlpha(image.pixel(0, pixel)) == 0 &&
+                         qAlpha(image.pixel(image.width() - 1, pixel)) == 0,
+                     qPrintable(QStringLiteral(
+                                    "%1 touches the canvas boundary; check for clipped strokes.")
+                                    .arg(QLatin1String(alias))));
         }
     }
 }
 
+/**
+ *
+ * @brief Require reviewed aliases to render nontrivial alpha coverage at four sizes in both
+ * themes/three states and correct 64-pixel double-DPR metadata.
+ *
+ */
 void TestIconFactory::reviewedAliasesRenderAcrossStatesAndSizes()
 {
     for (const auto &entry : reviewedIcons) {

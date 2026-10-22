@@ -1,9 +1,9 @@
-/*!
- * \file   dialogregistry.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  App-wide register of open modeless dialogs, in most-recently-used
+/**
+ * @file      dialogregistry.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     App-wide register of open modeless dialogs, in most-recently-used
  *         order, plus the dialog stacking strategy.
  *
  * Two jobs, both of which need the same list:
@@ -42,7 +42,9 @@
  *
  * Entries are QPointer, so a dialog destroyed without a Hide/Close event
  * (WA_DeleteOnClose teardown) simply drops out on the next read.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_DIALOGREGISTRY_H
 #define OPENSWMMVIS_UI_DIALOGS_DIALOGREGISTRY_H
 
@@ -56,7 +58,8 @@
 
 class QEvent;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class DialogRegistry : public QObject
 {
@@ -65,8 +68,8 @@ class DialogRegistry : public QObject
 public:
     /*! \brief How modeless dialogs are kept above the application's windows. */
     enum class StackingMode {
-        NativeChildWindow,   ///< macOS AppKit -addChildWindow: (current default)
-        QtRaiseOnActivate    ///< Portable raise() pass driven by activation
+        NativeChildWindow, ///< macOS AppKit -addChildWindow: (current default)
+        QtRaiseOnActivate  ///< Portable raise() pass driven by activation
     };
     Q_ENUM(StackingMode)
 
@@ -113,11 +116,11 @@ private:
     void forget(QDialog *dlg);
     void scheduleRestack();
 
-    QList<QPointer<QDialog>> mOrder;   ///< MRU — most recently used LAST
-    StackingMode             mMode = StackingMode::NativeChildWindow;
-    bool                     mRestackQueued = false;   ///< re-entrancy guard
+    QList<QPointer<QDialog>> mOrder; ///< MRU — most recently used LAST
+    StackingMode mMode = StackingMode::NativeChildWindow;
+    bool mRestackQueued = false; ///< re-entrancy guard
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
-#endif   // OPENSWMMVIS_UI_DIALOGS_DIALOGREGISTRY_H
+#endif // OPENSWMMVIS_UI_DIALOGS_DIALOGREGISTRY_H

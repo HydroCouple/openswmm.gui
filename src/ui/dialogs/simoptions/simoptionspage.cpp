@@ -1,16 +1,18 @@
-/*!
- * \file   simoptionspage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      simoptionspage.cpp
+ * @brief     Base class for one sidebar page of the Simulation Options dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/simoptionspage.h"
 
 namespace openswmmvis::ui
 {
 
-SimOptionsPage::SimOptionsPage(SimOptionsContext &ctx, QWidget *parent)
-    : QWidget(parent), ctx_(ctx)
+SimOptionsPage::SimOptionsPage(SimOptionsContext &ctx, QWidget *parent) : QWidget(parent), ctx_(ctx)
 {
 }
 
@@ -18,7 +20,8 @@ void SimOptionsPage::tagOption(QWidget *w, const char *key)
 {
     // Null-tolerant: 2D editors do not exist when OPENSWMM_HAS_2D is off, and
     // a page that failed to build should not take the dialog down with it.
-    if (!w) return;
+    if (!w)
+        return;
     // A few editors own more than one key — a QDateTimeEdit writes both the
     // DATE and the TIME half — so the property is a comma-separated list and
     // repeated tags accumulate rather than overwrite.
@@ -34,11 +37,16 @@ void SimOptionsPage::tagOption(QWidget *w, const char *key)
 const char *transport2DKey(int speciesClass)
 {
     switch (speciesClass) {
-    case SWMM_TRANSPORT_CLASS_POLLUTANTS:  return "TRANSPORT_POLLUTANTS";
-    case SWMM_TRANSPORT_CLASS_MSX:         return "TRANSPORT_MSX";
-    case SWMM_TRANSPORT_CLASS_AGE:         return "TRANSPORT_AGE";
-    case SWMM_TRANSPORT_CLASS_TEMPERATURE: return "TRANSPORT_TEMPERATURE";
-    default:                               return "";
+    case SWMM_TRANSPORT_CLASS_POLLUTANTS:
+        return "TRANSPORT_POLLUTANTS";
+    case SWMM_TRANSPORT_CLASS_MSX:
+        return "TRANSPORT_MSX";
+    case SWMM_TRANSPORT_CLASS_AGE:
+        return "TRANSPORT_AGE";
+    case SWMM_TRANSPORT_CLASS_TEMPERATURE:
+        return "TRANSPORT_TEMPERATURE";
+    default:
+        return "";
     }
 }
 

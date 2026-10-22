@@ -1,8 +1,8 @@
-/*!
- * \file test_wateragesourcesdialog.cpp
- * \brief Y3 — the Water Age Sources editor, driven through its widgets.
+/**
+ * @file      test_wateragesourcesdialog.cpp
+ * @brief     Y3 — the Water Age Sources editor, driven through its widgets.
  *
- * \details This is the first GUI round of the subplan whose *wiring* has an
+ * @details This is the first GUI round of the subplan whose *wiring* has an
  *          automated observer: the dialog is dependency-light (Qt Widgets +
  *          `openswmm_water_age.h`), so a test can construct it, hydrate it
  *          from an engine, click OK, and read the engine back — the
@@ -22,6 +22,10 @@
  *             stale key.
  *          5. The editor cannot author what the parser refuses — only
  *             DWF and EXTERNAL_INFLOW appear as override sources.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/wateragesourcesdialog.h"
@@ -43,7 +47,8 @@
 
 using OpenSWMMVis::WaterAgeSourcesDialog;
 
-namespace {
+namespace
+{
 
 /*! A BUILDING-state engine with two nodes, so override rows have targets. */
 SWMM_Engine makeAgeEngine()
@@ -57,8 +62,7 @@ SWMM_Engine makeAgeEngine()
 
 QDoubleSpinBox *globalSpin(WaterAgeSourcesDialog &dlg, int source)
 {
-    return dlg.findChild<QDoubleSpinBox *>(
-        QStringLiteral("wa_globalSpin_%1").arg(source));
+    return dlg.findChild<QDoubleSpinBox *>(QStringLiteral("wa_globalSpin_%1").arg(source));
 }
 
 void clickOk(WaterAgeSourcesDialog &dlg)
@@ -71,13 +75,12 @@ void clickOk(WaterAgeSourcesDialog &dlg)
 QStringList engineAgeState(SWMM_Engine engine)
 {
     QStringList state;
-    for (int source : {SWMM_AGE_SRC_RAINFALL, SWMM_AGE_SRC_DWF, SWMM_AGE_SRC_GW,
-                       SWMM_AGE_SRC_RDII, SWMM_AGE_SRC_EXTERNAL_INFLOW,
-                       SWMM_AGE_SRC_IFACE, SWMM_AGE_SRC_INITIAL_STATE}) {
+    for (int source :
+         {SWMM_AGE_SRC_RAINFALL, SWMM_AGE_SRC_DWF, SWMM_AGE_SRC_GW, SWMM_AGE_SRC_RDII,
+          SWMM_AGE_SRC_EXTERNAL_INFLOW, SWMM_AGE_SRC_IFACE, SWMM_AGE_SRC_INITIAL_STATE}) {
         double hours = 0.0;
         const int rc = swmm_water_age_get_global_source(engine, source, &hours);
-        state.append(QStringLiteral("global:%1:%2:%3").arg(source).arg(rc)
-                         .arg(hours, 0, 'g', 17));
+        state.append(QStringLiteral("global:%1:%2:%3").arg(source).arg(rc).arg(hours, 0, 'g', 17));
     }
     int count = 0;
     swmm_water_age_override_count(engine, &count);
@@ -85,8 +88,11 @@ QStringList engineAgeState(SWMM_Engine engine)
         int source = -1, node = -1;
         double hours = 0.0;
         const int rc = swmm_water_age_get_override(engine, i, &source, &node, &hours);
-        state.append(QStringLiteral("override:%1:%2:%3:%4").arg(source).arg(node)
-                         .arg(rc).arg(hours, 0, 'g', 17));
+        state.append(QStringLiteral("override:%1:%2:%3:%4")
+                         .arg(source)
+                         .arg(node)
+                         .arg(rc)
+                         .arg(hours, 0, 'g', 17));
     }
     return state;
 }
@@ -125,12 +131,10 @@ void TestWaterAgeSourcesDialog::constructsWithNullEngine()
 void TestWaterAgeSourcesDialog::hydratesGlobalsIncludingNegatives()
 {
     SWMM_Engine e = makeAgeEngine();
-    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_INITIAL_STATE,
-                                              1.5), SWMM_OK);
+    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_INITIAL_STATE, 1.5), SWMM_OK);
     // D-NS1: a negative source age is EXTRACTION, and must survive into the
     // editor rather than being validated away or clamped to zero.
-    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_RDII, -2.0),
-             SWMM_OK);
+    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_RDII, -2.0), SWMM_OK);
 
     WaterAgeSourcesDialog dlg(e, nullptr);
     auto *init = globalSpin(dlg, SWMM_AGE_SRC_INITIAL_STATE);
@@ -155,8 +159,7 @@ void TestWaterAgeSourcesDialog::writesEditedGlobalOnOk()
 
     QVERIFY(dlg.wroteAnyChanges());
     double h = 0.0;
-    QCOMPARE(swmm_water_age_get_global_source(e, SWMM_AGE_SRC_GW, &h),
-             SWMM_OK);
+    QCOMPARE(swmm_water_age_get_global_source(e, SWMM_AGE_SRC_GW, &h), SWMM_OK);
     QCOMPARE(h, 6.0);
 
     swmm_engine_destroy(e);
@@ -165,18 +168,16 @@ void TestWaterAgeSourcesDialog::writesEditedGlobalOnOk()
 void TestWaterAgeSourcesDialog::noOpOkWritesNothing()
 {
     SWMM_Engine e = makeAgeEngine();
-    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_DWF, 3.0),
-             SWMM_OK);
+    QCOMPARE(swmm_water_age_set_global_source(e, SWMM_AGE_SRC_DWF, 3.0), SWMM_OK);
 
     WaterAgeSourcesDialog dlg(e, nullptr);
-    clickOk(dlg);          // opened and accepted without touching anything
+    clickOk(dlg); // opened and accepted without touching anything
 
     QCOMPARE(dlg.lastWriteCount(), 0);
     QCOMPARE(dlg.wroteAnyChanges(), false);
     // ...and the pre-existing value is untouched.
     double h = 0.0;
-    QCOMPARE(swmm_water_age_get_global_source(e, SWMM_AGE_SRC_DWF, &h),
-             SWMM_OK);
+    QCOMPARE(swmm_water_age_get_global_source(e, SWMM_AGE_SRC_DWF, &h), SWMM_OK);
     QCOMPARE(h, 3.0);
 
     swmm_engine_destroy(e);
@@ -186,26 +187,24 @@ void TestWaterAgeSourcesDialog::overridesAddUpdateAndRemove()
 {
     SWMM_Engine e = makeAgeEngine();
     // One override already in the engine: DWF at node 0.
-    QCOMPARE(swmm_water_age_set_override(e, SWMM_AGE_SRC_DWF, 0, 4.0),
-             SWMM_OK);
+    QCOMPARE(swmm_water_age_set_override(e, SWMM_AGE_SRC_DWF, 0, 4.0), SWMM_OK);
 
     {
         WaterAgeSourcesDialog dlg(e, nullptr);
-        auto *tbl = dlg.findChild<QTableWidget *>(
-            QStringLiteral("wa_overrideTable"));
+        auto *tbl = dlg.findChild<QTableWidget *>(QStringLiteral("wa_overrideTable"));
         QVERIFY(tbl);
-        QCOMPARE(tbl->rowCount(), 1);                 // hydrated
+        QCOMPARE(tbl->rowCount(), 1); // hydrated
         auto *hours = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 2));
         QVERIFY(hours);
         QCOMPARE(hours->value(), 4.0);
 
-        hours->setValue(7.5);                         // update in place
+        hours->setValue(7.5); // update in place
         clickOk(dlg);
         QVERIFY(dlg.wroteAnyChanges());
     }
     int count = 0;
     QCOMPARE(swmm_water_age_override_count(e, &count), SWMM_OK);
-    QCOMPARE(count, 1);                               // updated, not appended
+    QCOMPARE(count, 1); // updated, not appended
     int src = 0, node = 0;
     double h = 0.0;
     QCOMPARE(swmm_water_age_get_override(e, 0, &src, &node, &h), SWMM_OK);
@@ -215,8 +214,7 @@ void TestWaterAgeSourcesDialog::overridesAddUpdateAndRemove()
     // key here would keep applying an age the user removed.
     {
         WaterAgeSourcesDialog dlg(e, nullptr);
-        auto *tbl = dlg.findChild<QTableWidget *>(
-            QStringLiteral("wa_overrideTable"));
+        auto *tbl = dlg.findChild<QTableWidget *>(QStringLiteral("wa_overrideTable"));
         QVERIFY(tbl);
         QCOMPARE(tbl->rowCount(), 1);
         tbl->setCurrentCell(0, 0);
@@ -242,8 +240,7 @@ void TestWaterAgeSourcesDialog::overrideSourcesAreParserScoped()
     QVERIFY(add);
     add->click();
 
-    auto *tbl = dlg.findChild<QTableWidget *>(
-        QStringLiteral("wa_overrideTable"));
+    auto *tbl = dlg.findChild<QTableWidget *>(QStringLiteral("wa_overrideTable"));
     QVERIFY(tbl);
     QCOMPARE(tbl->rowCount(), 1);
 
@@ -328,7 +325,10 @@ void TestWaterAgeSourcesDialog::duplicateOverrideRefusesAllWritesAndAllowsCorrec
         double age = 0.0;
         QCOMPARE(swmm_water_age_get_override(e, i, &src, &nd, &age), SWMM_OK);
         QCOMPARE(src, int(SWMM_AGE_SRC_DWF));
-        if (nd == 1) { QCOMPARE(age, 7.5); foundCorrected = true; }
+        if (nd == 1) {
+            QCOMPARE(age, 7.5);
+            foundCorrected = true;
+        }
     }
     QVERIFY(foundCorrected);
     swmm_engine_destroy(e);
@@ -444,7 +444,8 @@ void TestWaterAgeSourcesDialog::tableControlsExposeAccessibleIdentityAfterRemova
     }
     add->click();
     add->click();
-    const QStringList fields{QStringLiteral("source"), QStringLiteral("node"), QStringLiteral("age")};
+    const QStringList fields{QStringLiteral("source"), QStringLiteral("node"),
+                             QStringLiteral("age")};
     for (int row = 0; row < 2; ++row) {
         for (int column = 0; column < 3; ++column) {
             auto *editor = overrides->cellWidget(row, column);
@@ -452,18 +453,27 @@ void TestWaterAgeSourcesDialog::tableControlsExposeAccessibleIdentityAfterRemova
             QVERIFY(iface);
             const QString name = iface->text(QAccessible::Name);
             const QString description = iface->text(QAccessible::Description);
-            const QString diagnostic = QStringLiteral("row=%1 column=%2 interfaceName='%3' accessibleName='%4' description='%5' value='%6'")
-                .arg(row).arg(column).arg(name, editor->accessibleName(), description, iface->text(QAccessible::Value));
+            const QString diagnostic =
+                QStringLiteral(
+                    "row=%1 column=%2 interfaceName='%3' accessibleName='%4' description='%5' value='%6'")
+                    .arg(row)
+                    .arg(column)
+                    .arg(name, editor->accessibleName(), description,
+                         iface->text(QAccessible::Value));
             QVERIFY2(description.contains(QString::number(row + 1)), qPrintable(diagnostic));
-            QVERIFY2(description.contains(fields[column], Qt::CaseInsensitive), qPrintable(diagnostic));
+            QVERIFY2(description.contains(fields[column], Qt::CaseInsensitive),
+                     qPrintable(diagnostic));
             if (auto *combo = qobject_cast<QComboBox *>(editor)) {
                 // Native combo interfaces may expose the selected item as
                 // Name; row/field context belongs in Description as well.
-                QVERIFY2(name == combo->currentText() || name == editor->accessibleName(), qPrintable(diagnostic));
-                QVERIFY2(iface->text(QAccessible::Value) == combo->currentText(), qPrintable(diagnostic));
+                QVERIFY2(name == combo->currentText() || name == editor->accessibleName(),
+                         qPrintable(diagnostic));
+                QVERIFY2(iface->text(QAccessible::Value) == combo->currentText(),
+                         qPrintable(diagnostic));
             } else {
                 QVERIFY2(name.contains(QString::number(row + 1)), qPrintable(diagnostic));
-                QVERIFY2(name.contains(fields[column], Qt::CaseInsensitive), qPrintable(diagnostic));
+                QVERIFY2(name.contains(fields[column], Qt::CaseInsensitive),
+                         qPrintable(diagnostic));
             }
         }
     }
@@ -476,14 +486,19 @@ void TestWaterAgeSourcesDialog::tableControlsExposeAccessibleIdentityAfterRemova
         QVERIFY(iface);
         const QString name = iface->text(QAccessible::Name);
         const QString description = iface->text(QAccessible::Description);
-        const QString diagnostic = QStringLiteral("after removal row=0 column=%1 interfaceName='%2' accessibleName='%3' description='%4' value='%5'")
-            .arg(column).arg(name, editor->accessibleName(), description, iface->text(QAccessible::Value));
+        const QString diagnostic =
+            QStringLiteral(
+                "after removal row=0 column=%1 interfaceName='%2' accessibleName='%3' description='%4' value='%5'")
+                .arg(column)
+                .arg(name, editor->accessibleName(), description, iface->text(QAccessible::Value));
         QVERIFY2(description.contains(QStringLiteral("1")), qPrintable(diagnostic));
         QVERIFY2(!description.contains(QStringLiteral("2")), qPrintable(diagnostic));
         QVERIFY2(description.contains(fields[column], Qt::CaseInsensitive), qPrintable(diagnostic));
         if (auto *combo = qobject_cast<QComboBox *>(editor)) {
-            QVERIFY2(name == combo->currentText() || name == editor->accessibleName(), qPrintable(diagnostic));
-            QVERIFY2(iface->text(QAccessible::Value) == combo->currentText(), qPrintable(diagnostic));
+            QVERIFY2(name == combo->currentText() || name == editor->accessibleName(),
+                     qPrintable(diagnostic));
+            QVERIFY2(iface->text(QAccessible::Value) == combo->currentText(),
+                     qPrintable(diagnostic));
         } else {
             QVERIFY2(name.contains(QStringLiteral("1")), qPrintable(diagnostic));
             QVERIFY2(!name.contains(QStringLiteral("2")), qPrintable(diagnostic));
@@ -523,8 +538,10 @@ void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay()
     swmm_water_age_get_global_source(e, SWMM_AGE_SRC_GW, &originalGlobal);
     swmm_water_age_get_override(e, 0, nullptr, nullptr, &originalOverride);
     WaterAgeSourcesDialog dlg(e);
-    if (edit == "unrelated") globalSpin(dlg, SWMM_AGE_SRC_RDII)->setValue(9.0);
-    if (edit == "explicit") globalSpin(dlg, SWMM_AGE_SRC_GW)->setValue(8.125);
+    if (edit == "unrelated")
+        globalSpin(dlg, SWMM_AGE_SRC_RDII)->setValue(9.0);
+    if (edit == "explicit")
+        globalSpin(dlg, SWMM_AGE_SRC_GW)->setValue(8.125);
     clickOk(dlg);
     double actual = 0;
     QCOMPARE(swmm_water_age_get_global_source(e, SWMM_AGE_SRC_GW, &actual), SWMM_OK);
@@ -532,7 +549,8 @@ void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay()
     QCOMPARE(swmm_water_age_get_override(e, 0, nullptr, nullptr, &actual), SWMM_OK);
     QCOMPARE(actual, originalOverride);
     QCOMPARE(dlg.wroteAnyChanges(), edit != "none");
-    if (edit == "none") QCOMPARE(dlg.lastWriteCount(), 0);
+    if (edit == "none")
+        QCOMPARE(dlg.lastWriteCount(), 0);
     swmm_engine_destroy(e);
 }
 

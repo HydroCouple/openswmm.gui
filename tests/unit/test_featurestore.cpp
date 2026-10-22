@@ -1,9 +1,9 @@
-/*!
- * \file   test_featurestore.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Unit tests for the GeoPackage read/write backing store
+/**
+ * @file      test_featurestore.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Unit tests for the GeoPackage read/write backing store
  *         (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §3.1;
  *         HANDOFF_FEATURE_LAYERS_VALIDATE_2026-09-07 §4).
  *
@@ -19,10 +19,12 @@
  *           writes made through a still-open update handle? PLAN §6 (mesh
  *           generation consuming drawn layers) is built on that.
  *
- * Artifacts are written to tests/unit/data/featurestore_artifacts/ so a failure
- * can be opened in QGIS (CLAUDE.md §4.1 — never a temp directory), and are
- * removed at the start of each run so the suite is repeatable.
+ * Artifacts use FEATURESTORE_OUT_DIR (default featurestore_artifacts relative
+ * to process cwd) so failures can be inspected in QGIS. Individual fixture
+ * containers and SQLite companions are removed before reuse; deletion is unchecked.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <gtest/gtest.h>
 
 #include "feature/featureroles.h"
@@ -46,17 +48,35 @@
 
 using namespace openswmmvis::feature;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Resolve/create the persistent GeoPackage fixture directory.
+ * @return Absolute FEATURESTORE_OUT_DIR path, relative to process cwd if configured
+ * that way. Directory creation errors are unchecked; later opens report failures.
+ * Leaves artifacts available for inspection and does not clear existing files.
+ *
+ */
 QString outDir()
 {
     QDir d(QStringLiteral(FEATURESTORE_OUT_DIR));
-    if (!d.exists()) QDir().mkpath(d.absolutePath());
+    if (!d.exists())
+        QDir().mkpath(d.absolutePath());
     return d.absolutePath();
 }
 
-//! A fresh path under the artifacts directory; any previous run is deleted so
-//! the test starts from a known-empty container.
+/**
+ *
+ * @brief Remove prior test-owned container and SQLite companions before reuse.
+ * @param stem Filename stem under outDir, without extension; callers use simple
+ * unique names and must close any handles from prior use before deletion.
+ * @return Owned .gpkg path after attempting removal of it, -wal and -shm files.
+ * Removal and directory creation errors are unchecked, so emptiness is not guaranteed.
+ * Destructive only to these fixture paths; does not open a database.
+ *
+ */
 QString freshGpkg(const QString &stem)
 {
     const QString path = QDir(outDir()).filePath(stem + QStringLiteral(".gpkg"));
@@ -66,14 +86,33 @@ QString freshGpkg(const QString &stem)
     return path;
 }
 
+/**
+ *
+ * @brief Build an unclosed axis-aligned four-point fixture ring.
+ * @param x Lower-left x in arbitrary common fixture coordinate units.
+ * @param y Lower-left y in the same units.
+ * @param w Intended positive side length; no finite/degeneracy validation.
+ * @return Owned XY ring counterclockwise for positive w, with no Z values or repeated
+ * closing vertex. No coordinate transformation or persistent mutation.
+ *
+ */
 Ring squareRing(double x, double y, double w)
 {
     Ring r;
-    r.pts << QPointF(x, y) << QPointF(x + w, y)
-          << QPointF(x + w, y + w) << QPointF(x, y + w);
+    r.pts << QPointF(x, y) << QPointF(x + w, y) << QPointF(x + w, y + w) << QPointF(x, y + w);
     return r;
 }
 
+/**
+ *
+ * @brief Wrap one fixture square exterior in a polygon geometry.
+ * @param x Lower-left x in fixture coordinate units.
+ * @param y Lower-left y in the same units.
+ * @param w Positive side length for intended nondegenerate input.
+ * @return Owned single-part polygon with four unclosed XY vertices and no holes/Z.
+ * Delegates ring construction without checking finite coordinates or width.
+ *
+ */
 FeatureGeometry squarePolygon(double x, double y, double w)
 {
     Part p;
@@ -83,6 +122,13 @@ FeatureGeometry squarePolygon(double x, double y, double w)
     return g;
 }
 
+/**
+ *
+ * @brief Construct the three-vertex Z round-trip fixture.
+ * @return Owned single-part line at XY (0,0), (10,0), (10,10), with Z 1.5, -2.25,
+ * 300.125 in arbitrary fixture units; no CRS, attributes or database mutation.
+ *
+ */
 FeatureGeometry line3D()
 {
     Ring r;
@@ -95,6 +141,14 @@ FeatureGeometry line3D()
     return g;
 }
 
+/**
+ *
+ * @brief Build the ordered four-field schema used by storage CRUD tests.
+ * @return Owned name/Text, count/Integer, roughness/Real and active/Boolean fields.
+ * Records nonfatal GoogleTest failures if any append is rejected, then still returns
+ * the partially constructed schema. No field defaults, CRS or persistent mutation.
+ *
+ */
 Schema demoSchema()
 {
     Schema s;
@@ -117,9 +171,23 @@ Schema demoSchema()
     return s;
 }
 
-//! Open a store on a freshly created table, failing the calling test on error.
-bool makeStore(FeatureStore &store, const QString &gpkg, const QString &table,
-               GeometryType type, bool hasZ, const Schema &schema)
+/**
+ *
+ * @brief Ensure a fixture container, create one table and open its update store.
+ * @param store Borrowed output handle opened on success and retained by the caller.
+ * @param gpkg Borrowed test-owned GeoPackage path; may name an existing container.
+ * @param table New table name; an existing table is not silently reused.
+ * @param type Requested geometry family for the new table.
+ * @param hasZ True requests Z-capable table geometry.
+ * @param schema Borrowed ordered field definitions copied into the new table.
+ * @return True only after all three operations succeed; false also records a
+ * nonfatal test failure with the failing operation's diagnostic. Uses empty CRS.
+ * Earlier file/table creation can survive later failure; no transaction rollback,
+ * parent creation, fixture cleanup or ownership transfer of the store.
+ *
+ */
+bool makeStore(FeatureStore &store, const QString &gpkg, const QString &table, GeometryType type,
+               bool hasZ, const Schema &schema)
 {
     QString err;
     if (!FeatureStore::ensureGeoPackage(gpkg, &err)) {
@@ -141,11 +209,17 @@ bool makeStore(FeatureStore &store, const QString &gpkg, const QString &table,
 class GdalEnvironment : public ::testing::Environment
 {
 public:
+    /**
+     *
+     * @brief Register GDAL drivers before this binary's tests run.
+     * Called by GoogleTest's owned global environment; changes process-global driver
+     * state and does not unregister drivers or create any fixture dataset.
+     *
+     */
     void SetUp() override { GDALAllRegister(); }
 };
 
-const auto *kGdalEnv =
-    ::testing::AddGlobalTestEnvironment(new GdalEnvironment);
+const auto *kGdalEnv = ::testing::AddGlobalTestEnvironment(new GdalEnvironment);
 
 } // namespace
 
@@ -172,8 +246,8 @@ TEST(FeatureStoreContainer, CreateTableThenSchemaRoundTrips)
 {
     const QString gpkg = freshGpkg(QStringLiteral("schema"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"),
-                          GeometryType::Polygon, false, demoSchema()));
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"), GeometryType::Polygon, false,
+                          demoSchema()));
 
     EXPECT_TRUE(FeatureStore::tableExists(gpkg, QStringLiteral("regions")));
     EXPECT_EQ(store.geometryType(), GeometryType::Polygon);
@@ -195,9 +269,8 @@ TEST(FeatureStoreContainer, CreateTableThenSchemaRoundTrips)
 
     // A name already in use is refused, not silently renamed.
     QString err;
-    EXPECT_FALSE(FeatureStore::createTable(gpkg, QStringLiteral("regions"),
-                                           GeometryType::Polygon, false,
-                                           Schema(), QString(), &err));
+    EXPECT_FALSE(FeatureStore::createTable(gpkg, QStringLiteral("regions"), GeometryType::Polygon,
+                                           false, Schema(), QString(), &err));
     EXPECT_FALSE(err.isEmpty());
     EXPECT_EQ(FeatureStore::uniqueTableName(gpkg, QStringLiteral("regions")),
               QStringLiteral("regions_1"));
@@ -207,8 +280,7 @@ TEST(FeatureStoreContainer, AddFieldAppearsInSchema)
 {
     const QString gpkg = freshGpkg(QStringLiteral("addfield"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("t"),
-                          GeometryType::Point, false, Schema()));
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("t"), GeometryType::Point, false, Schema()));
     ASSERT_EQ(store.schema().count(), 0);
 
     FieldDef f;
@@ -244,8 +316,8 @@ TEST(FeatureStoreContainer, RemoveFieldOrReportsUnsupported)
 {
     const QString gpkg = freshGpkg(QStringLiteral("removefield"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("t"),
-                          GeometryType::Point, false, demoSchema()));
+    ASSERT_TRUE(
+        makeStore(store, gpkg, QStringLiteral("t"), GeometryType::Point, false, demoSchema()));
     ASSERT_EQ(store.schema().count(), 4);
 
     QString err;
@@ -280,8 +352,8 @@ TEST(FeatureStoreCrud, AddReadUpdateDeleteFeature)
 {
     const QString gpkg = freshGpkg(QStringLiteral("crud"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"),
-                          GeometryType::Polygon, false, demoSchema()));
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"), GeometryType::Polygon, false,
+                          demoSchema()));
 
     Feature f;
     f.geometry = squarePolygon(0.0, 0.0, 100.0);
@@ -300,11 +372,9 @@ TEST(FeatureStoreCrud, AddReadUpdateDeleteFeature)
     ASSERT_TRUE(store.feature(id, back));
     EXPECT_EQ(back.id, id);
     EXPECT_EQ(back.geometry, f.geometry);
-    EXPECT_EQ(back.attributes.value(QStringLiteral("name")).toString(),
-              QStringLiteral("basin A"));
+    EXPECT_EQ(back.attributes.value(QStringLiteral("name")).toString(), QStringLiteral("basin A"));
     EXPECT_EQ(back.attributes.value(QStringLiteral("count")).toInt(), 3);
-    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("roughness")).toDouble(),
-                     0.013);
+    EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("roughness")).toDouble(), 0.013);
     EXPECT_TRUE(back.attributes.value(QStringLiteral("active")).toBool());
 
     // Geometry update.
@@ -319,8 +389,7 @@ TEST(FeatureStoreCrud, AddReadUpdateDeleteFeature)
     attrs.insert(QStringLiteral("active"), false);
     ASSERT_TRUE(store.setAttributes(id, attrs, &err)) << err.toStdString();
     ASSERT_TRUE(store.feature(id, back));
-    EXPECT_EQ(back.attributes.value(QStringLiteral("name")).toString(),
-              QStringLiteral("basin B"));
+    EXPECT_EQ(back.attributes.value(QStringLiteral("name")).toString(), QStringLiteral("basin B"));
     EXPECT_FALSE(back.attributes.value(QStringLiteral("active")).toBool());
     EXPECT_EQ(back.geometry, moved) << "attribute write disturbed the geometry";
 
@@ -342,11 +411,11 @@ TEST(FeatureStoreCrud, AddFeatureReusesFreeFid)
 {
     const QString gpkg = freshGpkg(QStringLiteral("fid"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("t"),
-                          GeometryType::Polygon, false, Schema()));
+    ASSERT_TRUE(
+        makeStore(store, gpkg, QStringLiteral("t"), GeometryType::Polygon, false, Schema()));
 
     Feature f;
-    f.id       = 42;
+    f.id = 42;
     f.geometry = squarePolygon(0.0, 0.0, 10.0);
 
     QString err;
@@ -364,7 +433,7 @@ TEST(FeatureStoreCrud, AddFeatureReusesFreeFid)
 
     // A TAKEN id is not an error: OGR assigns a fresh one and it is returned.
     Feature other;
-    other.id       = id;
+    other.id = id;
     other.geometry = squarePolygon(100.0, 100.0, 10.0);
     const FeatureId fresh = store.addFeature(other, &err);
     ASSERT_NE(fresh, kInvalidFeatureId) << err.toStdString();
@@ -376,8 +445,8 @@ TEST(FeatureStoreCrud, ThreeDTableStoresZ)
 {
     const QString gpkg = freshGpkg(QStringLiteral("threed"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("breaklines"),
-                          GeometryType::LineString, true, Schema()));
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("breaklines"), GeometryType::LineString, true,
+                          Schema()));
     EXPECT_TRUE(store.hasZ());
 
     Feature f;
@@ -407,8 +476,8 @@ TEST(FeatureStoreCrud, ConcurrentReadOnlyOpenSeesWrites)
 {
     const QString gpkg = freshGpkg(QStringLiteral("concurrent"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"),
-                          GeometryType::Polygon, false, Schema()));
+    ASSERT_TRUE(
+        makeStore(store, gpkg, QStringLiteral("regions"), GeometryType::Polygon, false, Schema()));
 
     Feature f;
     f.geometry = squarePolygon(0.0, 0.0, 100.0);
@@ -418,9 +487,8 @@ TEST(FeatureStoreCrud, ConcurrentReadOnlyOpenSeesWrites)
     ASSERT_TRUE(store.isOpen()) << "the update handle must stay open";
 
     // A second, independent handle — exactly what a mesh worker does.
-    auto *ro = static_cast<GDALDataset *>(
-        GDALOpenEx(gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-                   nullptr, nullptr, nullptr));
+    auto *ro = static_cast<GDALDataset *>(GDALOpenEx(
+        gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
     ASSERT_NE(ro, nullptr) << "read-only open failed while an update handle is live";
 
     OGRLayer *lyr = ro->GetLayerByName("regions");
@@ -434,9 +502,8 @@ TEST(FeatureStoreCrud, ConcurrentReadOnlyOpenSeesWrites)
     g.geometry = squarePolygon(200.0, 200.0, 10.0);
     ASSERT_NE(store.addFeature(g, &err), kInvalidFeatureId) << err.toStdString();
 
-    auto *ro2 = static_cast<GDALDataset *>(
-        GDALOpenEx(gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-                   nullptr, nullptr, nullptr));
+    auto *ro2 = static_cast<GDALDataset *>(GDALOpenEx(
+        gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
     ASSERT_NE(ro2, nullptr);
     OGRLayer *lyr2 = ro2->GetLayerByName("regions");
     ASSERT_NE(lyr2, nullptr);
@@ -470,19 +537,27 @@ TEST(FeatureStoreGuards, ClosedStoreRefusesEveryWrite)
 // (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R2)
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
-/*! What the GeoPackage stores of a field: name, type, default, description
- *  and a Fixed value list. The editor hints (unit, Model / Suggested source,
- *  required) are the registry's and are not compared. */
+/**
+ *
+ * @brief Compare only the field metadata this GDAL build persists.
+ * @param stored Borrowed field read back from a GeoPackage.
+ * @param reg Borrowed registry definition used as the expected contract.
+ * Records nonfatal expectations for name/type and coerced default. On builds that
+ * store metadata, also checks description and unordered fixed choices, or absence
+ * of choices for other sources. Deliberately omits editor units, required flags and
+ * registry/model/suggested hints; no mutation or return status.
+ *
+ */
 void expectSamePersisted(const FieldDef &stored, const FieldDef &reg)
 {
     SCOPED_TRACE(reg.name.toStdString());
     EXPECT_EQ(stored.name, reg.name);
     EXPECT_EQ(stored.type, reg.type);
-    const QVariant regDefault = reg.defaultValue.isValid()
-                                    ? coerceToFieldType(reg.defaultValue, reg.type)
-                                    : QVariant();
+    const QVariant regDefault =
+        reg.defaultValue.isValid() ? coerceToFieldType(reg.defaultValue, reg.type) : QVariant();
     EXPECT_EQ(stored.defaultValue, regDefault);
     if (FeatureStore::storesFieldMetadata()) {
         EXPECT_EQ(stored.description, reg.description);
@@ -496,6 +571,13 @@ void expectSamePersisted(const FieldDef &stored, const FieldDef &reg)
     }
 }
 
+/**
+ *
+ * @brief Construct an attribute-free default-field insertion fixture.
+ * @return Owned single-part XY line from (0,0) to (10,0), no Z or assigned ID;
+ * coordinates have arbitrary common fixture units. Does not insert into a store.
+ *
+ */
 Feature lineFeature()
 {
     Ring r;
@@ -508,7 +590,7 @@ Feature lineFeature()
     return f;
 }
 
-}   // namespace
+} // namespace
 
 TEST(FeatureStoreMetadata, RoleSchemaRoundTripsThroughReopen)
 {
@@ -516,8 +598,8 @@ TEST(FeatureStoreMetadata, RoleSchemaRoundTripsThroughReopen)
     const Schema tmpl = featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition);
     {
         FeatureStore store;
-        ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
-                              GeometryType::LineString, false, tmpl));
+        ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"), GeometryType::LineString,
+                              false, tmpl));
         const Schema back = store.schema();
         ASSERT_EQ(back.count(), tmpl.count());
         for (int i = 0; i < tmpl.count(); ++i)
@@ -537,24 +619,21 @@ TEST(FeatureStoreMetadata, EditorSchemaRestoresTheRegistryOrder)
 {
     const QString gpkg = freshGpkg(QStringLiteral("role_order"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
-                          GeometryType::LineString, false,
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"), GeometryType::LineString, false,
                           featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
     const Schema e = editorSchema(FeatureLayerRole::BoundaryCondition, store.schema());
-    const FieldDef *reg = featureRoleSpec(FeatureLayerRole::BoundaryCondition)
-                              .field(QStringLiteral("bc_type"));
+    const FieldDef *reg =
+        featureRoleSpec(FeatureLayerRole::BoundaryCondition).field(QStringLiteral("bc_type"));
     EXPECT_EQ(e.field(QStringLiteral("bc_type"))->choices, reg->choices);
     // And a layer read back from its own file needs no update.
-    EXPECT_TRUE(planFieldUpdate(FeatureLayerRole::BoundaryCondition, store.schema(), {})
-                    .isEmpty());
+    EXPECT_TRUE(planFieldUpdate(FeatureLayerRole::BoundaryCondition, store.schema(), {}).isEmpty());
 }
 
 TEST(FeatureStoreMetadata, NewFeatureTakesItsDefaults)
 {
     const QString gpkg = freshGpkg(QStringLiteral("role_defaults"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
-                          GeometryType::LineString, false,
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"), GeometryType::LineString, false,
                           featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
 
     // The drawing tools start a feature from Schema::defaultAttributes().
@@ -566,8 +645,7 @@ TEST(FeatureStoreMetadata, NewFeatureTakesItsDefaults)
     Feature back;
     ASSERT_TRUE(store.feature(a, back));
     EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("conveyance")).toDouble(), 1.0);
-    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(),
-              QStringLiteral("WALL"));
+    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(), QStringLiteral("WALL"));
     EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("slope")).toDouble(), 0.001);
 
     // A writer that sets no attributes at all gets the column defaults too.
@@ -575,8 +653,7 @@ TEST(FeatureStoreMetadata, NewFeatureTakesItsDefaults)
     ASSERT_NE(b, kInvalidFeatureId) << err.toStdString();
     ASSERT_TRUE(store.feature(b, back));
     EXPECT_DOUBLE_EQ(back.attributes.value(QStringLiteral("conveyance")).toDouble(), 1.0);
-    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(),
-              QStringLiteral("WALL"));
+    EXPECT_EQ(back.attributes.value(QStringLiteral("bc_type")).toString(), QStringLiteral("WALL"));
 }
 
 TEST(FeatureStoreMetadata, AddFieldWithAValueListIsVisibleToAPlainOgrHandle)
@@ -585,19 +662,18 @@ TEST(FeatureStoreMetadata, AddFieldWithAValueListIsVisibleToAPlainOgrHandle)
         GTEST_SKIP() << "GDAL < 3.8 stores no value lists";
     const QString gpkg = freshGpkg(QStringLiteral("role_domain"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("zones"),
-                          GeometryType::Polygon, false, Schema()));
+    ASSERT_TRUE(
+        makeStore(store, gpkg, QStringLiteral("zones"), GeometryType::Polygon, false, Schema()));
 
-    const FieldDef hsg = *featureRoleSpec(FeatureLayerRole::ParameterZone)
-                              .field(QStringLiteral("hsg"));
+    const FieldDef hsg =
+        *featureRoleSpec(FeatureLayerRole::ParameterZone).field(QStringLiteral("hsg"));
     QString err;
     ASSERT_TRUE(store.addField(hsg, &err)) << err.toStdString();
     expectSamePersisted(store.schema().at(0), hsg);
     store.flush();
 
     GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
-        gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-        nullptr, nullptr, nullptr));
+        gpkg.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
     ASSERT_TRUE(ds);
     OGRLayer *layer = ds->GetLayerByName("zones");
     ASSERT_TRUE(layer);
@@ -608,8 +684,7 @@ TEST(FeatureStoreMetadata, AddFieldWithAValueListIsVisibleToAPlainOgrHandle)
     ASSERT_TRUE(dom);
     ASSERT_EQ(dom->GetDomainType(), OFDT_CODED);
     int n = 0;
-    for (const OGRCodedValue *cv =
-             static_cast<const OGRCodedFieldDomain *>(dom)->GetEnumeration();
+    for (const OGRCodedValue *cv = static_cast<const OGRCodedFieldDomain *>(dom)->GetEnumeration();
          cv && cv->pszCode; ++cv)
         ++n;
     EXPECT_EQ(n, 7);
@@ -623,8 +698,7 @@ TEST(FeatureStoreMetadata, ARemovedColumnComesBackWithItsValueList)
         GTEST_SKIP() << "GDAL < 3.8 stores no value lists";
     const QString gpkg = freshGpkg(QStringLiteral("role_domain_drop"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"),
-                          GeometryType::LineString, false,
+    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("bc_lines"), GeometryType::LineString, false,
                           featureLayerRoleTemplate(FeatureLayerRole::BoundaryCondition)));
     QString err;
     if (!store.removeField(QStringLiteral("bc_type"), &err))
@@ -633,8 +707,8 @@ TEST(FeatureStoreMetadata, ARemovedColumnComesBackWithItsValueList)
 
     // Re-adding it (what an undo does) works whether or not the driver could
     // delete the old list.
-    const FieldDef bcType = *featureRoleSpec(FeatureLayerRole::BoundaryCondition)
-                                 .field(QStringLiteral("bc_type"));
+    const FieldDef bcType =
+        *featureRoleSpec(FeatureLayerRole::BoundaryCondition).field(QStringLiteral("bc_type"));
     ASSERT_TRUE(store.addField(bcType, &err)) << err.toStdString();
     expectSamePersisted(*store.schema().field(QStringLiteral("bc_type")), bcType);
 
@@ -644,8 +718,8 @@ TEST(FeatureStoreMetadata, ARemovedColumnComesBackWithItsValueList)
     FieldDef shorter = bcType;
     shorter.choices.removeLast();
     ASSERT_TRUE(store.addField(shorter, &err)) << err.toStdString();
-    EXPECT_TRUE(sameChoiceSet(store.schema().field(QStringLiteral("bc_type"))->choices,
-                              shorter.choices));
+    EXPECT_TRUE(
+        sameChoiceSet(store.schema().field(QStringLiteral("bc_type"))->choices, shorter.choices));
 }
 
 TEST(FeatureStoreMetadata, RenameKeepsValuesAndMetadataCanBeAttached)
@@ -655,14 +729,14 @@ TEST(FeatureStoreMetadata, RenameKeepsValuesAndMetadataCanBeAttached)
     for (const char *n : {"quad_mode", "quad_spacing", "tag"}) {
         FieldDef f;
         f.name = QLatin1String(n);
-        f.type = (QLatin1String(n) == QLatin1String("quad_spacing")) ? FieldType::Real
-                                                                     : FieldType::Text;
+        f.type =
+            (QLatin1String(n) == QLatin1String("quad_spacing")) ? FieldType::Real : FieldType::Text;
         old.append(f);
     }
     const QString gpkg = freshGpkg(QStringLiteral("role_update"));
     FeatureStore store;
-    ASSERT_TRUE(makeStore(store, gpkg, QStringLiteral("regions"),
-                          GeometryType::Polygon, false, old));
+    ASSERT_TRUE(
+        makeStore(store, gpkg, QStringLiteral("regions"), GeometryType::Polygon, false, old));
     Feature f;
     f.geometry = squarePolygon(0.0, 0.0, 10.0);
     f.attributes.insert(QStringLiteral("quad_spacing"), 4.5);
@@ -682,9 +756,11 @@ TEST(FeatureStoreMetadata, RenameKeepsValuesAndMetadataCanBeAttached)
     EXPECT_FALSE(store.renameField(QStringLiteral("h"), QStringLiteral("tag"), &err));
 
     const FeatureRoleSpec &region = featureRoleSpec(FeatureLayerRole::Region);
-    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("h"), *region.field(QStringLiteral("h")), &err))
+    ASSERT_TRUE(
+        store.setFieldMetadata(QStringLiteral("h"), *region.field(QStringLiteral("h")), &err))
         << err.toStdString();
-    ASSERT_TRUE(store.setFieldMetadata(QStringLiteral("tag"), *region.field(QStringLiteral("tag")), &err))
+    ASSERT_TRUE(
+        store.setFieldMetadata(QStringLiteral("tag"), *region.field(QStringLiteral("tag")), &err))
         << err.toStdString();
     // A Fixed list attached to an existing text column, then detached again.
     FieldDef cells = *region.field(QStringLiteral("cells"));
@@ -695,8 +771,7 @@ TEST(FeatureStoreMetadata, RenameKeepsValuesAndMetadataCanBeAttached)
     expectSamePersisted(*s.field(QStringLiteral("h")), *region.field(QStringLiteral("h")));
     expectSamePersisted(*s.field(QStringLiteral("tag")), *region.field(QStringLiteral("tag")));
     if (FeatureStore::storesFieldMetadata()) {
-        EXPECT_TRUE(sameChoiceSet(s.field(QStringLiteral("quad_mode"))->choices,
-                                  cells.choices));
+        EXPECT_TRUE(sameChoiceSet(s.field(QStringLiteral("quad_mode"))->choices, cells.choices));
     }
 
     cells.choices.clear();
@@ -725,7 +800,7 @@ TEST(FeatureStoreMetadata, TwoTablesNeverShareAValueListByAccident)
     first.choiceSource = ChoiceSource::Fixed;
     for (const char *v : {"x", "y", "z"})
         first.choices.append(FieldChoice{QLatin1String(v), QString()});
-    FieldDef second = first;   // the same values: a shared list would be reused
+    FieldDef second = first; // the same values: a shared list would be reused
     second.name = QStringLiteral("c");
 
     const QString gpkg = freshGpkg(QStringLiteral("domain_collision"));

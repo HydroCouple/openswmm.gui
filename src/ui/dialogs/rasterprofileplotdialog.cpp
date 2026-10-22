@@ -1,8 +1,14 @@
-/*!
- * \file   rasterprofileplotdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      rasterprofileplotdialog.cpp
+ * @brief     of MeshProfilePlotDialog: builds a ProfileSection::Section from a traced polyline via
+ *            RasterProfileSampler and hosts the SAME MeshProfilePlotWidget chart +
+ *            MeshProfileOverlay map line.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -33,16 +39,12 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer         *raster,
-                                                 double                  vertFactor,
+RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer *raster, double vertFactor,
                                                  const QVector<QPointF> &scenePolyline,
-                                                 SWMMVisProjectWindow   *projectWindow,
-                                                 QWidget                *parent)
-    : QDialog(parent),
-      m_raster(raster),
-      m_projectWindow(projectWindow),
-      m_scenePolyline(scenePolyline),
-      m_vertFactor(vertFactor)
+                                                 SWMMVisProjectWindow *projectWindow,
+                                                 QWidget *parent)
+    : QDialog(parent), m_raster(raster), m_projectWindow(projectWindow),
+      m_scenePolyline(scenePolyline), m_vertFactor(vertFactor)
 {
     setWindowTitle(tr("Terrain Profile"));
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
@@ -58,12 +60,9 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer         *raster,
     m_options->setShowMaxEnvelopeFill(false);
     m_options->setShowMaxEnvelopeLine(false);
     m_options->setShowCellBoundaries(false);
-    setWindowFlags(Qt::Window
-                   | Qt::WindowSystemMenuHint
-                   | Qt::WindowTitleHint
-                   | Qt::WindowMinMaxButtonsHint
-                   | Qt::WindowCloseButtonHint
-                   | openswmmvis::ui::stayAboveAppFlags());
+    setWindowFlags(Qt::Window | Qt::WindowSystemMenuHint | Qt::WindowTitleHint |
+                   Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint |
+                   openswmmvis::ui::stayAboveAppFlags());
     resize(900, 520);
 
     buildLayout();
@@ -72,9 +71,8 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer         *raster,
 
     // Lifetime: drop external references before any project teardown begins.
     if (m_projectWindow) {
-        connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose,
-                this, [this] {
-            removeOverlay();   // detach from the scene before it's torn down
+        connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this, [this] {
+            removeOverlay(); // detach from the scene before it's torn down
             close();
         });
     }
@@ -87,7 +85,8 @@ RasterProfilePlotDialog::~RasterProfilePlotDialog()
 
 void RasterProfilePlotDialog::setVerticalFactor(double vertFactor)
 {
-    if (qFuzzyCompare(m_vertFactor, vertFactor)) return;
+    if (qFuzzyCompare(m_vertFactor, vertFactor))
+        return;
     m_vertFactor = vertFactor;
     rebuildProfile();
 }
@@ -100,13 +99,19 @@ void RasterProfilePlotDialog::buildLayout()
 
     auto *toolbar = new QToolBar(this);
     toolbar->setIconSize(QSize(20, 20));
-    auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),  tr("Select"));
-    auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),  tr("Zoom In"));
-    auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
-    auto *actFit     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),  tr("Fit"));
+    auto *actSelect = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")), tr("Select"));
+    auto *actZoomIn = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")), tr("Zoom In"));
+    auto *actZoomOut = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
+    auto *actFit =
+        toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")), tr("Fit"));
     toolbar->addSeparator();
-    auto *actPan     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),    tr("Pan"));
-    actSelect->setCheckable(true);  actSelect->setChecked(true);
+    auto *actPan =
+        toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")), tr("Pan"));
+    actSelect->setCheckable(true);
+    actSelect->setChecked(true);
     actZoomIn->setCheckable(true);
     actZoomOut->setCheckable(true);
     actPan->setCheckable(true);
@@ -118,14 +123,16 @@ void RasterProfilePlotDialog::buildLayout()
     modeGroup->addAction(actZoomOut);
     modeGroup->addAction(actPan);
     toolbar->addSeparator();
-    auto *actMapMarker = toolbar->addAction(
-        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")), tr("Move marker on map"));
+    auto *actMapMarker =
+        toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")),
+                           tr("Move marker on map"));
     actMapMarker->setCheckable(true);
     actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
-                                          tr("Display Options…"));
+    auto *actOptions =
+        toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
+                           tr("Display Options…"));
     root->addWidget(toolbar);
 
     m_plot = new MeshProfilePlotWidget(this);
@@ -147,14 +154,18 @@ void RasterProfilePlotDialog::buildLayout()
     // raw DEM Z into model vertical units via the terrain factor.
     auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
     const QString unit = us ? us->lengthLabel() : QString();
-    m_plot->setAxisLabels(unit.isEmpty() ? tr("Distance")  : tr("Distance (%1)").arg(unit),
+    m_plot->setAxisLabels(unit.isEmpty() ? tr("Distance") : tr("Distance (%1)").arg(unit),
                           unit.isEmpty() ? tr("Elevation") : tr("Elevation (%1)").arg(unit));
 
-    connect(actSelect,  &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Identify); });
-    connect(actZoomIn,  &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomIn); });
-    connect(actZoomOut, &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomOut); });
-    connect(actPan,     &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Pan); });
-    connect(actFit,     &QAction::triggered, this, [this] { m_plot->fitToExtent(); });
+    connect(actSelect, &QAction::triggered, this,
+            [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Identify); });
+    connect(actZoomIn, &QAction::triggered, this,
+            [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomIn); });
+    connect(actZoomOut, &QAction::triggered, this,
+            [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomOut); });
+    connect(actPan, &QAction::triggered, this,
+            [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Pan); });
+    connect(actFit, &QAction::triggered, this, [this] { m_plot->fitToExtent(); });
     connect(actMapMarker, &QAction::toggled, this, [this](bool on) { setMarkerToolActive(on); });
     connect(actOptions, &QAction::triggered, this, &RasterProfilePlotDialog::openDisplayOptions);
 }
@@ -168,22 +179,22 @@ void RasterProfilePlotDialog::rebuildProfile()
         m_plot->setProfile(m_profile);
         return;
     }
-    const SpatialReferenceSystem *canvasSRS =
-        (m_projectWindow && m_projectWindow->canvas())
-            ? m_projectWindow->canvas()->canvasSRS()
-            : nullptr;
+    const SpatialReferenceSystem *canvasSRS = (m_projectWindow && m_projectWindow->canvas())
+                                                  ? m_projectWindow->canvas()->canvasSRS()
+                                                  : nullptr;
 
     m_profile = RasterProfileSampler::buildRasterProfile(
-        m_raster->filePath(), m_raster->renderBand(), canvasSRS,
-        m_scenePolyline, m_vertFactor);
+        m_raster->filePath(), m_raster->renderBand(), canvasSRS, m_scenePolyline, m_vertFactor);
     m_plot->setProfile(m_profile);
 }
 
 void RasterProfilePlotDialog::setupMapOverlay()
 {
-    if (!m_projectWindow || m_scenePolyline.size() < 2) return;
+    if (!m_projectWindow || m_scenePolyline.size() < 2)
+        return;
     MapCanvas *canvas = m_projectWindow->canvas();
-    if (!canvas) return;
+    if (!canvas)
+        return;
 
     // Persistent profile line on the map (cleared when this dialog closes).
     m_overlay = new MeshProfileOverlay();
@@ -192,20 +203,20 @@ void RasterProfilePlotDialog::setupMapOverlay()
 
     // Chart cursor → map arrow. setCursorChainage on the chart is display-only,
     // so this connection cannot echo back into the chart.
-    connect(m_plot, &MeshProfilePlotWidget::cursorChainageChanged,
-            this, [this](double chainage) {
-        if (!m_overlay) return;
+    connect(m_plot, &MeshProfilePlotWidget::cursorChainageChanged, this, [this](double chainage) {
+        if (!m_overlay)
+            return;
         m_overlay->setArrowChainage(chainage);
         if (m_projectWindow && m_projectWindow->canvas())
-            m_projectWindow->canvas()->invalidate(
-                MapCanvas::Overlay, QStringLiteral("mesh-profile-marker"));
+            m_projectWindow->canvas()->invalidate(MapCanvas::Overlay,
+                                                  QStringLiteral("mesh-profile-marker"));
     });
 
     // Map-drag tool → chart cursor (display-only; no echo).
     m_markerTool = new MapToolProfileMarker(canvas, this);
     m_markerTool->setOverlay(m_overlay);
-    connect(m_markerTool, &MapToolProfileMarker::markerChainageChanged,
-            this, [this](double chainage) { m_plot->setCursorChainage(chainage); });
+    connect(m_markerTool, &MapToolProfileMarker::markerChainageChanged, this,
+            [this](double chainage) { m_plot->setCursorChainage(chainage); });
 
     // Start the cursor mid-profile so the marker is immediately discoverable.
     const double mid = m_overlay->totalLength() * 0.5;
@@ -216,11 +227,14 @@ void RasterProfilePlotDialog::setupMapOverlay()
 
 void RasterProfilePlotDialog::setMarkerToolActive(bool on)
 {
-    if (!m_projectWindow || !m_markerTool) return;
+    if (!m_projectWindow || !m_markerTool)
+        return;
     MapCanvas *canvas = m_projectWindow->canvas();
-    if (!canvas) return;
+    if (!canvas)
+        return;
     if (on) {
-        if (canvas->activeTool() == m_markerTool) return;
+        if (canvas->activeTool() == m_markerTool)
+            return;
         m_prevTool = canvas->activeTool();
         canvas->setActiveTool(m_markerTool);
     } else if (canvas->activeTool() == m_markerTool) {
@@ -242,8 +256,9 @@ void RasterProfilePlotDialog::removeOverlay()
         if (canvas->meshProfileOverlay() == m_overlay)
             canvas->setMeshProfileOverlay(nullptr);
     }
-    if (m_markerTool) m_markerTool->setOverlay(nullptr);
-    delete m_overlay;        // not a QObject — manual delete after detaching
+    if (m_markerTool)
+        m_markerTool->setOverlay(nullptr);
+    delete m_overlay; // not a QObject — manual delete after detaching
     m_overlay = nullptr;
 }
 
@@ -267,11 +282,10 @@ void RasterProfilePlotDialog::openDisplayOptions()
     tree->header()->setDefaultSectionSize(180);
     pm->setData(QVariant::fromValue<QObject *>(m_options));
     tree->expandAll();
-    connect(m_options, &MeshProfilePlotOptions::changed, pm,
-            [pm] { pm->refreshValues(); });
+    connect(m_options, &MeshProfilePlotOptions::changed, pm, [pm] { pm->refreshValues(); });
 #else
-    lay->addWidget(new QLabel(
-        tr("Property editor unavailable (QPropertyModel not built in)."), dlg));
+    lay->addWidget(
+        new QLabel(tr("Property editor unavailable (QPropertyModel not built in)."), dlg));
 #endif
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, dlg);

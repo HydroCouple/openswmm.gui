@@ -1,9 +1,9 @@
-/*!
- * \file   test_featurelayer_hostwiring.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The feature-layer stack is REACHABLE from the main window
+/**
+ * @file      test_featurelayer_hostwiring.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The feature-layer stack is REACHABLE from the main window
  *         (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §6.2).
  *
  * The layer, store, commands, tools, dialog and panel all landed compiling and
@@ -24,7 +24,9 @@
  * Plus the project guard: the actions are disabled with no project open, and
  * the GeoPackage path is refused for an unsaved model rather than scattering
  * an orphan .gpkg (PLAN §9 Q5).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "swmmvis.h"
 #include "ui/actioncatalog.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
@@ -38,20 +40,16 @@
 #include <QToolBar>
 #include <QToolButton>
 
-namespace {
+namespace
+{
 
 //! The eight actions §6.2 requires, by objectName.
 const QStringList kFeatureActions = {
-    QStringLiteral("actionNewFeatureLayer"),
-    QStringLiteral("actionFeatureEditMode"),
-    QStringLiteral("actionFeatureDelete"),
-    QStringLiteral("actionFeatureDrawPoint"),
-    QStringLiteral("actionFeatureDrawLine"),
-    QStringLiteral("actionFeatureDrawPolygon"),
-    QStringLiteral("actionFeatureAddPart"),
-    QStringLiteral("actionFeatureAddHole"),
-    QStringLiteral("actionFeatureEditVertex"),
-    QStringLiteral("actionFeatureMove"),
+    QStringLiteral("actionNewFeatureLayer"),   QStringLiteral("actionFeatureEditMode"),
+    QStringLiteral("actionFeatureDelete"),     QStringLiteral("actionFeatureDrawPoint"),
+    QStringLiteral("actionFeatureDrawLine"),   QStringLiteral("actionFeatureDrawPolygon"),
+    QStringLiteral("actionFeatureAddPart"),    QStringLiteral("actionFeatureAddHole"),
+    QStringLiteral("actionFeatureEditVertex"), QStringLiteral("actionFeatureMove"),
 };
 
 } // namespace
@@ -62,6 +60,13 @@ class TestFeatureLayerHostWiring : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Construct the real main window owned by this fixture and allow 50 ms of GUI events.
+     * Requires a QApplication and linked UI dependencies. Stores a raw pointer for
+     * cleanupTestCase; the new window is not transferred to another owner.
+     *
+     */
     void initTestCase()
     {
         m_win = new SWMMVis(nullptr);
@@ -69,24 +74,32 @@ private slots:
         QTest::qWait(50);
     }
 
+    /**
+     *
+     * @brief Close and delete the fixture-owned main window, then clear its pointer.
+     * Does nothing if already null. Runs on the GUI thread after the no-project checks.
+     *
+     */
     void cleanupTestCase()
     {
-        if (m_win) { m_win->close(); delete m_win; m_win = nullptr; }
+        if (m_win) {
+            m_win->close();
+            delete m_win;
+            m_win = nullptr;
+        }
     }
 
     /*! 1 — the dock exists, is named (so saveState/restoreState keep it) and
      *  is actually docked in the main window rather than orphaned. */
     void featuresDockIsBuiltAndNamed()
     {
-        auto *dock = m_win->findChild<QDockWidget *>(
-            QStringLiteral("dockWidgetFeatures"));
+        auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("dockWidgetFeatures"));
         QVERIFY2(dock != nullptr, "the Features dock was never constructed");
         QCOMPARE(m_win->dockWidgetArea(dock), Qt::RightDockWidgetArea);
         QVERIFY2(dock->widget() != nullptr, "the Features dock is empty");
 
         // Its toggle action is what View ▸ Panels and the catalog bind.
-        auto *toggle = m_win->findChild<QAction *>(
-            QStringLiteral("actionToggleDockFeatures"));
+        auto *toggle = m_win->findChild<QAction *>(QStringLiteral("actionToggleDockFeatures"));
         QVERIFY2(toggle != nullptr, "no View > Panels toggle for the dock");
     }
 
@@ -105,10 +118,12 @@ private slots:
         // alias; here it would only test the test environment.
         QStringList missing;
         for (const QString &name : kFeatureActions)
-            if (!m_win->findChild<QAction *>(name)) missing << name;
-        QVERIFY2(missing.isEmpty(),
-                 qPrintable(QStringLiteral("missing actions: %1")
-                                .arg(missing.join(QStringLiteral(", ")))));
+            if (!m_win->findChild<QAction *>(name))
+                missing << name;
+        QVERIFY2(
+            missing.isEmpty(),
+            qPrintable(
+                QStringLiteral("missing actions: %1").arg(missing.join(QStringLiteral(", ")))));
 
         // The seven tools are modal and Edit Mode is a latch, so all eight
         // are checkable; New Feature Layer and Delete are one-shot commands
@@ -129,8 +144,7 @@ private slots:
         auto *bar = m_win->findChild<QToolBar *>(QStringLiteral("toolBarFeatures"));
         QVERIFY2(bar != nullptr, "the Features toolbar was never built");
 
-        auto *controller =
-            m_win->findChild<openswmmvis::ui::CompactToolbarController *>();
+        auto *controller = m_win->findChild<openswmmvis::ui::CompactToolbarController *>();
         QVERIFY2(controller != nullptr, "no compact toolbar controller");
         QVERIFY2(controller->tabIds().contains(QStringLiteral("features")),
                  "the 'features' tab id is not mounted on the ribbon");
@@ -142,12 +156,12 @@ private slots:
         // Walk the buttons instead.
         QStringList found;
         for (QToolButton *b : bar->findChildren<QToolButton *>())
-            if (QAction *def = b->defaultAction();
-                def && !def->objectName().isEmpty())
+            if (QAction *def = b->defaultAction(); def && !def->objectName().isEmpty())
                 found << def->objectName();
         QStringList absent;
         for (const QString &name : kFeatureActions)
-            if (!found.contains(name)) absent << name;
+            if (!found.contains(name))
+                absent << name;
         QVERIFY2(absent.isEmpty(),
                  qPrintable(QStringLiteral("never reached the Features toolbar: %1")
                                 .arg(absent.join(QStringLiteral(", ")))));
@@ -170,13 +184,12 @@ private slots:
         QVERIFY2(viewBar != nullptr, "the View toolbar is missing");
         QStringList onView;
         for (QToolButton *b : viewBar->findChildren<QToolButton *>())
-            if (QAction *def = b->defaultAction();
-                def && !def->objectName().isEmpty())
+            if (QAction *def = b->defaultAction(); def && !def->objectName().isEmpty())
                 onView << def->objectName();
         QVERIFY2(onView.contains(QStringLiteral("actionToggleDockFeatures")),
-                 qPrintable(QStringLiteral(
-                     "the Features dock toggle never reached View > Panels; "
-                     "found there: %1").arg(onView.join(QStringLiteral(", ")))));
+                 qPrintable(QStringLiteral("the Features dock toggle never reached View > Panels; "
+                                           "found there: %1")
+                                .arg(onView.join(QStringLiteral(", ")))));
     }
 
     /*!
@@ -194,17 +207,16 @@ private slots:
         for (const QString &name : kFeatureActions) {
             bool seen = false;
             for (const auto &e : openswmmvis::ui::kActionCatalog) {
-                if (QString::fromLatin1(e.objectName) != name) continue;
+                if (QString::fromLatin1(e.objectName) != name)
+                    continue;
                 seen = true;
                 if (!(e.tags & openswmmvis::ui::RequiresProject))
                     untagged << name;
             }
-            QVERIFY2(seen, qPrintable(QStringLiteral("%1 is not in the catalog")
-                                          .arg(name)));
+            QVERIFY2(seen, qPrintable(QStringLiteral("%1 is not in the catalog").arg(name)));
         }
-        QVERIFY2(untagged.isEmpty(),
-                 qPrintable(QStringLiteral("not RequiresProject: %1")
-                                .arg(untagged.join(QStringLiteral(", ")))));
+        QVERIFY2(untagged.isEmpty(), qPrintable(QStringLiteral("not RequiresProject: %1")
+                                                    .arg(untagged.join(QStringLiteral(", ")))));
     }
 
 private:
