@@ -83,6 +83,14 @@ rain-gage attribute table — both edit the same values, so they stay in sync.
 | **Current Rainfall** | Read-only — the resolved value at the current animation time | — |
 | **User Flags** | Per-object user flags (see \ref manual_projects) | `[USER_FLAGS]` |
 
+The **Rainfall Scale Factor** scales the gage's precipitation before it is
+partitioned into rain and snow. A value of `10` gives ten times the source
+precipitation. **Snow Catch Factor (SCF)** acts only on the snow portion; it
+does not increase warm-weather rainfall or the Rainfall Visualization plot.
+Setting both factors to `10` therefore gives ten times the rain and one hundred
+times the snow, before any per-subcatchment factors. Subcatchment rain and snow
+scale factors apply to their respective portions after this partition.
+
 The three file formats are the only ones the engine ever assigns: the parser
 records `USER_CSV` for a `path:column` token and `STAN_PRCP` for a bare path,
 the resolver promotes `STAN_PRCP` to `USER_CSV` on detection, and a gage that

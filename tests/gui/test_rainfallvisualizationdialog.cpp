@@ -17,6 +17,7 @@
 #include "layers/swmmmodellayer.h"
 #include "plot/rainfallseriesmodel.h"
 #include "ui/dialogs/rainfallvisualizationdialog.h"
+#include "ui/properties/swmmraingagepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -30,6 +31,7 @@
 #include <QObject>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <memory>
@@ -92,6 +94,65 @@ class TestRainfallVisualizationDialog : public QObject
     Q_OBJECT
 
 private slots:
+
+    void gageFactorEditsSurviveSave_data()
+    {
+        QTest::addColumn<QString>("gage");
+        QTest::addColumn<bool>("defaultColumn");
+        QTest::addColumn<double>("rainScale");
+        QTest::addColumn<double>("snowCatch");
+        for (const auto &gage : {"TS_NORTH", "STD_EAST", "CSV_SOUTH"}) {
+            QTest::newRow(gage) << QString::fromLatin1(gage) << false << 10.0 << 10.0;
+            QTest::newRow(qPrintable(QString::fromLatin1(gage) + "-precision"))
+                << QString::fromLatin1(gage) << false << 1.23456789 << 0.00123456789;
+        }
+        QTest::newRow("CSV-default-column")
+            << QStringLiteral("CSV_SOUTH") << true << 10.0 << 10.0;
+    }
+
+    /** @brief Exercise GUI meta-property edits, resolved plots, and the saved input used by a run. */
+    void gageFactorEditsSurviveSave()
+    {
+        QFETCH(QString, gage);
+        QFETCH(bool, defaultColumn);
+        QFETCH(double, rainScale);
+        QFETCH(double, snowCatch);
+        auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
+        QVERIFY(layer);
+        SWMMRainGagePropertyAdapter adapter(layer->engine(), gage);
+        if (defaultColumn)
+            adapter.setFileColumn(QString());
+        RainfallSeriesModel before;
+        before.setEngine(layer->engine());
+        QVERIFY(before.reload(true) > 0);
+        const int gi = swmm_gage_index(layer->engine(), qPrintable(gage));
+        QVERIFY(gi >= 0);
+        const auto unscaled = before.gages()[gi].intensity;
+        QVERIFY(!unscaled.isEmpty());
+        QVERIFY(adapter.setProperty("scaleFactor", rainScale));
+        QVERIFY(adapter.setProperty("snowFactor", snowCatch));
+        QCOMPARE(adapter.scaleFactor(), rainScale);
+        QCOMPARE(adapter.snowFactor(), snowCatch);
+        QVERIFY(before.reload(true) > 0);
+        for (int k = 0; k < unscaled.size(); ++k)
+            QCOMPARE(before.gages()[gi].intensity[k], unscaled[k] * rainScale);
+
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString saved = directory.filePath(QStringLiteral("scaled.inp"));
+        QCOMPARE(swmm_model_write(layer->engine(), qPrintable(saved)), SWMM_OK);
+        auto reopened = openLayer(saved);
+        QVERIFY(reopened);
+        SWMMRainGagePropertyAdapter restored(reopened->engine(), gage);
+        QCOMPARE(restored.scaleFactor(), rainScale);
+        QCOMPARE(restored.snowFactor(), snowCatch);
+        RainfallSeriesModel after;
+        after.setEngine(reopened->engine());
+        QVERIFY(after.reload(true) > 0);
+        const auto &scaled = after.gages()[gi];
+        QVERIFY(!scaled.fileFailed);
+        QCOMPARE(scaled.intensity, before.gages()[gi].intensity);
+    }
 
     /** @brief Verify all six rainfall sources expose their full five-sample record outside simulation dates.
      * Checks a focused cumulative series reaches seventeen inches, represents the first fifteen-minute accumulation correctly and reports all sources OK. */
