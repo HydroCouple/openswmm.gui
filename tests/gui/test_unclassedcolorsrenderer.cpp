@@ -7,8 +7,8 @@
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.9):
  *           - Continuous color mapping over [minValue, maxValue].
- *           - Below-min / above-max / no-data branches all produce
- *             distinct sentinel colours.
+ *           - Below-min is hidden, above-max saturates to the ramp end,
+ *             and nonfinite/missing values use the no-data colour.
  *           - symbolFor overrides the SymbolLayer "color" prop only when
  *             the slot exists (round-trip with GraduatedRenderer's
  *             convention).
@@ -39,36 +39,143 @@ class TestUnclassedColorsRenderer : public QObject
     Q_OBJECT
 private slots:
     // colorForValue
+    /**
+     * @brief Verify value5 in [0,10] matches Viridis ramp fraction0.5 RGB.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_inRangeMatchesRampSampling();
+    /**
+     * @brief Verify underflow value-5 produces zero alpha for [0,10].
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_belowMinIsHidden();
+    /**
+     * @brief Verify legacy red below-range override cannot reveal hidden underflow.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_legacyBelowSentinelDoesNotShowUnderflow();
+    /**
+     * @brief Verify overflow100 saturates to ramp endpoint1 for [0,10].
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_aboveMaxUsesRampEndByDefault();
+    /**
+     * @brief Verify legacy magenta above-range override does not replace saturated ramp
+     * endpoint.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_legacyAboveSentinelDoesNotChangeSaturation();
+    /**
+     * @brief Verify both NaN and positive infinity use explicit gray no-data color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_nanReturnsNoData();
+    /**
+     * @brief Verify equal min/max5 returns valid midpoint ramp color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_degenerateRangeReturnsMidpoint();
+    /**
+     * @brief Verify exact range endpoints map to ramp fractions0 and1.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void colorForValue_clampsToZeroOne();
 
     // symbolFor
+    /**
+     * @brief Verify numeric attribute recolors an existing color property and underflow hides
+     * whole symbol.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_overridesColorPropWhenPresent();
+    /**
+     * @brief Verify missing color slot stays absent and marker size12.5 survives mapping.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_leavesNonColorPropsUntouched();
+    /**
+     * @brief Verify missing classification attribute writes configured yellow no-data color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_missingAttributeReturnsNoData();
+    /**
+     * @brief Verify nonnumeric apples classification writes configured cyan no-data color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_nonNumericAttributeReturnsNoData();
 
     // Legend
+    /**
+     * @brief Verify configured legend count7 yields seven symbol items.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void legend_emitsLegendLabelCountItems();
+    /**
+     * @brief Verify legend endpoint values equal configured range0..100.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void legend_firstItemAtMinLastItemAtMax();
+    /**
+     * @brief Verify three legend positions across0..10 are exactly0,5,10.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void legend_evenlySpacedValues();
+    /**
+     * @brief Verify legend label count1 is clamped to minimum2.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void legend_minimumTwoEvenWhenSetToOne();
 
     // JSON
+    /**
+     * @brief Verify JSON restores attribute, range, explicit sentinels and legend count8.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void json_roundTripPreservesEveryField();
+    /**
+     * @brief Verify default below/above sentinel and legend count keys are omitted from JSON.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void json_omitsDefaultedSentinels();
+    /**
+     * @brief Verify runtime and serialized renderer class IDs both equal unclassed.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void json_rendererIdIsUnclassed();
 
     // Clone
+    /**
+     * @brief Verify changing original range after cloning preserves clone range0..5 and class.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void clone_isIndependent();
 
     // Rule factory integration
+    /**
+     * @brief Verify Rule JSON factory reconstructs unclassed renderer with depth range0..3.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void ruleFactory_dispatchesUnclassedFromJson();
 };
 

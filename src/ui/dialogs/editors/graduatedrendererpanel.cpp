@@ -34,6 +34,18 @@ namespace
 class GraduatedPanel : public IRendererPanel
 {
 public:
+    /**
+     * @brief Compose optional base-symbol controls and a contextual per-kind classification
+     * panel.
+     * @param ctx Borrowed context consumed during construction; raw host/rule targets must
+     * outlive created child editors. Rule+host+category chooses contextual rule constructor,
+     * rule-only uses its sentinel context, otherwise host+category uses legacy kind dispatch.
+     * @param parent Optional Qt owner; caller owns parentless panel.
+     * Unsupported layer-only context shows a label. When both base and classification panels
+     * exist, a callback enables named baseSymbolSize spins iff output size-by-value is off;
+     * it borrows base-owned controls and is initialized immediately. Embedded construction/
+     * refresh can seed a missing classification attribute. No separate undo/Cancel snapshot.
+     */
     explicit GraduatedPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent)
     {
@@ -77,7 +89,17 @@ public:
         }
     }
 
+    /**
+     * @brief Perform no explicit refresh in this wrapper despite its embedded classification
+     * panel.
+     * Does not call the child's refresh or subscribe to host changes here; callers needing
+     * fresh child state must use normal child paths/remounting. No model mutation.
+     */
     void refreshFromModel() override { /* delegated to the embedded panel */ }
+    /**
+     * @brief Return this panel's translated display label.
+     * @return Owned Graduated string, independent of renderer availability.
+     */
     QString displayName() const override { return tr("Graduated"); }
 };
 

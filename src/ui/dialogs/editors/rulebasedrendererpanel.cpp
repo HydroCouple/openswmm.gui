@@ -13,12 +13,9 @@
  *           - Buttons     : Add / Remove / Move up / Move down / Clear
  *           - Fallback    : colour swatch + label for the no-match case
  *
- *         First-match order matters, hence the explicit Move up / Move
- *         down buttons.  Expression eval is still gated behind Slice
- *         BI.2 (LabelExpression DSL) so a banner at the top of the
- *         panel calls that out — empty-expression rules already work
- *         today (they "match always") and are useful for static
- *         "default rule first" setups.
+ *         First-match order matters; explicit Move up/down controls preserve order.
+ *         The expression evaluator is active. Empty expressions match always,
+ *         so an unconditional rule usually belongs after more specific rules.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -65,6 +62,14 @@ class RuleColorDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Paint a BackgroundRole color swatch over optional selection background without item
+     * text.
+     * @param p Borrowed non-null active painter, saved/restored around drawing.
+     * @param opt Borrowed row geometry/palette/selection state; four-pixel inset applied.
+     * @param idx Borrowed valid color-cell index; invalid/noncolor data yields no swatch.
+     * Does not modify model data or draw standard focus/text decorations.
+     */
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         const QColor c = idx.data(Qt::BackgroundRole).value<QColor>();
@@ -80,13 +85,31 @@ public:
         p->restore();
     }
 
-    QWidget *createEditor(QWidget *, const QStyleOptionViewItem &,
-                          const QModelIndex &) const override
+    /**
+     * @brief Disable standard inline color-cell editor creation.
+     * @param parent Borrowed ignored widget owner candidate.
+     * @param option Borrowed ignored style option.
+     * @param index Borrowed ignored index.
+     * @return Null unconditionally; color selection instead uses editorEvent's modal picker.
+     */
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
     {
         return nullptr;
     }
 
-    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,
+    /**
+     * @brief Handle a double-click with an alpha-enabled parentless color picker and
+     * BackgroundRole write.
+     * @param e Borrowed non-null event, consumed only for MouseButtonDblClick.
+     * @param m Borrowed non-null writable model, retained by caller through modal reentry.
+     * @param option Borrowed ignored style option.
+     * @param idx Borrowed logical cell index; model/row identity must survive nested dialog
+     * execution because no persistent-index or post-dialog lifetime validation is used.
+     * @return False for other events, true for handled double-click including Cancel or
+     * refused setData. Invalid current color seeds white; setter result is ignored.
+     */
+    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &option,
                      const QModelIndex &idx) override
     {
         if (e->type() != QEvent::MouseButtonDblClick)
@@ -102,6 +125,12 @@ public:
     }
 };
 
+/**
+ * @brief Build a detached style containing one default SymbolLayer and its canonical color
+ * QVariant.
+ * @param c Borrowed color copied through SymbolProps::writeColor, without validity check.
+ * @return Owned style; no target mutation, geometry inference or retained reference.
+ */
 OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
 {
     OpenSWMM::Render::SymbolStyle s;
@@ -113,6 +142,11 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
     return s;
 }
 
+/**
+ * @brief Read the first supported color encoding from a symbol through shared tolerant lookup.
+ * @param sty Borrowed symbol, not mutated.
+ * @return Owned QColor, possibly invalid if no readable color; no synthesized fallback.
+ */
 QColor swatchFromSymbol(const OpenSWMM::Render::SymbolStyle &sty)
 {
     // Gap A1.2 — tolerant read over both encodings and grammar keys.
@@ -124,6 +158,17 @@ QColor swatchFromSymbol(const OpenSWMM::Render::SymbolStyle &sty)
 class RuleBasedPanel : public IRendererPanel
 {
 public:
+    /**
+     * @brief Build a live ordered expression/label/color table and fallback swatch for the copied
+     * target context.
+     * @param ctx Borrowed context copied; raw rule/host targets must outlive panel and all
+     * callbacks, including modal dialogs. Rule takes renderer priority; legacy paths require
+     * model/results plus category. No layer-level fallback.
+     * @param parent Optional Qt owner; caller owns parentless panel.
+     * Owns table/model/delegate/buttons, connects actions and immediately refreshes. Every
+     * edit mutates live renderer then clone-installs through normal target notifications;
+     * no expression compilation, undo, Cancel snapshot or external-change subscription here.
+     */
     explicit RuleBasedPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent), m_ctx(ctx)
     {
@@ -215,6 +260,16 @@ public:
         refreshFromModel();
     }
 
+    /**
+     * @brief Open a fallback color picker on swatch double-click and submit an accepted
+     * replacement symbol.
+     * @param o Borrowed event receiver compared by identity to the owned fallback swatch.
+     * @param e Borrowed non-null event.
+     * @return True for that double-click even without a renderer or on Cancel; otherwise
+     * base event-filter result. Live renderer/targets must survive modal reentry unchanged,
+     * since the pre-dialog raw renderer pointer is reused afterward. Accepted color replaces
+     * the complete fallback symbol with a color-only style, then clone-installs/notifies.
+     */
     bool eventFilter(QObject *o, QEvent *e) override
     {
         if (o == m_fallbackSwatch && e->type() == QEvent::MouseButtonDblClick) {
@@ -235,15 +290,29 @@ public:
         return IRendererPanel::eventFilter(o, e);
     }
 
+    /**
+     * @brief Rebuild the rule table and refresh the fallback swatch from the live target.
+     * Does not install a renderer, subscribe to changes or preserve current selection/drafts;
+     * table-generated itemChanged callbacks are suppressed while rebuilding.
+     */
     void refreshFromModel() override
     {
         rebuildTable();
         refreshFallbackSwatch();
     }
 
+    /**
+     * @brief Return the translated panel display label.
+     * @return Owned Rule-based string, without inspecting current renderer class.
+     */
     QString displayName() const override { return tr("Rule-based"); }
 
 private:
+    /**
+     * @brief Resolve/cast the live rule-first or legacy per-kind renderer.
+     * @return Borrowed RuleBasedRenderer or null for missing/wrong target. Expires on target
+     * replacement/destruction; no ownership transfer, clone or layer-level read.
+     */
     RuleBasedRenderer *currentRenderer() const
     {
         IFeatureRenderer *r = nullptr;
@@ -259,6 +328,14 @@ private:
         return dynamic_cast<RuleBasedRenderer *>(r);
     }
 
+    /**
+     * @brief Clone an already-mutated renderer and transfer ownership through the
+     * rule/model/results setter.
+     * @param r Optional borrowed renderer valid throughout clone; null is a no-op.
+     * No target/category means the clone is discarded. A successful install invalidates old
+     * renderer pointers; callers must reacquire before later use. No mutation rollback,
+     * undo, expression validation or status result.
+     */
     void pushBack(RuleBasedRenderer *r)
     {
         if (!r)
@@ -277,6 +354,11 @@ private:
             m_resultsLayer->setKindRenderer(*m_ctx.category, std::move(fresh));
     }
 
+    /**
+     * @brief Read the live fallback color and set the swatch palette, using gray when
+     * unavailable/invalid.
+     * No-op without swatch; does not modify target symbol or emit an edit notification.
+     */
     void refreshFallbackSwatch()
     {
         if (!m_fallbackSwatch)
@@ -288,6 +370,14 @@ private:
         m_fallbackSwatch->setPalette(p);
     }
 
+    /**
+     * @brief Replace table rows from a copy of the live ordered rules under the item-edit
+     * suppression flag.
+     * Uses expression as display label when saved label is empty and deterministic HSV color
+     * for unreadable symbol color. These substitutes are display-only until a subsequent
+     * row edit serializes the entire table. Missing target clears rows; selection/drafts
+     * are lost. Does not parse expressions or clone-install the renderer.
+     */
     void rebuildTable()
     {
         m_suppress = true;
@@ -318,6 +408,12 @@ private:
         m_suppress = false;
     }
 
+    /**
+     * @brief Append an unconditional New rule with a deterministic color to a live rule renderer.
+     * Empty expression matches always and earlier matches can shadow it. Mutates live rules,
+     * clone-installs and rebuilds table; no-op without target. No expression editor, undo
+     * or confirmation dialog.
+     */
     void onAddRule()
     {
         auto *r = currentRenderer();
@@ -334,6 +430,12 @@ private:
         rebuildTable();
     }
 
+    /**
+     * @brief Remove selected table-row rules in descending index order and clone-install the
+     * result.
+     * No-op without target/selection; invalid copied row indices are skipped. Rebuilds rows
+     * and loses selection/drafts, without confirmation, expression validation or undo.
+     */
     void onRemoveSelected()
     {
         auto *r = currentRenderer();
@@ -357,6 +459,12 @@ private:
         rebuildTable();
     }
 
+    /**
+     * @brief Move exactly one selected rule by a signed row offset, install and reselect it.
+     * @param delta Signed offset, normally minus/plus one; zero is accepted and can still
+     * reinstall. Requires valid current selected row; out-of-range destination is a no-op.
+     * Preserves rule payload/order aside from move; no confirmation, undo or status.
+     */
     void moveSelected(int delta)
     {
         auto *r = currentRenderer();
@@ -379,6 +487,11 @@ private:
         m_table->selectRow(to);
     }
 
+    /**
+     * @brief Clear every live rule, clone-install and rebuild the empty table.
+     * No-op without target; retains fallback symbol. No confirmation, undo or dirty-state
+     * comparison, even when rules were already empty.
+     */
     void onClearAll()
     {
         auto *r = currentRenderer();
@@ -389,7 +502,17 @@ private:
         rebuildTable();
     }
 
-    void onRowEdited(QStandardItem *)
+    /**
+     * @brief Serialize every complete table row into ordered rules and clone-install after any
+     * cell change.
+     * @param item Borrowed notification item, deliberately ignored; all three cells of every
+     * row must exist. No-op under rebuild suppression or without target.
+     * Retains existing symbols/scale ranges by row position, updates first-layer color when
+     * valid and synthesizes a color-only style for new/empty symbols. Thus editing another
+     * field can materialize displayed fallback label/color. Does not validate expressions,
+     * deduplicate rows or match identity by expression; no undo/transaction status.
+     */
+    void onRowEdited(QStandardItem *item)
     {
         if (m_suppress)
             return;

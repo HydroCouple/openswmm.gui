@@ -122,6 +122,14 @@ Q_LOGGING_CATEGORY(lcLoadGuiAtp, "openswmm.load.gui")
 class QueryLineEdit final : public QLineEdit
 {
 public:
+    /**
+     * @brief Create an owned token-completion popup and candidate model for the query edit.
+     * @param parent Optional QWidget owner; null leaves lifetime to the caller.
+     * GUI-thread use requires a live application. User text edits recompute suggestions;
+     * activated candidate text is borrowed for that callback and replaces only the token
+     * prefix from the current suggestion start through the cursor, retaining the suffix.
+     * Programmatic field/text changes do not themselves apply a query or alter the engine.
+     */
     explicit QueryLineEdit(QWidget *parent) : QLineEdit(parent)
     {
         m_completer = new QCompleter(this);
@@ -142,6 +150,11 @@ public:
                     setCursorPosition(suggestions.start + candidate.size());
                 });
     }
+    /**
+     * @brief Replace the completion vocabulary and hide the current popup.
+     * @param fields Borrowed column names/aliases copied into the edit; not validated,
+     * normalized or deduplicated here. No query parse, selection or model write occurs.
+     */
     void setFields(const QStringList &fields)
     {
         m_fields = fields;
@@ -149,6 +162,12 @@ public:
     }
 
 protected:
+    /**
+     * @brief Handle Ctrl+Space as an explicit completion request, forwarding all other keys.
+     * @param event Required borrowed key event; accepted/consumed only for Space with the
+     * Control flag present, including additional modifiers. Does not retain the event
+     * or consume ordinary Return, which the query host uses to apply the draft.
+     */
     void keyPressEvent(QKeyEvent *event) override
     {
         if (event->key() == Qt::Key_Space && event->modifiers().testFlag(Qt::ControlModifier)) {
@@ -160,6 +179,13 @@ protected:
     }
 
 private:
+    /**
+     * @brief Refresh token candidates at the current cursor and show/hide the completion popup.
+     * @param explicitRequest True bypasses automatic suppression for a finished token or
+     * one already-complete case-insensitive match. Empty candidate sets still hide popup.
+     * Copies suggestions into the owned model, uses an empty completion prefix and a popup
+     * width of at least 240 pixels. Does not edit query text, parse/apply it or change rows.
+     */
     void showSuggestions(bool explicitRequest = false)
     {
         const auto suggestions = openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
@@ -210,19 +236,42 @@ private:
 class GISVectorAttributeTableModel : public QAbstractTableModel
 {
 public:
+    /**
+     * @brief Create an empty flat attribute cache without binding an OGR layer.
+     * @param parent Optional QObject owner; null leaves lifetime to the caller.
+     * Owns copied headers/rows/FID maps, while source layer and canvas are guarded borrowed
+     * pointers. Access and source iteration must be serialized on the owning GUI thread.
+     */
     explicit GISVectorAttributeTableModel(QObject *parent = nullptr) : QAbstractTableModel(parent)
     {
     }
 
-    /*! Bind to a feature layer (nullptr clears). Reads columns + rows now. */
+    /**
+     * @brief Replace the guarded borrowed source layer and immediately rebuild the cache.
+     * @param layer Optional GIS layer; null clears rows/schema. Does not take ownership,
+     * open a dataset, start an edit session or preserve old cached data on read failure.
+     */
     void setLayer(GISVectorLayer *layer)
     {
         m_layer = layer;
         reload();
     }
+    /**
+     * @brief Expose the currently live source layer.
+     * @return Borrowed pointer, null when unbound/destroyed; does not pin its lifetime.
+     */
     [[nodiscard]] GISVectorLayer *layer() const { return m_layer.data(); }
 
-    /*! Re-read the field schema and every feature from the bound OGR layer. */
+    /**
+     * @brief Reset and refill all cached columns, attributes and row/FID mappings from OGR.
+     * Missing layer/definition leaves an empty cache. Prepends a synthetic 64-bit FID;
+     * keeps integer/integer64/real numeric types, copies other fields as UTF-8 strings
+     * and preserves unset/null as invalid QVariant. Temporarily clears the shared layer's
+     * spatial filter using a clone, retains its attribute filter, then restores the spatial
+     * filter and resets its read cursor. Destroys fetched OGR features/clone after copying.
+     * Emits a model reset and can disturb concurrent iteration: caller serializes OGR use.
+     * Does not change feature attributes, source ownership or the source edit session.
+     */
     void reload()
     {
         beginResetModel();
@@ -291,26 +340,59 @@ public:
         endResetModel();
     }
 
+    /**
+     * @brief Copy the cached display schema.
+     * @return Owned header list, including synthetic FID when a schema was loaded; empty
+     * without a readable definition. Does not reread the OGR layer.
+     */
     [[nodiscard]] QStringList columnHeaders() const { return m_headers; }
 
-    /*! Row↔fid mapping for the selection bridge (MeshAttributeTableModel's
-     *  refForRow/rowForRef idiom). -1 on either miss. */
+    /**
+     * @brief Resolve a cached source row to its OGR feature identifier.
+     * @param row Zero-based source row, independent of proxy sorting/filtering.
+     * @return Stored 64-bit FID or minus one for an out-of-range row; a negative stored
+     * OGR FID is also unusable by the panel's selection/edit paths. No source lookup.
+     */
     [[nodiscard]] long long fidForRow(int row) const
     {
         return (row >= 0 && row < m_fids.size()) ? m_fids[row] : -1;
     }
+    /**
+     * @brief Resolve a cached feature identifier to its source row.
+     * @param fid Exact signed 64-bit OGR FID.
+     * @return Cached row or minus one on miss. Duplicate source FIDs map to the last
+     * loaded row; does not search geometry or reload changed source identities.
+     */
     [[nodiscard]] int rowForFid(long long fid) const { return m_rowByFid.value(fid, -1); }
 
+    /**
+     * @brief Return the flat cache row count.
+     * @param parent Valid parent means no child rows; invalid selects the root.
+     * @return Cached rows at root, otherwise zero; no OGR query.
+     */
     int rowCount(const QModelIndex &parent = {}) const override
     {
         return parent.isValid() ? 0 : static_cast<int>(m_rows.size());
     }
 
+    /**
+     * @brief Return the flat cached schema width.
+     * @param parent Valid parent means no children; invalid selects the root.
+     * @return Cached header count at root, otherwise zero; no OGR query.
+     */
     int columnCount(const QModelIndex &parent = {}) const override
     {
         return parent.isValid() ? 0 : static_cast<int>(m_headers.size());
     }
 
+    /**
+     * @brief Read one cached attribute or its shared numeric/query wrapper.
+     * @param index Source-model cell index; invalid/out-of-bounds returns invalid QVariant.
+     * @param role Display/Edit/ToolTip return cached values; shared attribute-value/sort
+     * roles wrap the Display value with attributeValue(). Other roles are unsupported.
+     * @return Copied value or invalid QVariant for missing/unsupported data. Synthetic
+     * column zero preserves 64-bit FIDs; no source read, coercion or mutation occurs.
+     */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
     {
         if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
@@ -325,6 +407,15 @@ public:
         return m_rows[r].value(c);
     }
 
+    /**
+     * @brief Read cached column names or one-based row numbers.
+     * @param section Horizontal zero-based column or vertical zero-based row number.
+     * @param orientation Horizontal reads names within bounds; vertical returns section+1
+     * without an independent row-bound check.
+     * @param role Only DisplayRole is supported.
+     * @return Header value or invalid QVariant for unsupported orientation/role/column.
+     * Does not reload schema or transfer any source ownership.
+     */
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override
     {
@@ -346,18 +437,32 @@ public:
     // gated on exactly that so a shapefile can never become writable by
     // accident.
 
-    /*! The bound layer as a FeatureLayer with an OPEN edit session, or
-     *  nullptr — the single predicate the flags/setData pair agree on. */
+    /**
+     * @brief Test the source's application-managed edit-session type.
+     * @return Borrowed FeatureLayer only when the guarded source has that type and an
+     * open edit session; null otherwise. Does not independently require an undo stack
+     * or start/commit the session.
+     */
     [[nodiscard]] FeatureLayer *editableFeatureLayer() const
     {
         auto *fl = qobject_cast<FeatureLayer *>(m_layer.data());
         return (fl && fl->isEditing()) ? fl : nullptr;
     }
 
-    /*! The undo stack edits are pushed onto. Without it the model stays
-     *  read-only rather than writing behind the undo history's back. */
+    /**
+     * @brief Replace the guarded borrowed canvas used as edit-command history/context.
+     * @param canvas Optional canvas, not owned; destruction clears the guard. Assignment
+     * alone does not reload, emit flagsChanged or change the source edit session.
+     */
     void setCanvas(MapCanvas *canvas) { m_canvas = canvas; }
 
+    /**
+     * @brief Augment base item flags for non-FID fields in an editable feature session.
+     * @param index Source index; starts with QAbstractTableModel flags. A valid positive
+     * column can gain ItemIsEditable when feature session and canvas exist.
+     * @return Base flags plus that edit flag. Does not independently verify schema bounds
+     * or canvas undoStack() here; setData() performs additional refusal checks.
+     */
     Qt::ItemFlags flags(const QModelIndex &index) const override
     {
         Qt::ItemFlags f = QAbstractTableModel::flags(index);
@@ -367,6 +472,17 @@ public:
         return f;
     }
 
+    /**
+     * @brief Push an undoable application-feature attribute change through the canvas history.
+     * @param index Valid non-FID source cell with resolvable nonnegative FID/schema field.
+     * @param value Borrowed proposed value, coerced with the schema's field type before
+     * comparison.
+     * @param role Only EditRole is accepted.
+     * @return False for missing edit session/canvas/history, bad lookup/index, unchanged
+     * coerced attributes or a pushed command reporting an error; true when the pushed
+     * command reports no error. Push runs its redo immediately; source signals can reload
+     * the cache. No direct OGR setter, field-domain validation, disk save or source adoption.
+     */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override
     {
         if (role != Qt::EditRole || !index.isValid() || index.column() <= 0)
@@ -416,6 +532,12 @@ namespace
 // Column specs for whichever of the two spec-carrying models `src` is,
 // or an empty list for the tabular / GIS sources (which have headers
 // but no ColumnSpec schema).
+/**
+ * @brief Copy column specifications from supported table model types.
+ * @param src Optional borrowed model inspected by QObject cast.
+ * @return Owned SWMM/data-object/mesh specifications, empty for tabular/GIS/other/null
+ * sources. Does not transfer model ownership or synthesize specs from headers.
+ */
 QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
 {
     if (auto *swmm = qobject_cast<const SWMMAttributeTableModel *>(src))
@@ -440,8 +562,15 @@ QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
 class RowPredicate
 {
 public:
-    /*! Resolve `p`'s field names against `src`'s columns.  Cheap to call
-     *  again; it is the per-row work this exists to avoid. */
+    /**
+     * @brief Copy a query and resolve only the column names it actually references.
+     * @param src Borrowed source model, permitted null; must outlive accepts() calls and
+     * be rebound after schema changes. No QObject lifetime guard is retained here.
+     * @param p Borrowed predicate copied into the helper; invalid predicate leaves no mappings.
+     * For each field, exact key/label/header matches across columns beat case-insensitive
+     * matches; non-queryable spec columns are skipped. Unknown fields are recorded, not
+     * inserted into evaluation maps. Does not parse text, reject the query or evaluate rows.
+     */
     void bind(QAbstractItemModel *src, const openswmmvis::QueryPredicate &p)
     {
         m_src = src;
@@ -478,9 +607,9 @@ public:
                 }
             }
             // A field naming no column contributes no map entry, which is
-            // exactly what the old all-columns build did for an unknown
-            // name: lookupField returns an invalid QVariant and every
-            // comparison against it is false.
+            // the missing-field behavior of an absent map entry. Query validation
+            // normally reports missingFields() before installing the predicate;
+            // direct evaluation retains the evaluator's null/missing semantics.
             if (hit >= 0)
                 m_cols.append({hit, field});
             else
@@ -488,8 +617,22 @@ public:
         }
     }
 
+    /**
+     * @brief Copy the last bind's unresolved/non-queryable field names.
+     * @return Owned list; empty can also mean null source/invalid predicate. Does not prove
+     * the query is syntactically valid or recheck a changed source schema.
+     */
     QStringList missingFields() const { return m_missing; }
 
+    /**
+     * @brief Evaluate the bound query from only its resolved attribute-value columns.
+     * @param srcRow Zero-based row in the still-live bound source model.
+     * @param parent Optional same-model parent forwarded to index(), normally invalid root.
+     * @return True without predicate root/source, otherwise evaluateQuery() result on a map
+     * keyed by the user's field spellings. Missing fields contribute no entry and retain
+     * the evaluator's null/missing semantics; callers can reject missingFields() separately.
+     * Does not enforce row bounds itself, read all columns, change filters or mutate values.
+     */
     [[nodiscard]] bool accepts(int srcRow, const QModelIndex &parent = {}) const
     {
         if (!m_pred.root)
@@ -526,11 +669,20 @@ private:
 class FilteringProxy : public openswmmvis::AttributeValueProxy
 {
 public:
+    /**
+     * @brief Construct the shared numeric-sort proxy with empty query/name restrictions.
+     * @param parent Optional QObject owner; null leaves lifetime to the caller.
+     * Owns filter state, borrows source through the base proxy; does not apply an engine edit.
+     */
     explicit FilteringProxy(QObject *parent = nullptr) : openswmmvis::AttributeValueProxy(parent) {}
 
-    /*! `text` is the string `p` was parsed from; `queryText()` hands it
-     *  back so callers can tell whether the proxy's visible rows are
-     *  still the match set for what is in the query bar. */
+    /**
+     * @brief Replace copied query state and invalidate its source-column binding/filter.
+     * @param p Borrowed parsed predicate copied; invalid state behaves as no query restriction.
+     * @param text Borrowed corresponding query text copied verbatim for match-set reuse checks.
+     * Does not parse/validate text or require it to match p. Filtering may alter visible
+     * selection through normal model signals; source data/selection bus are not written here.
+     */
     void setQueryPredicate(const openswmmvis::QueryPredicate &p, const QString &text = {})
     {
         m_predicate = p;
@@ -538,12 +690,20 @@ public:
         m_bound = false;
         invalidateFilter();
     }
+    /**
+     * @brief Copy the text associated with the last installed predicate.
+     * @return Owned text without reparsing or proving it still matches the query edit.
+     */
     [[nodiscard]] QString queryText() const { return m_queryText; }
 
-    /*! Restrict to rows whose name (column `filterKeyColumn()`) is in
-     *  `names`.  `active == false` clears the restriction; an empty set
-     *  with `active == true` matches nothing, which is what the old
-     *  `(?!)` sentinel pattern expressed. */
+    /**
+     * @brief Replace the optional exact-string restriction on the configured identity column.
+     * @param names Borrowed set copied as filter keys, compared case-sensitively to filterRole
+     * text.
+     * @param active True applies the set, including empty-set match-none; false bypasses it.
+     * Equal active/set state is a no-op; otherwise invalidates filtering. Does not apply
+     * a regex, change the predicate, normalize names or write a selection bus.
+     */
     void setNameFilter(const QSet<QString> &names, bool active)
     {
         if (m_nameFilterActive == active && m_names == names)
@@ -552,8 +712,19 @@ public:
         m_nameFilterActive = active;
         invalidateFilter();
     }
+    /**
+     * @brief Inspect whether the identity-name restriction participates in row filtering.
+     * @return Stored activation flag, independent of set emptiness/query validity.
+     */
     [[nodiscard]] bool nameFilterActive() const { return m_nameFilterActive; }
 
+    /**
+     * @brief Replace the borrowed source while invalidating cached query-column resolution.
+     * @param src Optional source model; base proxy manages lifecycle connections, not ownership.
+     * Disconnects only this proxy's own reset handle, preserving base reset behavior even
+     * when src equals the old pointer. New about-to-reset callback clears the binding flag.
+     * Does not clear predicate/name/text state, reload source rows or apply query selection.
+     */
     void setSourceModel(QAbstractItemModel *src) override
     {
         // Drop ONLY our own connection, by handle. A blanket
@@ -577,6 +748,15 @@ public:
     }
 
 protected:
+    /**
+     * @brief Compose exact identity membership with the bound query for one source row.
+     * @param row Zero-based source row provided by Qt.
+     * @param parent Source parent provided by Qt, forwarded to identity/query cell lookup.
+     * @return True without source; false for an active name-set miss; otherwise true for
+     * invalid predicate or the shared RowPredicate result. Lazily binds columns once per
+     * query/source/schema reset. Does not reject unresolved fields independently or mutate
+     * source.
+     */
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override
     {
         auto *src = sourceModel();
@@ -594,6 +774,11 @@ protected:
     }
 
 private:
+    /**
+     * @brief Lazily resolve query field columns against the current source once per invalidation.
+     * Returns when already bound; otherwise binds then marks the mutable cache ready,
+     * including null/invalid state. No row evaluation, source ownership or engine write.
+     */
     void ensureBound() const
     {
         if (m_bound)
@@ -624,6 +809,16 @@ namespace
 //
 // ClearAndSelect with an empty selection clears, which is what the
 // preceding clearSelection() used to do.
+/**
+ * @brief Replace a view's row selection with mapped visible source rows in one select call.
+ * @param sel Optional borrowed selection model for the proxy view; null is a no-op.
+ * @param proxy Optional borrowed proxy bound to src; null is a no-op.
+ * @param src Optional borrowed source supplying row-zero-column indices; null is a no-op.
+ * @param srcRows Borrowed source row numbers; invalid/filtered-out mappings are omitted.
+ * Sorts/deduplicates proxy rows and coalesces contiguous ranges across all proxy columns.
+ * An empty result or zero-column view clears selection. Signals follow Qt select();
+ * this helper does not suppress bus feedback, preserve prior selection or mutate rows.
+ */
 void selectSourceRows(QItemSelectionModel *sel, QSortFilterProxyModel *proxy,
                       QAbstractItemModel *src, const QList<int> &srcRows)
 {
@@ -658,6 +853,12 @@ void selectSourceRows(QItemSelectionModel *sel, QSortFilterProxyModel *proxy,
 // understands.  Nodes / Links collapse multiple categories into one
 // selection-ref type because that's the unit `SelectionManager`
 // tracks.
+/**
+ * @brief Map a spatial SWMM category to its shared selection identity family.
+ * @param cat Category enum, including unknown/data-object values.
+ * @return Node for four node categories, Link for five link categories, Subcatchment
+ * or RainGage for those categories, Unknown otherwise. No engine/object lookup.
+ */
 SWMMObjectRef::ObjectType objectTypeForCategory(SWMMModelLayer::Category cat)
 {
     switch (cat) {
@@ -688,6 +889,11 @@ SWMMObjectRef::ObjectType objectTypeForCategory(SWMMModelLayer::Category cat)
 // ---------------------------------------------------------------------------
 const QLatin1String kMeshPrefix("mesh:");
 
+/**
+ * @brief Encode a mesh element kind for source/settings keys.
+ * @param k Vertex, Edge or Cell enum; unrecognized values fall back to vertex.
+ * @return v, e or c as a QChar; no layer or persistence access.
+ */
 QChar meshKindChar(MeshAttributeTableModel::Kind k)
 {
     switch (k) {
@@ -701,21 +907,40 @@ QChar meshKindChar(MeshAttributeTableModel::Kind k)
     return QLatin1Char('v');
 }
 
+/**
+ * @brief Compose the combo payload for a mesh layer and element table.
+ * @param layer Borrowed non-null mesh layer valid during layerId() access.
+ * @param kind Element kind encoded by meshKindChar(), with vertex fallback.
+ * @return Owned mesh:layerId:kind key, using the current layer id without validation.
+ * Does not retain/adopt the layer or verify its geometry is loaded.
+ */
 QString meshSourceKey(const SWMM2DMeshLayer *layer, MeshAttributeTableModel::Kind kind)
 {
     return QStringLiteral("mesh:%1:%2").arg(layer->layerId()).arg(meshKindChar(kind));
 }
 
-/*! QSettings sub-key for a mesh table's column widths. Keyed by ELEMENT KIND,
- *  not by layer: layerId is a fresh UUID every session, so keying on it would
- *  mean the saved layout never comes back. The schema is identical for every
- *  mesh of a given kind, so one remembered layout per kind is the useful unit. */
+/**
+ * @brief Compose the session-independent column-layout key for a mesh element kind.
+ * @param kind Vertex/Edge/Cell enum; unrecognized values use vertex.
+ * @return Owned mesh-v/mesh-e/mesh-c key shared by all layers of that kind, not a
+ * layer UUID. Does not read/write QSettings.
+ */
 QString meshWidthsKey(MeshAttributeTableModel::Kind kind)
 {
     return QStringLiteral("mesh-%1").arg(meshKindChar(kind));
 }
 
-/*! Split a "mesh:<layerId>:<kind>" payload. Returns false when it isn't one. */
+/**
+ * @brief Split a mesh combo payload into optional layer-id and kind outputs.
+ * @param key Borrowed mesh:layerId:kind text; prefix comparison is exact.
+ * @param layerId Optional output copied from between prefix and last colon.
+ * @param kind Optional output; e/c select Edge/Cell, every other following character
+ * selects Vertex. When non-null, key must contain a character after the last colon;
+ * this implementation does not guard a trailing colon before key.at().
+ * @return False for wrong prefix/no separating suffix colon, leaving outputs untouched;
+ * true otherwise. Empty ids and unrecognized suffixes are not otherwise rejected.
+ * Does not look up a layer, check geometry availability or verify the id exists.
+ */
 bool parseMeshSourceKey(const QString &key, QString *layerId, MeshAttributeTableModel::Kind *kind)
 {
     if (!key.startsWith(kMeshPrefix))
@@ -739,17 +964,32 @@ bool parseMeshSourceKey(const QString &key, QString *layerId, MeshAttributeTable
 // collides with the int SWMM Category payloads.
 const QLatin1String kDataPrefix("data:");
 
+/**
+ * @brief Compose the combo payload for a nonspatial data-object category.
+ * @param dataCategory Raw category integer, formatted without validating support.
+ * @return Owned data:integer string; no object/model lookup or setting write.
+ */
 QString dataSourceKey(int dataCategory)
 {
     return QStringLiteral("data:%1").arg(dataCategory);
 }
 
-/*! Column-width settings key for a data-object table. */
+/**
+ * @brief Compose the column-layout settings suffix for a data-object category.
+ * @param dataCategory Raw category integer, formatted without validation.
+ * @return Owned data-integer key; does not read/write QSettings.
+ */
 QString dataWidthsKey(int dataCategory)
 {
     return QStringLiteral("data-%1").arg(dataCategory);
 }
 
+/**
+ * @brief Return an untranslated static display-label token for supported data categories.
+ * @param dc Data-category enum; unsupported values use the generic label.
+ * @return Borrowed process-lifetime literal Pollutants/Land Uses/Aquifers/Streets/
+ * Inlets or Data. Caller can translate it; no allocation/engine access.
+ */
 const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
 {
     switch (dc) {
@@ -768,6 +1008,12 @@ const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
     }
 }
 
+/**
+ * @brief Return an untranslated static caption for supported spatial categories.
+ * @param cat Spatial category enum; unrecognized values use Unknown.
+ * @return Borrowed process-lifetime plural category label. Does not count objects,
+ * translate text or mutate category order.
+ */
 const char *categoryLabel(SWMMModelLayer::Category cat)
 {
     switch (cat) {
@@ -1633,12 +1879,21 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
 // Slice Round-4 polish 2026-05-12 — scope persisted column widths
 // per project so users get reproducible layouts for each model.  The
 // scope key derives from the active SWMMModelLayer's modelFilePath():
-//   "<basename>-<8-hex-sha1-of-canonical-path>"
+//   "<basename>-<8-hex-sha1-of-absolute-path>"
 // Basename keeps the QSettings tree human-skimmable; the short hash
 // disambiguates same-named files in different folders without
 // pinning the full filesystem path (which leaks between machines).
 // Returns "default" when no project is bound — so the panel still
 // remembers widths across launches even before a project is opened.
+/**
+ * @brief Derive a readable per-project QSettings scope from a model file path.
+ * @param layer Optional borrowed layer valid during modelFilePath() read.
+ * @return default for null/empty path; otherwise sanitized complete basename plus the
+ * first eight SHA-1 hex digits of absoluteFilePath UTF-8. Replaces slash/backslash/
+ * whitespace in the basename and falls back to project if it becomes empty.
+ * Does not canonicalize symlinks, require file existence, hash file content or provide
+ * collision-free/security identity. Does not itself read/write settings.
+ */
 static QString projectScopeKeyFor(const SWMMModelLayer *layer)
 {
     if (!layer)
@@ -2383,9 +2638,8 @@ void AttributeTablePanel::onZoomToSelectedClicked()
 // Everything is read through the proxy, so the copy honours the query filter,
 // "show selected only", the user's sort, and any hidden columns — what you see
 // is what you paste.  TSV (not CSV) because that is what Excel / Sheets accept
-// straight out of the clipboard.  Consistent with onExportCsvClicked()'s .tsv
-// branch, embedded tabs/newlines are flattened to spaces rather than quoted:
-// TSV has no quoting convention.
+// straight out of the clipboard. Clipboard text flattens embedded tabs/newlines
+// to spaces. The file-export TSV branch writes raw cell text instead.
 // ---------------------------------------------------------------------------
 
 QString AttributeTablePanel::selectionAsTsv() const
@@ -2487,8 +2741,7 @@ void AttributeTablePanel::onExportCsvClicked()
         return s;
     };
 
-    // Header row uses the proxy column headers so user-resorted
-    // columns export in the same order they see.
+    // Export proxy logical column order, including columns hidden in the view.
     const int nCol = m_proxy->columnCount();
     QStringList header;
     for (int c = 0; c < nCol; ++c)

@@ -316,6 +316,11 @@ namespace
 
 // QGIS / ArcGIS-style preset scale list (largest scale → smallest, i.e.
 // most-zoomed-in to most-zoomed-out).  Plain numerator-1 denominators.
+/**
+ * @brief Provide the application map-scale denominator presets in increasing numeric order.
+ * @return Borrowed immutable process-lifetime vector from 100 through 25,000,000; no allocation
+ * or ownership transfer to the caller after static initialization.
+ */
 const QVector<double> &kMapScalePresets()
 {
     static const QVector<double> presets = {100,    200,     500,     1000,     2000,    2500,
@@ -326,6 +331,13 @@ const QVector<double> &kMapScalePresets()
 
 // Format a denominator as "1:12,345" using grouping separators that match
 // the user's locale (falls back to comma if the locale has none).
+/**
+ * @brief Format a finite positive map-scale denominator as a localized 1:N display string.
+ * @param denom Denominator rounded with llround; callers must keep rounded value in signed
+ * 64-bit range, since huge finite inputs are not range-checked here.
+ * @return Owned locale-grouped display; nonpositive/nonfinite input gives literal 1:1.
+ * Tiny positive inputs can round to zero. Does not affect canvas scale or parse input.
+ */
 QString formatScaleText(double denom)
 {
     if (denom <= 0.0 || !std::isfinite(denom))
@@ -337,6 +349,14 @@ QString formatScaleText(double denom)
 
 // Parse "1:N", "N", "1 : N" etc. with grouping characters into a positive
 // denominator.  Returns 0.0 if the string is not a valid scale.
+/**
+ * @brief Parse a positive finite denominator from bare N or optional 1: prefix text.
+ * @param raw Borrowed input copied/trimmed; removes commas, spaces, nonbreaking/narrow spaces
+ * and apostrophes before QString::toDouble. Dot is the decimal separator; grouping removal
+ * is permissive and is not a locale-aware numeric grammar.
+ * @return Positive finite value, or zero for empty/failed/nonpositive/nonfinite input.
+ * Does not clamp to presets or retain the string.
+ */
 double parseScaleText(const QString &raw)
 {
     QString s = raw.trimmed();
@@ -363,7 +383,20 @@ double parseScaleText(const QString &raw)
 class MapScaleValidator : public QValidator
 {
 public:
+    /**
+     * @brief Construct a validator for permissive partial map-scale typing.
+     * @param parent Optional Qt owner; caller owns a parentless validator. No text is validated
+     * during construction and no canvas or settings reference is retained.
+     */
     explicit MapScaleValidator(QObject *parent = nullptr) : QValidator(parent) {}
+    /**
+     * @brief Classify scale input against the editor's permissive character grammar without
+     * modifying it.
+     * @param input Borrowed mutable text inspected only; whitespace-only is Intermediate.
+     * The unnamed cursor-position reference is deliberately ignored and unchanged.
+     * @return Acceptable for a regex match, otherwise Invalid. Character acceptance does not
+     * prove a positive finite denominator: parseScaleText performs semantic validation.
+     */
     State validate(QString &input, int & /*pos*/) const override
     {
         if (input.trimmed().isEmpty())
@@ -665,15 +698,29 @@ namespace
 
 /**
  * @brief Proxy style that forces tab-close buttons to render on the
- *        RIGHT side of the tab. macOS's native Qt style defaults to
- *        LEFT (Safari convention); the SWMM GUI preference is RIGHT so
- *        the close affordance matches the platform-neutral / Windows
- *        feel the rest of the app uses.
+ * RIGHT side of the tab. macOS's native Qt style defaults to
+ * LEFT (Safari convention); the SWMM GUI preference is RIGHT so
+ * the close affordance matches the platform-neutral / Windows
+ * feel the rest of the app uses.
  */
 class TabCloseRightStyle : public QProxyStyle
 {
 public:
+    /**
+     * @brief Create a proxy style forcing MDI close buttons to the right side.
+     * @param base Base style passed to QProxyStyle, which manages it under Qt's proxy-style
+     * ownership contract. Caller must follow Qt style-sharing/lifetime rules; no clone here.
+     */
     explicit TabCloseRightStyle(QStyle *base) : QProxyStyle(base) {}
+    /**
+     * @brief Override only tab-close position and forward all other style hints to the proxy
+     * base.
+     * @param hint Requested Qt style hint; SH_TabBar_CloseButtonPosition returns RightSide.
+     * @param opt Optional borrowed style option forwarded unchanged for other hints.
+     * @param w Optional borrowed widget context forwarded unchanged.
+     * @param r Optional borrowed output structure forwarded to base; not retained.
+     * @return RightSide for the close-position hint, otherwise base result. No widget mutation.
+     */
     int styleHint(QStyle::StyleHint hint, const QStyleOption *opt, const QWidget *w,
                   QStyleHintReturn *r) const override
     {
@@ -684,13 +731,13 @@ public:
 };
 
 /**
- * @brief Show/hide the MDI tab belonging to a sub-window. QMdiArea only
- *        removes tabs when a sub-window is removed from the area — a
- *        merely *hidden* sub-window keeps its tab on screen — so the
- *        hide-in-place welcome scheme must drive the tab's visibility
- *        itself. Tab index == position in subWindowList(): QMdiArea
- *        appends tabs in child-insertion order and its internal tab bar
- *        is not user-reorderable.
+ * @brief Set visibility of the MDI tab corresponding to a known subwindow's insertion-order
+ * index.
+ * @param area Optional borrowed MDI area; null is inert.
+ * @param sub Optional borrowed subwindow; absent membership is inert.
+ * @param visible Requested tab visibility only, without changing the subwindow itself.
+ * No-op without internal tab bar or valid index. Relies on nonreorderable tab order matching
+ * subWindowList; does not remove widgets, acquire ownership or save settings.
  */
 void setSubWindowTabVisible(QMdiArea *area, QMdiSubWindow *sub, bool visible)
 {
@@ -706,16 +753,26 @@ void setSubWindowTabVisible(QMdiArea *area, QMdiSubWindow *sub, bool visible)
 
 /**
  * @brief Item delegate that paints a QProgressBar in the Progress
- *        column of the Simulation Status tree view. Reads the percent
- *        value from Qt::UserRole (an integer 0–100 carried by the
- *        model) and falls back to a blank cell if that role isn't set
- *        (e.g. for the warning child rows).
+ * column of the Simulation Status tree view. Reads the percent
+ * value from Qt::UserRole (an integer 0–100 carried by the
+ * model) and falls back to a blank cell if that role isn't set
+ * (e.g. for the warning child rows).
  */
 class ProgressBarDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Paint the default cell background and an optional bounded horizontal progress
+     * indicator.
+     * @param painter Required borrowed painter, used synchronously by Qt style drawing.
+     * @param option Borrowed view geometry/palette/state; copied before text suppression.
+     * @param index Borrowed model cell; Qt::UserRole must convert to int to draw progress.
+     * Missing/nonconvertible role leaves background only; percent clamps to 0..100. Uses a
+     * maximum 14-pixel band and process-static Fusion style, with app-style fallback. Does
+     * not modify model data, own painter/index or install a real widget in the cell.
+     */
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
@@ -1197,6 +1254,14 @@ void SWMMVis::initializeMeshEditingToolBar()
     // dialogs ([[feedback_data_object_pickers]]). The toolbar stays
     // decoupled from the registries; lambdas close over `this` to
     // resolve the active project window's SWMMModelLayer at click time.
+    /**
+     * @brief Choose a stage/flow timeseries from the current model registry. Argument `cur`:
+     * existing selection used to seed the modal picker. Returns: selected name or empty for
+     * absent
+     * project/model/registry or picker cancellation. Registry stays model-owned; callback does
+     * not
+     * capture a project between activations.
+     */
     auto stagePicker = [this](const QString &cur) -> QString {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer())
@@ -1463,6 +1528,13 @@ void SWMMVis::initializeMeshEditingToolBar()
     // toolbar's cell editor, which prescribes one value to a hand-picked
     // selection. Created here (before registerActions) so the catalog sweep
     // adopts them and themes their icons.
+    /**
+     * @brief Open a modal bulk mesh-attribute assignment dialog. Argument `src`: Raster or Vector
+     * source kind. Returns: no value; resolves active mesh or first project mesh, prompts if
+     * none,
+     * passes canvas/selection/depth units. Project/mesh are borrowed and must survive the modal
+     * operation.
+     */
     auto openAssignDialog = [this](openswmmvis::ui::MeshAttributeAssignDialog::Source src) {
         auto *pw = activeProjectWindow();
         if (!pw)
@@ -1607,6 +1679,13 @@ void SWMMVis::initializeMeshEditingToolBar()
     // G1 (2026-09-07): the two-zone kernel is in the engine, so this editor
     // is live — [2D_AQUIFER_OPTIONS], the per-scope [2D_AQUIFER] rows, the
     // [2D_AQUIFER_NODE] beds, and a read-only state/diagnostics page.
+    /**
+     * @brief Open the 2D aquifer/state editor on a requested page. Argument `page`: initial
+     * groundwater page enum. Returns: no value; missing project yields a null-engine editor. For
+     * a
+     * live target wires dirty-state notification and guarded node undo against engine/mesh
+     * revisions, invalidating context on engine close/destruction or mesh revision change.
+     */
     auto openGwDialog = [this](openswmmvis::ui::Mesh2DGroundwaterDialog::Page page) {
         auto *pw = activeProjectWindow();
         SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
@@ -2063,11 +2142,20 @@ void SWMMVis::initializeAnimationToolBar()
     // All controls share the controller's cursor (currentTime) and windowMs as
     // the single source of truth; programmatic updates are guarded against
     // feedback with QSignalBlocker, mirroring the single-slider wiring above.
+    /**
+     * @brief Read current animation driver duration. Takes no arguments. Returns: signed
+     * start-to-end milliseconds when both timestamps are valid, otherwise zero; caller handles
+     * nonpositive duration.
+     */
     auto driverSpanMs = [this]() -> qint64 {
         const QDateTime s = mAnimationController->driverStartTime();
         const QDateTime e = mAnimationController->driverEndTime();
         return (s.isValid() && e.isValid()) ? s.msecsTo(e) : 0;
     };
+    /**
+     * @brief Map a time into normalized driver range. Argument `dt`: borrowed timestamp. Returns:
+     * [0,1] cursor fraction or zero for invalid/nonpositive span; does not seek the controller.
+     */
     auto normTime = [this, driverSpanMs](const QDateTime &dt) -> qreal {
         const qint64 span = driverSpanMs();
         if (span <= 0 || !dt.isValid())
@@ -2075,6 +2163,12 @@ void SWMMVis::initializeAnimationToolBar()
         return std::clamp(
             double(mAnimationController->driverStartTime().msecsTo(dt)) / double(span), 0.0, 1.0);
     };
+    /**
+     * @brief Map a normalized cursor to driver time. Argument `v`: numeric fraction clamped
+     * [0,1].
+     * Returns: start plus truncated fractional milliseconds, or driver start unchanged when
+     * span/start is invalid; does not change controller state.
+     */
     auto denormTime = [this, driverSpanMs](qreal v) -> QDateTime {
         const QDateTime s = mAnimationController->driverStartTime();
         const qint64 span = driverSpanMs();
@@ -2085,6 +2179,12 @@ void SWMMVis::initializeAnimationToolBar()
     // Push the controller's cursor + window into the single slider (no echo):
     // the thumb goes to the cursor, the band width = window / span. The band is
     // a decoration; only the thumb is interactive.
+    /**
+     * @brief Hydrate animation slider cursor/window from controller state without signal echo.
+     * Takes no arguments and returns no value; ignores missing slider, nonpositive span or
+     * invalid
+     * time, clamps normalized window to [0,1].
+     */
     auto syncCursorFromState = [this, driverSpanMs, normTime]() {
         if (!mAnimationSlider)
             return;
@@ -2118,6 +2218,11 @@ void SWMMVis::initializeAnimationToolBar()
     mScrubCoalesceTimer->setSingleShot(true);
     mScrubCoalesceTimer->setInterval(40);
 
+    /**
+     * @brief Apply and clear the most recent valid coalesced seek. Takes no arguments and returns
+     * no value; blocks slider signals while the controller fans out time changes. An invalid
+     * pending time is ignored.
+     */
     auto seekPending = [this]() {
         if (!mPendingSeekTime.isValid())
             return;
@@ -2429,6 +2534,11 @@ void SWMMVis::initializeMapTools()
 
 void SWMMVis::initializeStatusBar()
 {
+    /**
+     * @brief Append a status-bar-owned sunken vertical separator. Takes no arguments and returns
+     * no
+     * value; called during one-time status UI construction.
+     */
     auto addSep = [this]() {
         QFrame *sep = new QFrame(ui->statusBar);
         sep->setFrameShape(QFrame::VLine);
@@ -6770,20 +6880,13 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window, const QStrin
 namespace
 {
 
-/*!
- * \brief Metres per model-CRS linear unit for a 2D result source that carries
- *        no `/crs` variable (a pre-6.0 `.2d.h5`, or the live in-process
- *        `EngineMesh2DSource`). Issue #155.
- *
- * Mirrors `SurfaceRouter2D::initialize` exactly: the engine converts the
- * authored mesh to the solver's SI metres only when `FLOW_UNITS` is
- * US-customary AND the mesh file did not declare `;; UNITS: SI (m)`. Result
- * coordinates therefore need that same factor divided back out before they can
- * be reprojected out of the model CRS.
- *
- * Returns 1.0 — leave the coordinates alone — whenever we cannot establish
- * that the engine scaled. That is the pre-#155 behaviour and keeps the results
- * layer in agreement with SWMM2DMeshLayer rather than inventing a new offset.
+/**
+ * @brief Infer metres per authored mesh coordinate for a 2D source without explicit CRS metadata.
+ * @param window Optional borrowed project; absent model/engine or unit-query failure returns one.
+ * @return One for SI model or first loaded mesh declaring SI; otherwise 0.3048 for US model.
+ * Without a mesh, US flow units alone imply scaling. Uses first mesh rather than active-mesh
+ * identity, does not read HDF5 metadata or transform coordinates; caller applies this fallback
+ * only where source metadata does not already define its own factor.
  */
 double undeclared2DCoordinateScale(SWMMVisProjectWindow *window)
 {
@@ -8914,6 +9017,11 @@ void SWMMVis::onEditReactionSystem()
 namespace
 {
 //! Show + raise the QDockWidget ancestor of \p w (if any).
+/**
+ * @brief Show/raise the first QDockWidget in a widget's ancestor chain, including itself.
+ * @param w Optional borrowed starting widget; null/no dock is inert. Does not set focus,
+ * create a dock, reparent content or acquire ownership.
+ */
 void raiseDockAncestor(QWidget *w)
 {
     for (QWidget *p = w; p; p = p->parentWidget())
@@ -8951,10 +9059,27 @@ using DatasetLoader = std::function<void(const QString &, DatasetDone)>;
 class DatasetBatch : public QObject
 {
 public:
+    /**
+     * @brief Create a queued sequential dataset batch without starting its first load.
+     * @param owner Optional QObject owner; parentless instance needs eventual
+     * completion/deletion.
+     * @param target Borrowed guarded destination; disappearance stops subsequent advance calls.
+     * @param paths Borrowed ordered list copied into batch; duplicates remain.
+     * @param loader Callable moved into batch; must remain callable and report completion once
+     * per file to advance. Work must manage its own asynchronous resource lifetimes.
+     */
     DatasetBatch(QObject *owner, QObject *target, const QStringList &paths, DatasetLoader loader)
         : QObject(owner), target_(target), paths_(paths), loader_(std::move(loader))
     {
     }
+    /**
+     * @brief Start the next path load or schedule deletion when destination vanished/list
+     * exhausted.
+     * Invokes stored loader synchronously with the next copied path and a guarded one-shot done
+     * callback. First done queues the next turn; duplicate done calls are ignored. Missing done
+     * stalls until owner/target deletion; exceptions are not caught and no timeout/cancel is
+     * provided. Does not roll back layers already loaded or retarget to a new project.
+     */
     void advance()
     {
         if (!target_ || next_ == paths_.size()) {
@@ -8980,6 +9105,15 @@ private:
     DatasetLoader loader_;
     int next_ = 0;
 };
+/**
+ * @brief Allocate a target-guarded batch and queue its first sequential load.
+ * @param owner Optional QObject parent; normally main window, kept valid by caller protocol.
+ * @param target Optional borrowed destination; null is inert and destruction queues batch
+ * deletion.
+ * @param paths Borrowed list copied into batch; empty is inert.
+ * @param loader Callable moved into batch; owns loading/error reporting and must invoke its
+ * done callback to continue. No return/result aggregation, worker pool or atomic rollback.
+ */
 void addDatasetBatch(QObject *owner, QObject *target, const QStringList &paths,
                      DatasetLoader loader)
 {
@@ -9663,6 +9797,20 @@ namespace
 // either an inline mesh ([2D_VERTICES] + [2D_TRIANGLES]) is embedded, or a
 // [2D_MESH_FILE] reference resolves to an existing file. Mirrors the engine's
 // activation rule (mesh presence, not a module flag).
+/**
+ * @brief Heuristically inspect authored model text for inline mesh section names or an existing
+ * referenced mesh path, for the GUI 2D warning/default-output branch.
+ * @param[in] inpPath Borrowed INP path read synchronously as UTF-8; relative external FILE token
+ * resolves against its directory.
+ * @return False for unreadable file/missing eligible reference, true if text contains both
+ * case-insensitive [2D_VERTICES] and [2D_TRIANGLES] substrings anywhere, or first meaningful FILE
+ * line after first [2D_MESH_FILE] names an existing path.
+ * @note Whole-file substring tests can match comments and do not require nonempty/valid inline
+ * records. External scan skips blank/full-semicolon comments, stops at next section or first
+ * noncomment record, joins simplified tokens; does not strip quotes/inline comments or check
+ * referenced file is regular/readable/parseable. Does not activate solver, mutate engine, read
+ * module flag or recursively validate mesh.
+ */
 bool twoDMeshResolves(const QString &inpPath)
 {
     QFile f(inpPath);

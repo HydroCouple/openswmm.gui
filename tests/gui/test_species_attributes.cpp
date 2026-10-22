@@ -52,6 +52,7 @@ private slots:
     void inflowConstituentsLiftTheExclusionForAgeOnly();
 };
 
+/** @brief Verify persisted species tokens preserve exact names, exclude fixed attributes and refuse empty species. */
 void TestSpeciesAttributes::attributeTokenRoundTrips()
 {
     // The token is what lands in .oswp — it must carry the NAME.
@@ -75,6 +76,7 @@ void TestSpeciesAttributes::attributeTokenRoundTrips()
     QVERIFY(speciesFromAttribute(QStringLiteral("qual:")).isEmpty());
 }
 
+/** @brief Verify reserved age/temperature labels hide internal names and report hours/degrees Celsius while pollutants retain concentration units. */
 void TestSpeciesAttributes::reservedSpeciesGetFriendlyLabelsAndUnits()
 {
     const QString age = QString::fromLatin1(kWaterAgeName);
@@ -101,6 +103,7 @@ void TestSpeciesAttributes::reservedSpeciesGetFriendlyLabelsAndUnits()
              QStringLiteral("ug/L"));
 }
 
+/** @brief Verify species output codes use the supplied run list and object-kind base, following column reordering by name. */
 void TestSpeciesAttributes::outCodeResolvesAgainstTheRunsSpeciesList()
 {
     // A run carrying two pollutants then the two reserved columns — the
@@ -138,6 +141,7 @@ void TestSpeciesAttributes::outCodeResolvesAgainstTheRunsSpeciesList()
              int(SWMM_OUT_NODE_POLLUT_BASE) + 1);
 }
 
+/** @brief Verify absent, empty, malformed and case-mismatched species tokens resolve to -1 without selecting another column. */
 void TestSpeciesAttributes::outCodeRejectsUnknownAndMalformed()
 {
     const QStringList species = {QStringLiteral("TSS")};
@@ -158,6 +162,7 @@ void TestSpeciesAttributes::outCodeRejectsUnknownAndMalformed()
     QCOMPARE(speciesOutCode(QStringLiteral("qual:tss"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
 }
 
+/** @brief Verify first misses identify token/species/run, repeats are silent, non-species are ignored and reset permits a new warning. */
 void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
 {
     using OpenSWMMVis::Species::SpeciesMissWarner;
@@ -182,6 +187,7 @@ void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
     QVERIFY(!w.noteMiss(QStringLiteral("qual:Lead"), QStringLiteral("run2")).isEmpty());
 }
 
+/** @brief Verify inflow choices contain FLOW/pollutants/age with hours labeling while excluding temperature and restricting mass loading to pollutants. */
 void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
 {
     using namespace OpenSWMMVis::Species;

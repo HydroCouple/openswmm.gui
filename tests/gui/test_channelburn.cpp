@@ -55,6 +55,10 @@ namespace
 
 /*! Flow area of a normalised section at \p d, by exact trapezoidal integration
  *  of the wetted part. The profile is piecewise linear, so this is exact. */
+/** @brief Integrate wetted area exactly over the fixture piecewise-linear profile.
+ * @param[in] ns Valid normalized section with station and relZ vectors of equal size and ordered station coordinates.
+ * @param[in] d Water depth above the normalized bed datum, in the section linear units.
+ * @return Wetted area in squared section units, using trapezoids and linearly clipped crossing segments; no input validation. */
 double areaAtDepth(const mesh::NormalizedSection &ns, double d)
 {
     double a = 0.0;
@@ -74,6 +78,10 @@ double areaAtDepth(const mesh::NormalizedSection &ns, double d)
     return a;
 }
 
+/** @brief Sum the wetted horizontal interval width of a piecewise-linear section.
+ * @param[in] ns Valid ordered normalized profile with equally sized station/relZ vectors.
+ * @param[in] d Water depth above its bed datum in section units.
+ * @return Wetted top width in section linear units; segments with both endpoints dry contribute zero. No input validation is added. */
 double topWidthAtDepth(const mesh::NormalizedSection &ns, double d)
 {
     double w = 0.0;
@@ -93,6 +101,8 @@ double topWidthAtDepth(const mesh::NormalizedSection &ns, double d)
     return w;
 }
 
+/** @brief Build full-section normalization options for engine comparisons.
+ * @return Independent options with bank clipping disabled and stringCount zero. */
 mesh::BurnOptions burnOptions()
 {
     mesh::BurnOptions o;
@@ -103,6 +113,8 @@ mesh::BurnOptions burnOptions()
 
 } // namespace
 
+/** @brief Register trapezoid, triangle, open rectangle and parabola dimensions with shape-specific width/area tolerances.
+ * Rectangle uses 0.00201 for its finite wall batter, while trapezoid/triangle use 1e-6 and parabola 1e-3. */
 void TestChannelBurn::reconstructionMatchesEngineTables_data()
 {
     QTest::addColumn<int>("shape");
@@ -123,6 +135,8 @@ void TestChannelBurn::reconstructionMatchesEngineTables_data()
     QTest::newRow("parabolic") << int(SWMM_XSECT_PARABOLIC) << 2.0 << 6.0 << 0.0 << 0.0 << 1e-3;
 }
 
+/** @brief Verify the production width-ladder reconstruction matches US-unit engine section area/top width at ten depths.
+ * Uses 128 cosine-spaced ladder samples and frees the comparison section handle after all assertions. */
 void TestChannelBurn::reconstructionMatchesEngineTables()
 {
     QFETCH(int, shape);
@@ -175,6 +189,7 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
     swmm_xsect_free(x);
 }
 
+/** @brief Verify refining a parabolic width ladder from thirty-two to 256 samples reduces maximum absolute width error by more than fourfold. */
 void TestChannelBurn::parabolicConvergesWithTheLadder()
 {
     // The parabolic row's slack is quadrature, so refining the depth ladder
@@ -186,6 +201,9 @@ void TestChannelBurn::parabolicConvergesWithTheLadder()
     SWMM_XSect x = nullptr;
     QCOMPARE(swmm_xsect_create(SWMM_XSECT_PARABOLIC, 2.0, 6.0, 0, 0, SWMM_UNITS_US, &x), SWMM_OK);
 
+    /** @brief Reconstruct the captured parabola at one ladder resolution and measure its worst sampled width difference.
+     * Argument `samples`: ladder sample count passed directly to cosineDepthLadder; test callers use valid positive counts.
+     * Returns: maximum absolute width error at ten depths in the fixture's US linear units. Uses the borrowed sampler/section handle and does not check each engine width getter status. */
     auto maxWidthError = [&](int samples) {
         const QVector<double> depths = mesh::cosineDepthLadder(yFull, samples);
         const mesh::NormalizedSection ns = mesh::normalizeSection(
@@ -211,6 +229,7 @@ void TestChannelBurn::parabolicConvergesWithTheLadder()
             QStringLiteral("no convergence: 32 samples %1, 256 samples %2").arg(coarse).arg(fine)));
 }
 
+/** @brief Verify transformed irregular geometry preserves asymmetric banks/roughness and agrees with engine top-width tables within two percent. */
 void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
 {
     // 12-point transect with a non-zero Xfactor / Yfactor, deliberately
@@ -275,6 +294,8 @@ void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
     swmm_xsect_free(x);
 }
 
+/** @brief Verify a circular section is closed and a trapezoid is open through the production sampler gate.
+ * The implemented body does not create or assert a STREET section despite historical surrounding commentary. */
 void TestChannelBurn::openChannelGateRejectsClosedShapes()
 {
     // The burn's gate is XsectSampler::fullProps().open — swmm_xsect_is_open()

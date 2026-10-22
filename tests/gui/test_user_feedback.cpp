@@ -121,14 +121,27 @@ namespace
 class FeedbackRun : public IRunLayer
 {
 public:
+    /** @brief Name this synthetic comparison-plot run.
+     * @return The fixed label "feedback". */
     QString scenarioName() const override { return "feedback"; }
+    /** @brief Identify the synthetic series units.
+     * @return SI for all attributes supplied by this fixture. */
     openswmmvis::plot::UnitSystem unitSystem() const override
     {
         return openswmmvis::plot::UnitSystem::SI;
     }
+    /** @brief Expose the first synthetic series timestamp.
+     * @return 46023 in the plotting interface's Julian-day representation. */
     double startDateJulian() const override { return 46023; }
+    /** @brief Expose the synthetic comparison run length.
+     * @return Three report periods. */
     int periodCount() const override { return 3; }
+    /** @brief Expose the synthetic comparison report interval.
+     * @return Sixty seconds. */
     int reportStepSeconds() const override { return 60; }
+    /** @brief Replace a requested plot series with three successful synthetic samples.
+     * The unnamed object reference and attribute arguments are intentionally ignored; every request receives values 0, 1 and 2, one minute apart starting at Julian day 46023.
+     * @param[out] out Required series object whose success flag, count, times and values are replaced. */
     void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.ok = true;
@@ -155,9 +168,21 @@ public:
 class FeedbackMeshSource : public IMesh2DSource
 {
 public:
+    /** @brief Expose the synthetic mesh vertex count.
+     * @return Four vertices. */
     int vertexCount() const override { return 4; }
+    /** @brief Expose the synthetic mesh cell count.
+     * @return Two triangles. */
     int triangleCount() const override { return 2; }
+    /** @brief Expose the number of valid synthetic depth frames.
+     * @return Two frames. */
     int timeCount() const override { return 2; }
+    /** @brief Replace geometry outputs with a two-triangle unit square in metres.
+     * @param[out] x Four vertex x coordinates: 0, 1, 0, 1 metres.
+     * @param[out] y Four vertex y coordinates: 0, 0, 1, 1 metres.
+     * @param[out] z Four zero bed elevations in metres.
+     * @param[out] cells Two triangles using zero-based vertex indices (0,1,3) and (0,3,2).
+     * @return Always true; all output vectors are replaced. */
     bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
                           std::vector<std::array<int, 3>> &cells) override
     {
@@ -167,6 +192,10 @@ public:
         cells = {{0, 1, 3}, {0, 3, 2}};
         return true;
     }
+    /** @brief Read a uniform one-metre depth for both synthetic cells.
+     * @param[in] t Zero-based frame index; only 0 and 1 are accepted.
+     * @param[out] depths Replaced with two ones on success; unchanged for an invalid index.
+     * @return True for a valid frame, false otherwise. */
     bool readDepthsAt(int t, std::vector<float> &depths) override
     {
         if (t < 0 || t >= timeCount())
@@ -174,10 +203,15 @@ public:
         depths = {1, 1};
         return true;
     }
+    /** @brief Compute a synthetic frame timestamp without validating its index.
+     * @param[in] t Frame offset in one-minute increments; arithmetic accepts indices outside the two-frame range.
+     * @return January 1, 2026 at local midnight plus t times sixty seconds, using QDateTime's default time specification. */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime()).addSecs(t * 60);
     }
+    /** @brief Declare the synthetic geometry's linear unit.
+     * @return A declared coordinate reference with stored units m and one metre per model unit; no CRS identifier is assigned. */
     openswmmvis::io::CoordinateReference coordinateReference() const override
     {
         openswmmvis::io::CoordinateReference ref;
@@ -187,6 +221,8 @@ public:
         return ref;
     }
 };
+/** @brief Build two triangles on a unit square with bed z = 0.5x + 0.25y.
+ * @return Independent successful mesh value containing four vertices and two cells, used to distinguish slope-driven edge widths. */
 mesh::MeshResult edgeFixture()
 {
     mesh::MeshResult mesh;
@@ -208,6 +244,8 @@ mesh::MeshResult edgeFixture()
     mesh.ok = true;
     return mesh;
 }
+/** @brief Configure a borrowed mesh for edge-only rendering at every zoom.
+ * @param[in,out] layer Marks the mesh active, disables fill/nodes/boundaries and slope-driven widths, and sets the edge zoom cutoff to zero. */
 void isolateMeshEdges(SWMM2DMeshLayer &layer)
 {
     layer.setActiveMesh(true);
@@ -217,6 +255,9 @@ void isolateMeshEdges(SWMM2DMeshLayer &layer)
     layer.meshBcSublayer()->setVisible(false);
     layer.meshEdgeSublayer()->edgeStyle()->setUseSlopeDrivenWidth(false);
 }
+/** @brief Render the fixed edge-fixture viewport to a white 360-by-360 pixel image.
+ * @param[in,out] scene Scene rendered through a temporary painter from scene rectangle (-0.1,-1.1,1.2,1.2); item ownership stays with the scene.
+ * @return Newly allocated premultiplied ARGB image containing the rendered scene. */
 QImage renderMeshEdges(QGraphicsScene &scene)
 {
     QImage image(360, 360, QImage::Format_ARGB32_Premultiplied);
@@ -225,6 +266,10 @@ QImage renderMeshEdges(QGraphicsScene &scene)
     scene.render(&painter, QRectF(0, 0, 360, 360), QRectF(-.1, -1.1, 1.2, 1.2));
     return image;
 }
+/** @brief Count exact-color pixels along the fixture's bottom-edge sampling column.
+ * @param[in] image Image at least 181 pixels wide and 350 high; this helper performs no bounds validation.
+ * @param[in] color Color to match exactly, including alpha.
+ * @return Count at x=180 over y=310 through 349, used as an approximate stroke width in pixels. */
 int bottomEdgeWidth(const QImage &image, QColor color)
 {
     int pixels = 0;
@@ -233,6 +278,10 @@ int bottomEdgeWidth(const QImage &image, QColor color)
             ++pixels;
     return pixels;
 }
+/** @brief Borrow a direct geometry child by render-pass position.
+ * @param[in] root Nullable scene-graph root; ownership is retained by its tree.
+ * @param[in] index Zero-based child position; negative values select the first child.
+ * @return Borrowed geometry node, or nullptr for a missing root/child or a nongeometry child. */
 QSGGeometryNode *meshEdgePass(QSGNode *root, int index)
 {
     QSGNode *node = root ? root->firstChild() : nullptr;
@@ -241,6 +290,9 @@ QSGGeometryNode *meshEdgePass(QSGNode *root, int index)
     return node && node->type() == QSGNode::GeometryNodeType ? static_cast<QSGGeometryNode *>(node)
                                                              : nullptr;
 }
+/** @brief Find the first populated flat-color geometry node in depth-first tree order.
+ * @param[in] root Nullable borrowed tree; geometry nodes are expected to hold non-null geometry.
+ * @return Borrowed matching node, including root itself, or nullptr when none exists. */
 QSGGeometryNode *populatedFlatNode(QSGNode *root)
 {
     if (!root)
@@ -256,6 +308,10 @@ QSGGeometryNode *populatedFlatNode(QSGNode *root)
             return node;
     return nullptr;
 }
+/** @brief Measure the first stroke quad's transformed transverse vector length.
+ * @param[in] root Required transform node when node has at least six vertices; its matrix converts the vector to viewport units.
+ * @param[in] node Nullable geometry node using Point2D vertex layout and non-null geometry.
+ * @return Length between vertices 0 and 2 after transformation, or zero when node is absent or has fewer than six vertices. */
 qreal meshStrokeWidth(QSGTransformNode *root, QSGGeometryNode *node)
 {
     if (!node || node->geometry()->vertexCount() < 6)
@@ -265,6 +321,10 @@ qreal meshStrokeWidth(QSGTransformNode *root, QSGGeometryNode *node)
         .mapVector(QVector3D(points[0].x - points[2].x, points[0].y - points[2].y, 0))
         .length();
 }
+/** @brief Recursively search colored-point geometry for an exact RGBA vertex match.
+ * @param[in] root Nullable borrowed scene tree; geometry nodes must contain geometry.
+ * @param[in] color Exact byte color to find.
+ * @return True when any compatible vertex matches, false for null or unmatched trees. */
 bool hasVertexColor(QSGNode *root, QColor color)
 {
     if (!root)
@@ -284,26 +344,40 @@ bool hasVertexColor(QSGNode *root, QColor color)
             return true;
     return false;
 }
+/** @brief Resolve a retained user-feedback artifact relative to the fixture directory.
+ * @param[in] name Relative artifact name appended below workplans/artifacts/user_feedback; not sanitized or created.
+ * @return Absolute joined path rooted three levels above SWMMVIS_GUI_TEST_DATA. */
 QString artifactPath(const QString &name)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
         .absoluteFilePath("../../../workplans/artifacts/user_feedback/" + name);
 }
+/** @brief Locate the staged user-feedback network model.
+ * @return artifactPath("model.inp"), created by initTestCase. */
 QString fixture()
 {
     return artifactPath("model.inp");
 }
+/** @brief Resolve a retained mesh-edge rendering artifact path.
+ * @param[in] name Relative filename appended below workplans/artifacts/mesh-edge-rendering; not sanitized or created.
+ * @return Absolute joined path rooted three levels above SWMMVIS_GUI_TEST_DATA. */
 QString meshEdgeArtifact(const QString &name)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
         .absoluteFilePath("../../../workplans/artifacts/mesh-edge-rendering/" + name);
 }
 // Batch 3 helpers -------------------------------------------------------------
+/** @brief Resolve a repository example model relative to the configured fixture directory.
+ * @param[in] rel Path appended below examples without sanitization or existence checks.
+ * @return Absolute joined path rooted three levels above SWMMVIS_GUI_TEST_DATA. */
 QString examplePath(const QString &rel)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
         .absoluteFilePath("../../../examples/" + rel);
 }
+/** @brief Resolve a manual tutorial model relative to the fixture directory.
+ * @param[in] name Filename/path appended below docs/manual/tutorials/models without validation.
+ * @return Absolute joined path rooted three levels above SWMMVIS_GUI_TEST_DATA. */
 QString tutorialModelPath(const QString &name)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
@@ -311,6 +385,11 @@ QString tutorialModelPath(const QString &name)
 }
 // Context menus block inside QMenu::exec(): pick the named action from the
 // next popup, recording every action text it offered when asked.
+/** @brief Schedule selection of an exact-text action from the next popup menu.
+ * @param[in] text Copied action text to activate with Return; closes a found menu when no action matches.
+ * @param[out] seen Optional borrowed list receiving nonseparator action labels; must outlive the queued callbacks.
+ * @param[in] attempts Additional 25-millisecond retries when no popup exists; zero still schedules one attempt.
+ * Requires a running GUI event loop; does not signal when polling expires. */
 void pickMenuAction(const QString &text, QStringList *seen = nullptr, int attempts = 80)
 {
     QTimer::singleShot(25, [text, seen, attempts] {
@@ -334,6 +413,9 @@ void pickMenuAction(const QString &text, QStringList *seen = nullptr, int attemp
         menu->close();
     });
 }
+/** @brief Schedule closing the next active message box while a modal call runs.
+ * @param[in] attempts Additional 25-millisecond retries if no message box exists; zero still schedules one attempt.
+ * Requires the GUI event loop and silently stops after exhausting retries. */
 void closeNextMessageBox(int attempts = 80)
 {
     QTimer::singleShot(25, [attempts] {
@@ -345,6 +427,11 @@ void closeNextMessageBox(int attempts = 80)
             closeNextMessageBox(attempts - 1);
     });
 }
+/** @brief Find the first accepted column-zero model index in depth-first row order.
+ * @param[in] model Required borrowed model queried synchronously; it must remain stable during traversal.
+ * @param[in] accept Callable predicate evaluated before visiting each row's children; must be callable.
+ * @param[in] parent Starting parent index, or invalid for top-level rows.
+ * @return First accepted index, or an invalid index when no row matches. */
 QModelIndex findRow(QAbstractItemModel *model,
                     const std::function<bool(const QModelIndex &)> &accept,
                     const QModelIndex &parent = {})
@@ -361,6 +448,10 @@ QModelIndex findRow(QAbstractItemModel *model,
     }
     return {};
 }
+/** @brief Find a network category header by its tree-model roles.
+ * @param[in] model Required borrowed object-browser model traversed recursively.
+ * @param[in] cat Network category to match among nonleaf SectionNetwork rows.
+ * @return First matching header index, or invalid when absent. */
 QModelIndex categoryRow(QAbstractItemModel *model, SWMMModelLayer::Category cat)
 {
     return findRow(model, [cat](const QModelIndex &idx) {
@@ -376,6 +467,8 @@ class TestUserFeedback : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Isolate feedback-test settings, register canvas QML types and stage a model with coordinates and full node/link reporting.
+     * Clears the selected settings namespace and writes the retained model fixture; subsequent slots share this fixture and settings state. */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName("openswmm-feedback-test");
@@ -395,6 +488,7 @@ private slots:
                     original.readAll() +
                     "\n[COORDINATES]\nJ1 20 20\nO1 80 80\n[REPORT]\nNODES ALL\nLINKS ALL\n") > 0);
     }
+    /** @brief Verify one hundred hide/show toggles retain the same persistent series-tree item and restore the visible chart line. */
     void rapidSeriesToggleKeepsItemAndRestoresLine()
     {
         ComparisonPlotDialog dialog;
@@ -424,6 +518,8 @@ private slots:
         QVERIFY(chart);
         QVERIFY(chart->series().first()->isVisible());
     }
+    /** @brief Verify an explicit Keyboard preferences category overrides a previously persisted Canvas & CRS layout selection.
+     * Installs a dialog-layout event watcher temporarily and removes it after both dialogs close. */
     void explicitPreferencesCategorySurvivesLayoutRestore()
     {
         DialogLayoutWatcher watcher;
@@ -445,12 +541,14 @@ private slots:
         dialog.hide();
         qApp->removeEventFilter(&watcher);
     }
+    /** @brief Verify mesh vertex and edge selection actions expose nonempty menu text. */
     void meshActionsHaveMenuLabels()
     {
         MeshEditingToolbar toolbar("Mesh");
         QVERIFY(!toolbar.findChild<QAction *>("actionMeshSelectVertex")->text().isEmpty());
         QVERIFY(!toolbar.findChild<QAction *>("actionMeshSelectEdge")->text().isEmpty());
     }
+    /** @brief Verify saving a built-in XYZ basemap does not duplicate its name among the Add Basemap dialog choices. */
     void savedBuiltinBasemapAppearsOnce()
     {
         BasemapConnectionStore::instance()->saveXYZ(XYZConnection::builtins().first(), {});
@@ -463,6 +561,7 @@ private slots:
                     ++count;
         QCOMPARE(count, 1);
     }
+    /** @brief Verify the shared labels editor propagates an emitted expression-config change to its model layer. */
     void labelsTabExposesSharedExpressionEditor()
     {
         SWMMModelLayer layer("");
@@ -477,6 +576,7 @@ private slots:
                                           Q_ARG(OpenSWMM::Render::LabelConfig, cfg)));
         QCOMPARE(layer.labelConfig().expression, cfg.expression);
     }
+    /** @brief Verify applying a changed object-defaults unit-set choice persists when the page is reconstructed. */
     void objectDefaultsRemembersEditingUnitSet()
     {
         auto *prefs = PreferencesManager::instance();
@@ -491,6 +591,8 @@ private slots:
         reopened.loadFrom(prefs);
         QCOMPARE(reopened.findChild<QComboBox *>()->currentIndex(), target);
     }
+    /** @brief Verify global conduit width updates inherited styles while preserving a customized layer size.
+     * Restores the original global pen with a scope guard. */
     void globalConduitPenUpdatesInheritedLayerStyle()
     {
         auto *prefs = PreferencesManager::instance();
@@ -508,6 +610,8 @@ private slots:
         QCOMPARE(customized.conduitSymbol().size, 7.);
         prefs->setLinkPen("conduit", original);
     }
+    /** @brief Verify a user-flag edit updates feature identification, edit revision and categorized-renderer color.
+     * Uses PRIORITY values -5 and 8 to distinguish the old red and new green symbols. */
     void userFlagsAreThemeableAndChangesInvalidate()
     {
         SWMMModelLayer layer(fixture());
@@ -541,6 +645,7 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(layer.featureColor(SWMMModelLayer::CatJunctions, 0), QColor(Qt::green));
     }
+    /** @brief Verify categorized renderer field selection stores and refreshes the canonical uf:PRIORITY key. */
     void categorizedPickerUsesUserFlagKey()
     {
         SWMMModelLayer layer(fixture());
@@ -568,6 +673,7 @@ private slots:
         panel->refreshFromModel();
         QCOMPARE(picker->currentData().toString(), QString("uf:PRIORITY"));
     }
+    /** @brief Verify label field choices retain maxDepth across field refresh and preserve a typed legacy field key. */
     void fieldPickersStoreCanonicalKeys()
     {
         SWMMModelLayer layer(fixture());
@@ -590,6 +696,8 @@ private slots:
         field->setEditText("legacy_field");
         QCOMPARE(editor->config().fieldName, QString("legacy_field"));
     }
+    /** @brief Run the fixture and verify result labels render depth, head and an expression containing feet units.
+     * Populates/refreshes a temporary scene, checks visible text and depopulates it before teardown. */
     void resultsLabelsUseFieldAndExpression()
     {
         const QString out = artifactPath("run.out");
@@ -606,6 +714,8 @@ private slots:
         config.fieldName = "depth";
         results.setLabelConfig(config);
         results.populateScene(&scene, MapExtent(0, 0, 100, 100), model.srs());
+        /** @brief Collect visible simple-text labels from the captured scene.
+         * Returns: an independent QStringList of visible QGraphicsSimpleTextItem text in scene iteration order; does not own or change scene items. */
         const auto texts = [&] {
             QStringList labels;
             for (auto *item : scene.items())
@@ -630,6 +740,8 @@ private slots:
         QVERIFY(texts().contains("J1: 100 ft"));
         results.depopulateScene(&scene);
     }
+    /** @brief Verify the preferred model folder overrides model-open history while vector imports keep their fallback.
+     * Clears the project-open preference after checking the fallback behavior. */
     void preferredFolderOverridesOnlyModelHistory()
     {
         auto *prefs = PreferencesManager::instance();
@@ -641,6 +753,7 @@ private slots:
         prefs->setProjectOpenDirectory({});
         QCOMPARE(FileOpenDialog::startDirectory("models", fallback), fallback);
     }
+    /** @brief Verify nice scale-bar distances and labels round in feet, miles and metres, including zero distance. */
     void scaleBarUsesRoundDisplayUnits()
     {
         ScaleBarSettings settings;
@@ -655,6 +768,8 @@ private slots:
         QCOMPARE(settings.niceMetres(4000), 2000.);
         QCOMPARE(settings.niceMetres(0), 0.);
     }
+    /** @brief Verify a label scale limit produces the same image as disabled labels.
+     * Renders to an 800-by-600 buffer and retains visible/hidden PNGs after comparing their pixels. */
     void sceneBufferRenderingHonorsLabelScale()
     {
         MapCanvas canvas;
@@ -670,6 +785,8 @@ private slots:
         config.haloEnabled = false;
         config.color = QColor(231, 17, 109);
         config.fontSizePt = 14;
+        /** @brief Render the captured label scene to a white 800-by-600 premultiplied ARGB image.
+         * Returns: an independent image using scene viewport (0,-100,100,100); the live layer configuration determines label visibility. */
         const auto render = [&] {
             QImage image(800, 600, QImage::Format_ARGB32_Premultiplied);
             image.fill(Qt::white);
@@ -691,6 +808,8 @@ private slots:
         QVERIFY(visible.save(artifactPath("labels-visible.png")));
         QVERIFY(hidden.save(artifactPath("labels-hidden.png")));
     }
+    /** @brief Verify Copy targets the last focused floating attribute table through menu focus changes.
+     * Checks TSV clipboard content, later map focus, and hidden-table exclusion; detaches the borrowed project before destroying its table panel. */
     void menuCopyUsesFloatingTableFocus()
     {
         SWMMVis window;
@@ -739,6 +858,8 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&window, "onCopyActiveView", Qt::DirectConnection));
         QCOMPARE(QGuiApplication::clipboard()->text(), QString("closed table"));
     }
+    /** @brief Verify output/delimited import actions enable only with an open project and closing one project activates the survivor.
+     * A ten-millisecond timer dismisses discard prompts; both projects are closed before checking the final disabled state. */
     void importsRequireProjectAndClosingActivatesSurvivor()
     {
         SWMMVis window;
@@ -781,6 +902,7 @@ private slots:
         QTRY_VERIFY(!import->isEnabled());
         QVERIFY(!delimited->isEnabled());
     }
+    /** @brief Verify the nonmodal style manager can switch layers, survive deletion of the former layer and remain visible with no target. */
     void styleManagerCanRetargetAndSurviveLayerDeletion()
     {
         auto *first = new SWMMModelLayer("");
@@ -794,6 +916,7 @@ private slots:
         QVERIFY(dialog.isVisible());
         dialog.hide();
     }
+    /** @brief Verify scene-graph junction geometry contains the configured outline RGBA and removes it when outline width becomes zero. */
     void qsgNodesHonorOutlineColor()
     {
         MapCanvas canvas;
@@ -820,12 +943,15 @@ private slots:
         root.reset(renderer.updatePaintNode(root.release(), nullptr));
         QVERIFY(!hasVertexColor(root.get(), symbol.outlineColor));
     }
+    /** @brief Register active and inactive mesh edge rendering for the CPU scene path. */
     void cpuMeshEdgesApplyLiveColorAndWidth_data()
     {
         QTest::addColumn<bool>("active");
         QTest::newRow("active") << true;
         QTest::newRow("inactive") << false;
     }
+    /** @brief Verify live CPU edge color/width changes produce four- and eight-pixel strokes within one pixel tolerance.
+     * Checks both active states and retains red/blue PNGs before depopulating the scene. */
     void cpuMeshEdgesApplyLiveColorAndWidth()
     {
         QFETCH(bool, active);
@@ -852,6 +978,8 @@ private slots:
         QVERIFY(first != second);
         layer.depopulateScene(&scene);
     }
+    /** @brief Verify CPU edge rendering switches between slope-driven wide strokes, thin strokes and visible wall colors.
+     * Checks measured widths within one pixel and restores thin rendering when wall display is disabled. */
     void cpuMeshSlopeAndWallStylesApplyLive()
     {
         SWMM2DMeshLayer layer(edgeFixture(), {});
@@ -878,6 +1006,7 @@ private slots:
         QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene), thin) - 4) <= 1);
         layer.depopulateScene(&scene);
     }
+    /** @brief Register active/inactive mesh scene-graph rendering at 360 and 720 pixel view sizes. */
     void gpuMeshEdgesApplyLiveColorAndPixelWidth_data()
     {
         QTest::addColumn<bool>("active");
@@ -887,6 +1016,8 @@ private slots:
         QTest::newRow("inactive-360") << false << 360;
         QTest::newRow("inactive-720") << false << 720;
     }
+    /** @brief Verify scene-graph edge materials and transformed widths update with style and simultaneous selection changes.
+     * Checks four/eight/twelve-pixel strokes and ensures changing a detached layer no longer increments renderer content revision. */
     void gpuMeshEdgesApplyLiveColorAndPixelWidth()
     {
         QFETCH(bool, active);
@@ -934,6 +1065,8 @@ private slots:
         style->setColor(blue);
         QCOMPARE(renderer.contentRevision(), detachedRevision);
     }
+    /** @brief Verify inherited normal-flow boundary preferences update CPU strokes and scene-graph materials/widths.
+     * Checks customized boundary styles resist later global changes, restores original preferences and depopulates the scene. */
     void meshBoundaryPreferencesApplyLiveColorAndWidth()
     {
         auto *prefs = PreferencesManager::instance();
@@ -989,12 +1122,15 @@ private slots:
         QCOMPARE(style->bcWidthForType(1), 12.);
         layer.depopulateScene(&scene);
     }
+    /** @brief Register mesh-results edge updates accompanied by either selection or a new time frame. */
     void meshResultsEdgesUpdateDuringSelectionAndAnimation_data()
     {
         QTest::addColumn<bool>("animate");
         QTest::newRow("selection") << false;
         QTest::newRow("animation") << true;
     }
+    /** @brief Verify synthetic results edge style changes reach CPU and scene-graph rendering during selection or animation.
+     * Checks four/eight-pixel widths, retained geometry/material updates and detached-renderer revision stability. */
     void meshResultsEdgesUpdateDuringSelectionAndAnimation()
     {
         QFETCH(bool, animate);
@@ -1041,6 +1177,8 @@ private slots:
     }
 
     // ── Batch 3 — USER_FEEDBACK_BATCH3_2026-10-15 (C1–C15) ──────────────────
+    /** @brief Verify loading the rule list used by Style Manager Apply updates model-layer renderer type and requests repaint.
+     * Retains the graduated rule JSON and checks the layer keeps the same rule-list object. */
     void styleManagerApplyReachesModelLayer()
     { // C1
         SWMMModelLayer layer(fixture());
@@ -1063,6 +1201,7 @@ private slots:
         QVERIFY(repaint.count() > 0);
         QCOMPARE(layer.ruleList(), list); // the applied list is kept, not rebuilt over
     }
+    /** @brief Run the fixture and verify applying a retained results rule list restores the categorized conduit renderer. */
     void styleManagerApplyReachesResultsLayer()
     { // C1
         const QString out = artifactPath("run.out"), rpt = artifactPath("run.rpt");
@@ -1084,6 +1223,7 @@ private slots:
         QCOMPARE(results.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),
                  QString("categorized"));
     }
+    /** @brief Verify graduated and categorized panels expose base-symbol controls and graduated size-by-value toggles their enabled state. */
     void classifiedRenderersKeepBaseSymbolControls()
     { // C2
         SWMMModelLayer layer(fixture());
@@ -1126,6 +1266,7 @@ private slots:
         QVERIFY(catPanel);
         QVERIFY(catPanel->findChild<QWidget *>("baseSymbolGroup"));
     }
+    /** @brief Verify constructing a graduated results panel assigns the displayed nonempty field to both renderer state and JSON. */
     void graduatedPanelStoresTheShownAttribute()
     { // C3
         const QString out = artifactPath("run.out");
@@ -1136,6 +1277,8 @@ private slots:
         QVERIFY(results.openResults(warnings, errors));
         results.setKindRenderer(SWMMModelLayer::CatConduits,
                                 std::make_unique<OpenSWMM::Render::GraduatedRenderer>());
+        /** @brief Borrow the current results conduit renderer as a graduated renderer.
+         * Returns: the layer-owned renderer, or nullptr when the active renderer has another type; callers must not delete it. */
         auto current = [&] {
             return dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
                 results.kindRenderer(SWMMModelLayer::CatConduits));
@@ -1160,6 +1303,8 @@ private slots:
         QCOMPARE(current()->toJson().value("classifyAttribute").toString(),
                  picker->currentData().toString());
     }
+    /** @brief Verify decimal formatting, JSON persistence, editor updates and rendered field/expression labels agree.
+     * Uses the shared run output and requires three-decimal head text and one-decimal expression text. */
     void labelDecimalsFormatNumbers()
     { // C4
         using OpenSWMM::Render::LabelConfig;
@@ -1193,6 +1338,8 @@ private slots:
         config.decimals = 3;
         results.setLabelConfig(config);
         results.populateScene(&scene, MapExtent(0, 0, 100, 100), model.srs());
+        /** @brief Collect visible simple-text labels from the captured scene.
+         * Returns: an independent QStringList of visible QGraphicsSimpleTextItem text in scene iteration order; does not own or change scene items. */
         const auto texts = [&] {
             QStringList labels;
             for (auto *item : scene.items())
@@ -1209,6 +1356,7 @@ private slots:
         QVERIFY2(texts().contains("J1: 100.0"), qPrintable(texts().join(", ")));
         results.depopulateScene(&scene);
     }
+    /** @brief Verify context-menu Move Up/Down moves the conduits header past visible categories despite hidden categories in the underlying order. */
     void objectBrowserMoveUpStepsPastHiddenCategories()
     { // C5
         SWMMModelLayer layer(fixture());
@@ -1241,6 +1389,8 @@ private slots:
                                   Q_ARG(QPoint, view->visualRect(conduits).center()));
         QTRY_COMPARE(categoryRow(model, SWMMModelLayer::CatConduits).row(), 2);
     }
+    /** @brief Verify numeric metadata and real table/property editors use field-specific increments and precision.
+     * Checks length step 1 and roughness step 0.001, setter mappings and unknown-property absence. */
     void numericEditorsStepByField()
     { // C7
         using openswmmvis::columnSpecForProperty;
@@ -1281,6 +1431,9 @@ private slots:
         SWMMConduitPropertyAdapter adapter(layer.engine(), "C_MAIN");
         QPropertyModel properties(nullptr);
         properties.setData(QVariant::fromValue<QObject *>(&adapter));
+        /** @brief Find a property-model row by the adapter's display label.
+         * Argument `property`: adapter property name converted to its display label before recursive matching.
+         * Returns: first matching column-zero index, or invalid when absent; borrows the captured adapter and model. */
         auto rowFor = [&](const QString &property) {
             const QString label = adapter.displayLabelFor(property);
             return findRow(&properties, [&](const QModelIndex &idx) {
@@ -1304,6 +1457,7 @@ private slots:
         QCOMPARE(roughSpin->singleStep(), 0.001);
         QCOMPARE(roughSpin->decimals(), 4);
     }
+    /** @brief Verify the pollutant context menu offers Edit without Properties and opens a visible editor for TRACER. */
     void objectBrowserEditOpensPollutantEditor()
     { // C8 (+ C6: no Properties… row)
         SWMMModelLayer layer(tutorialModelPath("transport_demo.inp"));
@@ -1346,6 +1500,8 @@ private slots:
         QVERIFY(!offered.contains("Properties…"));
         dialog->close();
     }
+    /** @brief Verify invalid pollutant/node identifiers are refused and valid renames survive model serialization.
+     * Dismisses the invalid-name modal, reopens the renamed pollutant and checks its initial-quality table header. */
     void dataObjectNamesMustBeSwmmIdentifiers()
     { // C10
         QVERIFY(!openswmmvis::swmmIdentifierProblem("Total Nitrogen").isEmpty());
@@ -1389,6 +1545,7 @@ private slots:
         QVERIFY(!network.applyRename("J1", "J 1", SWMMModelLayer::kKindNode));
         QVERIFY(network.applyRename("J1", "J_1", SWMMModelLayer::kKindNode));
     }
+    /** @brief Verify typing a query leaves map selection intact and explicit Add/Subtract combines the matching conduit references. */
     void attributeTableAddAndSubtractCombineWithMapSelection()
     { // C11
         SWMMModelLayer model(examplePath("site_drainage/site_drainage_model.inp"));
@@ -1424,6 +1581,8 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked", Qt::DirectConnection));
         QCOMPARE(selection.selection(), prior);
     }
+    /** @brief Verify real gage and subcatchment map tools use preference prefixes RGX/SCX.
+     * Simulates clicks and polygon completion and restores both original naming prefixes on scope exit. */
     void addToolsHonourNamingPrefixes()
     { // C12
         auto *prefs = PreferencesManager::instance();
@@ -1456,6 +1615,8 @@ private slots:
         subcatch.keyPressEvent(&finish);
         QVERIFY(swmm_subcatch_index(layer->engine(), "SCX1") >= 0);
     }
+    /** @brief Verify subcatchment scene-graph outline width scales by four and becomes zero when disabled.
+     * Measures generated geometry rather than executing a GPU frame. */
     void qsgSubcatchmentOutlineHonoursWidth()
     { // C13
         MapCanvas canvas;
@@ -1465,6 +1626,9 @@ private slots:
         QVERIFY(layer->loadModel(warnings, errors));
         canvas.addLayer(layer, false);
         layer->setGlRenderingEnabled(true);
+        /** @brief Set a subcatchment outline width and inspect newly generated scene-graph stroke geometry.
+         * Argument `width`: requested outline width in pixels, stored on the captured layer symbol.
+         * Returns: transformed transverse stroke length in viewport pixels, or zero for absent/short geometry. Builds and destroys its own scene root and does not perform GPU readback. */
         auto outlineWidthPx = [&](double width) {
             auto symbol = layer->subcatchmentSymbol();
             symbol.outlineWidth = width;
@@ -1486,6 +1650,8 @@ private slots:
                  qPrintable(QString("1 px → %1, 4 px → %2").arg(one).arg(four)));
         QCOMPARE(outlineWidthPx(0), 0.);
     }
+    /** @brief Verify global preferences seed new/inherited gage and subcatchment symbols while preserving customized outlines.
+     * Checks the node-rendering preference bridge and resets both style families to defaults on scope exit. */
     void preferencesSeedGageAndSubcatchmentSymbols()
     { // C14
         auto *prefs = PreferencesManager::instance();
@@ -1510,6 +1676,8 @@ private slots:
         QCOMPARE(bridge.subcatchmentPen().widthF(), 3.);
         QCOMPARE(bridge.rainGageSize(), 14.);
     }
+    /** @brief Verify removing the only conduit interior vertex through an edit command is reversible by undo.
+     * Stages a retained one-bend fixture and checks cached vertex counts after redo and undo. */
     void singleBendVertexCanBeDeleted()
     { // C15
         const QString bend = artifactPath("batch3/bend.inp");
@@ -1537,6 +1705,10 @@ private slots:
     }
 };
 
+/** @brief Run feedback widget tests with retained, isolated INI settings.
+ * @param[in] argc Process argument count passed to QApplication and QtTest.
+ * @param[in,out] argv Process argument array, mutable by QApplication; must satisfy its standard lifetime contract.
+ * @return QtTest execution result. Creates the artifact settings directory, sets the user-scope INI path and runs the test object. */
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);

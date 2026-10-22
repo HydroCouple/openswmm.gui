@@ -102,12 +102,18 @@ O1 40 40
 [REPORT]
 INPUT NO
 )INP";
+/** @brief Truncate a retained fixture/evidence file and flush all bytes.
+ * @param[in] path Output file path whose parent must already exist.
+ * @param[in] bytes Payload written as-is.
+ * @return True only when open, full write and flush succeed; a failure may leave partial output. */
 bool writeFile(const QString &path, const QByteArray &bytes)
 {
     QFile f(path);
     return f.open(QIODevice::WriteOnly | QIODevice::Truncate) && f.write(bytes) == bytes.size() &&
            f.flush();
 }
+/** @brief Build the two-cell forcing-selection geometry.
+ * @return Independent six-vertex mesh with a triangle of area two and quad of area four square metres; success is not explicitly set. */
 mesh::MeshResult geometry()
 {
     mesh::MeshResult m;
@@ -125,6 +131,10 @@ struct Journey {
     UnitSystem units;
     MapToolPick2DCells picker{&canvas, &selection};
     bool attached = false;
+    /** @brief Load the journey model and attach its borrowed mesh to a projected canvas for selection.
+     * @param[in] path Deck to load; stored as the model identity.
+     * @param[out] error Required writable diagnostic assigned on load failure; left unchanged on success.
+     * @return False on model-load failure, otherwise true after EPSG:32618 setup, mesh attachment and picker activation. Scope teardown detaches the stack-owned mesh. */
     bool open(const QString &path, QString *error)
     {
         model.setModelFilePath(path);
@@ -142,12 +152,18 @@ struct Journey {
         picker.activate();
         return true;
     }
+    /** @brief Deactivate the picker and detach the borrowed stack mesh if attached before member destruction. */
     ~Journey()
     {
         picker.deactivate();
         if (attached)
             canvas.takeLayer(canvas.layers().indexOf(&mesh), false);
     }
+    /** @brief Dispatch a synthetic picker event at projected map coordinates.
+     * @param[in] type Press, move or release event; all other types dispatch through the double-click handler.
+     * @param[in] x Map easting in metres.
+     * @param[in] y Map northing in metres.
+     * Requires an opened journey and routes directly to the picker rather than through QApplication mouse delivery. */
     void mouse(QEvent::Type type, double x, double y)
     {
         int px = 0, py = 0;
@@ -165,6 +181,7 @@ struct Journey {
         else
             picker.mouseDoubleClickEvent(&event);
     }
+    /** @brief Select both fixture cells using a box from (-0.2,-0.2) to (4.2,2.2) metres through picker handlers. */
     void selectRectangle()
     {
         picker.setMode(MapToolPick2DCells::Mode::Box);
@@ -172,6 +189,7 @@ struct Journey {
         mouse(QEvent::MouseMove, 4.2, 2.2);
         mouse(QEvent::MouseButtonRelease, 4.2, 2.2);
     }
+    /** @brief Select both fixture cells through a four-corner lasso closed by double-click. */
     void selectPolygon()
     {
         picker.setMode(MapToolPick2DCells::Mode::Lasso);
@@ -180,6 +198,8 @@ struct Journey {
         mouse(QEvent::MouseButtonPress, 4.2, 2.2);
         mouse(QEvent::MouseButtonDblClick, -.2, 2.2);
     }
+    /** @brief Build the exact expected two-cell selection identity.
+     * @return Independent references for cells zero and one using the mesh source path. */
     QSet<SWMMObjectRef> expected() const
     {
         return {mesh::MeshObjectRef::cell(mesh.sourcePath(), 0),
@@ -188,6 +208,7 @@ struct Journey {
 };
 struct Engine {
     SWMM_Engine value = swmm_engine_create();
+    /** @brief Close and destroy the scope-owned engine when allocation succeeded. */
     ~Engine()
     {
         if (value) {
@@ -201,6 +222,12 @@ struct Ledgers {
            speciesResidual = 0, waterStorage = 0, speciesStorage = 0;
     int steps = 0;
 };
+/** @brief Run a reopened groundwater model to completion and read water/species ledgers.
+ * @param[in] path Input deck opened by a newly owned engine.
+ * @param[in] prefix Output stem for retained .rpt/.out files.
+ * @param[in,out] out Required initialized accumulator; step count is incremented without resetting and ledger fields are assigned sequentially, so failure may leave partial results. Water fields are cubic metres and species fields concentration-times-cubic-metres.
+ * @param[out] error Required diagnostic assigned on allocation/lifecycle/ledger failure, inactive groundwater or exceeding ten thousand steps; unchanged on success.
+ * @return True only after initialization, active-kernel check, completion, end and all ledger reads succeed. The owned engine is closed/destroyed on every path. */
 bool simulate(const QString &path, const QString &prefix, Ledgers *out, QString *error)
 {
     Engine e;
@@ -208,6 +235,10 @@ bool simulate(const QString &path, const QString &prefix, Ledgers *out, QString 
         *error = "Cannot create engine";
         return false;
     }
+    /** @brief Translate an engine operation status into the captured diagnostic.
+     * Argument `code`: engine return code, accepting only SWMM_OK.
+     * Argument `operation`: required Latin-1 operation label used on failure.
+     * Returns: success predicate; failure replaces the required caller error string with operation/code text. */
     auto check = [&](int code, const char *operation) {
         if (code != SWMM_OK) {
             *error = QString("%1 failed (%2)").arg(QString::fromLatin1(operation)).arg(code);
@@ -263,6 +294,9 @@ bool simulate(const QString &path, const QString &prefix, Ledgers *out, QString 
                                               &out->speciesStorage),
                  "species storage");
 }
+/** @brief Serialize forcing-run comparison evidence with explicit unit-bearing field names.
+ * @param[in] r Borrowed ledger totals and step count.
+ * @return Independent JSON object; water is m3 and species amounts are concentration-times-m3. */
 QJsonObject json(const Ledgers &r)
 {
     return {{"sourceWaterInM3", r.waterIn},
@@ -281,6 +315,8 @@ class TestPhase35ForcingJourney : public QObject
     Q_OBJECT
     QString output, vectorPath, rasterPath;
 private slots:
+    /** @brief Register GDAL/QML types and create retained constant vector/raster forcing fixtures in EPSG:32618.
+     * Uses SWMMVIS_FORCING_JOURNEY_OUTPUT or source-relative artifacts; both sources store 0.001 and the raster declares -9999 nodata. */
     void initTestCase()
     {
         GDALAllRegister();
@@ -335,6 +371,8 @@ private slots:
         QCOMPARE(raster->GetRasterBand(1)->SetNoDataValue(-9999), CE_None);
         GDALClose(raster);
     }
+    /** @brief Verify real rectangle/lasso selection and manual/vector/raster assignment UI produce matching saved/reopened groundwater simulations.
+     * Checks preview is read-only, apply is one undoable transaction with a recipe, and density mode integrates m/s over cell area. Retains screenshots/decks/recipes/JSON ledgers; compares expected water/species input, residuals and storage against an unforced control. Preview/apply waits are fifteen seconds. */
     void supportedSourcesAgreeAcrossUiRoutesAfterSaveAndRun()
     {
         const auto controlPath = output + "/control.inp";

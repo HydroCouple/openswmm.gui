@@ -1,7 +1,7 @@
 /**
  * @file      heatconfigdialog.cpp
  * @brief     G4g — the heat configuration editor. See the header for scope and
- *        the recorded timeseries-name API gap.
+ *        the hydration and timeseries-binding contracts.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -66,6 +66,18 @@ struct ChannelPreviewProgress {
     int totalLinks = 1;
 };
 
+/**
+ * @brief Map a synchronous channel-contact engine callback into the borrowed GUI progress dialog.
+ * @param[in] stage Preview stage code; the mesh stage selects indexing text and other stages select
+ * contact-mapping text.
+ * @param[in] progress Per-link percentage, combined with the context link index and clamped to
+ * [0,100].
+ * @param[in,out] userData Nonnull pointer to ChannelPreviewProgress that remains alive for the
+ * synchronous API call; its optional dialog is borrowed.
+ * @return Zero without a dialog; otherwise 1 when the user has cancelled, 0 to continue.
+ * @note Pumps all GUI events on the calling thread, so this callback must run on the GUI thread and
+ * its context/dialog/engine lifetimes must survive event processing. The engine argument is unused.
+ */
 int updateChannelPreviewProgress(SWMM_Engine, int stage, int progress, void *userData)
 {
     auto &state = *static_cast<ChannelPreviewProgress *>(userData);
@@ -87,8 +99,27 @@ class PhysicalNumberSpin final : public QDoubleSpinBox
 {
 public:
     using QDoubleSpinBox::QDoubleSpinBox;
+    /**
+     * @brief Format a physical coefficient using the spinbox locale and 12 significant digits.
+     * @param[in] value Numeric coefficient in this control's configured physical units.
+     * @return Compact localized decimal or scientific notation; no unit conversion is performed.
+     */
     QString textFromValue(double value) const override { return locale().toString(value, 'g', 12); }
+    /**
+     * @brief Parse a localized physical number without reporting a separate conversion status.
+     * @param[in] text Numeric text accepted by the spinbox editor.
+     * @return locale().toDouble(text), including its zero result on conversion failure; range
+     * validation occurs separately.
+     */
     double valueFromText(const QString &text) const override { return locale().toDouble(text); }
+    /**
+     * @brief Validate scientific or decimal input against this spinbox's current range and
+     * precision.
+     * @param[in,out] text Editor text forwarded to a locale-aware scientific QDoubleValidator.
+     * @param[in,out] position Cursor position forwarded to the validator.
+     * @return The validator's Acceptable, Intermediate or Invalid state; does not change the stored
+     * numeric value.
+     */
     QValidator::State validate(QString &text, int &position) const override
     {
         QDoubleValidator validator(minimum(), maximum(), decimals());
@@ -115,6 +146,11 @@ const SourceRow kSources[] = {
 constexpr int kSourceCount = int(sizeof(kSources) / sizeof(kSources[0]));
 
 /*! The H1 scope rule: only these two take per-node overrides. */
+/**
+ * @brief Test the two source enums that support per-node inlet-temperature overrides.
+ * @param[in] code Heat source enum or any integer.
+ * @return True only for DWF or external inflow; false for every other code.
+ */
 bool nodeScoped(int code)
 {
     return code == SWMM_HEAT_SRC_DWF || code == SWMM_HEAT_SRC_EXTERNAL_INFLOW;
@@ -122,6 +158,12 @@ bool nodeScoped(int code)
 
 /*! °C spin over the parser's own accepted range ([-50, 100], refused not
  *  clamped engine-side — the spin simply cannot author a refusal). */
+/**
+ * @brief Allocate a two-decimal inlet-temperature spinbox initialized to 20 degrees Celsius.
+ * @param[in] parent Optional Qt owner; when null, the caller must arrange ownership.
+ * @return New spinbox ranging from -50 to 100 degrees Celsius, with a Celsius suffix. Ownership
+ * follows parent/reparenting.
+ */
 QDoubleSpinBox *makeTempSpin(QWidget *parent)
 {
     auto *s = new QDoubleSpinBox(parent);
@@ -132,6 +174,12 @@ QDoubleSpinBox *makeTempSpin(QWidget *parent)
     return s;
 }
 
+/**
+ * @brief Allocate a dimensionless fraction spinbox for physical coefficients.
+ * @param[in] parent Optional Qt owner; null leaves ownership with the caller until reparented.
+ * @return New spinbox with range [0,1], four decimal places and 0.01 step; no separate domain
+ * validation beyond that control range.
+ */
 QDoubleSpinBox *makeFractionSpin(QWidget *parent)
 {
     auto *s = new QDoubleSpinBox(parent);
@@ -179,6 +227,13 @@ const ParamRow kCloudCoeffs[] = {
     {SWMM_HEAT_CLOUD_LW_CLOUD_K, QT_TRANSLATE_NOOP("HeatCfg", "Longwave cloud k")},
 };
 
+/**
+ * @brief Compare hydrated and requested numeric values with Qt's offset fuzzy comparison.
+ * @param[in] a First value in the same physical units as b.
+ * @param[in] b Second value in the same physical units as a.
+ * @return Negation of qFuzzyCompare(1+a,1+b). Callers handle paired nonfinite sentinels separately
+ * where needed; this helper performs no unit conversion.
+ */
 bool changed(double a, double b)
 {
     return !qFuzzyCompare(1.0 + a, 1.0 + b);
@@ -520,6 +575,10 @@ void HeatConfigDialog::buildUi()
         lay->addStretch(1);
 
         // Enabled-state follows the check box; hydration sets the box.
+        /**
+         * @brief Enable or disable all cloud coefficient controls and the optional cloud-series
+         * chooser. Argument `on`: checkbox state; no engine write occurs.
+         */
         auto enableAll = [this](bool on) {
             for (auto *s : m_cloudSpin)
                 if (s)
@@ -1171,6 +1230,12 @@ bool HeatConfigDialog::validateDraft()
                                      .arg(seen.value(key) + 1));
         seen.insert(key, row);
     }
+    /**
+     * @brief Validate a borrowed series combobox against the current live engine. Argument `combo`:
+     * existing draft chooser; `required`: whether an empty name is invalid. Returns true for a
+     * permitted empty choice or an existing type-zero table; otherwise focuses/reports the failure
+     * and returns false.
+     */
     auto validSeries = [this](QComboBox *combo, bool required) {
         const QString name = combo->currentData().toString();
         if (name.isEmpty() && !required)
@@ -1525,6 +1590,13 @@ void HeatConfigDialog::onAccept()
     m_writeFailed = false;
     const int result = swmm_hydrothermal_edit_atomic(
         m_engine,
+        /**
+         * @brief Execute the draft writer synchronously for the atomic acceptance transaction.
+         * Argument `user`: nonnull borrowed HeatConfigDialog passed below; engine argument is
+         * unused.
+         * Returns SWMM_ERR_BADPARAM when checked operations failed, otherwise SWMM_OK to commit.
+         * Stores a provisional mutation count, which onAccept clears if the transaction rolls back.
+         */
         [](SWMM_Engine, void *user) -> int {
             auto *dialog = static_cast<HeatConfigDialog *>(user);
             dialog->m_lastWriteCount = dialog->writeToEngine();
@@ -1642,6 +1714,10 @@ QString HeatConfigDialog::runtimeOverviewText() const
     const bool initialized = engineState == SWMM_STATE_INITIALIZED ||
                              engineState == SWMM_STATE_STARTED ||
                              engineState == SWMM_STATE_RUNNING || engineState == SWMM_STATE_ENDED;
+    /**
+     * @brief Translate the captured engine lifecycle enum into a display label; returns unavailable
+     * for an unknown state without changing the engine.
+     */
     const auto stateName = [engineState]() {
         switch (engineState) {
         case SWMM_STATE_CREATED:
@@ -1673,6 +1749,11 @@ QString HeatConfigDialog::runtimeOverviewText() const
     SWMM_ChannelGroundStatus channel{};
     channel.struct_size = sizeof(channel);
     const bool haveChannel = swmm_heat_get_channel_ground_status(m_engine, &channel) == SWMM_OK;
+    /**
+     * @brief Build request/readiness/activity text. Arguments `requested`, `ready`, `active`: saved
+     * runtime-status flags; `reason`: nullable borrowed UTF-8 explanation copied and trimmed into
+     * the returned QString. Does not infer activity from energy totals.
+     */
     const auto domainState = [](bool requested, bool ready, bool active, const char *reason) {
         QString result = !requested ? QObject::tr("not requested")
                          : !ready   ? QObject::tr("requested; not initialized")
@@ -1745,6 +1826,13 @@ QString HeatConfigDialog::runtimeOverviewText() const
 
     int cellCount = 0;
     if (swmm_2d_cell_count(m_engine, &cellCount) == SWMM_OK && cellCount > 0) {
+        /**
+         * @brief Accumulate finite cumulative cell values in 4096-cell chunks. Argument `kind`:
+         * selected domain value enum; `groundValues`: choose ground versus mesh getter; `total`:
+         * caller-initialized in/out sum in that value's units. Returns true after at least one
+         * finite value, false on any getter error or no finite values. Earlier additions remain in
+         * total on error; callers omit that receipt.
+         */
         const auto sumValues = [this, cellCount](int kind, bool groundValues, double &total) {
             constexpr int chunkSize = 4096;
             std::vector<double> values(static_cast<std::size_t>(std::min(cellCount, chunkSize)));
@@ -1768,6 +1856,11 @@ QString HeatConfigDialog::runtimeOverviewText() const
             return found;
         };
         QStringList receipts;
+        /**
+         * @brief Append a signed joule receipt only if its full cell read succeeds and yields a
+         * finite value. Arguments `kind`: energy enum; `groundValues`: ground/mesh getter selector;
+         * `name`: localized label. Captures the report list and formats eight significant digits.
+         */
         const auto appendReceipt = [&](int kind, bool groundValues, const QString &name) {
             double total = 0.0;
             if (sumValues(kind, groundValues, total))
@@ -1861,6 +1954,12 @@ void HeatConfigDialog::addElementOverride()
         "Network tags and mesh region tags are separate. A 2D cell uses its one-based mesh cell ID."));
     auto *name = new QComboBox(m_elementTable);
     name->setEditable(true);
+    /**
+     * @brief Refresh the row's target suggestions for the captured scope, preserving its typed
+     * text. Borrows the row controls and engine; installs a cell-count-bounded one-based validator
+     * for cell scope, or sorts current network/mesh tags independently. Repeated cell-scope changes
+     * create validators owned by the name control; no model mutation occurs.
+     */
     auto populate = [this, scope, name] {
         const auto previous = name->currentText();
         name->clear();
@@ -1923,6 +2022,11 @@ void HeatConfigDialog::addElementOverride()
     auto *value = new PhysicalNumberSpin(m_elementTable);
     value->setRange(-1e12, 1e12);
     value->setDecimals(12);
+    /**
+     * @brief Set the captured row spinbox's property range and step. Ground-source mode uses
+     * integer values 0/1 with a mode tooltip; other properties use 12 decimals and 0.1 step.
+     * Borrows controls and assumes a valid property code.
+     */
     auto configureValue = [attr, value] {
         const int attribute = attr->currentData().toInt();
         const auto &property = heatProperties()[attribute];
@@ -2012,6 +2116,15 @@ void HeatConfigDialog::previewElements()
     } ctx{this, attr, scope, target, progress};
     const int previewStatus = swmm_hydrothermal_edit_atomic(
         m_engine,
+        /**
+         * @brief Apply the draft, resolve the selected spatial scope, then force transaction
+         * rollback.
+         * Argument `engine`: borrowed transaction engine; `user`: nonnull stack Context valid for
+         * this
+         * synchronous call. Returns SWMM_ERR_BADPARAM both on failure and successful preview so no
+         * settings persist. Context read/cancelled flags distinguish those outcomes; UI rows
+         * survive.
+         */
         [](SWMM_Engine engine, void *user) -> int {
             auto &c = *static_cast<Context *>(user);
             auto *d = c.dialog;
@@ -2019,6 +2132,13 @@ void HeatConfigDialog::previewElements()
             d->writeToEngine();
             if (d->m_writeFailed)
                 return SWMM_ERR_BADPARAM;
+            /**
+             * @brief Resolve one object's effective property and append up to 200 visible rows.
+             * Argument `kind`: concrete node/link/cell scope; `id`: engine identifier, one-based
+             * for cells. Returns SWMM_OK after counting a successful resolution or
+             * SWMM_ERR_BADPARAM on getter failure; output values are SI/degrees Celsius, with NaN
+             * rendered as series/air inheritance. The surrounding transaction always rolls back.
+             */
             const auto append = [&](int kind, const QString &id) -> int {
                 double value = 0;
                 int source = 0;
@@ -2151,6 +2271,11 @@ int HeatConfigDialog::writeElements()
         ++writes;
     }
     for (int r = 0; r < m_elementTable->rowCount(); ++r) {
+        /**
+         * @brief Retrieve a borrowed combobox from the current spatial draft row. Argument `c`:
+         * existing column 0, 1 or 2. Returns that QComboBox pointer; callers assume the table's
+         * widget invariant.
+         */
         auto combo = [&](int c) {
             return qobject_cast<QComboBox *>(m_elementTable->cellWidget(r, c));
         };

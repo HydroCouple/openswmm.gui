@@ -31,8 +31,12 @@ namespace openswmmvis::ui
 namespace
 {
 
-/*! The link kinds that carry a flow direction at all. Nodes and
- *  subcatchments have no upstream/downstream, so the group stays hidden. */
+/**
+ * @brief Classify the five SWMM link kinds that carry upstream/downstream arrow direction.
+ * @param c Category enumeration.
+ * @return True for conduit/pump/orifice/weir/outlet, false for nodes, subcatchments,
+ * gages and unknown values. Pure classification, without layer access.
+ */
 bool isLinkKind(OpenSWMMVis::SwmmCategory c)
 {
     using namespace OpenSWMMVis;
@@ -40,6 +44,13 @@ bool isLinkKind(OpenSWMMVis::SwmmCategory c)
            c == CatOutlets;
 }
 
+/**
+ * @brief Resolve a results feature sublayer's line style without constructing one.
+ * @param layer Optional borrowed results layer, retained by caller during lookup/use.
+ * @param c SWMM kind used for featureSublayer lookup.
+ * @return Borrowed line-style pointer or null for absent layer/sublayer/type mismatch;
+ * no ownership transfer. Returned pointer expires with sublayer/style replacement.
+ */
 OpenSWMM::Render::LineFeatureSublayerStyle *resultsLineStyle(SWMMResultsLayer *layer,
                                                              OpenSWMMVis::SwmmCategory c)
 {

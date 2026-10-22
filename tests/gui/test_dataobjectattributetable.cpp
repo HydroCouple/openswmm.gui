@@ -44,11 +44,15 @@ using DC = SWMMModelLayer;
 namespace
 {
 
+/** @brief Resolve the data-object table fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA or "." when unset; no filesystem changes. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Load a fresh owned data-object fixture layer.
+ * @return Unique layer for data_object_table_fixture.inp, or nullptr on load failure after destroying the failed layer. Diagnostics are local and discarded. */
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
@@ -59,6 +63,10 @@ std::unique_ptr<SWMMModelLayer> openLayer()
     return layer;
 }
 
+/** @brief Find a table column by canonical metadata key.
+ * @param[in] m Borrowed table model queried without mutation.
+ * @param[in] key Exact ColumnSpec key to match.
+ * @return First zero-based matching column, or -1 when absent. */
 int colFor(const DataObjectAttributeTableModel &m, const QString &key)
 {
     const QList<ColumnSpec> specs = m.columnSpecs();
@@ -68,6 +76,10 @@ int colFor(const DataObjectAttributeTableModel &m, const QString &key)
     return -1;
 }
 
+/** @brief Read a named pollutant decay coefficient from the live engine.
+ * @param[in] layer Required loaded layer owning a valid engine.
+ * @param[in] name Required null-terminated pollutant name expected to resolve.
+ * @return Coefficient in inverse days on success, or the initialized -1 sentinel if the unchecked getter fails. */
 double engineKDecay(SWMMModelLayer *layer, const char *name)
 {
     double k = -1.0;
@@ -91,6 +103,7 @@ private slots:
     void nameReferenceColumnRoundTrips();
 };
 
+/** @brief Verify every category advertising an editor also registers an existing-object dispatch callback. */
 void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects()
 {
     const auto &reg = ComprehensiveEditorRegistry::instance();
@@ -106,6 +119,7 @@ void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects()
     }
 }
 
+/** @brief Register five data categories whose fixture registries each contain two objects. */
 void TestDataObjectAttributeTable::rowsMatchRegistry_data()
 {
     QTest::addColumn<int>("category");
@@ -117,6 +131,7 @@ void TestDataObjectAttributeTable::rowsMatchRegistry_data()
     QTest::newRow("inlets") << int(DC::DataInlets) << 2;
 }
 
+/** @brief Verify table rows match registry count, names are read-only and every name resolves back to its row. */
 void TestDataObjectAttributeTable::rowsMatchRegistry()
 {
     QFETCH(int, category);
@@ -138,6 +153,8 @@ void TestDataObjectAttributeTable::rowsMatchRegistry()
     }
 }
 
+/** @brief Verify a pollutant decay edit updates table, provider and engine in one undo step.
+ * Checks same-value edits add no history and undo/redo restore both provider and engine. */
 void TestDataObjectAttributeTable::editWritesProviderEngineAndUndoes()
 {
     auto layer = openLayer();
@@ -173,6 +190,7 @@ void TestDataObjectAttributeTable::editWritesProviderEngineAndUndoes()
     QCOMPARE(engineKDecay(layer.get(), "TSS"), 0.25);
 }
 
+/** @brief Verify two street roughness edits grouped in one undo macro revert together to their original values. */
 void TestDataObjectAttributeTable::bulkEditUndoesInOneStep()
 {
     auto layer = openLayer();
@@ -201,6 +219,7 @@ void TestDataObjectAttributeTable::bulkEditUndoesInOneStep()
     QCOMPARE(reg->findByName(QStringLiteral("ST2"))->roadRoughness(), 0.016);
 }
 
+/** @brief Verify grate/curb inlet fields are editable only for the relevant design type and unused cells are null. */
 void TestDataObjectAttributeTable::inletFieldsFollowType()
 {
     auto layer = openLayer();
@@ -224,6 +243,7 @@ void TestDataObjectAttributeTable::inletFieldsFollowType()
     QVERIFY(!model.setData(model.index(curb, grateLen), 5.0));
 }
 
+/** @brief Verify aquifer evaporation-pattern references display/edit by name and can be assigned or cleared. */
 void TestDataObjectAttributeTable::nameReferenceColumnRoundTrips()
 {
     auto layer = openLayer();

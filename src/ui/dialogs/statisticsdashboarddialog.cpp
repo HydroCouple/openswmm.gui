@@ -57,8 +57,18 @@ namespace
 class StatsFilteringProxy final : public QSortFilterProxyModel
 {
 public:
+    /**
+     * @param[in] parent Optional QObject owner; proxy does not take ownership of external source
+     *   model through binding.
+     * @brief Initialize ordinary Qt sort/filter proxy with empty query predicate.
+     */
     explicit StatsFilteringProxy(QObject *parent = nullptr) : QSortFilterProxyModel(parent) {}
 
+    /**
+     * @param[in] predicate Borrowed parsed predicate copied into proxy; invalid predicate disables
+     *   additional query filtering.
+     * @brief Replace query and invalidate row filter synchronously; source data remains unchanged.
+     */
     void setQueryPredicate(const openswmmvis::QueryPredicate &predicate)
     {
         m_predicate = predicate;
@@ -66,6 +76,13 @@ public:
     }
 
 protected:
+    /**
+     * @param[in] row Zero-based source row tested by Qt.
+     * @param[in] parent Borrowed source parent index used for row data lookup.
+     * @return False if base Qt filter rejects; otherwise true for invalid predicate/missing source,
+     *   or evaluateQuery result over EditRole (DisplayRole fallback) values keyed by translated
+     *   headers and Name alias for first column. No conversion beyond QVariant evaluation.
+     */
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override
     {
         if (!QSortFilterProxyModel::filterAcceptsRow(row, parent))

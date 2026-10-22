@@ -67,6 +67,17 @@ using OpenSWMM::Render::MeshNodeStyle;
 /*! ClassificationEditor bound to a mesh sublayer scheme: the sample
  *  provider feeds "Auto-classify from data" the mesh's bed-elevation
  *  distribution; the range provider gives it zMin/zMax. */
+/**
+ * @brief Allocate a classification editor bound to a mesh style scheme.
+ * @param[in] layer Required borrowed layer supplying bed-elevation samples and zMin/zMax; must
+ * outlive binding callbacks.
+ * @param[in] getter Scheme reader moved into the binding.
+ * @param[in] setter Live scheme writer moved into the binding.
+ * @param[in] continuous Whether to offer continuous classification; range modes are disabled.
+ * @param[in] parent Optional Qt owner.
+ * @return New ClassificationEditor owning its binding and borrowed providers; caller owns it when
+ * parentless.
+ */
 ClassificationEditor *makeMeshClassEditor(SWMM2DMeshLayer *layer,
                                           SublayerSchemeBinding::Getter getter,
                                           SublayerSchemeBinding::Setter setter, bool continuous,
@@ -82,6 +93,11 @@ ClassificationEditor *makeMeshClassEditor(SWMM2DMeshLayer *layer,
 
 /*! Display label for a CellAttribute — the cell-parameter registry's own
  *  label where one exists; Elevation is the one non-registry source. */
+/**
+ * @brief Resolve a mesh color-by-attribute UI label.
+ * @param[in] a Attribute enum converted to its registry key unless Elevation.
+ * @return Translated Bed elevation, registry label for a matching key, or Latin-1 key fallback.
+ */
 QString cellAttributeLabel(MeshFillStyle::CellAttribute a)
 {
     if (a == MeshFillStyle::CellAttribute::Elevation)
@@ -107,6 +123,11 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     if (!m_layer)
         return;
 
+    /**
+     * @brief Transfer a required page into a new tab-owned frameless resizable scroll area.
+     * Argument `page`: widget reparented/owned by the returned scroll area. Returns: new scroll
+     * container; does not create a tab itself.
+     */
     auto wrapScroll = [tabs](QWidget *page) {
         auto *scroll = new QScrollArea(tabs);
         scroll->setWidgetResizable(true);
@@ -116,6 +137,12 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     };
     // Routing contract: LayerStyleDialog::focusInitialSubject() matches
     // tabToolTip == the sublayer id.
+    /**
+     * @brief Append a scrolling page with optional sublayer routing metadata. Argument `page`:
+     * required widget whose ownership transfers to the tab scroll area. Argument `label`: tab
+     * caption. Argument `sub`: nullable borrowed sublayer, read synchronously for its ID tooltip;
+     * not retained. Returns: no value.
+     */
     auto addTab = [tabs, &wrapScroll](QWidget *page, const QString &label,
                                       OpenSWMM::Render::ISublayer *sub) {
         const int idx = tabs->addTab(wrapScroll(page), label);
@@ -183,6 +210,10 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         attrForm->addRow(tr("Category palette:"), palette);
         lay->addWidget(attrBox);
 
+        /**
+         * @brief Enable the palette chooser exactly when the borrowed fill style uses categorical
+         * colors. Takes no arguments and returns no value; writes only control enabled state.
+         */
         auto applyCategorical = [st, palette]() { palette->setEnabled(st->colorsByCategory()); };
         applyCategorical();
 
@@ -250,6 +281,11 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         hsLay->addWidget(sunThumb, 1);
         lay->addWidget(hsBox);
 
+        /**
+         * @brief Apply sun azimuth and synchronize its slider/thumbnail. Argument `v`: degrees
+         * supplied by the [0,360] control. The captured layer must survive; slider signals are
+         * blocked while rounding its integer display. Returns: no value.
+         */
         auto pushAz = [L, azSlider, sunThumb](double v) {
             L->setHillshadeAzimuth(v);
             QSignalBlocker bs(azSlider);
@@ -262,6 +298,11 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
             azimuth->setValue(double(v));
             pushAz(double(v));
         });
+        /**
+         * @brief Apply sun altitude and synchronize its slider/thumbnail. Argument `v`: degrees
+         * supplied by the [0,90] control. The captured layer must survive; slider signals are
+         * blocked while rounding its integer display. Returns: no value.
+         */
         auto pushAlt = [L, altSlider, sunThumb](double v) {
             L->setHillshadeAltitude(v);
             QSignalBlocker bs(altSlider);

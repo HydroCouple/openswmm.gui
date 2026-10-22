@@ -89,6 +89,12 @@ namespace
 {
 
 // Tiny color-chip swatch for the sources-panel rows.
+/**
+ * @brief Render a circular source-color swatch into an owned icon value.
+ * @param[in] c Fill color; outline uses darker(140).
+ * @param[in] sizePx Pixmap side in pixels (normally 14); no positive-size validation.
+ * @return Icon containing the transparent-background pixmap; no caller deletion.
+ */
 QIcon chipIcon(const QColor &c, int sizePx = 14)
 {
     QPixmap p(sizePx, sizePx);
@@ -154,6 +160,11 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer *model, AnimationController 
             onAnimationTimeChanged(primary->currentDateTime());
     }
     if (m_canvas) {
+        /**
+         * @brief Refresh source discovery after a 1D results-layer change. Argument `layer`:
+         * nullable borrowed changed canvas layer, used only for dynamic type check. Returns: no
+         * value; other layer types are ignored.
+         */
         auto refreshForResultLayerChange = [this](OpenSWMMVisLayer *layer) {
             if (!qobject_cast<SWMMResultsLayer *>(layer))
                 return;
@@ -438,6 +449,10 @@ void ProfilePlotDialog::buildLayout()
     // Distance / elevation axis labels — pulled from the active project's
     // UnitSystem so the suffix matches the rest of the GUI.  Re-applied
     // whenever FLOW_UNITS changes so the chart never lies about its units.
+    /**
+     * @brief Copy project/global length labels into plot axis captions. Takes no arguments and
+     * returns no value; changes display labels only, not coordinate magnitudes.
+     */
     auto applyAxisLabels = [this]() {
         auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
         const QString unit = us ? us->lengthLabel() : QString();
@@ -460,6 +475,11 @@ void ProfilePlotDialog::buildLayout()
     // Helpers: marshall LayerToggles ⇄ ProfilePlotOptions so the panel,
     // the plot widget, and the property-model-driven Display Options
     // dialog stay in sync.
+    /**
+     * @brief Snapshot plot toggles with resolved ground selection. Argument `o`: required borrowed
+     * options object. Returns: owned layer-toggle value; useTerrainGround is true for mesh or DEM
+     * and false for node rims.
+     */
     auto togglesFromOptions = [this](ProfilePlotOptions *o) {
         ProfilePlotWidget::LayerToggles t;
         t.currentHglLine = o->currentHglLine();
@@ -479,6 +499,11 @@ void ProfilePlotDialog::buildLayout()
         t.useTerrainGround = (resolvedGroundSource() != ProfilePlotOptions::NodeRims);
         return t;
     };
+    /**
+     * @brief Copy widget toggles into a borrowed options object. Argument `o`: required mutable
+     * options. Argument `t`: borrowed toggle value. Returns: no value; setters may notify live
+     * listeners, terrain flag maps to TerrainDEM or Auto. This retained helper is currently unused.
+     */
     auto applyTogglesToOptions = [](ProfilePlotOptions *o,
                                     const ProfilePlotWidget::LayerToggles &t) {
         o->setCurrentHglLine(t.currentHglLine);
@@ -573,6 +598,12 @@ void ProfilePlotDialog::buildLayout()
     // window flags so it floats above the profile plot dialog (which
     // itself stays on top of the main window).  Reusable from the
     // toolbar action and the plot's right-click context menu.
+    /**
+     * @brief Show a Qt-owned modeless DeleteOnClose profile/options dialog sharing live plot/track
+     * state. Takes no arguments and returns no value. Its output-file action reuses an
+     * absolute-path result layer or creates/inserts a new one, opens data and removes a failed
+     * newly created layer; successful layers join animation/discovery.
+     */
     auto openOptionsDialog = [this]() {
         auto *dlg =
             new ProfileOptionsDialog(m_options, m_anim.data(), m_projectWindow.data(), this);
@@ -742,6 +773,11 @@ void ProfilePlotDialog::buildLayout()
     // A mesh layer appearing / disappearing flips what `Auto` resolves to
     // (and what an explicit Mesh2D can sample): re-derive the ground line.
     if (m_canvas) {
+        /**
+         * @brief Resample ground and 2D overlay after a mesh enters/leaves the canvas. Argument
+         * `l`: nullable borrowed changed layer; ignores nonmesh types. Returns: no value; resets
+         * plot path/toggles and track axes.
+         */
         auto onLayersChanged = [this, togglesFromOptions](OpenSWMMVisLayer *l) {
             if (!qobject_cast<SWMM2DMeshLayer *>(l))
                 return;
@@ -757,6 +793,12 @@ void ProfilePlotDialog::buildLayout()
     rebuildSurface2DStations();
 
     // Double-click in the plot → zoom the main map to that element.
+    /**
+     * @brief Set a padded map extent for nondegenerate numeric bounds. Arguments `xMin`, `yMin`,
+     * `xMax`, `yMax`: canvas-expected coordinates, minimum strictly below maximum on both axes.
+     * Returns: no value; absent canvas/degenerate bounds are ignored, so a point-only node bound
+     * does not zoom. Padding is 30 percent plus one coordinate unit.
+     */
     auto zoomCanvasToBounds = [this](double xMin, double yMin, double xMax, double yMax) {
         if (!m_canvas)
             return;
@@ -804,6 +846,11 @@ void ProfilePlotDialog::buildLayout()
     // layer; "Zoom to" additionally re-centers the main map canvas.  The
     // attribute-panel dock watches the model's selectionChanged signal and
     // populates itself automatically, so "Properties…" is just a select.
+    /**
+     * @brief Request node-coordinate map zoom for a path index. Argument `idx`: zero-based route
+     * node index; invalid/missing cached coordinate is ignored. Returns: no value; point bounds are
+     * rejected by zoomCanvasToBounds, so no extent change occurs for that path.
+     */
     auto zoomToNode = [this, zoomCanvasToBounds](int idx) {
         if (!m_model)
             return;
@@ -814,6 +861,11 @@ void ProfilePlotDialog::buildLayout()
             return;
         zoomCanvasToBounds(x, y, x, y);
     };
+    /**
+     * @brief Request padded zoom to a path link polyline. Argument `idx`: zero-based route link
+     * index; invalid/empty geometry is ignored. Returns: no value; horizontal/vertical degenerate
+     * bounding boxes are also rejected by the shared zoom helper.
+     */
     auto zoomToLink = [this, zoomCanvasToBounds](int idx) {
         if (!m_model)
             return;
@@ -834,6 +886,11 @@ void ProfilePlotDialog::buildLayout()
         }
         zoomCanvasToBounds(xMin, yMin, xMax, yMax);
     };
+    /**
+     * @brief Replace model selection with a path node. Argument `idx`: zero-based static path-node
+     * index; invalid/missing model is ignored. Returns: no value; normal selection notifications
+     * update other views.
+     */
     auto selectNode = [this](int idx) {
         if (!m_model)
             return;
@@ -841,6 +898,10 @@ void ProfilePlotDialog::buildLayout()
             return;
         m_model->setSelectedElements({{m_pathStatic.nodes[idx].name, SWMMModelLayer::kKindNode}});
     };
+    /**
+     * @brief Replace model selection with a path link. Argument `idx`: zero-based static path-link
+     * index; invalid/missing model is ignored. Returns: no value; does not edit geometry.
+     */
     auto selectLink = [this](int idx) {
         if (!m_model)
             return;
@@ -851,6 +912,10 @@ void ProfilePlotDialog::buildLayout()
     // Resolve the project's current flow-units enum into the
     // `openswmmvis::plot::UnitSystem` value the picker menu uses so the
     // attribute labels (ft³/s vs m³/s, etc.) match the rest of the GUI.
+    /**
+     * @brief Resolve menu units from the project/global FLOW_UNITS. Takes no arguments. Returns:
+     * corresponding plot unit-system enum, or US if no provider exists.
+     */
     auto resolvePlotUnitSystem = [this]() {
         auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
         return us ? openswmmvis::plot::unitSystemFromFlowUnits(us->flowUnits())
@@ -860,6 +925,10 @@ void ProfilePlotDialog::buildLayout()
     // come from the project's ACTIVE 1D results layer — the same layer the
     // overlay ComparisonPlotDialog will plot against — read live at menu
     // time so a run swap between right-clicks stays honest.
+    /**
+     * @brief Read species names from the project currently active 1D results. Takes no arguments.
+     * Returns: owned name list or empty without active results; not a cached source-union list.
+     */
     auto speciesForMenu = [this]() -> QStringList {
         if (!m_projectWindow)
             return {};
@@ -1408,6 +1477,12 @@ void ProfilePlotDialog::rebindSources()
                 result.freshSeries.insert(j.layer.data(), series);
             }
 
+            /**
+             * @brief Append one binding in a worker-local rebind result. Argument `kind`: hydraulic
+             * output kind. Argument `suffix`: translated label suffix. Argument `visible`: display
+             * flag. Arguments `pen`, `brush`: styles copied into the binding. Returns: no value;
+             * shares immutable-in-this-worker derived data without modifying GUI widgets.
+             */
             auto pushSeries = [&](K kind, const QString &suffix, bool visible, const QPen &pen,
                                   const QBrush &brush) {
                 ProfilePlotWidget::SeriesBinding b;
@@ -1608,6 +1683,11 @@ void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
     // is a full-range fetch of every visible track, so it is throttled to one
     // per 2 s (leading edge): a 1 Hz run used to refetch everything per tick,
     // O(periods) each, i.e. quadratic over the run.
+    /**
+     * @brief Invalidate one source attribute cache and start a tracks refresh. Argument `l`:
+     * borrowed layer identity used for key comparison. Returns: no value; source hydraulic caches
+     * are retained.
+     */
     auto dropAndRebuild = [this](SWMMResultsLayer *l) {
         for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
             if (it.key().first == l)
@@ -1689,6 +1769,10 @@ void ProfilePlotDialog::rebuildTerrainSamples()
         });
         // Vertex-Z edits / remesh / deferred geometry → re-sample.
         m_groundMesh = mesh;
+        /**
+         * @brief Resample ground after mesh data changes and refresh profile path/track axes. Takes
+         * no arguments and returns no value; normal borrowed-layer sampling rules apply.
+         */
         auto resample = [this] {
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
@@ -1808,6 +1892,11 @@ void ProfilePlotDialog::forEachPathStation(
         const double chainEnd = m_pathStatic.chainage[li + 1];
         const double chainSpan = chainEnd - chainStart;
 
+        /**
+         * @brief Map geometric distance along a link onto its authored chainage span. Argument
+         * `polyDist`: polyline distance in model coordinate units. Returns: linearly scaled real
+         * chainage; captured total length is positive and distance is not separately clamped.
+         */
         auto chainForPoly = [&](double polyDist) {
             return chainStart + (polyDist / polyTotalLen) * chainSpan;
         };
@@ -1842,6 +1931,10 @@ void ProfilePlotDialog::rebuildSurface2DStations()
         disconnect(m_surface2DLayer.data(), nullptr, this, nullptr);
     m_surface2DLayer = nullptr;
 
+    /**
+     * @brief Clear displayed 2D surface samples. Takes no arguments and returns no value; cached
+     * bindings are handled by the enclosing rebuild.
+     */
     auto clearPlot = [this] { m_plot->setSurface2DSamples({}); };
     if (!m_options || !m_options->show2DInundation()) {
         clearPlot();
@@ -2027,6 +2120,11 @@ void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
     // QAction::setData carries the enum so one handler serves all.
     // (Species entries carry a QString token instead — see
     // refreshTracksMenuSpecies; the data's variant TYPE tells them apart.)
+    /**
+     * @brief Add fixed-attribute track checkboxes under a menu section. Argument `sectionTitle`:
+     * translated section label. Argument `attrs`: borrowed enum list copied into action
+     * callbacks/data. Returns: menu-owned section action; toggles write shared options.
+     */
     auto addAttrActions = [this](const QString &sectionTitle, const QVector<PlotAttribute> &attrs) {
         QAction *section = m_tracksMenu->addSection(sectionTitle);
         for (PlotAttribute a : attrs) {
@@ -2158,6 +2256,12 @@ void ProfilePlotDialog::refreshTracksMenuSpecies()
     if (species.isEmpty())
         return;
 
+    /**
+     * @brief Create a scope-qualified species track action. Argument `sp`: copied species name.
+     * Argument `nodeScope`: true for nodes, false links. Argument `before`: nullable menu action
+     * insertion anchor, null appends. Returns: no value; menu owns the new action, stored in the
+     * replacement list, and toggles update shared options.
+     */
     auto addSpeciesAction = [this](const QString &sp, bool nodeScope, QAction *before) {
         const auto d = openswmmvis::plot::ResultDescriptor::forSpecies(sp);
         auto *act = new QAction(d.label(), m_tracksMenu);

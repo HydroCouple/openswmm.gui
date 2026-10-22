@@ -43,6 +43,8 @@
 namespace
 {
 
+/** @brief Allocate an editable BUILDING climate fixture with latitude 41.5 degrees, snow temperature 33 and monthly evaporation mode.
+ * @return Newly owned engine, which the caller destroys. Allocation is guarded by Q_ASSERT only; setter results are not checked. */
 SWMM_Engine makeClimateEngine()
 {
     SWMM_Engine e = swmm_engine_new(); // BUILDING state — editable
@@ -82,6 +84,9 @@ private slots:
 namespace
 {
 // Every value the failing commit below would have written before the refusal.
+/** @brief Serialize climate fields touched by the rollback test for exact state comparison.
+ * @param[in] e Required live engine readable through the climate, snow and heat APIs; getter return codes are not checked.
+ * @return Delimited latitude, source modes, five monthly arrays, snow temperature, impervious depletion curve, snow model, heat flags and radiation site values, with doubles formatted to seventeen significant digits. This is a selected-field snapshot, not a complete engine checkpoint. */
 QString climateState(SWMM_Engine e)
 {
     QString s;
@@ -93,6 +98,9 @@ QString climateState(SWMM_Engine e)
     s += QString::number(v, 'g', 17) + '|';
     swmm_climate_get_evap_type(e, &i);
     s += QString::number(i) + '|';
+    /** @brief Append one twelve-month climate array to the captured state fingerprint.
+     * Argument `get`: required engine getter accepting (engine, writable twelve-double array, count); its return code is ignored, so the fixture requires a readable live engine.
+     * Appends each value at seventeen significant digits and does not alter engine state. */
     const auto months = [&](int (*get)(SWMM_Engine, double *, int)) {
         get(e, m, 12);
         for (double x : m)
@@ -122,6 +130,8 @@ QString climateState(SWMM_Engine e)
 }
 } // namespace
 
+/** @brief Verify a rejected late impervious-depletion value rolls back all earlier climate writes.
+ * Captures/dismisses the warning every ten milliseconds, checks unchanged selected engine state and retained draft, then corrects the value and checks the complete draft commits. */
 void TestClimatologyDialog::lateSetterFailureLeavesEngineUntouched()
 {
     // C1 (closure audit): the areal-depletion curve is written after the
@@ -183,6 +193,7 @@ void TestClimatologyDialog::lateSetterFailureLeavesEngineUntouched()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify editing latitude preserves exact ATI weight and monthly evaporation values despite rounded widget display. */
 void TestClimatologyDialog::unrelatedEditsPreserveClimatePrecision()
 {
     auto e = makeClimateEngine();
@@ -205,6 +216,7 @@ void TestClimatologyDialog::unrelatedEditsPreserveClimatePrecision()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify invalidating a dialog before destroying its engine makes a later direct acceptance signal harmless and rejected. */
 void TestClimatologyDialog::closedEngineCannotBeAccepted()
 {
     auto e = makeClimateEngine();
@@ -216,6 +228,7 @@ void TestClimatologyDialog::closedEngineCannotBeAccepted()
     QVERIFY(!dialog.wroteAnyChanges());
 }
 
+/** @brief Verify an unrelated edit in constant-source modes preserves unused monthly evaporation and humidity arrays exactly. */
 void TestClimatologyDialog::constantSourcesRetainUnusedMonthlyValues()
 {
     auto e = makeClimateEngine();
@@ -242,6 +255,8 @@ void TestClimatologyDialog::constantSourcesRetainUnusedMonthlyValues()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify snow model, 1800-second step, explicit site degrees and cloud fraction survive acceptance.
+ * Checks the snow-step maximum is 3600 seconds and reopening/accepting unchanged settings reports no edits. */
 void TestClimatologyDialog::snowAndRadiationRoundTrip()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -292,6 +307,8 @@ void TestClimatologyDialog::snowAndRadiationRoundTrip()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify draft monthly and constant evaporation previews add the draft adjustment once and explain live-forcing limitations.
+ * Drives and closes each real preview modal with a ten-millisecond timer; checks rates 0.5+0.1=0.6 and 0.7+0.1=0.8 without committing the draft. */
 void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -376,6 +393,8 @@ void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcin
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify time-series preview holds edge values at a non-midnight window and distinguishes an empty series.
+ * Checks zero-valued source plus adjustment, two held samples, missing-count summaries and the live-forcing caveat while timed callbacks close both previews. */
 void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -474,6 +493,8 @@ void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjusted
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify a temporary pan file preview reports available and gap-held daily rates with pan coefficients and adjustment.
+ * Checks three rows and held/missing summary counts; the missing day retains the previous effective rate without applying the adjustment a second time. */
 void TestClimatologyDialog::evaporationPanFilePreviewShowsGapHoldAndAdjustment()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -541,6 +562,7 @@ void TestClimatologyDialog::evaporationPanFilePreviewShowsGapHoldAndAdjustment()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify a temperature-file evaporation preview displays a positive rate labeled Daily estimate and counts one daily estimate. */
 void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -588,6 +610,8 @@ void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify preview headers and values use inches/day for CFS and millimetres/day for CMS.
+ * Checks engine unit-system selection and preserves equivalent constant-source values 1 and 25.4 in their respective display units. */
 void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -595,6 +619,12 @@ void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
     QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
     QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
 
+    /** @brief Probe one flow-unit selection through its modal evaporation preview.
+     * Argument `flowUnits`: Required C API flow-unit token applied to the captured engine.
+     * Argument `expectedSystem`: Expected engine unit-system integer.
+     * Argument `sourceRate`: Constant draft rate in the selected display units.
+     * Argument `rateUnit`: Required unit-label substring for source, adjustment and effective columns.
+     * Returns: True when widgets exist, unit selection succeeds and the preview shows the expected headers and unchanged rate; false otherwise. A ten-millisecond callback closes the expected modal. */
     const auto previewMatchesUnits = [e](const char *flowUnits, int expectedSystem,
                                          double sourceRate, const QString &rateUnit) {
         if (swmm_options_set(e, "FLOW_UNITS", flowUnits) != SWMM_OK)
@@ -642,6 +672,8 @@ void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify the meteorology-file preview explains that file radiation overrides selected series and computed values.
+ * Creates a six-hour temporary forcing fixture and captures/dismisses the real preview message. */
 void TestClimatologyDialog::meteorologyPreviewStatesRadiationPrecedence()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -685,6 +717,7 @@ void TestClimatologyDialog::meteorologyPreviewStatesRadiationPrecedence()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify a null-engine dialog constructs safely and reports no written changes. */
 void TestClimatologyDialog::constructsWithNullEngine()
 {
     // Must not crash with no engine (read path early-returns).
@@ -692,6 +725,7 @@ void TestClimatologyDialog::constructsWithNullEngine()
     QCOMPARE(dlg.wroteAnyChanges(), false);
 }
 
+/** @brief Verify latitude, snow-temperature and monthly-evaporation mode widgets hydrate from the synthetic engine without marking changes. */
 void TestClimatologyDialog::hydratesFromEngine()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -709,6 +743,7 @@ void TestClimatologyDialog::hydratesFromEngine()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accepting an edited latitude writes 50.25 degrees through to the engine and records a change. */
 void TestClimatologyDialog::writesEditsBackOnOk()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -730,6 +765,7 @@ void TestClimatologyDialog::writesEditsBackOnOk()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accepting an untouched climate dialog reports no changes. */
 void TestClimatologyDialog::noOpOkDoesNotMarkChanged()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -743,6 +779,8 @@ void TestClimatologyDialog::noOpOkDoesNotMarkChanged()
     swmm_engine_destroy(e);
 }
 
+/** @brief Exercise valid and oversized tab requests without crashing.
+ * This slot does not inspect the selected index or assert the exact out-of-range clamping policy. */
 void TestClimatologyDialog::setCurrentTabClamps()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -753,6 +791,7 @@ void TestClimatologyDialog::setCurrentTabClamps()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify dew-point/time-series humidity hydrates and switching to constant relative humidity writes 72.5 percent to all months. */
 void TestClimatologyDialog::humidityTabRoundTrips()
 {
     // Hydrate: a DEWPOINT / TIMESERIES engine shows up in the new tab.
@@ -798,6 +837,7 @@ void TestClimatologyDialog::humidityTabRoundTrips()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify the null-engine dialog satisfies the shared accessible-label and buddy checks. */
 void TestClimatologyDialog::a11yInvariantsHold()
 {
     ClimatologyDialog dlg(nullptr, nullptr);

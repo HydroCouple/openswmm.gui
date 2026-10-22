@@ -41,16 +41,22 @@ using DataCategory = SWMMModelLayer::DataCategory;
 namespace
 {
 
+/** @brief Resolve the object-browser test fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA or "." when unset. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Locate the typed-selection model containing TS1.
+ * @return Joined fixture path without opening it. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
 
+/** @brief Load a fresh owned fixture layer for an independent test.
+ * @return Unique loaded layer or nullptr on failure; local diagnostics are discarded and a failed layer is destroyed. */
 std::unique_ptr<SWMMModelLayer> openFixtureLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(fixturePath(), nullptr);
@@ -61,6 +67,8 @@ std::unique_ptr<SWMMModelLayer> openFixtureLayer()
 }
 
 // The coalesced reload lands via a 0-ms singleShot — drain it.
+/** @brief Process GUI events twice to deliver coalesced zero-delay tree reloads.
+ * This pumps other pending events too and does not wait for arbitrary future work. */
 void drainEventLoop()
 {
     QCoreApplication::processEvents();
@@ -69,6 +77,9 @@ void drainEventLoop()
 
 // Leaf display names under the Time Series data-category row, or an empty
 // list when the category is not currently shown.
+/** @brief Collect displayed time-series leaf names.
+ * @param[in] model Borrowed tree model queried without mutation.
+ * @return Column-zero display names in row order, or an empty list if its time-series category is hidden. */
 QStringList timeSeriesLeafNames(const SWMMObjectTreeModel &model)
 {
     const int top = model.topRowForDataCategory(SWMMModelLayer::DataTimeSeries);
@@ -91,6 +102,7 @@ class TestObjectBrowserTreeRefresh : public QObject
 
 private slots:
 
+    /** @brief Require the typed-selection fixture file before running independent tree refresh cases. */
     void initTestCase()
     {
         QVERIFY2(QFile::exists(fixturePath()),
@@ -99,6 +111,7 @@ private slots:
 
     // 1. A registry create (what every deferred editor dialog does at
     //    submit) must surface in the tree without any saveToEngine call.
+    /** @brief Verify a registry creation appears once in the tree and is immediately available in the engine without an explicit flush. */
     void stagedCreateAppearsInTree()
     {
         auto layer = openFixtureLayer();
@@ -133,6 +146,8 @@ private slots:
     //    DeleteDataObjectCommand::redo does) the row must disappear. Since
     //    72d188e remove() also deletes the engine-side table (Phase A3), so
     //    the engine no longer carries a row that could keep the leaf alive.
+    /** @brief Verify removing/flushing TS1 removes the category and the engine table.
+     * Despite the historical slot name, current assertions require removal of the engine row as well. */
     void deletedProviderDisappearsDespiteEngineRow()
     {
         auto layer = openFixtureLayer();
@@ -157,6 +172,7 @@ private slots:
     }
 
     // 3. Rename updates the leaf text.
+    /** @brief Verify a registry rename replaces the tree leaf text after coalesced reload. */
     void renameUpdatesLeaf()
     {
         auto layer = openFixtureLayer();
@@ -180,6 +196,7 @@ private slots:
 
     // 4. Burst coalescing: N creates in one event-loop turn produce
     //    exactly ONE model reset.
+    /** @brief Verify five registry creates in one event turn cause exactly one model reset and yield six total series. */
     void burstCreatesCoalesceToOneReset()
     {
         auto layer = openFixtureLayer();
@@ -204,6 +221,7 @@ private slots:
     // 5. createDataObject (the NewDataObjectDialog path — direct engine
     //    add) refreshes the tree too, including categories with no live
     //    registry yet.
+    /** @brief Verify direct pattern creation reveals its previously absent tree category after event delivery. */
     void createDataObjectRefreshesTree()
     {
         auto layer = openFixtureLayer();
@@ -228,6 +246,7 @@ private slots:
 
     // 6. createDataObject with a LIVE registry: the engine add must be
     //    mirrored into the registry so registry-preferred counts include it.
+    /** @brief Verify engine-facing series creation mirrors into the bound registry and counts it exactly once. */
     void createDataObjectMirrorsIntoLiveRegistry()
     {
         auto layer = openFixtureLayer();

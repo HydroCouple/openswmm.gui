@@ -87,11 +87,16 @@
 namespace
 {
 
+/** @brief Locate a tutorial regression fixture.
+ * @param[in] name Path joined under SWMMVIS_GUI_TEST_DATA or ".".
+ * @return Joined path without checking existence. */
 QString fixture(const QString &name)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))).filePath(name);
 }
 
+/** @brief Create the retained tutorial evidence folder beside the test binary.
+ * @return applicationDirPath/output/tutorial_phase2; directory creation is attempted without checking its result. */
 QString outputDir()
 {
     const QString dir = QDir(QCoreApplication::applicationDirPath())
@@ -100,6 +105,11 @@ QString outputDir()
     return dir;
 }
 
+/** @brief Compare fixture numbers by absolute tolerance.
+ * @param[in] a First numeric value.
+ * @param[in] b Second numeric value in the same units.
+ * @param[in] tol Maximum accepted absolute difference, expected nonnegative.
+ * @return Whether abs(a-b) is at most tol; no explicit nonfinite handling is added. */
 bool near(double a, double b, double tol)
 {
     return std::abs(a - b) <= tol;
@@ -114,6 +124,7 @@ private slots:
     /*! Point every QSettings — including PreferencesManager's, created on
      *  first use — at an INI sandbox in the test output folder, before any
      *  case can touch them. */
+    /** @brief Redirect user-scope INI settings to retained tutorial output before first preference use and select a test organization/application namespace. */
     void initTestCase()
     {
         QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -143,6 +154,7 @@ private slots:
     void everyDataObjectKindReachesTheEngineAtCreation();
 };
 
+/** @brief Verify sampled invert elevations become nonnegative depths above each endpoint node invert, and missing nodes return zero. */
 void TestTutorialPhase2::terrainInvertBecomesDepthAboveNodeInvert()
 {
     // selection_trace_fixture: J1 invert 100, J2 invert 98.
@@ -158,6 +170,8 @@ void TestTutorialPhase2::terrainInvertBecomesDepthAboveNodeInvert()
     QCOMPARE(Tool::invertElevationToOffset(&layer, QStringLiteral("NOPE"), 103.0), 0.0);
 }
 
+/** @brief Verify three simulated restore/resize cycles preserve saved extent width within relative tolerance.
+ * Exercises the canvas directly rather than writing/reopening a sidecar in this case. */
 void TestTutorialPhase2::savedExtentSurvivesRepeatedReopenResizes()
 {
     // One save/reopen cycle in miniature: the saved (already fitted) extent
@@ -187,6 +201,7 @@ void TestTutorialPhase2::savedExtentSurvivesRepeatedReopenResizes()
     }
 }
 
+/** @brief Verify saved annotation-layer sidecar hydration leaves a reopened project clean while a later real model edit still dirties it. */
 void TestTutorialPhase2::sidecarWithTextLayerOpensClean()
 {
     const QString oswp = QDir(outputDir()).filePath(QStringLiteral("text_layer.oswp"));
@@ -221,6 +236,7 @@ void TestTutorialPhase2::sidecarWithTextLayerOpensClean()
     delete ws;
 }
 
+/** @brief Verify an externally renamed selected node keeps its live property adapter and coordinate edits/write notifications use the new name. */
 void TestTutorialPhase2::propertiesPanelFollowsRenameFromAnotherView()
 {
     // A rename made elsewhere (Attribute Table, map) used to leave the
@@ -261,6 +277,7 @@ void TestTutorialPhase2::propertiesPanelFollowsRenameFromAnotherView()
     QCOMPARE(edited.first().at(0).toString(), QStringLiteral("Inlet_A"));
 }
 
+/** @brief Verify display formatting suppresses common floating-point artifacts while retaining meaningful long decimals. */
 void TestTutorialPhase2::displayNumberHidesRepresentationNoise()
 {
     QCOMPARE(openswmmvis::displayNumber(3.2499999999999996), QStringLiteral("3.25"));
@@ -268,6 +285,7 @@ void TestTutorialPhase2::displayNumberHidesRepresentationNoise()
     QCOMPARE(openswmmvis::displayNumber(123456.789012345), QStringLiteral("123456.789012345"));
 }
 
+/** @brief Verify New Project, Add Basemap and Preferences controls pass the shared stray-mnemonic audit. */
 void TestTutorialPhase2::dialogsHaveNoStrayAmpersands()
 {
     NewProjectDialog newProject;
@@ -284,6 +302,9 @@ namespace
 class TypedStubLayer : public OpenSWMMVisAnnotationLayer
 {
 public:
+    /** @brief Construct an annotation-backed layer carrying another type ordinal for stack-order probes.
+     * @param[in] name Copied layer label.
+     * @param[in] type Advertised layer type; no data source of that type is created. */
     TypedStubLayer(const QString &name, OpenSWMMVisLayer::OpenSWMMVisLayerType type)
         : OpenSWMMVisAnnotationLayer(name)
     {
@@ -292,6 +313,8 @@ public:
 };
 } // namespace
 
+/** @brief Verify type-tagged basemap fixtures stay below raster fixtures regardless of insertion order.
+ * Uses annotation-backed stubs to inspect ordering rather than rendering real raster imagery. */
 void TestTutorialPhase2::basemapStaysBelowRasterLayers()
 {
     // Reported: "The basemap was drawn on top of the DEM" (fixed af6127e3).
@@ -313,6 +336,7 @@ void TestTutorialPhase2::basemapStaysBelowRasterLayers()
     }
 }
 
+/** @brief Verify a retained single-band DEM opens raster symbology and excludes the vector symbology page. */
 void TestTutorialPhase2::demStyleDialogShowsRasterSymbology()
 {
     // Reported: "The DEM symbology page showed an empty vector renderer"
@@ -345,6 +369,7 @@ void TestTutorialPhase2::demStyleDialogShowsRasterSymbology()
              "a DEM must not get the vector renderer page");
 }
 
+/** @brief Verify assigning EPSG:25832 updates engine, canvas and saved options while leaving drawn coordinates unchanged and marking an edit. */
 void TestTutorialPhase2::provisionalProjectTakesTheChosenCrs()
 {
     // A model with no CRS, objects already drawn in its local frame. The
@@ -390,6 +415,8 @@ void TestTutorialPhase2::provisionalProjectTakesTheChosenCrs()
     delete ws;
 }
 
+/** @brief Verify a CRS defaulted from preferences remains provisional and is omitted from the sidecar assignment metadata.
+ * Restores the prior CRS preferences with a scope guard. */
 void TestTutorialPhase2::sidecarDoesNotRecordAnUnassignedCrs()
 {
     // A CRS the open merely defaulted from the preferences must not be
@@ -434,6 +461,9 @@ void TestTutorialPhase2::sidecarDoesNotRecordAnUnassignedCrs()
 
 namespace
 {
+/** @brief Collect non-none labels offered by a short-lived data-object picker.
+ * @param[in] ref Borrowed picker context whose engine/layer must remain live during construction.
+ * @return Independent item texts starting at combo index one, or empty when no combo exists. */
 QStringList pickerItems(const DataObjectRef &ref)
 {
     DataObjectPickerEditor editor;
@@ -446,6 +476,8 @@ QStringList pickerItems(const DataObjectRef &ref)
 }
 } // namespace
 
+/** @brief Verify newly created typed curves immediately populate the right picker and a pump reference reaches the engine.
+ * Checks legacy mismatched current references remain visible and rating pickers offer only rating curves. */
 void TestTutorialPhase2::newPumpCurveIsSelectableAndAssignableAtOnce()
 {
     // Reported: "when pump curves are created, they are not immediately
@@ -489,6 +521,8 @@ void TestTutorialPhase2::newPumpCurveIsSelectableAndAssignableAtOnce()
     QCOMPARE(pickerItems(outlet), QStringList{QStringLiteral("NewRating")});
 }
 
+/** @brief Verify newly created series, transect, street, inlet, LID, snowpack, aquifer and pollutant registry objects are immediately engine-addressable.
+ * Also verifies removing street/LID/snowpack/pollutant objects clears their engine copies. */
 void TestTutorialPhase2::everyDataObjectKindReachesTheEngineAtCreation()
 {
     SWMMModelLayer layer(fixture(QStringLiteral("selection_trace_fixture.inp")), nullptr);

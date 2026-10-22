@@ -87,10 +87,22 @@ namespace
 class TimeAxisWidthFitter : public QObject
 {
 public:
+    /**
+     * @brief Attach axis-width observation lifetime to a view.
+     * @param[in,out] axis Nullable borrowed UTC axis, QPointer-guarded.
+     * @param[in] view Optional QObject parent owning this filter; caller installs it on the desired
+     * view.
+     */
     TimeAxisWidthFitter(openswmmvis::plot::UtcTimeAxis *axis, QObject *view)
         : QObject(view), m_axis(axis)
     {
     }
+    /**
+     * @brief Fit a surviving UTC axis tick count when its watched QWidget resizes.
+     * @param[in] watched Borrowed event target, dynamically checked for QWidget on resize.
+     * @param[in] event Required borrowed Qt event; never retained.
+     * @return QObject base-filter result, allowing normal event delivery.
+     */
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (event->type() == QEvent::Resize && m_axis)
@@ -360,6 +372,11 @@ void ComparisonPlotDialog::buildToolBar()
     m_modeActions = new QActionGroup(this);
     m_modeActions->setExclusive(true);
 
+    /**
+     * @brief Create a dialog-owned checkable navigation action. Argument `text`: caption. Argument
+     * `tip`: copied tool/status hint. Returns: borrowed new action installed in exclusive
+     * group/toolbar and connected to mode propagation.
+     */
     auto makeModeAction = [this](const QString &text, const QString &tip) {
         auto *a = new QAction(text, this);
         a->setCheckable(true);
@@ -920,6 +937,11 @@ void ComparisonPlotDialog::observeSourceLifetime(QObject *layer,
                                                  const std::shared_ptr<IRunLayer> &source)
 {
     const std::weak_ptr<IRunLayer> weak = source;
+    /**
+     * @brief Remove a surviving observed adapter run after source/project teardown. Takes no
+     * arguments and returns no value; locks only a weak reference, cancels matching extraction,
+     * blocks intermediate model signals and refreshes once after removal.
+     */
     auto remove = [this, weak] {
         const auto source = weak.lock();
         if (!source)
@@ -1909,6 +1931,11 @@ void ComparisonPlotDialog::rebuildCharts()
                     auto *cp = new openswmmvis::plot::ChartProperties(m_rowWidgets[r].chart);
                     if (m_statsPanel)
                         cp->setStatisticsNumberFormat(m_statsPanel->statisticNumberFormat());
+                    /**
+                     * @brief Copy the current ChartProperties statistics format to the surviving
+                     * panel. Takes no arguments and returns no value; borrowed properties object
+                     * must survive its signal callback.
+                     */
                     auto applyStatisticsFormat = [this, cp]() {
                         if (m_statsPanel)
                             m_statsPanel->setStatisticNumberFormat(cp->statisticsNumberFormat());
@@ -1982,6 +2009,11 @@ void ComparisonPlotDialog::rebuildCharts()
                 };
                 QMap<QString, BaselineCol> baseByObj; // key = obj name|kind|triIdx
 
+                /**
+                 * @brief Create an auto-pair object identity key. Argument `r`: borrowed object
+                 * reference. Returns: kind, name and triangle ID joined by vertical bars; no
+                 * escaping or source lookup.
+                 */
                 auto refKey = [](const ObjectRef &r) -> QString {
                     return QStringLiteral("%1|%2|%3")
                         .arg(static_cast<int>(r.kind))

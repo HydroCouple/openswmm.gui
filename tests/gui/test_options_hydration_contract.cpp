@@ -50,6 +50,11 @@ namespace
 /*! \brief Build a synthetic engine in BUILDING state and stamp a FLOW_UNITS
  *         value on it. No node / link / outfall topology is needed for an
  *         OPTIONS-only round-trip. */
+/** @brief Create an editable bare engine and set its project flow-unit token.
+ * @param[in] flowUnitsToken Non-null recognized FLOW_UNITS keyword.
+ * @return Caller-owned BUILDING engine; caller destroys it after UnitSystem use.
+ * Debug Q_ASSERT checks allocation/set success but may compile out; no topology,
+ * independent release-build refusal handling or simulation is supplied. */
 SWMM_Engine makeEngineWithFlowUnits(const char *flowUnitsToken)
 {
     SWMM_Engine e = swmm_engine_new();
@@ -63,6 +68,11 @@ SWMM_Engine makeEngineWithFlowUnits(const char *flowUnitsToken)
 /*! \brief Read FLOW_UNITS straight from the engine — independent of UnitSystem
  *         so trigger #3 can assert the value reached the engine, not just
  *         that the in-process cache flipped. */
+/** @brief Read the engine's flow-unit token independently of UnitSystem cache.
+ * @param[in] e Live engine handle, borrowed.
+ * @return Owned trimmed uppercase Latin-1 value from a 32-byte initialized buffer.
+ * Uses debug Q_ASSERT for getter success; release failure can yield empty/partial
+ * text with no independent status. Does not mutate or retain engine ownership. */
 QString readFlowUnitsFromEngine(SWMM_Engine e)
 {
     char buf[32] = {};
@@ -167,6 +177,8 @@ private slots:
 //   kStatusBarHydrationAudit as further keys come online.
 // ===========================================================================
 
+/** @brief Unbind the global UnitSystem facade from the just-finished per-project instance.
+ * Does not destroy engines or restore a previously active project. */
 void TestOptionsHydrationContract::cleanup()
 {
     UnitSystem::setActiveProject(nullptr);
@@ -176,6 +188,8 @@ void TestOptionsHydrationContract::cleanup()
 // §M.1 — Trigger 1: Project open hydrates from engine
 // ---------------------------------------------------------------------------
 
+/** @brief Require independent UnitSystem instances to hydrate CFS/CMS and US/SI classification from their respective bare engines.
+ * Models the project-open synchronization call without constructing an MDI window. */
 void TestOptionsHydrationContract::trigger1_projectOpen_syncsFlowUnitsFromEngine()
 {
     SWMM_Engine eCfs = makeEngineWithFlowUnits("CFS");
@@ -202,6 +216,9 @@ void TestOptionsHydrationContract::trigger1_projectOpen_syncsFlowUnitsFromEngine
 // §M.1 — Trigger 2: Tab activation flips the facade
 // ---------------------------------------------------------------------------
 
+/** @brief Require active-project rebinding A-to-B-to-A to expose CFS/LPS labels and SI state without stale cache.
+ * Uses the UnitSystem facade directly, then destroys engines; cleanup unbinds
+ * the per-case facade rather than exercising actual tab widgets. */
 void TestOptionsHydrationContract::trigger2_tabActivation_flipsFacadeBetweenProjects()
 {
     SWMM_Engine eA = makeEngineWithFlowUnits("CFS");
@@ -236,6 +253,7 @@ void TestOptionsHydrationContract::trigger2_tabActivation_flipsFacadeBetweenProj
 // §M.1 — Trigger 3: External mutation propagates engine + facade
 // ---------------------------------------------------------------------------
 
+/** @brief Require changing flow units through the active facade to update engine/cache and emit exactly one MGD notification. */
 void TestOptionsHydrationContract::trigger3_externalMutation_writesEngineAndFiresFacade()
 {
     SWMM_Engine eA = makeEngineWithFlowUnits("CFS");
@@ -272,6 +290,7 @@ void TestOptionsHydrationContract::trigger3_externalMutation_writesEngineAndFire
 // LINK_OFFSETS — engine ABI round-trip (second audit entry)
 // ---------------------------------------------------------------------------
 
+/** @brief Require both ELEVATION and DEPTH link-offset tokens to round-trip through the editable bare-engine ABI. */
 void TestOptionsHydrationContract::linkOffsets_engineRoundTripsValue()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -311,6 +330,10 @@ void TestOptionsHydrationContract::linkOffsets_engineRoundTripsValue()
 //           setElevationOffsetMode does via swmm_options_set) must reach the
 //           written .inp, and survive re-parsing it.
 //
+/** @brief Require parsed ELEVATION offsets changed to DEPTH to survive engine write and reopen.
+ * Writes a small CFS model in QTemporaryDir, checks saved text no longer carries
+ * the old token and verifies reloaded ABI value. Temporary artifacts are removed
+ * by existing directory ownership; no GUI checkbox or simulation is exercised. */
 void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
 {
     QTemporaryDir dir;
@@ -399,6 +422,12 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
 namespace
 {
 
+/** @brief Copy one option value into owned trimmed fixture text.
+ * @param[in] e Live engine handle, borrowed.
+ * @param[in] key Non-null recognized option key.
+ * @return Trimmed Latin-1 string from a 64-byte initialized buffer, possibly
+ * empty/partial after release-build getter refusal. Debug Q_ASSERT checks status.
+ * No model mutation or separate error channel. */
 QString getOptionString(SWMM_Engine e, const char *key)
 {
     char buf[64] = {};
@@ -408,6 +437,12 @@ QString getOptionString(SWMM_Engine e, const char *key)
     return QString::fromLatin1(buf).trimmed();
 }
 
+/** @brief Read/convert one numeric option through the fixture string getter.
+ * @param[in] e Live engine handle, borrowed.
+ * @param[in] key Non-null key expected to yield a valid double.
+ * @return Qt-converted numeric value in the selected option's API/project units.
+ * Debug Q_ASSERT checks numeric conversion; a release-build parse failure returns
+ * Qt's zero conversion value without an independent status. */
 double getOptionDouble(SWMM_Engine e, const char *key)
 {
     bool ok = false;
@@ -419,6 +454,7 @@ double getOptionDouble(SWMM_Engine e, const char *key)
 
 } // anonymous namespace
 
+/** @brief Require minimum-routing-step seconds to expose the 0.5 default and accept numeric one-second and clock-form two-second edits. */
 void TestOptionsHydrationContract::minimumStep_engineRoundTripsValue()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -440,6 +476,7 @@ void TestOptionsHydrationContract::minimumStep_engineRoundTripsValue()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require lateral/system flow tolerance getters to return authored percent values and repeated lateral get-set echoes to remain five percent. */
 void TestOptionsHydrationContract::flowTolerances_percentIdempotent()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -463,6 +500,7 @@ void TestOptionsHydrationContract::flowTolerances_percentIdempotent()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require a 48-hour rule interval to round-trip as 172800 seconds through the engine ABI. */
 void TestOptionsHydrationContract::ruleStep_over24hRoundTrips()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -477,6 +515,7 @@ void TestOptionsHydrationContract::ruleStep_over24hRoundTrips()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require thread count default one, explicit eight and auto sentinel zero to round-trip without executing a parallel run. */
 void TestOptionsHydrationContract::threads_engineRoundTripsValue()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -499,6 +538,7 @@ void TestOptionsHydrationContract::threads_engineRoundTripsValue()
 // FLOW_ROUTING FV + FV_* option family — engine ABI round-trips
 // ---------------------------------------------------------------------------
 
+/** @brief Require canonical FV routing token to round-trip and reject the parser-only FINITE_VOLUME alias without changing it. */
 void TestOptionsHydrationContract::flowRouting_fvRoundTripsValue()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -518,6 +558,9 @@ void TestOptionsHydrationContract::flowRouting_fvRoundTripsValue()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require the enumerated FV option defaults and authored edits to round-trip numerically or by exact enum token.
+ * Covers mesh/timestep/flux/integration/slot/backend/LTS controls plus hidden
+ * compatibility pins; direct engine ABI checks do not instantiate page widgets. */
 void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -589,6 +632,7 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require unknown FV enum tokens to fail and retain a previously set HLL solver value. */
 void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -612,6 +656,8 @@ void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require retired node-coupling/timestep/Picard keys to accept attempted values while returning fixed compatibility behavior.
+ * Checks both an old meaningful token and literal GARBAGE for each retired key. */
 void TestOptionsHydrationContract::fvOptions_retiredNodeKeysAcceptAndFreeze()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -647,6 +693,9 @@ void TestOptionsHydrationContract::fvOptions_retiredNodeKeysAcceptAndFreeze()
 // Quality & Transport (Y1 / G1g) — the page's seven keys
 // ---------------------------------------------------------------------------
 
+/** @brief Require quality/transport option defaults and both enabled/default-restoring edits to round-trip through the ABI.
+ * Checks solver, scalar scheme, quality seconds, segment count, dispersion, seed,
+ * water age, heat and backflow-quality tokens without running transport. */
 void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -715,6 +764,7 @@ void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require unknown solver/dispersion tokens to fail, retain state and normalize LARD/ARD aliases to canonical solver names. */
 void TestOptionsHydrationContract::transportOptions_rejectBadEnumTokens()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -746,6 +796,9 @@ void TestOptionsHydrationContract::transportOptions_rejectBadEnumTokens()
 // plus the SURCHARGE_METHOD=TPA enum value
 // ---------------------------------------------------------------------------
 
+/** @brief Require mixed-flow surcharge/pressure/friction/report controls to expose expected defaults and reversible authored values.
+ * Celerities use native option velocity units, UF_K3 is dimensionless and enums
+ * compare canonically; no hydraulic solve is performed. */
 void TestOptionsHydrationContract::mixedFlowOptions_engineRoundTripsValues()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -797,6 +850,7 @@ void TestOptionsHydrationContract::mixedFlowOptions_engineRoundTripsValues()
     swmm_engine_destroy(e);
 }
 
+/** @brief Require unknown surcharge/friction/pressure-closure tokens to fail and preserve a previous TPA surcharge selection. */
 void TestOptionsHydrationContract::mixedFlowOptions_rejectBadEnumTokens()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -824,6 +878,8 @@ void TestOptionsHydrationContract::mixedFlowOptions_rejectBadEnumTokens()
 // §M.3 — Out-of-scope controls must stay out of the audit
 // ---------------------------------------------------------------------------
 
+/** @brief Require GUI preferences/project metadata/live readouts to stay out of the engine-options hydration audit.
+ * Checks Auto-Length, Engine Version, Coordinates and Progress substrings. */
 void TestOptionsHydrationContract::auditList_excludesOutOfScopeWidgets()
 {
     using openswmmvis::kStatusBarHydrationAudit;
@@ -849,6 +905,7 @@ void TestOptionsHydrationContract::auditList_excludesOutOfScopeWidgets()
 // Phase CX.3 — every audit entry well-formed
 // ---------------------------------------------------------------------------
 
+/** @brief Require a nonempty hydration audit with non-null nonempty widget names and option keys. */
 void TestOptionsHydrationContract::auditList_isWellFormed()
 {
     using openswmmvis::kStatusBarHydrationAudit;

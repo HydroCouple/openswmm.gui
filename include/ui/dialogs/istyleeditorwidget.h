@@ -48,11 +48,22 @@ class IStyleEditorWidget : public QWidget
     Q_OBJECT
 public:
     using QWidget::QWidget;
+    /**
+     * @brief Destroy QWidget-owned editor children/connections; default does not restore
+     *   model/snapshot or own property object. Caller handles session rollback before source/editor
+     *   disposal.
+     */
     ~IStyleEditorWidget() override = default;
 
     /*! Re-read the property object's current values and update the
      *  widget's controls. Called after an external mutation (Cancel
-     *  rollback, .oswp load) so the open dialog stays in sync. */
+     *  rollback, .oswp load) so the open dialog stays in sync.
+     * @brief Derived editor contract: read bound live property state into controls after external
+     *   edits/rollback.
+     * @note Implementations preserve source lifetime and suppress hydration feedback to avoid
+     *   unintended property writes; no base refresh, persistence, undo or automatic NOTIFY wiring
+     *   provided. GUI-thread only.
+     */
     virtual void refreshFromModel() = 0;
 };
 
@@ -70,19 +81,47 @@ class StyleEditorRegistry
 public:
     using Factory = std::function<IStyleEditorWidget *(QObject *propertyObject, QWidget *parent)>;
 
+    /**
+     * @return Process-local function-static registry reference, not caller-owned. Initialization
+     *   thread-safe by C++, registration/lookup mutable vector not synchronized; intended
+     *   startup/GUI-thread use. No factory invoked here.
+     */
     static StyleEditorRegistry &instance();
 
     /*! Register an editor factory for the given className (e.g.
-     *  "OpenSWMM::Render::PointFeatureSublayerStyle"). */
+     *  "OpenSWMM::Render::PointFeatureSublayerStyle").
+     * @param[in] className Copied exact case-sensitive fully-qualified or unqualified Qt class
+     *   name.
+     * @param[in] factory Moved callable, required nonempty for matched invocation; no null
+     *   validation.
+     * @note Append even duplicate/empty keys, never replace; first matching registration wins for
+     *   same class depth. May reallocate storage, not thread-safe with lookup/registration. No
+     *   factory invocation/source mutation now, captured resources retained until registry
+     *   destruction.
+     */
     void registerFactory(const QString &className, Factory factory);
 
     /*! Walk the className then its super-classes looking for a match.
      *  Returns a newly-constructed editor (caller owns) or nullptr when
-     *  no factory matches. */
+     *  no factory matches.
+     * @param[in] propertyObject Optional borrowed live QObject; null returns null, factory may
+     *   retain and require it outlive editor.
+     * @param[in] parent Optional QWidget owner forwarded to factory; caller manages returned
+     *   parentless editor.
+     * @return FIRST factory result (including null) at most-derived matching metaobject depth;
+     *   match fully-qualified OR tail case-sensitively in registration order, then superclass. No
+     *   fallback to other match/superclass if matching factory returns null. Factory can
+     *   allocate/write live style and exceptions propagate; registry performs no rollback/ownership
+     *   pin. Empty matching std::function invocation throws. GUI-thread widget factory use.
+     */
     [[nodiscard]] IStyleEditorWidget *createEditorFor(QObject *propertyObject,
                                                       QWidget *parent = nullptr) const;
 
 private:
+    /**
+     * @brief Private default construction with empty factory list, no registration/editor/model
+     *   side effects. instance manages lifetime.
+     */
     StyleEditorRegistry() = default;
 
     struct Entry {
@@ -97,6 +136,14 @@ private:
 class StyleEditorRegistrar
 {
 public:
+    /**
+     * @param[in] className Copied class key, no uniqueness validation.
+     * @param[in] factory Moved callable/captures into global registry, must remain invocable when
+     *   matched.
+     * @brief Append style editor registration immediately, typically static initialization. No
+     *   unregister on registrar destruction or factory execution now; mutable registry access must
+     *   be serialized.
+     */
     StyleEditorRegistrar(const QString &className, StyleEditorRegistry::Factory factory)
     {
         StyleEditorRegistry::instance().registerFactory(className, std::move(factory));

@@ -35,6 +35,8 @@ private slots:
     void formatDelegateRoundTrips();
 };
 
+/** @brief Require a new scheduled-save row to expose an editable Auto format column.
+ * Checks column count/header, integer EditRole, display text and formatAt default. */
 void TestHotstartSavesModel::formatColumnExistsAndDefaultsToAuto()
 {
     HotstartSavesModel m;
@@ -49,6 +51,8 @@ void TestHotstartSavesModel::formatColumnExistsAndDefaultsToAuto()
     QVERIFY(m.flags(f) & Qt::ItemIsEditable);
 }
 
+/** @brief Require appendRow to retain Native format/date and normalize invalid format to Auto.
+ * Also checks the two-argument append overload defaults to Auto; dates use OADate days. */
 void TestHotstartSavesModel::appendRowCarriesFormat()
 {
     HotstartSavesModel m;
@@ -63,6 +67,8 @@ void TestHotstartSavesModel::appendRowCarriesFormat()
     QCOMPARE(m.oaDateAt(1), 46036.5);
 }
 
+/** @brief Require only integer Auto/Legacy/Native edits and exactly one signal for a real change.
+ * Rejects negative/out-of-range/text format values while retaining the last valid value. */
 void TestHotstartSavesModel::setDataAcceptsOnlyTheThreeFormats()
 {
     HotstartSavesModel m;
@@ -80,6 +86,7 @@ void TestHotstartSavesModel::setDataAcceptsOnlyTheThreeFormats()
     QCOMPARE(m.formatAt(0), 1);
 }
 
+/** @brief Require row swapping to move the format together with its scheduled-save path. */
 void TestHotstartSavesModel::swapRowsMovesTheFormat()
 {
     HotstartSavesModel m;
@@ -91,6 +98,9 @@ void TestHotstartSavesModel::swapRowsMovesTheFormat()
     QCOMPARE(m.formatAt(1), 0);
 }
 
+/** @brief Require the format delegate editor to load Native and write back selected Legacy.
+ * Creates a QWidget-owned combo also held by a unique_ptr whose destruction removes
+ * it from its parent; checks three choices and uses real model EditRole values. */
 void TestHotstartSavesModel::formatDelegateRoundTrips()
 {
     HotstartSavesModel m;

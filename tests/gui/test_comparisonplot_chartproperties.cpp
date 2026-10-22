@@ -52,6 +52,8 @@ private slots:
     void legendPositionAppliesThroughProperties();
 
 private:
+    /** @brief Allocate a two-point chart with numeric X/Y ranges 0..1 and 0..10.
+     * @return New chart owning its series and axes; the caller must delete it or transfer it to a chart view. */
     QChart *makeChart()
     {
         auto *chart = new QChart;
@@ -71,6 +73,7 @@ private:
     }
 };
 
+/** @brief Verify reflected legend-position changes update alignment, emit only on change and remain callable after chart deletion. */
 void TestComparisonPlotChartProperties::legendPositionAppliesThroughProperties()
 {
     auto *chart = makeChart();
@@ -96,6 +99,7 @@ void TestComparisonPlotChartProperties::legendPositionAppliesThroughProperties()
     QCOMPARE(props.legendPosition(), ChartProperties::Bottom);
 }
 
+/** @brief Verify Y-range properties update the first numeric vertical axis and emit one signal per changed endpoint. */
 void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
 {
     auto *chart = makeChart();
@@ -119,6 +123,7 @@ void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
     delete chart;
 }
 
+/** @brief Verify both horizontal and vertical grid visibility follow wrapper toggles. */
 void TestComparisonPlotChartProperties::gridlineTogglesPropagate()
 {
     auto *chart = makeChart();
@@ -136,6 +141,7 @@ void TestComparisonPlotChartProperties::gridlineTogglesPropagate()
     delete chart;
 }
 
+/** @brief Verify chart title property writes through and repeating the same title emits no additional signal. */
 void TestComparisonPlotChartProperties::titleTextRoundTrips()
 {
     auto *chart = makeChart();
@@ -153,6 +159,7 @@ void TestComparisonPlotChartProperties::titleTextRoundTrips()
     delete chart;
 }
 
+/** @brief Verify selecting Dark updates both stored wrapper theme and QChart theme. */
 void TestComparisonPlotChartProperties::chartThemeEnumRoundTrips()
 {
     auto *chart = makeChart();
@@ -165,6 +172,7 @@ void TestComparisonPlotChartProperties::chartThemeEnumRoundTrips()
     delete chart;
 }
 
+/** @brief Verify setting range/title after chart deletion does not dereference the deleted chart and the guarded chart pointer is null. */
 void TestComparisonPlotChartProperties::setterAreNoOpsAfterChartDeleted()
 {
     auto *chart = makeChart();
@@ -178,6 +186,7 @@ void TestComparisonPlotChartProperties::setterAreNoOpsAfterChartDeleted()
     QCOMPARE(props.chart(), nullptr);
 }
 
+/** @brief Verify the chart-properties dialog installs QPropertyModel and QPropertyItemDelegate. */
 void TestComparisonPlotChartProperties::dialogUsesQPropertyModelDelegate()
 {
     auto *chart = makeChart();
@@ -191,6 +200,7 @@ void TestComparisonPlotChartProperties::dialogUsesQPropertyModelDelegate()
     delete chart;
 }
 
+/** @brief Verify the combined number-format preset exposes the intended property surface and synchronizes mode, precision and custom format representations. */
 void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughPropertySurface()
 {
     auto *chart = makeChart();
@@ -234,6 +244,7 @@ void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughP
     delete chart;
 }
 
+/** @brief Verify numeric X formatting leaves UTC calendar labels untouched while numeric Y labels receive the requested format. */
 void TestComparisonPlotChartProperties::xLabelFormatSkipsUtcTimeAxis()
 {
     // Issue #11: UtcTimeAxis derives from QCategoryAxis → QValueAxis, so the

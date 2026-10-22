@@ -33,24 +33,79 @@ class ObjectDefaultsPage : public QWidget
     Q_OBJECT
 
 public:
+    /**
+     * @brief Build a GUI preferences page with separate compiled US and SI draft defaults.
+     * @param[in] parent Optional Qt owner of the page and its controls.
+     * @details Initially displays US seeds. Controls and cached defaults are local until
+     * applyTo() is called; existing project objects are never edited by this page.
+     */
     explicit ObjectDefaultsPage(QWidget *parent = nullptr);
 
-    //! Pull both sets from the manager and show the set matching the
-    //! active project's unit system (US when no project is open).
+    /**
+     * @brief Replace both draft sets from preferences and display the remembered editing unit
+     * system.
+     * @param[in] p Non-null borrowed preferences manager; read synchronously and not retained.
+     * @details The saved editing-system choice wins; only its absence falls back to the active
+     * UnitSystem (US if unavailable). Discards current unsaved widget/draft changes, blocks
+     * selector signals and populates the chosen set without converting numbers.
+     */
     void loadFrom(PreferencesManager *p);
 
-    //! Commit the visible widgets, then write BOTH sets to the manager.
+    /**
+     * @brief Save the visible draft, both unit-specific defaults and the editing-system choice.
+     * @param[in,out] p Non-null borrowed preferences manager receiving both US and SI
+     * ObjectDefaults sets and the selector state; not retained.
+     * @details Reads widget values into the currently displayed cached set, then calls the
+     * manager's settings mutators. No existing model objects are changed, no unit conversion
+     * occurs and no error/status result is returned.
+     *
+     * @details Commit the visible widgets, then write BOTH sets to the manager.
+     */
     void applyTo(PreferencesManager *p);
 
-    //! Restore both sets to the compiled-in seeds and refresh the widgets.
+    /**
+     * @brief Replace both local draft sets with compiled defaults and refresh the active set.
+     * @details Keeps the current unit selector; does not persist changes until applyTo().
+     *
+     * @details Restore both sets to the compiled-in seeds and refresh the widgets.
+     */
     void resetToSeeds();
 
 private:
     using OD = PreferencesManager::ObjectDefaults;
 
+    /**
+     * @brief Create the owned Nodes, Links, Subcatchments and Rain Gages editors once.
+     * @details Numeric widgets impose nonnegative ranges and display precision, with specific
+     * integer bounds for barrels, contractions and rain intervals. Values retain selected
+     * ObjectDefaults units: ft/m lengths, acres/hectares subcatchment area, inches/mm depression
+     * and suction depths, inches/hour or mm/hour rates, hours/days/minutes as labeled.
+     * Coefficients retain each unit system's stored semantics rather than being converted.
+     */
     void buildUi();
+    /**
+     * @brief Load a unit-specific defaults draft into initialized widgets.
+     * @param[in] d Borrowed US or SI ObjectDefaults value; copied into controls without
+     * conversion or changing the other cached draft.
+     * @details Spin boxes can round/clamp to their UI precision/range; unknown combo keywords
+     * select row zero. The caller is responsible for selecting the matching m_showingSi state.
+     */
     void populateWidgets(const OD &d);
+    /**
+     * @brief Overwrite a defaults value from initialized numeric, keyword and boolean controls.
+     * @param[in,out] d Draft receiving all fields represented by this page in its current unit
+     * system; widget values are copied without conversion or extra cross-field validation.
+     * @details Does not write PreferencesManager or mutate the visible widgets; current control
+     * precision and combo fallback choices determine saved values.
+     */
     void commitWidgets(OD &d) const;
+    /**
+     * @brief Cache the outgoing draft and show the requested unit-specific draft.
+     * @param[in] comboIndex One selects SI; every other value selects US.
+     * @details Same-system requests do nothing. A real switch commits current controls to their
+     * previous cache, changes m_showingSi and populates the other cache without converting
+     * values or saving preferences.
+     */
     void onUnitSystemSwitched(int comboIndex);
 
     OD m_us;

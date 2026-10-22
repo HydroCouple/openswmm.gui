@@ -144,6 +144,11 @@ void SWMMVis::initializeCompactToolbar()
     // icon + text over a small centered caption, closed by the group's
     // trailing rule). Unresolved names are skipped, same tolerance as
     // the registry sweep.
+    /**
+     * @brief Resolve existing child actions by object name. Argument `names`: borrowed
+     * initializer-list of required nonnull C strings read synchronously. Returns: borrowed matching
+     * QAction list in requested order, skipping absent entries; no ownership transfer.
+     */
     const auto resolve = [this](std::initializer_list<const char *> names) {
         QList<QAction *> actions;
         for (const char *name : names)
@@ -151,6 +156,12 @@ void SWMMVis::initializeCompactToolbar()
                 actions.append(act);
         return actions;
     };
+    /**
+     * @brief Append a captioned ribbon group for resolved actions. Argument `bar`: required
+     * borrowed toolbar receiving the group widget. Argument `caption`: copied group title. Argument
+     * `names`: action object names resolved synchronously. Returns: new Qt-owned group; shares
+     * original action identities and skips missing names.
+     */
     const auto addGroup = [this, &resolve](QToolBar *bar, const QString &caption,
                                            std::initializer_list<const char *> names) {
         auto *group = new RibbonGroup(caption, this);
@@ -476,6 +487,11 @@ void SWMMVis::updateContextualTabs()
     // SWMM2DMeshLayer, and the 2D-results tools on the Mesh Editing bar
     // (cell picking, mesh profile) must be reachable with a results-only
     // file loaded.
+    /**
+     * @brief Test contextual mesh-tab eligibility. Argument `c`: nullable borrowed canvas read
+     * synchronously. Returns: true if any layer is a mesh or 2D results (visibility is irrelevant),
+     * false otherwise.
+     */
     const auto hasMesh2DContent = [](MapCanvas *c) {
         if (!c)
             return false;
@@ -487,6 +503,11 @@ void SWMMVis::updateContextualTabs()
         return false;
     };
     // The Terrain tab reveals once any raster (DEM candidate) is loaded.
+    /**
+     * @brief Test contextual terrain-tab eligibility. Argument `c`: nullable borrowed canvas.
+     * Returns: true if any GISRasterLayer exists, including invisible/basemap rasters; false
+     * otherwise.
+     */
     const auto hasRaster = [](MapCanvas *c) {
         if (!c)
             return false;
@@ -501,6 +522,11 @@ void SWMMVis::updateContextualTabs()
     mCompactToolbar->setTabVisible(QStringLiteral("mesh2d"), hasMesh2DContent(canvas));
     mCompactToolbar->setTabVisible(QStringLiteral("terrain"), hasRaster(canvas));
     if (canvas) {
+        /**
+         * @brief Refresh Terrain/Mesh contextual tab visibility on the captured active canvas.
+         * Takes no arguments and returns no value; connections use the compact-controller lifetime
+         * and are explicitly replaced on project switches. Does not own the raw canvas.
+         */
         const auto refresh = [this, canvas, hasMesh2DContent, hasRaster] {
             mCompactToolbar->setTabVisible(QStringLiteral("mesh2d"), hasMesh2DContent(canvas));
             mCompactToolbar->setTabVisible(QStringLiteral("terrain"), hasRaster(canvas));

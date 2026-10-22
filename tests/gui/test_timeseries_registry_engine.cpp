@@ -28,11 +28,35 @@ using openswmmvis::timeseries::TimeseriesRegistry;
 
 namespace
 {
+/**
+ *
+ * @brief Build a UTC fixture timestamp without timezone conversion.
+ * @param year Calendar year forwarded to QDate.
+ * @param month Calendar month forwarded to QDate.
+ * @param day Day of month forwarded to QDate.
+ * @param hour Hour forwarded to QTime.
+ * @param minute Minute, default zero, forwarded to QTime.
+ * @return Owned UTC date/time, possibly invalid for invalid components; helper performs
+ * no explicit validation and retains no references.
+ *
+ */
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
 }
 
+/**
+ *
+ * @brief Assert creation of a native inline timeseries and append supplied points in their
+ * existing order.
+ * @param eng Borrowed live mutable engine accepting table edits; not destroyed here.
+ * @param id Borrowed non-null timeseries name consumed by native APIs.
+ * @param pts Borrowed timestamp/value pairs; UTC times convert to native SWMM date values,
+ * values keep authored series units. No sorting or sequence repair.
+ * QVERIFY failures record a test failure and return from this helper, not from its
+ * calling case. Partial series creation/appends are not rolled back or removed.
+ *
+ */
 void addSeries(SWMM_Engine eng, const char *id, const QVector<QPair<QDateTime, double>> &pts)
 {
     QVERIFY(swmm_timeseries_add(eng, id) == SWMM_OK);
@@ -51,6 +75,17 @@ class TestTimeseriesRegistryEngine : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require file-backed series to survive registry flush and written-input reopen while
+     * preserving source CSV bytes.
+     * Loads timeseries_files fixtures under SWMMVIS_GUI_TEST_DATA or dot, checks WEST_GAGE
+     * selector and both four-point series, writes/truncates roundtrip.inp in that directory,
+     * reopens a second engine and compares every timestamp/value to retained providers.
+     * CSV remains unchanged; generated input remains on disk. Engines are manually closed/
+     * destroyed on the successful path; early Qt assertion returns lack scope cleanup.
+     *
+     */
     void fileBackedSeries_diskRoundTrip()
     {
         const QDir directory(
@@ -103,6 +138,15 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require invalid native timestamp order to remain intact across bulk save until
+     * deliberate valid replacement.
+     * Loads BAD_ORDER as a zero-point editor provider, checks native two-point count/first
+     * row survive and individual save refuses, then repairs, saves and deliberately clears.
+     * Final native count must be zero; no file write or second native row comparison.
+     *
+     */
     void rejectedSequence_preservedUntilExplicitRepair()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -137,6 +181,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require two in-memory native series to import into providers with their expected
+     * counts and values.
+     * Checks all five values and the first two RAIN_A UTC timestamps through SWMM date
+     * conversion. No save/reload, solver initialization or every timestamp comparison.
+     *
+     */
     void loadFromEngine_BuildingState_RoundTrip()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -180,9 +232,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
-    //! Perf-plan Phase A3 bug fix: remove() must delete the ENGINE table too
-    //! (saveToEngine only adds/updates, so before the fix a "deleted" series
-    //! survived in the engine and reappeared in the written INP).
+    /**
+     *
+     * @brief Require removing an imported provider to delete its native table while retaining its
+     * sibling.
+     * A later bulk save must not resurrect GONE. Does not dereference the removed provider,
+     * check undo or write/reopen an input file.
+     *
+     */
     void remove_DeletesTheEngineTableToo()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -207,6 +264,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require import to skip an already named empty provider without merging native
+     * points.
+     * Checks zero additions, one provider and its retained zero-point count; no explicit
+     * pointer identity or case-folded duplicate assertion.
+     *
+     */
     void loadFromEngine_SkipsDuplicates()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -225,6 +290,13 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require import from a null engine to report zero additions and retain an empty
+     * registry.
+     * No prior cached engine or existing provider state is involved.
+     *
+     */
     void loadFromEngine_NullHandleReturnsZero()
     {
         TimeseriesRegistry reg;
@@ -234,6 +306,13 @@ private slots:
 
     // ── Phase 6.7.3.7 — saveToEngine round-trip ─────────────────────────────
 
+    /**
+     *
+     * @brief Require saving one new three-point inline provider to create a native table and
+     * report one write.
+     * Checks count three and middle y1.5; no exact timestamp readback or input-file write.
+     *
+     */
     void saveToEngine_CreatesNewSeries()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -266,6 +345,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require saving an edited imported provider to replace three native rows with two new
+     * values.
+     * Checks one reported write, native count two and y100/200; does not compare new x
+     * coordinates or perform a second flush.
+     *
+     */
     void saveToEngine_ReplacesExistingPoints()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -308,6 +395,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require an ExternalFile-mode provider without a path to be skipped despite carrying
+     * points.
+     * Checks zero writes and no EXT native table; file-backed providers with paths have
+     * separate coverage and are not generally skipped.
+     *
+     */
     void saveToEngine_SkipsExternalFileProviders()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -329,6 +424,14 @@ private slots:
 
     // ── B4 (spec §4 task 3) — file-backed provider ↔ engine FILE series ────
 
+    /**
+     *
+     * @brief Require saving a file-backed provider to store its relative path and selector as an
+     * exact path:column token.
+     * Checks one write, native table existence and original data/rain_multi.csv:RG_2 token
+     * through fixed1024-byte buffers; does not read the external file or assert resolved path.
+     *
+     */
     void saveToEngine_WritesFileBackedProviderAsPathColToken()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -356,6 +459,13 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require importing a native FILE token to create ExternalFile metadata with separate
+     * path and selector.
+     * Checks data/rain_multi.csv and RG_2; no successful disk read or point count assertion.
+     *
+     */
     void loadFromEngine_FileTokenBecomesFileBackedProvider()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -376,6 +486,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require a Windows-style drive-letter token to preserve its drive colon while
+     * extracting RG_2.
+     * Stores/imports the token on the test platform; no Windows filesystem access or
+     * source-mode assertion is performed.
+     *
+     */
     void loadFromEngine_DriveLetterTokenSplitsAfterDrive()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -395,6 +513,13 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require untouched import/save to retain the exact relative external-file token.
+     * Checks one reported write and original token readback, without canonicalizing paths
+     * or opening the CSV file.
+     *
+     */
     void saveToEngine_UnchangedFileTokenStaysVerbatim()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -418,6 +543,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require saving a same-named inline provider to clear a preexisting FILE token and
+     * store one inline point.
+     * Checks empty original token and native count one; does not separately compare value4.2
+     * or serialize/reopen input to inspect emitted syntax.
+     *
+     */
     void saveToEngine_InlineClearsStaleFileToken()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -451,12 +584,27 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require explicit save to a null engine to report zero writes.
+     * Uses an empty registry without prior bound handle or caller-owned error output.
+     *
+     */
     void saveToEngine_NullHandleReturnsZero()
     {
         TimeseriesRegistry reg;
         QCOMPARE(reg.saveToEngine(nullptr), 0);
     }
 
+    /**
+     *
+     * @brief Require successful import to cache the borrowed engine for subsequent no-argument
+     * saving.
+     * Checks initially null then exact engine handle, edits two provider rows and checks
+     * one write, native count two and first value99. Destroys the engine at the end of the
+     * successful path; the registry's borrowed handle must not be used afterward.
+     *
+     */
     void loadFromEngine_CachesHandle_NoArgSavePicksItUp()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -492,6 +640,12 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require no-argument save with a provider but no bound engine to report zero writes.
+     * No native engine is created and no provider data mutation is asserted.
+     *
+     */
     void saveToEngineNoArg_WithoutBoundHandleIsNoop()
     {
         TimeseriesRegistry reg;

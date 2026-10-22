@@ -36,6 +36,12 @@
 using namespace ProfileSection;
 namespace
 {
+/**
+ * @brief Normalize a source path for section identity matching.
+ * @param[in] path Candidate filename, not opened here.
+ * @return Empty for empty input; canonical path when resolvable, absolute path otherwise. Does not
+ * require the file to exist.
+ */
 QString normalizedPath(const QString &path)
 {
     if (path.isEmpty())
@@ -213,6 +219,11 @@ void MeshProfilePlotDialog::refreshSectionSeries()
                                         {layer->geomRevision(), binding.stations});
             }
             const QPointer<SWMM2DResultsLayer> guarded = layer;
+            /**
+             * @brief Map a section scene point through a guarded results layer. Argument `point`:
+             * borrowed point in the layer canvas-scene frame. Returns: picked cell index or -1 when
+             * layer was destroyed/outside its supported geometry; callback does not own the layer.
+             */
             binding.mapCell = [guarded](const QPointF &point) {
                 return guarded ? guarded->pickCellAt(point) : -1;
             };

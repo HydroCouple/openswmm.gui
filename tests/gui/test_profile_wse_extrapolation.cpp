@@ -41,6 +41,24 @@ const QPointF kA(0.0, 0.0), kB(1.0, 0.0), kC(0.5, 1.0);
 
 // The pre-extrapolation implementation (bare signed-depth blend + driving-head
 // clamp over sd > 0 corners), kept verbatim for the fully-wet bit-parity case.
+/**
+ * @brief Preserve the old signed-depth blend and wet-corner driving-head clamp as a float parity
+ * oracle.
+ * @param[in] p Borrowed Cartesian query, unchanged; extrapolating weights allowed.
+ * @param[in] a Borrowed first triangle point, unchanged.
+ * @param[in] b Borrowed second point in same XY frame, unchanged.
+ * @param[in] c Borrowed third point, nondegenerate triangle required, unchecked.
+ * @param[in] z0 First corner bed elevation, common vertical units.
+ * @param[in] z1 Second corner bed elevation.
+ * @param[in] z2 Third corner bed elevation.
+ * @param[in] sd0 First signed depth, only positive values supply cap WSE.
+ * @param[in] sd1 Second signed depth in same vertical units.
+ * @param[in] sd2 Third signed depth, all three still enter the legacy barycentric blend.
+ * @return Nonnegative float min(blended signed depth, maximum wet WSE minus interpolated bed),
+ * or
+ * zero if no positive corner. No degeneracy/finite audit, allocation, state mutation or input
+ * retention.
+ */
 float legacyDepthAt(const QPointF &p, const QPointF &a, const QPointF &b, const QPointF &c,
                     double z0, double z1, double z2, double sd0, double sd1, double sd2)
 {
@@ -78,6 +96,19 @@ float legacyDepthAt(const QPointF &p, const QPointF &a, const QPointF &b, const 
     return std::max(0.0f, float(std::min(blend, capDepth)));
 }
 
+/**
+ * @brief Write sampled profile geometry/depth/WSE to the configured relative review-artifact
+ * directory.
+ * @param[in] name Borrowed output filename under
+ * current-directory/test_artifacts/profile_wse_extrapolation,
+ * unchanged; caller uses fixed safe leaf names. Existing file is truncated, not atomic.
+ * @param[in] ys Borrowed coordinate array controlling row count, unchanged.
+ * @param[in] ground Borrowed at-least-ys.size() bed elevations, unchecked and unchanged.
+ * @param[in] depth Borrowed at-least-ys.size() depths in same vertical units, unchanged.
+ * Creates directory best-effort; open failure silently returns, stream/flush errors not
+ * reported.
+ * Emits NaN WSE for nonpositive depth; no pointer retention, source mutation or model access.
+ */
 void writeSeriesCsv(const QString &name, const QVector<double> &ys, const QVector<double> &ground,
                     const QVector<double> &depth)
 {
@@ -106,6 +137,14 @@ private slots:
     // corner c (bed 5) NO DATA. The surface must stay level at the channel η,
     // taper to zero exactly where the bed crosses η (y = 0.4), and never climb
     // the wall face toward the crest bed.
+    /**
+     * @brief Verify two wet corners at WSE2 keep a flat surface up a5-unit wall and dry at
+     * analytic subcell intercept y0.4.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void wallClimb_flatSurfaceAndSubCellWaterline()
     {
         const double za = 0, zb = 0, zc = 5;
@@ -143,6 +182,14 @@ private slots:
     // Defect 2 (truncation): two wet corners, one no-data corner. No cell-mean
     // dry gate exists any more — the depth must decrease smoothly to 0 at the
     // interior η = z point, with the last wet sample strictly inside the cell.
+    /**
+     * @brief Verify gentle-bank depth equals max(0,0.5-y), decreases monotonically and ends
+     * inside the cell.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void shorelineTaper_smoothToBedIntercept()
     {
         const double za = 0, zb = 0, zc = 1; // gentle bank
@@ -172,6 +219,14 @@ private slots:
     }
 
     // All three corners no-data → the cell has no valid η and paints nothing.
+    /**
+     * @brief Verify every sampled barycentric point paints zero when all corner signed depths
+     * are unavailable0.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void trulyDry_allNoData()
     {
         for (int i = 0; i <= 10; ++i)
@@ -185,6 +240,14 @@ private slots:
 
     // Fully valid (all sd > 0): bit-identical to the pre-extrapolation
     // implementation — no regression on the common case.
+    /**
+     * @brief Verify float-depth bit parity against preserved legacy interpolation over
+     * inside/slightly outside fully wet samples.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void fullyWet_bitIdenticalToLegacy()
     {
         const double za = 0.3, zb = 0.1, zc = 2.0;
@@ -206,6 +269,14 @@ private slots:
     }
 
     // One valid corner: the surface extends as a constant η over the cell.
+    /**
+     * @brief Verify a single wet corner extends constant WSE1.5 over lower ground with
+     * nonnegative depth.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void oneValidCorner_constantSurface()
     {
         const double za = 0, zb = 0.4, zc = 0.9;
@@ -226,6 +297,14 @@ private slots:
     // standing water at that corner) must NOT drag the surface down. Within the
     // cell, the wet corner's level floods the lower ground — the pool extends
     // flat instead of notching toward the below-bed corner.
+    /**
+     * @brief Verify a dry below-bed corner cannot dilute a neighboring wet pool stage at the
+     * shared base.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void belowBedCorner_doesNotDragSurfaceDown()
     {
         const double za = 0, zb = 0, zc = 3;
@@ -241,6 +320,13 @@ private slots:
     // pool (η_c = z_c + sd_c = 5 − 2.5 = 2.5 > pool 2) must neither join the
     // blend nor raise the driving-head cap: the WSE must never exceed the wet
     // corners' η anywhere in the cell (no climbing the wall face).
+    /**
+     * @brief Verify high dry-corner stage cannot raise the driving-head cap above wet pool WSE2.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void highBelowBedCorner_doesNotLicenseClimb()
     {
         const double za = 0, zb = 0, zc = 5;
@@ -260,6 +346,14 @@ private slots:
     // at the wall base and stamps a LOW η on the top corner (sd < 0). The pool
     // must extend flat at the wet corners' level to the sub-cell wall
     // intercept — never descend below it while still wet.
+    /**
+     * @brief Verify low dry-corner stage cannot notch the wet pool WSE1.06 before the bed
+     * intercept.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void lowBelowBedCorner_doesNotNotchPool()
     {
         const double za = 1.0, zb = 1.0, zc = 1.45; // wall face cell
@@ -283,6 +377,14 @@ private slots:
     // Consistency at mesh vertices (plan Phase 4.3): sampling exactly at a wet
     // corner returns that corner's signed depth bit-exactly — the profile WSE
     // equals z_v + sd_v at vertices by construction.
+    /**
+     * @brief Verify fully wet corner sampling returns exact original signed depths without
+     * interpolation drift.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void vertexConsistency_exactAtCorners()
     {
         const double za = 0.3, zb = 0.1, zc = 2.0;
@@ -294,6 +396,13 @@ private slots:
 
     // Degenerate triangle: flagged so the caller can fall back to its cell
     // value; the routine itself returns 0.
+    /**
+     * @brief Verify coincident-corner triangle returns zero depth and sets degeneration flag.
+     * @note Synthetic single-triangle Cartesian lengths/elevations in consistent arbitrary
+     * units, QtTest numeric assertions. Wall/taper cases additionally write review CSVs through
+     * writeSeriesCsv; no hydraulic simulation or live layer. Native runtime assertions are
+     * documented, not executed by this documentation task.
+     */
     void degenerateTriangle_flagged()
     {
         bool degenerate = false;

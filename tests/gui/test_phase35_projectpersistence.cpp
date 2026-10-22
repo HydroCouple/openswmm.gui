@@ -24,12 +24,18 @@
 class TestPhase35ProjectPersistence : public QObject
 {
     Q_OBJECT
+    /** @brief Resolve a retained phase-35 output path and attempt directory creation.
+     * @param[in] name Path appended under PHASE35_TEST_OUTPUT without sanitization.
+     * @return Joined path; failure to create the output directory is not checked here. */
     QString output(const QString &name)
     {
         const QString dir = QDir::cleanPath(QStringLiteral(PHASE35_TEST_OUTPUT));
         QDir().mkpath(dir);
         return QDir(dir).filePath(name);
     }
+    /** @brief Initialize a borrowed blank Phase 35 project with a one-hour January 1, 2026 window.
+     * @param[in,out] window Project initialized through its production blank-model path.
+     * @return Initialization result; warnings/errors remain local and are discarded. */
     bool initialize(SWMMVisProjectWindow &window)
     {
         SWMMModelLayer::NewProjectSpec spec;
@@ -39,6 +45,8 @@ class TestPhase35ProjectPersistence : public QObject
         QList<QString> w, e;
         return window.initializeBlankModel(spec, w, e);
     }
+    /** @brief Build a profile definition referencing an unavailable retained run.
+     * @return Independent section-1 definition with a ten-metre EPSG:32618 polyline and one source path; attempts output-directory creation. */
     ProfileSection::Definition definition()
     {
         ProfileSection::Definition d;
@@ -51,6 +59,8 @@ class TestPhase35ProjectPersistence : public QObject
         d.sources = {{"source-1", output("unavailable-run.h5"), {}}};
         return d;
     }
+    /** @brief Build a snapshot-only groundwater Ks assignment history entry.
+     * @return Independent version-one JSON recipe referencing an unavailable raster and cells zero/two; attempts output-directory creation. */
     QJsonObject recipe()
     {
         return {{"version", 1},
@@ -59,6 +69,9 @@ class TestPhase35ProjectPersistence : public QObject
                 {"sourcePath", output("unavailable-input.tif")},
                 {"cells", QJsonArray{0, 2}}};
     }
+    /** @brief Read retained evidence bytes.
+     * @param[in] path File opened read-only.
+     * @return Entire file contents, or empty if opening fails; an empty file is indistinguishable from failure. */
     QByteArray bytes(const QString &path)
     {
         QFile file(path);
@@ -67,12 +80,14 @@ class TestPhase35ProjectPersistence : public QObject
         return file.readAll();
     }
 private slots:
+    /** @brief Register all three production QML canvas renderer types before constructing project windows. */
     void initTestCase()
     {
         qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
         qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
         qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
     }
+    /** @brief Verify selecting the current engine version is silent while changing it marks the project dirty exactly once. */
     void engineVersionOnlyRecordsActualUserChanges()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -91,6 +106,7 @@ private slots:
         QVERIFY(window.hasChanges());
         QCOMPARE(edits.count(), 1);
     }
+    /** @brief Register same/different persisted engine versions with initially clean and dirty projects. */
     void engineVersionHydrationPreservesDirtyState_data()
     {
         QTest::addColumn<bool>("dirty");
@@ -99,6 +115,7 @@ private slots:
         QTest::newRow("clean-different-version") << false << true;
         QTest::newRow("dirty-different-version") << true << true;
     }
+    /** @brief Verify sidecar engine-version hydration changes selection without altering dirty state or emitting edit notifications. */
     void engineVersionHydrationPreservesDirtyState()
     {
         QFETCH(bool, dirty);
@@ -130,12 +147,15 @@ private slots:
         QCOMPARE(window.hasChanges(), dirty);
         QCOMPARE(edits.count(), 0);
     }
+    /** @brief Register initially clean and already edited terrain metadata hydration. */
     void terrainHydrationPreservesDirtyState_data()
     {
         QTest::addColumn<bool>("dirty");
         QTest::newRow("clean") << false;
         QTest::newRow("existing-edit") << true;
     }
+    /** @brief Verify terrain unit/offset hydration preserves dirty state while notifying terrain listeners.
+     * Checks metre-to-project conversion and confirms a later user unit change dirties the project once. */
     void terrainHydrationPreservesDirtyState()
     {
         QFETCH(bool, dirty);
@@ -162,6 +182,8 @@ private slots:
         QVERIFY(window.hasChanges());
         QCOMPARE(dirtyChanges.count(), 1);
     }
+    /** @brief Verify profile sections and groundwater history persist source paths and restore without edit signals.
+     * Confirms editing stores dirties the first project and applying a legacy sidecar without these fields clears the second stores without dirtying it. */
     void savedSectionsAndAssignmentHistoryRoundTrip()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -221,6 +243,7 @@ private slots:
         QCOMPARE(sectionEdits.count(), 0);
         QCOMPARE(assignmentEdits.count(), 0);
     }
+    /** @brief Verify malformed saved section metadata loads with warnings and prevents overwriting the original sidecar bytes. */
     void malformedSidecarWarnsAndCannotOverwriteOriginal()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(

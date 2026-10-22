@@ -38,25 +38,147 @@ class TestXsectSampler : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Verify default/zero-depth circular samplers are invalid with empty geometry and
+     * zero full properties.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void invalidSamplerIsInert();
+    /**
+     * @brief Verify D2 metric circle depth/width within1e-6 and full area/radius/mid-depth width
+     * within1e-3.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void circularMatchesClosedForm();
+    /**
+     * @brief Verify nominal non-tabulated/non-DUMMY shapes build a valid sampler and >=3-point
+     * outline; tabulated/geometry-less rows skip.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void everySurfacedShapeBuilds();
+    /**
+     * @brief Register every GUI shape picker ID/name as QtTest rows for standalone nominal
+     * geometry checks.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void everySurfacedShapeBuilds_data();
+    /**
+     * @brief Verify outline depth within1e-6, width between0.999*wMax and wMax+1e-9, invert y
+     * within1e-9.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void outlineMatchesFullProperties();
+    /**
+     * @brief Register six shape/depth/width combinations for engine/outline extent parity.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void outlineMatchesFullProperties_data();
+    /**
+     * @brief Verify egg outline has2*(samples+1) mirrored points with matching heights
+     * within1e-9.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void outlineIsSymmetricAndClosed();
+    /**
+     * @brief Verify cosine ladder concentrates points near invert and samples circle mid-depth
+     * exactly within1e-12.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void outlineIsDenserWhereCurvatureIsHighest();
+    /**
+     * @brief Verify a valid DUMMY sampler returns an empty outline; invalid DUMMY is also
+     * tolerated.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void dummyHasNoGeometry();
+    /**
+     * @brief Verify successfully constructed standalone non-tabulated sampler reports requested
+     * engine shape ID.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void shapeIdRoundTrips();
+    /**
+     * @brief Verify sampler move construction/assignment transfers validity and leaves sources
+     * inert for safe destruction.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void moveTransfersOwnership();
+    /**
+     * @brief Verify rectangular open channel reports open while circular pipe reports closed.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void openChannelsReportOpen();
 
     // Tabulated shapes — the ones geom1..4 cannot describe.
+    /**
+     * @brief Verify compound raw transect builds an open sampler and outline extents agree with
+     * engine depth/width.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void irregularFromTransectData();
+    /**
+     * @brief Verify one-station transect and zero channel roughness refuse sampler construction.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void irregularRejectsBadInput();
+    /**
+     * @brief Verify metric street sampler builds positive depth with engine-open false and
+     * rejects zero width/invalid side count.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void streetFromParameters();
+    /**
+     * @brief Verify normalized custom width/depth curve yields full depth2 and refuses zero
+     * depth/one-point ladder.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void customFromShapeCurve();
+    /**
+     * @brief Verify every non-DUMMY112x84 icon is nonnull and differs pixelwise from DUMMY
+     * placeholder; DUMMY row skips.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void everyShapeGetsANonPlaceholderIcon();
+    /**
+     * @brief Register all surfaced engine shape IDs for icon regression rows.
+     * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
+     * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
+     * are documented here, not run.
+     */
     void everyShapeGetsANonPlaceholderIcon_data();
 };
 

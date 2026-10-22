@@ -16,6 +16,11 @@
 
 namespace
 {
+/** @brief Create/name a retained save-validation case directory.
+ * @param[in] name Controlled relative case suffix appended to the configured root.
+ * @return Owned absolute path under SWMMVIS_SAVE_VALIDATION_OUTPUT or the default
+ * tests/gui/data/projectsavevalidation_output. mkpath outcome is unchecked and
+ * existing contents remain; no individual artifact is created or cwd changed. */
 QString caseDir(const QString &name)
 {
     const QString root =
@@ -25,16 +30,28 @@ QString caseDir(const QString &name)
     QDir().mkpath(path);
     return path;
 }
+/** @brief Overwrite and flush a controlled fixture file.
+ * @param[in] path Destination whose parent already exists.
+ * @param[in] bytes Content borrowed for synchronous writing.
+ * @return True only when open, exact-byte write and flush succeed; close errors
+ * are not separately checked and failures can leave truncated/partial output. */
 bool write(const QString &path, const QByteArray &bytes)
 {
     QFile f(path);
     return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size() && f.flush();
 }
+/** @brief Read controlled fixture bytes for preservation assertions.
+ * @param[in] path Filename borrowed for synchronous read.
+ * @return Owned bytes or empty on open refusal/empty file; partial-read errors
+ * have no separate status. Does not mutate the artifact. */
 QByteArray read(const QString &path)
 {
     QFile f(path);
     return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
 }
+/** @brief Construct the minimal CMS save-validation model text.
+ * @return Owned one-day DYNWAVE deck with J/O and one 100 m conduit; no
+ * filesystem, engine-open or numerical validation occurs. */
 QByteArray deck()
 {
     return "[TITLE]\nSave validation fixture\n[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
@@ -42,6 +59,9 @@ QByteArray deck()
            "[JUNCTIONS]\nJ 10 10 0 0 0\n[OUTFALLS]\nO 0 FREE NO\n"
            "[CONDUITS]\nC J O 100 0.013 0 0 0\n[XSECTIONS]\nC CIRCULAR 1 0 0 0\n";
 }
+/** @brief Construct mixed triangle/quad external-mesh validation text.
+ * @return Owned SI mesh section bytes with five vertices, one triangle and one
+ * quad. No topology construction, filesystem write or solver execution. */
 QByteArray mesh()
 {
     return ";; UNITS: SI (m)\n[2D_VERTICES]\n0 0 0\n10 0 0\n10 10 0\n0 10 0\n20 0 0\n"
@@ -53,6 +73,9 @@ class TestProjectSaveValidation : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Require validation to read staged model/mesh/component bytes while preserving all old final artifacts.
+     * Checks expected 5/2/1 mesh counts, unchanged stages and removal of temporary
+     * validation files. Does not publish the staged save. */
     void stagedResourcesOverrideFinalBytes()
     {
         const QString dir = caseDir("staged_resources");
@@ -84,6 +107,7 @@ private slots:
         QVERIFY(
             QDir(dir).entryList({".openswmm-validate-*"}, QDir::Files | QDir::Hidden).isEmpty());
     }
+    /** @brief Register malformed/missing/empty/nested/unknown component and wrong-payload mesh refusal variants. */
     void invalidPreparedResource_data()
     {
         QTest::addColumn<int>("which");
@@ -95,6 +119,8 @@ private slots:
         QTest::newRow("unknown-component-missing-config") << 5;
         QTest::newRow("nonempty-file-without-mesh") << 6;
     }
+    /** @brief Require each invalid prepared resource to refuse validation before publication and keep saved-model bytes unchanged.
+     * Checks a nonempty final-path diagnostic without exposing staging filenames. */
     void invalidPreparedResource()
     {
         QFETCH(int, which);
@@ -131,12 +157,15 @@ private slots:
         QCOMPARE(read(final), QByteArray("saved sentinel"));
         QVERIFY(!out.publicationStarted());
     }
+    /** @brief Register readable versus missing relative external-timeseries validation cases. */
     void missingAndUnchangedRelativeSeries_data()
     {
         QTest::addColumn<bool>("missing");
         QTest::newRow("readable") << false;
         QTest::newRow("missing") << true;
     }
+    /** @brief Require an unchanged relative timeseries to validate only when its backing file exists.
+     * The missing case must name RAIN; stages are not published. */
     void missingAndUnchangedRelativeSeries()
     {
         QFETCH(bool, missing);
@@ -152,12 +181,14 @@ private slots:
         if (missing)
             QVERIFY2(err.contains("RAIN"), qPrintable(err));
     }
+    /** @brief Register missing connectivity target names, including literal config, for draft-save validation. */
     void draftDiagnosticsDoNotPreventSave_data()
     {
         QTest::addColumn<QByteArray>("missingNode");
         QTest::newRow("missing-node") << QByteArray("ABSENT");
         QTest::newRow("config-is-an-object-name") << QByteArray("config");
     }
+    /** @brief Require an editable model with an unresolved node reference to validate for saving while surfacing warnings. */
     void draftDiagnosticsDoNotPreventSave()
     {
         QFETCH(QByteArray, missingNode);
@@ -173,6 +204,8 @@ private slots:
         QVERIFY2(ProjectSaveValidation::validate(out, nullptr, &err, &warnings), qPrintable(err));
         QVERIFY(!warnings.isEmpty());
     }
+    /** @brief Require invalid staged component diagnostics to use the normalized final path outside the model directory.
+     * Checks both staging and validation-private filenames remain hidden from the error. */
     void outsideComponentDiagnosticUsesFinalPath()
     {
         const QString dir = caseDir("outside_component_diagnostic");
@@ -195,6 +228,8 @@ private slots:
         QVERIFY(!err.contains(".openswmm-stage-"));
         QVERIFY(!err.contains(".openswmm-validate-"));
     }
+    /** @brief Require staged Unicode nested component paths and matching settings to validate before final files/directories exist.
+     * Stages remain private and no publication is performed. */
     void newNestedUnicodeResourcesAndSettings()
     {
         const QString dir = caseDir(QStringLiteral("new resources é"));
@@ -219,6 +254,8 @@ private slots:
         QVERIFY(!QFileInfo::exists(final));
         QVERIFY(!QFileInfo::exists(dir + QStringLiteral("/nested_é")));
     }
+    /** @brief Require save validation to warn about plugin content without loading it or writing declared runtime HDF/detail outputs.
+     * Checks input-stage bytes and both output sentinels remain exact. */
     void pluginsAndRuntimeOutputsAreNotExecuted()
     {
         const QString dir = caseDir("no_runtime");
@@ -242,6 +279,7 @@ private slots:
         QCOMPARE(read(output), QByteArray("output sentinel"));
         QCOMPARE(read(detailed), QByteArray("detail sentinel"));
     }
+    /** @brief Register component filenames with spaces, repeated spaces and a semicolon. */
     void componentPathWithSpacesCanBePublished_data()
     {
         QTest::addColumn<QString>("name");
@@ -249,6 +287,9 @@ private slots:
         QTest::newRow("repeated-spaces") << QStringLiteral("reaction  config.rxn");
         QTest::newRow("semicolon") << QStringLiteral("reaction; config.rxn");
     }
+    /** @brief Require each quoted component path to validate, publish and reopen through the real engine.
+     * Uses a Unicode-safe staged tree and an RAII engine deleter; retained published
+     * artifacts demonstrate the save, with no simulation start. */
     void componentPathWithSpacesCanBePublished()
     {
         QFETCH(QString, name);
@@ -277,6 +318,8 @@ private slots:
             swmm_engine_open(reopened.get(), final.toUtf8().constData(), nullptr, nullptr, nullptr);
         QVERIFY2(result == 0, swmm_get_last_error_msg(reopened.get()));
     }
+    /** @brief Require an empty BUILDING model written by the engine to pass draft save validation.
+     * Uses an RAII owned source handle, asserts zero nodes and does not publish/run. */
     void emptyUntitledAuthoringModelCanBeSaved()
     {
         const QString dir = caseDir("empty_untitled");
@@ -294,6 +337,8 @@ private slots:
         QVERIFY2(ProjectSaveValidation::validate(out, source.get(), &err, nullptr),
                  qPrintable(err));
     }
+    /** @brief Require expected mesh counts to refuse a staged model whose vertex payload vanished.
+     * Checks a vertices/read-zero diagnostic before publication. */
     void expectedMeshCannotDisappear()
     {
         const QString dir = caseDir("absent_mesh");
@@ -303,6 +348,7 @@ private slots:
         QVERIFY(!ProjectSaveValidation::validate(out, nullptr, &err, nullptr, 5, 2, 1));
         QVERIFY2(err.contains("vertices") && err.contains("read 0"), qPrintable(err));
     }
+    /** @brief Require a staged five-vertex mixed mesh to fail an expected-six-vertex validation contract. */
     void countMismatchRefusesPublication()
     {
         const QString dir = caseDir("count_mismatch");
@@ -313,6 +359,7 @@ private slots:
         QVERIFY(!ProjectSaveValidation::validate(out, nullptr, &err, nullptr, 6, 2, 1));
         QVERIFY2(err.contains("vertices"), qPrintable(err));
     }
+    /** @brief Require a staged node-less draft to fail source-count comparison while the original opened engine retains its two nodes and one link. */
     void sourceCountComparisonDoesNotMutateSource()
     {
         const QString dir = caseDir("source_counts");
@@ -336,6 +383,7 @@ private slots:
         QCOMPARE(swmm_node_count(source.get()), 2);
         QCOMPARE(swmm_link_count(source.get()), 1);
     }
+    /** @brief Register truncated JSON, array root, missing sessions and wrong model-reference settings variants. */
     void malformedSettingsRefused_data()
     {
         QTest::addColumn<QByteArray>("bytes");
@@ -345,6 +393,7 @@ private slots:
         QTest::newRow("wrong-model-reference")
             << QByteArray("{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"other.inp\"}]}");
     }
+    /** @brief Require each malformed settings stage to refuse validation with a settings-named diagnostic. */
     void malformedSettingsRefused()
     {
         QFETCH(QByteArray, bytes);

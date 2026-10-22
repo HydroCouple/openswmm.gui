@@ -41,6 +41,18 @@ class AnnotationPropertyDelegate : public QPropertyItemDelegate
 public:
     using QPropertyItemDelegate::QPropertyItemDelegate;
 
+    /**
+     * @param[in] parent Optional QWidget owner for base property editor; view manages resulting
+     *   widget lifetime.
+     * @param[in] option Borrowed style option forwarded unchanged to base delegate.
+     * @param[in] index Current property index forwarded to base to select editor type.
+     * @return Base-created property editor or null on failure. For first descendant integer/double
+     *   spin box, connect each valueChanged to commitData of wrapper so draft stays current before
+     *   Apply.
+     * @note Delegate is captured raw and must outlive editors; connection context is editor. Does
+     *   not validate model write result, close editor, commit target item or create undo.
+     *   GUI-thread only.
+     */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override
     {

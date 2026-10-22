@@ -44,17 +44,64 @@ public:
         QString crsAuthCode; ///< e.g. "EPSG:4326"; empty = no CRS.
     };
 
+    /**
+     * @param[in] parent Optional QWidget owner; caller manages parentless dialog.
+     * @brief Create the form and seed widgets from current preferences/local date without creating
+     *   a project or input file.
+     * @note Collected m_result remains its struct defaults until successful onAccept; no settings
+     *   persistence or model ownership. GUI thread required.
+     */
     explicit NewProjectDialog(QWidget *parent = nullptr);
+    /**
+     * @brief Destroy owned form widgets without applying unaccepted edits or creating/saving a
+     *   project.
+     */
     ~NewProjectDialog() override = default;
 
+    /**
+     * @return Value copy of last successfully accepted input collection; before acceptance contains
+     *   struct defaults with invalid start/end datetimes and empty CRS. Rejection does not reset
+     *   prior accepted values when reusing the dialog.
+     * @note This accessor hides QDialog::result; use exec return or qualified QDialog::result to
+     *   check acceptance. Returned values do not indicate project creation success.
+     */
     [[nodiscard]] Result result() const { return m_result; }
 
 private slots:
+    /**
+     * @brief Run a child CRSSelectionDialog and copy a nonempty accepted authority token into the
+     *   read-only field.
+     * @note Does not preselect the field value, create/validate an SRS or transform coordinates.
+     *   Cancellation/empty selection leaves field unchanged; CRS picker can update its recent
+     *   preferences on acceptance.
+     */
     void onChooseCrs();
+    /**
+     * @brief Require end strictly after start, then copy current inputs into m_result and accept.
+     * @note Invalid interval shows warning and keeps dialog/result unchanged. Trim name/CRS and
+     *   replace blank name with Untitled; enum keyword strings and dates are copied without extra
+     *   semantic/CRS validation. No model creation, INP writing, timezone conversion or preference
+     *   save occurs here.
+     */
     void onAccept();
 
 private:
+    /**
+     * @brief Create owned name, fixed SWMM keyword choices, minute-format date editors and
+     *   read-only CRS picker field, wiring OK/Cancel.
+     * @note Keywords include CFS/GPM/MGD/CMS/LPS/MLD, five infiltration choices and
+     *   STEADY/KINWAVE/DYNWAVE/FV routing. Does not seed dates/preferences, validate engine support
+     *   or create a model.
+     */
     void buildUi();
+    /**
+     * @brief Populate widgets with Untitled, preferred simulation keywords, local today at midnight
+     *   and start plus 86400 seconds.
+     * @note Unknown preference keywords leave the noneditable combo current choice unchanged. Use
+     *   preferred authority only with nonempty authority and positive code, otherwise EPSG:4326,
+     *   without database validation. Does not update m_result or persist settings; displayed minute
+     *   precision does not add timezone conversion.
+     */
     void seedDefaults();
 
     QLineEdit *m_nameEdit = nullptr;

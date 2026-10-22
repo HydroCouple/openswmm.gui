@@ -5,10 +5,10 @@
  *         that reports a numerical abort must each end in finished(false,
  *         code, message) with the phase named, a red "ERROR [code]" child
  *         row under the job in SimulationStatusModel, and a per-run
- *         <stem>.runlog.txt beside the report — never in std::terminate.
+ *         &lt;stem&gt;.runlog.txt beside the report — never in std::terminate.
  *
  * The throw and the numerical abort are injected with the test-only env
- * SWMMVIS_TEST_FAULT=<phase>:<kind> read once by SimulationRunner::start().
+ * SWMMVIS_TEST_FAULT=&lt;phase&gt;:&lt;kind&gt; read once by SimulationRunner::start().
  * Decks and artefacts land in the reviewable output_simrunner_failures/ dir
  * (under SWMMVIS_GUI_TEST_DATA, else the working directory).
  *
@@ -36,11 +36,16 @@
 namespace
 {
 
+/** @brief Read the GUI fixture/artifact root.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or dot fallback; no I/O. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Create/name the retained runner-failure evidence directory.
+ * @return Owned output_simrunner_failures path under dataDir. mkpath status is
+ * unchecked, existing contents remain and cwd does not change. */
 QString outputDir()
 {
     const QString dir = QDir(dataDir()).filePath(QStringLiteral("output_simrunner_failures"));
@@ -74,6 +79,12 @@ const char *kMinimal1D = "[OPTIONS]\n"
                          ";;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels\n"
                          "C1      CIRCULAR  1      0      0      0      1\n";
 
+/** @brief Overwrite a retained failure-case model deck.
+ * @param[in] name Controlled basename without .inp.
+ * @param[in] text Non-null terminated deck bytes borrowed for synchronous writing.
+ * @return Owned destination path, or empty on output-open failure.
+ * Write status is ignored and parent creation is limited to outputDir; no model
+ * validation or simulation occurs here. */
 QString writeDeck(const QString &name, const char *text)
 {
     const QString inp = QDir(outputDir()).filePath(name + QStringLiteral(".inp"));
@@ -84,6 +95,10 @@ QString writeDeck(const QString &name, const char *text)
     return inp;
 }
 
+/** @brief Read a run log/report into owned UTF-8 text.
+ * @param[in] path Filename borrowed for synchronous text-mode read.
+ * @return Decoded text, empty on open refusal or empty file; partial reads have no
+ * independent status. Does not mutate the artifact. */
 QString readAll(const QString &path)
 {
     QFile f(path);
@@ -99,7 +114,18 @@ struct Finished {
 };
 
 /// Run `inp` through a SimulationRunner wired to `model` exactly as SWMMVis
-/// wires it; returns the finished() payload (fails the calling test on timeout).
+/// wires it; returns the finished() payload (returns its default status and a timeout message on timeout).
+/** @brief Run the current-engine failure fixture and collect the finished payload.
+ * @param[in] parent QObject owning the new runner; must outlive asynchronous work.
+ * @param[in,out] model Receives the new job and finishJob signal; must remain alive.
+ * @param[in] name Controlled artifact basename/job label.
+ * @param[in] inp Existing model filename copied into runner arguments.
+ * @return Owned signal result; on 60 s timeout returns only a timeout message,
+ * leaving the struct's default success=true/errorCode=0 unchanged.
+ * Removes a prior runlog, starts a parent-owned runner and schedules deletion on
+ * completion. Timeout does not assert/cancel or schedule deletion, so parent/model
+ * lifetime must still cover ongoing work. Artifacts persist; report/output old
+ * files are not removed here. */
 Finished runToEnd(QObject *parent, SimulationStatusModel &model, const QString &name,
                   const QString &inp)
 {
@@ -127,6 +153,12 @@ Finished runToEnd(QObject *parent, SimulationStatusModel &model, const QString &
     return r;
 }
 
+/** @brief Find the first formatted error child of one status-model job.
+ * @param[in] model Stable status tree, unchanged.
+ * @param[in] row Intended top-level job row.
+ * @return Owned first child text starting ERROR [, or empty if none; an invalid
+ * row yields an invalid parent index whose enumeration follows model semantics.
+ * Does not assert error color, alter status or retain QModelIndex storage. */
 QString errorChildText(const SimulationStatusModel &model, int row)
 {
     const QModelIndex job = model.index(row, 0);
@@ -146,9 +178,15 @@ class TestSimRunnerFailures : public QObject
 
 private slots:
 
+    /** @brief Remove the test-only runner fault environment override after each case.
+     * Does not restore a preexisting value or modify other environment variables. */
     void cleanup() { qunsetenv("SWMMVIS_TEST_FAULT"); }
 
 #ifdef OPENSWMM_HAS_2D
+    /** @brief Require AUTO local-inertial selection to use built-in CPU while leaving authored deck bytes unchanged.
+     * Runs a tiny 2D model, lowers parallel-selection floor, checks report/runlog text
+     * and restores captured backend/floor values through qScopeGuard even after a
+     * Qt assertion return. Compiled only with 2D support. */
     void autoBackendUsesCpuWithoutRewritingModel()
     {
         const QByteArray prior = qgetenv("OPENSWMM_2D_BACKEND");
@@ -178,6 +216,7 @@ private slots:
 
 #endif
 
+    /** @brief Register output-path parsing rows for quoted spaces/semicolons, last assignment, CSV separators and embedded/trailing commas. */
     void quotedLastOutputOption_data()
     {
         QTest::addColumn<QByteArray>("options");
@@ -199,6 +238,8 @@ private slots:
             << QByteArray("[2D_OPTIONS]\nOUTPUT_FILE flow.h5,\n") << QString("flow.h5");
     }
 
+    /** @brief Require each authored OUTPUT_FILE parsing row to resolve to its expected input-relative absolute path.
+     * Uses supplied QtTest options/expected data and retained overwritten fixture. */
     void quotedLastOutputOption()
     {
         QFETCH(QByteArray, options);
@@ -210,6 +251,9 @@ private slots:
                  QFileInfo(inp).absoluteDir().filePath(expected));
     }
 
+    /** @brief Register external-resource declaration forms that must protect the referenced input file from output overwrite.
+     * Includes timeseries columns, rain/hotstart/climate/mesh/GW files, plugin library
+     * and quoted component configurations. */
     void declaredResourcesAreProtected_data()
     {
         QTest::addColumn<QByteArray>("reference");
@@ -235,6 +279,7 @@ private slots:
             << QByteArray("[PROCESS_COMPONENTS]\nHEAT \"config=source data.dat\"\n");
     }
 
+    /** @brief Require validateRunPaths to refuse an output colliding with each data-row declared resource and name protected input. */
     void declaredResourcesAreProtected()
     {
         QFETCH(QByteArray, reference);
@@ -249,6 +294,7 @@ private slots:
         QVERIFY(error.contains("protected input"));
     }
 
+    /** @brief Require an unquoted mesh filename with repeated internal spaces to remain an overwrite-protected input. */
     void repeatedSpacesInMeshInputAreProtected()
     {
         const QString inp =
@@ -265,6 +311,9 @@ private slots:
         QVERIFY(error.contains("protected input"));
     }
 
+    /** @brief Require scheduled hotstart/runlog/additional outputs to participate in active/protected path validation.
+     * Checks a safe baseline and refusal cases, plus outputPaths availability before
+     * a runner starts; no simulation is executed. */
     void additionalAndActiveOutputsAreGuarded()
     {
         const QString inp =
@@ -290,6 +339,9 @@ private slots:
         QCOMPARE(unstarted.outputPaths(), SimulationRunner::runOutputPaths(inp, rpt, out));
     }
 
+    /** @brief Require two start calls on one runner to produce exactly one started/finished pair.
+     * Injects step bad_alloc and drains completion up to 15 s before comparing counts,
+     * preventing test teardown from racing a worker that still references receivers. */
     void duplicateStartRunsOnce()
     {
         const QString inp = writeDeck("single_start", kMinimal1D);
@@ -309,6 +361,10 @@ private slots:
         QCOMPARE(finished.count(), 1);
     }
 
+    /** @brief Require deleting a runner's QObject owner to stop a paused worker without a crash or hang.
+     * Executes the owner-deletion scenario in a child copy of the test binary, waits
+     * up to 20 s, kills on timeout, and checks normal zero exit with captured diagnostics.
+     * Child waits for model dates before deletion; retained artifacts permit inspection. */
     void ownerDestructionStopsPausedWorker()
     {
         if (qEnvironmentVariableIsSet("SWMMVIS_TEST_RUNNER_OWNER_CHILD")) {
@@ -344,6 +400,10 @@ private slots:
                  details.constData());
     }
 
+    /** @brief Require two paused/then-resumed runs with separate relative external files to leave process cwd unchanged.
+     * Writes distinct decks/series, waits up to 15 s for each readiness/completion,
+     * then restores the original cwd before assertions and checks success and all
+     * captured cwd values. Uses two real runners and retained artifacts. */
     void parallelRelativeFilesLeaveProcessDirectoryAlone()
     {
         const QString originalDirectory = QDir::currentPath();
@@ -396,6 +456,7 @@ private slots:
         QCOMPARE(after, originalDirectory);
     }
 
+    /** @brief Register shared-reader, exclusive-writer and empty-locked-HDF output refusal cases. */
     void busyHdfOutputIsRefusedBeforeAnyOutputIsWritten_data()
     {
         QTest::addColumn<bool>("empty");
@@ -405,6 +466,10 @@ private slots:
         QTest::newRow("empty-locked-file") << true << false;
     }
 
+    /** @brief Require a busy HDF output to refuse a run before modifying any input/output/log sentinel bytes, then succeed after release.
+     * Holds a QFile plus shared/exclusive flock on Unix; elsewhere writer is unused
+     * and the open-handle platform behavior is exercised. Waits up to 15 s for each
+     * runner, preserves empty-file case and retains all artifacts. */
     void busyHdfOutputIsRefusedBeforeAnyOutputIsWritten()
     {
         QFETCH(bool, empty);
@@ -450,6 +515,7 @@ private slots:
         QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[3].toString()));
     }
 
+    /** @brief Register direct, runlog/HDF, quoted/last-assignment, symlink and hardlink path-alias refusal cases. */
     void outputAliasesNeverModifyInputs_data()
     {
         QTest::addColumn<QString>("kind");
@@ -459,6 +525,10 @@ private slots:
             QTest::newRow(kind) << QString::fromLatin1(kind);
     }
 
+    /** @brief Require each output/input alias to fail with a path/file diagnostic while preserving exact input bytes.
+     * Creates controlled aliases and retained files, waits up to 15 s and requires
+     * no separate report where applicable; successful filesystem alias creation is
+     * a precondition asserted by the test. */
     void outputAliasesNeverModifyInputs()
     {
         QFETCH(QString, kind);
@@ -509,6 +579,9 @@ private slots:
             QVERIFY(!QFileInfo::exists(rpt));
     }
 
+    /** @brief Require a refused deck to surface nonzero failure, status error child and a phase-named per-run log.
+     * Accepts either open or initialize phase for the malformed no-outlet fixture,
+     * checks Failed status and first-line reason in log; does not inspect row color. */
     void openFailureNamesThePhaseAndWritesTheRunLog()
     {
         const QString inp =
@@ -543,6 +616,7 @@ private slots:
         QVERIFY2(log.contains(r.message.section(QLatin1Char('\n'), 0, 0)), qPrintable(log));
     }
 
+    /** @brief Require injected step bad_alloc to become an INTERNAL failed result, error child and phase-named exception log without process termination. */
     void workerExceptionBecomesAFailedRun()
     {
         const QString inp = writeDeck(QStringLiteral("throw_mid_run"), kMinimal1D);
@@ -561,6 +635,8 @@ private slots:
         QVERIFY2(log.contains(QStringLiteral("EXCEPTION phase=step")), qPrintable(log));
     }
 
+    /** @brief Require an injected numerical step abort to report routing divergence at simulation time and retain report/runlog failure evidence.
+     * Checks NUMERICAL code and code-14 log lines using the real runner wrapper. */
     void numericalAbortIsWordedAsDivergenceAtASimTime()
     {
         const QString inp = writeDeck(QStringLiteral("diverge"), kMinimal1D);

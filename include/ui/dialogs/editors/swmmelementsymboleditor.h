@@ -6,8 +6,8 @@
  * @brief     GIS-style editor for SwmmElementSymbolAdapter (Slice U-V3).
  *
  *         Wraps the live SwmmElementSymbolAdapter Q_PROPERTYs with
- *         familiar QGIS controls: colour buttons + swatches, marker
- *         shape combo, dash combo for flow arrows, live preview swatch.
+ *         colour, outline/size, label/font and flow-arrow controls, with
+ *         a live base-symbol preview swatch.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -33,11 +33,36 @@ class SwmmElementSymbolEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Build live base-symbol, label and flow-arrow controls for a persistent SWMM symbol
+     * adapter.
+     * @param adapter Borrowed raw adapter required for interactive use; caller keeps it alive
+     * through this widget and all callbacks. Null makes refresh inert but does not make
+     * connected control writes safe.
+     * @param parent Optional Qt owner; caller owns a parentless widget.
+     * Reads under control signal blockers, subscribes to symbolChanged and writes individual
+     * properties immediately on control changes. Size0.5..60pixels and arrow2..60pixel
+     * controls display one decimal; outline0..20pixels displays two. Arrow controls are
+     * always exposed; applicability belongs to adapter setters. No direct undo, Cancel
+     * snapshot or destruction rollback; use on GUI thread.
+     */
     explicit SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapter, QWidget *parent = nullptr);
 
+    /**
+     * @brief Seed all symbol/label/arrow controls under signal blockers, then refresh the swatch.
+     * No-op for null target, otherwise requires borrowed raw adapter lifetime. Widget ranges
+     * may round/clamp displayed values without writing the model. External symbol changes
+     * refresh the editor; no target signals are blocked or snapshot captured.
+     */
     void refreshFromModel() override;
 
 private:
+    /**
+     * @brief Update the point-kind swatch's fill/outline/size/line width and arrow visibility
+     * from the adapter.
+     * No-op for missing adapter or preview; no target mutation. Does not preview label text,
+     * fonts, arrow dimensions/color or change the swatch into a line-kind preview.
+     */
     void updatePreview();
 
     SwmmElementSymbolAdapter *m_adapter = nullptr;

@@ -61,6 +61,18 @@ namespace openswmmvis::ui
 using namespace openswmmvis::assignment;
 namespace
 {
+/**
+ * @brief Hash complete source-file contents for immutable preview/source verification.
+ * @param[in] paths Borrowed paths opened read-only in order; output keys are their absolute
+ * paths and duplicate keys overwrite.
+ * @param[out] error Non-null failure text destination; written for open/read/cancellation
+ * failure, unchanged on success.
+ * @param[in] cancel Optional synchronous cancellation predicate tested between 1-MiB reads; must
+ * be safe on the caller's worker thread and not throw.
+ * @return Owned absolute-path-to-SHA-256 map on success; empty on failure, discarding any
+ * partial hashes. Empty input also returns empty successfully. No files are modified or pointers
+ * retained.
+ */
 QMap<QString, QByteArray> fingerprints(const QStringList &paths, QString *error,
                                        const std::function<bool()> &cancel = {})
 {
@@ -88,6 +100,16 @@ QMap<QString, QByteArray> fingerprints(const QStringList &paths, QString *error,
     }
     return result;
 }
+/**
+ * @brief Open a GDAL source read-only and enumerate its backing dataset/sidecar paths.
+ * @param[in] path Borrowed local source path opened as raster or vector using registered GDAL
+ * drivers.
+ * @param[out] error Non-null failure text destination, written when opening fails and unchanged
+ * on success.
+ * @return Owned deduplicated absolute file list including the requested primary path; empty on
+ * open failure. Releases GDAL's returned file list and closes the dataset before returning; no
+ * dataset ownership escapes.
+ */
 QStringList sourceFiles(const QString &path, QString *error)
 {
     auto *ds = static_cast<GDALDataset *>(
@@ -109,6 +131,12 @@ QStringList sourceFiles(const QString &path, QString *error)
     result.removeDuplicates();
     return result;
 }
+/**
+ * @brief Convert an engine-authored infiltration row to the GUI's value representation.
+ * @param[in] row Borrowed native row; absent method becomes None and destination enum is copied.
+ * @return Owned InfilRow with only method-used positional values copied; other slots retain
+ * their NaN/unset defaults. Performs no unit conversion, enum validation or engine edit.
+ */
 mesh::InfilRow meshRow(const SWMM_Infil2DRow &row)
 {
     mesh::InfilRow value;
@@ -119,6 +147,15 @@ mesh::InfilRow meshRow(const SWMM_Infil2DRow &row)
             value.p[k] = row.p[k];
     return value;
 }
+/**
+ * @brief Compare a live mesh's authored infiltration collections with a reviewed row snapshot.
+ * @param[in] layer Non-null borrowed mesh layer, read synchronously on its owner thread.
+ * @param[in] snapshot Borrowed ownership snapshot; only rows are inspected, not its global
+ * destination token.
+ * @return True for equal ordered tag-default rows and equal cell-override maps after meshRow()
+ * conversion, using InfilRow value equality; false otherwise. Duplicate cell keys collapse with
+ * the later value. No mutation occurs.
+ */
 bool meshMatchesOwnership(SWMM2DMeshLayer *layer, const InfiltrationOwnershipSnapshot &snapshot)
 {
     QVector<mesh::InfilDefaultRow> defaults;
@@ -137,6 +174,14 @@ bool meshMatchesOwnership(SWMM2DMeshLayer *layer, const InfiltrationOwnershipSna
             return false;
     return true;
 }
+/**
+ * @brief Replace GUI mesh infiltration collections from an already-applied ownership snapshot.
+ * @param[in,out] layer Non-null borrowed mesh layer receiving replaceInfiltrationRows().
+ * @param[in] snapshot Borrowed rows converted to ordered tag defaults and a cell-override map;
+ * global destination token is not applied here.
+ * @details Last duplicate cell key wins. Uses owned value copies, performs no engine write
+ * itself and relies on the preceding engine ownership helper's checks.
+ */
 void installOwnershipRows(SWMM2DMeshLayer *layer, const InfiltrationOwnershipSnapshot &snapshot)
 {
     QVector<mesh::InfilDefaultRow> defaults;
@@ -156,6 +201,17 @@ class ProcessUndo final : public QObject, public QUndoCommand
     quint64 geometry;
     AquiferProcessPreview preview;
     bool first = true;
+    /**
+     * @brief Replay reviewed groundwater process options against their expected opposite
+     * snapshot.
+     * @param[in] after True installs preview.after expecting before; false installs before
+     * expecting after.
+     * @details Requires guarded model/mesh, captured engine identity and unchanged mesh
+     * geometry. applyAquiferProcesses() performs its own expected-state/atomic update checks;
+     * failure marks obsolete and warns. Success marks edited, emits
+     * GW_ET/LINK_SEEPAGE/WILTING_SUCTION optionsChanged and refreshes mesh ownership. No
+     * callback exceptions are caught here.
+     */
     void install(bool after)
     {
         QString error;
@@ -174,12 +230,33 @@ class ProcessUndo final : public QObject, public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own a reviewed shared process-option before/after proposal for later replay.
+     * @param[in] m Non-null borrowed model; captured engine identity is retained, QObject
+     * lifetime guarded.
+     * @param[in] l Non-null borrowed mesh; geometry revision is captured and QObject lifetime
+     * guarded.
+     * @param[in] p Owned preview moved into the command, already installed by the original
+     * Apply.
+     * @details Intended for a canvas undo stack; first redo skips installation because it
+     * already occurred. Does not own model/mesh or advance simulation.
+     */
     ProcessUndo(SWMMModelLayer *m, SWMM2DMeshLayer *l, AquiferProcessPreview p)
         : model(m), mesh(l), engine(m->engine()), geometry(l->geomRevision()), preview(std::move(p))
     {
         setText(QObject::tr("Change reviewed groundwater ET and seepage"));
     }
+    /**
+     * @brief Restore the retained before proposal through install(false).
+     * @details A changed/unavailable owner or helper failure makes the command obsolete and
+     * reports a warning rather than silently merging unrelated state.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief Skip initial stack push, then replay the retained after proposal.
+     * @details Later calls use install(true) and its owner/expected-state guards; first redo
+     * performs no write.
+     */
     void redo() override
     {
         if (first) {
@@ -197,6 +274,15 @@ class OwnershipUndo final : public QObject, public QUndoCommand
     quint64 geometry;
     InfiltrationOwnershipPreview preview;
     bool first = true;
+    /**
+     * @brief Replay reviewed infiltration ownership in engine and mesh collections.
+     * @param[in] after True expects before/installs after; false expects after/installs before.
+     * @details Requires guarded model/mesh, captured engine identity, unchanged geometry and
+     * matching expected GUI rows, then delegates expected engine-state checking/publication to
+     * applyInfiltrationOwnership(). Failure makes the command obsolete and warns; success
+     * installs converted GUI rows and marks model edited. Engine-helper restoration limitations
+     * remain applicable; this wrapper supplies no extra transaction.
+     */
     void install(bool after)
     {
         QString error;
@@ -215,13 +301,34 @@ class OwnershipUndo final : public QObject, public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own a reviewed infiltration ownership before/after proposal for later replay.
+     * @param[in] m Non-null borrowed model; captured engine identity is retained, QObject
+     * lifetime guarded.
+     * @param[in] l Non-null borrowed mesh; geometry revision is captured and QObject lifetime
+     * guarded.
+     * @param[in] p Owned preview moved into the command, already installed by the original
+     * Apply.
+     * @details Intended for a canvas undo stack; first redo skips installation because it
+     * already occurred. Does not own model/mesh or advance simulation.
+     */
     OwnershipUndo(SWMMModelLayer *m, SWMM2DMeshLayer *l, InfiltrationOwnershipPreview p)
         : model(m), layer(l), engine(m->engine()), geometry(l->geomRevision()),
           preview(std::move(p))
     {
         setText(QObject::tr("Migrate reviewed infiltration ownership"));
     }
+    /**
+     * @brief Restore the retained before proposal through install(false).
+     * @details A changed/unavailable owner or helper failure makes the command obsolete and
+     * reports a warning rather than silently merging unrelated state.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief Skip initial stack push, then replay the retained after proposal.
+     * @details Later calls use install(true) and its owner/expected-state guards; first redo
+     * performs no write.
+     */
     void redo() override
     {
         if (first) {
@@ -242,11 +349,25 @@ class AssignmentUndo final : public QObject, public QUndoCommand
     bool isTransport = false, first = true, valid = true;
     std::function<void(bool)> changed;
     std::function<void(const QString &)> partial;
+    /**
+     * @brief Check that replay's captured model/engine/mesh identity remains usable.
+     * @return True only while the permanent valid flag remains set, guarded model/mesh survive,
+     * engine pointer matches and mesh geometry revision is unchanged. Does not itself compare
+     * assignment contents, source hashes or attribute revisions; replay helpers check expected
+     * authoring state.
+     */
     bool check()
     {
         return valid && model && mesh && model->engine() == engine &&
                mesh->geomRevision() == geometry;
     }
+    /**
+     * @brief Mark this undo command obsolete and display a replay failure.
+     * @param[in] error Borrowed failure text copied into a Groundwater assignment warning on the
+     * active window.
+     * @details Does not itself restore data or emit dirty/audit callbacks; callers report
+     * changed transport outcomes separately.
+     */
     void failed(const QString &error)
     {
         setObsolete(true);
@@ -255,6 +376,20 @@ class AssignmentUndo final : public QObject, public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own an already-installed aquifer property proposal and replay notification.
+     * @param[in] m Non-null borrowed model; guarded, with permanent invalidation when
+     * engineAboutToClose emits.
+     * @param[in] layer Non-null borrowed mesh; guarded with captured geometry revision.
+     * @param[in] p Owned AquiferPreview moved into the command, containing expected before/after
+     * authoring state and affected cells.
+     * @param[in] notify Optional owned callback moved into the command; receives false after
+     * successful undo and true after successful later redo. Must remain callable on the GUI
+     * thread without throwing/reentering this command.
+     * @details Captures the current engine pointer but does not own it. First redo skips the
+     * already-completed original write; callback lifetime must not depend on the dialog
+     * remaining alive.
+     */
     AssignmentUndo(SWMMModelLayer *m, SWMM2DMeshLayer *layer, AquiferPreview p,
                    std::function<void(bool)> notify)
         : model(m), mesh(layer), engine(m->engine()), geometry(layer->geomRevision()),
@@ -263,6 +398,22 @@ public:
         setText(QObject::tr("Assign aquifer values to %n cell(s)", nullptr, preview.cells.size()));
         connect(m, &SWMMModelLayer::engineAboutToClose, this, [this] { valid = false; });
     }
+    /**
+     * @brief Own an already-installed transport proposal with success and partial-write
+     * reporting.
+     * @param[in] m Non-null borrowed model, guarded with engine-close invalidation.
+     * @param[in] layer Non-null borrowed mesh, guarded with captured geometry revision.
+     * @param[in] p Owned GroundwaterTransportPreview moved into the command, including expected
+     * before/after records.
+     * @param[in] notify Optional owned callback receiving false/true after successful undo/later
+     * redo; GUI-thread nonthrowing callable.
+     * @param[in] dirty Optional owned callback receiving an error when transport replay fails
+     * with changed=true, enabling an audit/dirty notification even without full success; must
+     * not throw or require a live editor.
+     * @details Delegates owner capture to the property constructor, then selects transport
+     * replay. First redo skips installation already performed by Apply; transport helpers
+     * control their own rollback and report partial outcomes.
+     */
     AssignmentUndo(SWMMModelLayer *m, SWMM2DMeshLayer *layer, GroundwaterTransportPreview p,
                    std::function<void(bool)> notify, std::function<void(const QString &)> dirty)
         : AssignmentUndo(m, layer, AquiferPreview{}, std::move(notify))
@@ -273,6 +424,13 @@ public:
         setText(QObject::tr("Assign groundwater transport to %n cell(s)", nullptr,
                             transport.cells.size()));
     }
+    /**
+     * @brief Undo the retained property or transport proposal while its owner still matches.
+     * @details Invalid owner or helper failure marks obsolete and warns. A failed transport
+     * result with changed=true invokes the partial callback before reporting failure; successful
+     * replay invokes changed(false). Property replay failure has only its helper error contract.
+     * This wrapper does not add an independent rollback or catch callback exceptions.
+     */
     void undo() override
     {
         QString error;
@@ -295,6 +453,13 @@ public:
         if (changed)
             changed(false);
     }
+    /**
+     * @brief Skip initial push, then reinstall the retained property or transport proposal.
+     * @details Later replay validates captured owner, delegates expected-state/write handling to
+     * the appropriate helper and invokes changed(true) only on success. A transport failure with
+     * changed=true invokes the partial callback and marks the command obsolete; first redo never
+     * writes/notifies because Apply already did.
+     */
     void redo() override
     {
         if (first) {

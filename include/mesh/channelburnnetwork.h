@@ -69,6 +69,13 @@ struct BurnNetwork {
     QVector<Node> nodes;
     QVector<Link> links;
 
+    /**
+     * @brief Find the first network node with an exact case-sensitive identifier match.
+     * @param[in] id Borrowed identifier, unchanged; empty IDs may match empty stored IDs.
+     * @return Zero-based node position or -1 if absent. Linear scan, duplicate IDs resolve to
+     * first node; no network/engine mutation, allocation, reference validation or retained
+     * input.
+     */
     [[nodiscard]] int indexOfNode(const QString &id) const;
 };
 
@@ -81,36 +88,62 @@ struct BurnNodePlan {
     QString note;
 };
 
-/*!
- * \brief Classify every node against \p burnedLinkIds (§6, as refined below).
+/**
+ * @brief Plan roles for nodes incident to burned links without applying any model changes.
+ * @param[in] net Borrowed plain-data network, unchanged; endpoint indices outside nodes are
+ * ignored. Self-loops count each endpoint incidence twice; link IDs are matched literally and
+ * need not be unique.
+ * @param[in] burnedLinkIds Borrowed exact case-sensitive IDs, unchanged; unknown IDs have no
+ * effect.
+ * @return Owned plans in node order, omitting nodes with zero burned incidences. Non-junction or
+ * preserve nodes always receive CoupledJunction role to retain original type/behavior. Other
+ * touched nodes with >=2 surviving incidences couple as junctions; one survivor or external
+ * inflow becomes Outfall; otherwise Removed. Notes describe the decision, not successful edits.
+ * Does not inspect replacementError, validate references, convert node data or touch engine/undo
+ * state. Allocates count/plan arrays.
+ *
+ * @details Classify every node against \p burnedLinkIds (§6, as refined below).
  *
  * | surviving | external inflow | role |
  * |---|---|---|
- * | ≥ 2 | — | `CoupledJunction` — an outfall may not carry two links (D-J) |
- * | 1 | — | `Outfall` — the interface between the 1D network and the burned reach |
- * | 0 | yes | `Outfall` — a headwater that still receives runoff or an inflow, now
- *              delivering it onto the mesh |
- * | 0 | no | `Removed` — nothing on either side; converting it would leave an
- *              orphan outfall, which is the objection §6 already raises against
- *              converting interior nodes |
+ * | >=2 | any | CoupledJunction: outfall cannot carry multiple surviving links. |
+ * | 1 | any | Outfall: interface to the burned reach. |
+ * | 0 | yes | Outfall: inflow-fed headwater delivers onto the mesh. |
+ * | 0 | no | Removed: no surviving link or external inflow. |
  *
- * The last two rows refine the plan's "Terminal ⇒ OUTFALL". Under D-A a terminal
- * node loses its only link, so an outfall there is an orphan **unless** something
- * external still feeds it — and then it is exactly right, because its runoff
- * reaches the channel through the coupling. Recorded as D-L in §16.
+ * The last two rows refine the plan's "Terminal ⇒ OUTFALL". Under D-A a terminal node loses its
+ * only link, so an outfall there is an orphan **unless** something external still feeds it — and
+ * then it is exactly right, because its runoff reaches the channel through the coupling.
+ * Recorded as D-L in §16.
  *
- * Nodes are returned in the order they appear in \p net; untouched nodes are
- * omitted.
+ * Non-junction/preserved nodes retain their type through CoupledJunction before the table rules.
+ * Nodes are returned in the order they appear in \p net; untouched nodes are omitted.
  */
 [[nodiscard]] QVector<BurnNodePlan> classifyBurnNodes(const BurnNetwork &net,
                                                       const QSet<QString> &burnedLinkIds);
 
-/*! \brief The links that leave the 1D network — \p burnedLinkIds that exist in
- *         \p net, in network order. */
+/**
+ * @brief List network link IDs selected for removal, retaining network order.
+ * @param[in] net Borrowed plain network, unchanged; no endpoint or replacementError validation.
+ * @param[in] burnedLinkIds Borrowed exact case-sensitive selection, unchanged; absent IDs
+ * ignored.
+ * @return Owned names of every matching link, including duplicates in net. No actual link/node
+ * removal, engine access or retained references; allocates result strings/list.
+ *
+ * @details The links that leave the 1D network — \p burnedLinkIds that exist in
+ * \p net, in network order.
+ */
 [[nodiscard]] QStringList burnedLinksToRemove(const BurnNetwork &net,
                                               const QSet<QString> &burnedLinkIds);
 
-/*! \brief Human-readable role name for the report CSV. */
+/**
+ * @brief Map a planned node role to the report's human-readable English label.
+ * @param[in] role Enumeration value to label; unknown cast values are tolerated.
+ * @return Owned role text, or empty for unsupported value. Does not validate/apply a plan or
+ * alter state.
+ *
+ * @details Human-readable role name for the report CSV.
+ */
 [[nodiscard]] QString burnNodeRoleName(BurnNodeRole role);
 
 } // namespace mesh

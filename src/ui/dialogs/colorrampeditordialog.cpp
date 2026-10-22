@@ -42,6 +42,13 @@ namespace
 class GradientPreviewWidget : public QWidget
 {
 public:
+    /**
+     * @param[in] ramp Required borrowed stable-address ramp; owner keeps it alive for every paint,
+     *   mutations occur on GUI thread.
+     * @param[in] parent Optional QWidget owner; caller manages parentless preview.
+     * @brief Construct resize-aware fixed-height gradient preview without copying or sampling
+     *   source yet. No source writes; minimum height 44 logical pixels.
+     */
     explicit GradientPreviewWidget(const RasterColorRamp *ramp, QWidget *parent = nullptr)
         : QWidget(parent), m_ramp(ramp)
     {
@@ -50,6 +57,13 @@ public:
     }
 
 protected:
+    /**
+     * @brief Paint six-pixel checkerboard transparency underlay, per-column colorAt samples,
+     *   palette border and colored stop triangles.
+     * @note Unnamed Qt paint event unused/not retained. Read current borrowed ramp each paint with
+     *   no null guard; marker positions use raw stop coordinates and widget logical pixels, no
+     *   model units or source mutation. GUI-thread paint, no manual paint outside Qt event.
+     */
     void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);

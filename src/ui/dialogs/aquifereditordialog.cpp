@@ -105,18 +105,34 @@ const FieldSpec kFields[AquiferProvider::ParamCount] = {
      0.0, 1.0, 0.01, Unit::None},
 };
 
+/**
+ * @brief Select the aquifer rainfall-rate label from the active unit system.
+ * @return Owned "mm/hr" for SI, otherwise "in/hr", including absent UnitSystem; no numerical
+ * conversion occurs.
+ */
 QString rateLabel()
 {
     auto *u = UnitSystem::instance();
     return (u && u->isSI()) ? QStringLiteral("mm/hr") : QStringLiteral("in/hr");
 }
 
+/**
+ * @brief Read the current aquifer length/elevation display label.
+ * @return UnitSystem::lengthLabel() when available, otherwise owned "ft"; does not convert
+ * values.
+ */
 QString lengthLabel()
 {
     auto *u = UnitSystem::instance();
     return u ? u->lengthLabel() : QStringLiteral("ft");
 }
 
+/**
+ * @brief Resolve a parameter-spec unit kind into the current display suffix.
+ * @param[in] unit None, Length, Rate or RainDepth from the local FieldSpec schema.
+ * @return Empty for None/unrecognized values, current length label for Length, in/hr or mm/hr
+ * for Rate, or in/mm for RainDepth; missing UnitSystem uses US labels.
+ */
 QString unitLabel(Unit unit)
 {
     auto *u = UnitSystem::instance();

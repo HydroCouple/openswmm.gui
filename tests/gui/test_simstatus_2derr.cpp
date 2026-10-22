@@ -8,8 +8,8 @@
  * End-to-end check of the "2D Err (%)" Simulation Status column: runs the
  * real SimulationRunner (in-process refactored engine) wired to a real
  * SimulationStatusModel exactly the way SWMMVis connects them, against
- *  1. the 2D demo (examples/demo_weir_culvert) — column must show a live
- *     percent during the run and keep a final value after cancel, and
+ *  1. a self-contained tiny 2D model — column must show a live
+ *     percent during the run and retain a final value on completion, and
  *  2. a minimal 1D-only model — column must show "—" throughout.
  *
  * All run artifacts (.inp copies, .rpt, .out, .2d.h5) are written to
@@ -29,12 +29,17 @@
 namespace
 {
 
+/** @brief Read the configured GUI data root without a default override.
+ * @return Owned environment value, empty when unset; no directory creation. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA");
 }
 
 /// Reviewable output dir for everything this test writes.
+/** @brief Create/name the retained simulation-status error artifacts.
+ * @return Owned output_simstatus2derr path below dataDir, effectively relative
+ * when the environment is empty. mkpath failure is unchecked and contents remain. */
 QString outputDir()
 {
     const QString dir = QDir(dataDir()).filePath(QStringLiteral("output_simstatus2derr"));
@@ -42,6 +47,11 @@ QString outputDir()
     return dir;
 }
 
+/** @brief Read one job's formatted 2D continuity cell.
+ * @param[in] model Live status model, unchanged.
+ * @param[in] row Intended valid top-level job row; invalid index converts to empty text.
+ * @return Owned DisplayRole string, normally percent text or an em dash.
+ * Does not convert the underlying fractional value itself or mutate status. */
 QString twoDErrCell(const SimulationStatusModel &model, int row)
 {
     return model.index(row, SimulationStatusModel::ColTwoDErr).data(Qt::DisplayRole).toString();
@@ -55,6 +65,8 @@ class TestSimStatus2DErr : public QObject
 
 private slots:
 
+    /** @brief Require 5600 appended warnings to retain at most 5001 child rows using two batched trims.
+     * Checks the dropped-warning summary and newest warning w5599; no engine run occurs. */
     void warningsPerJobAreCapped()
     {
         // A run that warns every step used to grow the job's child rows (and
@@ -81,6 +93,7 @@ private slots:
         QCOMPARE(removed.count(), 2); // 5600 warnings → two batched trims
     }
 
+    /** @brief Require the 2D error column/header and solver/LTS telemetry headers to retain their advertised layout. */
     void headerAndColumnLayout()
     {
         SimulationStatusModel model;
@@ -96,6 +109,11 @@ private slots:
                  QStringLiteral("LTS Tiers"));
     }
 
+    /** @brief Require a real tiny CMS 2D run to publish non-NaN live/final continuity and CPU local-inertial/LTS status text.
+     * Writes a self-contained two-triangle fixture, wires real runner/status signals
+     * and waits up to 60 s for success. Sets process OPENSWMM_2D_BACKEND=cpu without
+     * restoring it, and keeps the runner QObject-parented to the test; artifacts remain.
+     * The case runs to completion rather than exercising cancellation. */
     void twoDRunPopulatesColumn()
     {
         // Minimal self-contained 2D model (4 vertices / 2 triangles, one
@@ -214,6 +232,8 @@ private slots:
         QVERIFY2(tiersCell.contains(QStringLiteral("%")), qPrintable(tiersCell));
     }
 
+    /** @brief Require a real 1D-only CMS run to finish with NaN 2D error and an em dash status cell.
+     * Writes retained files and waits up to 60 s for the parent-owned runner. */
     void oneDRunShowsDash()
     {
         // Minimal 1D-only model written where the user can inspect it.
@@ -280,6 +300,10 @@ private slots:
     // ~2e-2 and on a 10 s model ~1e-2 around step 200, creeping up from there:
     // a perfectly healthy run looked permanently stalled. The value now comes
     // from swmm_get_current_time() (seconds since simulation start).
+    /** @brief Require a positive-progress runner tick to report an average timestep between 0.1 and 60 seconds.
+     * Runs a dry one-hour CMS model with nominal 5 s routing, waits up to 60 s and
+     * selects the last non-seed tick. The broad band distinguishes seconds from
+     * cumulative days without requiring a particular rate-limited tick to win. */
     void averageTimestepIsReportedInSeconds()
     {
         const QString inp = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.inp"));

@@ -32,6 +32,12 @@ using OpenSWMM::Render::PolygonSymbolStyleAdapter;
 namespace
 {
 // Shared opacity spin (0–100 %), maps to the adapter's 0..1 opacity.
+/**
+ * @brief Create an integer-percent opacity spin box for a parent-owned editor.
+ * @param parent Optional Qt owner; caller owns parentless result.
+ * @return New0..100percent spin with zero decimals, step5 and percent suffix; the
+ * owning editor converts to/from fractional adapter opacity. No target binding here.
+ */
 QDoubleSpinBox *makeOpacitySpin(QWidget *parent)
 {
     auto *s = new QDoubleSpinBox(parent);

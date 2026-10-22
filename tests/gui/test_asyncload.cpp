@@ -62,6 +62,8 @@ namespace
 class QueuedOpenBarrier
 {
 public:
+    /** @brief Drain the global pool, constrain it to one worker and occupy that worker until release.
+     * Blocks until the occupying task starts, ensuring subsequent asynchronous opens remain queued. Construction and teardown must be serialized with other users of this process-global pool. */
     QueuedOpenBarrier() : oldMaximum(QThreadPool::globalInstance()->maxThreadCount())
     {
         QThreadPool::globalInstance()->waitForDone();
@@ -72,6 +74,7 @@ public:
         });
         entered.acquire();
     }
+    /** @brief Idempotently unblock the occupying worker so queued model opens can proceed. */
     void release()
     {
         if (!released) {
@@ -79,6 +82,7 @@ public:
             resume.release();
         }
     }
+    /** @brief Release the blocker, wait for all global-pool work and restore its previous maximum thread count. */
     ~QueuedOpenBarrier()
     {
         release();
@@ -98,6 +102,11 @@ private:
 // now goes to openswmm.load.model, not the layer's `warnings` list).
 QStringList g_loadLog;
 QtMessageHandler g_prevHandler = nullptr;
+/** @brief Collect load-category telemetry and forward every message to the saved handler.
+ * @param[in] type Message severity forwarded unchanged.
+ * @param[in] ctx Borrowed logging context; a non-null category starting with openswmm.load selects collection.
+ * @param[in] msg Message appended to the process-global list for selected categories and forwarded unchanged.
+ * The shared log and previous-handler globals are unsynchronized; use only while the test controls message emission and handler installation. */
 void loadLogHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
 {
     if (ctx.category &&
@@ -107,26 +116,37 @@ void loadLogHandler(QtMsgType type, const QMessageLogContext &ctx, const QString
         g_prevHandler(type, ctx, msg);
 }
 
+/** @brief Resolve the GUI test fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA or the current-directory spelling "." when unset; does not create or validate it. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Locate the valid typed-selection model under the fixture directory.
+ * @return Joined path to typed_selection_fixture.inp; existence is checked by initTestCase. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
 
+/** @brief Locate the lenient-open fixture with an undefined-node diagnostic.
+ * @return Joined path to typed_selection_malformed_fixture.inp without opening it. */
 QString malformedFixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_malformed_fixture.inp"));
 }
 
+/** @brief Construct the deliberately absent model path used for open failures.
+ * @return Joined typed_selection_does_not_exist.inp path; initTestCase requires it not to exist. */
 QString nonexistentPath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_does_not_exist.inp"));
 }
 
+/** @brief Sum junction, outfall, storage and divider category counts.
+ * @param[in] l Borrowed model layer whose cached categories are queried without mutation.
+ * @return Total count across the four node categories. */
 int totalNodeCount(const SWMMModelLayer &l)
 {
     return l.categoryCount(SWMMModelLayer::CatJunctions) +
@@ -135,6 +155,9 @@ int totalNodeCount(const SWMMModelLayer &l)
            l.categoryCount(SWMMModelLayer::CatDividers);
 }
 
+/** @brief Sum conduit, pump, orifice, weir and outlet category counts.
+ * @param[in] l Borrowed model layer whose cached categories are queried without mutation.
+ * @return Total count across the five link categories. */
 int totalLinkCount(const SWMMModelLayer &l)
 {
     return l.categoryCount(SWMMModelLayer::CatConduits) +
@@ -151,6 +174,8 @@ class TestAsyncLoad : public QObject
 
 private slots:
 
+    /** @brief Require valid/malformed/absent fixture paths and register the production canvas QML renderer types.
+     * Sets the default surface format to six samples unless SWMMVIS_TEST_QSG_SAMPLES supplies an integer; these process-global registrations/settings support later widget render probes. */
     void initTestCase()
     {
         QVERIFY2(QFile::exists(fixturePath()),
@@ -185,6 +210,7 @@ private slots:
 
     // 1. openEngineForPath error paths: empty path and a nonexistent path.
     //    Both are pure engine C-API calls — no GUI thread required.
+    /** @brief Verify empty and missing paths return null handles with specific actionable diagnostics. */
     void openEngineForPathErrorPaths()
     {
         QString detail;
@@ -198,6 +224,7 @@ private slots:
         QVERIFY2(detail2.contains(QStringLiteral("Model file not found")), qPrintable(detail2));
     }
 
+    /** @brief Register NUL/control-byte corruptions, including CRLF text and corruption beyond the first one-megabyte read chunk. */
     void binaryInpRejected_data()
     {
         QTest::addColumn<QByteArray>("contents");
@@ -221,6 +248,8 @@ private slots:
             << QStringLiteral("Control byte 0x7f");
     }
 
+    /** @brief Verify binary-corrupted decks fail lenient open with the offending byte, one-based line and path in the diagnostic.
+     * Writes each payload into the fixture directory and destroys any unexpectedly returned engine before asserting failure. */
     void binaryInpRejected()
     {
         QFETCH(QByteArray, contents);
@@ -245,6 +274,8 @@ private slots:
         QVERIFY(detail.contains(path));
     }
 
+    /** @brief Verify UTF-8 and legacy eight-bit comments remain loadable when prepended to a valid fixture.
+     * Writes the combined deck into the fixture directory and explicitly closes/destroys the returned engine. */
     void textCommentsRemainLoadable()
     {
         QFile fixture(fixturePath());
@@ -273,6 +304,8 @@ private slots:
     //    editing and the engine's real diagnostic (naming the offending
     //    node, not a generic "Out of memory") is queryable on the handle
     //    for adoptOpenEngine to surface as a warning.
+    /** @brief Verify lenient open retains the undefined GHOST-node diagnostic on a usable engine handle.
+     * Requires at least one real parse diagnostic and rejects generic out-of-memory substitutions before destroying the handle. */
     void parseErrorDiagnosticsPreserved()
     {
         QString detail;
@@ -295,6 +328,8 @@ private slots:
     //    fresh layer (the async open sequence) must yield the same
     //    node/link/subcatchment/gage counts as a plain loadModel() on another
     //    layer for the same fixture.
+    /** @brief Verify the open/build/adopt sequence yields the same node, link, subcatchment and gage counts as synchronous loading.
+     * Checks nonnegative open milliseconds and transfers the opened engine to the asynchronous-path layer on adoption. */
     void openAndAdoptEqualsSyncLoad()
     {
         QString detail;
@@ -328,6 +363,8 @@ private slots:
     //    emits the load-timing line to the openswmm.load.model category.
     //    (Timing moved out of `warnings` — which is now real-warnings-only —
     //    into opt-in telemetry; the GUI shows one clean success summary.)
+    /** @brief Verify synchronous loading succeeds without errors and emits load timing through the logging category.
+     * Temporarily installs the collecting message handler, then restores it and resets logging filter rules before checking the timing line. */
     void loadModelRegression()
     {
         QLoggingCategory::setFilterRules(QStringLiteral("openswmm.load.*=true"));
@@ -361,6 +398,8 @@ private slots:
     //    CRS resolves to a local projected CRS (not "Untitled (Local)") —
     //    finishModelLoad() opens a MODAL CRS-picker dialog for an untitled
     //    CRS, which would hang this unattended test.
+    /** @brief Verify real asynchronous project loading emits exactly one completion for both valid and missing model paths.
+     * Waits at most twenty seconds per case, requires true for the valid fixture and false with errors for the missing file, and destroys windows before their shared workspace. */
     void asyncCompletionViaProjectWindow()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -403,6 +442,8 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify two opens queued on one window yield one success and one diagnostic failure within twenty seconds.
+     * Uses the global-pool barrier to make overlap deterministic, then deletes window and workspace. */
     void duplicateAsyncOpenIsRefused()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -430,6 +471,8 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify changing the model path while open is queued rejects the stale result.
+     * Waits twenty seconds for failure and checks no engine/cache was adopted and the changed path remains. */
     void asyncOpenRejectsChangedPath()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -451,6 +494,8 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify asynchronous open refuses a layer already holding a synchronously loaded engine.
+     * Requires one failure completion within twenty seconds and preserves the original engine identity and node cache. */
     void asyncOpenDoesNotReplaceLoadedEngine()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -469,6 +514,7 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify an edit revision emitted during queued open fences out the stale engine and node cache. */
     void asyncOpenRejectsChangedRevision()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -488,6 +534,8 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify deleting the project during its modal CRS selection makes finishing fail safely with errors.
+     * Uses a queued owner deletion, checks the guarded pointer cleared, then deletes the remaining workspace. */
     void closingOwnerDuringCrsPromptIsSafe()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -504,6 +552,8 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Verify an injected worker exception reaches one failure signal without adopting engine/cache state.
+     * Clears the injection and requires a successful retry within twenty seconds before tearing down the owners. */
     void asyncWorkerExceptionIsReportedAndRetryWorks()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -529,6 +579,7 @@ private slots:
         delete workspace;
     }
 
+    /** @brief Register deletion of the window, detached layer, or window/workspace while an open is queued. */
     void asyncOwnerTeardown_data()
     {
         QTest::addColumn<QString>("owner");
@@ -537,6 +588,8 @@ private slots:
         QTest::newRow("workspace") << QString("workspace");
     }
 
+    /** @brief Verify queued open safely handles owner teardown in an isolated child process.
+     * Parent waits thirty seconds then kills a hung child; the child deletes the selected owner behind a global-pool barrier, drains workers/events, and checks any surviving window fails or surviving layer remains empty. */
     void asyncOwnerTeardown()
     {
         QFETCH(QString, owner);
@@ -600,6 +653,8 @@ private slots:
     //     cannot detect a failure here (it is SimulationOptions' default, so
     //     the assertion passes even if the value never arrives), so this
     //     fixture declares ELEVATION.
+    /** @brief Verify asynchronous loading hydrates both engine and project-window offset mode from an ELEVATION deck.
+     * Creates a temporary token-modified fixture, waits twenty seconds, and checks the window agrees with the engine option. */
     void elevationOffsetModeReachesTheProjectWindow()
     {
         QTemporaryDir tmp;
@@ -655,6 +710,8 @@ private slots:
     //    through swmm_options_get — the contract readFromEngine-style
     //    consumers and the first Save As rely on. Also proves
     //    swmm_model_write works from BUILDING (no finalize).
+    /** @brief Verify a new BUILDING engine contains configured simulation defaults and can write a first zero-object model.
+     * Checks seconds, percentage tolerances, threads and optional CPU backend, reopens the written deck to check routing, destroys both handles and removes the working-directory output. */
     void blankEngineDefaultsRoundTrip()
     {
         SWMMModelLayer::NewProjectSpec spec;
@@ -670,6 +727,9 @@ private slots:
         SWMM_Engine eng = SWMMModelLayer::createBlankEngine(spec, &detail);
         QVERIFY2(eng != nullptr, qPrintable(detail));
 
+        /** @brief Read a new-engine option into a fixed 128-byte buffer.
+         * Argument `key`: required engine option name; the captured engine must remain live.
+         * Returns: trimmed UTF-8 option text on success, or an empty string on any getter error. */
         auto get = [eng](const char *key) {
             char buf[128] = {};
             const int rc = swmm_options_get(eng, key, buf, sizeof(buf));
@@ -724,6 +784,7 @@ private slots:
     // 7. adoptNewEngine on a pathless layer: keeps the "Untitled" name, and
     //    the CRS derives Local (ft)/(m) from the flow units — proving the
     //    CRS-picker modal can never fire on File → New.
+    /** @brief Verify new pathless CFS/CMS layers retain Untitled names and derive Local (ft)/Local (m) CRS descriptions. */
     void adoptNewEngineKeepsNameAndDerivesLocalCrs()
     {
         SWMMModelLayer::NewProjectSpec spec;
@@ -756,6 +817,8 @@ private slots:
 
     // 8. initializeBlankModel via the project window: pathless, untitled,
     //    pristine — the state the always-prompt close guard keys on.
+    /** @brief Verify a newly initialized untitled project is pathless and pristine but still prompts on close.
+     * Drives the real close modal with queued Cancel then Discard clicks and checks the corresponding close refusal/acceptance. */
     void blankProjectWindowFlags()
     {
         auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -782,6 +845,10 @@ private slots:
 
         // Close prompt: Cancel keeps the window alive, Discard closes it —
         // drive the modal from a queued lambda since exec() blocks.
+        /** @brief Queue one attempt to click a close-prompt button in the GUI event loop.
+         * Argument `std`: preferred QMessageBox standard button.
+         * Argument `fallbackText`: required C string whose storage must outlive the queued callback; used as a button-text substring if the standard button is absent.
+         * Does nothing if no message box or matching button exists at the single queued attempt. */
         auto clickButton = [](QMessageBox::StandardButton std, const char *fallbackText) {
             QTimer::singleShot(0, [std, fallbackText]() {
                 auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
@@ -817,12 +884,15 @@ private slots:
     //     selects). Reported 2026-09-05: on a fresh Local-CRS project, added
     //     nodes and links "do not render". Baseline/after grabs are written
     //     next to the binary (CLAUDE.md §4.1) so a failure can be eyeballed.
+    /** @brief Register CPU scene-item and QSG overlay rendering of objects drawn into an initially blank project. */
     void blankProjectAddedObjectsRender_data()
     {
         QTest::addColumn<bool>("qsg");
         QTest::newRow("cpu-layeritem") << false;
         QTest::newRow("qsg-overlay") << true;
     }
+    /** @brief Verify map tools add two junctions and a conduit that visibly change canvas pixels in both render paths.
+     * Checks Local (ft) click coordinates and caches, retains before/after captures in the working directory, and requires changed pixels near both nodes and the conduit midpoint. The QSG row first tests readback capability, skips unobservable platforms, and checks loaded-model CPU-to-QSG handoff. */
     void blankProjectAddedObjectsRender()
     {
         QFETCH(bool, qsg);
@@ -831,6 +901,9 @@ private slots:
         // Pixels that differ from the corner background inside the central
         // 80% of a grab — decorations (scale bar, coordinates) live at the
         // edges, so this counts drawn network geometry only.
+        /** @brief Count nonbackground pixels in the central eighty percent of an image.
+         * Argument `img`: image large enough to sample pixel (5,5) when non-null; no size check is performed.
+         * Returns: -1 for a null image, otherwise pixels unequal to that sampled background. The central crop excludes canvas decorations. */
         auto nonBackground = [](const QImage &img) {
             if (img.isNull())
                 return -1;
@@ -1019,6 +1092,10 @@ private slots:
         // Count pixels that changed inside a box around each click and at the
         // conduit's midpoint. Decorations (scale bar, north arrow) are in both
         // grabs, so only the added objects can differ.
+        /** @brief Count before/after pixel differences in a clipped square around a device-pixel point.
+         * Argument `c`: center in image pixel coordinates.
+         * Argument `half`: nonnegative half-width/height, producing a (2*half+1)-pixel square before clipping.
+         * Returns: differing pixel count; captured before/after images must have equal sizes, as asserted by the calling test. */
         auto changedAround = [&](const QPoint &c, int half) {
             int n = 0;
             for (int y = c.y() - half; y <= c.y() + half; ++y)
@@ -1059,6 +1136,8 @@ private slots:
     //    the right category header WITHOUT wiping the SelectionManager —
     //    a category header maps to zero object refs, so an unguarded tree
     //    selection would push an empty Replace onto the bus.
+    /** @brief Verify selecting a category focuses its browser header while preserving the existing map-selection bus.
+     * Also checks selecting an empty storage category leaves the selected junction intact. */
     void selectCategoryFocusesHeaderWithoutWipingBus()
     {
         SWMMModelLayer layer(fixturePath(), nullptr);
@@ -1099,6 +1178,8 @@ private slots:
     //    load breakdown (engine_open vs SoA copy vs CRS vs geometry cache,
     //    plus sub-splits) captured from the openswmm.load.model category.
     //    Skips when the env var is unset, so it is a no-op in CI.
+    /** @brief Optionally load SWMM_PROFILE_INP and print captured load timing plus object counts.
+     * Skips when unset, checks existence and successful synchronous load, and restores the message handler and resets category filter rules; this profiler asserts no performance threshold. */
     void profileExternalModel()
     {
         const QString inp = qEnvironmentVariable("SWMM_PROFILE_INP");

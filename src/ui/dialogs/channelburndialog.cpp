@@ -59,6 +59,13 @@
 
 namespace
 {
+/**
+ * @brief Collect node indices referenced by the supported direct inflow/outlet APIs.
+ * @param[in] eng Borrowed engine read synchronously; null returns an empty set.
+ * @return Owned unique nonnegative indices from successfully read external inflows, dry-weather
+ * inflows, RDII assignments and subcatchment outlets. Failed rows are skipped; this is not a
+ * complete catalog of all possible node references and retains no engine strings/pointers.
+ */
 QSet<int> inflowNodes(SWMM_Engine eng)
 {
     QSet<int> fed;

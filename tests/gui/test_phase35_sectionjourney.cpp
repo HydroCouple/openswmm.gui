@@ -39,6 +39,8 @@ using openswmmvis::io::Mesh2DResultVariable;
 using openswmmvis::io::Mesh2DValueStatus;
 namespace
 {
+/** @brief Resolve retained combined-section evidence storage.
+ * @return Cleaned SWMMVIS_SECTION_JOURNEY_OUTPUT or the source-relative phase-35 section-journey artifact folder; does not create it. */
 QString reviewDirectory()
 {
     return QDir::cleanPath(qEnvironmentVariable(
@@ -48,11 +50,18 @@ QString reviewDirectory()
             .absoluteFilePath(
                 "../../workplans/artifacts/phase_35_profiles_forcing/review/section-journey")));
 }
+/** @brief Read retained evidence bytes.
+ * @param[in] path Input file opened read-only.
+ * @return Complete bytes or empty on open failure, indistinguishable from a valid empty file. */
 QByteArray contents(const QString &path)
 {
     QFile file(path);
     return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
 }
+/** @brief Replace a retained fixture/evidence file.
+ * @param[in] path Destination truncated on open; parent must already exist.
+ * @param[in] bytes Payload written as-is.
+ * @return True only when open and full-length write succeed; flush is unchecked and a failure may leave partial output. */
 bool writeFile(const QString &path, const QByteArray &bytes)
 {
     QFile file(path);
@@ -152,6 +161,8 @@ INPUT NO
 struct Engine {
     SWMM_Engine handle = swmm_engine_create();
     bool started = false;
+    /** @brief End a started run, close and destroy the owned engine when non-null.
+     * Lifecycle cleanup return codes are intentionally ignored. */
     ~Engine()
     {
         if (handle) {
@@ -161,6 +172,8 @@ struct Engine {
             swmm_engine_destroy(handle);
         }
     }
+    /** @brief Read the live owned engine last-error message.
+     * @return UTF-8 diagnostic copied from the C API; requires a valid handle. */
     QString error() const { return QString::fromUtf8(swmm_get_last_error_msg(handle)); }
 };
 }
@@ -170,6 +183,8 @@ class TestPhase35SectionJourney : public QObject
     Q_OBJECT
     QString root_, inp_, h5_;
 private slots:
+    /** @brief Create retained fixtures and run the real two-minute wet-surface/groundwater/TSS model to produce HDF5 review results.
+     * Bounds simulation to ten thousand steps, checks successful end/close and requires a nonempty output file. */
     void initTestCase()
     {
         root_ = reviewDirectory();
@@ -201,6 +216,8 @@ private slots:
         QCOMPARE(swmm_engine_close(engine.handle), SWMM_OK);
         QVERIFY(QFileInfo(h5_).size() > 0);
     }
+    /** @brief Verify real surface/groundwater/TSS result sections preserve native units and values through definition save/reopen, CSV and GIS export.
+     * Checks GeoPackage cells and two-band GeoTIFF, exact surface geometry/effective time, sidecar references, plotted groundwater pixels and keyboard chainage. Retains evidence and verifies releasing the source removes terrain/series rather than silently substituting a mesh. */
     void realResultsSaveReopenAndExport()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -448,6 +465,8 @@ private slots:
     // The section dialog on a layer whose surface is fitted by the worker
     // (as the application configures it) must show the same current depths
     // and the same maximum as the dialog on a synchronous layer.
+    /** @brief Verify worker-fitted and synchronous result layers provide matching current/max depth samples across first/last/back frames.
+     * Waits ten seconds for each worker frame/envelope and checks inactive plots catch up on reactivation. */
     void workerLayerFeedsTheSectionDialog()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -479,6 +498,10 @@ private slots:
         // These content widgets have no dock host in this sampling test.
         reference.setPlotActive(true);
         dialog.setPlotActive(true);
+        /** @brief Compare depth samples while treating two unavailable NaN values as equivalent.
+         * Argument `a`: first numeric depth in metres.
+         * Argument `b`: second depth in the same units.
+         * Returns: true for exact equality or when both values are NaN; otherwise false. */
         auto same = [](double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; };
         for (int frame : {0, last, 0}) {
             sync->setCurrentTimeIndex(frame);

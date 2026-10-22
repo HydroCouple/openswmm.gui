@@ -867,6 +867,13 @@ void TransectEditorDialog::onZoomOutClicked_()
 
 // Mode toggles are mutually exclusive — turning one on automatically clears
 // the others so the toolbar always reflects a single active mode.
+/**
+ * @brief Uncheck nonnull competing actions while blocking their toggled signals.
+ * @param self Borrowed nominal active action, deliberately unused and never changed.
+ * @param others Borrowed nullable action pointers iterated synchronously; each nonnull
+ * item is unchecked. Caller supplies only competitors, since self is not filtered out.
+ * No ownership transfer, QActionGroup installation or chart-mode mutation by this helper.
+ */
 static void setExclusive_(QAction *self, std::initializer_list<QAction *> others)
 {
     for (auto *a : others) {

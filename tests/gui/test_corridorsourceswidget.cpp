@@ -34,10 +34,29 @@ class TestCorridorSourcesWidget : public QObject
 {
     Q_OBJECT
     QString m_path;
+    /**
+     *
+     * @brief Find a named descendant control of the requested widget type.
+     * @tparam T QObject-derived control type used by Qt's typed recursive lookup.
+     * @param widget Borrowed live corridor editor; no ownership transfer.
+     * @param name Borrowed Latin-1 object name, consumed synchronously.
+     * @return Borrowed first matching child or null; callers assert/control validity before
+     * use. Does not check visibility, enabled state or retained pointer lifetime.
+     *
+     */
     template <class T> static T *control(CorridorSourcesWidget &widget, const char *name)
     {
         return widget.findChild<T *>(QString::fromLatin1(name));
     }
+    /**
+     *
+     * @brief Build a detached saved recipe with deliberately unavailable source path and retained
+     * digest metadata.
+     * @return Owned value selecting IDs nine/42, width15, along0, across3, reach-A tag,
+     * source/mesh CRS strings and dependency path. Does not validate or create the missing
+     * file; tests use this value to distinguish draft edits from metadata preservation.
+     *
+     */
     static mesh::CorridorSource saved()
     {
         mesh::CorridorSource row;
@@ -55,6 +74,16 @@ class TestCorridorSourcesWidget : public QObject
         return row;
     }
 private slots:
+    /**
+     *
+     * @brief Create the persistent two-feature GeoJSON fixture used for selection and schema
+     * tests.
+     * Uses SWMMVIS_CORRIDOR_WIDGET_TEST_OUTPUT or tests/output/corridor_sources_widget,
+     * creates directories and truncates selected_roads.geojson. Checks complete byte write;
+     * fixture uses IDs seven/19 and numeric width_m/lanes plus string name properties.
+     * Does not clean the file afterward or preserve an existing file at that path.
+     *
+     */
     void initTestCase()
     {
         const QString dir =
@@ -72,6 +101,14 @@ private slots:
         QCOMPARE(fixture.write(json), json.size());
     }
 
+    /**
+     *
+     * @brief Register one/two/three selected-id counts to pin the exactly-two bank selection
+     * rule.
+     * The third id is deliberately absent from the physical fixture; this widget captures
+     * selection metadata rather than loading every selected geometry.
+     *
+     */
     void bankPairSelection_data()
     {
         QTest::addColumn<int>("count");
@@ -79,6 +116,15 @@ private slots:
         QTest::newRow("two-banks") << 2;
         QTest::newRow("three-banks-refused") << 3;
     }
+    /**
+     *
+     * @brief Require bank mode to disable width controls, reject wrong selection counts and
+     * preserve a valid two-bank recipe.
+     * Checks accessibility name, inline guidance, locked width cells, editable spacing,
+     * sorted IDs seven/19, across5 and zero along; switching to centerline reenables width
+     * controls. Does not create a corridor mesh or read selected feature geometry.
+     *
+     */
     void bankPairSelection()
     {
         QFETCH(int, count);
@@ -130,6 +176,14 @@ private slots:
         QVERIFY(control<QLineEdit>(widget, "corridorWidth")->isEnabled());
     }
 
+    /**
+     *
+     * @brief Require a missing-layer restored bank recipe to retain role/digest while accepting
+     * across/along edits.
+     * Checks not-on-map label, locked width cells, selected IDs, across4, along8.5, original
+     * width and digest. Does not open the unavailable source or generate geometry.
+     *
+     */
     void restoredBankPairRetainsRoleAndEditableSpacing()
     {
         CorridorSourcesWidget widget;
@@ -155,6 +209,12 @@ private slots:
         QCOMPARE(rows[0].geometryDigest, bank.geometryDigest);
     }
 
+    /**
+     *
+     * @brief Register one-id, duplicate-id and width-field inconsistencies in saved bank recipes.
+     * Supplies scenario strings to the paired validation case.
+     *
+     */
     void inconsistentRestoredBankPairIsNotSilentlyRepaired_data()
     {
         QTest::addColumn<QString>("invalid");
@@ -162,6 +222,14 @@ private slots:
         QTest::newRow("duplicate-ids") << QStringLiteral("duplicate-ids");
         QTest::newRow("width-field") << QStringLiteral("width-field");
     }
+    /**
+     *
+     * @brief Require invalid restored bank metadata to fail validation without converting the
+     * caller's saved output into a bank.
+     * Keeps the one draft row, requires nonempty error and checks the preexisting output's
+     * bankPair remains false; does not compare every output field or silently repair input.
+     *
+     */
     void inconsistentRestoredBankPairIsNotSilentlyRepaired()
     {
         QFETCH(QString, invalid);
@@ -183,6 +251,15 @@ private slots:
         QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 1);
     }
 
+    /**
+     *
+     * @brief Require Add to snapshot selected IDs and assigned CRS while preserving the OGR
+     * feature cursor.
+     * Assigns EPSG:32617, consumes first feature, captures only ID19, then changes map
+     * selection and confirms the saved ID remains19. Next OGR read must still be19;
+     * checks source path/layer/WKT and empty mesh CRS/digest. No geometry transformation.
+     *
+     */
     void capturesOnlySelectedIdsAndAssignedCrsWithoutReadingFeatures()
     {
         GISVectorLayer layer(m_path);
@@ -216,6 +293,13 @@ private slots:
         QCOMPARE(second->GetFID(), 19); // Widget inspected schema only, not feature cursor.
     }
 
+    /**
+     *
+     * @brief Require Add without selected features to retain zero rows and show Select guidance
+     * inline.
+     * Checks no active modal widget; does not assert exact label text or keyboard focus.
+     *
+     */
     void noSelectionProducesInlineGuidance()
     {
         GISVectorLayer layer(m_path);
@@ -228,6 +312,13 @@ private slots:
         QVERIFY(!QApplication::activeModalWidget());
     }
 
+    /**
+     *
+     * @brief Require the field picker to offer numeric width_m/lanes and exclude string name.
+     * Adds a field-width recipe, then checks width_m and exact selected IDs seven/19;
+     * no actual feature width values or generated patch dimensions are inspected.
+     *
+     */
     void widthFieldChoicesAreNumericSchemaNames()
     {
         GISVectorLayer layer(m_path);
@@ -249,6 +340,15 @@ private slots:
         QCOMPARE(rows[0].featureIds, (QVector<qint64>{7, 19}));
     }
 
+    /**
+     *
+     * @brief Require detached restored recipes to accept numeric edits while preserving source
+     * identity/CRS/digest/dependencies.
+     * Checks width21.5/across4 and original metadata, then assigning width_m must clear the
+     * saved geometry digest. Missing source availability is accepted for this draft path;
+     * no physical file read or final geometry validation occurs.
+     *
+     */
     void restoredMissingLayersRemainEditableAndPreserveMetadata()
     {
         CorridorSourcesWidget widget;
@@ -277,6 +377,14 @@ private slots:
         QCOMPARE(rows[0].widthField, QStringLiteral("width_m"));
     }
 
+    /**
+     *
+     * @brief Register eight invalid width/across/along drafts including blanks, NaN, overflow and
+     * infinity.
+     * Supplies logical table column and original draft string; fractional across and
+     * negative along cover integer/domain validation separately.
+     *
+     */
     void invalidSavedNumbersRetainDraftAndOutput_data()
     {
         QTest::addColumn<int>("column");
@@ -291,6 +399,14 @@ private slots:
         QTest::newRow("negative-along") << 5 << QStringLiteral("-1");
     }
 
+    /**
+     *
+     * @brief Require invalid restored numeric drafts to stay visible, identify row one and focus
+     * the failing column.
+     * Seeds caller output with saved() and checks its width remains15 after refusal;
+     * draft text is preserved exactly. Does not compare every output field or repair input.
+     *
+     */
     void invalidSavedNumbersRetainDraftAndOutput()
     {
         QFETCH(int, column);
@@ -308,6 +424,14 @@ private slots:
         QCOMPARE(rows[0].width, 15.0); // Caller output is unchanged on failure.
     }
 
+    /**
+     *
+     * @brief Require invalid new along text to prevent Add and zero along to create a valid
+     * single recipe.
+     * Checks inline Along guidance and resulting along0, without inspecting every row field
+     * or building corridor geometry.
+     *
+     */
     void invalidNewValuesDoNotAddRowsAndZeroAlongIsAllowed()
     {
         GISVectorLayer layer(m_path);
@@ -328,6 +452,13 @@ private slots:
         QCOMPARE(rows[0].along, 0.0);
     }
 
+    /**
+     *
+     * @brief Require a restored empty-id recipe to fail with selected-features guidance and keep
+     * its draft row.
+     * Caller output stays empty; no implicit all-feature expansion or dataset read occurs.
+     *
+     */
     void emptyRestoredSelectionNeverMeansAllFeatures()
     {
         CorridorSourcesWidget widget;
@@ -342,6 +473,14 @@ private slots:
         QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 1);
     }
 
+    /**
+     *
+     * @brief Require editing a connected recipe's width field to string name to fail at the field
+     * column.
+     * Checks numeric-field diagnostic and logical column two focus; does not compare exact
+     * error wording or the previously valid recipe after correcting it.
+     *
+     */
     void editedFieldMustBeAnActualNumericFieldWhenLayerIsAvailable()
     {
         GISVectorLayer layer(m_path);
@@ -358,6 +497,14 @@ private slots:
         QVERIFY2(error.contains(QStringLiteral("numeric field")), qPrintable(error));
     }
 
+    /**
+     *
+     * @brief Require a selected layer without assigned CRS to produce no recipe and
+     * coordinate-reference guidance.
+     * Clears only the in-memory layer SRS; does not change GeoJSON content or open a modal
+     * projection-assignment dialog.
+     *
+     */
     void sourceWithoutAssignedCrsIsNotAdded()
     {
         GISVectorLayer layer(m_path);
@@ -372,6 +519,14 @@ private slots:
                     .contains(QStringLiteral("coordinate reference")));
     }
 
+    /**
+     *
+     * @brief Require deleting the selected source layer to preserve an already captured recipe
+     * and make later Add harmless.
+     * Processes events after unique_ptr destruction, clicks Add again and checks one row
+     * with IDseven; does not dereference the destroyed layer or validate its saved geometry.
+     *
+     */
     void deletedLayerCannotLeaveDanglingComboOrEraseSavedRows()
     {
         auto layer = std::make_unique<GISVectorLayer>(m_path);
@@ -389,6 +544,14 @@ private slots:
         QCOMPARE(rows[0].featureIds, QVector<qint64>{7});
     }
 
+    /**
+     *
+     * @brief Require invalid along draft validation to select both containing tabs and the
+     * failing logical column.
+     * Embeds the editor in a scroll area under two initially unselected tab pages; widget
+     * ownership follows Qt parentage. Does not assert screen visibility or scroll position.
+     *
+     */
     void validationRevealsNestedAuthoringTabs()
     {
         QTabWidget outer;
@@ -412,6 +575,15 @@ private slots:
         QCOMPARE(table->currentColumn(), 5);
     }
 
+    /**
+     *
+     * @brief Require removing first/third selected rows to preserve the middle tagged recipe and
+     * accessible controls.
+     * Checks table name, buddies for mnemonic labels, unique label/button mnemonic keys,
+     * nonempty button names and disabled auto-default. Does not run a screen reader or
+     * assert keyboard focus order; assumes each ampersand has a following mnemonic char.
+     *
+     */
     void multipleRowsRemoveAndAccessibleControls()
     {
         CorridorSourcesWidget widget;

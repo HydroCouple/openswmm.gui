@@ -41,6 +41,12 @@ namespace openswmmvis::ui
 using namespace assignment;
 namespace
 {
+/**
+ * @param[in] model Optional borrowed live model, absent SRS contributes empty first component.
+ * @param[in] mesh Optional borrowed live mesh, absent SRS contributes empty second component.
+ * @return Concatenated model-WKT|mesh-WKT snapshot, exact text identity with no
+ *   normalization/projection. No ownership transfer or source mutation.
+ */
 QString crs(SWMMModelLayer *model, SWMM2DMeshLayer *mesh)
 {
     return (model && model->srs() ? model->srs()->toWkt() : QString()) + "|" +
@@ -54,6 +60,16 @@ class OwnershipCommand final : public QObject, public QUndoCommand
     QVector<int> before, after;
     QString beforeToken, afterToken, referenceCrs;
     bool first = true;
+    /**
+     * @param[in] forward True installs captured after records expecting before token; false before
+     *   records expecting after token.
+     * @brief Restore one ownership state only when guarded source engine identity, exact CRS pair,
+     *   GUI/engine mesh and expected preview token match.
+     * @note On refusal mark undo command obsolete and show modal warning; no later dirty/refresh
+     *   notification. On success mark model edited, emit 2D_SURFACE_OWNERSHIP optionsChanged and
+     *   refresh mesh. No whole-project rollback, layer ownership or geometry transformation;
+     *   preserve source lifetimes through modal warnings.
+     */
     void install(bool forward)
     {
         QString error;
@@ -76,6 +92,19 @@ class OwnershipCommand final : public QObject, public QUndoCommand
     }
 
 public:
+    /**
+     * @param[in] m Required live borrowed model at construction, engine identity captured; later
+     *   guarded QPointer.
+     * @param[in] l Optional borrowed mesh guarded later; null will invalidate install.
+     * @param[in] p Copied before/after ownership vectors and original before preview token; initial
+     *   replacement already performed by caller.
+     * @param[in] token Installed-state token copied for undo precondition, expected from post-apply
+     *   preview.
+     * @brief Capture guarded ownership undo state and current CRS pair without applying either
+     *   state.
+     * @note QUndoStack takes ownership when pushed. First redo deliberately skips because caller
+     *   already installed after; later undo/redo validate context/tokens and can obsolete command.
+     */
     OwnershipCommand(SWMMModelLayer *m, SWMM2DMeshLayer *l, const SurfaceOwnershipReview &p,
                      const QString &token)
         : model(m), mesh(l), engine(m->engine()), before(p.before), after(p.after),
@@ -83,7 +112,17 @@ public:
     {
         setText(QObject::tr("Review surface weather ownership"));
     }
+    /**
+     * @brief Install captured before ownership through guarded token/context checks; rejection
+     *   obsoletes command and warns. No unchecked source writes.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief First call only clears first-redo flag (state already applied); later calls guarded
+     *   install of after records.
+     * @note Push does not repeat initial engine replacement or notifications. Reused command
+     *   assumes normal stack undo/redo sequencing.
+     */
     void redo() override
     {
         if (first) {
@@ -93,6 +132,13 @@ public:
         install(true);
     }
 };
+/**
+ * @param[in] headings Copied horizontal column labels, number determines initial column count.
+ * @param[in] name NUL-terminated object name passed to Qt, required valid pointer.
+ * @param[in] parent Optional QWidget owner, caller manages parentless result.
+ * @return New zero-row noneditable, alternating, single-row-selection table with content-sized
+ *   columns and stretched last section. Does not own model/mesh or populate data. GUI-thread only.
+ */
 QTableWidget *table(const QStringList &headings, const char *name, QWidget *parent)
 {
     auto *t = new QTableWidget(0, headings.size(), parent);
@@ -106,11 +152,23 @@ QTableWidget *table(const QStringList &headings, const char *name, QWidget *pare
     t->setAlternatingRowColors(true);
     return t;
 }
+/**
+ * @param[in] t Required mutable table owning inserted items; standard dimensions already allocated.
+ * @param[in] r Existing zero-based row to populate, no explicit range checks.
+ * @param[in] values Copied cell display strings, expected within column count.
+ * @brief Replace each corresponding cell with newly owned table item; does not resize, set roles,
+ *   format units or mutate engine.
+ */
 void row(QTableWidget *t, int r, const QStringList &values)
 {
     for (int c = 0; c < values.size(); ++c)
         t->setItem(r, c, new QTableWidgetItem(values[c]));
 }
+/**
+ * @param[in] value Raw already-converted display numeric, nonfinite values not filtered.
+ * @return General-format decimal with nine significant digits via QString::number; no locale/unit
+ *   conversion, source mutation or formatting side effects.
+ */
 QString number(double value)
 {
     return QString::number(value, 'g', 9);

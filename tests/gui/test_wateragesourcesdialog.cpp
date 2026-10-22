@@ -51,6 +51,8 @@ namespace
 {
 
 /*! A BUILDING-state engine with two nodes, so override rows have targets. */
+/** @brief Allocate an editable BUILDING engine with junctions J0 and J1 for override targets.
+ * @return Newly owned engine, which the caller destroys. Allocation is checked only by Q_ASSERT and node-add results are not checked. */
 SWMM_Engine makeAgeEngine()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -60,11 +62,17 @@ SWMM_Engine makeAgeEngine()
     return e;
 }
 
+/** @brief Borrow a global source-age editor by source identifier.
+ * @param[in] dlg Dialog owning the child widget.
+ * @param[in] source Engine water-age source enum value used in its object name.
+ * @return Borrowed spin box, or nullptr when no matching child exists; callers requiring it must check before dereferencing. */
 QDoubleSpinBox *globalSpin(WaterAgeSourcesDialog &dlg, int source)
 {
     return dlg.findChild<QDoubleSpinBox *>(QStringLiteral("wa_globalSpin_%1").arg(source));
 }
 
+/** @brief Drive the real dialog acceptance button synchronously.
+ * @param[in,out] dlg Dialog whose button box is required by a QtTest assertion; its OK button is assumed to exist. A missing box records failure and returns from this helper; acceptance may write the borrowed engine. */
 void clickOk(WaterAgeSourcesDialog &dlg)
 {
     auto *bb = dlg.findChild<QDialogButtonBox *>();
@@ -72,6 +80,9 @@ void clickOk(WaterAgeSourcesDialog &dlg)
     bb->button(QDialogButtonBox::Ok)->click();
 }
 
+/** @brief Capture global source ages and ordered overrides for rollback comparisons.
+ * @param[in] engine Required live engine readable through the water-age API.
+ * @return Strings recording seven global source ages and all reported overrides in hours, getter codes and seventeen-digit values. Override-count errors are not separately recorded; this helper does not mutate the engine. */
 QStringList engineAgeState(SWMM_Engine engine)
 {
     QStringList state;
@@ -121,6 +132,7 @@ private slots:
     void exactValuesSurviveRoundedDisplay();
 };
 
+/** @brief Verify a null-engine water-age dialog constructs without reporting writes. */
 void TestWaterAgeSourcesDialog::constructsWithNullEngine()
 {
     // Must not crash with no engine — every read path early-returns.
@@ -128,6 +140,7 @@ void TestWaterAgeSourcesDialog::constructsWithNullEngine()
     QCOMPARE(dlg.wroteAnyChanges(), false);
 }
 
+/** @brief Verify global ages hydrate in hours, including a negative RDII extraction age, without marking changes. */
 void TestWaterAgeSourcesDialog::hydratesGlobalsIncludingNegatives()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -147,6 +160,7 @@ void TestWaterAgeSourcesDialog::hydratesGlobalsIncludingNegatives()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify changing the groundwater global age to six hours reaches the engine on OK. */
 void TestWaterAgeSourcesDialog::writesEditedGlobalOnOk()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -165,6 +179,7 @@ void TestWaterAgeSourcesDialog::writesEditedGlobalOnOk()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accepting an untouched editor performs zero writes and preserves the existing DWF source age. */
 void TestWaterAgeSourcesDialog::noOpOkWritesNothing()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -183,6 +198,8 @@ void TestWaterAgeSourcesDialog::noOpOkWritesNothing()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify an existing override hydrates, updates in place and is removed from the engine after deleting its table row.
+ * The implemented case edits/deletes a pre-existing row; it does not create a new override through Add. */
 void TestWaterAgeSourcesDialog::overridesAddUpdateAndRemove()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -231,6 +248,7 @@ void TestWaterAgeSourcesDialog::overridesAddUpdateAndRemove()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify Add offers only DWF/external-inflow override sources and populates node choices from the engine. */
 void TestWaterAgeSourcesDialog::overrideSourcesAreParserScoped()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -267,6 +285,8 @@ void TestWaterAgeSourcesDialog::overrideSourcesAreParserScoped()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify duplicate source/node keys prevent global writes and staged deletions as well as override writes.
+ * Checks retained draft values, focused validation error and exact engine snapshot, then corrects the node and confirms the draft commits. */
 void TestWaterAgeSourcesDialog::duplicateOverrideRefusesAllWritesAndAllowsCorrection()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -334,6 +354,7 @@ void TestWaterAgeSourcesDialog::duplicateOverrideRefusesAllWritesAndAllowsCorrec
     swmm_engine_destroy(e);
 }
 
+/** @brief Register missing source and missing node selections in an override row. */
 void TestWaterAgeSourcesDialog::missingSelectionRefusesAllWritesAndAllowsCorrection_data()
 {
     QTest::addColumn<int>("column");
@@ -341,6 +362,8 @@ void TestWaterAgeSourcesDialog::missingSelectionRefusesAllWritesAndAllowsCorrect
     QTest::newRow("missing-node") << 1;
 }
 
+/** @brief Verify an unselected override key rejects every write while preserving a valid negative extraction age in the draft.
+ * Checks focused validation feedback and exact engine state, corrects the selected key and verifies the -2.5-hour override commits. */
 void TestWaterAgeSourcesDialog::missingSelectionRefusesAllWritesAndAllowsCorrection()
 {
     QFETCH(int, column);
@@ -387,6 +410,7 @@ void TestWaterAgeSourcesDialog::missingSelectionRefusesAllWritesAndAllowsCorrect
     swmm_engine_destroy(e);
 }
 
+/** @brief Register Cancel-button and Escape dismissal of an invalid duplicate-override draft. */
 void TestWaterAgeSourcesDialog::invalidDraftDismissal_data()
 {
     QTest::addColumn<bool>("escape");
@@ -394,6 +418,7 @@ void TestWaterAgeSourcesDialog::invalidDraftDismissal_data()
     QTest::newRow("escape") << true;
 }
 
+/** @brief Verify dismissing an invalid draft closes rejected without writes or engine-state changes. */
 void TestWaterAgeSourcesDialog::invalidDraftDismissal()
 {
     QFETCH(bool, escape);
@@ -421,6 +446,8 @@ void TestWaterAgeSourcesDialog::invalidDraftDismissal()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accessible table/editor names, values and row/field descriptions remain accurate after deleting the first override row.
+ * Allows native combo interfaces to expose current text as Name while requiring row context in Description. */
 void TestWaterAgeSourcesDialog::tableControlsExposeAccessibleIdentityAfterRemoval()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -508,6 +535,7 @@ void TestWaterAgeSourcesDialog::tableControlsExposeAccessibleIdentityAfterRemova
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify Add and Remove buttons are neither default nor auto-default, preventing Enter from accidentally changing rows. */
 void TestWaterAgeSourcesDialog::rowActionsCannotBecomeEnterDefault()
 {
     SWMM_Engine e = makeAgeEngine();
@@ -521,6 +549,7 @@ void TestWaterAgeSourcesDialog::rowActionsCannotBecomeEnterDefault()
     swmm_engine_destroy(e);
 }
 
+/** @brief Register no edit, unrelated global edit and explicit replacement of a rounded-display age. */
 void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay_data()
 {
     QTest::addColumn<QString>("edit");
@@ -528,6 +557,8 @@ void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay_data()
         QTest::newRow(name) << QString::fromLatin1(name);
 }
 
+/** @brief Verify untouched global/override ages retain their exact stored precision and only explicit edits replace values.
+ * Checks no-op acceptance reports zero writes and unrelated edits do not round the original ages. */
 void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay()
 {
     QFETCH(QString, edit);
@@ -554,6 +585,7 @@ void TestWaterAgeSourcesDialog::exactValuesSurviveRoundedDisplay()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify engine invalidation disables/hides the editor and a later acceptance signal cannot reuse a destroyed handle. */
 void TestWaterAgeSourcesDialog::invalidationDiscardsDraftAndGuardsLaterSignals()
 {
     SWMM_Engine e = makeAgeEngine();

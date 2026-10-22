@@ -37,11 +37,16 @@
 namespace
 {
 
+/** @brief Resolve creation-default fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or "." when unset. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Load an independent owned model fixture.
+ * @param[in] fixture Path appended to the configured data directory.
+ * @return Unique loaded layer or nullptr on failure; local diagnostics are discarded and failed allocations are released by unique ownership. */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 {
     auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture), nullptr);
@@ -55,11 +60,15 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 //! unbinds on destruction so cases stay independent.
 struct ScopedUnits {
     UnitSystem units;
+    /** @brief Bind a scope-owned UnitSystem as the process-wide active project facade.
+     * @param[in] layer Required loaded layer whose engine supplies the units.
+     * The prior active facade is not saved; tests must serialize scopes and keep this object alive while its facade is active. */
     explicit ScopedUnits(SWMMModelLayer *layer)
     {
         units.syncFromEngine(layer->engine());
         UnitSystem::setActiveProject(&units);
     }
+    /** @brief Clear the process-wide active UnitSystem before this scope-owned facade is destroyed. */
     ~ScopedUnits() { UnitSystem::setActiveProject(nullptr); }
 };
 
@@ -83,6 +92,7 @@ private:
     void clearStoredDefaults();
 };
 
+/** @brief Select an isolated settings namespace and clear stored object-default overrides. */
 void TestObjectCreationDefaults::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
@@ -90,11 +100,13 @@ void TestObjectCreationDefaults::initTestCase()
     clearStoredDefaults();
 }
 
+/** @brief Clear stored defaults before each test case. */
 void TestObjectCreationDefaults::init()
 {
     clearStoredDefaults();
 }
 
+/** @brief Remove and synchronize the ObjectDefaults preference subtree in the current test settings namespace. */
 void TestObjectCreationDefaults::clearStoredDefaults()
 {
     QSettings settings;
@@ -102,6 +114,8 @@ void TestObjectCreationDefaults::clearStoredDefaults()
     settings.sync();
 }
 
+/** @brief Verify direct creation commands apply US storage, conduit, subcatchment and gage defaults.
+ * Checks feet-based dimensions, Horton family/rates, percentages and a 900-second gage interval; no map-tool interaction occurs and a null canvas disables automatic conduit length. */
 void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cfs.inp"));
@@ -181,6 +195,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     QCOMPARE(scf, 1.0);
 }
 
+/** @brief Verify an SI project receives metre-based conduit diameter/length and storage depth defaults. */
 void TestObjectCreationDefaults::siDefaults_selectedBySiProject()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cms.inp"));
@@ -211,6 +226,7 @@ void TestObjectCreationDefaults::siDefaults_selectedBySiProject()
     QCOMPARE(depth, 4.5);
 }
 
+/** @brief Verify new subcatchments use the project Curve Number infiltration family and its defaults rather than zero-initialized Horton metadata. */
 void TestObjectCreationDefaults::curveNumberProject_getsCurveNumberFamily()
 {
     // swmm_subcatch_add zero-initialises infil_model, so a fresh subcatchment
@@ -241,6 +257,7 @@ void TestObjectCreationDefaults::curveNumberProject_getsCurveNumberFamily()
     QCOMPARE(w, 500.0);
 }
 
+/** @brief Verify the explicit terrain-derived 42.25-foot invert survives application of creation defaults. */
 void TestObjectCreationDefaults::terrainInvert_winsOverDefaults()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cfs.inp"));
@@ -261,6 +278,7 @@ void TestObjectCreationDefaults::terrainInvert_winsOverDefaults()
     QCOMPARE(invert, 42.25);
 }
 
+/** @brief Verify a changed US roughness preference reaches a newly created conduit. */
 void TestObjectCreationDefaults::editedPreference_flowsThroughToCreation()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cfs.inp"));
@@ -283,6 +301,7 @@ void TestObjectCreationDefaults::editedPreference_flowsThroughToCreation()
     QCOMPARE(n, 0.017);
 }
 
+/** @brief Verify undo of a completed conduit creation removes the engine object. */
 void TestObjectCreationDefaults::undo_rollsTheWholeObjectBack()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cfs.inp"));

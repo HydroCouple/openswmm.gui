@@ -34,11 +34,16 @@
 namespace
 {
 
+/** @brief Read the GUI test fixture root.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or literal dot fallback; no I/O. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Create/name the retained versioned-legacy runner artifact directory.
+ * @return Owned output_simrunner_legacy_524 path beneath dataDir. mkpath status
+ * is unchecked, existing contents remain and cwd is unchanged. */
 QString outputDir()
 {
     const QString dir = QDir(dataDir()).filePath(QStringLiteral("output_simrunner_legacy_524"));
@@ -46,6 +51,10 @@ QString outputDir()
     return dir;
 }
 
+/** @brief Read a fixture/report as UTF-8 text.
+ * @param[in] path Filename borrowed for synchronous text-mode read.
+ * @return Owned decoded text, empty on open refusal/empty file; partial read or
+ * invalid-UTF-8 replacement has no separate diagnostic. */
 QString readAll(const QString &path)
 {
     QFile f(path);
@@ -56,6 +65,12 @@ QString readAll(const QString &path)
 
 /// Copy the stock-SWMM-5 fixture into the output dir under `name`, optionally
 /// appending `extra` (used to inject v6-only content the backports must skip).
+/** @brief Copy the stock legacy-compatible fixture into retained output, optionally appending content.
+ * @param[in] name Safe artifact basename without .inp.
+ * @param[in] extra Raw additional deck text appended after a newline when nonempty.
+ * @return Owned .inp path, or empty when source text is empty/unreadable or output
+ * open fails. Write status is unchecked, so nonempty path does not prove full write.
+ * Truncates existing destination, does not create arbitrary nested parents or run an engine. */
 QString stageDeck(const QString &name, const QString &extra = QString())
 {
     const QString src = QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp"));
@@ -86,7 +101,19 @@ struct RunResult {
 };
 
 /// Run `inp` on `engineVersion` exactly as SWMMVis wires a runner; returns
-/// everything the signals carried (fails the calling test on timeout).
+/// everything the signals carried (returns an unsuccessful record on timeout).
+/** @brief Run a requested versioned worker and collect its signal payloads.
+ * @param[in] parent QObject taking runner ownership; must outlive asynchronous use.
+ * @param[in,out] model Receives a new job and finished status; must outlive the wait.
+ * @param[in] name Safe report/output basename and job label.
+ * @param[in] inp Existing deck filename copied into runner arguments.
+ * @param[in] engineVersion Exact requested engine version string; no fallback is added.
+ * @return Owned completion/dates/progress/warnings and output path; on 60 s timeout
+ * returns success=false plus a timeout message without asserting.
+ * Removes old report/output files, starts a child runner, pumps events through
+ * QSignalSpy and schedules deletion on delivered completion. Timeout leaves the
+ * runner parent-owned; it may still run, so model/parent lifetime must be respected.
+ * Continuity values are fractions, dates Qt wall clocks; no output content is read here. */
 RunResult runToEnd(QObject *parent, SimulationStatusModel &model, const QString &name,
                    const QString &inp, const QString &engineVersion)
 {
@@ -138,6 +165,10 @@ class TestSimRunnerLegacy524 : public QObject
 
 private slots:
     // The full protocol arrives and the engine that ran was 5.2.4.
+    /** @brief Require the pinned 5.2.4 worker to finish, emit dates/progress/continuity and create an actual version-52004 binary output.
+     * Checks the two-hour model window, finite sub-unit continuity fractions and 120
+     * stored periods. Uses the bundled worker and retained artifacts; does not compare
+     * all hydraulic results to another version. */
     void runsToCompletion()
     {
         const QString inp = stageDeck(QStringLiteral("run524"));
@@ -174,6 +205,7 @@ private slots:
     }
 
     // v6-only content is skipped with a warning (the backports), not fatal.
+    /** @brief Require version 5.2.4 to run a deck with v6-only section/option content while emitting both unknown-content warnings. */
     void unknownSectionAndOptionWarnButRun()
     {
         const QString inp =
@@ -198,6 +230,7 @@ private slots:
     // A 5.x version with no bundled worker must fail naming the missing
     // file — never fall back to a different engine. (This is the automated
     // "gate bites" case: the lookup is keyed on the version.)
+    /** @brief Require an unavailable 5.9.9 worker request to fail naming that executable and leave no binary output. */
     void missingVersionedWorkerFailsLoudly()
     {
         const QString inp = stageDeck(QStringLiteral("run599"));

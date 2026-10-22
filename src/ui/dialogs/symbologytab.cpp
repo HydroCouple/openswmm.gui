@@ -41,11 +41,15 @@ namespace openswmmvis::ui
 namespace
 {
 
-/*! Read the currently-installed renderer id for the context's target.
- *
- *  Slice Z.3b: when `ctx.rule` is set, read from the Rule's owned
- *  renderer first. Otherwise fall back to the legacy
- *  hostLayer + category path. Empty when no renderer is installed. */
+/**
+ * @brief Resolve the installed renderer id using rule-first, per-kind, then layer-level read
+ * paths.
+ * @param ctx Borrowed context; nonnull raw rule/host pointers must remain valid. Rule
+ * wins even when it has no renderer; it does not then fall back to the host.
+ * @return Owned renderer id or empty for missing/unsupported target. Category contexts
+ * read only model/results kind renderers; categoryless contexts use host renderer().
+ * No mutation, ownership transfer, class construction or sample gathering.
+ */
 QString currentRendererIdFor(const RendererPanelContext &ctx)
 {
     using OpenSWMM::Render::IFeatureRenderer;
@@ -225,19 +229,15 @@ QString SymbologyTab::currentRendererId() const
 namespace
 {
 
-/*! Install a fresh renderer of the picked class when the dropdown
- *  switches to a different class than the one currently installed.
- *
- *  Slice Z.3b: when `ctx.rule` is set, delegate to
- *  `Rule::setRendererById` — keeps the Rule path entirely inside the
- *  Rule type. Otherwise fall back to the legacy layer + category path.
- *
- *  Gap A1.3 — construction goes through RendererFactory::makeRenderer so
- *  the new renderer's base/fallback symbol is seeded from the outgoing
- *  renderer (or the archetype skeleton) and its classify attribute from
- *  the host's IAttributeProvider. A default-constructed renderer has an
- *  EMPTY base symbol, which made paint silently fall back to the legacy
- *  colour ramp.
+/**
+ * @brief Install a requested class through the rule or supported model/results per-kind path.
+ * @param ctx Borrowed context with live raw targets; rule takes priority. Categoryless
+ * host-only writes are deliberately unsupported, though reads can use layer renderer().
+ * @param targetId Borrowed requested id; empty is a no-op. Rule delegates directly to
+ * setRendererById. Model/results avoid same-id replacement, seed factory construction
+ * from current renderer/archetype/provider fields, and transfer clone ownership to host.
+ * Unknown factory/unsupported target can no-op; no status, UI applicability enforcement,
+ * undo, snapshot or exception handling. Host/rule setters provide notifications.
  */
 void installRendererClassIfChanged(const RendererPanelContext &ctx, const QString &targetId)
 {

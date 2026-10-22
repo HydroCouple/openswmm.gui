@@ -27,10 +27,36 @@ class MarkerShapeEditor : public QBasePropertyItemEditor
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Create a property-delegate combo with icons for every registered MarkerShape enum
+     * entry.
+     * @param parent Optional Qt widget owner; caller retains ownership when parentless.
+     * Uses meta-enum key order/names or thirteen hard-coded fallback entries if registration
+     * is absent. Sets focus proxy and emits inherited valueChanged(this) on every actual
+     * selection change, including unblocked programmatic setValue calls. No target-property
+     * write or undo is performed directly by this widget.
+     */
     explicit MarkerShapeEditor(QWidget *parent);
+    /**
+     * @brief Destroy the combo/layout through normal QWidget ownership.
+     * Does not apply/undo a value, close a model or own any target style object.
+     */
     ~MarkerShapeEditor() override;
 
+    /**
+     * @brief Select a listed MarkerShape from a copied QVariant conversion without blocking
+     * notifications.
+     * @param value Borrowed enum-convertible value, otherwise integer-convertible fallback;
+     * unknown/unconvertible/unlisted values leave selection unchanged. No reference retained.
+     * A changed index emits inherited valueChanged(this); same index is Qt's usual no-op.
+     * Does not add unknown enum entries or directly write a target property.
+     */
     void setValue(const QVariant &value) override;
+    /**
+     * @brief Read current combo item data as a detached property value.
+     * @return Owned QVariant normally containing MarkerShape, invalid if combo/index absent.
+     * No property application, ownership transfer or signal is generated.
+     */
     QVariant getValue() const override;
 
 private:

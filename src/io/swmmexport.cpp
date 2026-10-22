@@ -303,7 +303,7 @@ QString swmmTableName(int category)
     }
 }
 
-/**
+/*
  * @brief Map an attribute-table column to its export/import field identifier.
  * @param[in] category Spatial model category used for single-offset and outlet coefficient mappings.
  * @param[in] spec Column key, setter tag, and readable label.

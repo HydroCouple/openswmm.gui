@@ -140,6 +140,12 @@ using mesh::pslg::snapAndDedupe;
 /*! Terrain cache MiB for the dialog's "Automatic" (0) setting: one eighth of
  *  physical memory, between 256 MiB and 8 GiB. Cache size bounds residency
  *  only; it never changes the generated mesh. */
+/**
+ * @brief Resolve explicit or automatic terrain-cache residency budget.
+ * @param[in] requested Positive MiB budget returned unchanged, otherwise automatic mode.
+ * @return One eighth of physical memory clamped [256,8192] MiB; failed platform memory discovery
+ * yields 256. This affects residency/performance, not mesh geometry.
+ */
 static int resolvedTerrainCacheMiB(int requested)
 {
     if (requested > 0)
@@ -191,6 +197,19 @@ static int resolvedTerrainCacheMiB(int requested)
  * datum grid that is not installed, and inverse projections that do not
  * converge — all of which occur on the edges of regional datasets.
  */
+/**
+ * @brief Transform coordinate arrays in place and canonicalize failed/nonfinite outputs to NaN.
+ * @param[in,out] ct Nullable borrowed OGR transform, not owned; null means unchanged coordinates.
+ * @param[in] n Point count, nonpositive is a no-op; must fit the internal int-sized
+ * success-vector/index conversions.
+ * @param[in,out] x Required readable/writable array of at least n doubles when ct is nonnull and n
+ * positive.
+ * @param[in,out] y Required matching coordinate array. Coordinates start in source CRS and finish
+ * in target CRS on success.
+ * @return Number of per-point failures; zero for null transform/nonpositive count, without checking
+ * unchanged coordinates for finiteness. Ignores scalar Transform success in favor of per-point
+ * flags.
+ */
 static qsizetype transformChecked(OGRCoordinateTransformation *ct, qsizetype n, double *x,
                                   double *y)
 {
@@ -215,6 +234,14 @@ static qsizetype transformChecked(OGRCoordinateTransformation *ct, qsizetype n, 
 /*! \brief Single-point form of transformChecked(). Returns false (and leaves
  *         \p x / \p y NaN) when the point could not be reprojected. A null
  *         \p ct means "same CRS" and succeeds unchanged. */
+/**
+ * @brief Apply the checked coordinate transform to one point.
+ * @param[in,out] ct Nullable borrowed transform, not destroyed here.
+ * @param[in,out] x Source X replaced by target X or NaN on failure.
+ * @param[in,out] y Source Y replaced by target Y or NaN on failure.
+ * @return True when checked failure count is zero; null transform succeeds unchanged even for an
+ * already nonfinite input.
+ */
 static bool transformCheckedPt(OGRCoordinateTransformation *ct, double &x, double &y)
 {
     return transformChecked(ct, 1, &x, &y) == 0;
@@ -225,6 +252,13 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct, double &x, doubl
 // ---------------------------------------------------------------------------
 
 // Resolve the shared physical settings into the worker's map and elevation units.
+/**
+ * @brief Translate optional SI-canonical resolution into worker map/elevation fields.
+ * @param[in,out] in Owned worker inputs, requiring validated settings and finite positive
+ * horizontal/vertical metre-per-unit scales when resolution exists; absent resolution is a no-op.
+ * Writes sizes/tolerances/area limits/refinement/terrain/reference/caps; zero optional maximum
+ * means unbounded. Does not open files or validate scales itself.
+ */
 static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
 {
     if (!in.resolution)
@@ -254,6 +288,20 @@ static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
         r.maxBreaklines > 0 ? r.maxBreaklines : std::max(1, in.genOpts.maxCells / 200);
 }
 
+/**
+ * @brief Execute staged geometry/terrain preparation and pending mesh construction on a worker.
+ * @param[in,out] promise Required framework result/progress/cancel channel; appends an ok=false
+ * diagnostic on early failure or a moved ok=true result on success. It does not finish the promise
+ * itself.
+ * @param[in] in Owned copied input snapshot, validated for shared resolution/scales when present;
+ * parallel coordinate/elevation/marker arrays must be consistent.
+ * Reads fresh source handles, conditions/caches boundaries with bbox fallback where configured
+ * reads fail, skips invalid holes, filters constraints, samples/refines terrain and optional quads,
+ * reorders/fills elevations and maps coupling. Preserves infiltration row inheritance and reports
+ * unresolved accuracy/resource exceptions rather than claiming certification. Cache writes can
+ * survive failure/cancel; returns in-memory topology and intended destination only, leaving final
+ * .inp/.2dm publication to project Save. Throws to the outer exception-converting wrapper.
+ */
 static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                                 MeshGenerationDialog::PipelineInputs in)
 {
@@ -264,6 +312,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // Node vertices pinned to their rim (invert + max depth) where a DTM can
     // still lower them: the rim applies only where the terrain is higher.
     QSet<int> rimPinnedMarkers;
+    /**
+     * @brief Append a failed worker result. Argument `msg`: diagnostic copied into errorMsg.
+     * Returns: no value; does not finish the promise, so caller must return immediately. Cache
+     * writes already made are not rolled back.
+     */
     auto fail = [&](const QString &msg) {
         PResult r;
         r.ok = false;
@@ -293,6 +346,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     double actualTerrainPixelSize = 0;
     promise.setProgressRange(0, 100);
 
+    /**
+     * @brief Publish worker progress and stage text. Argument `pct`: requested percent in the
+     * configured [0,100] range; Qt owns range handling. Argument `msg`: copied human-readable
+     * stage. Returns: no value; no widget access.
+     */
     auto progress = [&](int pct, const QString &msg) { promise.setProgressValueAndText(pct, msg); };
 
     progress(0, QObject::tr("Reading selected corridor features…"));
@@ -322,6 +380,10 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     QElapsedTimer stageClock, totalClock;
     stageClock.start();
     totalClock.start();
+    /**
+     * @brief Log elapsed substage/running milliseconds. Argument `what`: required stable C-string
+     * stage label, read immediately. Returns: no value; restarts the substage timer only.
+     */
     auto stageMark = [&](const char *what) {
         qCDebug(lcMeshPerf).nospace() << "[Mesh][t] " << what << ": " << stageClock.restart()
                                       << " ms (total " << totalClock.elapsed() << " ms)";
@@ -411,6 +473,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             // them and refuse the run below rather than meshing a wrong outline.
             qsizetype nBoundaryXformFailed = 0;
 
+            /**
+             * @brief Copy/reproject one boundary ring. Argument `r`: required borrowed OGR ring.
+             * Returns: owned mesh-XY vertices, skipping nonfinite transformed points and
+             * accumulating failure count so the enclosing boundary stage can fail. Does not
+             * retain/destroy the ring.
+             */
             auto ringToMesh = [&](const OGRLinearRing *r) {
                 const int n = r->getNumPoints();
                 QVector<QPointF> pts;
@@ -436,6 +504,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 return pts;
             };
 
+            /**
+             * @brief Append validated/simplified outer domain and raw hole rings. Argument `poly`:
+             * nullable borrowed OGR polygon; absent/short exterior is ignored. Returns: no value;
+             * invalid simplified exterior falls back to raw geometry, ring transforms contribute
+             * failures.
+             */
             auto pushOgrPolygon = [&](const OGRPolygon *poly) {
                 if (!poly)
                     return;
@@ -477,6 +551,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 }
             };
 
+            /**
+             * @brief Visit polygon or multipolygon boundary components. Argument `geom`: nullable
+             * borrowed OGR geometry; other types ignored. Returns: no value; copies rings through
+             * pushOgrPolygon without taking ownership.
+             */
             auto walkOgrGeom = [&](const OGRGeometry *geom) {
                 if (!geom)
                     return;
@@ -493,6 +572,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             // Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): close,
             // open and simplify the dissolved region at the minimum cell size so
             // building detail that adds no shape cannot force tiny cells.
+            /**
+             * @brief Optionally replace an owned dissolved footprint with minimum-size
+             * conditioning. Argument `region`: nonnull owned OGR geometry pointer by reference,
+             * destroyed/replaced only on successful conditioning; caller still owns the
+             * replacement. Returns: no value; failure logs and retains original.
+             */
             auto conditionRegion = [&](OGRGeometry *&region) {
                 if (!in.conditionBoundary || !(in.minCellSize > 0.0))
                     return;
@@ -710,8 +795,17 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     {
         mesh::pslg::PointInRingsIndex domIdx;
         domIdx.build(in.domains);
+        /**
+         * @brief Query the prepared domain ring index. Argument `p`: borrowed point in mesh CRS.
+         * Returns: captured index containment result; no geometry mutation.
+         */
         auto inDomain = [&domIdx](const QPointF &p) { return domIdx.contains(p); };
 
+        /**
+         * @brief Drop consecutive path points separated by Manhattan distance at most 1e-9 mesh
+         * units. Argument `src`: borrowed ordered vertices. Returns: owned path preserving
+         * first/nonconsecutive identities; no closure is added.
+         */
         auto dedupeSegPath = [](const QVector<QPointF> &src) {
             QVector<QPointF> r;
             r.reserve(src.size());
@@ -730,6 +824,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         // bulges outside the polygon while staying inside the bbox would
         // otherwise carry segments that cross the boundary ring and prevent
         // constraint recovery.
+        /**
+         * @brief Filter intermediate path vertices by domain containment while retaining both
+         * endpoints. Argument `path`: borrowed ordered mesh-XY vertices. Returns: owned
+         * filtered/deduplicated path; input of at most two points is copied unchanged. This is
+         * vertex filtering, not geometric segment clipping.
+         */
         auto clipIntermediateToDomain = [&](const QVector<QPointF> &path) {
             if (path.size() <= 2)
                 return path;
@@ -1040,6 +1140,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             const QByteArray cellsField = openswmmvis::feature::regionCellsFieldName().toUtf8();
             const QByteArray tagField = openswmmvis::feature::regionTagFieldName().toUtf8();
             while (OGRFeature *f = layer->GetNextFeature()) {
+                /**
+                 * @brief Resolve an attribute column on the current live OGR feature. Argument
+                 * `name`: required null-terminated field name. Returns: field index or OGR negative
+                 * missing value; no feature ownership transfer.
+                 */
                 auto fieldIdx = [&](const char *name) { return f->GetFieldIndex(name); };
                 // One "cells" choice per feature, whatever its part count. An
                 // unknown value is logged and treated as auto (plan §6).
@@ -1056,6 +1161,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                             << "[Mesh][quad] region feature" << f->GetFID()
                             << "has cells =" << value << "— not auto or triangles; treated as auto";
                 }
+                /**
+                 * @brief Append one region exterior with feature-level size/cell-mode/tag values.
+                 * Argument `poly`: nullable borrowed OGR polygon; short/failed rings are skipped.
+                 * Returns: no value; transforms/counts failed vertices, trims geometry and
+                 * normalizes nonpositive/nonfinite spacing to zero.
+                 */
                 auto readRing = [&](const OGRPolygon *poly) {
                     mesh::QuadRegion r;
                     const OGRLinearRing *ext = poly ? poly->getExteriorRing() : nullptr;
@@ -1216,6 +1327,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // are excluded from the zConversionFactor multiply, which only applies to
     // raster-unit DTM samples.
     QSet<QPair<qint64, qint64>> modelUnitKeys;
+    /**
+     * @brief Quantize elevation-cache identity. Arguments `x`, `y`: mesh-CRS coordinates expected
+     * finite and within qRound64 scaled range. Returns: pair rounded at 1e7 coordinate precision;
+     * does not preserve distinct closer positions.
+     */
     auto keyOf = [](double x, double y) { return qMakePair(qRound64(x * 1e7), qRound64(y * 1e7)); };
 
     // 3D aux-line vertices: exact model-unit z seeded by coordinate.  Aux
@@ -1248,6 +1364,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             flatGrid[qMakePair(cx, cy)].append(n);
         }
     }
+    /**
+     * @brief Find the nearest rim seed within the active flatten radius. Arguments `px`, `py`:
+     * query in mesh XY units. Returns: model/mesh-unit rim elevation or NaN when disabled/outside
+     * all radii; equal-distance candidates may replace earlier values. Does not itself decide
+     * whether terrain should be lowered.
+     */
     auto flattenZ = [&](double px, double py) -> double {
         if (!doFlatten)
             return std::numeric_limits<double>::quiet_NaN();
@@ -1564,8 +1686,20 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                                                        (std::sqrt(2.0) * unitScale *
                                                         thinner.pixelSize() * tso.decimation)),
                                             0.0, double(std::numeric_limits<int>::max()))));
+            /**
+             * @brief Allow the breakline extractor to observe the worker promise cancellation flag.
+             * Takes no arguments. Returns: true to request cancellation; no widgets or shared model
+             * access.
+             */
             blo.cancelled = [&promise] { return promise.isCanceled(); };
             if (in.terrainBreaklines)
+                /**
+                 * @brief Stream terrain rows into the worker-local breakline extractor. Argument
+                 * `row`: borrowed readable float row of cols values, consumed synchronously.
+                 * Argument `r`: zero-based row index; zero initializes the extractor with cols/rows
+                 * and copied options. Arguments `cols`, `rows`: grid dimensions. Returns: no value;
+                 * does not retain the row buffer.
+                 */
                 tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
                     if (r == 0)
                         breaklines.begin(cols, rows, blo);
@@ -1583,6 +1717,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             mesh::MeshStageCache::Breaklines cachedLines;
             // Keep the most significant lines only, ranked on the terrain
             // reference after the cache (so the cap can change cheaply).
+            /**
+             * @brief Select significant terrain breaklines after cache loading/extraction. Argument
+             * `all`: borrowed mesh-CRS line collection. Returns: copied full set when cap/floor
+             * disabled, otherwise terrain-step-ranked subset with prefetch and diagnostic logging;
+             * input remains intact.
+             */
             auto rankLines = [&](const QVector<QVector<QPointF>> &all) {
                 if (in.maxTerrainBreaklines <= 0 || !(in.minCellSize > 0.0))
                     return all;
@@ -1694,6 +1834,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 }
             }
             if (!useAdaptiveTerrain && in.terrainTolerance > 0)
+                /**
+                 * @brief Sample a conservative local terrain size in mesh XY units. Arguments `x`,
+                 * `y`: query coordinates in mesh CRS. Returns: DEM size times local CRS unitScale,
+                 * or zero when the optional transform reports failure. Captured terrain
+                 * field/transform remain worker-local and must outlive generator callbacks.
+                 */
                 sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x,
                                                                                   double y) {
                     double gx = x, gy = y;
@@ -1776,11 +1922,25 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // size function (it folds in the floor and the coarsening cap).
     {
         mesh::RefineHook hook;
+        /**
+         * @brief Expose promise cancellation to refinement. Takes no arguments. Returns: current
+         * cancellation flag; generator decides safe stopping checkpoints.
+         */
         hook.isCancelled = [&promise] { return promise.isCanceled(); };
+        /**
+         * @brief Publish refinement cell-count status. Argument `cells`: current generated/refined
+         * count printed at the fixed 45-percent stage. Returns: no value; does not change
+         * generation bounds.
+         */
         hook.onProgress = [&progress](qint64 cells) {
             progress(45, QObject::tr("Building cells… (%1 so far)").arg(cells));
         };
         if (useGrading && sizeField.hasSizeBound()) {
+            /**
+             * @brief Resolve graded area cap. Arguments `x`, `y`: mesh-CRS location. Returns:
+             * worker-local size-field target area in squared mesh units; bound field must outlive
+             * generation.
+             */
             hook.targetAreaAt = [&sizeField](double x, double y) {
                 return sizeField.targetAreaAt(x, y);
             };
@@ -1788,6 +1948,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         // Ground elevation for the street / ditch trough test (DEM units —
         // only compared with itself).
         if (useDTM)
+            /**
+             * @brief Sample terrain for street/ditch shape checks. Arguments `x`, `y`: mesh XY
+             * coordinates, optionally transformed to DEM CRS. Returns: raw DEM vertical-unit
+             * elevation, or NaN when transformation fails; no zConversionFactor is applied here.
+             */
             hook.elevationAt = [&thinner, meshToDTM](double x, double y) {
                 double gx = x, gy = y;
                 if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy))
@@ -1802,6 +1967,13 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             // assembled mesh; a second exact pass inside refinement read the
             // whole DEM again for statistics it then overwrites.
             hook.terrainFinalCheck = !useAdaptiveTerrain;
+            /**
+             * @brief Resolve adaptive refinement elevation with prescribed/flatten overrides.
+             * Arguments `x`, `y`: finite mesh XY coordinates. Returns: output vertical-unit
+             * terrain/cached/model rim elevation; missing reference coverage is recorded by
+             * quantized key even when an override provides a value. Flattening lowers higher
+             * terrain to a nearby rim but does not raise finite terrain.
+             */
             hook.terrainElevationAt = [&](double x, double y) {
                 const auto key = keyOf(x, y);
                 const double terrainZ = terrainReference.sampleAt(x, y);
@@ -1818,6 +1990,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                            ? flat
                            : terrainZ;
             };
+            /**
+             * @brief Bound candidate triangle terrain error. Argument `xy`: required array of three
+             * mesh XY vertices. Argument `z`: matching three output-unit elevations. Returns:
+             * certified reference upper error bound or NaN when coverage is missing/invalid;
+             * borrowed arrays are consumed synchronously.
+             */
             hook.terrainErrorBound = [&](const QPointF *xy, const double *z) {
                 for (int k = 0; k < 3; ++k)
                     if (missingTerrainVertices.contains(keyOf(xy[k].x(), xy[k].y())))
@@ -1826,6 +2004,13 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 return q.valid && q.noDataSamples == 0 ? q.upperBound
                                                        : std::numeric_limits<double>::quiet_NaN();
             };
+            /**
+             * @brief Locate worst adaptive terrain discrepancy. Argument `xy`: required three mesh
+             * XY vertices. Argument `z`: matching elevations in output units. Argument `out`:
+             * required writable worst-point destination. Returns: measured maximum error for a
+             * valid query, otherwise zero; writes query point even for an invalid result. Captures
+             * remain valid only through generation.
+             */
             hook.terrainError = [&](const QPointF *xy, const double *z, QPointF *out) {
                 auto q = useAdaptiveTerrain
                              ? terrainReference.queryWorst(xy, z, in.terrainTolerance)
@@ -2222,6 +2407,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             // this is a heap WRITE on the nodata-only path, so guard anyway.
             // A quad (patch cell) contributes its four ring edges, not a
             // diagonal — the same neighbourhood the engine's median dual uses.
+            /**
+             * @brief Check cell ring vertex indices before constructing adjacency. Argument `t`:
+             * borrowed triangle/quad. Returns: true only when each declared ring index is in
+             * [0,nv); no geometric validity/orientation test.
+             */
             auto cellOk = [nv](const mesh::MeshTriangle &t) {
                 const int n = t.vertexCount();
                 for (int k = 0; k < n; ++k)
@@ -2658,6 +2848,12 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         if (angle < in.genOpts.minAngleDeg - 1e-6)
             exceptionCells.insert(i);
     }
+    /**
+     * @brief Select a bounded deterministic sample order statistic in place. Argument `values`:
+     * mutable sample array permuted by nth_element. Argument `q`: fraction in [0,1], required by
+     * unchecked index calculation. Returns: element at int(q*(n-1)), or zero for empty; no
+     * interpolation.
+     */
     auto quantile = [](QVector<double> &values, double q) {
         if (values.isEmpty())
             return 0.0;
@@ -2815,6 +3011,11 @@ void MeshGenerationDialog::runMeshPipeline(QPromise<MeshGenerationDialog::Pipeli
                                            MeshGenerationDialog::PipelineInputs in)
 {
     using PResult = MeshGenerationDialog::PipelineResult;
+    /**
+     * @brief Append a failed PipelineResult after a caught worker exception. Argument `msg`: copied
+     * diagnostic. Returns: no value; framework manages promise completion and adding the result can
+     * itself allocate.
+     */
     auto failWith = [&](const QString &msg) {
         PResult r;
         r.ok = false;
@@ -2941,6 +3142,10 @@ void MeshGenerationDialog::beginGenerationGuard()
     m_generationEngine = m_generationModel->engine();
     m_generationModelPath = m_generationModel->modelFilePath();
     m_generationRevision = m_generationModel->editRevision();
+    /**
+     * @brief Mark the pending result stale after any observed input mutation. Takes no arguments
+     * and returns no value; worker computation is not automatically canceled by this flag alone.
+     */
     const auto invalidate = [this]() { m_generationInvalidated = true; };
     m_generationConnections << connect(m_pw.data(), &SWMMVisProjectWindow::aboutToClose, this,
                                        [this]() {
@@ -3256,6 +3461,11 @@ void MeshGenerationDialog::buildUi()
         lay->addWidget(m_includeConduits);
         lay->addWidget(m_includeSubcatch);
 
+        /**
+         * @brief Gate rim/flatten/minimum-separation controls from the node-influence draft
+         * checkboxes. Takes no arguments and returns no value; disabled values are retained, no
+         * engine coupling writes occur.
+         */
         auto syncCoupling = [this] {
             const bool jc = m_includeJunctions->isChecked();
             m_nodesUseRim->setEnabled(jc);
@@ -3354,6 +3564,10 @@ void MeshGenerationDialog::buildUi()
                "Also used as the natural-neighbour fallback outside the hull."));
         f->addRow(tr("IDW power:"), m_idwPowerSpin);
 
+        /**
+         * @brief Show the NN weighting choice only as enabled for natural-neighbour mode. Takes no
+         * arguments and returns no value; IDW exponent remains available for fallback.
+         */
         auto syncElevInterp = [this] {
             const bool nn =
                 m_elevMethodCombo->currentData().toInt() == int(ElevInterpMethod::NaturalNeighbour);
@@ -3720,6 +3934,10 @@ void MeshGenerationDialog::buildUi()
     connect(m_generateBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onAccept);
     connect(m_cancelBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onCancelOrReject);
 
+    /**
+     * @brief Enable output path/browse only for external output. Takes no arguments and returns no
+     * value; intended path remains stored while inline mode disables it.
+     */
     auto refreshPath = [this]() {
         const bool ext = m_outputExternal->isChecked();
         m_meshPathEdit->setEnabled(ext);
@@ -3851,6 +4069,13 @@ void MeshGenerationDialog::seedDefaults()
 
 namespace
 {
+/**
+ * @brief Read a stable saved identity from the dialog layer-picker payload convention.
+ * @param[in] combo Required borrowed initialized combo.
+ * @param[in] index Row whose void-pointer data is null, sentinel 0x1 or a live OpenSWMMVisLayer.
+ * @return none, subcatchments or borrowed layerId copied into a string; no pointer ownership
+ * transfer.
+ */
 QString meshPickerIdentity(QComboBox *combo, int index)
 {
     void *p = combo->itemData(index).value<void *>();
@@ -3886,6 +4111,11 @@ void MeshGenerationDialog::saveOptions()
             controls[key] = edit->text();
     }
     QJsonArray sources;
+    /**
+     * @brief Append auxiliary selection drafts to option JSON. Argument `rows`: borrowed row
+     * metadata with live layer/include/useZ pointers. Returns: no value; stores stable layer IDs
+     * and check states, skips null layer entries.
+     */
     auto addSources = [&](const QVector<AuxLayerRow> &rows) {
         for (const auto &row : rows)
             if (row.layer)
@@ -3908,6 +4138,10 @@ void MeshGenerationDialog::saveOptions()
     options[QStringLiteral("controls")] = controls;
     options[QStringLiteral("sources")] = sources;
     QJsonArray regions;
+    /**
+     * @brief Encode a numeric optional value. Argument `v`: input double. Returns: JSON number for
+     * finite input or null for NaN/infinity, preserving inheritance/missing-value representation.
+     */
     const auto finiteJson = [](double v) {
         return std::isfinite(v) ? QJsonValue(v) : QJsonValue(QJsonValue::Null);
     };
@@ -3999,6 +4233,11 @@ void MeshGenerationDialog::restoreOptions()
                   .arg(resolution.maximumM.value_or(0) * fromSI)
                   .arg(UnitSystem::instance()->lengthLabel())
             : QString();
+    /**
+     * @brief Restore auxiliary checkbox drafts by stable layer ID. Argument `rows`: borrowed
+     * metadata with live controls/layers. Returns: no value; applies include and useZ only if the
+     * row geometry supports it, leaving unmatched rows unchanged.
+     */
     auto restoreSources = [&](const QVector<AuxLayerRow> &rows) {
         for (const auto &value : options.value(QStringLiteral("sources")).toArray()) {
             const auto entry = value.toObject();
@@ -4110,6 +4349,11 @@ void MeshGenerationDialog::populateLayerCombos()
     // geometry type is not declared (a mixed GeoJSON, a layer still opening)
     // is offered everywhere, as before.
     enum class GeomClass { Unknown, Point, Line, Polygon };
+    /**
+     * @brief Classify declared OGR layer geometry for source pickers. Argument `v`: nullable
+     * borrowed vector layer. Returns: Point, Line, Polygon or Unknown for absent/unsupported
+     * declarations; does not scan features.
+     */
     const auto geomClass = [](GISVectorLayer *v) {
         OGRLayer *ol = v ? v->ogrLayer() : nullptr;
         if (!ol)
@@ -4128,6 +4372,11 @@ void MeshGenerationDialog::populateLayerCombos()
             return GeomClass::Unknown;
         }
     };
+    /**
+     * @brief Collect compatible vector layers with preferred roles first. Argument `want`: required
+     * geometry class. Argument `preferred`: feature role priority. Returns: borrowed layer pointer
+     * list preserving canvas order inside groups; Unknown declarations remain eligible.
+     */
     const auto pickable = [&](GeomClass want, FeatureLayerRole preferred) {
         QList<GISVectorLayer *> first, rest;
         for (auto *L : layers)
@@ -4140,6 +4389,11 @@ void MeshGenerationDialog::populateLayerCombos()
             }
         return first + rest;
     };
+    /**
+     * @brief Format a picker caption from a live vector layer. Argument `v`: required borrowed
+     * layer. Returns: feature role-marked caption or ordinary name; no persistence/ownership
+     * change.
+     */
     const auto labelFor = [](GISVectorLayer *v) {
         if (auto *fl = qobject_cast<FeatureLayer *>(v))
             return QStringLiteral("◆ %1  —  %2").arg(fl->name(), featureLayerRoleLabel(fl->role()));
@@ -4179,6 +4433,11 @@ void MeshGenerationDialog::populateLayerCombos()
 
     // Decide whether a vector layer carries 3D geometry — uses the declared
     // layer type when known, otherwise probes the first feature.
+    /**
+     * @brief Probe whether a vector layer supports feature Z. Argument `v`: nullable borrowed
+     * vector layer. Returns: declared geometry Z flag or first-feature probe for unknown type,
+     * false without OGR layer. Resets its feature cursor before/after probing.
+     */
     auto detect3D = [](GISVectorLayer *v) -> bool {
         OGRLayer *ol = v ? v->ogrLayer() : nullptr;
         if (!ol)
@@ -4200,6 +4459,12 @@ void MeshGenerationDialog::populateLayerCombos()
     // Each row gets an "include" checkbox and a "use Z" checkbox; the latter
     // is enabled only when the layer's geometry is 3D.  Rows are stashed so
     // collectInputs() can read both checkbox states directly.
+    /**
+     * @brief Replace auxiliary source row controls. Argument `list`: required borrowed Qt list
+     * owning item widgets. Argument `rows`: output metadata vector cleared/replaced, borrowing
+     * listed layers and row controls. Argument `want`: Point or Line class. Returns: no value;
+     * use-Z enabled only for detected 3D, empty lists get an informational item.
+     */
     auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows, GeomClass want) {
         list->clear();
         rows.clear();
@@ -4242,6 +4507,11 @@ void MeshGenerationDialog::populateLayerCombos()
 
 bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) const
 {
+    /**
+     * @brief Record a collection validation diagnostic. Argument `m`: copied error text when
+     * optional errOut exists. Returns: false for direct early-return use; leaves already populated
+     * out fields intact.
+     */
     auto fail = [&](const QString &m) {
         if (errOut)
             *errOut = m;
@@ -4375,6 +4645,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Build an OGRCoordinateTransformation from layerSRS → meshSRS.
     // Returns nullptr when no transform is needed (same CRS or one unknown).
     // Caller owns the returned object and must call DestroyCT().
+    /**
+     * @brief Create a source-layer-to-mesh OGR transform. Argument `srcLayer`: nullable borrowed
+     * layer/SRS; sets its OGR axis mapping to traditional GIS order. Returns: caller-owned
+     * transform requiring DestroyCT, or null for same/missing CRS or creation failure (null does
+     * not distinguish these cases).
+     */
     auto makeTransform = [&](const OpenSWMMVisLayer *srcLayer) -> OGRCoordinateTransformation * {
         if (!meshHasSRS || !srcLayer || !srcLayer->srs())
             return nullptr;
@@ -4390,6 +4666,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Transform a mutable (x,y) pair using ct (if non-null). Returns false and
     // leaves x/y NaN when PROJ could not convert the point, so callers can
     // drop it instead of forwarding OGR's HUGE_VAL as a real coordinate.
+    /**
+     * @brief Transform one auxiliary coordinate through checked point logic. Argument `ct`:
+     * nullable borrowed transform. Arguments `x`, `y`: input/output coordinates, NaN on reported
+     * failure. Returns: true for success or null transform; no ownership transfer.
+     */
     auto xformPt = [](OGRCoordinateTransformation *ct, double &x, double &y) {
         return transformCheckedPt(ct, x, y);
     };
@@ -4598,6 +4879,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         // Record one candidate point: carry its Z when 3D + requested, else
         // fall back to the DTM (hasZ=false).  The exact in-domain filter is
         // applied by the worker once the domains exist.
+        /**
+         * @brief Append one usable transformed auxiliary point. Argument `p`: nullable borrowed OGR
+         * point; failed XY transformation is counted/skipped. Returns: no value; uses finite
+         * feature Z only when requested, otherwise needs DTM; records missing elevation source as a
+         * collection error.
+         */
         auto pushPoint = [&](const OGRPoint *p) {
             if (!p)
                 return;
@@ -4665,6 +4952,13 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         OGRCoordinateTransformation *ct = makeTransform(vl);
         OGRFeature *f = nullptr;
         while ((f = ol->GetNextFeature()) != nullptr) {
+            /**
+             * @brief Append one transformed auxiliary line candidate. Argument `ls`: nullable
+             * borrowed OGR line with at least two points. Returns: no value; absent elevation
+             * source blocks collection, failed XY vertices are counted/dropped (bridging their
+             * span), and fewer than two survivors are skipped. Requested feature Z is copied
+             * without vertical reprojection.
+             */
             auto pushLS = [&](const OGRLineString *ls) {
                 if (!ls || ls->getNumPoints() < 2)
                     return;

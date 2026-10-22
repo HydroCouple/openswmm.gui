@@ -9,7 +9,7 @@
  * checkbox toggle in `ComparisonPlotDialog::onSeriesItemChanged` drives:
  *   - `ComparisonPlotModel::updateStyle` flips `SeriesStyle::showLine`
  *     in-place,
- *   - `styleChanged` fires only when the style actually differs,
+ *   - `styleChanged` fires for every style update, including unchanged styles,
  *   - `removeSeries` evicts the spec + emits `seriesRemoved` (the
  *     "Remove Series" tree-context-menu path).
  *
@@ -45,11 +45,24 @@ using namespace openswmmvis::plot;
 class StubRunLayer : public IRunLayer
 {
 public:
+    /** @brief Name the synthetic empty run.
+     * @return Stub. */
     QString scenarioName() const override { return QStringLiteral("Stub"); }
+    /** @brief Identify the stub series units.
+     * @return SI. */
     UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /** @brief Expose the empty stub start timestamp.
+     * @return Zero Julian days. */
     double startDateJulian() const override { return 0.0; }
+    /** @brief Expose the stub report count.
+     * @return Zero periods. */
     int periodCount() const override { return 0; }
+    /** @brief Expose the empty stub report interval.
+     * @return Zero seconds. */
     int reportStepSeconds() const override { return 0; }
+    /** @brief Reject every series request with the fixed stub error.
+     * The unnamed object and attribute arguments are ignored.
+     * @param[out] out Required series object whose success flag becomes false and error becomes stub; other fields are left unchanged. */
     void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.ok = false;
@@ -62,7 +75,11 @@ public:
 class UnnamedRunLayer : public StubRunLayer
 {
 public:
+    /** @brief Leave the scenario name empty to exercise label fallback.
+     * @return An empty string. */
     QString scenarioName() const override { return QString(); }
+    /** @brief Expose a synthetic output identity without opening a file.
+     * @return /tmp/results/model_run2.out, used solely to test filename fallback. */
     QString persistenceKey() const override
     {
         return QStringLiteral("/tmp/results/model_run2.out");
@@ -87,6 +104,10 @@ private:
 };
 
 std::unique_ptr<ComparisonPlotModel>
+/** @brief Build a uniquely owned model containing one empty stub run and the requested node series.
+ * @param[in] nodeNames Node identifiers added in order; names are not resolved against a real model.
+ * @param[in] attr Attribute assigned to every series.
+ * @return New model owning its series and a shared stub run; no series data are resolved. */
 TestComparisonPlotSeriesTree::makeModelWithSeries(const QVector<QString> &nodeNames,
                                                   PlotAttribute attr)
 {
@@ -105,6 +126,7 @@ TestComparisonPlotSeriesTree::makeModelWithSeries(const QVector<QString> &nodeNa
     return model;
 }
 
+/** @brief Verify model style updates hide and restore a series line in place. */
 void TestComparisonPlotSeriesTree::updateStyleFlipsShowLine()
 {
     auto model = makeModelWithSeries({QStringLiteral("J1")}, PlotAttribute::NodeDepth);
@@ -121,6 +143,8 @@ void TestComparisonPlotSeriesTree::updateStyleFlipsShowLine()
     QVERIFY(model->spec(0).style.showLine);
 }
 
+/** @brief Verify current model behavior emits styleChanged for both unchanged and changed styles.
+ * Despite the historical slot name, the assertions require unconditional emission rather than no-op deduplication. */
 void TestComparisonPlotSeriesTree::updateStyleNoOpDoesNotEmit()
 {
     // Pin current model behaviour: `updateStyle` emits styleChanged on
@@ -141,6 +165,7 @@ void TestComparisonPlotSeriesTree::updateStyleNoOpDoesNotEmit()
     QCOMPARE(spy.count(), 2);
 }
 
+/** @brief Verify removing the middle series emits once and retains the other object IDs in stable order. */
 void TestComparisonPlotSeriesTree::removeSeriesEvictsSpec()
 {
     auto model =
@@ -157,6 +182,8 @@ void TestComparisonPlotSeriesTree::removeSeriesEvictsSpec()
     QCOMPARE(model->spec(1).objectRef.name, QStringLiteral("J3"));
 }
 
+/** @brief Simulate the Plot This Only model-update recipe and verify only the chosen same-attribute series remains visible.
+ * This slot exercises model operations directly rather than the dialog context menu. */
 void TestComparisonPlotSeriesTree::plotThisOnlyHidesSiblingsOnly()
 {
     // Simulate the "Plot This Only" path: for each series sharing the same
@@ -184,6 +211,7 @@ void TestComparisonPlotSeriesTree::plotThisOnlyHidesSiblingsOnly()
     QVERIFY(!model->spec(2).style.showLine);
 }
 
+/** @brief Verify legend overrides update the stored spec and emit only when the value changes, including clearing it. */
 void TestComparisonPlotSeriesTree::updateLegendOverrideWritesSpecAndDedupes()
 {
     // updateLegendOverride writes SeriesSpec::legendOverride and piggybacks
@@ -209,6 +237,7 @@ void TestComparisonPlotSeriesTree::updateLegendOverrideWritesSpecAndDedupes()
     QCOMPARE(spy.count(), 2);
 }
 
+/** @brief Verify run labels prefer explicit text, then scenario name, then the persistence-key filename. */
 void TestComparisonPlotSeriesTree::runLabelFallsBackToOutputName()
 {
     auto model = std::make_unique<ComparisonPlotModel>();

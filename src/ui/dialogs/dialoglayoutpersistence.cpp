@@ -34,11 +34,22 @@ namespace
 
 /// Deliberate opt-in: only children the dialog author explicitly named
 /// persist; Qt-internal names ("qt_tabwidget_stackedwidget", …) never do.
+/**
+ * @param[in] name Raw objectName, compared case-sensitively, no trim.
+ * @return Nonempty and NOT startsWith qt_; whitespace-only and uppercase Qt_ accepted. Pure layout
+ *   opt-in predicate, no source mutation.
+ */
 bool userNamed_(const QString &name)
 {
     return !name.isEmpty() && !name.startsWith(QLatin1String("qt_"));
 }
 
+/**
+ * @param[in] root Optional borrowed root, null empty.
+ * @param[in] windowLayout False use root name; true root window name unless root already window.
+ * @return Raw resolved objectName or empty, no sanitization/path escaping/Qt-internal exclusion. No
+ *   widget/settings mutation.
+ */
 QString rootGroupName_(QWidget *root, bool windowLayout)
 {
     if (!root)
@@ -63,6 +74,12 @@ constexpr int kDefaultTitleBarStrip = 28;
 /// positions the CLIENT area, so the title bar — the only draggable part of
 /// the window — sits above `geometry().top()` and can be pushed under the
 /// menu bar by a naive restore.
+/**
+ * @param[in] w Optional borrowed window; invisible/null uses 28 pixels.
+ * @return frameGeometry.top-geometry.top if within 1..96, fallback 28 otherwise. Sign is as
+ *   implemented, no absolute value or platform probing beyond current Qt geometry. No native handle
+ *   creation/window mutation.
+ */
 int titleBarStripFor_(const QWidget *w)
 {
     if (!w || !w->isVisible())

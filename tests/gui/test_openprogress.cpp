@@ -36,6 +36,7 @@ private slots:
     void engineParseWithoutSubTicksStillReaches100();
 };
 
+/** @brief Require the complete stage catalog's integer weights to sum to 100. */
 void TestOpenProgress::weightsSumTo100()
 {
     int sum = 0;
@@ -44,6 +45,7 @@ void TestOpenProgress::weightsSumTo100()
     QCOMPARE(sum, 100);
 }
 
+/** @brief Require finishing every stage to move an initially incomplete model from zero to exactly 100 percent. */
 void TestOpenProgress::reachesExactly100()
 {
     OpenProgressModel m;
@@ -57,6 +59,9 @@ void TestOpenProgress::reachesExactly100()
     QVERIFY(m.isComplete());
 }
 
+/** @brief Require polled and emitted total progress to stay monotone through one explicitly reordered completion sequence.
+ * Checks all listed stages ultimately reach 100; this is sequential event delivery,
+ * not a concurrent-thread scheduling test. */
 void TestOpenProgress::neverDecreasesOnOutOfOrderStages()
 {
     // The mesh worker genuinely overlaps the GUI-thread sidecar apply, so
@@ -90,6 +95,7 @@ void TestOpenProgress::neverDecreasesOnOutOfOrderStages()
     }
 }
 
+/** @brief Require immediate completion of the three mesh stages to add exactly their combined weight after engine parsing. */
 void TestOpenProgress::skippedMeshStagesJumpForward()
 {
     // A model with no 2D mesh finishes the three mesh stages immediately.
@@ -109,6 +115,7 @@ void TestOpenProgress::skippedMeshStagesJumpForward()
     QVERIFY(m.percent() > before);
 }
 
+/** @brief Require repeated equal stage ticks and one stale backwards tick to emit no progressChanged signals. */
 void TestOpenProgress::noopTicksDoNotEmit()
 {
     // Masked loops tick often and mostly report the same percent; the model
@@ -126,6 +133,7 @@ void TestOpenProgress::noopTicksDoNotEmit()
     QCOMPARE(spy.count(), 0);
 }
 
+/** @brief Require changing the stage label at unchanged percent to emit once and update the model label. */
 void TestOpenProgress::labelOnlyChangeEmits()
 {
     OpenProgressModel m;
@@ -139,6 +147,7 @@ void TestOpenProgress::labelOnlyChangeEmits()
     QCOMPARE(m.label(), QStringLiteral("Resolving references…"));
 }
 
+/** @brief Require finishAll to emit one completion signal and ignore redundant whole/stage completion calls. */
 void TestOpenProgress::finishedFiresExactlyOnce()
 {
     OpenProgressModel m;
@@ -154,6 +163,8 @@ void TestOpenProgress::finishedFiresExactlyOnce()
     QCOMPARE(done.count(), 1);
 }
 
+/** @brief Require whole-stage engine completion without intermediate ticks to contribute its weight and allow total completion.
+ * Directly exercises the progress model; does not load an engine lacking a symbol. */
 void TestOpenProgress::engineParseWithoutSubTicksStillReaches100()
 {
     // Phase-4 degradation case: built against an engine with no open-progress

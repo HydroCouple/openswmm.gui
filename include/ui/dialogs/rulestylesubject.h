@@ -51,16 +51,39 @@ namespace openswmmvis::ui
 class RuleStyleSubject : public ILayerStyleSubject
 {
 public:
-    /*! \param rule       Non-null. Outlives this subject.
-     *  \param routingId  Stable id for right-click → "focus this tab"
-     *                    routing. Typically `"rule.0"`, `"rule.1"`, etc.
-     *  \param section    Optional section grouping; defaults to "Rules". */
+    /**
+     * @brief Wrap a rule as a nonowning legacy style subject with copied routing/group metadata.
+     * @param rule Optional borrowed raw rule; nonnull rules must outlive this subject and
+     * all editors using propertyObject(). No destruction tracking or rule ownership.
+     * @param routingId Owned value moved into the subject; intended dialog-local routing
+     * identity, not an automatically maintained list index.
+     * @param section Owned group label moved into storage, default Rules.
+     * Does not attach to signals, snapshot properties, validate identifiers or mutate rule.
+     */
     RuleStyleSubject(OpenSWMM::Render::Rule *rule, QString routingId,
                      QString section = QStringLiteral("Rules"));
 
+    /**
+     * @brief Read the current rule's display title without retaining its name reference.
+     * @return Owned current name, Rule for an unnamed live rule, empty for null target.
+     * Requires nonnull raw rule lifetime; title follows renames but routing id does not.
+     */
     [[nodiscard]] QString title() const override;
+    /**
+     * @brief Read the stored section-group label.
+     * @return Owned construction-time section value, independent of live rule state.
+     */
     [[nodiscard]] QString section() const override;
+    /**
+     * @brief Expose the wrapped rule for property editing.
+     * @return Borrowed rule QObject or null; no ownership transfer or lifetime protection.
+     * Caller must keep the rule alive through property models/editor callbacks.
+     */
     [[nodiscard]] QObject *propertyObject() const override;
+    /**
+     * @brief Read the stored dialog routing identity.
+     * @return Owned construction-time string; never recomputed after rule reorder/rename.
+     */
     [[nodiscard]] QString routingId() const override;
 
 private:
@@ -69,10 +92,15 @@ private:
     QString m_section;
 };
 
-/*! \brief Build one RuleStyleSubject per Rule in \p list. Empty / null
- *         list yields an empty vector. RoutingIds are auto-assigned as
- *         `"rule.0"`, `"rule.1"`, ... — stable for the duration of the
- *         dialog session. */
+/**
+ * @brief Build owning subject wrappers for the current nonnull entries of a borrowed rule list.
+ * @param list Optional borrowed list; rules/list must remain valid during enumeration,
+ * and wrapped rules must outlive the resulting subjects/editors. No concurrent reorder.
+ * @return Owned vector of unique_ptr subjects, empty for null/empty list. Each wrapper
+ * borrows its rule and stores rule.index using the current zero-based list position;
+ * null entries are skipped without renumbering suffixes. IDs remain fixed in wrappers
+ * and are not globally persistent or updated after later list edits. No rule mutation.
+ */
 [[nodiscard]] std::vector<std::unique_ptr<ILayerStyleSubject>>
 subjectsFromRuleList(OpenSWMM::Render::RuleList *list);
 

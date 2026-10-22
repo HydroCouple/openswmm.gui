@@ -37,6 +37,8 @@
 namespace
 {
 
+/** @brief Locate the local conduit split fixture.
+ * @return selection_trace_fixture.inp under SWMMVIS_GUI_TEST_DATA, defaulting to ".". */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -53,6 +55,8 @@ struct Harness {
     MapCanvas *canvas = nullptr;
     SWMMModelLayer *layer = nullptr;
 
+    /** @brief Allocate/load/show the owned project and borrow its canvas/model after layout settles.
+     * @return True after model load, window exposure and child checks, otherwise false with allocated owners retained for destructor cleanup. Waits 200 milliseconds before borrowing children and 100 after zoom-to-full-extent. */
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -73,17 +77,25 @@ struct Harness {
         QTest::qWait(100);
         return true;
     }
+    /** @brief Destroy the owned project before its workspace; canvas and model pointers are borrowed children. */
     ~Harness()
     {
         delete window;
         delete ws;
     }
+    /** @brief Convert fixture-local map coordinates to canvas pixels.
+     * @param[in] mapX Horizontal coordinate in the loaded local CRS.
+     * @param[in] mapY Vertical coordinate in that CRS.
+     * @return Canvas-local integer pixel point; requires successful harness open. */
     QPoint pixelOf(double mapX, double mapY) const
     {
         int px = 0, py = 0;
         canvas->toPixelCoords(mapX, mapY, px, py);
         return {px, py};
     }
+    /** @brief Activate a borrowed add-node tool, deliver a move/left click, then clear the active tool.
+     * @param[in,out] tool Stack-owned tool that must remain alive through event handling.
+     * @param[in] at Canvas-local click pixel; requires a live opened harness. */
     void click(OpenSWMMVisMapToolAddNode &tool, const QPoint &at)
     {
         canvas->setActiveTool(&tool);
@@ -93,6 +105,10 @@ struct Harness {
     }
 };
 
+/** @brief Read a node type by name from the engine.
+ * @param[in] layer Required loaded model layer.
+ * @param[in] name Node identity resolved as UTF-8.
+ * @return Engine type or -1 if lookup/getter fails; getter status is unchecked. */
 int engineNodeType(SWMMModelLayer *layer, const QString &name)
 {
     const int idx = swmm_node_index(layer->engine(), name.toUtf8().constData());
@@ -109,6 +125,7 @@ class TestAddNodeSplitTool : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Verify a real midpoint click splits C1, emits the inserted names, keeps render/cache counts aligned and places a visible junction near the click. */
     void junctionOnConduitSplits()
     {
         Harness h;
@@ -137,6 +154,7 @@ private slots:
         QVERIFY(h.layer->isObjectVisible(QStringLiteral("C1_B"), SWMMModelLayer::CatConduits));
     }
 
+    /** @brief Verify an outfall tool refuses placement on C2 with a network-end diagnostic and unchanged object counts. */
     void outfallOnConduitRefused()
     {
         Harness h;
@@ -160,6 +178,7 @@ private slots:
         QVERIFY2(refused, "no outfall-on-conduit refusal message was emitted");
     }
 
+    /** @brief Verify storage placement splits C3, retypes the node and exposes it in the storage category through undo/redo. */
     void storageOnConduitSplitsConvertsAndUndoes()
     {
         Harness h;
@@ -192,6 +211,7 @@ private slots:
         QCOMPARE(engineNodeType(h.layer, nodeName), 2);
     }
 
+    /** @brief Verify a free-space junction click adds only a node and emits no split signal. */
     void junctionOffConduitPlacesFreely()
     {
         Harness h;

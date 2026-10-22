@@ -96,6 +96,11 @@ void PreferencesDialog::buildUi()
             qOverload<int>(&QListWidget::setCurrentRow));
     // Iteration 3 — pages scroll instead of squeezing when the dialog
     // shrinks (same funnel as SimulationOptionsDialog::addCategory).
+    /**
+     * @brief Append a sidebar caption and scrolling stack page. Argument `title`: translated
+     * caption. Argument `page`: required widget whose Qt ownership transfers to the scroll host.
+     * Returns: no value; called before initial selection.
+     */
     const auto addCategory = [this](const QString &title, QWidget *page) {
         m_categoryList->addItem(title);
         m_pages->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_pages));
@@ -213,6 +218,12 @@ QWidget *PreferencesDialog::buildGeneralPage()
     // Helper that paints a color-swatch onto a QPushButton and updates the
     // associated "pending" QColor when the user picks a new colour via
     // QColorDialog.
+    /**
+     * @brief Connect a pending color swatch picker. Argument `btn`: required borrowed button owned
+     * by this dialog. Argument `pending`: member color reference that must outlive its stored
+     * callback. Argument `dialogTitle`: copied picker caption. Returns: no value; valid selected
+     * alpha color updates the draft and RGB swatch, cancellation preserves it.
+     */
     auto wireColorButton = [this](QPushButton *btn, QColor &pending, const QString &dialogTitle) {
         btn->setMinimumWidth(120);
         btn->setAutoFillBackground(true);
@@ -378,6 +389,10 @@ QWidget *PreferencesDialog::buildCanvasPage()
     crsVlay->addLayout(crsCustomRow);
 
     // Enable custom fields only when the custom radio is selected.
+    /**
+     * @brief Enable custom CRS authority/code fields only when the Custom radio is checked. Takes
+     * no arguments and returns no value; does not resolve or persist a CRS.
+     */
     auto syncCrsWidgets = [this]() {
         const bool custom = m_crsCustomRadio->isChecked();
         m_crsAuthorityEdit->setEnabled(custom);
@@ -420,6 +435,10 @@ QWidget *PreferencesDialog::buildCanvasPage()
            "of links and polygon corners of subcatchments."));
     snapVlay->addWidget(m_snapToVerticesBox);
 
+    /**
+     * @brief Gate tolerance/vertex controls from the snapping draft checkbox. Takes no arguments
+     * and returns no value; does not save settings.
+     */
     auto syncSnapWidgets = [this]() {
         const bool on = m_snapEnabledBox->isChecked();
         m_snapToleranceSpin->setEnabled(on);
@@ -721,6 +740,11 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     auto *togGroup = new QGroupBox(tr("Process modules (off by default)"), page);
     auto *togLay = new QVBoxLayout(togGroup);
 
+    /**
+     * @brief Create a process toggle. Argument `label`: visible caption. Argument `tip`: optional
+     * tooltip, ignored when empty. Returns: new toggle-group-owned checkbox, without a manager
+     * write.
+     */
     auto mkBox = [togGroup](const QString &label, const QString &tip) {
         auto *b = new QCheckBox(label, togGroup);
         if (!tip.isEmpty())
@@ -791,6 +815,10 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     auto *stepGroup = new QGroupBox(tr("Time steps"), page);
     auto *stepForm = new QFormLayout(stepGroup);
 
+    /**
+     * @brief Create a step-group-owned minute selector spanning [1,1440]. Takes no arguments.
+     * Returns: new spin; converting to seconds occurs only during preference writes.
+     */
     auto makeMinSpin = [stepGroup]() {
         auto *s = new QSpinBox(stepGroup);
         s->setRange(1, 24 * 60);
@@ -925,6 +953,10 @@ void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay, QVBox
            "method is selected."));
     condForm->addRow(tr("Unsteady friction k3 (UF_K3)"), m_simUfK3Spin);
 
+    /**
+     * @brief Enable the Vitkovsky coefficient unless unsteady-friction data is NONE. Takes no
+     * arguments and returns no value; gating does not change its held value.
+     */
     auto syncUfK3 = [this]() {
         m_simUfK3Spin->setEnabled(m_simUnsteadyFrictionCombo->currentData().toString() !=
                                   QStringLiteral("NONE"));
@@ -967,6 +999,10 @@ void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay, QVBox
 
     vsLay->addLayout(vsForm);
 
+    /**
+     * @brief Gate relaxation/minimum-step widgets from the variable-step draft flag. Takes no
+     * arguments and returns no value; held values survive disabling.
+     */
     auto syncVsFields = [this]() {
         const bool on = m_simVariableStepBox->isChecked();
         m_simVariableStepFactorSpin->setEnabled(on);
@@ -1013,6 +1049,12 @@ void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay, QVBox
                 .arg(SimulationOptionsDialog::threadLimitsSummary(ti)));
         // Suffix shows the hardware limit next to the value (0 = auto has none).
         const int logical = ti.logical_cpus;
+        /**
+         * @brief Describe worker-thread hardware capacity beside the draft count. Argument `v`:
+         * requested threads, zero means auto. Returns: no value; no suffix for auto/unknown
+         * hardware, otherwise identifies logical count and oversubscription without restricting the
+         * choice.
+         */
         auto updateSuffix = [this, logical](int v) {
             if (v == 0 || logical <= 0) {
                 m_simThreadsSpin->setSuffix(QString());
@@ -1377,12 +1419,21 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
     outer->setSpacing(12);
 
     // Helper: create a color button with live background preview.
+    /**
+     * @brief Allocate a measurement-color swatch. Argument `parent`: optional Qt group owner.
+     * Returns: new minimum-width auto-fill button; no picker is wired until caller connects it.
+     */
     auto makeColorBtn = [this](QGroupBox *parent) -> QPushButton * {
         auto *btn = new QPushButton(parent);
         btn->setMinimumWidth(120);
         btn->setAutoFillBackground(true);
         return btn;
     };
+    /**
+     * @brief Display a measurement color without persistence. Argument `btn`: required borrowed
+     * swatch. Argument `c`: color rendered as RGB with light/dark contrasting text. Returns: no
+     * value; pending state is managed by the caller.
+     */
     auto applyColorBtn = [](QPushButton *btn, const QColor &c) {
         const QString css =
             QStringLiteral("QPushButton { background-color: %1; color: %2; "
@@ -1478,6 +1529,11 @@ QWidget *PreferencesDialog::buildPlotsPage()
 
     // Helper: build a "Number format" combo + "Precision" spin pair into a
     // group box. Returns nothing — widgets are assigned to the members.
+    /**
+     * @brief Create a draft number-format preset group. Argument `title`: axis caption. Argument
+     * `formatCombo`: output pointer replaced with a new group-owned combo (prior pointed object is
+     * not deleted). Returns: new page-owned group; item data stores formatting presets.
+     */
     auto buildAxisGroup = [this, page](const QString &title, QComboBox *&formatCombo) {
         auto *group = new QGroupBox(title, page);
         auto *f = new QFormLayout(group);
@@ -1601,6 +1657,12 @@ void PreferencesDialog::readFromManager()
     m_profileMaxPathsSpin->setValue(p->profileMaxPaths());
 
     {
+        /**
+         * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+         * borrowed button. Argument `held`: output member color reference. Argument `c`: input
+         * color copied, RGB text/background shown with contrasting foreground. Returns: no value;
+         * performs no preference write.
+         */
         auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
             held = c;
             const QString css =
@@ -1624,6 +1686,12 @@ void PreferencesDialog::readFromManager()
     m_dragThresholdPxSpin->setValue(p->dragThresholdPx());
     m_clearOnMissBox->setChecked(p->clearSelectionOnMiss());
 
+    /**
+     * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+     * borrowed button. Argument `held`: output member color reference. Argument `c`: input color
+     * copied, RGB text/background shown with contrasting foreground. Returns: no value; performs no
+     * preference write.
+     */
     auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
         held = c;
         QString css =
@@ -1670,6 +1738,11 @@ void PreferencesDialog::readFromManager()
     // Simulation Defaults
     {
         const auto d = p->simulationDefaults();
+        /**
+         * @brief Select a matching combo data value with first-row fallback. Argument `c`: required
+         * borrowed combo. Argument `v`: item-data key. Returns: no value; only widget state
+         * changes.
+         */
         auto selData = [](QComboBox *c, const QString &v) {
             const int i = c->findData(v);
             c->setCurrentIndex(i >= 0 ? i : 0);
@@ -1797,6 +1870,10 @@ QWidget *PreferencesDialog::buildObjectDefaultsPage()
 
 void PreferencesDialog::applyTwoDDefaultsToWidgets(const PreferencesManager::TwoDDefaults &d)
 {
+    /**
+     * @brief Select a matching combo data value with first-row fallback. Argument `c`: required
+     * borrowed combo. Argument `v`: item-data key. Returns: no value; only widget state changes.
+     */
     auto selData = [](QComboBox *c, const QString &v) {
         const int i = c->findData(v, Qt::UserRole, Qt::MatchFixedString);
         c->setCurrentIndex(i >= 0 ? i : 0);
@@ -2036,6 +2113,11 @@ void PreferencesDialog::writeToManager()
     }
 
     // Naming prefixes
+    /**
+     * @brief Save one nonempty trimmed naming prefix. Argument `ed`: required borrowed line edit.
+     * Argument `kind`: manager element-kind key. Returns: no value; empty text leaves its previous
+     * setting unchanged.
+     */
     auto savePrefix = [&](QLineEdit *ed, const QString &kind) {
         const QString t = ed->text().trimmed();
         if (!t.isEmpty())
@@ -2089,6 +2171,12 @@ void PreferencesDialog::onResetToDefaults()
     m_profileMaxPathsSpin->setValue(100);
     m_profileHaloRadiusSpin->setValue(10);
     {
+        /**
+         * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+         * borrowed button. Argument `held`: output member color reference. Argument `c`: input
+         * color copied, RGB text/background shown with contrasting foreground. Returns: no value;
+         * performs no preference write.
+         */
         auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
             held = c;
             const QString css =
@@ -2170,6 +2258,11 @@ void PreferencesDialog::onResetToDefaults()
             m_nodeStyleModel->refreshValues();
     }
 
+    /**
+     * @brief Reset a pending color and its swatch. Argument `btn`: required borrowed button.
+     * Argument `held`: member color reference updated by value. Argument `c`: seed color displayed
+     * as RGB. Returns: no value; does not persist the setting.
+     */
     auto resetColorButton = [](QPushButton *btn, QColor &held, const QColor &c) {
         held = c;
         const QString css =
@@ -2192,6 +2285,11 @@ void PreferencesDialog::onResetToDefaults()
     // own threads (engine measurement: T=8 unclamped 204 s vs T=4 57 s).
     {
         const PreferencesManager::SimulationDefaults d; // compile-time defaults
+        /**
+         * @brief Select a matching default combo item or its first entry. Argument `c`: required
+         * borrowed combo. Argument `v`: exact item-data value. Returns: no value; updates widget
+         * selection only.
+         */
         auto sel = [](QComboBox *c, const QString &v) {
             const int i = c->findData(v);
             c->setCurrentIndex(i >= 0 ? i : 0);
@@ -2305,6 +2403,10 @@ QWidget *PreferencesDialog::buildNamingPage()
     auto *f = new QFormLayout(page);
     f->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
+    /**
+     * @brief Create a draft prefix editor. Argument `defaultText`: placeholder example, not actual
+     * input. Returns: new page-owned line edit with maximum width 120 px.
+     */
     auto mkEdit = [&](const QString &defaultText) -> QLineEdit * {
         auto *ed = new QLineEdit(page);
         ed->setPlaceholderText(defaultText);

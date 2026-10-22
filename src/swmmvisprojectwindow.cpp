@@ -703,6 +703,13 @@ Q_LOGGING_CATEGORY(lcLoadWindow, "openswmm.load.window")
 // in step with the engine before skipping the (very expensive) re-push. Counts
 // are the same discriminator pushMeshEditsToEngine itself uses to decide
 // whether an index-wise push is meaningful, and both calls are O(1).
+/**
+ * @param[in] engine Optional borrowed engine; null or count-read failure returns false.
+ * @param[in] m Borrowed GUI mesh supplying only vertex and cell/triangle counts.
+ * @return True if both engine counts equal vector sizes; does not compare coordinates,
+ *   connectivity, quads, attributes or boundary labels. Constant-time heuristic used only with
+ *   additional save ownership/dirty gates.
+ */
 bool engineMeshMatches(SWMM_Engine engine, const mesh::MeshResult &m)
 {
     if (!engine)

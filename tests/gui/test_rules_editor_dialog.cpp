@@ -49,6 +49,12 @@ private slots:
 
     // ── RuleSyntaxHighlighter vocabulary ────────────────────────────────
 
+    /**
+     *
+     * @brief Require the block vocabulary to include RULE/IF/THEN/ELSE/AND/OR/PRIORITY.
+     * Checks membership only, without token coloring, exact full-list equality or parsing.
+     *
+     */
     void highlighterVocabularyCoversKeywords()
     {
         const QStringList block = RuleSyntaxHighlighter::blockKeywords();
@@ -61,6 +67,13 @@ private slots:
         QVERIFY(block.contains(QStringLiteral("PRIORITY")));
     }
 
+    /**
+     *
+     * @brief Require representative node/link/pump/orifice/simulation and
+     * depth/flow/status/setting vocabulary.
+     * Checks static membership only, without object lookup, completion insertion or units.
+     *
+     */
     void highlighterVocabularyCoversObjectsAndVariables()
     {
         const QStringList obj = RuleSyntaxHighlighter::objectTypes();
@@ -77,6 +90,12 @@ private slots:
         QVERIFY(var.contains(QStringLiteral("SETTING")));
     }
 
+    /**
+     *
+     * @brief Require allKeywords to contain every block/object/variable vocabulary entry.
+     * Does not exclude additional words or check duplicate freedom despite the case name.
+     *
+     */
     void highlighterAllKeywordsIsUnionOfThreeSets()
     {
         const QStringList all = RuleSyntaxHighlighter::allKeywords();
@@ -88,6 +107,14 @@ private slots:
             QVERIFY(all.contains(kw));
     }
 
+    /**
+     *
+     * @brief Smoke-test highlighter construction on multiline rule text containing keywords,
+     * numbers and a comment.
+     * The sole explicit assertion is true; no text-format/color or explicit rehighlight
+     * result is inspected.
+     *
+     */
     void highlighterAttachesToDocumentWithoutCrash()
     {
         QTextDocument doc;
@@ -105,6 +132,13 @@ private slots:
 
     // ── RuleCodeEditor — null layer ─────────────────────────────────────
 
+    /**
+     *
+     * @brief Require default code-editor construction to create highlighter and completer
+     * objects.
+     * No layer binding, visible popup or keyboard interaction is exercised.
+     *
+     */
     void codeEditorConstructsWithoutLayer()
     {
         RuleCodeEditor ed;
@@ -112,6 +146,12 @@ private slots:
         QVERIFY(ed.completer() != nullptr);
     }
 
+    /**
+     *
+     * @brief Require two-line rule text to round-trip exactly through the plain-text editor API.
+     * Does not validate the incomplete rule, use a native engine or test syntax colors.
+     *
+     */
     void codeEditorAcceptsPlainText()
     {
         RuleCodeEditor ed;
@@ -121,6 +161,12 @@ private slots:
 
     // ── RuleValidator — null layer falls back to Pending ────────────────
 
+    /**
+     *
+     * @brief Require a nonempty rule draft to validate as Pending when no model layer is bound.
+     * No native object lookup or syntax-verdict assertion.
+     *
+     */
     void validatorWithoutLayerIsPending()
     {
         RuleValidator v(nullptr);
@@ -128,6 +174,12 @@ private slots:
         QCOMPARE(r.state, ValidationState::Pending);
     }
 
+    /**
+     *
+     * @brief Require empty and whitespace-only drafts to remain Pending without a bound layer.
+     * Does not check diagnostics or a live-engine validator path.
+     *
+     */
     void validatorEmptyTextIsPending()
     {
         RuleValidator v(nullptr);
@@ -137,6 +189,13 @@ private slots:
 
     // ── RulesEditorDialog — null layer construction smoke test ──────────
 
+    /**
+     *
+     * @brief Require null-layer dialog construction to supply list/editor/model with no rows or
+     * selected provider.
+     * No model is instantiated and the isolated-link stand-ins remain unused.
+     *
+     */
     void dialogConstructsWithoutLayer()
     {
         RulesEditorDialog dlg(nullptr, /*undoStack=*/nullptr);
@@ -148,12 +207,25 @@ private slots:
         QVERIFY(dlg.currentProvider() == nullptr);
     }
 
+    /**
+     *
+     * @brief Require a null-layer rules dialog to default to Edit mode.
+     * Does not check controls, provider binding or modal acceptance.
+     *
+     */
     void dialogModeDefaultIsEdit()
     {
         RulesEditorDialog dlg(nullptr, nullptr);
         QCOMPARE(dlg.mode(), RulesEditorDialog::Mode::Edit);
     }
 
+    /**
+     *
+     * @brief Require invoking New without a layer/name to leave Create disabled.
+     * Uses direct public action invocation; does not show the dialog, type a name or create
+     * a native rule.
+     *
+     */
     void dialogInvokeNewSchedulesNoCrash()
     {
         // Even with a null layer, opening the create-card shouldn't crash.
@@ -176,35 +248,99 @@ private slots:
 #include "layers/swmmmodellayer.h"
 #include <openswmm/engine/openswmm_engine.h>
 
+/**
+ *
+ * @brief Return null from the unused isolated model-link stand-in.
+ * @return Null borrowed handle; never a production engine accessor or allocator.
+ *
+ */
 SWMM_Engine SWMMModelLayer::engine() const
 {
     return nullptr;
 }
+/**
+ *
+ * @brief Return null from the unused isolated registry-link stand-in.
+ * @return Null without lazy initialization, ownership transfer or model mutation.
+ *
+ */
 QObject *SWMMModelLayer::ensureControlRuleRegistry()
 {
     return nullptr;
 }
-bool SWMMModelLayer::applyControlRuleAdd(const QString &, const QString &, QString *)
+/**
+ *
+ * @brief Refuse every add in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param body Borrowed ignored rule text.
+ * @param error Optional borrowed diagnostic destination, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyControlRuleAdd(const QString &name, const QString &body, QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applyControlRuleReplace(const QString &, const QString &, QString *)
+/**
+ *
+ * @brief Refuse every replacement in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param body Borrowed ignored replacement text.
+ * @param error Optional borrowed diagnostic destination, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyControlRuleReplace(const QString &name, const QString &body,
+                                             QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applyControlRuleRename(const QString &, const QString &, QString *)
+/**
+ *
+ * @brief Refuse every rename in the unused isolated-link stand-in.
+ * @param oldName Borrowed ignored current identity.
+ * @param newName Borrowed ignored requested identity.
+ * @param error Optional borrowed diagnostic destination, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyControlRuleRename(const QString &oldName, const QString &newName,
+                                            QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applyControlRuleRemove(const QString &, QString *)
+/**
+ *
+ * @brief Refuse every removal in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param error Optional borrowed diagnostic destination, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyControlRuleRemove(const QString &name, QString *error)
 {
     return false;
 }
-int SWMMModelLayer::categoryCount(SWMMModelLayer::Category) const
+/**
+ *
+ * @brief Report no category objects in the unused isolated-link stand-in.
+ * @param category Ignored category enumeration.
+ * @return Always zero, without consulting native topology or metadata.
+ *
+ */
+int SWMMModelLayer::categoryCount(SWMMModelLayer::Category category) const
 {
     return 0;
 }
-QString SWMMModelLayer::objectNameAt(SWMMModelLayer::Category, int) const
+/**
+ *
+ * @brief Return no object name in the unused isolated-link stand-in.
+ * @param category Ignored category enumeration.
+ * @param row Ignored row, without range validation.
+ * @return Owned empty string, without topology access or retained references.
+ *
+ */
+QString SWMMModelLayer::objectNameAt(SWMMModelLayer::Category category, int row) const
 {
     return {};
 }

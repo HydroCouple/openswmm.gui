@@ -26,6 +26,8 @@
 namespace
 {
 
+/** @brief Locate the node-coupling fixture.
+ * @return mini_2d.inp under SWMMVIS_GUI_TEST_DATA or ".". */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -38,6 +40,8 @@ struct Harness {
     MapCanvas *canvas = nullptr;
     SWMMModelLayer *layer = nullptr;
 
+    /** @brief Allocate/load the owned coupling project and borrow its canvas/layer.
+     * @return True when load succeeds and canvas/layer/undo stack exist, otherwise false; destructor cleans allocated owners. */
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -49,11 +53,15 @@ struct Harness {
         layer = window->modelLayer();
         return canvas && layer && canvas->undoStack();
     }
+    /** @brief Destroy the owned project before its workspace; canvas and model pointers are borrowed children. */
     ~Harness()
     {
         delete window;
         delete ws;
     }
+    /** @brief Read a node coupling state for assertions.
+     * @param[in] node Node name expected to resolve in the opened layer.
+     * @return State populated by the unchecked layer getter, or default/partially populated state on failure. */
     nodecoupling2d::State state(const QString &node) const
     {
         nodecoupling2d::State s;
@@ -70,6 +78,7 @@ class TestNodeCoupling2DEdits : public QObject
 private slots:
     // Staged bulk edits change nothing until applied; Apply is one undo step
     // and undo restores the class defaults exactly.
+    /** @brief Verify staged coupleable edits leave engine state untouched until one undoable Apply, then undo restores unauthored class defaults. */
     void selectorAppliesAsOneUndoStep()
     {
         Harness h;
@@ -105,6 +114,7 @@ private slots:
 
     // A type the node class may not take is refused before anything is
     // written; a structure type change drops the old structure's parameters.
+    /** @brief Verify illegal class/type changes refuse before history writes and a valid structure switch discards parameters belonging to the previous type. */
     void illegalTypesAreRefusedAndParametersFollowTheType()
     {
         Harness h;
@@ -138,6 +148,7 @@ private slots:
     // The GUI save path keeps [2D_NODE_COUPLING] (the engine writes it in
     // the main file; the mesh writer must not strip it) — Save As, reopen,
     // read the same states back. Files land in tests/output/nodecoupling2d_edits.
+    /** @brief Verify authored grate area/perimeter and the 2D_NODE_COUPLING section survive real Save As and project reload in retained output. */
     void couplingSurvivesSaveAndReopen()
     {
         const QString dir = QStringLiteral(SWMMVIS_NODECOUPLING_OUTPUT_DIR);

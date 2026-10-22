@@ -26,6 +26,9 @@
 
 namespace
 {
+/** @brief Create/name the retained checkpoint-worker evidence directory.
+ * @return Owned output_checkpointworker path beneath SWMMVIS_GUI_TEST_DATA or dot.
+ * mkpath failure is unchecked, existing artifacts remain and cwd is unchanged. */
 QString root()
 {
     const auto path = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -33,6 +36,10 @@ QString root()
     QDir().mkpath(path);
     return path;
 }
+/** @brief Convert a Qt filename to the platform-native filesystem path representation.
+ * @param[in] p Filename borrowed for this conversion.
+ * @return Owned wide-string path on Windows, UTF-8-byte path elsewhere.
+ * Does not normalize, create or check a file; conversion/allocation errors propagate. */
 std::filesystem::path nativePath(const QString &p)
 {
 #ifdef Q_OS_WIN
@@ -41,6 +48,10 @@ std::filesystem::path nativePath(const QString &p)
     return std::filesystem::path(p.toUtf8().constData());
 #endif
 }
+/** @brief Read retained fixture bytes for preservation/digest assertions.
+ * @param[in] path Filename borrowed for synchronous read.
+ * @return Owned data or empty on open refusal; no separate empty/partial-read status.
+ * Input is unchanged and QFile lifetime ends on return. */
 QByteArray bytes(const QString &path)
 {
     QFile f(path);
@@ -48,6 +59,12 @@ QByteArray bytes(const QString &path)
         return {};
     return f.readAll();
 }
+/** @brief Create one new retained worker-fixture file.
+ * @param[in] name Controlled relative name below root; existing targets are refused.
+ * @param[in] text Bytes borrowed for synchronous write.
+ * @return Owned destination path after open, or empty when NewOnly open fails.
+ * Write status is unchecked, so a nonempty path does not prove complete content.
+ * No nested parents beyond root are created and no engine is opened. */
 QString put(const QString &name, const QByteArray &text)
 {
     const auto path = QDir(root()).filePath(name);
@@ -61,6 +78,12 @@ const char *deck =
     "[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\nSTART_DATE 10/12/2026\nEND_DATE 10/12/2026\nEND_TIME 01:00:00\nROUTING_STEP .01\nVARIABLE_STEP 0\nREPORT_STEP 00:00:01\nIGNORE_QUALITY YES\nIGNORE_2D YES\nIGNORE_SNOWMELT YES\nIGNORE_GROUNDWATER YES\n[STORAGE]\nS 0 2 1 FUNCTIONAL 0 0 10 0 0\n[OUTFALLS]\nO -1 FREE NO\n[CONDUITS]\nC S O 10 .013 .1 0 0 0\n[XSECTIONS]\nC CIRCULAR .3 0 0 0\n";
 struct Fixture {
     QString model, cp, staging;
+    /** @brief Create the 1D checkpoint fixture and step it three accepted engine calls.
+     * @param[in] name Controlled unique basename for model/checkpoint/report/staging artifacts.
+     * Writes the fixed CMS deck, starts a native session without file profile, saves
+     * a checkpoint, then closes/destroys its engine. qFatal terminates on lifecycle
+     * refusal and can skip cleanup; staging mkdir and file-write outcomes are not
+     * independently checked. Existing model names are refused by put; files remain. */
     Fixture(const QString &name)
     {
         model = put(name + ".inp", deck);
@@ -84,6 +107,10 @@ struct Fixture {
         swmm_engine_close(e);
         swmm_engine_destroy(e);
     }
+    /** @brief Build an owned inspection request for the 1D saved checkpoint.
+     * @return Request with revision-7, copied model/checkpoint/staging paths and SHA-256
+     * of current model bytes. Caller keeps artifacts alive until worker completion;
+     * no engine is opened and profile/operation keep their defaults. */
     CheckpointRequest request() const
     {
         CheckpointRequest r;
@@ -95,6 +122,13 @@ struct Fixture {
         return r;
     }
 };
+/** @brief Dispatch one worker request and collect its first delivered completion value.
+ * @param[in,out] worker Idle controller, retained by caller throughout the wait.
+ * @param[in] request Request copied by start; referenced inputs/artifacts must remain valid.
+ * @return Owned CheckpointResult extracted from the last observed finished signal.
+ * Uses QSignalSpy event processing and a 30 s wait; qFatal terminates on dispatch
+ * refusal or timeout. Does not require result.success, destroy the controller or
+ * remove staging/output artifacts itself. */
 CheckpointResult finish(CheckpointWorker &worker, const CheckpointRequest &request)
 {
     QSignalSpy spy(&worker, &CheckpointWorker::finished);
@@ -107,6 +141,12 @@ CheckpointResult finish(CheckpointWorker &worker, const CheckpointRequest &reque
 #ifdef OPENSWMM_HAS_2D
 struct SurfaceFixture {
     QString model, cp, staging, token, authoredOutput;
+    /** @brief Create the reviewed 2D source-history/file-output checkpoint fixture.
+     * Writes a protected authored-output sentinel and real CMS ownership/GW/surface
+     * deck, redirects runtime HDF5 output, validates the ownership preview, steps
+     * fourteen calls and saves a native profile-four checkpoint. qFatal terminates
+     * on native refusal and may skip cleanup; artifacts use unique fixed NewOnly
+     * names and remain for review. Runtime engine is ended/closed/destroyed on success. */
     SurfaceFixture()
     {
         authoredOutput = put("original-final.h5", "protected authored result");
@@ -150,6 +190,10 @@ struct SurfaceFixture {
         swmm_engine_close(e);
         swmm_engine_destroy(e);
     }
+    /** @brief Build the owned reviewed surface/file-profile inspection request.
+     * @return Request carrying surface-1 revision, SHA-256, checkpoint/model/staging
+     * paths, output profile four, source-history/detailed flags and ownership token.
+     * Artifacts must remain alive until worker completion; no native operation occurs. */
     CheckpointRequest request() const
     {
         CheckpointRequest r;
@@ -166,6 +210,10 @@ struct SurfaceFixture {
     }
 };
 #endif
+/** @brief Test whether a directory listing contains no non-dot entries.
+ * @param[in] path Directory name borrowed for QDir enumeration.
+ * @return True for an empty returned listing, which may also reflect missing or
+ * unreadable paths; no independent existence/error check or filesystem mutation. */
 bool emptyFolder(const QString &path)
 {
     return QDir(path).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty();
@@ -175,6 +223,9 @@ class TestCheckpointWorker : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Require checkpoint inspection to publish owned values on the GUI thread and leave native inputs untouched.
+     * Checks revision/metadata/accepted clock, idle state, unchanged checkpoint, empty
+     * staging and refusal of queueSave outside a run; uses a real native fixture. */
     void inspectOwnsEngineAndReturnsQueuedValues()
     {
         Fixture f("inspect");
@@ -197,6 +248,9 @@ private slots:
         QCOMPARE(metadata.value("binary").toObject().value("enabled").toBool(), false);
         QVERIFY(!worker.queueSave(QDir(root()).filePath("not-running.chk")));
     }
+    /** @brief Require checkpoint inspection to refuse a changed model digest, legacy engine, corrupt file and incompatible profile.
+     * Checks staging cleanup and empty metadata for the corruption/profile cases;
+     * this is worker refusal testing rather than runtime recovery. */
     void refusesChangedSnapshotAndCorruptionAndLegacy()
     {
         Fixture f("refusals");
@@ -225,6 +279,9 @@ private slots:
         QVERIFY(result.metadata.isEmpty());
         QVERIFY(emptyFolder(f.staging));
     }
+    /** @brief Require duplicate-start refusal, generation invalidation and cancellation to fence inspection results.
+     * Waits up to 30 s for each completion, checks stale or unsuccessful results with
+     * empty metadata and verifies staging resources drained. */
     void cancelAndGenerationFenceDiscardInspectionAndDrain()
     {
         Fixture f("cancel");
@@ -250,6 +307,9 @@ private slots:
         QVERIFY(r.metadata.isEmpty());
         QVERIFY(emptyFolder(f.staging));
     }
+    /** @brief Require plugin/process-component input rows to be refused by native-only checkpoint inspection.
+     * Builds both section variants, hashes each request and checks lifecycle error,
+     * plugin-opening diagnostic and empty staging after completion. */
     void rejectsExternalRowsBeforeNativeOpen()
     {
         Fixture f("external");
@@ -268,6 +328,9 @@ private slots:
             QVERIFY(emptyFolder(f.staging));
         }
     }
+    /** @brief Require destroying a busy controller to drain its inspection task and staging resources.
+     * The source checkpoint must survive; the test relies on destructor completion
+     * rather than waiting on the finished signal explicitly. */
     void controllerDestructionWaitsForOwnedResources()
     {
         Fixture f("close");
@@ -278,6 +341,9 @@ private slots:
         QVERIFY(emptyFolder(f.staging));
         QVERIFY(QFileInfo::exists(f.cp));
     }
+    /** @brief Require cancellation after native completion to discard a compatibility result still queued to the GUI.
+     * Parks GUI event delivery while polling the future for up to 30 s, then cancels,
+     * waits for delivery and checks cancelled/unsuccessful/empty-metadata cleanup. */
     void cancellationAfterNativeCompletionStillDiscardsQueuedInspection()
     {
         Fixture f("late-cancel");
@@ -303,6 +369,10 @@ private slots:
         QVERIFY(result.metadata.isEmpty());
         QVERIFY(emptyFolder(f.staging));
     }
+    /** @brief Require overwrite/input protection to recognize checkpoint hardlinks and directory symlinks.
+     * Refuses inspection through an active alias, resume into staging and resume
+     * through a symlink to a protected parent, retaining original checkpoint bytes.
+     * Creates real aliases with throwing filesystem calls and retains artifacts. */
     void protectsActiveHardlinksAndDirectoryAliases()
     {
         Fixture f("paths");
@@ -331,6 +401,10 @@ private slots:
         QVERIFY(!QFileInfo::exists(request.destination));
         QCOMPARE(bytes(alias), bytes(f.cp));
     }
+    /** @brief Require resumed runs to publish a queued checkpoint before cancellation and preserve partial output.
+     * Waits up to 30 s for save/completion, checks accepted seconds, successful save
+     * receipt/report existence, then independently reinspects the saved checkpoint
+     * and verifies staging cleanup. */
     void resumeQueuesExclusiveSaveAtAcceptedBoundaryAndKeepsPartialOutputs()
     {
         Fixture f("resume");
@@ -361,6 +435,9 @@ private slots:
         QVERIFY(inspected.acceptedSeconds >= .03);
         QVERIFY(emptyFolder(f.staging));
     }
+    /** @brief Require a second resume worker to refuse a live first worker's destination.
+     * Waits for the first accepted checkpoint, checks conflict/new-directory refusal,
+     * cancels the first and verifies its already published checkpoint survives. */
     void concurrentWorkersCannotUseTheSameRunFolder()
     {
         Fixture f("concurrent");
@@ -382,6 +459,12 @@ private slots:
         QVERIFY(QFileInfo::exists(cp));
     }
 #ifdef OPENSWMM_HAS_2D
+    /** @brief Require the real 2D file-profile recipe to support inspection, bundle export, resume and initial execution without overwriting authored results.
+     * Skips if the file-profile capability is unavailable. Checks detailed source
+     * companions, a successfully published export that becomes stale after invalidation,
+     * relocatable inspection, accepted queued saves, timeline signals and finite save
+     * clock. Uses up to 30 s waits and retained outputs with private runtime paths;
+     * source authored-output sentinel bytes and empty staging must survive each phase. */
     void surfaceInspectionExportAndResumeUseReviewedRecipeAndPrivateWriters()
     {
         auto engine = swmm_engine_create();
@@ -464,6 +547,10 @@ private slots:
         QVERIFY(emptyFolder(f.staging));
     }
 #endif
+    /** @brief Require unrelated leased output paths to protect writes without becoming required checkpoint inputs.
+     * Starts a fresh run beside an active protected subtree, queues/saves a checkpoint,
+     * cancels and checks zero error code plus successful receipt. Waits up to 30 s;
+     * the unrelated growing.history need not exist or be read. */
     void unrelatedActiveFilesAreOverwriteGuardsRatherThanInputsToRead()
     {
         Fixture f("unrelated-active");
@@ -492,6 +579,9 @@ private slots:
         QVERIFY(result.cancelled);
         QVERIFY(result.saves[0].success);
     }
+    /** @brief Require unsupported non-file-profile bundle export to leave inputs and destination untouched.
+     * Checks unsuccessful result, empty published path, absent destination and byte-
+     * identical source checkpoint after a real worker completion. */
     void exportFailureDoesNotAdoptOrRemoveInputs()
     {
         Fixture f("export");

@@ -64,6 +64,13 @@ const double kDefADCurve[10] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
 const double kNatADCurve[10] = {0.10, 0.35, 0.53, 0.66, 0.75, 0.82, 0.87, 0.92, 0.95, 0.98};
 
 // Build a single-column, 12-row monthly grid (vertical header = month names).
+/**
+ * @brief Allocate a twelve-row single-column monthly draft table initialized to zero.
+ * @param[in] header Borrowed horizontal label copied into the table; month labels run January
+ * through December.
+ * @return Newly allocated parentless QTableWidget owning its items; caller must adopt/delete it.
+ * No engine access.
+ */
 QTableWidget *makeMonthlyTable(const QString &header)
 {
     auto *t = new QTableWidget(12, 1);
@@ -78,6 +85,15 @@ QTableWidget *makeMonthlyTable(const QString &header)
     return t;
 }
 
+/**
+ * @brief Read a numeric cell, preserving the exact hydrated value until its text changes.
+ * @param[in] t Non-null borrowed table.
+ * @param[in] row Valid zero-based row.
+ * @param[in] col Valid zero-based column.
+ * @return Cached UserRole+80 double if text still matches UserRole+81, otherwise text converted
+ * with toDouble(); missing/invalid text returns zero. Does not itself enforce finiteness or
+ * semantic bounds.
+ */
 double cellValue(QTableWidget *t, int row, int col)
 {
     auto *it = t->item(row, col);
@@ -89,6 +105,13 @@ double cellValue(QTableWidget *t, int row, int col)
     return it->text().toDouble();
 }
 
+/**
+ * @brief Encode a Qt wall-clock date/time as fractional days since 1899-12-30.
+ * @param[in] dateTime Borrowed valid date/time; uses its local date/time fields without timezone
+ * conversion.
+ * @return Days plus milliseconds/86400000; does not encode elapsed simulation seconds or
+ * validate input.
+ */
 double oaDate(const QDateTime &dateTime)
 {
     const QDate base(1899, 12, 30);
@@ -96,6 +119,13 @@ double oaDate(const QDateTime &dateTime)
            static_cast<double>(dateTime.time().msecsSinceStartOfDay()) / 86400000.0;
 }
 
+/**
+ * @brief Decode finite fractional days since 1899-12-30 into local Qt date/time.
+ * @param[in] date Finite representable absolute day count; floor handles dates before the epoch
+ * and fractional time rounds to milliseconds.
+ * @return Owned QDateTime using the constructor's local-time convention; no UTC conversion,
+ * range/error check or engine access.
+ */
 QDateTime dateTimeFromOa(double date)
 {
     const auto day = static_cast<qint64>(std::floor(date));
@@ -103,6 +133,11 @@ QDateTime dateTimeFromOa(double date)
     return QDateTime(QDate(1899, 12, 30).addDays(day), QTime(0, 0)).addMSecs(milliseconds);
 }
 
+/**
+ * @brief Translate the preview coverage status for display.
+ * @param[in] status SWMM_EVAP_PREVIEW_* enum; unrecognized integers are permitted.
+ * @return Owned Available/Held/Missing/Daily estimate label, otherwise Unknown.
+ */
 QString evapPreviewStatus(int status)
 {
     switch (status) {
@@ -119,6 +154,12 @@ QString evapPreviewStatus(int status)
     }
 }
 
+/**
+ * @brief Translate the native evaporation source enum for preview summaries.
+ * @param[in] type SWMM_EVAP_* enum; unrecognized integers are permitted.
+ * @return Owned source description for constant/monthly/series/temperature/file sources,
+ * otherwise Unknown source.
+ */
 QString evapSourceName(int type)
 {
     switch (type) {
@@ -137,6 +178,16 @@ QString evapSourceName(int type)
     }
 }
 
+/**
+ * @brief Set cell display text and retain an exact numeric hydration cache.
+ * @param[in,out] t Non-null borrowed table owning an existing/new item at the destination.
+ * @param[in] row Valid zero-based row.
+ * @param[in] col Valid zero-based column.
+ * @param[in] v Native-unit numeric value; displayed at ten significant digits and cached without
+ * finiteness checks.
+ * @details Allocates a missing item, records UserRole+80 exact value/+81 display identity and
+ * does not block item-change signals itself.
+ */
 void setCell(QTableWidget *t, int row, int col, double v)
 {
     auto *it = t->item(row, col);
@@ -149,12 +200,30 @@ void setCell(QTableWidget *t, int row, int col, double v)
     it->setData(Qt::UserRole + 81, it->text());
 }
 
+/**
+ * @brief Copy a prefix of numeric table cells to caller storage.
+ * @param[in] t Non-null borrowed table with at least n rows.
+ * @param[in] col Valid zero-based source column.
+ * @param[out] out Writable buffer of at least n doubles; no ownership transfer.
+ * @param[in] n Nonnegative row count; zero copies nothing.
+ * @details Reads cellValue() including exact-cache/invalid-zero conventions, with no range
+ * checks or unit conversion.
+ */
 void readColumn(QTableWidget *t, int col, double *out, int n)
 {
     for (int i = 0; i < n; ++i)
         out[i] = cellValue(t, i, col);
 }
 
+/**
+ * @brief Hydrate a table-column prefix from caller numeric storage.
+ * @param[in,out] t Non-null borrowed table owning at least n destination rows/items.
+ * @param[in] col Valid zero-based destination column.
+ * @param[in] in Readable buffer of at least n doubles, borrowed only for this call.
+ * @param[in] n Nonnegative row count; zero writes nothing.
+ * @details Uses setCell() to retain exact numeric values beside rounded display text; no
+ * bounds/finiteness checks or engine mutation.
+ */
 void writeColumn(QTableWidget *t, int col, const double *in, int n)
 {
     for (int i = 0; i < n; ++i)
@@ -1036,7 +1105,7 @@ void ClimatologyDialog::onClearAdjustments()
 {
     for (int r = 0; r < 12; ++r) {
         setCell(m_adjust, r, 0, 0.0); // temp offset
-        setCell(m_adjust, r, 1, 1.0); // evap mult
+        setCell(m_adjust, r, 1, 1.0); // additive evaporation rate
         setCell(m_adjust, r, 2, 1.0); // rain mult
         setCell(m_adjust, r, 3, 1.0); // cond mult
     }

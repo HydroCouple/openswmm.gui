@@ -45,15 +45,39 @@ public:
     /*! \brief Construct against a shared style. \p style is NOT owned by
      *  the dialog; closing leaves it intact (any edits already applied
      *  via live preview remain in effect unless the user clicks Cancel). */
+    /**
+     * @brief Construct a modeless live property editor with a construction-time style snapshot.
+     * @param[in,out] style Nullable borrowed QObject style, never reparented or deleted; property
+     * edits/reset write directly to it on the GUI thread. Destruction closes the dialog through a
+     * guarded pointer.
+     * @param[in] parent Optional Qt widget parent owning the dialog.
+     * Sets WA_DeleteOnClose, so a shown dialog must have deletion-compatible ownership. The Close
+     * button accepts current changes; reject/Escape restores the snapshot if the style still
+     * exists.
+     */
     explicit LegendPropertiesDialog(OpenSWMM::Render::LegendOverlayStyle *style,
                                     QWidget *parent = nullptr);
+    /**
+     * @brief Destroy child widgets/property model without taking ownership of the shared style or
+     * independently rolling back accepted edits.
+     */
     ~LegendPropertiesDialog() override = default;
 
 protected:
     // Cancel reverts edits to the snapshot taken at construction time.
+    /**
+     * @brief Restore the construction-time JSON snapshot on a surviving style, then reject/close
+     * the dialog.
+     * Reset does not replace this original rollback snapshot; normal style setters may notify
+     * subscribed views during restoration.
+     */
     void reject() override;
 
 private slots:
+    /**
+     * @brief Reset the surviving shared style to defaults and refresh cached property cells.
+     * A destroyed/null style makes this a no-op; reset remains a live edit that reject can undo.
+     */
     void onResetClicked();
 
 private:

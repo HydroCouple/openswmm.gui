@@ -23,11 +23,16 @@
 
 namespace
 {
+/** @brief Locate the typed-selection click fixture.
+ * @return typed_selection_fixture.inp under SWMMVIS_GUI_TEST_DATA or ".". */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
         .filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
+/** @brief Produce stable sorted typed identity diagnostics.
+ * @param[in] refs Object references whose integer kind and name are formatted.
+ * @return Space-separated sorted kind:name strings without modifying the selection. */
 QString describe(const QSet<SWMMObjectRef> &refs)
 {
     QStringList out;
@@ -45,12 +50,20 @@ class TestLinkClickSelection : public QObject
     SWMMVisProjectWindow *window = nullptr;
     QStringList log;
 
+    /** @brief Convert current test-window map coordinates to canvas pixels.
+     * @param[in] x Horizontal model/map coordinate.
+     * @param[in] y Vertical model/map coordinate.
+     * @return Canvas-local integer point; requires a loaded current window. */
     QPoint pixelOf(double x, double y) const
     {
         int px = 0, py = 0;
         window->canvas()->toPixelCoords(x, y, px, py);
         return {px, py};
     }
+    /** @brief Clear selection and deliver a real canvas move/left click, recording bus and layer identities.
+     * @param[in] at Canvas-local pixel.
+     * @param[in] what Diagnostic label appended to the test log.
+     * @return Copied selected object references after twenty-millisecond pre-click and fifty-millisecond post-click waits. */
     QSet<SWMMObjectRef> clickAt(const QPoint &at, const QString &what)
     {
         window->selectionManager()->clear();
@@ -66,6 +79,7 @@ class TestLinkClickSelection : public QObject
     }
 
 private slots:
+    /** @brief Load/show the shared project, settle layout, zoom to the model and activate its selection tool. */
     void initTestCase()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -83,6 +97,8 @@ private slots:
         QTest::qWait(500);
         window->canvas()->setActiveTool(window->selectTool());
     }
+    /** @brief Attempt to retain click diagnostics under the fixture-relative output folder, then destroy project/workspace.
+     * Directory creation and log writing are best-effort rather than assertions. */
     void cleanupTestCase()
     {
         const QString out =
@@ -95,18 +111,21 @@ private slots:
         delete window;
         delete ws;
     }
+    /** @brief Verify clicking the C1 interior bend selects only its typed link reference. */
     void clickOnConduitMidpointSelectsOnlyTheConduit()
     {
         const auto sel = clickAt(pixelOf(500.0, 50.0), QStringLiteral("C1 at its vertex"));
         QCOMPARE(describe(sel),
                  describe({SWMMObjectRef(SWMMObjectRef::Link, QStringLiteral("C1"))}));
     }
+    /** @brief Verify clicking X1 link selects the link rather than the same-named node. */
     void clickOnSameNamedLinkSelectsTheLink()
     {
         const auto sel = clickAt(pixelOf(1500.0, 0.0), QStringLiteral("X1 link midpoint"));
         QCOMPARE(describe(sel),
                  describe({SWMMObjectRef(SWMMObjectRef::Link, QStringLiteral("X1"))}));
     }
+    /** @brief Verify clicking J1 selects only its typed node reference. */
     void clickOnNodeSelectsOnlyTheNode()
     {
         const auto sel = clickAt(pixelOf(0.0, 0.0), QStringLiteral("J1 node"));
@@ -115,6 +134,8 @@ private slots:
     }
     // The same click inside the full main window, with every dock attached
     // (object browser, attribute table, property grid, section view, ...).
+    /** @brief Verify typed link-only selection persists with all main-window docks connected.
+     * Opens a real main window, checks C1/X1 clicks and delayed selection stability, then hides and intentionally leaves that window allocated because its pre-existing direct teardown crashes. */
     void mainWindowClickSelectsOnlyTheConduit()
     {
         auto *win = new SWMMVis(nullptr);

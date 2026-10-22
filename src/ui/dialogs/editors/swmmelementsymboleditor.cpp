@@ -1,8 +1,6 @@
 /**
  * @file      swmmelementsymboleditor.cpp
- * @brief     Wraps the live SwmmElementSymbolAdapter Q_PROPERTYs with familiar QGIS controls:
- *            colour buttons + swatches, marker shape combo, dash combo for flow arrows, live
- *            preview swatch.
+ * @brief     Live SWMM base-symbol, label and flow-arrow controls with a preview swatch.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later

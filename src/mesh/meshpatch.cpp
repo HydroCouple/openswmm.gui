@@ -29,17 +29,39 @@ namespace mesh
 namespace
 {
 
+/**
+ * @brief Check both Cartesian coordinates for finite numeric values.
+ * @param[in] p Borrowed point, unchanged.
+ * @return True iff both finite, no CRS/location validity guarantee, allocation or state
+ * mutation.
+ */
 bool finitePt(const QPointF &p) noexcept
 {
     return std::isfinite(p.x()) && std::isfinite(p.y());
 }
 
+/**
+ * @brief Compute a planar vector determinant.
+ * @param[in] a Borrowed vector in common XY units, unchanged.
+ * @param[in] b Borrowed compatible vector, unchanged.
+ * @return Signed determinant in squared units; no finite/overflow validation, allocation or
+ * mutation.
+ */
 double cross(const QPointF &a, const QPointF &b) noexcept
 {
     return a.x() * b.y() - a.y() * b.x();
 }
 
-/*! Signed area of a closed ring (positive = CCW). */
+/**
+ * @brief Compute local-origin signed shoelace area with implicit ring closure.
+ * @param[in] ring Borrowed Cartesian points, unchanged; finite geometry expected, no closing
+ * duplicate required.
+ * @return Signed squared-unit area, positive CCW, zero for empty. Local origin reduces
+ * large-coordinate cancellation; does not validate simplicity, finiteness or overflow. No
+ * allocation/mutation.
+ *
+ * @details Signed area of a closed ring (positive = CCW).
+ */
 double ringSignedArea(const QVector<QPointF> &ring) noexcept
 {
     double s = 0.0;
@@ -52,7 +74,16 @@ double ringSignedArea(const QVector<QPointF> &ring) noexcept
     return 0.5 * s;
 }
 
-/*! Every consecutive turn of the ring has the same strict sign. */
+/**
+ * @brief Require every cyclic turn to have one nonzero sign.
+ * @param[in] ring Borrowed finite cyclic points, unchanged; caller ensures meaningful polygon
+ * count.
+ * @return False for zero/mixed turns, true otherwise (including empty loop). No independent
+ * simplicity, count, finite audit or tolerant predicate; used with four-corner input checks. No
+ * allocation/mutation.
+ *
+ * @details Every consecutive turn of the ring has the same strict sign.
+ */
 bool ringIsStrictlyConvex(const QVector<QPointF> &ring) noexcept
 {
     const int n = ring.size();
@@ -74,6 +105,13 @@ struct ArcPolyline {
     QVector<double> cum; ///< cum[i] = arc length from pts[0] to pts[i].
     double length = 0.0;
 
+    /**
+     * @brief Copy a polyline and precompute cumulative Euclidean arc length.
+     * @param[in] p Borrowed finite Cartesian points, unchanged; stored arrays own copies after
+     * return. Empty produces length zero; repeated points can repeat cumulative values. No
+     * validation, count budget, source-pointer retention, CRS transform or IO. Caller ensures
+     * >=2 nondegenerate points before at().
+     */
     explicit ArcPolyline(const QVector<QPointF> &p) : pts(p), cum(p.size(), 0.0)
     {
         for (int i = 1; i < pts.size(); ++i)
@@ -82,6 +120,14 @@ struct ArcPolyline {
         length = pts.isEmpty() ? 0.0 : cum.last();
     }
 
+    /**
+     * @brief Interpolate the copied arc polyline at a normalized fraction with endpoint
+     * clamping.
+     * @param[in] t Finite fraction, <=0 returns first and >=1 last; interior expected [0,1].
+     * @return Point in stored XY frame. Requires >=2 stored points for interior query and
+     * consistent finite arc arrays; no count/NaN checks. Zero located interval uses lower point.
+     * No allocation/mutation.
+     */
     QPointF at(double t) const
     {
         if (t <= 0.0)
@@ -104,6 +150,12 @@ struct ArcPolyline {
 struct BoundaryIndex {
     struct Box {
         double x0, y0, x1, y1;
+        /**
+         * @brief Test inclusive overlap of two axis-aligned edge bounds.
+         * @param[in] b Borrowed compatible finite normalized box, unchanged.
+         * @return True for overlap or touching edges/corners. No polygon test, allocation or
+         * state mutation.
+         */
         bool intersects(const Box &b) const
         {
             return x0 <= b.x1 && b.x0 <= x1 && y0 <= b.y1 && b.y0 <= y1;
@@ -118,6 +170,15 @@ struct BoundaryIndex {
     QVector<int> order;
     QVector<Node> nodes;
 
+    /**
+     * @brief Build a median-split bounding-volume tree over an immutable closed boundary's
+     * edges.
+     * @param[in] points Borrowed NONEMPTY finite open-ring vertices, stored by reference: must
+     * outlive this index and remain unchanged. Each last-to-first edge gets owned bounds/order
+     * metadata. Allocates recursive tree with <=8-edge leaves, splitting widest axis; counts
+     * must fit int. No polygon validation or source ownership transfer. Queries require
+     * immutable ring/index; no IO.
+     */
     explicit BoundaryIndex(const QPolygonF &points) : ring(points)
     {
         boxes.reserve(ring.size());
@@ -130,6 +191,14 @@ struct BoundaryIndex {
         }
         build(0, order.size());
     }
+    /**
+     * @brief Recursively partition a nonempty range of boundary-edge order indices.
+     * @param[in] begin Inclusive valid order-array position.
+     * @param[in] end Exclusive valid position, strictly greater than begin, unchecked.
+     * @return Appended tree node index. Reorders owned edge indices by median center along
+     * widest bound axis; ties use edge ID. Source ring/boxes unchanged; allocates
+     * nodes/recursive stack, no retained arguments.
+     */
     int build(int begin, int end)
     {
         Box box = boxes[order[begin]];
@@ -158,6 +227,15 @@ struct BoundaryIndex {
         }
         return node;
     }
+    /**
+     * @brief Compute three-point orientation using long-double intermediate
+     * differences/products.
+     * @param[in] a Borrowed finite origin point, unchanged.
+     * @param[in] b Borrowed finite second point in same XY frame, unchanged.
+     * @param[in] c Borrowed finite third point, unchanged.
+     * @return Signed determinant in squared units, positive CCW. No adaptive exact
+     * predicate/overflow audit, allocation, input retention or state mutation.
+     */
     static long double orient(const QPointF &a, const QPointF &b, const QPointF &c)
     {
         return (static_cast<long double>(b.x()) - a.x()) *
@@ -165,12 +243,31 @@ struct BoundaryIndex {
                (static_cast<long double>(b.y()) - a.y()) *
                    (static_cast<long double>(c.x()) - a.x());
     }
+    /**
+     * @brief Test exact collinearity and inclusive axis bounds for a point on a segment.
+     * @param[in] a Borrowed finite segment start, unchanged.
+     * @param[in] b Borrowed finite segment end, unchanged.
+     * @param[in] p Borrowed compatible query, unchanged.
+     * @return True iff long-double orientation exactly zero and coordinates within both endpoint
+     * ranges. No tolerance, full geometry validation, allocation, pointer retention or source
+     * mutation.
+     */
     static bool onSegment(const QPointF &a, const QPointF &b, const QPointF &p)
     {
         return orient(a, b, p) == 0 && p.x() >= std::min(a.x(), b.x()) &&
                p.x() <= std::max(a.x(), b.x()) && p.y() >= std::min(a.y(), b.y()) &&
                p.y() <= std::max(a.y(), b.y());
     }
+    /**
+     * @brief Detect forbidden boundary-edge intersections including nonadjacent
+     * touches/collinear overlap.
+     * @param[in] i Valid zero-based ring edge index, unchecked.
+     * @param[in] j Valid distinct ring edge index, unchecked.
+     * @return True for proper crossing/contact or adjacent backtracking; prescribed shared
+     * endpoint of consecutive edges alone allowed. Uses long-double orientation with exact zero
+     * comparisons, not an adaptive robust predicate/tolerance. Ring finite/immutable
+     * prerequisite; no allocation/mutation.
+     */
     bool intersects(int i, int j) const
     {
         const int n = ring.size();
@@ -189,6 +286,15 @@ struct BoundaryIndex {
         return (abC == 0 && onSegment(a, b, c)) || (abD == 0 && onSegment(a, b, d)) ||
                (cdA == 0 && onSegment(c, d, a)) || (cdB == 0 && onSegment(c, d, b));
     }
+    /**
+     * @brief Find one later-ID boundary edge conflicting with a queried edge through tree
+     * pruning.
+     * @param[in] edge Valid source edge index, unchecked.
+     * @param[in] node Valid subtree node, default root zero; nonempty built tree required.
+     * @return First found conflicting edge >edge, or -1. Tree traversal order determines first
+     * result, not globally smallest edge ID. Inclusive bounds filter then detailed segment
+     * check. Read-only, uses recursive stack, no source mutation or retained query references.
+     */
     int conflict(int edge, int node = 0) const
     {
         const auto &n = nodes[node];
@@ -207,6 +313,18 @@ struct BoundaryIndex {
     }
 };
 
+/**
+ * @brief Audit swept subdivision/index capacity before allocating the final patch.
+ * @param[in] p Borrowed validated swept input, unchanged; across>=1 and finite nonnegative along
+ * required before division, finite nonzero centerline segments checked here.
+ * @param[in,out] segmentParts Optional borrowed vector, appends each segment subdivision count
+ * without clearing; failure may retain prior partial entries. Not retained.
+ * @param[out] stationCount Optional borrowed final station count, assigned only on success.
+ * @return Empty when vertex/cell/perimeter counts fit int, otherwise first diagnostic.
+ * Near-integer length/along ratios snap only within capped coordinate-representation tolerance;
+ * positive spacing otherwise rounds up. No practical memory cap, allocation exception handling
+ * or source mutation.
+ */
 QString sweptStationCounts(const SweptPatch &p, QVector<int> *segmentParts = nullptr,
                            int *stationCount = nullptr)
 {
@@ -258,6 +376,13 @@ QString sweptStationCounts(const SweptPatch &p, QVector<int> *segmentParts = nul
     return {};
 }
 
+/**
+ * @brief Check positive grid subdivisions and int-safe vertex/cell/perimeter products.
+ * @param[in] n Subdivisions along one logical side, >=1 required.
+ * @param[in] m Subdivisions along other side, >=1 required.
+ * @return Empty on representable products, diagnostic otherwise. Uses 64-bit arithmetic; no
+ * practical memory budget, mesh generation, caller-state mutation or IO.
+ */
 QString gridDimensions(int n, int m)
 {
     if (n < 1 || m < 1)
@@ -278,6 +403,14 @@ QString gridDimensions(int n, int m)
 // Validation
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Check four finite convex cyclic corners and representable subdivision products.
+ * @param[in] p Borrowed structured patch, unchanged; corners may use either winding,
+ * subdivisions >=1.
+ * @return Empty when these prerequisites pass, first owned diagnostic otherwise. Does not
+ * generate cells, inspect tag syntax, impose practical memory budget or certify final
+ * interpolated arithmetic.
+ */
 QString validate(const StructuredPatch &p)
 {
     if (p.corners.size() != 4)
@@ -296,6 +429,15 @@ QString validate(const StructuredPatch &p)
     return QString();
 }
 
+/**
+ * @brief Check swept input geometry and representable station/cell/boundary counts.
+ * @param[in] p Borrowed patch, unchanged; >=2 finite nonduplicate consecutive centerline
+ * vertices, positive finite width, across>=1 and finite nonnegative along spacing required,
+ * common XY units.
+ * @return Empty on input/count success, first owned diagnostic otherwise. Does not certify
+ * offset folding/global overlap; those checks occur after makeSweptPatch generation. May
+ * calculate counts, no mesh/source mutation, CRS transform or IO.
+ */
 QString validate(const SweptPatch &p)
 {
     if (p.centreline.size() < 2)
@@ -319,6 +461,21 @@ QString validate(const SweptPatch &p)
     return sweptStationCounts(p);
 }
 
+/**
+ * @brief Validate finite convex CCW cells, cancelling shared edges and one exact simple
+ * perimeter.
+ * @param[in] pm Borrowed patch, unchanged; patches with no vertices/quads or excessive counts
+ * reject.
+ * @param[out] boundary Optional borrowed ring, assigned only on success in open CCW order,
+ * untouched failure.
+ * @param[out] badVertex Optional borrowed diagnostic vertex, set on failure (-1 when
+ * unavailable), untouched on success; not retained.
+ * @param[out] otherVertex Optional distinct borrowed conflicting vertex, same assignment rules.
+ * @return Empty on success or first owned diagnostic. Validates cell/boundary indices, winding,
+ * convexity, manifold shared edges, boundary closure/coverage/intersection; ignores lines and
+ * attributes. Allocates copied geometry/maps/BVH, no repair, source mutation, file/engine access
+ * or retained pointers.
+ */
 static QString validatePatchMesh(const PatchMesh &pm, QPolygonF *boundary = nullptr,
                                  int *badVertex = nullptr, int *otherVertex = nullptr)
 {
@@ -453,11 +610,29 @@ static QString validatePatchMesh(const PatchMesh &pm, QPolygonF *boundary = null
     return {};
 }
 
+/**
+ * @brief Validate complete convex CCW quad patch topology and one simple matching boundary.
+ * @param[in] pm Borrowed local-index patch, unchanged; vertex/cell/boundary counts must fit int.
+ * @return Empty on finite coordinates, valid indices/convex positive-area cells, opposite
+ * shared-edge directions and one nonintersecting/non-touching closed boundary matching outer
+ * edges. Rejects holes, duplicates, remote boundary contacts and disconnected loops. Patch
+ * lines/attribute values are not validated. Allocates vertex/edge/boundary index storage; no
+ * source mutation, repair, transform or IO.
+ */
 QString validate(const PatchMesh &pm)
 {
     return validatePatchMesh(pm);
 }
 
+/**
+ * @brief Validate a quad patch and extract its ordered open CCW perimeter.
+ * @param[in] pm Borrowed patch, unchanged; full validatePatchMesh checks apply.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned ring without closing duplicate, empty on failure. err is assigned on EVERY call,
+ * including cleared to empty on success. Segment input order/orientation is immaterial. No
+ * source mutation or retained pointers; allocates validation/index/ring storage.
+ */
 QPolygonF orderedPatchBoundary(const PatchMesh &pm, QString *err)
 {
     QPolygonF ring;
@@ -471,6 +646,19 @@ QPolygonF orderedPatchBoundary(const PatchMesh &pm, QString *err)
 // Transfinite (Coons) patch on four straight sides
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Generate a bilinear grid between four straight convex sides.
+ * @param[in] p Borrowed cyclic four-corner patch, unchanged, common finite XY frame; n,m>=1
+ * checked.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. Produces (n+1)*(m+1) vertices and n*m cells, accepts either
+ * corner winding then emits CCW cells. Validates inputs and complete output; err is not cleared
+ * on success. No cancellation or terrain sampling.
+ */
 PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err)
 {
     PatchMesh pm;
@@ -540,6 +728,24 @@ PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err)
 // Transfinite (Coons) patch on four polyline sides (redesign plan §4.2)
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Generate a Coons grid between four ordered arc-length-parametrized polyline sides.
+ * @param[in] sides Borrowed four finite >=2-point sides in cyclic forward order, unchanged.
+ * Adjacent endpoints must agree within 1e-9*max(1,absolute coordinate scale); positive arc
+ * lengths required.
+ * @param[in] n Positive subdivisions along opposite sides 0/2, index products checked.
+ * @param[in] m Positive subdivisions along opposite sides 1/3, index products checked.
+ * @param[in] tag Borrowed patch/cell tag copied verbatim, no token-grammar validation.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. Boundary samples lie directly on supplied polyline curves;
+ * interior uses Coons correction. Does not automatically preserve every intermediate side vertex
+ * as a mesh station. Final full patch validation rejects folding/invalid boundary. err not
+ * cleared on success. No callbacks/cancellation.
+ */
 PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, int m,
                                const QString &tag, QString *err)
 {
@@ -667,6 +873,26 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
 
 namespace
 {
+/**
+ * @brief Validate mapped sides, associate optional physical axis and generate a tagged Coons
+ * patch.
+ * @param[in] ring Borrowed finite ring, either winding/exact closing duplicate, unchanged.
+ * @param[in] corners Borrowed four strictly increasing open-ring corner positions, unchanged.
+ * @param[in] hAlong Positive finite first physical/logical spacing in ring horizontal units.
+ * @param[in] hAcross Positive finite second spacing in same units.
+ * @param[in] alongAngleDeg Optional borrowed finite undirected degrees from +x; null preserves
+ * logical side-pair assignment, nonnull associates pair by mean squared chord-axis projection.
+ * Not retained.
+ * @param[in] tag Borrowed copied patch/cell tag, unchanged.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. Clears err at entry. Rejects ambiguous axis association, invalid
+ * endpoints/sides, nonfinite lengths and unsafe rounded subdivision products; delegates full
+ * output validation. No callbacks/cancellation.
+ */
 PatchMesh makeMappedPatchImpl(const QPolygonF &ring, const QVector<int> &corners, double hAlong,
                               double hAcross, const double *alongAngleDeg, const QString &tag,
                               QString *err)
@@ -776,12 +1002,51 @@ PatchMesh makeMappedPatchImpl(const QPolygonF &ring, const QVector<int> &corners
 }
 } // namespace
 
+/**
+ * @brief Choose isotropic subdivision counts from opposite-side arc lengths and build a Coons
+ * patch.
+ * @param[in] ring Borrowed finite ring in either winding, unchanged; exact repeated closing
+ * point allowed.
+ * @param[in] corners Borrowed four strictly increasing indices in original open-ring order,
+ * unchanged.
+ * @param[in] h Positive finite target spacing in ring XY units; opposite mean lengths round to
+ * nearest positive integer count, so h is a target rather than strict maximum gap.
+ * @param[in] tag Borrowed copied patch/cell tag, unchanged.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. err is cleared at entry, then set on failure. Side
+ * geometry/count/final patch checks apply.
+ */
 PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double h,
                           const QString &tag, QString *err)
 {
     return makeMappedPatchImpl(ring, corners, h, h, nullptr, tag, err);
 }
 
+/**
+ * @brief Associate physical directional spacings with opposite logical side pairs before Coons
+ * generation.
+ * @param[in] ring Borrowed finite cyclic ring, either winding, unchanged; exact closing
+ * duplicate allowed.
+ * @param[in] corners Borrowed four strictly increasing open-ring indices, unchanged.
+ * @param[in] hAlong Positive finite target spacing along the selected physical axis, ring
+ * horizontal units.
+ * @param[in] hAcross Positive finite orthogonal target spacing in same units.
+ * @param[in] alongAngleDeg Finite undirected axis counterclockwise from +x, degrees modulo 180.
+ * @param[in] tag Borrowed copied tag, unchanged.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. Mean squared chord-axis projections choose which side pair
+ * receives hAlong; equal scores within 1e-10 reject as ambiguous. Arc lengths set
+ * nearest-integer counts. err cleared at entry. Rotation of ring start/winding does not
+ * intentionally exchange physical spacings; no CRS/geodesic operations.
+ */
 PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, double hAlong,
                           double hAcross, double alongAngleDeg, const QString &tag, QString *err)
 {
@@ -792,6 +1057,21 @@ PatchMesh makeMappedPatch(const QPolygonF &ring, const QVector<int> &corners, do
 // Swept patch along a centreline
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Sweep a finite centerline with mitred offsets into a globally validated quad strip.
+ * @param[in] p Borrowed centerline/positive width/across/along spacing/tag, unchanged, common XY
+ * units. Original vertices retained and each segment subdivided to target along spacing when
+ * positive.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. err cleared at entry. Checks counts before allocation, rejects
+ * collapsed station geometry, reversals/excessively sharp mitres, nonfinite offsets, invalid
+ * cells and remote boundary contacts. No snapping/automatic bend repair, terrain z, callbacks or
+ * cancellation.
+ */
 PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
 {
     PatchMesh pm;
@@ -938,6 +1218,23 @@ PatchMesh makeSweptPatch(const SweptPatch &p, QString *err)
     return pm;
 }
 
+/**
+ * @brief Build a conforming strip between two finite simple disjoint open banks.
+ * @param[in] p Borrowed bank arrays/across/along/tag, unchanged. across>=1, finite nonnegative
+ * along; each bank >=2 finite nonduplicate consecutive points and not explicitly closed. Common
+ * XY units.
+ * @param[out] err Optional borrowed diagnostic, set on failure, not retained; success clearing
+ * is stated below.
+ * @return Owned XY-only patch with local-index CCW quads/boundary and copied tag; empty on
+ * checked failure. No elevations, source mutation, coordinate conversion, engine/file access or
+ * retained inputs. Index capacity checks do not constitute a practical memory budget or
+ * allocation-failure handling. err cleared at entry. Pairs ends by minimum total connection
+ * length, rejects near ties, canonicalizes bank direction/order, and requires simple outline
+ * including connectors. Unions exact normalized arc-vertex fractions so every original bend
+ * survives; positive along subdivides using longer bank advance. Rejects unrepresentable
+ * fractions/counts/points, folded cells and remote contacts. This is normalized arc
+ * correspondence, not a surveyed station match. No source reordering or cancellation.
+ */
 PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err)
 {
     if (err)
@@ -1051,7 +1348,16 @@ PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err)
         const QVector<QPointF> *points;
         QVector<double> fractions;
         double length = 0;
+        /* @brief Retain a borrowed immutable canonical bank for local arc correspondence.
+         * @param[in] bank Nonempty finite bank; must outlive this local helper, not owned.
+         * No validation or allocation here; prepare() establishes the normalized ladder.
+         */
         explicit BankArc(const QVector<QPointF> &bank) : points(&bank) {}
+        /* @brief Accumulate strictly representable bank arc intervals then normalize fractions.
+         * @param[in] number One-based bank number used only in diagnostics.
+         * @return Empty success, diagnostic on collapsed/nonfinite interval; failure retains partial
+         * fractions/length. Single-use fresh helper, finite >=2-point bank required; allocates ladder.
+         */
         QString prepare(int number)
         {
             fractions.reserve(points->size());
@@ -1078,6 +1384,11 @@ PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err)
             fractions.last() = 1;
             return {};
         }
+        /* @brief Interpolate a prepared bank at an exact or bracketed normalized station.
+         * @param[in] fraction Finite [0,1] normalized arc coordinate, intended bounds unchecked.
+         * @return Bank-frame point; exact fractions preserve original vertices, above range clamps
+         * last. Requires successful prepare and immutable bank; no allocation or mutation.
+         */
         QPointF at(double fraction) const
         {
             const auto it = std::lower_bound(fractions.cbegin(), fractions.cend(), fraction);

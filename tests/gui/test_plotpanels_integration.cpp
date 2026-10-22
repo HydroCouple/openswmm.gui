@@ -71,6 +71,16 @@ using namespace openswmmvis::plot;
 class PlotTestWindow : public SWMMVis
 {
 public:
+    /**
+     * @brief Close test project windows without save prompts, process deferred deletion and wait
+     * for workers.
+     * @note Finds child projects, clears dirty flag, closes them and drains global thread pool
+     * before
+     * base-window destruction. Requires GUI thread; may block until asynchronous work ends. No
+     * user
+     * project save is attempted, test-owned project resources released through normal
+     * destruction.
+     */
     ~PlotTestWindow()
     {
         for (auto *project : findChildren<SWMMVisProjectWindow *>()) {
@@ -86,7 +96,24 @@ class TestPlotPanelsIntegration : public QObject
 {
     Q_OBJECT
     QTemporaryDir files;
+    /**
+     * @brief Resolve one fixture leaf name inside this suite's owning temporary directory.
+     * @param[in] name Required NUL-terminated borrowed UTF-8 safe relative filename, not
+     * retained.
+     * @return Owned joined pathname; no existence check, directory creation or IO. Directory
+     * must remain
+     * valid/alive until consumers finish; caller prevents path traversal/source aliases.
+     */
     QString path(const char *name) { return files.filePath(QString::fromUtf8(name)); }
+    /**
+     * @brief Disable arrow styles so scene-item pointers survive incremental output refresh
+     * assertions.
+     * @param[in,out] output Borrowed live GUI-thread results layer with every feature sublayer
+     * available;
+     * each existing category lineStyle has showFlowArrows set false. No layer ownership
+     * transfer.
+     * Only local fixture styles change, no file writes or caller pointer retention.
+     */
     void disableFlowArrows(SWMMResultsLayer &output)
     {
         // These checks hold scene-item pointers across incremental refreshes.
@@ -96,6 +123,16 @@ class TestPlotPanelsIntegration : public QObject
                     output.featureSublayer(static_cast<SWMMModelLayer::Category>(cat))->lineStyle())
                 style->setShowFlowArrows(false);
     }
+    /**
+     * @brief Install a gray single-symbol category renderer and make its feature layer visible.
+     * @param[in,out] output Borrowed live GUI-thread results layer, receives renderer ownership
+     * and style edits.
+     * @param[in] cat Valid model category, unchecked; conduit uses line, subcatchment fill,
+     * others marker.
+     * Requires corresponding sublayer/featureStyle nonnull. Disables color-ramp override; no
+     * filesystem
+     * publication, layer ownership transfer or retained references.
+     */
     void setSingleColor(SWMMResultsLayer &output, SWMMModelLayer::Category cat)
     {
         using namespace OpenSWMM::Render;
@@ -110,6 +147,20 @@ class TestPlotPanelsIntegration : public QObject
         output.featureSublayer(cat)->setVisible(true);
         output.featureSublayer(cat)->featureStyle()->setUseColorRamp(false);
     }
+    /**
+     * @brief Invoke application project opening and wait up to roughly5seconds for matching
+     * active engine layer.
+     * @param[in,out] app Borrowed GUI-thread test window, receives project through normal
+     * onOpenProject path.
+     * @param[in] name Borrowed NUL-terminated fixture leaf name under owned temporary directory,
+     * not retained.
+     * @return Nonowning active project pointer with matching absolute path/open engine, nullptr
+     * on invoke/
+     * timeout failure. Application/MDI owns returned project; failed/pending open can continue
+     * afterward.
+     * Processes events through500 waits of10ms; assumes MDI area exists. Reads fixture, no
+     * explicit save.
+     */
     SWMMVisProjectWindow *open(PlotTestWindow &app, const char *name)
     {
         if (!QMetaObject::invokeMethod(&app, "onOpenProject", Qt::DirectConnection,
@@ -125,6 +176,14 @@ class TestPlotPanelsIntegration : public QObject
         }
         return nullptr;
     }
+    /**
+     * @brief Build the fixture's J-to-O conduit path using current project engine indices.
+     * @param[in] project Required nonnull live project/model/engine, borrowed and unchanged, GUI
+     * thread.
+     * @return Owned path with two node indices, C link index and weight30; lookups not validated
+     * here,
+     * caller fixture guarantees identities. No engine mutation, retained handle or IO.
+     */
     ProfileRouter::Path route(SWMMVisProjectWindow *project)
     {
         auto engine = project->modelLayer()->engine();
@@ -134,11 +193,32 @@ class TestPlotPanelsIntegration : public QObject
         p.weight = 30;
         return p;
     }
+    /**
+     * @brief Directly invoke profile creation for the fixture route in a test application.
+     * @param[in,out] app Borrowed live GUI-thread window receiving dock/profile state.
+     * @param[in] project Required live project with usable engine/topology, borrowed for route
+     * construction.
+     * @return QMetaObject invocation success, not proof asynchronous profile loading finished.
+     * Application
+     * owns created UI; processes no wait here, no pointer retained by helper itself or explicit
+     * file save.
+     */
     bool profile(PlotTestWindow &app, SWMMVisProjectWindow *project)
     {
         return QMetaObject::invokeMethod(&app, "openProfilePlotFor", Qt::DirectConnection,
                                          Q_ARG(ProfileRouter::Path, route(project)));
     }
+    /**
+     * @brief Open the suite's run.out as a project-backed results layer and adopt it into
+     * canvas/active state.
+     * @param[in,out] project Required live GUI-thread project/model/canvas, receives added layer
+     * and active selection.
+     * @return Nonowning adopted results pointer, nullptr after deleting local layer when open
+     * fails. Successful
+     * lifetime is project/canvas managed; warning/error lists local and discarded. Reads fixture
+     * output,
+     * no simulation/save or helper-retained raw pointer.
+     */
     SWMMResultsLayer *results(SWMMVisProjectWindow *project)
     {
         auto *layer = new SWMMResultsLayer(path("run.out"), project->modelLayer());
@@ -152,6 +232,16 @@ class TestPlotPanelsIntegration : public QObject
         return layer;
     }
 private slots:
+    /**
+     * @brief Configure isolated settings/QML types and generate two model decks plus one
+     * recorded output run.
+     * @note Uses suite-owned temporary directory, process-wide INI path and app names, registers
+     * three QSG
+     * render types. Writes first/second INP and run report/output, asserts byte writes and
+     * engine-run status.
+     * Runtime simulation is part of the test fixture when invoked, not executed by this
+     * documentation task.
+     */
     void initTestCase()
     {
         QVERIFY(files.isValid());
@@ -173,7 +263,22 @@ private slots:
                                  path("run.out").toUtf8(), nullptr),
                  SWMM_OK);
     }
+    /**
+     * @brief Clear the suite's redirected default settings before each integration case.
+     * @note Mutates only isolated test INI settings; does not recreate model/output fixture or
+     * user preferences.
+     */
     void init() { QSettings().clear(); }
+    /**
+     * @brief Verify series adapters use stored per-period times rather than reconstructing
+     * header-origin times.
+     * @note Reads run.out, shifts unique raw report timestamps by one hour into a separate
+     * fixture copy,
+     * then asserts full/tail series clocks equal records and animation UTC. Native DateTime
+     * doubles are
+     * days, converted to milliseconds only through shared date helper. No source output
+     * overwrite.
+     */
     void timeSeriesUsesRecordedReportTimes()
     {
         SWMMModelLayer model(path("first.inp"));
@@ -221,6 +326,15 @@ private slots:
         QVERIFY(tail.ok);
         QCOMPARE(tail.timesJulian.front(), expected[1]);
     }
+    /**
+     * @brief Verify plot source clock, animation cursor, legend position and user splitter width
+     * survive series changes.
+     * @note Real local results with GUI chart/tree; checks recorded epoch-ms starts,
+     * current-period movement,
+     * long unelided labels, interactive resizing and right legend persistence. Event processing
+     * required,
+     * isolated settings only, no project save or engine mutation.
+     */
     void timeSeriesStartsAtItsOwnClockAndKeepsLayoutChoices()
     {
         SWMMModelLayer model(path("first.inp"));
@@ -299,6 +413,15 @@ private slots:
             if (!item->isHidden() && item->chart()->title().startsWith("Depth"))
                 QCOMPARE(item->chart()->legend()->alignment(), Qt::AlignRight);
     }
+    /**
+     * @brief Verify results-only selected node/link styles follow preferences without cumulative
+     * halo growth.
+     * @note Temporarily overrides/restores node/link pens/brush, disables arrows for stable
+     * scene pointers,
+     * checks18/26px marker sizes,9px selected versus5px baseline line and repaint notifications.
+     * Depopulates
+     * test scene, reads recorded output without hydraulic rerun or project save.
+     */
     void outputSelectionUsesConfiguredHighlightAndSize()
     {
         SWMMModelLayer model(path("first.inp"));
@@ -389,6 +512,14 @@ private slots:
         QVERIFY(resized);
         output.depopulateScene(&scene);
     }
+    /**
+     * @brief Verify same-named catchment/gage selections style only the chosen object kind.
+     * @note Writes/runs a separate selection fixture with G catchment and G gage, checks polygon
+     * versus
+     * marker brushes/pens through scene refresh, resets selection styles on scope exit. Only
+     * suite-owned
+     * temporary files/preferences change; no user model edits.
+     */
     void outputPolygonAndGageSelectionStayKindExact()
     {
         QFile source(path("first.inp"));
@@ -454,6 +585,14 @@ private slots:
         QVERIFY(polygon->brush() != QBrush(Qt::blue, Qt::CrossPattern));
         output.depopulateScene(&scene);
     }
+    /**
+     * @brief Verify visible output picking honors wrapped/reprojected coordinates independently
+     * of hidden model geometry.
+     * @note Changes local model CRS/node position and canvas CRS, asserts transformed longitude
+     * wrapping,
+     * J output identity and refusal when output hidden. Local model mutations remain in memory,
+     * no save.
+     */
     void reprojectedOutputCanBePickedWithModelHidden()
     {
         SWMMModelLayer model(path("first.inp"));
@@ -479,6 +618,16 @@ private slots:
         output.setVisible(false);
         QVERIFY(!openswmmvis::pickNetworkForPlot(&canvas, x, y, 10).object.valid);
     }
+    /**
+     * @brief Verify map selection, plot popup, layer-tree menu and profile picking carry the
+     * clicked output run.
+     * @note Opens two output copies while another run is active; tests category/layer
+     * visibility, selected
+     * node kind, queued real popup activation, dedicated run adapter identity and asynchronous
+     * J-to-O
+     * profile path. GUI events/timers required; application owns layers/plots, fixture copies
+     * only.
+     */
     void renderedOutputSelectionsUseTheirOwnRun()
     {
         PlotTestWindow app;
@@ -629,6 +778,16 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!profileTool->acceptedPath().nodes.isEmpty(), 5000);
         QCOMPARE(profileTool->acceptedPath().nodes, route(project).nodes);
     }
+    /**
+     * @brief Verify profile/comparison dock ownership remains project-specific across two open
+     * projects.
+     * @note Creates multiple1D tabs and shared/dedicated time plots, activates original project
+     * via tab,
+     * checks independent map pickers/series and deferred cleanup on profile/project closure.
+     * Optional
+     * window captures use SWMMVIS_PLOT_PANEL_CAPTURE suffixes; test projects close without
+     * saving.
+     */
     void profileTabsAndDedicatedComparisonsUseTheirOwnProject()
     {
         PlotTestWindow app;
@@ -721,6 +880,15 @@ private slots:
         QVERIFY(b->close());
         QTRY_COMPARE(shared->model()->runSourceCount(), 0);
     }
+    /**
+     * @brief Verify2D profile tabs transfer overlays/marker tools and reuse an existing saved
+     * section ID.
+     * @note Builds one local triangle layer, traces two sections, saves definition in
+     * project-owned store,
+     * tests dock hide/float/reveal and direct project destruction cleanup. Optional configured
+     * capture
+     * only; all object ownership stays with fixture application/project, no user model mutation.
+     */
     void meshTabsTransferOverlayAndReuseSavedSection()
     {
         PlotTestWindow app;

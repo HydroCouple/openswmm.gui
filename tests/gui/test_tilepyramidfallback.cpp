@@ -25,9 +25,25 @@ class TestTileLayer : public TilePyramidLayer
 {
     Q_OBJECT
 public:
+    /**
+     *
+     * @brief Construct a parentless concrete tile-cache test layer without loading data.
+     * Layer value lifetime owns its cache; protected cache methods are exposed only for tests.
+     *
+     */
     explicit TestTileLayer() : TilePyramidLayer(nullptr) {}
 
-    void populateScene(QGraphicsScene *, const MapExtent &, const SpatialReferenceSystem *) override
+    /**
+     *
+     * @brief Provide an inert scene hook so the cache-only fixture is concrete.
+     * @param scene Borrowed possibly null scene, ignored and not retained.
+     * @param extent Borrowed ignored extent.
+     * @param crs Borrowed possibly null CRS, ignored and not retained.
+     * No graphics items or transforms are created; not production population behavior.
+     *
+     */
+    void populateScene(QGraphicsScene *scene, const MapExtent &extent,
+                       const SpatialReferenceSystem *crs) override
     {
     }
 
@@ -40,6 +56,14 @@ public:
     using TilePyramidLayer::resolveTileForDraw;
 };
 
+/**
+ *
+ * @brief Allocate a square ARGB32 image and fill it with one packed color.
+ * @param px Pixel side length forwarded to QImage; valid positive fixtures expected.
+ * @param color Packed QRgb fill value.
+ * @return Owned image, possibly null on invalid size/allocation failure; no file I/O.
+ *
+ */
 QImage solidTile(int px, QRgb color)
 {
     QImage img(px, px, QImage::Format_ARGB32);
@@ -61,6 +85,13 @@ private slots:
     void clearTilesDropsFallback();
 };
 
+/**
+ *
+ * @brief Require exact cache-key resolution to return full256-square source rect, exact flag and
+ * expected pixel.
+ * No fallback/network/GDAL resampling or actual scene painting.
+ *
+ */
 void TestTilePyramidFallback::exactHitReturnsFullRect()
 {
     TestTileLayer layer;
@@ -74,6 +105,14 @@ void TestTilePyramidFallback::exactHitReturnsFullRect()
     QCOMPARE(td.img.pixel(1, 1), qRgb(10, 20, 30));
 }
 
+/**
+ *
+ * @brief Require missing dyadic/non-dyadic children to resolve correct parent source rectangles
+ * with north-up image-y mapping.
+ * Checks NE/SW128-square rects and a one-third-width child within1e-9; does not rasterize
+ * the scaled target or fetch a missing tile.
+ *
+ */
 void TestTilePyramidFallback::missingTileFallsBackToParentSubRect()
 {
     TestTileLayer layer;
@@ -101,6 +140,14 @@ void TestTilePyramidFallback::missingTileFallsBackToParentSubRect()
     QCOMPARE(td.src.height(), 128.0);
 }
 
+/**
+ *
+ * @brief Require the smaller containing parent to win over a grandparent, identified by its green
+ * pixel.
+ * Checks nonexact result and sample color, without pinning cache iteration order or
+ * external zoom-grid metadata.
+ *
+ */
 void TestTilePyramidFallback::nearestAncestorWins()
 {
     TestTileLayer layer;
@@ -115,6 +162,12 @@ void TestTilePyramidFallback::nearestAncestorWins()
     QCOMPARE(td.img.pixel(1, 1), qRgb(0, 200, 0)); // parent, not grandparent
 }
 
+/**
+ *
+ * @brief Require an eight-times-span ancestor to fail cap4 and succeed cap64.
+ * Does not check the resolved source rectangle, boundary equality or nonfinite caps.
+ *
+ */
 void TestTilePyramidFallback::spanRatioCapRejectsTooCoarse()
 {
     TestTileLayer layer;
@@ -126,6 +179,12 @@ void TestTilePyramidFallback::spanRatioCapRejectsTooCoarse()
     QVERIFY(layer.resolveTileForDraw("0/0/0", MapExtent(0, 0, 256, 256), 64.0, td));
 }
 
+/**
+ *
+ * @brief Require a spatially disjoint cached sibling not to satisfy the requested extent.
+ * No network fetch, cache mutation or diagnostic assertion.
+ *
+ */
 void TestTilePyramidFallback::noContainingTileReturnsFalse()
 {
     TestTileLayer layer;
@@ -136,6 +195,14 @@ void TestTilePyramidFallback::noContainingTileReturnsFalse()
     QVERIFY(!layer.resolveTileForDraw("0/0/0", MapExtent(0, 0, 256, 256), 64.0, td));
 }
 
+/**
+ *
+ * @brief Require clearing the cache to remove exact image presence and the previously usable
+ * parent fallback.
+ * Checks missing cached image is null and later resolution false; no asynchronous tile
+ * request is in flight.
+ *
+ */
 void TestTilePyramidFallback::clearTilesDropsFallback()
 {
     TestTileLayer layer;

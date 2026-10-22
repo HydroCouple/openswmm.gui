@@ -57,10 +57,20 @@ namespace openswmmvis::trace
 {
 namespace
 {
+/**
+ * @param[in] v Native numeric value to display, no unit conversion.
+ * @return Six-significant-digit general format for finite value, translated Unavailable otherwise.
+ */
 QString number(double v)
 {
     return std::isfinite(v) ? QString::number(v, 'g', 6) : QObject::tr("Unavailable");
 }
+/**
+ * @param[in] p Required borrowed live project with stats registry.
+ * @param[in] layer Borrowed output identity matched by pointer, may be null.
+ * @return First registry identity whose layer pointer equals supplied pointer; empty when no match.
+ *   Does not create/register a run or open results.
+ */
 QString runId(SWMMVisProjectWindow *p, SWMMResultsLayer *layer)
 {
     for (const auto &id : p->statsRegistry()->identities())

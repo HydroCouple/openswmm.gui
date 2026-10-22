@@ -72,6 +72,13 @@ const std::pair<PlotAttribute, int> kSystemMap[] = {
 };
 } // namespace
 
+/**
+ *
+ * @brief Require forSystem to produce a valid nameless System reference with triangle index minus
+ * one.
+ * No run file, native index or selected feature is needed.
+ *
+ */
 void TestComparisonPlotSystemAttrs::objectRef_forSystem_isValid()
 {
     ObjectRef r = ObjectRef::forSystem();
@@ -81,12 +88,24 @@ void TestComparisonPlotSystemAttrs::objectRef_forSystem_isValid()
     QVERIFY(r.isValid()); // System is valid even without a name
 }
 
+/**
+ *
+ * @brief Require independent system refs to compare equal and differ from node J1.
+ * Does not check every reference field or other kinds.
+ *
+ */
 void TestComparisonPlotSystemAttrs::objectRef_forSystem_equality()
 {
     QCOMPARE(ObjectRef::forSystem(), ObjectRef::forSystem());
     QVERIFY(ObjectRef::forSystem() != ObjectRef::forNode("J1"));
 }
 
+/**
+ *
+ * @brief Require every entry in the fifteen-attribute local mapping to classify as system-wide.
+ * Does not assert classification of retired/unlisted enumerators or file availability.
+ *
+ */
 void TestComparisonPlotSystemAttrs::isSystemAttribute_classifiesAll()
 {
     for (const auto &[attr, _] : kSystemMap) {
@@ -97,6 +116,13 @@ void TestComparisonPlotSystemAttrs::isSystemAttribute_classifiesAll()
     }
 }
 
+/**
+ *
+ * @brief Require the representative Unknown/node/link/subcatch/mesh attributes to classify as
+ * nonsystem.
+ * This bounded list is not a full enumeration of every per-object variable.
+ *
+ */
 void TestComparisonPlotSystemAttrs::isSystemAttribute_rejectsNonSystemKinds()
 {
     const PlotAttribute nonSystem[] = {
@@ -110,6 +136,13 @@ void TestComparisonPlotSystemAttrs::isSystemAttribute_rejectsNonSystemKinds()
         QVERIFY(!isSystemAttribute(a));
 }
 
+/**
+ *
+ * @brief Require each mapped system attribute to have a nonempty non-Unknown label.
+ * Pins exact runoff/flooding/temperature labels only; no translation context or runtime
+ * plot rendering is inspected.
+ *
+ */
 void TestComparisonPlotSystemAttrs::labelFor_isPopulatedForAllSystemAttrs()
 {
     for (const auto &[attr, _] : kSystemMap) {
@@ -124,6 +157,14 @@ void TestComparisonPlotSystemAttrs::labelFor_isPopulatedForAllSystemAttrs()
     QCOMPARE(labelFor(PlotAttribute::SystemTemperature), QStringLiteral("Air temperature"));
 }
 
+/**
+ *
+ * @brief Pin selected system flow/storage/rainfall/infiltration/evaporation/temperature unit
+ * labels under SI/US.
+ * Checks unit strings, including daily evaporation rates; no numerical values are
+ * converted and not every attribute/system combination is enumerated.
+ *
+ */
 void TestComparisonPlotSystemAttrs::unitsFor_followsUnitSystemAndAttribute()
 {
     // Flow-style totals — m³/s vs ft³/s.
@@ -148,6 +189,13 @@ void TestComparisonPlotSystemAttrs::unitsFor_followsUnitSystemAndAttribute()
     QCOMPARE(unitsFor(PlotAttribute::SystemTemperature, UnitSystem::US), QStringLiteral("°F"));
 }
 
+/**
+ *
+ * @brief Require all fifteen system attributes to map to literal writer slots zero through
+ * fourteen.
+ * Uses pure mapping with System kind; no output file is read or independently generated.
+ *
+ */
 void TestComparisonPlotSystemAttrs::variableCode_mapsToEngineSwmmOutSysConstants()
 {
     for (const auto &[attr, engineCode] : kSystemMap) {
@@ -156,6 +204,12 @@ void TestComparisonPlotSystemAttrs::variableCode_mapsToEngineSwmmOutSysConstants
     }
 }
 
+/**
+ *
+ * @brief Require SystemRunoff with Node/Link/Subcatch/Unknown kind to return minus one.
+ * Does not enumerate every system attribute or every object family.
+ *
+ */
 void TestComparisonPlotSystemAttrs::variableCode_rejectsNonSystemKindForSystemAttr()
 {
     // SystemRunoff against Node/Link/Subcatch must not resolve.
@@ -171,6 +225,13 @@ void TestComparisonPlotSystemAttrs::variableCode_rejectsNonSystemKindForSystemAt
         -1);
 }
 
+/**
+ *
+ * @brief Require node-depth/link-flow/subcatch-runoff attributes with System kind to return minus
+ * one.
+ * Checks representative family mismatches without querying runtime availability.
+ *
+ */
 void TestComparisonPlotSystemAttrs::variableCode_rejectsSystemKindForNonSystemAttr()
 {
     // Per-object attributes on a System kind must not resolve.
@@ -183,6 +244,13 @@ void TestComparisonPlotSystemAttrs::variableCode_rejectsSystemKindForNonSystemAt
         -1);
 }
 
+/**
+ *
+ * @brief Require retired total-evaporation to have no native slot or canonical system-list entry.
+ * Checks the canonical count equals the local fifteen-entry mapping; no legacy file
+ * compatibility path is loaded.
+ *
+ */
 void TestComparisonPlotSystemAttrs::variableCode_retiredEvapTotalHasNoSlot()
 {
     QCOMPARE(
@@ -192,6 +260,14 @@ void TestComparisonPlotSystemAttrs::variableCode_retiredEvapTotalHasNoSlot()
     QCOMPARE(systemPlotAttributes().size(), int(std::size(kSystemMap)));
 }
 
+/**
+ *
+ * @brief Pin groundwater flow/elevation/moisture to subcatchment output slots5/6/7 and reject
+ * flow on Node.
+ * Checks canonical groundwater elevation membership and representative SI/US/unitless
+ * labels; no native numerical groundwater run or sample conversion.
+ *
+ */
 void TestComparisonPlotSystemAttrs::subcatchGroundwater_mapsToEngineSlots()
 {
     using K = ObjectRef::Kind;

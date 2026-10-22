@@ -91,6 +91,14 @@ struct ColorSourceBindings {
     std::function<void(const QColor &)> setHighColor;
 };
 
+/**
+ * @brief Build the legacy name-only ramp/gradient controls from callable bindings.
+ * @param[in] parent Optional Qt owner.
+ * @param[in] b Required nonempty getter/setter callables, copied into connections; captured backing
+ * state must outlive the group. Getters are called immediately and edits write through setters.
+ * @return New parent-owned group. Custom ramp payloads are not retained by this name-only helper;
+ * source changes gate ramp versus endpoint buttons.
+ */
 QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
 {
     auto *box = new QGroupBox(QObject::tr("Colour"), parent);
@@ -125,6 +133,11 @@ QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
     high->setColor(b.highColor());
     form->addRow(QObject::tr("High colour:"), high);
 
+    /**
+     * @brief Gate ramp controls versus two-color endpoints from the source combo. Takes no
+     * arguments, returns no value and changes widget enablement only; invert remains independently
+     * enabled.
+     */
     auto applyEnabled = [source, ramp, low, high]() {
         const bool useRamp = (source->currentIndex() == 0);
         ramp->setEnabled(useRamp);
@@ -188,6 +201,11 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     waterForm->addRow(showFilms);
     waterForm->addRow(hint);
     root->insertWidget(0, water);
+    /**
+     * @brief Read water display policy from a surviving layer under three signal blockers. Takes no
+     * arguments and returns no value; updates model-depth toggle, depth spin/enabled state and
+     * thin-film toggle without writes. Null layer is ignored.
+     */
     const auto syncWater = [this, modelDepth, filmDepth, showFilms] {
         if (!m_layer)
             return;
@@ -215,6 +233,11 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
 
     // Each page sits in a scroll area so a narrow/short dialog scrolls
     // instead of compressing the editors below their minimum sizes.
+    /**
+     * @brief Transfer a required page into a new tab-owned frameless resizable scroll area.
+     * Argument `page`: widget reparented/owned by the returned scroll area. Returns: new container
+     * without adding a tab.
+     */
     auto wrapScroll = [tabs](QWidget *page) {
         auto *scroll = new QScrollArea(tabs);
         scroll->setWidgetResizable(true);
@@ -226,6 +249,11 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     // tabToolTip == the sublayer id, so right-clicking a sublayer row in the
     // layer tree (or a legend entry) lands on the matching tab instead of
     // always the first one.
+    /**
+     * @brief Add a scrolling built-in result style page with routing metadata. Argument `page`:
+     * required widget transferred to the scroll area. Argument `label`: tab caption. Argument
+     * `sub`: nullable borrowed sublayer, read synchronously for tooltip ID. Returns: no value.
+     */
     auto addTab = [tabs, &wrapScroll](QWidget *page, const QString &label,
                                       OpenSWMM::Render::ISublayer *sub) {
         const int idx = tabs->addTab(wrapScroll(page), label);
@@ -348,6 +376,13 @@ QWidget *Swmm2DResultsStylePanel::buildAdditionalResultsTab(QWidget *parent)
 
 namespace
 {
+/**
+ * @brief Format a native variable label with domain/zone and availability of units.
+ * @param[in] v Descriptor whose label falls back to dataset; sigma layers include their stored
+ * layer index.
+ * @return Translated domain/zone-prefixed label plus bracketed units or units unknown; avoids
+ * repeating an existing case-insensitive domain prefix.
+ */
 QString resultVariableLabel(const openswmmvis::io::Mesh2DResultVariable &v)
 {
     using V = openswmmvis::io::Mesh2DResultVariable;
@@ -510,6 +545,13 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
         if (line)
             line->setLevelMode(IsolineStyle::LevelMode(i));
     });
+    /**
+     * @brief Create a guarded contour-style floating-point editor. Argument `label`:
+     * caption/accessibility name. Argument `value`: initial number clamped for display. Arguments
+     * `lo`, `hi`: UI bounds in the label units. Argument `decimals`: displayed decimal count.
+     * Argument `setter`: IsolineStyle member receiving edits only while its QPointer survives.
+     * Returns: line-box-owned spin; initialized before connecting.
+     */
     auto number = [&](const QString &label, double value, double lo, double hi, int decimals,
                       auto setter) {
         auto *spin = new QDoubleSpinBox(lineBox);
@@ -525,6 +567,12 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
                 });
         return spin;
     };
+    /**
+     * @brief Create a guarded contour-style integer editor. Argument `label`: caption/accessibility
+     * name. Argument `value`: initial number. Arguments `lo`, `hi`: inclusive UI bounds. Argument
+     * `setter`: IsolineStyle integer member receiving edits while the style survives. Returns:
+     * line-box-owned spin; initialized before connecting.
+     */
     auto integer = [&](const QString &label, int value, int lo, int hi, auto setter) {
         auto *spin = new QSpinBox(lineBox);
         spin->setRange(lo, hi);
@@ -601,6 +649,12 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
         if (sub)
             sub->setOpacity(value / 100);
     });
+    /**
+     * @brief Resolve classification samples/range from the current selected variable frame. Takes
+     * no arguments. Returns: shared immutable frame or empty when layer/sublayer/style was
+     * destroyed; requests whole-run range only for automatic FixedOverRun mode. Retains no raw
+     * source ownership.
+     */
     auto frameFor = [layer, sub, style] {
         return layer && sub && style
                    ? layer->resultFrame(sub->variableKey(), layer->currentTimeIndex(),
@@ -632,6 +686,12 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
     auto *classification = new ClassificationEditor(binding, true, page);
     classification->setObjectName("additionalResultClassification");
     form->addRow(classification);
+    /**
+     * @brief Create a live guarded availability-color control. Argument `label`:
+     * caption/accessibility name. Argument `name`: required Latin-1 object name. Argument `value`:
+     * initial alpha-capable color. Argument `setter`: ResultScalarStyle color member invoked only
+     * while style survives. Returns: no value; page owns the button.
+     */
     auto addColor = [&](const QString &label, const char *name, QColor value, auto setter) {
         auto *button = new ColorButton(page);
         button->setObjectName(name);
@@ -690,6 +750,13 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
         auto *dialog = new ResultVariableExportDialog(std::move(snapshot), page);
         dialog->show();
     });
+    /**
+     * @brief Refresh availability diagnostics, classification and selected native-cell inspection.
+     * Takes no arguments and returns no value; ignores destroyed layer/sublayer. Retains invalid
+     * drafts, refreshes valid ones, displays the lowest selected mapped cell with one-based
+     * numbering, and enables CSV/GIS only for available known nonempty units. Captured widgets
+     * belong to the active detail page; the closure is cleared before page teardown.
+     */
     m_refreshResultData = [layer, sub, classification, status, table, exportButton, gisButton,
                            warnings] {
         if (!layer || !sub)
@@ -952,6 +1019,11 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         levelForm->addRow(tr("B&ase level:"), base);
         lay->addWidget(levelBox);
 
+        /**
+         * @brief Enable count/method or interval/base controls for isoline generation. Argument
+         * `m`: Count or FixedInterval style mode; other values disable both sets. Returns: no value
+         * and does not change style data.
+         */
         auto applyMode = [count, method, interval, base](LM m) {
             count->setEnabled(m == LM::Count);
             method->setEnabled(m == LM::Count);
@@ -1198,6 +1270,13 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         colour->setEnabled(!st->colorByMagnitude());
     });
     colour->setEnabled(!st->colorByMagnitude());
+    /**
+     * @brief Create an exclusive preset row backed by a style numeric property. Argument `name`:
+     * required Latin-1 object-name prefix. Argument `label`: row caption. Arguments `labels`,
+     * `values`: same-length button captions/numbers; clicked IDs index values without checking.
+     * Argument `property`: required stable property-name pointer captured for the row lifetime.
+     * Returns: no value; page owns controls, style writes notify normally.
+     */
     auto presets = [&](const char *name, const QString &label, const QStringList &labels,
                        const QList<double> &values, const char *property) {
         auto *row = new QWidget(page);
@@ -1223,6 +1302,12 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         form->addRow(label, row);
         connect(group, &QButtonGroup::idClicked, st,
                 [st, property, values](int id) { st->setProperty(property, values[id]); });
+        /**
+         * @brief Synchronize a preset row from its borrowed style property. Takes no arguments and
+         * returns no value; selects the last preset within 1e-6 or shows a custom value,
+         * temporarily disabling group exclusivity so all buttons can be cleared. Captures must
+         * survive the row.
+         */
         auto refresh = [st, property, values, group, custom] {
             const double value = st->property(property).toDouble();
             int selected = -1;
@@ -1256,6 +1341,11 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     motionLayout->addWidget(motionValue);
     form->addRow(tr("Motion:"), motionRow);
     connect(motion, &QSlider::valueChanged, st, [st](int v) { st->setSpeedMultiplier(v / 100.); });
+    /**
+     * @brief Read speed multiplier into the motion slider and caption without write feedback. Takes
+     * no arguments and returns no value; blocks slider signals and clamps its display to [.25,4]
+     * times reference while retaining the full style value in the label.
+     */
     auto refreshMotion = [st, motion, motionValue] {
         QSignalBlocker block(motion);
         motion->setValue(int(std::clamp(st->speedMultiplier() * 100, 25., 400.)));
@@ -1310,6 +1400,13 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         advanced->setVisible(open);
         advancedToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
     });
+    /**
+     * @brief Create a live advanced streak property spin with guarded signal feedback. Argument
+     * `key`: required stable Qt property-name pointer. Argument `label`: row caption. Argument
+     * `minimum`: lower numeric bound in suffix units; upper bound is maximumNumericValue. Argument
+     * `decimals`: display precision. Argument `suffix`: unit text. Returns: no value; advanced page
+     * owns the spin, style changes refresh it with signals blocked.
+     */
     auto number = [&](const char *key, const QString &label, double minimum, int decimals,
                       const QString &suffix) {
         auto *box =
@@ -1353,6 +1450,12 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     status->setObjectName("flowDiagnostics");
     status->setWordWrap(true);
     details->addRow(status);
+    /**
+     * @brief Refresh streak motion-mapping/availability and diagnostics labels from a surviving
+     * layer. Takes no arguments and returns no value; availability overrides reference-speed
+     * wording. Uses captured QPointer for the layer and page-owned labels; requires its existing
+     * streak style while alive.
+     */
     auto updateStatus = [layer = m_layer, mapping, status] {
         if (!layer)
             return;

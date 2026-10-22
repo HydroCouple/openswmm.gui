@@ -31,6 +31,14 @@ namespace
 // to sit in a combo-box row but big enough to read the silhouette; the
 // shape itself is drawn into an inset square so antialiasing doesn't
 // clip against the icon's edge.
+/**
+ * @brief Render an antialiased blue marker with a dark outline into a transparent icon.
+ * @param shape Enum forwarded to drawMarkerShape(), which defines unknown-value handling.
+ * @param pxSize Pixmap side length in pixels, default18; intended greater than4 so the
+ * four-pixel inset leaves a positive symbol diameter. No explicit size validation.
+ * @return Owned icon using a local pixmap/painter; no filesystem/cache/target mutation.
+ * Requires a GUI application and appropriate GUI-thread pixmap use.
+ */
 QIcon makeShapeIcon(OpenSWMM::Render::MarkerShape shape, int pxSize = 18)
 {
     QPixmap pix(pxSize, pxSize);

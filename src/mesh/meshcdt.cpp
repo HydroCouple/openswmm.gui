@@ -35,6 +35,13 @@ namespace
 
 std::once_flag gPredicatesInit;
 
+/**
+ * @brief Interleave two unsigned 32-bit coordinates into a Morton ordering key.
+ * @param[in] x Quantized x coordinate, even output bit positions.
+ * @param[in] y Quantized y coordinate, odd output bit positions.
+ * @return Lossless 64-bit bit interleave, not a distance metric. No allocation, mutation or
+ * input retention.
+ */
 quint64 mortonKey(quint32 x, quint32 y)
 {
     auto spread = [](quint64 v) {
@@ -49,28 +56,64 @@ quint64 mortonKey(quint32 x, quint32 y)
     return spread(x) | (spread(y) << 1);
 }
 
-/*! Undirected edge key: (min << 32) | max. */
+/**
+ * @brief Pack a normalized integer vertex pair into a 64-bit undirected edge identity.
+ * @param[in] a Endpoint ID, intended nonnegative valid index, not dereferenced or checked.
+ * @param[in] b Endpoint ID, sorted numerically with a before unsigned packing.
+ * @return Smaller signed ID's 32-bit representation in high word, larger in low. No
+ * allocation/mutation.
+ *
+ * @details Undirected edge key: (min << 32) | max.
+ */
 inline quint64 edgeKey64(int a, int b)
 {
     if (a > b)
         std::swap(a, b);
     return (quint64(quint32(a)) << 32) | quint64(quint32(b));
 }
+/**
+ * @brief Recover the smaller endpoint word from an edgeKey64 key.
+ * @param[in] k Packed key, expected valid nonnegative int endpoints.
+ * @return High 32-bit word cast to int (name refers to endpoint ordering, not bit position). No
+ * validation, allocation or state mutation.
+ */
 inline int keyLo(quint64 k)
 {
     return int(quint32(k >> 32));
 }
+/**
+ * @brief Recover the larger endpoint word from an edgeKey64 key.
+ * @param[in] k Packed key, expected valid nonnegative int endpoints.
+ * @return Low 32-bit word cast to int, no validation, allocation or state mutation.
+ */
 inline int keyHi(quint64 k)
 {
     return int(quint32(k & 0xffffffffull));
 }
 
+/**
+ * @brief Evaluate adaptive orientation on three borrowed Cartesian points after predicate
+ * initialization.
+ * @param[in] a Borrowed finite origin, unchanged.
+ * @param[in] b Borrowed finite second point, unchanged.
+ * @param[in] c Borrowed finite query, unchanged, common predicate-safe coordinate frame.
+ * @return Signed determinant-like orientation, positive CCW/negative CW/exact zero collinear.
+ * Caller must initialize exactinit through build/orientExact first; no initialization guard
+ * here. No allocation/mutation.
+ */
 double orientPts(const QPointF &a, const QPointF &b, const QPointF &c)
 {
     const double pa[2] = {a.x(), a.y()}, pb[2] = {b.x(), b.y()}, pc[2] = {c.x(), c.y()};
     return orient2d(pa, pb, pc);
 }
 
+/**
+ * @brief Compute ordinary squared Cartesian distance without overflow/finite checking.
+ * @param[in] a Borrowed point, unchanged.
+ * @param[in] b Borrowed point in same XY frame, unchanged.
+ * @return Nonnegative squared horizontal units for ordinary finite inputs, no square root,
+ * allocation or mutation.
+ */
 inline double dist2(const QPointF &a, const QPointF &b)
 {
     const double dx = a.x() - b.x(), dy = a.y() - b.y();

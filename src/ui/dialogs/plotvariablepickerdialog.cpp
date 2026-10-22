@@ -32,6 +32,11 @@ constexpr int kRoleKind = Qt::UserRole + 1;    ///< int(ObjectRef::Kind)
 constexpr int kRoleName = Qt::UserRole + 2;    ///< object name (unused for System)
 constexpr int kRoleSpecies = Qt::UserRole + 3; ///< species NAME (Y2b-2); empty for fixed attrs
 
+/**
+ * @param[in] ref Read-only identity; kind and name inspected, no source resolution.
+ * @return Translated Node/Link/Subcatchment prefix with raw name, otherwise raw name alone. No
+ *   species/unit formatting or mutation.
+ */
 QString groupLabelFor(const ObjectRef &ref)
 {
     switch (ref.kind) {
@@ -46,6 +51,11 @@ QString groupLabelFor(const ObjectRef &ref)
     }
 }
 
+/**
+ * @param[in] item Required borrowed tree item, no null guard.
+ * @return True only if zero children and both ItemIsUserCheckable/ItemIsEnabled flags. Visibility
+ *   and current check state deliberately ignored; caller filters hidden separately.
+ */
 bool isCheckableLeaf(const QTreeWidgetItem *item)
 {
     return item->childCount() == 0 && (item->flags() & Qt::ItemIsUserCheckable) &&

@@ -46,13 +46,30 @@ public:
      * \param newAuth   Authority of the newly-selected CRS.
      * \param sourceIsLocal If true, only assignment is available; a transform
      *                      requires a known source CRS.
+     * @param[in] parent Optional QWidget owner; caller manages parentless result.
+     * @brief Construct a modal choice form; authority strings are inserted into the rich-text
+     *   summary without escaping, with empty strings displayed as none.
+     * @note Ordinary source defaults to Reproject; local source disables both transform/display
+     *   options and selects Assign. No CRS lookup, coordinate transformation, model mutation, dirty
+     *   flag or undo action occurs here. Caller interprets accepted choice and performs the change.
      */
     explicit CRSChangeDialog(const QString &oldAuth, const QString &newAuth,
                              bool sourceIsLocal = false, QWidget *parent = nullptr);
 
+    /**
+     * @return Last choice recorded by onAccept, initially Cancel. Rejecting does not reset this
+     *   value when reusing a previously accepted dialog; check the QDialog result as well. No model
+     *   action or ownership transfer.
+     */
     Choice choice() const { return m_choice; }
 
 private slots:
+    /**
+     * @brief Record checked intent in Assign, Reproject, RenderOnly priority order, then accept the
+     *   dialog.
+     * @note With no checked button records Cancel but still accepts. Performs no CRS/coordinate
+     *   validation or model edit; disabled options are enforced by UI setup only.
+     */
     void onAccept();
 
 private:

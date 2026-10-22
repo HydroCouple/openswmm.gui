@@ -33,6 +33,10 @@ using openswmmvis::ui::FeatureFieldDelegate;
 namespace
 {
 
+/** @brief Copy a role field definition for a delegate fixture.
+ * @param[in] role Feature role whose metadata are searched.
+ * @param[in] name Required null-terminated Latin-1 field name.
+ * @return Matching FieldDef by value, or a default definition when absent. */
 FieldDef roleField(FeatureLayerRole role, const char *name)
 {
     const FieldDef *f = featureRoleSpec(role).field(QLatin1String(name));
@@ -40,6 +44,9 @@ FieldDef roleField(FeatureLayerRole role, const char *name)
 }
 
 /*! A one-column model holding \p values. */
+/** @brief Build a uniquely owned one-column editable string model.
+ * @param[in] values Initial strings in row order.
+ * @return New model with one row per value assigned through EditRole. */
 std::unique_ptr<QStandardItemModel> columnModel(const QStringList &values)
 {
     auto m = std::make_unique<QStandardItemModel>(values.size(), 1);
@@ -53,6 +60,9 @@ class ProbeDelegate : public FeatureFieldDelegate
 {
 public:
     using FeatureFieldDelegate::FeatureFieldDelegate;
+    /** @brief Expose the protected delegate style initialization for inspection.
+     * @param[in] index Model cell whose display style is requested.
+     * @return Independent initialized style option; model ownership stays with the caller. */
     QStyleOptionViewItem styleFor(const QModelIndex &index) const
     {
         QStyleOptionViewItem opt;
@@ -68,6 +78,7 @@ class TestFeatureFieldDelegate : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Verify a required fixed-choice delegate displays a friendly label while committing the canonical boundary token. */
     void fixedChoiceStoresTheTokenAndShowsTheLabel()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::BoundaryCondition, "bc_type"));
@@ -92,6 +103,7 @@ private slots:
         QVERIFY(!d.isOutOfList(idx.data()));
     }
 
+    /** @brief Verify an optional hydrologic-soil-group choice offers none and commits an empty string. */
     void anOptionalChoiceCanBeCleared()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::ParameterZone, "hsg"));
@@ -107,6 +119,7 @@ private slots:
         QCOMPARE(idx.data(Qt::EditRole).toString(), QString());
     }
 
+    /** @brief Verify an obsolete imported choice is highlighted and preserved when its editor opens/closes unchanged. */
     void aValueOutsideTheListIsKeptAndFlagged()
     {
         ProbeDelegate d(roleField(FeatureLayerRole::Region, "cells"));
@@ -127,6 +140,7 @@ private slots:
         QCOMPARE(idx.data(Qt::EditRole).toString(), QStringLiteral("Mapped"));
     }
 
+    /** @brief Verify suggested choices deduplicate existing column values and trim a newly typed value. */
     void suggestedOffersTheValuesInTheColumn()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::Region, "tag"));
@@ -147,6 +161,7 @@ private slots:
         QVERIFY(!d.isOutOfList(idx.data()));
     }
 
+    /** @brief Verify time-series choices come from the project provider, unknown names are flagged case-insensitively, and no-project delegates do not falsely flag names. */
     void modelListsComeFromTheProjectAndUnknownNamesAreFlagged()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::BoundaryCondition, "tseries"));
@@ -173,6 +188,7 @@ private slots:
         QVERIFY(!noProject.isOutOfList(QStringLiteral("TS9")));
     }
 
+    /** @brief Verify length editors display a feet suffix without converting values while dimensionless slope editors remain unsuffixed. */
     void lengthFieldsShowTheUnit()
     {
         FeatureFieldDelegate d(roleField(FeatureLayerRole::Region, "h"));
@@ -198,6 +214,7 @@ private slots:
         QVERIFY(s2->suffix().isEmpty());
     }
 
+    /** @brief Verify boundary head text is disabled for wall rows and normal for specified-stage rows. */
     void bcParametersTheTypeDoesNotReadAreGreyed()
     {
         ProbeDelegate head(roleField(FeatureLayerRole::BoundaryCondition, "head"));
@@ -215,6 +232,8 @@ private slots:
                  QStyleOptionViewItem().palette.color(QPalette::Text));
     }
 
+    /** @brief Verify unchanged empty choice, numeric, suggested and Boolean editors emit no writes.
+     * Checks required-choice none and blank numeric text, then verifies an explicit numeric edit commits. */
     void anEmptyCellStaysEmptyWhenTheEditorOpensAndCloses()
     {
         QWidget host;
@@ -269,6 +288,8 @@ private slots:
         QCOMPARE(idx.data(Qt::EditRole).toDouble(), 3.0);
     }
 
+    /** @brief Verify real Enter commits preserve null numeric cells after empty/deleted input and write a typed seven exactly once.
+     * Waits up to two seconds for queued editor closure per attempt. */
     void enterInAnEmptyNumberCellWritesNothing()
     {
         // Through a real view and key presses: the commit on Enter is queued
@@ -285,6 +306,9 @@ private slots:
         const QModelIndex idx = model.index(0, 0);
         QSignalSpy writes(&model, &QAbstractItemModel::dataChanged);
 
+        /** @brief Open the captured numeric table cell, type keys and wait for queued Enter commit/closure.
+         * Argument `keys`: key sequence sent before Return.
+         * Returns: false for a missing numeric editor or closure timeout of two seconds, otherwise true; mutates the captured table/model through its real delegate. */
         const auto typeThenEnter = [&](const QList<Qt::Key> &keys) -> bool {
             view.setCurrentIndex(idx);
             view.edit(idx);
@@ -309,6 +333,7 @@ private slots:
         QCOMPARE(model.data(idx, Qt::EditRole).toDouble(), 7.0);
     }
 
+    /** @brief Verify Boolean display maps true/false to Yes/No and null to empty. */
     void yesNoColumns()
     {
         FieldDef f;

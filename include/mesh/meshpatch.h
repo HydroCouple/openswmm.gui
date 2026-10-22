@@ -9,12 +9,12 @@
  * Structured quad patches (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md
  * §3.2, phase G3). Two authoring forms:
  *
- *  - \ref StructuredPatch — a four-sided polygon meshed by transfinite
+ *  - \ref mesh::StructuredPatch — a four-sided polygon meshed by transfinite
  *    (Coons) interpolation between opposite sides, n × m quads;
- *  - \ref SweptPatch — a centreline polyline swept with a width, quads
+ *  - \ref mesh::SweptPatch — a centreline polyline swept with a width, quads
  *    laid across the channel at each station (channel / street case).
  *
- * Both produce a \ref PatchMesh in LOCAL vertex indices, which
+ * Both produce a \ref mesh::PatchMesh in LOCAL vertex indices, which
  * MeshGenerator::addPatch stitches into the triangle domain: the boundary
  * segments become PSLG constraints, the interior a hole, and the quads are
  * appended after the triangles (engine order).

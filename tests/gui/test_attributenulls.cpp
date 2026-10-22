@@ -41,11 +41,16 @@
 using namespace openswmmvis;
 namespace
 {
+/** @brief Resolve retained null-value test evidence storage.
+ * @return TABLE_NULL_TEST_OUTPUT or tests/output/attribute_nulls; does not create the directory. */
 QString outputDir()
 {
     return qEnvironmentVariable("TABLE_NULL_TEST_OUTPUT",
                                 QStringLiteral("tests/output/attribute_nulls"));
 }
+/** @brief Load an independent owned model for null/identity tests.
+ * @param[in] fixture Required filename joined under SWMMVIS_GUI_TEST_DATA or tests/gui/data.
+ * @return Unique loaded layer or empty on failure, discarding local diagnostics. */
 std::unique_ptr<SWMMModelLayer> modelLayer(const char *fixture = "typed_selection_fixture.inp")
 {
     auto layer = std::make_unique<SWMMModelLayer>(
@@ -55,6 +60,10 @@ std::unique_ptr<SWMMModelLayer> modelLayer(const char *fixture = "typed_selectio
         return {};
     return layer;
 }
+/** @brief Find a canonical attribute key in column metadata.
+ * @param[in] specs Ordered column definitions.
+ * @param[in] key Exact metadata key.
+ * @return First zero-based match or -1. */
 int column(const QList<ColumnSpec> &specs, const QString &key)
 {
     for (int i = 0; i < specs.size(); ++i)
@@ -62,6 +71,8 @@ int column(const QList<ColumnSpec> &specs, const QString &key)
             return i;
     return -1;
 }
+/** @brief Build mixed triangle/quad cells with areas 2, 10, 100 and 10 and three selectively coupled vertices.
+ * @return Independent successful mesh with sixteen vertices, four cells and distinct coupling coefficients/areas for null/sort/identity probes. */
 mesh::MeshResult fixture()
 {
     mesh::MeshResult m;
@@ -101,6 +112,7 @@ class TestAttributeNulls : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Create retained evidence storage and clear an isolated INI settings namespace for table-null tests. */
     void initTestCase()
     {
         QDir().mkpath(outputDir());
@@ -110,6 +122,8 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, outputDir() + "/settings");
         QSettings().clear();
     }
+    /** @brief Verify the real panel handles null/reference queries, numeric/null-last header sorting and stable mesh selection/edit identity.
+     * Checks invalid queries retain the prior filter, TSV omits display NULL markers, and persisted area sorting survives schema switches; detaches borrowed stack layers before teardown. */
     void actualPanelHeadersQueriesAndIdentity()
     {
         auto swmm = modelLayer();
@@ -128,6 +142,9 @@ private slots:
         QVERIFY(view && query && source);
         panel.showMeshTable(&layer, 0);
         QCOMPARE(view->model()->rowCount(), 16);
+        /** @brief Submit a query through the real line edit and Return key.
+         * Argument `text`: replacement query text; an invalid query may preserve the prior filter.
+         * Returns: current displayed row count after synchronous key delivery; borrows the captured editor and view. */
         auto apply = [&](const QString &text) {
             query->setText(text);
             QTest::keyClick(query, Qt::Key_Return);
@@ -199,6 +216,8 @@ private slots:
         panel.setProject(nullptr, nullptr, nullptr);
         canvas.takeLayer(canvas.layers().indexOf(&layer), false);
     }
+    /** @brief Verify read-only cell metadata distinguishes inherited applicable infiltration values from unavailable/conflicting ownership and absent snow/groundwater fields.
+     * Publishes a synthetic resolved snapshot directly to isolate table access from the real ownership resolver. */
     void cellRegistryAvailabilityAndInheritance()
     {
         for (const auto method :
@@ -260,6 +279,8 @@ private slots:
                          .data(kAttributeValueRole)
                          .isValid());
     }
+    /** @brief Verify typed user flags, optional initial quality and unavailable statistics retain null semantics through table models and queries.
+     * Checks explicit quality zero differs from cleared quality and inlet null/numeric filters remain valid. */
     void optionalSwmmValuesAndReferenceQueries()
     {
         auto swmm = modelLayer();
@@ -316,6 +337,7 @@ private slots:
         QVERIFY(edit->styleSheet().isEmpty());
         QVERIFY(view->model()->rowCount() > 0);
     }
+    /** @brief Verify an untouched numeric editor preserves null and explicitly typing zero creates a valid zero value. */
     void nullableEditorDoesNotInventZero()
     {
         QStandardItemModel model(1, 1);
@@ -332,6 +354,8 @@ private slots:
         QVERIFY(model.index(0, 0).data(Qt::EditRole).isValid());
         QCOMPARE(model.index(0, 0).data(Qt::EditRole).toDouble(), 0.0);
     }
+    /** @brief Verify GeoPackage real nulls remain distinct from zero and 64-bit FIDs above 2^53 sort/filter exactly.
+     * Creates a retained package and detaches its stack-owned GIS layer from the canvas before teardown. */
     void gisNullsAndLargeIdentifiers()
     {
         GDALAllRegister();
@@ -383,6 +407,8 @@ private slots:
         panel.setProject(nullptr, nullptr, nullptr);
         canvas.takeLayer(0, false);
     }
+    /** @brief Verify CSV leading-zero IDs, large integer values, literal NULL, empty and missing fields remain distinguishable.
+     * Writes a retained JSON inventory of column keys, queryability and up to sixteen typed/null samples across CSV, mesh, model and data-object sources. */
     void delimitedValuesAndInventory()
     {
         QFile csv(outputDir() + "/values.csv");
@@ -402,6 +428,11 @@ private slots:
         QVERIFY(model.index(0, 3).data(kAttributeValueRole).isValid());
         QVERIFY(!model.index(0, 4).data(kAttributeValueRole).isValid());
         QJsonArray inventory;
+        /** @brief Append per-column typed/null samples to the captured JSON evidence array.
+         * Argument `source`: label identifying this table source.
+         * Argument `model`: borrowed model queried for all columns and at most sixteen rows.
+         * Argument `specs`: optional ordered column metadata; matching positions add canonical key/queryability.
+         * Records valid/type/text data without mutating the model or writing a file directly. */
         auto record = [&](const QString &source, const QAbstractItemModel &model,
                           const QList<ColumnSpec> &specs) {
             for (int col = 0; col < model.columnCount(); ++col) {

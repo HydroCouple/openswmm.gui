@@ -47,6 +47,16 @@ constexpr const char *kKeySoil = "SOIL_CHAR";
 constexpr const char *kKeyClosr = "CLOSURE";
 constexpr const char *kKeyLayers = "M_LAYERS";
 
+/**
+ * @brief Read one optional aquifer property with a caller-selected fallback.
+ * @param[in] e Borrowed engine handle; not retained or changed.
+ * @param[in] row Zero-based authoring row index passed through to the API.
+ * @param[in] key Borrowed non-null NUL-terminated property token, normally a local constant.
+ * @param[in] fallback Value returned when the property getter fails, in that property's native
+ * units.
+ * @return API-provided value on SWMM_OK, otherwise fallback; no additional finiteness/range
+ * validation.
+ */
 double getProp(SWMM_Engine e, int row, const char *key, double fallback)
 {
     double v = fallback;

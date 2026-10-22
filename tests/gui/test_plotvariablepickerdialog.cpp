@@ -36,16 +36,64 @@ namespace
 class StubRunLayer : public IRunLayer
 {
 public:
+    /**
+     *
+     * @brief Return this availability-only stub's fixed display name.
+     * @return Owned Stub string; no output file or scenario registry lookup.
+     *
+     */
     QString scenarioName() const override { return QStringLiteral("Stub"); }
+    /**
+     *
+     * @brief Return SI metadata for the stub without converting any data.
+     * @return UnitSystem::SI, independent of the dialog's separately supplied units.
+     *
+     */
     UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /**
+     *
+     * @brief Return zero as unused start-date metadata for a stub with no periods.
+     * @return Julian-value sentinel zero; not an actual sampled run start date.
+     *
+     */
     double startDateJulian() const override { return 0.0; }
+    /**
+     *
+     * @brief Report that this availability-only stub has no sampled periods.
+     * @return Zero, without loading or inspecting an output file.
+     *
+     */
     int periodCount() const override { return 0; }
+    /**
+     *
+     * @brief Return unused report-step metadata for the period-free stub.
+     * @return Zero seconds; callers must not use it as a positive interpolation interval.
+     *
+     */
     int reportStepSeconds() const override { return 0; }
-    void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
+    /**
+     *
+     * @brief Mark every series request as unavailable without reading data.
+     * @param ref Borrowed object reference, deliberately ignored by this availability stub.
+     * @param attribute Requested variable, deliberately ignored; availability probes use
+     * supportsAttribute() separately.
+     * @param out Borrowed mutable result; sets ok false and errorMessage to stub, leaving
+     * all other existing fields unchanged. No references are retained after return.
+     *
+     */
+    void getSeriesAt(const ObjectRef &ref, PlotAttribute attribute, SeriesData &out) const override
     {
         out.ok = false;
         out.errorMessage = QStringLiteral("stub");
     }
+    /**
+     *
+     * @brief Apply the fixed attribute blacklist used to test disabled picker leaves.
+     * @param a Canonical attribute value, without object-kind validation.
+     * @return False only for SystemPET and LinkVolume; true even for otherwise unknown
+     * values. Does not imply getSeriesAt() can produce actual samples.
+     *
+     */
     bool supportsAttribute(PlotAttribute a) const override
     {
         return a != PlotAttribute::SystemPET && a != PlotAttribute::LinkVolume;
@@ -58,6 +106,14 @@ public:
 class SpeciesStubRunLayer : public StubRunLayer
 {
 public:
+    /**
+     *
+     * @brief Build canonical descriptors extended with two pollutants and reserved water age.
+     * @param kind Object family forwarded to the shared descriptor builder.
+     * @return Owned descriptors for TSS, Lead and __WATER_AGE__ where the family supports
+     * species; system families retain their canonical non-species set. No run file is read.
+     *
+     */
     QVector<ResultDescriptor> resultDescriptorsForKind(ObjectRef::Kind kind) const override
     {
         return openswmmvis::plot::resultDescriptorsForKind(
@@ -66,6 +122,14 @@ public:
     }
 };
 
+/**
+ *
+ * @brief Find the picker variable tree by exact object name.
+ * @param dlg Borrowed live picker dialog.
+ * @return Borrowed variableTree child. Debug-asserts presence; release builds can return
+ * null if the dialog structure changes. Pointer expires with child/dialog lifetime.
+ *
+ */
 QTreeWidget *treeOf(PlotVariablePickerDialog &dlg)
 {
     auto *tree = dlg.findChild<QTreeWidget *>(QStringLiteral("variableTree"));
@@ -73,6 +137,14 @@ QTreeWidget *treeOf(PlotVariablePickerDialog &dlg)
     return tree;
 }
 
+/**
+ *
+ * @brief Find the Ok button in the first descendant dialog button box.
+ * @param dlg Borrowed live picker dialog.
+ * @return Borrowed button or null if Ok is absent. Debug-asserts the box, then dereferences
+ * it; a missing box is not handled safely in release builds. No button click occurs.
+ *
+ */
 QPushButton *okButtonOf(PlotVariablePickerDialog &dlg)
 {
     auto *bb = dlg.findChild<QDialogButtonBox *>();
@@ -80,6 +152,14 @@ QPushButton *okButtonOf(PlotVariablePickerDialog &dlg)
     return bb->button(QDialogButtonBox::Ok);
 }
 
+/**
+ *
+ * @brief Find the first push button with exactly matching display text.
+ * @param dlg Borrowed live picker dialog.
+ * @param text Borrowed exact text including mnemonic ampersands; no trimming/translation.
+ * @return Borrowed child or null; caller retains dialog lifetime and checks before use.
+ *
+ */
 QPushButton *pushButtonNamed(PlotVariablePickerDialog &dlg, const QString &text)
 {
     const auto buttons = dlg.findChildren<QPushButton *>();
@@ -113,6 +193,14 @@ private slots:
     void dialogA11y();
 };
 
+/**
+ *
+ * @brief Pin canonical attribute counts, duplicate freedom, system classification and menu-order
+ * anchors.
+ * Checks node6/link5/subcatch17/system15 and selected snow units even under US metadata;
+ * does not compare every full list element or read any numerical output samples.
+ *
+ */
 void TestPlotVariablePickerDialog::attributeListsPinned()
 {
     QCOMPARE(nodePlotAttributes().size(), 6);
@@ -141,6 +229,13 @@ void TestPlotVariablePickerDialog::attributeListsPinned()
     QCOMPARE(subcatchPlotAttributes().first(), PlotAttribute::SubcatchRainfall);
 }
 
+/**
+ *
+ * @brief Require object-family dispatch to return the canonical lists by reference identity.
+ * Checks node/link/subcatch/system and all mesh element families; Unknown/Observed must
+ * be empty. No runtime availability or optional-backend loading occurs.
+ *
+ */
 void TestPlotVariablePickerDialog::attributesForKindDispatch()
 {
     QCOMPARE(&attributesForKind(ObjectRef::Kind::Node), &nodePlotAttributes());
@@ -154,6 +249,13 @@ void TestPlotVariablePickerDialog::attributesForKindDispatch()
     QVERIFY(attributesForKind(ObjectRef::Kind::Observed).isEmpty());
 }
 
+/**
+ *
+ * @brief Require an empty feature selection to show only fifteen system leaves with no checked
+ * entries and disabled Ok.
+ * Uses null availability and SI labels; does not accept or display the dialog modally.
+ *
+ */
 void TestPlotVariablePickerDialog::systemOnlyWhenNoFeatures()
 {
     PlotVariablePickerDialog dlg({}, nullptr, UnitSystem::SI);
@@ -164,6 +266,13 @@ void TestPlotVariablePickerDialog::systemOnlyWhenNoFeatures()
     QVERIFY(!okButtonOf(dlg)->isEnabled());
 }
 
+/**
+ *
+ * @brief Require system plus node/link/subcatch groups with canonical child counts in supplied
+ * order.
+ * Checks J1 text and counts15/6/5/17 under US units; no check-state or support probe.
+ *
+ */
 void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
 {
     const QVector<ObjectRef> features = {
@@ -181,6 +290,14 @@ void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
     QVERIFY(tree->topLevelItem(1)->text(0).contains(QStringLiteral("J1")));
 }
 
+/**
+ *
+ * @brief Require checking the node group to select every node attribute in canonical order and
+ * enable Ok.
+ * Checks entry kind/name/attribute, then adding the first system leaf must prepend one
+ * system entry. Does not assert the system reference name separately or accept dialog.
+ *
+ */
 void TestPlotVariablePickerDialog::groupCheckCascadesToLeaves()
 {
     const QVector<ObjectRef> features = {
@@ -209,6 +326,14 @@ void TestPlotVariablePickerDialog::groupCheckCascadesToLeaves()
     QCOMPARE(withSys.first().attribute, systemPlotAttributes().first());
 }
 
+/**
+ *
+ * @brief Require probe availability to disable exactly PET and link volume with nonempty
+ * explanations.
+ * Compares each leaf enabled flag against supportsAttribute(); no series request or
+ * file read occurs and tooltip wording is not pinned.
+ *
+ */
 void TestPlotVariablePickerDialog::unsupportedAttributesDisabledWithTooltip()
 {
     StubRunLayer probe;
@@ -235,6 +360,14 @@ void TestPlotVariablePickerDialog::unsupportedAttributesDisabledWithTooltip()
     QCOMPARE(disabled, 2); // SystemPET + LinkVolume
 }
 
+/**
+ *
+ * @brief Require Select All to check eighteen supported leaves and Select None to clear
+ * them/disable Ok.
+ * Checks both blacklisted attributes are absent, using real helper buttons; does not
+ * exercise filtered or partially hidden groups.
+ *
+ */
 void TestPlotVariablePickerDialog::selectAllSkipsDisabled()
 {
     StubRunLayer probe;
@@ -261,6 +394,13 @@ void TestPlotVariablePickerDialog::selectAllSkipsDisabled()
     QVERIFY(!okButtonOf(dlg)->isEnabled());
 }
 
+/**
+ *
+ * @brief Require Invert to uncheck the one selected system attribute and select the other
+ * fourteen.
+ * Uses fifteen available system leaves; no disabled-leaf or filtering scenario.
+ *
+ */
 void TestPlotVariablePickerDialog::invertFlipsCheckedState()
 {
     PlotVariablePickerDialog dlg({}, nullptr, UnitSystem::SI);
@@ -277,6 +417,14 @@ void TestPlotVariablePickerDialog::invertFlipsCheckedState()
         QVERIFY(e.attribute != systemPlotAttributes().first());
 }
 
+/**
+ *
+ * @brief Require Rainfall search to leave one visible system leaf and clearing to restore
+ * fifteen.
+ * Checks hidden flags only, without clearing selection, asserting group visibility or
+ * matching case/regex behavior beyond the supplied exact search text.
+ *
+ */
 void TestPlotVariablePickerDialog::filterHidesNonMatchingLeaves()
 {
     PlotVariablePickerDialog dlg({}, nullptr, UnitSystem::SI);
@@ -300,6 +448,13 @@ void TestPlotVariablePickerDialog::filterHidesNonMatchingLeaves()
     QCOMPARE(visible, 15);
 }
 
+/**
+ *
+ * @brief Require every system/node leaf to stay enabled when no run availability probe is
+ * supplied.
+ * Uses US labels and node J1, without requesting samples or checking entry values.
+ *
+ */
 void TestPlotVariablePickerDialog::nullAvailabilityEnablesEverything()
 {
     const QVector<ObjectRef> features = {
@@ -314,6 +469,15 @@ void TestPlotVariablePickerDialog::nullAvailabilityEnablesEverything()
     }
 }
 
+/**
+ *
+ * @brief Require species descriptors to extend node leaves by three while leaving the system
+ * count unchanged.
+ * Checks the final water-age leaf is labeled in hours and checking it yields exactly
+ * one J1 species-by-name entry with Unknown canonical attribute. No concentrations or
+ * actual run output are sampled.
+ *
+ */
 void TestPlotVariablePickerDialog::speciesLeavesComeFromTheRun()
 {
     // The amendment's razor, dialog edition: a run with 2 pollutants +
@@ -346,6 +510,13 @@ void TestPlotVariablePickerDialog::speciesLeavesComeFromTheRun()
     QCOMPARE(entries[0].ref.name, QStringLiteral("J1"));
 }
 
+/**
+ *
+ * @brief Run the shared accessibility assertions on a node-enabled plot-variable picker.
+ * Constructs a local dialog with null availability and SI labels; assertions follow
+ * the shared helper contract without accepting a modal selection.
+ *
+ */
 void TestPlotVariablePickerDialog::dialogA11y()
 {
     PlotVariablePickerDialog dlg({ObjectRef::forNode(QStringLiteral("J1"))}, nullptr,

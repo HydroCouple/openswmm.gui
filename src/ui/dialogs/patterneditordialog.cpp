@@ -75,6 +75,11 @@ using openswmmvis::pattern::PatternType;
 namespace
 {
 
+/**
+ * @brief Translate the editor label and expected slot count for a pattern type.
+ * @param t Monthly, Daily, Hourly or Weekend enum; unknown values have no fallback label.
+ * @return Owned translated label, or empty for an unrecognized type; no provider mutation.
+ */
 QString typeLabel(PatternType t)
 {
     switch (t) {

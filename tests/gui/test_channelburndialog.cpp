@@ -43,6 +43,8 @@
 class TestChannelBurnDialog : public QObject
 {
     Q_OBJECT
+    /** @brief Create the parent for retained channel-burn run directories.
+     * @return Working-directory tests/output/channel_burn_progress/run-XXXXXX template; directory creation is unchecked. */
     static QString outputTemplate()
     {
         const QString root = QDir::current().filePath("tests/output/channel_burn_progress");
@@ -56,6 +58,8 @@ class TestChannelBurnDialog : public QObject
     QStringList errors;
     QTimer dismissMessages;
 private slots:
+    /** @brief Verify synthetic worker progress reaches the GUI and cancellation fences later queued updates.
+     * Checks Stopping/Cancelled remain below 100 percent, no undo entry appears and a running-progress screenshot is attempted. */
     void workerProgressAndLateUpdatesRespectCancellation()
     {
         QPromise<ChannelBurnDialog::Result> promise;
@@ -93,6 +97,8 @@ private slots:
         QVERIFY(dialog.m_status->text().contains("cancelled"));
         QCOMPARE(window->canvas()->undoStack()->count(), 0);
     }
+    /** @brief Verify a real worker failure remains below 100 percent and a corrected retry reaches Complete with apply-phase progress.
+     * Waits up to thirty seconds per worker and retains a completion screenshot. */
     void progressTracksSuccessAndFailureRetry()
     {
         ChannelBurnDialog dialog(window);
@@ -131,6 +137,8 @@ private slots:
         dialog.show();
         dialog.grab().save(directory.filePath("progress-complete.png"));
     }
+    /** @brief Verify burning a channel preserves a downstream junction with its pipes through a two-metre open-section connector and one-link tagged outfall.
+     * Checks the burn is one undo step and undo restores the original channel/network. */
     void aNodeKeepingTwoPipesGetsAConnectorAndAnOutfall()
     {
         // D would keep DE and a new pipe PD, so the burned channel CD keeps a
@@ -197,6 +205,7 @@ private slots:
         QVERIFY(swmm_node_index(engine, "C") >= 0);
         window->setHasChanges(false);
     }
+    /** @brief Select a test settings namespace, retain the generated run directory and start a ten-millisecond message-box capture/dismiss timer. */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName("openswmm-test");
@@ -212,6 +221,8 @@ private slots:
         });
         dismissMessages.start(10);
     }
+    /** @brief Stage a fresh burn fixture, load its project and attach an active SI 800-triangle projected mesh.
+     * Sets EPSG:3857, inherited layer styling and two-metre channel cells/four-metre half-width for each independent test. */
     void init()
     {
         errors.clear();
@@ -259,6 +270,7 @@ private slots:
         settings.options.forceHalfWidth = 4;
         window->setChannelBurnSettings(settings);
     }
+    /** @brief Destroy project then workspace and deliver deferred deletion events before the next case. */
     void cleanup()
     {
         delete window;
@@ -267,6 +279,8 @@ private slots:
         workspace = nullptr;
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
+    /** @brief Verify feet entered in the dialog convert once to metre worker inputs while persisted settings stay in model units.
+     * Cancels the worker and checks no undo entry or error and a below-complete Cancelled progress state. */
     void lengthsConvertedOnceAndSettingsStayInModelUnits()
     {
         window->unitSystem()->setFlowUnits(swmm_CFS);
@@ -291,6 +305,7 @@ private slots:
         QCOMPARE(window->canvas()->undoStack()->count(), 0);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
     }
+    /** @brief Verify preserving imported sections alone permits collection but changing the mesh to EPSG:4326 refuses with a CRS diagnostic. */
     void importedFlagAloneDoesNotRejectAndGeographicMeshDoes()
     {
         old->setPreservesImportedSections(true);
@@ -302,6 +317,7 @@ private slots:
         QVERIFY(!dialog.collectInputs(&inputs, &error));
         QVERIFY(error.contains("CRS"));
     }
+    /** @brief Verify a boundary-conveyance edit or model option signal invalidates the captured burn ownership guard. */
     void modelAndMeshChangesInvalidateResults()
     {
         ChannelBurnDialog dialog(window);
@@ -314,6 +330,7 @@ private slots:
         window->modelLayer()->optionsChanged({QStringLiteral("FLOW_UNITS")});
         QVERIFY(!dialog.ownerIsCurrent());
     }
+    /** @brief Verify an existing 2D_INITIAL_VELOCITY section prevents collection with its name in the diagnostic. */
     void unsupportedCellSectionsAreRefused()
     {
         QFile file(old->sourcePath());
@@ -326,6 +343,7 @@ private slots:
         QVERIFY(!dialog.collectInputs(&inputs, &error));
         QVERIFY(error.contains("2D_INITIAL_VELOCITY"));
     }
+    /** @brief Verify channel-burn JSON preserves aspect ratio, raster paths/conversion factor and cell limit. */
     void separateSettingsRoundTrip()
     {
         mesh::ChannelBurnSettings settings;
@@ -344,6 +362,7 @@ private slots:
         QCOMPARE(restored.exportRasterZToSI, .3048);
         QCOMPARE(restored.maxMeshCells, 123456);
     }
+    /** @brief Verify rejecting an active burn cancels within thirty seconds without replacing the old mesh or creating undo history. */
     void rejectWhileRunningDoesNotCreateUndoEntry()
     {
         ChannelBurnDialog dialog(window);
@@ -355,6 +374,8 @@ private slots:
         QVERIFY(window->canvas()->layers().contains(old));
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
     }
+    /** @brief Verify an engine-close notification clears burn undo history and a stale undo does not alter link count.
+     * The body emits the close notification without actually reloading another engine. */
     void staleUndoCannotModifyReloadedEngine()
     {
         ChannelBurnDialog dialog(window);
@@ -369,6 +390,7 @@ private slots:
         QCOMPARE(swmm_link_count(window->modelLayer()->engine()), count);
         QCOMPARE(stack->count(), 0);
     }
+    /** @brief Register inline, external, pending-import and pending-import-plus-raster-export burn/save paths. */
     void burnUndoRedoSaveAndReopen_data()
     {
         QTest::addColumn<int>("mode");
@@ -377,6 +399,8 @@ private slots:
         QTest::newRow("pending-import") << 2;
         QTest::newRow("pending-import-and-export") << 3;
     }
+    /** @brief Verify burn replacement preserves layer style, owns generated topology and edits the network in one reversible transaction.
+     * Checks source bytes are untouched until Save, repeated save/undo/redo round-trips mesh/boundary counts through the mesh reader, and optional pending artifacts/raster export integrate. Worker waits are thirty seconds; screenshot writes include a pre-existing /tmp result path. */
     void burnUndoRedoSaveAndReopen()
     {
         QFETCH(int, mode);
@@ -416,6 +440,9 @@ private slots:
             QTest::qWait(20);
             dialog.grab().save(directory.filePath("channelburn-dialog.png"));
         }
+        /** @brief Read bytes for before/after publication comparisons.
+         * Argument `path`: file to open read-only.
+         * Returns: complete contents or empty on open failure; does not distinguish a missing file from an empty file. */
         const auto readFile = [](const QString &path) {
             QFile file(path);
             return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};

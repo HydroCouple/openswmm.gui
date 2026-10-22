@@ -53,11 +53,24 @@ const QStringList kSpecies = {QStringLiteral("TSS"), QStringLiteral("Lead"),
 class FixedOnlySource : public IRunLayer
 {
 public:
+    /** @brief Name the fixed-value synthetic run.
+     * @return fixed. */
     QString scenarioName() const override { return QStringLiteral("fixed"); }
+    /** @brief Identify the fixed-value source unit family.
+     * @return US. */
     UnitSystem unitSystem() const override { return UnitSystem::US; }
+    /** @brief Expose the synthetic source start.
+     * @return Zero Julian days; the canned returned sample uses day one. */
     double startDateJulian() const override { return 0.0; }
+    /** @brief Expose the canned sample count.
+     * @return One period. */
     int periodCount() const override { return 1; }
+    /** @brief Expose the canned report spacing.
+     * @return Sixty seconds. */
     int reportStepSeconds() const override { return 60; }
+    /** @brief Return one successful fixed-attribute marker sample.
+     * The unnamed object and attribute arguments are ignored.
+     * @param[out] out Required series whose time/value vectors become {1}/{42} and success becomes true; other metadata are not reset. */
     void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.timesJulian = {1.0};
@@ -70,6 +83,10 @@ public:
 class SpeciesSource final : public FixedOnlySource
 {
 public:
+    /** @brief Resolve a descriptor against the synthetic three-species list.
+     * @param[in] ref Borrowed object reference forwarded to the fixed-attribute fallback; ignored for species requests.
+     * @param[in] d Descriptor naming TSS, Lead or __WATER_AGE__; non-species requests delegate to the base source.
+     * @param[out] out Required series object. Known species yield day-one marker 100+column and success; unknown species set false/no such species without clearing existing vectors. */
     void getSeriesAt(const ObjectRef &ref, const ResultDescriptor &d,
                      SeriesData &out) const override
     {
@@ -102,6 +119,7 @@ private slots:
     void savedSpeciesTokenSurvivesReopenAgainstAPoorerRun();
 };
 
+/** @brief Verify name-to-output-code mapping follows reordered species columns and rejects absent names or unsupported object kinds. */
 void TestSpeciesPlotting::speciesCodesResolveByNameAndFollowReorder()
 {
     using K = ObjectRef::Kind;
@@ -138,6 +156,7 @@ void TestSpeciesPlotting::speciesCodesResolveByNameAndFollowReorder()
     QCOMPARE(SwmmOutRunLayer::speciesVariableCodeFor(QString(), kSpecies, K::Node), -1);
 }
 
+/** @brief Verify depth, TSS, Lead and water-age descriptors form distinct rows, with two TSS series and correct mg/L/hour labels. */
 void TestSpeciesPlotting::modelRowsKeyPerSpecies()
 {
     ComparisonPlotModel model;
@@ -145,6 +164,11 @@ void TestSpeciesPlotting::modelRowsKeyPerSpecies()
     rs.layer = std::make_shared<SpeciesSource>();
     const int run = model.addRunSource(std::move(rs));
 
+    /** @brief Add a synthetic series to the captured run/model for descriptor grouping or validation.
+     * Argument `node`: node identity stored without resolving a real network.
+     * Argument `a`: fixed attribute or Unknown for a species descriptor.
+     * Argument `sp`: species token, empty for a fixed attribute.
+     * Returns: ComparisonPlotModel::addSeries result, a series index or failure sentinel; transfers the constructed spec into the model. */
     auto addSpec = [&](const QString &node, PlotAttribute a, const QString &sp) {
         SeriesSpec spec;
         spec.runIndex = run;
@@ -175,6 +199,7 @@ void TestSpeciesPlotting::modelRowsKeyPerSpecies()
     QCOMPARE(rows[3].unitsLabel, QStringLiteral("h"));
 }
 
+/** @brief Verify descriptor resolution reaches the species-aware override and a fixed-only source refuses species precisely. */
 void TestSpeciesPlotting::resolveSeriesDispatchesByDescriptor()
 {
     ComparisonPlotModel model;
@@ -209,6 +234,7 @@ void TestSpeciesPlotting::resolveSeriesDispatchesByDescriptor()
     QVERIFY(miss.errorMessage.contains(QStringLiteral("no species")));
 }
 
+/** @brief Verify pair validation permits the same species and refuses cross-species or species/fixed-attribute comparisons. */
 void TestSpeciesPlotting::pairsRequireTheSameDescriptor()
 {
     ComparisonPlotModel model;
@@ -216,6 +242,11 @@ void TestSpeciesPlotting::pairsRequireTheSameDescriptor()
     rs.layer = std::make_shared<SpeciesSource>();
     const int run = model.addRunSource(std::move(rs));
 
+    /** @brief Add a synthetic series to the captured run/model for descriptor grouping or validation.
+     * Argument `node`: node identity stored without resolving a real network.
+     * Argument `a`: fixed attribute or Unknown for a species descriptor.
+     * Argument `sp`: species token, empty for a fixed attribute.
+     * Returns: ComparisonPlotModel::addSeries result, a series index or failure sentinel; transfers the constructed spec into the model. */
     auto addSpec = [&](const QString &node, PlotAttribute a, const QString &sp) {
         SeriesSpec spec;
         spec.runIndex = run;
@@ -234,6 +265,8 @@ void TestSpeciesPlotting::pairsRequireTheSameDescriptor()
     QCOMPARE(model.addPair({tss1, depth}), -1); // species vs fixed — refused
 }
 
+/** @brief Verify style JSON retains the exact species token, missing columns return -1 and reordered columns resolve correctly.
+ * Checks a missing-species warning appears once per token/run; this slot uses metadata and pure mapping helpers rather than reopening a real output file. */
 void TestSpeciesPlotting::savedSpeciesTokenSurvivesReopenAgainstAPoorerRun()
 {
     // The amendment's Y2b-3 razor: a project saved against a 3-species

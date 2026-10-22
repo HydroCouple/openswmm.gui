@@ -37,6 +37,8 @@ using openswmmvis::ui::NewFeatureLayerDialog;
 namespace
 {
 
+/** @brief Build the custom fixed-choice surface field used by dialog/storage tests.
+ * @return Independent Text definition with paved/grass/bare tokens, grass default and Ground cover description. */
 FieldDef choiceField()
 {
     FieldDef f;
@@ -58,6 +60,7 @@ class TestNewFeatureLayerDialog : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Verify roles replace template fields and geometry choices, adopt role defaults and ignore an unsupported geometry request. */
     void roleSwitchSetsFieldsAndGeometryKinds()
     {
         NewFeatureLayerDialog dlg(nullptr);
@@ -87,6 +90,7 @@ private slots:
         QCOMPARE(dlg.geometryType(), GeometryType::Polygon);
     }
 
+    /** @brief Verify excluding/reincluding an optional tag changes the returned schema and inclusion result. */
     void anUntickedOptionalFieldIsNotCreated()
     {
         NewFeatureLayerDialog dlg(nullptr);
@@ -97,6 +101,7 @@ private slots:
         QVERIFY(dlg.schema().contains(QStringLiteral("tag")));
     }
 
+    /** @brief Verify attempts to exclude required h/cells fields leave both present and report inclusion. */
     void requiredFieldsCannotBeUnticked()
     {
         NewFeatureLayerDialog dlg(nullptr);
@@ -107,6 +112,7 @@ private slots:
         QVERIFY(dlg.schema().contains(QStringLiteral("cells")));
     }
 
+    /** @brief Verify the numeric default editor updates h while role metadata retains fixed choices and length units. */
     void defaultsAreEditedWithTheFieldsOwnEditor()
     {
         NewFeatureLayerDialog dlg(nullptr);
@@ -122,6 +128,8 @@ private slots:
         QCOMPARE(s.field(QStringLiteral("h"))->unit, FieldUnit::Length);
     }
 
+    /** @brief Verify a unique custom choice field survives role changes and retained GeoPackage storage.
+     * Checks default always and choice/description metadata only when the store supports it. */
     void aCustomChoiceFieldRoundTrips()
     {
         NewFeatureLayerDialog dlg(nullptr);
@@ -159,6 +167,7 @@ private slots:
         }
     }
 
+    /** @brief Verify field validation rejects duplicate names, blank names, duplicate/empty choices and a valid editor round-trips its definition. */
     void theFieldEditorValidates()
     {
         FieldDef f = choiceField();
@@ -176,6 +185,7 @@ private slots:
         QVERIFY(editor.validationError().isEmpty());
     }
 
+    /** @brief Verify Region starts two-dimensional/collapsed, Breakline promotes raster-sourced Z and later General keeps the expanded section. */
     void theZSectionFollowsTheRole()
     {
         NewFeatureLayerDialog dlg(nullptr);

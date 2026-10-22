@@ -35,6 +35,13 @@ using openswmmvis::controls::ControlRuleRegistry;
 namespace
 {
 
+/**
+ *
+ * @brief Resolve the typed-selection fixture beneath the GUI test-data environment directory or
+ * dot.
+ * @return Owned joined filename; no existence check, canonicalization or file write.
+ *
+ */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -46,6 +53,15 @@ const QString kR1Body =
 const QString kR2Body =
     QStringLiteral("RULE R2\nIF NODE X1 DEPTH > 5\nTHEN LINK X1 STATUS = CLOSED\n");
 
+/**
+ *
+ * @brief Copy one native control-rule id through a256-byte buffer.
+ * @param eng Borrowed live engine; native API validates state/handle.
+ * @param slot Zero-based native rule index, not an editor row or name.
+ * @return Owned UTF-8-decoded id on SWMM_OK, empty for any refusal; no partial buffer
+ * is returned and no engine state is modified.
+ *
+ */
 QString engineRuleId(SWMM_Engine eng, int slot)
 {
     char buf[256] = {};
@@ -54,6 +70,15 @@ QString engineRuleId(SWMM_Engine eng, int slot)
     return QString::fromUtf8(buf);
 }
 
+/**
+ *
+ * @brief Copy one native control-rule body through an8192-byte buffer.
+ * @param eng Borrowed live engine; native API validates state/handle.
+ * @param slot Zero-based native rule index.
+ * @return Owned decoded text on SWMM_OK, empty on failure including insufficient capacity;
+ * no partial-result distinction or retained engine-owned string.
+ *
+ */
 QString engineRuleBody(SWMM_Engine eng, int slot)
 {
     char buf[8192] = {};
@@ -83,6 +108,14 @@ private:
     SWMMModelLayer *mLayer = nullptr;
 };
 
+/**
+ *
+ * @brief Load a test-owned editing layer and add two fixture control rules before every case.
+ * Requires a live engine and native count two; mLayer is deleted by cleanup(). File is
+ * read, not saved. Qt assertion failure may leave partially initialized member state
+ * for cleanup, without rolling back additions.
+ *
+ */
 void TestControlRuleApply::init()
 {
     mLayer = new SWMMModelLayer(fixturePath(), nullptr);
@@ -95,17 +128,38 @@ void TestControlRuleApply::init()
     QCOMPARE(swmm_control_count(mLayer->engine()), 2);
 }
 
+/**
+ *
+ * @brief Delete the test-owned layer/engine and reset its member pointer after each case.
+ * Accepts a null member via delete semantics; no save or assertion.
+ *
+ */
 void TestControlRuleApply::cleanup()
 {
     delete mLayer;
     mLayer = nullptr;
 }
 
+/**
+ *
+ * @brief Ensure the layer's lazy registry and cast it to the expected control-rule type.
+ * @return Borrowed layer-owned registry or null on type mismatch; requires non-null
+ * mLayer. May initialize registry state, and caller must retain the layer lifetime.
+ *
+ */
 ControlRuleRegistry *TestControlRuleApply::registry() const
 {
     return qobject_cast<ControlRuleRegistry *>(mLayer->ensureControlRuleRegistry());
 }
 
+/**
+ *
+ * @brief Require replacing a named rule with headerless text to fail with a diagnostic and
+ * preserve native/registry identity.
+ * Checks both native IDs/count, first native body and first registry provider body;
+ * does not compare the second rule body or serialize input to disk.
+ *
+ */
 void TestControlRuleApply::headerlessReplaceIsRefusedAndKeepsEveryRule()
 {
     SWMM_Engine eng = mLayer->engine();
@@ -124,6 +178,14 @@ void TestControlRuleApply::headerlessReplaceIsRefusedAndKeepsEveryRule()
     QCOMPARE(registry()->findByName(QStringLiteral("R1"))->body(), kR1Body);
 }
 
+/**
+ *
+ * @brief Require a replacement header containing spaces in its proposed name to fail without
+ * renaming the first native rule.
+ * Checks count two/nonempty error, then requires a valid replacement under R1 still
+ * succeeds; no disk-format round trip is performed.
+ *
+ */
 void TestControlRuleApply::retypedHeaderWithSpacesIsRefused()
 {
     SWMM_Engine eng = mLayer->engine();
@@ -140,6 +202,12 @@ void TestControlRuleApply::retypedHeaderWithSpacesIsRefused()
     QVERIFY2(mLayer->applyControlRuleReplace(QStringLiteral("R1"), kR1Body, &err), qPrintable(err));
 }
 
+/**
+ *
+ * @brief Require explicit rename to a spaced name to fail with native and registry R1 intact.
+ * Checks error, native id and old/new registry lookup presence; no body comparison.
+ *
+ */
 void TestControlRuleApply::renameWithSpacesIsRefused()
 {
     SWMM_Engine eng = mLayer->engine();
@@ -151,6 +219,14 @@ void TestControlRuleApply::renameWithSpacesIsRefused()
     QVERIFY(!registry()->hasName(QStringLiteral("my rule")));
 }
 
+/**
+ *
+ * @brief Require a new RULE header to rename both native and registry identity and remain
+ * editable under the new name.
+ * Checks count two, old-name removal, accepted second body and matching registry text;
+ * a colliding replacement with R2 must fail and retain R9. No input-file save/reload.
+ *
+ */
 void TestControlRuleApply::retypedHeaderRenamesEngineAndRegistry()
 {
     SWMM_Engine eng = mLayer->engine();
@@ -178,6 +254,14 @@ void TestControlRuleApply::retypedHeaderRenamesEngineAndRegistry()
     QCOMPARE(engineRuleId(eng, 0), QStringLiteral("R9"));
 }
 
+/**
+ *
+ * @brief Require explicit rename to update native id/body header and registry lookup, then accept
+ * a new replacement body.
+ * Checks Overflow identity/header and success of the follow-up edit; does not separately
+ * read back that final body or compare undo state.
+ *
+ */
 void TestControlRuleApply::renameRewritesHeaderOnBothSides()
 {
     SWMM_Engine eng = mLayer->engine();

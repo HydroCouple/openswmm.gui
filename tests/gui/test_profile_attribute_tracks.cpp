@@ -41,26 +41,116 @@ class TestProfileAttributeTracks : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Redirect process-wide test QSettings organization/application, INI format and user
+     * path to the fixture-owned temporary directory.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void initTestCase();
+    /**
+     * @brief Clear isolated default QSettings before each case so track edits cannot leak
+     * between assertions.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void init();
 
     // Options
+    /**
+     * @brief Verify generic, named and Qt property accessors share visibility/pen state for
+     * node/link attributes.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void genericAndPropertyAccessorsAgree();
+    /**
+     * @brief Verify real visibility/height/opacity edits emit once while repeated or identically
+     * clamped values emit nothing.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void oneChangedSignalPerEdit();
+    /**
+     * @brief Verify track visibility, custom pen, height and envelope flag restore with exactly
+     * one batched changed signal.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void settingsRoundTrip();
+    /**
+     * @brief Verify scrambled activation returns node attributes first in canonical presentation
+     * order, then link attributes.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void visibleAttributesCanonicalOrder();
 
     // Options — species tracks (Y2b-2 follow-up, amendment D-Y4)
+    /**
+     * @brief Verify species visibility/pen state is independent by node/link scope,
+     * deterministic ordering and inactive style retention.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void speciesTrackStateAndOrder();
+    /**
+     * @brief Verify active water-age/TSS and inactive Ghost style persist separately with one
+     * restore notification.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void speciesSettingsRoundTrip();
 
     // Sampler classification
+    /**
+     * @brief Verify node-versus-link and trackable-versus-subcatchment/mesh/system/unknown
+     * attribute categories.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void attributeClassification();
 
     // Widget mapping / sizing
+    /**
+     * @brief Verify track-pane horizontal mapping uses profile margins and linear visible-range
+     * formula before/after zoom.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void pixelMappingMatchesProfileFormula();
+    /**
+     * @brief Verify virtual/pixel coordinate inversion across negative and large station range
+     * within1e-6.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void pixelMappingRoundTrips();
+    /**
+     * @brief Verify empty pane collapses to height0 and two100px tracks require additional
+     * gaps/axis space.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void minimumHeightTracksCount();
+    /**
+     * @brief Verify programmatic follow-range updates emit no visibleXRangeChanged echo.
+     * @note QtTest fixture uses GUI-thread local options/widgets; settings cases write only the
+     * redirected fixture INI directory. No engine/results file is opened. Process-wide QSettings
+     * configuration is intentionally test-owned.
+     */
     void followRangeDoesNotEcho();
 
 private:

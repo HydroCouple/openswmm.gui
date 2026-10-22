@@ -25,16 +25,32 @@ namespace
 
 const double kCoordEps = 1e-6; // model-unit coordinate comparison epsilon
 
+/**
+ * @param[in] s Required null-terminated source text, not retained.
+ * @return Translation in ImportPlanning context, no source/planning state mutation.
+ */
 QString trPlan(const char *s)
 {
     return QCoreApplication::translate("ImportPlanning", s);
 }
 
+/**
+ * @param[in] a First model-CRS point.
+ * @param[in] b Second model-CRS point, no CRS/unit conversion.
+ * @return Both component absolute differences<=1e-6 model units, not Euclidean tolerance.
+ *   NaN/infinity differences false. Pure comparison.
+ */
 bool numericallyEqual(const QPointF &a, const QPointF &b)
 {
     return std::abs(a.x() - b.x()) <= kCoordEps && std::abs(a.y() - b.y()) <= kCoordEps;
 }
 
+/**
+ * @param[in] a Ordered model-CRS vertex vector.
+ * @param[in] b Comparison vector in same units/order.
+ * @return Equal sizes and all corresponding points numericallyEqual; both empty true. No
+ *   reversed-line/topology equivalence, cyclic normalization, mutation or unit conversion.
+ */
 bool polylinesEqual(const QVector<QPointF> &a, const QVector<QPointF> &b)
 {
     if (a.size() != b.size())
@@ -46,7 +62,14 @@ bool polylinesEqual(const QVector<QPointF> &a, const QVector<QPointF> &b)
 }
 
 /*! Parse a numeric out of a QVariant, accepting numeric strings in C
- *  or current locale. */
+ *  or current locale.
+ * @param[in] v Raw numeric/bool or text-convertible QVariant, no unit conversion.
+ * @param[out] out Required nonnull destination on success; unchanged failed text parse. Numeric
+ *   primitives assigned via toDouble without finite/precision check.
+ * @return True recognized numeric/bool or trimmed nonempty text parsed C then current QLocale,
+ *   false otherwise. Double nonfinite remains possible; integer coercer caller responsible
+ *   representability. No source mutation.
+ */
 bool toDoubleLenient(const QVariant &v, double *out)
 {
     switch (v.typeId()) {
@@ -76,7 +99,12 @@ bool toDoubleLenient(const QVariant &v, double *out)
 
 /*! The raw (pre-coercion) value a binding yields for one feature:
  *  field cell when bound to a field and non-null, else the default,
- *  else null. */
+ *  else null.
+ * @param[in] b Optional borrowed binding, null invalid.
+ * @param[in] attrs Exact-key source field map, missing/null/trimmed-empty QString uses default.
+ * @return Source cell if nonnull/nonblank, otherwise default verbatim even invalid/null/blank.
+ *   Field name matching exact, no type coercion/required test or mutation.
+ */
 QVariant rawValueFor(const AttributeBinding *b, const QVariantMap &attrs)
 {
     if (!b)
@@ -91,13 +119,21 @@ QVariant rawValueFor(const AttributeBinding *b, const QVariantMap &attrs)
 }
 
 /*! Common-to-all-node-kinds attribute keys — the safe subset applied
- *  when an Update hits a type-mismatched node. */
+ *  when an Update hits a type-mismatched node.
+ * @param[in] key Exact target key, no normalization.
+ * @return True only invertElev/tag, safe subset retained for type-mismatched node Update. No source
+ *   query/write.
+ */
 bool isCommonNodeKey(const QString &key)
 {
     return key == QLatin1String("invertElev") || key == QLatin1String("tag");
 }
 
-/*! Common-to-all-link-kinds attribute keys under type mismatch. */
+/*! Common-to-all-link-kinds attribute keys under type mismatch.
+ * @param[in] key Exact target key, no normalization.
+ * @return True only tag, retained for type-mismatched link Update. Does not authorize
+ *   endpoint/geometry rewiring or source mutation.
+ */
 bool isCommonLinkKey(const QString &key)
 {
     return key == QLatin1String("tag");

@@ -68,6 +68,12 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Detect the dialog WMTS URL spelling heuristic.
+ * @param[in] url Candidate URL, lowercased without parsing query syntax.
+ * @return True when containing service=wmts or /wmtscapabilities.xml anywhere; false otherwise.
+ * Does not verify the remote protocol.
+ */
 static bool urlIsWMTS(const QString &url)
 {
     const QString lower = url.toLower();

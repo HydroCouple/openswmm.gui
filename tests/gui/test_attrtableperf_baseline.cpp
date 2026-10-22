@@ -13,9 +13,9 @@
  *           - viewport read ms                     (what painting costs)
  *           - query Apply ms, one-column predicate (filter + selection)
  *           - query Apply ms, LIKE predicate
- *           - query Apply ms, two-column predicate
+ *           - query Apply ms, two bounds on one numeric field
  *           - sort-by-tagged-column ms
- *           - show-selected-only toggle ms         (large selection)
+ *           - select-all bus replacement ms        (large selection)
  *
  *         Fixtures are real all-pipes models that live OUTSIDE the repo
  *         (the corpus under tests/output/ is symlinks to them), so this
@@ -58,11 +58,24 @@
 namespace
 {
 
+/**
+ *
+ * @brief Read the optional external performance-fixture filename without opening it.
+ * @return SWMMVIS_ATTR_PERF_INP verbatim, empty if unset; no canonicalization or creation.
+ *
+ */
 QString perfInp()
 {
     return qEnvironmentVariable("SWMMVIS_ATTR_PERF_INP");
 }
 
+/**
+ *
+ * @brief Resolve the persistent timing CSV directory without creating it.
+ * @return SWMMVIS_ATTR_PERF_OUT or relative tests/output/attrtable_perf. Repeated runs
+ * append to the same CSV unless the caller configures another directory.
+ *
+ */
 QString outDir()
 {
     return qEnvironmentVariable("SWMMVIS_ATTR_PERF_OUT",
@@ -75,13 +88,16 @@ struct Row {
     int detail = 0; //!< rows matched / rows visited — phase-specific
 };
 
-//! Append one row to the CSV as soon as it is measured.
-//!
-//! Deliberately streamed rather than written once at the end: on slow
-//! (pre-fix) code a single phase can run for tens of minutes, and a run
-//! killed in that phase must still leave the phases that DID complete on
-//! disk. Batching the write meant killing a stuck run threw away
-//! everything it had already measured.
+/**
+ *
+ * @brief Attempt to append one raw timing row and create the CSV header for an empty file.
+ * @param r Borrowed phase record containing model/category/phase, elapsed milliseconds
+ * and phase-specific count. String fields are not CSV-escaped.
+ * Creates output directories without checking success, opens attrtable_perf.csv in append
+ * text mode and silently returns if opening fails. Stream-write status is unchecked;
+ * closes on return, no atomicity, synchronization across processes or failure result.
+ *
+ */
 void appendRow(const Row &r)
 {
     QDir().mkpath(outDir());
@@ -94,8 +110,16 @@ void appendRow(const Row &r)
     s << r.model << ',' << r.category << ',' << r.phase << ',' << r.ms << ',' << r.detail << '\n';
 }
 
-//! Record + emit in one step so no call site can log a phase it forgot to
-//! persist (or persist one it forgot to log).
+/**
+ *
+ * @brief Retain a timing record in memory, attempt CSV append and emit the same fields to the
+ * log.
+ * @param rows Borrowed mutable collection receiving a copy.
+ * @param r Borrowed source row copied before append/logging.
+ * No success result: CSV failures can leave memory/log evidence without a persisted row.
+ * Elapsed values are supplied by callers, not measured within this helper.
+ *
+ */
 void record(QList<Row> &rows, const Row &r)
 {
     rows << r;
@@ -126,6 +150,13 @@ class TestAttrTablePerfBaseline : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Skip the performance suite unless the configured input is nonempty and exists.
+     * Checks existence only, not readability or file type; actual load failure is asserted
+     * later. Does not create or download the external corpus.
+     *
+     */
     void initTestCase()
     {
         const QString inp = perfInp();
@@ -134,6 +165,19 @@ private slots:
                   "see the file header for how to run this.");
     }
 
+    /**
+     *
+     * @brief Measure model load, category binding, viewport reads, bounded queries, sorting and
+     * selection-bus replacement.
+     * Loads one external input and checks category row identity for junction/conduit/
+     * subcatchment when present. Records milliseconds/counts immediately, without performance
+     * thresholds. The local applyQuery lambda borrows phase/query strings synchronously,
+     * sets text, sends Return and records visible rows; it does not assert query validity.
+     * The two-condition query uses the same numeric field twice, not two distinct columns.
+     * Selection phase replaces the bus; it does not click Show selected only. No visible
+     * paint timing, input-file save or query-result correctness benchmark is performed.
+     *
+     */
     void attributeTablePhases()
     {
         const QString inp = perfInp();
@@ -203,9 +247,8 @@ private slots:
                              window * nCol});
 
             // ---- queries ----------------------------------------------
-            // Plain decimals only: the tokenizer has no scientific
-            // notation, and a parse error makes Apply return early without
-            // touching the filter — which would silently time nothing.
+            // Use bounded plain decimals. A parse error would leave the prior
+            // filter unchanged and make this phase time a refused draft.
             auto applyQuery = [&](const QString &phase, const QString &q) {
                 edit->setText(q);
                 t.restart();
@@ -261,19 +304,18 @@ private slots:
         report(rows);
     }
 
-    //! Bulk delete, split into GUI overhead vs the engine's own floor.
-    //!
-    //! `engine_delete_floor` deletes N nodes straight through the C API on
-    //! its own layer, bypassing the GUI entirely. Every other phase goes
-    //! through the real undo-command path. `bulk_delete_redo` minus
-    //! `engine_delete_floor` is therefore the GUI overhead — the number the
-    //! batching work drives toward zero — and what remains is the engine
-    //! cost, which no change in this repo can remove.
-    //!
-    //! Separate slot with its own layer because deletion mutates the model;
-    //! running it inside attributeTablePhases() would corrupt those timings.
-    //! Opt-in via SWMMVIS_ATTR_PERF_DELETE_N so existing perf runs are
-    //! unaffected.
+    /**
+     *
+     * @brief Measure opt-in native deletion and GUI snapshot/redo/undo/replay using separate
+     * loaded models.
+     * Skips unless SWMMVIS_ATTR_PERF_DELETE_N is positive. Native floor repeatedly deletes
+     * index-zero nodes; GUI path deletes up to that many junction names with stack-owned
+     * BulkEditCommand children and a null canvas. Counts/object families can differ, so
+     * subtracting timings is only a rough overhead indicator. Records requested/successful
+     * counts without asserting final topology, numerical equivalence or timing thresholds.
+     * Only in-memory layers are mutated; external fixture is not saved.
+     *
+     */
     void bulkDeletePhases()
     {
         const int nDel = qEnvironmentVariableIntValue("SWMMVIS_ATTR_PERF_DELETE_N");
@@ -354,6 +396,14 @@ private slots:
     }
 
 private:
+    /**
+     *
+     * @brief Choose the representative numeric query alias for a timed category.
+     * @param cat Model category enumeration.
+     * @return Invert elev, Length or Area for junction/conduit/subcatchment respectively,
+     * empty otherwise. Metadata string only; no schema resolution or numeric read.
+     *
+     */
     static QString numericFieldFor(SWMMModelLayer::Category cat)
     {
         switch (cat) {
@@ -368,6 +418,14 @@ private:
         }
     }
 
+    /**
+     *
+     * @brief Map timed spatial categories to the selection bus identity family.
+     * @param cat Model category enumeration.
+     * @return Node/Link/Subcatchment for supported categories, Unknown otherwise; no model
+     * lookup, name validation or retained reference.
+     *
+     */
     static SWMMObjectRef::ObjectType refTypeFor(SWMMModelLayer::Category cat)
     {
         switch (cat) {
@@ -382,8 +440,13 @@ private:
         }
     }
 
-    //! Rows are already streamed to the CSV by record(); this just says
-    //! where they went and how many completed.
+    /**
+     *
+     * @brief Log how many phase rows were collected and the intended persistent CSV path.
+     * @param rows Borrowed collected records; only size is read.
+     * Does not write rows again or prove every prior append succeeded.
+     *
+     */
     static void report(const QList<Row> &rows)
     {
         qInfo().noquote() << rows.size() << "phases appended to"

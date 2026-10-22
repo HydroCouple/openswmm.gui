@@ -36,12 +36,18 @@ using openswmmvis::ui::WashoffTableModel;
 namespace
 {
 
+/** @brief Resolve the retained land-use fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA plus /landuse_editor; an unset variable produces /landuse_editor rather than a current-directory fallback. */
 QString fixtureDir()
 {
     const QString base = QString::fromUtf8(qgetenv("SWMMVIS_GUI_TEST_DATA"));
     return base + QStringLiteral("/landuse_editor");
 }
 
+/** @brief Write a retained CFS land-use network with two pollutants and two land uses.
+ * @param[in] tag Filename stem appended in the fixture directory without sanitization.
+ * @param[in] extra Additional deck text streamed after the fixed sections.
+ * @return Fixture path after streaming, or empty on file-open failure. Directory creation and stream/flush errors are unchecked. */
 QString writeFixture(const QString &tag, const QString &extra = QString())
 {
     QDir().mkpath(fixtureDir());
@@ -97,6 +103,10 @@ QString writeFixture(const QString &tag, const QString &extra = QString())
 struct EngineFixture {
     SWMM_Engine engine = nullptr;
 
+    /** @brief Write and open the owned land-use fixture engine.
+     * @param[in] tag Stem for retained INP/report/output files.
+     * @param[in] extra Extra input sections, optionally a component registration.
+     * Leaves engine null on fixture-open failure; destroys any failed engine. Engine allocation is not independently checked before the open call. */
     explicit EngineFixture(const QString &tag, const QString &extra = QString())
     {
         const QString inp = writeFixture(tag, extra);
@@ -111,6 +121,7 @@ struct EngineFixture {
             engine = nullptr;
         }
     }
+    /** @brief Destroy the fixture engine when non-null; retained model/report/output evidence is not removed. */
     ~EngineFixture()
     {
         if (engine)
@@ -134,6 +145,7 @@ private slots:
     void reactionSpeciesGetBuildupAndWashoffRows();
 };
 
+/** @brief Verify the unified editor has three tabs, two registries and two pollutant rows in both quality-function grids. */
 void TestLandUseUnifiedEditor::tabsAndModelsPresent()
 {
     EngineFixture fx(QStringLiteral("tabs"));
@@ -155,6 +167,7 @@ void TestLandUseUnifiedEditor::tabsAndModelsPresent()
     QVERIFY(dlg.buildupModel()->landUseIndex() >= 0);
 }
 
+/** @brief Verify Lead buildup function/coefficient/normalizer and washoff function/sweeping efficiency edits reach the engine. */
 void TestLandUseUnifiedEditor::buildupEditsRoundTripThroughEngine()
 {
     EngineFixture fx(QStringLiteral("roundtrip"));
@@ -193,6 +206,7 @@ void TestLandUseUnifiedEditor::buildupEditsRoundTripThroughEngine()
     QCOMPARE(sweep, 55.0);
 }
 
+/** @brief Verify EXT buildup C3 is noneditable and refuses numeric writes because it represents a table reference. */
 void TestLandUseUnifiedEditor::extBuildupC3IsReadOnly()
 {
     EngineFixture fx(QStringLiteral("extguard"));
@@ -212,6 +226,7 @@ void TestLandUseUnifiedEditor::extBuildupC3IsReadOnly()
     QVERIFY(!model->setData(c3, 99.0, Qt::EditRole));
 }
 
+/** @brief Verify refreshing after pollutant addition grows both grids and preserves existing buildup values through the engine stride change. */
 void TestLandUseUnifiedEditor::pollutantAddRedimensionsRows()
 {
     EngineFixture fx(QStringLiteral("poladd"));
@@ -236,6 +251,7 @@ void TestLandUseUnifiedEditor::pollutantAddRedimensionsRows()
     QCOMPARE(c1, 100.0);
 }
 
+/** @brief Verify land-use impact text names buildup/coverage and registry deletion removes the engine object and provider. */
 void TestLandUseUnifiedEditor::impactAwareDeleteRemovesEngineObject()
 {
     EngineFixture fx(QStringLiteral("impactdel"));
@@ -257,6 +273,7 @@ void TestLandUseUnifiedEditor::impactAwareDeleteRemovesEngineObject()
     QCOMPARE(reg.providerCount(), 1);
 }
 
+/** @brief Verify renaming a land use preserves its quality matrix and object count through flush, and refuses a duplicate target name. */
 void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
 {
     EngineFixture fx(QStringLiteral("rename"));
@@ -292,6 +309,8 @@ void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
 // pollutants and edit them through the same engine calls (constituent index
 // = pollutant count + species index). Wall species cannot build up and are
 // not listed.
+/** @brief Verify a bulk reaction species appears after pollutants in both grids while a wall species is excluded.
+ * Stages a retained reaction component file and checks the bulk-species buildup edit reaches its constituent index. */
 void TestLandUseUnifiedEditor::reactionSpeciesGetBuildupAndWashoffRows()
 {
     QDir().mkpath(fixtureDir());

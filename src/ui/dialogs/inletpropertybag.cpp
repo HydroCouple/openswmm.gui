@@ -21,11 +21,19 @@ using openswmmvis::inlet::InletType;
 namespace
 {
 
+/**
+ * @return Current global UnitSystem length label by value; no conversion of adapter/provider
+ *   numbers or provider binding required. GUI-thread singleton access.
+ */
 QString lengthUnit()
 {
     return UnitSystem::instance()->lengthLabel();
 }
 
+/**
+ * @return Current global UnitSystem velocity label by value; label only, no conversion or source
+ *   mutation.
+ */
 QString velocityUnit()
 {
     return UnitSystem::instance()->velocityLabel();

@@ -46,6 +46,10 @@ namespace
 constexpr int RoleComponentIndex = Qt::UserRole + 1; // int → m_components index
 constexpr int RoleIsLeaf = Qt::UserRole + 2;         // bool
 
+/**
+ * @brief Format the compiled major, minor and patch version macros as three decimal components.
+ * @return New dotted version string; no runtime settings/build metadata lookup.
+ */
 QString applicationVersionString()
 {
     return QStringLiteral("%1.%2.%3")
@@ -54,6 +58,12 @@ QString applicationVersionString()
         .arg(SWMM_VERSION_PATCH);
 }
 
+/**
+ * @brief Gather application version, build timestamp, runtime Qt, OS/kernel and current CPU
+ *   architecture for display or clipboard.
+ * @return Newly formatted multiline text; no filesystem/network probing or clipboard write within
+ *   helper.
+ */
 QString environmentSummary()
 {
     return QStringLiteral("SWMMVis %1\n"

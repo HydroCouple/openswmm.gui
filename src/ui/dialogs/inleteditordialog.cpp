@@ -75,9 +75,18 @@ constexpr InletType kTypeOrder[] = {
     InletType::DropGrate, InletType::DropCurb, InletType::Custom,
 };
 
-/*! \brief Which designs a host cross-section accepts (Uinlet.pas:524-575):
+/**
+ * @brief Check an inlet family against the host cross-section acceptance rule.
+ * @param[in] t Inlet type ordinal.
+ * @param[in] shape Negative disables filtering; otherwise a SWMM_XSectShape ordinal.
+ * @return True for any type with negative shape, CUSTOM everywhere, grate/curb/combo/slotted on
+ * STREET or drop families on RECT_OPEN/TRAPEZOIDAL; false for other combinations. No
+ * geometric/parameter validity checks.
+ *
+ * @details Which designs a host cross-section accepts (Uinlet.pas:524-575):
  *  a STREET section takes the gutter families, an open channel takes the
- *  drop families, and a CUSTOM capture curve applies anywhere. */
+ *  drop families, and a CUSTOM capture curve applies anywhere.
+ */
 bool typeFitsShape(InletType t, int shape)
 {
     if (shape < 0)
@@ -92,7 +101,15 @@ bool typeFitsShape(InletType t, int shape)
     return false;
 }
 
-/*! \brief Row index of the property whose column-0 text is \p label, or -1. */
+/**
+ * @brief Find the first direct child whose column-zero display text exactly matches a label.
+ * @param[in] model Borrowed nullable item model, queried without mutation.
+ * @param[in] parent Parent index whose immediate rows are searched, not a recursive subtree.
+ * @param[in] label Borrowed case-sensitive text; empty returns -1.
+ * @return First zero-based matching child row or -1 for absent model/empty/unmatched label.
+ *
+ * @details Row index of the property whose column-0 text is \p label, or -1.
+ */
 int rowForLabel(QAbstractItemModel *model, const QModelIndex &parent, const QString &label)
 {
     if (!model || label.isEmpty())
@@ -104,10 +121,22 @@ int rowForLabel(QAbstractItemModel *model, const QModelIndex &parent, const QStr
     return -1;
 }
 
-/*! \brief Validation the legacy dialog lacks (Inlets plan §2.2): every
+/**
+ * @brief Check active inlet dimensions/open fraction and a fully specified CUSTOM curve pair.
+ * @param[in] d Borrowed desired design in provider-native units; active groups follow d.type.
+ * @param[in] curves Borrowed optional curve registry; null skips curve lookup/kind validation.
+ * @param[out] reason Optional first rejection text, written on failure and unchanged on success.
+ * @return False for nonpositive active grate/curb/slot dimensions, GENERIC open fraction outside
+ * (0,1], or a fully specified CUSTOM pair whose curve is missing/wrong type; true otherwise.
+ * @details A CUSTOM pair with empty curve ID or None kind is intentionally allowed for
+ * incremental entry; engine validation resolves completion later. Dimension comparisons do not
+ * explicitly reject every NaN/non-finite value.
+ *
+ * @details Validation the legacy dialog lacks (Inlets plan §2.2): every
  *  dimension a type actually uses must be positive, a GENERIC grate's open
- *  fraction must lie in (0,1], and a CUSTOM design's curve must exist and
- *  match the chosen capture-curve kind. */
+ *  fraction must lie in (0,1], and a fully specified CUSTOM curve/kind pair
+ *  must resolve to the chosen kind; incomplete pairs remain editable.
+ */
 bool validateDesign(const InletDesignData &d, const CurveRegistry *curves, QString *reason)
 {
     const auto groups = InletPropertyBag::groupsFor(d.type);
@@ -890,6 +919,13 @@ void InletEditorDialog::onProviderRenamed_(InletProvider *p, const QString &, co
 namespace
 {
 
+/**
+ * @brief Render a borrowed scene rectangle to a double-resolution pixmap.
+ * @param[in] scene Borrowed nullable QGraphicsScene, read/rendered on the GUI thread.
+ * @return Owned pixmap with integer dimensions twice sceneRect width/height, scene-background
+ * color and antialiased rendering; null for missing/empty scene or failed/invalid allocation. No
+ * source scene or provider data is changed.
+ */
 QPixmap renderScene(QGraphicsScene *scene)
 {
     if (!scene)
