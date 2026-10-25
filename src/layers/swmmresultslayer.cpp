@@ -947,6 +947,43 @@ void SWMMResultsLayer::readProfileStyle(QSettings &settings)
     applyPen(QStringLiteral("profileMaxEglLinePen"), &SWMMResultsLayer::setProfileMaxEglLinePen);
 }
 
+namespace
+{
+// Legacy output headers store the report interval as an integer number of
+// seconds. For fractional intervals the recorded period timestamps retain the
+// actual clock, even though the header interval is zero.
+int recordedPeriodForTime(SWMM_Output handle, int count, const QDateTime &time, bool asOf)
+{
+    if (!handle || count <= 0 || !time.isValid())
+        return 0;
+    const auto at = [handle](int period) {
+        double value = 0;
+        if (swmm_output_get_period_time(handle, period, &value) != 0)
+            return QDateTime{};
+        return openswmmvis::core::swmmDateTimeToMilliseconds(value);
+    };
+    int lo = 0, hi = count;
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const auto stamp = at(mid);
+        if (!stamp.isValid())
+            return 0;
+        if (stamp <= time)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (asOf || lo == count)
+        return std::max(0, lo - 1);
+    if (lo == 0)
+        return 0;
+    const auto before = at(lo - 1), after = at(lo);
+    if (!before.isValid() || !after.isValid())
+        return 0;
+    return before.msecsTo(time) < time.msecsTo(after) ? lo - 1 : lo;
+}
+}
+
 int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
 {
     // Snap the requested time to this layer's report-step grid.  Clamped to
@@ -960,7 +997,9 @@ int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
     // exact time to index 1 (off-by-one) whenever the first frame sits a
     // report step (or a whole REPORT_START offset) after START_DATE.
     const QDateTime origin = reportedStartDateTime();
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
+    if (m_reportStepSec <= 0)
+        return recordedPeriodForTime(m_handle, m_totalSteps, dt, false);
+    if (m_totalSteps <= 0 || !origin.isValid())
         return 0;
     const qint64 offsetMs = origin.msecsTo(dt);
     const double periodF =
@@ -982,7 +1021,9 @@ int SWMMResultsLayer::periodIndexForDateTimeAsOf(const QDateTime &dt) const
     // 2026-07-19 — same reported-start origin as periodIndexForDateTime();
     // see the comment there.
     const QDateTime origin = reportedStartDateTime();
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
+    if (m_reportStepSec <= 0)
+        return recordedPeriodForTime(m_handle, m_totalSteps, dt, true);
+    if (m_totalSteps <= 0 || !origin.isValid())
         return 0;
     const qint64 offsetMs = origin.msecsTo(dt);
     const double periodF =
@@ -1093,11 +1134,11 @@ int SWMMResultsLayer::refreshLive()
             double reportedStartJulian = 0.0;
             swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
             m_reportedStartDateTime =
-                openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
+                openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
         }
         double endJulian = 0.0;
         swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-        m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
+        m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
 
         // Whole-file aggregates are stale the moment a period is appended.
         // Per-step result buffers are keyed by step and stay valid.
@@ -1159,7 +1200,7 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
     // period 0's report time; the old comment here was misleading).
     double startJulian = 0.0;
     swmm_output_get_start_date(m_handle, &startJulian);
-    m_startDateTime = openswmmvis::core::swmmDateTimeToQDateTime(startJulian);
+    m_startDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(startJulian);
 
     // 2026-07-19 — reported data origin: period 0's report time. This is
     // where the data frames actually begin (reportStart + reportStep),
@@ -1170,13 +1211,13 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
     double reportedStartJulian = startJulian;
     if (m_totalSteps > 0)
         swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
-    m_reportedStartDateTime = openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
+    m_reportedStartDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
 
     // End datetime from last period time.
     double endJulian = reportedStartJulian;
     if (m_totalSteps > 0)
         swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-    m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
+    m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
 
     const qint64 msMeta = loadTimer.elapsed(); // header scalars read
 
@@ -2398,7 +2439,7 @@ QDateTime SWMMResultsLayer::currentDateTime() const
 
     double t = 0.0;
     swmm_output_get_period_time(m_handle, m_currentStep, &t);
-    return openswmmvis::core::swmmDateTimeToQDateTime(t);
+    return openswmmvis::core::swmmDateTimeToMilliseconds(t);
 }
 
 int SWMMResultsLayer::totalTimeSteps() const

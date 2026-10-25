@@ -10,6 +10,7 @@
  */
 
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmmresultslayer.h"
 #include "animation/animationcontroller.h"
 #include "ui/widgets/cursorwindowslider.h"
 #include <QAction>
@@ -1108,6 +1109,81 @@ private slots:
                 QVERIFY(std::abs(vy) < 1e-5);
             }
         }
+    }
+
+    /** @brief Review saved flow overlays in the main project window, including a close zoom.
+     * Requires FLOW_STREAK_PROJECT with the T6A project and FLOW_PARTICLE_NATIVE_REVIEW.
+     * Opens existing results without running/saving the model; captures the visible window.
+     */
+    void nativeProjectFlowOverlays()
+    {
+        const auto path = qEnvironmentVariable("FLOW_STREAK_PROJECT");
+        if (path.isEmpty() || !qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))
+            QSKIP("Optional project-window flow overlay review");
+        SWMMVis app;
+        app.resize(1600, 1000);
+        QVERIFY(QMetaObject::invokeMethod(&app, "onOpenProject", Qt::DirectConnection,
+                                          Q_ARG(QString, path)));
+        SWMMVisProjectWindow *project = nullptr;
+        auto loaded = [&] {
+            for (auto *window : app.findChildren<SWMMVisProjectWindow *>())
+                if (window->active2DResultsLayer()) {
+                    project = window;
+                    return true;
+                }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(loaded(), 30000);
+        const auto cleanup = qScopeGuard([&] { project->setHasChanges(false); });
+        auto *layer = project->active2DResultsLayer();
+        auto *animation = app.findChild<AnimationController *>();
+        QVERIFY(animation);
+        animation->pause();
+        auto *primary = animation->primaryLayer();
+        QVERIFY(primary);
+        const auto time = layer->source()->simTimeAt(600);
+        QCOMPARE(layer->source()->simTimeAt(599).msecsTo(time), qint64(100));
+        QCOMPARE(primary->periodIndexForDateTime(time), 600);
+        QCOMPARE(primary->periodIndexForDateTimeAsOf(time), 600);
+        QCOMPARE(primary->periodIndexForDateTimeAsOf(time.addMSecs(-1)), 599);
+        QCOMPARE(primary->periodIndexForDateTime(time.addMSecs(49)), 600);
+        QCOMPARE(primary->periodIndexForDateTime(time.addMSecs(50)), 601);
+        animation->seekToTime(time);
+        QTRY_COMPARE_WITH_TIMEOUT(layer->currentTimeIndex(), 600, 30000);
+        auto *canvas = project->canvas();
+        const auto bounds = layer->m_sceneBBox;
+        canvas->setExtent({bounds.left(), -bounds.bottom(), bounds.right(), -bounds.top()}, false);
+        showNativeReview(app);
+        QTRY_VERIFY_WITH_TIMEOUT(canvas->compositionStats().active, 10000);
+        QTest::qWait(1500);
+        qInfo() << "project flow" << layer->currentTimeIndex() << layer->requestedTimeIndex()
+                << layer->hasVelocityData() << layer->flowStreakStatus() << bounds
+                << canvas->extent().width();
+        auto *root = compositionRoot(*canvas);
+        QVERIFY(root);
+        for (auto *renderer : root->findChildren<SWMM2DResultsQSGRenderer *>())
+            qInfo() << "project renderer" << renderer->displayedFrameRevision()
+                    << layer->frameRevision() << renderer->captureReady();
+        const auto folder = qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT", "tests/output/playback");
+        QVERIFY(QDir().mkpath(folder));
+        QVERIFY(app.grab().save(folder + "/project-window.png"));
+        QVERIFY(layer->hasVelocityData());
+        auto *controller = layer->findChild<FlowParticleController *>();
+        QVERIFY(controller);
+        QTRY_VERIFY_WITH_TIMEOUT(controller->latestFrame(), 10000);
+        QVERIFY(!controller->latestFrame()->particles.empty());
+        canvas->setExtent({-.5, -.8, 3., .8}, false);
+        QTest::qWait(1000);
+        qInfo() << "project zoom" << layer->flowStreakStatus();
+        QVERIFY(app.grab().save(folder + "/project-zoom.png"));
+        animation->play();
+        QTest::qWait(2000);
+        animation->pause();
+        QVERIFY(layer->currentTimeIndex() > 600);
+        QVERIFY(layer->hasVelocityData());
+        QTRY_VERIFY_WITH_TIMEOUT(controller->latestFrame() &&
+                                  !controller->latestFrame()->particles.empty(), 10000);
+        QVERIFY(app.grab().save(folder + "/project-playing.png"));
     }
 
     void nativeSavedContourPlayback()
