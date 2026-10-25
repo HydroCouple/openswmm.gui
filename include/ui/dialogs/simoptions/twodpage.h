@@ -129,13 +129,13 @@ public:
      * page's accessors rather than by reaching for its widgets.
      */
     struct ScheduleHooks {
-        std::function<qint64()> wetStepSeconds;
-        std::function<qint64()> reportStepSeconds;
+        std::function<double()> wetStepSeconds;
+        std::function<double()> reportStepSeconds;
         std::function<qint64()> durationSeconds;
     };
     /**
      * @brief Replace retained providers for mirrored cadence and output-duration estimates.
-     * @param hooks Moved callbacks returning qint64 wet/report/duration seconds; each may
+     * @param hooks Moved callbacks returning wet/report seconds and whole duration seconds; each may
      * be empty. Caller keeps captures live until replacement/page destruction. Invoked
      * synchronously on the GUI thread; exceptions propagate. Assignment invokes nothing
      * and does not refresh mirrored values or apply engine options.

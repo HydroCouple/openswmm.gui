@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright 2026 Caleb Buahin
 #include "ui/dialogs/simoptions/twodpage.h"
+#include "ui/dialogs/simoptions/datespage.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/simoptions/simoptionscontext.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_2d.h>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDir>
 #include <QFile>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QTest>
+#include <QTabWidget>
+#include <QTimeEdit>
+#include <qcustomeditors.h>
 #include <memory>
 
 using namespace openswmmvis::ui;
@@ -63,6 +69,64 @@ class Test2DMomentumOptions : public QObject
 {
     Q_OBJECT
 private slots:
+    void fractionalBenchmarkScheduleSurvivesOptionsAndSave()
+    {
+        Engine engine;
+        QCOMPARE(engine.open(), 0);
+        for (const char *key : {"REPORT_STEP", "WET_STEP", "DRY_STEP"})
+            QCOMPARE(swmm_options_set(engine.e, key, "0.1"), 0);
+        QCOMPARE(swmm_options_set(engine.e, "DRY_STEP", "0.123456"), 0);
+        SimOptionsContext context(engine.e, nullptr, nullptr, {});
+        DatesPage dates(context);
+        dates.read();
+        QCOMPARE(double(dates.reportStepSeconds()), .1);
+        QCOMPARE(double(dates.wetStepSeconds()), .1);
+        dates.tabs()->setCurrentIndex(DatesPage::TabSteps);
+        dates.resize(760, 550);
+        dates.show();
+        QCoreApplication::processEvents();
+        QVERIFY(dates.grab().save(QDir(outputDir()).filePath("fractional-clock.png")));
+        TwoDPage page(context);
+        page.setScheduleHooks({[&] { return dates.wetStepSeconds(); },
+                               [&] { return dates.reportStepSeconds(); },
+                               [&] { return dates.durationSeconds(); }});
+        QObject::connect(&dates, &DatesPage::scheduleChanged, &page, &TwoDPage::scheduleChanged);
+        page.read();
+        auto *mirror = page.findChild<QCustomTimespanEdit *>("report2DStepEdit");
+        QVERIFY(mirror);
+        QCOMPARE(mirror->findChild<QTimeEdit *>()->time().msec(), 100);
+        QCustomTimespanEdit *report = nullptr;
+        for (auto *edit : dates.findChildren<QCustomTimespanEdit *>())
+            if (edit->property("optionKey").toString().split(',').contains("REPORT_STEP"))
+                report = edit;
+        QVERIFY(report);
+        auto *clock = report->findChild<QTimeEdit *>();
+        QVERIFY(clock);
+        QCOMPARE(clock->displayFormat(), "HH:mm:ss.zzz");
+        clock->setTime(QTime(0, 0, 0, 200));
+        QCOMPARE(double(dates.reportStepSeconds()), .2);
+        QCOMPARE(mirror->findChild<QTimeEdit *>()->time().msec(), 200);
+        page.findChild<QCheckBox *>("report2DStepSameBox")->setChecked(false);
+        mirror->findChild<QTimeEdit *>()->setTime(QTime(0, 0, 0, 400));
+        page.findChild<QCheckBox *>("infil2DStepSameBox")->setChecked(false);
+        page.findChild<QCustomTimespanEdit *>("infil2DStepEdit")
+            ->findChild<QTimeEdit *>()->setTime(QTime(0, 0, 0, 125));
+        dates.write();
+        page.write();
+        const auto file = QDir(outputDir()).filePath("fractional-options.inp");
+        QCOMPARE(swmm_model_write(engine.e, file.toUtf8().constData()), 0);
+        Engine reopened;
+        QCOMPARE(reopened.open(file), 0);
+        char value[256]{};
+        QCOMPARE(swmm_options_get(reopened.e, "REPORT_STEP", value, sizeof value), 0);
+        QCOMPARE(QString::fromUtf8(value).toDouble(), .2);
+        QCOMPARE(swmm_options_get(reopened.e, "WET_STEP", value, sizeof value), 0);
+        QCOMPARE(QString::fromUtf8(value).toDouble(), .1);
+        QCOMPARE(swmm_options_get(reopened.e, "DRY_STEP", value, sizeof value), 0);
+        QCOMPARE(QString::fromUtf8(value).toDouble(), .123456);
+        QCOMPARE(get(reopened.e, "REPORT_2D_STEP").toDouble(), .4);
+        QCOMPARE(get(reopened.e, "INFIL_STEP").toDouble(), .125);
+    }
     void defaultsAndCancel()
     {
         Engine engine;

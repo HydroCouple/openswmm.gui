@@ -155,6 +155,23 @@ qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s, qint64 fallba
     return qRound64(secs);
 }
 
+double SimulationOptionsDialog::parsePreciseStepSeconds(const QString &s, double fallback)
+{
+    const auto text = s.trimmed();
+    const auto parts = text.split(QLatin1Char(':'));
+    if (text.isEmpty() || parts.size() > 3)
+        return fallback;
+    double seconds = 0;
+    for (const auto &part : parts) {
+        bool ok = false;
+        const double value = part.toDouble(&ok);
+        if (!ok || !std::isfinite(value) || value < 0)
+            return fallback;
+        seconds = seconds * 60 + value;
+    }
+    return std::isfinite(seconds) ? seconds : fallback;
+}
+
 bool SimulationOptionsDialog::optionValueEquals(const QString &a, const QString &b)
 {
     const QString ta = a.trimmed(), tb = b.trimmed();

@@ -53,6 +53,7 @@
 #include "layers/swmmmodellayer.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/widgets/fractionaltimespan.h"
 
 namespace openswmmvis::ui
 {
@@ -96,10 +97,10 @@ void TwoDPage::scheduleChanged()
     // Mirror the two project steps this page can follow, then re-estimate.
     if (m_report2DStepSameBox && m_report2DStepSameBox->isChecked() && m_report2DStepEdit &&
         m_schedule.reportStepSeconds)
-        m_report2DStepEdit->setTotalSeconds(m_schedule.reportStepSeconds());
+        setFractionalTimespanSeconds(m_report2DStepEdit, m_schedule.reportStepSeconds());
     if (m_infil2DStepSameBox && m_infil2DStepSameBox->isChecked() && m_infil2DStepEdit &&
         m_schedule.wetStepSeconds)
-        m_infil2DStepEdit->setTotalSeconds(m_schedule.wetStepSeconds());
+        setFractionalTimespanSeconds(m_infil2DStepEdit, m_schedule.wetStepSeconds());
     updateOutputSizeEstimate();
 }
 
@@ -559,7 +560,7 @@ void TwoDPage::buildUi()
     connect(m_infil2DStepSameBox, &QCheckBox::toggled, this, [this](bool same) {
         m_infil2DStepEdit->setEnabled(!same);
         if (same && m_schedule.wetStepSeconds)
-            m_infil2DStepEdit->setTotalSeconds(m_schedule.wetStepSeconds());
+            setFractionalTimespanSeconds(m_infil2DStepEdit, m_schedule.wetStepSeconds());
     });
 
     m_infil2DMethodCombo = new QComboBox(rainfallGroup);
@@ -837,7 +838,7 @@ void TwoDPage::buildUi()
     connect(m_report2DStepSameBox, &QCheckBox::toggled, this, [this](bool same) {
         m_report2DStepEdit->setEnabled(!same);
         if (same && m_schedule.reportStepSeconds)
-            m_report2DStepEdit->setTotalSeconds(m_schedule.reportStepSeconds());
+            setFractionalTimespanSeconds(m_report2DStepEdit, m_schedule.reportStepSeconds());
         updateOutputSizeEstimate();
     });
     connect(m_report2DStepEdit, &QCustomTimespanEdit::totalSecondsChanged, this,
@@ -1082,9 +1083,13 @@ void TwoDPage::tagWidgets()
     tagOption(m_output2DPrecisionCombo, "OUTPUT_PRECISION");
     tagOption(m_output2DCompressionSpin, "OUTPUT_COMPRESSION");
     tagOption(m_report2DStepEdit, "REPORT_2D_STEP");
+    tagOption(m_report2DStepEdit->findChild<QTimeEdit *>(), "REPORT_2D_STEP");
+    tagOption(m_report2DStepSameBox, "REPORT_2D_STEP");
     tagOption(m_report2DVarsList, "REPORT_2D_VARIABLES");
     tagOption(m_report2DSpeciesList, "REPORT_2D_SPECIES");
     tagOption(m_infil2DStepEdit, "INFIL_STEP");
+    tagOption(m_infil2DStepEdit->findChild<QTimeEdit *>(), "INFIL_STEP");
+    tagOption(m_infil2DStepSameBox, "INFIL_STEP");
     tagOption(m_infil2DModeCombo, "INFILTRATION");
     tagOption(m_infil2DMethodCombo, "INFIL_DEFAULT_METHOD");
     tagOption(m_infil2DDestCombo, "INFIL_DESTINATION");
@@ -1301,9 +1306,9 @@ void TwoDPage::updateOutputSizeEstimate()
     const int edgeStride = nQuads > 0 ? 4 : 3;
 
     const qint64 durationSec = m_schedule.durationSeconds ? m_schedule.durationSeconds() : 0;
-    const qint64 stepSec = m_report2DStepSameBox->isChecked()
+    const double stepSec = m_report2DStepSameBox->isChecked()
                                ? (m_schedule.reportStepSeconds ? m_schedule.reportStepSeconds() : 0)
-                               : m_report2DStepEdit->totalSeconds();
+                               : fractionalTimespanSeconds(m_report2DStepEdit);
     if (stepSec <= 0 || durationSec <= 0) {
         m_output2DSizeLabel->setText(tr("Set a positive duration and report step."));
         return;
@@ -1503,13 +1508,13 @@ void TwoDPage::read()
                       getExt("OUTPUT_PRECISION", QStringLiteral("FLOAT32")));
     m_output2DCompressionSpin->setValue(std::clamp(extInt("OUTPUT_COMPRESSION", 4), 0, 9));
     {
-        const qint64 step2d =
-            SOD::parseStepSeconds(getExt("REPORT_2D_STEP", QStringLiteral("0")), 0);
+        const double step2d =
+            SOD::parsePreciseStepSeconds(getExt("REPORT_2D_STEP", QStringLiteral("0")), 0);
         QSignalBlocker b1(m_report2DStepSameBox);
         QSignalBlocker b2(m_report2DStepEdit);
         m_report2DStepSameBox->setChecked(step2d <= 0);
         m_report2DStepEdit->setEnabled(step2d > 0);
-        m_report2DStepEdit->setTotalSeconds(
+        setFractionalTimespanSeconds(m_report2DStepEdit,
             step2d > 0 ? step2d
                        : (m_schedule.reportStepSeconds ? m_schedule.reportStepSeconds() : 0));
     }
@@ -1553,12 +1558,12 @@ void TwoDPage::read()
                                                     : tr("Automatic — off (no per-cell rows)")));
     }
     {
-        const qint64 step = SOD::parseStepSeconds(getExt("INFIL_STEP", QStringLiteral("0")), 0);
+        const double step = SOD::parsePreciseStepSeconds(getExt("INFIL_STEP", QStringLiteral("0")), 0);
         QSignalBlocker b1(m_infil2DStepSameBox);
         QSignalBlocker b2(m_infil2DStepEdit);
         m_infil2DStepSameBox->setChecked(step <= 0);
         m_infil2DStepEdit->setEnabled(step > 0);
-        m_infil2DStepEdit->setTotalSeconds(
+        setFractionalTimespanSeconds(m_infil2DStepEdit,
             step > 0 ? step : (m_schedule.wetStepSeconds ? m_schedule.wetStepSeconds() : 0));
     }
     selectComboByData(m_infil2DMethodCombo, getExt("INFIL_DEFAULT_METHOD", QStringLiteral("NONE")));
@@ -1693,15 +1698,11 @@ int TwoDPage::write()
         // Engine formats the key as HH:MM:SS; compare in seconds so an
         // untouched value is not re-written.
         ctx_.recordWrittenKey("REPORT_2D_STEP");
-        const qint64 cur = SOD::parseStepSeconds(getExt("REPORT_2D_STEP"), 0);
-        const qint64 nv =
-            m_report2DStepSameBox->isChecked() ? 0 : m_report2DStepEdit->totalSeconds();
+        const double cur = SOD::parsePreciseStepSeconds(getExt("REPORT_2D_STEP"), 0);
+        const double draft = m_report2DStepSameBox->isChecked() ? 0 : fractionalTimespanSeconds(m_report2DStepEdit);
+        const double nv = SOD::parsePreciseStepSeconds(ctx_.valueForWrite("REPORT_2D_STEP", QString::number(draft, 'g', 17), this, true), 0);
         if (cur != nv) {
-            const qint64 h = nv / 3600, m = (nv % 3600) / 60, s = nv % 60;
-            if (setExt("REPORT_2D_STEP", QStringLiteral("%1:%2:%3")
-                                             .arg(h, 2, 10, QLatin1Char('0'))
-                                             .arg(m, 2, 10, QLatin1Char('0'))
-                                             .arg(s, 2, 10, QLatin1Char('0'))))
+            if (setExt("REPORT_2D_STEP", QString::number(nv, 'g', 17)))
                 ++n;
         }
     }
@@ -1735,14 +1736,11 @@ int TwoDPage::write()
         // INFIL_STEP is the alias of [2D_INFILTRATION_OPTIONS] INFIL_STEP;
         // compare in seconds (engine spells HH:MM:SS).
         ctx_.recordWrittenKey("INFIL_STEP");
-        const qint64 cur = SOD::parseStepSeconds(getExt("INFIL_STEP"), 0);
-        const qint64 nv = m_infil2DStepSameBox->isChecked() ? 0 : m_infil2DStepEdit->totalSeconds();
+        const double cur = SOD::parsePreciseStepSeconds(getExt("INFIL_STEP"), 0);
+        const double draft = m_infil2DStepSameBox->isChecked() ? 0 : fractionalTimespanSeconds(m_infil2DStepEdit);
+        const double nv = SOD::parsePreciseStepSeconds(ctx_.valueForWrite("INFIL_STEP", QString::number(draft, 'g', 17), this, true), 0);
         if (cur != nv) {
-            const qint64 h = nv / 3600, m = (nv % 3600) / 60, sec = nv % 60;
-            if (setExt("INFIL_STEP", QStringLiteral("%1:%2:%3")
-                                         .arg(h, 2, 10, QLatin1Char('0'))
-                                         .arg(m, 2, 10, QLatin1Char('0'))
-                                         .arg(sec, 2, 10, QLatin1Char('0'))))
+            if (setExt("INFIL_STEP", QString::number(nv, 'g', 17)))
                 ++n;
         }
     }

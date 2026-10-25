@@ -31,6 +31,7 @@
 
 #include "core/preferencesmanager.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/widgets/fractionaltimespan.h"
 #include "ui/theme/themehelpers.h"
 
 namespace openswmmvis::ui
@@ -121,14 +122,14 @@ QString DatesPage::title() const
     return tr("Dates & Times");
 }
 
-qint64 DatesPage::wetStepSeconds() const
+double DatesPage::wetStepSeconds() const
 {
-    return m_wetStepEdit ? m_wetStepEdit->totalSeconds() : 0;
+    return fractionalTimespanSeconds(m_wetStepEdit);
 }
 
-qint64 DatesPage::reportStepSeconds() const
+double DatesPage::reportStepSeconds() const
 {
-    return m_reportStepEdit ? m_reportStepEdit->totalSeconds() : 0;
+    return fractionalTimespanSeconds(m_reportStepEdit);
 }
 
 qint64 DatesPage::durationSeconds() const
@@ -318,6 +319,12 @@ void DatesPage::tagWidgets()
     tagOption(m_reportStepEdit, "REPORT_STEP");
     tagOption(m_dryStepEdit, "DRY_STEP");
     tagOption(m_wetStepEdit, "WET_STEP");
+    // The composite's USER property is whole seconds. Track the child clock
+    // too so a millisecond edit is a real draft change, while untouched
+    // higher engine precision still survives an unrelated Apply.
+    tagOption(m_reportStepEdit->findChild<QTimeEdit *>(), "REPORT_STEP");
+    tagOption(m_dryStepEdit->findChild<QTimeEdit *>(), "DRY_STEP");
+    tagOption(m_wetStepEdit->findChild<QTimeEdit *>(), "WET_STEP");
     tagOption(m_ruleStepEdit, "RULE_STEP");
     tagOption(m_routingStepEdit, "ROUTING_STEP");
     tagOption(m_dryDaysSpin, "DRY_DAYS");
@@ -393,13 +400,13 @@ void DatesPage::read()
 
     // Engine round-trip for step values is loose: a step may come back as
     // plain seconds ("900"), decimal seconds ("900.000000") or as HH:MM:SS
-    // ("00:15:00", "48:00:00"). The static parseStepSeconds() helper
-    // (simulationoptionshelpers.cpp, unit-tested) accepts all three.
-    m_reportStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+    // ("00:15:00", "48:00:00"). Preserve fractional seconds for report,
+    // wet and dry steps; control-rule steps retain whole-second editing.
+    setFractionalTimespanSeconds(m_reportStepEdit, SOD::parsePreciseStepSeconds(
         ctx_.option("REPORT_STEP", QString::number(sim.reportStepSec)), sim.reportStepSec));
-    m_dryStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+    setFractionalTimespanSeconds(m_dryStepEdit, SOD::parsePreciseStepSeconds(
         ctx_.option("DRY_STEP", QString::number(sim.dryStepSec)), sim.dryStepSec));
-    m_wetStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+    setFractionalTimespanSeconds(m_wetStepEdit, SOD::parsePreciseStepSeconds(
         ctx_.option("WET_STEP", QString::number(sim.wetStepSec)), sim.wetStepSec));
     m_ruleStepEdit->setTotalSeconds(SOD::parseStepSeconds(
         ctx_.option("RULE_STEP", QString::number(sim.ruleStepSec)), sim.ruleStepSec));
@@ -456,9 +463,9 @@ int DatesPage::write()
     n += writeOption("REPORT_START_DATE", d);
     n += writeOption("REPORT_START_TIME", t);
 
-    n += writeOption("REPORT_STEP", QString::number(m_reportStepEdit->totalSeconds()));
-    n += writeOption("DRY_STEP", QString::number(m_dryStepEdit->totalSeconds()));
-    n += writeOption("WET_STEP", QString::number(m_wetStepEdit->totalSeconds()));
+    n += writeOption("REPORT_STEP", QString::number(fractionalTimespanSeconds(m_reportStepEdit), 'g', 17));
+    n += writeOption("DRY_STEP", QString::number(fractionalTimespanSeconds(m_dryStepEdit), 'g', 17));
+    n += writeOption("WET_STEP", QString::number(fractionalTimespanSeconds(m_wetStepEdit), 'g', 17));
     n += writeOption("RULE_STEP", QString::number(m_ruleStepEdit->totalSeconds()));
     {
         // Routing step is a plain text box; preserve the user's typed

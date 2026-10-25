@@ -105,12 +105,12 @@ public:
      * @brief Read the current wet-weather draft step.
      * @return Total editor seconds, or zero if its editor is absent; no engine query.
      */
-    [[nodiscard]] qint64 wetStepSeconds() const;
+    [[nodiscard]] double wetStepSeconds() const;
     /**
      * @brief Read the current reporting draft step.
      * @return Total editor seconds, or zero if its editor is absent; no engine query.
      */
-    [[nodiscard]] qint64 reportStepSeconds() const;
+    [[nodiscard]] double reportStepSeconds() const;
     /**
      * @brief Measure the current simulation-window draft using QDateTime::secsTo.
      * @return Nonnegative elapsed seconds, clamped to zero for reversed/equal endpoints
@@ -194,9 +194,9 @@ private:
     QDateTimeEdit *m_endEdit = nullptr;
     QDateTimeEdit *m_reportStartEdit = nullptr;
     QLabel *m_durationLabel = nullptr;               // "1d 02:30:00"
-    QCustomTimespanEdit *m_reportStepEdit = nullptr; // (days, HH:mm:ss)
-    QCustomTimespanEdit *m_dryStepEdit = nullptr;    // (days, HH:mm:ss)
-    QCustomTimespanEdit *m_wetStepEdit = nullptr;    // (days, HH:mm:ss)
+    QCustomTimespanEdit *m_reportStepEdit = nullptr; // (days, HH:mm:ss.zzz)
+    QCustomTimespanEdit *m_dryStepEdit = nullptr;    // (days, HH:mm:ss.zzz)
+    QCustomTimespanEdit *m_wetStepEdit = nullptr;    // (days, HH:mm:ss.zzz)
     QCustomTimespanEdit *m_ruleStepEdit = nullptr;   // (days, HH:mm:ss)
     QLineEdit *m_routingStepEdit = nullptr;          // seconds (float text)
     QDoubleSpinBox *m_dryDaysSpin = nullptr;         // days
