@@ -162,6 +162,8 @@ All but the routing step are entered as a timespan:
 | **Control rule step** | `RULE_STEP` — 0 evaluates rules every routing step |
 | **Routing step** | `ROUTING_STEP`, in decimal seconds (a plain text box, 0.001–3600) |
 
+Reporting, wet-weather and dry-weather timespans show milliseconds, so `00:00:00.100` represents the Test 6A reporting interval of 0.1 seconds. The 2D reporting and infiltration intervals retain the same precision, including when they mirror the project schedule. Unedited engine values with finer precision are preserved when applying unrelated options. Control-rule steps retain whole-second editing.
+
 **Skip steady state** used to sit here. It moved to *Routing & Hydraulics* ›
 *Routing*, because it is a property of how the router spends its steps rather
 than of the schedule — and because the engine honours `SKIP_STEADY_STATE` under

@@ -852,6 +852,7 @@ set(
         include/ui/widgets/rangeslider.h
         include/ui/widgets/statssummarypanel.h
         include/ui/widgets/labeledcontrols.h
+        include/ui/widgets/fractionaltimespan.h
         include/ui/widgets/treatmentexpressionedit.h
         include/ui/widgets/gwfexpressionedit.h
         # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.

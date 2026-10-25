@@ -263,6 +263,9 @@ public:
      */
     [[nodiscard]] static qint64 parseStepSeconds(const QString &s, qint64 fallback);
 
+    /** Parse finite nonnegative numeric seconds or HH:MM:SS without rounding. */
+    [[nodiscard]] static double parsePreciseStepSeconds(const QString &s, double fallback);
+
     /**
      * @brief Compare option renderings by trimmed equality or tolerant numeric value.
      * @param a Borrowed first rendering, normally the engine getter result.
