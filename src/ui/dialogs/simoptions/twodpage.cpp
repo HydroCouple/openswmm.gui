@@ -46,6 +46,7 @@
 #include <openswmm/engine/openswmm_infil2d.h> // U1: INFILTRATION AUTO label
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "core/preferencesmanager.h"
@@ -239,6 +240,53 @@ void TwoDPage::buildUi()
             [this](int) { refreshGates(); });
 
     t2HydLay->addWidget(m_marcherGroup);
+
+    m_momentumPhysicsGroup = new QGroupBox(tr("Optional momentum physics"), m_marcherGroup->parentWidget());
+    m_momentumPhysicsGroup->setObjectName("momentumPhysicsGroup");
+    auto *physicsForm = new QFormLayout(m_momentumPhysicsGroup);
+    m_coriolisCombo = new QComboBox(m_momentumPhysicsGroup);
+    m_coriolisCombo->setObjectName("coriolisCombo");
+    m_coriolisCombo->addItem(tr("Off"), "OFF");
+    m_coriolisCombo->addItem(tr("From latitude"), "LATITUDE");
+    m_coriolisCombo->addItem(tr("Specified parameter (advanced)"), "CONSTANT_F");
+    physicsForm->addRow(tr("Coriolis effect:"), m_coriolisCombo);
+    auto inputRow = [&](const QString &label, QLineEdit *&input, const char *name) {
+        auto *row = new QWidget(m_momentumPhysicsGroup);
+        auto *form = new QFormLayout(row);
+        form->setContentsMargins(0, 0, 0, 0);
+        input = new QLineEdit(row);
+        input->setObjectName(name);
+        form->addRow(label, input);
+        physicsForm->addRow(row);
+        return row;
+    };
+    m_coriolisLatitudeRow = inputRow(tr("Latitude (degrees north):"), m_coriolisLatitude,
+                                   "coriolisLatitudeEdit");
+    m_coriolisLatitude->setPlaceholderText(tr("Required, −90 to 90"));
+    m_coriolisLatitude->setToolTip(tr("Signed latitude: positive north, negative south. "
+                                     "One constant Coriolis parameter is used across the domain."));
+    m_coriolisFRow = inputRow(tr("Coriolis parameter (1/s):"), m_coriolisF, "coriolisFEdit");
+    m_coriolisF->setPlaceholderText(tr("For example, 1.0e-4"));
+    m_coriolisF->setToolTip(tr("Signed f in inverse seconds. Positive values rotate velocity "
+                              "clockwise in a right-handed horizontal coordinate system."));
+    m_turbulenceCombo = new QComboBox(m_momentumPhysicsGroup);
+    m_turbulenceCombo->setObjectName("turbulenceModelCombo");
+    m_turbulenceCombo->addItem(tr("Off"), "NONE");
+    m_turbulenceCombo->addItem(tr("Smagorinsky"), "SMAGORINSKY");
+    physicsForm->addRow(tr("Horizontal turbulent mixing:"), m_turbulenceCombo);
+    m_smagorinskyRow = inputRow(tr("Smagorinsky coefficient Cs:"), m_smagorinskyCs, "smagorinskyCsEdit");
+    m_smagorinskyCs->setToolTip(tr("Dimensionless coefficient; 0.10 is a starting value. "
+                                 "Investigate 0.05–0.20 and mesh sensitivity. Filter width is "
+                                 "the square root of each cell's area. This models horizontal "
+                                 "subgrid mixing in the depth-averaged equations."));
+    m_momentumPhysicsStatus = new QLabel(m_momentumPhysicsGroup);
+    m_momentumPhysicsStatus->setWordWrap(true);
+    physicsForm->addRow(m_momentumPhysicsStatus);
+    t2HydLay->addWidget(m_momentumPhysicsGroup);
+    connect(m_coriolisCombo, &QComboBox::currentIndexChanged, this, [this] { refreshGates(); });
+    connect(m_turbulenceCombo, &QComboBox::currentIndexChanged, this, [this] { refreshGates(); });
+    connect(m_ltsTiersSpin, &QSpinBox::valueChanged, this, [this] { refreshGates(); });
+
 
     // Same shape as the FV tab's "Finite volume performance" group: the
     // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
@@ -844,6 +892,8 @@ void TwoDPage::buildUi()
          "exchange and net-source fields (no GUI consumer today)."},
         {"GRADIENTS", "Reconstruction gradients (diagnostic)",
          "Mesh2_face_grad_* (4 fields) — solver diagnostics only."},
+        {"TURBULENCE", "Turbulent viscosity and strain",
+         "Smagorinsky eddy viscosity and strain-rate maps; written when mixing is enabled."},
         {"CONTINUITY", "Continuity error (diagnostic)",
          "Mesh2_face_continuity_err (+ its envelope) — solver diagnostics only."},
         {"ENVELOPES", "Run maxima (once per run)",
@@ -1019,6 +1069,11 @@ void TwoDPage::tagWidgets()
     tagOption(m_hMoveSpin, "H_MOVE");
     tagOption(m_froudeMaxSpin, "FROUDE_MAX");
     tagOption(m_momentum2DCombo, "MOMENTUM_EQUATION");
+    tagOption(m_coriolisCombo, "CORIOLIS");
+    tagOption(m_coriolisLatitude, "CORIOLIS_LATITUDE");
+    tagOption(m_coriolisF, "CORIOLIS_F");
+    tagOption(m_turbulenceCombo, "TURBULENCE_MODEL");
+    tagOption(m_smagorinskyCs, "SMAGORINSKY_CS");
     tagOption(m_reconOrder2DSpin, "RECONSTRUCTION_ORDER");
     tagOption(m_advection2DBox, "ADVECTION");
     tagOption(m_backend2DCombo, "BACKEND");
@@ -1046,10 +1101,45 @@ int TwoDPage::groundwaterRequested() const
     return mode == "NO" ? 0 : mode == "YES" ? 1 : -1;
 }
 
+bool TwoDPage::validate(QString *warn)
+{
+    if (!m_momentumPhysicsGroup->property("engineSupported").toBool()) return true;
+    auto fail = [&](const QString &text) { if (warn) *warn = text; return false; };
+    const bool enabled = m_coriolisCombo->currentData() != "OFF" ||
+                         m_turbulenceCombo->currentData() != "NONE";
+    if (enabled && (m_momentum2DCombo->currentData() != "FULL_SWE" || m_ltsTiersSpin->value() != 1))
+        return fail(tr("Coriolis and Smagorinsky require full shallow-water equations and one timestep tier."));
+    bool ok = false;
+    const double latitude = m_coriolisLatitude->text().trimmed().toDouble(&ok);
+    if ((!m_coriolisLatitude->text().trimmed().isEmpty() || m_coriolisCombo->currentData() == "LATITUDE") &&
+        (!ok || !std::isfinite(latitude) || latitude < -90 || latitude > 90))
+        return fail(tr("Enter a finite latitude between −90 and 90 degrees north."));
+    const double f = m_coriolisF->text().trimmed().toDouble(&ok);
+    if ((!m_coriolisF->text().trimmed().isEmpty() || m_coriolisCombo->currentData() == "CONSTANT_F") &&
+        (!ok || !std::isfinite(f)))
+        return fail(tr("Enter a finite Coriolis parameter in inverse seconds."));
+    const double cs = m_smagorinskyCs->text().trimmed().toDouble(&ok);
+    if (!ok || !std::isfinite(cs) || cs < 0)
+        return fail(tr("Enter a finite, nonnegative Smagorinsky coefficient."));
+    return true;
+}
+
 void TwoDPage::refreshGates()
 {
     const QString momentum = m_momentum2DCombo->currentData().toString();
     const bool localInertial = (momentum == QLatin1String("LOCAL_INERTIAL"));
+    if (m_momentumPhysicsGroup) {
+        m_coriolisLatitudeRow->setVisible(m_coriolisCombo->currentData() == "LATITUDE");
+        m_coriolisFRow->setVisible(m_coriolisCombo->currentData() == "CONSTANT_F");
+        m_smagorinskyRow->setVisible(m_turbulenceCombo->currentData() == "SMAGORINSKY");
+        const bool supported = m_momentumPhysicsGroup->property("engineSupported").toBool();
+        m_momentumPhysicsStatus->setText(supported
+            ? tr("Requires full shallow-water equations, one timestep tier, and uncoupled "
+                 "surface hydraulics. Runs on CPU. Walls add no turbulent tangential drag. "
+                 "Coriolis is generally relevant to larger water bodies and longer events.")
+            : tr("The loaded engine does not support these optional momentum processes."));
+    }
+
     // Preserve the authored ADVECTION value when changing closures: it only
     // controls the local-inertial face law, never the full-SWE flux.
     m_advection2DBox->setEnabled(localInertial);
@@ -1255,6 +1345,8 @@ void TwoDPage::updateOutputSizeEstimate()
         perFrame += 2.0 * nCells;
     if (on("GRADIENTS"))
         perFrame += 4.0 * nCells;
+    if (on("TURBULENCE"))
+        perFrame += 2.0 * nCells;
     if (on("CONTINUITY"))
         perFrame += 1.0 * nCells;
     const double bytesPer = m_output2DPrecisionCombo->currentData().toString().compare(
@@ -1354,6 +1446,21 @@ void TwoDPage::read()
     selectComboByData(m_momentum2DCombo,
                       getExt("MOMENTUM_EQUATION", QStringLiteral("LOCAL_INERTIAL")));
     m_reconOrder2DSpin->setValue(extInt("RECONSTRUCTION_ORDER", 1));
+    const QString coriolis = getExt("CORIOLIS", QString());
+    const bool momentumPhysicsSupported = !coriolis.isEmpty() &&
+                                         !getExt("TURBULENCE_MODEL", QString()).isEmpty();
+    m_momentumPhysicsGroup->setProperty("engineSupported", momentumPhysicsSupported);
+    m_momentumPhysicsGroup->setEnabled(momentumPhysicsSupported);
+    selectComboByData(m_coriolisCombo, coriolis.isEmpty() ? "OFF" : coriolis);
+    selectComboByData(m_turbulenceCombo, getExt("TURBULENCE_MODEL", "NONE"));
+    auto readOptional = [&](QLineEdit *edit, const char *key, const char *fallback) {
+        const QString text = getExt(key, fallback);
+        edit->setText(text == "UNSET" ? QString() : text);
+    };
+    readOptional(m_coriolisLatitude, "CORIOLIS_LATITUDE", "UNSET");
+    readOptional(m_coriolisF, "CORIOLIS_F", "UNSET");
+    readOptional(m_smagorinskyCs, "SMAGORINSKY_CS", "0.1");
+
     m_advection2DBox->setChecked(
         SOD::parseEngineBool(getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
     // No preferences default: the engine's AUTO is the only sensible seed.
@@ -1542,6 +1649,16 @@ int TwoDPage::write()
     writeIfChanged("FROUDE_MAX", QString::number(m_froudeMaxSpin->value(), 'g', 17));
     writeIfChanged("MOMENTUM_EQUATION", m_momentum2DCombo->currentData().toString());
     writeIfChanged("RECONSTRUCTION_ORDER", QString::number(m_reconOrder2DSpin->value()));
+    if (m_momentumPhysicsGroup->property("engineSupported").toBool()) {
+        writeIfChanged("CORIOLIS", m_coriolisCombo->currentData().toString());
+        writeIfChanged("CORIOLIS_LATITUDE", m_coriolisLatitude->text().trimmed().isEmpty()
+                           ? "UNSET" : m_coriolisLatitude->text().trimmed());
+        writeIfChanged("CORIOLIS_F", m_coriolisF->text().trimmed().isEmpty()
+                           ? "UNSET" : m_coriolisF->text().trimmed());
+        writeIfChanged("TURBULENCE_MODEL", m_turbulenceCombo->currentData().toString());
+        writeIfChanged("SMAGORINSKY_CS", m_smagorinskyCs->text().trimmed());
+    }
+
     writeIfChanged("ADVECTION", SOD::engineBoolString(m_advection2DBox->isChecked()));
     writeIfChanged("BACKEND", m_backend2DCombo->currentData().toString());
     writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked() ? QStringLiteral("AUTO")

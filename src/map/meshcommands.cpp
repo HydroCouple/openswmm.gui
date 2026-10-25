@@ -600,6 +600,14 @@ bool setEdgeAttr(MeshEdgeBC &bc, const QByteArray &key, const QVariant &value)
         if (!ok || t < int(MeshBCTypes::Type::Wall) || t > int(MeshBCTypes::Type::RatingCurve))
             return false;
         bc.type = static_cast<MeshBCTypes::Type>(t);
+        if (bc.type != MeshBCTypes::Type::Wall) bc.wallDrag = 0;
+        return true;
+    }
+    if (key == "wallDrag") {
+        bool ok = false;
+        const double c = value.toDouble(&ok);
+        if (!ok || !std::isfinite(c) || c < 0 || bc.type != MeshBCTypes::Type::Wall) return false;
+        bc.wallDrag = c;
         return true;
     }
     if (key == "head") {
