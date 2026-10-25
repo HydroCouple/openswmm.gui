@@ -190,7 +190,10 @@ int AnimationController::driverCurrentStep() const
     if (m_primaryLayer)
         return m_primaryLayer->currentTimeStep();
     if (m_fallback2D)
-        return m_fallback2D->currentTimeIndex();
+        // Advance from the requested cursor while the last fit is in flight.
+        // Reusing the displayed cursor repeats the same request on fast ticks
+        // and makes the speed control stall at the reconstruction rate.
+        return std::max(0, m_fallback2D->requestedTimeIndex());
     return 0;
 }
 
@@ -364,6 +367,7 @@ void AnimationController::play()
     // ping-pong cycle could have left m_direction at -1 and the user
     // would press Play and watch the layer rewind.
     m_direction = 1;
+    m_stopped = false;
     m_playing = true;
     updateTimerInterval();
     m_timer->start();
@@ -382,8 +386,17 @@ void AnimationController::pause()
 
 void AnimationController::stop()
 {
-    pause();
+    m_stopped = true;
+    if (m_playing)
+        pause();
+    else
+        emit playStateChanged(false); // Stop also clears an already selected Pause.
     driverSetStep(0);
+    // A 2D fit can complete asynchronously; acknowledge the transport request
+    // immediately so the slider does not appear stuck while frame zero loads.
+    emit currentPeriodChanged(0);
+    if (const auto start = driverStartTime(); start.isValid())
+        emit currentTimeChanged(start);
 }
 
 void AnimationController::stepForward()

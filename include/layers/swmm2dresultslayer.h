@@ -2432,7 +2432,8 @@ private:
      *   contribution uses0.75 depth weight. Grows auto velocity bound and reuses GUI scratch
      *   storage. No source writes, coordinate-vector reprojection or direct signals.
      */
-    void applyCurrentFlux_(); ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
+    void applyCurrentFlux_(const std::vector<float> *savedVx = nullptr,
+                           const std::vector<float> *savedVy = nullptr);
 
     /*!
      * \brief Metres-to-model-CRS-unit divisor for the source coordinates.
@@ -2583,7 +2584,7 @@ private:
         size_t workspaceBytes = 0;
         CellWaterGeometry::VisibilityPolicy policy;
         std::vector<CellWaterGeometry::Surface> surfaces;
-        std::vector<float> depths, flux;                           // inputs
+        std::vector<float> depths, flux, velocityX, velocityY;     // inputs
         std::vector<CellWaterGeometry::CornerDepths> flow, smooth; // outputs
     };
     /**

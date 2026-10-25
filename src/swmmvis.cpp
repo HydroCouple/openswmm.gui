@@ -2073,14 +2073,22 @@ void SWMMVis::initializeAnimationToolBar()
                 PreferencesManager::instance()->setAnimationSpeed(speed);
             });
 
+    auto syncPlaybackActions = [this]() {
+        QSignalBlocker bPlay(ui->actionPlay);
+        QSignalBlocker bPause(ui->actionPause);
+        ui->actionPlay->setChecked(mAnimationController->isPlaying());
+        ui->actionPause->setChecked(!mAnimationController->isPlaying() &&
+                                    !mAnimationController->isStopped());
+    };
     // Wire toolbar actions to controller.
     // actionPlay is checkable (toggle); use triggered(bool) so both check and
     // uncheck transitions are caught. Checked = playing, unchecked = paused.
-    connect(ui->actionPlay, &QAction::triggered, this, [this](bool checked) {
+    connect(ui->actionPlay, &QAction::triggered, this, [this, syncPlaybackActions](bool checked) {
         if (checked)
             mAnimationController->play();
         else
             mAnimationController->pause();
+        syncPlaybackActions(); // Also reconcile Play when there is no usable driver.
     });
     // Dedicated Pause button — pauses playback regardless of actionPlay
     // state, and stays checked while the controller is paused (so the
@@ -2088,8 +2096,18 @@ void SWMMVis::initializeAnimationToolBar()
     // updated by the playStateChanged handler below, keeping the two
     // toggles consistent.
     connect(ui->actionPause, &QAction::triggered, this,
-            [this]() { mAnimationController->pause(); });
-    connect(ui->actionStop, &QAction::triggered, mAnimationController, &AnimationController::stop);
+            [this, syncPlaybackActions]() {
+                mAnimationController->pause();
+                syncPlaybackActions();
+            });
+    connect(ui->actionStop, &QAction::triggered, this, [this]() {
+        if (mScrubCoalesceTimer)
+            mScrubCoalesceTimer->stop();
+        mPendingSeekTime = {};
+        mAnimationController->stop();
+        QSignalBlocker block(mAnimationSlider);
+        mAnimationSlider->setCursorNorm(0);
+    });
     connect(ui->actionSkipBack, &QAction::triggered, mAnimationController,
             &AnimationController::stepBackward);
     connect(ui->actionSkipForward, &QAction::triggered, mAnimationController,
@@ -2099,12 +2117,8 @@ void SWMMVis::initializeAnimationToolBar()
     // controller so stop() / seek-to-end / a Pause click each leave the
     // toolbar reflecting reality without a feedback loop.
     connect(mAnimationController, &AnimationController::playStateChanged, this,
-            [this](bool playing) {
-                QSignalBlocker bPlay(ui->actionPlay);
-                QSignalBlocker bPause(ui->actionPause);
-                ui->actionPlay->setChecked(playing);
-                ui->actionPause->setChecked(!playing);
-            });
+            [syncPlaybackActions](bool) { syncPlaybackActions(); });
+    syncPlaybackActions();
 
     // DateTime display (read-only — controller drives it). Also fans the
     // time scrub out to any 2D results layer on the active canvas so the

@@ -313,6 +313,32 @@ per-species metadata; older files without that information remain labelled
 unknown. Zero concentration is a valid value, separate from missing or waterless
 data. Groundwater values do not disappear merely because surface depth is zero.
 
+The catalog is discovered from the output file; fields appear only when the
+simulation wrote them. The currently supported pollutant and groundwater fields
+are:
+
+| Group | Fields available for independent styling |
+| --- | --- |
+| Surface chemistry | Concentration of each named pollutant or reaction species (`Mesh2_face_species_conc`), and buildup per species (`Mesh2_face_buildup`). Transported age/temperature appear when present in the species catalog. |
+| Groundwater state | Water-table elevation, aquifer-base elevation, saturated thickness (`gw_hg`), equivalent unsaturated water storage (`gw_hu`), closure code, and water content in each sigma layer (`gw_theta_sigma`). |
+| Groundwater exchange | Recharge/capillary rise, lateral Darcy flow, exchange with nodes, deep percolation, subsurface ET, saturation excess, infiltration input, and conduit seepage (`gw_recharge`, `gw_lateral`, `gw_node_exchange`, `gw_deep`, `gw_et`, `gw_dunne`, `gw_infil_in`, `gw_link_seepage`). |
+| Infiltration accounting | Receiving capacity, remaining allowance, refresh time, pending volume, rejected delivery, cumulative rejection, and cumulative saturation excess (`gw_infil_capacity`, `gw_infil_remaining`, `gw_infil_refresh`, `gw_infil_pending`, `gw_reject`, `gw_reject_cum`, `gw_dunne_cum`). |
+| Groundwater chemistry | Each named species' saturated and unsaturated concentrations (`gw_sat_conc`, `gw_unsat_conc`), plus dissolved concentration and total inventory for each saved soil layer (`gw_layer_conc`, `gw_layer_mass`). |
+| Related surface/soil fields | Infiltration rate/cumulative infiltration; surface and potential ET rates; ET stress, refresh and pending demand; cumulative potential, surface, soil and unused ET; and single-value-per-cell water, bed and soil temperature/energy/heat-capacity fields when written. |
+
+Names abbreviated above have the `Mesh2_face_` prefix. The same catalog also
+exposes numeric scalar cell outputs such as depth, head, velocity components,
+rainfall, terrain elevation, roughness and maximum-depth/velocity envelopes.
+This is a plan-view display on the 2D cells: selecting a groundwater layer
+chooses a saved vertical slice, not a 3D volume view.
+
+There are limits to discovery. Extra species/layer axes need explicit reader
+support: bed-species concentration/exchange/inventory and the separate
+`Mesh2_face_soil_layer_*` temperature/energy arrays are not currently exposed as
+these map sublayers. Basin-wide ledgers and cumulative node tables are not
+cell fields. The style panel reports unsupported or ambiguous dataset metadata
+instead of guessing axes or species identities.
+
 Live groundwater snapshots include table/base elevations and SAT/UNSAT
 concentrations with native units. Captures remain readable after the simulation
 ends. Current-frame and explicit ranges work on retained live history; a
