@@ -648,6 +648,12 @@ QString parseBCLine(const QString &raw, BCRow &row)
 
     switch (type) {
     case MeshBCTypes::Type::Wall:
+        if (tok[2].compare(QLatin1String("WALL_DRAG"), Qt::CaseInsensitive) == 0) {
+            bool ok = false;
+            row.bc.wallDrag = p1.toDouble(&ok);
+            if (!ok || !std::isfinite(row.bc.wallDrag) || row.bc.wallDrag < 0)
+                return QStringLiteral("WALL_DRAG requires a finite nonnegative Cw");
+        }
         break;
     case MeshBCTypes::Type::NormalFlow:
         row.bc.slope = p1.toDouble();

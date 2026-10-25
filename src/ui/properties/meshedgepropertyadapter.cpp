@@ -84,6 +84,15 @@ double MeshEdgePropertyAdapter::bcHead() const
 {
     return currentBC(m_layer, m_tri, m_e).head;
 }
+double MeshEdgePropertyAdapter::wallDrag() const
+{
+    return currentBC(m_layer, m_tri, m_e).wallDrag;
+}
+void MeshEdgePropertyAdapter::setWallDrag(double v)
+{
+    if (isBoundary() && std::isfinite(v) && v >= 0 && bcType() == 0)
+        mutate([v](mesh::MeshEdgeBC &bc) { bc.wallDrag = v; });
+}
 double MeshEdgePropertyAdapter::bcSlope() const
 {
     return currentBC(m_layer, m_tri, m_e).slope;
@@ -122,6 +131,7 @@ void MeshEdgePropertyAdapter::setBCType(int newType)
 {
     mutate([newType](mesh::MeshEdgeBC &bc) {
         bc.type = static_cast<mesh::MeshBCTypes::Type>(newType);
+        if (bc.type != mesh::MeshBCTypes::Type::Wall) bc.wallDrag = 0;
     });
 }
 
@@ -185,6 +195,8 @@ QString MeshEdgePropertyAdapter::displayLabelFor(const QString &property) const
         return QCoreApplication::translate("MeshEdge", "BC type");
     if (property == QStringLiteral("bcHead"))
         return QCoreApplication::translate("MeshEdge", "BC stage");
+    if (property == QStringLiteral("wallDrag"))
+        return QCoreApplication::translate("MeshEdge", "Wall drag Cw (zero = free slip)");
     if (property == QStringLiteral("bcSlope"))
         return QCoreApplication::translate("MeshEdge", "BC friction slope");
     if (property == QStringLiteral("bcFlow"))

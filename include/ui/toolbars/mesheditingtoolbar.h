@@ -765,6 +765,7 @@ private:
 
     // Param-page widgets (held directly so the apply path reads values
     // without going through QStackedWidget::currentWidget casts).
+    QDoubleSpinBox *m_wallDragSpin = nullptr;
     QDoubleSpinBox *m_slopeSpin = nullptr; // NormalFlow
     QDoubleSpinBox *m_stageSpin = nullptr; // SpecifiedStageConst
     QComboBox *m_stageTSCombo = nullptr;   // SpecifiedStageTS — editable combo over registry

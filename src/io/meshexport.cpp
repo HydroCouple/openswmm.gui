@@ -214,6 +214,7 @@ ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC>
              << makeField(QStringLiteral("conveyance"), tr_("Conveyance"), FieldType::Real)
              << bcType
              << makeField(QStringLiteral("head"), tr_("Stage"), FieldType::Real, lengthUnit)
+             << makeField(QStringLiteral("wall_drag"), tr_("Wall drag Cw"), FieldType::Real)
              << makeField(QStringLiteral("slope"), tr_("Bed slope"), FieldType::Real)
              << makeField(QStringLiteral("flow"), tr_("Flow per unit length"), FieldType::Real)
              << makeField(QStringLiteral("tseries"), tr_("Time series"), FieldType::Text)
@@ -270,7 +271,7 @@ ExportTable edgeTable(const mesh::MeshResult &m, const QVector<mesh::MeshEdgeBC>
         row.points << pa << pb;
         row.values << c << e << boundary << QLineF(pa, pb).length() << bc.conveyance
                    << (boundary ? QVariant(token) : QVariant()) << param("head", bc.head)
-                   << param("slope", bc.slope) << param("flow", bc.flow)
+                   << param("wall_drag", bc.wallDrag) << param("slope", bc.slope) << param("flow", bc.flow)
                    << param("tseries", bc.tseries) << param("curve", bc.curve)
                    << (boundary && !bc.group.isEmpty() ? QVariant(bc.group) : QVariant());
         t.rows << row;

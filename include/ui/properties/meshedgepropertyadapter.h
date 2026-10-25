@@ -31,6 +31,7 @@ class MeshEdgePropertyAdapter : public QObject
     Q_PROPERTY(double length READ length)
     Q_PROPERTY(int bcType READ bcType WRITE setBCType NOTIFY changed)
     Q_PROPERTY(double bcHead READ bcHead WRITE setBCHead NOTIFY changed)
+    Q_PROPERTY(double wallDrag READ wallDrag WRITE setWallDrag NOTIFY changed)
     Q_PROPERTY(double bcSlope READ bcSlope WRITE setBCSlope NOTIFY changed)
     Q_PROPERTY(double bcFlow READ bcFlow WRITE setBCFlow NOTIFY changed)
     Q_PROPERTY(QString bcTseries READ bcTseries WRITE setBCTseries NOTIFY changed)
@@ -78,6 +79,8 @@ public:
      * @return Dimensionless normal-flow friction slope; missing storage reads as zero (engine treats zero slope as a wall).
      */
     [[nodiscard]] double bcSlope() const;
+    [[nodiscard]] double wallDrag() const;
+    void setWallDrag(double v);
     /**
      * @return Constant prescribed discharge per metre of edge in project flow units per metre; missing storage reads as zero.
      */

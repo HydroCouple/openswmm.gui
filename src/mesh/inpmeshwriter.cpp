@@ -1219,7 +1219,7 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
     bool anyNonDefault = false;
     for (const auto &bc : bcs) {
         if (bc.type != MeshBCTypes::Type::Wall || !bc.group.isEmpty() || bc.head != 0.0 ||
-            bc.slope != 0.0 || bc.flow != 0.0 || !bc.tseries.isEmpty() || !bc.curve.isEmpty()) {
+            bc.slope != 0.0 || bc.flow != 0.0 || bc.wallDrag != 0.0 || !bc.tseries.isEmpty() || !bc.curve.isEmpty()) {
             anyNonDefault = true;
             break;
         }
@@ -1234,7 +1234,7 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
                        ";; TRI    EDGE  TYPE             PARAM_1              PARAM_2  GROUP\n"));
     for (int flat = 0; flat < bcs.size(); ++flat) {
         const auto &bc = bcs[flat];
-        if (bc.type == MeshBCTypes::Type::Wall && bc.group.isEmpty())
+        if (bc.type == MeshBCTypes::Type::Wall && bc.group.isEmpty() && bc.wallDrag == 0)
             continue; // skip default-Wall rows to keep section compact
         // Unified cell index + local edge (0..2 triangle, 0..3 quad); a
         // triangle's padding slot 3 stays default-Wall and is skipped above.
@@ -1243,6 +1243,7 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
         QString param1 = QStringLiteral("*");
         switch (bc.type) {
         case MeshBCTypes::Type::Wall:
+            if (bc.wallDrag > 0) param1 = QString::number(bc.wallDrag, 'g', kPersistencePrecision);
             break;
         case MeshBCTypes::Type::NormalFlow:
             param1 = QString::number(bc.slope, 'g', kPersistencePrecision);
@@ -1265,7 +1266,7 @@ QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
         out.append(QStringLiteral("%1 %2 %3 %4 %5 %6\n")
                        .arg(tri, 6)
                        .arg(e, 4)
-                       .arg(MeshBCTypes::inpToken(bc.type), -16)
+                       .arg(bc.type == MeshBCTypes::Type::Wall && bc.wallDrag > 0 ? QStringLiteral("WALL_DRAG") : MeshBCTypes::inpToken(bc.type), -16)
                        .arg(param1, -20)
                        .arg(QStringLiteral("*"), -7) // PARAM_2 reserved
                        .arg(group));

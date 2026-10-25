@@ -85,6 +85,7 @@ public:
      * gates. Does not write options, refresh the construction-time species catalog or save.
      */
     void read() override;
+    bool validate(QString *warn) override;
     /**
      * @brief Attempt surface drafts through extension setters and grouped aquifer process setter.
      * @return Successful independent extension writes plus one for a changed successful
@@ -286,6 +287,11 @@ private:
     QSpinBox *m_ltsTiersSpin = nullptr;
     QDoubleSpinBox *m_hMoveSpin = nullptr;
     QDoubleSpinBox *m_froudeMaxSpin = nullptr;
+    QComboBox *m_coriolisCombo = nullptr, *m_turbulenceCombo = nullptr;
+    QLineEdit *m_coriolisLatitude = nullptr, *m_coriolisF = nullptr, *m_smagorinskyCs = nullptr;
+    QWidget *m_coriolisLatitudeRow = nullptr, *m_coriolisFRow = nullptr, *m_smagorinskyRow = nullptr;
+    QGroupBox *m_momentumPhysicsGroup = nullptr;
+    QLabel *m_momentumPhysicsStatus = nullptr;
     QComboBox *m_momentum2DCombo = nullptr; ///< MOMENTUM_EQUATION
     QSpinBox *m_reconOrder2DSpin = nullptr; ///< RECONSTRUCTION_ORDER
     QCheckBox *m_advection2DBox = nullptr;

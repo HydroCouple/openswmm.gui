@@ -22,10 +22,16 @@
 #include "mesh/meshobjectref.h"
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
+#include "mesh/inpmeshwriter.h"
+#include "mesh/inpmeshreader.h"
+#include <QDir>
+#include <QFile>
+#include "mesh/meshedgebcremap.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
 
+#include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -160,6 +166,67 @@ class TestMeshEditingToolbarBc : public QObject
 {
     Q_OBJECT
 private slots:
+    void selectiveWallDragBulkUndoAndRemap()
+    {
+        Rig rig;
+        auto* action=rig.tb.findChild<QAction *>("actionMeshSelectEdge");
+        QVERIFY(action); action->setChecked(true);
+        const auto bs=boundarySlots(*rig.layer,3);
+        QCOMPARE(bs.size(),3);
+        auto* spin=rig.tb.findChild<QDoubleSpinBox *>("meshBcWallDragSpin");
+        QVERIFY(spin);
+        rig.select({bs[0],bs[1]});
+        QVERIFY(spin->isEnabled());
+        spin->setValue(.02);
+        const int a=mesh::edgeSlot(bs[0].first,bs[0].second);
+        const int b=mesh::edgeSlot(bs[1].first,bs[1].second);
+        const int c=mesh::edgeSlot(bs[2].first,bs[2].second);
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,.02);
+        QCOMPARE(rig.layer->edgeBCs()[b].wallDrag,.02);
+        QCOMPARE(rig.layer->edgeBCs()[c].wallDrag,0.);
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,0.);
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,.02);
+        rig.select({bs[2]}); QCOMPARE(spin->value(),0.);
+        rig.select({bs[0]}); QCOMPARE(spin->value(),.02);
+        QVERIFY(mesh::InpMeshWriter::buildBCSectionText(rig.layer->edgeBCs()).contains("WALL_DRAG"));
+        MeshAttributeTableModel table;
+        table.setSource(rig.layer,Kind::Edge);
+        int column=-1;
+        for(int i=0;i<table.columnSpecs().size();++i)
+            if(table.columnSpecs()[i].key=="wallDrag") column=i;
+        QVERIFY(column>=0);
+        const int row=table.rowForRef(mesh::MeshObjectRef::edge(QString(),bs[0].first,bs[0].second));
+        QVERIFY(row>=0);
+        QCOMPARE(table.data(table.index(row,column)).toDouble(),.02);
+        auto refined=makeStrip(8);
+        for(auto& v:refined.vertices) v.xy.setX(v.xy.x()*.5);
+        const auto remap=mesh::remapEdgeBCs(rig.layer->mesh(),rig.layer->edgeBCs(),refined);
+        int retained=0;
+        for(const auto& bc:remap.bcs) if(bc.wallDrag==.02) ++retained;
+        QCOMPARE(retained,4); QCOMPARE(remap.droppedAssignments,0);
+        const auto dir=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../verification/wall_friction_2026-10-24/gui-results");
+        QDir().mkpath(dir);
+        spin->parentWidget()->resize(440,60); spin->parentWidget()->show();
+        QTest::qWait(20);
+        spin->parentWidget()->grab().save(QDir(dir).filePath("wall-editor.png"));
+        QFile file(QDir(dir).filePath("gui-wall.inp"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QByteArray text="[2D_VERTICES]\n";
+        for(const auto& v:rig.layer->mesh().vertices)
+            text+=QString("%1 %2 0\n").arg(v.xy.x()).arg(v.xy.y()).toUtf8();
+        text+="[2D_TRIANGLES]\n";
+        for(const auto& t:rig.layer->mesh().triangles)
+            text+=QString("%1 %2 %3 .01 .5\n").arg(t.v0).arg(t.v1).arg(t.v2).toUtf8();
+        text+=mesh::InpMeshWriter::buildBCSectionText(rig.layer->edgeBCs()).toUtf8();
+        file.write(text); file.close();
+        const auto reopened=mesh::InpMeshReader::read(file.fileName());
+        QVERIFY2(reopened.errorMsg.isEmpty(),qPrintable(reopened.errorMsg));
+        QCOMPARE(reopened.edgeBCs[a].wallDrag,.02);
+    }
+
 
     /*! The reported bug: after a bulk assignment, selecting one edge must
      *  show THAT edge's timeseries, not the last multi-selection's. */

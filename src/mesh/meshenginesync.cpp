@@ -239,6 +239,8 @@ QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &
                 using T = MeshBCTypes::Type;
                 switch (b.type) {
                 case T::Wall:
+                    if (!std::isfinite(b.wallDrag) || b.wallDrag < 0)
+                        reason = tr("wall drag Cw must be finite and nonnegative");
                     break;
                 case T::NormalFlow:
                     if (!std::isfinite(b.slope) || b.slope < 0)
@@ -526,6 +528,8 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
                 if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngWall),
                               "edge boundary type", t, e))
                     return false;
+                if (!accepted(swmm_2d_set_edge_wall_drag(engine, t, e, b.wallDrag), "wall drag", t, e))
+                    return false;
                 break;
             case T::NormalFlow:
                 if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngNormalFlow),
@@ -579,6 +583,9 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
                     return false;
                 break;
             }
+            if (!accepted(swmm_2d_set_edge_bc_group(engine, t, e, b.group.toUtf8().constData()),
+                          "edge boundary group", t, e))
+                return false;
         }
     }
 

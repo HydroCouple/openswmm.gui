@@ -309,6 +309,8 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.fields = {
             fixedField("bc_type", "Boundary-condition type.", /*required=*/true, bcTypeChoices(),
                        mesh::MeshBCTypes::inpToken(mesh::MeshBCTypes::Type::Wall)),
+            realField("wall_drag", "Tangential wall Cw (zero = free slip).",
+                      /*required=*/false, 0.0),
             realField("head", "Water-surface elevation (Specified Stage).",
                       /*required=*/false, 0.0, FieldUnit::Length),
             realField("slope", "Friction slope (Normal Depth).", /*required=*/false, 0.001),
@@ -472,7 +474,7 @@ bool bcFieldApplies(const QString &bcType, const QString &field)
     const QString f = field.toLower();
     static const QStringList kParameters = {QStringLiteral("head"), QStringLiteral("slope"),
                                             QStringLiteral("flow"), QStringLiteral("tseries"),
-                                            QStringLiteral("curve")};
+                                            QStringLiteral("curve"), QStringLiteral("wall_drag")};
     if (!kParameters.contains(f))
         return true; // bc_type, group, conveyance and every other field
 
@@ -483,7 +485,7 @@ bool bcFieldApplies(const QString &bcType, const QString &field)
         return true; // an unknown type greys nothing out
     switch (t) {
     case T::Wall:
-        return false;
+        return f == QLatin1String("wall_drag");
     case T::NormalFlow:
         return f == QLatin1String("slope");
     case T::SpecifiedStageConst:

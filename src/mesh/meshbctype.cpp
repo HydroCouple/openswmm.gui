@@ -65,7 +65,7 @@ MeshBCTypes::Type MeshBCTypes::fromInpToken(const QString &token, bool *ok)
             *ok = v;
     };
     set(true);
-    if (u == QStringLiteral("WALL"))
+    if (u == QStringLiteral("WALL") || u == QStringLiteral("WALL_DRAG"))
         return Type::Wall;
     if (u == QStringLiteral("NORMAL_FLOW"))
         return Type::NormalFlow;

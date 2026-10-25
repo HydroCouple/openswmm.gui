@@ -353,8 +353,14 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_bcParamStack->addWidget(page);
     };
 
-    // 0 Wall — empty page.
-    m_bcParamStack->addWidget(new QWidget(m_bcParamStack));
+    // 0 Wall — optional tangential traction; zero preserves free slip.
+    makeSpinPage(&m_wallDragSpin, tr("Wall drag Cw:"), 0.0, 1.0e6, 10, 0.001,
+        tr("Optional tangential wall friction: tau/rho = -Cw |ut| ut.\n"
+           "Zero = free slip. Dimensionless; independent of bed Manning roughness.\n"
+           "Applies only to selected solid wall edges, using wetted wall area.\n"
+           "Requires CPU FULL_SWE, one time tier, uncoupled surface hydraulics."));
+    m_wallDragSpin->setSpecialValueText(tr("Free slip"));
+    m_wallDragSpin->setObjectName(QStringLiteral("meshBcWallDragSpin"));
     // 1 NormalFlow — slope spin.
     makeSpinPage(&m_slopeSpin, tr("Friction slope:"), -1.0, 1.0, 5, 0.001,
                  tr("Friction slope for a Normal Depth boundary (dimensionless), SIGNED.\n\n"
@@ -432,6 +438,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // Apply-as-you-go commit handlers — every parameter widget writes
     // through to all currently-selected edges on commit.
     auto commitBC = [this]() { commitBCParam(); };
+    connect(m_wallDragSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, commitBC);
     connect(m_slopeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, commitBC);
     connect(m_stageSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, commitBC);
     connect(m_flowSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, commitBC);
@@ -984,7 +991,7 @@ void MeshEditingToolbar::refreshEdgeEditor()
     // too).
     const auto &bcs = m_activeMesh->edgeBCs();
     bool typeSame = true, slopeSame = true, headSame = true, flowSame = true, tsSame = true,
-         curveSame = true, conveySame = true;
+         curveSame = true, conveySame = true, wallDragSame = true;
     mesh::MeshEdgeBC first;
     bool haveFirst = false; // first BOUNDARY edge in sorted order
     double convey0 = 1.0;
@@ -1008,6 +1015,8 @@ void MeshEditingToolbar::refreshEdgeEditor()
         }
         if (bc.type != first.type)
             typeSame = false;
+        if (bc.wallDrag != first.wallDrag)
+            wallDragSame = false;
         if (bc.slope != first.slope)
             slopeSame = false;
         if (bc.head != first.head)
@@ -1075,6 +1084,11 @@ void MeshEditingToolbar::refreshEdgeEditor()
         }
         if (m_bcParamStack && comboIdx >= 0 && comboIdx < m_bcParamStack->count())
             m_bcParamStack->setCurrentIndex(comboIdx);
+        if (m_wallDragSpin) {
+            QSignalBlocker b(m_wallDragSpin);
+            m_wallDragSpin->setSpecialValueText(wallDragSame ? tr("Free slip") : tr("<multiple>"));
+            m_wallDragSpin->setValue(wallDragSame ? first.wallDrag : 0.0);
+        }
         if (m_slopeSpin) {
             QSignalBlocker b(m_slopeSpin);
             m_slopeSpin->setValue(slopeSame ? first.slope : 0.0);
@@ -1710,7 +1724,7 @@ void MeshEditingToolbar::updateEnabledState()
     const auto curType = m_bcTypeCombo
                              ? static_cast<MeshBCTypes::Type>(m_bcTypeCombo->currentData().toInt())
                              : MeshBCTypes::Type::Wall;
-    const bool typeHasParam = (curType != MeshBCTypes::Type::Wall);
+    const bool typeHasParam = m_bcTypeCombo && m_bcTypeCombo->currentIndex() >= 0;
     const bool browsable = (curType == MeshBCTypes::Type::SpecifiedStageTS ||
                             curType == MeshBCTypes::Type::SpecifiedFlowTS ||
                             curType == MeshBCTypes::Type::RatingCurve);
@@ -1808,6 +1822,7 @@ void MeshEditingToolbar::commitBCParam()
     bc.type = t;
     switch (t) {
     case MeshBCTypes::Type::Wall:
+        bc.wallDrag = m_wallDragSpin ? m_wallDragSpin->value() : 0.0;
         break;
     case MeshBCTypes::Type::NormalFlow:
         bc.slope = m_slopeSpin ? m_slopeSpin->value() : 0.0;

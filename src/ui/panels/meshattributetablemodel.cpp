@@ -235,7 +235,7 @@ bool bcFieldApplies(mesh::MeshBCTypes::Type t, const QString &key)
         return true;
     switch (t) {
     case T::Wall:
-        return false;
+        return key == QLatin1String("wallDrag");
     case T::NormalFlow:
         return key == QLatin1String("slope");
     case T::SpecifiedStageConst:
@@ -448,6 +448,8 @@ void MeshAttributeTableModel::rebuildColumns()
                       "unrestricted. Applies to interior edges too, and is "
                       "mirrored onto the neighbouring half."))
             << bcTypeCol()
+            << num(QStringLiteral("wallDrag"), tr("Wall drag Cw"), 0.0, 1.0e6, 10, UnitKind::None,
+                   tr("Tangential WALL friction coefficient; zero = free slip. tau/rho = -Cw |ut| ut."))
             << num(QStringLiteral("head"), tr("Stage"), -1.0e9, 1.0e9, 4, UnitKind::Length,
                    tr("Fixed water-surface elevation for a Specified Stage "
                       "(constant) boundary."))
@@ -826,6 +828,8 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         // as inapplicable rather than as a stale number the engine ignores.
         if (!bcFieldApplies(bc.type, spec.key))
             return missing(tr("Not used by this boundary condition."));
+        if (spec.key == QLatin1String("wallDrag"))
+            return bc.wallDrag;
         if (spec.key == QLatin1String("head"))
             return bc.head;
         if (spec.key == QLatin1String("slope"))

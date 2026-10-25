@@ -768,3 +768,38 @@ An Apply or OK that wrote at least one key marks the project dirty.
 - \ref manual_plugins — engine and GUI plugins
 - \ref manual_performance — threads, backends and large-model tuning
 - \ref manual_file_formats — the files referenced on the Files sub-tab
+
+
+### Optional Coriolis and horizontal turbulent mixing
+
+The 2D Hydrodynamics tab offers independent **Coriolis effect** and **Horizontal turbulent mixing** controls. Both default to off. These options require **Full shallow-water**, **one timestep tier**, and the CPU solver. Coupled groundwater, heat, snow, species transport and node exchanges are not yet qualified with these options; the engine refuses such combinations.
+
+Choose Coriolis **From latitude** and enter signed degrees north, or choose the advanced direct parameter input in inverse seconds. Latitude and parameter drafts are retained when changing mode; only the selected mode acts. No latitude is inferred from map coordinates or the heat configuration.
+
+Smagorinsky is a depth-averaged horizontal subgrid mixing closure. It represents unresolved horizontal shear mixing while Manning's roughness remains the bed-friction model. Its dimensionless coefficient defaults to 0.10 when enabled; investigate 0.05–0.20 and mesh/timestep sensitivity. The filter width is the square root of each cell's area. It does not provide vertical turbulence or a three-dimensional LES. Wall and open-boundary turbulent traction is zero in this implementation.
+
+Select **Turbulent viscosity and strain** in the output variable list to write viscosity (m²/s) and strain rate (1/s) maps. These fields appear in the general 2D results variable selector when present. Old result files remain readable. Optional-process velocities are published from accepted cell momentum; edge discharges retain their flux/continuity meaning.
+
+Enabling these processes selects conservative shared-face stresses, nonlinear stage checks and global stepping. Mixing may require shorter steps. The engine reports the effective Coriolis parameter, coefficient and filter convention; results files retain the corresponding metadata. The coefficient is not a universal calibration, and improved agreement at one gauge alone does not establish correctness.
+
+### Friction on selected 2D wall edges
+
+Select solid boundary edges with the mesh edge tool and choose **Wall**.
+**Wall drag Cw** defaults to **Free slip** (zero). A positive dimensionless
+coefficient adds tangential traction `tau/rho = -Cw |ut| ut`, using wetted wall
+area. It does not change bed Manning roughness or allow water through the wall.
+Use separate boundary groups to test throat and obstruction walls independently.
+Bulk edits use one undo entry; the edge attribute table exposes the same value.
+INP/sidecar saves use `WALL_DRAG Cw`; GeoPackage saves preserve the coefficient.
+Assignments transfer with surviving and subdivided edges during supported mesh
+edits; inspect any reported dropped assignments after geometry changes.
+
+Positive wall drag currently requires CPU Full SWE with one timestep tier and
+uncoupled surface hydraulics. Smagorinsky mixing is independent and optional.
+No material coefficient is assumed. A prescribed Cw is a diagnostic partial-slip
+closure; a roughness-based wall function needs separate wall-material evidence.
+
+Wall-friction save/reopen qualification covers triangular meshes. For quad
+walls on local edge 3, use INP: the existing GeoPackage boundary table is
+restricted to edge indices 0–2. Solver wall-friction tests cover triangles
+and quads independently of that file-format limitation.

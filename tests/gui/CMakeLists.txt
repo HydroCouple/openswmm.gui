@@ -3559,6 +3559,14 @@ add_swmmvis_gui_test(test_2d_output_options_page
 )
 swmmvis_link_full_app_deps(test_2d_output_options_page)
 
+add_swmmvis_gui_test(test_2d_momentum_options
+    test_2d_momentum_options.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2d_momentum_options)
+
+
 # U1 (2026-09-07) — Processes & Modules hub: the engine-computed transport
 # matrix on the Models page mirrors the 2D page's TRANSPORT_* boxes, the 2D
 # Processes group seeds/writes the E2 keys, and the [PROCESS_COMPONENTS]

@@ -41,6 +41,7 @@ struct MeshEdgeBC {
     /// edges store the same value in both neighbour slots; the layer's
     /// applyMeshEdgeConveyance helper enforces the mirror.
     double conveyance = 1.0;
+    double wallDrag = 0.0; ///< WALL tangential Cw; tau/rho=-Cw|ut|ut, zero free-slip.
 
     /**
      * @brief Compare every stored boundary-condition and conveyance attribute exactly.
@@ -53,7 +54,7 @@ struct MeshEdgeBC {
     {
         return type == o.type && head == o.head && slope == o.slope && flow == o.flow &&
                tseries == o.tseries && curve == o.curve && group == o.group &&
-               conveyance == o.conveyance;
+               conveyance == o.conveyance && wallDrag == o.wallDrag;
     }
     /**
      * @brief Negate exact all-field boundary-condition equality.
