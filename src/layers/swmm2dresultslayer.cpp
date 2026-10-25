@@ -2017,7 +2017,7 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     }
     if (timeIdx >= static_cast<int>(cached_times_.size()))
         return {};
-    return openswmmvis::core::swmmDateTimeToQDateTime(cached_times_[timeIdx]);
+    return openswmmvis::core::swmmDateTimeToMilliseconds(cached_times_[timeIdx]);
 }
 
 // ===========================================================================

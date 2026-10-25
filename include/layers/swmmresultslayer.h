@@ -596,7 +596,10 @@ public:
      * \details Used by AnimationController to snap secondary layers to the
      *          primary layer's current time.  Result is clamped to [0, totalTimeSteps-1].
      * @param[in] dt Valid requested datetime; offsets must fit int after period conversion.
-     * @return Nearest report-grid period using lround, ties away from zero. Clamped to the available period range; zero when count/report step/origin is unusable, which is not then evidence period zero exists. Uses reportedStartDateTime() rather than simulation start. No IO/state mutation.
+     * @return Nearest report-grid period, with ties choosing the later frame, clamped to the
+     * available range. Fractional intervals whose legacy header step is zero use a binary
+     * search of recorded millisecond timestamps. Other intervals use reportedStartDateTime().
+     * Returns zero when timing is unavailable; does not mutate the current frame.
      */
     [[nodiscard]] int periodIndexForDateTime(const QDateTime &dt) const;
 
@@ -606,7 +609,10 @@ public:
      *        [0, totalTimeSteps-1]. Used by AnimationController so a secondary
      *        output never displays a frame ahead of the animation cursor.
      * @param[in] dt Valid requested datetime; offsets must fit int after period conversion.
-     * @return Latest report-grid period at/before the request, using floor with1e-6period tolerance. Clamped to the available period range; zero when count/report step/origin is unusable, which is not then evidence period zero exists. Uses reportedStartDateTime() rather than simulation start. No IO/state mutation.
+     * @return Latest report period at/before the request, clamped to the available range.
+     * Fractional intervals whose legacy header step is zero search recorded millisecond
+     * timestamps; other intervals use reportedStartDateTime() and floor with 1e-6 period
+     * tolerance. Returns zero when timing is unavailable; does not mutate the current frame.
      */
     [[nodiscard]] int periodIndexForDateTimeAsOf(const QDateTime &dt) const;
 
