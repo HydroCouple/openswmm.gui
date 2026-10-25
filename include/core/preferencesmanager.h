@@ -531,20 +531,12 @@ public:
      */
     void setLive2DHistoryMB(int megabytes);
 
-    /*! Live 1D results: open the run's .out while the engine writes it and
-     *  grow the results layer (map animation, profile + comparison plots)
-     *  on every progress tick. Applies to the 6.x engine and the legacy
-     *  workers alike (both flush per report period). Default true.
-     * @brief Whether running output is opened and refreshed for live 1D results.
-     * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
+    /** Default shared live-follow mode for the Analysis-selected 1D and 2D outputs.
+     * Defaults to true, migrating the former LiveResults1D preference when present.
      */
-    [[nodiscard]] bool liveResults1DEnabled() const;
-    /**
-     * @brief Persist the liveResults1DEnabled preference and notify consumers when changed.
-     * @param[in] on True enables live output refresh in simulation consumers.
-     * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
-     */
-    void setLiveResults1DEnabled(bool on);
+    [[nodiscard]] bool liveResultsEnabled() const;
+    /** Persist the shared mode. History ingestion is independent of display following. */
+    void setLiveResultsEnabled(bool on);
 
     /*! Default animation playback speed multiplier restored at startup.
      *  Valid values: 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 (mirrors the

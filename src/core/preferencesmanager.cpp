@@ -1057,18 +1057,21 @@ void PreferencesManager::setLive2DHistoryMB(int megabytes)
     emit preferenceChanged(QStringLiteral("Simulation"), QStringLiteral("Live2DHistoryMB"));
 }
 
-bool PreferencesManager::liveResults1DEnabled() const
+bool PreferencesManager::liveResultsEnabled() const
 {
-    return m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D").arg(kGroupRoot), true)
+    return m_settings
+        .value(
+            QStringLiteral("%1/Simulation/LiveResults").arg(kGroupRoot),
+            m_settings.value(QStringLiteral("%1/Simulation/LiveResults1D").arg(kGroupRoot), true))
         .toBool();
 }
 
-void PreferencesManager::setLiveResults1DEnabled(bool on)
+void PreferencesManager::setLiveResultsEnabled(bool on)
 {
-    if (on == liveResults1DEnabled())
+    if (on == liveResultsEnabled())
         return;
-    m_settings.setValue(QStringLiteral("%1/Simulation/LiveResults1D").arg(kGroupRoot), on);
-    emit preferenceChanged(QStringLiteral("Simulation"), QStringLiteral("LiveResults1D"));
+    m_settings.setValue(QStringLiteral("%1/Simulation/LiveResults").arg(kGroupRoot), on);
+    emit preferenceChanged(QStringLiteral("Simulation"), QStringLiteral("LiveResults"));
 }
 
 // ---------------------------------------------------------------------------
