@@ -125,9 +125,9 @@ layer's properties.
 ### Playback — the Results ribbon tab
 
 The **Results** tab (and the **Results** menu) carries the animation. One time
-cursor drives everything: the 1D primary layer's report-step grid is
-authoritative, and every other output — additional `.out` layers, the 2D mesh —
-is snapped to it.
+cursor drives the 1D and 2D outputs selected in Analysis. The 1D report times
+are authoritative when available; otherwise the selected 2D output supplies
+the clock.
 
 **Playback group**
 
@@ -136,7 +136,7 @@ is snapped to it.
 | **Backward** | **Results → Backward** | Step one period back |
 | **Play** | **Results → Play** | Start playback; checked while playing |
 | **Pause** | **Results → Pause** | Pause; checked while paused |
-| **Stop** | **Results → Stop** | Stop and rewind |
+| **Stop** | **Results → Stop** | Momentary action: clear playback/live following, then rewind |
 | **Forward** | **Results → Forward** | Step one period forward |
 
 **Timeline group**
@@ -145,7 +145,7 @@ is snapped to it.
 |---------|--------------|
 | Time slider | A single thumb — the current time cursor. Drag it or click the track to scrub. The shaded band behind it is the look-back window, drawn ending at the cursor |
 | **Window:** | Width of the look-back window, in minutes. Each non-driving output shows its latest frame at or before the cursor; the window is what classifies an output as fresh or stale. `0` = latest-at-or-before with no band |
-| Date/time display | The cursor's calendar date and time (`MM/dd/yyyy hh:mm`), driven by the controller — read-only during playback |
+| Date/time display | The cursor's calendar date and time (`MM/dd/yyyy hh:mm:ss.zzz`), driven by the controller — read-only during playback |
 | **Speed:** | Playback multiplier: 0.25×, 0.5×, 1×, 2×, 4×, 8×. The tick interval is the report step divided by the multiplier, floored at ~20 Hz — beyond that, higher speeds advance several frames per tick. Persisted across sessions |
 | **Cycle** | On (the default) wraps to the start of the range at the end; off leaves playback paused at the end |
 
@@ -155,14 +155,14 @@ is snapped to it.
 |---------|--------------|
 | **Show Legend** | Toggles the canvas legend overlay |
 | **Set Style** | Opens layer properties for the selected layer |
-| **Flow motion** | Plays or pauses flow streaks on the active 2D results layer at the selected result time |
-| **Live 2D** | Renders and streams the active 2D layer during a run; only enabled for a live source |
-| **Live 1D** | Opens the `.out` while it is still being written; a saved preference, applied to the next run |
+| **Live rendering** | Follows incoming 1D and 2D results selected in Analysis; turn off or scrub to review history, and turn on to return to the newest live time |
 
-Playback is *causal*: a secondary output never displays a frame ahead of the
-cursor, and a hidden 2D layer is skipped entirely so scrubbing does not pay for
-what you cannot see. A 2D-only run (no `.out` loaded) still animates — the 2D
-layer becomes the controller's driver.
+Playback applies to the outputs selected in Analysis. It is *causal*: the
+selected 2D output shows its latest frame at or before the 1D cursor. A 2D-only
+run still animates, including before the first 1D report arrives. Scrubbing or
+pausing disables live following so incoming frames do not override the chosen
+time. Stop is a momentary action: it clears Play, Pause and live following,
+then rewinds the selected results and slider.
 
 \fig{21_results_ribbon_tab.png, The Results ribbon tab — Playback; Timeline and Display groups}
 
@@ -197,11 +197,13 @@ reference speed; it does not represent particle travel time. **By speed** colour
 use the original velocities in m/s. Density follows the visible wet area, and
 the trails follow the layer's wet boundary.
 
-Use **Flow motion** in the Results ribbon or **Animate flow streaks** in the
-layer's context menu to pause or resume motion. Result playback and flow motion
-can be paused independently. A live run also needs **Live 2D** enabled. Older
-cached-path styles migrate to Normal motion and the nearest density/trail
-presets; existing particle styles keep their saved values.
+Particles use the velocity field of the currently displayed result frame and
+adjust as that frame changes. When result time is held, they can continue moving
+through that fixed field to illustrate its direction. **Animate flow streaks**
+in the layer's context menu can freeze this illustrative motion separately;
+there is no separate Flow Motion control in the Results ribbon. Older cached-path
+styles migrate to Normal motion and the nearest density/trail presets; existing
+particle styles keep their saved values.
 
 For large meshes, the GPU renderer prepares depth contours in the background,
 including the first frame and changes to the live depth range. It keeps the last

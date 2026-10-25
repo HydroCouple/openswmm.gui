@@ -2984,15 +2984,20 @@ void SWMM2DResultsLayer::liveSync_()
     const int n = source_->timeCount();
     bool loaded = false;
     const QScopedValueRollback<bool> liveLoad(loading_live_, true);
-    // The worker may still be fitting a newer frame than the displayed one.
-    const int shown =
-        async_surface_ && requested_time_idx_ >= 0 ? requested_time_idx_ : current_time_idx_;
+    const auto requestedFrame = [this] {
+        return async_surface_ && requested_time_idx_ >= 0 ? requested_time_idx_ : current_time_idx_;
+    };
+    const int before = requestedFrame();
     if (wantRange) {
         const int hi = std::max(0, n - 1);
         if (hi != last_range_hi_) {
             last_range_hi_ = hi;
             emit timeRangeChanged(0, hi);
         }
+        // A shared playback controller can seek synchronously from the range
+        // signal. Do not overwrite that request with the old cursor below.
+        const int shown = requestedFrame();
+        loaded = shown != before;
         // Follow the newest frame until the user scrubs (see refreshTimeRange).
         if (n > 0) {
             if (shown < 0) {
@@ -3005,7 +3010,7 @@ void SWMM2DResultsLayer::liveSync_()
         }
     }
     if (wantFrame && !loaded && n > 0)
-        loadFrame_(std::clamp(shown < 0 ? 0 : shown, 0, n - 1));
+        loadFrame_(std::clamp(requestedFrame(), 0, n - 1));
 }
 
 void SWMM2DResultsLayer::setQsgOwnsRendering(bool own)

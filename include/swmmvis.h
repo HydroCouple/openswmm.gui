@@ -249,9 +249,8 @@ private:
      * sets a ten-minute look-back default. Window controls use minutes converted to
      * seconds/milliseconds; single normalized cursor maps to driver time and coalesces scrubs
      * with a 40 ms trailing timer, seeking immediately on release.
-     * Controller time advances visible additional 2D results as-of the cursor, skipping its
-     * already advanced fallback layer. Flow motion edits the active streak style, Live 2D gates
-     * the active streaming layer, and Live 1D persists next-run preference. New
+     * One live-rendering control follows the Analysis-selected 1D and 2D outputs.
+     * Scrubbing pauses that shared clock while incoming history remains available. New
      * controls/controllers remain Qt-owned; data layers stay project-owned.
      */
     void initializeAnimationToolBar();
@@ -291,9 +290,8 @@ private:
      * @brief Hydrate active-result selectors under blocked signals from the current project.
      * Uses the 1D statistics registry and 2D canvas layers, stores borrowed pointers as quintptr
      * item data, reselects exact active identities or none and disables empty selectors. Updates
-     * live-render/flow-animation control state and rebinds the active streak style notification.
-     * Without a project disables selectors/flow-motion and disconnects that listener; it returns
-     * before updating the separate Live 2D checkbox in this branch.
+     * selected layer identities without changing playback mode. Without a project disables
+     * the selectors.
      */
     void refreshActiveResultsCombos();
     /**
@@ -1284,12 +1282,12 @@ private slots:
      * SimulationRunner. Runner is retained in active map until finished then deleteLater; on
      * macOS activity assertion spans registered run. Progress/warnings/dates update status and
      * minimum-running-progress bar, pause/cancel enabled until last runner completes.
-     * @note Per-tick optional live 1D reads preference each tick and keeps layer identity. On
+     * @note Per-tick live 1D ingestion keeps history available independently of display following. On
      * finish finalize registry, classify !success with errorCode 0 as cancellation, and
      * load/finalize 1D only for success/cancel with nonempty .out; genuine error does not
      * auto-open arbitrary partial file. Existing live tail without usable outcome is closed.
-     * Successful read auto-stretches and selects result; animation primary is set directly even
-     * when origin project is not current active tab. A success with empty .out logs error but
+     * Successful read auto-stretches; existing Analysis selections and background tabs are
+     * preserved. A success with empty .out logs error but
      * does not rewrite runner status to failure.
      * @note 2D initialization consumes copied SI metre geometry and flat four-slot connectivity
      * (v3=-1 triangles), creates or reuses layer by absolute snoopy_h5_path (empty paths can
@@ -1857,10 +1855,7 @@ private:
     QComboBox *mComboActiveResults1D = nullptr;
     QLabel *mLabelActiveResults2D = nullptr;
     QComboBox *mComboActiveResults2D = nullptr;
-    QCheckBox *mCheckBoxFlowMotion = nullptr;
-    QMetaObject::Connection m_flowMotionConnection;
-    QCheckBox *mCheckBoxLive2D = nullptr; // live 2D render on/off (Issue 2)
-    QCheckBox *mCheckBoxLive1D = nullptr; // live 1D results pref (LIVE_1D_RESULTS_PLAN_V2)
+    QCheckBox *mCheckBoxLiveRendering = nullptr;
     class AnimationController *mAnimationController = nullptr;
     class TerrainToolbar *mTerrainToolbar = nullptr;
     class MeshEditingToolbar *mMeshEditingToolbar = nullptr; // Slice §V.VB
@@ -1953,11 +1948,11 @@ private:
      * missing file or silent open failure retains old bounded in-memory source. On open, set
      * saved simulation start when known, scan every readable depth frame for strictly greatest
      * positive cell depth (metres), then transfer unique source ownership to layer. Failed/empty
-     * frames ignored; ties retain earliest frame; nonpositive peak leaves source's default
-     * frame/range. No scientific finite-data validation beyond source read/max behavior.
-     * @note Positive peak sets max color depth and current peak frame without changing dry-depth
-     * or thin-film policies. Refresh active-result combos and force animation fallback
-     * detach/reattach whenever no 1D primary, even if finished layer belongs to a background tab.
+     * frames are ignored; ties retain the earliest peak. No scientific finite-data validation
+     * beyond source read/max behavior.
+     * @note Positive peak sets max color depth without changing dry-depth or thin-film policies.
+     * Preserve the selected shared time, or the held time on unselected layers, across the
+     * source swap. Live following without a 1D driver displays the final frame.
      * Does not mark project dirty, save sidecar or refresh layer CRS. Removes active-job
      * layer/start maps for every tracked outcome after work; external layer itself remains on
      * canvas.

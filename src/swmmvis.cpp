@@ -1838,9 +1838,6 @@ void SWMMVis::refreshActiveResultsCombos()
     mComboActiveResults2D->addItem(tr("— none —"), QVariant::fromValue<quintptr>(0));
 
     if (!pw) {
-        QObject::disconnect(m_flowMotionConnection);
-        if (mCheckBoxFlowMotion)
-            mCheckBoxFlowMotion->setEnabled(false);
         mComboActiveResults1D->setEnabled(false);
         mComboActiveResults2D->setEnabled(false);
         return;
@@ -1880,28 +1877,6 @@ void SWMMVis::refreshActiveResultsCombos()
     }
     mComboActiveResults2D->setCurrentIndex(sel2D);
     mComboActiveResults2D->setEnabled(mComboActiveResults2D->count() > 1);
-
-    // Live-render toggle reflects the active 2D layer's gate, and is only
-    // meaningful for a live/streaming source (greyed out otherwise).
-    if (mCheckBoxLive2D) {
-        SWMM2DResultsLayer *active2D = pw->active2DResultsLayer();
-        const bool live = active2D && active2D->source() && active2D->source()->isLive();
-        QSignalBlocker bLive(mCheckBoxLive2D);
-        mCheckBoxLive2D->setEnabled(live);
-        mCheckBoxLive2D->setChecked(active2D ? active2D->liveRenderEnabled() : true);
-    }
-    if (mCheckBoxFlowMotion) {
-        QObject::disconnect(m_flowMotionConnection);
-        QSignalBlocker block(mCheckBoxFlowMotion);
-        auto *active = pw->active2DResultsLayer();
-        mCheckBoxFlowMotion->setEnabled(active != nullptr);
-        mCheckBoxFlowMotion->setChecked(
-            active ? active->flowStreakSublayer()->streakStyle()->animated() : true);
-        if (active)
-            m_flowMotionConnection = connect(active->flowStreakSublayer()->streakStyle(),
-                                             &OpenSWMM::Render::SublayerStyle::styleChanged, this,
-                                             &SWMMVis::refreshActiveResultsCombos);
-    }
 }
 
 void SWMMVis::initializeAnimationToolBar()
@@ -1939,7 +1914,7 @@ void SWMMVis::initializeAnimationToolBar()
 
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
     mDateTimeEditAnimationTime->setAccessibleName(tr("Animation time"));
-    mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm"));
+    mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm:ss.zzz"));
     // Simulation times are UTC-labelled wall clocks; a local-zone editor
     // would convert them and show the clock shifted by the UTC offset.
     // Display only: nothing consumes edits made here.
@@ -2001,58 +1976,29 @@ void SWMMVis::initializeAnimationToolBar()
     auto *groupDisplay = new openswmmvis::ui::RibbonGroup(tr("Display"), this);
     groupDisplay->addAction(ui->actionShowLegend);
     groupDisplay->addAction(ui->actionSetStyle);
-    mCheckBoxFlowMotion = new QCheckBox(tr("Flow motion"), this);
-    mCheckBoxFlowMotion->setObjectName("flowStreakMotion");
-    mCheckBoxFlowMotion->setChecked(true);
-    mCheckBoxFlowMotion->setEnabled(false);
-    mCheckBoxFlowMotion->setToolTip(tr("Animate flow streaks at the selected result time."));
-    connect(mCheckBoxFlowMotion, &QCheckBox::toggled, this, [this](bool moving) {
-        if (auto *project = activeProjectWindow())
-            if (auto *layer = project->active2DResultsLayer())
-                layer->flowStreakSublayer()->streakStyle()->setAnimated(moving);
+    mCheckBoxLiveRendering = new QCheckBox(tr("Live rendering"), this);
+    mCheckBoxLiveRendering->setObjectName("liveRendering");
+    mCheckBoxLiveRendering->setContentsMargins(8, 0, 4, 0);
+    mCheckBoxLiveRendering->setToolTip(
+        tr("Follow incoming 1D and 2D results selected in Analysis. "
+           "Scrub, Pause or Stop to review available history; enable again "
+           "to return to the newest live time."));
+    mAnimationController->setLiveRenderingEnabled(
+        PreferencesManager::instance()->liveResultsEnabled());
+    mCheckBoxLiveRendering->setChecked(mAnimationController->liveRenderingEnabled());
+    connect(mCheckBoxLiveRendering, &QCheckBox::toggled, this, [this](bool checked) {
+        if (mScrubCoalesceTimer)
+            mScrubCoalesceTimer->stop();
+        mPendingSeekTime = {};
+        PreferencesManager::instance()->setLiveResultsEnabled(checked);
+        mAnimationController->setLiveRenderingEnabled(checked);
     });
-    groupDisplay->addWidget(mCheckBoxFlowMotion);
-
-    // Live-render toggle (moved here from the Analysis Results-Layers
-    // group, iteration 3). Off stops 2D rendering AND frame streaming for
-    // the active live layer during a run, to save GPU/CPU; on resumes and
-    // jumps to the newest frame. Only meaningful for a live/streaming
-    // source, so it is disabled otherwise (see refreshActiveResultsCombos,
-    // which manages the enabled/checked state via the member pointer).
-    mCheckBoxLive2D = new QCheckBox(tr("Live 2D"), this);
-    mCheckBoxLive2D->setChecked(true);
-    mCheckBoxLive2D->setContentsMargins(8, 0, 4, 0);
-    mCheckBoxLive2D->setToolTip(
-        tr("Render the active 2D results layer live while a simulation runs. "
-           "Uncheck to stop 2D rendering and frame streaming during the run to "
-           "save GPU/CPU; re-check to resume at the newest frame. Only applies to "
-           "a live (streaming) results layer."));
-    connect(mCheckBoxLive2D, &QCheckBox::toggled, this, [this](bool checked) {
-        auto *pw = activeProjectWindow();
-        if (!pw)
-            return;
-        if (auto *layer = pw->active2DResultsLayer())
-            layer->setLiveRenderEnabled(checked);
-    });
-    groupDisplay->addWidget(mCheckBoxLive2D);
-
-    // Live 1D results — a persisted preference (unlike the per-layer 2D
-    // gate above): while a run is in progress the .out is opened as it is
-    // written and the results layer grows on every progress tick, so the
-    // map animation, profile and comparison plots follow the run for both
-    // the 6.x engine and the legacy workers. Off = today's behaviour (the
-    // .out is opened when the run finishes).
-    mCheckBoxLive1D = new QCheckBox(tr("Live 1D"), this);
-    mCheckBoxLive1D->setChecked(PreferencesManager::instance()->liveResults1DEnabled());
-    mCheckBoxLive1D->setContentsMargins(8, 0, 4, 0);
-    mCheckBoxLive1D->setToolTip(
-        tr("Load the run's 1D results while the simulation is still writing "
-           "them: the results layer, animation range, profile and comparison "
-           "plots grow with every progress tick. Applies to the next run "
-           "started (any engine version)."));
-    connect(mCheckBoxLive1D, &QCheckBox::toggled, this,
-            [](bool checked) { PreferencesManager::instance()->setLiveResults1DEnabled(checked); });
-    groupDisplay->addWidget(mCheckBoxLive1D);
+    connect(mAnimationController, &AnimationController::liveRenderingChanged, this,
+            [this](bool enabled) {
+                QSignalBlocker block(mCheckBoxLiveRendering);
+                mCheckBoxLiveRendering->setChecked(enabled);
+            });
+    groupDisplay->addWidget(mCheckBoxLiveRendering);
     mToolBarAnimation->addWidget(groupDisplay);
 
     // Restore cross-launch default speed from PreferencesManager and push it
@@ -2120,37 +2066,11 @@ void SWMMVis::initializeAnimationToolBar()
             [syncPlaybackActions](bool) { syncPlaybackActions(); });
     syncPlaybackActions();
 
-    // DateTime display (read-only — controller drives it). Also fans the
-    // time scrub out to any 2D results layer on the active canvas so the
-    // single slider drives both 1D and 2D playback in lockstep.
-    //
-    // Slice §Y.1 — gate the fan-out on layer visibility. Pushing
-    // setCurrentSimTime into a hidden 2D layer still triggers result fetch
-    // + scene work; skipping invisible layers keeps the animation hot path
-    // limited to what the user can actually see.
+    // Only the Analysis-selected result layers share the controller clock.
     connect(mAnimationController, &AnimationController::currentTimeChanged, this,
             [this](const QDateTime &dt) {
                 QSignalBlocker b(mDateTimeEditAnimationTime);
                 mDateTimeEditAnimationTime->setDateTime(dt);
-
-                if (auto *pw = activeProjectWindow()) {
-                    if (auto *canvas = pw->canvas()) {
-                        for (OpenSWMMVisLayer *l : canvas->layers()) {
-                            auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l);
-                            // 2026-07-19 — skip the controller's own fallback layer:
-                            // onPrimaryPeriodChanged already advanced it causally
-                            // (setCurrentSimTimeAsOf) before emitting
-                            // currentTimeChanged, so advancing it here again doubled
-                            // the nearest-frame scan + loadFrame_ work on every
-                            // scrub/playback tick. Any ADDITIONAL 2D layers are not
-                            // controller-managed and still advance via this loop.
-                            if (r2d && r2d == mAnimationController->fallback2DLayer())
-                                continue;
-                            if (r2d && r2d->isVisible())
-                                r2d->setCurrentSimTimeAsOf(dt); // causal: never ahead of cursor
-                        }
-                    }
-                }
             });
 
     // ── Sync window: range slider ↔ span box ↔ controller cursor/window ──
@@ -2201,7 +2121,7 @@ void SWMMVis::initializeAnimationToolBar()
      * time, clamps normalized window to [0,1].
      */
     auto syncCursorFromState = [this, driverSpanMs, normTime]() {
-        if (!mAnimationSlider)
+        if (!mAnimationSlider || mAnimationSlider->isDragging() || mPendingSeekTime.isValid())
             return;
         const qint64 spanMs = driverSpanMs();
         if (spanMs <= 0)
@@ -2244,13 +2164,17 @@ void SWMMVis::initializeAnimationToolBar()
         // Block the slider while the controller fans the seek back out
         // through currentTimeChanged (which re-sets the thumb).
         QSignalBlocker b(mAnimationSlider);
-        mAnimationController->seekToTime(mPendingSeekTime);
-        mPendingSeekTime = QDateTime();
+        const QDateTime time = mPendingSeekTime;
+        mPendingSeekTime = {};
+        mAnimationController->seekToTime(time);
     };
     connect(mScrubCoalesceTimer, &QTimer::timeout, this, seekPending);
 
     connect(mAnimationSlider, &openswmmvis::ui::CursorWindowSlider::cursorChanged, this,
             [this, denormTime](qreal cursor) {
+                // Hold the clock immediately, before the coalesced seek: an
+                // incoming packet must not move the thumb during a drag.
+                mAnimationController->pause();
                 const QDateTime t = denormTime(cursor);
                 if (!t.isValid())
                     return;
@@ -4147,7 +4071,8 @@ void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QStri
     if (!hadData && rl->totalTimeSteps() > 0) {
         rl->autoStretchColorRamp();
         pw->setActiveResultsLayer(rl);
-        mAnimationController->setPrimaryLayer(rl);
+        if (pw == activeProjectWindow())
+            mAnimationController->setPrimaryLayer(rl);
     }
 }
 
@@ -10420,18 +10345,12 @@ void SWMMVis::onRunSimulation()
     QString outPathCopy = outPath;
     QString rptPathCopy = rptPath;
 
-    // Live 1D results (LIVE_1D_RESULTS_PLAN_V2): every progress tick is a
-    // chance to open the .out live (first tick whose header is on disk) or
-    // to re-count its periods. Both engine branches emit progressChanged
-    // at progressTickMs, so no extra runner signal is needed. The pref is
-    // read per tick so unchecking "Live 1D" mid-run stops further growth
-    // (the finish handler still finalises the layer).
+    // Keep history available even while the shared display clock is held.
+    // The animation controller alone decides whether selected results follow.
     connect(runner, &SimulationRunner::progressChanged, this,
             [self, pwGuard, outPathCopy, rptPathCopy](int tickJobId, double, const QDateTime &,
                                                       double, double) {
                 if (!self || !pwGuard)
-                    return;
-                if (!PreferencesManager::instance()->liveResults1DEnabled())
                     return;
                 self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy);
             });
@@ -10528,7 +10447,7 @@ void SWMMVis::onRunSimulation()
                     opened = rl->totalTimeSteps() > 0;
                 }
                 if (!opened) {
-                    // Not tailed (pref off / header never seen): the
+                    // Not tailed (header never seen): the
                     // classic post-run open. closeResults() first in case
                     // a stale handle is bound (overwrite-confirm path).
                     rl->closeResults();
@@ -10540,11 +10459,13 @@ void SWMMVis::onRunSimulation()
                 }
                 if (opened) {
                     rl->autoStretchColorRamp();
-                    // A just-finished run is an explicit user action — make
-                    // its results the active 1D analysis layer (drives the
-                    // combo, layer-tree check, and transport).
-                    pwGuard->setActiveResultsLayer(rl);
-                    self->mAnimationController->setPrimaryLayer(rl);
+                    // A live run was already selected on its first data. Do
+                    // not steal a later Analysis selection or a background tab.
+                    if (!liveLayer || !pwGuard->activeResultsLayer())
+                        pwGuard->setActiveResultsLayer(rl);
+                    if (pwGuard == self->activeProjectWindow() &&
+                        pwGuard->activeResultsLayer() == rl)
+                        self->mAnimationController->setPrimaryLayer(rl);
                 }
             } else if (liveLayer) {
                 // Engine error with no usable output: drop the tail.
@@ -10649,9 +10570,8 @@ void SWMMVis::onRunSimulation()
             // CF.MVP-fix.1 — register the live 2D layer as the animation
             // controller's fallback so play/scrub works even when no 1D
             // .out is loaded as the primary results layer.
-            if (self->mAnimationController && !self->mAnimationController->primaryLayer()) {
-                self->mAnimationController->setFallback2DLayer(layer);
-            }
+            if (self->mAnimationController && pwGuard == self->activeProjectWindow())
+                self->mAnimationController->setFallback2DLayer(pwGuard->active2DResultsLayer());
 
             self->onLogMessage(tr("2D surface routing active: %1 vertices, "
                                   "%2 cells. Output → %3")
@@ -10862,6 +10782,13 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
     const bool cancelled = !success && errCode == 0;
     if ((success || cancelled) && it.value()) {
         SWMM2DResultsLayer *layer = it.value();
+        const bool selected =
+            mAnimationController && mAnimationController->fallback2DLayer() == layer;
+        const QDateTime heldTime =
+            selected ? mAnimationController->currentDateTime()
+                     : (layer->source()
+                            ? layer->source()->simTimeAt(std::max(0, layer->requestedTimeIndex()))
+                            : QDateTime{});
         // Run finished — drop the "(live)" qualifier so results read
         // as final and fully available for visualization. The
         // file-backed source is installed below when the .h5 is
@@ -10907,10 +10834,17 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
 
                 // Tune colors to the data without changing the model's dry
                 // threshold or the user's separate thin-film display policy.
-                if (peakDepth > 0.0f) {
+                if (peakDepth > 0.0f)
                     layer->setMaxDepth(peakDepth);
-                    layer->setCurrentTimeIndex(peakFrame);
-                }
+                // Finishing the run must not discard a user's paused/scrubbed
+                // time or give the selected 2D result a separate peak-time clock.
+                if (selected && mAnimationController->primaryLayer() &&
+                    mAnimationController->primaryLayer()->totalTimeSteps() > 0)
+                    layer->setCurrentSimTimeAsOf(mAnimationController->currentDateTime());
+                else if (selected && mAnimationController->liveRenderingEnabled())
+                    layer->setCurrentTimeIndex(std::max(0, nFrames - 1));
+                else if (heldTime.isValid())
+                    layer->setCurrentSimTime(heldTime);
 
                 onLogMessage(tr("2D scrub ready: %1 frames from %2. "
                                 "Peak depth %3 m at cell %4, frame %5.")
@@ -10922,27 +10856,7 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
             }
         }
 
-        // Run finished — refresh the 2D results selector so the
-        // "(live)" label drops to "2D Results", and re-arm the
-        // animation controller against the now-static (scrubbable)
-        // source so play/scrub operate on the full results. The
-        // detach + re-attach forces a clean state re-sync of the
-        // toolbar range/cursor from the swapped source; it only
-        // runs when this layer is the active 2D driver (no 1D
-        // primary), mirroring the registration guard at run start.
         refreshActiveResultsCombos();
-        // Arm the animation slider against the finished layer
-        // whenever no 1D primary is driving — not only when this
-        // layer was already the registered fallback. The run-start
-        // registration is skipped when a (possibly stale) primary
-        // existed at that moment, which left the controller with
-        // NO driver after the run: seekToTime() bailed, the slider
-        // was dead, and the 2D view froze on the peak frame until
-        // an extent change forced a re-render.
-        if (auto *ac = mAnimationController; ac && !ac->primaryLayer()) {
-            ac->setFallback2DLayer(nullptr); // force clean re-sync
-            ac->setFallback2DLayer(layer);
-        }
     }
     mActive2DResultsLayers.erase(it);
     mSimulationStarts.remove(finishedJobId);

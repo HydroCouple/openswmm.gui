@@ -160,31 +160,23 @@ select one first. Both actions are disabled unless at least one run is active.
 
 ### Live results while the run is going
 
-Two check boxes on the **Results** ribbon tab (group **Display**) govern what
-updates while the engine is still writing:
+**Live rendering** on the **Results** ribbon follows the incoming results
+selected in the **Analysis** tab's **1D results** and **2D results** selectors.
+Both use one time cursor: the 1D output drives when it has frames, and the 2D
+output shows its latest frame at or before that time. A 2D-only run can drive
+the cursor directly, including while the 1D output is still empty.
 
-| Control | What it does | Scope |
-|---------|--------------|-------|
-| **Live 1D** | Opens the `.out` as it is being written and re-reads its period count on every progress tick | A saved preference; applies to the **next** run started, any engine version |
-| **Live 2D** | Renders the active 2D results layer live and keeps streaming frames into it | Per layer; only enabled for a live (streaming) source |
+Drag the timeline slider, press **Pause**, or turn **Live rendering** off to
+review the available history. Incoming results continue to accumulate; they do
+not pull the display back to the newest time. **Play** advances through that
+history at the selected speed. Enable **Live rendering** again to return to
+the newest available time. **Stop** clears Play, Pause and live following,
+then rewinds both selected outputs and the slider to the beginning.
 
-With **Live 1D** on, the results layer that the finished run will end up using is
-created up front and grows in place. That means the map animation range, the
-\ref manual_profile_plots "profile plot" and the
-\ref manual_time_series_plots "comparison plots" all extend as the run
-progresses — there is no swap from a "live" layer to a "final" one at the end,
-and no backwards jump. Unchecking **Live 1D** mid-run stops further growth; the
-finish handler still finalises the layer.
-
-2D results stream over a separate path: the runner ships the mesh geometry once
-when the 2D solver initialises, then pushes per-tick cell depths, edge fluxes,
-vertex depths and rainfall into the layer at roughly one packet per second. Turn
-**Live 2D** off to stop both the rendering and the streaming when the frame rate
-is costing you engine throughput; turn it back on to resume at the newest frame.
-When the run ends the layer's source is swapped from the live engine feed to the
-`.h5` file so you can scrub backwards through the whole run.
-
-\fig{20_live_toggles.png, The Live 1D and Live 2D check boxes in the Results ribbon Display group}
+The `.out` layer grows in place as the run writes it, extending the animation
+range, profile plots and comparison plots. The 2D source retains a bounded
+history in memory while the run continues. When the run ends, the 2D source is
+replaced by the saved `.h5` history for playback of the whole run.
 
 ### What happens when the run finishes
 
@@ -285,8 +277,8 @@ See \ref manual_simulation_options for the full page-by-page reference.
 - The overwrite guard inspects **every** open project, not just the active one —
   a second project that loaded the same `.out` as a comparison run will be
   flagged.
-- **Live 1D** is read afresh on every progress tick, so you can turn it off in
-  the middle of a run that is producing more data than you want to plot.
+- **Live rendering** controls the shared display cursor; turning it off holds
+  the selected time while incoming results remain available for review.
 - A 2D run with no `[2D_OPTIONS] OUTPUT_FILE` gets one defaulted for it. If you
   never want the `.h5`, clear the key again after the run — the live view works
   without it, but nothing can be reopened afterwards.

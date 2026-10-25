@@ -1236,7 +1236,7 @@
   </action>
   <action name="actionStop">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="enabled">
     <bool>true</bool>

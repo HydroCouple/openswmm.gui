@@ -118,6 +118,8 @@ public:
      */
     [[nodiscard]] bool isPlaying() const { return m_playing; }
     [[nodiscard]] bool isStopped() const { return m_stopped; }
+    /** Whether the selected live results follow incoming frames together. */
+    [[nodiscard]] bool liveRenderingEnabled() const { return m_liveRendering; }
     /**
      * @brief Read the stored global playback multiplier.
      * @return Current speed value; no input validation is performed by setSpeed().
@@ -189,6 +191,10 @@ public:
     [[nodiscard]] bool looping() const { return m_loop; }
 
 public slots:
+    /** Follow the newest available live time, or hold the cursor for review.
+     * History ingestion continues in either mode. Manual transport disables following.
+     */
+    void setLiveRenderingEnabled(bool enabled);
     /**
      * @brief Start forward playback when a driver has frames.
      * @details No-op when already playing or no data. A completed nonlive driver at its final frame first seeks raw frame zero; live drivers retain the tail. Starts the timer and emits playStateChanged(true).
@@ -196,7 +202,7 @@ public slots:
     void play();
     /**
      * @brief Stop the timer while retaining the driver cursor.
-     * @details No-op when already paused; otherwise emits playStateChanged(false).
+     * @details Disables live following as well as timed playback, then emits playStateChanged(false) when either was active.
      */
     void pause();
     /**
@@ -216,7 +222,7 @@ public slots:
      */
     void seekToFirst();
     /**
-     * @brief Request the effective final frame; a 2D fallback reaching its newest frame resumes live-follow mode.
+     * @brief Request the effective final frame while retaining manual control of the cursor.
      */
     void seekToLast();
     /**
@@ -232,6 +238,7 @@ public slots:
     void seekToTime(const QDateTime &dt);
 
 signals:
+    void liveRenderingChanged(bool enabled);
     /**
      * @brief Publish an active-driver cursor timestamp.
      * @param[in] dt Current time; the 2D fallback forwards its timestamp directly.
@@ -300,6 +307,9 @@ private slots:
     void onFallback2DRangeChanged(int lo, int hi);
 
 private:
+    void followLatestLiveFrame();
+    void syncFallbackToPrimary();
+    [[nodiscard]] bool primaryDrives() const;
     /**
      * @brief Compute timer interval and frames-per-tick from speed and active temporal settings.
      * @details Floors interval at 50 ms and batches frame advances for shorter positive requested intervals; does not start a stopped timer.
@@ -345,7 +355,7 @@ private:
     /**
      * @brief Dispatch a frame request to the preferred driver.
      * @param[in] step Requested zero-based index, validated/clamped by the driver path.
-     * @details 2D requests disable live following except when the requested index reaches the current newest frame. No-op without a driver.
+     * @details Dispatches through the shared clock; the 2D layer never follows independently. No-op without a driver.
      */
     void driverSetStep(int step);
     /*! \brief True while the active driver is still streaming frames from a
@@ -374,6 +384,7 @@ private:
     QTimer *m_timer = nullptr;
     bool m_playing = false;
     bool m_stopped = true;
+    bool m_liveRendering = true;
     bool m_loop = true; ///< toolbar Cycle checkbox (default on)
     double m_speed = 1.0;
     qint64 m_windowMs = 0; ///< look-back sync window (0 = floor with no band)

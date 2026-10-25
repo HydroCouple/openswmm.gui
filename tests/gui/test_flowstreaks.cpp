@@ -68,6 +68,10 @@
 #include <QQuickWidget>
 #include <QScreen>
 #include <QQuickWindow>
+#include <QStyleFactory>
+#include <QTemporaryDir>
+#include <cstring>
+#include "core/swmmdatetime.h"
 #include <cmath>
 #include <map>
 #include <limits>
@@ -1042,6 +1046,7 @@ private slots:
         auto *stop = app.findChild<QAction *>("actionStop");
         auto *slider = app.findChild<openswmmvis::ui::CursorWindowSlider *>();
         QVERIFY(animation && play && pause && stop && slider);
+        QVERIFY(!stop->isCheckable());
         play->trigger(); // No data must not leave a falsely selected Play.
         QVERIFY(!play->isChecked());
         SWMM2DResultsLayer layer;
@@ -1070,7 +1075,196 @@ private slots:
         play->trigger();
         QVERIFY(play->isChecked());
         stop->trigger();
-        QVERIFY(!play->isChecked() && !pause->isChecked());
+        QVERIFY(!play->isChecked() && !pause->isChecked() && !stop->isChecked());
+    }
+
+    void liveSliderHoldsAcrossIncomingFrames_data()
+    {
+        QTest::addColumn<bool>("async");
+        QTest::newRow("synchronous") << false;
+        QTest::newRow("asynchronous") << true;
+    }
+
+    void liveSliderHoldsAcrossIncomingFrames()
+    {
+        QFETCH(bool, async);
+        SWMMVis app;
+        auto *animation = app.findChild<AnimationController *>();
+        auto *slider = app.findChild<openswmmvis::ui::CursorWindowSlider *>();
+        auto *live = app.findChild<QCheckBox *>("liveRendering");
+        auto *pause = app.findChild<QAction *>("actionPause");
+        auto *stop = app.findChild<QAction *>("actionStop");
+        QVERIFY(animation && slider && live && pause && stop);
+        QVERIFY(!app.findChild<QCheckBox *>("flowStreakMotion"));
+        for (auto *check : app.findChildren<QCheckBox *>())
+            QVERIFY(check->text() != "Live 1D" && check->text() != "Live 2D");
+        SWMM2DResultsLayer layer;
+        auto source = std::make_unique<FlowSource>();
+        auto *stream = source.get();
+        source->live = true;
+        source->depths.assign(5, .5f);
+        layer.setAsyncSurface(async);
+        layer.setSource(std::move(source));
+        animation->setFallback2DLayer(&layer);
+        animation->setLiveRenderingEnabled(true);
+        QTRY_COMPARE(layer.currentTimeIndex(), 4);
+        QCOMPARE(slider->cursorNorm(), 1.);
+        QVERIFY(live->isChecked());
+        slider->resize(400, 24);
+        QTest::mousePress(slider, Qt::LeftButton, Qt::NoModifier, QPoint(200, 12));
+        const auto dragged = slider->cursorNorm();
+        QVERIFY(!live->isChecked());
+        QVERIFY(pause->isChecked());
+        stream->depths.push_back(.5f);
+        layer.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(slider->cursorNorm(), dragged);
+        QTest::mouseRelease(slider, Qt::LeftButton, Qt::NoModifier, QPoint(200, 12));
+        QTRY_COMPARE(layer.currentTimeIndex(), 2);
+        stream->depths.push_back(.5f);
+        layer.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(layer.currentTimeIndex(), 2);
+        QVERIFY(layer.liveRenderEnabled());
+        live->setChecked(true);
+        QTRY_COMPARE(layer.currentTimeIndex(), 6);
+        QVERIFY(!pause->isChecked());
+        stop->trigger();
+        QVERIFY(!live->isChecked() && !pause->isChecked() && !stop->isChecked());
+        QCOMPARE(slider->cursorNorm(), 0.);
+        stream->depths.push_back(.5f);
+        layer.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(layer.currentTimeIndex(), 0);
+        QCOMPARE(slider->cursorNorm(), 0.);
+    }
+
+    void mixedLiveResultsShareOneCursor_data()
+    {
+        QTest::addColumn<bool>("subsecond");
+        QTest::newRow("whole-seconds") << false;
+        QTest::newRow("100-ms") << true;
+    }
+
+    void mixedLiveResultsShareOneCursor()
+    {
+        QFETCH(bool, subsecond);
+        const auto path = qEnvironmentVariable("FLOW_STREAK_LIVE_OUT");
+        if (path.isEmpty())
+            QSKIP("Set FLOW_STREAK_LIVE_OUT to a completed SWMM output for append replay");
+        QFile original(path);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        auto bytes = original.readAll();
+        QVERIFY(bytes.size() > 24);
+        qint32 footer[6];
+        std::memcpy(footer, bytes.constData() + bytes.size() - 24, 24);
+        const qint64 start = footer[2], count = footer[3];
+        QVERIFY(start > 0 && count > 10 && start < bytes.size() - 24);
+        const qint64 stride = (bytes.size() - 24 - start) / count;
+        QVERIFY(stride >= 8);
+        if (subsecond) {
+            const qint32 reportSeconds = 0;
+            std::memcpy(bytes.data() + start - 4, &reportSeconds, 4);
+            double first;
+            std::memcpy(&first, bytes.constData() + start, 8);
+            for (int i = 0; i < count; ++i) {
+                const double time = first + i * .1 / 86400.;
+                std::memcpy(bytes.data() + start + i * stride, &time, 8);
+            }
+        }
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QFile writing(directory.filePath("live.out"));
+        QVERIFY(writing.open(QIODevice::WriteOnly));
+        QCOMPARE(writing.write(bytes.constData(), start), start);
+        QVERIFY(writing.flush());
+        SWMMResultsLayer oneD(writing.fileName(), nullptr);
+        QList<QString> errors;
+        QVERIFY2(oneD.openResultsLive(errors), qPrintable(errors.join("\n")));
+        QCOMPARE(oneD.totalTimeSteps(), 0);
+        struct TimedFlowSource : FlowSource {
+            QVector<QDateTime> times;
+            QDateTime simTimeAt(int i) const override { return times.value(i); }
+        };
+        auto source = std::make_unique<TimedFlowSource>();
+        auto *stream = source.get();
+        source->live = true;
+        source->depths.assign(3, .5f);
+        for (int i = 0; i < 12; ++i) {
+            double julian;
+            std::memcpy(&julian, bytes.constData() + start + i * stride, 8);
+            source->times.append(openswmmvis::core::swmmDateTimeToMilliseconds(julian));
+        }
+        SWMM2DResultsLayer twoD;
+        twoD.setSource(std::move(source));
+        AnimationController animation;
+        animation.setPrimaryLayer(&oneD);
+        animation.setFallback2DLayer(&twoD);
+        QTRY_COMPARE(twoD.currentTimeIndex(), 2); // Empty 1D must not block 2D.
+        qint64 written = 0;
+        auto append = [&](int frames) {
+            const qint64 size = (frames - written) * stride;
+            QCOMPARE(writing.write(bytes.constData() + start + written * stride, size), size);
+            QVERIFY(writing.flush());
+            written = frames;
+            QCOMPARE(oneD.refreshLive(), frames);
+        };
+        append(5); // 1D arrives before the corresponding 2D packet.
+        QCOMPARE(oneD.currentTimeStep(), 4);
+        stream->depths.resize(5, .5f);
+        twoD.refreshTimeRange();
+        QTRY_COMPARE(twoD.currentTimeIndex(), 4);
+        QCOMPARE(animation.currentDateTime(), stream->simTimeAt(4));
+        animation.seekToTime(stream->simTimeAt(1));
+        QCOMPARE(oneD.currentTimeStep(), 1);
+        QTRY_COMPARE(twoD.currentTimeIndex(), 1);
+        QVERIFY(!animation.liveRenderingEnabled());
+        append(7);
+        stream->depths.resize(7, .5f);
+        twoD.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(oneD.currentTimeStep(), 1);
+        QCOMPARE(twoD.currentTimeIndex(), 1);
+        animation.setLiveRenderingEnabled(true);
+        QCOMPARE(oneD.currentTimeStep(), 6);
+        QTRY_COMPARE(twoD.currentTimeIndex(), 6);
+        animation.pause();
+        append(9);
+        stream->depths.resize(9, .5f);
+        twoD.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(oneD.currentTimeStep(), 6);
+        QCOMPARE(twoD.currentTimeIndex(), 6);
+        animation.stop();
+        QCOMPARE(oneD.currentTimeStep(), 0);
+        QTRY_COMPARE(twoD.currentTimeIndex(), 0);
+        twoD.setCurrentTimeIndex(5);
+        animation.stop(); // Repeated Stop must also rewind an independently moved 2D layer.
+        QTRY_COMPARE(twoD.currentTimeIndex(), 0);
+        append(10);
+        stream->depths.resize(10, .5f);
+        twoD.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(oneD.currentTimeStep(), 0);
+        QCOMPARE(twoD.currentTimeIndex(), 0);
+        const auto remaining = bytes.size() - start - written * stride;
+        QCOMPARE(writing.write(bytes.constData() + start + written * stride, remaining), remaining);
+        QVERIFY(writing.flush());
+        QCOMPARE(oneD.refreshLive(), int(count));
+        QVERIFY(!oneD.isLive());
+        QCOMPARE(oneD.currentTimeStep(), 0);
+        SWMM2DResultsLayer other;
+        auto otherSource = std::make_unique<FlowSource>();
+        otherSource->live = true;
+        other.setSource(std::move(otherSource));
+        animation.setPrimaryLayer(nullptr);
+        animation.setFallback2DLayer(&other);
+        animation.setLiveRenderingEnabled(true);
+        QTRY_COMPARE(other.currentTimeIndex(), 2);
+        stream->depths.resize(11, .5f);
+        twoD.refreshTimeRange();
+        QTest::qWait(80);
+        QCOMPARE(twoD.currentTimeIndex(), 0); // Only the selected results follow.
     }
 
     void asyncPlaybackAdvancesPendingCursor()
@@ -1120,6 +1314,8 @@ private slots:
         const auto path = qEnvironmentVariable("FLOW_STREAK_PROJECT");
         if (path.isEmpty() || !qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))
             QSKIP("Optional project-window flow overlay review");
+        // QTEST_MAIN bypasses SWMMVisApplication, which normally selects Fusion.
+        QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
         SWMMVis app;
         app.resize(1600, 1000);
         QVERIFY(QMetaObject::invokeMethod(&app, "onOpenProject", Qt::DirectConnection,
@@ -5847,7 +6043,7 @@ private slots:
      * userflags INP fixture, a readable saved HDF5 result and a functioning GUI. Writes
      * flow.inp when absent and overwrites flow.oswp under flow_streaks/project with spaces.
      * Uses EPSG:3857, checks sublayer visibility/alpha/full style after asynchronous
-     * reopen, and verifies motion checkbox/model synchronization in both directions.
+     * reopen, and verifies that the persisted motion style remains editable.
      * Marks reopened windows unchanged to avoid save prompts; leaves fixture files.
      *
      */
@@ -5898,14 +6094,9 @@ private slots:
         QVERIFY(reopened->isVisible());
         QCOMPARE(reopened->opacity(), sub->opacity());
         QCOMPARE(reopened->streakStyle()->toJson(), sub->streakStyle()->toJson());
-        auto *motion = app.findChild<QCheckBox *>("flowStreakMotion");
-        QVERIFY(motion);
-        QTRY_VERIFY(motion->isEnabled());
-        QVERIFY(!motion->isChecked());
-        motion->setChecked(true);
+        QVERIFY(!app.findChild<QCheckBox *>("flowStreakMotion"));
+        reopened->streakStyle()->setAnimated(true);
         QVERIFY(reopened->streakStyle()->animated());
-        reopened->streakStyle()->setAnimated(false);
-        QVERIFY(!motion->isChecked());
         for (auto *window : app.findChildren<SWMMVisProjectWindow *>())
             window->setHasChanges(false);
     }

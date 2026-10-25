@@ -46,6 +46,7 @@ public:
      * @return Dimensionless timeline fraction, normally [0,1].
      */
     qreal cursorNorm() const noexcept { return m_cursor; }
+    bool isDragging() const noexcept { return m_dragging; }
     /**
      * @brief Read the look-back band width.
      * @return Fraction of the full timeline; the painted start is clipped at zero.
