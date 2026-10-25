@@ -117,6 +117,7 @@ public:
      * @return True while playback timer is running, including waiting at the live tail.
      */
     [[nodiscard]] bool isPlaying() const { return m_playing; }
+    [[nodiscard]] bool isStopped() const { return m_stopped; }
     /**
      * @brief Read the stored global playback multiplier.
      * @return Current speed value; no input validation is performed by setSpeed().
@@ -372,6 +373,7 @@ private:
     QPointer<SWMM2DResultsLayer> m_fallback2D;
     QTimer *m_timer = nullptr;
     bool m_playing = false;
+    bool m_stopped = true;
     bool m_loop = true; ///< toolbar Cycle checkbox (default on)
     double m_speed = 1.0;
     qint64 m_windowMs = 0; ///< look-back sync window (0 = floor with no band)

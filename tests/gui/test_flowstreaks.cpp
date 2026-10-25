@@ -10,6 +10,9 @@
  */
 
 #include "layers/swmm2dresultslayer.h"
+#include "animation/animationcontroller.h"
+#include "ui/widgets/cursorwindowslider.h"
+#include <QAction>
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "map/flowparticlenode.h"
 #include "map/swmmlayerqsgrenderer.h"
@@ -290,6 +293,11 @@ public:
      */
     VelocityOnlyFlowSource() { fluxEnabled = false; }
     int subsetReads = 0;
+    bool readFaceFieldAt(const char *name, int, std::vector<float> &values) override
+    {
+        values.assign(2, QString::fromLatin1(name) == "Mesh2_face_vx" ? speed : 0);
+        return true;
+    }
     /**
      *
      * @brief Advertise exactly the two synthetic Cartesian face-velocity fields.
@@ -1024,6 +1032,183 @@ class FlowStreaksTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void playbackActionsStopAndRewind()
+    {
+        SWMMVis app;
+        auto *animation = app.findChild<AnimationController *>();
+        auto *play = app.findChild<QAction *>("actionPlay");
+        auto *pause = app.findChild<QAction *>("actionPause");
+        auto *stop = app.findChild<QAction *>("actionStop");
+        auto *slider = app.findChild<openswmmvis::ui::CursorWindowSlider *>();
+        QVERIFY(animation && play && pause && stop && slider);
+        play->trigger(); // No data must not leave a falsely selected Play.
+        QVERIFY(!play->isChecked());
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FlowSource>());
+        layer.setAsyncSurface(true);
+        animation->setFallback2DLayer(&layer);
+        animation->seekToPeriod(1);
+        QTRY_COMPARE(layer.currentTimeIndex(), 1);
+        play->trigger();
+        QVERIFY(play->isChecked());
+        QVERIFY(!pause->isChecked());
+        pause->trigger();
+        QVERIFY(!play->isChecked());
+        QVERIFY(pause->isChecked());
+        pause->trigger();
+        QVERIFY(pause->isChecked());
+        slider->setCursorNorm(.75); // Queue a scrub immediately before Stop.
+        stop->trigger();
+        QVERIFY(!play->isChecked());
+        QVERIFY(!pause->isChecked());
+        QCOMPARE(slider->cursorNorm(), 0.);
+        QTRY_COMPARE(layer.currentTimeIndex(), 0);
+        QTest::qWait(80);
+        QCOMPARE(layer.currentTimeIndex(), 0);
+        QCOMPARE(slider->cursorNorm(), 0.);
+        play->trigger();
+        QVERIFY(play->isChecked());
+        stop->trigger();
+        QVERIFY(!play->isChecked() && !pause->isChecked());
+    }
+
+    void asyncPlaybackAdvancesPendingCursor()
+    {
+        SWMM2DResultsLayer layer;
+        auto source = std::make_unique<FlowSource>();
+        source->depths.assign(20, .5f);
+        layer.setSource(std::move(source));
+        layer.setAsyncSurface(true);
+        AnimationController animation;
+        animation.setFallback2DLayer(&layer);
+        animation.stop();
+        QTRY_COMPARE(layer.currentTimeIndex(), 0);
+        animation.stepForward();
+        animation.stepForward();
+        animation.stepForward();
+        QCOMPARE(layer.requestedTimeIndex(), 3);
+        animation.stop();
+        QTest::qWait(100);
+        QCOMPARE(layer.currentTimeIndex(), 0);
+    }
+
+    void savedVelocityVectorsWithoutEdgeFlux()
+    {
+        for (bool async : {false, true}) {
+            SWMM2DResultsLayer layer;
+            layer.setAsyncSurface(async);
+            layer.setSource(std::make_unique<VelocityOnlyFlowSource>());
+            for (int time = 0; time < 3; ++time) {
+                layer.setCurrentTimeIndex(time);
+                QTRY_COMPARE(layer.currentTimeIndex(), time);
+                QVERIFY(layer.hasVelocityData());
+                float vx = 0, vy = 0;
+                QVERIFY(layer.velocityAtScene({50, -50}, vx, vy, layer.captureVelocityField()));
+                QVERIFY(std::abs(vx - 2) < 1e-5);
+                QVERIFY(std::abs(vy) < 1e-5);
+            }
+        }
+    }
+
+    void nativeSavedContourPlayback()
+    {
+        const auto path = qEnvironmentVariable("FLOW_STREAK_RESULT");
+        if (path.isEmpty() || !qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))
+            QSKIP("Optional saved-output playback review");
+        SWMM2DResultsLayer layer;
+        layer.setAsyncSurface(true);
+        auto source = std::make_unique<HDF5Mesh2DSource>();
+        QVERIFY(source->open(path));
+        layer.setSource(std::move(source));
+        for (auto *sub : layer.sublayers())
+            sub->setVisible(false);
+        layer.contourBandSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->setVisible(true);
+        layer.velocityVectorSublayer()->setVisible(true);
+        layer.setCurrentTimeIndex(600);
+        QTRY_COMPARE_WITH_TIMEOUT(layer.currentTimeIndex(), 600, 30000);
+        QVERIFY(layer.hasVelocityData());
+        ParticleReviewCanvas canvas;
+        canvas.resize(1280, 800);
+        canvas.setShowScaleBar(false);
+        canvas.addLayer(&layer, false);
+        const auto bounds = layer.m_sceneBBox;
+        canvas.setExtent({bounds.left(), -bounds.bottom(), bounds.right(), -bounds.top()}, false);
+        showNativeReview(canvas);
+        QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active, 10000);
+        auto *root = compositionRoot(canvas);
+        QVERIFY(root);
+        const auto renderers = root->findChildren<SWMM2DResultsQSGRenderer *>();
+        QCOMPARE(renderers.size(), 1);
+        auto *renderer = renderers.front();
+        auto *controller = layer.findChild<FlowParticleController *>();
+        QVERIFY(controller);
+        QTRY_VERIFY_WITH_TIMEOUT(controller->frame(renderer->displayedFrameRevision()), 30000);
+        QTest::qWait(500);
+        const auto folder = qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT", "tests/output/playback");
+        QVERIFY(QDir().mkpath(folder));
+        QString error;
+        layer.flowStreakSublayer()->streakStyle()->setAnimated(false);
+        auto withVectors = canvas.captureMap(&error).toImage();
+        QVERIFY2(!withVectors.isNull(), qPrintable(error));
+        layer.velocityVectorSublayer()->setVisible(false);
+        auto withoutVectors = canvas.captureMap(&error).toImage();
+        QVERIFY(!withoutVectors.isNull());
+        QVERIFY(withVectors != withoutVectors);
+        QVERIFY(withVectors.save(folder + "/vectors-on.png"));
+        QVERIFY(withoutVectors.save(folder + "/vectors-off.png"));
+        layer.velocityVectorSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->streakStyle()->setAnimated(true);
+        AnimationController animation;
+        animation.setFallback2DLayer(&layer);
+        animation.setSpeed(8);
+        animation.setLooping(false);
+        std::atomic_int samples = 0, missing = 0, changed = 0;
+        quint64 previous = renderer->displayedFrameRevision();
+        const auto monitor = connect(compositionWindow(canvas), &QQuickWindow::afterSynchronizing,
+                                     &canvas, [&] {
+            ++samples;
+            const auto revision = renderer->displayedFrameRevision();
+            if (!controller->frame(revision))
+                ++missing;
+            if (revision != previous) {
+                ++changed;
+                previous = revision;
+            }
+        }, Qt::DirectConnection);
+        const auto cleanup = qScopeGuard([&] { disconnect(monitor); });
+        QElapsedTimer clock;
+        clock.start();
+        animation.play();
+        QTest::qWait(8000);
+        animation.pause();
+        const double seconds = clock.elapsed() / 1000.;
+        disconnect(monitor);
+        QFile report(folder + "/playback.json");
+        QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QJsonDocument(QJsonObject{
+            {"seconds", seconds}, {"renderSamples", samples.load()},
+            {"waterFramesPresented", changed.load()}, {"missingParticleFrames", missing.load()},
+            {"requestedFrame", layer.requestedTimeIndex()},
+            {"loadedFrame", layer.currentTimeIndex()},
+            {"particleStatus", layer.flowStreakStatus()}
+        }).toJson());
+        report.close();
+        QVERIFY(samples > 10);
+        QVERIFY(changed > 10);
+        QCOMPARE(missing.load(), 0);
+        QVERIFY(layer.requestedTimeIndex() > 640);
+        QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy() && renderer->captureReady() &&
+                                  renderer->displayedFrameRevision() == layer.frameRevision(),
+                                30000);
+        const auto image = canvas.captureMap(&error);
+        QVERIFY2(!image.isNull(), qPrintable(error));
+        QVERIFY(image.save(folder + "/playback.png"));
+        animation.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(layer.currentTimeIndex(), 0, 30000);
+        canvas.takeLayer(0, false);
+    }
+
     /**
      *
      * @brief Supply cached-pixel, cached-duration and old continuous-preview JSON with expected

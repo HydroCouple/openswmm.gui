@@ -2366,7 +2366,8 @@ template <class Job> size_t surfaceJobBytes(const Job &job)
 {
     size_t bytes =
         job.surfaces.capacity() * sizeof(CellWaterGeometry::Surface) +
-        (job.depths.capacity() + job.flux.capacity()) * sizeof(float) +
+        (job.depths.capacity() + job.flux.capacity() + job.velocityX.capacity() +
+         job.velocityY.capacity()) * sizeof(float) +
         (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths);
     // Charge shared region geometry per owner conservatively; the budget must
     // also hold when a pan leaves older coverage alive in the frame cache.
@@ -2451,6 +2452,10 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     if (n == 0)
         return false;
     t = std::clamp(t, 0, n - 1);
+    // A rewind (including Stop) supersedes every forward frame already being
+    // fitted. Cache those completions, but never move the cursor forward again.
+    if (t < current_time_idx_ || t < requested_time_idx_)
+        published_seq_ = request_seq_;
     requested_time_idx_ = t;
     const quint64 seq = ++request_seq_;
 
@@ -2587,7 +2592,7 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
         install(surfaceDepths_, job.smooth);
         fillSceneCorners_();
-        applyCurrentFlux_();
+        applyCurrentFlux_(&job.velocityX, &job.velocityY);
     }
     if (graphics_item_)
         graphics_item_->geometryChanged();
@@ -2612,6 +2617,8 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
         // file open or read. clear() retains its allocation for the next job.
         job.depths.clear();
         job.flux.clear();
+        job.velocityX.clear();
+        job.velocityY.clear();
         openswmmvis::io::Mesh2DH5Reader reader;
         bool ok = reader.open(job.inputPath);
         if (job.region)
@@ -2621,6 +2628,20 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
             ok = reader.readDepthsAt(job.key.frame, job.depths);
             if (!reader.readEdgeFluxAt(job.key.frame, job.flux))
                 job.flux.clear();
+        }
+        if (ok && job.flux.empty() && reader.hasFaceField("Mesh2_face_vx") &&
+            reader.hasFaceField("Mesh2_face_vy")) {
+            const bool velocityOk = job.region
+                ? reader.readFaceFieldCellsAt("Mesh2_face_vx", job.key.frame, job.region->cells,
+                                              job.velocityX) &&
+                  reader.readFaceFieldCellsAt("Mesh2_face_vy", job.key.frame, job.region->cells,
+                                              job.velocityY)
+                : reader.readFaceFieldAt("Mesh2_face_vx", job.key.frame, job.velocityX) &&
+                  reader.readFaceFieldAt("Mesh2_face_vy", job.key.frame, job.velocityY);
+            if (!velocityOk) {
+                job.velocityX.clear();
+                job.velocityY.clear();
+            }
         }
         const size_t count = job.region ? job.region->cells.size() : cells_.size();
         if (!ok || job.depths.size() != count)
@@ -4577,14 +4598,28 @@ void SWMM2DResultsLayer::fillSceneCorners_()
     }
 }
 
-void SWMM2DResultsLayer::applyCurrentFlux_()
+void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
+                                        const std::vector<float> *savedVy)
 {
     have_velocity_ = false;
     const int nCell = static_cast<int>(cells_.size());
     const int nTri = static_cast<int>(tris_.size());
     const std::size_t nSlots = std::size_t(mesh::edgeSlotCount(nCell));
-    if (!have_edge_geom_ || cells_.empty() || current_flux_.size() != nSlots ||
-        edge_length_.size() != nSlots || static_cast<int>(current_depths_.size()) != nCell ||
+    const bool haveFlux = have_edge_geom_ && current_flux_.size() == nSlots &&
+                          edge_length_.size() == nSlots;
+    std::vector<float> readVx, readVy;
+    if (!haveFlux && !savedVx && source_) {
+        if (source_->hasFaceField("Mesh2_face_vx") && source_->hasFaceField("Mesh2_face_vy") &&
+            source_->readFaceFieldAt("Mesh2_face_vx", current_time_idx_, readVx) &&
+            source_->readFaceFieldAt("Mesh2_face_vy", current_time_idx_, readVy)) {
+            savedVx = &readVx;
+            savedVy = &readVy;
+        }
+    }
+    const bool haveSavedVelocity = savedVx && savedVy && savedVx->size() == cells_.size() &&
+                                   savedVy->size() == cells_.size();
+    if (cells_.empty() || (!haveFlux && !haveSavedVelocity) ||
+        static_cast<int>(current_depths_.size()) != nCell ||
         static_cast<int>(triCell_.size()) != nTri) {
         // No flux data this tick — wipe per-tri velocities so an old frame
         // doesn't ghost when the user scrubs into a flux-less region.
@@ -4610,14 +4645,21 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     cellVm.assign(size_t(nCell), 0.0f);
     for (int c = 0; c < nCell; ++c) {
         const float depth = current_depths_[size_t(c)];
-        if (depth < dryEps || !cellHasSurface(c))
+        if (!std::isfinite(depth) || depth <= 0 || depth < dryEps || !cellHasSurface(c))
             continue;
 
         double vx_model = 0.0, vy_model = 0.0;
-        if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]), current_flux_.data(),
+        if (haveFlux) {
+            if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]), current_flux_.data(),
                                 edge_length_.data(), edge_nx_.data(), edge_ny_.data(), depth,
                                 dryEps, vx_model, vy_model))
-            continue;
+                continue;
+        } else {
+            vx_model = (*savedVx)[size_t(c)];
+            vy_model = (*savedVy)[size_t(c)];
+            if (!std::isfinite(vx_model) || !std::isfinite(vy_model))
+                continue;
+        }
 
         // Scene-space velocity: vy is flipped so the arrow points the right
         // way after the rebuildSceneGeometry_() Y-flip on vertex coords.

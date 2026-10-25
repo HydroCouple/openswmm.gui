@@ -1524,7 +1524,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // Keep the historical small-mesh bootstrap for immediate previews.
         const bool background = asyncContoursEnabled(nTri) && needsMarching &&
                                 (compatible || nTri >= kAsyncContourThreshold);
-        if ((!m_contourFrame || !(m_contourFrame->key == key)) && (!background || !m_contourBusy)) {
+        // Finish the water/particle handoff before replacing its candidate.
+        // Otherwise fast ticks keep changing the revision the particle worker
+        // is preparing and can starve presentation indefinitely.
+        const bool awaitingPresentation = compatible &&
+            m_contourFrame->key.frameRev != m_lastRenderedFrame &&
+            m_layer->flowStreaksEnabled() && m_contourFrame->particles;
+        if (!awaitingPresentation && (!m_contourFrame || !(m_contourFrame->key == key)) &&
+            (!background || !m_contourBusy)) {
             std::shared_ptr<std::vector<std::array<float, 3>>> scalars;
             std::shared_ptr<ContourJobOutput> output;
             if (needsMarching) {
@@ -2588,6 +2595,16 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         if (rebuildFills) {
             m_lastRenderedTime = frame.key.time;
             m_lastRenderedFrame = frame.key.frameRev;
+            if (!(frame.key == key) && !m_contourBusy) {
+                // A candidate held for its particles can outlive the final
+                // playback tick. Once it is presented, explicitly resume the
+                // coalesced request, even when playback has just been paused.
+                QMetaObject::invokeMethod(this, [this] {
+                    m_dirty.noteDataChanged();
+                    noteContentChanged();
+                    emit contentReady();
+                }, Qt::QueuedConnection);
+            }
         }
         if (bits & D::Geometry)
             m_lastGeomRev = m_layer->geomRevision();

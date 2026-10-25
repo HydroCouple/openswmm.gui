@@ -351,7 +351,11 @@ void FlowParticleLayerController::advance(double seconds)
     if (!m_layer->flowStreaksEnabled() || !style->animated() || style->speedMultiplier() <= 0 ||
         !std::isfinite(seconds) || seconds <= 0)
         return;
-    if (m_particleView.isValid())
+    // Refresh residency for the field the renderer actually requested. During
+    // result playback the hydraulic producer may be several frames ahead of
+    // the contours; capturing each of those skipped fields here performs HDF5
+    // reads on the GUI timer and competes with the pending presentation.
+    if (m_particleView.isValid() && m_particleRevision == m_layer->frameRevision())
         frame(m_particleView, m_particleScale, m_layer->frameRevision(), false);
     m_worker->advance(seconds);
 }

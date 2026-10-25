@@ -165,6 +165,10 @@ void SWMM2DResultsLayer::readSurfaceJob_(SurfaceJob &job)
     }
     if (!job.region) {
         readSurfaceInputs_(job.key.frame, job.depths, job.flux);
+        if (job.flux.empty()) {
+            source_->readFaceFieldAt("Mesh2_face_vx", job.key.frame, job.velocityX);
+            source_->readFaceFieldAt("Mesh2_face_vy", job.key.frame, job.velocityY);
+        }
         return;
     }
     const auto frame = source_->readHydraulicCellsAt(job.key.frame, job.region->cells);
@@ -181,6 +185,12 @@ void SWMM2DResultsLayer::readSurfaceJob_(SurfaceJob &job)
     for (float &d : job.depths)
         if (!std::isfinite(d) || d < 0)
             d = std::numeric_limits<float>::quiet_NaN();
+    if (job.flux.empty()) {
+        source_->readFaceFieldCellsAt("Mesh2_face_vx", job.key.frame, job.region->cells,
+                                      job.velocityX);
+        source_->readFaceFieldCellsAt("Mesh2_face_vy", job.key.frame, job.region->cells,
+                                      job.velocityY);
+    }
 }
 
 void SWMM2DResultsLayer::publishRegionalSurface_(const SurfaceJob &job)
@@ -244,6 +254,15 @@ void SWMM2DResultsLayer::publishRegionalSurface_(const SurfaceJob &job)
                                         edge_nx_.data(), edge_ny_.data(), job.depths[i], dry_depth_,
                                         vx, vy))
                     vx = vy = 0;
+        } else if (job.velocityX.size() == region.cells.size() &&
+                   job.velocityY.size() == region.cells.size() &&
+                   std::isfinite(job.depths[i]) && job.depths[i] > 0 &&
+                   job.depths[i] >= dry_depth_ &&
+                   CellWaterGeometry::visible(
+                       CellWaterGeometry::displayState(job.smooth[i], nv, job.policy), job.policy) &&
+                   std::isfinite(job.velocityX[i]) && std::isfinite(job.velocityY[i])) {
+            vx = job.velocityX[i];
+            vy = job.velocityY[i];
         }
         const float speed = float(std::hypot(vx, vy));
         peak = std::max(peak, speed);
