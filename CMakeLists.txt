@@ -16,6 +16,14 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
+# Package the header-only extension API without the GIS/engine application dependencies.
+option(SWMMVIS_SDK_ONLY "Configure only the public GUI extension SDK" OFF)
+if(SWMMVIS_SDK_ONLY)
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
+    include(cmake/GuiExtensionSdk.cmake)
+    return()
+endif()
+
 # An unspecified single-configuration build otherwise disables optimization,
 # making interactive water reconstruction and flow playback visibly stall.
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -133,6 +141,7 @@ include(FetchQPropertyModel)
 # ── openswmm.engine (hard dependency — sibling checkout or GitHub fetch) ─────
 include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
+include(GuiExtensionSdk)
 
 # ── Additional engine versions shipped as subprocess workers ────────────────
 # EPA SWMM 5.2.4 (pinned tag on the build-v5.2.4 branch), compiled statically
@@ -179,6 +188,8 @@ set(
 
         # ── App ──────────────────────────────────────────────────────────────
         include/swmmvis.h
+        src/swmmvisextensions.cpp
+        src/plugins/extensionmodelaccess.cpp
         include/swmmvisapplication.h
         include/swmmvisprojectwindow.h
         include/swmmvissplashscreen.h
@@ -1850,6 +1861,7 @@ target_include_directories(SWMMVis PRIVATE ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(SWMMVis
     PRIVATE
+        openswmmvis_extensions
         swmmvis_build_info
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::OpenGL
@@ -2793,8 +2805,8 @@ find_package(Doxygen OPTIONAL_COMPONENTS dot)
 if(DOXYGEN_FOUND)
     add_custom_target(doc
         COMMAND ${DOXYGEN_EXECUTABLE} ${PROJECT_SOURCE_DIR}/docs/Doxyfile
-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-        COMMENT "Generating API documentation with Doxygen"
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/docs
+        COMMENT "Generating GUI documentation, including the extension SDK"
         VERBATIM
     )
 endif()

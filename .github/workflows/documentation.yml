@@ -58,6 +58,9 @@ jobs:
         # the published site, which is docs/html.
         run: |
           doxygen Doxyfile
+          test -n "$(find html -name gui_extension_sdk.html -print -quit)"
+          test -n "$(find html -name _extension_host_8hpp.html -print -quit)"
+          test -n "$(find html -name extensionmodelaccess_8h.html -print -quit)"
           cp CNAME html/
 
       - name: Upload Pages artifact

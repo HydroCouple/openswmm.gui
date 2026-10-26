@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 @Qt6_VERSION_MAJOR@.@Qt6_VERSION_MINOR@ COMPONENTS Core Gui Widgets Network)
+include("${CMAKE_CURRENT_LIST_DIR}/OpenSWMMVisSdkTargets.cmake")
+set(OpenSWMMVisSdk_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/sdk-manifest.json")
+include("${CMAKE_CURRENT_LIST_DIR}/OpenSWMMVisExtension.cmake")
+check_required_components(OpenSWMMVisSdk)

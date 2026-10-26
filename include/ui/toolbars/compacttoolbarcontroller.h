@@ -50,21 +50,25 @@ public:
      */
     explicit CompactToolbarController(QMainWindow *window);
 
-    /*! Register a tab. \a toolbars are shown side-by-side (in list order)
-     *  while the tab is current. \a contextual tabs start hidden — reveal
-     *  with setTabVisible(). Call before finalize().
-     * @param[in] id Stable identity copied; uniqueness/nonempty not validated, lookups use first
-     *   duplicate.
+    /*! Register a tab before or after finalize(). \a toolbars are shown side-by-side
+     *  while the tab is current. \a contextual tabs start hidden after mounting.
+     * @param[in] id Stable nonempty identity copied; duplicate and empty identities are ignored.
      * @param[in] title Display caption copied.
      * @param[in] toolbars Borrowed toolbar pointers in display order, null entries skipped during
      *   mount/visibility; must outlive controller.
-     * @param[in] contextual True tab is hidden during finalize, not immediately on add.
-     * @note Must precede finalize (debug assertion only). Appends metadata/tab without mounting
-     *   toolbars or changing their QObject parents. Shared toolbar in multiple tabs is unsupported
-     *   in practice: visibility loop later entries can override earlier.
+     * @param[in] contextual True starts hidden when the tab is mounted; reveal with setTabVisible().
+     * @note Before finalize(), only metadata/tab entries are appended. After finalize(), the bars
+     *   are mounted immediately and visibility is refreshed, allowing runtime extension contributions.
+     *   Toolbar ownership remains with the caller. Do not share a toolbar between tabs.
      */
     void addTab(const QString &id, const QString &title, const QList<QToolBar *> &toolbars,
                 bool contextual = false);
+
+    /** @brief Remove a registered tab and detach its toolbars from the main window.
+     * @param[in] id Exact stable tab identity; unknown identities are ignored.
+     * @note Toolbar ownership remains with the caller. Current-tab removal selects another
+     * visible Qt tab and refreshes toolbar visibility. GUI-thread only. */
+    void removeTab(const QString &id);
 
     /*! Mark \a bar (already registered via addTab) to occupy its own
      *  full row BELOW the shared group row while its tab is current —

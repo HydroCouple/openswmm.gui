@@ -81,6 +81,7 @@ catchment data and dependent files. Runtime depends on the model and hardware.
 - \subpage manual_shortcuts — default keyboard shortcuts
 - \subpage manual_file_formats — files SWMMVis reads and writes
 - \subpage manual_plugins — engine and GUI plugins
+- \subpage manual_extensions — installing and using GUI extensions
 - \subpage manual_performance — redraw policy, large models and performance tuning
 - \subpage manual_troubleshooting — common problems and their fixes
 - \subpage manual_about — about, credits and licences

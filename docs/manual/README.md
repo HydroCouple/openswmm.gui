@@ -5,6 +5,13 @@ by `docs/Doxyfile` together with the API reference and published by the
 `documentation.yml` workflow. `docs/manual/manual.md` is the table of contents
 (`@page user_manual`); every chapter is a `\subpage` of it.
 
+GUI extension documentation is part of this same site: `26_extensions.md`
+covers installation and use, while `docs/sdk/extensions.dox` is the author
+guide linked by **GUI Extensions** in the main navigation. The public SDK,
+private loader/host implementation and example are included by the main
+`docs/Doxyfile`. The focused configurations under `docs/sdk/` provide strict
+documentation checks for contributors.
+
 This file is *not* part of the built site (no `@page` header).
 
 ## Layout

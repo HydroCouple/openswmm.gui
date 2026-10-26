@@ -977,6 +977,9 @@ public:
                              const QString &vertUnit = QString());
 
 signals:
+    /** SDK persistence hooks; emitted while the model and its extension facades are live. */
+    void extensionStateSaving();
+    void extensionStateRestored();
     /**
      * @brief Relay of model-layer loaded signal; may precede finishModelLoad CRS/selection/view
      *   completion. Use modelLoadFinished for async settled outcome.

@@ -1862,6 +1862,10 @@ private:
 
     // UI redesign P6 — tabbed compact toolbar (strip + per-tab rows).
     openswmmvis::ui::CompactToolbarController *mCompactToolbar = nullptr;
+    /** @brief Initialize native GUI extensions after host controls exist and before startup model restore.
+     * @note GUI thread only. Builds scoped SDK hosts and UI bridges; safe mode skips plugin code.
+     * @see gui_extension_sdk */
+    void initializeExtensions();
     class QToolBar *mToolBarHome = nullptr;
     class QToolBar *mToolBarModel = nullptr;
     class QToolBar *mToolBarMesh2D = nullptr;

@@ -1,0 +1,456 @@
+/**
+ * @file extensions.dox
+ * @brief Author guide for the OpenSWMM GUI extension SDK.
+ * @author Caleb Buahin <caleb.buahin@gmail.com>
+ * @date 2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license GPL-3.0-or-later
+ *
+ * @page gui_extension_sdk GUI Extensions
+ *
+ * @section sdk_overview Purpose and module boundaries
+ *
+ * The SDK, native loader and host adapters are part of the openswmm.gui
+ * repository and its GUI documentation. Individual plugins may live in
+ * separate repositories and consume the installed SDK; the infrastructure
+ * does not require a separate repository. See @ref manual_extensions for
+ * installing and using plugins in the application.
+ *
+ * Native Qt plugins extend the running GUI through the header-only
+ * OpenSWMM::Sdk interfaces. Plugins link Qt and OpenSWMMVis::Sdk; they do not
+ * link the GUI executable or include SWMMVis, SWMMModelLayer, MapCanvas, or
+ * other private GUI headers. Engine access uses the host's existing engine
+ * image through a scoped lease. Never load a second engine image and pass
+ * handles between those images.
+ *
+ * Public files live in include/sdk/. Private discovery, host services and
+ * model adapters live under include/plugins/ and src/plugins/.
+ * src/swmmvisextensions.cpp supplies the application-specific action/ribbon
+ * bridges. ProjectSerializer stores extension state alongside ordinary
+ * project settings. The independently configured example is in
+ * examples/extensions/template/.
+ * The public API is in OpenSWMM::Sdk. The private implementation includes
+ * openswmmvis::ExtensionManager, openswmmvis::GuiExtensionHost and
+ * openswmmvis::ExtensionNetwork; their class and file references are included
+ * in the same GUI documentation build.
+ *
+ * @section sdk_file_map Source file map
+ *
+ * File | Responsibility
+ * --- | ---
+ * sdk/Version.hpp | Version constants and owning compatibility manifest serialization.
+ * sdk/IGuiExtension.hpp | Qt plugin root interface, metadata and lifecycle contract.
+ * sdk/ExtensionHost.hpp | Scoped service access, notifications, console and jobs.
+ * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
+ * sdk/ISettings.hpp | Extension-specific persistent preferences.
+ * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
+ * sdk/IProject.hpp | Project state, recovery saves, CRS, loaded layers and spatial previews.
+ * sdk/IEngineLease.hpp | Shared/exclusive borrowed engine access.
+ * sdk/INativeEditScope.hpp | Native snapshot transaction and rollback contract.
+ * sdk/IEditScope.hpp | Mediated authored edits and forcing imports.
+ * sdk/IApplicationServices.hpp | Normal simulation, plot and built-in dialog adapters.
+ * sdk/INetworkPolicy.hpp | Policy-enforcing shared HTTP client contract.
+ * sdk/IAttributeProvider.hpp | Existing provider interface, preserved IID and SDK alias.
+ * sdk/IComputedAttributeProvider.hpp | Guarded, read-only derived model fields supplied by an extension.
+ * sdk/SwmmCategory.hpp | Stable model category enumeration without private layer dependencies.
+ * plugins/extensionmanager.* | Discovery, compatibility checks, startup recovery and native lifecycle.
+ * plugins/guiextensionhost.* | Scoped UI ownership, jobs, output, settings and application bridges.
+ * plugins/extensionmodelaccess.* | Guarded model/project facades, snapshots, undo and spatial geometry.
+ * plugins/extensionnetwork.* | Request policy checks and asynchronous refusal replies.
+ * plugins/extensionpreferences.h | Guarded registration of Preferences factories.
+ * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
+ * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
+ * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
+ *
+ * @section sdk_install Building against an installed SDK
+ *
+ * Install the SDK component from the same build as the application:
+ * @code{.sh}
+ * cmake --install build --component GuiSdk --prefix /path/to/sdk
+ * cmake -S examples/extensions/template -B /path/to/example-build \
+ *   -DCMAKE_PREFIX_PATH="/path/to/sdk;/path/to/matching/Qt"
+ * cmake --build /path/to/example-build
+ * @endcode
+ *
+ * A consumer CMake project needs only:
+ * @code{.cmake}
+ * find_package(OpenSWMMVisSdk 1.1 CONFIG REQUIRED)
+ * openswmmvis_add_extension(my_extension
+ *     ID org.example.tools CAPTION "Example tools" VERSION 1.0.0
+ *     VENDOR "Example" LICENSE "Author supplied"
+ *     SOURCES extension.cpp)
+ * @endcode
+ *
+ * The helper generates plugin.json from sdk-manifest.json and rejects a
+ * mismatched Qt major/minor or compiler ABI at configure time. Qt embeds
+ * that JSON through Q_PLUGIN_METADATA. The generated metadata directory
+ * belongs to the plugin target, so independently built plugins require no
+ * source-tree path or GUI executable symbols.
+ *
+ * @section sdk_lifecycle Discovery and lifecycle
+ *
+ * The manager scans applicationDir/plugins/gui, the user application's
+ * data directory/plugins, and additional directories configured in
+ * Tools → Plugins. Directory order determines priority when identities
+ * collide; canonical paths prevent duplicate loading through symlinks.
+ *
+ * Metadata inspection does not execute plugin code. Before instance(), the
+ * host checks the root IID, SDK version, Qt major/minor, compiler ABI and
+ * architecture. With an ABI-aware engine, the installed SDK records the
+ * engine-owned tag, and the GUI reads swmm_engine_abi_tag() from the loaded
+ * image before initializing plugins. An engine-ABI mismatch is a warning
+ * unless requiresEngineAbi is true, in which case loading is refused.
+ * Older engine packages use a headers-sha256 fingerprint as a conservative
+ * fallback; that fallback cannot verify the loaded binary. SDK-only builds
+ * have no engine identity. Native handle sharing also requires a single
+ * engine image; matching text tags alone do not prove image reuse.
+ *
+ * Initialization occurs after the main window and ribbon controller exist,
+ * before startup projects restore. The plugin's runtime identity must match
+ * its embedded identity. Return false with a useful error to refuse startup.
+ * The manager removes any partially created host contributions and leaves
+ * the failure visible in Tools → Plugins, including after a metadata rescan.
+ *
+ * Enable/disable and newly discovered plugins take effect on restart.
+ * --no-extensions and holding Shift at launch skip all native initialization.
+ * A surviving initialization/job marker disables the affected extension on
+ * the next launch. Native plugins are trusted code inside the GUI process;
+ * no process isolation or recovery from a fatal native fault is provided.
+ *
+ * Shutdown order is: request job cancellation, join jobs, call
+ * IGuiExtension::shutdown(), remove host-owned contributions, and release
+ * host facades. Libraries remain pinned until process exit because Qt
+ * callbacks and meta-types can retain native code addresses.
+ *
+ * @section sdk_ui UI contributions and ownership
+ *
+ * Register commands before a RibbonTabSpec refers to them. The host prefixes
+ * local identities with ext.&lt;pluginId&gt;. Commands appear in the command
+ * palette; ribbon tabs can be added and removed after application startup.
+ * QAction pointers are borrowed. Parent a newly allocated action to
+ * ExtensionHost::lifetime() to give the host ownership.
+ *
+ * A dock factory returns a newly allocated QWidget that becomes owned by
+ * the host QDockWidget. Document factories remain borrowed while registered;
+ * their returned widgets become MDI-owned. Preferences factories remain
+ * borrowed until unregistered, while each page widget belongs to its dialog.
+ * Never delete a returned host-owned widget without coordinating with its
+ * owning container. Use the unregister methods to remove contributions.
+ *
+ * Document saveState() returns JSON stored under session views[]. Unknown
+ * extension kinds remain pending, allowing a project to save and reopen
+ * when an extension is unavailable. Runtime registration materializes a
+ * pending kind once its factory becomes available. Model-owned document
+ * widgets close with their model.
+ *
+ * @section sdk_computed Derived model attributes
+ *
+ * SDK 1.1 adds IComputedAttributeProvider and per-model registration through
+ * IModelInstance::registerAttributeProvider(). Supply a local provider ID, a
+ * borrowed provider and a GUI-thread QObject that guards its lifetime. The
+ * host validates every descriptor before publishing fields, and prefixes
+ * keys as ext.pluginId.providerId.fieldName. Metadata becomes available in
+ * symbology pickers; values share the normal identify map and read-only
+ * attribute-table columns. Existing authored fields cannot be overwritten.
+ *
+ * Providers receive the object's base attribute snapshot, so calculations
+ * need not re-read the model. Recursive attribute reads omit derived fields
+ * to prevent dependency cycles. Keep calculations short and prepare expensive
+ * inputs in a job. A throwing provider's values are disabled until an explicit
+ * refresh; other providers and base attributes remain available.
+ *
+ * Call refreshAttributeProvider() after changing calculation inputs. It
+ * invalidates table values and extension-based classification ranges without
+ * writing engine data, adding undo commands or marking the model dirty.
+ * Observe modelEdited/attributesChanged when calculations depend on authored
+ * changes in other objects. Metadata is fixed at registration; unregister and
+ * register again to replace descriptors. This revision supports static fields
+ * on authored model categories, with isDynamic=false.
+ *
+ * Destroying the provider guard, closing its model, unregistering the provider
+ * or shutting down its extension removes the contribution. The host removes
+ * registered callbacks before plugin shutdown releases their resources.
+ *
+ * @section sdk_events Events, signals and commands
+ *
+ * The SDK already supports host-to-plugin events through ExtensionHost::observe().
+ * Internally this connects a Qt signal to the callback. The public ExtensionHost
+ * remains a pure C++ interface: it does not expose per-domain QObject signals or
+ * arbitrary private UI slots. A plugin's own QActions, widgets and controllers
+ * can use ordinary typed QObject::connect() calls with one another.
+ *
+ * Communication in the other direction uses the public services: select() and
+ * edit() on a model, layer import and preview operations on a project, start()
+ * and cancel() on the run registry, and UI/plot/dialog operations. These routes
+ * preserve shared selection and the supported ownership/run rules. Model edits
+ * use the existing edit/lease and undo paths; layer import does not promise undo.
+ * An event
+ * reports a change; it is not a command or permission to modify a private object.
+ * ExtensionHost::lifetime() is a lifetime guard, not a private-object discovery API.
+ *
+ * @subsection sdk_event_delivery Subscription and delivery
+ *
+ * Register on the GUI thread with a nonnull GUI-thread QObject context and a
+ * nonempty callback. The returned QMetaObject::Connection supports explicit
+ * QObject::disconnect(); destroying the context or host disconnects it too.
+ * Delivery is synchronous on the GUI thread. The context must remain there;
+ * callbacks are suppressed while it is on another thread and after host shutdown
+ * begins. Invalid registrations return an invalid connection. A throwing
+ * observer is reported without preventing other observers from receiving the
+ * event; handlers should nevertheless avoid throwing.
+ *
+ * The callback arguments are borrowed references to value data during the call;
+ * copy them if retaining them. No raw engine, runner or layer pointer is an
+ * event payload. There is no initial replay: subscribe first, then enumerate
+ * current state. Enumeration may itself announce newly discovered model facades,
+ * so initialization must tolerate a notification during that query.
+ *
+ * Notifications currently follow native signal timing and may occur inside
+ * an edit, load or close operation. Keep callbacks short; defer state-changing
+ * commands through IUiHost::postToMainThread(), use guarded receivers, and
+ * re-resolve the target by identity and check isOpen() before acting. Do not
+ * start nested event loops or assume every event represents a completed
+ * transaction. Native plugins remain trusted code; callback exception handling
+ * cannot isolate a native memory fault.
+ *
+ * @code{.cpp}
+ * // controller is a GUI-thread QObject owned by the plugin.
+ * auto connection = host->observe(controller,
+ *     [host](const QString &event, const QVariantMap &data) {
+ *         if (event != "selectionChanged")
+ *             return;
+ *         const QUuid id = data.value("id").toUuid();
+ *         for (auto *model : host->instances()) {
+ *             if (model->id() == id && model->isOpen()) {
+ *                 const auto selected = model->selection();
+ *                 // Refresh this plugin's view from the copied selection.
+ *                 Q_UNUSED(selected);
+ *                 break;
+ *             }
+ *         }
+ *     });
+ * // QObject::disconnect(connection); // Optional early unsubscribe.
+ * @endcode
+ *
+ * @subsection sdk_event_catalogue Current SDK 1.1 event catalogue
+ *
+ * All names are case-sensitive strings. Fields below are the current contract;
+ * consumers must tolerate unknown additional fields and event names. Model
+ * `id` values are QUuid, while `layerId` is a QString. Events contain no
+ * revision/sequence number. Broad change events require a fresh state query.
+ *
+ * | Event | Payload | Actual scope |
+ * | --- | --- | --- |
+ * | instanceOpened | id | First discovery of a model facade; not a model-load-success or readiness guarantee. Check isOpen(). |
+ * | instanceClosed | id | Model close has begun. Treat the model as unavailable; no close veto is supported. |
+ * | instanceActivated | id | Active model resolved after MDI activation; a null UUID means no active model. |
+ * | selectionChanged | id | Shared SWMM object selection used by map, tables and property views. |
+ * | modelEdited | id | Native modelEdited notification; not every geometry/options/attribute signal is implied. |
+ * | attributesChanged | id, name | Native model attributeChanged name; not a complete changed-field list or computed-provider schema event. |
+ * | viewportChanged | id | Visible map extent or canvas CRS changed, including resize-driven extent changes. Requery viewportBoundary(). |
+ * | layersChanged | id | Canvas layer added or removed; no specific layer ID/reason, rename/order/style/visibility coverage. |
+ * | boundaryChanged | id, layerId | Watched vector source selection, filter, feature count, CRS or editable features changed. |
+ * | resultsChanged | id | Active 1D/2D result source changed; not every playback frame, result variable or reader-readiness change. |
+ * | runsChanged | none | Simulation Status data, rows or reset changed. Requery runRegistry()->runs(). |
+ * | settingsChanged | key (QString) | This extension's setValue()/remove() call; not external settings-file or global network-policy changes. |
+ * | themeChanged | none | Main-window palette changed; requery theme tokens. |
+ * | jobProgress | title (QString), progress (double), text (QString) | This extension's worker progress, normalized to [0,1]. |
+ * | jobFinished | title (QString), ok (bool), error (QString) | This extension's worker completion; cancellation makes ok false and may leave error empty. |
+ *
+ * Job titles are display text, not unique operation identities. Simulation
+ * run notifications and extension jobs are different scopes. No public
+ * general-purpose plugin-to-plugin publish/subscribe service exists.
+ *
+ * @subsection sdk_event_limits Coverage boundaries
+ *
+ * The current surface is sufficient for the initial Data preview workflow and
+ * ordinary model/UI integrations, but is not the full planned lifecycle API.
+ * It does not yet provide dedicated project save/load completion, model-ready,
+ * layer property/order/schema, computed-attribute, result playback, run-attempt
+ * lifecycle or document/dock activation events. There are no typed event
+ * payload classes, subscription filters, state revisions, replay, transaction
+ * ordering guarantees or public per-domain Qt signal adapters. Avoid polling
+ * private objects to work around these gaps. These capabilities need explicit
+ * public contracts and conformance coverage before consumers depend on them.
+ *
+ * @section sdk_models Models, edits and undo
+ *
+ * projects(), instances() and activeInstance() return borrowed facades.
+ * Each facade guards its concrete model with QPointer and becomes inert
+ * after closure. Query isOpen() before deferred work. Signals exposed by
+ * observe() carry owning value metadata, including the persistent model id.
+ *
+ * Read model metadata through attributes() and selection(); select() shares
+ * the same selection bus as the map, attribute tables and property panels.
+ * For raw C API reads, acquire a read lease and release it on the GUI thread.
+ * Write leases exclude other leases and normal simulation runs.
+ *
+ * Prefer edit() for normal authored changes. It uses existing GUI property
+ * adapters and model apply paths. Native integrations may use nativeEdit()
+ * and its borrowed void* SWMM_Engine with the matching engine public headers.
+ * Never close, destroy or retain that handle outside the scope.
+ *
+ * Both edit paths write before/after snapshots under the model directory's
+ * .swmmvis/edits/. Unsaved models use the application's reviewable user-data
+ * directory under unsaved/&lt;instance UUID&gt;/. Snapshots and their companion
+ * assets remain available for review and undo. A successful commit rebuilds
+ * GUI geometry/attributes and creates one undo command. Scope destruction
+ * without commit restores the before snapshot. A failed mediated operation
+ * makes the complete transaction uncommittable.
+ *
+ * Rollback and undo reopen a snapshot into a fresh editable engine before
+ * replacing the live engine. Consequently, no raw engine handle survives
+ * rollback, undo, redo, or model closure. Snapshot replay failures are logged
+ * with their reviewable path; callers must retain the snapshot assets.
+ * Do not run nested event loops or show modal dialogs while holding an edit
+ * scope. Do expensive preparation in a worker, then apply the resulting
+ * values in a short main-thread transaction.
+ *
+ * @section sdk_preview Spatial preview and download areas
+ *
+ * A download UI must first preview metadata as selectable site points or
+ * coverage footprints. Its area chooser supports the current viewport or
+ * a boundary polygon from a loaded feature layer. The SDK supplies:
+ * - IProject::viewportBoundary(): sampled visible-area polygon.
+ * - IProject::polygonLayers(): loaded GIS and editable polygon sources.
+ * - IProject::boundaryFeatures(): paged feature identities and selection flags.
+ * - IProject::boundaryPolygon(): exact chosen polygon/multipolygon geometry.
+ * - IProject::showPreview()/clearPreview(): disposable map overlays.
+ *
+ * These geometry methods use RFC 7946 longitude/latitude with explicit
+ * traditional GIS axis order. Polygon holes and multipart structure are
+ * preserved. Preview geometry is reprojected to the map's canvas CRS.
+ * Missing or untransformable CRS information is an error; do not assume
+ * that unknown coordinates are longitude/latitude.
+ *
+ * A remote catalogue may accept only a bounding box. Query with the chosen
+ * area's envelope, then filter returned sites/footprints against its exact
+ * polygon before presenting the preview. Keep that reviewed area with the
+ * result identities selected for download. Changes to source, filters,
+ * polygon or relevant viewport invalidate the preview; do not download
+ * using a silently recomputed area. viewportChanged, layersChanged and
+ * selectionChanged support this invalidation workflow. boundaryChanged also
+ * identifies an existing vector layer whose selection, feature geometry,
+ * attribute filter, count or CRS changed after preview.
+ *
+ * Metadata preview is separate from downloading time series or raster
+ * payloads. This SDK provides the geometry and overlay infrastructure;
+ * NOAA/USGS service clients and the final download product are separate
+ * extension implementations.
+ *
+ * @section sdk_services Settings, output, jobs and networking
+ *
+ * settings() is scoped to extensions/&lt;pluginId&gt;/ and refuses traversal keys.
+ * It is normal QSettings storage, not a secret store. extensionData() is
+ * separately scoped project JSON, persisted under extensions.&lt;pluginId&gt;.
+ * Output is plain text in a shared Output dock with one tab per extension.
+ * Its bounded history avoids unlimited growth from long-running tools.
+ * appendLocation() attaches a source path and one-based line to literal
+ * output. Double-clicking a located line calls setLocationHandler()'s guarded
+ * GUI-thread receiver; it never executes text or opens a path automatically.
+ * The receiver is disabled when its QObject context is destroyed or host
+ * shutdown begins. Location metadata is pruned with the bounded output history.
+ *
+ * All SDK calls require the GUI thread except console append(), job
+ * cancellation/completion queries, IJobContext calls and postToMainThread().
+ * Workers receive copied data, not model/widget pointers. Check cancellation
+ * frequently, return normally, and use a GUI continuation for publication.
+ * Worker exceptions become completion errors. The host shows progress and
+ * cancellation and joins outstanding work before plugin shutdown.
+ *
+ * network()->shared() enforces HTTPS, rejects URL credentials, observes
+ * extensions/network/offline and an optional extensions/network/allowedHosts
+ * QStringList, and retains normal Qt TLS validation. Allowlist entries are
+ * exact DNS names or explicit *.domain suffixes. Redirect handling is manual:
+ * follow through the same manager so each destination is checked. A refused
+ * request completes asynchronously with ContentAccessDenied and performs no
+ * network IO. Native plugins remain capable of bypassing this service; this
+ * is a cooperative user policy, not a native-code sandbox.
+ *
+ * @section sdk_application_services Runs, results, plots and built-in dialogs
+ *
+ * runRegistry() returns copied Simulation Status rows and starts/cancels runs
+ * through the normal application controller. Native and legacy engine runs
+ * share this route. Starting a run saves pending authored changes, observes
+ * model lease exclusion, and retains the existing preflight/output rules.
+ * Normal preflight dialogs can still require user interaction. Observe
+ * runsChanged and read a fresh metadata snapshot rather than retaining
+ * references into a mutable status model.
+ *
+ * IModelInstance::results() describes loaded 1D/2D result layers and their
+ * actual file paths without exposing private readers. 1D metadata includes
+ * report path and period range; 2D metadata includes retained frame count.
+ * Read payloads using the matching engine's public file readers.
+ *
+ * plots()->variables() enumerates the active 1D result source's supported
+ * descriptors for a node, link, subcatchment or system. Pass a returned key
+ * to timeSeries(); do not depend on private plot enum declarations or parse
+ * translated labels. Units can be empty where the service cannot advertise
+ * them reliably. profile() accepts an ordered connected node path and opens
+ * the existing profile panel. With parallel links, it selects the first
+ * connecting engine link for each adjacent node pair.
+ *
+ * dialogs()->ids() lists registered built-in commands advertising a dialog;
+ * open() triggers one in the active application context. Disabled, unknown
+ * and extension-owned action IDs are refused. This interface deliberately
+ * uses the existing argument-free commands instead of inventing constructor
+ * arguments for private dialog types.
+ *
+ * IProject::autosave() writes a recovery .oswp referencing its independent
+ * model snapshot and preserving extension state. It keeps the original
+ * project path and dirty state; external forcing files remain referenced
+ * assets rather than an implicit backup of arbitrary user files.
+ *
+ * @section sdk_current_scope Current contract and remaining qualification
+ *
+ * This reference describes the interfaces implemented in this source tree.
+ * The engine now supplies a runtime ABI tag and installed manifest. The
+ * broader program still calls for borrowed Python handles, external-image
+ * bindings and the separate Python product. The independent openswmm.gui.data
+ * consumer implements catalogue previews; precipitation, observation imports
+ * and terrain payload retrieval remain subsequent data packages.
+ * SDK 1.1 adds derived model attributes and console source
+ * navigation; the root IGuiExtension IID remains at 1.0 because its interface
+ * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
+ * the new services must declare a minimum SDK version of 1.1.
+ *
+ * Snapshot-backed editing is exercised with a real 1D model. A release still
+ * requires strict writer/reopen qualification of every authored section, 2D mesh
+ * cases, multiple instances, and the supported platform/toolchain combinations.
+ * Header fingerprints cannot substitute for engine-owned runtime ABI verification.
+ *
+ * @section sdk_verification Verification
+ *
+ * tests/extensions builds real successful/failing Qt plugins and tests metadata
+ * discovery, compatibility gates, lifecycle cleanup, safe mode/crash recovery,
+ * settings isolation, cancellable jobs and refused network requests. The test
+ * can load an independently built installed-SDK plugin when
+ * SDK_EXTERNAL_PLUGIN_DIR names its output directory. Verification files and
+ * test settings are retained under tests/verification/extension_sdk_2026-10/.
+ * The application conformance fixture also exercises snapshot undo/abort,
+ * normal simulation startup and completion, results/plot services, recovery
+ * project saves, loaded polygon holes/multiparts and transient site/footprint
+ * overlays. Its report.json records each individual assertion.
+ *
+ * Generate the complete GUI documentation from the repository root with:
+ * @code{.sh}
+ * cd docs
+ * doxygen Doxyfile
+ * @endcode
+ * Open docs/html/index.html from the repository root, then choose
+ * GUI Extensions in the navigation. This build includes the user manual,
+ * this author guide, public SDK headers, private implementation files and
+ * the standalone plugin example. The documentation workflow publishes this
+ * single GUI documentation site.
+ *
+ * Contributors can also run focused documentation checks from the repository root:
+ * @code{.sh}
+ * doxygen docs/sdk/Doxyfile
+ * doxygen docs/sdk/Doxyfile.internal
+ * @endcode
+ * These optional configurations check the same documentation sources. The first
+ * covers the public SDK and standalone example; the second adds private host
+ * adapters. Both treat missing/incomplete documentation as errors. They are
+ * validation builds rather than separately published documentation sites.
+ * HTML is written under build/docs/sdk/ and build/docs/sdk-internal/ respectively.
+ */

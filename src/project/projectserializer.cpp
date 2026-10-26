@@ -354,6 +354,12 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (!pw)
         return obj;
 
+    pw->setProperty("extensionProjectPath", oswpFile);
+    emit pw->extensionStateSaving();
+    obj["extensions"] = pw->property("extensionData").toJsonObject();
+    obj["views"] = pw->property("extensionViews").toJsonArray();
+    obj["instanceId"] = pw->property("extensionInstanceId").toUuid().toString();
+
     QJsonArray calibration;
     for (const auto &value : pw->calibrationEntries()) {
         auto entry = value.toObject();
@@ -858,6 +864,13 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     if (!pw)
         return false;
 
+    pw->setProperty("extensionProjectPath", oswpFile);
+    pw->setProperty("extensionData", sessionObj.value("extensions").toObject());
+    pw->setProperty("extensionViews", sessionObj.value("views").toArray());
+    const QUuid extensionInstanceId(sessionObj.value("instanceId").toString());
+    if (!extensionInstanceId.isNull())
+        pw->setProperty("extensionInstanceId", extensionInstanceId);
+
     QJsonArray calibration;
     for (const auto &value : sessionObj.value("calibrationData").toArray()) {
         auto entry = value.toObject();
@@ -1330,6 +1343,7 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
             pw->ensureAnnotationLayer()->fromJson(items);
     }
 
+    emit pw->extensionStateRestored();
     return true;
 }
 

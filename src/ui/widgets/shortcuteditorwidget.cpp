@@ -139,9 +139,9 @@ void ShortcutEditorWidget::reload()
     for (const QString &id : ids) {
         QAction *action = registry->action(id);
         const ActionCatalogEntry *entry = registry->catalogEntry(id);
-        if (!action || !entry || action->text().isEmpty())
+        if (!action || action->text().isEmpty())
             continue;
-        const QString category = QString::fromLatin1(entry->category);
+        const QString category = entry ? QString::fromLatin1(entry->category) : tr("Extensions");
         QTreeWidgetItem *parent = categoryItems.value(category, nullptr);
         if (!parent) {
             parent = new QTreeWidgetItem(mTree, {category});

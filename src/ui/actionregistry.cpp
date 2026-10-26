@@ -123,6 +123,32 @@ int ActionRegistry::registerFromCatalog(QWidget *root)
     return adopted;
 }
 
+bool ActionRegistry::registerExtensionAction(const QString &id, QAction *action)
+{
+    if (!id.startsWith(QLatin1String("ext.")) || !action || mActions.contains(id))
+        return false;
+    mActions.insert(id, action);
+    mExtensionDefaults.insert(id, action->shortcuts());
+    connect(action, &QObject::destroyed, this, [this, id, action]() {
+        if (mActions.value(id) == action) {
+            mActions.remove(id);
+            mExtensionDefaults.remove(id);
+            emit actionRegistered(id);
+        }
+    });
+    applyShortcut(id);
+    emit actionRegistered(id);
+    return true;
+}
+
+void ActionRegistry::unregisterExtensionAction(const QString &id)
+{
+    if (id.startsWith(QLatin1String("ext.")) && mActions.remove(id)) {
+        mExtensionDefaults.remove(id);
+        emit actionRegistered(id);
+    }
+}
+
 QAction *ActionRegistry::action(const QString &id) const
 {
     return mActions.value(id, nullptr);
@@ -137,6 +163,9 @@ QList<QAction *> ActionRegistry::allActions() const
         if (QAction *act = mActions.value(QString::fromLatin1(e.id), nullptr))
             out.append(act);
     }
+    for (const auto &id : registeredIds())
+        if (id.startsWith(QLatin1String("ext.")))
+            out.append(mActions.value(id));
     return out;
 }
 
@@ -149,6 +178,12 @@ QStringList ActionRegistry::registeredIds() const
         if (mActions.contains(id))
             out.append(id);
     }
+    QStringList extensionIds;
+    for (auto it = mActions.cbegin(); it != mActions.cend(); ++it)
+        if (it.key().startsWith(QLatin1String("ext.")))
+            extensionIds.append(it.key());
+    extensionIds.sort();
+    out.append(extensionIds);
     return out;
 }
 
@@ -170,7 +205,7 @@ QList<QKeySequence> ActionRegistry::defaultShortcuts(const QString &id) const
 {
     const ActionCatalogEntry *entry = mEntries.value(id, nullptr);
     if (!entry)
-        return {};
+        return mExtensionDefaults.value(id);
     const QString spec = QString::fromLatin1(entry->defaultShortcut);
     if (spec.isEmpty())
         return {};
@@ -203,7 +238,7 @@ QList<QKeySequence> ActionRegistry::effectiveShortcuts(const QString &id) const
 
 void ActionRegistry::setUserShortcut(const QString &id, const QKeySequence &seq)
 {
-    if (!mEntries.contains(id)) {
+    if (!mEntries.contains(id) && !mExtensionDefaults.contains(id)) {
         qCWarning(lcActionRegistry) << "setUserShortcut: unknown id" << id;
         return;
     }

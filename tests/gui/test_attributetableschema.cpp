@@ -26,6 +26,7 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "plugins/extensionattributes.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/properties/attributegroups.h"
@@ -291,12 +292,51 @@ private slots:
 
     /**
      *
-     * @brief Require XSection, Barrels and all four geom columns plus their intended editor
-     * kinds.
-     * Checks Compound/Integer/Numeric schema metadata on a loaded conduit category, without
-     * editing shape, asserting numeric delegate bounds or running hydraulics.
+     * @brief Verify derived column registration, read-only flags, value invalidation and cleanup.
      *
      */
+    void computedExtensionColumnsStayReadOnlyAndRefresh()
+    {
+        struct Provider : QObject, OpenSWMM::Sdk::IComputedAttributeProvider {
+            double factor = 2.;
+            QVector<OpenSWMM::Render::AttributeField>
+            fields(OpenSWMMVis::SwmmCategory category) const override
+            {
+                if (category != OpenSWMMVis::CatConduits)
+                    return {};
+                return {{"scaled", "Derived length", QMetaType::Double, false, "m"}};
+            }
+            QVariant value(OpenSWMMVis::SwmmCategory, const QString &, const QString &,
+                           const QVariantMap &base) const override
+            {
+                return base.value("length").toDouble() * factor;
+            }
+        };
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        auto provider = std::make_unique<Provider>();
+        const QString id = "ext.tests.columns";
+        const auto changed = [source = layer.get()](bool schema) {
+            emit source->extensionAttributesChanged(schema);
+        };
+        QString error;
+        QVERIFY(openswmmvis::registerExtensionAttributes(layer.get(), id, provider.get(), provider.get(), changed, &error));
+        const int column = colFor(model.columnSpecs(), id + ".scaled");
+        QVERIFY(column >= 0);
+        QVERIFY(model.rowCount() > 0);
+        QVERIFY(!(model.flags(model.index(0, column)) & Qt::ItemIsEditable));
+        const auto original = layer->identifyByName(model.objectNameAt(0), SWMMModelLayer::kKindLink).value("length").toDouble();
+        QCOMPARE(model.data(model.index(0, column), Qt::EditRole).toDouble(), original * 2.);
+        provider->factor = 3.;
+        openswmmvis::refreshExtensionAttributes(layer.get(), id);
+        QCOMPARE(model.data(model.index(0, column), Qt::EditRole).toDouble(), original * 3.);
+        provider.reset();
+        QCOMPARE(colFor(model.columnSpecs(), id + ".scaled"), -1);
+    }
+
+    /** @brief Require the conduit cross-section columns and their intended editor kinds. */
     void conduitCrossSectionBlockIsPresent()
     {
         auto layer = openLayer();

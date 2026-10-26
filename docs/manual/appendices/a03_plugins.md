@@ -7,8 +7,8 @@ and how a model asks for a specific engine plugin or process component.
 
 ## Where to find it
 
-- **Tools → Plugins…** — a read-only inventory of every file-format filter
-  available to the Open and Save dialogs.
+- **Tools → Plugins…** — file-format filters, process components, and GUI
+  extension compatibility, enable settings and search directories.
 - **Model → Simulation Options → Files / Output / Plugins → Plugins** — the
   editable `[PLUGINS]` table for the open model.
 - **Model → Reaction System…** — the only place SWMMVis registers a
@@ -18,48 +18,46 @@ and how a model asks for a specific engine plugin or process component.
 
 ### What a plugin is here
 
-SWMMVis has **no GUI plugin system**. Nothing in the application loads
-third-party Qt plugins, and there is no plugin search path setting. Everything
-this appendix describes is an **engine** extension, surfaced through the GUI.
+SWMMVis supports native Qt **GUI extensions** through a public SDK. These can
+add ribbon commands, docks, document views and preferences. See
+@ref manual_extensions for installation and @ref gui_extension_sdk for authors.
 
-There are three distinct mechanisms, and they are easy to confuse:
+The following mechanisms have different roles:
 
 | Mechanism | Declared in | What it does |
 |---|---|---|
 | **I/O plugins** | `[PLUGINS]` | read or write model, results, report or state files |
 | **Process components** | `[PROCESS_COMPONENTS]` | add physics — reactions, ARD transport, heat, water age |
 | **Compute backends** | `[OPTIONS] FV_BACKEND` and `[2D_OPTIONS] BACKEND` | choose the solver implementation (CPU, OpenMP, CUDA, HIP, SYCL) |
+| **GUI extensions** | Tools → Plugins and user settings | add interface commands, panels, views and preferences |
 
 ### The Tools → Plugins… dialog
 
-Window title **Plugins**. Its header text says exactly what it is:
-
-> *File-format filters available to Open / Save dialogs. Built-in filters are
-> bundled with SWMMVis; engine plugins are discovered from the running engine.
-> Enable / disable and user-installed plugins arrive in a follow-up slice.*
-
-It is a tree, not a flat table. Top-level rows are format **roles**; children
-are the individual filters.
+Window title **Plugins**. The three roots are **Engine I/O plugins**,
+**Process components**, and **GUI extensions**. Engine filters are grouped
+by format role beneath their root. Process-component rows describe the engine
+catalogue. GUI extension rows include their compatibility and load diagnostics.
 
 | Column | Contents |
 |---|---|
-| **Description** | the filter's human name |
-| **Patterns** | its globs, space-separated |
-| **Plugin** | the providing plugin's id, or **(built-in)** for a GUI-bundled filter |
-| **R/W** | `R`, `W` or `RW` |
+| **Name** | filter, component or extension display name |
+| **Version / patterns** | extension version or file-format globs |
+| **Vendor / plugin** | extension vendor or engine filter provider |
+| **License / R/W** | extension license or filter `R`, `W`, `RW` capabilities |
+| **Built against** | extension SDK, Qt and architecture identity |
+| **Status** | availability or extension load/restart state |
+| **Details** | compatibility errors and startup/recovery messages |
 
 The role groups are: *Input (read)*, *Results (read)*, *Results (write)*,
 *Report (write)*, *Hot-Start (read)*, *Hot-Start (write)*, *Project (read)*,
 *Project (write)*, *Vector (read)*, *Raster (read)*, *Tabular (read)*,
 *Map Export (write)* and *Component Config (read)*.
 
-Two buttons only: **Rescan**, which clears the registry, re-adds the built-in
-filters and re-queries the engine, and **Close**.
-
-**The dialog is strictly read-only.** There is no Load, Unload, Enable, Add
-Path, OK or Apply, and no checkboxes. An enable/disable flag exists in the data
-model and is drawn as greyed-out text, but nothing ever sets it — treat the
-capability as present-but-inert.
+**Rescan** refreshes engine filters and GUI extension metadata. **Add directory…**
+adds an existing GUI plugin directory. **Open plugin folder** opens the user
+extension directory. GUI extension checkboxes change the next-launch enable
+state; restart to load new extensions or disable already loaded extensions.
+Engine filter and process-component rows remain informational.
 
 \fig{a03_plugins_dialog.png, The Tools Plugins dialog with the role groups expanded}
 
