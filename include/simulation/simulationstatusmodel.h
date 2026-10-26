@@ -130,7 +130,8 @@ public:
      * @param[in] instanceName Display label copied verbatim.
      * @param[in] inpPath Input path metadata, not opened by this model.
      * @param[in] engineVersion Version label copied verbatim.
-     * @return New stable job ID; wall-clock startedAt is set to now.
+     * @return New stable job ID; wall-clock startedAt is set to now. Returns -1 if a
+     * synchronous observer removes the row during publication.
      */
     int addJob(const QString &instanceName, const QString &inpPath,
                const QString &engineVersion = QString());
@@ -144,7 +145,9 @@ public:
      * @param[in] instanceName Display name for a newly created row.
      * @param[in] inpPath Input path for a newly created row.
      * @param[in] engineVersion Version key; different versions retain separate rows.
-     * @return Existing/new job ID marked Running. Reuse resets progress/errors/current time/warnings/snow ledger, retaining initial/end dates and existing solver telemetry.
+     * @return Existing/new job ID marked Running, or -1 if synchronous publication removes it.
+     * Reuse resets progress/errors/current time/warnings/snow ledger, retaining initial/end dates
+     * and existing solver telemetry.
      */
     int addOrReuseJobForModel(SWMMVisProjectWindow *model, const QString &instanceName,
                               const QString &inpPath, const QString &engineVersion = QString());
@@ -161,6 +164,11 @@ public:
      */
     int ensureJobForModel(SWMMVisProjectWindow *model, const QString &instanceName,
                           const QString &inpPath, const QString &engineVersion);
+    /** @brief Look up a model/version row without inserting or publishing anything.
+     * @param[in] model Borrowed model identity key.
+     * @param[in] engineVersion Native engine identity key.
+     * @return Existing presentation row ID, or -1 when absent. */
+    int existingJobForModel(SWMMVisProjectWindow *model, const QString &engineVersion) const;
 
     /**
      * @brief Update progress for a running job.
@@ -304,6 +312,19 @@ private:
      * @return Zero-based row or -1 when missing.
      */
     int jobIndexById(int jobId) const;
+
+    /** @brief Append and bind a row before publishing its insertion.
+     * @param[in] model Optional native model identity; not retained by ownership.
+     * @param[in] instanceName Display label copied into the record.
+     * @param[in] inpPath Input path metadata copied into the record.
+     * @param[in] engineVersion Native engine identity key.
+     * @param[in] status Initial presentation state.
+     * @return Stable row ID, or -1 if a synchronous observer removes it.
+     * @details Binding before endInsertRows lets reentrant model closure remove the new row.
+     * No container reference survives outward insertion publication. */
+    int appendModelJob(SWMMVisProjectWindow *model, const QString &instanceName,
+                       const QString &inpPath, const QString &engineVersion,
+                       SimulationJobStatus status);
 
     QList<SimulationJobRecord> m_jobs;
     int m_nextId = 0;

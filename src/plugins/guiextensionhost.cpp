@@ -21,6 +21,7 @@
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionevents.h"
 #include "plugins/extensionstateregistry.h"
+#include "plugins/extensionactivityui.h"
 #include "plugins/extensionpreferences.h"
 #include "plugins/extensionnetwork.h"
 
@@ -46,7 +47,10 @@
 #include <QUuid>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <exception>
+#include <mutex>
+#include <utility>
 
 using namespace OpenSWMM::Sdk;
 namespace openswmmvis
@@ -65,44 +69,234 @@ struct ConsoleLocation final : QTextBlockUserData {
 }
 /** @brief Host-owned job state shared between its worker and queued GUI continuations. */
 struct GuiExtensionHost::Job : IJob, IJobContext {
-    GuiExtensionHost *host;             ///< Borrowed owner; outlives the joined worker.
-    QString id;                         ///< Unique durable operation-marker suffix.
-    QString title;                      ///< Copied progress and recovery caption.
-    std::atomic<bool> cancelled{false}; ///< Thread-safe cooperative cancellation request.
-    std::atomic<bool> finished{false};  ///< Thread-safe flag set after worker return.
-    QPointer<QProgressDialog> progress; ///< GUI-thread progress widget, guarded through teardown.
+    GuiExtensionHost *host;                  ///< Borrowed owner; outlives the joined worker.
+    QUuid operationId = QUuid::createUuid(); ///< Unique accepted worker identity.
+    QString id;                              ///< Durable crash-marker suffix, matching operationId.
+    QString title;                           ///< Copied progress and recovery caption.
+    std::atomic<bool> cancelled{false};      ///< Worker-visible cooperative request.
+    std::atomic<bool> finished{false};       ///< True after immutable worker settlement.
+    QPointer<QProgressDialog> progress;      ///< GUI-only guarded progress widget.
+    std::mutex mutex;              ///< Linearizes start, cancellation, progress and completion.
+    bool posted = false;           ///< At most one queued GUI state flush is pending.
+    bool entered = false;          ///< Actual worker entry, latched under the state mutex.
+    bool startedPublished = false; ///< Worker entry has been published on the GUI thread.
+    bool cancellationPublished = false; ///< The winning cancellation was observed once.
+    bool progressDirty = false;         ///< Latest finite progress has not been flushed.
+    bool settled = false;               ///< Native terminal outcome was latched at worker return.
+    bool terminalPublished = false;     ///< GUI publication committed the immutable outcome.
+    double fraction = 0.;               ///< Latest finite normalized worker fraction.
+    QString stage; ///< Latest legacy display stage; the registry bounds its public copy.
+    QString error; ///< Legacy terminal diagnostic; the registry bounds its public copy.
+    ProcessPhase outcome = ProcessPhase::Queued; ///< Latched terminal classification.
+    QDateTime startedAt;  ///< Worker entry timestamp, copied to the registry.
+    QDateTime finishedAt; ///< Worker settlement timestamp, copied to the registry.
+    std::function<void(bool, const QString &)> completion; ///< GUI-only user callback.
     /** @brief Create retained job state before scheduling its worker.
      * @param[in] owner Borrowed host that will join the worker before destruction.
      * @param[in] caption Owning user-visible operation title. */
     explicit Job(GuiExtensionHost *owner, QString caption)
-        : host(owner), id(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-          title(std::move(caption))
+        : host(owner), id(operationId.toString(QUuid::WithoutBraces)), title(std::move(caption))
     {
     }
-    void cancel() override { cancelled.store(true); }
+    /** @brief Post the single pending flush after releasing the state mutex. */
+    void postFlush()
+    {
+        QMetaObject::invokeMethod(host, [this] { flush(); }, Qt::QueuedConnection);
+    }
+    /** @brief Reserve a flush while the caller holds mutex.
+     * @return True when the caller must post one GUI invocation after unlocking. */
+    bool reserveFlush()
+    {
+        if (posted)
+            return false;
+        posted = true;
+        return true;
+    }
+    /** @brief Commit GUI cancellation metadata without invoking a user completion callback. */
+    void publishCancellation()
+    {
+        bool start = false, cancel = false;
+        QDateTime began;
+        {
+            std::lock_guard lock(mutex);
+            start = entered && !startedPublished;
+            startedPublished |= start;
+            began = startedAt;
+            cancel = cancelled.load() && !cancellationPublished;
+            cancellationPublished |= cancel;
+        }
+        const QPointer<ExtensionStateRegistry> registry(host->mStateRegistry);
+        if (registry && start)
+            registry->startOperation(operationId, began);
+        if (registry && cancel)
+            registry->requestOperationCancel(operationId);
+    }
+    /** @brief Atomically request cancellation before worker settlement.
+     * @return True for an active accepted/repeated request; false after settlement. */
+    bool requestCancellation()
+    {
+        bool post = false;
+        {
+            std::lock_guard lock(mutex);
+            if (settled)
+                return false;
+            cancelled.store(true);
+            post = reserveFlush();
+        }
+        if (post)
+            postFlush();
+        if (QThread::currentThread() == host->thread())
+            publishCancellation();
+        return true;
+    }
+    void cancel() override { requestCancellation(); }
     bool isFinished() const override { return finished.load(); }
     bool isCancelled() const override { return cancelled.load(); }
     void setProgress(double fraction, const QString &text) override
     {
-        const QString caption = title;
-        host->postToMainThread([owner = host, state = this, fraction, text, caption]() {
-            if (state->progress) {
-                state->progress->setValue(qRound(qBound(0., fraction, 1.) * 100));
-                if (!text.isEmpty())
-                    state->progress->setLabelText(caption + "\n" + text);
-            }
-            owner->notify(
-                "jobProgress",
-                {{"title", caption}, {"progress", qBound(0., fraction, 1.)}, {"text", text}});
-            owner->statusMessage(QStringLiteral("%1: %2% %3")
-                                     .arg(caption)
-                                     .arg(qRound(qBound(0., fraction, 1.) * 100))
-                                     .arg(text));
-        });
+        if (!std::isfinite(fraction))
+            return;
+        bool post = false;
+        {
+            std::lock_guard lock(mutex);
+            if (settled)
+                return;
+            this->fraction = std::clamp(fraction, 0., 1.);
+            stage = text;
+            progressDirty = true;
+            post = reserveFlush();
+        }
+        if (post)
+            postFlush();
     }
     void postToMainThread(std::function<void()> callback) override
     {
         host->postToMainThread(std::move(callback));
+    }
+    /** @brief Enter execution unless cancellation won while the worker was queued.
+     * @return True when the user worker should execute. */
+    bool beginWork()
+    {
+        bool post = false;
+        {
+            std::lock_guard lock(mutex);
+            if (cancelled.load())
+                return false;
+            entered = true;
+            startedAt = QDateTime::currentDateTimeUtc();
+            post = reserveFlush();
+        }
+        if (post)
+            postFlush();
+        return true;
+    }
+    /** @brief Latch outcome at worker return, preventing a later cancel from changing it.
+     * @param[in] message Worker exception detail, empty on normal return. */
+    void settle(const QString &message)
+    {
+        bool post = false;
+        {
+            std::lock_guard lock(mutex);
+            if (settled)
+                return;
+            settled = true;
+            error = message;
+            outcome = !error.isEmpty()   ? ProcessPhase::Failed
+                      : cancelled.load() ? ProcessPhase::Cancelled
+                                         : ProcessPhase::Succeeded;
+            finishedAt = QDateTime::currentDateTimeUtc();
+            finished.store(true);
+            post = reserveFlush();
+        }
+        if (post)
+            postFlush();
+    }
+    /** @brief Publish one latched state packet; no worker touches widgets or the registry.
+     * @param[in] callbacks False during shutdown: settle metadata/cleanup but suppress user code. */
+    void flush(bool callbacks = true)
+    {
+        bool start = false, cancel = false, update = false, finish = false;
+        double value = 0.;
+        QString text, failure;
+        QDateTime began, ended;
+        ProcessPhase result = ProcessPhase::Queued;
+        std::function<void(bool, const QString &)> callback;
+        {
+            std::lock_guard lock(mutex);
+            posted = false;
+            start = entered && !startedPublished;
+            startedPublished |= start;
+            cancel = cancelled.load() && !cancellationPublished;
+            cancellationPublished |= cancel;
+            update = std::exchange(progressDirty, false);
+            value = fraction;
+            text = stage;
+            finish = settled && !terminalPublished;
+            terminalPublished |= finish;
+            began = startedAt;
+            ended = finishedAt;
+            result = outcome;
+            failure = error;
+            if (finish)
+                callback = std::move(completion);
+        }
+        const QPointer<GuiExtensionHost> owner(host);
+        const QPointer<ExtensionStateRegistry> registry(owner ? owner->mStateRegistry.data()
+                                                              : nullptr);
+        const auto operation = operationId;
+        const auto caption = title;
+        const auto plugin = owner ? owner->mId : QString{};
+        if (registry && start)
+            registry->startOperation(operation, began);
+        if (registry && cancel)
+            registry->requestOperationCancel(operation);
+        if (registry && update)
+            registry->progressOperation(operation, value, text);
+        if (registry && finish)
+            registry->finishOperation(operation, result, failure, 0, ended);
+        // Commit terminal metadata before invoking any UI/legacy/plugin callback.
+        if (!owner)
+            return;
+        QPointer<QProgressDialog> dialog(progress);
+        if (finish) {
+            owner->mSettings->remove(QStringLiteral("extensions/operations/%1/%2").arg(plugin, id));
+            owner->mSettings->sync();
+            progress = nullptr;
+            if (dialog) {
+                QObject::disconnect(dialog.data(), nullptr, owner.data(), nullptr);
+                dialog->deleteLater();
+                dialog->close();
+            }
+        } else if (update && dialog && callbacks && !owner->mStopping) {
+            dialog->setValue(qRound(value * 100));
+            if (owner && dialog && !text.isEmpty())
+                dialog->setLabelText(caption + "\n" + text);
+        }
+        if (!owner || owner->mStopping || !callbacks)
+            return;
+        if (update) {
+            owner->notify("jobProgress", {{"title", caption}, {"progress", value}, {"text", text}});
+            if (!owner || owner->mStopping)
+                return;
+            owner->statusMessage(
+                QStringLiteral("%1: %2% %3").arg(caption).arg(qRound(value * 100)).arg(text));
+        }
+        if (!owner || owner->mStopping || !finish)
+            return;
+        const bool ok = result == ProcessPhase::Succeeded;
+        if (callback) {
+            try {
+                callback(ok, failure);
+            } catch (const std::exception &exception) {
+                qWarning().noquote() << "Extension job completion" << plugin << operation
+                                     << "failed:" << exception.what();
+            } catch (...) {
+                qWarning().noquote() << "Extension job completion" << plugin << operation
+                                     << "failed: unknown exception";
+            }
+        }
+        if (owner && !owner->mStopping)
+            owner->notify("jobFinished", {{"title", caption}, {"ok", ok}, {"error", failure}});
     }
 };
 
@@ -117,6 +311,9 @@ GuiExtensionHost::GuiExtensionHost(QString id, CompatibilityManifest manifest, Q
     mNetwork = new ExtensionNetwork(mSettings, this);
     if (qApp)
         qApp->installEventFilter(this);
+    mActivityUi = std::make_unique<ExtensionActivityUi>(this, mStateRegistry, mActivityOwnerId, mId,
+                                                        mWindow, mMdi, mBridge);
+    mActivityWindowId = mActivityUi->windowId();
 }
 
 GuiExtensionHost::~GuiExtensionHost()
@@ -268,14 +465,113 @@ void GuiExtensionHost::setViewControls(
     mViewCommand = std::move(execute);
     mViewSelection = std::move(selection);
 }
+ActivitySnapshot GuiExtensionHost::activitySnapshot() const
+{
+    return QThread::currentThread() == thread() && !mStopping && mStateRegistry
+               ? mStateRegistry->activitySnapshot(mActivityOwnerId, mActivityWindowId)
+               : ActivitySnapshot{};
+}
+QMetaObject::Connection
+GuiExtensionHost::observeActivity(QObject *context, const ActivityEventFilter &filter,
+                                  std::function<void(const ActivityEvent &)> callback)
+{
+    if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
+        !callback || mStopping || !mStateRegistry)
+        return {};
+    const auto after = mStateRegistry->snapshot().sequence;
+    const auto ownerId = mActivityOwnerId;
+    const auto windowId = mActivityWindowId;
+    const auto connection = connect(
+        mStateRegistry, &ExtensionStateRegistry::activityEventReady, context,
+        [host = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context), filter, after,
+         ownerId, windowId, callback = std::move(callback)](const ActivityEvent &event) {
+            if (!host || !guard || QThread::currentThread() != host->thread() ||
+                guard->thread() != host->thread() || host->mStopping || !host->mStateRegistry ||
+                event.sequence <= after || event.windowId != windowId ||
+                (!event.ownerId.isNull() && event.ownerId != ownerId) || !filter.accepts(event) ||
+                !host->mStateRegistry->isDeliverable(event))
+                return;
+            const auto pluginId = host->mId;
+            const auto sequence = event.sequence;
+            try {
+                callback(event);
+            } catch (const std::exception &error) {
+                qWarning().noquote() << "Extension activity observer" << pluginId << sequence
+                                     << "failed:" << error.what();
+            } catch (...) {
+                qWarning().noquote() << "Extension activity observer" << pluginId << sequence
+                                     << "failed: unknown exception";
+            }
+        },
+        Qt::DirectConnection);
+    mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
+    mStateConnections.append(connection);
+    return connection;
+}
+QUuid GuiExtensionHost::startRunAttempt(const QUuid &sessionId, quint64 generation, QString *error)
+{
+    if (error)
+        error->clear();
+    const auto state = mStateRegistry && QThread::currentThread() == thread()
+                           ? mStateRegistry->session(sessionId)
+                           : ModelSessionState{};
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mWindow ||
+        !mBridge.startRunAttempt || state.sessionId.isNull() ||
+        state.status != SessionStatus::Ready || state.loadGeneration != generation ||
+        mStateRegistry->isSaving(sessionId)) {
+        if (error)
+            *error = QStringLiteral(
+                "The native run controller or current ready model generation is unavailable.");
+        return {};
+    }
+    const auto start = mBridge.startRunAttempt;
+    return start(sessionId, generation, error);
+}
+bool GuiExtensionHost::cancelOperation(const QUuid &id, QString *error)
+{
+    if (error)
+        error->clear();
+    const auto refuse = [error](const QString &reason) {
+        if (error)
+            *error = reason;
+        return false;
+    };
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry)
+        return refuse(QStringLiteral("The activity controller is unavailable."));
+    const auto state = mStateRegistry->operation(id);
+    if (state.operationId.isNull() || state.isTerminal() || state.windowId != mActivityWindowId)
+        return refuse(QStringLiteral("The attempt is finished, retired or outside this window."));
+    if (state.kind == ProcessKind::Job) {
+        if (state.ownerId != mActivityOwnerId)
+            return refuse(QStringLiteral("The job belongs to another extension host."));
+        return cancelOwnJobOperation(id, error);
+    }
+    if (!mWindow || !mBridge.cancelRunAttempt)
+        return refuse(QStringLiteral("The native run cancellation controller is unavailable."));
+    const auto cancel = mBridge.cancelRunAttempt;
+    return cancel(id, error);
+}
+bool GuiExtensionHost::executeActivityUiCommand(const UiActivityCommand &command, QString *error)
+{
+    if (error)
+        error->clear();
+    if (QThread::currentThread() != thread() || mStopping || !mActivityUi ||
+        command.windowId != mActivityWindowId) {
+        if (error)
+            *error = QStringLiteral("The UI contribution or main-window lifetime is unavailable.");
+        return false;
+    }
+    return mActivityUi->execute(command, error);
+}
 ViewSnapshot GuiExtensionHost::viewSnapshot(const QUuid &sessionId) const
 {
     return QThread::currentThread() == thread() && !mStopping && mStateRegistry
-               ? mStateRegistry->viewSnapshot(sessionId) : ViewSnapshot{};
+               ? mStateRegistry->viewSnapshot(sessionId)
+               : ViewSnapshot{};
 }
-QMetaObject::Connection GuiExtensionHost::observeViews(
-    QObject *context, const ViewEventFilter &filter,
-    std::function<void(const ViewEvent &)> callback)
+QMetaObject::Connection
+GuiExtensionHost::observeViews(QObject *context, const ViewEventFilter &filter,
+                               std::function<void(const ViewEvent &)> callback)
 {
     if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
         !callback || mStopping || !mStateRegistry)
@@ -283,8 +579,8 @@ QMetaObject::Connection GuiExtensionHost::observeViews(
     const auto after = mStateRegistry->snapshot().sequence;
     const auto connection = connect(
         mStateRegistry, &ExtensionStateRegistry::viewEventReady, context,
-        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context),
-         filter, after, callback = std::move(callback)](const ViewEvent &event) {
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context), filter,
+         after, callback = std::move(callback)](const ViewEvent &event) {
             if (!owner || !guard || QThread::currentThread() != owner->thread() ||
                 guard->thread() != owner->thread() || owner->mStopping || !owner->mStateRegistry ||
                 event.sequence <= after || !filter.accepts(event) ||
@@ -301,7 +597,8 @@ QMetaObject::Connection GuiExtensionHost::observeViews(
                 qWarning().noquote() << "Extension view observer" << pluginId << sequence
                                      << "failed: unknown exception";
             }
-        }, Qt::DirectConnection);
+        },
+        Qt::DirectConnection);
     mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
     mStateConnections.append(connection);
     return connection;
@@ -324,17 +621,20 @@ bool GuiExtensionHost::executeViewCommand(const ViewCommand &command, QString *e
     if (!accepted)
         return false;
     const auto current = guard && guard->mStateRegistry
-                             ? guard->mStateRegistry->session(command.sessionId) : ModelSessionState{};
+                             ? guard->mStateRegistry->session(command.sessionId)
+                             : ModelSessionState{};
     if (!guard || guard->mStopping || current.status != SessionStatus::Ready ||
         current.loadGeneration != command.loadGeneration) {
         if (error)
-            *error = QStringLiteral("The model or view controller changed while applying the command.");
+            *error =
+                QStringLiteral("The model or view controller changed while applying the command.");
         return false;
     }
     return true;
 }
 QList<qint64> GuiExtensionHost::selectedLayerFeatures(const QUuid &sessionId,
-    const QUuid &layerSessionId, int offset, int limit) const
+                                                      const QUuid &layerSessionId, int offset,
+                                                      int limit) const
 {
     if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mViewSelection ||
         offset < 0 || limit <= 0 ||
@@ -357,9 +657,9 @@ IModelInstance *GuiExtensionHost::resolveSession(const QUuid &sessionId) const
         return nullptr;
     return mSessionResolver(sessionId);
 }
-QMetaObject::Connection GuiExtensionHost::observeState(
-    QObject *context, const StateEventFilter &filter,
-    std::function<void(const StateEvent &)> callback)
+QMetaObject::Connection
+GuiExtensionHost::observeState(QObject *context, const StateEventFilter &filter,
+                               std::function<void(const StateEvent &)> callback)
 {
     if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
         !callback || mStopping || !mStateRegistry)
@@ -367,8 +667,8 @@ QMetaObject::Connection GuiExtensionHost::observeState(
     const quint64 after = mStateRegistry->snapshot().sequence;
     const auto connection = connect(
         mStateRegistry, &ExtensionStateRegistry::stateEventReady, context,
-        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context),
-         filter, after, callback = std::move(callback)](const StateEvent &event) {
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context), filter,
+         after, callback = std::move(callback)](const StateEvent &event) {
             if (!owner || QThread::currentThread() != owner->thread() || !guard ||
                 guard->thread() != owner->thread() || owner->mStopping || !owner->mStateRegistry ||
                 event.sequence <= after || !filter.accepts(event) ||
@@ -382,16 +682,19 @@ QMetaObject::Connection GuiExtensionHost::observeState(
                 qWarning().noquote() << "Extension state observer" << pluginId
                                      << "failed for publication" << sequence << ":" << error.what();
             } catch (...) {
-                qWarning().noquote() << "Extension state observer" << pluginId
-                                     << "failed for publication" << sequence << ": unknown exception";
+                qWarning().noquote()
+                    << "Extension state observer" << pluginId << "failed for publication"
+                    << sequence << ": unknown exception";
             }
-        }, Qt::DirectConnection);
+        },
+        Qt::DirectConnection);
     mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
     mStateConnections.append(connection);
     return connection;
 }
-QMetaObject::Connection GuiExtensionHost::observeBeforeSave(
-    QObject *context, std::function<void(const SaveRequest &)> callback)
+QMetaObject::Connection
+GuiExtensionHost::observeBeforeSave(QObject *context,
+                                    std::function<void(const SaveRequest &)> callback)
 {
     if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
         !callback || mStopping || !mStateRegistry)
@@ -415,7 +718,8 @@ QMetaObject::Connection GuiExtensionHost::observeBeforeSave(
                 qWarning().noquote() << "Extension save collector" << pluginId << operationId
                                      << "failed: unknown exception";
             }
-        }, Qt::DirectConnection);
+        },
+        Qt::DirectConnection);
     mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
     mStateConnections.append(connection);
     return connection;
@@ -566,6 +870,18 @@ IJob *GuiExtensionHost::runJob(const QString &title, std::function<void(IJobCont
         return nullptr;
     auto job = std::make_unique<Job>(this, title);
     auto *state = job.get();
+    state->completion = std::move(finished);
+    if (mStateRegistry) {
+        ProcessState process;
+        process.operationId = state->operationId;
+        process.kind = ProcessKind::Job;
+        process.windowId = mActivityWindowId;
+        process.ownerId = mActivityOwnerId;
+        process.ownerPluginId = mId;
+        process.title = title;
+        if (mStateRegistry->beginOperation(std::move(process)).isNull())
+            return nullptr;
+    }
     state->progress = new QProgressDialog(title, tr("Cancel"), 0, 100, mWindow);
     state->progress->setWindowModality(Qt::NonModal);
     state->progress->setMinimumDuration(500);
@@ -574,45 +890,57 @@ IJob *GuiExtensionHost::runJob(const QString &title, std::function<void(IJobCont
     const auto marker = QStringLiteral("extensions/operations/%1/%2").arg(mId, state->id);
     mSettings->setValue(marker, title);
     mSettings->sync();
-    mPool.start(QRunnable::create(
-        [this, state, marker, work = std::move(work), finished = std::move(finished)]() {
-            QString error;
+    mPool.start(QRunnable::create([state, work = std::move(work)]() {
+        QString error;
+        if (state->beginWork()) {
             try {
                 work(*state);
             } catch (const std::exception &e) {
                 error = QString::fromUtf8(e.what());
+                if (error.isEmpty())
+                    error =
+                        QStringLiteral("Extension job threw an exception without a diagnostic.");
             } catch (...) {
                 error = QStringLiteral("Extension job threw an unknown exception.");
             }
-            state->finished.store(true);
-            QMetaObject::invokeMethod(
-                this,
-                [this, state, marker, error, finished]() {
-                    mSettings->remove(marker);
-                    mSettings->sync();
-                    // QProgressDialog::close() emits canceled even for programmatic completion.
-                    // Preserve cancellation from the running job, then detach the UI cancellation hook.
-                    const bool ok = error.isEmpty() && !state->isCancelled();
-                    if (state->progress) {
-                        disconnect(state->progress, nullptr, this, nullptr);
-                        state->progress->close();
-                        state->progress->deleteLater();
-                    }
-                    if (mStopping)
-                        return;
-                    if (finished)
-                        finished(ok, error);
-                    notify("jobFinished", {{"title", state->title}, {"ok", ok}, {"error", error}});
-                },
-                Qt::QueuedConnection);
-        }));
+        }
+        state->settle(error);
+    }));
     return state;
+}
+QUuid GuiExtensionHost::jobOperationId(IJob *job) const
+{
+    if (QThread::currentThread() != thread() || mStopping || !job)
+        return {};
+    for (const auto &state : mJobs)
+        if (static_cast<IJob *>(state.get()) == job)
+            return state->operationId;
+    return {};
+}
+bool GuiExtensionHost::cancelOwnJobOperation(const QUuid &operationId, QString *error)
+{
+    if (error)
+        error->clear();
+    if (!mStopping && QThread::currentThread() == thread())
+        for (const auto &state : mJobs)
+            if (state->operationId == operationId) {
+                if (state->requestCancellation())
+                    return true;
+                if (error)
+                    *error = QStringLiteral("The extension job has already settled.");
+                return false;
+            }
+    if (error)
+        *error = QStringLiteral("The extension job is unavailable to this host.");
+    return false;
 }
 void GuiExtensionHost::prepareShutdown()
 {
     if (mStopping)
         return;
     mStopping = true;
+    if (mActivityUi)
+        mActivityUi->stop();
     for (const auto &connection : std::as_const(mStateConnections))
         disconnect(connection);
     mStateConnections.clear();
@@ -621,9 +949,15 @@ void GuiExtensionHost::prepareShutdown()
     for (const auto &job : mJobs)
         job->cancel();
     mPool.waitForDone();
-    for (const auto &job : mJobs)
+    for (const auto &job : mJobs) {
+        job->flush(false);
         delete job->progress;
-    mSettings->remove("extensions/operations/" + mId);
+        job->progress = nullptr;
+    }
+    if (mStateRegistry)
+        mStateRegistry->forgetActivityOwner(mActivityOwnerId);
+    // Each joined job flush removes only its own marker. A different host lifetime
+    // or native edit can share this plugin namespace and must retain its marker.
     mSettings->sync();
     mLocationHandler = {};
     mLocationContext = nullptr;
@@ -698,22 +1032,37 @@ void GuiExtensionHost::setLocationHandler(QObject *context,
 bool GuiExtensionHost::registerAction(const QString &id, QAction *action)
 {
     checkThread();
-    if (!action || id.isEmpty() || mActions.contains(id) || !mWindow)
+    if (mStopping || !action || id.isEmpty() || mActions.contains(id) || !mWindow)
         return false;
+    const QPointer<GuiExtensionHost> owner(this);
+    const QPointer<QAction> guard(action);
     mActions.insert(id, action);
     connect(action, &QObject::destroyed, this, [this, id, action]() {
         if (mActions.value(id) == action)
             mActions.remove(id);
     });
     action->setObjectName(qualified(id));
-    mWindow->addAction(action);
-    if (mBridge.addAction)
-        mBridge.addAction(qualified(id), action);
+    if (!owner || !guard || !owner->mWindow || owner->mStopping)
+        return false;
+    owner->mWindow->addAction(guard);
+    if (!owner || !guard || !owner->mWindow || owner->mStopping)
+        return false;
+    const auto registerNative = mBridge.addAction;
+    const auto fullId = qualified(id);
+    if (registerNative)
+        registerNative(fullId, action);
+    if (!owner || !guard || !owner->mWindow || owner->mStopping ||
+        owner->mActions.value(id) != guard)
+        return false;
+    if (owner->mActivityUi)
+        owner->mActivityUi->registerCommand(id, guard);
     return true;
 }
 void GuiExtensionHost::unregisterAction(const QString &id)
 {
     checkThread();
+    if (mActivityUi)
+        mActivityUi->removeCommand(id);
     const auto action = mActions.take(id);
     if (action && mWindow)
         mWindow->removeAction(action);
@@ -745,79 +1094,211 @@ void GuiExtensionHost::unregisterRibbonTab(const QString &id)
 bool GuiExtensionHost::registerDockPanelFactory(IDockPanelFactory *factory)
 {
     checkThread();
-    if (!factory || factory->id().isEmpty() || mDocks.contains(factory->id()) || !mWindow)
+    if (mStopping || !factory || !mWindow)
         return false;
-    QWidget *content = factory->create(this);
-    if (!content)
+    const QPointer<GuiExtensionHost> owner(this);
+    const QString id = factory->id();
+    if (!owner || owner->mStopping || !owner->mWindow || id.isEmpty() || owner->mDocks.contains(id))
         return false;
-    auto *dock = new QDockWidget(factory->title(), mWindow);
-    dock->setObjectName(qualified(factory->id()));
+    owner->mDocks.insert(id, {}); // Reserve while any plugin callback can reenter registration.
+    const auto reserved = [&] {
+        return owner && !owner->mStopping && owner->mWindow && owner->mDocks.contains(id) &&
+               !owner->mDocks.value(id);
+    };
+    const auto release = [&] {
+        if (owner && owner->mDocks.contains(id) && !owner->mDocks.value(id))
+            owner->mDocks.remove(id);
+        return false;
+    };
+    const auto title = factory->title();
+    if (!reserved())
+        return release();
+    const auto area = factory->defaultArea();
+    if (!reserved())
+        return release();
+    const auto tabify = factory->tabifyWith();
+    if (!reserved())
+        return release();
+    const auto fullId = owner->qualified(id);
+    QPointer<QWidget> content(factory->create(this));
+    if (!owner || owner->mStopping || !owner->mWindow || !content || !owner->mDocks.contains(id) ||
+        owner->mDocks.value(id)) {
+        delete content.data();
+        if (owner && owner->mDocks.contains(id) && !owner->mDocks.value(id))
+            owner->mDocks.remove(id);
+        return false;
+    }
+    QPointer<QDockWidget> dock(new QDockWidget(title, owner->mWindow));
+    if (!owner || owner->mStopping || !owner->mWindow || !dock || !owner->mDocks.contains(id) ||
+        owner->mDocks.value(id)) {
+        delete dock.data();
+        delete content.data();
+        if (owner && owner->mDocks.contains(id) && !owner->mDocks.value(id))
+            owner->mDocks.remove(id);
+        return false;
+    }
+    owner->mDocks.insert(id, dock);
+    const auto discard = [owner, dock, content, id] {
+        if (owner && owner->mDocks.contains(id) && owner->mDocks.value(id) == dock) {
+            if (owner->mActivityUi)
+                owner->mActivityUi->removeDock(id);
+            owner->mDocks.remove(id);
+        }
+        delete dock.data();
+        delete content.data();
+        return false;
+    };
+    bool attached = false;
+    const auto usable = [&] {
+        return owner && !owner->mStopping && owner->mWindow && dock && content &&
+               owner->mDocks.value(id) == dock && (!attached || dock->widget() == content);
+    };
+    dock->setObjectName(fullId);
+    if (!usable())
+        return discard();
     dock->setWidget(content);
-    mDocks.insert(factory->id(), dock);
-    mWindow->addDockWidget(factory->defaultArea(), dock);
-    if (auto *other = mWindow->findChild<QDockWidget *>(factory->tabifyWith()))
-        mWindow->tabifyDockWidget(other, dock);
-    mWindow->restoreDockWidget(dock);
-    if (auto *view = mWindow->findChild<QMenu *>("menuView"))
+    attached = true;
+    if (!usable())
+        return discard();
+    owner->mWindow->addDockWidget(area, dock);
+    if (!usable())
+        return discard();
+    if (auto *other = owner->mWindow->findChild<QDockWidget *>(tabify))
+        owner->mWindow->tabifyDockWidget(other, dock);
+    if (!usable())
+        return discard();
+    owner->mWindow->restoreDockWidget(dock);
+    if (!usable())
+        return discard();
+    if (auto *view = owner->mWindow->findChild<QMenu *>("menuView"))
         view->addAction(dock->toggleViewAction());
+    if (!usable())
+        return discard();
+    if (owner->mActivityUi)
+        owner->mActivityUi->registerDock(id, dock);
     return true;
 }
 void GuiExtensionHost::unregisterDockPanelFactory(const QString &id)
 {
     checkThread();
+    if (mActivityUi)
+        mActivityUi->removeDock(id);
     delete mDocks.take(id);
 }
 void GuiExtensionHost::showDock(const QString &id)
 {
     checkThread();
+    if (mStopping)
+        return;
     if (auto dock = mDocks.value(id)) {
         dock->show();
-        dock->raise();
+        if (dock)
+            dock->raise();
     }
 }
 bool GuiExtensionHost::registerDocumentViewFactory(IDocumentViewFactory *factory)
 {
     checkThread();
-    if (!factory || factory->kind().isEmpty() || mFactories.contains(factory->kind()))
+    if (mStopping || !factory)
         return false;
-    mFactories.insert(factory->kind(), factory);
+    const QPointer<GuiExtensionHost> owner(this);
+    const auto kind = factory->kind();
+    if (!owner || owner->mStopping || kind.isEmpty() || owner->mFactories.contains(kind))
+        return false;
+    mFactories.insert(kind, factory);
     const auto pending = mPending;
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
-        restoreViews(it.key(), it.value());
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
+        owner->restoreViews(it.key(), it.value());
+        if (!owner || owner->mStopping || owner->mFactories.value(kind) != factory)
+            return false;
+    }
     return true;
 }
 void GuiExtensionHost::unregisterDocumentViewFactory(const QString &kind)
 {
     checkThread();
-    for (auto &view : mViews)
-        if (view.kind == kind && view.widget) {
-            auto *sub = qobject_cast<QMdiSubWindow *>(view.widget->parentWidget());
-            delete (sub ? static_cast<QWidget *>(sub) : view.widget.data());
-        }
     mFactories.remove(kind);
+    QList<QPointer<QWidget>> widgets;
+    for (const auto &view : mViews)
+        if (view.kind == kind && view.widget)
+            widgets.append(view.widget);
+    const QPointer<GuiExtensionHost> owner(this);
+    for (const auto &widget : widgets) {
+        if (widget) {
+            auto *sub = qobject_cast<QMdiSubWindow *>(widget->parentWidget());
+            delete (sub ? static_cast<QWidget *>(sub) : widget.data());
+        }
+        if (!owner)
+            return;
+    }
 }
 QWidget *GuiExtensionHost::openDocumentView(const QString &kind, IModelInstance *instance)
 {
     checkThread();
     auto *factory = mFactories.value(kind, nullptr);
-    if (!factory || !mMdi || (instance && !instance->isOpen()) || !factory->accepts(instance))
+    if (mStopping || !factory || !mMdi || (instance && !instance->isOpen()))
         return nullptr;
-    QWidget *widget = factory->create(instance, this);
-    if (!widget)
+    const QPointer<GuiExtensionHost> owner(this);
+    const QPointer<QMdiArea> mdi(mMdi);
+    const QPointer<QObject> model(instance ? instance->lifetime() : nullptr);
+    const auto modelValid = [&] { return !instance || (model && instance->isOpen()); };
+    const auto fullKind = qualified(kind);
+    const auto sessionId =
+        mStateRegistry && model ? mStateRegistry->sessionForOwner(model) : QUuid{};
+    const auto pluginId = mId;
+    if (!factory->accepts(instance) || !owner || owner->mStopping || !mdi ||
+        owner->mFactories.value(kind) != factory || !modelValid())
         return nullptr;
-    auto *sub = mMdi->addSubWindow(widget);
+    QPointer<QWidget> widget(factory->create(instance, this));
+    if (!owner || owner->mStopping || !mdi || owner->mFactories.value(kind) != factory ||
+        !modelValid() || !widget) {
+        delete widget.data();
+        return nullptr;
+    }
+    mdi->addSubWindow(widget);
+    QPointer<QMdiSubWindow> sub(widget ? qobject_cast<QMdiSubWindow *>(widget->parentWidget())
+                                       : nullptr);
+    const auto discard = [sub, widget]() -> QWidget * {
+        if (sub)
+            delete sub.data();
+        else
+            delete widget.data();
+        return nullptr;
+    };
+    const auto usable = [&] {
+        return owner && !owner->mStopping && mdi && widget && sub && sub->widget() == widget &&
+               sub->mdiArea() == mdi && modelValid() && owner->mFactories.value(kind) == factory;
+    };
+    if (!usable())
+        return discard();
     sub->setAttribute(Qt::WA_DeleteOnClose);
-    sub->setObjectName(qualified(kind));
+    if (!usable())
+        return discard();
+    sub->setObjectName(fullKind);
+    if (!usable())
+        return discard();
     sub->setWindowTitle(widget->windowTitle().isEmpty() ? kind : widget->windowTitle());
-    if (instance && instance->lifetime())
-        connect(instance->lifetime(), &QObject::destroyed, sub, [sub]() { delete sub; });
-    mViews.append({kind, instance, widget});
+    if (!usable()) {
+        return discard();
+    }
+    if (model)
+        connect(model, &QObject::destroyed, sub, [sub]() { delete sub.data(); });
+    owner->mViews.append({kind, instance, widget});
+    if (owner->mActivityUi)
+        owner->mActivityUi->attachDocument(sub, sessionId, pluginId);
+    if (!usable())
+        return discard();
     sub->show();
+    if (!usable())
+        return discard();
     return widget;
 }
 void GuiExtensionHost::restoreViews(IModelInstance *instance, const QJsonArray &views)
 {
     checkThread();
+    if (mStopping)
+        return;
+    const QPointer<GuiExtensionHost> owner(this);
     QJsonArray pending;
     const auto prefix = qualified({});
     for (const auto &value : views) {
@@ -826,21 +1307,38 @@ void GuiExtensionHost::restoreViews(IModelInstance *instance, const QJsonArray &
         if (!fullKind.startsWith(prefix))
             continue;
         const auto kind = fullKind.mid(prefix.size());
-        if (auto *view = openDocumentView(kind, instance))
-            mFactories[kind]->restoreState(view, entry["state"].toObject());
-        else
+        if (auto *view = owner->openDocumentView(kind, instance)) {
+            if (!owner || owner->mStopping)
+                return;
+            if (auto *factory = owner->mFactories.value(kind))
+                factory->restoreState(view, entry["state"].toObject());
+        } else {
             pending.append(entry);
+        }
+        if (!owner || owner->mStopping)
+            return;
     }
-    mPending.insert(instance, pending);
+    owner->mPending.insert(instance, pending);
 }
 QJsonArray GuiExtensionHost::saveViews(IModelInstance *instance) const
 {
     checkThread();
     QJsonArray result = mPending.value(instance);
-    for (const auto &view : mViews)
-        if (view.widget && view.instance == instance && mFactories.contains(view.kind))
-            result.append(QJsonObject{{"kind", qualified(view.kind)},
-                                      {"state", mFactories[view.kind]->saveState(view.widget)}});
+    const QPointer<const GuiExtensionHost> owner(this);
+    const auto views = mViews;
+    const auto prefix = qualified({});
+    for (const auto &view : views) {
+        if (!view.widget || view.instance != instance)
+            continue;
+        auto *factory = owner->mFactories.value(view.kind);
+        if (!factory)
+            continue;
+        const auto state = factory->saveState(view.widget);
+        if (!owner || owner->mStopping)
+            return result;
+        if (view.widget && owner->mFactories.value(view.kind) == factory)
+            result.append(QJsonObject{{"kind", prefix + view.kind}, {"state", state}});
+    }
     return result;
 }
 bool GuiExtensionHost::registerPreferencesPage(IPreferencesPageFactory *factory)

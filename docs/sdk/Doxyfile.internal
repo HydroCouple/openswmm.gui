@@ -11,6 +11,8 @@ INPUT += include/plugins/extensionmanager.h \
          include/plugins/extensionattributes.h \
          include/plugins/extensionevents.h \
          include/plugins/extensionstateregistry.h \
+         include/plugins/extensionactivityui.h \
+         src/plugins/extensionactivityui.cpp \
          include/plugins/extensionviewaccess.h \
          src/plugins/extensionviewaccess.cpp \
          src/plugins/extensionmodelevents.cpp \
@@ -20,6 +22,7 @@ INPUT += include/plugins/extensionmanager.h \
          src/plugins/extensionstateregistry.cpp \
          src/sdk/EventSignalAdapter.cpp \
          src/sdk/ViewSignalAdapter.cpp \
+         src/sdk/ActivitySignalAdapter.cpp \
          src/plugins/extensionattributes.cpp \
          src/plugins/extensionmanager.cpp \
          src/plugins/guiextensionhost.cpp \

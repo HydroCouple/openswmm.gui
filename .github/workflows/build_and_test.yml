@@ -856,7 +856,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
           cmake --build build/sdk-example-${{ matrix.build_subdir }} --config Release --parallel 2
 
-      - name: Build and test independent event and lifecycle consumers
+      - name: Build and test independent SDK event and activity consumers
         shell: bash
         timeout-minutes: 10
         run: |
@@ -891,8 +891,23 @@ jobs:
             cmake --build "build/sdk-views-$view_variant-${{ matrix.build_subdir }}" \
               --config Release --parallel 2
           done
+          for activity_variant in a b; do
+            activity_id=org.openswmm.activity-example
+            if [ "$activity_variant" = b ]; then activity_id=org.openswmm.activity-second; fi
+            cmake -S "dist/gui-sdk/${{ matrix.vcpkg_triplet }}/share/openswmmvis-sdk/examples/activity" \
+              -B "build/sdk-activity-$activity_variant-${{ matrix.build_subdir }}" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+              -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+              -DOPENSWMM_ACTIVITY_EXAMPLE_ID="$activity_id"
+            cmake --build "build/sdk-activity-$activity_variant-${{ matrix.build_subdir }}" \
+              --config Release --parallel 2
+          done
           cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
-            --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents
+            --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents \
+              test_gui_extension_viewevents test_gui_extension_activityevents \
+              test_gui_extension_activity_jobs test_gui_extension_activity_ui \
+              test_gui_extension_activity_consumers
           python - <<'PY'
           import os
           import pathlib
@@ -915,10 +930,34 @@ jobs:
           os.environ["SDK_VIEW_PLUGIN_DIRS"] = os.pathsep.join(
               module_directory(f"build/sdk-views-{v}-{subdir}", "views_example")
               for v in ("a", "b"))
+          os.environ["SDK_ACTIVITY_PLUGIN_DIRS"] = os.pathsep.join(
+              module_directory(f"build/sdk-activity-{v}-{subdir}", "activity_example")
+              for v in ("a", "b"))
           subprocess.run(["ctest", "--test-dir", f"build/{subdir}", "-C", "Release",
                           "--output-on-failure", "--timeout", "60", "-R",
-                          "^test_gui_extension(s|_events|_stateevents|_viewevents)$"], check=True)
+                          "^test_gui_extension(s|_events|_stateevents|_viewevents|_activityevents|_activity_(jobs|ui|consumers))$"],
+                         check=True)
           PY
+
+      # This native controller fixture compiles the full application source set.
+      # Keep one active Linux gate while the broad GUI suite is disabled above.
+      - name: Build native extension activity checks
+        if: runner.os == 'Linux'
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
+            --target test_extensionactivity
+
+      - name: Test native extension activity checks
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure \
+            --timeout 120 -R '^test_extensionactivity$'
 
       - name: Upload GUI extension SDK
         uses: actions/upload-artifact@v4

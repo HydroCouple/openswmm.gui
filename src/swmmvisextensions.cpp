@@ -16,6 +16,7 @@
 #include "plugins/extensionmanager.h"
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionmodelaccess.h"
+#include "plugins/extensionactivityui.h"
 #include "ui/actionregistry.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include "ui/toolbars/ribbongroup.h"
@@ -60,6 +61,15 @@ QString descriptorKey(const openswmmvis::plot::ResultDescriptor &descriptor)
         return "mesh:" + descriptor.variableKey;
     return "fixed:" + QString::number(static_cast<int>(descriptor.attr));
 }
+/** @brief Classify an existing built-in action using the native dialog-caption convention.
+ * @param[in] id Registered native command identity.
+ * @param[in] action Borrowed native action, possibly null.
+ * @return True for a non-extension command whose current caption advertises a dialog. */
+bool isDialogCommand(const QString &id, const QAction *action)
+{
+    return action && !id.startsWith("ext.") &&
+           (action->text().endsWith(QChar(0x2026)) || action->text().endsWith("..."));
+}
 /** @brief Enumerate built-in actions advertising a dialog; extension actions are excluded. */
 QStringList dialogCommandIds()
 {
@@ -67,8 +77,7 @@ QStringList dialogCommandIds()
     QStringList ids;
     for (const auto &id : registry->registeredIds()) {
         auto *action = registry->action(id);
-        if (action && !id.startsWith("ext.") &&
-            (action->text().endsWith(QChar(0x2026)) || action->text().endsWith("...")))
+        if (isDialogCommand(id, action))
             ids.append(id);
     }
     return ids;
@@ -80,6 +89,7 @@ void SWMMVis::initializeExtensions()
     using namespace openswmmvis;
     using namespace openswmmvis::ui;
     using namespace OpenSWMM::Sdk;
+    ensureActivityWindowId(this);
     auto *manager = ExtensionManager::instance();
 #ifdef OPENSWMM_ENGINE_ABI_TAG
     manager->setEngineRuntimeAbiTag(QString::fromUtf8(swmm_engine_abi_tag()));
@@ -170,7 +180,14 @@ void SWMMVis::initializeExtensions()
             };
             bridge.cancelRun = [this](int id) {
                 if (auto *runner = mActiveRunners.value(id))
-                    runner->cancel();
+                    requestRunCancellation(runner->property("extensionRunAttemptId").toUuid());
+            };
+            bridge.startRunAttempt = [this](const QUuid &sessionId, quint64 generation,
+                                             QString *error) {
+                return startRunAttemptForSession(sessionId, generation, error);
+            };
+            bridge.cancelRunAttempt = [this](const QUuid &operationId, QString *error) {
+                return requestRunCancellation(operationId, error);
             };
             bridge.plotVariables = [](IModelInstance *instance, const QString &category) {
                 QList<QVariantMap> values;
@@ -250,6 +267,55 @@ void SWMMVis::initializeExtensions()
                 return true;
             };
             bridge.dialogIds = dialogCommandIds;
+            bridge.dialogAction = [](const QString &id) -> QAction * {
+                return dialogCommandIds().contains(id) ? ActionRegistry::instance()->action(id)
+                                                       : nullptr;
+            };
+            bridge.watchDialogActions = [](QObject *context, std::function<void()> changed) {
+                auto *registry = ActionRegistry::instance();
+                auto *guard = new QObject(context);
+                auto watched = std::make_shared<QHash<QString, QPointer<QAction>>>();
+                auto eligible = std::make_shared<QHash<QString, bool>>();
+                const auto notify = [guard = QPointer<QObject>(guard), changed] {
+                    if (guard && changed)
+                        changed();
+                };
+                const auto bind = [registry, guard, watched, eligible, notify] {
+                    for (const auto &id : registry->registeredIds()) {
+                        if (id.startsWith("ext."))
+                            continue;
+                        auto *action = registry->action(id);
+                        if (!action || watched->value(id) == action)
+                            continue;
+                        watched->insert(id, action);
+                        eligible->insert(id, isDialogCommand(id, action));
+                        const QPointer<QAction> current(action);
+                        QObject::connect(action, &QAction::changed, guard,
+                            [registry, watched, eligible, notify, current, id] {
+                                if (watched->value(id) != current)
+                                    return;
+                                const bool approved = current && registry->action(id) == current &&
+                                                      isDialogCommand(id, current);
+                                if (eligible->value(id) != approved) {
+                                    eligible->insert(id, approved);
+                                    notify();
+                                }
+                            });
+                        QObject::connect(action, &QObject::destroyed, guard,
+                            [watched, eligible, notify, id, current] {
+                                if (watched->value(id) != current)
+                                    return;
+                                const bool approved = eligible->take(id);
+                                watched->remove(id);
+                                if (approved)
+                                    notify();
+                            });
+                    }
+                };
+                bind();
+                return QObject::connect(registry, &ActionRegistry::actionRegistered, guard,
+                    [bind, notify] { bind(); notify(); });
+            };
             bridge.openDialog = [](const QString &id) {
                 if (!dialogCommandIds().contains(id))
                     return false;

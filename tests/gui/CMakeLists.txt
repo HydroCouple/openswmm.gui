@@ -3008,6 +3008,18 @@ target_compile_definitions(test_extensionviewevents PRIVATE
     SDK_NATIVE_VIEW_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
 swmmvis_link_full_app_deps(test_extensionviewevents)
 
+# EV4 accepted attempts, reused rows, cancellation and terminal history in the native controller.
+add_swmmvis_gui_test(test_extensionactivity
+    test_extensionactivity.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_compile_definitions(test_extensionactivity PRIVATE
+    SDK_NATIVE_ACTIVITY_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev4/native"
+    SDK_NATIVE_ACTIVITY_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
+swmmvis_link_full_app_deps(test_extensionactivity)
+
 # Double-click must FINISH a drawing including the point clicked. Qt sends only
 # one press per double-click pair, so the tools' removeLast() was deleting the
 # user's closing vertex — and for a 3-gesture polygon that dropped the shape

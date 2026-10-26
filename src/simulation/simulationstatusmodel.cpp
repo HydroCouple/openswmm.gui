@@ -29,6 +29,15 @@ SimulationStatusModel::SimulationStatusModel(QObject *parent) : QAbstractItemMod
 int SimulationStatusModel::addJob(const QString &instanceName, const QString &inpPath,
                                   const QString &engineVersion)
 {
+    return appendModelJob(nullptr, instanceName, inpPath, engineVersion,
+                          SimulationJobStatus::Running);
+}
+
+int SimulationStatusModel::appendModelJob(SWMMVisProjectWindow *model, const QString &instanceName,
+                                          const QString &inpPath, const QString &engineVersion,
+                                          SimulationJobStatus status)
+{
+    const QPointer<SimulationStatusModel> guard(this);
     const int id = m_nextId++;
     const int row = m_jobs.size();
 
@@ -38,12 +47,15 @@ int SimulationStatusModel::addJob(const QString &instanceName, const QString &in
     rec.instanceName = instanceName;
     rec.inpPath = inpPath;
     rec.engineVersion = engineVersion;
-    rec.status = SimulationJobStatus::Running;
-    rec.startedAt = QDateTime::currentDateTime();
+    rec.status = status;
+    if (status == SimulationJobStatus::Running)
+        rec.startedAt = QDateTime::currentDateTime();
     m_jobs.append(rec);
+    if (model)
+        m_modelToJobId[model].insert(engineVersion, id);
     endInsertRows();
 
-    return id;
+    return guard && jobIndexById(id) >= 0 ? id : -1;
 }
 
 int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
@@ -57,9 +69,8 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
 
     // Check if this model already has a row for this specific engine version.
     // Different engine versions get separate rows; same version is reused.
-    auto &versionMap = m_modelToJobId[model];
-    if (versionMap.contains(engineVersion)) {
-        const int jobId = versionMap[engineVersion];
+    const int jobId = existingJobForModel(model, engineVersion);
+    if (jobId >= 0) {
         const int row = jobIndexById(jobId);
         if (row >= 0) {
             auto &rec = m_jobs[row];
@@ -77,26 +88,31 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
             rec.avgTimestepSec = 0.0;
             rec.droppedWarnings = 0;
 
+            const QPointer<SimulationStatusModel> guard(this);
             const QModelIndex tl = createIndex(row, 0, kRootId);
             const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
             emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
 
-            if (!rec.warnings.isEmpty() || !rec.snowLedger.isEmpty()) {
-                const QModelIndex jobIdx = createIndex(row, 0, kRootId);
-                beginRemoveRows(jobIdx, 0, rec.warnings.size() + rec.snowLedger.size() - 1);
-                rec.warnings.clear();
-                rec.snowLedger.clear();
+            if (!guard || existingJobForModel(model, engineVersion) != jobId)
+                return -1;
+            const int currentRow = jobIndexById(jobId);
+            // dataChanged may clear this model or insert rows, invalidating rec.
+            auto &current = m_jobs[currentRow];
+            if (!current.warnings.isEmpty() || !current.snowLedger.isEmpty()) {
+                const QModelIndex jobIdx = createIndex(currentRow, 0, kRootId);
+                beginRemoveRows(jobIdx, 0, current.warnings.size() + current.snowLedger.size() - 1);
+                current.warnings.clear();
+                current.snowLedger.clear();
                 endRemoveRows();
             }
 
-            return jobId;
+            return guard && existingJobForModel(model, engineVersion) == jobId ? jobId : -1;
         }
     }
 
     // New engine version (or first run) — create a fresh row.
-    const int jobId = addJob(instanceName, inpPath, engineVersion);
-    versionMap[engineVersion] = jobId;
-    return jobId;
+    return appendModelJob(model, instanceName, inpPath, engineVersion,
+                          SimulationJobStatus::Running);
 }
 
 int SimulationStatusModel::ensureJobForModel(SWMMVisProjectWindow *model,
@@ -106,23 +122,20 @@ int SimulationStatusModel::ensureJobForModel(SWMMVisProjectWindow *model,
     if (!model)
         return -1;
 
-    auto &versionMap = m_modelToJobId[model];
-    if (versionMap.contains(engineVersion)) {
-        const int jobId = versionMap[engineVersion];
-        if (jobIndexById(jobId) >= 0)
-            return jobId;
-    }
+    const int existing = existingJobForModel(model, engineVersion);
+    if (existing >= 0)
+        return existing;
+    return appendModelJob(model, instanceName, inpPath, engineVersion, SimulationJobStatus::Idle);
+}
 
-    const int jobId = addJob(instanceName, inpPath, engineVersion);
-    versionMap[engineVersion] = jobId;
-
-    auto &rec = m_jobs.last();
-    rec.status = SimulationJobStatus::Idle;
-    rec.startedAt = QDateTime();
-    const int row = m_jobs.size() - 1;
-    emit dataChanged(createIndex(row, 0, kRootId), createIndex(row, NumColumns - 1, kRootId),
-                     {Qt::DisplayRole, Qt::ForegroundRole});
-    return jobId;
+int SimulationStatusModel::existingJobForModel(SWMMVisProjectWindow *model,
+                                               const QString &engineVersion) const
+{
+    const auto found = m_modelToJobId.constFind(model);
+    if (found == m_modelToJobId.cend())
+        return -1;
+    const int id = found.value().value(engineVersion, -1);
+    return jobIndexById(id) >= 0 ? id : -1;
 }
 
 void SimulationStatusModel::updateSnowLedger(int jobId, const QStringList &rows)

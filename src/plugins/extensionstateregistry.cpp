@@ -12,9 +12,13 @@
 #include "plugins/extensionstateregistry.h"
 #include <QCoreApplication>
 #include <QHash>
+#include <QSet>
 #include <QThread>
 #include <QVariant>
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <utility>
 
 using namespace OpenSWMM::Sdk;
 namespace openswmmvis
@@ -40,9 +44,46 @@ struct ExtensionStateRegistry::Data {
     QList<StateEvent> pending;  ///< Globally ordered immutable observations.
     QHash<QUuid, ViewSnapshot> views; ///< Current copied native view metadata by session.
     QList<ViewEvent> pendingViews; ///< Domain observations merged into the same sequence drain.
+    QHash<QUuid, ProcessState> processes; ///< Retained unique process attempts, independent of rows.
+    QSet<QUuid> issuedProcessIds; ///< Prevent reassignment after retained metadata is retired.
+    QList<QUuid> processOrder; ///< Stable acceptance order of retained attempts.
+    QHash<QUuid, UiActivityState> activityUi; ///< Copied private host UI projections.
+    QList<ActivityEvent> pendingActivity; ///< Process/UI observations in the shared FIFO.
     quint64 sequence = 0;       ///< Shared committed-publication watermark.
     bool scheduled = false;     ///< A queued drain callback is outstanding.
     bool draining = false;      ///< Prevent nested event loops from recursively dispatching.
+    /** @brief Identify the lowest sequenced pending domain. */
+    enum class Head { None, State, View, Activity };
+    /** @brief Select the oldest pending publication across all immutable contracts.
+     * @return Domain of the global FIFO head, or None for an empty queue. */
+    Head head() const
+    {
+        Head result = Head::None;
+        quint64 sequence = std::numeric_limits<quint64>::max();
+        if (!pending.isEmpty()) {
+            sequence = pending.first().sequence;
+            result = Head::State;
+        }
+        if (!pendingViews.isEmpty() && pendingViews.first().sequence < sequence) {
+            sequence = pendingViews.first().sequence;
+            result = Head::View;
+        }
+        if (!pendingActivity.isEmpty() && pendingActivity.first().sequence < sequence)
+            result = Head::Activity;
+        return result;
+    }
+    /** @brief Read the affected session of the current global FIFO head.
+     * @return Captured model lifetime, null for UI/private unbound jobs/no pending work. */
+    QUuid headSession() const
+    {
+        switch (head()) {
+        case Head::State: return pending.first().session.sessionId;
+        case Head::View: return pendingViews.first().session.sessionId;
+        case Head::Activity: return pendingActivity.first().process.sessionId;
+        case Head::None: return {};
+        }
+        return {};
+    }
 };
 
 namespace
@@ -76,6 +117,9 @@ ExtensionStateRegistry::ExtensionStateRegistry(QObject *parent)
     qRegisterMetaType<SaveRequest>();
     qRegisterMetaType<ViewEvent>();
     qRegisterMetaType<ViewSnapshot>();
+    qRegisterMetaType<ProcessState>();
+    qRegisterMetaType<ActivityEvent>();
+    qRegisterMetaType<ActivitySnapshot>();
 }
 ExtensionStateRegistry::~ExtensionStateRegistry() = default;
 
@@ -144,6 +188,242 @@ ModelSessionState ExtensionStateRegistry::session(const QUuid &id) const
 {
     Q_ASSERT(QThread::currentThread() == thread());
     return mData->sessions.value(id).state;
+}
+
+ActivitySnapshot ExtensionStateRegistry::activitySnapshot(const QUuid &ownerId,
+                                                          const QUuid &windowId) const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    ActivitySnapshot result;
+    result.sequence = mData->sequence;
+    result.ui = mData->activityUi.value(ownerId);
+    for (const auto &id : mData->processOrder) {
+        const auto value = mData->processes.value(id);
+        if ((value.kind == ProcessKind::Job && value.ownerId == ownerId && !ownerId.isNull()) ||
+            (value.kind == ProcessKind::Run && value.windowId == windowId && !windowId.isNull()))
+            result.processes.append(value);
+    }
+    return result;
+}
+ProcessState ExtensionStateRegistry::operation(const QUuid &id) const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    return mData->processes.value(id);
+}
+QUuid ExtensionStateRegistry::beginOperation(ProcessState state)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if ((state.kind == ProcessKind::Job && (state.ownerId.isNull() || state.ownerPluginId.isEmpty())) ||
+        (state.kind == ProcessKind::Run && (state.windowId.isNull() || state.sessionId.isNull())))
+        return {};
+    if (state.operationId.isNull())
+        state.operationId = QUuid::createUuid();
+    if (mData->issuedProcessIds.contains(state.operationId))
+        return {};
+    state.phase = ProcessPhase::Queued;
+    state.progress = 0.;
+    state.cancelRequested = false;
+    state.error.clear();
+    state.errorCode = 0;
+    state.title = state.title.left(4096);
+    state.stage.clear();
+    state.startedAt = {};
+    state.finishedAt = {};
+    if (!state.acceptedAt.isValid())
+        state.acceptedAt = QDateTime::currentDateTimeUtc();
+    state.revision = 1;
+    mData->processes.insert(state.operationId, state);
+    mData->issuedProcessIds.insert(state.operationId);
+    mData->processOrder.append(state.operationId);
+    ActivityEvent event;
+    event.kind = ActivityEventKind::OperationAccepted;
+    event.process = state;
+    event.windowId = state.windowId;
+    event.ownerId = state.ownerId;
+    enqueueActivity(std::move(event));
+    return state.operationId;
+}
+void ExtensionStateRegistry::startOperation(const QUuid &id, const QDateTime &startedAt)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    auto it = mData->processes.find(id);
+    if (it == mData->processes.end() || it->phase != ProcessPhase::Queued)
+        return;
+    it->phase = ProcessPhase::Running;
+    it->startedAt = startedAt.isValid() ? startedAt : QDateTime::currentDateTimeUtc();
+    ++it->revision;
+    ActivityEvent event;
+    event.kind = ActivityEventKind::OperationStarted;
+    event.process = *it;
+    event.windowId = it->windowId;
+    event.ownerId = it->ownerId;
+    enqueueActivity(std::move(event));
+}
+void ExtensionStateRegistry::progressOperation(const QUuid &id, double fraction, const QString &stage)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    auto it = mData->processes.find(id);
+    if (it == mData->processes.end() || it->isTerminal() || !std::isfinite(fraction))
+        return;
+    fraction = qBound(0., fraction, 1.);
+    const auto boundedStage = stage.left(4096);
+    if (it->progress == fraction && it->stage == boundedStage)
+        return;
+    it->progress = fraction;
+    it->stage = boundedStage;
+    ++it->revision;
+    ActivityEvent event;
+    event.kind = ActivityEventKind::OperationProgress;
+    event.process = *it;
+    event.windowId = it->windowId;
+    event.ownerId = it->ownerId;
+    enqueueActivity(std::move(event));
+}
+bool ExtensionStateRegistry::requestOperationCancel(const QUuid &id)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    auto it = mData->processes.find(id);
+    if (it == mData->processes.end() || it->isTerminal())
+        return false;
+    if (it->cancelRequested)
+        return true;
+    it->cancelRequested = true;
+    ++it->revision;
+    ActivityEvent event;
+    event.kind = ActivityEventKind::CancellationRequested;
+    event.process = *it;
+    event.windowId = it->windowId;
+    event.ownerId = it->ownerId;
+    enqueueActivity(std::move(event));
+    return true;
+}
+void ExtensionStateRegistry::finishOperation(const QUuid &id, ProcessPhase outcome,
+    const QString &error, int errorCode, const QDateTime &finishedAt)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (outcome != ProcessPhase::Succeeded && outcome != ProcessPhase::Failed &&
+        outcome != ProcessPhase::Cancelled)
+        return;
+    auto it = mData->processes.find(id);
+    if (it == mData->processes.end() || it->isTerminal())
+        return;
+    if (outcome == ProcessPhase::Succeeded && it->kind == ProcessKind::Run)
+        progressOperation(id, 1., it->stage);
+    it->phase = outcome;
+    it->error = outcome == ProcessPhase::Succeeded ? QString{} : error.left(8192);
+    it->errorCode = errorCode;
+    it->finishedAt = finishedAt.isValid() ? finishedAt : QDateTime::currentDateTimeUtc();
+    ++it->revision;
+    ActivityEvent event;
+    event.kind = ActivityEventKind::OperationFinished;
+    event.process = *it;
+    event.windowId = it->windowId;
+    event.ownerId = it->ownerId;
+    const auto ownerId = it->ownerId;
+    enqueueActivity(std::move(event));
+    if (!ownerId.isNull()) {
+        QList<QUuid> completed;
+        for (const auto &candidate : std::as_const(mData->processOrder)) {
+            const auto &record = mData->processes[candidate];
+            if (record.kind == ProcessKind::Job && record.ownerId == ownerId && record.isTerminal())
+                completed.append(candidate);
+        }
+        while (completed.size() > 128)
+            retireOperation(completed.takeFirst());
+    }
+}
+void ExtensionStateRegistry::retireOperation(const QUuid &id)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto value = mData->processes.value(id);
+    if (value.operationId.isNull() || !value.isTerminal())
+        return;
+    mData->processes.remove(id);
+    mData->processOrder.removeAll(id);
+    ActivityEvent event;
+    event.kind = ActivityEventKind::OperationRemoved;
+    event.process = value;
+    event.windowId = value.windowId;
+    event.ownerId = value.ownerId;
+    enqueueActivity(std::move(event));
+}
+void ExtensionStateRegistry::refreshActivityUi(const QUuid &ownerId, UiActivityState state)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (!ownerId.isNull())
+        mData->activityUi.insert(ownerId, std::move(state));
+}
+void ExtensionStateRegistry::publishActivityUi(const QUuid &ownerId, UiActivityState state,
+                                              ActivityEvent event)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (ownerId.isNull())
+        return;
+    event.windowId = state.windowId;
+    event.ownerId = ownerId;
+    refreshActivityUi(ownerId, std::move(state));
+    enqueueActivity(std::move(event));
+}
+void ExtensionStateRegistry::forgetActivityOwner(const QUuid &ownerId)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (ownerId.isNull())
+        return;
+    mData->activityUi.remove(ownerId);
+    const auto ids = mData->processOrder;
+    for (const auto &id : ids) {
+        const auto value = mData->processes.value(id);
+        if (value.kind == ProcessKind::Job && value.ownerId == ownerId && value.isTerminal())
+            retireOperation(id);
+    }
+}
+bool ExtensionStateRegistry::isDeliverable(const ActivityEvent &event) const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (event.kind <= ActivityEventKind::OperationRemoved)
+        return event.kind != ActivityEventKind::OperationProgress ||
+               mData->processes.contains(event.process.operationId);
+    if (event.kind == ActivityEventKind::DocumentRemoved || event.kind == ActivityEventKind::DockRemoved ||
+        event.kind == ActivityEventKind::CommandRemoved)
+        return true;
+    const auto ui = mData->activityUi.value(event.ownerId);
+    if (ui.windowId.isNull() || ui.windowId != event.windowId)
+        return false;
+    if (event.kind == ActivityEventKind::ActiveDocumentChanged)
+        return ui.activeDocumentId == event.entityId;
+    if (event.kind == ActivityEventKind::DocumentChanged)
+        return std::any_of(ui.documents.cbegin(), ui.documents.cend(),
+            [&](const auto &state) { return state.documentId == event.entityId; });
+    if (event.kind == ActivityEventKind::DockChanged)
+        return std::any_of(ui.docks.cbegin(), ui.docks.cend(),
+            [&](const auto &state) { return state.dockId == event.entityId; });
+    if (event.kind == ActivityEventKind::CommandChanged)
+        return std::any_of(ui.commands.cbegin(), ui.commands.cend(),
+            [&](const auto &state) { return state.commandId == event.entityId; });
+    return false;
+}
+void ExtensionStateRegistry::enqueueActivity(ActivityEvent event)
+{
+    if (event.kind == ActivityEventKind::OperationProgress ||
+        event.kind == ActivityEventKind::ActiveDocumentChanged ||
+        event.kind == ActivityEventKind::DocumentChanged ||
+        event.kind == ActivityEventKind::DockChanged || event.kind == ActivityEventKind::CommandChanged) {
+        for (qsizetype i = mData->pendingActivity.size(); i-- > 0;) {
+            const auto &old = mData->pendingActivity[i];
+            const bool sameTarget = event.kind == ActivityEventKind::OperationProgress
+                ? old.process.operationId == event.process.operationId
+                : old.ownerId == event.ownerId && old.windowId == event.windowId &&
+                  (event.kind == ActivityEventKind::ActiveDocumentChanged || old.entityId == event.entityId);
+            if (old.kind == event.kind && sameTarget) {
+                if (old.origin != event.origin)
+                    event.origin = {};
+                mData->pendingActivity.removeAt(i);
+            }
+        }
+    }
+    event.sequence = ++mData->sequence;
+    mData->pendingActivity.append(std::move(event));
+    scheduleDrain();
 }
 
 ViewSnapshot ExtensionStateRegistry::viewSnapshot(const QUuid &id) const
@@ -521,15 +801,9 @@ void ExtensionStateRegistry::enqueue(StateEventKind kind, const ModelSessionStat
 }
 void ExtensionStateRegistry::scheduleDrain()
 {
-    if (mData->scheduled || mData->draining ||
-        (mData->pending.isEmpty() && mData->pendingViews.isEmpty()))
+    if (mData->scheduled || mData->draining || mData->head() == Data::Head::None)
         return;
-    const bool viewFirst = mData->pending.isEmpty() ||
-        (!mData->pendingViews.isEmpty() &&
-         mData->pendingViews.first().sequence < mData->pending.first().sequence);
-    const auto sessionId = viewFirst ? mData->pendingViews.first().session.sessionId
-                                     : mData->pending.first().session.sessionId;
-    if (isSaving(sessionId))
+    if (isSaving(mData->headSession()))
         return;
     mData->scheduled = true;
     QMetaObject::invokeMethod(this, [this]() { drain(); }, Qt::QueuedConnection);
@@ -540,18 +814,18 @@ void ExtensionStateRegistry::drain()
     if (mData->draining)
         return;
     mData->draining = true;
-    while (!mData->pending.isEmpty() || !mData->pendingViews.isEmpty()) {
-        const bool viewFirst = mData->pending.isEmpty() ||
-            (!mData->pendingViews.isEmpty() &&
-             mData->pendingViews.first().sequence < mData->pending.first().sequence);
-        const auto sessionId = viewFirst ? mData->pendingViews.first().session.sessionId
-                                         : mData->pending.first().session.sessionId;
-        if (isSaving(sessionId)) {
+    while (mData->head() != Data::Head::None) {
+        if (isSaving(mData->headSession())) {
             mData->draining = false;
             return; // endSave() schedules again; nested event loops never busy-spin here.
         }
         const QPointer<ExtensionStateRegistry> guard(this);
-        if (viewFirst) {
+        if (mData->head() == Data::Head::Activity) {
+            const auto event = mData->pendingActivity.takeFirst();
+            if (!isDeliverable(event))
+                continue;
+            emit activityEventReady(event);
+        } else if (mData->head() == Data::Head::View) {
             const auto event = mData->pendingViews.takeFirst();
             if (!isDeliverable(event))
                 continue;

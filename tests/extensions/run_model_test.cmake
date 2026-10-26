@@ -41,6 +41,13 @@ if(VIEW_PLUGIN_DIRS)
     string(APPEND _extension_paths "${_separator}${VIEW_PLUGIN_DIRS}")
     set(_view_consumer_environment "SDK_VIEW_CONSUMERS=1")
 endif()
+# Optional independent installed-SDK 1.5 consumers share native runs while
+# keeping their worker tasks private. Paths use the platform extension separator.
+set(_activity_consumer_environment "")
+if(ACTIVITY_PLUGIN_DIRS)
+    string(APPEND _extension_paths "${_separator}${ACTIVITY_PLUGIN_DIRS}")
+    set(_activity_consumer_environment "SDK_ACTIVITY_CONSUMERS=1")
+endif()
 set(_startup_project "${_run}/model.oswp")
 set(_multi_model_environment "")
 file(WRITE "${_run}/model.oswp"
@@ -73,9 +80,11 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "SDK_DATA_CATALOGUE=${_data_catalogue}"
     "SDK_DATA_TERRAIN=${_data_terrain}"
     "SDK_VIEW_PLUGIN_DIRS=${VIEW_PLUGIN_DIRS}"
+    "SDK_ACTIVITY_PLUGIN_DIRS=${ACTIVITY_PLUGIN_DIRS}"
     ${_typed_consumer_environment}
     ${_lifecycle_environment}
     ${_view_consumer_environment}
+    ${_activity_consumer_environment}
     ${_multi_model_environment}
     "SWMMVIS_CAPTURE_MANIFEST=${_run}/settings-scope.json"
     "SWMM_LOG_FILE=${_run}/application.log"
