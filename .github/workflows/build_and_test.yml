@@ -856,6 +856,46 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
           cmake --build build/sdk-example-${{ matrix.build_subdir }} --config Release --parallel 2
 
+      - name: Build and test independent typed-event consumers
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          for event_variant in a b; do
+            event_id=org.openswmm.events-example
+            if [ "$event_variant" = b ]; then event_id=org.openswmm.events-second; fi
+            cmake -S "dist/gui-sdk/${{ matrix.vcpkg_triplet }}/share/openswmmvis-sdk/examples/events" \
+              -B "build/sdk-events-$event_variant-${{ matrix.build_subdir }}" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+              -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+              -DOPENSWMM_EVENTS_EXAMPLE_ID="$event_id"
+            cmake --build "build/sdk-events-$event_variant-${{ matrix.build_subdir }}" \
+              --config Release --parallel 2
+          done
+          cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
+            --target test_gui_extensions test_gui_extension_events
+          python - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          def module_directory(build, stem):
+              suffix = ".dll" if os.name == "nt" else ".so"
+              matches = [p for p in pathlib.Path(build).rglob("*" + stem + suffix)
+                         if not any(part.endswith(".app") for part in p.parts)]
+              if len(matches) != 1:
+                  raise SystemExit(f"Expected one {stem} module in {build}, found {matches}")
+              return str(matches[0].resolve().parent)
+          subdir = "${{ matrix.build_subdir }}"
+          event_dirs = [module_directory(f"build/sdk-events-{v}-{subdir}", "events_example")
+                        for v in ("a", "b")]
+          os.environ["SDK_TYPED_PLUGIN_DIRS"] = os.pathsep.join(event_dirs)
+          os.environ["SDK_EXTERNAL_PLUGIN_DIR"] = module_directory(
+              f"build/sdk-example-{subdir}", "example_extension")
+          subprocess.run(["ctest", "--test-dir", f"build/{subdir}", "-C", "Release",
+                          "--output-on-failure", "--timeout", "60", "-R",
+                          "^test_gui_extension(s|_events)$"], check=True)
+          PY
+
       - name: Upload GUI extension SDK
         uses: actions/upload-artifact@v4
         with:

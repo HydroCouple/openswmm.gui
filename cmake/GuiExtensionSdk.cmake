@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.1")
+set(OPENSWMMVIS_SDK_API_VERSION "1.2")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)
@@ -66,13 +66,21 @@ install(FILES "${PROJECT_SOURCE_DIR}/docs/sdk/extensions.dox"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/openswmmvis-sdk" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/template/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/template" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/events/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/events" COMPONENT GuiSdk)
+set(OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/EventSignalAdapter.cpp")
+set(OpenSWMMVisSdk_EVENT_ADAPTER_HEADER
+    "${PROJECT_SOURCE_DIR}/include/sdk/qt/EventSignalAdapter.hpp")
+install(FILES "${OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE}"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/qt" COMPONENT GuiSdk)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sdk/sdk-manifest.json"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/OpenSWMMVisSdk" COMPONENT GuiSdk)
 install(EXPORT OpenSWMMVisSdkTargets NAMESPACE OpenSWMMVis::
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/OpenSWMMVisSdk" COMPONENT GuiSdk)
 configure_package_config_file("${PROJECT_SOURCE_DIR}/cmake/OpenSWMMVisSdkConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/sdk/OpenSWMMVisSdkConfig.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/OpenSWMMVisSdk")
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/OpenSWMMVisSdk"
+    PATH_VARS CMAKE_INSTALL_DATADIR CMAKE_INSTALL_INCLUDEDIR)
 write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/sdk/OpenSWMMVisSdkConfigVersion.cmake"
     VERSION "${OPENSWMMVIS_SDK_API_VERSION}" COMPATIBILITY SameMajorVersion)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sdk/OpenSWMMVisSdkConfig.cmake"
@@ -87,6 +95,7 @@ if(NOT SWMMVIS_SDK_ONLY)
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionmanager.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionnetwork.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionattributes.cpp"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensionevents.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/guiextensionhost.cpp")
     set_target_properties(openswmmvis_extensions PROPERTIES AUTOMOC ON)
     target_include_directories(openswmmvis_extensions PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sdk")

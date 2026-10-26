@@ -56,3 +56,25 @@ function(openswmmvis_add_extension target)
     target_include_directories(${target} PRIVATE "${_metadata_dir}")
     target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
 endfunction()
+
+# Compile the optional Qt signal adapter into one consumer module. Its generated
+# metaobject symbols stay private to that module; the SDK exports no shared runtime.
+function(openswmmvis_add_event_adapter target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "openswmmvis_add_event_adapter needs an existing extension target")
+    endif()
+    get_target_property(_adapter_added ${target} OPENSWMMVIS_EVENT_ADAPTER_ADDED)
+    if(_adapter_added)
+        return()
+    endif()
+    if(NOT EXISTS "${OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE}" OR
+       NOT EXISTS "${OpenSWMMVisSdk_EVENT_ADAPTER_HEADER}")
+        message(FATAL_ERROR "The installed SDK does not supply its Qt event adapter sources")
+    endif()
+    target_sources(${target} PRIVATE
+        "${OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE}" "${OpenSWMMVisSdk_EVENT_ADAPTER_HEADER}")
+    target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
+    set_target_properties(${target} PROPERTIES
+        AUTOMOC ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+        OPENSWMMVIS_EVENT_ADAPTER_ADDED TRUE)
+endfunction()

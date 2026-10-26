@@ -3,5 +3,9 @@ include(CMakeFindDependencyMacro)
 find_dependency(Qt6 @Qt6_VERSION_MAJOR@.@Qt6_VERSION_MINOR@ COMPONENTS Core Gui Widgets Network)
 include("${CMAKE_CURRENT_LIST_DIR}/OpenSWMMVisSdkTargets.cmake")
 set(OpenSWMMVisSdk_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/sdk-manifest.json")
+set_and_check(OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE
+    "@PACKAGE_CMAKE_INSTALL_DATADIR@/openswmmvis-sdk/qt/EventSignalAdapter.cpp")
+set_and_check(OpenSWMMVisSdk_EVENT_ADAPTER_HEADER
+    "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/openswmmvis/sdk/qt/EventSignalAdapter.hpp")
 include("${CMAKE_CURRENT_LIST_DIR}/OpenSWMMVisExtension.cmake")
 check_required_components(OpenSWMMVisSdk)

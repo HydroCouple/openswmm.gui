@@ -14,17 +14,22 @@ file(MAKE_DIRECTORY "${_run}")
 file(COPY "${FIXTURES}/model.inp" "${FIXTURES}/boundary.geojson"
     "${FIXTURES}/catalogue-sites.json" "${FIXTURES}/catalogue-terrain.json" DESTINATION "${_run}")
 set(_extension_paths "${PLUGIN_DIR}")
+if(WIN32)
+    set(_separator ";")
+else()
+    set(_separator ":")
+endif()
 set(_data_catalogue "")
 set(_data_terrain "")
 if(DATA_PLUGIN_DIR)
-    if(WIN32)
-        set(_separator ";")
-    else()
-        set(_separator ":")
-    endif()
     string(APPEND _extension_paths "${_separator}${DATA_PLUGIN_DIR}")
     set(_data_catalogue "${_run}/catalogue-sites.json")
     set(_data_terrain "${_run}/catalogue-terrain.json")
+endif()
+set(_typed_consumer_environment "")
+if(TYPED_PLUGIN_DIRS)
+    string(APPEND _extension_paths "${_separator}${TYPED_PLUGIN_DIRS}")
+    set(_typed_consumer_environment "SDK_TYPED_CONSUMERS=1")
 endif()
 file(WRITE "${_run}/model.oswp"
     "{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"model.inp\",\"instanceId\":\"{124ed789-2774-4e8f-a166-4bdf76e83e09}\"}]}")
@@ -38,6 +43,7 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "SDK_MODEL_REPORT=${_run}/report.json"
     "SDK_DATA_CATALOGUE=${_data_catalogue}"
     "SDK_DATA_TERRAIN=${_data_terrain}"
+    ${_typed_consumer_environment}
     "SWMMVIS_CAPTURE_MANIFEST=${_run}/settings-scope.json"
     "SWMM_LOG_FILE=${_run}/application.log"
     "${APP}"

@@ -90,8 +90,15 @@ private slots:
         plugin = expected;
         plugin.sdkApiVersion = "1.0";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
-        plugin.sdkApiVersion = "1.2";
+        plugin.sdkApiVersion = "1.1";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.3";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
+                    .contains("sdkApiVersion"));
+        auto olderHost = expected;
+        olderHost.sdkApiVersion = "1.1";
+        plugin.sdkApiVersion = "1.2";
+        QVERIFY(ExtensionManager::compatibilityError(olderHost, plugin, false)
                     .contains("sdkApiVersion"));
         plugin = expected;
         plugin.engineAbiTag = "foreign";
