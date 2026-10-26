@@ -104,7 +104,8 @@ public:
      * IEventSourceV2 for authoritative lifecycle/state snapshots.
      * SDK 1.4 also supports IEventSourceV3 and IViewControlsV1 for typed view
      * observations and validated native controller commands. Private host
-     * classes and arbitrary slots remain implementation details. */
+     * classes and arbitrary slots remain implementation details. SDK 1.5 adds
+     * IEventSourceV4 and IActivityControlsV1 for process attempts and scoped UI activity. */
     virtual QObject *lifetime() const = 0;
     /** @brief Enumerate open projects. @return Borrowed host-owned project facades, excluding closed instances. */
     virtual QList<IProject *> projects() const = 0;

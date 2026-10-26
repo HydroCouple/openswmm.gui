@@ -47,6 +47,9 @@
  * sdk/IEventSourceV3.hpp | Copied model/layer/results view metadata and deferred domain invalidations.
  * sdk/IViewControlsV1.hpp | Validated layer/result commands and paged vector selection queries.
  * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for V3 view observations.
+ * sdk/IEventSourceV4.hpp | Unique process attempts, retained activity snapshots and scoped UI invalidations.
+ * sdk/IActivityControlsV1.hpp | Identity-checked run start/cancellation and document/dock/command controls.
+ * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for V4 process and UI observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
  * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
@@ -67,11 +70,14 @@
  * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
  * plugins/extensionstateregistry.* | Shared authoritative session state, deferred dispatch and native save scopes.
  * plugins/extensionviewaccess.* | One native coordinator per window for V3 snapshots and commands.
+ * plugins/extensionactivityui.* | Shared native MDI attachment tracking and per-host UI metadata/controls.
  * plugins/extensionmodelevents.cpp | Canonical model geometry/options/rename/schema/selection/unit observations.
  * plugins/extensionlayerevents.cpp | Runtime canvas attachment identities, layer watchers and native commands.
  * plugins/extensionresultsevents.cpp | Attached reader/source epochs, semantic variables and displayed cursor observations.
  * src/sdk/EventSignalAdapter.cpp | Installed optional adapter source compiled inside each consumer module.
  * src/sdk/ViewSignalAdapter.cpp | Installed optional V3 adapter source, also compiled per consumer.
+ * src/sdk/ActivitySignalAdapter.cpp | Installed optional V4 adapter source, also compiled per consumer.
+ * examples/extensions/activity/ | Independently built SDK 1.5 process/document consumer.
  * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
  * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
  *
@@ -191,7 +197,9 @@
  * signals. SDK 1.3 adds the separate IEventSourceV2 capability for authoritative
  * session readiness, revision snapshots and save outcomes. SDK 1.4 adds
  * IEventSourceV3 and IViewControlsV1 for detailed map/model/results observations
- * and validated view commands. ExtensionHost::observe()
+ * and validated view commands. SDK 1.5 adds IEventSourceV4 and
+ * IActivityControlsV1 for unique run/job attempts and scoped UI activity.
+ * ExtensionHost::observe()
  * remains available for existing consumers. These interfaces have different
  * delivery/identity contracts; choose the one needed by the integration.
  * ExtensionHost remains a pure C++ interface, and a plugin's own QActions,
@@ -204,7 +212,8 @@
  * use the existing edit/lease and undo paths; layer import does not promise undo.
  * An event reports a change; it is not a command or permission to modify a private
  * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
- * such as IEventSourceV1, IEventSourceV2, IEventSourceV3 and IViewControlsV1,
+ * such as IEventSourceV1, IEventSourceV2, IEventSourceV3, IViewControlsV1,
+ * IEventSourceV4 and IActivityControlsV1,
  * while private host classes remain
  * implementation details.
  *
@@ -214,6 +223,7 @@
  * | IEventSourceV1 | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
  * | IEventSourceV2 | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
  * | IEventSourceV3 | 1.4 | Deferred model/layer/results invalidations and copied view metadata at the shared V2/V3 watermark. |
+ * | IEventSourceV4 | 1.5 | Deferred unique process transitions and scoped UI invalidations, with retained activity snapshots at the shared V2/V3/V4 watermark. |
  *
  * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
  *
@@ -597,6 +607,195 @@
  * source-file write is implied. For 2D seeks, observe ResultsTimeChanged and read
  * the displayed cursor before treating the requested frame as visible.
  *
+ * @subsection sdk_activity_events SDK 1.5 process attempts and scoped UI activity
+ *
+ * Include sdk/IEventSourceV4.hpp and sdk/IActivityControlsV1.hpp, require
+ * OpenSWMMVisSdk 1.5, and discover both optional capabilities on
+ * host->lifetime() using qobject_cast. Check required capabilities during
+ * initialize(). V4 is a separate frozen interface: IEventSourceV1, V2 and V3
+ * retain their earlier layouts, delivery rules and discovery identities.
+ * Their headers contain no V4 payload additions. Existing ExtensionHost,
+ * IRunRegistry, IJob, IJobContext and IUiHost vtables remain unchanged.
+ *
+ * activitySnapshot() copies current retained process and UI metadata. It does
+ * not create trackers or facades, inspect workers, resolve engine handles or
+ * publish observations. ProcessState contains an operationId, kind, phase,
+ * captured owner/window/model identities, presentation metadata, finite progress,
+ * timestamps, cancellation indication, bounded diagnostic and per-operation
+ * revision. No event or snapshot exposes a runner, job, widget or engine pointer.
+ * A process UUID identifies one accepted attempt. A Simulation Status rowId can
+ * be reused, and job titles can repeat; neither is an actionable identity.
+ *
+ * A snapshot includes shared native runs belonging to this main window and
+ * only the calling host's private jobs. A job's ownerId identifies one host
+ * lifetime; ownerPluginId is its plugin identity label. Another host,
+ * including a later lifetime with the same plugin ID, cannot observe or cancel
+ * that private work. Native runs have a null ownerId and a runtime windowId.
+ * Their sessionId, instanceId and loadGeneration are captured at acceptance,
+ * independently of the later active model or reuse of their status row.
+ *
+ * observeActivity() registers future deferred GUI-thread observations with
+ * copied kind/operation/session filters. Empty kinds and null selectors accept
+ * all activity visible to this host. A specific operationId or sessionId
+ * excludes UI observations, which have no process identity. Register with a
+ * nonnull GUI-thread QObject guard, subscribe before taking the initial
+ * snapshot on the same call stack, and retain its initial sequence cutoff.
+ * V2, V3 and V4 share the registry watermark and ordered dispatcher; sequence
+ * gaps are expected after coalescing. A refreshed snapshot is retained current
+ * state, not event-history replay. Do not advance the initial cutoff whenever
+ * refreshing if the consumer also retains future terminal/removal history.
+ *
+ * @code{.cpp}
+ * // Persistent members of a GUI-thread controller; validate both capabilities.
+ * mActivity = qobject_cast<OpenSWMM::Sdk::IEventSourceV4 *>(host->lifetime());
+ * mActivityControls = qobject_cast<OpenSWMM::Sdk::IActivityControlsV1 *>(host->lifetime());
+ * if (!mActivity || !mActivityControls)
+ *     return false; // Set initialize()'s error output to identify the required SDK.
+ * mActivityConnection = mActivity->observeActivity(this, {},
+ *     [this](const OpenSWMM::Sdk::ActivityEvent &event) {
+ *         if (event.sequence <= mInitialActivityWatermark)
+ *             return;
+ *         if (event.kind == OpenSWMM::Sdk::ActivityEventKind::OperationFinished) {
+ *             // Retain the copied terminal by operationId if this panel needs history.
+ *         }
+ *         const auto current = mActivity->activitySnapshot();
+ *         // Refresh the display; keep mInitialActivityWatermark unchanged.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mActivity->activitySnapshot();
+ * mInitialActivityWatermark = initial.sequence;
+ * @endcode
+ *
+ * Managed delivery rechecks receiver lifetime/thread, host shutdown and target
+ * availability, isolates observer exceptions and prevents recursive queue drains.
+ * Disconnection or receiver destruction suppresses future managed calls. Compile
+ * sdk/qt/ActivitySignalAdapter.hpp through
+ * openswmmvis_add_activity_adapter(target) for ordinary Qt signals. The helper
+ * compiles the installed source and moc code into each consumer with private
+ * symbols. ActivitySignalAdapter emits occurred() first, then processChanged()
+ * or uiChanged(); disconnecting or destroying it during occurred() suppresses
+ * the domain projection. Copied-value metatypes support queued downstream
+ * connections, whose slots retain ordinary Qt disconnect/lifetime rules and
+ * must not throw. examples/extensions/activity demonstrates independently built
+ * consumers, explicit private work and a model-independent document.
+ *
+ * | ActivityEventKind | Meaning |
+ * | --- | --- |
+ * | OperationAccepted | A unique run preparation or private job scheduling attempt was accepted. |
+ * | OperationStarted | The native runner or private worker entered its execution path. |
+ * | OperationProgress | Latest finite normalized progress/stage; intermediate updates can coalesce. |
+ * | CancellationRequested | Cancellation was requested before settlement; this does not establish the outcome. |
+ * | OperationFinished | One immutable Succeeded, Failed or Cancelled terminal copy for the accepted attempt. |
+ * | OperationRemoved | Retained process metadata was retired; its UUID is never reassigned. |
+ * | ActiveDocumentChanged | Actual MDI focus changed, including utility documents or no active document. |
+ * | DocumentChanged | Mounted document metadata changed; query current UI state. |
+ * | DocumentRemoved | A runtime document attachment was retired. |
+ * | DockChanged | An own dock's logical open, exposure or other native metadata changed. |
+ * | DockRemoved | An own dock registration was retired. |
+ * | CommandChanged | An own action or approved built-in dialog command's metadata changed. |
+ * | CommandRemoved | An own/approved command registration was retired. |
+ *
+ * @subsection sdk_process_controls Process start, cancellation and terminal retention
+ *
+ * startRunAttempt(sessionId, loadGeneration) validates an exact current Ready
+ * model generation and enters the existing native run controller. Normal save,
+ * lease, preflight, overwrite and user-interaction rules apply. Refusal before
+ * acceptance returns a null UUID without inventing a process. Accepted
+ * preparation can settle Failed before a runner exists; Queued does not claim
+ * engine execution. Reusing a Simulation Status row creates a new operationId.
+ * runJob() remains the private worker entry point; jobOperationId(job) maps a
+ * borrowed handle returned by this host to its unique attempt without
+ * dereferencing foreign pointers. Use current identities before deferred work.
+ *
+ * cancelOperation(operationId) addresses this host's own active job or an
+ * active shared run in this window. Repeated active requests are idempotent;
+ * unknown, retired, settled and foreign private-job targets are refused with
+ * an optional diagnostic. cancelRequested is separate from ProcessPhase.
+ * Cancellation is cooperative and implies no rollback of files or other output.
+ * A native run can settle Succeeded after cancellation was requested, because
+ * its actual runner outcome remains authoritative. Failed native preparation
+ * and runner errors retain their diagnostic/code rather than becoming success.
+ *
+ * Private void-returning jobs latch start, progress, cancellation and settlement
+ * under their worker-state lock. Workers never touch widgets or the shared
+ * registry: a guarded GUI-thread flush publishes copied latched state. A
+ * cancellation winning while a job is queued skips its user worker and produces
+ * no OperationStarted. At settlement, an exception produces Failed even if
+ * cancellation was requested; otherwise a winning request produces Cancelled,
+ * and normal return produces Succeeded. A later cancel cannot change that
+ * outcome. IJob::isFinished() can be true before the pending GUI publication;
+ * it is not a substitute for observing the terminal. Terminal metadata commits
+ * before the legacy notification or plugin completion callback runs.
+ *
+ * Progress accepts finite fractions clamped to [0,1], retains the latest stage,
+ * and coalesces bursts before GUI delivery. It need not increase monotonically.
+ * Pending latest job progress precedes its terminal publication; a successful
+ * job retains the last fraction actually reported, which may be less than 1.
+ * A successful native run reaches 1. Failure and cancellation preserve their
+ * last reported value. The host does not rewrite a terminal outcome on later
+ * progress, cancellation or duplicate completion.
+ *
+ * Terminal and removal events retain captured attempt/model identities after
+ * model closure, row removal or row reuse. They do not make a closed session
+ * resolvable or authorize acting on another attempt. Active operations remain
+ * retained; superseded/removed terminal run rows can retire. Each host retains
+ * at most 128 terminal job metadata records, retiring the oldest with
+ * OperationRemoved; this is not a durable history store. Borrowed IJob handles
+ * remain valid until host destruction even after metadata retirement, and
+ * jobOperationId() still identifies those known handles. Shutdown cancels and
+ * joins workers before plugin resources are released and suppresses user
+ * callbacks while settling and removing the host's private records.
+ *
+ * @subsection sdk_activity_ui Runtime document, dock and command state
+ *
+ * UiActivityState describes the actual main-window MDI attachments and active
+ * document. The GUI intentionally keeps model context when focus moves to a
+ * utility view or dock; activeInstance() therefore need not identify the active
+ * MDI document. DocumentKind distinguishes native Model, mounted Extension
+ * and other Utility documents. sessionId is present only where an association
+ * is explicitly known; extension documents may be model-independent. Metadata
+ * copies titles and ownership, never private persisted document JSON.
+ *
+ * Runtime windowId and documentId identify native lifetimes/attachments, rather
+ * than saved names or QObject addresses. All hosts in one window share the
+ * canonical document UUIDs. Each observer receives the document metadata through
+ * its own owner-scoped UI projection, once per change; ownerId on a UI event
+ * identifies that projection. Own docks and actions receive fresh dockId and
+ * commandId values on unregister/recreation. Reattaching a document also gets a
+ * new UUID. A stale identity cannot target a replacement with the same title,
+ * local key or native pointer.
+ *
+ * Docks are restricted to the caller's registered contributions. open is logical
+ * open state; exposed is the last native visibility indication. A tabified dock
+ * can remain open while another dock is exposed. Floating state and native dock
+ * area are copied separately. Commands contain enabled/visible/checkable/checked
+ * state and portable shortcuts for own actions plus the existing approved
+ * built-in dialog commands. This does not enumerate or expose arbitrary host
+ * actions or another plugin's contributions. Repeatable UI invalidations
+ * coalesce; semantic no-ops do not publish changes. Removal records remain
+ * historical, while stale live invalidations can be suppressed before delivery.
+ *
+ * executeActivityUiCommand() accepts a UiActivityCommand with the exact current
+ * windowId and entityId from a fresh snapshot:
+ *
+ * | UiActivityCommandKind | Validated native route |
+ * | --- | --- |
+ * | ActivateDocument | Focus a current mounted document in this window; a known model association must remain available and not Closing. |
+ * | SetDockOpen | Show/raise or hide one of the calling host's own docks using open. |
+ * | TriggerCommand | Trigger an enabled, visible own action or approved existing built-in dialog command. |
+ *
+ * Controls return true for an accepted action or valid no-op and false with an
+ * optional error for stale, unavailable, disabled or foreign targets. They use
+ * the existing native controllers, never arbitrary private Qt slot invocation.
+ * Run start revalidates the session/load generation; cancellation revalidates
+ * the operation UUID; UI controls revalidate runtime membership and ownership.
+ * Re-query after asynchronous work instead of retaining authority from an old
+ * event. origin is an optional correlation token only for synchronous UI effects
+ * of the requested command. Native input, deferred work and nested event-loop
+ * effects do not inherit it. It is neither an access right nor a transaction ID.
+ * Observers should refresh their own state and defer deliberate mutations to
+ * avoid feedback loops.
+ *
  * @subsection sdk_event_delivery Legacy/V1 synchronous subscription and delivery
  *
  * Register on the GUI thread with a nonnull GUI-thread QObject context and a
@@ -677,11 +876,13 @@
  * project-save lifecycle. V1 retains its earlier synchronous observation scope.
  * V3 adds detailed model/layer/result invalidations, copied view metadata and
  * validated commands; it does not extend the earlier interfaces' semantics.
- * Unique run/job attempts and general document/dock activation remain subsequent
- * work. StateChanged categories remain broad invalidations. There is no general event-history replay or
- * plugin-to-plugin publishing service. Avoid querying private objects to work
- * around the remaining gaps; future capabilities need explicit public contracts
- * and conformance coverage.
+ * V4 adds unique run/job attempts and the scoped document/dock/command metadata
+ * and controls described above. StateChanged categories remain broad
+ * invalidations. There is no general event-history replay or plugin-to-plugin
+ * publishing service. UI metadata does not expose private widget state, and
+ * attached results metadata remains distinct from run-attempt telemetry.
+ * Avoid querying private objects to work around remaining gaps; future
+ * capabilities need explicit public contracts and conformance coverage.
  *
  * @section sdk_models Models, edits and undo
  *
@@ -767,6 +968,8 @@
  * frequently, return normally, and use a GUI continuation for publication.
  * Worker exceptions become completion errors. The host shows progress and
  * cancellation and joins outstanding work before plugin shutdown.
+ * SDK 1.5 adds unique private-job metadata and identity-based cancellation
+ * through IEventSourceV4 and IActivityControlsV1; see @ref sdk_process_controls.
  *
  * network()->shared() enforces HTTPS, rejects URL credentials, observes
  * extensions/network/offline and an optional extensions/network/allowedHosts
@@ -776,6 +979,10 @@
  * request completes asynchronously with ContentAccessDenied and performs no
  * network IO. Native plugins remain capable of bypassing this service; this
  * is a cooperative user policy, not a native-code sandbox.
+ * QNetworkReply lifetimes and completion are independent of runJob() and its
+ * process outcome. Cancelling a job does not automatically abort a reply or
+ * establish that an HTTP transfer has finished. Coordinate reply cancellation
+ * and publication on the GUI thread using guarded native Qt lifetimes.
  *
  * @section sdk_application_services Runs, results, plots and built-in dialogs
  *
@@ -785,7 +992,9 @@
  * model lease exclusion, and retains the existing preflight/output rules.
  * Normal preflight dialogs can still require user interaction. Observe
  * runsChanged and read a fresh metadata snapshot rather than retaining
- * references into a mutable status model.
+ * references into a mutable status model. SDK 1.5 consumers can use
+ * startRunAttempt() and the captured V4 operation UUID for attempt-specific
+ * progress, outcome and cancellation; row IDs remain presentation data.
  *
  * IModelInstance::results() describes loaded 1D/2D result layers and their
  * actual file paths without exposing private readers. 1D metadata includes
@@ -831,9 +1040,19 @@
  * SDK 1.3; its capabilities do not change the frozen V1 delivery contract.
  * SDK 1.4 adds IEventSourceV3, IViewControlsV1 and the consumer-local
  * ViewSignalAdapter, without changing V1/V2 or existing public vtables. View
- * clients require SDK 1.4. Unique process/job/run identities, broader UI events,
- * Python binding acceptance and cross-platform release qualification remain
- * subsequent packages; attached source metadata is not run-attempt telemetry.
+ * clients require SDK 1.4. SDK 1.5 adds IEventSourceV4, IActivityControlsV1 and
+ * ActivitySignalAdapter for unique process attempts and scoped UI activity,
+ * without adding V4 types to frozen V1/V2/V3 header layouts. Activity clients
+ * require SDK 1.5. Existing SDK 1.1 Data, 1.2 event and 1.3 lifecycle consumers
+ * retain their separately versioned contracts.
+ *
+ * EV5 migration of openswmm.gui.data to the newer typed capabilities remains
+ * subsequent work; existing catalogue preview support does not establish that
+ * migration. Borrowed Python-handle/binding acceptance and the separate Python
+ * product remain outstanding. Local tests are not evidence of remote CI runs,
+ * address-sanitizer qualification or qualification on every supported platform
+ * and toolchain; those require their own recorded results. Attached result
+ * source metadata is not a substitute for run-attempt telemetry.
  *
  * Snapshot-backed editing is exercised with a real 1D model. A release still
  * requires strict writer/reopen qualification of every authored section, 2D mesh
@@ -871,6 +1090,22 @@
  * close/reopen and asynchronous adoption require these native acceptance cases.
  * View evidence and retained artifacts belong under
  * tests/verification/extension_events_2026-10/ev3/.
+ * test_gui_extension_activityevents checks V4 filters, shared watermarks,
+ * immutable terminal/removal copies, bounded/coalesced metadata and the
+ * consumer-local ActivitySignalAdapter. test_gui_extension_activity_jobs
+ * checks same-title ownership, worker/GUI publication, queued cancellation,
+ * cancellation/completion races, exception precedence, progress bursts,
+ * retention and shutdown. test_gui_extension_activity_ui exercises real
+ * generic host actions/docks/MDI documents, utility focus, runtime identity
+ * recreation, no-ops, private ownership and reentrant factory cleanup.
+ * test_extensionactivity exercises the native application controller for run
+ * preparation failures, row reuse, cancellation and model closure;
+ * synthetic registry cases alone cannot establish those outcomes. Two
+ * independently configured examples/extensions/activity modules exercise
+ * installed SDK-only discovery and private jobs alongside shared native runs.
+ * EV4 evidence and retained settings/artifacts belong under
+ * tests/verification/extension_events_2026-10/ev4/. Test definitions describe
+ * coverage; passing claims require the corresponding recorded run results.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}

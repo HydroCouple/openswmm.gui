@@ -50,6 +50,41 @@ target_compile_definitions(test_gui_extension_viewevents PRIVATE
 add_test(NAME test_gui_extension_viewevents COMMAND test_gui_extension_viewevents)
 set_tests_properties(test_gui_extension_viewevents PROPERTIES LABELS "gui;sdk;views"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+add_executable(test_gui_extension_activityevents test_activityevents.cpp)
+set_target_properties(test_gui_extension_activityevents PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_activityevents PRIVATE openswmmvis_extensions Qt6::Test)
+openswmmvis_add_activity_adapter(test_gui_extension_activityevents)
+target_compile_definitions(test_gui_extension_activityevents PRIVATE
+    SDK_ACTIVITY_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev4/core")
+add_test(NAME test_gui_extension_activityevents COMMAND test_gui_extension_activityevents)
+set_tests_properties(test_gui_extension_activityevents PROPERTIES LABELS "gui;sdk;activity"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+foreach(_activity_test jobs ui)
+    if(_activity_test STREQUAL "jobs")
+        set(_activity_source test_jobactivity.cpp)
+        set(_activity_macro SDK_JOB_ACTIVITY_VERIFICATION_DIRECTORY)
+    else()
+        set(_activity_source test_activityui.cpp)
+        set(_activity_macro SDK_UI_ACTIVITY_VERIFICATION_DIRECTORY)
+    endif()
+    set(_activity_target test_gui_extension_activity_${_activity_test})
+    add_executable(${_activity_target} ${_activity_source})
+    set_target_properties(${_activity_target} PROPERTIES AUTOMOC ON)
+    target_link_libraries(${_activity_target} PRIVATE openswmmvis_extensions Qt6::Test)
+    target_compile_definitions(${_activity_target} PRIVATE
+        ${_activity_macro}="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev4/${_activity_test}")
+    add_test(NAME ${_activity_target} COMMAND ${_activity_target})
+    set_tests_properties(${_activity_target} PROPERTIES LABELS "gui;sdk;activity"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endforeach()
+add_executable(test_gui_extension_activity_consumers test_activityconsumers.cpp)
+set_target_properties(test_gui_extension_activity_consumers PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_activity_consumers PRIVATE openswmmvis_extensions Qt6::Test)
+target_compile_definitions(test_gui_extension_activity_consumers PRIVATE
+    SDK_ACTIVITY_CONSUMER_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev4/consumers")
+add_test(NAME test_gui_extension_activity_consumers COMMAND test_gui_extension_activity_consumers)
+set_tests_properties(test_gui_extension_activity_consumers PROPERTIES LABELS "gui;sdk;activity"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 target_sources(test_gui_extensions PRIVATE
     ${PROJECT_SOURCE_DIR}/include/ui/toolbars/compacttoolbarcontroller.h
     ${PROJECT_SOURCE_DIR}/src/ui/toolbars/compacttoolbarcontroller.cpp)
@@ -80,6 +115,6 @@ add_test(NAME test_gui_extensions COMMAND test_gui_extensions)
 set_tests_properties(test_gui_extensions PROPERTIES LABELS "gui;sdk"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 if(SWMMVIS_TEST_ENV)
-    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents PROPERTIES
+    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents test_gui_extension_activityevents test_gui_extension_activity_jobs test_gui_extension_activity_ui test_gui_extension_activity_consumers PROPERTIES
         ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
 endif()

@@ -88,6 +88,8 @@
 #include <cpl_conv.h> // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "plugins/extensionstateregistry.h"
+#include "plugins/extensionactivityui.h"
 #include "plugins/extensionmanager.h"
 #include "core/enginestring.h"
 #include "project/profilesectionstore.h"
@@ -542,7 +544,39 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
 
 SWMMVis::~SWMMVis()
 {
+    mRunControllerShuttingDown = true;
     openswmmvis::ExtensionManager::instance()->shutdown();
+    // Keep the controller and projects alive until the native workers publish
+    // their real outcomes. Deleting a runner merely joins its worker and would
+    // discard the watcher's queued finished signal, leaving a live operation in
+    // the application registry after this window disappears.
+    for (const auto &operationId : mRunAttemptOwners.keys())
+        requestRunCancellation(operationId);
+    QList<QPointer<SimulationRunner>> runners;
+    for (auto *runner : std::as_const(mActiveRunners))
+        runners.append(runner);
+    for (const auto &runner : runners) {
+        if (!runner || mActiveRunners.value(runner->jobId()) != runner)
+            continue;
+        if (auto *registry = openswmmvis::ExtensionStateRegistry::instance()) {
+            const auto state = registry->operation(runner->property("extensionRunAttemptId").toUuid());
+            if (state.operationId.isNull() || state.isTerminal() ||
+                state.phase == OpenSWMM::Sdk::ProcessPhase::Queued)
+                continue; // A finish callback itself may have reentered native window deletion.
+        }
+        QEventLoop drain;
+        connect(runner, &SimulationRunner::finished, &drain, &QEventLoop::quit);
+        drain.exec(QEventLoop::ExcludeUserInputEvents);
+    }
+    // A reentrant teardown can also interrupt accepted preparation before it
+    // owns a runner. No native worker was dispatched for those reservations.
+    for (const auto &operationId : mRunAttemptOwners.keys()) {
+        if (auto *registry = openswmmvis::ExtensionStateRegistry::instance()) {
+            registry->finishOperation(operationId, OpenSWMM::Sdk::ProcessPhase::Cancelled);
+            registry->retireOperation(operationId);
+        }
+        releaseRunAttempt(operationId);
+    }
     // Project destruction updates the active units and shared controls. Finish
     // it while those controls still exist, before QWidget deletes children.
     const auto projects = findChildren<SWMMVisProjectWindow *>();
@@ -4045,16 +4079,24 @@ SWMMResultsLayer *SWMMVis::findOrCreateResultsLayer(SWMMVisProjectWindow *pw,
 }
 
 void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QString &outPath,
-                                const QString &rptPath)
+                                const QString &rptPath, const QUuid &operationId)
 {
-    SWMMResultsLayer *rl = mLive1DLayers.value(jobId).data();
+    const auto capturedAttempt = operationId.isNull() ? mLatestRunAttempts.value(jobId) : operationId;
+    const QPointer<SWMMVis> self(this);
+    const QPointer<SWMMVisProjectWindow> owner(pw);
+    const auto current = [&] {
+        return self && owner && !owner->isClosing() && runAttemptCurrent(jobId, capturedAttempt);
+    };
+    if (!current())
+        return;
+    QPointer<SWMMResultsLayer> rl = mLive1DLayers.value(jobId);
     const bool hadData = rl && rl->totalTimeSteps() > 0;
 
     if (!rl) {
         // First sight of this job: open live. Silently retried next tick
         // while the engine has not flushed the header yet.
         rl = findOrCreateResultsLayer(pw, outPath, rptPath);
-        if (!rl)
+        if (!rl || !current())
             return;
         if (rl->isLive()) {
             mLive1DLayers.insert(jobId, rl); // opened by an earlier tick
@@ -4062,10 +4104,14 @@ void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QStri
             QList<QString> errs;
             if (!rl->openResultsLive(errs))
                 return;
+            if (!rl || !current())
+                return;
             mLive1DLayers.insert(jobId, rl);
         }
     } else {
         rl->refreshLive();
+        if (!rl || !current())
+            return;
     }
 
     // Promote once the file carries data: colour ramp, active 1D layer,
@@ -4073,7 +4119,11 @@ void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QStri
     // earlier, so the map/animation/plots follow the run.
     if (!hadData && rl->totalTimeSteps() > 0) {
         rl->autoStretchColorRamp();
+        if (!rl || !current())
+            return;
         pw->setActiveResultsLayer(rl);
+        if (!rl || !current())
+            return;
         if (pw == activeProjectWindow())
             mAnimationController->setPrimaryLayer(rl);
     }
@@ -4786,7 +4836,7 @@ void SWMMVis::initializeMenus()
     // (which still flushes .out / .rpt so partial results are saved
     // and auto-loaded by the finished handler) or resume.
     connect(ui->actionCancelExecution, &QAction::triggered, this, [this, resolveTargetRunner]() {
-        SimulationRunner *runner = resolveTargetRunner(tr("Stop"));
+        const QPointer<SimulationRunner> runner(resolveTargetRunner(tr("Stop")));
         if (!runner)
             return;
         const bool wasPaused = runner->isPaused();
@@ -4803,10 +4853,11 @@ void SWMMVis::initializeMenus()
                                      "resumes the run.")
                                       .arg(name),
                                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (!runner)
+            return;
 
         if (reply == QMessageBox::Yes) {
-            runner->setPaused(false); // un-pause so the step loop can exit
-            runner->cancel();
+            requestRunCancellation(runner->property("extensionRunAttemptId").toUuid());
             onLogMessage(tr("Stop requested for %1 — partial results will "
                             "be saved to the .out file.")
                              .arg(name));
@@ -5604,7 +5655,7 @@ void SWMMVis::closeEvent(QCloseEvent *event)
         checkpoints->closeProject();
     for (SimulationRunner *runner : std::as_const(mActiveRunners)) {
         runner->setPaused(false);
-        runner->cancel();
+        requestRunCancellation(runner->property("extensionRunAttemptId").toUuid());
     }
 
     saveSettings();
@@ -8770,11 +8821,14 @@ void SWMMVis::clearSimulationStatusForProject(SWMMVisProjectWindow *pw)
         // its model/progress-map writes no-op against the cleared state.
         // Cancellation is asynchronous: retain output reservations until
         // finished(), even after the project's status rows disappear.
-        if (auto *runner = mActiveRunners.value(jobId))
-            runner->cancel();
+        const auto operationId = mLatestRunAttempts.take(jobId);
+        requestRunCancellation(operationId);
+        if (auto *registry = openswmmvis::ExtensionStateRegistry::instance())
+            registry->retireOperation(operationId);
         mRunningSimProgress.remove(jobId);
         mSimulationStarts.remove(jobId);
         mActive2DResultsLayers.remove(jobId);
+        mDeferred2DFinish.remove(jobId);
     }
 
     updateSimulationProgressBar();
@@ -9259,7 +9313,7 @@ void SWMMVis::export2DResults(SWMM2DResultsLayer *preselected)
         mExport2DInFlight = false;
         const auto deferred = std::exchange(mDeferred2DFinish, {});
         for (auto it = deferred.cbegin(); it != deferred.cend(); ++it)
-            adoptFinished2DResults(it.key(), it.value().first, it.value().second);
+            adoptFinished2DResults(it.key(), it.value().success, it.value().errorCode, it.value().operationId);
     });
 
     const double unitFactor = layer->depthToMeshUnits();
@@ -9887,8 +9941,103 @@ bool twoDMeshResolves(const QString &inpPath)
 
 } // namespace
 
+bool SWMMVis::runAttemptCurrent(int rowId, const QUuid &operationId) const
+{
+    return !operationId.isNull() && mLatestRunAttempts.value(rowId) == operationId &&
+           mSimStatusModel && mSimStatusModel->jobRecord(rowId);
+}
+
+void SWMMVis::releaseRunAttempt(const QUuid &operationId)
+{
+    const auto found = mRunAttemptOwners.find(operationId);
+    if (found == mRunAttemptOwners.end())
+        return;
+    const QPointer<SWMMVisProjectWindow> owner = found.value();
+    mRunAttemptOwners.erase(found);
+    if (owner)
+        owner->setProperty("extensionRunCount", qMax(0, owner->property("extensionRunCount").toInt() - 1));
+}
+
+bool SWMMVis::requestRunCancellation(const QUuid &operationId, QString *error)
+{
+    using namespace OpenSWMM::Sdk;
+    if (error)
+        error->clear();
+    auto *registry = openswmmvis::ExtensionStateRegistry::instance();
+    const auto state = registry ? registry->operation(operationId) : ProcessState{};
+    if (!registry || state.operationId.isNull() || state.kind != ProcessKind::Run ||
+        state.windowId != openswmmvis::ensureActivityWindowId(this) || state.isTerminal() ||
+        !mRunAttemptOwners.contains(operationId)) {
+        if (error)
+            *error = tr("The run attempt is no longer available for cancellation.");
+        return false;
+    }
+    if (!registry->requestOperationCancel(operationId))
+        return false;
+    // A preparation has no runner yet. Its next explicit boundary observes the
+    // request and settles it without dispatching a worker.
+    for (auto *runner : std::as_const(mActiveRunners))
+        if (runner && runner->property("extensionRunAttemptId").toUuid() == operationId) {
+            runner->cancel();
+            break;
+        }
+    return true;
+}
+
+QUuid SWMMVis::startRunAttemptForSession(const QUuid &sessionId, quint64 loadGeneration,
+                                         QString *error)
+{
+    if (error)
+        error->clear();
+    auto *registry = openswmmvis::ExtensionStateRegistry::instance();
+    auto *window = registry
+                       ? qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(sessionId))
+                       : nullptr;
+    const auto state = registry ? registry->session(sessionId) : OpenSWMM::Sdk::ModelSessionState{};
+    if (mRunControllerShuttingDown || !window || !isAncestorOf(window) || window->isClosing() ||
+        state.status != OpenSWMM::Sdk::SessionStatus::Ready ||
+        state.loadGeneration != loadGeneration || window->isUntitled() ||
+        !window->property("extensionWriteLease").toString().isEmpty() ||
+        window->property("extensionReadLeases").toInt() ||
+        window->property("extensionRunCount").toInt()) {
+        if (error)
+            *error = tr("The saved model generation is unavailable or locked by another operation.");
+        return {};
+    }
+    const auto before = mLastAcceptedRunAttempts.value(sessionId);
+    const QPointer<SWMMVis> guard(this);
+    const QPointer<SWMMVisProjectWindow> intended(window);
+    ui->mdiAreaCentral->setActiveSubWindow(window);
+    if (!guard || !intended || intended->isClosing() || activeProjectWindow() != intended ||
+        registry->session(sessionId).loadGeneration != loadGeneration ||
+        registry->session(sessionId).status != OpenSWMM::Sdk::SessionStatus::Ready) {
+        if (error)
+            *error = tr("The intended model changed or lost focus before the run could start.");
+        return {};
+    }
+    runSimulationForGeneration(sessionId, loadGeneration);
+    if (!guard)
+        return {};
+    const auto accepted = mLastAcceptedRunAttempts.value(sessionId);
+    if (accepted.isNull() || accepted == before) {
+        if (error)
+            *error = tr("The run was not accepted; review Simulation Status and application messages.");
+        return {};
+    }
+    return accepted;
+}
+
 void SWMMVis::onRunSimulation()
 {
+    runSimulationForGeneration({}, 0);
+}
+
+void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
+                                        quint64 requestedGeneration)
+{
+    if (mRunControllerShuttingDown)
+        return;
+    const QPointer<SWMMVis> nativeController(this);
     auto *pw = activeProjectWindow();
     if (pw && (!pw->property("extensionWriteLease").toString().isEmpty() ||
                pw->property("extensionReadLeases").toInt() > 0)) {
@@ -9924,8 +10073,13 @@ void SWMMVis::onRunSimulation()
     }
 
     const auto alreadyRunning = [&]() {
-        const int existing = mSimStatusModel->ensureJobForModel(pw, QFileInfo(inpPath).fileName(),
-                                                                inpPath, pw->engineVersion());
+        const auto key = pw->extensionSessionId().toString(QUuid::WithoutBraces) + '/' + pw->engineVersion();
+        if (mPreparingRunAttempts.contains(key)) {
+            onLogMessage(tr("This project is already preparing a run with the selected engine."),
+                         OpenSWMMVisLogMessage::Warning);
+            return true;
+        }
+        const int existing = mSimStatusModel->existingJobForModel(pw, pw->engineVersion());
         if (!mActiveRunners.contains(existing))
             return false;
         onLogMessage(
@@ -9938,13 +10092,29 @@ void SWMMVis::onRunSimulation()
 
     QPointer<SWMMVisProjectWindow> owner(pw);
     QPointer<SWMMModelLayer> model(pw->modelLayer());
+    const QPointer<openswmmvis::ExtensionStateRegistry> nativeRegistry(
+        openswmmvis::ExtensionStateRegistry::instance());
+    const auto initialSession = nativeRegistry ? nativeRegistry->session(pw->extensionSessionId())
+                                               : OpenSWMM::Sdk::ModelSessionState{};
+    if (!nativeRegistry || initialSession.status != OpenSWMM::Sdk::SessionStatus::Ready ||
+        (!requestedSessionId.isNull() &&
+         (initialSession.sessionId != requestedSessionId ||
+          initialSession.loadGeneration != requestedGeneration)))
+        return;
     const SWMM_Engine editingEngine = model->engine();
     quint64 revision = model->editRevision();
     const auto contextCurrent = [&]() {
-        const bool current = owner && !owner->isClosing() && model &&
+        const auto currentSession = nativeRegistry
+                                        ? nativeRegistry->session(initialSession.sessionId)
+                                        : OpenSWMM::Sdk::ModelSessionState{};
+        const bool current = nativeController && !nativeController->mRunControllerShuttingDown &&
+                             owner && !owner->isClosing() && model &&
                              owner->modelLayer() == model && model->engine() == editingEngine &&
-                             model->modelFilePath() == inpPath && model->editRevision() == revision;
-        if (!current)
+                             model->modelFilePath() == inpPath && model->editRevision() == revision &&
+                             currentSession.status == OpenSWMM::Sdk::SessionStatus::Ready &&
+                             currentSession.sessionId == initialSession.sessionId &&
+                             currentSession.loadGeneration == initialSession.loadGeneration;
+        if (!current && nativeController)
             onLogMessage(
                 tr("Run cancelled because the project changed or closed during preparation. Start the run again from the current project."),
                 OpenSWMMVisLogMessage::Warning);
@@ -9959,11 +10129,13 @@ void SWMMVis::onRunSimulation()
                                   tr("Could not save the project before running:\n%1").arg(err));
             return;
         }
-        if (!owner || !model || owner->isClosing() || model->engine() != editingEngine)
+        if (!nativeController || !owner || !model || owner->isClosing() || model->engine() != editingEngine)
             return;
         inpPath = model->modelFilePath();
         revision = model->editRevision();
         onLogMessage(tr("Auto-saved before running."));
+        if (!contextCurrent())
+            return;
     }
 
     // The 2D pre-flight below and the OUTPUT_FILE default after it both need
@@ -10005,6 +10177,8 @@ void SWMMVis::onRunSimulation()
             }
             onLogMessage(tr("2D enabled but no mesh found — running 1D-only."),
                          OpenSWMMVisLogMessage::Warning);
+            if (!contextCurrent())
+                return;
         }
     }
 
@@ -10021,9 +10195,11 @@ void SWMMVis::onRunSimulation()
             if (swmm_options_set_ext(pw->modelLayer()->engine(), "OUTPUT_FILE",
                                      h5Default.toUtf8().constData()) == SWMM_OK) {
                 pw->setHasChanges(true);
+                if (!contextCurrent())
+                    return;
                 QString err;
                 if (pw->save(&err)) {
-                    if (!owner || !model || owner->isClosing() || model->engine() != editingEngine)
+                    if (!nativeController || !owner || !model || owner->isClosing() || model->engine() != editingEngine)
                         return;
                     revision = model->editRevision();
                     // Mirror parseTwoDOutputFile's relative-to-.inp resolution
@@ -10032,6 +10208,8 @@ void SWMMVis::onRunSimulation()
                     onLogMessage(tr("2D results file defaulted to %1 — set "
                                     "[2D_OPTIONS] OUTPUT_FILE to change it.")
                                      .arg(h5Default));
+                    if (!contextCurrent())
+                        return;
                 } else {
                     onLogMessage(
                         tr("Run cancelled: the 2D output setting could not be saved (%1). The project remains unsaved; correct the save problem and retry.")
@@ -10063,6 +10241,8 @@ void SWMMVis::onRunSimulation()
         if (overrodeRpt || overrodeOut) {
             onLogMessage(tr("Using output overrides — rpt: %1 / out: %2").arg(rptPath, outPath),
                          OpenSWMMVisLogMessage::Information);
+            if (!contextCurrent())
+                return;
         }
     }
 
@@ -10196,16 +10376,93 @@ void SWMMVis::onRunSimulation()
         }
     }
 
-    // Register the job in the status model and show the dock.
-    // Reuse the existing row for this project window so re-running the same
-    // model doesn't accumulate duplicate rows.
+    // Reserve preparation before any status-model signal can reenter Run.
+    // Idle row insertion is not an accepted process; preparation below is.
+    using namespace OpenSWMM::Sdk;
+    const QPointer<SWMMVis> controller(this);
+    const QPointer<openswmmvis::ExtensionStateRegistry> processRegistry(
+        openswmmvis::ExtensionStateRegistry::instance());
+    const auto session = processRegistry ? processRegistry->session(pw->extensionSessionId())
+                                         : ModelSessionState{};
+    if (!contextCurrent() || !processRegistry || session.status != SessionStatus::Ready)
+        return;
+    const auto operationId = QUuid::createUuid();
+    const auto preparationKey = session.sessionId.toString(QUuid::WithoutBraces) + '/' + engineVer;
+    mPreparingRunAttempts.insert(preparationKey, operationId);
+    mRunAttemptOwners.insert(operationId, pw);
+    pw->setProperty("extensionRunCount", pw->property("extensionRunCount").toInt() + 1);
+    bool acceptedAttempt = false;
+    bool transferredToRunner = false;
+    bool preparationFailed = false;
+    int jobId = -1;
+    QString preparationFailure = tr("Run preparation did not complete.");
+    int preparationErrorCode = SWMM_ERR_INTERNAL;
+    const auto finishPreparation = qScopeGuard([&] {
+        if (controller && controller->mPreparingRunAttempts.value(preparationKey) == operationId)
+            controller->mPreparingRunAttempts.remove(preparationKey);
+        if (transferredToRunner)
+            return;
+        if (controller)
+            controller->releaseRunAttempt(operationId);
+        if (acceptedAttempt && processRegistry) {
+            const bool cancelled = !preparationFailed && processRegistry->operation(operationId).cancelRequested;
+            processRegistry->finishOperation(operationId,
+                cancelled ? ProcessPhase::Cancelled : ProcessPhase::Failed,
+                cancelled ? QString{} : preparationFailure, cancelled ? 0 : preparationErrorCode);
+            if (!controller || !controller->runAttemptCurrent(jobId, operationId))
+                processRegistry->retireOperation(operationId);
+            if (controller && controller->runAttemptCurrent(jobId, operationId)) {
+                controller->mRunningSimProgress.remove(jobId);
+                controller->mSimStatusModel->finishJob(jobId, false,
+                    cancelled ? 0 : preparationErrorCode,
+                    cancelled ? QString{} : preparationFailure, 0., 0.);
+                if (controller)
+                    controller->updateSimulationProgressBar();
+            }
+        }
+    });
     const QString instanceName = QFileInfo(inpPath).fileName();
-    const int jobId = mSimStatusModel->addOrReuseJobForModel(pw, instanceName, inpPath, engineVer);
+    jobId = mSimStatusModel->ensureJobForModel(pw, instanceName, inpPath, engineVer);
+    if (!controller || jobId < 0 || !contextCurrent())
+        return;
+    const auto previousAttempt = mLatestRunAttempts.value(jobId);
+    if (!previousAttempt.isNull())
+        processRegistry->retireOperation(previousAttempt);
+    ProcessState process;
+    process.operationId = operationId;
+    process.kind = ProcessKind::Run;
+    process.windowId = openswmmvis::ensureActivityWindowId(this);
+    process.sessionId = session.sessionId;
+    process.instanceId = session.instanceId;
+    process.loadGeneration = session.loadGeneration;
+    process.rowId = jobId;
+    process.title = instanceName;
+    process.inputPath = inpPath;
+    process.engineVersion = engineVer;
+    if (processRegistry->beginOperation(process).isNull())
+        return;
+    acceptedAttempt = true;
+    mLatestRunAttempts.insert(jobId, operationId);
+    mLastAcceptedRunAttempts.insert(session.sessionId, operationId);
+    const auto preparationCurrent = [&] {
+        return controller && owner && !owner->isClosing() && processRegistry &&
+               runAttemptCurrent(jobId, operationId) && contextCurrent() &&
+               !processRegistry->operation(operationId).cancelRequested;
+    };
+    mSimStatusModel->addOrReuseJobForModel(pw, instanceName, inpPath, engineVer);
+    if (!preparationCurrent())
+        return;
 
     ui->dockWidgetSimulationStatus->show();
+    if (!preparationCurrent())
+        return;
     ui->dockWidgetSimulationStatus->raise();
+    if (!preparationCurrent())
+        return;
 
     onLogMessage(tr("Running simulation: %1").arg(instanceName));
+    if (!preparationCurrent())
+        return;
 
     // Seed this sim's entry in the running-progress map at 0 so the
     // bottom bar starts showing 0% immediately (rather than busy
@@ -10213,6 +10470,8 @@ void SWMMVis::onRunSimulation()
     // removes it.
     mRunningSimProgress[jobId] = 0.0;
     updateSimulationProgressBar();
+    if (!preparationCurrent())
+        return;
 
     // A SWMM 5.x engine cannot read the v6-only sections ([VIRTUAL_JUNCTIONS],
     // [INLET_JUNCTIONS], [2D_*], [PLUGINS], ...). For those engines the run
@@ -10273,41 +10532,53 @@ void SWMMVis::onRunSimulation()
             }
         }
         if (rc != SWMM_OK || !preparationError.isEmpty()) {
+            preparationFailed = true;
+            preparationFailure = tr("Compatibility input preparation failed: %1").arg(preparationError);
+            preparationErrorCode = rc == SWMM_OK ? SWMM_ERR_INTERNAL : rc;
             onLogMessage(tr("Could not write the SWMM 5.x input file %1 (engine code %2; %3); "
                             "the run was not started.")
                              .arg(runInpPath)
                              .arg(rc)
                              .arg(preparationError),
                          OpenSWMMVisLogMessage::LogMessageType::Error);
-            mRunningSimProgress.remove(jobId);
-            mSimStatusModel->finishJob(
-                jobId, false, rc == SWMM_OK ? SWMM_ERR_INTERNAL : rc,
-                tr("Compatibility input preparation failed: %1").arg(preparationError), 0.0, 0.0);
-            updateSimulationProgressBar();
             return;
         }
         const int warnAfter = swmm_get_warning_count(eng);
         for (int i = warnBefore; i < warnAfter; ++i)
+        {
             onLogMessage(tr("SWMM 5.x input: %1")
                              .arg(QString::fromUtf8(swmm_get_warning_at(eng, i)).trimmed()),
                          OpenSWMMVisLogMessage::LogMessageType::Warning);
+            if (!preparationCurrent())
+                return;
+        }
         onLogMessage(
             tr("Engine %1 runs %2 (SWMM 5 profile of %3)").arg(engineVer, runInpPath, inpPath));
+        if (!preparationCurrent())
+            return;
     }
 
+    if (!preparationCurrent())
+        return;
     QString traceRetentionError;
     if (!openswmmvis::trace::TraceController::forProject(pw)->beforeOverwrite(
             outPath, &traceRetentionError)) {
+        preparationFailed = true;
+        preparationFailure = traceRetentionError;
         onLogMessage(traceRetentionError, OpenSWMMVisLogMessage::LogMessageType::Error);
-        mRunningSimProgress.remove(jobId);
-        mSimStatusModel->finishJob(jobId, false, SWMM_ERR_INTERNAL, traceRetentionError, 0.0, 0.0);
-        updateSimulationProgressBar();
         return;
     }
+    if (!preparationCurrent())
+        return;
     const QString traceRunId = pw->statsRegistry()->beginRun(
         outPath, openswmmvis::trace::Snapshot::capture(pw->modelLayer(), nullptr).toJson(),
         rptPath);
+    if (!preparationCurrent())
+        return;
     pw->setHasChanges(true);
+
+    if (!preparationCurrent())
+        return;
 
     if (releasePreviousResults) {
         // Close any already-open .out handles so the engine can
@@ -10317,17 +10588,23 @@ void SWMMVis::onRunSimulation()
         // handler, but the old layer must release its HDF5 handle so
         // the engine can recreate the file).
         for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
-            auto *otherPw = qobject_cast<SWMMVisProjectWindow *>(sw);
+            const QPointer<SWMMVisProjectWindow> otherPw(qobject_cast<SWMMVisProjectWindow *>(sw));
             if (!otherPw || !otherPw->canvas())
                 continue;
-            auto *canvas = otherPw->canvas();
+            const QPointer<MapCanvas> canvas(otherPw->canvas());
 
             // First pass — close 1D results in place (the layer object
             // stays; only its file handle is dropped).
-            for (OpenSWMMVisLayer *l : canvas->layers()) {
-                if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
-                    if (SimulationRunner::sameFilePath(rl->resultsFilePath(), outPath))
+            QList<QPointer<OpenSWMMVisLayer>> previousLayers;
+            for (auto *layer : canvas->layers())
+                previousLayers.append(layer);
+            for (const auto &layer : previousLayers) {
+                if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer.data())) {
+                    if (SimulationRunner::sameFilePath(rl->resultsFilePath(), outPath)) {
                         rl->closeResults();
+                        if (!preparationCurrent() || !otherPw || !canvas)
+                            return;
+                    }
                 }
             }
 
@@ -10335,7 +10612,7 @@ void SWMMVis::onRunSimulation()
             // remove them (takeLayer mutates the layers list, so we
             // can't iterate while removing).
             if (!h5Path.isEmpty()) {
-                QList<int> stale2DIdx;
+                QList<QPointer<SWMM2DResultsLayer>> stale2D;
                 const auto layerList = canvas->layers();
                 for (int i = 0; i < layerList.size(); ++i) {
                     auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layerList.at(i));
@@ -10343,81 +10620,137 @@ void SWMMVis::onRunSimulation()
                         continue;
                     auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
                     if (h5Src && SimulationRunner::sameFilePath(h5Src->path(), h5Path))
-                        stale2DIdx.prepend(i); // prepend → descending order for safe take
+                        stale2D.prepend(r2d);
                 }
-                for (int idx : stale2DIdx) {
+                for (const auto &r2d : stale2D) {
                     // closeSource first so the HDF5 handle is gone before
                     // we delete the file; then physically remove the
                     // layer (no undo — overwrite-confirm already accepted).
-                    if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(canvas->layers().at(idx)))
-                        r2d->closeSource();
+                    if (!r2d)
+                        continue;
+                    r2d->closeSource();
+                    if (!preparationCurrent() || !otherPw || !canvas)
+                        return;
+                    const int idx = canvas->layers().indexOf(r2d);
+                    if (!r2d || idx < 0)
+                        continue;
                     OpenSWMMVisLayer *taken = canvas->takeLayer(idx, /*pushUndo=*/false);
+                    const QPointer<OpenSWMMVisLayer> takenGuard(taken);
+                    if (!preparationCurrent() || !otherPw || !canvas)
+                        return;
                     // If this layer was the animation controller's
                     // fallback, drop the dangling pointer.
                     if (taken == mAnimationController->fallback2DLayer())
                         mAnimationController->setFallback2DLayer(nullptr);
-                    delete taken;
+                    if (!preparationCurrent())
+                        return;
+                    delete takenGuard.data();
+                    if (!preparationCurrent() || !otherPw || !canvas)
+                        return;
                 }
             }
         }
     }
 
     // Create runner; wire signals → model; runner deletes itself after finish.
+    if (!preparationCurrent())
+        return;
     auto *runner =
         new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath, engineVer, this);
+    runner->setProperty("extensionRunAttemptId", operationId);
     mActiveRunners.insert(jobId, runner);
-    pw->setProperty("extensionRunCount", pw->property("extensionRunCount").toInt() + 1);
-#ifdef Q_OS_MACOS
-    // App Nap would throttle a run the user switched away from; hold a
-    // user-initiated activity for the run's lifetime (released in the
-    // finished handler below).
-    openswmmvis::platform::beginSimulationActivity();
-#endif
-
+    transferredToRunner = true;
+    const auto attemptCurrent = [controller, jobId, operationId] {
+        return controller && controller->runAttemptCurrent(jobId, operationId);
+    };
+    connect(runner, &SimulationRunner::started, this,
+            [processRegistry, operationId, attemptCurrent] {
+                if (processRegistry && attemptCurrent())
+                    processRegistry->startOperation(operationId);
+            });
+    connect(runner, &SimulationRunner::progressChanged, this,
+            [processRegistry, operationId, attemptCurrent](int, double fraction) {
+                if (processRegistry && attemptCurrent())
+                    processRegistry->progressOperation(operationId, fraction);
+            });
+    connect(runner, &SimulationRunner::finished, this,
+            [controller, processRegistry, operationId, jobId](int, bool success, int code,
+                                                               const QString &error) {
+                if (controller)
+                    controller->releaseRunAttempt(operationId);
+                if (processRegistry) {
+                    processRegistry->finishOperation(operationId,
+                        success ? ProcessPhase::Succeeded
+                                : code ? ProcessPhase::Failed : ProcessPhase::Cancelled,
+                        error, code);
+                    if (!controller || !controller->runAttemptCurrent(jobId, operationId))
+                        processRegistry->retireOperation(operationId);
+                }
+            });
     // Pause / Cancel execution start out disabled in the .ui — flip them
     // on the moment a runner is registered so the toolbar buttons (and
     // the equivalent menu items) become clickable while a sim is in
     // flight. The finished handler below turns them back off when the
     // last runner finishes.
-    ui->actionPauseExecution->setEnabled(true);
-    ui->actionCancelExecution->setEnabled(true);
-
     connect(runner, &SimulationRunner::progressChanged, mSimStatusModel,
-            &SimulationStatusModel::updateProgress);
+            [this, attemptCurrent](int row, double fraction, const QDateTime &time,
+                double runoff, double routing, double average, double twoD) {
+                if (attemptCurrent())
+                    mSimStatusModel->updateProgress(row, fraction, time, runoff, routing, average, twoD);
+            });
     connect(runner, &SimulationRunner::snowLedgerChanged, mSimStatusModel,
-            &SimulationStatusModel::updateSnowLedger);
+            [this, attemptCurrent](int row, const QStringList &rows) {
+                if (attemptCurrent())
+                    mSimStatusModel->updateSnowLedger(row, rows);
+            });
     // 2D backend / momentum closure / LTS tier occupancy columns.
     connect(runner, &SimulationRunner::twoDSolverStats, mSimStatusModel,
-            &SimulationStatusModel::updateTwoDSolverStats);
+            [this, attemptCurrent](int row, const QString &backend, int momentum, int tiers,
+                qint64 steps, const QVector<qint64> &cells) {
+                if (attemptCurrent())
+                    mSimStatusModel->updateTwoDSolverStats(row, backend, momentum, tiers, steps, cells);
+            });
 
     // Also feed the bottom status-bar progress bar (show min across
     // running sims as a real percent, not busy spinner).
     connect(runner, &SimulationRunner::progressChanged, this,
-            [this](int runnerJobId, double frac, const QDateTime & /*curSimDate*/,
+            [this, attemptCurrent](int runnerJobId, double frac, const QDateTime & /*curSimDate*/,
                    double /*runoffErr*/, double /*routingErr*/) {
+                if (!attemptCurrent())
+                    return;
                 mRunningSimProgress[runnerJobId] = frac;
                 updateSimulationProgressBar();
             });
 
     connect(runner, &SimulationRunner::simulationDatesKnown, mSimStatusModel,
-            &SimulationStatusModel::setSimulationDates);
+            [this, attemptCurrent](int row, const QDateTime &start, const QDateTime &end) {
+                if (attemptCurrent())
+                    mSimStatusModel->setSimulationDates(row, start, end);
+            });
 
     // Capture the start time per job so the 2D HDF5 source can map its
     // /time (days-since-start) back to QDateTime for the global slider.
     connect(runner, &SimulationRunner::simulationDatesKnown, this,
-            [this](int datesJobId, QDateTime start, QDateTime /*end*/) {
+            [this, attemptCurrent](int datesJobId, QDateTime start, QDateTime /*end*/) {
+                if (!attemptCurrent())
+                    return;
                 mSimulationStarts.insert(datesJobId, start);
             });
 
     connect(runner, &SimulationRunner::warningReceived, mSimStatusModel,
-            &SimulationStatusModel::addWarning);
+            [this, attemptCurrent](int row, int code, const QString &message) {
+                if (attemptCurrent())
+                    mSimStatusModel->addWarning(row, code, message);
+            });
 
     // Mirror every engine warning to the message log as well, not just the
     // Simulation Status tree — engine diagnostics should always be visible
     // in the log regardless of which panel the user has open.
     connect(
         runner, &SimulationRunner::warningReceived, this,
-        [this, instanceName](int /*wJobId*/, int code, const QString &message) {
+        [this, instanceName, attemptCurrent](int /*wJobId*/, int code, const QString &message) {
+            if (!attemptCurrent())
+                return;
             onLogMessage(
                 code != 0
                     ? tr("Simulation warning [%1]: %2 — %3").arg(code).arg(instanceName, message)
@@ -10433,33 +10766,57 @@ void SWMMVis::onRunSimulation()
     // Keep history available even while the shared display clock is held.
     // The animation controller alone decides whether selected results follow.
     connect(runner, &SimulationRunner::progressChanged, this,
-            [self, pwGuard, outPathCopy, rptPathCopy](int tickJobId, double, const QDateTime &,
+            [self, pwGuard, outPathCopy, rptPathCopy, attemptCurrent, operationId](int tickJobId, double, const QDateTime &,
                                                       double, double) {
-                if (!self || !pwGuard)
+                if (!self || !pwGuard || pwGuard->isClosing() || !attemptCurrent())
                     return;
-                self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy);
+                self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy, operationId);
             });
 
     connect(
         runner, &SimulationRunner::finished, this,
         [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName,
-         traceRunId](int finishedJobId, bool success, int errCode, QString errMsg,
+         traceRunId, operationId, attemptCurrent](int finishedJobId, bool success, int errCode, QString errMsg,
                      double runoffFrac, double routingFrac, double twoDFrac) {
+            const QPointer<SimulationRunner> runnerGuard(runner);
+            const auto deleteFinishedRunner = qScopeGuard([runnerGuard] {
+                if (runnerGuard)
+                    runnerGuard->deleteLater();
+            });
+            const auto releaseNativeMapping = qScopeGuard([self, runner, finishedJobId] {
+                if (!self || self->mActiveRunners.value(finishedJobId) != runner)
+                    return;
+                self->mActiveRunners.remove(finishedJobId);
+                self->mRunningSimProgress.remove(finishedJobId);
+                self->updateSimulationProgressBar();
+                if (!self)
+                    return;
+                if (self->mActiveRunners.isEmpty()) {
+                    self->ui->actionPauseExecution->setEnabled(false);
+                    self->ui->actionCancelExecution->setEnabled(false);
+                }
+            });
+#ifdef Q_OS_MACOS
+            const auto releaseNativeActivity = qScopeGuard([] {
+                openswmmvis::platform::endSimulationActivity();
+            });
+#endif
             if (!self)
+                return;
+            if (!attemptCurrent())
                 return;
             self->mSimStatusModel->finishJob(finishedJobId, success, errCode, errMsg, runoffFrac,
                                              routingFrac, twoDFrac);
+            if (!attemptCurrent())
+                return;
             // Drop this job from the running-progress + runner maps;
             // the bottom progress bar hides automatically when the
             // last sim finishes.
             self->mRunningSimProgress.remove(finishedJobId);
             self->mActiveRunners.remove(finishedJobId);
-            if (pwGuard)
-                pwGuard->setProperty("extensionRunCount", qMax(0, pwGuard->property("extensionRunCount").toInt() - 1));
-#ifdef Q_OS_MACOS
-            openswmmvis::platform::endSimulationActivity();
-#endif
             self->updateSimulationProgressBar();
+            if (!attemptCurrent())
+                return;
             // Always drop the pause-toggle back to unchecked when the
             // last runner finishes — otherwise the next Run will
             // launch with pause pre-engaged. Also disable the
@@ -10481,6 +10838,8 @@ void SWMMVis::onRunSimulation()
             const bool cancelled = !success && errCode == 0;
             if (pwGuard)
                 pwGuard->statsRegistry()->finishRun(traceRunId, success, cancelled);
+            if (!attemptCurrent())
+                return;
             const bool outHasData =
                 QFileInfo(outPathCopy).exists() && QFileInfo(outPathCopy).size() > 0;
             if (cancelled) {
@@ -10506,6 +10865,8 @@ void SWMMVis::onRunSimulation()
             } else {
                 self->onLogMessage(tr("Simulation finished. Results: %1").arg(outPathCopy));
             }
+            if (!attemptCurrent())
+                return;
 
             // Auto-load the .out as a SWMMResultsLayer regardless of
             // cancel/success — the engine flushed partial output
@@ -10516,13 +10877,18 @@ void SWMMVis::onRunSimulation()
             // in place keeps its identity, so open plots / the animation
             // controller bound to it never see a swap.
             SWMMResultsLayer *liveLayer = self->mLive1DLayers.take(finishedJobId).data();
-            if (hasResults && pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
+            if (hasResults && pwGuard && !pwGuard->isClosing() && pwGuard->canvas() && pwGuard->modelLayer()) {
                 SWMMResultsLayer *rl =
                     liveLayer ? liveLayer
                               : self->findOrCreateResultsLayer(pwGuard, outPathCopy, rptPathCopy);
+                const QPointer<SWMMResultsLayer> resultGuard(rl);
+                if (!attemptCurrent() || !pwGuard || pwGuard->isClosing() || !resultGuard)
+                    return;
                 // Remember which .rpt this run wrote so the Report
                 // Viewer can list it (persisted in the .oswp sidecar).
                 rl->setReportFilePath(rptPathCopy);
+                if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    return;
 
                 bool opened = false;
                 if (rl->isLive()) {
@@ -10531,6 +10897,8 @@ void SWMMVis::onRunSimulation()
                     // live with whatever whole periods exist — still
                     // usable, so keep it rather than reopening.
                     rl->refreshLive();
+                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                        return;
                     opened = rl->totalTimeSteps() > 0;
                 }
                 if (!opened) {
@@ -10538,18 +10906,26 @@ void SWMMVis::onRunSimulation()
                     // classic post-run open. closeResults() first in case
                     // a stale handle is bound (overwrite-confirm path).
                     rl->closeResults();
+                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                        return;
                     QList<QString> rlWarnings, rlErrors;
                     opened = rl->openResults(rlWarnings, rlErrors);
+                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                        return;
                     if (!opened)
                         for (const QString &e : rlErrors)
                             self->onLogMessage(e, OpenSWMMVisLogMessage::Error);
                 }
                 if (opened) {
                     rl->autoStretchColorRamp();
+                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                        return;
                     // A live run was already selected on its first data. Do
                     // not steal a later Analysis selection or a background tab.
                     if (!liveLayer || !pwGuard->activeResultsLayer())
                         pwGuard->setActiveResultsLayer(rl);
+                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                        return;
                     if (pwGuard == self->activeProjectWindow() &&
                         pwGuard->activeResultsLayer() == rl)
                         self->mAnimationController->setPrimaryLayer(rl);
@@ -10559,7 +10935,6 @@ void SWMMVis::onRunSimulation()
                 liveLayer->closeResults();
             }
 
-            runner->deleteLater();
         });
 
     // ── Slice CF.MVP — 2D inundation viz hookup ─────────────────────────────
@@ -10569,9 +10944,9 @@ void SWMMVis::onRunSimulation()
     // jobId so per-tick depth slices can be routed to it.
     connect(
         runner, &SimulationRunner::twoDInitialized, this,
-        [self, pwGuard](int twoDJobId, QString h5Path, QVector<double> vx, QVector<double> vy,
+        [self, pwGuard, attemptCurrent](int twoDJobId, QString h5Path, QVector<double> vx, QVector<double> vy,
                         QVector<double> vz, QVector<int> cellFlat) {
-            if (!self || !pwGuard || !pwGuard->canvas())
+            if (!self || !pwGuard || pwGuard->isClosing() || !pwGuard->canvas() || !attemptCurrent())
                 return;
             // Cell connectivity is [v0,v1,v2,v3] per cell, v3 = -1 for a
             // triangle (mixed tri/quad meshes, kEdgeStride = 4).
@@ -10613,19 +10988,32 @@ void SWMMVis::onRunSimulation()
             if (freshlyCreated) {
                 layer = new SWMM2DResultsLayer(QStringLiteral("2D Results (live)"), nullptr);
                 layer->setAsyncSurface(true); // fit frames off the GUI thread
-            } else
+            }
+            const QPointer<SWMM2DResultsLayer> layerGuard(layer);
+            const auto layerCurrent = [&] {
+                return attemptCurrent() && pwGuard && !pwGuard->isClosing() && layerGuard;
+            };
+            if (!freshlyCreated)
                 layer->setName(QStringLiteral("2D Results (live)"));
+            if (!layerCurrent())
+                return;
             // Issue #155 — the live engine source hands over the solver's
             // SI metres and has no metadata channel to say so; set the
             // factor before setSource so the first build already uses it.
             layer->setFallbackCoordinateScale(undeclared2DCoordinateScale(pwGuard.data()));
+            if (!layerCurrent())
+                return;
             EngineMesh2DSource *engineSource = source.get();
             layer->setSource(std::move(source));
+            if (!layerCurrent() || layer->source() != engineSource)
+                return;
             // Outputs inherit the model's CRS so the Properties
             // window shows a real CRS for the live results layer.
             if (pwGuard->modelLayer() && pwGuard->modelLayer()->srs())
                 layer->setSRS(new SpatialReferenceSystem(*pwGuard->modelLayer()->srs(), layer),
                               /*ownsSRS=*/true);
+            if (!layerCurrent())
+                return;
             // Stash h5 path on object property so the finished handler
             // can pick it up without an extra connect-time capture.
             layer->setProperty("snoopy_h5_path", h5Canon);
@@ -10640,6 +11028,8 @@ void SWMMVis::onRunSimulation()
                 if (swmm_2d_get_dry_depth(pwGuard->modelLayer()->engine(), &engineDry) == SWMM_OK &&
                     engineDry > 0.0) {
                     layer->setDryDepth(engineDry);
+                    if (!layerCurrent() || layer->source() != engineSource)
+                        return;
                     // Same cutoff for the source's on-demand velocity
                     // reconstruction (the mid-run export's vx/vy).
                     engineSource->setDryDepth(engineDry);
@@ -10648,11 +11038,15 @@ void SWMMVis::onRunSimulation()
 
             if (freshlyCreated)
                 pwGuard->canvas()->addLayer(layer, false);
+            if (!layerCurrent())
+                return;
             self->mActive2DResultsLayers.insert(twoDJobId, layer);
 
             // The live 2D run is an explicit user action — make it the
             // active 2D analysis layer (drives the 2D combo + cell picks).
             pwGuard->setActive2DResultsLayer(layer);
+            if (!layerCurrent())
+                return;
 
             // CF.MVP-fix.1 — register the live 2D layer as the animation
             // controller's fallback so play/scrub works even when no 1D
@@ -10670,8 +11064,8 @@ void SWMMVis::onRunSimulation()
 
     // Per-tick depth slice — push into the live EngineMesh2DSource.
     connect(runner, &SimulationRunner::twoDDepthsAvailable, this,
-            [self](int twoDJobId, QVector<float> depths, QDateTime simTime, double elapsedSec) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<float> depths, QDateTime simTime, double elapsedSec) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10691,8 +11085,8 @@ void SWMMVis::onRunSimulation()
     // CF.2.4 — one-shot edge geometry handoff so the velocity overlay has
     // length + outward unit normal cached before any flux ticks arrive.
     connect(runner, &SimulationRunner::twoDEdgeGeometryAvailable, this,
-            [self](int twoDJobId, QVector<float> length, QVector<float> nx, QVector<float> ny) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<float> length, QVector<float> nx, QVector<float> ny) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10711,13 +11105,13 @@ void SWMMVis::onRunSimulation()
     // the source side by elapsedSec, so a single tick yields a single
     // history frame regardless of queue ordering.
     connect(runner, &SimulationRunner::twoDFluxAvailable, this,
-            [self](int twoDJobId, QVector<float> flux, QDateTime simTime, double elapsedSec) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<float> flux, QDateTime simTime, double elapsedSec) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
                     return;
-                SWMM2DResultsLayer *layer = it.value();
+                const QPointer<SWMM2DResultsLayer> layer = it.value();
                 auto *engineSrc = dynamic_cast<EngineMesh2DSource *>(layer->source());
                 if (!engineSrc)
                     return;
@@ -10725,6 +11119,8 @@ void SWMMVis::onRunSimulation()
                                     elapsedSec);
                 if (layer->isVisible()) {
                     layer->refreshTimeRange();
+                    if (!layer || !attemptCurrent())
+                        return;
                     layer->refreshCurrentFrame();
                 }
             });
@@ -10735,8 +11131,8 @@ void SWMMVis::onRunSimulation()
     // but they can change the current frame's interpolation basis after the
     // depth packet already painted, so re-apply the same frame.
     connect(runner, &SimulationRunner::twoDVertexDepthsAvailable, this,
-            [self](int twoDJobId, QVector<double> vdepths, QDateTime simTime, double elapsedSec) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<double> vdepths, QDateTime simTime, double elapsedSec) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10756,9 +11152,9 @@ void SWMMVis::onRunSimulation()
     // way the HDF5 Mesh2_face_rainfall / _rain_cum datasets serve them
     // post-run. No frame repaint: rainfall isn't rendered on the canvas.
     connect(runner, &SimulationRunner::twoDRainfallAvailable, this,
-            [self](int twoDJobId, QVector<float> rainfall, QVector<float> rainCum,
+            [self, attemptCurrent](int twoDJobId, QVector<float> rainfall, QVector<float> rainCum,
                    QDateTime simTime, double elapsedSec) {
-                if (!self)
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10774,8 +11170,8 @@ void SWMMVis::onRunSimulation()
     // Per-tick water-surface elevation — the live Mesh2_face_head, so a
     // mid-run export writes the solver's head. Not rendered: no repaint.
     connect(runner, &SimulationRunner::twoDHeadsAvailable, this,
-            [self](int twoDJobId, QVector<float> heads, QDateTime simTime, double elapsedSec) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<float> heads, QDateTime simTime, double elapsedSec) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10788,9 +11184,9 @@ void SWMMVis::onRunSimulation()
             });
 
     connect(runner, &SimulationRunner::twoDVariablesAvailable, this,
-            [self](int jobId, openswmmvis::io::Mesh2DLiveVariablesPtr frame, QDateTime simTime,
+            [self, attemptCurrent](int jobId, openswmmvis::io::Mesh2DLiveVariablesPtr frame, QDateTime simTime,
                    double elapsedSec) {
-                if (!self)
+                if (!self || !attemptCurrent())
                     return;
                 const auto it = self->mActive2DResultsLayers.constFind(jobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10811,8 +11207,8 @@ void SWMMVis::onRunSimulation()
     // Per-tick cumulative maxima — the live ENVELOPES the mid-run export's
     // "max so far" reads. Latest payload wins; nothing is kept per frame.
     connect(runner, &SimulationRunner::twoDEnvelopesAvailable, this,
-            [self](int twoDJobId, QVector<float> maxDepth, QVector<float> maxVel) {
-                if (!self)
+            [self, attemptCurrent](int twoDJobId, QVector<float> maxDepth, QVector<float> maxVel) {
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
@@ -10828,9 +11224,9 @@ void SWMMVis::onRunSimulation()
     // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
     // The .h5 path was stashed on the layer in the twoDInitialized handler.
     connect(runner, &SimulationRunner::finished, this,
-            [self](int finishedJobId, bool success, int errCode, QString /*errMsg*/,
+            [self, attemptCurrent, operationId](int finishedJobId, bool success, int errCode, QString /*errMsg*/,
                    double /*runoff*/, double /*routing*/) {
-                if (!self)
+                if (!self || !attemptCurrent())
                     return;
                 auto it = self->mActive2DResultsLayers.find(finishedJobId);
                 if (it == self->mActive2DResultsLayers.end())
@@ -10847,17 +11243,39 @@ void SWMMVis::onRunSimulation()
                 // the swap below would destroy it under the exporter. Park
                 // the adoption until onExport2DResults returns.
                 if (self->mExport2DInFlight) {
-                    self->mDeferred2DFinish.insert(finishedJobId, {success, errCode});
+                    self->mDeferred2DFinish.insert(finishedJobId, {operationId, success, errCode});
                     return;
                 }
-                self->adoptFinished2DResults(finishedJobId, success, errCode);
+                self->adoptFinished2DResults(finishedJobId, success, errCode, operationId);
             });
 
+    // Action changes publish outward signals. Install every terminal handler
+    // before exposing them; native window destruction settles an undispatched
+    // preparation without waiting for a worker that has not started.
+    ui->actionPauseExecution->setEnabled(true);
+    if (!controller)
+        return;
+    ui->actionCancelExecution->setEnabled(true);
+    if (!controller)
+        return;
+#ifdef Q_OS_MACOS
+    // App Nap would throttle background simulations; balanced by the installed
+    // finished handler, after any undispatched-preparation destruction boundary.
+    openswmmvis::platform::beginSimulationActivity();
+#endif
     runner->start();
 }
 
-void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCode)
+void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCode,
+                                      const QUuid &operationId)
 {
+    const auto capturedAttempt = operationId.isNull() ? mLatestRunAttempts.value(finishedJobId) : operationId;
+    if (!runAttemptCurrent(finishedJobId, capturedAttempt))
+        return;
+    const QPointer<SWMMVis> self(this);
+    const auto attemptCurrent = [self, finishedJobId, capturedAttempt] {
+        return self && self->runAttemptCurrent(finishedJobId, capturedAttempt);
+    };
     auto it = mActive2DResultsLayers.find(finishedJobId);
     if (it == mActive2DResultsLayers.end())
         return;
@@ -10868,7 +11286,7 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
     // keep the old skip.
     const bool cancelled = !success && errCode == 0;
     if ((success || cancelled) && it.value()) {
-        SWMM2DResultsLayer *layer = it.value();
+        const QPointer<SWMM2DResultsLayer> layer = it.value();
         const bool selected =
             mAnimationController && mAnimationController->fallback2DLayer() == layer;
         const QDateTime heldTime =
@@ -10883,6 +11301,8 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
         // is retained (still a complete, scrubbable source).
         layer->setName(cancelled ? QStringLiteral("2D Results (partial)")
                                  : QStringLiteral("2D Results"));
+        if (!layer || !attemptCurrent())
+            return;
         const QString h5Path = layer->property("snoopy_h5_path").toString();
         if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
             auto h5Src = std::make_unique<HDF5Mesh2DSource>();
@@ -10918,11 +11338,15 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
                 }
 
                 layer->setSource(std::move(h5Src));
+                if (!layer || !attemptCurrent())
+                    return;
 
                 // Tune colors to the data without changing the model's dry
                 // threshold or the user's separate thin-film display policy.
                 if (peakDepth > 0.0f)
                     layer->setMaxDepth(peakDepth);
+                if (!layer || !attemptCurrent())
+                    return;
                 // Finishing the run must not discard a user's paused/scrubbed
                 // time or give the selected 2D result a separate peak-time clock.
                 if (selected && mAnimationController->primaryLayer() &&
@@ -10932,6 +11356,8 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
                     layer->setCurrentTimeIndex(std::max(0, nFrames - 1));
                 else if (heldTime.isValid())
                     layer->setCurrentSimTime(heldTime);
+                if (!layer || !attemptCurrent())
+                    return;
 
                 onLogMessage(tr("2D scrub ready: %1 frames from %2. "
                                 "Peak depth %3 m at cell %4, frame %5.")
@@ -10944,8 +11370,10 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
         }
 
         refreshActiveResultsCombos();
+        if (!attemptCurrent())
+            return;
     }
-    mActive2DResultsLayers.erase(it);
+    mActive2DResultsLayers.remove(finishedJobId);
     mSimulationStarts.remove(finishedJobId);
 }
 

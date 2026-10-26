@@ -13,6 +13,8 @@
 #include "sdk/IEventSourceV2.hpp"
 #include "sdk/IEventSourceV3.hpp"
 #include "sdk/IViewControlsV1.hpp"
+#include "sdk/IEventSourceV4.hpp"
+#include "sdk/IActivityControlsV1.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -32,6 +34,7 @@ namespace openswmmvis
 {
 class ExtensionNetwork;
 class ExtensionStateRegistry;
+class ExtensionActivityUi;
 /** @brief Application callbacks keeping the generic host independent of concrete GUI registries. */
 struct ExtensionUiBridge {
     /** @brief Mount a qualified tab using the extension's registered local QAction map. */
@@ -48,6 +51,10 @@ struct ExtensionUiBridge {
     std::function<int(OpenSWMM::Sdk::IModelInstance *, QString *)>
         startRun;                       ///< Run through the application controller.
     std::function<void(int)> cancelRun; ///< Cancel one active normal/legacy run.
+    std::function<QUuid(const QUuid &, quint64, QString *)>
+        startRunAttempt; ///< Start one exact model generation through the native controller.
+    std::function<bool(const QUuid &, QString *)>
+        cancelRunAttempt; ///< Cancel only the current matching native attempt UUID.
     std::function<QList<QVariantMap>(OpenSWMM::Sdk::IModelInstance *, const QString &)>
         plotVariables; ///< Active-result descriptor catalogue.
     std::function<bool(OpenSWMM::Sdk::IModelInstance *, const QString &, const QString &,
@@ -57,6 +64,9 @@ struct ExtensionUiBridge {
         profile;                                     ///< Open a standard named-node profile.
     std::function<QStringList()> dialogIds;          ///< Discover built-in dialog action IDs.
     std::function<bool(const QString &)> openDialog; ///< Trigger a known enabled dialog action.
+    std::function<QAction *(const QString &)> dialogAction; ///< Resolve approved dialog action metadata.
+    std::function<QMetaObject::Connection(QObject *, std::function<void()>)>
+        watchDialogActions; ///< Observe native approved-command catalogue registration changes.
 };
 
 /** Per-extension facade: ownership and IDs cannot cross another extension's namespace. */
@@ -71,10 +81,12 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IEventSourceV1,
                                public OpenSWMM::Sdk::IEventSourceV2,
                                public OpenSWMM::Sdk::IEventSourceV3,
-                               public OpenSWMM::Sdk::IViewControlsV1
+                               public OpenSWMM::Sdk::IViewControlsV1,
+                               public OpenSWMM::Sdk::IEventSourceV4,
+                               public OpenSWMM::Sdk::IActivityControlsV1
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1)
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -183,6 +195,45 @@ public:
      * @return Copied selected identities, or empty on invalid/unavailable input. */
     QList<qint64> selectedLayerFeatures(const QUuid &sessionId, const QUuid &layerSessionId,
                                         int offset = 0, int limit = 500) const override;
+    /** @brief Copy retained process and scoped UI state without native mutation.
+     * @return Owning snapshot, empty on the wrong thread/after host stop. */
+    OpenSWMM::Sdk::ActivitySnapshot activitySnapshot() const override;
+    /** @brief Subscribe to future scoped activity metadata on the shared ordered dispatcher.
+     * @param[in] context Required GUI-thread receiver lifetime.
+     * @param[in] filter Copied reason/attempt/session filter.
+     * @param[in] callback Short managed exception-isolated observer.
+     * @return Disconnectable handle, invalid for unavailable registration. */
+    QMetaObject::Connection observeActivity(
+        QObject *context, const OpenSWMM::Sdk::ActivityEventFilter &filter,
+        std::function<void(const OpenSWMM::Sdk::ActivityEvent &)> callback) override;
+    /** @brief Start an exact Ready model generation via the native run controller.
+     * @param[in] sessionId Per-open native model identity.
+     * @param[in] loadGeneration Exact accepted model generation.
+     * @param[out] error Optional refusal detail.
+     * @return Accepted attempt UUID, null if refused before acceptance. */
+    QUuid startRunAttempt(const QUuid &sessionId, quint64 loadGeneration,
+                          QString *error = nullptr) override;
+    /** @brief Resolve an own retained IJob handle without dereferencing foreign pointers.
+     * @param[in] job Borrowed handle from this host's runJob().
+     * @return Unique job UUID, or null. */
+    QUuid jobOperationId(OpenSWMM::Sdk::IJob *job) const override;
+    /** @brief Cancel an exact shared run or this host's own worker.
+     * @param[in] operationId Unique retained attempt.
+     * @param[out] error Optional refusal detail.
+     * @return True for accepted/idempotent active cancellation. */
+    bool cancelOperation(const QUuid &operationId, QString *error = nullptr) override;
+    /** @brief Validate current runtime UI identities and use scoped native routes.
+     * @param[in] command Copied window/target/action request.
+     * @param[out] error Optional refusal detail.
+     * @return True for accepted/no-op, false when stale/foreign/unavailable. */
+    bool executeActivityUiCommand(const OpenSWMM::Sdk::UiActivityCommand &command,
+                                   QString *error = nullptr) override;
+    /** @brief Read the stable per-host lifetime used for private activity scope.
+     * @return Runtime owner UUID, independent of the configured plugin ID. */
+    QUuid activityOwnerId() const { return mActivityOwnerId; }
+    /** @brief Read the main-window lifetime established at host construction.
+     * @return Runtime window UUID, null without a main window. */
+    QUuid activityWindowId() const { return mActivityWindowId; }
     /** @brief Start one worker, retaining its handle and progress UI until host cleanup.
      * @param[in] title User-visible stage caption and durable operation-marker description.
      * @param[in] work Worker-only operation; it must cooperate with cancellation.
@@ -302,6 +353,9 @@ private:
     ExtensionNetwork *mNetwork = nullptr;
     std::vector<std::unique_ptr<Job>> mJobs;
     bool mStopping = false;
+    QUuid mActivityOwnerId = QUuid::createUuid(); ///< Unique per-host private activity scope.
+    QUuid mActivityWindowId; ///< Established main-window lifetime.
+    std::unique_ptr<ExtensionActivityUi> mActivityUi; ///< Native scoped UI observation/controller bridge.
     quint64 mEventSequence = 0; ///< Per-host typed publication identity, not state revision.
     QPointer<ExtensionStateRegistry> mStateRegistry; ///< Shared authoritative lifecycle source.
     QList<QMetaObject::Connection> mStateConnections; ///< Managed V2 callbacks cleared before plugin shutdown.
@@ -310,5 +364,10 @@ private:
     std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> mViewSelection;
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
+    /** @brief Request one own job cancellation without relying on title or public handle layout.
+     * @param[in] operationId Unique own worker UUID.
+     * @param[out] error Optional refusal detail.
+     * @return True for accepted active cancellation, false after settlement/when unknown. */
+    bool cancelOwnJobOperation(const QUuid &operationId, QString *error);
 };
 }

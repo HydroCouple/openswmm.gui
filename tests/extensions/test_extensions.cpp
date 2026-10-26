@@ -99,6 +99,8 @@ private slots:
         plugin.sdkApiVersion = "1.4";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
         plugin.sdkApiVersion = "1.5";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.6";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
                     .contains("sdkApiVersion"));
         auto olderHost = expected;

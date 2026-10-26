@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.4")
+set(OPENSWMMVIS_SDK_API_VERSION "1.5")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)
@@ -72,6 +72,12 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/lifecycle/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/lifecycle" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/views/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/views" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/activity/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/activity" COMPONENT GuiSdk)
+set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/ActivitySignalAdapter.cpp")
+set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_HEADER "${PROJECT_SOURCE_DIR}/include/sdk/qt/ActivitySignalAdapter.hpp")
+install(FILES "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE}"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/qt" COMPONENT GuiSdk)
 set(OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/ViewSignalAdapter.cpp")
 set(OpenSWMMVisSdk_VIEW_ADAPTER_HEADER "${PROJECT_SOURCE_DIR}/include/sdk/qt/ViewSignalAdapter.hpp")
 install(FILES "${OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE}"
@@ -100,6 +106,8 @@ if(NOT SWMMVIS_SDK_ONLY)
     add_library(openswmmvis_extensions STATIC
         "${PROJECT_SOURCE_DIR}/include/plugins/extensionmanager.h"
         "${PROJECT_SOURCE_DIR}/include/plugins/guiextensionhost.h"
+        "${PROJECT_SOURCE_DIR}/include/plugins/extensionactivityui.h"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensionactivityui.cpp"
         "${PROJECT_SOURCE_DIR}/include/plugins/extensionstateregistry.h"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionmanager.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionnetwork.cpp"

@@ -14,6 +14,8 @@
 #include <sdk/IEventSourceV1.hpp>
 #include <sdk/IEventSourceV2.hpp>
 #include <sdk/IEventSourceV3.hpp>
+#include <sdk/IEventSourceV4.hpp>
+#include <sdk/IActivityControlsV1.hpp>
 #include <sdk/IViewControlsV1.hpp>
 #include <openswmm/engine/openswmm_engine.h>
 #if __has_include(<openswmm/engine/openswmm_abi_tag.h>)
@@ -26,11 +28,16 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QThread>
 #include <QAction>
 #include <QComboBox>
 #include <QTableView>
 #include <QPushButton>
+#include <QMessageBox>
+#include <QApplication>
+#include <QPointer>
+#include <QSet>
 #include <QLabel>
 #include <QDebug>
 #include <QMdiArea>
@@ -76,6 +83,14 @@ struct EventConformance {
     qint64 finalResultsIndex = -1; ///< Last requested 1D frame, expected to be published later.
     QHash<QUuid, qint64>
         publishedCursors; ///< Fresh cursor metadata observed from delivered time events.
+    IEventSourceV4 *activitySource = nullptr; ///< Borrowed authoritative retained activity source.
+    IActivityControlsV1 *activityControls = nullptr; ///< Borrowed exact-identity native controls.
+    quint64 activityWatermark = 0;    ///< Initial subscribe-before-snapshot cutoff, never advanced.
+    quint64 lastActivitySequence = 0; ///< Last delivered activity publication after the cutoff.
+    bool activityOrdered = true;      ///< Accepted activity publications have increasing sequences.
+    QList<ActivityEvent> activities;  ///< Captured history survives metadata and model retirement.
+    QUuid firstRunAttempt, secondRunAttempt; ///< Real sequential native attempts sharing one row.
+    ProcessState firstRunState; ///< First terminal copy retained after replacement/closure.
 };
 
 /** @brief Public-SDK provider used to verify shared derived values across real engine edits. */
@@ -126,6 +141,19 @@ public:
         }
         auto events = std::make_shared<EventConformance>();
         events->controls = qobject_cast<IViewControlsV1 *>(host->lifetime());
+        events->activityControls = qobject_cast<IActivityControlsV1 *>(host->lifetime());
+        if (auto *source = qobject_cast<IEventSourceV4 *>(host->lifetime())) {
+            events->activitySource = source;
+            source->observeActivity(host->lifetime(), {}, [events](const ActivityEvent &event) {
+                if (event.sequence <= events->activityWatermark)
+                    return;
+                events->activityOrdered &= event.sequence > events->lastActivitySequence;
+                events->lastActivitySequence = event.sequence;
+                events->activities.append(event);
+            });
+            events->activityWatermark = source->activitySnapshot().sequence;
+            events->lastActivitySequence = events->activityWatermark;
+        }
         if (auto *source = qobject_cast<IEventSourceV3 *>(host->lifetime())) {
             events->viewSource = source;
             source->observeViews(host->lifetime(), {}, [events, source](const ViewEvent &event) {
@@ -257,6 +285,129 @@ private:
                 if (session.sessionId == id)
                     return session;
         return {};
+    }
+    /** @brief Copy one retained process by its source-issued identity.
+     * @param[in] events Observed source capability.
+     * @param[in] id Exact accepted attempt UUID.
+     * @return Owning retained state, or an empty state after retirement. */
+    static ProcessState processState(const EventConformance &events, const QUuid &id)
+    {
+        if (events.activitySource)
+            for (const auto &process : events.activitySource->activitySnapshot().processes)
+                if (process.operationId == id)
+                    return process;
+        return {};
+    }
+    /** @brief Count captured transitions for one exact attempt, independent of current snapshots.
+     * @param[in] events Retained observation history.
+     * @param[in] id Source-issued operation identity.
+     * @param[in] kind Expected transition.
+     * @return Number of matching delivered records. */
+    static int activityCount(const EventConformance &events, const QUuid &id,
+                             ActivityEventKind kind)
+    {
+        return int(std::count_if(events.activities.cbegin(), events.activities.cend(),
+                                 [&](const ActivityEvent &event) {
+                                     return event.process.operationId == id && event.kind == kind;
+                                 }));
+    }
+    /** @brief Validate a real runner's copied terminal against its native presentation row.
+     * @param[in] events Authoritative source and captured transition history.
+     * @param[in] id Exact attempt under test.
+     * @param[in] row Legacy native presentation row, never used as operation identity.
+     * @return True for one accepted/started/successful terminal with captured model identity. */
+    static bool successfulNativeAttempt(const EventConformance &events, const QUuid &id, int row)
+    {
+        const auto process = processState(events, id);
+        const auto session = sessionState(events, events.primarySession);
+        return !id.isNull() && process.operationId == id && process.kind == ProcessKind::Run &&
+               process.phase == ProcessPhase::Succeeded && process.rowId == row &&
+               process.sessionId == events.primarySession &&
+               process.instanceId == session.instanceId &&
+               process.loadGeneration == session.loadGeneration &&
+               samePath(process.inputPath, session.inputPath) && !process.engineVersion.isEmpty() &&
+               !process.title.isEmpty() &&
+               process.windowId == events.activitySource->activitySnapshot().ui.windowId &&
+               process.ownerId.isNull() && process.ownerPluginId.isEmpty() &&
+               process.progress == 1. && !process.cancelRequested && process.error.isEmpty() &&
+               process.errorCode == 0 && process.acceptedAt.isValid() &&
+               process.startedAt.isValid() && process.finishedAt.isValid() &&
+               activityCount(events, id, ActivityEventKind::OperationAccepted) == 1 &&
+               activityCount(events, id, ActivityEventKind::OperationStarted) == 1 &&
+               activityCount(events, id, ActivityEventKind::OperationFinished) == 1;
+    }
+    /** @brief Start a second real run while accepting only its known fixture overwrite prompt.
+     * @param[in] events Exact generation and typed native controller.
+     * @param[out] overwriteAccepted Records whether the expected native question was answered.
+     * @param[out] error Optional native refusal diagnostic.
+     * @return New accepted UUID; unrelated native questions remain unanswered.
+     * @note macOS can discard native message-box titles. Match the exact adopted output path,
+     * overwrite message, question icon and Yes/No buttons instead. A bounded fallback declines
+     * only that known output question; other dialogs remain subject to the runner timeout. */
+    static QUuid repeatNativeRun(const EventConformance &events, bool &overwriteAccepted,
+                                 QString *error)
+    {
+        QString outputPath;
+        if (events.viewSource)
+            for (const auto &result :
+                 events.viewSource->viewSnapshot(events.primarySession).results)
+                if (result.dimension == "1d" && !result.path.isEmpty() &&
+                    (outputPath.isEmpty() || result.active))
+                    outputPath = result.path;
+        if (outputPath.isEmpty()) {
+            if (error)
+                *error = "The first native run did not publish its actual output path.";
+            return {};
+        }
+        QTimer answer;
+        answer.setInterval(1);
+        answer.setTimerType(Qt::PreciseTimer);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QObject::connect(
+            &answer, &QTimer::timeout, &answer,
+            [&overwriteAccepted, outputPath, &elapsed, diagnosed = QSet<QString>{},
+             fallbackLogged = false]() mutable {
+                for (auto *widget : QApplication::topLevelWidgets()) {
+                    auto *question = qobject_cast<QMessageBox *>(widget);
+                    if (!question || !question->isVisible())
+                        continue;
+                    const auto text = question->text();
+                    const bool knownOutput =
+                        question->standardButtons() == (QMessageBox::Yes | QMessageBox::No) &&
+                        text.contains(outputPath) &&
+                        text.contains("Running the simulation will overwrite them.");
+                    if (knownOutput && question->icon() == QMessageBox::Question) {
+                        if (auto *yes = question->button(QMessageBox::Yes)) {
+                            overwriteAccepted = true;
+                            yes->click();
+                        }
+                        continue;
+                    }
+                    const auto diagnostic = question->windowTitle() + '\n' + text;
+                    if (diagnosed.size() < 4 && !diagnosed.contains(diagnostic)) {
+                        diagnosed.insert(diagnostic);
+                        qWarning().noquote() << "SDK repeat-run unmatched modal:"
+                                             << question->windowTitle().left(256) << text.left(2048)
+                                             << "icon=" << question->icon()
+                                             << "buttons=" << int(question->standardButtons())
+                                             << "expected output=" << outputPath;
+                    }
+                    if (knownOutput && elapsed.elapsed() >= 5000) {
+                        qWarning() << "SDK repeat-run known overwrite fallback declined.";
+                        if (auto *no = question->button(QMessageBox::No))
+                            no->click();
+                    }
+                }
+                if (!fallbackLogged && elapsed.elapsed() >= 5000) {
+                    fallbackLogged = true;
+                    qWarning() << "SDK repeat-run overwrite responder exceeded five seconds.";
+                }
+            },
+            Qt::DirectConnection);
+        answer.start();
+        const auto generation = sessionState(events, events.primarySession).loadGeneration;
+        return events.activityControls->startRunAttempt(events.primarySession, generation, error);
     }
     /** @brief Copy one current attachment from the public metadata snapshot. */
     static LayerViewState layerState(const EventConformance &events, const QUuid &id)
@@ -687,17 +838,148 @@ private:
             });
         timer->start();
     }
-    /** @brief Let queued view publications settle before the optional Data continuation. */
+    /** @brief Drive independent installed activity consumers through their explicit UI buttons.
+     * @param[in] host Public conformance host; it has no authority over the consumers' jobs.
+     * @param[in] instance Cached native model context retained while a utility document is active.
+     * @param[in] checks Owning results accumulated by earlier live checks.
+     * @param[in] events Managed activity history from the conformance host's own scope.
+     * @param[in] done Continuation called after bounded queued delivery and model focus restoration.
+     * @details Real short worker tasks prove private terminal scope. Real extension documents
+     * prove that copied MDI focus differs from the legacy cached model context. */
+    static void exerciseActivityConsumers(ExtensionHost *host, IModelInstance *instance,
+                                          QJsonObject checks,
+                                          const std::shared_ptr<EventConformance> &events,
+                                          std::function<void(QJsonObject)> done)
+    {
+        if (!qEnvironmentVariableIsSet("SDK_ACTIVITY_CONSUMERS")) {
+            done(checks);
+            return;
+        }
+        const QStringList ids{"org.openswmm.activity-example", "org.openswmm.activity-second"};
+        QList<QPointer<QLabel>> labels;
+        QList<QUuid> documents;
+        auto *modelWindow = qobject_cast<QMdiSubWindow *>(instance->lifetime());
+        const QPointer<QMdiArea> mdi(modelWindow ? modelWindow->mdiArea() : nullptr);
+        bool mounted = events->activitySource && events->activityControls && mdi;
+        for (const auto &id : ids) {
+            const auto prefix = "ext." + id + '.';
+            auto *label = host->ui()->mainWindow()->findChild<QLabel *>(prefix + "activity-status");
+            auto *work =
+                host->ui()->mainWindow()->findChild<QPushButton *>(prefix + "activity-work");
+            auto *document =
+                host->ui()->mainWindow()->findChild<QPushButton *>(prefix + "activity-document");
+            checks["activityConsumerLoaded:" + id] = label && work && document;
+            labels.append(label);
+            if (!mounted || !label || !work || !document) {
+                mounted = false;
+                continue;
+            }
+            work->click();
+            document->click();
+            const auto state = events->activitySource->activitySnapshot().ui;
+            DocumentState active;
+            for (const auto &item : state.documents)
+                if (item.documentId == state.activeDocumentId)
+                    active = item;
+            documents.append(active.documentId);
+            mounted &= !active.documentId.isNull() && active.kind == DocumentKind::Extension &&
+                       active.ownerPluginId == id && active.sessionId.isNull() && active.active &&
+                       mdi->activeSubWindow() && mdi->activeSubWindow() != modelWindow &&
+                       host->activeInstance() == instance;
+        }
+        checks["activityConsumerDocumentsMountWithActualFocus"] =
+            mounted && documents.size() == 2 && documents[0] != documents[1];
+        if (!mounted || documents.size() != 2) {
+            done(checks);
+            return;
+        }
+        UiActivityCommand request;
+        request.windowId = events->activitySource->activitySnapshot().ui.windowId;
+        request.entityId = documents.first();
+        QString error;
+        checks["activityDocumentActivationCommand"] =
+            events->activityControls->executeActivityUiCommand(request, &error);
+        auto *timer = new QTimer(host->lifetime());
+        timer->setInterval(25);
+        auto elapsed = std::make_shared<QElapsedTimer>();
+        elapsed->start();
+        const QPointer<QMdiSubWindow> guardedModel(modelWindow);
+        connect(timer, &QTimer::timeout, host->lifetime(),
+                [host, instance, checks, events, done = std::move(done), labels, documents, mdi,
+                 guardedModel, timer, elapsed, restoring = false,
+                 restoredDocument = QUuid{}]() mutable {
+                    const auto state = events->activitySource->activitySnapshot();
+                    bool ready = labels.size() == 2 && labels[0] && labels[1];
+                    for (const auto &label : labels)
+                        ready &= label && label->property("ownJobTerminals").toInt() == 1 &&
+                                 label->property("sharedRunTerminals").toInt() == 2 &&
+                                 label->property("activeDocumentId").toUuid() ==
+                                     (restoring ? restoredDocument : documents.first());
+                    if (restoring)
+                        ready &= state.ui.activeDocumentId == restoredDocument && mdi &&
+                                 guardedModel && mdi->activeSubWindow() == guardedModel;
+                    if (!ready && elapsed->elapsed() < 10000)
+                        return;
+                    if (restoring || !ready) {
+                        timer->stop();
+                        timer->deleteLater();
+                        checks["activityConsumerQueuedDeliveryCompleted"] = ready;
+                        checks["activityRestoresNativeModelFocus"] = restoring && ready;
+                        done(checks);
+                        return;
+                    }
+                    const auto firstJob = labels[0]->property("lastJobId").toUuid();
+                    const auto secondJob = labels[1]->property("lastJobId").toUuid();
+                    bool privateScope =
+                        !firstJob.isNull() && !secondJob.isNull() && firstJob != secondJob;
+                    for (const auto &process : state.processes)
+                        privateScope &=
+                            process.operationId != firstJob && process.operationId != secondJob;
+                    for (const auto &event : events->activities)
+                        privateScope &= event.process.operationId != firstJob &&
+                                        event.process.operationId != secondJob;
+                    QString error;
+                    privateScope &= !events->activityControls->cancelOperation(firstJob, &error) &&
+                                    !error.isEmpty();
+                    checks["activityConsumersObserveOnlyOwnJobTerminals"] =
+                        privateScope && labels[0]->property("ownJobTerminals").toInt() == 1 &&
+                        labels[1]->property("ownJobTerminals").toInt() == 1;
+                    checks["activityConsumersObserveBothNativeAttempts"] =
+                        labels[0]->property("sharedRunTerminals").toInt() == 2 &&
+                        labels[1]->property("sharedRunTerminals").toInt() == 2;
+                    checks["activityUtilityFocusDiffersFromCachedModel"] =
+                        state.ui.activeDocumentId == documents.first() && mdi && guardedModel &&
+                        mdi->activeSubWindow() != guardedModel &&
+                        host->activeInstance() == instance;
+                    for (const auto &document : state.ui.documents)
+                        if (document.kind == DocumentKind::Model &&
+                            document.sessionId == events->primarySession)
+                            restoredDocument = document.documentId;
+                    UiActivityCommand restore;
+                    restore.windowId = state.ui.windowId;
+                    restore.entityId = restoredDocument;
+                    checks["activityRestoreModelCommandAccepted"] =
+                        !restoredDocument.isNull() &&
+                        events->activityControls->executeActivityUiCommand(restore, &error);
+                    restoring = true;
+                });
+        timer->start();
+    }
+    /** @brief Let queued view publications settle before optional Data/activity continuations. */
     static void exerciseDataPreview(ExtensionHost *host, IModelInstance *instance,
                                     QJsonObject checks,
                                     const std::shared_ptr<EventConformance> &events,
                                     std::function<void(QJsonObject)> done)
     {
-        QTimer::singleShot(0, host->lifetime(),
-                           [host, instance, checks, events, done = std::move(done)]() mutable {
-                               exerciseDataPreviewNow(host, instance, checks, events,
-                                                      std::move(done));
-                           });
+        QTimer::singleShot(
+            0, host->lifetime(),
+            [host, instance, checks, events, done = std::move(done)]() mutable {
+                exerciseDataPreviewNow(
+                    host, instance, checks, events,
+                    [host, instance, events, done = std::move(done)](QJsonObject result) {
+                        exerciseActivityConsumers(host, instance, result, events, std::move(done));
+                    });
+            });
     }
     /** @brief Exercise real facades without private GUI classes or executable symbols. */
     static void run(ExtensionHost *host, IModelInstance *instance, const QString &report,
@@ -706,6 +988,7 @@ private:
         QJsonObject checks;
         checks["typedEventServiceAvailable"] = events->typedAvailable;
         checks["lifecycleServiceAvailable"] = bool(events->stateSource);
+        checks["activityServicesAvailable"] = events->activitySource && events->activityControls;
         activate(instance);
         const auto initialState = sessionState(*events, events->primarySession);
         if (events->stateSource) {
@@ -937,8 +1220,27 @@ private:
             {{"type", "FeatureCollection"}, {"features", QJsonArray{site, footprint}}}, &error);
         project->clearPreview();
         checks["previewIsTransient"] = project->layers().size() == layerCount;
-        const int job = host->runRegistry()->start(instance, &error);
+        if (!events->activitySource || !events->activityControls) {
+            finish(report, checks, "The activity source or controls are unavailable.");
+            return;
+        }
+        const auto runGeneration = sessionState(*events, events->primarySession).loadGeneration;
+        checks["activityStaleGenerationStartRefused"] =
+            events->activityControls
+                ->startRunAttempt(events->primarySession, runGeneration + 1, &error)
+                .isNull() &&
+            !error.isEmpty();
+        events->firstRunAttempt = events->activityControls->startRunAttempt(events->primarySession,
+                                                                            runGeneration, &error);
+        const auto acceptedRun = processState(*events, events->firstRunAttempt);
+        const int job = acceptedRun.rowId;
         checks["scriptedRunStarted"] = job >= 0;
+        checks["nativeRunHasSourceIssuedIdentity"] =
+            !events->firstRunAttempt.isNull() &&
+            acceptedRun.operationId == events->firstRunAttempt &&
+            acceptedRun.kind == ProcessKind::Run &&
+            acceptedRun.sessionId == events->primarySession &&
+            acceptedRun.loadGeneration == runGeneration;
         if (job < 0) {
             finish(report, checks, error);
             return;
@@ -946,9 +1248,10 @@ private:
         auto *completed = new QTimer(host->lifetime());
         completed->setInterval(100);
         auto attempts = std::make_shared<int>(0);
+        auto repeated = std::make_shared<bool>(false);
         connect(
             completed, &QTimer::timeout, host->lifetime(),
-            [host, instance, job, completed, report, checks, attempts, events]() mutable {
+            [host, instance, job, completed, report, checks, attempts, repeated, events]() mutable {
                 if (++*attempts > 400) {
                     completed->stop();
                     finish(report, checks, "The scripted run did not finish.");
@@ -958,7 +1261,54 @@ private:
                     if (run["id"].toInt() != job || run["status"].toString() == "running" ||
                         run["status"].toString() == "idle")
                         continue;
+                    const auto activeAttempt =
+                        *repeated ? events->secondRunAttempt : events->firstRunAttempt;
+                    if (!processState(*events, activeAttempt).isTerminal() ||
+                        activityCount(*events, activeAttempt,
+                                      ActivityEventKind::OperationFinished) == 0)
+                        return;
                     completed->stop();
+                    if (!*repeated) {
+                        checks["firstNativeAttemptSucceeded"] =
+                            run["status"].toString() == "success" &&
+                            successfulNativeAttempt(*events, activeAttempt, job);
+                        events->firstRunState = processState(*events, activeAttempt);
+                        QString error;
+                        checks["settledNativeCancellationRefused"] =
+                            !events->activityControls->cancelOperation(activeAttempt, &error) &&
+                            !error.isEmpty();
+                        bool overwriteAccepted = false;
+                        events->secondRunAttempt =
+                            repeatNativeRun(*events, overwriteAccepted, &error);
+                        const auto second = processState(*events, events->secondRunAttempt);
+                        checks["secondNativeAttemptUsesNewUuidAndSameRow"] =
+                            !events->secondRunAttempt.isNull() &&
+                            events->secondRunAttempt != events->firstRunAttempt &&
+                            second.rowId == job && second.sessionId == events->primarySession;
+                        checks["nativeRepeatUsesNormalOverwritePrompt"] = overwriteAccepted;
+                        checks["supersededNativeAttemptRetiresFromSnapshot"] =
+                            processState(*events, events->firstRunAttempt).operationId.isNull();
+                        checks["staleNativeCancellationCannotRetargetRow"] =
+                            !events->activityControls->cancelOperation(events->firstRunAttempt,
+                                                                       &error) &&
+                            !error.isEmpty() && !second.cancelRequested;
+                        if (events->secondRunAttempt.isNull()) {
+                            finish(report, checks, error);
+                            return;
+                        }
+                        *repeated = true;
+                        completed->start();
+                        return;
+                    }
+                    checks["secondNativeAttemptSucceeded"] =
+                        successfulNativeAttempt(*events, events->secondRunAttempt, job);
+                    checks["supersededNativeTerminalHistoryRetained"] =
+                        events->firstRunState.phase == ProcessPhase::Succeeded &&
+                        activityCount(*events, events->firstRunAttempt,
+                                      ActivityEventKind::OperationFinished) == 1 &&
+                        activityCount(*events, events->firstRunAttempt,
+                                      ActivityEventKind::OperationRemoved) == 1;
+                    checks["activityObservationsOrdered"] = events->activityOrdered;
                     checks["runInsertionNotified"] =
                         events->insertions > 0 && events->insertionsNotified;
                     checks["scriptedRunSucceeded"] = run["status"].toString() == "success";
@@ -1045,6 +1395,22 @@ private:
                                                 events->runNotices > beforeRemoval;
                                             checks["lifecycleObservationsOrdered"] =
                                                 events->ordered;
+                                            checks["nativeTerminalHistorySurvivesModelClose"] =
+                                                processState(*events, events->firstRunAttempt)
+                                                    .operationId.isNull() &&
+                                                processState(*events, events->secondRunAttempt)
+                                                    .operationId.isNull() &&
+                                                activityCount(
+                                                    *events, events->firstRunAttempt,
+                                                    ActivityEventKind::OperationFinished) == 1 &&
+                                                activityCount(
+                                                    *events, events->secondRunAttempt,
+                                                    ActivityEventKind::OperationFinished) == 1 &&
+                                                activityCount(
+                                                    *events, events->secondRunAttempt,
+                                                    ActivityEventKind::OperationRemoved) == 1;
+                                            checks["activityObservationsOrderedAfterClose"] =
+                                                events->activityOrdered;
                                             if (events->viewSource && events->controls) {
                                                 checks["retiredViewSnapshotIsEmpty"] =
                                                     events->viewSource

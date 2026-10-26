@@ -150,6 +150,7 @@ class AnimationController;
 class SWMMVis : public QMainWindow
 {
     Q_OBJECT
+    friend class TestExtensionActivity; ///< Native acceptance fixture; does not expose SDK/private slots.
 
 public:
     /**
@@ -1936,6 +1937,37 @@ private:
     // Cancel toolbar actions can reach any running runner. Entries are
     // removed on SimulationRunner::finished.
     QHash<int, class SimulationRunner *> mActiveRunners;
+    QHash<int, QUuid> mLatestRunAttempts; ///< Current attempt epoch for each reusable status row.
+    QHash<QUuid, QPointer<SWMMVisProjectWindow>> mRunAttemptOwners; ///< Counted run/preparation reservations.
+    QHash<QString, QUuid> mPreparingRunAttempts; ///< Session/engine preparations, before runner creation.
+    QHash<QUuid, QUuid> mLastAcceptedRunAttempts; ///< Last accepted UUID per session, including preparation failure.
+    bool mRunControllerShuttingDown = false; ///< Reject new attempts while accepted native work drains.
+    /** @brief Run native preflight for one captured model generation.
+     * @param[in] sessionId Expected SDK model session, or null for the active native model.
+     * @param[in] loadGeneration Exact requested generation, or zero for the active native model.
+     * @details Captures the generation before save/overwrite dialogs and refuses a changed generation
+     * before accepting preparation. */
+    void runSimulationForGeneration(const QUuid &sessionId, quint64 loadGeneration);
+    /** @brief Test the persistent row epoch, independently of the active runner map.
+     * @param[in] rowId Reusable presentation row.
+     * @param[in] operationId Captured unique attempt.
+     * @return True only while this attempt still owns that row's native state. */
+    bool runAttemptCurrent(int rowId, const QUuid &operationId) const;
+    /** @brief Release exactly one counted preparation/runner reservation.
+     * @param[in] operationId Captured unique attempt; repeated calls are inert. */
+    void releaseRunAttempt(const QUuid &operationId);
+    /** @brief Request cancellation without retargeting a reused status row.
+     * @param[in] operationId Unique accepted native attempt.
+     * @param[out] error Optional refusal diagnostic.
+     * @return True for accepted/idempotent active cancellation. */
+    bool requestRunCancellation(const QUuid &operationId, QString *error = nullptr);
+    /** @brief Start one exact Ready native model generation through normal preflight.
+     * @param[in] sessionId Per-open model identity.
+     * @param[in] loadGeneration Exact current accepted generation.
+     * @param[out] error Optional refusal diagnostic.
+     * @return Accepted attempt UUID, including a synchronous preparation failure, or null. */
+    QUuid startRunAttemptForSession(const QUuid &sessionId, quint64 loadGeneration,
+                                   QString *error = nullptr);
     QHash<SWMMVisProjectWindow *, CheckpointModel *> mCheckpointModels;
     QHash<SWMMVisProjectWindow *, QPointer<CheckpointsDialog>> mCheckpointDialogs;
 
@@ -1955,6 +1987,8 @@ private:
      * @param[in] errCode Nonzero with false success is genuine failure: skip rename/source swap
      * and only remove tracking/start cache. If success is true, code value does not prevent
      * adoption.
+     * @param[in] operationId Captured attempt UUID; a stale attempt cannot adopt results for a
+     * reused status row. Null uses the currently tracked attempt for direct native calls.
      * @note Caller must serialize on GUI thread and ensure no exporter currently reads the old
      * source. This helper itself does not test mExport2DInFlight or mark source non-live;
      * finished callback does that before calling/defer. Uses per-job guarded layer, not active
@@ -1972,13 +2006,19 @@ private:
      * layer/start maps for every tracked outcome after work; external layer itself remains on
      * canvas.
      */
-    void adoptFinished2DResults(int jobId, bool success, int errCode);
+    void adoptFinished2DResults(int jobId, bool success, int errCode,
+                               const QUuid &operationId = {});
 
     /*! True while onExport2DResults holds a live source (dialog + write).
      *  Finished jobs arriving meanwhile queue in mDeferred2DFinish
-     *  (jobId → {success, errCode}) and are adopted when the export returns. */
+     *  (jobId → {operationId, success, errCode}) and are adopted when the export returns. */
     bool mExport2DInFlight = false;
-    QHash<int, std::pair<bool, int>> mDeferred2DFinish;
+    struct Deferred2DFinish {
+        QUuid operationId; ///< Captured attempt epoch, never inferred from a later reused row.
+        bool success = false; ///< Native terminal result.
+        int errorCode = 0; ///< Native terminal diagnostic code.
+    };
+    QHash<int, Deferred2DFinish> mDeferred2DFinish;
 
     /*! Live 1D results (LIVE_1D_RESULTS_PLAN_V2 §4.3): per running job, the
      *  SWMMResultsLayer tailing its .out. Filled on the first progress tick
@@ -2006,12 +2046,14 @@ private:
      * @param pw Borrowed live project; required for first creation and any data promotion.
      * @param outPath Borrowed path used only until a live layer is cached; then cache wins.
      * @param rptPath Borrowed report path forwarded during find/create only.
+     * @param operationId Captured attempt UUID, or null to use the current native row attempt;
+     * stale callbacks leave a later attempt's layer and selection untouched.
      * Header-open failures silently retry on later calls and may leave an unopened canvas layer.
      * First data stretches ramp, sets active results and animation primary; requires initialized
      * animation controller. No completion finalization, file write or runner cancellation.
      */
     void tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QString &outPath,
-                           const QString &rptPath);
+                          const QString &rptPath, const QUuid &operationId = {});
 
     // Per-job simulation start time captured from simulationDatesKnown so the
     // post-run HDF5Mesh2DSource can map its /time (days-since-start) to

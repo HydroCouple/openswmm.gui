@@ -11,6 +11,7 @@
  */
 #pragma once
 #include "sdk/IEventSourceV3.hpp"
+#include "sdk/IEventSourceV4.hpp"
 #include <QPointer>
 #include <memory>
 
@@ -79,6 +80,62 @@ public:
      * @param[in] event Owning copied observation.
      * @return True for the current ready generation/attachment/source, or its detach history. */
     bool isDeliverable(const OpenSWMM::Sdk::ViewEvent &event) const;
+    /** @brief Copy retained window runs, private owner jobs and scoped UI metadata.
+     * @param[in] ownerId Calling host lifetime.
+     * @param[in] windowId Main-window scope.
+     * @return Owning state with the shared publication watermark. */
+    OpenSWMM::Sdk::ActivitySnapshot activitySnapshot(const QUuid &ownerId,
+                                                     const QUuid &windowId) const;
+    /** @brief Copy a retained attempt without creating state.
+     * @param[in] operationId Unique attempt UUID.
+     * @return Copied state, with null operationId when absent. */
+    OpenSWMM::Sdk::ProcessState operation(const QUuid &operationId) const;
+    /** @brief Accept a new uniquely identified attempt in Queued state.
+     * @param[in] state Captured ownership/model/window metadata; null operationId generates a UUID.
+     * @return Accepted UUID, or null for duplicate/invalid ownership. */
+    QUuid beginOperation(OpenSWMM::Sdk::ProcessState state);
+    /** @brief Record native runner/worker start once for a live attempt.
+     * @param[in] operationId Unique retained attempt.
+     * @param[in] startedAt Native timestamp, or invalid to use current UTC time. */
+    void startOperation(const QUuid &operationId, const QDateTime &startedAt = {});
+    /** @brief Commit coalesced normalized progress without accepting nonfinite values.
+     * @param[in] operationId Active unique attempt.
+     * @param[in] fraction Finite progress, clamped to [0,1].
+     * @param[in] stage Bounded copied display description. */
+    void progressOperation(const QUuid &operationId, double fraction, const QString &stage = {});
+    /** @brief Record an idempotent cancellation request before settlement.
+     * @param[in] operationId Active retained attempt.
+     * @return True for an active accepted/repeated request, false after settlement/retirement. */
+    bool requestOperationCancel(const QUuid &operationId);
+    /** @brief Commit exactly one immutable terminal outcome.
+     * @param[in] operationId Unique retained attempt.
+     * @param[in] outcome Succeeded, Failed or Cancelled; other phases are ignored.
+     * @param[in] error Copied bounded failure/cancellation detail.
+     * @param[in] errorCode Native diagnostic code where available.
+     * @param[in] finishedAt Native settlement timestamp, or invalid to use current UTC time. */
+    void finishOperation(const QUuid &operationId, OpenSWMM::Sdk::ProcessPhase outcome,
+                          const QString &error = {}, int errorCode = 0,
+                          const QDateTime &finishedAt = {});
+    /** @brief Retire completed metadata while preserving its queued outcome history.
+     * @param[in] operationId Retained terminal attempt; active attempts are not removed. */
+    void retireOperation(const QUuid &operationId);
+    /** @brief Copy scoped UI state at an explicit registration/backfill boundary.
+     * @param[in] ownerId Private host lifetime.
+     * @param[in] state Copied current UI metadata, with an established window identity. */
+    void refreshActivityUi(const QUuid &ownerId, OpenSWMM::Sdk::UiActivityState state);
+    /** @brief Commit copied scoped UI metadata and queue its invalidation.
+     * @param[in] ownerId Owner whose cached UI snapshot is updated.
+     * @param[in] state Current copied UI state.
+     * @param[in] event UI reason/identity; sequence is assigned here. */
+    void publishActivityUi(const QUuid &ownerId, OpenSWMM::Sdk::UiActivityState state,
+                            OpenSWMM::Sdk::ActivityEvent event);
+    /** @brief Discard a stopped host's private snapshots and completed job metadata.
+     * @param[in] ownerId Private host lifetime; native shared runs remain. */
+    void forgetActivityOwner(const QUuid &ownerId);
+    /** @brief Recheck nonterminal progress and live UI targets before each receiver.
+     * @param[in] event Copied activity observation.
+     * @return True for current live invalidations or immutable transition/removal history. */
+    bool isDeliverable(const OpenSWMM::Sdk::ActivityEvent &event) const;
     /** @brief Update copied native metadata and record a broad invalidation.
      * @param[in] sessionId A registered open lifetime.
      * @param[in] metadata Owning latest native metadata.
@@ -154,6 +211,9 @@ signals:
     /** @brief Deliver domain metadata in the same globally ordered V2/V3 drain.
      * @param[in] event Copied native view invalidation. */
     void viewEventReady(const OpenSWMM::Sdk::ViewEvent &event);
+    /** @brief Deliver process/UI metadata from the ordered V2/V3/V4 drain.
+     * @param[in] event Immutable owning activity observation. */
+    void activityEventReady(const OpenSWMM::Sdk::ActivityEvent &event);
     /** @brief Synchronously collect extension state before native persistence starts.
      * @param[in] request Captured save identity, revalidated after each observer by the host. */
     void beforeSave(const OpenSWMM::Sdk::SaveRequest &request);
@@ -162,6 +222,9 @@ private:
     friend class ExtensionSaveOperation;
     struct Data; ///< Private live records, queued observations and active save ownership.
     std::unique_ptr<Data> mData; ///< Owning private implementation.
+    /** @brief Sequence/coalesce one process or UI observation.
+     * @param[in] event Owning unsequenced activity metadata. */
+    void enqueueActivity(OpenSWMM::Sdk::ActivityEvent event);
     /** @brief Queue one immutable globally sequenced record.
      * @param[in] kind Transition reason.
      * @param[in] state Copied affected session state.

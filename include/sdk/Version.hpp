@@ -16,7 +16,7 @@
 namespace OpenSWMM::Sdk
 {
 inline constexpr auto SDK_API_VERSION =
-    "1.4"; ///< Public interface major/minor, independently of GUI version.
+    "1.5"; ///< Public interface major/minor, independently of GUI version.
 inline constexpr auto GUI_EXTENSION_IID =
     "io.opensimulator.openswmm.IGuiExtension/1.0"; ///< Qt plugin root IID.
 
