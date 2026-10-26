@@ -44,6 +44,9 @@
  * sdk/IEventSourceV1.hpp | Frozen synchronous typed observations, filters and scoped connection ownership.
  * sdk/qt/EventSignalAdapter.hpp | Optional consumer-local Qt signals for the V1 observations.
  * sdk/IEventSourceV2.hpp | Authoritative session identities, readiness, revision snapshots and save lifecycle.
+ * sdk/IEventSourceV3.hpp | Copied model/layer/results view metadata and deferred domain invalidations.
+ * sdk/IViewControlsV1.hpp | Validated layer/result commands and paged vector selection queries.
+ * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for V3 view observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
  * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
@@ -63,7 +66,12 @@
  * plugins/extensionpreferences.h | Guarded registration of Preferences factories.
  * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
  * plugins/extensionstateregistry.* | Shared authoritative session state, deferred dispatch and native save scopes.
+ * plugins/extensionviewaccess.* | One native coordinator per window for V3 snapshots and commands.
+ * plugins/extensionmodelevents.cpp | Canonical model geometry/options/rename/schema/selection/unit observations.
+ * plugins/extensionlayerevents.cpp | Runtime canvas attachment identities, layer watchers and native commands.
+ * plugins/extensionresultsevents.cpp | Attached reader/source epochs, semantic variables and displayed cursor observations.
  * src/sdk/EventSignalAdapter.cpp | Installed optional adapter source compiled inside each consumer module.
+ * src/sdk/ViewSignalAdapter.cpp | Installed optional V3 adapter source, also compiled per consumer.
  * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
  * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
  *
@@ -181,7 +189,9 @@
  * SDK 1.2 provides typed host observations through the optional IEventSourceV1
  * interface, together with a consumer-local EventSignalAdapter for ordinary Qt
  * signals. SDK 1.3 adds the separate IEventSourceV2 capability for authoritative
- * session readiness, revision snapshots and save outcomes. ExtensionHost::observe()
+ * session readiness, revision snapshots and save outcomes. SDK 1.4 adds
+ * IEventSourceV3 and IViewControlsV1 for detailed map/model/results observations
+ * and validated view commands. ExtensionHost::observe()
  * remains available for existing consumers. These interfaces have different
  * delivery/identity contracts; choose the one needed by the integration.
  * ExtensionHost remains a pure C++ interface, and a plugin's own QActions,
@@ -194,7 +204,8 @@
  * use the existing edit/lease and undo paths; layer import does not promise undo.
  * An event reports a change; it is not a command or permission to modify a private
  * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
- * such as IEventSourceV1 and IEventSourceV2, while private host classes remain
+ * such as IEventSourceV1, IEventSourceV2, IEventSourceV3 and IViewControlsV1,
+ * while private host classes remain
  * implementation details.
  *
  * | Observation interface | Minimum SDK | Delivery and identity |
@@ -202,6 +213,7 @@
  * | ExtensionHost::observe() | 1.0 | Synchronous string/map notifications with persistent model UUIDs. |
  * | IEventSourceV1 | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
  * | IEventSourceV2 | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
+ * | IEventSourceV3 | 1.4 | Deferred model/layer/results invalidations and copied view metadata at the shared V2/V3 watermark. |
  *
  * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
  *
@@ -413,6 +425,178 @@
  * and SaveFinished carries the resolved final destination. Terminal outcomes
  * survive model retirement using captured identities, without reviving the model.
  *
+ * @subsection sdk_view_events SDK 1.4 model, map and attached-results observations
+ *
+ * Include sdk/IEventSourceV3.hpp and require OpenSWMMVisSdk 1.4. Discover
+ * IEventSourceV3 on host->lifetime() with qobject_cast and check availability
+ * during initialization. V1 and V2 remain separately frozen interfaces; V3
+ * does not extend their value layouts or existing service vtables. The installed
+ * examples/extensions/views consumer demonstrates its own Qt panel and commands.
+ * openswmmvis_add_view_adapter(target) compiles ViewSignalAdapter into the
+ * consumer with AUTOMOC and private symbols. Its typed signals cover model,
+ * layer and results observations; managed subscriptions retain GUI-thread,
+ * disconnect, destruction and shutdown guards. Ordinary downstream Qt queued
+ * slots keep Qt's usual delivery rules and must not throw.
+ *
+ * viewSnapshot(sessionId) returns copied metadata for one registered open
+ * lifetime. Its session field carries the V2 load generation and revisions;
+ * sequence uses the same application registry watermark as V2. Public queries
+ * never create facades or trackers, start a source open, discover result arrays
+ * or publish observations. No payload contains native window/layer/renderer,
+ * reader or engine pointers. Use existing leases and data queries for actual
+ * geometry and result values.
+ *
+ * LayerViewState carries a runtime layerSessionId distinct from its native
+ * layerId. Native IDs can be restored, changed or repeated across layers. Every
+ * detach ends the runtime attachment; undo/reinsertion receives a fresh runtime
+ * UUID even when it reuses the same native object. All V3 attachment filters and
+ * view commands use layerSessionId. LayerRemoved is a copied historical detach
+ * record, and never permits resolving or acting on that retired attachment.
+ * Snapshot layers are in native bottom-to-top order, with title/type/CRS,
+ * visibility/opacity and available vector filter/count/selection metadata.
+ *
+ * observeViews() copies reason/session/attachment filters. Active-choice
+ * invalidations are session-wide and have a null attachment identity.
+ * Use a session/reason filter for these; a specific attachment filter excludes
+ * session-wide observations, including a choice cleared by layer detachment.
+ * The managed subscription delivers future queued GUI-thread invalidations.
+ * Subscribe before taking the initial
+ * viewSnapshot on the same call stack, retain that initial sequence cutoff and
+ * ignore earlier observations when adopting a current-state view. Refresh from
+ * a new snapshot when notified; refreshing does not advance a terminal-history
+ * consumer's initial cutoff. There is no replay or geometry/results history.
+ * Shared FIFO dispatch prevents recursive drains, suppresses obsolete live work
+ * after close/reload/detachment, and coalesces repeatable reason/attachment
+ * invalidations. Exact renames and detach records retain captured identity.
+ * Sequence gaps and broad invalidations are normal.
+ *
+ * @code{.cpp}
+ * // Members of a GUI-thread plugin controller; check both services at initialization.
+ * mViews = qobject_cast<OpenSWMM::Sdk::IEventSourceV3 *>(host->lifetime());
+ * mControls = qobject_cast<OpenSWMM::Sdk::IViewControlsV1 *>(host->lifetime());
+ * mViewConnection = mViews->observeViews(this, {{}, mSessionId, {}},
+ *     [this](const OpenSWMM::Sdk::ViewEvent &event) {
+ *         if (event.sequence <= mInitialViewWatermark)
+ *             return;
+ *         const auto current = mViews->viewSnapshot(mSessionId);
+ *         // Update this panel from current metadata; revalidate before deferred commands.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mViews->viewSnapshot(mSessionId);
+ * mInitialViewWatermark = initial.sequence;
+ * @endcode
+ *
+ * ViewEvent carries the copied session/load generation/revisions, optional
+ * runtime attachment/native layer ID, result source generation, bounded keys,
+ * precise native rename identity when available and an optional origin token.
+ * Empty object/key details mean broad invalidation, including native-edit
+ * completion and snapshot undo. Attribute values and field schema are distinct
+ * reasons. No authored field-by-field delta is implied by geometry or options
+ * events. Layer feature/selection/filter/style signals report native state;
+ * they do not authorize a second write or imply a durable source-file commit.
+ *
+ * | ViewEventKind | Meaning |
+ * | --- | --- |
+ * | ModelGeometryChanged | Model geometry/topology changed or needs broad refresh. |
+ * | ModelOptionsChanged | Accepted native option keys, or a broad invalidation when keys are empty. |
+ * | ObjectRenamed | Native node/link/subcatchment/gage namespace and old/new name when the operation supplies them. |
+ * | AttributeValuesChanged | Query native/computed field values again. |
+ * | AttributeSchemaChanged | Query native/computed field descriptors again. |
+ * | ModelSelectionChanged | Canonical authored-model selection changed. |
+ * | LayerAdded | A new runtime attachment is present. |
+ * | LayerRemoved | A runtime attachment was retired; copied identity is historical. |
+ * | LayerMetadataChanged | Display name, visibility, opacity or layer discriminator changed. |
+ * | LayerOrderChanged | Top-level or sublayer order changed. |
+ * | LayerStyleChanged | Authored renderer/style configuration changed. |
+ * | LayerSchemaChanged | Feature field descriptors changed. |
+ * | LayerFeaturesChanged | Feature content/geometry changed; query the source again. |
+ * | LayerSelectionChanged | Selected vector feature identities changed. |
+ * | LayerFilterChanged | Applied vector attribute filter changed. |
+ * | LayerCrsChanged | Layer coordinate-reference metadata changed. |
+ * | LayerSourceChanged | Layer source/loading metadata changed. |
+ * | ResultsSourceChanged | Attached reader/source generation, availability, diagnostic, live state or count changed. |
+ * | ResultsActiveChanged | Session-wide active 1D/2D choice changed, including detachment; query the current snapshot. |
+ * | ResultsVariableChanged | Semantic rendering-channel selection/native unit metadata changed. |
+ * | ResultsTimeChanged | A displayed frame/cursor was published; this is not merely a seek request. |
+ * | ProjectUnitsChanged | Project display units changed, independently of result-native units. |
+ *
+ * ResultsViewState describes attached result layers, including Empty, Loading,
+ * Ready and Failed sources. sourceGeneration advances for accepted opens,
+ * replacement and close, independently of the model load generation. Ready
+ * means reader/source metadata was adopted: zero periods and currentIndex -1
+ * are valid. It does not promise scene rendering, run completion or optional
+ * data availability. A failed attempt can preserve a usable old reader; inspect
+ * error separately from availability. live reports the source's streaming mode,
+ * without claiming a unique run-attempt identity or complete retained history.
+ *
+ * The 2D currentIndex/currentDateTime describe the coherently published frame,
+ * not a newer worker request. variables contains native rendering channel IDs,
+ * stable selected keys and source/descriptor units where established. The 1D
+ * layer-level channel has an empty ID; 2D channels use semantic sublayer IDs.
+ * Unresolved saved scalar keys remain queryable, while command selection must
+ * match an available supported variable. Unknown units stay empty. projectUnits
+ * is separate display metadata and never relabels or converts source arrays.
+ * Open/close generation checks prevent a superseded 1D asynchronous completion
+ * from adopting a stale reader. Failed file-opening attempts before a layer
+ * becomes attached are outside this attached-source observation contract.
+ *
+ * @subsection sdk_view_commands Validated map and results commands
+ *
+ * Include sdk/IViewControlsV1.hpp and discover IViewControlsV1 on the host lifetime.
+ * executeViewCommand accepts a Ready session and its current runtime attachment.
+ * Every request supplies loadGeneration copied from the current view snapshot;
+ * an exact generation check refuses work prepared before a reload in the same
+ * open window. Use sessionId and layerSessionId from that same snapshot;
+ * unknown, retired or unsupported targets return false with a diagnostic.
+ * Successful no-ops return true without repeating the native write. Commands
+ * use fixed native controller routes, with no public arbitrary slot invocation.
+ * Recheck the session/load generation and attachment before deferred actions.
+ *
+ * | ViewCommandKind | Interpreted request fields and native behavior |
+ * | --- | --- |
+ * | RenameLayer | text is a nonblank display name. |
+ * | SetLayerVisible | enabled is the desired local visibility. |
+ * | SetLayerOpacity | number must be finite and within [0,1]. |
+ * | MoveLayer | index is a valid bottom-to-top stack index within the layer's existing category group; uses native undo. |
+ * | RemoveLayer | Detaches through native undo; the editable model and active authoring mesh are protected. |
+ * | SetLayerFilter | text is a validated vector attribute filter; empty clears it. |
+ * | SelectLayerFeatures | featureIds replaces an open vector source's selection; at most 5000 nonnegative IDs, with duplicates removed. |
+ * | ActivateResults | Makes this attached source active in its own 1D/2D dimension. |
+ * | SetResultsTime | index must be within the available source period range; 2D acceptance can precede publication. |
+ * | SetResultsVariable | text is a supported native key; channelId is empty for 1D or a current 2D rendering-channel ID. |
+ *
+ * @code{.cpp}
+ * const auto current = mViews->viewSnapshot(mSessionId);
+ * if (current.session.status == OpenSWMM::Sdk::SessionStatus::Ready &&
+ *     !current.layers.isEmpty()) {
+ *     OpenSWMM::Sdk::ViewCommand command;
+ *     command.kind = OpenSWMM::Sdk::ViewCommandKind::SetLayerVisible;
+ *     command.sessionId = current.session.sessionId;
+ *     command.loadGeneration = current.session.loadGeneration;
+ *     command.layerSessionId = current.layers.first().layerSessionId;
+ *     command.origin = QUuid::createUuid();
+ *     command.enabled = !current.layers.first().visible;
+ *     QString error;
+ *     const bool accepted = mControls->executeViewCommand(command, &error);
+ *     Q_UNUSED(accepted);
+ * }
+ * @endcode
+ *
+ * selectedLayerFeatures() returns sorted copied FID pages with a maximum of 5000
+ * IDs per call. Snapshot selectionCount is a count, never a large selection
+ * payload. Authored model selection continues through IModelInstance::select()
+ * and the shared native selection bus.
+ *
+ * A caller can supply origin to suppress synchronous feedback in its own
+ * controller. Matching effects carry that copied token; native actions and
+ * asynchronous frame/source publications have null origin. Origin is correlation,
+ * not an access right or a durable transaction ID. Observers should update their
+ * displays and issue deliberate commands separately to avoid write loops.
+ * Move/remove share existing undo behavior; other view setters follow their
+ * native direct-setter rules. No universal undo, native data transaction or
+ * source-file write is implied. For 2D seeks, observe ResultsTimeChanged and read
+ * the displayed cursor before treating the requested frame as visible.
+ *
  * @subsection sdk_event_delivery Legacy/V1 synchronous subscription and delivery
  *
  * Register on the GUI thread with a nonnull GUI-thread QObject context and a
@@ -491,10 +675,10 @@
  *
  * V2 provides authoritative session readiness, revision snapshots, close and
  * project-save lifecycle. V1 retains its earlier synchronous observation scope.
- * Detailed layer property/order/schema, computed-attribute schema/value, result
- * playback, unique run/job attempt and document/dock activation contracts remain
- * subsequent work. StateChanged categories are broad invalidations and do not
- * provide those detailed deltas. There is no general event-history replay or
+ * V3 adds detailed model/layer/result invalidations, copied view metadata and
+ * validated commands; it does not extend the earlier interfaces' semantics.
+ * Unique run/job attempts and general document/dock activation remain subsequent
+ * work. StateChanged categories remain broad invalidations. There is no general event-history replay or
  * plugin-to-plugin publishing service. Avoid querying private objects to work
  * around the remaining gaps; future capabilities need explicit public contracts
  * and conformance coverage.
@@ -645,7 +829,11 @@
  * IEventSourceV2 for session identities, load generations, readiness/revision
  * snapshots and normal/sidecar/recovery save outcomes. A V2 consumer requires
  * SDK 1.3; its capabilities do not change the frozen V1 delivery contract.
- * Detailed layer/results/process lifecycle remains subsequent qualification.
+ * SDK 1.4 adds IEventSourceV3, IViewControlsV1 and the consumer-local
+ * ViewSignalAdapter, without changing V1/V2 or existing public vtables. View
+ * clients require SDK 1.4. Unique process/job/run identities, broader UI events,
+ * Python binding acceptance and cross-platform release qualification remain
+ * subsequent packages; attached source metadata is not run-attempt telemetry.
  *
  * Snapshot-backed editing is exercised with a real 1D model. A release still
  * requires strict writer/reopen qualification of every authored section, 2D mesh
@@ -676,6 +864,13 @@
  * snapshot/ready/save/close display updates and shutdown cleanup. The main GUI
  * conformance runner also exercises the native load/save paths; synthetic core
  * tests alone do not establish those controller completion barriers.
+ * test_gui_extension_viewevents checks V3 filters, shared metadata watermarks,
+ * runtime attachment/source generations, stale delivery, managed subscriptions
+ * and the consumer-local signal adapter. test_extensionviewevents exercises
+ * real native model/layer/results signals and commands; source-open failure,
+ * close/reopen and asynchronous adoption require these native acceptance cases.
+ * View evidence and retained artifacts belong under
+ * tests/verification/extension_events_2026-10/ev3/.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}

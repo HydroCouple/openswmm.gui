@@ -21,6 +21,7 @@
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "plugins/extensionstateregistry.h"
+#include "plugins/extensionviewaccess.h"
 
 #include "swmmvis.h" // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
@@ -379,6 +380,33 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // cleared by finishModelLoad(), which resets the flag after the load.
     connect(mModelLayer, &SWMMModelLayer::modelEdited, this, [this]() { setHasChanges(true); });
     connect(mModelLayer, &SWMMModelLayer::geometryChanged, this, [this]() { setHasChanges(true); });
+    // Rename has already re-keyed the layer's typed selection. Keep the canonical
+    // cross-view bus coherent without disturbing same-name objects in another namespace.
+    connect(mModelLayer, &SWMMModelLayer::objectRenamed, this,
+            [this](const QString &oldName, const QString &newName, int kind) {
+                SWMMObjectRef::ObjectType type = SWMMObjectRef::Unknown;
+                switch (kind) {
+                case SWMMModelLayer::kKindNode:
+                    type = SWMMObjectRef::Node;
+                    break;
+                case SWMMModelLayer::kKindLink:
+                    type = SWMMObjectRef::Link;
+                    break;
+                case SWMMModelLayer::kKindCatch:
+                    type = SWMMObjectRef::Subcatchment;
+                    break;
+                case SWMMModelLayer::kKindGage:
+                    type = SWMMObjectRef::RainGage;
+                    break;
+                default:
+                    return;
+                }
+                auto selected = mSelectionManager->selection();
+                if (selected.remove({type, oldName})) {
+                    selected.insert({type, newName});
+                    mSelectionManager->select(selected);
+                }
+            });
     connect(mModelLayer, &SWMMModelLayer::attributeChanged, this,
             [this](const QString &) { setHasChanges(true); });
     connect(mModelLayer, &SWMMModelLayer::optionsChanged, this,
@@ -683,6 +711,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     };
     connect(this, &SWMMVisProjectWindow::activeResultsLayerChanged, this, resultsChanged);
     connect(this, &SWMMVisProjectWindow::active2DResultsLayerChanged, this, resultsChanged);
+    new openswmmvis::ExtensionViewAccess(this);
 }
 
 SWMMVisProjectWindow::~SWMMVisProjectWindow()
@@ -735,6 +764,8 @@ void SWMMVisProjectWindow::completeExtensionOpen()
         return;
     mExtensionLoadPending = false;
     updateExtensionSession();
+    if (auto *views = openswmmvis::ExtensionViewAccess::find(this))
+        views->refresh();
     if (mExtensionRegistry)
         mExtensionRegistry->finishLoad(extensionSessionId(), mExtensionLoadGeneration, true);
 }
@@ -763,6 +794,8 @@ void SWMMVisProjectWindow::settleExtensionLoad(quint64 generation, bool ok, cons
         return;
     }
     mExtensionLoadPending = false;
+    if (auto *views = openswmmvis::ExtensionViewAccess::find(this))
+        views->refresh();
     mExtensionRegistry->finishLoad(extensionSessionId(), generation, ok, error);
 }
 

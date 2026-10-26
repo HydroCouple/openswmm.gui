@@ -13,6 +13,8 @@
 #include <sdk/IProject.hpp>
 #include <sdk/IEventSourceV1.hpp>
 #include <sdk/IEventSourceV2.hpp>
+#include <sdk/IEventSourceV3.hpp>
+#include <sdk/IViewControlsV1.hpp>
 #include <openswmm/engine/openswmm_engine.h>
 #if __has_include(<openswmm/engine/openswmm_abi_tag.h>)
 #include <openswmm/engine/openswmm_abi_tag.h>
@@ -35,6 +37,9 @@
 #include <QMdiSubWindow>
 #include <QAbstractItemModel>
 #include <QHash>
+#include <QPluginLoader>
+#include <QLibrary>
+#include <algorithm>
 #include <memory>
 
 using namespace OpenSWMM::Sdk;
@@ -60,6 +65,17 @@ struct EventConformance {
     QUuid primarySession;   ///< Open lifetime of model.inp, independent of its persistent UUID.
     QUuid survivingSession; ///< Other open lifetime in the optional duplicate-UUID fixture.
     QString recoveryPath;   ///< Final returned recovery destination for terminal-event assertions.
+    IEventSourceV3 *viewSource = nullptr; ///< Borrowed pure metadata/observation capability.
+    IViewControlsV1 *controls = nullptr;  ///< Borrowed validated view controller capability.
+    QList<ViewEvent> views;               ///< Copied detailed observations, never native objects.
+    quint64 lastViewSequence = 0;         ///< Latest accepted detailed observation publication.
+    bool viewOrdered = true;  ///< Detailed callbacks retain their shared publication order.
+    QUuid boundaryAttachment; ///< Current runtime identity of the fixture polygon layer.
+    QUuid commandOrigin;      ///< Token used by deliberate synchronous layer/result commands.
+    QString boundaryLayerId;  ///< Native persisted polygon ID for public geometry queries only.
+    qint64 finalResultsIndex = -1; ///< Last requested 1D frame, expected to be published later.
+    QHash<QUuid, qint64>
+        publishedCursors; ///< Fresh cursor metadata observed from delivered time events.
 };
 
 /** @brief Public-SDK provider used to verify shared derived values across real engine edits. */
@@ -109,6 +125,22 @@ public:
             return false;
         }
         auto events = std::make_shared<EventConformance>();
+        events->controls = qobject_cast<IViewControlsV1 *>(host->lifetime());
+        if (auto *source = qobject_cast<IEventSourceV3 *>(host->lifetime())) {
+            events->viewSource = source;
+            source->observeViews(host->lifetime(), {}, [events, source](const ViewEvent &event) {
+                if (event.sequence <= events->watermark)
+                    return;
+                events->viewOrdered &= event.sequence > events->lastViewSequence;
+                events->lastViewSequence = event.sequence;
+                events->views.append(event);
+                if (event.kind == ViewEventKind::ResultsTimeChanged)
+                    for (const auto &result : source->viewSnapshot(event.session.sessionId).results)
+                        if (result.layerSessionId == event.layerSessionId)
+                            events->publishedCursors.insert(event.layerSessionId,
+                                                            result.currentIndex);
+            });
+        }
         if (auto *source = qobject_cast<IEventSourceV2 *>(host->lifetime())) {
             events->stateSource = source;
             source->observeState(host->lifetime(), {}, [events, source](const StateEvent &event) {
@@ -226,6 +258,262 @@ private:
                     return session;
         return {};
     }
+    /** @brief Copy one current attachment from the public metadata snapshot. */
+    static LayerViewState layerState(const EventConformance &events, const QUuid &id)
+    {
+        if (events.viewSource)
+            for (const auto &layer : events.viewSource->viewSnapshot(events.primarySession).layers)
+                if (layer.layerSessionId == id)
+                    return layer;
+        return {};
+    }
+    /** @brief Construct a fresh-generation request without relying on saved native IDs. */
+    static ViewCommand viewCommand(const EventConformance &events, ViewCommandKind kind,
+                                   const QUuid &attachment)
+    {
+        ViewCommand request;
+        request.kind = kind;
+        request.sessionId = events.primarySession;
+        request.loadGeneration = sessionState(events, events.primarySession).loadGeneration;
+        request.layerSessionId = attachment;
+        request.origin = events.commandOrigin;
+        return request;
+    }
+    /** @brief Exercise pure view reads and deliberate layer commands, restoring the original state. */
+    static void exerciseViewLayers(IModelInstance *instance, const QString &layerId,
+                                   QJsonObject &checks,
+                                   const std::shared_ptr<EventConformance> &events)
+    {
+        checks["viewServicesAvailable"] = events->viewSource && events->controls;
+        if (!events->viewSource || !events->controls)
+            return;
+        auto snapshot = events->viewSource->viewSnapshot(events->primarySession);
+        checks["viewSnapshotReady"] = snapshot.session.status == SessionStatus::Ready &&
+                                      snapshot.session.sessionId == events->primarySession;
+        bool pure = true;
+        for (int i = 0; i < 3; ++i) {
+            const auto copy = events->viewSource->viewSnapshot(events->primarySession);
+            pure &=
+                copy.sequence == snapshot.sequence && copy.layers.size() == snapshot.layers.size();
+        }
+        checks["viewGettersArePure"] = pure;
+        LayerViewState original;
+        for (const auto &layer : snapshot.layers)
+            if (layer.layerId == layerId)
+                original = layer;
+        events->boundaryLayerId = layerId;
+        events->boundaryAttachment = original.layerSessionId;
+        events->commandOrigin = QUuid::createUuid();
+        checks["runtimeLayerIdentityAvailable"] =
+            !original.layerSessionId.isNull() && original.vector;
+        if (original.layerSessionId.isNull())
+            return;
+        QString error;
+        auto request = viewCommand(*events, ViewCommandKind::RenameLayer, original.layerSessionId);
+        request.text = "SDK reviewed boundary";
+        checks["viewRenameCommand"] =
+            events->controls->executeViewCommand(request, &error) &&
+            layerState(*events, original.layerSessionId).title == request.text;
+        request.kind = ViewCommandKind::SetLayerVisible;
+        request.enabled = !original.visible;
+        checks["viewVisibilityCommand"] =
+            events->controls->executeViewCommand(request, &error) &&
+            layerState(*events, original.layerSessionId).visible == request.enabled;
+        const auto noOp = events->viewSource->viewSnapshot(events->primarySession).sequence;
+        checks["viewCommandNoOpIsPure"] =
+            events->controls->executeViewCommand(request, &error) &&
+            events->viewSource->viewSnapshot(events->primarySession).sequence == noOp;
+        request.kind = ViewCommandKind::SetLayerOpacity;
+        request.number = 0.45;
+        checks["viewOpacityCommand"] =
+            events->controls->executeViewCommand(request, &error) &&
+            qAbs(layerState(*events, original.layerSessionId).opacity - request.number) < 1e-9;
+        request.number = 2.;
+        checks["invalidViewOpacityRefused"] =
+            !events->controls->executeViewCommand(request, &error) && !error.isEmpty();
+        request.kind = ViewCommandKind::SetLayerFilter;
+        request.text = "name IS NOT NULL";
+        checks["viewFilterCommand"] =
+            events->controls->executeViewCommand(request, &error) &&
+            layerState(*events, original.layerSessionId).filter == request.text;
+        const auto selected = events->controls->selectedLayerFeatures(events->primarySession,
+                                                                      original.layerSessionId);
+        const auto boundary = instance->project()->boundaryFeatures(layerId);
+        request.kind = ViewCommandKind::SelectLayerFeatures;
+        if (!boundary.isEmpty())
+            request.featureIds = {boundary.first()["id"].toLongLong()};
+        checks["viewFeatureSelectionCommand"] =
+            !request.featureIds.isEmpty() &&
+            events->controls->executeViewCommand(request, &error) &&
+            events->controls->selectedLayerFeatures(events->primarySession,
+                                                    original.layerSessionId) == request.featureIds;
+        request.loadGeneration += 1;
+        checks["staleViewGenerationRefused"] =
+            !events->controls->executeViewCommand(request, &error) && !error.isEmpty();
+        request.loadGeneration -= 1;
+        request.featureIds = selected;
+        bool restored = events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::SetLayerFilter;
+        request.text = original.filter;
+        restored &= events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::SetLayerOpacity;
+        request.number = original.opacity;
+        restored &= events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::SetLayerVisible;
+        request.enabled = original.visible;
+        restored &= events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::RenameLayer;
+        request.text = original.title;
+        restored &= events->controls->executeViewCommand(request, &error);
+        checks["viewCommandsRestoreReviewBoundary"] = restored;
+    }
+    /** @brief Use result commands only after an attached reader has adopted its metadata. */
+    static void exerciseResultViews(QJsonObject &checks,
+                                    const std::shared_ptr<EventConformance> &events)
+    {
+        if (!events->viewSource || !events->controls)
+            return;
+        const auto snapshot = events->viewSource->viewSnapshot(events->primarySession);
+        ResultsViewState ready;
+        for (const auto &result : snapshot.results)
+            if (result.dimension == "1d" && result.availability == ResultAvailability::Ready &&
+                result.periodCount > 1) {
+                ready = result;
+                break;
+            }
+        checks["viewResultsReaderReady"] =
+            !ready.layerSessionId.isNull() && ready.sourceGeneration > 0;
+        if (ready.layerSessionId.isNull())
+            return;
+        QString error;
+        auto request = viewCommand(*events, ViewCommandKind::ActivateResults, ready.layerSessionId);
+        checks["viewActivateResultsCommand"] =
+            events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::SetResultsVariable;
+        request.text =
+            !ready.variables.isEmpty() && ready.variables.first().variableKey == "NodeHead"
+                ? QStringLiteral("NodeDepth")
+                : QStringLiteral("NodeHead");
+        checks["viewResultVariableCommand"] = events->controls->executeViewCommand(request, &error);
+        request.kind = ViewCommandKind::SetResultsTime;
+        request.index = ready.currentIndex == 0 ? std::min<qint64>(3, ready.periodCount - 1) : 0;
+        events->finalResultsIndex = request.index;
+        checks["viewResultTimeCommand"] = events->controls->executeViewCommand(request, &error);
+        const auto state = events->viewSource->viewSnapshot(events->primarySession);
+        bool final = false;
+        for (const auto &result : state.results)
+            if (result.layerSessionId == ready.layerSessionId)
+                final = result.active && result.currentIndex == request.index &&
+                        !result.variables.isEmpty() &&
+                        result.variables.first().variableKey == request.text &&
+                        !result.variables.first().units.isEmpty();
+        checks["viewPublishedResultsMetadata"] = final;
+        const auto watermark = state.sequence;
+        checks["viewResultNoOpIsPure"] =
+            events->controls->executeViewCommand(request, &error) &&
+            events->viewSource->viewSnapshot(events->primarySession).sequence == watermark;
+        request.index = ready.periodCount;
+        checks["invalidViewResultFrameRefused"] =
+            !events->controls->executeViewCommand(request, &error) && !error.isEmpty();
+    }
+    /** @brief Drive two independently built example buttons through ordinary Qt widgets. */
+    static void exerciseViewConsumers(ExtensionHost *host, QJsonObject &checks,
+                                      const std::shared_ptr<EventConformance> &events)
+    {
+        if (!qEnvironmentVariableIsSet("SDK_VIEW_CONSUMERS"))
+            return;
+        const QStringList ids{QStringLiteral("org.openswmm.views-example"),
+                              QStringLiteral("org.openswmm.views-second")};
+        const bool original = layerState(*events, events->boundaryAttachment).visible;
+        bool commands = true;
+        for (qsizetype index = 0; index < ids.size(); ++index) {
+            const QString prefix = "ext." + ids[index] + '.';
+            auto *label = host->ui()->mainWindow()->findChild<QLabel *>(prefix + "views-status");
+            auto *choice = host->ui()->mainWindow()->findChild<QComboBox *>(prefix + "views-layer");
+            auto *button =
+                host->ui()->mainWindow()->findChild<QPushButton *>(prefix + "views-toggle");
+            checks["viewConsumerLoaded:" + ids[index]] = label && choice && button;
+            const int selected = choice ? choice->findData(events->boundaryAttachment) : -1;
+            if (!label || !choice || !button || selected < 0) {
+                commands = false;
+                continue;
+            }
+            choice->setCurrentIndex(selected);
+            button->click();
+            const bool expected = index == 0 ? !original : original;
+            commands &= label->property("commandsAccepted").toInt() == 1 &&
+                        layerState(*events, events->boundaryAttachment).visible == expected;
+        }
+        checks["viewConsumersShareNativeCommands"] =
+            commands && layerState(*events, events->boundaryAttachment).visible == original;
+        // Qt returns the existing plugin instance from the already loaded library.
+        // Inspecting its child metaobject requires neither a GUI symbol nor a private header.
+        QList<const QMetaObject *> metaobjects;
+        const auto paths = qEnvironmentVariable("SDK_VIEW_PLUGIN_DIRS")
+                               .split(QDir::listSeparator(), Qt::SkipEmptyParts);
+        for (const auto &directory : paths)
+            for (const auto &file : QDir(directory).entryList(QDir::Files)) {
+                const auto path = QDir(directory).filePath(file);
+                if (!file.contains("views_example") || !QLibrary::isLibrary(path))
+                    continue;
+                QPluginLoader loader(path);
+                auto *plugin = loader.instance();
+                if (!plugin || !ids.contains(plugin->objectName()))
+                    continue;
+                auto *adapter =
+                    plugin->findChild<QObject *>("ext." + plugin->objectName() + ".view-adapter");
+                if (adapter)
+                    metaobjects.append(adapter->metaObject());
+            }
+        checks["viewConsumerAdapterMetaobjectsDistinct"] =
+            metaobjects.size() == 2 && metaobjects[0] != metaobjects[1];
+    }
+    /** @brief Check queued observations after deliberate commands have returned to the GUI loop. */
+    static void verifyViewObservations(ExtensionHost *host, QJsonObject &checks,
+                                       const std::shared_ptr<EventConformance> &events)
+    {
+        if (!events->viewSource)
+            return;
+        const QList<ViewEventKind> expected{
+            ViewEventKind::ModelGeometryChanged,   ViewEventKind::AttributeSchemaChanged,
+            ViewEventKind::AttributeValuesChanged, ViewEventKind::LayerAdded,
+            ViewEventKind::LayerMetadataChanged,   ViewEventKind::LayerFilterChanged,
+            ViewEventKind::LayerSelectionChanged,  ViewEventKind::ResultsSourceChanged,
+            ViewEventKind::ResultsVariableChanged, ViewEventKind::ResultsTimeChanged};
+        bool kinds = true, origin = false, finalTime = false;
+        for (const auto kind : expected) {
+            bool found = false;
+            for (const auto &event : events->views)
+                found |= event.session.sessionId == events->primarySession && event.kind == kind;
+            kinds &= found;
+        }
+        for (const auto &event : events->views) {
+            if (event.session.sessionId != events->primarySession)
+                continue;
+            origin |= !events->commandOrigin.isNull() && event.origin == events->commandOrigin;
+            if (event.kind == ViewEventKind::ResultsTimeChanged)
+                finalTime |= events->finalResultsIndex >= 0 &&
+                             events->publishedCursors.value(event.layerSessionId, -1) ==
+                                 events->finalResultsIndex;
+        }
+        checks["detailedViewKindsObserved"] = kinds;
+        checks["viewCommandOriginObserved"] = origin;
+        checks["finalPublishedResultCursorObserved"] = finalTime;
+        checks["detailedViewObservationsOrdered"] = events->viewOrdered;
+        if (qEnvironmentVariableIsSet("SDK_VIEW_CONSUMERS")) {
+            auto *first = host->ui()->mainWindow()->findChild<QLabel *>(
+                "ext.org.openswmm.views-example.views-status");
+            auto *second = host->ui()->mainWindow()->findChild<QLabel *>(
+                "ext.org.openswmm.views-second.views-status");
+            checks["viewConsumersObserveCommonState"] =
+                first && second && first->property("viewEvents").toInt() > 0 &&
+                second->property("viewEvents").toInt() > 0 &&
+                first->property("lastSequence").toULongLong() ==
+                    second->property("lastSequence").toULongLong() &&
+                first->property("layerCount").toInt() == second->property("layerCount").toInt() &&
+                first->property("resultCount").toInt() == second->property("resultCount").toInt();
+        }
+    }
     /** @brief Record every assertion and exit the dedicated GUI process with its test status. */
     static void finish(const QString &path, QJsonObject checks, const QString &error = {})
     {
@@ -246,8 +534,10 @@ private:
      * @param[in] checks Current owning assertion results.
      * @param[in] done GUI-thread continuation receiving the augmented results.
      * @note Optional, enabled by SDK_DATA_CATALOGUE; all catalogue responses are local fixtures. */
-    static void exerciseDataPreview(ExtensionHost *host, IModelInstance *instance,
-                                    QJsonObject checks, std::function<void(QJsonObject)> done)
+    static void exerciseDataPreviewNow(ExtensionHost *host, IModelInstance *instance,
+                                       QJsonObject checks,
+                                       const std::shared_ptr<EventConformance> &events,
+                                       std::function<void(QJsonObject)> done)
     {
         const auto sites = qEnvironmentVariable("SDK_DATA_CATALOGUE");
         if (sites.isEmpty()) {
@@ -283,7 +573,8 @@ private:
         connect(
             timer, &QTimer::timeout, host->lifetime(),
             [host, instance, panel = QPointer<QWidget>(panel), area, source, table, exportButton,
-             sites, before, stage, attempts, timer, checks, done = std::move(done)]() mutable {
+             sites, before, stage, attempts, timer, checks, events,
+             done = std::move(done)]() mutable {
                 if (!panel || ++*attempts > 100) {
                     timer->stop();
                     checks["dataPreviewCompleted"] = false;
@@ -299,7 +590,7 @@ private:
                     done(checks);
                     return;
                 }
-                if (*stage < 2 && table->model()->rowCount() != 2)
+                if ((*stage < 2 || *stage == 10 || *stage == 11) && table->model()->rowCount() != 2)
                     return;
                 if (*stage == 0) {
                     QStringList ids;
@@ -313,6 +604,40 @@ private:
                     checks["dataAreaChangeInvalidatesReview"] =
                         table->model()->rowCount() == 0 && !exportButton->isEnabled();
                     area->setCurrentIndex(1);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                    *stage = events->viewSource && events->controls ? 10 : 1;
+                    return;
+                }
+                if (*stage == 10) {
+                    QString error;
+                    auto request = viewCommand(*events, ViewCommandKind::SetLayerFilter,
+                                               events->boundaryAttachment);
+                    request.text = "name IS NOT NULL";
+                    const bool applied = events->controls->executeViewCommand(request, &error);
+                    checks["dataViewFilterInvalidatesReview"] =
+                        applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
+                    request.text.clear();
+                    checks["dataViewFilterRestored"] =
+                        events->controls->executeViewCommand(request, &error);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                    *stage = 11;
+                    return;
+                }
+                if (*stage == 11) {
+                    QString error;
+                    auto request = viewCommand(*events, ViewCommandKind::SelectLayerFeatures,
+                                               events->boundaryAttachment);
+                    const auto boundary =
+                        instance->project()->boundaryFeatures(events->boundaryLayerId);
+                    if (!boundary.isEmpty())
+                        request.featureIds = {boundary.first()["id"].toLongLong()};
+                    const bool applied = !request.featureIds.isEmpty() &&
+                                         events->controls->executeViewCommand(request, &error);
+                    checks["dataViewSelectionInvalidatesReview"] =
+                        applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
+                    request.featureIds.clear();
+                    checks["dataViewSelectionRestored"] =
+                        events->controls->executeViewCommand(request, &error);
                     QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
                     *stage = 1;
                     return;
@@ -361,6 +686,18 @@ private:
                 done(checks);
             });
         timer->start();
+    }
+    /** @brief Let queued view publications settle before the optional Data continuation. */
+    static void exerciseDataPreview(ExtensionHost *host, IModelInstance *instance,
+                                    QJsonObject checks,
+                                    const std::shared_ptr<EventConformance> &events,
+                                    std::function<void(QJsonObject)> done)
+    {
+        QTimer::singleShot(0, host->lifetime(),
+                           [host, instance, checks, events, done = std::move(done)]() mutable {
+                               exerciseDataPreviewNow(host, instance, checks, events,
+                                                      std::move(done));
+                           });
     }
     /** @brief Exercise real facades without private GUI classes or executable symbols. */
     static void run(ExtensionHost *host, IModelInstance *instance, const QString &report,
@@ -580,6 +917,7 @@ private:
             project->addFeatureLayer(QFileInfo(report).absoluteDir().filePath("boundary.geojson"),
                                      "Download boundary", &error);
         checks["featureLayerAdded"] = !layerId.isEmpty();
+        exerciseViewLayers(instance, layerId, checks, events);
         const auto features = project->boundaryFeatures(layerId);
         checks["boundaryFeatureListed"] = features.size() == 1;
         QJsonObject polygon;
@@ -634,9 +972,12 @@ private:
                     QTimer::singleShot(
                         400, host->lifetime(),
                         [host, instance, job, report, checks, events]() mutable {
+                            exerciseResultViews(checks, events);
+                            exerciseViewConsumers(host, checks, events);
                             exerciseDataPreview(
-                                host, instance, checks,
+                                host, instance, checks, events,
                                 [host, instance, job, report, events](QJsonObject checks) mutable {
+                                    verifyViewObservations(host, checks, events);
                                     QUuid recoveryOperation;
                                     int recoveryCollections = 0;
                                     for (const auto &request : events->beforeSaves) {
@@ -704,6 +1045,21 @@ private:
                                                 events->runNotices > beforeRemoval;
                                             checks["lifecycleObservationsOrdered"] =
                                                 events->ordered;
+                                            if (events->viewSource && events->controls) {
+                                                checks["retiredViewSnapshotIsEmpty"] =
+                                                    events->viewSource
+                                                        ->viewSnapshot(events->primarySession)
+                                                        .session.sessionId.isNull();
+                                                auto stale = viewCommand(
+                                                    *events, ViewCommandKind::SetLayerVisible,
+                                                    events->boundaryAttachment);
+                                                stale.loadGeneration = 1;
+                                                QString error;
+                                                checks["retiredViewCommandRefused"] =
+                                                    !events->controls->executeViewCommand(stale,
+                                                                                          &error) &&
+                                                    !error.isEmpty();
+                                            }
                                             if (events->stateSource) {
                                                 checks["closedSessionDoesNotResolve"] =
                                                     !events->stateSource->resolveSession(

@@ -879,8 +879,20 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
           cmake --build "build/sdk-lifecycle-${{ matrix.build_subdir }}" \
             --config Release --parallel 2
+          for view_variant in a b; do
+            view_id=org.openswmm.views-example
+            if [ "$view_variant" = b ]; then view_id=org.openswmm.views-second; fi
+            cmake -S "dist/gui-sdk/${{ matrix.vcpkg_triplet }}/share/openswmmvis-sdk/examples/views" \
+              -B "build/sdk-views-$view_variant-${{ matrix.build_subdir }}" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+              -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+              -DOPENSWMM_VIEW_EXAMPLE_ID="$view_id"
+            cmake --build "build/sdk-views-$view_variant-${{ matrix.build_subdir }}" \
+              --config Release --parallel 2
+          done
           cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
-            --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents
+            --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents
           python - <<'PY'
           import os
           import pathlib
@@ -900,9 +912,12 @@ jobs:
               f"build/sdk-example-{subdir}", "example_extension")
           os.environ["SDK_LIFECYCLE_PLUGIN_DIR"] = module_directory(
               f"build/sdk-lifecycle-{subdir}", "lifecycle_example")
+          os.environ["SDK_VIEW_PLUGIN_DIRS"] = os.pathsep.join(
+              module_directory(f"build/sdk-views-{v}-{subdir}", "views_example")
+              for v in ("a", "b"))
           subprocess.run(["ctest", "--test-dir", f"build/{subdir}", "-C", "Release",
                           "--output-on-failure", "--timeout", "60", "-R",
-                          "^test_gui_extension(s|_events|_stateevents)$"], check=True)
+                          "^test_gui_extension(s|_events|_stateevents|_viewevents)$"], check=True)
           PY
 
       - name: Upload GUI extension SDK

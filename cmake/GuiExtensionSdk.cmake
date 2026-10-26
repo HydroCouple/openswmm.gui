@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.3")
+set(OPENSWMMVIS_SDK_API_VERSION "1.4")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)
@@ -70,6 +70,12 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/events/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/events" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/lifecycle/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/lifecycle" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/views/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/views" COMPONENT GuiSdk)
+set(OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/ViewSignalAdapter.cpp")
+set(OpenSWMMVisSdk_VIEW_ADAPTER_HEADER "${PROJECT_SOURCE_DIR}/include/sdk/qt/ViewSignalAdapter.hpp")
+install(FILES "${OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE}"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/qt" COMPONENT GuiSdk)
 set(OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/EventSignalAdapter.cpp")
 set(OpenSWMMVisSdk_EVENT_ADAPTER_HEADER
     "${PROJECT_SOURCE_DIR}/include/sdk/qt/EventSignalAdapter.hpp")

@@ -54,6 +54,7 @@
 #include <QVariant>
 
 #include <limits>
+#include <utility>
 
 #include <openswmm/engine/openswmm_output.h>
 // Subcatchment area — needed to turn the .out file's rainfall RATE series
@@ -1069,10 +1070,16 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     QElapsedTimer openTimer;
     openTimer.start();
 
-    closeResults();
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen();
+    if (!self || generation != m_sourceGeneration)
+        return false;
 
     if (!QFile::exists(m_resultsFilePath)) {
         errors.append(QStringLiteral("Results file not found: ") + m_resultsFilePath);
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
         return false;
     }
@@ -1080,9 +1087,13 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     m_handle = swmm_output_open(m_resultsFilePath.toUtf8().constData());
     if (!m_handle) {
         errors.append(QStringLiteral("Failed to open results file: ") + m_resultsFilePath);
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
         return false;
     }
+    m_adoptedSourcePath = resultsFilePath();
 
     return finishOpen(openTimer.elapsed(), warnings, errors);
 }
@@ -1097,22 +1108,26 @@ bool SWMMResultsLayer::openResultsLive(QList<QString> &errors)
     QElapsedTimer openTimer;
     openTimer.start();
 
-    closeResults();
-
-    if (!QFile::exists(m_resultsFilePath))
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen();
+    if (!self || generation != m_sourceGeneration)
         return false;
+
+    if (!QFile::exists(m_resultsFilePath)) {
+        completeResultsOpen();
+        return false;
+    }
 
     m_handle = swmm_output_open_live(m_resultsFilePath.toUtf8().constData());
-    if (!m_handle)
+    if (!m_handle) {
+        completeResultsOpen();
         return false;
+    }
+    m_adoptedSourcePath = resultsFilePath();
 
     m_live = true;
     QList<QString> warnings;
-    if (!finishOpen(openTimer.elapsed(), warnings, errors)) {
-        m_live = false;
-        return false;
-    }
-    return true;
+    return finishOpen(openTimer.elapsed(), warnings, errors);
 }
 
 int SWMMResultsLayer::refreshLive()
@@ -1173,6 +1188,8 @@ int SWMMResultsLayer::refreshLive()
 
 bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList<QString> &errors)
 {
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = m_sourceGeneration;
     // Y2b-3: a new run may carry species the old one missed (or vice
     // versa) — the warn-once ledger starts fresh.
     m_speciesMissWarner.reset();
@@ -1191,8 +1208,11 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
     // report step not yet flushed); refreshLive() fills the time range in.
     if (m_totalSteps <= 0 && !m_live) {
         errors.append(QStringLiteral("Results file contains no output periods."));
+        clearResults();
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
-        closeResults();
         return false;
     }
 
@@ -1253,9 +1273,17 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
     escalateSceneDirty(SceneDirty::Structural);
 
     emit totalTimeStepsChanged(m_totalSteps);
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit currentTimeStepChanged(m_currentStep);
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit currentDateTimeChanged(currentDateTime());
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit resultsOpened();
+    if (!self || generation != m_sourceGeneration)
+        return false;
 
     qCInfo(lcLoadResults).noquote()
         << QStringLiteral("%1: %2 periods — open (ms): output_open=%3 header=%4 "
@@ -1268,7 +1296,8 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
                .arg(msFetch)
                .arg(msOpen + loadTimer.elapsed());
 
-    return true;
+    completeResultsOpen();
+    return self && generation == m_sourceGeneration && m_handle;
 }
 
 void SWMMResultsLayer::openResultsAsync()
@@ -1278,45 +1307,66 @@ void SWMMResultsLayer::openResultsAsync()
     // period-0 fetch + emits stay on the GUI thread in finishOpen(). Fires
     // resultsOpenFinished(bool) when done. If the layer dies mid-open the
     // finished handler closes the orphaned handle.
-    if (!QFile::exists(m_resultsFilePath)) {
-        emit resultsError(QStringLiteral("Results file not found: ") + m_resultsFilePath);
-        emit resultsOpenFinished(false);
+    const QString path = m_resultsFilePath;
+    const bool missing = !QFile::exists(path);
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen(missing);
+    if (!self || generation != m_sourceGeneration)
+        return;
+    if (missing) {
+        const QString message = QStringLiteral("Results file not found: ") + path;
+        completeResultsOpen(message);
+        if (!self || generation != m_sourceGeneration)
+            return;
+        emit resultsError(message);
+        if (self && generation == m_sourceGeneration)
+            emit resultsOpenFinished(false);
         return;
     }
 
-    closeResults(); // drop any prior handle before opening the new one
-
-    struct HandleOpen {
-        SWMM_Output handle = nullptr;
-        qint64 msOpen = 0;
+    /** @brief Close a prepared reader unless the current GUI generation adopts it. */
+    struct PreparedOutput {
+        SWMM_Output handle = nullptr; ///< Exclusively released into the live layer on adoption.
+        ~PreparedOutput()
+        {
+            if (handle)
+                swmm_output_close(handle);
+        }
     };
-    const QString path = m_resultsFilePath;
-    QPointer<SWMMResultsLayer> self(this);
+    /** @brief Copyable future value with shared RAII ownership of a prepared handle. */
+    struct HandleOpen {
+        std::shared_ptr<PreparedOutput> output = std::make_shared<PreparedOutput>();
+        qint64 msOpen = 0; ///< Blocking output-open elapsed time, excluding GUI adoption.
+    };
     auto *watcher = new QFutureWatcher<HandleOpen>();
-    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher, [watcher, self, path]() {
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self, path, generation]() {
         HandleOpen r = watcher->result();
         watcher->deleteLater();
-        if (!self) {
-            if (r.handle)
-                swmm_output_close(r.handle);
+        if (!self || generation != self->m_sourceGeneration)
+            return;
+        if (!r.output->handle) {
+            const QString message = QStringLiteral("Failed to open results file: ") + path;
+            self->completeResultsOpen(message);
+            if (!self || generation != self->m_sourceGeneration)
+                return;
+            emit self->resultsError(message);
+            if (self && generation == self->m_sourceGeneration)
+                emit self->resultsOpenFinished(false);
             return;
         }
-        if (!r.handle) {
-            self->m_handle = nullptr;
-            emit self->resultsError(QStringLiteral("Failed to open results file: ") + path);
-            emit self->resultsOpenFinished(false);
-            return;
-        }
-        self->m_handle = r.handle;
+        self->m_handle = std::exchange(r.output->handle, nullptr);
+        self->m_adoptedSourcePath = self->resultsFilePath();
         QList<QString> w, e;
         const bool ok = self->finishOpen(r.msOpen, w, e);
-        emit self->resultsOpenFinished(ok);
+        if (self && generation == self->m_sourceGeneration)
+            emit self->resultsOpenFinished(ok);
     });
     watcher->setFuture(QtConcurrent::run([path]() {
         HandleOpen r;
         QElapsedTimer t;
         t.start();
-        r.handle = swmm_output_open(path.toUtf8().constData());
+        r.output->handle = swmm_output_open(path.toUtf8().constData());
         r.msOpen = t.elapsed();
         return r;
     }));
@@ -1335,7 +1385,35 @@ openswmmvis::io::LidStateFrame SWMMResultsLayer::lidStateAt(const QDateTime &tim
 
 void SWMMResultsLayer::closeResults()
 {
+    ++m_sourceGeneration;
+    clearResults();
+    m_sourceLoading = false;
+    m_sourceError.clear();
+    emit sourceStateChanged();
+}
+
+quint64 SWMMResultsLayer::beginResultsOpen(bool keepReader)
+{
+    const auto generation = ++m_sourceGeneration;
+    if (!keepReader)
+        clearResults();
+    m_sourceLoading = true;
+    m_sourceError.clear();
+    emit sourceStateChanged();
+    return generation;
+}
+
+void SWMMResultsLayer::completeResultsOpen(const QString &error)
+{
+    m_sourceLoading = false;
+    m_sourceError = error;
+    emit sourceStateChanged();
+}
+
+void SWMMResultsLayer::clearResults()
+{
     m_lidStateReader = {};
+    m_adoptedSourcePath.clear();
     if (m_handle) {
         swmm_output_close(m_handle);
         m_handle = nullptr;

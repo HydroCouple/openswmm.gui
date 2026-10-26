@@ -36,6 +36,11 @@ if(LIFECYCLE_PLUGIN_DIR)
     string(APPEND _extension_paths "${_separator}${LIFECYCLE_PLUGIN_DIR}")
     set(_lifecycle_environment "SDK_LIFECYCLE_CONSUMER=1")
 endif()
+set(_view_consumer_environment "")
+if(VIEW_PLUGIN_DIRS)
+    string(APPEND _extension_paths "${_separator}${VIEW_PLUGIN_DIRS}")
+    set(_view_consumer_environment "SDK_VIEW_CONSUMERS=1")
+endif()
 set(_startup_project "${_run}/model.oswp")
 set(_multi_model_environment "")
 file(WRITE "${_run}/model.oswp"
@@ -67,8 +72,10 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "SDK_EV2_PROJECT_PATH=${_startup_project}"
     "SDK_DATA_CATALOGUE=${_data_catalogue}"
     "SDK_DATA_TERRAIN=${_data_terrain}"
+    "SDK_VIEW_PLUGIN_DIRS=${VIEW_PLUGIN_DIRS}"
     ${_typed_consumer_environment}
     ${_lifecycle_environment}
+    ${_view_consumer_environment}
     ${_multi_model_environment}
     "SWMMVIS_CAPTURE_MANIFEST=${_run}/settings-scope.json"
     "SWMM_LOG_FILE=${_run}/application.log"

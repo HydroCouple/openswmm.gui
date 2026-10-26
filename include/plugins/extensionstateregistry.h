@@ -10,7 +10,7 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV2.hpp"
+#include "sdk/IEventSourceV3.hpp"
 #include <QPointer>
 #include <memory>
 
@@ -60,6 +60,25 @@ public:
      * @param[in] sessionId Open-lifetime identity.
      * @return State with a null sessionId when absent. */
     OpenSWMM::Sdk::ModelSessionState session(const QUuid &sessionId) const;
+    /** @brief Copy tracked view metadata without touching native objects.
+     * @param[in] sessionId Registered open lifetime.
+     * @return Current copied state/watermark, or a null-session snapshot. */
+    OpenSWMM::Sdk::ViewSnapshot viewSnapshot(const QUuid &sessionId) const;
+    /** @brief Refresh copied view state at a native construction/restoration boundary.
+     * @param[in] sessionId Registered open lifetime.
+     * @param[in] snapshot Native copied metadata; supplied session/sequence are ignored.
+     * @note This boundary does not publish a domain invalidation. */
+    void refreshViews(const QUuid &sessionId, OpenSWMM::Sdk::ViewSnapshot snapshot);
+    /** @brief Commit one domain invalidation and its latest copied view state.
+     * @param[in] sessionId Registered open lifetime.
+     * @param[in] snapshot Native metadata after the semantic operation.
+     * @param[in] event Bounded reason/details; session/revision/sequence assigned here. */
+    void publishView(const QUuid &sessionId, OpenSWMM::Sdk::ViewSnapshot snapshot,
+                     OpenSWMM::Sdk::ViewEvent event);
+    /** @brief Recheck a queued domain observation per receiving host.
+     * @param[in] event Owning copied observation.
+     * @return True for the current ready generation/attachment/source, or its detach history. */
+    bool isDeliverable(const OpenSWMM::Sdk::ViewEvent &event) const;
     /** @brief Update copied native metadata and record a broad invalidation.
      * @param[in] sessionId A registered open lifetime.
      * @param[in] metadata Owning latest native metadata.
@@ -132,6 +151,9 @@ signals:
     /** @brief Deliver a copied transition from the ordered GUI-thread drain.
      * @param[in] event Immutable observation; hosts recheck per receiver before forwarding. */
     void stateEventReady(const OpenSWMM::Sdk::StateEvent &event);
+    /** @brief Deliver domain metadata in the same globally ordered V2/V3 drain.
+     * @param[in] event Copied native view invalidation. */
+    void viewEventReady(const OpenSWMM::Sdk::ViewEvent &event);
     /** @brief Synchronously collect extension state before native persistence starts.
      * @param[in] request Captured save identity, revalidated after each observer by the host. */
     void beforeSave(const OpenSWMM::Sdk::SaveRequest &request);

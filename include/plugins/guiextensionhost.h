@@ -11,6 +11,8 @@
 #include "sdk/ExtensionHost.hpp"
 #include "sdk/IEventSourceV1.hpp"
 #include "sdk/IEventSourceV2.hpp"
+#include "sdk/IEventSourceV3.hpp"
+#include "sdk/IViewControlsV1.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -67,10 +69,12 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IPlotService,
                                public OpenSWMM::Sdk::IDialogs,
                                public OpenSWMM::Sdk::IEventSourceV1,
-                               public OpenSWMM::Sdk::IEventSourceV2
+                               public OpenSWMM::Sdk::IEventSourceV2,
+                               public OpenSWMM::Sdk::IEventSourceV3,
+                               public OpenSWMM::Sdk::IViewControlsV1
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2)
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -153,6 +157,32 @@ public:
      * @return Disconnectable handle, or invalid for unavailable context/callback/host. */
     QMetaObject::Connection observeBeforeSave(
         QObject *context, std::function<void(const OpenSWMM::Sdk::SaveRequest &)> callback) override;
+    /** @brief Copy tracked native view metadata without creating trackers or facades.
+     * @param[in] sessionId Per-open model identity.
+     * @return Owning state, or a null-session value when unavailable. */
+    OpenSWMM::Sdk::ViewSnapshot viewSnapshot(const QUuid &sessionId) const override;
+    /** @brief Observe future V3 domain invalidations on the ordered shared dispatcher.
+     * @param[in] context Required GUI-thread lifetime guard.
+     * @param[in] filter Copied reason/session/attachment filter.
+     * @param[in] callback Managed exception-isolated observer.
+     * @return Disconnectable handle, or invalid for an unavailable registration. */
+    QMetaObject::Connection observeViews(
+        QObject *context, const OpenSWMM::Sdk::ViewEventFilter &filter,
+        std::function<void(const OpenSWMM::Sdk::ViewEvent &)> callback) override;
+    /** @brief Apply a validated view controller command.
+     * @param[in] command Owning request targeting a Ready session and current attachment.
+     * @param[out] error Optional refusal detail, cleared on success.
+     * @return True for an accepted command/no-op. */
+    bool executeViewCommand(const OpenSWMM::Sdk::ViewCommand &command,
+                             QString *error = nullptr) override;
+    /** @brief Copy a bounded sorted page of selected vector FIDs.
+     * @param[in] sessionId Ready model lifetime.
+     * @param[in] layerSessionId Current runtime attachment UUID.
+     * @param[in] offset Nonnegative sorted-result offset.
+     * @param[in] limit Positive requested count, capped at 5000.
+     * @return Copied selected identities, or empty on invalid/unavailable input. */
+    QList<qint64> selectedLayerFeatures(const QUuid &sessionId, const QUuid &layerSessionId,
+                                        int offset = 0, int limit = 500) const override;
     /** @brief Start one worker, retaining its handle and progress UI until host cleanup.
      * @param[in] title User-visible stage caption and durable operation-marker description.
      * @param[in] work Worker-only operation; it must cooperate with cancellation.
@@ -204,6 +234,12 @@ public:
     /** @brief Access the application registry used by this host's private model bridge.
      * @return Borrowed registry, or null during application teardown. */
     ExtensionStateRegistry *stateRegistry() const;
+    /** @brief Install private native view-controller routes during host setup.
+     * @param[in] execute Validated native command callback.
+     * @param[in] selection Lookup-only paged vector-selection callback. */
+    void setViewControls(
+        std::function<bool(const OpenSWMM::Sdk::ViewCommand &, QString *)> execute,
+        std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> selection);
     /** @brief Deliver an owning metadata notification to extension observers.
      * @param[in] event SDK event name.
      * @param[in] data Copied metadata; model events contain a persistent id.
@@ -270,6 +306,8 @@ private:
     QPointer<ExtensionStateRegistry> mStateRegistry; ///< Shared authoritative lifecycle source.
     QList<QMetaObject::Connection> mStateConnections; ///< Managed V2 callbacks cleared before plugin shutdown.
     std::function<OpenSWMM::Sdk::IModelInstance *(const QUuid &)> mSessionResolver;
+    std::function<bool(const OpenSWMM::Sdk::ViewCommand &, QString *)> mViewCommand;
+    std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> mViewSelection;
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
 };

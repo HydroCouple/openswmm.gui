@@ -25,6 +25,7 @@
 #include "plugins/extensionmodelaccess.h"
 #include "plugins/extensionattributes.h"
 #include "plugins/extensionstateregistry.h"
+#include "plugins/extensionviewaccess.h"
 #include <QScopeGuard>
 #include "render/renderers/graduatedrenderer.h"
 #include "swmmvisprojectwindow.h"
@@ -184,9 +185,85 @@ bool restoreSnapshot(SWMMVisProjectWindow *window, const QString &path, QString 
     auto *engine = SWMMModelLayer::openEngineForPath(path, error);
     if (!engine)
         return false;
+    const QPointer<SWMMVisProjectWindow> owner(window);
     window->modelLayer()->replaceEngineForEdit(engine);
-    window->setHasChanges(true);
-    return true;
+    if (!owner || owner->isClosing())
+        return false;
+    owner->setHasChanges(true);
+    return owner && !owner->isClosing();
+}
+
+/** @brief Copy only the spatial model references from the canonical selection bus.
+ * @param[in] window Borrowed native source.
+ * @return Current node/link/subcatchment/gage references; other view selections are excluded. */
+QSet<SWMMObjectRef> spatialSelection(SWMMVisProjectWindow *window)
+{
+    QSet<SWMMObjectRef> result;
+    if (window && window->selectionManager())
+        for (const auto &ref : window->selectionManager()->selection())
+            if (ref.objectType >= SWMMObjectRef::Node && ref.objectType <= SWMMObjectRef::RainGage)
+                result.insert(ref);
+    return result;
+}
+
+/** @brief Retain unrelated selections across native engine replacement's spatial bridge.
+ * @param[in] window Borrowed current native owner.
+ * @return Current GIS/mesh/nonspatial refs, excluding the four model namespaces. */
+QSet<SWMMObjectRef> otherSelection(SWMMVisProjectWindow *window)
+{
+    if (!window || !window->selectionManager())
+        return {};
+    auto result = window->selectionManager()->selection();
+    result.subtract(spatialSelection(window));
+    return result;
+}
+
+/** @brief Copy the layer's post-edit typed spatial references while native signals are blocked.
+ * @param[in] window Borrowed native source.
+ * @return Spatial identities after mediated rename/delete edits. */
+QSet<SWMMObjectRef> layerSpatialSelection(SWMMVisProjectWindow *window)
+{
+    QSet<SWMMObjectRef> result;
+    if (!window || !window->modelLayer())
+        return result;
+    for (const auto &entry : window->modelLayer()->selectedElements()) {
+        for (const auto &[mask, type] :
+             {std::pair{SWMMModelLayer::kKindNode, SWMMObjectRef::Node},
+              std::pair{SWMMModelLayer::kKindLink, SWMMObjectRef::Link},
+              std::pair{SWMMModelLayer::kKindCatch, SWMMObjectRef::Subcatchment},
+              std::pair{SWMMModelLayer::kKindGage, SWMMObjectRef::RainGage}})
+            if (entry.kinds & mask)
+                result.insert({type, entry.name});
+    }
+    return result;
+}
+
+/** @brief Restore model selection identities without reverting unrelated GIS/data selections.
+ * @param[in] window Borrowed current native owner, guarded through canonical notifications.
+ * @param[in] spatial Copied intended spatial identities.
+ * @param[in] others Unrelated refs captured before an engine replacement can reset its bridge. */
+void restoreSpatialSelection(SWMMVisProjectWindow *window, const QSet<SWMMObjectRef> &spatial,
+                             const QSet<SWMMObjectRef> &others = {})
+{
+    const QPointer<SWMMVisProjectWindow> owner(window);
+    if (!owner || owner->isClosing() || !owner->selectionManager())
+        return;
+    auto combined = owner->selectionManager()->selection();
+    for (auto it = combined.begin(); it != combined.end();)
+        if (it->objectType >= SWMMObjectRef::Node && it->objectType <= SWMMObjectRef::RainGage)
+            it = combined.erase(it);
+        else
+            ++it;
+    combined.unite(others);
+    combined.unite(spatial);
+    owner->selectionManager()->select(combined);
+    if (!owner || owner->isClosing() || !owner->modelLayer())
+        return;
+    // A no-op canonical replacement need not emit; explicitly settle the layer too.
+    QVector<SWMMModelLayer::SelectedElement> selected;
+    for (const auto &ref : spatial)
+        selected.append({ref.name, SWMMModelLayer::kindMaskForObjectType(ref.objectType)});
+    owner->modelLayer()->setSelectedElements(selected);
 }
 
 /** Lease bookkeeping is per model, shared by every extension, and GUI-thread confined. */
@@ -230,28 +307,39 @@ class NativeEditCommand final : public QUndoCommand
 {
 public:
     NativeEditCommand(SWMMVisProjectWindow *window, QString before, QString after,
-                      const QString &label)
-        : QUndoCommand(label), mWindow(window), mBefore(std::move(before)), mAfter(std::move(after))
+                      const QString &label, QSet<SWMMObjectRef> beforeSelection,
+                      QSet<SWMMObjectRef> afterSelection)
+        : QUndoCommand(label), mWindow(window), mBefore(std::move(before)),
+          mAfter(std::move(after)), mBeforeSelection(std::move(beforeSelection)),
+          mAfterSelection(std::move(afterSelection))
     {
     }
-    void undo() override { replay(mBefore); }
+    void undo() override { replay(mBefore, mBeforeSelection); }
     void redo() override
     {
         if (mInitial)
             mInitial = false;
         else
-            replay(mAfter);
+            replay(mAfter, mAfterSelection);
     }
 
 private:
-    void replay(const QString &path)
+    void replay(const QString &path, const QSet<SWMMObjectRef> &selection)
     {
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        const auto target = path;
+        const auto identities = selection;
+        const auto others = otherSelection(owner);
         QString error;
-        if (!restoreSnapshot(mWindow, path, &error))
-            qWarning().noquote() << "Extension snapshot replay failed:" << path << error;
+        if (!restoreSnapshot(owner, target, &error))
+            qWarning().noquote() << "Extension snapshot replay failed:" << target << error;
+        else
+            restoreSpatialSelection(owner, identities, others);
     }
     QPointer<SWMMVisProjectWindow> mWindow;
     QString mBefore, mAfter;
+    QSet<SWMMObjectRef> mBeforeSelection,
+        mAfterSelection; ///< Model identities matching each snapshot.
     bool mInitial = true;
 };
 
@@ -271,6 +359,7 @@ public:
         settings.sync();
         mBlocked = window->modelLayer()->blockSignals(true);
         mWasDirty = window->hasChanges();
+        mBeforeSelection = spatialSelection(window);
         connect(window, &SWMMVisProjectWindow::aboutToClose, this, [this]() { abort(); });
     }
     ~NativeEditScope() override
@@ -288,15 +377,29 @@ public:
             abort();
             return false;
         }
-        mWindow->modelLayer()->blockSignals(mBlocked);
-        mWindow->modelLayer()->rebuildFromEngine();
-        mWindow->setHasChanges(true);
-        mWindow->canvas()->undoStack()->push(
-            new NativeEditCommand(mWindow, mBefore, after, mLabel));
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        if (!owner || owner->isClosing()) {
+            mFinished = true;
+            mLease.reset();
+            clearMarker();
+            return false;
+        }
+        const auto afterSelection = layerSpatialSelection(owner);
+        const auto others = otherSelection(owner);
+        // Native publication can close this window; do not recursively abort a settled scope.
         mFinished = true;
+        owner->modelLayer()->blockSignals(mBlocked);
+        owner->modelLayer()->rebuildFromEngine();
+        if (owner && !owner->isClosing())
+            restoreSpatialSelection(owner, afterSelection, others);
+        if (owner && !owner->isClosing())
+            owner->setHasChanges(true);
+        if (owner && !owner->isClosing())
+            owner->canvas()->undoStack()->push(new NativeEditCommand(
+                owner, mBefore, after, mLabel, mBeforeSelection, afterSelection));
         mLease.reset();
         clearMarker();
-        return true;
+        return owner && !owner->isClosing();
     }
     bool abort(QString *error = nullptr) override
     {
@@ -308,11 +411,15 @@ public:
             clearMarker();
             return false;
         }
-        mWindow->modelLayer()->blockSignals(mBlocked);
-        const bool ok = restoreSnapshot(mWindow, mBefore, error);
-        if (ok)
-            mWindow->setHasChanges(mWasDirty);
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        const auto others = otherSelection(owner);
         mFinished = true;
+        owner->modelLayer()->blockSignals(mBlocked);
+        const bool ok = restoreSnapshot(owner, mBefore, error);
+        if (ok && owner && !owner->isClosing())
+            restoreSpatialSelection(owner, mBeforeSelection, others);
+        if (ok && owner && !owner->isClosing())
+            owner->setHasChanges(mWasDirty);
         mLease.reset();
         clearMarker();
         return ok;
@@ -333,6 +440,7 @@ private:
     std::unique_ptr<IEngineLease> mLease;
     QString mBefore;
     QString mMarker;
+    QSet<SWMMObjectRef> mBeforeSelection; ///< Pre-edit spatial identities for abort and undo.
     bool mBlocked = false, mFinished = false, mWasDirty = false;
 };
 
@@ -1119,6 +1227,8 @@ public:
     {
         connect(host, &GuiExtensionHost::aboutToShutdown, this, [this]() {
             mStopping = true;
+            while (!mBoundaryConnections.empty())
+                unwatchBoundaryInstance(mBoundaryConnections.begin()->first);
             for (const auto &[window, instance] : mModels)
                 instance->clearAttributeProviders();
             for (const auto &instance : mRetired)
@@ -1175,6 +1285,7 @@ public:
                     owner->setProperty("extensionViews", kept);
                 });
         connect(window, &SWMMVisProjectWindow::aboutToClose, this, [this, window, result]() {
+            unwatchBoundaryInstance(result);
             result->captureIdentity();
             mHost->notify("instanceClosed", {{"id", result->id()}});
             // Do not reuse a facade if Qt later allocates another window at the same address.
@@ -1219,7 +1330,10 @@ public:
                     mHost->notify("layersChanged", {{"id", result->id()}});
                 });
         connect(window->canvas(), &MapCanvas::layerRemoved, this,
-                [this, result]() { mHost->notify("layersChanged", {{"id", result->id()}}); });
+                [this, result](OpenSWMMVisLayer *layer) {
+                    unwatchBoundaryLayer(qobject_cast<GISVectorLayer *>(layer), result);
+                    mHost->notify("layersChanged", {{"id", result->id()}});
+                });
         connect(window, &SWMMVisProjectWindow::activeResultsLayerChanged, this,
                 [this, result]() { mHost->notify("resultsChanged", {{"id", result->id()}}); });
         connect(window, &SWMMVisProjectWindow::active2DResultsLayerChanged, this,
@@ -1243,29 +1357,72 @@ public:
     }
 
 private:
-    /** @brief Invalidate spatial previews when an existing boundary source changes in place. */
+    /** @brief Invalidate spatial previews while this model retains a boundary attachment.
+     * @param[in] base Borrowed current canvas layer; non-vector layers are ignored.
+     * @param[in] instance Existing model facade whose membership is being watched.
+     * @note One native vector can be attached to several model canvases. Each pair
+     * has independent managed connections and resolves the current restored ID at delivery. */
     void watchBoundaryLayer(OpenSWMMVisLayer *base, ModelFacade *instance)
     {
         auto *layer = qobject_cast<GISVectorLayer *>(base);
-        if (!layer || mObservedLayers.contains(layer))
+        const QPointer<SWMMVisProjectWindow> owner(
+            instance ? qobject_cast<SWMMVisProjectWindow *>(instance->lifetime()) : nullptr);
+        if (mStopping || !layer || !owner || owner->isClosing() ||
+            !owner->canvas()->layers().contains(layer))
             return;
-        mObservedLayers.insert(layer);
-        connect(layer, &QObject::destroyed, this,
-                [this, layer]() { mObservedLayers.remove(layer); });
-        const auto changed = [this, instance, id = layer->layerId()]() {
-            if (instance->isOpen())
-                mHost->notify("boundaryChanged", {{"id", instance->id()}, {"layerId", id}});
+        auto &memberships = mBoundaryConnections[instance];
+        if (memberships.contains(layer))
+            return;
+        auto &connections = memberships[layer];
+        connections.append(connect(layer, &QObject::destroyed, this, [this, layer, instance] {
+            unwatchBoundaryLayer(layer, instance);
+        }));
+        const auto changed = [this, instance, owner, guard = QPointer<GISVectorLayer>(layer)] {
+            if (!mStopping && owner && !owner->isClosing() && guard && instance->isOpen() &&
+                owner->canvas()->layers().contains(guard))
+                mHost->notify("boundaryChanged",
+                              {{"id", instance->id()}, {"layerId", guard->layerId()}});
         };
-        connect(layer, &GISVectorLayer::selectionChanged, this, changed);
-        connect(layer, &GISVectorLayer::filterExpressionChanged, this, changed);
-        connect(layer, &GISVectorLayer::featureCountChanged, this, changed);
-        connect(layer, &OpenSWMMVisLayer::srsChanged, this, changed);
+        connections.append(connect(layer, &GISVectorLayer::selectionChanged, this, changed));
+        connections.append(connect(layer, &GISVectorLayer::filterExpressionChanged, this, changed));
+        connections.append(connect(layer, &GISVectorLayer::featureCountChanged, this, changed));
+        connections.append(connect(layer, &OpenSWMMVisLayer::srsChanged, this, changed));
         if (auto *editable = qobject_cast<FeatureLayer *>(layer))
-            connect(editable, &FeatureLayer::featuresChanged, this, changed);
+            connections.append(connect(editable, &FeatureLayer::featuresChanged, this, changed));
+    }
+    /** @brief Disconnect one detached/destroyed vector attachment before legacy observers run.
+     * @param[in] layer Non-dereferenced native vector identity, possibly already destroyed.
+     * @param[in] instance Existing facade identity, retained through retirement. */
+    void unwatchBoundaryLayer(GISVectorLayer *layer, ModelFacade *instance)
+    {
+        const auto model = mBoundaryConnections.find(instance);
+        if (model == mBoundaryConnections.end())
+            return;
+        const auto found = model->second.find(layer);
+        if (found == model->second.end())
+            return;
+        for (const auto &connection : found->second)
+            disconnect(connection);
+        model->second.erase(found);
+        if (model->second.empty())
+            mBoundaryConnections.erase(model);
+    }
+    /** @brief Retire every watched boundary when its model closes or the host stops.
+     * @param[in] instance Existing facade identity; never dereferenced by cleanup. */
+    void unwatchBoundaryInstance(ModelFacade *instance)
+    {
+        const auto found = mBoundaryConnections.find(instance);
+        if (found == mBoundaryConnections.end())
+            return;
+        for (const auto &[layer, connections] : found->second)
+            for (const auto &connection : connections)
+                disconnect(connection);
+        mBoundaryConnections.erase(found);
     }
     GuiExtensionHost *mHost;
     bool mStopping = false; ///< Prevent new facade creation after plugin resources begin teardown.
-    QSet<QObject *> mObservedLayers;
+    std::map<ModelFacade *, std::map<GISVectorLayer *, QList<QMetaObject::Connection>>>
+        mBoundaryConnections; ///< Independent legacy watchers for each model/vector attachment.
     std::map<SWMMVisProjectWindow *, std::unique_ptr<ModelFacade>> mModels;
     std::vector<std::unique_ptr<ModelFacade>> mRetired;
     std::vector<std::unique_ptr<ProjectFacade>> mProjects;
@@ -1306,6 +1463,22 @@ void installExtensionModelAccess(GuiExtensionHost *host,
             auto *instance = access->model(window);
             return instance && instance->isOpen() ? instance : nullptr;
         });
+        const auto viewAccess = [access, registry](const QUuid &id) -> ExtensionViewAccess * {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(id));
+            return access->model(window) ? ExtensionViewAccess::find(window) : nullptr;
+        };
+        host->setViewControls(
+            [viewAccess](const ViewCommand &command, QString *error) {
+                if (auto *views = viewAccess(command.sessionId))
+                    return views->execute(command, error);
+                if (error)
+                    *error = QStringLiteral("The native view controller is unavailable.");
+                return false;
+            },
+            [viewAccess](const QUuid &sessionId, const QUuid &layerId, int offset, int limit) {
+                auto *views = viewAccess(sessionId);
+                return views ? views->selectedFeatures(layerId, offset, limit) : QList<qint64>{};
+            });
     }
     host->setModelAccess([access]() { return access->projects(); },
                          [access]() { return access->model(access->active()); });

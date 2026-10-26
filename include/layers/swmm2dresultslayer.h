@@ -1339,9 +1339,12 @@ public:
     bool regionalHydraulicsPublished() const { return bool(published_region_); }
 
     /**
-     * @return Revision incremented by setSource(), not by closeSource() or source internal updates.
+     * @return Revision incremented by setSource()/closeSource(), not source internal updates.
      */
     quint64 sourceRevision() const noexcept { return source_revision_; }
+    /** @brief Inspect source/metadata adoption before its semantic completion signal.
+     * @return True while setSource()/closeSource() updates source, frame and geometry metadata. */
+    bool sourceLoading() const noexcept { return source_adopting_; }
     /**
      * @return Borrowed currently owned source or null; invalidated by
      *   setSource()/closeSource()/destruction. Serialize access and never delete it.
@@ -1473,7 +1476,8 @@ public:
      *   caches, blanks animated triangle/edge/velocity content and emits
      *   timeRangeChanged(0,0),currentTimeChanged(-1),invalid
      *   currentDateTimeChanged(),repaintRequested(). Original vertex/cell geometry and some
-     *   style/envelope state remain for next source rebuild; sourceRevision is not incremented.
+     *   style/envelope state remain for next source rebuild. Advances sourceRevision and emits
+     *   sourceChanged after detached metadata/cursor state is coherent.
      */
     void closeSource();
 
@@ -2316,6 +2320,10 @@ public:
  *   refit publication.
  */
 signals:
+    /** @brief A source replacement or detachment completed its metadata adoption.
+     * @details Query sourceRevision/source/currentTimeIndex on the GUI thread. An adopted
+     * source can have zero periods and no displayed frame; this does not imply a run finished. */
+    void sourceChanged();
     void waterDisplayPolicyChanged();
     /**
      * @brief Dynamic scalar sublayer membership changed; childrenChanged/repaintRequested also
@@ -2786,6 +2794,7 @@ private:
     bool live_range_dirty_ = false;
     bool live_frame_dirty_ = false;
     quint64 source_revision_ = 0;
+    bool source_adopting_ = false; ///< Internal adoption bracket, independent of displayed frames.
     int last_range_hi_ = -1; ///< last timeRangeChanged hi emitted
     /**
      * @brief Post at most one owner-bound zero-delay sync per GUI event-loop turn, coalescing

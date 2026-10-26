@@ -1679,6 +1679,7 @@ void SWMMModelLayer::setShowNodes(bool show)
         m_showNodes = show;
         m_needsRebuild = true;
         emit showNodesChanged(show);
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -1688,6 +1689,7 @@ void SWMMModelLayer::setShowLinks(bool show)
         m_showLinks = show;
         m_needsRebuild = true;
         emit showLinksChanged(show);
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -1697,6 +1699,7 @@ void SWMMModelLayer::setShowSubcatchments(bool show)
         m_showSubcatchments = show;
         m_needsRebuild = true;
         emit showSubcatchmentsChanged(show);
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -1706,6 +1709,7 @@ void SWMMModelLayer::setShowRainGages(bool show)
         m_showRainGages = show;
         m_needsRebuild = true;
         emit showRainGagesChanged(show);
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -1715,6 +1719,7 @@ void SWMMModelLayer::setShowLabels(bool show)
         m_showLabels = show;
         m_needsRebuild = true;
         emit showLabelsChanged(show);
+        emit presentationChanged();
         emit repaintRequested();
     }
     // Keep the X.18 label config's `enabled` flag in sync — the canvas
@@ -1811,6 +1816,7 @@ void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
     if (changed) {
         rebuildFlagArrays();
         m_needsRebuild = true;
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -1843,6 +1849,7 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
     if (changed) {
         rebuildFlagArrays();
         m_needsRebuild = true;
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -2738,6 +2745,7 @@ void SWMMModelLayer::setObjectVisibleAt(Category c, int row, bool visible)
     if (changed) {
         rebuildFlagArrays();
         m_needsRebuild = true;
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -2780,6 +2788,7 @@ void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
     if (changed) {
         rebuildFlagArrays();
         m_needsRebuild = true;
+        emit presentationChanged();
         emit repaintRequested();
     }
 }
@@ -2802,6 +2811,7 @@ void SWMMModelLayer::setCategoryOpacity(Category c, qreal opacity)
         return;
     m_categoryOpacity[i] = clamped;
     m_needsRebuild = true; // re-bake per-feature colours with new alpha
+    emit presentationChanged();
     emit repaintRequested();
 }
 

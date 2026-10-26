@@ -190,6 +190,11 @@ set(
         include/swmmvis.h
         src/swmmvisextensions.cpp
         src/plugins/extensionmodelaccess.cpp
+        include/plugins/extensionviewaccess.h
+        src/plugins/extensionviewaccess.cpp
+        src/plugins/extensionmodelevents.cpp
+        src/plugins/extensionlayerevents.cpp
+        src/plugins/extensionresultsevents.cpp
         include/swmmvisapplication.h
         include/swmmvisprojectwindow.h
         include/swmmvissplashscreen.h
