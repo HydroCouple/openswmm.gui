@@ -9,6 +9,9 @@ INPUT += include/plugins/extensionmanager.h \
          include/plugins/extensionnetwork.h \
          include/plugins/extensionpreferences.h \
          include/plugins/extensionattributes.h \
+         include/plugins/extensionevents.h \
+         src/plugins/extensionevents.cpp \
+         src/sdk/EventSignalAdapter.cpp \
          src/plugins/extensionattributes.cpp \
          src/plugins/extensionmanager.cpp \
          src/plugins/guiextensionhost.cpp \

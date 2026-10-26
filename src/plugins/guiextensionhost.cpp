@@ -19,6 +19,7 @@
  * @license GPL-3.0-or-later
  */
 #include "plugins/guiextensionhost.h"
+#include "plugins/extensionevents.h"
 #include "plugins/extensionpreferences.h"
 #include "plugins/extensionnetwork.h"
 
@@ -309,11 +310,53 @@ GuiExtensionHost::observe(QObject *context,
         },
         Qt::DirectConnection);
 }
+QMetaObject::Connection GuiExtensionHost::subscribe(QObject *context, const EventFilter &filter,
+                                                    std::function<void(const Event &)> callback)
+{
+    if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
+        !callback || mStopping)
+        return {};
+    return connect(
+        this, &GuiExtensionHost::typedEventOccurred, context,
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context), filter,
+         callback = std::move(callback)](const Event &event) {
+            if (!owner || QThread::currentThread() != owner->thread() || !guard ||
+                guard->thread() != owner->thread() || owner->mStopping || !filter.accepts(event))
+                return;
+            const QString pluginId = owner->mId;
+            const quint64 sequence = event.sequence;
+            try {
+                callback(event);
+            } catch (const std::exception &error) {
+                qWarning().noquote() << "Extension typed observer" << pluginId
+                                     << "failed for publication" << sequence << ":" << error.what();
+            } catch (...) {
+                qWarning().noquote()
+                    << "Extension typed observer" << pluginId << "failed for publication"
+                    << sequence << ": unknown exception";
+            }
+        },
+        Qt::DirectConnection);
+}
 void GuiExtensionHost::notify(const QString &event, const QVariantMap &data)
 {
     if (QThread::currentThread() != thread() || mStopping)
         return;
-    emit eventOccurred(event, data);
+    auto value = decodeExtensionEvent(event, data);
+    if (!value) {
+        emit eventOccurred(event, data);
+        return;
+    }
+    value->sequence = ++mEventSequence;
+    auto [name, metadata] = legacyExtensionEvent(*value);
+    // Preserve unknown legacy-only additions without exposing an untyped payload in the new API.
+    for (auto it = data.cbegin(); it != data.cend(); ++it)
+        if (!metadata.contains(it.key()))
+            metadata.insert(it.key(), it.value());
+    const QPointer<GuiExtensionHost> guard(this);
+    emit typedEventOccurred(*value);
+    if (guard && !guard->mStopping)
+        emit guard->eventOccurred(name, metadata);
 }
 bool GuiExtensionHost::eventFilter(QObject *object, QEvent *event)
 {
@@ -399,6 +442,8 @@ void GuiExtensionHost::prepareShutdown()
     if (mStopping)
         return;
     mStopping = true;
+    disconnect(this, &GuiExtensionHost::typedEventOccurred, nullptr, nullptr);
+    disconnect(this, &GuiExtensionHost::eventOccurred, nullptr, nullptr);
     for (const auto &job : mJobs)
         job->cancel();
     mPool.waitForDone();

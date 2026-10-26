@@ -11,6 +11,7 @@
 #include <sdk/IGuiExtension.hpp>
 #include <sdk/ExtensionHost.hpp>
 #include <sdk/IProject.hpp>
+#include <sdk/IEventSourceV1.hpp>
 #include <openswmm/engine/openswmm_engine.h>
 #if __has_include(<openswmm/engine/openswmm_abi_tag.h>)
 #include <openswmm/engine/openswmm_abi_tag.h>
@@ -38,11 +39,13 @@ using namespace OpenSWMM::Sdk;
 
 /** @brief Record delivered SDK notifications alongside actual Qt model mutations. */
 struct EventConformance {
-    int runNotices = 0; ///< Number of runsChanged callbacks received by the extension.
+    int runNotices = 0;      ///< Number of runsChanged callbacks received by the extension.
     int beforeInsertion = 0; ///< Notification count immediately before a status row insertion.
     int insertions = 0; ///< Actual insertions observed through the standard Qt model interface.
     bool insertionsNotified = true; ///< Every completed insertion published an SDK notification.
-    int viewportNotices = 0; ///< Number of viewportChanged callbacks received by the extension.
+    int viewportNotices = 0;     ///< Number of viewportChanged callbacks received by the extension.
+    bool typedAvailable = false; ///< The real application exposes the optional typed service.
+    int typedViewportNotices = 0; ///< Typed viewport observations paired with legacy callbacks.
 };
 
 /** @brief Public-SDK provider used to verify shared derived values across real engine edits. */
@@ -92,6 +95,11 @@ public:
             return false;
         }
         auto events = std::make_shared<EventConformance>();
+        if (auto *source = qobject_cast<IEventSourceV1 *>(host->lifetime())) {
+            events->typedAvailable = true;
+            source->subscribe(host->lifetime(), {{EventKind::ViewportChanged}, {}},
+                              [events](const Event &) { ++events->typedViewportNotices; });
+        }
         host->observe(host->lifetime(), [events](const QString &event, const QVariantMap &) {
             if (event == "runsChanged")
                 ++events->runNotices;
@@ -274,6 +282,7 @@ private:
                     const std::shared_ptr<EventConformance> &events)
     {
         QJsonObject checks;
+        checks["typedEventServiceAvailable"] = events->typedAvailable;
         QString error;
 #ifdef OPENSWMM_ENGINE_ABI_TAG
         checks["runtimeEngineAbiMatchesHost"] =
@@ -402,15 +411,26 @@ private:
             const int notices = events->viewportNotices;
             widget->resize(size.width() + 137, size.height());
             const auto resized = project->viewportBoundary(&error);
-            checks["viewportResizeNotified"] = resized != boundary &&
-                                                events->viewportNotices > notices;
+            checks["viewportResizeNotified"] =
+                resized != boundary && events->viewportNotices > notices;
             const int afterResize = events->viewportNotices;
             widget->resize(widget->width() * 2, widget->height() * 2);
-            checks["unchangedViewportNotRepeated"] =
-                project->viewportBoundary(&error) == resized &&
-                events->viewportNotices == afterResize;
+            checks["unchangedViewportNotRepeated"] = project->viewportBoundary(&error) == resized &&
+                                                     events->viewportNotices == afterResize;
             widget->resize(size);
+            checks["typedViewportMatchesLegacy"] =
+                events->typedViewportNotices == events->viewportNotices;
             break;
+        }
+        if (qEnvironmentVariableIsSet("SDK_TYPED_CONSUMERS")) {
+            for (const auto &id : {QStringLiteral("org.openswmm.events-example"),
+                                   QStringLiteral("org.openswmm.events-second")}) {
+                auto *label = host->ui()->mainWindow()->findChild<QLabel *>(
+                    QStringLiteral("ext.%1.events-status").arg(id));
+                checks["typedConsumerLoaded:" + id] =
+                    label && label->property("typedEvents").toULongLong() == 1 &&
+                    label->property("adapterEvents").toULongLong() == 1;
+            }
         }
         const auto layerId =
             project->addFeatureLayer(QFileInfo(report).absoluteDir().filePath("boundary.geojson"),

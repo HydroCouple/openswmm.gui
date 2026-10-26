@@ -9,6 +9,7 @@
  */
 #pragma once
 #include "sdk/ExtensionHost.hpp"
+#include "sdk/IEventSourceV1.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -62,9 +63,11 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IConsole,
                                public OpenSWMM::Sdk::IRunRegistry,
                                public OpenSWMM::Sdk::IPlotService,
-                               public OpenSWMM::Sdk::IDialogs
+                               public OpenSWMM::Sdk::IDialogs,
+                               public OpenSWMM::Sdk::IEventSourceV1
 {
     Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -115,6 +118,16 @@ public:
     QMetaObject::Connection
     observe(QObject *context,
             std::function<void(const QString &, const QVariantMap &)> callback) override;
+    /** @brief Subscribe to typed SDK 1.2 notifications using a frozen optional interface.
+     * @param[in] context Required GUI-thread receiver whose destruction disconnects delivery.
+     * @param[in] filter Copied event-kind and model-identity filter; empty fields match all.
+     * @param[in] callback Synchronous observer receiving a borrowed typed value during the call.
+     * @return Disconnectable connection, or invalid for an unavailable context/callback/host.
+     * @note Has the same thread, lifetime, exception and shutdown guards as observe().
+     * Publication sequence is local to this host and is not a model revision. */
+    QMetaObject::Connection
+    subscribe(QObject *context, const OpenSWMM::Sdk::EventFilter &filter,
+              std::function<void(const OpenSWMM::Sdk::Event &)> callback) override;
     /** @brief Start one worker, retaining its handle and progress UI until host cleanup.
      * @param[in] title User-visible stage caption and durable operation-marker description.
      * @param[in] work Worker-only operation; it must cooperate with cancellation.
@@ -179,6 +192,10 @@ signals:
      * @param[in] event SDK event name.
      * @param[in] data Owning metadata map. */
     void eventOccurred(const QString &event, const QVariantMap &data);
+    /** @brief Publish one canonical typed notification before its legacy projection.
+     * @param[in] event Owning domain value with per-host publication sequence.
+     * @note Private implementation signal; plugins discover IEventSourceV1 instead. */
+    void typedEventOccurred(const OpenSWMM::Sdk::Event &event);
 
 protected:
     /** @brief Publish theme changes and activate output source locations.
@@ -217,6 +234,7 @@ private:
     ExtensionNetwork *mNetwork = nullptr;
     std::vector<std::unique_ptr<Job>> mJobs;
     bool mStopping = false;
+    quint64 mEventSequence = 0; ///< Per-host typed publication identity, not state revision.
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
 };

@@ -173,20 +173,97 @@
  *
  * @section sdk_events Events, signals and commands
  *
- * The SDK already supports host-to-plugin events through ExtensionHost::observe().
- * Internally this connects a Qt signal to the callback. The public ExtensionHost
- * remains a pure C++ interface: it does not expose per-domain QObject signals or
- * arbitrary private UI slots. A plugin's own QActions, widgets and controllers
- * can use ordinary typed QObject::connect() calls with one another.
+ * SDK 1.2 provides typed host observations through the optional IEventSourceV1
+ * interface, together with a consumer-local EventSignalAdapter for ordinary Qt
+ * signals. ExtensionHost::observe() remains available for existing consumers.
+ * ExtensionHost remains a pure C++ interface, and a plugin's own QActions,
+ * widgets and controllers can use ordinary typed QObject::connect() calls.
  *
  * Communication in the other direction uses the public services: select() and
  * edit() on a model, layer import and preview operations on a project, start()
  * and cancel() on the run registry, and UI/plot/dialog operations. These routes
  * preserve shared selection and the supported ownership/run rules. Model edits
  * use the existing edit/lease and undo paths; layer import does not promise undo.
- * An event
- * reports a change; it is not a command or permission to modify a private object.
- * ExtensionHost::lifetime() is a lifetime guard, not a private-object discovery API.
+ * An event reports a change; it is not a command or permission to modify a private
+ * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
+ * such as IEventSourceV1, while private host classes remain implementation details.
+ *
+ * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
+ *
+ * Include sdk/IEventSourceV1.hpp, require OpenSWMMVisSdk 1.2, and discover the
+ * capability with qobject_cast<IEventSourceV1 *>(host->lifetime()). Check for a
+ * null result and fail initialization clearly if this capability is required.
+ * The loader refuses a plugin requiring SDK 1.2 on an SDK 1.1 host before its
+ * code is instantiated. The existing ExtensionHost vtable and root plugin IID
+ * are unchanged. The optional interface has its own frozen IID and payloads;
+ * incompatible evolution requires another interface version.
+ *
+ * Event contains an EventKind, a host-local publication sequence and an owning
+ * EventPayload variant. Use std::get_if to read the expected domain value.
+ * EventFilter selects kinds and optionally a persistent model UUID. Empty kinds
+ * accept all V1 kinds; a null UUID includes all model and global observations.
+ * A specific UUID excludes global events and no-active-model activation. V1 has
+ * no layer-ID filter because broad layer-membership events have no layer identity.
+ *
+ * | Payload alternative | Contents and scope |
+ * | --- | --- |
+ * | ModelEvent | instanceId and objectName, for discovery/closing/activation, shared selection, authored edits and attributes. objectName is the native object identifier for AttributesChanged, possibly empty for broad invalidation; it is not an attribute-field key. |
+ * | SpatialEvent | instanceId and optional layerId, for viewport/layer membership/boundary changes. layerId is populated only for BoundaryChanged. |
+ * | ResultsEvent | instanceId whose active 1D/2D result source changed. |
+ * | RunsEvent | Simulation Status invalidation; query the current run registry. |
+ * | SettingsEvent | Owning extension's key/group invalidation. |
+ * | ThemeEvent | Palette invalidation; query current theme tokens. |
+ * | JobProgressEvent | Owning extension's title, progress and stage text. |
+ * | JobFinishedEvent | Owning extension's title, success flag and error; false covers failure or cancellation. |
+ *
+ * Typed InstanceDiscovered corresponds to legacy instanceOpened, and typed
+ * InstanceClosing to instanceClosed. These names describe actual native timing;
+ * neither event promises a ready engine or completed destruction. Typed
+ * ActiveResultsChanged corresponds to resultsChanged. Other EventKind names
+ * follow the legacy catalogue below with their initial letter capitalized.
+ *
+ * @code{.cpp}
+ * auto *events = qobject_cast<OpenSWMM::Sdk::IEventSourceV1 *>(host->lifetime());
+ * OpenSWMM::Sdk::EventFilter filter;
+ * filter.kinds = {OpenSWMM::Sdk::EventKind::ViewportChanged};
+ * filter.instanceId = modelId; // A persistent UUID previously read from the SDK.
+ * auto connection = events->subscribe(controller, filter,
+ *     [](const OpenSWMM::Sdk::Event &event) {
+ *         const auto &area = std::get<OpenSWMM::Sdk::SpatialEvent>(event.payload);
+ *         // Invalidate this controller's cached review for area.instanceId.
+ *         Q_UNUSED(area);
+ *     });
+ * @endcode
+ *
+ * The returned connection supports QObject::disconnect(). ScopedEventSubscription
+ * optionally provides move-only scope ownership of that disconnect action.
+ * Receiver and host destruction also disconnect it. Delivery is synchronous,
+ * GUI-only and suppressed at shutdown; invalid registration is refused. The
+ * subscription copies its filter, and each observer's exceptions are isolated.
+ * A publication sequence is not a state revision or snapshot boundary. A nested
+ * publication can reach a later observer before the outer publication does;
+ * sequence numbers do not promise monotonically ordered callback delivery.
+ *
+ * To use native Qt signals, include sdk/qt/EventSignalAdapter.hpp and call
+ * openswmmvis_add_event_adapter(your_target) after openswmmvis_add_extension().
+ * The helper compiles the installed adapter source and its moc code into the
+ * plugin with hidden symbols. No additional SDK shared runtime is required.
+ * Create an EventSignalAdapter with the discovered source, filter and GUI-thread
+ * parent, then connect modelChanged(), spatialChanged(), settingsChanged() or
+ * another typed domain signal to your controller. The installed events example
+ * demonstrates both subscription styles and an explicit user command.
+ *
+ * The adapter emits occurred() before its domain signal. Disconnecting/destroying
+ * it, or stopping its source, during occurred() suppresses that domain projection.
+ * Value metatypes are registered for queued Qt connections. Such downstream
+ * connections follow ordinary Qt rules: slots must not throw, and disconnect
+ * does not necessarily cancel deliveries already queued. The host's managed
+ * subscription guards do not replace the lifetime rules for arbitrary plugin
+ * Qt connections. Model/settings/job ownership scopes remain unchanged.
+ *
+ * Known host observations have one canonical typed value, from which the legacy
+ * name and map are projected. Unknown private diagnostic/test event names remain
+ * legacy-only. Plugins cannot publish host events through IEventSourceV1.
  *
  * @subsection sdk_event_delivery Subscription and delivery
  *
@@ -232,7 +309,7 @@
  * // QObject::disconnect(connection); // Optional early unsubscribe.
  * @endcode
  *
- * @subsection sdk_event_catalogue Current SDK 1.1 event catalogue
+ * @subsection sdk_event_catalogue Legacy observe() event catalogue
  *
  * All names are case-sensitive strings. Fields below are the current contract;
  * consumers must tolerate unknown additional fields and event names. Model
@@ -267,11 +344,12 @@
  * ordinary model/UI integrations, but is not the full planned lifecycle API.
  * It does not yet provide dedicated project save/load completion, model-ready,
  * layer property/order/schema, computed-attribute, result playback, run-attempt
- * lifecycle or document/dock activation events. There are no typed event
- * payload classes, subscription filters, state revisions, replay, transaction
- * ordering guarantees or public per-domain Qt signal adapters. Avoid polling
- * private objects to work around these gaps. These capabilities need explicit
- * public contracts and conformance coverage before consumers depend on them.
+ * lifecycle or document/dock activation events. Typed events and the optional
+ * Qt adapter describe that same coverage. State revisions, session generations,
+ * replay, snapshot handshakes and transaction ordering are not provided by V1.
+ * Avoid polling private objects to work around these gaps. These capabilities
+ * need explicit public contracts and conformance coverage before consumers
+ * depend on them.
  *
  * @section sdk_models Models, edits and undo
  *
@@ -413,6 +491,10 @@
  * navigation; the root IGuiExtension IID remains at 1.0 because its interface
  * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
  * the new services must declare a minimum SDK version of 1.1.
+ * SDK 1.2 adds IEventSourceV1 and the optional consumer-local Qt signal adapter.
+ * Plugins using these require SDK 1.2; SDK 1.0/1.1 consumers keep their existing
+ * interfaces and observation names. Detailed lifecycle/revision work remains
+ * subsequent qualification rather than an implied typed-event guarantee.
  *
  * Snapshot-backed editing is exercised with a real 1D model. A release still
  * requires strict writer/reopen qualification of every authored section, 2D mesh
@@ -431,6 +513,11 @@
  * normal simulation startup and completion, results/plot services, recovery
  * project saves, loaded polygon holes/multiparts and transient site/footprint
  * overlays. Its report.json records each individual assertion.
+ * test_gui_extension_events checks typed payloads, filtering, source discovery,
+ * publication identity, subscription lifetime, shutdown and adapter behavior.
+ * Set SDK_TYPED_PLUGIN_DIRS to two separately built events-example directories
+ * separated by the platform path separator to test installed-SDK discovery,
+ * independently compiled adapters and rejection by an older host manifest.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}
