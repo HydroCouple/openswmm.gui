@@ -20,6 +20,7 @@
  */
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionevents.h"
+#include "plugins/extensionstateregistry.h"
 #include "plugins/extensionpreferences.h"
 #include "plugins/extensionnetwork.h"
 
@@ -107,10 +108,11 @@ struct GuiExtensionHost::Job : IJob, IJobContext {
 
 GuiExtensionHost::GuiExtensionHost(QString id, CompatibilityManifest manifest, QMainWindow *window,
                                    QMdiArea *mdi, ExtensionUiBridge bridge, QSettings *settings,
-                                   QObject *parent)
+                                   QObject *parent, ExtensionStateRegistry *stateRegistry)
     : QObject(parent), mId(std::move(id)), mManifest(std::move(manifest)), mWindow(window),
       mMdi(mdi), mSettings(settings), mBridge(std::move(bridge))
 {
+    mStateRegistry = stateRegistry ? stateRegistry : ExtensionStateRegistry::instance();
     mPool.setMaxThreadCount(2);
     mNetwork = new ExtensionNetwork(mSettings, this);
     if (qApp)
@@ -248,6 +250,93 @@ void GuiExtensionHost::setModelAccess(std::function<QList<IProject *>()> project
 {
     mProjects = std::move(projects);
     mActive = std::move(active);
+}
+void GuiExtensionHost::setSessionResolver(std::function<IModelInstance *(const QUuid &)> resolver)
+{
+    checkThread();
+    mSessionResolver = std::move(resolver);
+}
+ExtensionStateRegistry *GuiExtensionHost::stateRegistry() const
+{
+    return mStateRegistry;
+}
+StateSnapshot GuiExtensionHost::stateSnapshot() const
+{
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry)
+        return {};
+    return mStateRegistry->snapshot();
+}
+IModelInstance *GuiExtensionHost::resolveSession(const QUuid &sessionId) const
+{
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mSessionResolver)
+        return nullptr;
+    const auto state = mStateRegistry->session(sessionId);
+    if (state.sessionId.isNull() || state.status != SessionStatus::Ready)
+        return nullptr;
+    return mSessionResolver(sessionId);
+}
+QMetaObject::Connection GuiExtensionHost::observeState(
+    QObject *context, const StateEventFilter &filter,
+    std::function<void(const StateEvent &)> callback)
+{
+    if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
+        !callback || mStopping || !mStateRegistry)
+        return {};
+    const quint64 after = mStateRegistry->snapshot().sequence;
+    const auto connection = connect(
+        mStateRegistry, &ExtensionStateRegistry::stateEventReady, context,
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context),
+         filter, after, callback = std::move(callback)](const StateEvent &event) {
+            if (!owner || QThread::currentThread() != owner->thread() || !guard ||
+                guard->thread() != owner->thread() || owner->mStopping || !owner->mStateRegistry ||
+                event.sequence <= after || !filter.accepts(event) ||
+                !owner->mStateRegistry->isDeliverable(event))
+                return;
+            const QString pluginId = owner->mId;
+            const quint64 sequence = event.sequence;
+            try {
+                callback(event);
+            } catch (const std::exception &error) {
+                qWarning().noquote() << "Extension state observer" << pluginId
+                                     << "failed for publication" << sequence << ":" << error.what();
+            } catch (...) {
+                qWarning().noquote() << "Extension state observer" << pluginId
+                                     << "failed for publication" << sequence << ": unknown exception";
+            }
+        }, Qt::DirectConnection);
+    mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
+    mStateConnections.append(connection);
+    return connection;
+}
+QMetaObject::Connection GuiExtensionHost::observeBeforeSave(
+    QObject *context, std::function<void(const SaveRequest &)> callback)
+{
+    if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
+        !callback || mStopping || !mStateRegistry)
+        return {};
+    const auto connection = connect(
+        mStateRegistry, &ExtensionStateRegistry::beforeSave, context,
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context),
+         callback = std::move(callback)](const SaveRequest &request) {
+            if (!owner || QThread::currentThread() != owner->thread() || !guard ||
+                guard->thread() != owner->thread() || owner->mStopping || !owner->mStateRegistry ||
+                !owner->mStateRegistry->isCurrent(request))
+                return;
+            const QString pluginId = owner->mId;
+            const QString operationId = request.operationId.toString();
+            try {
+                callback(request);
+            } catch (const std::exception &error) {
+                qWarning().noquote() << "Extension save collector" << pluginId << operationId
+                                     << "failed:" << error.what();
+            } catch (...) {
+                qWarning().noquote() << "Extension save collector" << pluginId << operationId
+                                     << "failed: unknown exception";
+            }
+        }, Qt::DirectConnection);
+    mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
+    mStateConnections.append(connection);
+    return connection;
 }
 QList<IProject *> GuiExtensionHost::projects() const
 {
@@ -442,6 +531,9 @@ void GuiExtensionHost::prepareShutdown()
     if (mStopping)
         return;
     mStopping = true;
+    for (const auto &connection : std::as_const(mStateConnections))
+        disconnect(connection);
+    mStateConnections.clear();
     disconnect(this, &GuiExtensionHost::typedEventOccurred, nullptr, nullptr);
     disconnect(this, &GuiExtensionHost::eventOccurred, nullptr, nullptr);
     for (const auto &job : mJobs)

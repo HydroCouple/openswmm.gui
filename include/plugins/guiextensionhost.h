@@ -10,6 +10,7 @@
 #pragma once
 #include "sdk/ExtensionHost.hpp"
 #include "sdk/IEventSourceV1.hpp"
+#include "sdk/IEventSourceV2.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -28,6 +29,7 @@ class QPlainTextEdit;
 namespace openswmmvis
 {
 class ExtensionNetwork;
+class ExtensionStateRegistry;
 /** @brief Application callbacks keeping the generic host independent of concrete GUI registries. */
 struct ExtensionUiBridge {
     /** @brief Mount a qualified tab using the extension's registered local QAction map. */
@@ -64,10 +66,11 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IRunRegistry,
                                public OpenSWMM::Sdk::IPlotService,
                                public OpenSWMM::Sdk::IDialogs,
-                               public OpenSWMM::Sdk::IEventSourceV1
+                               public OpenSWMM::Sdk::IEventSourceV1,
+                               public OpenSWMM::Sdk::IEventSourceV2
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1)
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -76,10 +79,11 @@ public:
      * @param[in] mdi Borrowed MDI area for extension document widgets.
      * @param[in] bridge Application action/ribbon callbacks; values captured by ownership.
      * @param[in] settings Required borrowed host settings, outliving this host.
-     * @param[in] parent Optional QObject owner; the manager normally owns the host by unique_ptr. */
+     * @param[in] parent Optional QObject owner; the manager normally owns the host by unique_ptr.
+     * @param[in] stateRegistry Borrowed authoritative registry, or null for the application registry. */
     GuiExtensionHost(QString id, OpenSWMM::Sdk::CompatibilityManifest manifest, QMainWindow *window,
                      QMdiArea *mdi, ExtensionUiBridge bridge, QSettings *settings,
-                     QObject *parent = nullptr);
+                     QObject *parent = nullptr, ExtensionStateRegistry *stateRegistry = nullptr);
     /** @brief Join workers, remove preferences/views/docks/tabs/actions, and release output widgets. */
     ~GuiExtensionHost() override;
     OpenSWMM::Sdk::CompatibilityManifest manifest() const override { return mManifest; }
@@ -128,6 +132,27 @@ public:
     QMetaObject::Connection
     subscribe(QObject *context, const OpenSWMM::Sdk::EventFilter &filter,
               std::function<void(const OpenSWMM::Sdk::Event &)> callback) override;
+    /** @brief Copy live session metadata and its atomic registry watermark.
+     * @return Owning snapshot, or empty off the GUI thread/after shutdown. */
+    OpenSWMM::Sdk::StateSnapshot stateSnapshot() const override;
+    /** @brief Resolve a ready session without creating a facade or emitting events.
+     * @param[in] sessionId Per-open session identity, independent of the saved instance UUID.
+     * @return Borrowed live facade, or null for unavailable/unready/retired sessions. */
+    OpenSWMM::Sdk::IModelInstance *resolveSession(const QUuid &sessionId) const override;
+    /** @brief Observe queued lifecycle/state changes after this registration's watermark.
+     * @param[in] context Required GUI-thread lifetime guard.
+     * @param[in] filter Copied kind/session selection.
+     * @param[in] callback GUI-thread observer; each delivery rechecks session generation/lifetime.
+     * @return Disconnectable handle, or invalid for an unavailable context/callback/host. */
+    QMetaObject::Connection observeState(
+        QObject *context, const OpenSWMM::Sdk::StateEventFilter &filter,
+        std::function<void(const OpenSWMM::Sdk::StateEvent &)> callback) override;
+    /** @brief Collect plugin state synchronously before an accepted save writes it.
+     * @param[in] context Required GUI-thread lifetime guard.
+     * @param[in] callback Short non-vetoing collector; must not start writes/runs or nested event loops.
+     * @return Disconnectable handle, or invalid for unavailable context/callback/host. */
+    QMetaObject::Connection observeBeforeSave(
+        QObject *context, std::function<void(const OpenSWMM::Sdk::SaveRequest &)> callback) override;
     /** @brief Start one worker, retaining its handle and progress UI until host cleanup.
      * @param[in] title User-visible stage caption and durable operation-marker description.
      * @param[in] work Worker-only operation; it must cooperate with cancellation.
@@ -172,6 +197,13 @@ public:
      * @param[in] active Owning callback resolving the active model facade, or null. */
     void setModelAccess(std::function<QList<OpenSWMM::Sdk::IProject *>()> projects,
                         std::function<OpenSWMM::Sdk::IModelInstance *()> active);
+    /** @brief Install a lookup-only per-session facade resolver during host setup.
+     * @param[in] resolver Borrowed-facade lookup, confined to the GUI thread. */
+    void setSessionResolver(
+        std::function<OpenSWMM::Sdk::IModelInstance *(const QUuid &)> resolver);
+    /** @brief Access the application registry used by this host's private model bridge.
+     * @return Borrowed registry, or null during application teardown. */
+    ExtensionStateRegistry *stateRegistry() const;
     /** @brief Deliver an owning metadata notification to extension observers.
      * @param[in] event SDK event name.
      * @param[in] data Copied metadata; model events contain a persistent id.
@@ -235,6 +267,9 @@ private:
     std::vector<std::unique_ptr<Job>> mJobs;
     bool mStopping = false;
     quint64 mEventSequence = 0; ///< Per-host typed publication identity, not state revision.
+    QPointer<ExtensionStateRegistry> mStateRegistry; ///< Shared authoritative lifecycle source.
+    QList<QMetaObject::Connection> mStateConnections; ///< Managed V2 callbacks cleared before plugin shutdown.
+    std::function<OpenSWMM::Sdk::IModelInstance *(const QUuid &)> mSessionResolver;
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
 };

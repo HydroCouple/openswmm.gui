@@ -100,8 +100,9 @@ public:
     virtual QString pluginId() const = 0;
     /** @brief Obtain a safe QObject context for actions and signal connections.
      * @return Borrowed host QObject; do not delete or reparent it.
-     * @note SDK 1.2 supports qobject_cast to the optional public IEventSourceV1
-     * interface. Private host classes and arbitrary slots remain implementation details. */
+     * @note SDK 1.2 supports qobject_cast to IEventSourceV1; SDK 1.3 adds
+     * IEventSourceV2 for authoritative lifecycle/state snapshots. Private host
+     * classes and arbitrary slots remain implementation details. */
     virtual QObject *lifetime() const = 0;
     /** @brief Enumerate open projects. @return Borrowed host-owned project facades, excluding closed instances. */
     virtual QList<IProject *> projects() const = 0;

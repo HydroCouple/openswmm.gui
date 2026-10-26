@@ -15,6 +15,7 @@
 
 #include "mesh/channelburnprofile.h"
 #include "mesh/corridorsource.h"
+#include "sdk/IEventSourceV2.hpp"
 
 #include <QHash>
 #include <QJsonArray>
@@ -60,6 +61,7 @@ class QFrame;
 namespace openswmmvis
 {
 class OutputStatsRegistry;
+class ExtensionStateRegistry;
 } // Slice QA.2
 
 /**
@@ -80,6 +82,8 @@ public:
      *   layer, not automatically a blank engine.
      * @param[in] parent Optional Qt/MDI owner; window has WA_DeleteOnClose and should normally be
      *   heap allocated.
+     * @param[in] instanceId Saved model identity, or null to assign one before lifecycle registration.
+     * @param[in] projectPath Logical project path, or empty to infer a sibling sidecar for a named model.
      * @brief Create canvas, units, selection/statistics services and tools; wire dirty tracking and
      *   result registration without loading a model.
      * @note Default engine/tool/auto-length derive from preferences. Model layer is allocated with
@@ -88,7 +92,8 @@ public:
      *   engine access are GUI-thread only unless expressly described as worker preparation.
      */
     explicit SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
-                                  const QString &filePath = QString(), QWidget *parent = nullptr);
+                                  const QString &filePath = QString(), QWidget *parent = nullptr,
+                                  const QUuid &instanceId = {}, const QString &projectPath = {});
 
     /**
      * @brief If not already closing, set closing flag and emit aboutToClose while canvas/services
@@ -99,6 +104,28 @@ public:
      *   connection.
      */
     ~SWMMVisProjectWindow() override;
+
+    /** @brief Identify this particular open window lifetime independently of its saved model UUID.
+     * @return Registry-assigned session UUID, or null when no registry is available.
+     * @note This is a side-effect-free property read; reopening a project receives a new session. */
+    QUuid extensionSessionId() const;
+    /** @brief Adopt restored or successfully saved logical project identity.
+     * @param[in] instanceId Nonnull saved UUID to adopt; null keeps the existing model UUID.
+     * @param[in] projectPath Logical project filename, never a staged transaction destination.
+     * @note Updates registry metadata without creating another open-session identity. */
+    void setExtensionProjectIdentity(const QUuid &instanceId, const QString &projectPath);
+    /** @brief Hold successful readiness until the controller completes synchronous project restoration.
+     * @note Call before a controller-owned load. Failed accepted loads still settle immediately. */
+    void beginExtensionOpen();
+    /** @brief Release the controller restoration barrier and publish a pending successful load.
+     * @note Ready covers the adopted engine/window and synchronous project restore; optional
+     * asynchronous mesh/GIS asset loading has its own lifecycle. Safe after a failed load. */
+    void completeExtensionOpen();
+    /** @brief Refresh owning lifecycle metadata and invalidate the indicated state domain.
+     * @param[in] changes Domain invalidation flags; metadata is always read as value data.
+     * @note The registry is shared by every extension, so this runs once per native window change. */
+    void updateExtensionSession(
+        OpenSWMM::Sdk::StateChanges changes = OpenSWMM::Sdk::StateChange::Metadata);
 
     /**
      * @return Required canvas child created in constructor; borrowed, do not delete or retain after
@@ -1213,6 +1240,18 @@ private:
      *   bridges; intended once per adoption.
  */
     bool finishModelLoad(QList<QString> &warnings, QList<QString> &errors);
+    /** @brief Accept a new native model-load attempt in the authoritative registry.
+     * @return New load generation, or zero when saving/closing or a live engine lease/run
+     * prevents a new attempt.
+     * @note A missing registry during application teardown performs no registry operation. */
+    quint64 beginExtensionLoad();
+    /** @brief Settle the current accepted load without changing existing async callback semantics.
+     * @param[in] generation Generation returned by beginExtensionLoad().
+     * @param[in] ok True after engine/window post-load setup succeeds.
+     * @param[in] error Copied failure diagnostic; ignored for successful readiness.
+     * @note Failed loads settle immediately; a successful controller-owned load waits for
+     * completeExtensionOpen(). Superseded generations and closing windows are ignored. */
+    void settleExtensionLoad(quint64 generation, bool ok, const QString &error = {});
 
     /*! Mirror the current MeshCell selection onto the active 2D results layer
      *  (and clear it off all other 2D results layers). Driven by selection
@@ -1237,6 +1276,13 @@ private:
     bool mClosePromptActive = false;        // re-entrancy guard for closeEvent's prompt
     bool mClosing = false;                  // see isClosing()
     bool mAsyncLoadInProgress = false;      // GUI-thread request/adoption guard
+    QPointer<openswmmvis::ExtensionStateRegistry>
+        mExtensionRegistry; ///< Shared application registry, guarded through teardown.
+    quint64 mExtensionLoadGeneration =
+        0; ///< Latest accepted load, independent of saved model identity.
+    bool mExtensionOpenBarrier = false; ///< Controller synchronous restoration has not completed.
+    bool mExtensionLoadPending =
+        false; ///< A successful accepted load awaits the controller barrier.
     quint64 mMeshImportSerial = 0;          // only the latest import may be adopted
     QStringList mLastSaveWarnings;          // delta across the last successful engine write
     QString mEngineVersion = "6.0.0";       // Default to newest version

@@ -27,6 +27,7 @@
 #include <QMainWindow>
 #include <QPointer>
 #include <QSettings>
+#include <QUuid>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -679,13 +680,16 @@ private slots:
      * save-warning and title routing.
      * @param filePath Borrowed initial model path copied by project constructor; empty supports
      * untitled.
+     * @param instanceId Optional persistent model identity restored before session registration.
+     * @param projectPath Optional selected project sidecar; empty infers the input's sibling.
      * @return Borrowed MDI-owned project window, not loaded or shown here. Requires initialized
      * workspace/UI/docks. Close cancels its plot picker, removes plot sources/status and rebinds
      * to a surviving project before teardown. Queued save warnings log all entries and show a
      * modal for the data-loss phrase. Destruction clears cached active pointer; callers must
      * not retain the raw result across unguarded project close or nested event processing.
      */
-    SWMMVisProjectWindow *createProjectWindow(const QString &filePath);
+    SWMMVisProjectWindow *createProjectWindow(const QString &filePath, const QUuid &instanceId = {},
+                                              const QString &projectPath = {});
 
     /**
      * @brief Open a supplied path or prompt with plugin input/project filters, then dispatch by
@@ -701,13 +705,17 @@ private slots:
      * @brief Start nonblocking model loading unless the path is empty or an equal-path model is
      * already open.
      * @param filePath Borrowed input path copied into async completion; QFileInfo equality reuses
-     * an existing model window and activates it. No explicit existence/type precheck here.
+     * an existing nonclosing model window and activates it. No explicit existence/type precheck here.
+     * @param projectPath Explicit selected project sidecar; empty uses the input's sibling.
+     * @param sessionIndex Entry in the selected project's sessions array; direct input opens
+     * match the corresponding stored input before seeding identity and restoring state.
      * Creates/wires a project, acquires busy/open progress, and connects one-shot load completion
      * to finalizeSingleINPOpen. Worker owns engine parsing; success/failure and sidecar/results
      * adoption occur later. Main-window/project load protocol must keep raw completion target
      * valid; this method does not synchronously wait or return a success result.
      */
-    void openSingleINP(const QString &filePath);
+    void openSingleINP(const QString &filePath, const QString &projectPath = {},
+                       int sessionIndex = 0);
 
     /**
      * @brief Finish model loading on the GUI thread, then restore GUI state, discover results and
@@ -726,7 +734,9 @@ private slots:
      * Success schedules settings write, applies sibling sidecar or optionally creates one,
      * opens the first existing matching sibling output when none restored, then asynchronously
      * loads mesh/prior 2D results. Failed sidecar/output work warns without rolling back model.
-     * Reactivates/rebinds project and may schedule opt-in simulation-options capture. These
+     * Reactivates/rebinds the project and then completes the extension readiness barrier.
+     * Optional asynchronous GIS/mesh resources may still be loading. May schedule opt-in
+     * simulation-options capture. These
      * callbacks assume main-window lifetime and some captured project lifetimes; no overall
      * transaction, cancellation rollback or guaranteed absence of file writes on open.
      */
@@ -805,8 +815,9 @@ private slots:
      * @param oswpPath Borrowed project path; read/parse failure logs Error and returns. Valid
      * JSON
      * updates recents/settings before model loads, even when it names no valid sessions. Collects
-     * both sessions[].inpPath and layers[].path, resolves stored paths relative to project file,
-     * and delegates duplicate handling to openSingleINP. Does not synchronously aggregate
+     * modern sessions[].inpPath, or legacy layers[].path when sessions are absent, resolves
+     * paths relative to the chosen project and preserves each session's original index and
+     * identity through openSingleINP. Does not synchronously aggregate
      * outcomes
      * or roll back already-opened models if a later entry fails.
      */

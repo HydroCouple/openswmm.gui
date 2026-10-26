@@ -5754,6 +5754,7 @@ void SWMMVis::onNewProject()
 void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
 {
     auto *window = createProjectWindow(QString());
+    window->beginExtensionOpen();
     window->markUntitled(); // before show → title reads "Untitled"
 
     QList<QString> warnings, errors;
@@ -5789,6 +5790,7 @@ void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
     // spinner — none apply to a pathless in-memory project.
     onLogMessage(tr("New project created (untitled, in memory). "
                     "Save As to give it a path."));
+    window->completeExtensionOpen();
 }
 
 void SWMMVis::logPortabilityPreflight(SWMMVisProjectWindow *pw, const QString &targetPath,
@@ -6102,9 +6104,11 @@ void SWMMVis::onOpenProject(const QString &path)
         openSingleINP(filePath);
 }
 
-SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
+SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath, const QUuid &instanceId,
+                                                   const QString &projectPath)
 {
-    auto *window = new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral);
+    auto *window =
+        new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral, instanceId, projectPath);
     connect(window, &SWMMVisProjectWindow::modelLoaded, this, []() {
         openswmmvis::ExtensionManager::instance()->refreshModels();
     });
@@ -6224,7 +6228,7 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     return window;
 }
 
-void SWMMVis::openSingleINP(const QString &filePath)
+void SWMMVis::openSingleINP(const QString &filePath, const QString &projectPath, int sessionIndex)
 {
     // Untitled (pathless) projects go through openUntitledProject(); the
     // dedupe below would treat every empty path as "already open"
@@ -6236,7 +6240,7 @@ void SWMMVis::openSingleINP(const QString &filePath)
     const QFileInfo inpFi(filePath);
     for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
         auto *existing = qobject_cast<SWMMVisProjectWindow *>(sw);
-        if (existing && existing->modelLayer()) {
+        if (existing && !existing->isClosing() && existing->modelLayer()) {
             const QString existPath = existing->modelLayer()->modelFilePath();
             if (!existPath.isEmpty() && QFileInfo(existPath) == inpFi) {
                 ui->mdiAreaCentral->setActiveSubWindow(sw);
@@ -6245,7 +6249,47 @@ void SWMMVis::openSingleINP(const QString &filePath)
         }
     }
 
-    auto *window = createProjectWindow(filePath);
+    const QString restorationPath = projectPath.isEmpty()
+                                        ? ProjectSerializer::sidecarPathFor(filePath)
+                                        : QFileInfo(projectPath).absoluteFilePath();
+    QUuid instanceId;
+    int restorationIndex = sessionIndex;
+    QFile projectFile(restorationPath);
+    if (projectFile.open(QIODevice::ReadOnly)) {
+        QJsonParseError parseError{};
+        const auto projectDocument = QJsonDocument::fromJson(projectFile.readAll(), &parseError);
+        if (parseError.error == QJsonParseError::NoError && projectDocument.isObject()) {
+            const auto root = projectDocument.object();
+            if (root.contains(QStringLiteral("sessions"))) {
+                const auto sessions = root.value(QStringLiteral("sessions")).toArray();
+                if (projectPath.isEmpty()) {
+                    restorationIndex = -1;
+                    for (qsizetype index = 0; index < sessions.size(); ++index) {
+                        const auto path = sessions.at(index)
+                                              .toObject()
+                                              .value(QStringLiteral("inpPath"))
+                                              .toString();
+                        if (!path.isEmpty() && QFileInfo(ProjectSerializer::resolveStoredPath(
+                                                   path, restorationPath)) == inpFi) {
+                            restorationIndex = int(index);
+                            break;
+                        }
+                    }
+                }
+                if (restorationIndex >= 0 && restorationIndex < sessions.size())
+                    instanceId = QUuid(sessions.at(restorationIndex)
+                                           .toObject()
+                                           .value(QStringLiteral("instanceId"))
+                                           .toString());
+            } else if (restorationIndex == 0) {
+                instanceId = QUuid(root.value(QStringLiteral("instanceId")).toString());
+            }
+        }
+    }
+    auto *window = createProjectWindow(filePath, instanceId, restorationPath);
+    window->setProperty("extensionRestorePath", restorationPath);
+    window->setProperty("extensionRestoreSessionIndex", restorationIndex);
+    window->beginExtensionOpen();
 
     // Non-blocking load: the engine open (full .inp parse — the dominant
     // cost) runs in a worker thread while the event loop keeps the UI
@@ -6282,6 +6326,12 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window, const QString 
                                     const QList<QString> &warnings, const QList<QString> &errors,
                                     qint64 elapsedMs, OpenProgressModel *progress)
 {
+    const QPointer<SWMMVisProjectWindow> owner(window);
+    if (!owner || owner->isClosing()) {
+        if (progress)
+            progress->finishAll();
+        return;
+    }
     // The worker's three stages are done by the time this fires; close them
     // out unconditionally so a worker that never ticked still advances.
     if (progress) {
@@ -6348,14 +6398,22 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window, const QString 
         // Hydrates GUI-only state (layer CRS, category / object order,
         // hidden objects, canvas extent, result layers) that can't
         // round-trip through the .inp itself. Missing sidecar is not an error.
-        const QString oswp = ProjectSerializer::sidecarPathFor(filePath);
+        const auto chosenProject = window->property("extensionRestorePath").toString();
+        const QString oswp =
+            chosenProject.isEmpty() ? ProjectSerializer::sidecarPathFor(filePath) : chosenProject;
+        const int sessionIndex = window->property("extensionRestoreSessionIndex").toInt();
         if (!oswp.isEmpty() && QFile::exists(oswp)) {
             QElapsedTimer sidecarTimer;
             sidecarTimer.start();
             QString sidecarErr;
             QStringList sidecarWarnings;
-            const bool sidecarOk =
-                ProjectSerializer::applyFromFile(oswp, window, &sidecarErr, &sidecarWarnings);
+            const bool sidecarOk = ProjectSerializer::applyFromFile(oswp, window, &sidecarErr,
+                                                                    &sidecarWarnings, sessionIndex);
+            if (!owner || owner->isClosing()) {
+                if (progress)
+                    progress->finishAll();
+                return;
+            }
             for (const QString &w : std::as_const(sidecarWarnings))
                 onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
             qCInfo(lcLoadProject).noquote()
@@ -6392,6 +6450,11 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window, const QString 
                 } else {
                     onLogMessage(tr("Sidecar auto-create failed: %1").arg(sidecarErr),
                                  OpenSWMMVisLogMessage::LogMessageType::Warning);
+                }
+                if (!owner || owner->isClosing()) {
+                    if (progress)
+                        progress->finishAll();
+                    return;
                 }
             }
         }
@@ -6499,6 +6562,8 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window, const QString 
                 });
             });
         }
+        if (owner && !owner->isClosing())
+            owner->completeExtensionOpen();
     } else {
         window->close();
     }
@@ -7150,8 +7215,10 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
 
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
-    if (doc.isNull()) {
-        onLogMessage(QStringLiteral("Invalid project file: %1").arg(err.errorString()),
+    if (doc.isNull() || !doc.isObject()) {
+        const QString detail =
+            doc.isNull() ? err.errorString() : tr("The project root must be a JSON object.");
+        onLogMessage(QStringLiteral("Invalid project file: %1").arg(detail),
                      OpenSWMMVisLogMessage::LogMessageType::Error);
         return;
     }
@@ -7161,35 +7228,40 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
     onRecentFilesSizeChanged();
     saveSettings();
 
-    // Collect the .inp paths to open. Schema v4+ stores one entry per
-    // session under sessions[].inpPath; the original v0 layout stored
-    // layers[].path at the root. The writer has emitted sessions[] for a
-    // long time, so without this branch a directly-opened .oswp parsed
-    // zero entries and silently opened nothing.
-    QStringList inpPaths;
-    for (const QJsonValue &v : doc[QStringLiteral("sessions")].toArray()) {
-        const QString p = v[QStringLiteral("inpPath")].toString();
-        if (!p.isEmpty())
-            inpPaths << p;
-    }
-    for (const QJsonValue &v : doc[QStringLiteral("layers")].toArray()) {
-        const QString p = v[QStringLiteral("path")].toString();
-        if (!p.isEmpty())
-            inpPaths << p;
+    // Preserve the selected project's session index; a neighboring sidecar may
+    // describe another project and must not replace the user's chosen state.
+    const auto root = doc.object();
+    QList<QPair<QString, int>> inputs;
+    if (root.contains(QStringLiteral("sessions"))) {
+        if (!root.value(QStringLiteral("sessions")).isArray()) {
+            onLogMessage(tr("The project sessions value must be an array."),
+                         OpenSWMMVisLogMessage::LogMessageType::Error);
+            return;
+        }
+        const auto sessions = root.value(QStringLiteral("sessions")).toArray();
+        for (qsizetype index = 0; index < sessions.size(); ++index) {
+            const QString path =
+                sessions.at(index).toObject().value(QStringLiteral("inpPath")).toString();
+            if (!path.isEmpty())
+                inputs.append({path, int(index)});
+        }
+    } else {
+        const auto rootInput = root.value(QStringLiteral("inpPath")).toString();
+        if (!rootInput.isEmpty())
+            inputs.append({rootInput, 0});
+        for (const auto &value : root.value(QStringLiteral("layers")).toArray()) {
+            const auto path = value.toObject().value(QStringLiteral("path")).toString();
+            if (!path.isEmpty())
+                inputs.append({path, 0});
+        }
     }
     qCInfo(lcLoadProject).noquote() << QStringLiteral("%1: parsed %2 layer entrie(s) in %3 ms")
                                            .arg(QFileInfo(oswpPath).fileName())
-                                           .arg(inpPaths.size())
+                                           .arg(inputs.size())
                                            .arg(parseTimer.elapsed());
-    for (QString inpPath : inpPaths) {
-        // .oswp stores layer paths relative to the project file. Resolve
-        // against the .oswp directory before opening: a relative path
-        // passed through makes the ENGINE resolve the model's own
-        // relative references (rain FILE gages, mesh sidecars, hotstart
-        // files) against the process working directory instead of the
-        // model directory — silently loading nothing.
-        inpPath = ProjectSerializer::resolveStoredPath(inpPath, oswpPath);
-        openSingleINP(inpPath);
+    for (const auto &entry : std::as_const(inputs)) {
+        const auto inputPath = ProjectSerializer::resolveStoredPath(entry.first, oswpPath);
+        openSingleINP(inputPath, oswpPath, entry.second);
     }
 }
 

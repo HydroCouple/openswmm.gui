@@ -24,6 +24,8 @@
  */
 #include "plugins/extensionmodelaccess.h"
 #include "plugins/extensionattributes.h"
+#include "plugins/extensionstateregistry.h"
+#include <QScopeGuard>
 #include "render/renderers/graduatedrenderer.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
@@ -69,12 +71,7 @@ namespace
 {
 QUuid instanceId(SWMMVisProjectWindow *window)
 {
-    auto id = window->property("extensionInstanceId").toUuid();
-    if (id.isNull()) {
-        id = QUuid::createUuid();
-        window->setProperty("extensionInstanceId", id);
-    }
-    return id;
+    return window ? window->property("extensionInstanceId").toUuid() : QUuid{};
 }
 /** Resolve a public object category to the existing layer namespace mask. */
 quint8 kindMask(const QString &category)
@@ -500,14 +497,15 @@ public:
         if (!mWindow)
             return {};
         const auto stored = mWindow->property("extensionProjectPath").toString();
-        return stored.isEmpty()
+        return stored.isEmpty() && !mWindow->modelFilePath().isEmpty()
                    ? QFileInfo(mWindow->modelFilePath()).absolutePath() + "/" +
                          QFileInfo(mWindow->modelFilePath()).completeBaseName() + ".oswp"
                    : stored;
     }
     QString directory() const override
     {
-        return mWindow ? QFileInfo(path()).absolutePath() : QString{};
+        const auto projectPath = path();
+        return projectPath.isEmpty() ? QString{} : QFileInfo(projectPath).absolutePath();
     }
     QList<IModelInstance *> instances() const override;
     QJsonObject extensionData() const override
@@ -517,28 +515,54 @@ public:
     }
     void setExtensionData(const QJsonObject &data) override
     {
-        if (!mWindow)
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        if (!owner || owner->isClosing())
             return;
-        auto all = mWindow->property("extensionData").toJsonObject();
+        auto all = owner->property("extensionData").toJsonObject();
         all[mPlugin] = data;
-        mWindow->setProperty("extensionData", all);
-        mWindow->setHasChanges(true);
+        owner->setProperty("extensionData", all);
+        if (!owner || owner->isClosing())
+            return;
+        owner->setHasChanges(true);
+        if (owner && !owner->isClosing())
+            owner->updateExtensionSession(StateChange::ProjectState);
     }
     QString autosave(QString *error) const override
     {
-        if (!mWindow || !mWindow->property("extensionWriteLease").toString().isEmpty() ||
+        QString localError;
+        if (!error)
+            error = &localError;
+        if (!mWindow || mWindow->isClosing()) {
+            *error = "The model is closed.";
+            return {};
+        }
+        auto *registry = ExtensionStateRegistry::instance();
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        const bool wasDirty = mWindow->hasChanges();
+        const QString originalPath = mWindow->property("extensionProjectPath").toString();
+        ExtensionSaveOperation operation(registry, {mWindow->extensionSessionId()},
+                                         SaveKind::Recovery, {}, error);
+        // Collection may refresh plugin presentation state; recovery must keep the current
+        // project identity and dirty indication, including when preparation fails.
+        const auto preserveProject = qScopeGuard([owner, wasDirty, originalPath] {
+            if (owner && !owner->isClosing()) {
+                owner->setExtensionProjectIdentity({}, originalPath);
+                owner->setHasChanges(wasDirty);
+            }
+        });
+        if (!operation.valid() || !owner || owner->isClosing())
+            return {};
+        if (!mWindow->property("extensionWriteLease").toString().isEmpty() ||
             mWindow->property("extensionRunCount").toInt()) {
-            if (error)
-                *error = "The model is closed or locked by an edit/run.";
+            *error = "The model is locked by an edit/run.";
             return {};
         }
         const auto snapshot = writeSnapshot(mWindow, error);
         if (snapshot.isEmpty())
             return {};
         const auto output = QFileInfo(snapshot).absoluteDir().filePath("recovery.oswp");
-        const auto originalPath = mWindow->property("extensionProjectPath");
+        operation.setTargetPath(output);
         const bool written = ProjectSerializer::saveToFile(output, mWindow, error);
-        mWindow->setProperty("extensionProjectPath", originalPath);
         if (!written)
             return {};
         QFile file(output);
@@ -567,6 +591,7 @@ public:
                 *error = saved.errorString();
             return {};
         }
+        operation.succeed();
         return output;
     }
     QString crsWkt() const override
@@ -917,12 +942,10 @@ public:
     }
     QUuid id() const override
     {
-        // Project restoration can replace the provisional UUID created at model load.
-        // Remember the restored identity before aboutToClose retires this facade.
-        if (mWindow)
-            mId = instanceId(mWindow);
-        return mId;
+        return mWindow ? instanceId(mWindow) : mId;
     }
+    /** @brief Retain the final persistent identity at the native close boundary. */
+    void captureIdentity() { mId = instanceId(mWindow); }
     QString title() const override { return mWindow ? mWindow->windowTitle() : QString{}; }
     QString inpPath() const override { return mWindow ? mWindow->modelFilePath() : QString{}; }
     QString engineVersion() const override
@@ -1077,7 +1100,7 @@ public:
 
 private:
     QPointer<SWMMVisProjectWindow> mWindow;
-    mutable QUuid mId;
+    QUuid mId;
     ProjectFacade *mProject;
     QString mPlugin;
     QPointer<SWMMModelLayer> mAttributesLayer;
@@ -1095,6 +1118,7 @@ public:
     explicit ModelAccess(GuiExtensionHost *host) : QObject(host), mHost(host)
     {
         connect(host, &GuiExtensionHost::aboutToShutdown, this, [this]() {
+            mStopping = true;
             for (const auto &[window, instance] : mModels)
                 instance->clearAttributeProviders();
             for (const auto &instance : mRetired)
@@ -1106,6 +1130,14 @@ public:
     ModelFacade *model(SWMMVisProjectWindow *window)
     {
         if (!window || window->isClosing())
+            return nullptr;
+        const auto it = mModels.find(window);
+        return it == mModels.end() ? nullptr : it->second.get();
+    }
+    /** @brief Create a facade at an explicit native registration boundary, never from a getter. */
+    ModelFacade *track(SWMMVisProjectWindow *window)
+    {
+        if (mStopping || !window || window->isClosing())
             return nullptr;
         auto it = mModels.find(window);
         if (it != mModels.end())
@@ -1125,20 +1157,25 @@ public:
             }
         };
         connect(window, &SWMMVisProjectWindow::extensionStateRestored, this, restore);
-        restore(); // Backfill when a facade is first requested after project restoration.
         connect(window, &SWMMVisProjectWindow::extensionStateSaving, this,
-                [this, window, result]() {
-                    auto all = window->property("extensionViews").toJsonArray();
+                [this, owner = QPointer<SWMMVisProjectWindow>(window), result]() {
+                    if (!owner || owner->isClosing())
+                        return;
+                    const auto all = owner->property("extensionViews").toJsonArray();
                     QJsonArray kept;
                     const auto prefix = "ext." + mHost->pluginId() + ".";
                     for (const auto &entry : all)
                         if (!entry.toObject()["kind"].toString().startsWith(prefix))
                             kept.append(entry);
-                    for (const auto &entry : mHost->saveViews(result))
+                    const auto saved = mHost->saveViews(result);
+                    if (!owner || owner->isClosing())
+                        return;
+                    for (const auto &entry : saved)
                         kept.append(entry);
-                    window->setProperty("extensionViews", kept);
+                    owner->setProperty("extensionViews", kept);
                 });
         connect(window, &SWMMVisProjectWindow::aboutToClose, this, [this, window, result]() {
+            result->captureIdentity();
             mHost->notify("instanceClosed", {{"id", result->id()}});
             // Do not reuse a facade if Qt later allocates another window at the same address.
             auto it = mModels.find(window);
@@ -1189,7 +1226,10 @@ public:
                 [this, result]() { mHost->notify("resultsChanged", {{"id", result->id()}}); });
         for (auto *layer : window->canvas()->layers())
             watchBoundaryLayer(layer, result);
-        mHost->notify("instanceOpened", {{"id", result->id()}});
+        const QPointer<SWMMVisProjectWindow> owner(window);
+        restore(); // Explicit backfill of state restored before this plugin host started.
+        if (owner && !owner->isClosing())
+            mHost->notify("instanceOpened", {{"id", result->id()}});
         return result;
     }
     QList<IProject *> projects()
@@ -1224,6 +1264,7 @@ private:
             connect(editable, &FeatureLayer::featuresChanged, this, changed);
     }
     GuiExtensionHost *mHost;
+    bool mStopping = false; ///< Prevent new facade creation after plugin resources begin teardown.
     QSet<QObject *> mObservedLayers;
     std::map<SWMMVisProjectWindow *, std::unique_ptr<ModelFacade>> mModels;
     std::vector<std::unique_ptr<ModelFacade>> mRetired;
@@ -1237,10 +1278,41 @@ void installExtensionModelAccess(GuiExtensionHost *host,
     auto *access = new ModelAccess(host);
     access->windows = std::move(windows);
     access->active = std::move(active);
+    if (auto *registry = host->stateRegistry()) {
+        QObject::connect(registry, &ExtensionStateRegistry::sessionRegistered, access,
+                         [access, host](QObject *owner, const QUuid &) {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(owner);
+            if (window && host->mainWindow() && host->mainWindow()->isAncestorOf(window))
+                access->track(window);
+        });
+        QObject::connect(registry, &ExtensionStateRegistry::stateEventReady, access,
+                         [access, host, registry](const StateEvent &event) {
+            if (event.kind != StateEventKind::ModelReady || !registry->isDeliverable(event))
+                return;
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(
+                registry->ownerForSession(event.session.sessionId));
+            // Older consumers bind through activation and have no Ready event. Re-resolve
+            // the active model after the outer open barrier without recreating its facade.
+            if (window && access->active() == window)
+                host->notify("instanceActivated", {{"id", event.session.instanceId}});
+        });
+        for (const auto &state : registry->snapshot().sessions) {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(state.sessionId));
+            if (window && host->mainWindow() && host->mainWindow()->isAncestorOf(window))
+                access->track(window);
+        }
+        host->setSessionResolver([access, registry](const QUuid &sessionId) -> IModelInstance * {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(sessionId));
+            auto *instance = access->model(window);
+            return instance && instance->isOpen() ? instance : nullptr;
+        });
+    }
     host->setModelAccess([access]() { return access->projects(); },
                          [access]() { return access->model(access->active()); });
     if (auto *mdi = host->mainWindow()->findChild<QMdiArea *>())
         QObject::connect(mdi, &QMdiArea::subWindowActivated, access, [access, host]() {
+            // Moving an already-created window into MDI is also an explicit registration boundary.
+            access->track(access->active());
             QTimer::singleShot(0, access, [access, host]() {
                 auto *instance = access->model(access->active());
                 host->notify("instanceActivated", {{"id", instance ? instance->id() : QUuid{}}});

@@ -31,19 +31,45 @@ if(TYPED_PLUGIN_DIRS)
     string(APPEND _extension_paths "${_separator}${TYPED_PLUGIN_DIRS}")
     set(_typed_consumer_environment "SDK_TYPED_CONSUMERS=1")
 endif()
+set(_lifecycle_environment "")
+if(LIFECYCLE_PLUGIN_DIR)
+    string(APPEND _extension_paths "${_separator}${LIFECYCLE_PLUGIN_DIR}")
+    set(_lifecycle_environment "SDK_LIFECYCLE_CONSUMER=1")
+endif()
+set(_startup_project "${_run}/model.oswp")
+set(_multi_model_environment "")
 file(WRITE "${_run}/model.oswp"
-    "{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"model.inp\",\"instanceId\":\"{124ed789-2774-4e8f-a166-4bdf76e83e09}\"}]}")
+    "{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"model.inp\",\"instanceId\":\"{124ed789-2774-4e8f-a166-4bdf76e83e09}\",\"extensions\":{\"org.openswmm.model-conformance\":{\"restoredMarker\":\"primary\"}}}]}")
+if(EV2_MULTI_MODEL)
+    # Distinct input paths avoid normal document deduplication. The intentionally repeated
+    # persistent UUID must not collapse the independent open-session identities.
+    configure_file("${_run}/model.inp" "${_run}/other.inp" COPYONLY)
+    set(_startup_project "${_run}/chosen-project.oswp")
+    file(WRITE "${_startup_project}"
+        "{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"model.inp\",\"instanceId\":\"{124ed789-2774-4e8f-a166-4bdf76e83e09}\",\"extensions\":{\"org.openswmm.model-conformance\":{\"restoredMarker\":\"primary\"}}},{\"inpPath\":\"other.inp\",\"instanceId\":\"{124ed789-2774-4e8f-a166-4bdf76e83e09}\",\"extensions\":{\"org.openswmm.model-conformance\":{\"restoredMarker\":\"secondary\"}}}]}")
+    # Sibling sidecars are decoys: opening the explicitly selected project must restore
+    # its individual session entries rather than substituting either sibling file.
+    foreach(_input model other)
+        file(WRITE "${_run}/${_input}.oswp"
+            "{\"schemaVersion\":5,\"sessions\":[{\"inpPath\":\"${_input}.inp\",\"instanceId\":\"{d3a4013e-2106-4dce-9ac4-5ba842c35ca0}\",\"extensions\":{\"org.openswmm.model-conformance\":{\"restoredMarker\":\"decoy\"}}}]}")
+    endforeach()
+    set(_multi_model_environment "SDK_EV2_MULTI_MODEL=1")
+endif()
 file(WRITE "${_run}/settings-scope.json" "{\"defaults\":{\"outDir\":\"${_run}\"},\"figures\":[]}")
 file(WRITE "${EVIDENCE}/last-run.txt" "${_run}\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "QT_QPA_PLATFORM=offscreen"
     "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS}"
     "SWMMVIS_GUI_EXTENSION_PATH=${_extension_paths}"
-    "SWMMVIS_OPEN_ON_STARTUP=${_run}/model.oswp"
+    "SWMMVIS_OPEN_ON_STARTUP=${_startup_project}"
     "SDK_MODEL_REPORT=${_run}/report.json"
+    "SDK_MODEL_PRIMARY_INPUT=${_run}/model.inp"
+    "SDK_EV2_PROJECT_PATH=${_startup_project}"
     "SDK_DATA_CATALOGUE=${_data_catalogue}"
     "SDK_DATA_TERRAIN=${_data_terrain}"
     ${_typed_consumer_environment}
+    ${_lifecycle_environment}
+    ${_multi_model_environment}
     "SWMMVIS_CAPTURE_MANIFEST=${_run}/settings-scope.json"
     "SWMM_LOG_FILE=${_run}/application.log"
     "${APP}"
