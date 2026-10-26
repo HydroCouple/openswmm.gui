@@ -8,6 +8,7 @@
  */
 
 #include "core/attributevalue.h"
+#include "plugins/extensionattributes.h"
 #include "ui/properties/attributegroups.h"
 #include "core/displaynumber.h"
 #include "ui/panels/swmmattributetablemodel.h"
@@ -3313,6 +3314,8 @@ SWMMAttributeTableModel::SWMMAttributeTableModel(QObject *parent) : QAbstractTab
 void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer, SWMMModelLayer::Category category)
 {
     if (m_layer)
+        disconnect(m_layer, &SWMMModelLayer::extensionAttributesChanged, this, nullptr);
+    if (m_layer)
         disconnect(m_layer, &SWMMModelLayer::optionsChanged, this, nullptr);
     beginResetModel();
     m_layer = layer;
@@ -3323,6 +3326,18 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer, SWMMModelLayer::C
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+    if (m_layer)
+        connect(m_layer, &SWMMModelLayer::extensionAttributesChanged, this, [this](bool schema) {
+            if (schema) {
+                beginResetModel();
+                rebuildColumnSchema();
+            }
+            m_rowCacheValid.assign(m_rowCacheValid.size(), false);
+            if (schema)
+                endResetModel();
+            else if (rowCount() > 0 && columnCount() > 0)
+                emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+        });
     if (m_layer)
         connect(m_layer, &SWMMModelLayer::optionsChanged, this, [this](const QStringList &keys) {
             for (const auto &key : keys)
@@ -3401,6 +3416,13 @@ void SWMMAttributeTableModel::rebuildColumnSchema()
     }
     appendInitialQualityColumns();
     appendUserFlagColumns();
+    for (const auto &field : openswmmvis::extensionAttributeFields(m_layer, m_category)) {
+        const auto label = field.displayName.isEmpty() ? field.name : field.displayName;
+        auto column = ro(field.name, field.unit.isEmpty() ? label : label + " (" + field.unit + ')');
+        column.scalarType = field.type;
+        column.tooltip = tr("Calculated value supplied by an extension.");
+        m_columnSpecs.append(column);
+    }
     // Keep all ordinary attributes (including dynamic flags and initial
     // quality) together, then the node coupling block, then run summaries.
     // Stable ordering preserves the relative order inside each group.

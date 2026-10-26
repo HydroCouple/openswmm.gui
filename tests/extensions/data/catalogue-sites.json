@@ -1,0 +1,6 @@
+{"type":"FeatureCollection","features":[
+  {"type":"Feature","id":"outer","properties":{"monitoring_location_name":"Inside outer polygon"},"geometry":{"type":"Point","coordinates":[-76.05,40.05]}},
+  {"type":"Feature","id":"hole","properties":{"monitoring_location_name":"Inside excluded hole"},"geometry":{"type":"Point","coordinates":[-76,40]}},
+  {"type":"Feature","id":"second","properties":{"monitoring_location_name":"Inside second part"},"geometry":{"type":"Point","coordinates":[-75.75,39.95]}},
+  {"type":"Feature","id":"outside","properties":{"monitoring_location_name":"Outside reviewed polygon"},"geometry":{"type":"Point","coordinates":[-77,41]}}
+]}

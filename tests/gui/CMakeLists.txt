@@ -17,6 +17,12 @@ set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 # or link against compiled .o files via the SWMMVis_obj target if extracted later).
 function(add_swmmvis_gui_test TEST_NAME)
     add_executable(${TEST_NAME} ${ARGN})
+    if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp)
+        target_link_libraries(${TEST_NAME} PRIVATE openswmmvis_extensions)
+    endif()
     set_target_properties(${TEST_NAME} PROPERTIES
         AUTOMOC ON
         AUTORCC ON)
@@ -25,6 +31,7 @@ function(add_swmmvis_gui_test TEST_NAME)
         ${CMAKE_SOURCE_DIR}/forms
     )
     target_link_libraries(${TEST_NAME} PRIVATE
+        openswmmvis_extensions
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
     if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)

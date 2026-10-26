@@ -55,6 +55,16 @@ public:
      */
     void registerAction(const QString &id, QAction *action);
 
+    /** @brief Register an extension command and restore its user shortcut override.
+     * @param[in] id Qualified ext.pluginId.actionId identity.
+     * @param[in] action Borrowed QAction; initial shortcuts become the extension defaults.
+     * @return False for an invalid prefix, null action or an already registered identity. */
+    bool registerExtensionAction(const QString &id, QAction *action);
+    /** @brief Remove an extension command and captured defaults while preserving user preferences.
+     * @param[in] id Qualified extension identity; built-in/unknown identities are ignored.
+     * @note Does not delete or reparent the QAction. */
+    void unregisterExtensionAction(const QString &id);
+
     /*! Sweep the catalog and adopt every entry whose objectName resolves
      *  to a QAction under \a root. Entries that don't resolve are left
      *  unregistered (tolerated — mirrors the historical findChild
@@ -159,6 +169,7 @@ private:
     void applyShortcut(const QString &id);
 
     QHash<QString, QAction *> mActions; // id -> adopted action
+    QHash<QString, QList<QKeySequence>> mExtensionDefaults; ///< Captured default bindings for extension commands.
     QHash<QString, const ActionCatalogEntry *> mEntries;
 };
 

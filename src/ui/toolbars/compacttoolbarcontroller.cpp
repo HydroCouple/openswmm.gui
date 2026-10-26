@@ -65,7 +65,8 @@ CompactToolbarController::CompactToolbarController(QMainWindow *window)
 void CompactToolbarController::addTab(const QString &id, const QString &title,
                                       const QList<QToolBar *> &toolbars, bool contextual)
 {
-    Q_ASSERT(!mFinalized);
+    if (id.isEmpty() || indexOf(id) >= 0)
+        return;
     Tab tab;
     tab.id = id;
     tab.title = title;
@@ -74,6 +75,42 @@ void CompactToolbarController::addTab(const QString &id, const QString &title,
     mTabs.append(tab);
     const int index = mTabBar->addTab(title);
     mTabBar->setTabData(index, id);
+    if (mFinalized && mWindow) {
+        // Insert shared plugin bars before the first dedicated terrain/mesh row.
+        for (auto *bar : toolbars) {
+            if (!bar)
+                continue;
+            if (!mOwnRowBars.isEmpty())
+                mWindow->insertToolBar(mOwnRowBars.first(), bar);
+            else
+                mWindow->addToolBar(Qt::TopToolBarArea, bar);
+            bar->setMovable(false);
+        }
+        mTabBar->setTabVisible(index, !contextual);
+        QSettings settings;
+        if (!contextual && settings.value(kSettingsGroup + '/' + kLastTabKey).toString() == id)
+            mTabBar->setCurrentIndex(index);
+        applyVisibility();
+        relayoutStrip();
+    }
+}
+
+void CompactToolbarController::removeTab(const QString &id)
+{
+    const int index = indexOf(id);
+    if (index < 0)
+        return;
+    const auto tab = mTabs.takeAt(index);
+    for (auto *bar : tab.bars) {
+        if (bar && mWindow)
+            mWindow->removeToolBar(bar);
+        mOwnRowBars.removeAll(bar);
+    }
+    mTabBar->removeTab(index);
+    if (mFinalized) {
+        applyVisibility();
+        relayoutStrip();
+    }
 }
 
 void CompactToolbarController::setOwnRow(QToolBar *bar)

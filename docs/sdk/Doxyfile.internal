@@ -1,0 +1,20 @@
+# Optional strict check of implementation docs included in the main GUI site.
+# Run from the repository root: doxygen docs/sdk/Doxyfile.internal
+@INCLUDE = docs/sdk/Doxyfile
+PROJECT_NAME = "OpenSWMM GUI Extension Implementation"
+OUTPUT_DIRECTORY = build/docs/sdk-internal
+INPUT += include/plugins/extensionmanager.h \
+         include/plugins/guiextensionhost.h \
+         include/plugins/extensionmodelaccess.h \
+         include/plugins/extensionnetwork.h \
+         include/plugins/extensionpreferences.h \
+         include/plugins/extensionattributes.h \
+         src/plugins/extensionattributes.cpp \
+         src/plugins/extensionmanager.cpp \
+         src/plugins/guiextensionhost.cpp \
+         src/plugins/extensionmodelaccess.cpp \
+         src/plugins/extensionnetwork.cpp \
+         src/swmmvisextensions.cpp \
+         include/swmmvis.h
+# Resolve the application's integration method without including the unrelated main-window API.
+EXCLUDE_SYMBOLS += SWMMVis

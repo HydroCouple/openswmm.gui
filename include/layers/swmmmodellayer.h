@@ -340,6 +340,20 @@ public:
     void buildFromEngine(SWMM_Engine engine, qint64 *soaMsOut = nullptr,
                          qint64 *geomMsOut = nullptr);
 
+    /**
+     * @brief Rebuild geometry after a mediated native engine edit without replacing the engine.
+     * @note GUI thread only, with exclusive engine access. Keeps styling and named selection;
+     * emits one geometryChanged/attributeChanged/modelEdited/repaintRequested batch.
+     */
+    void rebuildFromEngine();
+    /**
+     * @brief Adopt a validated replacement engine for snapshot undo/redo.
+     * @param[in] engine Nonnull editable engine; ownership transfers to this layer.
+     * @note GUI thread only. Destroys the prior engine, preserves style and named visibility/
+     * selection, rebuilds caches, and emits the same edit notifications as rebuildFromEngine().
+     */
+    void replaceEngineForEdit(SWMM_Engine engine);
+
     /*!
      * \brief Adopt an engine whose geometry was already built by
      *        buildFromEngine(). GUI-thread only: assigns the engine, syncs
@@ -4121,6 +4135,10 @@ signals:
      *   modelEdited.
      */
     void attributeChanged(const QString &objectName);
+    /** @brief Refresh extension-derived field metadata or values without editing the model.
+     * @param[in] schemaChanged True after registration/removal, false after value invalidation.
+     * @note GUI-thread notification for read-only tables and presentation consumers. */
+    void extensionAttributesChanged(bool schemaChanged);
 
     /*! Emitted by applyRename() after a node, link, subcatchment or gage was
      *  renamed in the engine and every layer cache. Views that hold an object

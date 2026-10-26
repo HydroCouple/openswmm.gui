@@ -88,6 +88,7 @@
 #include <cpl_conv.h> // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "plugins/extensionmanager.h"
 #include "core/enginestring.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
@@ -429,6 +430,7 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
     initializeSettings();
     registerActions();
     initializeDefaultWorkspaceSession();
+    initializeExtensions();
 
     // Allow the window to shrink well below the size implied by the toolbars,
     // dock widgets and central MDI area so it can be snapped/tiled to half the
@@ -540,6 +542,7 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
 
 SWMMVis::~SWMMVis()
 {
+    openswmmvis::ExtensionManager::instance()->shutdown();
     // Project destruction updates the active units and shared controls. Finish
     // it while those controls still exist, before QWidget deletes children.
     const auto projects = findChildren<SWMMVisProjectWindow *>();
@@ -6102,6 +6105,9 @@ void SWMMVis::onOpenProject(const QString &path)
 SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
 {
     auto *window = new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral);
+    connect(window, &SWMMVisProjectWindow::modelLoaded, this, []() {
+        openswmmvis::ExtensionManager::instance()->refreshModels();
+    });
 
     // Keep the tab tooltips (full paths) in step. windowTitleChanged is the
     // right hook: the title is recomputed from the model path, so it fires on
@@ -9812,6 +9818,12 @@ bool twoDMeshResolves(const QString &inpPath)
 void SWMMVis::onRunSimulation()
 {
     auto *pw = activeProjectWindow();
+    if (pw && (!pw->property("extensionWriteLease").toString().isEmpty() ||
+               pw->property("extensionReadLeases").toInt() > 0)) {
+        onLogMessage(tr("The model is locked by extension %1. Finish the extension operation before running.")
+            .arg(pw->property("extensionWriteLease").toString()), OpenSWMMVisLogMessage::Warning);
+        return;
+    }
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine()) {
         onLogMessage(tr("Open a SWMM project first to run a simulation."),
                      OpenSWMMVisLogMessage::Warning);
@@ -10282,6 +10294,7 @@ void SWMMVis::onRunSimulation()
     auto *runner =
         new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath, engineVer, this);
     mActiveRunners.insert(jobId, runner);
+    pw->setProperty("extensionRunCount", pw->property("extensionRunCount").toInt() + 1);
 #ifdef Q_OS_MACOS
     // App Nap would throttle a run the user switched away from; hold a
     // user-initiated activity for the run's lifetime (released in the
@@ -10369,6 +10382,8 @@ void SWMMVis::onRunSimulation()
             // last sim finishes.
             self->mRunningSimProgress.remove(finishedJobId);
             self->mActiveRunners.remove(finishedJobId);
+            if (pwGuard)
+                pwGuard->setProperty("extensionRunCount", qMax(0, pwGuard->property("extensionRunCount").toInt() - 1));
 #ifdef Q_OS_MACOS
             openswmmvis::platform::endSimulationActivity();
 #endif

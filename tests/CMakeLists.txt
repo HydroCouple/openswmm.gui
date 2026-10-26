@@ -100,6 +100,7 @@ message(STATUS "Test runtime env modifications: ${SWMMVIS_TEST_ENV}")
 add_subdirectory(unit)
 add_subdirectory(gui)
 add_subdirectory(tools)
+add_subdirectory(extensions)
 
 add_test(NAME test_build_timestamp
     COMMAND "${CMAKE_COMMAND}"

@@ -106,8 +106,14 @@ ctest --test-dir build/darwin -C Release --output-on-failure
 Generated with Doxygen and published to GitHub Pages on every push to `main`/`swmm6_gui`:
 
 ```bash
-doxygen docs/Doxyfile   # output → docs/html/
+cd docs
+doxygen Doxyfile   # output → docs/html/ from the repository root
 ```
+
+The GUI documentation includes the user manual, the **GUI Extensions** author
+guide, and references for the public SDK and private extension implementation.
+The SDK and extension host belong to this repository; individual plugins can
+be developed in separate repositories against the installed SDK.
 
 ## Contributing
 

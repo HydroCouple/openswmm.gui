@@ -8,6 +8,7 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "plugins/extensionattributes.h"
 #include "layers/swmmelementsymboladapter.h"
 #include "layers/hydrographmodels.h"
 #include "ui/dialogs/ilayerstylesubject.h"
@@ -1604,6 +1605,47 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine, QList<QString> &warning
     emit modelFilePathChanged(m_modelFilePath);
     emit modelLoaded();
     return true;
+}
+
+void SWMMModelLayer::rebuildFromEngine()
+{
+    if (!m_engine)
+        return;
+    UnitSystem::instance()->syncFromEngine(m_engine);
+    char crs[512]{};
+    if (swmm_get_crs(m_engine, crs, sizeof(crs)) == SWMM_OK && crs[0]) {
+        if (auto *updated = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crs), this)) {
+            if (!srs() || srs()->toWkt() != updated->toWkt())
+                setSRS(updated, true);
+            else
+                delete updated;
+        }
+    }
+    m_nodes.clear();
+    m_links.clear();
+    m_catchments.clear();
+    m_gages.clear();
+    buildFromEngine(m_engine);
+    m_needsRebuild = true;
+    emit geometryChanged();
+    emit attributeChanged(QString());
+    emit modelEdited();
+    emit repaintRequested();
+}
+
+void SWMMModelLayer::replaceEngineForEdit(SWMM_Engine engine)
+{
+    if (!engine || engine == m_engine)
+        return;
+    const auto selection = m_selectedElements;
+    const auto hidden = m_hiddenObjects;
+    const auto hiddenKinds = m_hiddenKindMask;
+    closeEngine();
+    m_engine = engine;
+    m_hiddenObjects = hidden;
+    m_hiddenKindMask = hiddenKinds;
+    rebuildFromEngine();
+    setSelectedElements(selection);
 }
 
 // ---------------------------------------------------------------------------
@@ -3878,6 +3920,7 @@ SWMMModelLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
             out.append(field);
         }
     }
+    out.append(openswmmvis::extensionAttributeFields(this, cat));
     return out;
 }
 
@@ -4593,7 +4636,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name, quint8 kindMask)
             }
         }
         addFlags(QStringLiteral("NODE"));
-        return m;
+        return openswmmvis::extensionAttributeValues(this, static_cast<Category>(int(CatJunctions) + n.nodeType), name, m);
     }
     if (int i = findLink(); i >= 0) {
         const LinkGeom &l = m_links[i];
@@ -4633,7 +4676,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name, quint8 kindMask)
             }
         }
         addFlags(QStringLiteral("LINK"));
-        return m;
+        return openswmmvis::extensionAttributeValues(this, static_cast<Category>(int(CatConduits) + l.linkType), name, m);
     }
     if (int i = findCatch(); i >= 0) {
         const CatchGeom &c = m_catchments[i];
@@ -4663,7 +4706,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name, quint8 kindMask)
             }
         }
         addFlags(QStringLiteral("SUBCATCHMENT"));
-        return m;
+        return openswmmvis::extensionAttributeValues(this, CatSubcatchments, name, m);
     }
     if (int i = findGage(); i >= 0) {
         const NodeGeom &g = m_gages[i];
@@ -4672,7 +4715,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name, quint8 kindMask)
         m[QStringLiteral("X")] = g.x;
         m[QStringLiteral("Y")] = g.y;
         addFlags(QStringLiteral("GAGE"));
-        return m;
+        return openswmmvis::extensionAttributeValues(this, CatRainGages, name, m);
     }
     return m;
 }

@@ -228,6 +228,8 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QCoreApplication::translate("main", "SWMMVis"));
     QCommandLineOption helpOption = parser.addHelpOption();
     QCommandLineOption versionOption = parser.addVersionOption();
+    parser.addOption(QCommandLineOption("no-extensions",
+        QCoreApplication::translate("main", "Start without loading GUI extensions.")));
 
     parser.addOption(
         QCommandLineOption(QStringList() << "c" << "cli",

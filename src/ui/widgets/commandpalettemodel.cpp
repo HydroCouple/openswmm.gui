@@ -76,7 +76,7 @@ void CommandPaletteModel::reload()
         row.action = act;
         row.cleanText = act->text();
         row.cleanText.remove(QLatin1Char('&'));
-        row.category = entry ? QString::fromLatin1(entry->category) : QString();
+        row.category = entry ? QString::fromLatin1(entry->category) : tr("Extensions");
         mAll.append(row);
     }
     rebuildVisible();

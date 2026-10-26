@@ -55,6 +55,7 @@
 #include <QRadioButton>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include "plugins/extensionpreferences.h"
 #include <QVBoxLayout>
 
 PreferencesDialog::PreferencesDialog(QWidget *parent) : QDialog(parent)
@@ -119,6 +120,25 @@ void PreferencesDialog::buildUi()
     addCategory(tr("Naming"), buildNamingPage());
     addCategory(tr("Appearance"), buildAppearancePage());
     addCategory(tr("Keyboard"), buildKeyboardPage());
+    // Keep the offline preference visible even when no extension is currently enabled.
+    auto *extensionNetwork = new QWidget(this);
+    auto *networkLayout = new QVBoxLayout(extensionNetwork);
+    auto *offline = new QCheckBox(tr("Work offline — disable extension network requests"), extensionNetwork);
+    offline->setObjectName(QStringLiteral("extensionNetworkOffline"));
+    offline->setChecked(QSettings().value(QStringLiteral("extensions/network/offline"), false).toBool());
+    networkLayout->addWidget(offline);
+    networkLayout->addStretch();
+    addCategory(tr("Extensions"), extensionNetwork);
+    for (const auto &entry : openswmmvis::extensionPreferences()) {
+        if (!entry.owner)
+            continue;
+        if (auto *page = entry.factory->create(entry.settings)) {
+            setProperty("extensionPreferences", true);
+            addCategory(tr("Extensions — %1").arg(entry.factory->title()), page);
+            page->setProperty("extensionPreferencesId", entry.id);
+            page->setObjectName(entry.id);
+        }
+    }
     split->addWidget(m_pages, 1);
 
     connect(m_categoryList, &QListWidget::currentRowChanged, m_pages,
@@ -2134,6 +2154,8 @@ void PreferencesDialog::writeToManager()
     savePrefix(m_prefixOutlet, QStringLiteral("outlet"));
     savePrefix(m_prefixRaingage, QStringLiteral("raingage"));
     savePrefix(m_prefixSubcatchment, QStringLiteral("subcatchment"));
+    if (auto *offline = findChild<QCheckBox *>(QStringLiteral("extensionNetworkOffline")))
+        QSettings().setValue(QStringLiteral("extensions/network/offline"), offline->isChecked());
 }
 
 void PreferencesDialog::onApply()
@@ -2143,6 +2165,9 @@ void PreferencesDialog::onApply()
         return;
     }
     writeToManager();
+    for (const auto &entry : openswmmvis::extensionPreferences())
+        if (entry.owner && findChild<QWidget *>(entry.id))
+            entry.factory->apply();
 }
 
 void PreferencesDialog::onAccept()
@@ -2152,11 +2177,16 @@ void PreferencesDialog::onAccept()
         return;
     }
     writeToManager();
+    for (const auto &entry : openswmmvis::extensionPreferences())
+        if (entry.owner && findChild<QWidget *>(entry.id))
+            entry.factory->apply();
     accept();
 }
 
 void PreferencesDialog::onResetToDefaults()
 {
+    if (auto *offline = findChild<QCheckBox *>(QStringLiteral("extensionNetworkOffline")))
+        offline->setChecked(false);
     m_projectOpenDirectoryEdit->clear();
     // Defaults mirror the `k…` constants in preferencesmanager.cpp — not
     // shared via a header because the dialog also wants to show them as

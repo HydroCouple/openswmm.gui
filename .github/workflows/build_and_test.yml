@@ -841,6 +841,28 @@ jobs:
         timeout-minutes: 15
         run: cmake --install build/${{ matrix.build_subdir }} --prefix ${{ github.workspace }}/dist/${{ matrix.build_subdir }}
 
+      - name: Stage GUI extension SDK
+        shell: bash
+        run: |
+          cmake --install build/${{ matrix.build_subdir }} --config Release --component GuiSdk \
+            --prefix "${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }}"
+
+      - name: Build independent installed-SDK extension
+        shell: bash
+        run: |
+          cmake -S examples/extensions/template -B build/sdk-example-${{ matrix.build_subdir }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
+          cmake --build build/sdk-example-${{ matrix.build_subdir }} --config Release --parallel 2
+
+      - name: Upload GUI extension SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: openswmmvis-sdk-${{ matrix.vcpkg_triplet }}
+          if-no-files-found: error
+          path: dist/gui-sdk/${{ matrix.vcpkg_triplet }}
+
       # Gate: the GUI must ship the legacy-engine worker so the legacy (EPA-SWMM)
       # run option works in the installed/packaged app. Fail if it is absent from
       # the install tree (the "Failed to start legacy worker" runtime class).
