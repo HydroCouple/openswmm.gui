@@ -89,6 +89,20 @@ target_sources(test_gui_extensions PRIVATE
     ${PROJECT_SOURCE_DIR}/include/ui/toolbars/compacttoolbarcontroller.h
     ${PROJECT_SOURCE_DIR}/src/ui/toolbars/compacttoolbarcontroller.cpp)
 
+# Consumer-local primitive values; the generic host has no Python or adapter runtime dependency.
+add_executable(test_gui_extension_values test_valueevents.cpp
+    ${PROJECT_SOURCE_DIR}/examples/extensions/values/ValueEventAdapter.hpp
+    ${PROJECT_SOURCE_DIR}/examples/extensions/values/ValueEventAdapter.cpp)
+set_target_properties(test_gui_extension_values PROPERTIES AUTOMOC ON)
+target_include_directories(test_gui_extension_values PRIVATE
+    ${PROJECT_SOURCE_DIR}/examples/extensions/values)
+target_link_libraries(test_gui_extension_values PRIVATE openswmmvis_extensions Qt6::Test)
+target_compile_definitions(test_gui_extension_values PRIVATE
+    SDK_VALUE_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev5/values")
+add_test(NAME test_gui_extension_values COMMAND test_gui_extension_values)
+set_tests_properties(test_gui_extension_values PROPERTIES LABELS "gui;sdk;values"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+
 openswmmvis_add_extension(sdk_model_conformance
     ID org.openswmm.model-conformance CAPTION "Model conformance" VERSION 1.0.0
     SOURCES modelconformance.cpp REQUIRES_ENGINE_ABI)
@@ -115,6 +129,6 @@ add_test(NAME test_gui_extensions COMMAND test_gui_extensions)
 set_tests_properties(test_gui_extensions PROPERTIES LABELS "gui;sdk"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 if(SWMMVIS_TEST_ENV)
-    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents test_gui_extension_activityevents test_gui_extension_activity_jobs test_gui_extension_activity_ui test_gui_extension_activity_consumers PROPERTIES
+    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents test_gui_extension_activityevents test_gui_extension_activity_jobs test_gui_extension_activity_ui test_gui_extension_activity_consumers test_gui_extension_values PROPERTIES
         ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
 endif()

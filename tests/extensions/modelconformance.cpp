@@ -764,10 +764,32 @@ private:
                     auto request = viewCommand(*events, ViewCommandKind::SetLayerFilter,
                                                events->boundaryAttachment);
                     request.text = "name IS NOT NULL";
+                    const auto layerCount = instance->project()->layers().size();
+                    table->selectRow(0);
                     const bool applied = events->controls->executeViewCommand(request, &error);
+                    if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
+                        exportButton->click();
+                        checks["dataPendingFilterExportRefused"] =
+                            applied && instance->project()->layers().size() == layerCount &&
+                            table->model()->rowCount() == 0 && !exportButton->isEnabled();
+                        *stage = 12;
+                        return;
+                    }
                     checks["dataViewFilterInvalidatesReview"] =
                         applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
                     request.text.clear();
+                    checks["dataViewFilterRestored"] =
+                        events->controls->executeViewCommand(request, &error);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                    *stage = 11;
+                    return;
+                }
+                if (*stage == 12) {
+                    checks["dataViewFilterInvalidatesReview"] =
+                        table->model()->rowCount() == 0 && !exportButton->isEnabled();
+                    QString error;
+                    auto request = viewCommand(*events, ViewCommandKind::SetLayerFilter,
+                                               events->boundaryAttachment);
                     checks["dataViewFilterRestored"] =
                         events->controls->executeViewCommand(request, &error);
                     QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
@@ -784,9 +806,26 @@ private:
                         request.featureIds = {boundary.first()["id"].toLongLong()};
                     const bool applied = !request.featureIds.isEmpty() &&
                                          events->controls->executeViewCommand(request, &error);
+                    if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
+                        checks["dataViewSelectionCommandAccepted"] = applied;
+                        *stage = 13;
+                        return;
+                    }
                     checks["dataViewSelectionInvalidatesReview"] =
                         applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
                     request.featureIds.clear();
+                    checks["dataViewSelectionRestored"] =
+                        events->controls->executeViewCommand(request, &error);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                    *stage = 1;
+                    return;
+                }
+                if (*stage == 13) {
+                    checks["dataViewSelectionInvalidatesReview"] =
+                        table->model()->rowCount() == 0 && !exportButton->isEnabled();
+                    QString error;
+                    auto request = viewCommand(*events, ViewCommandKind::SelectLayerFeatures,
+                                               events->boundaryAttachment);
                     checks["dataViewSelectionRestored"] =
                         events->controls->executeViewCommand(request, &error);
                     QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
@@ -835,6 +874,264 @@ private:
                 timer->stop();
                 checks["dataPreviewCompleted"] = true;
                 done(checks);
+            });
+        timer->start();
+    }
+    /** @brief Exercise the migrated Data panel against real deferred source changes.
+     * @param[in] host Public host and ordinary Qt contribution owner.
+     * @param[in] instance Exact primary model facade, independent of persistent UUID duplication.
+     * @param[in] checks Owning prior conformance assertions.
+     * @param[in] events Borrowed typed source/control capabilities and captured identities.
+     * @param[in] done Continuation after the bounded offline workflow.
+     * @note CRS/source geometry mutation without a public controller is covered by the
+     * installed-SDK offline panel suite; this workflow uses existing native controller routes. */
+    static void exerciseTypedDataPreview(ExtensionHost *host, IModelInstance *instance,
+                                         QJsonObject checks,
+                                         const std::shared_ptr<EventConformance> &events,
+                                         std::function<void(QJsonObject)> done)
+    {
+        if (!qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
+            done(checks);
+            return;
+        }
+        const QPointer<QWidget> panel(
+            host->ui()->mainWindow()->findChild<QWidget *>("dataPreviewPanel"));
+        auto *area = panel ? panel->findChild<QComboBox *>("dataAreaMode") : nullptr;
+        auto *source = panel ? panel->findChild<QComboBox *>("dataSource") : nullptr;
+        auto *layers = panel ? panel->findChild<QComboBox *>("dataBoundaryLayer") : nullptr;
+        auto *table = panel ? panel->findChild<QTableView *>("dataCatalogue") : nullptr;
+        auto *exportButton = panel ? panel->findChild<QPushButton *>("dataExport") : nullptr;
+        auto *status = panel ? panel->findChild<QLabel *>("dataStatus") : nullptr;
+        QPointer<QWidget> canvas;
+        for (auto *widget : instance->lifetime()->findChildren<QWidget *>())
+            if (widget->inherits("MapCanvas")) {
+                canvas = widget;
+                break;
+            }
+        if (!panel || !area || !source || !layers || !table || !exportButton || !status ||
+            !canvas || !events->controls || !events->viewSource) {
+            checks["dataTypedLiveControlsAvailable"] = false;
+            done(checks);
+            return;
+        }
+        checks["dataTypedLiveControlsAvailable"] = true;
+        const auto original = layerState(*events, events->boundaryAttachment);
+        const auto originalSize = canvas->size();
+        ResultsViewState originalResults;
+        for (const auto &result : events->viewSource->viewSnapshot(events->primarySession).results)
+            if (result.dimension == "1d" && result.availability == ResultAvailability::Ready &&
+                result.periodCount > 1) {
+                originalResults = result;
+                break;
+            }
+        const auto sites = qEnvironmentVariable("SDK_DATA_CATALOGUE");
+        source->setCurrentIndex(0);
+        area->setCurrentIndex(1);
+        QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+        auto *timer = new QTimer(host->lifetime());
+        timer->setInterval(100);
+        connect(
+            timer, &QTimer::timeout, host->lifetime(),
+            [host, instance, panel, area, source, layers, table, exportButton, status, canvas,
+             original, originalSize, originalResults, sites, events, checks, done = std::move(done),
+             timer, stage = 0, attempts = 0, settle = 0, commandAccepted = false,
+             otherLayer = QString{}, otherAttachment = QUuid{}, replacementId = QString{},
+             previousAttachment = QUuid{}, previousViewport = QJsonObject{},
+             otherOpacity = 1.]() mutable {
+                if (!panel || !canvas || ++attempts > 150) {
+                    timer->stop();
+                    timer->deleteLater();
+                    checks["dataTypedLiveWorkflowCompleted"] = false;
+                    if (panel)
+                        qWarning().noquote()
+                            << "Typed Data workflow did not complete; stage" << stage << "rows"
+                            << table->model()->rowCount() << "status" << status->text();
+                    done(checks);
+                    return;
+                }
+                const auto load = [&] {
+                    source->setCurrentIndex(0);
+                    area->setCurrentIndex(1);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                };
+                const auto rows = [&] { return table->model()->rowCount(); };
+                const auto cleared = [&] { return rows() == 0 && !exportButton->isEnabled(); };
+                const auto selectedReview = [&] {
+                    table->clearSelection();
+                    table->selectRow(0);
+                    return rows() == 2 && exportButton->isEnabled();
+                };
+                const bool awaitingSites = stage == 0 || stage == 2 || stage == 4 || stage == 10 ||
+                                           stage == 13 || stage == 15;
+                if (awaitingSites && rows() != 2)
+                    return;
+                QString error;
+                if (stage == 0) {
+                    auto request = viewCommand(*events, ViewCommandKind::RenameLayer,
+                                               events->boundaryAttachment);
+                    request.text = "Typed reviewed boundary";
+                    commandAccepted = events->controls->executeViewCommand(request, &error);
+                    stage = 1;
+                } else if (stage == 1) {
+                    checks["dataTypedBoundaryRenameInvalidates"] = commandAccepted && cleared();
+                    auto request = viewCommand(*events, ViewCommandKind::RenameLayer,
+                                               events->boundaryAttachment);
+                    request.text = original.title;
+                    checks["dataTypedBoundaryRenameRestored"] =
+                        events->controls->executeViewCommand(request, &error);
+                    load();
+                    stage = 2;
+                } else if (stage == 2) {
+                    auto request = viewCommand(*events, ViewCommandKind::SetLayerVisible,
+                                               events->boundaryAttachment);
+                    request.enabled = !original.visible;
+                    commandAccepted = events->controls->executeViewCommand(request, &error);
+                    stage = 3;
+                } else if (stage == 3) {
+                    checks["dataTypedBoundaryVisibilityInvalidates"] = commandAccepted && cleared();
+                    auto request = viewCommand(*events, ViewCommandKind::SetLayerVisible,
+                                               events->boundaryAttachment);
+                    request.enabled = original.visible;
+                    checks["dataTypedBoundaryVisibilityRestored"] =
+                        events->controls->executeViewCommand(request, &error);
+                    load();
+                    stage = 4;
+                } else if (stage == 4) {
+                    otherLayer = instance->project()->addFeatureLayer(
+                        QFileInfo(instance->inpPath()).dir().filePath("boundary.geojson"),
+                        "Unrelated typed source", &error);
+                    for (const auto &layer :
+                         events->viewSource->viewSnapshot(events->primarySession).layers)
+                        if (layer.layerId == otherLayer)
+                            otherAttachment = layer.layerSessionId;
+                    checks["dataTypedUnrelatedLayerAdded"] =
+                        !otherLayer.isEmpty() && !otherAttachment.isNull();
+                    otherOpacity = layerState(*events, otherAttachment).opacity;
+                    auto request =
+                        viewCommand(*events, ViewCommandKind::SetLayerOpacity, otherAttachment);
+                    request.number = otherOpacity == .35 ? .6 : .35;
+                    commandAccepted = events->controls->executeViewCommand(request, &error);
+                    if (!originalResults.layerSessionId.isNull()) {
+                        request = viewCommand(*events, ViewCommandKind::SetResultsTime,
+                                              originalResults.layerSessionId);
+                        request.index = originalResults.currentIndex == 0 ? 1 : 0;
+                        checks["dataTypedResultPlaybackCommand"] =
+                            events->controls->executeViewCommand(request, &error);
+                    }
+                    settle = 0;
+                    stage = 5;
+                } else if (stage == 5) {
+                    if (++settle < 3)
+                        return;
+                    checks["dataTypedUnrelatedLayerPresentationPlaybackPreserves"] =
+                        commandAccepted && selectedReview();
+                    auto request =
+                        viewCommand(*events, ViewCommandKind::SetLayerOpacity, otherAttachment);
+                    request.number = otherOpacity;
+                    bool restored = events->controls->executeViewCommand(request, &error);
+                    request = viewCommand(*events, ViewCommandKind::RemoveLayer, otherAttachment);
+                    restored &= events->controls->executeViewCommand(request, &error);
+                    if (!originalResults.layerSessionId.isNull()) {
+                        request = viewCommand(*events, ViewCommandKind::SetResultsTime,
+                                              originalResults.layerSessionId);
+                        request.index = originalResults.currentIndex;
+                        restored &= events->controls->executeViewCommand(request, &error);
+                    }
+                    checks["dataTypedUnrelatedChangesRestored"] = restored;
+                    settle = 0;
+                    stage = 6;
+                } else if (stage == 6) {
+                    if (++settle < 3)
+                        return;
+                    checks["dataTypedUnrelatedRemovalPreserves"] = selectedReview();
+                    previousViewport = instance->project()->viewportBoundary(&error);
+                    canvas->resize(canvas->width() + 101, canvas->height());
+                    checks["dataTypedPolygonViewportActuallyChanged"] =
+                        instance->project()->viewportBoundary(&error) != previousViewport;
+                    stage = 7;
+                } else if (stage == 7) {
+                    checks["dataTypedPolygonIgnoresViewportChanges"] = selectedReview();
+                    canvas->resize(originalSize);
+                    area->setCurrentIndex(0);
+                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
+                    stage = 8;
+                } else if (stage == 8) {
+                    if (!status->text().contains("results intersect the reviewed area"))
+                        return;
+                    previousViewport = instance->project()->viewportBoundary(&error);
+                    canvas->resize(canvas->width() + 113, canvas->height());
+                    checks["dataTypedViewportActuallyChanged"] =
+                        instance->project()->viewportBoundary(&error) != previousViewport;
+                    stage = 9;
+                } else if (stage == 9) {
+                    checks["dataTypedViewportReviewInvalidates"] =
+                        cleared() &&
+                        !status->text().contains("results intersect the reviewed area");
+                    canvas->resize(originalSize);
+                    load();
+                    stage = 10;
+                } else if (stage == 10) {
+                    previousAttachment = events->boundaryAttachment;
+                    auto request =
+                        viewCommand(*events, ViewCommandKind::RemoveLayer, previousAttachment);
+                    commandAccepted = events->controls->executeViewCommand(request, &error);
+                    stage = 11;
+                } else if (stage == 11) {
+                    checks["dataTypedBoundaryRemovalInvalidates"] = commandAccepted && cleared();
+                    replacementId = instance->project()->addFeatureLayer(
+                        QFileInfo(instance->inpPath()).dir().filePath("boundary.geojson"),
+                        original.title, &error);
+                    for (const auto &layer :
+                         events->viewSource->viewSnapshot(events->primarySession).layers)
+                        if (layer.layerId == replacementId) {
+                            events->boundaryAttachment = layer.layerSessionId;
+                            events->boundaryLayerId = layer.layerId;
+                        }
+                    checks["dataTypedReattachedBoundaryHasNewIdentity"] =
+                        !replacementId.isEmpty() && !events->boundaryAttachment.isNull() &&
+                        events->boundaryAttachment != previousAttachment;
+                    stage = 12;
+                } else if (stage == 12) {
+                    const int index = layers->findData(replacementId);
+                    if (index < 0)
+                        return;
+                    layers->setCurrentIndex(index);
+                    load();
+                    stage = 13;
+                } else if (stage == 13) {
+                    checks["dataTypedReattachedBoundaryCanBeReviewed"] = selectedReview();
+                    if (events->survivingSession.isNull()) {
+                        timer->stop();
+                        timer->deleteLater();
+                        checks["dataTypedLiveWorkflowCompleted"] = true;
+                        done(checks);
+                        return;
+                    }
+                    auto *other = events->stateSource->resolveSession(events->survivingSession);
+                    checks["dataTypedDuplicateUuidOtherModelAvailable"] =
+                        other && other != instance && other->id() == instance->id();
+                    if (other)
+                        activate(other);
+                    stage = 14;
+                } else if (stage == 14) {
+                    checks["dataTypedDuplicateUuidSwitchClearsReview"] =
+                        cleared() && layers->count() == 0;
+                    activate(instance);
+                    stage = 16;
+                } else if (stage == 16) {
+                    const int index = layers->findData(replacementId);
+                    if (index < 0)
+                        return;
+                    layers->setCurrentIndex(index);
+                    load();
+                    stage = 15;
+                } else if (stage == 15) {
+                    checks["dataTypedExactSessionRestoredAfterSwitch"] = selectedReview();
+                    timer->stop();
+                    timer->deleteLater();
+                    checks["dataTypedLiveWorkflowCompleted"] = true;
+                    done(checks);
+                }
             });
         timer->start();
     }
@@ -951,6 +1248,17 @@ private:
                         state.ui.activeDocumentId == documents.first() && mdi && guardedModel &&
                         mdi->activeSubWindow() != guardedModel &&
                         host->activeInstance() == instance;
+                    if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
+                        auto *panel =
+                            host->ui()->mainWindow()->findChild<QWidget *>("dataPreviewPanel");
+                        auto *table =
+                            panel ? panel->findChild<QTableView *>("dataCatalogue") : nullptr;
+                        auto *exportButton =
+                            panel ? panel->findChild<QPushButton *>("dataExport") : nullptr;
+                        checks["dataTypedUtilityFocusKeepsExactModelReview"] =
+                            table && exportButton && table->model()->rowCount() == 2 &&
+                            exportButton->isEnabled();
+                    }
                     for (const auto &document : state.ui.documents)
                         if (document.kind == DocumentKind::Model &&
                             document.sessionId == events->primarySession)
@@ -965,7 +1273,109 @@ private:
                 });
         timer->start();
     }
-    /** @brief Let queued view publications settle before optional Data/activity continuations. */
+    /** @brief Inspect ordinary Qt values from two independently built consumer-local adapters.
+     * @param[in] host Public host and standard QObject contribution tree.
+     * @param[in,out] checks Owning acceptance results augmented by value/metaobject checks.
+     * @param[in] events Shared source used only to compare copied snapshots and query purity.
+     * @note JSON captures demonstrate primitive representation, not a Python interpreter/binding. */
+    static void exerciseValueConsumers(ExtensionHost *host, QJsonObject &checks,
+                                       const std::shared_ptr<EventConformance> &events)
+    {
+        if (!qEnvironmentVariableIsSet("SDK_VALUE_CONSUMERS"))
+            return;
+        const QStringList ids{"org.openswmm.values-example", "org.openswmm.values-second"};
+        QList<const QMetaObject *> metaobjects;
+        for (const auto &id : ids) {
+            const auto prefix = "ext." + id + '.';
+            auto *label = host->ui()->mainWindow()->findChild<QLabel *>(prefix + "values-status");
+            auto *refresh =
+                host->ui()->mainWindow()->findChild<QPushButton *>(prefix + "values-refresh");
+            checks["valueConsumerLoaded:" + id] = label && refresh;
+            if (!label || !refresh)
+                continue;
+            const auto before = events->stateSource->stateSnapshot().sequence;
+            refresh->click();
+            checks["valueConsumerSnapshotsArePure:" + id] =
+                events->stateSource->stateSnapshot().sequence == before;
+            checks["valueConsumerObservedAllDomains:" + id] =
+                label->property("stateEvents").toString().toULongLong() > 0 &&
+                label->property("viewEvents").toString().toULongLong() > 0 &&
+                label->property("activityEvents").toString().toULongLong() > 0 &&
+                label->property("lastSequence").toString().toULongLong() >
+                    label->property("snapshotWatermark").toString().toULongLong();
+            const auto capture =
+                qEnvironmentVariable("SDK_VALUE_CAPTURE_PATH").replace("{pluginId}", id);
+            QFile file(capture);
+            bool valid =
+                file.open(QIODevice::ReadOnly) && file.size() > 0 && file.size() < 20 * 1024 * 1024;
+            QSet<QString> eventDomains, snapshotDomains;
+            quint64 previous = 0;
+            while (valid && !file.atEnd()) {
+                QJsonParseError error;
+                const auto record = QJsonDocument::fromJson(file.readLine(), &error).object();
+                const auto domain = record["domain"].toString();
+                const auto type = record["type"].toString();
+                const auto data = record["data"].toObject();
+                bool sequenceOk = false;
+                const auto sequence = data["sequence"].toString().toULongLong(&sequenceOk);
+                valid &= error.error == QJsonParseError::NoError &&
+                         record["schemaVersion"].toInt() == 1 &&
+                         record["schema"].toString() == "org.openswmm.gui.value-events" &&
+                         (domain == "state" || domain == "view" || domain == "activity") &&
+                         (type == "event" || type == "snapshot") && record["available"].toBool() &&
+                         data["sequence"].isString() && sequenceOk;
+                if (type == "event") {
+                    valid &= sequence > previous;
+                    previous = sequence;
+                    eventDomains.insert(domain);
+                } else {
+                    snapshotDomains.insert(domain);
+                }
+            }
+            checks["valueConsumerPrimitiveCaptureOrdered:" + id] =
+                valid && eventDomains.size() == 3 && snapshotDomains.size() == 3;
+        }
+        for (const auto &directory : qEnvironmentVariable("SDK_VALUE_PLUGIN_DIRS")
+                                         .split(QDir::listSeparator(), Qt::SkipEmptyParts))
+            for (const auto &file : QDir(directory).entryList(QDir::Files)) {
+                const auto path = QDir(directory).filePath(file);
+                if (!file.contains("values_example") || !QLibrary::isLibrary(path))
+                    continue;
+                QPluginLoader loader(path);
+                auto *plugin = loader.instance();
+                if (!plugin || !ids.contains(plugin->objectName()))
+                    continue;
+                auto *adapter =
+                    plugin->findChild<QObject *>("ext." + plugin->objectName() + ".value-adapter");
+                QVariantMap state, view, activity;
+                bool values =
+                    adapter &&
+                    QMetaObject::invokeMethod(adapter, "stateSnapshot",
+                                              Q_RETURN_ARG(QVariantMap, state)) &&
+                    QMetaObject::invokeMethod(
+                        adapter, "viewSnapshot", Q_RETURN_ARG(QVariantMap, view),
+                        Q_ARG(QString, events->primarySession.toString(QUuid::WithoutBraces))) &&
+                    QMetaObject::invokeMethod(adapter, "activitySnapshot",
+                                              Q_RETURN_ARG(QVariantMap, activity));
+                const auto sessionCount = events->stateSource->stateSnapshot().sessions.size();
+                checks["valueConsumerMetaobjectSnapshots:" + plugin->objectName()] =
+                    values && state.value("available").toBool() &&
+                    view.value("available").toBool() && activity.value("available").toBool() &&
+                    state.value("data").toMap().value("sessions").toList().size() == sessionCount &&
+                    view.value("data")
+                            .toMap()
+                            .value("session")
+                            .toMap()
+                            .value("sessionId")
+                            .toString() == events->primarySession.toString(QUuid::WithoutBraces) &&
+                    !plugin->property("captureFailed").toBool();
+                if (adapter)
+                    metaobjects.append(adapter->metaObject());
+            }
+        checks["valueConsumerAdapterMetaobjectsDistinct"] =
+            metaobjects.size() == 2 && metaobjects[0] != metaobjects[1];
+    }
+    /** @brief Let queued view publications settle before optional Data/activity/value continuations. */
     static void exerciseDataPreview(ExtensionHost *host, IModelInstance *instance,
                                     QJsonObject checks,
                                     const std::shared_ptr<EventConformance> &events,
@@ -977,7 +1387,16 @@ private:
                 exerciseDataPreviewNow(
                     host, instance, checks, events,
                     [host, instance, events, done = std::move(done)](QJsonObject result) {
-                        exerciseActivityConsumers(host, instance, result, events, std::move(done));
+                        exerciseTypedDataPreview(
+                            host, instance, result, events,
+                            [host, instance, events, done](QJsonObject typedResult) {
+                                exerciseActivityConsumers(
+                                    host, instance, typedResult, events,
+                                    [host, events, done](QJsonObject activityResult) mutable {
+                                        exerciseValueConsumers(host, activityResult, events);
+                                        done(activityResult);
+                                    });
+                            });
                     });
             });
     }
