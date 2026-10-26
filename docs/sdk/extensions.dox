@@ -78,6 +78,8 @@
  * src/sdk/ViewSignalAdapter.cpp | Installed optional V3 adapter source, also compiled per consumer.
  * src/sdk/ActivitySignalAdapter.cpp | Installed optional V4 adapter source, also compiled per consumer.
  * examples/extensions/activity/ | Independently built SDK 1.5 process/document consumer.
+ * examples/extensions/values/ValueEventAdapter.* | Consumer-local example projecting V2/V3/V4 metadata into primitive owning Qt values.
+ * examples/extensions/values/ | Installed SDK 1.5 diagnostic module; optional explicit JSONL representation capture, without a scripting runtime.
  * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
  * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
  *
@@ -796,6 +798,88 @@
  * Observers should refresh their own state and defer deliberate mutations to
  * avoid feedback loops.
  *
+ * @subsection sdk_value_events Binding-friendly copied values example
+ *
+ * examples/extensions/values builds against the installed SDK 1.5 and Qt alone.
+ * Its OpenSWMM::Examples::ValueEventAdapter is compiled privately inside each
+ * consumer, rather than exported by the GUI or a shared SDK library. It is an
+ * example representation, not a new frozen host IID, vtable or SDK version.
+ * The module registers a read-only diagnostic dock and a command to show it.
+ * It introduces no interpreter, engine dependency, command gateway or network IO.
+ *
+ * Construct the adapter in C++ with the borrowed ExtensionHost::lifetime()
+ * QObject. It discovers V2/V3/V4 and uses managed subscriptions with its own
+ * GUI-thread receiver context. Connect stateOccurred, viewOccurred and
+ * activityOccurred before initial stateSnapshot(), viewSnapshot(sessionId)
+ * and activitySnapshot() queries. isSubscribed() requires all three live
+ * subscriptions. An individual snapshot from a missing, stopped, destroyed,
+ * wrong-thread or invalid-target source is explicitly unavailable. An available
+ * state snapshot can legitimately contain zero sessions. disconnect() ends the
+ * managed subscriptions; ordinary downstream queued Qt calls retain Qt's usual
+ * disconnect semantics. Directly connected slots must not throw.
+ *
+ * Every signal and snapshot uses this primitive QVariantMap envelope:
+ * @code{.json}
+ * {
+ *   "schemaVersion": 1,
+ *   "schema": "org.openswmm.gui.value-events",
+ *   "domain": "state",
+ *   "type": "snapshot",
+ *   "available": true,
+ *   "data": {"sequence": "18446744073709551615", "sessions": []}
+ * }
+ * @endcode
+ *
+ * domain is state, view or activity; type is event or snapshot. data preserves
+ * every field of the corresponding frozen StateEvent/StateSnapshot,
+ * ViewEvent/ViewSnapshot or ActivityEvent/ActivitySnapshot, including nested
+ * session, save, layer, channel, results, process, document, dock, command and UI
+ * descriptors. Unavailable envelopes use available=false and an empty data map.
+ * The explicit conversion functions in ValueEventAdapter.cpp define the mapping;
+ * they do not introspect arbitrary QObject properties or expose native references.
+ *
+ * Values are maps/lists, strings, booleans, small enum/flag/integer numbers,
+ * finite real numbers or null. All 64-bit integers are decimal strings:
+ * sequence; loadGeneration/stateRevision/modelRevision/sourceGeneration/revision;
+ * and selectedObjects/featureCount/selectionCount/periodCount/currentIndex.
+ * Consumers must parse those strings as integers before comparing them.
+ * This retains unsigned 64-bit precision, values above 2^53 and negative cursor
+ * sentinels through JSON and language conversion. UUIDs are lowercase braceless
+ * strings or null; valid timestamps are ISO UTC strings with milliseconds.
+ * Invalid timestamps and nonfinite real inputs become explicit null. A null
+ * field is present and distinct from an omitted schema field. Qt documents the
+ * unsigned-64-bit conversion limits in
+ * [QJsonValue](https://doc.qt.io/qt-6.8/qjsonvalue.html#fromVariant).
+ *
+ * Snapshot lists retain complete current source metadata, rather than adding
+ * geometry, selected feature IDs, result arrays, readers, engine addresses or
+ * widgets. The adapter adds no history/replay store or second event backlog.
+ * Existing source scopes, retention, coalescing and the shared V2/V3/V4 sequence
+ * still apply. V1's separate host-local sequence is deliberately excluded.
+ * Keep the initial shared cutoff immutable; later queries refresh display state
+ * without changing the event-counter cutoff. A historical event or copied map
+ * grants no authority to mutate a retired target. Use current typed controller
+ * methods and their normal identity/generation validation for deliberate actions.
+ *
+ * SDK_VALUE_CAPTURE_PATH opts into append-only JSONL diagnostic capture at an
+ * absolute file path in an existing reviewable verification directory.
+ * The optional {pluginId} placeholder gives separately built modules distinct
+ * files. No capture file or directory is created by default. The example records
+ * initial snapshots and future accepted events; its explicit refresh button
+ * captures fresh snapshots without moving the initial watermark.
+ *
+ * Qt for Python describes conversion of
+ * [QVariant to native Python values](https://doc.qt.io/qtforpython-6.8/considerations.html#qvariant).
+ * Primitive records avoid requiring language bindings for the SDK event structs.
+ * A standalone Python standard-library decoder establishes representation
+ * evidence only. It does not establish live Python/Qt signal delivery, wrapper
+ * ownership, GIL behavior, interpreter lifetime, borrowed engine handles or a
+ * single loaded engine image. The separate private Python product still requires
+ * matched Qt/PySide/shiboken builds, engine E2/E5 and its complete runtime and
+ * binding acceptance matrix. No Python runtime or Python product code is embedded
+ * in the GUI by this example. Cross-platform, ASan and release gates require their
+ * own recorded execution; a representation test does not close them.
+ *
  * @subsection sdk_event_delivery Legacy/V1 synchronous subscription and delivery
  *
  * Register on the GUI thread with a nonnull GUI-thread QObject context and a
@@ -939,10 +1023,57 @@
  * polygon before presenting the preview. Keep that reviewed area with the
  * result identities selected for download. Changes to source, filters,
  * polygon or relevant viewport invalidate the preview; do not download
- * using a silently recomputed area. viewportChanged, layersChanged and
- * selectionChanged support this invalidation workflow. boundaryChanged also
- * identifies an existing vector layer whose selection, feature geometry,
- * attribute filter, count or CRS changed after preview.
+ * using a silently recomputed area. Legacy/V1 viewportChanged, layersChanged,
+ * selectionChanged and boundaryChanged remain available to old consumers.
+ * The current openswmm.gui.data consumer requires SDK 1.5 and uses authoritative
+ * V2/V3/V4 metadata instead; legacy name translation alone does not establish
+ * session readiness, an unambiguous attachment identity or a source revision.
+ *
+ * @subsection sdk_data_invalidation Typed Data catalogue review contract
+ *
+ * The Data UI subscribes before an immutable initial shared cutoff and adopts
+ * each explicit review with a separate cutoff. A review captures the exact Ready
+ * per-open sessionId/loadGeneration and chosen runtime layerSessionId/FID, rather
+ * than treating a persistent model UUID, display title or row number as identity.
+ * V4's actual active model document selects the intended open lifetime; moving
+ * focus to a utility document retains the existing model context. Duplicate
+ * persistent UUIDs in two open model windows remain independent sessions.
+ *
+ * Source/change | Current catalogue-review behavior
+ * --- | ---
+ * Bound session closes, reloads, fails or ceases to be Ready; another model document becomes active | Cancel pending work, clear review authority/overlay and bind only an exact current Ready lifetime.
+ * Viewport-mode V2 Viewport change, including extent, resize or canvas CRS | Invalidate the frozen viewport review; a new explicit preview is required.
+ * Polygon-mode viewport change | Preserve a matching chosen boundary; a map pan does not change the frozen polygon.
+ * Chosen polygon's V3 feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
+ * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
+ * Another attachment changes, including the layer added by an own export | Preserve an unchanged chosen boundary after guarded revision reconciliation.
+ * Result playback, layer style/order or utility document/dock/command activity | Preserve an unchanged review; these are not source geometry changes.
+ * Source/dataset/area/boundary choice changes in the Data panel | Cancel/discard the old review and require an explicit new preview.
+ *
+ * Before publishing parsed results, writing cache data, updating an overlay,
+ * exporting selected features or retrying a request, Data rechecks the exact
+ * session/load, attachment/FID eligibility, geometry with holes/multiparts,
+ * CRS/filter/metadata and full selected-ID fingerprint. The fingerprint reads
+ * selected IDs in bounded-memory pages. An asynchronous completion carries the
+ * plugin work generation; cancellation, a source change or host/model closure
+ * prevents an old completion from acquiring authority over the new review.
+ * Network reply cancellation and worker settlement remain separate lifecycles.
+ *
+ * Frozen V3 snapshots do not expose historical per-layer revisions or a source
+ * path. Exact current content alone cannot distinguish a source replacement or
+ * an A-to-B-to-A change before deferred notifications arrive. Therefore publication
+ * also requires the captured source-authoritative session stateRevision. A newer
+ * pending revision conservatively refuses the raced action, clears that review
+ * and overlay, and requires a fresh explicit preview, even if geometry has already
+ * returned to the same value. Delivered irrelevant changes can preserve a review
+ * through deferred reconciliation only when exact content still matches and the
+ * current revision is proved by detailed V3 or unambiguous V2 observations.
+ * A queued callback alone is not a shared-drain barrier: another observer can
+ * enter a nested event loop before the pending detailed reason arrives. Broad V2
+ * Layers or Model observations therefore cannot advance the proof revision.
+ * Unobserved newer revisions are never silently adopted. Coalesced broad changes
+ * can conservatively leave the review awaiting detail; an action attempted while
+ * that mismatch remains invalidates it and requires a new preview.
  *
  * Metadata preview is separate from downloading time series or raster
  * payloads. This SDK provides the geometry and overlay infrastructure;
@@ -1046,9 +1177,11 @@
  * require SDK 1.5. Existing SDK 1.1 Data, 1.2 event and 1.3 lifecycle consumers
  * retain their separately versioned contracts.
  *
- * EV5 migration of openswmm.gui.data to the newer typed capabilities remains
- * subsequent work; existing catalogue preview support does not establish that
- * migration. Borrowed Python-handle/binding acceptance and the separate Python
+ * The current openswmm.gui.data consumer requires the newer typed capabilities;
+ * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.
+ * The installed values example supplies a consumer-local primitive projection
+ * without changing SDK 1.5 or claiming live language bindings. Borrowed
+ * Python-handle/binding acceptance and the separate Python
  * product remain outstanding. Local tests are not evidence of remote CI runs,
  * address-sanitizer qualification or qualification on every supported platform
  * and toolchain; those require their own recorded results. Attached result
@@ -1106,6 +1239,19 @@
  * EV4 evidence and retained settings/artifacts belong under
  * tests/verification/extension_events_2026-10/ev4/. Test definitions describe
  * coverage; passing claims require the corresponding recorded run results.
+ * test_gui_extension_values checks the complete value schemas, 64-bit extremes,
+ * pure snapshots, managed lifetime/thread/stop guards, ordinary queued Qt delivery
+ * and two independently compiled installed values-example modules. Set
+ * SDK_VALUE_PLUGIN_DIRS to those module directories, separated by the platform
+ * path separator, to enable installed-consumer acceptance. Captured JSON extrema
+ * and example JSONL records are decoded with Python's standard library to verify
+ * representation only; no PySide/runtime acceptance is implied. The Data repository
+ * separately tests public-only panel fakes, held notifications, late work, duplicate
+ * persistent UUIDs, same-count selection changes and source/revision races. Native
+ * application conformance is still needed to establish actual GUI forwarding.
+ * EV5 evidence belongs under tests/verification/extension_events_2026-10/ev5/.
+ * Catalogue acceptance does not qualify future observation/raster/storm payload
+ * invalidation, live-network policy/retry/cancellation, or all platform/toolchains.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}

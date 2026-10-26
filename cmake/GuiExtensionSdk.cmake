@@ -74,6 +74,8 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/views/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/views" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/activity/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/activity" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/values/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/values" COMPONENT GuiSdk)
 set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/ActivitySignalAdapter.cpp")
 set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_HEADER "${PROJECT_SOURCE_DIR}/include/sdk/qt/ActivitySignalAdapter.hpp")
 install(FILES "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE}"

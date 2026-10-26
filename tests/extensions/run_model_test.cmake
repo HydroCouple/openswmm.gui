@@ -26,6 +26,10 @@ if(DATA_PLUGIN_DIR)
     set(_data_catalogue "${_run}/catalogue-sites.json")
     set(_data_terrain "${_run}/catalogue-terrain.json")
 endif()
+set(_data_typed_environment "")
+if(DATA_TYPED_CONSUMER)
+    set(_data_typed_environment "SDK_DATA_TYPED_CONSUMER=1")
+endif()
 set(_typed_consumer_environment "")
 if(TYPED_PLUGIN_DIRS)
     string(APPEND _extension_paths "${_separator}${TYPED_PLUGIN_DIRS}")
@@ -47,6 +51,13 @@ set(_activity_consumer_environment "")
 if(ACTIVITY_PLUGIN_DIRS)
     string(APPEND _extension_paths "${_separator}${ACTIVITY_PLUGIN_DIRS}")
     set(_activity_consumer_environment "SDK_ACTIVITY_CONSUMERS=1")
+endif()
+# Each value consumer receives a distinct explicitly requested JSONL capture.
+# This verifies copied Qt value representation without embedding an interpreter.
+set(_value_consumer_environment "")
+if(VALUE_PLUGIN_DIRS)
+    string(APPEND _extension_paths "${_separator}${VALUE_PLUGIN_DIRS}")
+    set(_value_consumer_environment "SDK_VALUE_CONSUMERS=1")
 endif()
 set(_startup_project "${_run}/model.oswp")
 set(_multi_model_environment "")
@@ -81,10 +92,14 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "SDK_DATA_TERRAIN=${_data_terrain}"
     "SDK_VIEW_PLUGIN_DIRS=${VIEW_PLUGIN_DIRS}"
     "SDK_ACTIVITY_PLUGIN_DIRS=${ACTIVITY_PLUGIN_DIRS}"
+    "SDK_VALUE_PLUGIN_DIRS=${VALUE_PLUGIN_DIRS}"
+    "SDK_VALUE_CAPTURE_PATH=${_run}/values-{pluginId}.jsonl"
+    ${_data_typed_environment}
     ${_typed_consumer_environment}
     ${_lifecycle_environment}
     ${_view_consumer_environment}
     ${_activity_consumer_environment}
+    ${_value_consumer_environment}
     ${_multi_model_environment}
     "SWMMVIS_CAPTURE_MANIFEST=${_run}/settings-scope.json"
     "SWMM_LOG_FILE=${_run}/application.log"

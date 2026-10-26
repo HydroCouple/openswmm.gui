@@ -856,7 +856,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
           cmake --build build/sdk-example-${{ matrix.build_subdir }} --config Release --parallel 2
 
-      - name: Build and test independent SDK event and activity consumers
+      - name: Build and test independent SDK event and value consumers
         shell: bash
         timeout-minutes: 10
         run: |
@@ -903,15 +903,32 @@ jobs:
             cmake --build "build/sdk-activity-$activity_variant-${{ matrix.build_subdir }}" \
               --config Release --parallel 2
           done
+          for value_variant in a b; do
+            value_id=org.openswmm.values-example
+            if [ "$value_variant" = b ]; then value_id=org.openswmm.values-second; fi
+            cmake -S "dist/gui-sdk/${{ matrix.vcpkg_triplet }}/share/openswmmvis-sdk/examples/values" \
+              -B "build/sdk-values-$value_variant-${{ matrix.build_subdir }}" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+              -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+              -DOPENSWMM_VALUE_EXAMPLE_ID="$value_id"
+            cmake --build "build/sdk-values-$value_variant-${{ matrix.build_subdir }}" \
+              --config Release --parallel 2
+          done
           cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
             --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents \
               test_gui_extension_viewevents test_gui_extension_activityevents \
               test_gui_extension_activity_jobs test_gui_extension_activity_ui \
-              test_gui_extension_activity_consumers
+              test_gui_extension_activity_consumers test_gui_extension_values
           python - <<'PY'
+          import datetime
+          import json
+          import math
           import os
           import pathlib
+          import re
           import subprocess
+          import uuid
           def module_directory(build, stem):
               suffix = ".dll" if os.name == "nt" else ".so"
               matches = [p for p in pathlib.Path(build).rglob("*" + stem + suffix)
@@ -933,10 +950,74 @@ jobs:
           os.environ["SDK_ACTIVITY_PLUGIN_DIRS"] = os.pathsep.join(
               module_directory(f"build/sdk-activity-{v}-{subdir}", "activity_example")
               for v in ("a", "b"))
+          os.environ["SDK_VALUE_PLUGIN_DIRS"] = os.pathsep.join(
+              module_directory(f"build/sdk-values-{v}-{subdir}", "values_example")
+              for v in ("a", "b"))
           subprocess.run(["ctest", "--test-dir", f"build/{subdir}", "-C", "Release",
                           "--output-on-failure", "--timeout", "60", "-R",
-                          "^test_gui_extension(s|_events|_stateevents|_viewevents|_activityevents|_activity_(jobs|ui|consumers))$"],
+                          "^test_gui_extension(s|_events|_stateevents|_viewevents|_activityevents|_activity_(jobs|ui|consumers)|_values)$"],
                          check=True)
+          # Representation evidence only: no Python Qt/runtime/engine binding is loaded.
+          evidence = pathlib.Path("tests/verification/extension_events_2026-10/ev5/values")
+          unsigned64 = {"sequence", "loadGeneration", "stateRevision", "modelRevision",
+                        "sourceGeneration", "revision"}
+          signed64 = {"selectedObjects", "featureCount", "selectionCount", "periodCount",
+                      "currentIndex"}
+          identities = {"sessionId", "instanceId", "operationId", "layerSessionId", "windowId",
+                        "ownerId", "entityId", "origin", "documentId", "activeDocumentId",
+                        "dockId", "commandId"}
+          timestamps = {"acceptedAt", "startedAt", "finishedAt", "currentDateTime"}
+          def check_value(value, key=None):
+              if key in unsigned64 or key in signed64:
+                  pattern = r"0|[1-9][0-9]*" if key in unsigned64 else r"0|-?[1-9][0-9]*"
+                  assert isinstance(value, str) and re.fullmatch(pattern, value), (key, value)
+                  number = int(value)
+                  low, high = (0, 2**64-1) if key in unsigned64 else (-2**63, 2**63-1)
+                  assert low <= number <= high, (key, value)
+              elif key in identities and value is not None:
+                  assert isinstance(value, str) and str(uuid.UUID(value)) == value, (key, value)
+                  assert uuid.UUID(value).int != 0, (key, value)
+              elif key in timestamps and value is not None:
+                  assert isinstance(value, str) and value.endswith("Z"), (key, value)
+                  datetime.datetime.fromisoformat(value[:-1] + "+00:00")
+              if isinstance(value, dict):
+                  for field, item in value.items():
+                      check_value(item, field)
+              elif isinstance(value, list):
+                  for item in value:
+                      check_value(item)
+              else:
+                  assert value is None or type(value) in (str, bool, int, float), type(value)
+                  if isinstance(value, float):
+                      assert math.isfinite(value)
+          def check_record(record):
+              assert type(record["schemaVersion"]) is int and record["schemaVersion"] == 1
+              assert record["schema"] == "org.openswmm.gui.value-events"
+              assert record["domain"] in ("state", "view", "activity")
+              assert record["type"] in ("event", "snapshot")
+              assert type(record["available"]) is bool and isinstance(record["data"], dict)
+              assert record["available"] or record["data"] == {}
+              check_value(record)
+          extremes = {}
+          for domain in ("state", "view", "activity"):
+              record = json.loads((evidence / f"{domain}-extremes.json").read_text(encoding="utf-8"))
+              check_record(record)
+              assert record["data"]["sequence"] == "18446744073709551615"
+              extremes[domain] = record["data"]
+          assert extremes["state"]["sessions"][0]["modelRevision"] == "9007199254740993"
+          assert extremes["state"]["sessions"][0]["loadGeneration"] == "18446744073709551615"
+          assert extremes["view"]["results"][0]["currentIndex"] == "-1"
+          assert extremes["view"]["results"][0]["periodCount"] == "9223372036854775807"
+          assert extremes["activity"]["processes"][0]["revision"] == "18446744073709551615"
+          capture_records = 0
+          for identity in ("org.openswmm.values-example", "org.openswmm.values-second"):
+              path = evidence / "installed" / f"{identity}.jsonl"
+              records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+              assert records, path
+              for record in records:
+                  check_record(record)
+              capture_records += len(records)
+          print(f"Decoded 3 integer-extreme snapshots and {capture_records} captured value records")
           PY
 
       # This native controller fixture compiles the full application source set.
