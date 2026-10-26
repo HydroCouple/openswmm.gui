@@ -4086,6 +4086,12 @@ signals:
      */
     void rendererChanged();
 
+    /** @brief Announce an authored model presentation change without frame/repaint noise.
+     * @details Emitted after category opacity, per-object visibility and global
+     * geometry/label visibility setters change their stored values. This does not
+     * announce model-data edits or transient selection/playback redraws. */
+    void presentationChanged();
+
     /*!
      * \brief Emitted after any OPTIONS key has been written to the engine
      *        (via `setOption()` — the single entry point used by the

@@ -232,16 +232,29 @@ public:
     // ----- Filtering ------------------------------------------------------
 
     /**
-         * @return Stored raw OGR WHERE-clause text, by value; this is the requested expression, not proof that GDAL accepted it.
+         * @return Stored OGR WHERE-clause text. Open sources retain only accepted expressions;
+         * a closed source can retain pending text until the next successful adoption.
          */
     [[nodiscard]] QString filterExpression() const;
 
     /**
          * @brief Request an OGR attribute filter and invalidate cached scene/mask geometry.
          * @param[in] expr Raw WHERE clause; empty requests clearing the filter.
-         * @note Equal text is a no-op. Otherwise stores text, calls SetAttributeFilter() when open without checking its result, marks the scene dirty and emits filterExpressionChanged()/repaintRequested(). No featureCountChanged() is emitted and reopening does not reapply stored text automatically.
+         * @note Open sources use setValidatedFilterExpression() and preserve their previous filter
+         * on refusal. Closed sources retain pending text for the next adoption. Effective changes
+         * mark the scene dirty and emit filterExpressionChanged()/repaintRequested(); no
+         * featureCountChanged() is emitted. Call the validated overload for a refusal diagnostic.
          */
     void setFilterExpression(const QString &expr);
+
+    /** @brief Apply a vector attribute filter only after the current OGR source accepts it.
+     * @param[in] expr Raw WHERE clause; empty clears the current attribute filter.
+     * @param[out] error Optional refusal detail, cleared on success.
+     * @return True for accepted expressions/no-ops; false when closed or rejected by GDAL.
+     * @note GUI-thread/serialized source operation. A rejected expression restores the previous
+     * applied filter and does not change stored text or publish a filter-change notification.
+     * A successful change invalidates scene/mask caches before notifying observers. */
+    bool setValidatedFilterExpression(const QString &expr, QString *error = nullptr);
 
     // ----- Symbology ------------------------------------------------------
 

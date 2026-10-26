@@ -101,7 +101,9 @@ public:
     /** @brief Obtain a safe QObject context for actions and signal connections.
      * @return Borrowed host QObject; do not delete or reparent it.
      * @note SDK 1.2 supports qobject_cast to IEventSourceV1; SDK 1.3 adds
-     * IEventSourceV2 for authoritative lifecycle/state snapshots. Private host
+     * IEventSourceV2 for authoritative lifecycle/state snapshots.
+     * SDK 1.4 also supports IEventSourceV3 and IViewControlsV1 for typed view
+     * observations and validated native controller commands. Private host
      * classes and arbitrary slots remain implementation details. */
     virtual QObject *lifetime() const = 0;
     /** @brief Enumerate open projects. @return Borrowed host-owned project facades, excluding closed instances. */

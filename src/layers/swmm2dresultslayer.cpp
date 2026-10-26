@@ -49,6 +49,7 @@
 #include <QMultiHash>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QStyleOptionGraphicsItem>
 #include <QtMath>
 
@@ -2219,7 +2220,9 @@ bool SWMM2DResultsLayer::hasEdgeFluxData() const
 
 void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
-    ++source_revision_;
+    const QPointer<SWMM2DResultsLayer> owner(this);
+    const auto generation = ++source_revision_;
+    source_adopting_ = true;
     m_scalarGeometryCache.clear();
     source_ = std::move(source);
     current_time_idx_ = -1;
@@ -2235,9 +2238,13 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     m_velocityFloorSI = 0;
     m_edgeFluxAvailable = false;
     rebuildSceneGeometry_();
+    if (!owner || generation != source_revision_)
+        return;
 
     const int n = source_ ? source_->timeCount() : 0;
     emit timeRangeChanged(0, std::max(0, n - 1));
+    if (!owner || generation != source_revision_)
+        return;
 
     // Prefer the run's velocity envelope. A whole-series scan is retained
     // only for small legacy outputs; large files grow the arrow range lazily.
@@ -2336,6 +2343,10 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
         if (arrows_item_)
             arrows_item_->geometryChanged();
     }
+    if (!owner || generation != source_revision_)
+        return;
+    source_adopting_ = false;
+    emit sourceChanged();
 }
 
 namespace
@@ -3133,6 +3144,9 @@ void SWMM2DResultsLayer::refreshTimeRange()
 
 void SWMM2DResultsLayer::closeSource()
 {
+    const QPointer<SWMM2DResultsLayer> owner(this);
+    const auto generation = ++source_revision_;
+    source_adopting_ = true;
     cancelSurfaceJobs_();
     requested_time_idx_ = -1;
     envelope_wanted_ = false;
@@ -3173,9 +3187,19 @@ void SWMM2DResultsLayer::closeSource()
     if (arrows_item_)
         arrows_item_->geometryChanged();
     emit timeRangeChanged(0, 0);
+    if (!owner || generation != source_revision_)
+        return;
     emit currentTimeChanged(-1);
+    if (!owner || generation != source_revision_)
+        return;
     emit currentDateTimeChanged(QDateTime());
+    if (!owner || generation != source_revision_)
+        return;
     emit repaintRequested();
+    if (!owner || generation != source_revision_)
+        return;
+    source_adopting_ = false;
+    emit sourceChanged();
 }
 
 void SWMM2DResultsLayer::setDryDepth(double d)

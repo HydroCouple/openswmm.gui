@@ -410,19 +410,60 @@ QString GISVectorLayer::filterExpression() const
 
 void GISVectorLayer::setFilterExpression(const QString &expr)
 {
+    if (m_ogrLayer) {
+        QString error;
+        if (!setValidatedFilterExpression(expr, &error))
+            qWarning().noquote() << error;
+        return;
+    }
     if (m_filterExpr == expr)
         return;
-
     m_filterExpr = expr;
     OpenSWMM::Render::invalidateMaskClipCache(layerId());
-
-    if (m_ogrLayer) {
-        m_ogrLayer->SetAttributeFilter(expr.isEmpty() ? nullptr : expr.toUtf8().constData());
-    }
-
     m_needsRebuild = true;
+    const QPointer<GISVectorLayer> owner(this);
     emit filterExpressionChanged(expr);
-    emit repaintRequested();
+    if (owner)
+        emit repaintRequested();
+}
+
+bool GISVectorLayer::setValidatedFilterExpression(const QString &expr, QString *error)
+{
+    if (error)
+        error->clear();
+    if (!m_ogrLayer) {
+        if (error)
+            *error = tr("Open a vector source before applying an attribute filter.");
+        return false;
+    }
+    const auto previousApplied = QString::fromUtf8(m_ogrLayer->GetAttrQueryString());
+    if (m_filterExpr == expr && previousApplied == expr)
+        return true;
+
+    CPLErrorReset();
+    CPLPushErrorHandler(CPLQuietErrorHandler);
+    const auto accepted =
+        m_ogrLayer->SetAttributeFilter(expr.isEmpty() ? nullptr : expr.toUtf8().constData());
+    const auto diagnostic = QString::fromUtf8(CPLGetLastErrorMsg());
+    if (accepted != OGRERR_NONE)
+        m_ogrLayer->SetAttributeFilter(previousApplied.isEmpty()
+                                         ? nullptr
+                                         : previousApplied.toUtf8().constData());
+    CPLPopErrorHandler();
+    if (accepted != OGRERR_NONE) {
+        if (error)
+            *error = diagnostic.isEmpty() ? tr("The vector source rejected the attribute filter.")
+                                         : diagnostic;
+        return false;
+    }
+    m_filterExpr = expr;
+    OpenSWMM::Render::invalidateMaskClipCache(layerId());
+    m_needsRebuild = true;
+    const QPointer<GISVectorLayer> owner(this);
+    emit filterExpressionChanged(expr);
+    if (owner)
+        emit repaintRequested();
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,6 +1331,25 @@ void GISVectorLayer::applyOpenResult(const OpenResult &r)
     m_ogrLayer = r.ogrLayer;
     if (!m_dataset || !m_ogrLayer)
         return; // doOpenWork already logged + cleaned up
+
+    // A stored filter is a draft while closed. Apply it to the newly adopted
+    // handle before source observers query metadata, or clear a refused draft.
+    if (!m_filterExpr.isEmpty()) {
+        const QPointer<GISVectorLayer> owner(this);
+        const QString pending = m_filterExpr;
+        QString error;
+        const bool accepted = setValidatedFilterExpression(pending, &error);
+        if (!owner)
+            return;
+        if (!accepted) {
+            qWarning().noquote() << error;
+            m_ogrLayer->SetAttributeFilter(nullptr);
+            m_filterExpr.clear();
+            emit filterExpressionChanged({});
+            if (!owner)
+                return;
+        }
+    }
 
     m_filePath = r.filePath;
     m_ogrLayerName = r.layerName;

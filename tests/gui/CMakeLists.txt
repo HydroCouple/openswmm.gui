@@ -17,6 +17,14 @@ set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 # or link against compiled .o files via the SWMMVis_obj target if extracted later).
 function(add_swmmvis_gui_test TEST_NAME)
     add_executable(${TEST_NAME} ${ARGN})
+    if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionviewaccess.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelevents.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionlayerevents.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionresultsevents.cpp)
+    endif()
     if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
@@ -2987,6 +2995,18 @@ target_compile_definitions(test_extensionlifecycle PRIVATE
     SDK_NATIVE_STATE_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev2/native"
     SDK_NATIVE_STATE_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
 swmmvis_link_full_app_deps(test_extensionlifecycle)
+
+# EV3 canonical layer/model/results observations and native view-controller commands.
+add_swmmvis_gui_test(test_extensionviewevents
+    test_extensionviewevents.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_compile_definitions(test_extensionviewevents PRIVATE
+    SDK_NATIVE_VIEW_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev3/native"
+    SDK_NATIVE_VIEW_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
+swmmvis_link_full_app_deps(test_extensionviewevents)
 
 # Double-click must FINISH a drawing including the point clicked. Qt sends only
 # one press per double-click pair, so the tools' removeLast() was deleting the

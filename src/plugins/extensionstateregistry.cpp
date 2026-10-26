@@ -38,6 +38,8 @@ struct ExtensionStateRegistry::Data {
     QHash<QUuid, Operation> operations; ///< Active outer save scopes.
     QHash<QUuid, QUuid> saving; ///< Session to active operation, retained through retirement.
     QList<StateEvent> pending;  ///< Globally ordered immutable observations.
+    QHash<QUuid, ViewSnapshot> views; ///< Current copied native view metadata by session.
+    QList<ViewEvent> pendingViews; ///< Domain observations merged into the same sequence drain.
     quint64 sequence = 0;       ///< Shared committed-publication watermark.
     bool scheduled = false;     ///< A queued drain callback is outstanding.
     bool draining = false;      ///< Prevent nested event loops from recursively dispatching.
@@ -72,6 +74,8 @@ ExtensionStateRegistry::ExtensionStateRegistry(QObject *parent)
     qRegisterMetaType<StateSnapshot>();
     qRegisterMetaType<StateEvent>();
     qRegisterMetaType<SaveRequest>();
+    qRegisterMetaType<ViewEvent>();
+    qRegisterMetaType<ViewSnapshot>();
 }
 ExtensionStateRegistry::~ExtensionStateRegistry() = default;
 
@@ -142,6 +146,127 @@ ModelSessionState ExtensionStateRegistry::session(const QUuid &id) const
     return mData->sessions.value(id).state;
 }
 
+ViewSnapshot ExtensionStateRegistry::viewSnapshot(const QUuid &id) const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto state = session(id);
+    if (state.sessionId.isNull())
+        return {};
+    auto result = mData->views.value(id);
+    result.session = state;
+    result.sequence = mData->sequence;
+    return result;
+}
+void ExtensionStateRegistry::refreshViews(const QUuid &id, ViewSnapshot snapshot)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto state = session(id);
+    if (state.sessionId.isNull() || state.status == SessionStatus::Closing)
+        return;
+    snapshot.session = {};
+    snapshot.sequence = 0;
+    mData->views.insert(id, std::move(snapshot));
+}
+void ExtensionStateRegistry::publishView(const QUuid &id, ViewSnapshot snapshot, ViewEvent event)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    auto it = mData->sessions.find(id);
+    if (it == mData->sessions.end() || !it->owner || it->state.status == SessionStatus::Closing)
+        return;
+    refreshViews(id, std::move(snapshot));
+    ++it->state.stateRevision;
+    if (it->state.status != SessionStatus::Ready) {
+        ++mData->sequence;
+        return;
+    }
+    StateChanges broad = StateChange::Model;
+    switch (event.kind) {
+    case ViewEventKind::ModelSelectionChanged:
+        broad = StateChange::Selection;
+        break;
+    case ViewEventKind::LayerAdded:
+    case ViewEventKind::LayerRemoved:
+    case ViewEventKind::LayerMetadataChanged:
+    case ViewEventKind::LayerOrderChanged:
+    case ViewEventKind::LayerStyleChanged:
+    case ViewEventKind::LayerSchemaChanged:
+    case ViewEventKind::LayerFeaturesChanged:
+    case ViewEventKind::LayerSelectionChanged:
+    case ViewEventKind::LayerFilterChanged:
+    case ViewEventKind::LayerCrsChanged:
+    case ViewEventKind::LayerSourceChanged:
+        broad = StateChange::Layers;
+        break;
+    case ViewEventKind::ResultsSourceChanged:
+    case ViewEventKind::ResultsActiveChanged:
+    case ViewEventKind::ResultsVariableChanged:
+    case ViewEventKind::ResultsTimeChanged:
+        broad = StateChange::Results;
+        break;
+    case ViewEventKind::ProjectUnitsChanged:
+        broad = StateChange::ProjectState;
+        break;
+    default:
+        break;
+    }
+    enqueue(StateEventKind::StateChanged, it->state, broad);
+    event.session = it->state;
+    if (event.keys.size() > 128)
+        event.keys.clear();
+    if (event.kind != ViewEventKind::ObjectRenamed && event.kind != ViewEventKind::LayerRemoved) {
+        for (qsizetype i = mData->pendingViews.size(); i-- > 0;) {
+            const auto old = mData->pendingViews.at(i);
+            if (old.kind != event.kind || old.session.sessionId != id ||
+                old.session.loadGeneration != event.session.loadGeneration ||
+                old.layerSessionId != event.layerSessionId)
+                continue;
+            if (old.origin != event.origin)
+                event.origin = {};
+            if (old.objectName != event.objectName)
+                event.objectName.clear();
+            if (old.objectNamespace != event.objectNamespace)
+                event.objectNamespace.clear();
+            if (old.keys.isEmpty() || event.keys.isEmpty()) {
+                event.keys.clear();
+            } else {
+                event.keys.append(old.keys);
+                event.keys.removeDuplicates();
+                if (event.keys.size() > 128)
+                    event.keys.clear();
+            }
+            mData->pendingViews.removeAt(i);
+        }
+    }
+    event.sequence = ++mData->sequence;
+    mData->pendingViews.append(std::move(event));
+    scheduleDrain();
+}
+bool ExtensionStateRegistry::isDeliverable(const ViewEvent &event) const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto state = session(event.session.sessionId);
+    if (state.sessionId.isNull() || !ownerForSession(state.sessionId) ||
+        state.status != SessionStatus::Ready || state.loadGeneration != event.session.loadGeneration)
+        return false;
+    if (event.kind == ViewEventKind::LayerRemoved || event.layerSessionId.isNull())
+        return true;
+    const auto view = mData->views.value(state.sessionId);
+    const bool attached = std::any_of(view.layers.cbegin(), view.layers.cend(), [&](const auto &layer) {
+        return layer.layerSessionId == event.layerSessionId;
+    });
+    if (!attached)
+        return false;
+    if (event.kind == ViewEventKind::ResultsSourceChanged ||
+        event.kind == ViewEventKind::ResultsActiveChanged ||
+        event.kind == ViewEventKind::ResultsVariableChanged ||
+        event.kind == ViewEventKind::ResultsTimeChanged)
+        return std::any_of(view.results.cbegin(), view.results.cend(), [&](const auto &result) {
+            return result.layerSessionId == event.layerSessionId &&
+                   result.sourceGeneration == event.sourceGeneration;
+        });
+    return true;
+}
+
 void ExtensionStateRegistry::updateSession(const QUuid &id, const SessionMetadata &metadata,
                                            StateChanges changes)
 {
@@ -208,6 +333,7 @@ void ExtensionStateRegistry::retireSession(const QUuid &id)
     const auto entry = mData->sessions.take(id);
     mData->owners.remove(entry.key);
     mData->order.removeAll(id);
+    mData->views.remove(id);
     const auto operation = mData->saving.value(id);
     if (auto op = mData->operations.find(operation); op != mData->operations.end())
         for (auto &captured : op->captured)
@@ -395,8 +521,15 @@ void ExtensionStateRegistry::enqueue(StateEventKind kind, const ModelSessionStat
 }
 void ExtensionStateRegistry::scheduleDrain()
 {
-    if (mData->scheduled || mData->draining || mData->pending.isEmpty() ||
-        isSaving(mData->pending.first().session.sessionId))
+    if (mData->scheduled || mData->draining ||
+        (mData->pending.isEmpty() && mData->pendingViews.isEmpty()))
+        return;
+    const bool viewFirst = mData->pending.isEmpty() ||
+        (!mData->pendingViews.isEmpty() &&
+         mData->pendingViews.first().sequence < mData->pending.first().sequence);
+    const auto sessionId = viewFirst ? mData->pendingViews.first().session.sessionId
+                                     : mData->pending.first().session.sessionId;
+    if (isSaving(sessionId))
         return;
     mData->scheduled = true;
     QMetaObject::invokeMethod(this, [this]() { drain(); }, Qt::QueuedConnection);
@@ -407,16 +540,28 @@ void ExtensionStateRegistry::drain()
     if (mData->draining)
         return;
     mData->draining = true;
-    while (!mData->pending.isEmpty()) {
-        if (isSaving(mData->pending.first().session.sessionId)) {
+    while (!mData->pending.isEmpty() || !mData->pendingViews.isEmpty()) {
+        const bool viewFirst = mData->pending.isEmpty() ||
+            (!mData->pendingViews.isEmpty() &&
+             mData->pendingViews.first().sequence < mData->pending.first().sequence);
+        const auto sessionId = viewFirst ? mData->pendingViews.first().session.sessionId
+                                         : mData->pending.first().session.sessionId;
+        if (isSaving(sessionId)) {
             mData->draining = false;
             return; // endSave() schedules again; nested event loops never busy-spin here.
         }
-        const auto event = mData->pending.takeFirst();
-        if (!isDeliverable(event))
-            continue;
         const QPointer<ExtensionStateRegistry> guard(this);
-        emit stateEventReady(event);
+        if (viewFirst) {
+            const auto event = mData->pendingViews.takeFirst();
+            if (!isDeliverable(event))
+                continue;
+            emit viewEventReady(event);
+        } else {
+            const auto event = mData->pending.takeFirst();
+            if (!isDeliverable(event))
+                continue;
+            emit stateEventReady(event);
+        }
         if (!guard)
             return;
     }

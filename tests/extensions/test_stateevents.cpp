@@ -850,7 +850,8 @@ private slots:
             if (record.info.id != identity)
                 continue;
             QVERIFY2(record.loaded, qPrintable(record.error));
-            QCOMPARE(record.builtAgainst.sdkApiVersion, QStringLiteral("1.3"));
+            QVERIFY(record.builtAgainst.sdkApiVersion == QStringLiteral("1.3") ||
+                    record.builtAgainst.sdkApiVersion == QStringLiteral("1.4"));
             modulePath = record.path;
         }
         QVERIFY2(!modulePath.isEmpty(), "The SDK 1.3 lifecycle example was not discovered.");

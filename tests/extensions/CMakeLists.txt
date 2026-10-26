@@ -41,6 +41,15 @@ target_compile_definitions(test_gui_extension_stateevents PRIVATE
 add_test(NAME test_gui_extension_stateevents COMMAND test_gui_extension_stateevents)
 set_tests_properties(test_gui_extension_stateevents PROPERTIES LABELS "gui;sdk;lifecycle"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+add_executable(test_gui_extension_viewevents test_viewevents.cpp)
+set_target_properties(test_gui_extension_viewevents PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_viewevents PRIVATE openswmmvis_extensions Qt6::Test)
+openswmmvis_add_view_adapter(test_gui_extension_viewevents)
+target_compile_definitions(test_gui_extension_viewevents PRIVATE
+    SDK_VIEW_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev3/core")
+add_test(NAME test_gui_extension_viewevents COMMAND test_gui_extension_viewevents)
+set_tests_properties(test_gui_extension_viewevents PROPERTIES LABELS "gui;sdk;views"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 target_sources(test_gui_extensions PRIVATE
     ${PROJECT_SOURCE_DIR}/include/ui/toolbars/compacttoolbarcontroller.h
     ${PROJECT_SOURCE_DIR}/src/ui/toolbars/compacttoolbarcontroller.cpp)
@@ -71,6 +80,6 @@ add_test(NAME test_gui_extensions COMMAND test_gui_extensions)
 set_tests_properties(test_gui_extensions PROPERTIES LABELS "gui;sdk"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 if(SWMMVIS_TEST_ENV)
-    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents PROPERTIES
+    set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents PROPERTIES
         ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
 endif()

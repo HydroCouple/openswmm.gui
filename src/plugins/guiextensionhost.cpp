@@ -260,6 +260,88 @@ ExtensionStateRegistry *GuiExtensionHost::stateRegistry() const
 {
     return mStateRegistry;
 }
+void GuiExtensionHost::setViewControls(
+    std::function<bool(const ViewCommand &, QString *)> execute,
+    std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> selection)
+{
+    checkThread();
+    mViewCommand = std::move(execute);
+    mViewSelection = std::move(selection);
+}
+ViewSnapshot GuiExtensionHost::viewSnapshot(const QUuid &sessionId) const
+{
+    return QThread::currentThread() == thread() && !mStopping && mStateRegistry
+               ? mStateRegistry->viewSnapshot(sessionId) : ViewSnapshot{};
+}
+QMetaObject::Connection GuiExtensionHost::observeViews(
+    QObject *context, const ViewEventFilter &filter,
+    std::function<void(const ViewEvent &)> callback)
+{
+    if (QThread::currentThread() != thread() || !context || context->thread() != thread() ||
+        !callback || mStopping || !mStateRegistry)
+        return {};
+    const auto after = mStateRegistry->snapshot().sequence;
+    const auto connection = connect(
+        mStateRegistry, &ExtensionStateRegistry::viewEventReady, context,
+        [owner = QPointer<GuiExtensionHost>(this), guard = QPointer<QObject>(context),
+         filter, after, callback = std::move(callback)](const ViewEvent &event) {
+            if (!owner || !guard || QThread::currentThread() != owner->thread() ||
+                guard->thread() != owner->thread() || owner->mStopping || !owner->mStateRegistry ||
+                event.sequence <= after || !filter.accepts(event) ||
+                !owner->mStateRegistry->isDeliverable(event))
+                return;
+            const auto pluginId = owner->mId;
+            const auto sequence = event.sequence;
+            try {
+                callback(event);
+            } catch (const std::exception &error) {
+                qWarning().noquote() << "Extension view observer" << pluginId << sequence
+                                     << "failed:" << error.what();
+            } catch (...) {
+                qWarning().noquote() << "Extension view observer" << pluginId << sequence
+                                     << "failed: unknown exception";
+            }
+        }, Qt::DirectConnection);
+    mStateConnections.removeIf([](const QMetaObject::Connection &entry) { return !entry; });
+    mStateConnections.append(connection);
+    return connection;
+}
+bool GuiExtensionHost::executeViewCommand(const ViewCommand &command, QString *error)
+{
+    if (error)
+        error->clear();
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mViewCommand ||
+        mStateRegistry->session(command.sessionId).status != SessionStatus::Ready ||
+        mStateRegistry->session(command.sessionId).loadGeneration != command.loadGeneration ||
+        mStateRegistry->isSaving(command.sessionId) ||
+        mStateRegistry->session(command.sessionId).sessionId.isNull()) {
+        if (error)
+            *error = QStringLiteral("The view controller or ready model session is unavailable.");
+        return false;
+    }
+    const QPointer<GuiExtensionHost> guard(this);
+    const bool accepted = mViewCommand(command, error);
+    if (!accepted)
+        return false;
+    const auto current = guard && guard->mStateRegistry
+                             ? guard->mStateRegistry->session(command.sessionId) : ModelSessionState{};
+    if (!guard || guard->mStopping || current.status != SessionStatus::Ready ||
+        current.loadGeneration != command.loadGeneration) {
+        if (error)
+            *error = QStringLiteral("The model or view controller changed while applying the command.");
+        return false;
+    }
+    return true;
+}
+QList<qint64> GuiExtensionHost::selectedLayerFeatures(const QUuid &sessionId,
+    const QUuid &layerSessionId, int offset, int limit) const
+{
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mViewSelection ||
+        offset < 0 || limit <= 0 ||
+        mStateRegistry->session(sessionId).status != SessionStatus::Ready)
+        return {};
+    return mViewSelection(sessionId, layerSessionId, offset, qMin(limit, 5000));
+}
 StateSnapshot GuiExtensionHost::stateSnapshot() const
 {
     if (QThread::currentThread() != thread() || mStopping || !mStateRegistry)

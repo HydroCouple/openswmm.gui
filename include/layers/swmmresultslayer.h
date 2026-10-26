@@ -335,7 +335,12 @@ public:
      *        swmm_output_open (file + header/index parse) on a worker thread;
      *        the renderer install + period-0 fetch + emits run on the GUI
      *        thread, and \ref resultsOpenFinished(bool) fires on completion.
-     * @note Owner-thread entry checks existence first: missing path emits resultsError()/resultsOpenFinished(false) while preserving an existing reader. Otherwise closes current results, worker-opens one new handle, then GUI finishOpen() performs adoption/notifications. No overlap/source-generation guard; serialize calls. Destroyed layer closes orphan handle. Error detail reaches signals, not caller-owned lists.
+     * @note Owner-thread entry advances the source generation. A missing path emits
+     * resultsError()/resultsOpenFinished(false) while preserving an existing reader.
+     * Otherwise prepares one reader on a worker and adopts it on the GUI thread only
+     * if that generation remains current. Close/new open invalidates old completions;
+     * unadopted handles close through shared RAII ownership. Only current completions
+     * emit resultsOpenFinished. Error detail reaches signals, not caller-owned lists.
      */
     void openResultsAsync();
 
@@ -373,9 +378,30 @@ public:
 
     /**
      * @brief Close reader/LID frame source and reset period/current-step/name/value/range/statistics caches.
-     * @note GUI-thread serialized operation; emits no closed/count/time/repaint signal and does not delete scene items or reset stored datetime/path/profile/style/renderer/rule/override state. Inflight asynchronous opens/range scans require caller lifecycle coordination. Borrowed reader handle becomes invalid.
+     * @note GUI-thread serialized operation advances sourceGeneration, invalidates
+     * pending asynchronous opens and emits sourceStateChanged after clearing reader
+     * availability/loading/error. Legacy count/time/repaint signals are unchanged.
+     * Does not delete scene items or reset stored datetime/path/profile/style/renderer/
+     * rule/override state. Inflight range scans still require lifecycle coordination.
      */
     void closeResults();
+
+    /** @brief Read the reader-open/close epoch used to reject stale asynchronous adoption.
+     * @return Monotonic layer-local generation; independent of project/session revisions. */
+    quint64 sourceGeneration() const noexcept { return m_sourceGeneration; }
+    /** @brief Inspect metadata adoption in progress, without opening or reading a file.
+     * @return True between an accepted reader preparation and its settled completion. */
+    bool sourceLoading() const noexcept { return m_sourceLoading; }
+    /** @brief Read the latest settled preparation diagnostic.
+     * @return Copied error, empty after successful adoption, close or a quiet live retry. */
+    QString sourceError() const { return m_sourceError; }
+    /** @brief Inspect usable reader ownership independently of the latest attempt's outcome.
+     * @return True when a reader remains adopted, including a zero-period live reader. */
+    bool hasOpenResults() const noexcept { return m_handle != nullptr; }
+    /** @brief Read the path associated with the currently owned output reader.
+     * @return Adopted absolute path, or empty without a reader. A missing-file retry
+     * that retains the reader also retains this identity independently of its error. */
+    QString adoptedSourcePath() const { return m_adoptedSourcePath; }
 
     // Same immutable frame source for live tail and saved profile playback.
     /**
@@ -1036,6 +1062,11 @@ public:
     styleSubjects() override;
 
 signals:
+    /** @brief Reader preparation, coherent metadata adoption, failure or close settled.
+     * @details Query sourceGeneration/loading/error and hasOpenResults on the GUI thread.
+     * A failed missing-file asynchronous retry can preserve a previously usable reader;
+     * sourceError therefore does not by itself establish reader unavailability. */
+    void sourceStateChanged();
     /**
      * @param[in] path Declared output path payload; current open/adoption paths do not emit it.
      */
@@ -1118,6 +1149,15 @@ public:
                       const SpatialReferenceSystem *canvasSRS) override;
 
 private:
+    /** @brief Reset owned reader and caches without changing the public source epoch. */
+    void clearResults();
+    /** @brief Begin a reader preparation and invalidate previous asynchronous work.
+     * @param[in] keepReader Preserve a usable reader for the missing-file async failure path.
+     * @return Accepted layer-local epoch, rechecked after reentrant callbacks. */
+    quint64 beginResultsOpen(bool keepReader = false);
+    /** @brief Publish settled adoption/error metadata for the current preparation.
+     * @param[in] error Copied failure detail; empty for success or a quiet live retry. */
+    void completeResultsOpen(const QString &error = {});
     /*! Y2b-3 (D-G1 warn-on-miss): one warning per unresolvable species
      *  token per run — reset in finishOpen when a new .out arrives. */
     OpenSWMMVis::Species::SpeciesMissWarner m_speciesMissWarner;
@@ -1239,6 +1279,10 @@ private:
     int m_totalSteps = 0;
     openswmmvis::io::LidStateReader m_lidStateReader;
     bool m_live = false; ///< openResultsLive() until the footer lands
+    quint64 m_sourceGeneration = 0; ///< Reader open/close epoch, invalidating old workers.
+    bool m_sourceLoading = false; ///< Current metadata preparation has not settled.
+    QString m_sourceError; ///< Latest preparation failure, independent of retained reader state.
+    QString m_adoptedSourcePath; ///< Actual owned reader identity, empty after clear/close.
     QDateTime m_startDateTime;
     QDateTime m_endDateTime;
     // 2026-07-19 — period 0's report time; see reportedStartDateTime().
