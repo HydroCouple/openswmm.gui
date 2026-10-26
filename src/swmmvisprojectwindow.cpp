@@ -20,6 +20,7 @@
 #include "swmmvisprojectwindow.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
+#include "plugins/extensionstateregistry.h"
 
 #include "swmmvis.h" // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
@@ -114,9 +115,13 @@
 #include <openswmm/engine/openswmm_model.h>
 
 SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, const QString &filePath,
-                                           QWidget *parent)
+                                           QWidget *parent, const QUuid &instanceId,
+                                           const QString &projectPath)
     : QMdiSubWindow(parent), mWorkspace(workspace)
 {
+    setProperty("extensionInstanceId", instanceId.isNull() ? QUuid::createUuid() : instanceId);
+    setProperty("extensionProjectPath",
+                projectPath.isEmpty() ? ProjectSerializer::sidecarPathFor(filePath) : projectPath);
     setAttribute(Qt::WA_DeleteOnClose);
     setMinimumSize(200, 150);
     // NOTE: do NOT call setWindowFlags here. In TabbedView mode (the
@@ -629,6 +634,55 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // Window title
     setWindowTitle(filePath.isEmpty() ? QStringLiteral("Untitled")
                                       : QFileInfo(filePath).baseName());
+
+    // Native state is registered once per window, independently of which plugins
+    // enumerate facades. All services used by registration listeners exist now.
+    mExtensionRegistry = openswmmvis::ExtensionStateRegistry::instance();
+    if (mExtensionRegistry) {
+        mExtensionRegistry->registerSession(
+            this, {property("extensionInstanceId").toUuid(), windowTitle(), modelFilePath(),
+                   property("extensionProjectPath").toString(), hasChanges(),
+                   mModelLayer ? mModelLayer->editRevision() : 0});
+    }
+    connect(this, &QWidget::windowTitleChanged, this, [this] { updateExtensionSession(); });
+    if (mModelLayer) {
+        const auto modelChanged = [this] {
+            updateExtensionSession(OpenSWMM::Sdk::StateChange::Model);
+        };
+        connect(mModelLayer, &SWMMModelLayer::modelEdited, this, modelChanged);
+        connect(mModelLayer, &SWMMModelLayer::attributeChanged, this, modelChanged);
+        connect(mModelLayer, &SWMMModelLayer::geometryChanged, this, modelChanged);
+        connect(mModelLayer, &SWMMModelLayer::optionsChanged, this, modelChanged);
+        connect(mModelLayer, &SWMMModelLayer::modelFilePathChanged, this,
+                [this] { updateExtensionSession(); });
+    }
+    connect(mSelectionManager, &SelectionManager::selectionChanged, this,
+            [this] { updateExtensionSession(OpenSWMM::Sdk::StateChange::Selection); });
+    const auto viewportState = [this] {
+        return std::make_pair(mCanvas->extent(),
+                              mCanvas->canvasSRS() ? mCanvas->canvasSRS()->toWkt() : QString{});
+    };
+    auto lastViewport = std::make_shared<decltype(viewportState())>(viewportState());
+    const auto viewportChanged = [this, viewportState, lastViewport] {
+        const auto current = viewportState();
+        if (current == *lastViewport)
+            return;
+        *lastViewport = current;
+        updateExtensionSession(OpenSWMM::Sdk::StateChange::Viewport);
+    };
+    connect(mCanvas, &MapCanvas::extentChanged, this, viewportChanged);
+    connect(mCanvas, &MapCanvas::scaleChanged, this, viewportChanged);
+    connect(mCanvas, &MapCanvas::canvasSRSChanged, this, viewportChanged);
+    const auto layersChanged = [this] {
+        updateExtensionSession(OpenSWMM::Sdk::StateChange::Layers);
+    };
+    connect(mCanvas, &MapCanvas::layerAdded, this, layersChanged);
+    connect(mCanvas, &MapCanvas::layerRemoved, this, layersChanged);
+    const auto resultsChanged = [this] {
+        updateExtensionSession(OpenSWMM::Sdk::StateChange::Results);
+    };
+    connect(this, &SWMMVisProjectWindow::activeResultsLayerChanged, this, resultsChanged);
+    connect(this, &SWMMVisProjectWindow::active2DResultsLayerChanged, this, resultsChanged);
 }
 
 SWMMVisProjectWindow::~SWMMVisProjectWindow()
@@ -638,8 +692,78 @@ SWMMVisProjectWindow::~SWMMVisProjectWindow()
     // result layers still exist, just like an accepted closeEvent does.
     if (!mClosing) {
         mClosing = true;
+        if (mExtensionRegistry)
+            mExtensionRegistry->beginClosing(extensionSessionId());
         emit aboutToClose();
     }
+}
+
+QUuid SWMMVisProjectWindow::extensionSessionId() const
+{
+    return property("extensionSessionId").toUuid();
+}
+
+void SWMMVisProjectWindow::setExtensionProjectIdentity(const QUuid &instanceId,
+                                                       const QString &projectPath)
+{
+    if (!instanceId.isNull())
+        setProperty("extensionInstanceId", instanceId);
+    setProperty("extensionProjectPath", projectPath);
+    updateExtensionSession();
+}
+
+void SWMMVisProjectWindow::updateExtensionSession(OpenSWMM::Sdk::StateChanges changes)
+{
+    if (!mExtensionRegistry)
+        return;
+    mExtensionRegistry->updateSession(extensionSessionId(),
+                                      {property("extensionInstanceId").toUuid(), windowTitle(),
+                                       modelFilePath(), property("extensionProjectPath").toString(),
+                                       hasChanges(), mModelLayer ? mModelLayer->editRevision() : 0},
+                                      changes);
+}
+
+void SWMMVisProjectWindow::beginExtensionOpen()
+{
+    mExtensionOpenBarrier = true;
+}
+
+void SWMMVisProjectWindow::completeExtensionOpen()
+{
+    mExtensionOpenBarrier = false;
+    if (mClosing || !mExtensionLoadPending)
+        return;
+    mExtensionLoadPending = false;
+    updateExtensionSession();
+    if (mExtensionRegistry)
+        mExtensionRegistry->finishLoad(extensionSessionId(), mExtensionLoadGeneration, true);
+}
+
+quint64 SWMMVisProjectWindow::beginExtensionLoad()
+{
+    if (!property("extensionWriteLease").toString().isEmpty() ||
+        property("extensionReadLeases").toInt() > 0 || property("extensionRunCount").toInt() > 0)
+        return 0;
+    const quint64 generation =
+        mExtensionRegistry ? mExtensionRegistry->beginLoad(extensionSessionId()) : 0;
+    if (generation || !mExtensionRegistry) {
+        mExtensionLoadPending = false;
+        mExtensionLoadGeneration = generation;
+    }
+    return generation;
+}
+
+void SWMMVisProjectWindow::settleExtensionLoad(quint64 generation, bool ok, const QString &error)
+{
+    if (mClosing || generation != mExtensionLoadGeneration || !mExtensionRegistry)
+        return;
+    updateExtensionSession();
+    if (ok && mExtensionOpenBarrier) {
+        mExtensionLoadPending = true;
+        return;
+    }
+    mExtensionLoadPending = false;
+    mExtensionRegistry->finishLoad(extensionSessionId(), generation, ok, error);
 }
 
 MapCanvas *SWMMVisProjectWindow::canvas() const
@@ -730,6 +854,19 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         errors.append(tr("Cannot replace the model while its project is opening or closing."));
         return false;
     }
+    const quint64 generation = beginExtensionLoad();
+    if (mExtensionRegistry && !generation) {
+        errors.append(tr(
+            "Cannot replace the model while its project is saving, closing, or locked by an edit/run."));
+        return false;
+    }
+    bool ok = false;
+    const QPointer<SWMMVisProjectWindow> owner(this);
+    const QPointer<SWMMModelLayer> model(mModelLayer);
+    const auto settle = qScopeGuard([owner, generation, &ok, &errors] {
+        if (owner)
+            owner->settleExtensionLoad(generation, ok, errors.join(QStringLiteral("; ")));
+    });
     QString recoveryError, recoveryNotice;
     if (!ProjectSaveOutputs::recover(mModelLayer->modelFilePath(), &recoveryError,
                                      &recoveryNotice)) {
@@ -738,9 +875,12 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
     }
     if (!recoveryNotice.isEmpty())
         warnings.append(recoveryNotice);
-    if (!mModelLayer->loadModel(warnings, errors))
+    if (!owner || owner->isClosing() || !model || owner->modelLayer() != model ||
+        !model->loadModel(warnings, errors) || !owner || owner->isClosing() || !model ||
+        owner->modelLayer() != model)
         return false;
-    return finishModelLoad(warnings, errors);
+    ok = owner->finishModelLoad(warnings, errors);
+    return ok;
 }
 
 void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
@@ -755,6 +895,12 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
     }
     if (mClosing || !mModelLayer || mModelLayer->engine()) {
         refuse(tr("Open requires an available project with no model already loaded."));
+        return;
+    }
+    const quint64 generation = beginExtensionLoad();
+    if (mExtensionRegistry && !generation) {
+        refuse(tr(
+            "Open cannot start while its project is saving, closing, or locked by an edit/run."));
         return;
     }
 
@@ -806,7 +952,8 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
             });
     connect(
         watcher, &QFutureWatcherBase::finished, watcher,
-        [watcher, self, layer, path, revision, wasVisible, outcome, invalidated, progressGuard] {
+        [watcher, self, layer, path, revision, generation, wasVisible, outcome, invalidated,
+         progressGuard] {
             auto cleanup = qScopeGuard([watcher, self] {
                 watcher->deleteLater();
                 if (self)
@@ -901,7 +1048,9 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
             cleanup.dismiss();
             watcher->deleteLater();
             self->mAsyncLoadInProgress = false;
-            emit self->modelLoadFinished(ok, warnings, errors);
+            self->settleExtensionLoad(generation, ok, errors.join(QStringLiteral("; ")));
+            if (self && !self->isClosing())
+                emit self->modelLoadFinished(ok, warnings, errors);
         });
     watcher->setFuture(QtConcurrent::run([path, outcome, invalidated,
                                           workerHook](QPromise<void> &promise) {
@@ -1290,6 +1439,7 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
         return;
     mHasChanges = dirty;
     updateWindowTitle();
+    updateExtensionSession();
     emit hasChangesChanged(dirty);
 }
 
@@ -1734,9 +1884,24 @@ bool SWMMVisProjectWindow::initializeBlankModel(const SWMMModelLayer::NewProject
             tr("No available model layer to initialize, or the project is opening or closing."));
         return false;
     }
-    if (!mModelLayer->adoptNewEngine(spec, warnings, errors))
+    const quint64 generation = beginExtensionLoad();
+    if (mExtensionRegistry && !generation) {
+        errors.append(tr(
+            "Cannot initialize the model while its project is saving, closing, or locked by an edit/run."));
         return false;
-    return finishModelLoad(warnings, errors);
+    }
+    bool ok = false;
+    const QPointer<SWMMVisProjectWindow> owner(this);
+    const QPointer<SWMMModelLayer> model(mModelLayer);
+    const auto settle = qScopeGuard([owner, generation, &ok, &errors] {
+        if (owner)
+            owner->settleExtensionLoad(generation, ok, errors.join(QStringLiteral("; ")));
+    });
+    if (!model->adoptNewEngine(spec, warnings, errors) || !owner || owner->isClosing() || !model ||
+        owner->modelLayer() != model)
+        return false;
+    ok = owner->finishModelLoad(warnings, errors);
+    return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -1746,6 +1911,16 @@ bool SWMMVisProjectWindow::initializeBlankModel(const SWMMModelLayer::NewProject
 bool SWMMVisProjectWindow::save(QString *errorOut)
 {
     if (!mModelLayer || mModelLayer->modelFilePath().isEmpty() || mUntitled) {
+        QString localError;
+        if (!errorOut)
+            errorOut = &localError;
+        errorOut->clear();
+        const QPointer<SWMMVisProjectWindow> owner(this);
+        openswmmvis::ExtensionSaveOperation operation(
+            mExtensionRegistry.data(), {extensionSessionId()}, OpenSWMM::Sdk::SaveKind::Project, {},
+            errorOut, false);
+        if (!operation.valid() || !owner)
+            return false;
         // Untitled projects don't have a real path yet — fall through to
         // Save As. The main window routes pathless/untitled projects to
         // that dialog before calling save().
@@ -1758,6 +1933,23 @@ bool SWMMVisProjectWindow::save(QString *errorOut)
 
 bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 {
+    QString localError;
+    if (!errorOut)
+        errorOut = &localError;
+    errorOut->clear();
+    const QPointer<SWMMVisProjectWindow> owner(this);
+    const QPointer<openswmmvis::ExtensionStateRegistry> stateRegistry(mExtensionRegistry);
+    const QUuid sessionId = extensionSessionId();
+    openswmmvis::ExtensionSaveOperation operation(stateRegistry.data(), {sessionId},
+                                                  OpenSWMM::Sdk::SaveKind::Project, newPath,
+                                                  errorOut, false);
+    if (!operation.valid())
+        return false;
+    if (!owner || owner->isClosing() || !stateRegistry ||
+        !stateRegistry->isCurrent(sessionId, owner.data())) {
+        *errorOut = tr("The project changed or closed during save-state collection.");
+        return false;
+    }
     if (!mModelLayer || !mModelLayer->engine()) {
         if (errorOut)
             *errorOut = tr("No model loaded.");
@@ -1889,11 +2081,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     GeneratedMeshArtifacts::Entry rebasedImport;
     const GeneratedMeshArtifacts::Entry *importDestinationOverride = nullptr;
     const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
+    const QPointer<SWMM2DMeshLayer> guardedChosenMesh(chosenMesh);
     bool saveSucceeded = false;
-    const auto restoreImportPath = qScopeGuard([&] {
-        if (!saveSucceeded && importDestinationOverride && chosenMesh)
-            chosenMesh->setSourcePath(originalMeshPath);
-    });
+    const auto restoreImportPath = qScopeGuard(
+        [&saveSucceeded, &importDestinationOverride, guardedChosenMesh, originalMeshPath] {
+            if (!saveSucceeded && importDestinationOverride && guardedChosenMesh)
+                guardedChosenMesh->setSourcePath(originalMeshPath);
+        });
     if (pendingImportedMesh && chosenMesh->importNeedsSaveAsRebase()) {
         const QFileInfo original(originalMeshPath);
         const QDir destinationDirectory = QFileInfo(newPath).absoluteDir();
@@ -2356,20 +2550,32 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             {
                 // Serialize paths relative to the proposed Save As location,
                 // but publish the new identity only after the sidecar commits.
-                const QSignalBlocker blocker(mModelLayer);
-                const QString originalPath = mModelLayer->modelFilePath();
+                const QPointer<SWMMModelLayer> savingModel(mModelLayer);
+                const QPointer<SWMM2DMeshLayer> savingMesh(chosenMesh);
+                const bool signalsWereBlocked = savingModel->blockSignals(true);
+                const QString originalPath = savingModel->modelFilePath();
                 setProperty("ioSaveSourcePath", originalPath);
-                const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
-                const auto restorePath = qScopeGuard([&] {
-                    mModelLayer->setModelFilePath(originalPath);
-                    setProperty("ioSaveSourcePath", QVariant());
-                    if (chosenMesh)
-                        chosenMesh->setSourcePath(originalMeshPath);
+                const QString originalMeshPath = savingMesh ? savingMesh->sourcePath() : QString();
+                const auto restorePath = qScopeGuard([owner, savingModel, savingMesh, originalPath,
+                                                      originalMeshPath, signalsWereBlocked] {
+                    if (savingModel)
+                        savingModel->setModelFilePath(originalPath);
+                    if (owner)
+                        owner->setProperty("ioSaveSourcePath", QVariant());
+                    if (savingMesh)
+                        savingMesh->setSourcePath(originalMeshPath);
+                    if (savingModel)
+                        savingModel->blockSignals(signalsWereBlocked);
                 });
-                mModelLayer->setModelFilePath(newPath);
-                if (chosenMesh && !chosenMesh->isExternalMesh())
-                    chosenMesh->setSourcePath(newPath);
+                savingModel->setModelFilePath(newPath);
+                if (savingMesh && !savingMesh->isExternalMesh())
+                    savingMesh->setSourcePath(newPath);
                 sidecarSaved = ProjectSerializer::saveToFile(stagedSettingsPath, this, &sidecarErr);
+            }
+            if (!owner || owner->isClosing() || !stateRegistry ||
+                !stateRegistry->isCurrent(sessionId, owner.data())) {
+                *errorOut = tr("The project changed or closed while collecting project settings.");
+                return false;
             }
             if (!sidecarSaved) {
                 return failSave(tr("stage project settings"), oswpPath, sidecarErr);
@@ -2446,6 +2652,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         ml->setMeshEditsSaved();
         ml->setGeneratedArtifacts({});
     }
+    if (pluginId.isEmpty())
+        setExtensionProjectIdentity({}, finalSettingsPath);
 
     qCInfo(lcSavePerf).nospace() << "[save][stages] meshPushed=" << meshLayersPushed.size()
                                  << " meshSkipped=" << meshLayersSkipped
@@ -2460,8 +2668,10 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // written, mesh references patched). Every save path funnels through
     // here — Save, Save As, auto-save-before-run, the 2D OUTPUT_FILE
     // default — so one connection in SWMMVis covers them all.
-    if (!mLastSaveWarnings.isEmpty())
-        emit saveCompletedWithEngineWarnings(mLastSaveWarnings);
+    operation.succeed();
+    const auto saveWarnings = mLastSaveWarnings;
+    if (!saveWarnings.isEmpty())
+        emit saveCompletedWithEngineWarnings(saveWarnings);
     return true;
 }
 
@@ -2584,6 +2794,8 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     // observers (profile-plot dialog, etc.) can still touch our model
     // layer / canvas / results layers in their handlers.
     mClosing = true;
+    if (mExtensionRegistry)
+        mExtensionRegistry->beginClosing(extensionSessionId());
     emit aboutToClose();
     QMdiSubWindow::closeEvent(event);
 }

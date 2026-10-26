@@ -3,9 +3,9 @@
 # Run this focused check from the repository root:
 #   doxygen docs/sdk/Doxyfile
 PROJECT_NAME = "OpenSWMM GUI Extension SDK"
-PROJECT_NUMBER = 1.2
+PROJECT_NUMBER = 1.3
 OUTPUT_DIRECTORY = build/docs/sdk
-INPUT = include/sdk docs/sdk/extensions.dox docs/manual/26_extensions.md examples/extensions/template/extension.cpp examples/extensions/events/extension.cpp
+INPUT = include/sdk docs/sdk/extensions.dox docs/manual/26_extensions.md examples/extensions/template/extension.cpp examples/extensions/events/extension.cpp examples/extensions/lifecycle/extension.cpp
 RECURSIVE = YES
 FILE_PATTERNS = *.hpp *.cpp *.dox *.md
 EXTRACT_ALL = NO

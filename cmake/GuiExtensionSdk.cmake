@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.2")
+set(OPENSWMMVIS_SDK_API_VERSION "1.3")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)
@@ -68,6 +68,8 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/template/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/template" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/events/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/events" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/lifecycle/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/lifecycle" COMPONENT GuiSdk)
 set(OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/EventSignalAdapter.cpp")
 set(OpenSWMMVisSdk_EVENT_ADAPTER_HEADER
     "${PROJECT_SOURCE_DIR}/include/sdk/qt/EventSignalAdapter.hpp")
@@ -92,10 +94,12 @@ if(NOT SWMMVIS_SDK_ONLY)
     add_library(openswmmvis_extensions STATIC
         "${PROJECT_SOURCE_DIR}/include/plugins/extensionmanager.h"
         "${PROJECT_SOURCE_DIR}/include/plugins/guiextensionhost.h"
+        "${PROJECT_SOURCE_DIR}/include/plugins/extensionstateregistry.h"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionmanager.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionnetwork.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionattributes.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionevents.cpp"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensionstateregistry.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/guiextensionhost.cpp")
     set_target_properties(openswmmvis_extensions PROPERTIES AUTOMOC ON)
     target_include_directories(openswmmvis_extensions PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sdk")

@@ -13,6 +13,7 @@
  */
 
 #include "project/projectserializer.h"
+#include "plugins/extensionstateregistry.h"
 #include "core/enginestring.h"
 #include <QSettings>
 #include "project/profilesectionstore.h"
@@ -83,6 +84,7 @@
 #include <QJsonValue>
 #include <QPointer>
 #include <QScopeGuard>
+#include <utility>
 
 namespace
 {
@@ -354,8 +356,10 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (!pw)
         return obj;
 
-    pw->setProperty("extensionProjectPath", oswpFile);
+    const QPointer<SWMMVisProjectWindow> owner(pw);
     emit pw->extensionStateSaving();
+    if (!owner || owner->isClosing())
+        return {};
     obj["extensions"] = pw->property("extensionData").toJsonObject();
     obj["views"] = pw->property("extensionViews").toJsonArray();
     obj["instanceId"] = pw->property("extensionInstanceId").toUuid().toString();
@@ -864,12 +868,9 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     if (!pw)
         return false;
 
-    pw->setProperty("extensionProjectPath", oswpFile);
+    pw->setExtensionProjectIdentity(QUuid(sessionObj.value("instanceId").toString()), oswpFile);
     pw->setProperty("extensionData", sessionObj.value("extensions").toObject());
     pw->setProperty("extensionViews", sessionObj.value("views").toArray());
-    const QUuid extensionInstanceId(sessionObj.value("instanceId").toString());
-    if (!extensionInstanceId.isNull())
-        pw->setProperty("extensionInstanceId", extensionInstanceId);
 
     QJsonArray calibration;
     for (const auto &value : sessionObj.value("calibrationData").toArray()) {
@@ -1367,6 +1368,19 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         setErr(QObject::tr("No project windows to serialize"));
         return false;
     }
+    QVector<QPointer<SWMMVisProjectWindow>> owners;
+    owners.reserve(windows.size());
+    for (auto *window : windows)
+        owners.append(window);
+    const auto ownersAvailable = [&]() {
+        for (qsizetype index = 0; index < windows.size(); ++index) {
+            if (windows.at(index) && (!owners.at(index) || owners.at(index)->isClosing())) {
+                setErr(QObject::tr("A project closed while collecting its saved state."));
+                return false;
+            }
+        }
+        return true;
+    };
     for (auto *pw : windows) {
         if (!pw)
             continue;
@@ -1488,6 +1502,8 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         if (!pw)
             continue;
         const QJsonObject sessionObj = serializeSession(pw, oswpPath);
+        if (!ownersAvailable())
+            return false;
         if (!sessionObj.isEmpty())
             sessionsArr.append(sessionObj);
     }
@@ -1497,7 +1513,7 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     // today.  When Phase 13 lands and a project owns a single shared
     // canvas, switch to project->canvas() — for now the active window is
     // the canonical view.
-    auto *canvas = windows.front() ? windows.front()->canvas() : nullptr;
+    auto *canvas = owners.front() ? owners.front()->canvas() : nullptr;
     if (canvas) {
         QJsonObject canvasObj;
         if (auto *srs = canvas->canvasSRS()) {
@@ -1581,6 +1597,9 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
 bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
                                    QString *errorOut)
 {
+    QString localError;
+    if (!errorOut)
+        errorOut = &localError;
     auto setErr = [&](const QString &m) {
         if (errorOut)
             *errorOut = m;
@@ -1594,13 +1613,38 @@ bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProjectWindow
         return false;
     }
 
-    QVector<SWMMVisProjectWindow *> windows{pw};
-    return writeRootJson(oswpPath, windows, errorOut);
+    const QPointer<SWMMVisProjectWindow> owner(pw);
+    auto *registry = openswmmvis::ExtensionStateRegistry::instance();
+    openswmmvis::ExtensionSaveOperation operation(
+        registry, {registry ? registry->sessionForOwner(pw) : QUuid{}},
+        OpenSWMM::Sdk::SaveKind::Sidecar, oswpPath, errorOut, true);
+    if (!operation.valid() || !owner || owner->isClosing()) {
+        if (errorOut->isEmpty())
+            setErr(QObject::tr("The project became unavailable before saving settings."));
+        return false;
+    }
+
+    QVector<SWMMVisProjectWindow *> windows{owner.data()};
+    if (!writeRootJson(oswpPath, windows, errorOut))
+        return false;
+    if (!owner || owner->isClosing()) {
+        setErr(QObject::tr("The project closed while its settings were being saved."));
+        return false;
+    }
+    // A nested stage/recovery write joins its outer operation and must not publish
+    // the temporary physical filename as the project's logical identity.
+    if (operation.ownsOperation())
+        owner->setExtensionProjectIdentity({}, oswpPath);
+    operation.succeed();
+    return true;
 }
 
 // Public multi-instance overload — Slice AA-3.4.
 bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProject *proj, QString *errorOut)
 {
+    QString localError;
+    if (!errorOut)
+        errorOut = &localError;
     auto setErr = [&](const QString &m) {
         if (errorOut)
             *errorOut = m;
@@ -1616,7 +1660,38 @@ bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProject *proj
         return false;
     }
 
-    return writeRootJson(oswpPath, windows, errorOut);
+    QList<QPointer<SWMMVisProjectWindow>> owners;
+    QList<QUuid> sessions;
+    auto *registry = openswmmvis::ExtensionStateRegistry::instance();
+    for (auto *window : std::as_const(windows)) {
+        if (!window)
+            continue;
+        owners.append(window);
+        sessions.append(registry ? registry->sessionForOwner(window) : QUuid{});
+    }
+    openswmmvis::ExtensionSaveOperation operation(
+        registry, sessions, OpenSWMM::Sdk::SaveKind::Sidecar, oswpPath, errorOut, true);
+    if (!operation.valid())
+        return false;
+    for (const auto &owner : std::as_const(owners)) {
+        if (!owner || owner->isClosing()) {
+            setErr(QObject::tr("A project closed before its settings could be saved."));
+            return false;
+        }
+    }
+    if (!writeRootJson(oswpPath, windows, errorOut))
+        return false;
+    for (const auto &owner : std::as_const(owners)) {
+        if (!owner || owner->isClosing()) {
+            setErr(QObject::tr("A project closed while its settings were being saved."));
+            return false;
+        }
+    }
+    if (operation.ownsOperation())
+        for (const auto &owner : std::as_const(owners))
+            owner->setExtensionProjectIdentity({}, oswpPath);
+    operation.succeed();
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1624,7 +1699,7 @@ bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProject *proj
 // ---------------------------------------------------------------------------
 
 bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
-                                      QString *errorOut, QStringList *warningsOut)
+                                      QString *errorOut, QStringList *warningsOut, int sessionIndex)
 {
     auto setErr = [&](const QString &m) {
         if (errorOut)
@@ -1639,6 +1714,13 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWin
         return false;
     }
 
+    if (sessionIndex < 0) {
+        setErr(QObject::tr("Project session index %1 is unavailable in %2.")
+                   .arg(sessionIndex)
+                   .arg(oswpPath));
+        return false;
+    }
+
     QFile f(oswpPath);
     if (!f.open(QIODevice::ReadOnly)) {
         setErr(QObject::tr("Cannot open %1: %2").arg(oswpPath, f.errorString()));
@@ -1646,8 +1728,10 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWin
     }
     QJsonParseError jerr{};
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &jerr);
-    if (doc.isNull()) {
-        setErr(QObject::tr("Invalid JSON in %1: %2").arg(oswpPath, jerr.errorString()));
+    if (doc.isNull() || !doc.isObject()) {
+        const auto detail = doc.isNull() ? jerr.errorString()
+                                         : QObject::tr("The project root must be a JSON object.");
+        setErr(QObject::tr("Invalid JSON in %1: %2").arg(oswpPath, detail));
         return false;
     }
 
@@ -1656,22 +1740,37 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWin
 
     // v0 = pre-Slice-X format (just a `layers` array of inp paths) —
     // nothing we apply from here; the caller's .inp is already open.
-    if (ver < 1)
+    if (ver < 1) {
+        if (sessionIndex != 0) {
+            setErr(QObject::tr("Project session index %1 is unavailable in legacy project %2.")
+                       .arg(sessionIndex)
+                       .arg(oswpPath));
+            return false;
+        }
         return true;
+    }
 
     // ── Resolve the per-instance state ───────────────────────────────
     // v1/v2/v3:  inpPath / engineVersion / layer at root
-    // v4+    :   sessions[N] array, applied entry sessions[0] → pw
-    //
-    // Single-instance applyFromFile reads sessions[0] only — multi-
-    // instance hydration is the caller's responsibility (Phase 13 will
-    // walk sessions[N] and create one SWMMVisProjectWindow per entry).
+    // v4+    :   sessions[N] array, applied entry selected by the caller.
     QJsonObject sessionObj;
     if (root.contains(kSessions)) {
         const QJsonArray sessions = root.value(kSessions).toArray();
-        if (!sessions.isEmpty())
-            sessionObj = sessions.first().toObject();
+        if (sessionIndex < 0 || sessionIndex >= sessions.size() ||
+            !sessions.at(sessionIndex).isObject()) {
+            setErr(QObject::tr("Project session index %1 is unavailable in %2.")
+                       .arg(sessionIndex)
+                       .arg(oswpPath));
+            return false;
+        }
+        sessionObj = sessions.at(sessionIndex).toObject();
     } else {
+        if (sessionIndex != 0) {
+            setErr(QObject::tr("Project session index %1 is unavailable in legacy project %2.")
+                       .arg(sessionIndex)
+                       .arg(oswpPath));
+            return false;
+        }
         // Legacy v1/v2/v3 — synthesize a session object from root keys.
         if (root.contains(kEngineVersion))
             sessionObj[kEngineVersion] = root.value(kEngineVersion);
@@ -1733,6 +1832,10 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWin
     } else if (sessionObj.contains(kEngineVersion)) {
         // No layer yet but engineVersion still useful.
         pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"), false);
+    }
+    if (!window || window->isClosing()) {
+        setErr(QObject::tr("The project closed while restoring its saved state."));
+        return false;
     }
     pw->setCorridorSources(corridorSources);
     pw->setCorridorRecipeLoadError({});

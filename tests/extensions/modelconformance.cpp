@@ -12,6 +12,7 @@
 #include <sdk/ExtensionHost.hpp>
 #include <sdk/IProject.hpp>
 #include <sdk/IEventSourceV1.hpp>
+#include <sdk/IEventSourceV2.hpp>
 #include <openswmm/engine/openswmm_engine.h>
 #if __has_include(<openswmm/engine/openswmm_abi_tag.h>)
 #include <openswmm/engine/openswmm_abi_tag.h>
@@ -33,6 +34,7 @@
 #include <QMdiArea>
 #include <QMdiSubWindow>
 #include <QAbstractItemModel>
+#include <QHash>
 #include <memory>
 
 using namespace OpenSWMM::Sdk;
@@ -46,6 +48,18 @@ struct EventConformance {
     int viewportNotices = 0;     ///< Number of viewportChanged callbacks received by the extension.
     bool typedAvailable = false; ///< The real application exposes the optional typed service.
     int typedViewportNotices = 0; ///< Typed viewport observations paired with legacy callbacks.
+    int discoveries = 0; ///< Legacy facade-discovery notices, used to detect impure getters.
+    IEventSourceV2 *stateSource = nullptr; ///< Borrowed optional capability owned by this host.
+    quint64 watermark = 0;    ///< Initial subscribe-before-snapshot cutoff; never advanced later.
+    quint64 lastSequence = 0; ///< Last accepted transition, used to check global ordering.
+    bool ordered = true;      ///< Every accepted transition follows the previous sequence.
+    QList<StateEvent> states; ///< Owning transition copies, including historical terminal saves.
+    QList<SaveRequest> beforeSaves; ///< Synchronous collection requests, copied without mutation.
+    QHash<QUuid, ModelSessionState> ready; ///< Metadata captured at each ModelReady observation.
+    QHash<QUuid, QString> readyMarkers; ///< Restored extension state queried immediately at Ready.
+    QUuid primarySession;   ///< Open lifetime of model.inp, independent of its persistent UUID.
+    QUuid survivingSession; ///< Other open lifetime in the optional duplicate-UUID fixture.
+    QString recoveryPath;   ///< Final returned recovery destination for terminal-event assertions.
 };
 
 /** @brief Public-SDK provider used to verify shared derived values across real engine edits. */
@@ -95,6 +109,30 @@ public:
             return false;
         }
         auto events = std::make_shared<EventConformance>();
+        if (auto *source = qobject_cast<IEventSourceV2 *>(host->lifetime())) {
+            events->stateSource = source;
+            source->observeState(host->lifetime(), {}, [events, source](const StateEvent &event) {
+                if (event.sequence <= events->watermark)
+                    return;
+                events->ordered &= event.sequence > events->lastSequence;
+                events->lastSequence = event.sequence;
+                events->states.append(event);
+                if (event.kind == StateEventKind::ModelReady) {
+                    events->ready.insert(event.session.sessionId, event.session);
+                    if (auto *model = source->resolveSession(event.session.sessionId))
+                        events->readyMarkers.insert(
+                            event.session.sessionId,
+                            model->project()->extensionData()["restoredMarker"].toString());
+                }
+            });
+            // Registration precedes the authoritative snapshot; queued transitions at or
+            // below this initial watermark belong to the adopted snapshot, not a replay.
+            events->watermark = source->stateSnapshot().sequence;
+            events->lastSequence = events->watermark;
+            source->observeBeforeSave(host->lifetime(), [events](const SaveRequest &request) {
+                events->beforeSaves.append(request);
+            });
+        }
         if (auto *source = qobject_cast<IEventSourceV1 *>(host->lifetime())) {
             events->typedAvailable = true;
             source->subscribe(host->lifetime(), {{EventKind::ViewportChanged}, {}},
@@ -105,6 +143,8 @@ public:
                 ++events->runNotices;
             else if (event == "viewportChanged")
                 ++events->viewportNotices;
+            else if (event == "instanceOpened")
+                ++events->discoveries;
         });
         // Inspect only the standard Qt model interface; no private GUI header or symbol
         // is linked into this plugin. The host installs its bridge before initialize().
@@ -129,11 +169,34 @@ public:
                 finish(report, {{"startup", false}}, "No loaded model became available.");
                 return;
             }
-            const auto instances = host->instances();
-            if (instances.isEmpty() || !instances.first()->isOpen())
-                return;
+            IModelInstance *instance = nullptr;
+            if (events->stateSource) {
+                const auto snapshot = events->stateSource->stateSnapshot();
+                const auto primary = qEnvironmentVariable("SDK_MODEL_PRIMARY_INPUT");
+                const bool multi = qEnvironmentVariableIsSet("SDK_EV2_MULTI_MODEL");
+                int ready = 0;
+                for (const auto &session : snapshot.sessions) {
+                    if (session.status != SessionStatus::Ready ||
+                        !events->readyMarkers.contains(session.sessionId))
+                        continue;
+                    ++ready;
+                    if (primary.isEmpty() || samePath(session.inputPath, primary)) {
+                        events->primarySession = session.sessionId;
+                        instance = events->stateSource->resolveSession(session.sessionId);
+                    } else {
+                        events->survivingSession = session.sessionId;
+                    }
+                }
+                if (ready < (multi ? 2 : 1) || !instance)
+                    return;
+            } else {
+                const auto instances = host->instances();
+                if (instances.isEmpty() || !instances.first()->isOpen())
+                    return;
+                instance = instances.first();
+            }
             timer->stop();
-            run(host, instances.first(), report, events);
+            run(host, instance, report, events);
         });
         timer->start();
         return true;
@@ -141,6 +204,28 @@ public:
     void shutdown() override {}
 
 private:
+    /** @brief Compare existing fixture paths without depending on spelling or symlink aliases. */
+    static bool samePath(const QString &a, const QString &b)
+    {
+        return !a.isEmpty() && !b.isEmpty() &&
+               QFileInfo(a).canonicalFilePath() == QFileInfo(b).canonicalFilePath();
+    }
+    /** @brief Select the tested map so main-window actions address the intended session. */
+    static void activate(IModelInstance *instance)
+    {
+        if (auto *window = qobject_cast<QMdiSubWindow *>(instance->lifetime()))
+            if (auto *mdi = window->mdiArea())
+                mdi->setActiveSubWindow(window);
+    }
+    /** @brief Copy one live session without retaining a model facade or native owner. */
+    static ModelSessionState sessionState(const EventConformance &events, const QUuid &id)
+    {
+        if (events.stateSource)
+            for (const auto &session : events.stateSource->stateSnapshot().sessions)
+                if (session.sessionId == id)
+                    return session;
+        return {};
+    }
     /** @brief Record every assertion and exit the dedicated GUI process with its test status. */
     static void finish(const QString &path, QJsonObject checks, const QString &error = {})
     {
@@ -205,8 +290,8 @@ private:
                     if (panel) {
                         const auto *status = panel->findChild<QLabel *>("dataStatus");
                         qWarning().noquote() << "Data preview did not complete; stage" << *stage
-                                            << "rows" << table->model()->rowCount()
-                                            << "status" << (status ? status->text() : QString{});
+                                             << "rows" << table->model()->rowCount() << "status"
+                                             << (status ? status->text() : QString{});
                         for (auto *choice : panel->findChildren<QComboBox *>())
                             qWarning() << choice->objectName() << choice->count()
                                        << choice->currentText() << choice->currentData();
@@ -283,6 +368,54 @@ private:
     {
         QJsonObject checks;
         checks["typedEventServiceAvailable"] = events->typedAvailable;
+        checks["lifecycleServiceAvailable"] = bool(events->stateSource);
+        activate(instance);
+        const auto initialState = sessionState(*events, events->primarySession);
+        if (events->stateSource) {
+            checks["readySessionResolves"] =
+                initialState.status == SessionStatus::Ready && initialState.loadGeneration > 0 &&
+                events->stateSource->resolveSession(events->primarySession) == instance;
+            checks["extensionStateRestoredBeforeReady"] =
+                events->readyMarkers.value(events->primarySession) == "primary";
+            const auto selectedProject = qEnvironmentVariable("SDK_EV2_PROJECT_PATH");
+            checks["selectedProjectRestoredBeforeReady"] =
+                samePath(events->ready.value(events->primarySession).projectPath,
+                         selectedProject) &&
+                samePath(initialState.projectPath, selectedProject) &&
+                samePath(instance->project()->path(), selectedProject);
+            if (qEnvironmentVariableIsSet("SDK_EV2_MULTI_MODEL")) {
+                const auto other = sessionState(*events, events->survivingSession);
+                checks["duplicateUuidHasDistinctSessions"] =
+                    !events->primarySession.isNull() && !events->survivingSession.isNull() &&
+                    events->primarySession != events->survivingSession &&
+                    initialState.instanceId == other.instanceId &&
+                    events->stateSource->resolveSession(events->survivingSession) != instance;
+                checks["secondSessionRestoredBeforeReady"] =
+                    other.status == SessionStatus::Ready &&
+                    events->readyMarkers.value(events->survivingSession) == "secondary" &&
+                    samePath(events->ready.value(events->survivingSession).projectPath,
+                             selectedProject);
+            }
+            // Materialize the legacy facade view once, then repeatedly query both APIs.
+            // These synchronous reads must not advance registry state or discover facades.
+            host->instances();
+            host->projects();
+            const auto beforeGetters = events->stateSource->stateSnapshot();
+            const int discoveries = events->discoveries;
+            const auto observations = events->states.size();
+            bool stable = true;
+            for (int i = 0; i < 3; ++i) {
+                host->instances();
+                host->projects();
+                instance->project()->instances();
+                const auto current = events->stateSource->stateSnapshot();
+                stable &= current.sequence == beforeGetters.sequence &&
+                          current.sessions.size() == beforeGetters.sessions.size() &&
+                          events->stateSource->resolveSession(events->primarySession) == instance;
+            }
+            checks["lifecycleGettersArePure"] = stable && events->discoveries == discoveries &&
+                                                events->states.size() == observations;
+        }
         QString error;
 #ifdef OPENSWMM_ENGINE_ABI_TAG
         checks["runtimeEngineAbiMatchesHost"] =
@@ -320,6 +453,10 @@ private:
         checks["nativeWrite"] = swmm_node_set_invert_elev(engine, node, before + 2.) == SWMM_OK;
         checks["nativeCommit"] = native->commit(&error);
         native.reset();
+        const auto committedState = sessionState(*events, events->primarySession);
+        checks["nativeCommitAdvancesRevisions"] =
+            committedState.stateRevision > initialState.stateRevision &&
+            committedState.modelRevision > initialState.modelRevision;
         auto borrowed = instance->acquireLease(LeaseKind::Read, &error);
         double after = 0;
         swmm_node_get_invert_elev(borrowed->engine(), swmm_node_index(borrowed->engine(), "J1"),
@@ -330,8 +467,12 @@ private:
             1e-9;
         borrowed.reset();
         auto undo = host->ui()->mainWindow()->findChild<QAction *>("actionUndo");
+        activate(instance);
         if (undo)
             undo->trigger();
+        const auto undoneState = sessionState(*events, events->primarySession);
+        checks["undoAdvancesStateRevision"] =
+            undoneState.stateRevision > committedState.stateRevision;
         borrowed = instance->acquireLease(LeaseKind::Read, &error);
         swmm_node_get_invert_elev(borrowed->engine(), swmm_node_index(borrowed->engine(), "J1"),
                                   &after);
@@ -384,9 +525,12 @@ private:
         project->setExtensionData({{"previewMode", "viewport"}});
         checks["projectData"] = project->extensionData()["previewMode"].toString() == "viewport";
         const auto projectPath = project->path();
+        const auto extensionData = project->extensionData();
         const auto recovery = project->autosave(&error);
+        events->recoveryPath = recovery;
         checks["autosaveExists"] = !recovery.isEmpty() && QFile::exists(recovery);
         checks["autosaveKeepsProjectPath"] = project->path() == projectPath;
+        checks["autosaveKeepsExtensionState"] = project->extensionData() == extensionData;
         QFile recovered(recovery);
         if (recovered.open(QIODevice::ReadOnly)) {
             const auto saved = QJsonDocument::fromJson(recovered.readAll()).object();
@@ -464,53 +608,150 @@ private:
         auto *completed = new QTimer(host->lifetime());
         completed->setInterval(100);
         auto attempts = std::make_shared<int>(0);
-        connect(completed, &QTimer::timeout, host->lifetime(),
-                [host, instance, job, completed, report, checks, attempts, events]() mutable {
-                    if (++*attempts > 400) {
-                        completed->stop();
-                        finish(report, checks, "The scripted run did not finish.");
-                        return;
-                    }
-                    for (const auto &run : host->runRegistry()->runs()) {
-                        if (run["id"].toInt() != job || run["status"].toString() == "running" ||
-                            run["status"].toString() == "idle")
-                            continue;
-                        completed->stop();
-                        checks["runInsertionNotified"] =
-                            events->insertions > 0 && events->insertionsNotified;
-                        checks["scriptedRunSucceeded"] = run["status"].toString() == "success";
-                        checks["resultsMetadata"] = !instance->results().isEmpty();
-                        const auto variables = host->plots()->variables(instance, "node");
-                        checks["plotVariableDiscovery"] = !variables.isEmpty();
-                        if (!variables.isEmpty())
-                            checks["timeSeriesPlot"] = host->plots()->timeSeries(
-                                instance, "node", "J1", variables.first()["key"].toString());
-                        checks["profilePlot"] = host->plots()->profile(instance, {"J1", "O1"});
-                        QTimer::singleShot(
-                            400, host->lifetime(), [host, instance, report, checks, events]() mutable {
-                                exerciseDataPreview(
-                                    host, instance, checks,
-                                    [host, instance, report, events](QJsonObject checks) mutable {
-                                        const auto identity = instance->id();
-                                        const int beforeRemoval = events->runNotices;
-                                        instance->lifetime()->deleteLater();
-                                        QTimer::singleShot(
-                                            250, host->lifetime(),
-                                            [host, instance, identity, report, checks, events,
-                                             beforeRemoval]() mutable {
-                                                checks["closedFacadeIsInert"] = !instance->isOpen();
-                                                checks["closedFacadeKeepsIdentity"] =
-                                                    instance->id() == identity;
-                                                checks["runRemovalNotified"] =
-                                                    host->runRegistry()->runs().isEmpty() &&
-                                                    events->runNotices > beforeRemoval;
-                                                finish(report, checks);
-                                            });
-                                    });
-                            });
-                        return;
-                    }
-                });
+        connect(
+            completed, &QTimer::timeout, host->lifetime(),
+            [host, instance, job, completed, report, checks, attempts, events]() mutable {
+                if (++*attempts > 400) {
+                    completed->stop();
+                    finish(report, checks, "The scripted run did not finish.");
+                    return;
+                }
+                for (const auto &run : host->runRegistry()->runs()) {
+                    if (run["id"].toInt() != job || run["status"].toString() == "running" ||
+                        run["status"].toString() == "idle")
+                        continue;
+                    completed->stop();
+                    checks["runInsertionNotified"] =
+                        events->insertions > 0 && events->insertionsNotified;
+                    checks["scriptedRunSucceeded"] = run["status"].toString() == "success";
+                    checks["resultsMetadata"] = !instance->results().isEmpty();
+                    const auto variables = host->plots()->variables(instance, "node");
+                    checks["plotVariableDiscovery"] = !variables.isEmpty();
+                    if (!variables.isEmpty())
+                        checks["timeSeriesPlot"] = host->plots()->timeSeries(
+                            instance, "node", "J1", variables.first()["key"].toString());
+                    checks["profilePlot"] = host->plots()->profile(instance, {"J1", "O1"});
+                    QTimer::singleShot(
+                        400, host->lifetime(),
+                        [host, instance, job, report, checks, events]() mutable {
+                            exerciseDataPreview(
+                                host, instance, checks,
+                                [host, instance, job, report, events](QJsonObject checks) mutable {
+                                    QUuid recoveryOperation;
+                                    int recoveryCollections = 0;
+                                    for (const auto &request : events->beforeSaves) {
+                                        if (request.sessionId == events->primarySession &&
+                                            request.kind == SaveKind::Recovery) {
+                                            ++recoveryCollections;
+                                            recoveryOperation = request.operationId;
+                                        }
+                                    }
+                                    int recoveryStarts = 0;
+                                    int recoveryFinishes = 0;
+                                    bool recoverySucceeded = false;
+                                    for (const auto &state : events->states) {
+                                        if (state.session.sessionId != events->primarySession ||
+                                            state.save.operationId != recoveryOperation ||
+                                            state.save.kind != SaveKind::Recovery)
+                                            continue;
+                                        if (state.kind == StateEventKind::SaveStarted)
+                                            ++recoveryStarts;
+                                        if (state.kind == StateEventKind::SaveFinished) {
+                                            ++recoveryFinishes;
+                                            recoverySucceeded =
+                                                state.save.outcome == SaveOutcome::Succeeded &&
+                                                state.save.error.isEmpty() &&
+                                                samePath(state.save.targetPath,
+                                                         events->recoveryPath);
+                                        }
+                                    }
+                                    checks["recoveryHasOneCorrelatedTerminal"] =
+                                        !recoveryOperation.isNull() && recoveryCollections == 1 &&
+                                        recoveryStarts == 1 && recoveryFinishes == 1 &&
+                                        recoverySucceeded;
+                                    if (qEnvironmentVariableIsSet("SDK_LIFECYCLE_CONSUMER")) {
+                                        auto *label = host->ui()->mainWindow()->findChild<QLabel *>(
+                                            "ext.org.openswmm.lifecycle-example.lifecycle-status");
+                                        const int expected =
+                                            qEnvironmentVariableIsSet("SDK_EV2_MULTI_MODEL") ? 2
+                                                                                             : 1;
+                                        checks["lifecycleConsumerLoaded"] = bool(label);
+                                        checks["lifecycleConsumerObservedReady"] =
+                                            label &&
+                                            label->property("readyEvents").toInt() >= expected &&
+                                            label->property("queuedEvents").toInt() > 0 &&
+                                            label->property("sessionCount").toInt() == expected &&
+                                            label->property("lastSequence").toULongLong() >
+                                                label->property("snapshotWatermark").toULongLong();
+                                        checks["lifecycleConsumerCollectedSave"] =
+                                            label && label->property("beforeSaves").toInt() > 0;
+                                    }
+                                    const auto identity = instance->id();
+                                    const int beforeRemoval = events->runNotices;
+                                    instance->lifetime()->deleteLater();
+                                    QTimer::singleShot(
+                                        250, host->lifetime(),
+                                        [host, instance, identity, job, report, checks, events,
+                                         beforeRemoval]() mutable {
+                                            checks["closedFacadeIsInert"] = !instance->isOpen();
+                                            checks["closedFacadeKeepsIdentity"] =
+                                                instance->id() == identity;
+                                            bool targetJobPresent = false;
+                                            for (const auto &run : host->runRegistry()->runs())
+                                                targetJobPresent |= run["id"].toInt() == job;
+                                            checks["runRemovalNotified"] =
+                                                !targetJobPresent &&
+                                                events->runNotices > beforeRemoval;
+                                            checks["lifecycleObservationsOrdered"] =
+                                                events->ordered;
+                                            if (events->stateSource) {
+                                                checks["closedSessionDoesNotResolve"] =
+                                                    !events->stateSource->resolveSession(
+                                                        events->primarySession) &&
+                                                    sessionState(*events, events->primarySession)
+                                                        .sessionId.isNull();
+                                                int closed = 0;
+                                                for (const auto &state : events->states)
+                                                    if (state.session.sessionId ==
+                                                            events->primarySession &&
+                                                        state.kind == StateEventKind::SessionClosed)
+                                                        ++closed;
+                                                checks["oneAuthoritativeSessionClosed"] =
+                                                    closed == 1;
+                                                if (qEnvironmentVariableIsSet(
+                                                        "SDK_EV2_MULTI_MODEL")) {
+                                                    const auto other = sessionState(
+                                                        *events, events->survivingSession);
+                                                    auto *survivor =
+                                                        events->stateSource->resolveSession(
+                                                            events->survivingSession);
+                                                    checks["duplicateUuidSurvivorRemainsReady"] =
+                                                        other.status == SessionStatus::Ready &&
+                                                        survivor && survivor != instance &&
+                                                        survivor->isOpen() &&
+                                                        survivor->id() == identity;
+                                                }
+                                            }
+                                            if (qEnvironmentVariableIsSet(
+                                                    "SDK_LIFECYCLE_CONSUMER")) {
+                                                auto *label =
+                                                    host->ui()->mainWindow()->findChild<QLabel *>(
+                                                        "ext.org.openswmm.lifecycle-example.lifecycle-status");
+                                                checks["lifecycleConsumerRefreshesAfterClose"] =
+                                                    label &&
+                                                    label->property("sessionCount").toInt() ==
+                                                        (qEnvironmentVariableIsSet(
+                                                             "SDK_EV2_MULTI_MODEL")
+                                                             ? 1
+                                                             : 0);
+                                            }
+                                            finish(report, checks);
+                                        });
+                                });
+                        });
+                    return;
+                }
+            });
         completed->start();
     }
     int mAttempts = 0; ///< Bounded startup polling avoids hanging an unsuccessful GUI load.

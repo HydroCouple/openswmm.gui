@@ -63,6 +63,9 @@ public:
      * @param[out] errorOut Optional failure diagnostic; unchanged on success.
      * @return True after QSaveFile commits the sidecar; false for invalid state, unsaved/busy analysis, invalid recipes or IO failure.
      * @note Managed analysis assets may be copied to the destination directory before writing the sidecar; those copies are not rolled back on a later failure. Model input data is not saved by this method.
+     * Direct calls publish a correlated Sidecar save outcome and adopt the logical
+     * project path only on success. Nested model-save/recovery stages join their
+     * outer operation and do not publish intermediate persistence or path identities.
      */
     static bool saveToFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
                            QString *errorOut = nullptr);
@@ -75,6 +78,8 @@ public:
      * @param[out] errorOut Optional failure diagnostic.
      * @return True after committing the sidecar; false for empty project, invalid recipes/analysis state or IO failure.
      * @note Null entries are skipped; project canvas/basemap/GIS state comes from the first entry. Managed analysis copies can remain after a later failure. Invoke on the GUI thread.
+     * All affected sessions share a save correlation identity; synchronous collection
+     * revalidates every window lifetime before writing or adopting the project path.
      */
     static bool saveToFile(const QString &oswpPath, SWMMVisProject *proj,
                            QString *errorOut = nullptr);
@@ -82,7 +87,7 @@ public:
     /*! Read a `.oswp` and apply any state it carries to \p pw's
      *  already-loaded SWMM layer and canvas. Silently skips keys the
      *  current build doesn't understand (forward-compat). Returns
-     *  true if the file was parsed successfully. An absent or unreadable file returns false with a diagnostic. Callers may choose to load only the `.inp`.  Single-instance overload reads sessions[0].
+     *  true if the file was parsed successfully. An absent or unreadable file returns false with a diagnostic. Callers may choose to load only the `.inp`. The selected modern session is applied to this window.
      *  Referenced files that no longer exist (results .out, GIS
      *  rasters/vectors) are skipped and reported via \p warningsOut
      *  so the caller can surface them — the load itself proceeds.
@@ -90,11 +95,13 @@ public:
      * @param[in,out] pw Required window with its model already loaded; receives GUI state and new layers on the GUI thread.
      * @param[out] errorOut Optional file/JSON/corridor-recipe diagnostic.
      * @param[in,out] warningsOut Optional list receiving skipped-file/invalid-history warnings; asynchronous open failures are not uniformly reported here.
-     * @return False for invalid arguments, unreadable/invalid JSON or rejected corridor recipe; true for applied or legacy no-op content, even when referenced layers were skipped.
-     * @note Applies only sessions[0]. Existing layers are not first cleared. Results/raster/vector opens may finish later; editable feature tables open synchronously. A previously clean window is restored to clean after synchronous hydration.
+     * @param[in] sessionIndex Zero-based entry in a modern sessions array; legacy root formats require zero.
+     * @return False for invalid arguments/session selection, unreadable/invalid JSON or rejected corridor recipe; true for applied or legacy no-op content, even when referenced layers were skipped.
+     * @note Existing layers are not first cleared. Results/raster/vector opens may finish later; editable feature tables open synchronously. A previously clean window is restored to clean after synchronous hydration.
      */
     static bool applyFromFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
-                              QString *errorOut = nullptr, QStringList *warningsOut = nullptr);
+                              QString *errorOut = nullptr, QStringList *warningsOut = nullptr,
+                              int sessionIndex = 0);
 
     /*! Canonical sidecar path: same directory + basename as the
      *  given `.inp`, with the extension swapped to `.oswp`. Empty

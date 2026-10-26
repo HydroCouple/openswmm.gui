@@ -41,6 +41,9 @@
  * sdk/Version.hpp | Version constants and owning compatibility manifest serialization.
  * sdk/IGuiExtension.hpp | Qt plugin root interface, metadata and lifecycle contract.
  * sdk/ExtensionHost.hpp | Scoped service access, notifications, console and jobs.
+ * sdk/IEventSourceV1.hpp | Frozen synchronous typed observations, filters and scoped connection ownership.
+ * sdk/qt/EventSignalAdapter.hpp | Optional consumer-local Qt signals for the V1 observations.
+ * sdk/IEventSourceV2.hpp | Authoritative session identities, readiness, revision snapshots and save lifecycle.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
  * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
@@ -59,6 +62,8 @@
  * plugins/extensionnetwork.* | Request policy checks and asynchronous refusal replies.
  * plugins/extensionpreferences.h | Guarded registration of Preferences factories.
  * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
+ * plugins/extensionstateregistry.* | Shared authoritative session state, deferred dispatch and native save scopes.
+ * src/sdk/EventSignalAdapter.cpp | Installed optional adapter source compiled inside each consumer module.
  * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
  * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
  *
@@ -175,7 +180,10 @@
  *
  * SDK 1.2 provides typed host observations through the optional IEventSourceV1
  * interface, together with a consumer-local EventSignalAdapter for ordinary Qt
- * signals. ExtensionHost::observe() remains available for existing consumers.
+ * signals. SDK 1.3 adds the separate IEventSourceV2 capability for authoritative
+ * session readiness, revision snapshots and save outcomes. ExtensionHost::observe()
+ * remains available for existing consumers. These interfaces have different
+ * delivery/identity contracts; choose the one needed by the integration.
  * ExtensionHost remains a pure C++ interface, and a plugin's own QActions,
  * widgets and controllers can use ordinary typed QObject::connect() calls.
  *
@@ -186,7 +194,14 @@
  * use the existing edit/lease and undo paths; layer import does not promise undo.
  * An event reports a change; it is not a command or permission to modify a private
  * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
- * such as IEventSourceV1, while private host classes remain implementation details.
+ * such as IEventSourceV1 and IEventSourceV2, while private host classes remain
+ * implementation details.
+ *
+ * | Observation interface | Minimum SDK | Delivery and identity |
+ * | --- | --- | --- |
+ * | ExtensionHost::observe() | 1.0 | Synchronous string/map notifications with persistent model UUIDs. |
+ * | IEventSourceV1 | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
+ * | IEventSourceV2 | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
  *
  * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
  *
@@ -265,7 +280,140 @@
  * name and map are projected. Unknown private diagnostic/test event names remain
  * legacy-only. Plugins cannot publish host events through IEventSourceV1.
  *
- * @subsection sdk_event_delivery Subscription and delivery
+ * @subsection sdk_state_events SDK 1.3 session readiness and revision snapshots
+ *
+ * Include sdk/IEventSourceV2.hpp, require OpenSWMMVisSdk 1.3 and discover the
+ * optional interface with qobject_cast<IEventSourceV2 *>(host->lifetime()).
+ * Check the result and report a missing required capability during initialize().
+ * The loader refuses a 1.3 consumer on an older SDK host before initializing it.
+ * V1 and V2 remain separately discoverable frozen interfaces; V2 adds no methods
+ * or fields to V1 or the existing ExtensionHost vtable. EventSignalAdapter wraps
+ * V1; the installed examples/extensions/lifecycle consumer demonstrates V2's
+ * callbacks and ordinary plugin-owned Qt views.
+ *
+ * Every native model-window lifetime has a unique sessionId. Its instanceId is
+ * the persistent model identity restored from project state; two open sessions
+ * can share that persistent identity. Closing and reopening never reuses a
+ * sessionId. Each accepted load attempt increments loadGeneration, so a result
+ * from an older attempt cannot make a newer attempt ready. Use sessionId when
+ * resolving an actionable model, rather than searching for a persistent UUID.
+ *
+ * ModelSessionState contains copied title/input/project paths, dirty/saving
+ * indications, readiness status and failure detail. stateRevision is monotonic
+ * for that open lifetime; modelRevision is the native authored-model revision
+ * scoped by session and load generation. The shared registry's sequence orders
+ * state publications across plugin hosts and is the StateSnapshot watermark.
+ * It is separate from V1's host-local sequence. Revisions and watermarks cover
+ * observed metadata/invalidation; they are not atomic copies of arbitrary engine,
+ * geometry, selection or result arrays. Continue using leases and copied queries
+ * for those payloads.
+ *
+ * The readiness states are Created, Loading, Ready, Failed and Closing.
+ * ModelReady follows the accepted native load and the controller's synchronous
+ * restoration barrier: model/CRS setup, project-sidecar restoration and ordinary
+ * synchronous host activation are complete. Optional asynchronous GIS, mesh and
+ * results resources can still finish later. A raw modelLoaded or the legacy
+ * instanceOpened notification does not establish this readiness guarantee.
+ * Failed sessions may retry. Closing makes resolution unavailable immediately;
+ * SessionClosed is published only after removal from the live snapshot, and its
+ * copied state retains the final Closing status.
+ *
+ * stateSnapshot() copies current metadata without creating facades or publishing
+ * events. resolveSession(sessionId) returns a borrowed current Ready model or
+ * null for unknown, loading, failed or closing sessions. Recheck availability
+ * after deferred work, and compare the current load generation before acting on
+ * an older transition. No engine lease or model ownership is transferred.
+ *
+ * observeState() copies a kind/session filter and delivers on the GUI thread
+ * after native state transitions commit. Empty kinds/null session select all.
+ * Subscribe before taking the initial snapshot, without a nested event loop
+ * between those calls. Registration excludes older publications, including
+ * ones still waiting in the queue. A current-state view can also discard events
+ * at or below that initial snapshot watermark. The snapshot contains current
+ * live metadata, not a replay of historical save/failure outcomes; consumers
+ * retaining future terminal history should not advance their initial cutoff
+ * merely because they refresh their display snapshot.
+ *
+ * @code{.cpp}
+ * // In initialize(), these are persistent members of a GUI-thread QObject controller.
+ * mStateSource = qobject_cast<OpenSWMM::Sdk::IEventSourceV2 *>(host->lifetime());
+ * if (!mStateSource)
+ *     return false; // Report the missing required capability through initialize()'s error output.
+ * mStateConnection = mStateSource->observeState(this, {},
+ *     [this](const OpenSWMM::Sdk::StateEvent &event) {
+ *         if (event.sequence <= mInitialStateWatermark)
+ *             return;
+ *         const auto current = mStateSource->stateSnapshot();
+ *         // Refresh this controller's view from current live state.
+ *         // Preserve wanted terminal records separately using session/operation IDs.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mStateSource->stateSnapshot();
+ * mInitialStateWatermark = initial.sequence;
+ * @endcode
+ *
+ * The ordered dispatcher prevents recursive drains during reentrant callbacks.
+ * StateChanged notifications can coalesce per session/generation, merge their
+ * broad StateChange categories and retain the latest metadata. Sequence gaps
+ * are therefore expected. Intermediate state-change observations during Loading
+ * are suppressed; the settled outcome contains current metadata. Before each
+ * receiver is called, the host rechecks its lifetime/thread, shutdown state and
+ * session generation. Obsolete opened/started/ready/change observations can be
+ * suppressed, including when an earlier receiver closes the model. LoadFailed,
+ * save and close records retain their historical session/generation identity;
+ * they do not make a retired model resolvable. There is no event-history replay.
+ *
+ * | StateEventKind | Meaning |
+ * | --- | --- |
+ * | SessionOpened | A native open lifetime was registered; the model need not be ready. |
+ * | LoadStarted | A new accepted load generation began. |
+ * | ModelReady | That generation completed its native readiness/restoration barrier. |
+ * | LoadFailed | A load generation failed; error carries its copied diagnostic. |
+ * | StateChanged | Query current state after broad metadata/model/selection/viewport/layer/results/project-state invalidation. |
+ * | SaveStarted | Informational save-start record, delivered after the affected save scope ends. |
+ * | SaveFinished | Correlated save success/failure at the intended transaction boundary. |
+ * | SessionClosing | Close committed; resolveSession() is unavailable. |
+ * | SessionClosed | Live state was retired; this is a historical cleanup record. |
+ *
+ * @subsection sdk_save_events Synchronous state collection and deferred save outcomes
+ *
+ * observeBeforeSave() is a separate short, synchronous, non-vetoing collection
+ * hook. SaveRequest identifies the operation, session, persistent model, load
+ * generation, save kind and intended final path. Update only this extension's
+ * state using supported services. Avoid model mutations, nested event loops and
+ * reentrant saves; a new competing save is refused. The host revalidates each
+ * request before each collector. A callback that closes, reloads or changes the
+ * affected identity invalidates the save; observer exceptions are reported and
+ * isolated. Disconnect collectors and reset borrowed services during shutdown.
+ *
+ * SaveKind distinguishes a normal Project save, a standalone Sidecar write and
+ * an independent Recovery write. Standalone sidecar creation can occur while a
+ * session is Loading, so a collector must tolerate resolveSession() returning
+ * null. A recovery destination may initially be empty while its independent
+ * snapshot location is selected. Recovery preserves the current project's path
+ * and dirty indication; collectors should avoid changing ordinary authored data.
+ * The installed lifecycle example collects namespaced project data for a ready
+ * normal save and leaves recovery state alone.
+ *
+ * SaveStarted and SaveFinished are deferred observations, not state-collection
+ * opportunities. Each has a SaveState with a unique operationId, kind, target
+ * path and outcome. Nested physical staging/sidecar writes join the outer scope
+ * and do not report an extra successful project save. Multi-session saves use
+ * the same operationId for every affected session. Outcomes distinguish Started,
+ * Succeeded and Failed, with copied error detail on failure. A successful engine
+ * write or intermediate JSON serialization alone is not the final transaction
+ * outcome. Invalid targets, preparation/lease failures and final write failures
+ * produce Failed once an operation has begun.
+ *
+ * Queued records for an affected session are held while its save scope is active,
+ * including during nested event-loop attempts in a collector. When the scope
+ * ends, records drain in shared sequence order. SaveStarted remains an immutable
+ * historical copy: its saving indication can be true and its recovery path can
+ * be empty even though a fresh snapshot already shows the completed operation
+ * and SaveFinished carries the resolved final destination. Terminal outcomes
+ * survive model retirement using captured identities, without reviving the model.
+ *
+ * @subsection sdk_event_delivery Legacy/V1 synchronous subscription and delivery
  *
  * Register on the GUI thread with a nonnull GUI-thread QObject context and a
  * nonempty callback. The returned QMetaObject::Connection supports explicit
@@ -279,8 +427,9 @@
  * The callback arguments are borrowed references to value data during the call;
  * copy them if retaining them. No raw engine, runner or layer pointer is an
  * event payload. There is no initial replay: subscribe first, then enumerate
- * current state. Enumeration may itself announce newly discovered model facades,
- * so initialization must tolerate a notification during that query.
+ * current state. Native lifecycle registration attaches facades; enumeration
+ * itself does not create or announce a new model. Use V2's session snapshot and
+ * resolution methods when readiness or a specific open lifetime matters.
  *
  * Notifications currently follow native signal timing and may occur inside
  * an edit, load or close operation. Keep callbacks short; defer state-changing
@@ -340,16 +489,15 @@
  *
  * @subsection sdk_event_limits Coverage boundaries
  *
- * The current surface is sufficient for the initial Data preview workflow and
- * ordinary model/UI integrations, but is not the full planned lifecycle API.
- * It does not yet provide dedicated project save/load completion, model-ready,
- * layer property/order/schema, computed-attribute, result playback, run-attempt
- * lifecycle or document/dock activation events. Typed events and the optional
- * Qt adapter describe that same coverage. State revisions, session generations,
- * replay, snapshot handshakes and transaction ordering are not provided by V1.
- * Avoid polling private objects to work around these gaps. These capabilities
- * need explicit public contracts and conformance coverage before consumers
- * depend on them.
+ * V2 provides authoritative session readiness, revision snapshots, close and
+ * project-save lifecycle. V1 retains its earlier synchronous observation scope.
+ * Detailed layer property/order/schema, computed-attribute schema/value, result
+ * playback, unique run/job attempt and document/dock activation contracts remain
+ * subsequent work. StateChanged categories are broad invalidations and do not
+ * provide those detailed deltas. There is no general event-history replay or
+ * plugin-to-plugin publishing service. Avoid querying private objects to work
+ * around the remaining gaps; future capabilities need explicit public contracts
+ * and conformance coverage.
  *
  * @section sdk_models Models, edits and undo
  *
@@ -493,8 +641,11 @@
  * the new services must declare a minimum SDK version of 1.1.
  * SDK 1.2 adds IEventSourceV1 and the optional consumer-local Qt signal adapter.
  * Plugins using these require SDK 1.2; SDK 1.0/1.1 consumers keep their existing
- * interfaces and observation names. Detailed lifecycle/revision work remains
- * subsequent qualification rather than an implied typed-event guarantee.
+ * interfaces and observation names. SDK 1.3 adds separately discoverable
+ * IEventSourceV2 for session identities, load generations, readiness/revision
+ * snapshots and normal/sidecar/recovery save outcomes. A V2 consumer requires
+ * SDK 1.3; its capabilities do not change the frozen V1 delivery contract.
+ * Detailed layer/results/process lifecycle remains subsequent qualification.
  *
  * Snapshot-backed editing is exercised with a real 1D model. A release still
  * requires strict writer/reopen qualification of every authored section, 2D mesh
@@ -518,6 +669,13 @@
  * Set SDK_TYPED_PLUGIN_DIRS to two separately built events-example directories
  * separated by the platform path separator to test installed-SDK discovery,
  * independently compiled adapters and rejection by an older host manifest.
+ * test_gui_extension_stateevents checks shared state snapshots, session/load
+ * generations, deferred ordering, stale-delivery guards, save scopes and both
+ * public host observer paths. SDK_LIFECYCLE_PLUGIN_DIR enables the independently
+ * built SDK 1.3 lifecycle example, including rejection by an older 1.2 host,
+ * snapshot/ready/save/close display updates and shutdown cleanup. The main GUI
+ * conformance runner also exercises the native load/save paths; synthetic core
+ * tests alone do not establish those controller completion barriers.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}

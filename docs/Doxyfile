@@ -1004,7 +1004,9 @@ INPUT                  = ../README.md \
                          ../src \
                          ./manual \
                          ./sdk \
-                         ../examples/extensions/template/extension.cpp
+                         ../examples/extensions/template/extension.cpp \
+                         ../examples/extensions/events/extension.cpp \
+                         ../examples/extensions/lifecycle/extension.cpp
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses

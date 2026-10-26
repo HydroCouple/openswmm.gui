@@ -856,7 +856,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
           cmake --build build/sdk-example-${{ matrix.build_subdir }} --config Release --parallel 2
 
-      - name: Build and test independent typed-event consumers
+      - name: Build and test independent event and lifecycle consumers
         shell: bash
         timeout-minutes: 10
         run: |
@@ -872,8 +872,15 @@ jobs:
             cmake --build "build/sdk-events-$event_variant-${{ matrix.build_subdir }}" \
               --config Release --parallel 2
           done
+          cmake -S "dist/gui-sdk/${{ matrix.vcpkg_triplet }}/share/openswmmvis-sdk/examples/lifecycle" \
+            -B "build/sdk-lifecycle-${{ matrix.build_subdir }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/dist/gui-sdk/${{ matrix.vcpkg_triplet }};$QT_ROOT_DIR" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }}
+          cmake --build "build/sdk-lifecycle-${{ matrix.build_subdir }}" \
+            --config Release --parallel 2
           cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
-            --target test_gui_extensions test_gui_extension_events
+            --target test_gui_extensions test_gui_extension_events test_gui_extension_stateevents
           python - <<'PY'
           import os
           import pathlib
@@ -891,9 +898,11 @@ jobs:
           os.environ["SDK_TYPED_PLUGIN_DIRS"] = os.pathsep.join(event_dirs)
           os.environ["SDK_EXTERNAL_PLUGIN_DIR"] = module_directory(
               f"build/sdk-example-{subdir}", "example_extension")
+          os.environ["SDK_LIFECYCLE_PLUGIN_DIR"] = module_directory(
+              f"build/sdk-lifecycle-{subdir}", "lifecycle_example")
           subprocess.run(["ctest", "--test-dir", f"build/{subdir}", "-C", "Release",
                           "--output-on-failure", "--timeout", "60", "-R",
-                          "^test_gui_extension(s|_events)$"], check=True)
+                          "^test_gui_extension(s|_events|_stateevents)$"], check=True)
           PY
 
       - name: Upload GUI extension SDK
