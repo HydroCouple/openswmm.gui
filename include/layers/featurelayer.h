@@ -416,12 +416,12 @@ public:
 
     /*! \brief The .oswp payload, minus the keys ProjectSerializer owns
      *         (path / name / visible / opacity).
-     * @return Owned table-name/role/Z-policy/symbol object without geometry/schema data, common layer properties or edit-session state. Does not flush or write a project file.
+     * @return Owned table-name/role/Z-policy/symbol/vector-style object without geometry/schema data, common layer properties or edit-session state. Does not flush or write a project file.
      */
     [[nodiscard]] QJsonObject toJson() const;
     /**
      * @param[in] o Permissively decoded project metadata; unknown/missing role falls back through role helpers and missing Z object selects default None.
-     * @note Applies role through its setter, replaces Z policy directly (bypassing the 3D guard) and always emits zPolicyChanged(). Optional symbol object is decoded over current symbol and applied. Does not open/change the stored table from layerName, restore edit mode or validate policy against the table.
+     * @note Applies role through its setter, replaces Z policy directly (bypassing the 3D guard) and always emits zPolicyChanged(). Optional legacy symbol is applied first, then complete vectorStyle when present. Does not open/change the stored table from layerName, restore edit mode or validate policy against the table.
      */
     void applyJson(const QJsonObject &o);
 
