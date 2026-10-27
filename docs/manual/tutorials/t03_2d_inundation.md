@@ -272,7 +272,7 @@ matching filenames alone does not establish compatibility.
 
 ### 8. Animate the inundation
 
-Everything below is on the **Results** ribbon tab.
+Everything below is on the **Animation** ribbon tab.
 
 1. **Set Style** opens the 2D results style panel. Its tabs are **Cell Depth
    Fill**, **Smooth Depth Fill**, **Depth Contours**, **Depth Isolines**,
@@ -367,7 +367,7 @@ arrow along the profile on the canvas) and **Display Options…**, which opens
 line, the maximum envelope fill and line, cell boundaries, pens and brushes,
 legend and timestamp.
 
-Press **Play** on the Results tab and watch the water surface rise and fall
+Press **Play** on the Animation tab and watch the water surface rise and fall
 along the section.
 
 The **Mesh 2D → Profile** tool is the *terrain-only* twin of this: it plots

@@ -66,6 +66,9 @@ struct SeriesSpec {
     QString variableKey;
     QString variableLabel;
     QString variableUnits;
+    QString observationKey; ///< Stable observation quantity/statistic/unit/time basis.
+    QString observationLabel; ///< Observation axis caption.
+    QString observationUnits; ///< Explicit native observation unit.
     SeriesStyle style;
     QString legendOverride; ///< Empty = auto-generate from (run, ref, attr).
 
@@ -75,6 +78,8 @@ struct SeriesSpec {
      */
     ResultDescriptor descriptor() const
     {
+        if (!observationKey.isEmpty())
+            return ResultDescriptor::forObservation(observationKey, observationLabel, observationUnits);
         if (!variableKey.isEmpty())
             return ResultDescriptor::forMeshVariable(variableKey, variableLabel, variableUnits);
         return species.isEmpty() ? ResultDescriptor::forAttribute(attribute)
@@ -92,6 +97,9 @@ struct SeriesSpec {
         variableKey = d.variableKey;
         variableLabel = d.variableLabel;
         variableUnits = d.variableUnits;
+        observationKey = d.observationKey;
+        observationLabel = d.observationLabel;
+        observationUnits = d.observationUnits;
     }
 
     /**
@@ -116,6 +124,9 @@ struct AttributeRow {
     QString variableKey;
     QString variableLabel;
     QString variableUnits;
+    QString observationKey; ///< Stable observation quantity/statistic/unit/time basis.
+    QString observationLabel; ///< Observation axis caption.
+    QString observationUnits; ///< Explicit native observation unit.
     QVector<int>
         seriesIndices; ///< Indices into ComparisonPlotModel::specs() that target this attr.
     double ymin = 0.0;
@@ -128,6 +139,8 @@ struct AttributeRow {
      */
     ResultDescriptor descriptor() const
     {
+        if (!observationKey.isEmpty())
+            return ResultDescriptor::forObservation(observationKey, observationLabel, observationUnits);
         if (!variableKey.isEmpty())
             return ResultDescriptor::forMeshVariable(variableKey, variableLabel, variableUnits);
         return species.isEmpty() ? ResultDescriptor::forAttribute(attribute)

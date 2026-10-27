@@ -280,7 +280,7 @@ public:
     /**
      * @brief Store inherited label policy and mirror changed legacy label fields into typed symbology.
      * @param[in] cfg Complete label settings; equality with inherited state is a no-op.
-     * @note Changes to show/field/font/colour update the symbol bag and emit symbolChanged(); changes only to richer settings can leave symbol().labelConfig unchanged. Base handling emits labelConfigChanged()/repaintRequested(); this override does not mark scene geometry dirty.
+     * @note Changes to show/field/font/colour update the symbol bag and emit symbolChanged(); changes only to richer settings can leave symbol().labelConfig unchanged. Label changes mark scene content dirty so labels are rebuilt with current text/style/visibility. Base handling emits labelConfigChanged()/repaintRequested().
      */
     void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
 
@@ -383,24 +383,24 @@ public:
     // ----- Identify -------------------------------------------------------
 
     /**
-         * @brief Read attributes of features passing a source-coordinate tolerance box.
-         * @param[in] mapX Finite X used directly in the OGR source spatial filter, even when a different canvas CRS is supplied.
-         * @param[in] mapY Finite ordinary map Y used directly in that source filter.
-         * @param[in] canvasSRS Optional borrowed canvas CRS updates the transform cache, but the search coordinates are not inverse-projected here.
-         * @param[in] tolerance Nonnegative half-width/height in source-coordinate units; no validation occurs.
-         * @return Owned attribute maps in OGR iteration order; empty when closed/no matches. Includes fid, which a physical field of the same name can overwrite. No exact point-distance test is performed.
-         * @note Clears the OGR spatial filter afterward rather than restoring an earlier filter; current attribute filter remains active. Serialize with other handle users.
+         * @brief Read attributes of features within a canvas-coordinate click radius.
+         * @param[in] mapX Finite canvas X, or source X when canvasSRS is null.
+         * @param[in] mapY Finite ordinary map Y in the same frame as mapX, not inverted scene Y.
+         * @param[in] canvasSRS Borrowed canvas CRS used to establish the source-to-canvas transform. Null selects the legacy source-coordinate tolerance-box behavior, independent of cached rendering transforms.
+         * @param[in] tolerance Finite nonnegative radius in canvas units; a half-width/height in source units when canvasSRS is null.
+         * @return Owned attribute maps, nearest geometry first in canvas mode with stable source-order ties; source iteration order in legacy mode. Empty for a closed source, invalid input/CRS, failed required transform or no matches. Includes fid, which a physical field of the same name can overwrite.
+         * @note Canvas queries inverse-project a sampled bounding box for the OGR prefilter, then measure exact geometry distance in canvas coordinates. Preserves the previous spatial filter, resets reading and retains the attribute filter. Serialize with other handle users.
          */
     [[nodiscard]] QList<QVariantMap> identifyAt(double mapX, double mapY,
                                                 const SpatialReferenceSystem *canvasSRS,
                                                 double tolerance = 1e-6) const;
 
     /**
-         * @brief Identify with no requested transform-cache update.
+         * @brief Identify against a source-coordinate tolerance box.
          * @param[in] mapX Finite source-coordinate X.
          * @param[in] mapY Finite source-coordinate Y, not inverted scene Y.
          * @param[in] tolerance Nonnegative source-coordinate search half-width/height.
-         * @return identifyAt(mapX,mapY,nullptr,tolerance), including its filter-clearing and attribute-conversion semantics.
+         * @return identifyAt(mapX,mapY,nullptr,tolerance), preserving source iteration order and any prior spatial/attribute filters. A cached rendering transform does not change the input frame.
          */
     [[nodiscard]] QList<QVariantMap> identifyAt(double mapX, double mapY,
                                                 double tolerance = 1e-6) const;
@@ -412,7 +412,7 @@ public:
      * @param[in] scene Required borrowed destination scene when the layer is open/visible; owns added graphics items until depopulateScene() deletes them.
      * @param[in] canvasExtent Ignored; scene culling handles viewport changes without restricting loaded features.
      * @param[in] canvasSRS Optional borrowed canvas CRS establishes the cached transform; absent CRS retains existing transform/assumes compatible coordinates.
-     * @note GUI-thread operation. Clears any spatial filter, reads supported single/multi point/line/polygon geometry, flips Y and adds typed-symbol items. Call depopulateScene() first to avoid duplicates. Transform failures have no return channel. Successful population clears the dirty flag; closed/hidden layers return early.
+     * @note GUI-thread operation. Clears any spatial filter, reads supported single/multi point/line/polygon geometry, flips Y and adds typed-symbol items. Enabled labels use the configured field or token template (FID fallback), numeric precision and shared LabelPainter at a projected feature centroid. Label items retain screen-pixel font/halo/placement, honor layer opacity/visibility and configured scale bounds, and do not intercept mouse selection. Scene culling applies; GIS labels have no additional collision-pruning policy. Call depopulateScene() first to avoid duplicates. Transform failures have no return channel. Successful population clears the dirty flag; closed/hidden layers return early.
      */
     void populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
                        const SpatialReferenceSystem *canvasSRS) override;

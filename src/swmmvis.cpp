@@ -51,6 +51,7 @@
 #include <memory>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QCloseEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -99,6 +100,9 @@
 // Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §6.2).
 #include "feature/featurestore.h"
 #include "layers/featurelayer.h"
+#include "layers/timeserieslayer.h"
+#include "timeseries/timeseriesstore.h"
+#include "ui/dialogs/timeseriesassignmentdialog.h"
 #include "map/featurecommands.h"
 #include "map/tools/maptoolfeaturedraw.h"
 #include "map/tools/maptoolfeatureedit.h"
@@ -2575,10 +2579,11 @@ void SWMMVis::initializeStatusBar()
 
     // Progress: a stage label ("Parsing 2D mesh…") followed by the bar.
     // Both are driven exclusively through applyProgressBarState(), which
-    // arbitrates between simulation runs, project opens, and the plain busy
+    // arbitrates between simulation runs, project opens, plugin scopes and the plain busy
     // spinner. The bar starts indeterminate only because that is the state
     // the busy path wants; determinate producers set their own range.
     mProgressLabel = new QLabel(ui->statusBar);
+    mProgressLabel->setTextFormat(Qt::PlainText);
     mProgressLabel->setVisible(false);
     ui->statusBar->addPermanentWidget(mProgressLabel);
 
@@ -3482,6 +3487,57 @@ openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
     return mComparisonPlot;
 }
 
+void SWMMVis::wireTimeSeriesLayer(SWMMVisProjectWindow *owner, TimeSeriesLayer *layer)
+{
+    if (!owner || !layer)
+        return;
+    disconnect(layer, &TimeSeriesLayer::plotRequested, this, nullptr);
+    disconnect(layer, &TimeSeriesLayer::useInModelRequested, this, nullptr);
+    const QPointer<SWMMVisProjectWindow> project(owner);
+    const QPointer<TimeSeriesLayer> source(layer);
+    connect(layer, &TimeSeriesLayer::plotRequested, this,
+            [this, project, source](const QStringList &ids) {
+        if (!project || project->isClosing() || !source ||
+            !project->canvas()->layers().contains(source))
+            return;
+        auto *plot = ensureComparisonPlotDialog();
+        plot->addTimeSeriesLayerSeries(source, ids);
+        mTimeSeriesDock->reveal(plot);
+    });
+    connect(layer, &TimeSeriesLayer::useInModelRequested, this,
+            [this, project, source](const QString &id) {
+        if (!project || project->isClosing() || !source || !source->dataset() ||
+            !project->canvas()->layers().contains(source))
+            return;
+        auto *dialog = new openswmmvis::ui::TimeSeriesAssignmentDialog(
+            project, source->dataset(), id, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->open();
+    });
+}
+
+void SWMMVis::wireTimeSeriesLayers(SWMMVisProjectWindow *owner)
+{
+    if (!owner || !owner->canvas())
+        return;
+    if (!owner->findChild<QObject *>(QStringLiteral("nativeTimeSeriesUiRoutes"),
+                                     Qt::FindDirectChildrenOnly)) {
+        auto *context = new QObject(owner);
+        context->setObjectName(QStringLiteral("nativeTimeSeriesUiRoutes"));
+        const QPointer<SWMMVis> self(this);
+        const QPointer<SWMMVisProjectWindow> project(owner);
+        connect(owner->canvas(), &MapCanvas::layerAdded, context,
+                [self, project](OpenSWMMVisLayer *base) {
+            if (self && project)
+                if (auto *layer = qobject_cast<TimeSeriesLayer *>(base))
+                    self->wireTimeSeriesLayer(project, layer);
+        });
+    }
+    for (auto *base : owner->canvas()->layers())
+        if (auto *layer = qobject_cast<TimeSeriesLayer *>(base))
+            wireTimeSeriesLayer(owner, layer);
+}
+
 openswmmvis::ui::RainfallVisualizationDialog *SWMMVis::ensureRainfallVisualizationDialog()
 {
     // Find-or-create the shared dialog (same singleton-raise pattern as
@@ -3762,6 +3818,11 @@ void SWMMVis::onAddFromMapToggled(bool active, openswmmvis::ui::ComparisonPlotDi
                 openComparisonPlotForSystemAttribute(attribute);
             });
     connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::cancelled, this, &SWMMVis::cancelPlotPick);
+    connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::timeSeriesPicked, this,
+            [this](TimeSeriesLayer *layer, const QStringList &ids) {
+        if (mPlotPickTarget && layer)
+            mPlotPickTarget->addTimeSeriesLayerSeries(layer, ids);
+    });
     canvas->setActiveTool(mPlotPickTool);
     statusBar()->showMessage(tr("Click an object on the map to plot. Esc cancels."), 5000);
 }
@@ -4771,6 +4832,11 @@ void SWMMVis::initializeMenus()
     // no other entry point, so the flows have diverged again.
     connect(ui->actionAddVectorData, &QAction::triggered, this, &SWMMVis::onAddVectorLayer);
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
+    auto *addTimeSeries = new QAction(QIcon(QStringLiteral(":/swmmvis/AddTimeSeries")),
+                                      tr("Time-series layer…"), this);
+    addTimeSeries->setObjectName(QStringLiteral("actionAddTimeSeriesLayer"));
+    ui->menuImport->insertAction(ui->actionAddRasterData, addTimeSeries);
+    connect(addTimeSeries, &QAction::triggered, this, &SWMMVis::onAddTimeSeriesLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
     connect(ui->actionAddMesh2D, &QAction::triggered, this, &SWMMVis::onAddMesh2DLayer);
     connect(ui->actionAdd2DResults, &QAction::triggered, this, &SWMMVis::onAdd2DResultsLayer);
@@ -7574,6 +7640,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // 2D combo must refresh when canvas layers are added/removed. (The 1D combo
     // also benefits — a removed .out drops out of the list.)
     if (pw->canvas()) {
+        wireTimeSeriesLayers(pw);
         // Lambdas can't use Qt::UniqueConnection — drop prior handlers first so
         // repeated activation of the same tab doesn't stack duplicates.
         // CAUTION: this wipes EVERY (canvas, layerAdded, this) connection —
@@ -8468,7 +8535,7 @@ void SWMMVis::applyProgressBarState()
     if (!mProgressBar)
         return;
 
-    // Ownership precedence: Simulation > Open > Busy > None. A run is the
+    // Ownership precedence: Simulation > Open > Extension > Busy > None. A run is the
     // longer, explicitly user-initiated task and already owned this widget
     // before opens learned to report percent.
     ProgressOwner owner = ProgressOwner::None;
@@ -8476,8 +8543,24 @@ void SWMMVis::applyProgressBarState()
         owner = ProgressOwner::Simulation;
     else if (!mRunningOpens.isEmpty())
         owner = ProgressOwner::Open;
+    else if (!mExtensionProgress.isEmpty())
+        owner = ProgressOwner::Extension;
     else if (mBusyRefCount > 0)
         owner = ProgressOwner::Busy;
+
+    // Keep concurrent plugin activity discoverable when a native producer owns the bar.
+    QStringList extensionLabels;
+    double extensionFraction = 1.;
+    bool extensionBusy = false;
+    for (const auto &operation : std::as_const(mExtensionProgress)) {
+        extensionLabels.append(operation.stage.isEmpty()
+                                   ? operation.title
+                                   : operation.title + ": " + operation.stage);
+        extensionBusy |= operation.fraction < 0.;
+        extensionFraction = std::min(extensionFraction, operation.fraction);
+    }
+    extensionLabels.sort();
+    const auto extensionTooltip = extensionLabels.join('\n');
 
     switch (owner) {
     case ProgressOwner::None:
@@ -8500,6 +8583,21 @@ void SWMMVis::applyProgressBarState()
         }
         return;
 
+    case ProgressOwner::Extension: {
+        const int pct = extensionBusy ? 0 : qBound(0, qRound(extensionFraction * 100.), 100);
+        mProgressBar->setRange(0, extensionBusy ? 0 : 100);
+        mProgressBar->setValue(extensionBusy ? 0 : pct);
+        mProgressBar->setToolTip(extensionTooltip);
+        mProgressBar->setVisible(true);
+        if (mProgressLabel) {
+            mProgressLabel->setText(extensionLabels.size() == 1
+                                       ? extensionLabels.first()
+                                       : tr("%1 plugin activities").arg(extensionLabels.size()));
+            mProgressLabel->setVisible(true);
+        }
+        return;
+    }
+
     case ProgressOwner::Open: {
         // Show the LAGGARD across concurrent opens (a multi-model .oswp fans
         // out one open per session), same rule as the simulation path below.
@@ -8518,6 +8616,8 @@ void SWMMVis::applyProgressBarState()
                 ? tr("Opening: %1%").arg(minPct)
                 : tr("%1 files opening — slowest at %2%").arg(mRunningOpens.size()).arg(minPct));
         mProgressBar->setVisible(true);
+        if (!extensionTooltip.isEmpty())
+            mProgressBar->setToolTip(mProgressBar->toolTip() + '\n' + extensionTooltip);
         if (mProgressLabel) {
             mProgressLabel->setText(label);
             mProgressLabel->setVisible(!label.isEmpty());
@@ -8542,6 +8642,8 @@ void SWMMVis::applyProgressBarState()
                                            .arg(mRunningSimProgress.size())
                                            .arg(pct));
         mProgressBar->setVisible(true);
+        if (!extensionTooltip.isEmpty())
+            mProgressBar->setToolTip(mProgressBar->toolTip() + '\n' + extensionTooltip);
 
         // An open running underneath a simulation keeps its stage text even
         // though it has lost the bar — the user still learns what is
@@ -8554,6 +8656,10 @@ void SWMMVis::applyProgressBarState()
                     break;
                 }
             }
+            if (label.isEmpty() && !extensionLabels.isEmpty())
+                label = extensionLabels.size() == 1
+                            ? extensionLabels.first()
+                            : tr("%1 plugin activities").arg(extensionLabels.size());
             mProgressLabel->setText(label);
             mProgressLabel->setVisible(!label.isEmpty());
         }

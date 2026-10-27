@@ -60,11 +60,47 @@ top-of-stack first — the top row is drawn over everything below it.
 | **Feature Layers** | GIS vector layers, sub-project layers, annotation layers. |
 | **Raster Layers** | GIS raster layers. |
 | **Basemaps** | XYZ tiles, WMS, WMTS, ArcGIS REST and local-raster basemaps. |
-| **Tables** | Delimited-text and tabular time-series layers. |
+| **Tables** | Delimited-text tables. |
+| **Time Series** | Persistent observation collections, with optional monitoring locations and feature links. |
 
 The dock follows the **frontmost project tab**, not keyboard focus: each open
 project has its own canvas and its own layer stack, and clicking around in other
 panels never clears the tree. It empties only when the last project closes.
+
+### Native time-series collections
+
+Successful USGS observation downloads add a persistent collection under **Time
+Series**. Expand the collection to select individual series, or right-click
+**View observations…** to inspect its series metadata and paged observations.
+The series browser supports filtering and selection without editing downloaded
+samples. A series can have no location, its own monitoring point, or an explicit
+link to an existing permanent GIS feature or model object. Several series can
+share one station; the map draws one selectable station marker with its label.
+
+Right-click a series or station and choose **Plot time series…**. It opens the
+existing Comparison plot tab without requiring simulation results. When a
+station has several series, choose the desired measurement/statistic. The plot
+panel's **Add from Map…** also recognizes stations and associated features.
+
+To associate data with another feature, select exactly one persistent feature,
+then use **Attach to selected feature…** for the selected series. **Detach from
+feature** removes the relationship only. Temporary preview features are not
+permanent association targets. A missing/deleted feature leaves its series and
+source location intact, with an unresolved link rather than a different target.
+
+The layer's visibility checkbox controls its map locations. Existing chart
+series and model inputs are independent of that checkbox. Catalogue preview
+points remain independently visible after download. Downloaded DEMs appear as
+normal raster layers; adding one does not automatically choose it as the model's
+terrain source.
+
+Native observations live in a versioned GeoPackage beside the downloaded
+archive. The project sidecar stores a reference and presentation/link state;
+saving does not embed all samples into the project JSON. Layers remain usable
+when the Data plugin is disabled. Removing a layer leaves its data files on
+disk. **Locate source…** reconnects a missing package after checking dataset
+identity. Keep the package and its source archive with the project when moving
+or sharing it.
 
 ### Visibility, order and opacity
 
@@ -112,7 +148,7 @@ keeps its shape.
 | **Show in Overview** | Not implemented — permanently disabled. |
 | **Open Attribute Table** | Opens the attribute table for the layer. Enabled for GIS vector, SWMM model, tabular and results layers (see \ref manual_attribute_tables). |
 | **Show Feature Count** | Not implemented — permanently disabled. |
-| **Plot Time Series…** | 1D results layers only — opens a plot against this layer (see \ref manual_time_series_plots). |
+| **Plot Time Series…** | 1D results layers open model-result plots; native Time Series collections offer their own **Plot time series…** action (see \ref manual_time_series_plots). |
 | **Set as Active Results Layer** | Results layers only. Checkable; makes this the layer every analysis and animation tool targets. |
 | **Move to Top** / **Move to Bottom** | To the first / last row of the layer's category; disabled when already there. |
 | **Move Up** / **Move Down** | One row within the layer's category; disabled at the ends. |

@@ -201,7 +201,7 @@ loaded, use **File → Import → Add SWMM Output…** for `road_culvert.out` an
 To re-run instead, press **Ctrl+R**. The shipped report records
 `Total elapsed time: 00:00:25` for this model.
 
-Use the **Results** ribbon tab's transport (**Play**, **Pause**, **Stop**,
+Use the **Animation** ribbon tab's transport (**Play**, **Pause**, **Stop**,
 **Skip Back**, **Skip Forward**) to animate. Style the 2D results layer by
 depth and watch:
 

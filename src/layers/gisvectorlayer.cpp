@@ -11,6 +11,7 @@
 #include "layers/gisvectorsymboladapter.h"
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "map/graphicsitems.h"
+#include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
@@ -24,15 +25,22 @@
 #include "render/symbolstyle.h"
 #include "render/featureref.h"
 #include "render/maskclipresolver.h"
+#include "render/labelpainter.h"
 
 #include <QGraphicsScene>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QFontMetricsF>
+#include <QPainter>
 #include <QLoggingCategory>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QtConcurrent/QtConcurrentRun>
+
+#include <algorithm>
+#include <cmath>
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
@@ -168,6 +176,119 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
     out.polygonOutline = polyOutline;
 
     return out;
+}
+
+/** @brief A plain-text GIS annotation with pixel-sized font, halo and placement.
+ * @details The scene owns this noninteractive item alongside its feature marker.
+ * Geometry has already been projected; no OGR access occurs while painting. */
+class GisFeatureLabelItem final : public QGraphicsItem
+{
+public:
+    /** @brief Copy one label and bind its projected map anchor.
+     * @param[in] owner Borrowed layer used only for guarded visibility checks.
+     * @param[in] canvas Optional borrowed map used for the configured scale window.
+     * @param[in] anchor Projected scene coordinate, with map Y inverted.
+     * @param[in] text Resolved plain feature text, copied without HTML interpretation.
+     * @param[in] config Complete owning label style. */
+    GisFeatureLabelItem(GISVectorLayer *owner, MapCanvas *canvas, const QPointF &anchor,
+                       QString text, const OpenSWMM::Render::LabelConfig &config)
+        : mOwner(owner), mCanvas(canvas), mText(std::move(text)), mConfig(config)
+    {
+        setPos(anchor);
+        setFlag(ItemIgnoresTransformations);
+        setAcceptedMouseButtons(Qt::NoButton);
+        const QFont font = config.effectiveFont();
+        const QFontMetricsF metrics(font);
+        const auto textRect = OpenSWMM::Render::LabelPainter::labelRect(
+            config, {}, {metrics.horizontalAdvance(mText), metrics.height()});
+        QPainterPath glyphs;
+        glyphs.addText({0., metrics.ascent()}, font, mText);
+        mBounds = textRect.united(glyphs.boundingRect().translated(textRect.topLeft()));
+        const qreal halo = config.haloEnabled ? std::max(qreal(1.), config.haloRadiusPx) : 0.;
+        const qreal background = config.backgroundEnabled
+                                     ? std::max(qreal(0.), config.backgroundPaddingPx)
+                                     : 0.;
+        const qreal padding = std::max(halo, background) + 1.;
+        mBounds.adjust(-padding, -padding, padding, padding);
+        // Cosmetic-item scene indexing must retain the map anchor as well as
+        // the pixel-sized text offset. An offset-only box can lie degrees
+        // outside a geographic viewport before the device transform is applied.
+        mBounds = mBounds.united(QRectF(0., 0., 1e-6, 1e-6));
+    }
+
+    /** @brief Include anchor, glyph bearings, halo, background and antialiasing in scene culling.
+     * @return Local logical-pixel annotation bounds. */
+    QRectF boundingRect() const override { return mBounds; }
+
+    /** @brief Draw with the shared label painter, honoring layer and configured scale visibility.
+     * @param[in,out] painter Borrowed active scene painter; shared helpers restore paint state.
+     * @param[in] UnusedOption Native style option, unused because labels are not selectable.
+     * @param[in] UnusedWidget Optional paint widget, unused. */
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *UnusedOption,
+               QWidget *UnusedWidget) override
+    {
+        Q_UNUSED(UnusedOption);
+        Q_UNUSED(UnusedWidget);
+        if (!mOwner || !mOwner->isVisible() || !mOwner->labelConfig().enabled ||
+            !OpenSWMM::Render::LabelPainter::scaleVisible(
+                mConfig, mCanvas ? mCanvas->scaleDenominator() : 0.))
+            return;
+        OpenSWMM::Render::LabelPainter::drawLabelAt(*painter, {}, mText, mConfig);
+    }
+
+private:
+    QPointer<GISVectorLayer> mOwner; ///< Guarded source lifetime and layer visibility.
+    QPointer<MapCanvas> mCanvas;    ///< Guarded canvas for scale-denominator visibility.
+    QString mText;                 ///< Owning resolved label, independent of the OGR cursor.
+    OpenSWMM::Render::LabelConfig mConfig; ///< Owning style snapshot rebuilt on label changes.
+    QRectF mBounds; ///< Conservative logical-pixel paint/index envelope including the anchor.
+};
+
+/** @brief Resolve a configured OGR field or token into the normal numeric/text label convention.
+ * @param[in] feature Borrowed current feature; null fields produce empty values.
+ * @param[in] key Physical field name; absent fid/name tokens fall back to the stable OGR identity.
+ * @param[in] decimals Floating-point precision from LabelConfig.
+ * @return Owning plain text without geometry or attribute mutation. */
+QString gisLabelValue(const OGRFeature &feature, const QString &key, int decimals)
+{
+    const int index = feature.GetFieldIndex(key.toUtf8().constData());
+    if (index < 0)
+        return key == QLatin1String("fid") || key == QLatin1String("name")
+                   ? QString::number(feature.GetFID()) : QString{};
+    if (!feature.IsFieldSetAndNotNull(index))
+        return {};
+    const auto type = feature.GetFieldDefnRef(index)->GetType();
+    if (type == OFTReal)
+        return OpenSWMM::Render::LabelConfig::formatValue(QVariant(feature.GetFieldAsDouble(index)),
+                                                          decimals);
+    return QString::fromUtf8(feature.GetFieldAsString(index));
+}
+
+/** @brief Resolve the same field/token-template convention used by other layer label passes.
+ * @param[in] feature Borrowed feature carrying copied display attributes.
+ * @param[in] config Field, expression and numeric formatting settings.
+ * @return Owning label; absent configured fields/tokens contribute empty text. */
+QString gisLabelText(const OGRFeature &feature, const OpenSWMM::Render::LabelConfig &config)
+{
+    if (config.expression.isEmpty())
+        return config.fieldName.isEmpty() ? QString::number(feature.GetFID())
+                                          : gisLabelValue(feature, config.fieldName, config.decimals);
+    QString result;
+    for (qsizetype i = 0; i < config.expression.size();) {
+        if (config.expression.at(i) != QLatin1Char('{')) {
+            result += config.expression.at(i++);
+            continue;
+        }
+        const auto end = config.expression.indexOf(QLatin1Char('}'), i + 1);
+        if (end < 0) {
+            result += config.expression.mid(i);
+            break;
+        }
+        result += gisLabelValue(feature, config.expression.mid(i + 1, end - i - 1).trimmed(),
+                                config.decimals);
+        i = end + 1;
+    }
+    return result;
 }
 
 } // namespace
@@ -618,6 +739,7 @@ void GISVectorLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 {
     if (labelConfig() == cfg)
         return;
+    m_needsRebuild = true; // Labels are scene items, including enable/disable and field changes.
     GISVectorSymbol sym = m_symbol;
     sym.showLabels = cfg.enabled;
     sym.labelField = cfg.fieldName;
@@ -629,6 +751,7 @@ void GISVectorLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
         m_symbol = sym;
         emit symbolChanged(m_symbol);
     }
+    m_needsRebuild = true; // A symbol observer may have rendered before the base label store.
     OpenSWMMVisLayer::setLabelConfig(cfg); // stores + emits labelConfigChanged + repaint
 }
 
@@ -737,7 +860,7 @@ void GISVectorLayer::clearSelection()
 }
 
 // ---------------------------------------------------------------------------
-// Identify  (overloaded for MapTool convenience – no canvasSRS needed)
+// Identify (legacy source-coordinate and explicit canvas-coordinate queries)
 // ---------------------------------------------------------------------------
 
 QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY, double tolerance) const
@@ -750,20 +873,75 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
                                               double tolerance) const
 {
     QList<QVariantMap> results;
-
-    // Pick against the same projected geometry the user is looking at.
-    ensureTransform(canvasSRS);
-
-    if (!m_ogrLayer)
+    if (!m_ogrLayer || !std::isfinite(mapX) || !std::isfinite(mapY) || !std::isfinite(tolerance) ||
+        tolerance < 0)
         return results;
 
-    // Set a spatial filter around the click point
-    m_ogrLayer->SetSpatialFilterRect(mapX - tolerance, mapY - tolerance, mapX + tolerance,
-                                     mapY + tolerance);
+    // A null CRS keeps the legacy overload in source coordinates, even when
+    // rendering has cached a transform for a different canvas CRS.
+    ensureTransform(canvasSRS);
+    const auto *targetSRS = canvasSRS ? canvasSRS->ogrSpatialReference() : nullptr;
+    if (canvasSRS && !targetSRS)
+        return results;
+    const auto *sourceSRS = m_ogrLayer->GetSpatialRef();
+    const bool reproject = targetSRS && sourceSRS && !sourceSRS->IsSame(targetSRS);
+    if (reproject && !m_transform)
+        return results;
+
+    OGRPoint click(mapX, mapY);
+    OGRLinearRing bounds;
+    bounds.addPoint(mapX - tolerance, mapY - tolerance);
+    bounds.addPoint(mapX + tolerance, mapY - tolerance);
+    bounds.addPoint(mapX + tolerance, mapY + tolerance);
+    bounds.addPoint(mapX - tolerance, mapY + tolerance);
+    bounds.closeRings();
+    // Sample the edges before inverse projection so the source prefilter also
+    // encloses curved projected edges of the small canvas tolerance box.
+    if (tolerance > 0)
+        bounds.segmentize(tolerance / 2);
+    std::unique_ptr<OGRGeometry> sourceBounds;
+    if (tolerance > 0)
+        sourceBounds.reset(bounds.clone());
+    else
+        sourceBounds.reset(click.clone());
+    if (reproject) {
+        auto *inverse = m_transform->GetInverse();
+        if (!inverse)
+            return results;
+        const OGRErr error = sourceBounds->transform(inverse);
+        OGRCoordinateTransformation::DestroyCT(inverse);
+        if (error != OGRERR_NONE)
+            return results;
+    }
+    OGREnvelope envelope;
+    sourceBounds->getEnvelope(&envelope);
+
+    std::unique_ptr<OGRGeometry> savedFilter(
+        m_ogrLayer->GetSpatialFilter() ? m_ogrLayer->GetSpatialFilter()->clone() : nullptr);
+    const auto restoreFilter = qScopeGuard([&]() {
+        m_ogrLayer->SetSpatialFilter(savedFilter.get());
+        m_ogrLayer->ResetReading();
+    });
+    m_ogrLayer->SetSpatialFilterRect(envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY);
     m_ogrLayer->ResetReading();
 
+    QList<QPair<double, QVariantMap>> canvasHits;
     OGRFeature *feat = nullptr;
     while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        double distance = 0;
+        if (canvasSRS) {
+            const OGRGeometry *geometry = feat->GetGeometryRef();
+            std::unique_ptr<OGRGeometry> projected(geometry ? geometry->clone() : nullptr);
+            if (!projected || (reproject && projected->transform(m_transform) != OGRERR_NONE)) {
+                OGRFeature::DestroyFeature(feat);
+                continue;
+            }
+            distance = projected->Distance(&click);
+            if (!std::isfinite(distance) || distance < 0 || distance > tolerance) {
+                OGRFeature::DestroyFeature(feat);
+                continue;
+            }
+        }
         QVariantMap attrs;
         attrs[QStringLiteral("fid")] = static_cast<long long>(feat->GetFID());
 
@@ -785,13 +963,17 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
             }
         }
 
-        results.append(attrs);
+        if (canvasSRS)
+            canvasHits.append({distance, attrs});
+        else
+            results.append(attrs);
         OGRFeature::DestroyFeature(feat);
     }
 
-    // Clear spatial filter
-    m_ogrLayer->SetSpatialFilter(nullptr);
-
+    std::stable_sort(canvasHits.begin(), canvasHits.end(),
+                     [](const auto &a, const auto &b) { return a.first < b.first; });
+    for (const auto &hit : canvasHits)
+        results.append(hit.second);
     return results;
 }
 
@@ -1040,6 +1222,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene, const MapExtent &canva
 
     OGRFeature *feat = nullptr;
     while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        const int featureItemsBefore = m_sceneItems.size();
         qint64 fid = static_cast<qint64>(feat->GetFID());
         bool selected = m_selectedIds.contains(static_cast<long long>(fid));
 
@@ -1127,6 +1310,19 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene, const MapExtent &canva
             }
         }
 
+        if (labelConfig().enabled && m_sceneItems.size() > featureItemsBefore) {
+            const auto text = gisLabelText(*feat, labelConfig());
+            OGRPoint anchor;
+            if (!text.isEmpty() && geom->Centroid(&anchor) == OGRERR_NONE && !anchor.IsEmpty()) {
+                auto *item = new GisFeatureLabelItem(
+                    this, qobject_cast<MapCanvas *>(scene->parent()),
+                    QPointF(anchor.getX(), -anchor.getY()), text, labelConfig());
+                item->setZValue(baseZ + 3);
+                item->setOpacity(opacity());
+                scene->addItem(item);
+                m_sceneItems.append(item);
+            }
+        }
         OGRFeature::DestroyFeature(feat);
     }
 

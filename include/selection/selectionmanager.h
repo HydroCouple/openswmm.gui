@@ -72,6 +72,7 @@ struct SWMMObjectRef {
         // from several imported layers co-exist on the bus without
         // collision, keyed by the layer's stable id.
         Feature = 21,
+        ObservedSeries = 22, ///< Native collection series, qualified by persistent layer and series IDs.
     };
 
     ObjectType objectType = Unknown;

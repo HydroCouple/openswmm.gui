@@ -16,6 +16,7 @@
 #include "plot/swmmoutrunlayer.h"
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
+#include "plot/timeseriesrunlayer.h"
 #include "plot/fitmetrics.h"
 #include "plot/seriesdataexport.h"
 #include "plot/seriespairing.h"
@@ -59,10 +60,12 @@
 #include <QMessageBox>
 #include <QPixmap>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QScatterSeries>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QSplitter>
 #include <QTimer>
 #include <QToolBar>
@@ -135,6 +138,11 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
     setObjectName(QStringLiteral("ComparisonPlotDialog"));
     resize(1100, 720);
     buildUi();
+
+    m_observationTimer = new QTimer(this);
+    m_observationTimer->setSingleShot(true);
+    m_observationTimer->setInterval(200);
+    connect(m_observationTimer, &QTimer::timeout, this, &ComparisonPlotDialog::requestObservationWindows);
 
     connect(m_model.get(), &ComparisonPlotModel::runSourceAdded, this,
             &ComparisonPlotDialog::onRunSourceAdded);
@@ -565,6 +573,14 @@ void ComparisonPlotDialog::onFitClicked()
     // Otherwise fall back to the canonical rebuildCharts.
     if (!m_xSelLo.isValid() || !m_xSelHi.isValid() || m_xSelLo >= m_xSelHi ||
         m_rowWidgets.isEmpty()) {
+        m_observationRangeChosen = false;
+        for (int run=0; run<m_model->runSourceCount(); ++run) {
+            auto source=std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+            if (!source) continue;
+            QStringList ids;
+            for (int i=0;i<m_model->seriesCount();++i) if (m_model->spec(i).runIndex==run) ids.append(m_model->spec(i).objectRef.name);
+            source->requestWindow(ids);
+        }
         rebuildCharts();
         return;
     }
@@ -654,6 +670,40 @@ void ComparisonPlotDialog::onExportDataClicked()
 
 void ComparisonPlotDialog::exportSeriesData(const QVector<int> &seriesIndices)
 {
+    QVector<QPair<std::shared_ptr<const OpenSWMM::TimeSeries::TimeSeriesDataset>, QString>> nativeSources;
+    bool hasOther = false;
+    for (const int i : seriesIndices) {
+        if (i < 0 || i >= m_model->seriesCount()) continue;
+        const auto &spec = m_model->spec(i);
+        const auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(spec.runIndex).layer);
+        if (source) nativeSources.append({source->dataset(),spec.objectRef.name}); else hasOther = true;
+    }
+    if (!nativeSources.isEmpty()) {
+        if (hasOther) {
+            QMessageBox::information(this,tr("Export Data"),tr("Export native observations and model results separately: observations preserve their source timestamps, units and quality fields."));
+            return;
+        }
+        const QPointer<ComparisonPlotDialog> owner(this);
+        const QString path = QFileDialog::getSaveFileName(this,tr("Export original observations"),QStringLiteral("observations.csv"),tr("CSV file (*.csv)"));
+        if (!owner || path.isEmpty()) return;
+        struct State { std::atomic_bool cancel{false}, done{false}; bool ok=false; QString error; };
+        const auto state = std::make_shared<State>();
+        std::thread worker([state,nativeSources,path] { state->ok = TimeSeriesRunLayer::exportCsv(nativeSources,path,&state->error,&state->cancel); state->done.store(true,std::memory_order_release); });
+        // A nested event loop may close the owning project. Keep this stack widget parentless
+        // so QObject parent destruction cannot delete it before its automatic destructor runs.
+        QProgressDialog progress(tr("Exporting full-resolution observations…"),tr("Cancel"),0,0,nullptr);
+        progress.setWindowModality(Qt::ApplicationModal); progress.setMinimumDuration(0);
+        connect(&progress,&QProgressDialog::canceled,&progress,[state] { state->cancel=true; });
+        connect(this,&QObject::destroyed,&progress,[state,&progress] { state->cancel=true; progress.reject(); });
+        QTimer timer;
+        connect(&timer,&QTimer::timeout,&progress,[&progress,state] { if (state->done.load(std::memory_order_acquire)) progress.accept(); });
+        timer.start(40); progress.exec();
+        if (!state->done.load(std::memory_order_acquire)) state->cancel=true;
+        worker.join();
+        if (owner && !state->ok && !state->cancel) QMessageBox::warning(owner,tr("Export failed"),state->error);
+        return;
+    }
+
     // Resolve each requested series up front so an empty plot fails fast
     // instead of after the file dialog.
     // An export needs every value now, so it reads saved files directly.
@@ -878,6 +928,10 @@ void ComparisonPlotDialog::equaliseChartSplitterSizes()
 
 void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
 {
+    if (rowIndex >= 0 && rowIndex < m_rowWidgets.size() && m_rowWidgets[rowIndex].xAxis)
+        connect(m_rowWidgets[rowIndex].xAxis, &UtcTimeAxis::rangeChangedUtc, this,
+                [this] { if (!m_restoringObservationRange && m_observationTimer) { m_observationRangeChosen=true; m_observationTimer->start(); } });
+
     if (rowIndex < 0 || rowIndex >= m_rowWidgets.size())
         return;
     RowWidgets &rw = m_rowWidgets[rowIndex];
@@ -972,6 +1026,9 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer, bool 
 {
     if (!layer)
         return -1;
+    const QPointer<SWMMResultsLayer> survivingLayer(layer);
+    if (!confirmObservationClockMappings()) return -1;
+    if (!survivingLayer) return -1;
 
     // De-dup: scan existing RunSources for a SwmmOutRunLayer wrapping the
     // same on-canvas layer (same persistenceKey() == resultsFilePath()).
@@ -1001,6 +1058,44 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer, bool 
     return idx;
 }
 
+
+bool ComparisonPlotDialog::confirmObservationClockMappings()
+{
+    QVector<std::shared_ptr<TimeSeriesRunLayer>> unmapped;
+    for (int run=0; run<m_model->runSourceCount(); ++run) {
+        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+        if (source && !source->hasModelClockMapping()) unmapped.append(source);
+    }
+    if (unmapped.isEmpty()) return true;
+    bool accepted = false;
+    const QPointer<ComparisonPlotDialog> owner(this);
+    const double hours = QInputDialog::getDouble(this,tr("Align observations with the model clock"),
+        tr("SWMM model times have no time zone. Choose the fixed UTC offset of this model clock.\n"
+           "Continuous observations will be shifted by this offset; daily statistics retain their calendar date.\n"
+           "No source samples or model inputs are changed. UTC offset (hours):"),0,-14,14,2,&accepted);
+    if (!owner || !accepted) return false;
+    for (const auto &source : unmapped) source->setModelClockOffset(qRound(hours*3600));
+    for (int i=0; i<m_model->seriesCount(); ++i) {
+        auto &spec = m_model->spec(i);
+        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(spec.runIndex).layer);
+        if (source) spec.setDescriptor(source->descriptorFor(spec.objectRef.name));
+    }
+    m_model->rebuildRows();
+    return true;
+}
+void ComparisonPlotDialog::requestObservationWindows()
+{
+    if (m_restoringObservationRange || m_rowWidgets.isEmpty() || !m_rowWidgets.first().xAxis) return;
+    const auto from = m_rowWidgets.first().xAxis->min(), to = m_rowWidgets.first().xAxis->max();
+    for (int run=0; run<m_model->runSourceCount(); ++run) {
+        const auto native = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+        if (!native) continue;
+        QStringList ids;
+        for (int i=0; i<m_model->seriesCount(); ++i) if (m_model->spec(i).runIndex == run) ids.append(m_model->spec(i).objectRef.name);
+        native->requestWindow(ids,from,to);
+    }
+}
+
 int ComparisonPlotDialog::addSeries(int runIndex, const ObjectRef &ref, PlotAttribute attr)
 {
     return addSeries(runIndex, ref, ResultDescriptor::forAttribute(attr));
@@ -1025,6 +1120,9 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
 {
     if (!layer)
         return -1;
+    const QPointer<SWMM2DResultsLayer> survivingLayer(layer);
+    if (!confirmObservationClockMappings()) return -1;
+    if (!survivingLayer) return -1;
 
     for (int i = 0; i < m_model->runSourceCount(); ++i) {
         const auto source = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(i).layer);
@@ -1123,6 +1221,10 @@ void ComparisonPlotDialog::onRowsChanged()
 
 void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
 {
+    // Rebuild segmented/point-only sources so style changes retain their temporal semantics.
+    for (const auto &row : m_rowWidgets)
+        for (const auto &segments : row.segments)
+            if (segments.size() > 1 || (!segments.isEmpty() && segments.first()->property("sourcePointsOnly").toBool())) { rebuildCharts(); return; }
     // Find which row + which child series corresponds to this spec, and
     // restyle without a full chart rebuild. Delegates to the shared
     // applySeriesStyle() helper so every visual field (pen cap/join,
@@ -1644,6 +1746,9 @@ void ComparisonPlotDialog::onAddSeriesClicked()
 
 void ComparisonPlotDialog::appendChartTails()
 {
+    for (const auto &row : m_rowWidgets)
+        for (const auto &segments : row.segments)
+            if (segments.size() > 1) { rebuildCharts(); return; }
     // Incremental refresh for a growing run source (live 1D tail, live 2D
     // stream). Every QChart / axis / QLineSeries stays alive; each series
     // gets only the points newer than its last one, and axes are extended
@@ -1761,6 +1866,7 @@ void ComparisonPlotDialog::appendChartTails()
 
 void ComparisonPlotDialog::rebuildCharts()
 {
+    QScopedValueRollback<bool> observationRangeGuard(m_restoringObservationRange,true);
     const auto resolved = m_model->resolveAllSeries();
     QVector<QPair<ResultDescriptor, Qt::Alignment>> legendAlignments;
     for (const auto &rw : m_rowWidgets)
@@ -1823,6 +1929,7 @@ void ComparisonPlotDialog::rebuildCharts()
         for (int sIdx : row.seriesIndices) {
             const SeriesSpec &spec = m_model->spec(sIdx);
             auto *line = new QLineSeries;
+            QVector<QLineSeries *> segments{line};
 
             line->setName(legendNameFor(spec));
             openswmmvis::plot::applySeriesStyle(spec.style, line);
@@ -1835,15 +1942,25 @@ void ComparisonPlotDialog::rebuildCharts()
             if (!data.ok && !data.errorMessage.isEmpty())
                 line->setName(
                     QStringLiteral("%1 — %2").arg(legendNameFor(spec), data.errorMessage));
+            if (!data.displayNote.isEmpty()) line->setName(line->name() + QStringLiteral(" — ") + data.displayNote);
+            if (data.pointsOnly) { line->setPen(QPen(Qt::NoPen)); line->setPointsVisible(true); line->setProperty("sourcePointsOnly",true); }
             if (data.ok) {
                 QList<QPointF> points;
                 points.reserve(data.values.size());
-                for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
+                bool gap = false;
+                for (std::size_t i = 0; i < std::min(data.timesJulian.size(),data.values.size()); ++i) {
                     const QDateTime dt =
-                        openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
+                        openswmmvis::core::swmmDateTimeToMilliseconds(data.timesJulian[i]);
                     const double v = data.values[i];
-                    if (!dt.isValid() || !std::isfinite(v))
-                        continue;
+                    if (!dt.isValid() || !std::isfinite(v)) { gap = !points.isEmpty(); continue; }
+                    if (gap && !data.pointsOnly) {
+                        line->replace(points);
+                        points.clear();
+                        line = new QLineSeries;
+                        applySeriesStyle(spec.style,line);
+                        segments.append(line);
+                    }
+                    gap = false;
                     const qint64 ms = dt.toMSecsSinceEpoch();
                     points.append(QPointF(ms, v));
                     if (v < yMin)
@@ -1858,9 +1975,14 @@ void ComparisonPlotDialog::rebuildCharts()
                 line->replace(points);
             }
 
-            rw.chart->addSeries(line);
-            line->attachAxis(rw.xAxis);
-            line->attachAxis(rw.yAxis);
+            for (int segment=0; segment<segments.size(); ++segment) {
+                auto *part = segments[segment];
+                rw.chart->addSeries(part);
+                part->attachAxis(rw.xAxis); part->attachAxis(rw.yAxis);
+                if (segment) for (auto *marker : rw.chart->legend()->markers(part)) marker->setVisible(false);
+            }
+            rw.segments.push_back(segments);
+            line = segments.first();
             rw.series.push_back(line);
             rw.consumed.push_back(data.ok ? data.periodCount : 0);
         }
@@ -1958,6 +2080,13 @@ void ComparisonPlotDialog::rebuildCharts()
                     m_xSelHi = hi;
                     if (m_statsPanel)
                         m_statsPanel->setSelectionRange(lo, hi);
+                    for (int run=0; run<m_model->runSourceCount(); ++run) {
+                        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+                        if (!source) continue;
+                        QStringList ids;
+                        for (int i=0; i<m_model->seriesCount(); ++i) if (m_model->spec(i).runIndex == run) ids.append(m_model->spec(i).objectRef.name);
+                        source->requestWindow(ids,lo,hi);
+                    }
                 });
 
         // ----- Column 1: 1v1 scatter (FitMetrics in title) ----------------
@@ -1991,7 +2120,7 @@ void ComparisonPlotDialog::rebuildCharts()
 
                     const SeriesData &xData = resolved[cp.xSeriesIndex];
                     const SeriesData &yData = resolved[cp.ySeriesIndex];
-                    if (!xData.ok || !yData.ok)
+                    if (!xData.ok || !yData.ok || !xData.allowPairing || !yData.allowPairing || xData.displayOnly || yData.displayOnly)
                         continue;
 
                     PairedSamples ps = pairSamplesNearest(xData.timesJulian, xData.values,
@@ -2027,7 +2156,7 @@ void ComparisonPlotDialog::rebuildCharts()
                     if (spec.runIndex != baselineIdx)
                         continue;
                     const SeriesData &data = resolved[sIdx];
-                    if (!data.ok)
+                    if (!data.ok || !data.allowPairing || data.displayOnly)
                         continue;
                     BaselineCol bc;
                     bc.t.assign(data.timesJulian.begin(), data.timesJulian.end());
@@ -2048,7 +2177,7 @@ void ComparisonPlotDialog::rebuildCharts()
                         continue; // no baseline for this object on this row
 
                     const SeriesData &data = resolved[sIdx];
-                    if (!data.ok)
+                    if (!data.ok || !data.allowPairing || data.displayOnly)
                         continue;
 
                     PairedSamples ps = pairSamplesNearest(baseIt.value().t, baseIt.value().v,

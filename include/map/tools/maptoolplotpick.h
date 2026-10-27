@@ -83,6 +83,10 @@ public:
     void keyPressEvent(QKeyEvent *event) override;
 
 signals:
+    /** @brief A native observation marker/linked feature was picked for the invoking plot.
+     * @param[in] layer Borrowed native collection; receiver must guard retained pointers.
+     * @param[in] ids Stable dataset series identities. */
+    void timeSeriesPicked(class TimeSeriesLayer *layer, const QStringList &ids);
     /*! \brief A map object was hit and the user picked an attribute from
      *  the submenu. Carries an invalid ResultDescriptor for the "All
      *  attributes" sentinel — handler should fan out across all valid

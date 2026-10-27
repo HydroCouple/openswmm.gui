@@ -52,7 +52,9 @@ public:
      *  Readers of schema 4 dispatch only on "raster" / "vector" and fall
      *  through silently on an unknown type, so older builds degrade by
      *  skipping feature layers rather than failing to open the project. */
-    static constexpr int kCurrentSchemaVersion = 5;
+    /** Schema 6 adds native time-series datasets, recoverable missing references,
+     * optional feature links and model-assignment provenance. */
+    static constexpr int kCurrentSchemaVersion = 6;
 
     /*! Write a `.oswp` sidecar describing \p pw's current GUI state.
      *  Single-instance convenience overload: synthesises a one-entry
@@ -297,7 +299,8 @@ private:
 
     /**
      * @brief Encode the supported service or local-raster basemap configuration.
-     * @param[in] layer Borrowed XYZ/WMTS/WMS or flagged GIS raster layer; other/null pointers yield empty JSON.
+     * @param[in] layer Borrowed XYZ/WMTS/WMS or flagged GIS raster layer; temporary, other or
+     *   null pointers yield empty JSON.
      * @param[in] oswpPath Destination sidecar anchor for a local-raster path.
      * @return Type-discriminated configuration, including HTTP headers and raster style where applicable; no dataset bytes are embedded.
      */
@@ -321,7 +324,7 @@ private:
     // and adds the layer to \p canvas on completion.
     /**
      * @brief Encode persistent raster/vector/feature layer references and display state.
-     * @param[in] layer Borrowed GIS layer; null/unsupported/pathless layers yield empty JSON.
+     * @param[in] layer Borrowed GIS layer; null, temporary, unsupported or pathless layers yield empty JSON.
      * @param[in] oswpPath Destination sidecar anchor for relative dataset references.
      * @return JSON carrying stable layer ID, type/path/name/visibility/opacity and supported sublayer/style/feature metadata.
      */

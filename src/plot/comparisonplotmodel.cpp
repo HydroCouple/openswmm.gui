@@ -278,7 +278,9 @@ void ComparisonPlotModel::deriveRows_()
             continue;
 
         const QPair<int, QString> key(static_cast<int>(spec.attribute),
-                                      spec.variableKey.isEmpty()
+                                      !spec.observationKey.isEmpty()
+                                          ? QStringLiteral("\x1Fobs:") + spec.observationKey
+                                          : spec.variableKey.isEmpty()
                                           ? spec.species
                                           : QStringLiteral("\x1Fvar:") + spec.variableKey);
         int r;
@@ -291,6 +293,9 @@ void ComparisonPlotModel::deriveRows_()
             row.variableKey = spec.variableKey;
             row.variableLabel = spec.variableLabel;
             row.variableUnits = spec.variableUnits;
+            row.observationKey = spec.observationKey;
+            row.observationLabel = spec.observationLabel;
+            row.observationUnits = spec.observationUnits;
             row.unitSystem =
                 (spec.runIndex >= 0 && spec.runIndex < m_runs.size() && m_runs[spec.runIndex].layer)
                     ? m_runs[spec.runIndex].layer->unitSystem()

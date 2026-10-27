@@ -16,6 +16,7 @@
 #include "project/openswmmvisworkspace.h"
 #include "sdk/IEventSourceV3.hpp"
 #include "sdk/IViewControlsV1.hpp"
+#include "sdk/IProject.hpp"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 #include "layers/featurelayer.h"
@@ -23,6 +24,8 @@
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
+#include "map/graphicsitems.h"
+#include "map/openswmmvisscene.h"
 #include "map/mapundostack.h"
 #include "map/spatialreferencesystem.h"
 #include "map/swmmlayerqsgrenderer.h"
@@ -30,6 +33,7 @@
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/panels/attributetablepanel.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <QApplication>
@@ -37,6 +41,13 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QGraphicsEllipseItem>
+#include <QGraphicsItemGroup>
+#include <QGraphicsSimpleTextItem>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QImage>
+#include <QPainter>
 #include <QMainWindow>
 #include <QMdiArea>
 #include <QPointer>
@@ -47,6 +58,8 @@
 #include <QStandardPaths>
 #include <QSurfaceFormat>
 #include <QTest>
+#include <QTableView>
+#include <cpl_vsi.h>
 #include <ogrsf_frmts.h>
 #include <QThreadPool>
 #include <QtConcurrent/QtConcurrentRun>
@@ -319,6 +332,30 @@ class TestExtensionViewEvents : public QObject
         return output;
     }
 
+    /** @brief Construct two inspectable monitoring locations with scalar and nested metadata.
+     * @return Native-layer opt-in collection retaining source attributes and stable feature IDs. */
+    static QJsonObject nativePreviewCollection()
+    {
+        return QJsonDocument::fromJson(R"json({
+"type":"FeatureCollection",
+"previewStyle":{"asFeatureLayer":true,"title":"USGS sites (preview)","pointLabelProperty":"station_name"},
+"features":[
+{"type":"Feature","id":0,"properties":{"site_no":"A","station_name":"First station","elevation":12.5,"active":true,"details":{"agency":"USGS","datum":"NAVD88"},"parameters":["00060","00065"],"missing":null},"geometry":{"type":"Point","coordinates":[-76,40]}},
+{"type":"Feature","id":1,"properties":{"site_no":"B","station_name":"Second station","elevation":8.0,"active":false},"geometry":{"type":"Point","coordinates":[-75.99,40.01]}}
+]})json").object();
+    }
+
+    /** @brief Resolve the one temporary native preview through ordinary canvas membership.
+     * @param[in] fixture Ready native test host.
+     * @return Attached temporary GIS vector layer, or null after cleanup/removal. */
+    static GISVectorLayer *nativePreview(const ViewFixture &fixture)
+    {
+        for (auto *base : fixture.window->canvas()->layers())
+            if (auto *layer = qobject_cast<GISVectorLayer *>(base); layer && layer->isTemporary())
+                return layer;
+        return nullptr;
+    }
+
 private slots:
     /** @brief Isolate settings and register the production map renderer types. */
     void initTestCase()
@@ -354,6 +391,547 @@ private slots:
         QObject::disconnect(mObservation);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCoreApplication::processEvents();
+    }
+
+    /** @brief Keep optional point labels plain and fixed-size without acquiring layer ownership. */
+    void pointPreviewLabelsAreOptInAndAtomic()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        QVERIFY(fixture.instance());
+        auto *project = fixture.instance()->project();
+        auto *scene = fixture.window->canvas()->mapScene();
+        QVERIFY(project);
+        QVERIFY(scene);
+        const auto layerCount = project->layers().size();
+        const bool wasDirty = fixture.window->hasChanges();
+        const QString title = QStringLiteral("<b>USGS 01234567</b>\n") + QString(300, 'x');
+        QJsonObject collection{
+            {"type", "FeatureCollection"},
+            {"features", QJsonArray{
+                             QJsonObject{{"type", "Feature"},
+                                         {"properties", QJsonObject{{"site_label", title}}},
+                                         {"geometry", QJsonObject{{"type", "Point"},
+                                                                  {"coordinates", QJsonArray{-76., 40.}}}}},
+                             QJsonObject{{"type", "Feature"},
+                                         {"properties", QJsonObject{{"site_label", 42}}},
+                                         {"geometry", QJsonObject{{"type", "Point"},
+                                                                  {"coordinates", QJsonArray{-75.99, 40.}}}}}}}};
+        const auto overlay = [scene]() -> QGraphicsItemGroup * {
+            for (auto *item : scene->items())
+                if (auto *group = dynamic_cast<QGraphicsItemGroup *>(item);
+                    group && group->zValue() == 1e9)
+                    return group;
+            return nullptr;
+        };
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QVERIFY(overlay());
+        for (auto *point : overlay()->childItems())
+            QVERIFY(point->childItems().isEmpty());
+
+        collection["previewStyle"] = QJsonObject{{"pointLabelProperty", "site_label"}};
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        auto *group = overlay();
+        QVERIFY(group);
+        QCOMPARE(group->childItems().size(), 2);
+        QGraphicsSimpleTextItem *label = nullptr;
+        QGraphicsEllipseItem *anchor = nullptr;
+        int labelCount = 0;
+        for (auto *point : group->childItems()) {
+            for (auto *child : point->childItems()) {
+                label = dynamic_cast<QGraphicsSimpleTextItem *>(child);
+                QVERIFY(label);
+                anchor = dynamic_cast<QGraphicsEllipseItem *>(point);
+                QVERIFY(anchor);
+                ++labelCount;
+            }
+        }
+        QCOMPARE(labelCount, 1);
+        QVERIFY(label);
+        QCOMPARE(label->text(), title.simplified().left(256));
+        QVERIFY(label->text().startsWith("<b>USGS 01234567</b> "));
+        for (double scale : {0.25, 1., 4.}) {
+            const auto view = QTransform::fromScale(scale, scale);
+            const auto labelTransform = label->deviceTransform(view);
+            const auto pointTransform = anchor->deviceTransform(view);
+            QCOMPARE(labelTransform.map(QPointF(1, 0)) - labelTransform.map(QPointF()),
+                     QPointF(1, 0));
+            QCOMPARE(labelTransform.map(QPointF()) - pointTransform.map(QPointF()),
+                     QPointF(6, -16));
+        }
+        QCOMPARE(project->layers().size(), layerCount);
+        QCOMPARE(fixture.window->hasChanges(), wasDirty);
+
+        auto malformed = collection;
+        auto features = malformed["features"].toArray();
+        features.append(QJsonObject{{"type", "Feature"}, {"geometry", QJsonObject{}}});
+        malformed["features"] = features;
+        QVERIFY(!project->showPreview(malformed, &error));
+        QCOMPARE(overlay(), group);
+        QCOMPARE(label->text(), title.simplified().left(256));
+        project->clearPreview();
+        QVERIFY(!overlay());
+        QCOMPARE(project->layers().size(), layerCount);
+    }
+
+    /** @brief Native previews expose full attributes and retain user query/style/selection on refresh. */
+    void nativeFeaturePreviewRetainsNativeToolsAndIdentity()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *project = fixture.instance()->project();
+        const auto layerCount = project->layers().size();
+        const bool wasDirty = fixture.window->hasChanges();
+        observe(fixture);
+        auto collection = nativePreviewCollection();
+        auto features = collection["features"].toArray();
+        auto first = features.at(0).toObject();
+        auto properties = first["properties"].toObject();
+        const QString title = QStringLiteral("<b>Full original station name</b> ") + QString(300, 'x');
+        properties["station_name"] = title;
+        first["properties"] = properties;
+        features[0] = first;
+        collection["features"] = features;
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QPointer<GISVectorLayer> layer = nativePreview(fixture);
+        QVERIFY(layer);
+        QCOMPARE(project->layers().size(), layerCount + 1);
+        QCOMPARE(layer->name(), QStringLiteral("USGS sites (preview)"));
+        QCOMPARE(layer->featureCount(), 2);
+        QVERIFY(layer->labelConfig().enabled);
+        QVERIFY(layer->labelConfig().fieldName.startsWith("__openswmm_preview_label"));
+        const auto sourcePath = layer->filePath().toUtf8();
+        VSIStatBufL sourceStatus{};
+        QCOMPARE(VSIStatL(sourcePath.constData(), &sourceStatus), 0);
+        vsi_l_offset sourceSize = 0;
+        auto *sourceBytes = VSIGetMemFileBuffer(sourcePath.constData(), &sourceSize, false);
+        QVERIFY(sourceBytes);
+        QFile retained(path("native-source.geojson"));
+        QVERIFY(retained.open(QIODevice::WriteOnly));
+        QCOMPARE(retained.write(reinterpret_cast<const char *>(sourceBytes), qint64(sourceSize)),
+                 qint64(sourceSize));
+        retained.close();
+        auto *feature = layer->ogrLayer()->GetFeature(0);
+        QVERIFY(feature);
+        QCOMPARE(QString::fromUtf8(feature->GetFieldAsString("station_name")), title);
+        QCOMPARE(QString::fromUtf8(feature->GetFieldAsString("details")),
+                 QStringLiteral("{\"agency\":\"USGS\",\"datum\":\"NAVD88\"}"));
+        QCOMPARE(QString::fromUtf8(feature->GetFieldAsString("parameters")),
+                 QStringLiteral("[\"00060\",\"00065\"]"));
+        QCOMPARE(QString::fromUtf8(feature->GetFieldAsString(
+                     layer->labelConfig().fieldName.toUtf8().constData())),
+                 title.simplified().left(256));
+        OGRFeature::DestroyFeature(feature);
+
+        AttributeTablePanel table;
+        table.setProject(fixture.window->modelLayer(), fixture.window->selectionManager(),
+                         fixture.window->canvas());
+        table.showLayerSource(layer);
+        auto *view = table.findChild<QTableView *>();
+        QVERIFY(view);
+        QCOMPARE(view->model()->rowCount(), 2);
+        QVERIFY2(layer->setValidatedFilterExpression("site_no = 'A'", &error), qPrintable(error));
+        table.refresh();
+        table.showLayerSource(layer);
+        QCOMPARE(view->model()->rowCount(), 1);
+        layer->setSelectedFeatureIds({0});
+        QVERIFY(!fixture.window->selectionManager()->selection().isEmpty());
+        auto symbol = layer->symbol();
+        symbol.markerFill = Qt::magenta;
+        layer->setSymbol(symbol);
+        auto labels = layer->labelConfig();
+        labels.enabled = false;
+        layer->setLabelConfig(labels);
+        const auto identity = layerState(fixture, layer->layerId()).layerSessionId;
+        QVERIFY(!identity.isNull());
+        QCoreApplication::processEvents();
+        QCOMPARE(count(ViewEventKind::LayerAdded), 1);
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QCOMPARE(nativePreview(fixture), layer.data());
+        QCOMPARE(layerState(fixture, layer->layerId()).layerSessionId, identity);
+        QCOMPARE(layer->filterExpression(), QStringLiteral("site_no = 'A'"));
+        QCOMPARE(layer->selectedFeatureIds(), QSet<long long>{0});
+        QCOMPARE(layer->symbol().markerFill, QColor(Qt::magenta));
+        QVERIFY(!layer->labelConfig().enabled);
+        QCOMPARE(fixture.window->hasChanges(), wasDirty);
+
+        auto invalid = collection;
+        features.append(QJsonObject{{"type", "Feature"}, {"properties", QJsonObject{}},
+                                    {"geometry", QJsonObject{}}});
+        invalid["features"] = features;
+        QVERIFY(!project->showPreview(invalid, &error));
+        QCOMPARE(nativePreview(fixture), layer.data());
+        auto oversized = collection;
+        QJsonObject tooManyFields;
+        for (int i = 0; i < 257; ++i)
+            tooManyFields[QStringLiteral("field_%1").arg(i)] = i;
+        first["properties"] = tooManyFields;
+        oversized["features"] = QJsonArray{first};
+        QVERIFY(!project->showPreview(oversized, &error));
+        QCOMPARE(nativePreview(fixture), layer.data());
+        auto replacement = collection;
+        replacement["features"] = QJsonArray{collection["features"].toArray().at(1)};
+        QVERIFY2(project->showPreview(replacement, &error), qPrintable(error));
+        QVERIFY(!layer);
+        QVERIFY(nativePreview(fixture));
+        QVERIFY(layerState(fixture, nativePreview(fixture)->layerId()).layerSessionId != identity);
+        QVERIFY(VSIStatL(sourcePath.constData(), &sourceStatus) != 0);
+        replacement["features"] = QJsonArray{};
+        QVERIFY2(project->showPreview(replacement, &error), qPrintable(error));
+        QVERIFY(nativePreview(fixture));
+        QCOMPARE(nativePreview(fixture)->featureCount(), 0);
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QVERIFY(nativePreview(fixture));
+        QCOMPARE(nativePreview(fixture)->featureCount(), 2);
+        project->clearPreview();
+        QVERIFY(!nativePreview(fixture));
+        QCOMPARE(project->layers().size(), layerCount);
+        QCOMPARE(fixture.window->hasChanges(), wasDirty);
+    }
+
+    /** @brief Manual removal stays removed, temporary polygons are not boundaries, and close releases bytes. */
+    void nativeFeaturePreviewHonoursRemovalAndClosure()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *project = fixture.instance()->project();
+        auto collection = nativePreviewCollection();
+        auto first = collection["features"].toArray().at(0).toObject();
+        first["geometry"] = QJsonDocument::fromJson(R"json({"type":"Polygon","coordinates":[[[-76,40],[-75.99,40],[-75.99,40.01],[-76,40.01],[-76,40]]]})json").object();
+        collection["features"] = QJsonArray{first};
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        auto *layer = nativePreview(fixture);
+        QVERIFY(layer);
+        for (const auto &boundary : project->polygonLayers())
+            QVERIFY(boundary.value("id").toString() != layer->layerId());
+        QVERIFY(project->boundaryFeatures(layer->layerId()).isEmpty());
+        QVERIFY(project->boundaryPolygon(layer->layerId(), 0, &error).isEmpty());
+        const auto sourcePath = layer->filePath().toUtf8();
+        const auto countBefore = fixture.window->canvas()->undoStack()->count();
+        fixture.window->canvas()->takeLayer(fixture.window->canvas()->layers().indexOf(layer));
+        delete layer;
+        QCOMPARE(fixture.window->canvas()->undoStack()->count(), countBefore);
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QVERIFY(!nativePreview(fixture));
+        collection["previewStyle"] = QJsonObject{{"asFeatureLayer", true}, {"title", "Changed refresh"}};
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QVERIFY(!nativePreview(fixture));
+        VSIStatBufL status{};
+        QVERIFY(VSIStatL(sourcePath.constData(), &status) != 0);
+        project->clearPreview();
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QPointer<GISVectorLayer> restored(nativePreview(fixture));
+        QVERIFY(restored);
+        const auto restoredPath = restored->filePath().toUtf8();
+        delete fixture.window.data();
+        QVERIFY(!restored);
+        QVERIFY(VSIStatL(restoredPath.constData(), &status) != 0);
+        project->clearPreview(); // Retired facade remains safe after its native model has closed.
+    }
+
+    /** @brief Unloading the host from a native removal callback cannot publish an orphan replacement. */
+    void nativeFeaturePreviewSurvivesReentrantHostDestruction()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *project = fixture.instance()->project();
+        auto collection = nativePreviewCollection();
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QPointer<GISVectorLayer> old(nativePreview(fixture));
+        QVERIFY(old);
+        const auto oldPath = old->filePath().toUtf8();
+        connect(fixture.window->canvas(), &MapCanvas::layerRemoved, &fixture.main,
+                [&fixture] { fixture.host.reset(); });
+        collection["features"] = QJsonArray{collection["features"].toArray().at(1)};
+        QVERIFY(!project->showPreview(collection, &error));
+        QVERIFY(!fixture.host);
+        QVERIFY(!old);
+        QVERIFY(!nativePreview(fixture));
+        VSIStatBufL status{};
+        QVERIFY(VSIStatL(oldPath.constData(), &status) != 0);
+    }
+
+    /** @brief Cover projected/geographic maps, three zoom levels and standard/retina backing images. */
+    void nativeFeaturePointMarkersRenderAtPixelSize_data()
+    {
+        QTest::addColumn<int>("epsg");
+        QTest::addColumn<double>("span");
+        QTest::addColumn<int>("pixelRatio");
+        for (int epsg : {3857, 4326})
+            for (double span : epsg == 3857 ? QList<double>{200., 20000., 2000000.}
+                                             : QList<double>{0.0002, 0.02, 2.})
+                for (int ratio : {1, 2}) {
+                    const auto name = QStringLiteral("epsg%1-span%2-dpr%3")
+                                          .arg(epsg).arg(span).arg(ratio).toLatin1();
+                    QTest::newRow(name.constData()) << epsg << span << ratio;
+                }
+    }
+
+    /** @brief Rasterize a real temporary preview through the canvas scene transform and measure visible dots. */
+    void nativeFeaturePointMarkersRenderAtPixelSize()
+    {
+        QFETCH(int, epsg);
+        QFETCH(double, span);
+        QFETCH(int, pixelRatio);
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *canvas = fixture.window->canvas();
+        canvas->resize(320, 240);
+        QCOMPARE(canvas->size(), QSize(320, 240));
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", epsg));
+        auto collection = nativePreviewCollection();
+        collection["previewStyle"] = QJsonObject{{"asFeatureLayer", true}, {"title", "Marker render"}};
+        auto feature = collection["features"].toArray().at(0).toObject();
+        feature["geometry"] = QJsonObject{{"type", "Point"},
+                                           {"coordinates", QJsonArray{-75.995, 40.005}}};
+        collection["features"] = QJsonArray{feature};
+        QVERIFY2(fixture.instance()->project()->showPreview(collection, &error), qPrintable(error));
+        auto *layer = nativePreview(fixture);
+        QVERIFY(layer);
+        OGRSpatialReference geographic, target(*canvas->canvasSRS()->ogrSpatialReference());
+        geographic.importFromEPSG(4326);
+        geographic.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        target.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        auto *projection = OGRCreateCoordinateTransformation(&geographic, &target);
+        QVERIFY(projection);
+        double x = -75.995, y = 40.005;
+        const bool transformed = projection->Transform(1, &x, &y);
+        OCTDestroyCoordinateTransformation(projection);
+        QVERIFY(transformed);
+        const double height = span * 0.75;
+        canvas->setExtent(MapExtent(x - span / 2., y - height / 2.,
+                                    x + span / 2., y + height / 2.), false);
+        const auto extent = canvas->extent();
+        const QRectF source(extent.xMin(), -extent.yMax(), extent.width(), extent.height());
+        QImage image(320 * pixelRatio, 240 * pixelRatio, QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(pixelRatio);
+        image.fill(Qt::white);
+        {
+            QPainter painter(&image);
+            // Match MapCanvas's scene-buffer/slice source rectangle, target
+            // transform and image DPR, isolating this native layer's stack band.
+            canvas->mapScene()->renderSlice(&painter, QRectF(0, 0, 320, 240), source,
+                                             layer->layerZValue(), layer->layerZValue() + 1000.);
+        }
+        QVERIFY(image.save(path("point-render.png")));
+        int minX = image.width(), minY = image.height(), maxX = -1, maxY = -1;
+        for (int row = 0; row < image.height(); ++row)
+            for (int column = 0; column < image.width(); ++column) {
+                const auto color = image.pixelColor(column, row);
+                if (color.green() > color.red() + 30 && color.blue() > color.red() + 30) {
+                    minX = qMin(minX, column);
+                    minY = qMin(minY, row);
+                    maxX = qMax(maxX, column);
+                    maxY = qMax(maxY, row);
+                }
+            }
+        const QRectF bounds(double(minX) / pixelRatio, double(minY) / pixelRatio,
+                             double(maxX - minX + 1) / pixelRatio,
+                             double(maxY - minY + 1) / pixelRatio);
+        const QJsonObject evidence{{"epsg", epsg}, {"span", span}, {"pixelRatio", pixelRatio},
+                                    {"bounds", QJsonArray{bounds.x(), bounds.y(), bounds.width(), bounds.height()}}};
+        QFile record(path("point-render.json"));
+        QVERIFY(record.open(QIODevice::WriteOnly));
+        record.write(QJsonDocument(evidence).toJson());
+        QVERIFY2(maxX >= minX && maxY >= minY, "The native GIS point did not paint visible pixels.");
+        QVERIFY2(bounds.width() >= 7. && bounds.width() <= 11., qPrintable(QString::number(bounds.width())));
+        QVERIFY2(bounds.height() >= 7. && bounds.height() <= 11., qPrintable(QString::number(bounds.height())));
+        QVERIFY(std::abs(bounds.center().x() - 160.) <= 1.);
+        QVERIFY(std::abs(bounds.center().y() - 120.) <= 1.);
+        layer->setSelectedFeatureIds({0});
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        const auto anchors = layer->selectedFeatureAnchors();
+        QCOMPARE(anchors.size(), 1);
+        QVERIFY(std::abs(anchors[0].x() - x) < 1e-5);
+        QVERIFY(std::abs(anchors[0].y() + y) < 1e-5);
+    }
+
+    /** @brief Cover ordinary sources and native preview label columns in both map CRSs and DPRs. */
+    void nativeGisLabelsPaintConfiguredFields_data()
+    {
+        QTest::addColumn<bool>("temporary");
+        QTest::addColumn<int>("epsg");
+        QTest::addColumn<int>("pixelRatio");
+        for (bool temporary : {false, true})
+            for (int epsg : {3857, 4326})
+                for (int ratio : {1, 2}) {
+                    const auto name = QStringLiteral("%1-epsg%2-dpr%3")
+                                          .arg(temporary ? "preview" : "ordinary")
+                                          .arg(epsg).arg(ratio).toLatin1();
+                    QTest::newRow(name.constData()) << temporary << epsg << ratio;
+                }
+    }
+
+    /** @brief Prove enabled labels paint text/halo and update without hiding or blocking gage points. */
+    void nativeGisLabelsPaintConfiguredFields()
+    {
+        QFETCH(bool, temporary);
+        QFETCH(int, epsg);
+        QFETCH(int, pixelRatio);
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *canvas = fixture.window->canvas();
+        canvas->resize(320, 240);
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", epsg));
+        auto collection = nativePreviewCollection();
+        auto feature = collection["features"].toArray().at(0).toObject();
+        auto properties = feature["properties"].toObject();
+        properties["monitoring_location_name"] = "Station A";
+        properties["short_name"] = "X";
+        properties["drainage"] = 12.345;
+        feature["properties"] = properties;
+        feature["geometry"] = QJsonObject{{"type", "Point"},
+                                           {"coordinates", QJsonArray{-75.995, 40.005}}};
+        collection["features"] = QJsonArray{feature};
+        collection["previewStyle"] = QJsonObject{{"asFeatureLayer", true},
+                                                   {"pointLabelProperty", "monitoring_location_name"}};
+        GISVectorLayer *layer = nullptr;
+        if (temporary) {
+            QVERIFY2(fixture.instance()->project()->showPreview(collection, &error), qPrintable(error));
+            layer = nativePreview(fixture);
+        } else {
+            collection.remove("previewStyle");
+            const auto sourcePath = path("ordinary-label-source.geojson");
+            QFile source(sourcePath);
+            QVERIFY(source.open(QIODevice::WriteOnly));
+            source.write(QJsonDocument(collection).toJson());
+            source.close();
+            layer = new GISVectorLayer(sourcePath, {}, fixture.workspace.get());
+            canvas->addLayer(layer, false);
+        }
+        QVERIFY(layer);
+        QVERIFY(layer->ogrLayer());
+        auto symbol = layer->symbol();
+        symbol.markerSize = 8.;
+        symbol.markerFill = QColor(0, 145, 170, 150);
+        symbol.markerOutline = QColor(0, 145, 170);
+        layer->setSymbol(symbol);
+        auto labels = layer->labelConfig();
+        labels.enabled = true;
+        if (temporary)
+            QVERIFY(labels.fieldName.startsWith("__openswmm_preview_label"));
+        else
+            labels.fieldName = "monitoring_location_name";
+        labels.color = QColor(170, 0, 170);
+        labels.haloEnabled = true;
+        labels.haloColor = QColor(255, 200, 0);
+        labels.haloRadiusPx = 1.;
+        labels.minScale = 0.;
+        labels.maxScale = 0.;
+        layer->setLabelConfig(labels);
+        OGRSpatialReference geographic, target(*canvas->canvasSRS()->ogrSpatialReference());
+        geographic.importFromEPSG(4326);
+        geographic.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        target.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        auto *projection = OGRCreateCoordinateTransformation(&geographic, &target);
+        QVERIFY(projection);
+        double x = -75.995, y = 40.005;
+        const bool transformed = projection->Transform(1, &x, &y);
+        OCTDestroyCoordinateTransformation(projection);
+        QVERIFY(transformed);
+        struct Pixels {
+            QRectF textBounds; ///< Logical-pixel bounds containing the configured purple glyphs.
+            int points = 0;    ///< Cyan marker pixels independent of label painting.
+            int halo = 0;      ///< Orange halo pixels from the configured shared label painter.
+            bool saved = false; ///< Retained image was written for review.
+        };
+        auto render = [&](const QString &name) {
+            layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+            const auto extent = canvas->extent();
+            QImage image(320 * pixelRatio, 240 * pixelRatio, QImage::Format_ARGB32_Premultiplied);
+            image.setDevicePixelRatio(pixelRatio);
+            image.fill(Qt::white);
+            {
+                QPainter painter(&image);
+                canvas->mapScene()->renderSlice(
+                    &painter, QRectF(0, 0, 320, 240),
+                    QRectF(extent.xMin(), -extent.yMax(), extent.width(), extent.height()),
+                    layer->layerZValue(), layer->layerZValue() + 1000.);
+            }
+            Pixels result;
+            result.saved = image.save(path(name + ".png"));
+            int minX = image.width(), minY = image.height(), maxX = -1, maxY = -1;
+            for (int row = 0; row < image.height(); ++row)
+                for (int column = 0; column < image.width(); ++column) {
+                    const auto color = image.pixelColor(column, row);
+                    if (color.red() > color.green() + 30 && color.blue() > color.green() + 30) {
+                        minX = qMin(minX, column);
+                        minY = qMin(minY, row);
+                        maxX = qMax(maxX, column);
+                        maxY = qMax(maxY, row);
+                    }
+                    result.points += color.green() > color.red() + 30 && color.blue() > color.red() + 30;
+                    result.halo += color.red() > color.green() + 20 && color.green() > color.blue() + 40;
+                }
+            if (maxX >= minX && maxY >= minY)
+                result.textBounds = QRectF(double(minX) / pixelRatio, double(minY) / pixelRatio,
+                                           double(maxX - minX + 1) / pixelRatio,
+                                           double(maxY - minY + 1) / pixelRatio);
+            return result;
+        };
+        QRectF initialBounds;
+        int zoom = 0;
+        for (double span : epsg == 3857 ? QList<double>{20000., 2000000.}
+                                         : QList<double>{0.02, 2.}) {
+            canvas->setExtent(MapExtent(x - span / 2., y - span * 0.375,
+                                        x + span / 2., y + span * 0.375), false);
+            const auto painted = render(QStringLiteral("labels-on-%1").arg(zoom++));
+            QVERIFY(painted.saved);
+            QVERIFY2(painted.textBounds.width() > 20., "Enabled native GIS labels painted no station text.");
+            QVERIFY(painted.textBounds.height() > 4.);
+            QVERIFY(painted.points > 10);
+            QVERIFY(painted.halo > 10);
+            if (initialBounds.isEmpty())
+                initialBounds = painted.textBounds;
+            else {
+                QVERIFY(std::abs(painted.textBounds.width() - initialBounds.width()) <= 1.);
+                QVERIFY(std::abs(painted.textBounds.height() - initialBounds.height()) <= 1.);
+            }
+        }
+        labels.fieldName = "short_name";
+        layer->setLabelConfig(labels);
+        const auto shortField = render("labels-short-field");
+        QVERIFY(shortField.saved);
+        QVERIFY(shortField.textBounds.width() > 0.);
+        QVERIFY(shortField.textBounds.width() < initialBounds.width() / 2.);
+        labels.expression = "{monitoring_location_name}: {drainage}";
+        labels.decimals = 1;
+        layer->setLabelConfig(labels);
+        const auto expression = render("labels-expression");
+        QVERIFY(expression.saved);
+        QVERIFY(expression.textBounds.width() > initialBounds.width() + 10.);
+        labels.minScale = canvas->scaleDenominator() / 2.;
+        layer->setLabelConfig(labels);
+        const auto hidden = render("labels-scale-hidden");
+        QVERIFY(hidden.saved);
+        QVERIFY(hidden.textBounds.isEmpty());
+        QVERIFY(hidden.points > 10);
+        labels.minScale = 0.;
+        labels.enabled = false;
+        layer->setLabelConfig(labels);
+        const auto disabled = render("labels-off");
+        QVERIFY(disabled.saved);
+        QVERIFY(disabled.textBounds.isEmpty());
+        QVERIFY(disabled.points > 10);
+        const auto hits = layer->identifyAt(x, y, canvas->canvasSRS(),
+                                             canvas->extent().width() / canvas->width() * 6.);
+        QCOMPARE(hits.size(), 1);
+        QCOMPARE(hits.first().value("monitoring_location_name").toString(), QStringLiteral("Station A"));
+        layer->setSelectedFeatureIds({0});
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QCOMPARE(layer->selectedFeatureAnchors().size(), 1);
+        if (temporary)
+            fixture.instance()->project()->clearPreview();
+        else {
+            canvas->takeLayer(canvas->layers().indexOf(layer), false);
+            delete layer;
+        }
     }
 
     /** @brief Re-key selected built-in table identities without touching a colliding link namespace. */

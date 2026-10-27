@@ -61,6 +61,7 @@ AttributeTableTarget attributeTableTarget(const LayerTreeRow &row)
         case T::SWMMGISLayer:
         case T::SWMMFeatureLayer:
         case T::SWMMTabularDataLayer:
+        case T::SWMMTabularyTimeSeriesLayer:
         case T::SWMMModelLayer:
         case T::SWMMResultsLayer:
             out.kind = AttributeTableTarget::Kind::Layer;

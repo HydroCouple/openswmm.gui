@@ -312,12 +312,14 @@ private:
      *   not suppress replace).
      * @note Tolerance=max(stored radius, visible model marker halfbound+4), converted via max-axis
      *   map delta with integer pixel arguments. Shared results-first network pick can prepend
-     *   output, then first visible matching model/GIS hit in list wins; typed kind bits prevent
-     *   cross-namespace same-name selection. GIS chooses first returned fid, not global nearest.
+     *   its preferred output; remaining visible layers are queried topmost first (descending
+     *   canvas index). The first matching layer wins; typed kind bits prevent cross-namespace
+     *   same-name selection. GIS chooses that layer's nearest returned feature, not a global
+     *   distance winner across layers, so reordering a boundary and gage changes pick priority.
      * @note Hit changes only selected layer, emits selectionChanged (and resultsLayerPicked when
      *   output). Miss with no Shift/Control clears nonempty SWMM/GIS selections across ALL layers
-     *   including hidden. Editable FeatureLayer/mesh/raster unsupported. No undo/repaint directly
-     *   here; release caller invalidates.
+     *   including hidden. Editable FeatureLayer inherits GIS picking; mesh/raster are unsupported
+     *   on this click path. No undo/repaint directly here; release caller invalidates.
      */
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
     /**

@@ -62,6 +62,7 @@ class QPushButton;
 // namespace below, which would create phantom openswmmvis::ui::* types).
 class SWMMResultsLayer;
 class SWMM2DResultsLayer;
+class TimeSeriesLayer;
 
 namespace openswmmvis::ui
 {
@@ -138,6 +139,16 @@ public:
      * range changes and seed first-run time when a source exists.
      */
     int ensureRunSourceForMeshLayer(::SWMM2DResultsLayer *layer);
+
+    /** @brief Find/create a native observation adapter; no engine or results are required.
+     * @param[in] layer Existing source layer, observed for removal/source replacement.
+     * @return Current run index or -1 for an unavailable source. */
+    int ensureRunSourceForTimeSeriesLayer(::TimeSeriesLayer *layer);
+    /** @brief Add selected native series to this comparison tab with shared plot controls.
+     * @param[in] layer Existing native observation layer.
+     * @param[in] ids Stable source series identities, deduplicated against existing entries.
+     * @return Number of new series added; sample reads run asynchronously. */
+    int addTimeSeriesLayerSeries(::TimeSeriesLayer *layer, const QStringList &ids);
 
     /*! \brief Convenience helper: add a series in one call. Returns the new
      *  series index, or -1 on failure. */
@@ -528,6 +539,14 @@ private:
      */
     void exportSeriesData(const QVector<int> &seriesIndices);
 
+    /** @brief Ask for explicit UTC/model-clock mapping before native observations share a results view.
+     * @return False when cancelled; existing sources remain unchanged. */
+    bool confirmObservationClockMappings();
+    /** @brief Debounce native observation window reads after plot zoom/selection changes. */
+    void requestObservationWindows();
+    QTimer *m_observationTimer = nullptr;
+    bool m_restoringObservationRange = false;
+    bool m_observationRangeChosen = false; ///< True only after user range changes, not initial query arrival.
     std::unique_ptr<openswmmvis::plot::ComparisonPlotModel> m_model;
 
     // UI
@@ -587,7 +606,8 @@ private:
         openswmmvis::plot::UtcTimeAxis *xAxis = nullptr;
         QValueAxis *yAxis = nullptr;
         QLineSeries *cursorLine = nullptr;
-        QVector<QLineSeries *> series; ///< Parallel to model row's seriesIndices.
+        QVector<QLineSeries *> series; ///< First segment, parallel to model row's seriesIndices.
+        QVector<QVector<QLineSeries *>> segments; ///< All finite segments; gaps never connect.
         QVector<int> consumed; ///< Parallel to series: periods already plotted (live tail cursor).
 
         // Column 1 — 1v1 scatter (visible only when ≥2 runs produce

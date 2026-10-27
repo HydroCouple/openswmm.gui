@@ -29,6 +29,7 @@
 #include "transect/transectprovider.h"
 
 #include <QSettings>
+#include <QSet>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -234,23 +235,71 @@ void RemoveLayerCommand::redo()
 // MoveLayerCommand
 // ===========================================================================
 
+namespace
+{
+/** @brief Guard an owning order snapshot without taking ownership of its layers.
+ * @param[in] order Current live layer identities.
+ * @return Lifetime-guarded identities in the same order. */
+QList<QPointer<OpenSWMMVisLayer>> guardedLayerOrder(const QList<OpenSWMMVisLayer *> &order)
+{
+    QList<QPointer<OpenSWMMVisLayer>> result;
+    result.reserve(order.size());
+    for (auto *layer : order)
+        result.append(layer);
+    return result;
+}
+/** @brief Replay only attached snapshot survivors and preserve all later attached layers.
+ * @param[in,out] canvas Borrowed canvas; null is a no-op.
+ * @param[in] order Guarded historical order, possibly containing removed/deleted layers.
+ * @note Removed layers are never reattached; current unmentioned layers are appended. */
+void restoreLayerOrder(MapCanvas *canvas, const QList<QPointer<OpenSWMMVisLayer>> &order)
+{
+    if (!canvas)
+        return;
+    const auto current = canvas->layers();
+    const QSet<OpenSWMMVisLayer *> attached(current.cbegin(), current.cend());
+    QSet<OpenSWMMVisLayer *> seen;
+    QList<OpenSWMMVisLayer *> restored;
+    for (const auto &guard : order) {
+        auto *layer = guard.data();
+        if (layer && attached.contains(layer) && !seen.contains(layer)) {
+            restored.append(layer);
+            seen.insert(layer);
+        }
+    }
+    for (auto *layer : current)
+        if (!seen.contains(layer))
+            restored.append(layer);
+    if (restored != current)
+        canvas->reorderLayers(restored, /*pushUndo=*/false);
+}
+}
+
 MoveLayerCommand::MoveLayerCommand(int oldIndex, int newIndex, MapCanvas *canvas,
                                    QUndoCommand *parent)
-    : MapCommand(QObject::tr("Move Layer"), canvas, parent), m_oldIndex(oldIndex),
-      m_newIndex(newIndex)
+    : MapCommand(QObject::tr("Move Layer"), canvas, parent)
 {
+    if (!canvas)
+        return;
+    auto order = canvas->layers();
+    if (oldIndex < 0 || oldIndex >= order.size() || newIndex < 0 || newIndex >= order.size())
+        return;
+    m_layer = order.at(oldIndex);
+    m_oldOrder = guardedLayerOrder(order);
+    order.move(oldIndex, newIndex);
+    m_newOrder = guardedLayerOrder(order);
 }
 
 void MoveLayerCommand::undo()
 {
-    if (m_canvas)
-        m_canvas->moveLayer(m_newIndex, m_oldIndex, /*pushUndo=*/false);
+    if (m_canvas && m_layer && m_canvas->layers().contains(m_layer))
+        restoreLayerOrder(m_canvas, m_oldOrder);
 }
 
 void MoveLayerCommand::redo()
 {
-    if (m_canvas)
-        m_canvas->moveLayer(m_oldIndex, m_newIndex, /*pushUndo=*/false);
+    if (m_canvas && m_layer && m_canvas->layers().contains(m_layer))
+        restoreLayerOrder(m_canvas, m_newOrder);
 }
 
 // ===========================================================================
@@ -519,15 +568,14 @@ void AddNodeCommand::undo()
 ReorderLayersCommand::ReorderLayersCommand(QList<OpenSWMMVisLayer *> oldOrder,
                                            QList<OpenSWMMVisLayer *> newOrder, MapCanvas *canvas,
                                            QUndoCommand *parent)
-    : MapCommand(QObject::tr("Reorder Layers"), canvas, parent), m_oldOrder(std::move(oldOrder)),
-      m_newOrder(std::move(newOrder))
+    : MapCommand(QObject::tr("Reorder Layers"), canvas, parent),
+      m_oldOrder(guardedLayerOrder(oldOrder)), m_newOrder(guardedLayerOrder(newOrder))
 {
 }
 
 void ReorderLayersCommand::undo()
 {
-    if (m_canvas)
-        m_canvas->reorderLayers(m_oldOrder, /*pushUndo=*/false);
+    restoreLayerOrder(m_canvas, m_oldOrder);
 }
 
 void ReorderLayersCommand::redo()
@@ -536,8 +584,7 @@ void ReorderLayersCommand::redo()
         m_firstRedo = false;
         return;
     } // already applied by caller
-    if (m_canvas)
-        m_canvas->reorderLayers(m_newOrder, /*pushUndo=*/false);
+    restoreLayerOrder(m_canvas, m_newOrder);
 }
 
 // ===========================================================================

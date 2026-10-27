@@ -12,6 +12,10 @@
 #include "swmmvisprojectwindow.h"
 #include "plugins/extensionactivityui.h"
 #include "plugins/extensionstateregistry.h"
+#include "plugins/guiextensionhost.h"
+#include "plugins/extensionmanager.h"
+#include "sdk/IProgressV1.hpp"
+#include "core/loadprogress.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/simulationstatusmodel.h"
 #include "layers/swmmresultslayer.h"
@@ -28,6 +32,8 @@
 #include <QFileInfo>
 #include <QMdiArea>
 #include <QMessageBox>
+#include <QProgressBar>
+#include <QLabel>
 #include <QQmlEngine>
 #include <QScopeGuard>
 #include <QSettings>
@@ -177,6 +183,72 @@ private slots:
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCoreApplication::processEvents();
         qunsetenv("SWMMVIS_TEST_FAULT");
+    }
+    /** @brief Public scopes use the real status bar and log model without clearing native work. */
+    void pluginProgressUsesSharedStatusBarAndLogs()
+    {
+        mApp = std::make_unique<SWMMVis>();
+        ExtensionUiBridge bridge;
+        mApp->configureExtensionActivityBridge(bridge);
+        QSettings settings(path("plugin.ini"), QSettings::IniFormat);
+        GuiExtensionHost host("org.openswmm.progress-native", ExtensionManager::buildManifest(),
+                              mApp.get(), mApp->findChild<QMdiArea *>("mdiAreaCentral"),
+                              bridge, &settings);
+        auto *progress = qobject_cast<IProgressV1 *>(host.lifetime());
+        QVERIFY(progress);
+        QObject firstContext, secondContext;
+        const auto first = progress->beginProgress("Download DEM", &firstContext);
+        QVERIFY(!first.isNull());
+        QVERIFY(progress->updateProgress(first, .42, "Receiving tile"));
+        QVERIFY(!mApp->mProgressBar->isHidden());
+        QCOMPARE(mApp->mProgressBar->maximum(), 100);
+        QCOMPARE(mApp->mProgressBar->value(), 42);
+        QVERIFY(mApp->mProgressBar->toolTip().contains("Download DEM"));
+        QVERIFY(mApp->mProgressLabel->text().contains("Receiving tile"));
+
+        const auto second = progress->beginProgress("Query sites", &secondContext);
+        QVERIFY(!second.isNull());
+        QCOMPARE(mApp->mProgressBar->maximum(), 0);
+        QVERIFY(progress->updateProgress(second, .2, "Page two"));
+        QCOMPARE(mApp->mProgressBar->value(), 20);
+        QVERIFY(mApp->mProgressLabel->text().contains("2"));
+        QVERIFY(progress->finishProgress(second, ProgressOutcome::Succeeded));
+        QCOMPARE(mApp->mProgressBar->value(), 42);
+
+        mApp->onSetProgressBarBusy(true);
+        QCOMPARE(mApp->mProgressBar->value(), 42);
+        auto *open = mApp->beginOpenProgress();
+        QCOMPARE(mApp->mProgressBar->value(), open->percent());
+        QVERIFY(mApp->mProgressBar->toolTip().contains("Download DEM"));
+        mApp->mRunningSimProgress.insert(991, .73);
+        mApp->applyProgressBarState();
+        QCOMPARE(mApp->mProgressBar->value(), 73);
+        QVERIFY(progress->updateProgress(first, .81, "Saving cropped DEM"));
+        QCOMPARE(mApp->mProgressBar->value(), 73);
+        QVERIFY(mApp->mProgressBar->toolTip().contains("Saving cropped DEM"));
+        mApp->mRunningSimProgress.clear();
+        open->finishAll();
+        QCOMPARE(mApp->mProgressBar->value(), 81);
+
+        const int rows = mApp->mLogMessagesModel->rowCount();
+        host.console()->append("warning", "Retaining completed tile after cancellation");
+        QCOMPARE(mApp->mLogMessagesModel->rowCount(), rows + 1);
+        QCOMPARE(mApp->mLogMessagesModel->item(rows, 1)->text(), "Warning");
+        QVERIFY(mApp->mLogMessagesModel->item(rows, 2)->text()
+                    .contains("org.openswmm.progress-native"));
+        QVERIFY(mApp->mLogMessagesModel->item(rows, 2)->text()
+                    .contains("Retaining completed tile"));
+        host.console()->append("error", "Synthetic download failure");
+        QCOMPARE(mApp->mLogMessagesModel->item(rows + 1, 1)->text(), "Error");
+        host.console()->clear();
+        QCOMPARE(mApp->mLogMessagesModel->rowCount(), rows + 2);
+
+        host.prepareShutdown();
+        QVERIFY(mApp->mExtensionProgress.isEmpty());
+        QVERIFY(!mApp->mProgressBar->isHidden());
+        QCOMPARE(mApp->mProgressBar->maximum(), 0);
+        mApp->onSetProgressBarBusy(false);
+        QVERIFY(mApp->mProgressBar->isHidden());
     }
     /** @brief Status lookup never inserts an Idle row or publishes a misleading run. */
     void statusLookupHasNoDiscoverySideEffects()

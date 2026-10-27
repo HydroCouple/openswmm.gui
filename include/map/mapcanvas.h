@@ -307,7 +307,8 @@ public:
     /**
      * @param[in] layer Optional externally owned live layer; null no-op, existing membership not
      *   checked.
-     * @param[in] pushUndo True creates AddLayerCommand, synchronous redo performs insertion.
+     * @param[in] pushUndo True creates AddLayerCommand unless the layer is temporary;
+     *   synchronous redo performs insertion.
      * @brief Insert at saved-order/category-group position using insertLayer; not necessarily top
      *   of stack.
      * @note Caller must not introduce duplicate pointers and must remove layer before destroying
@@ -317,8 +318,8 @@ public:
     /**
      * @param[in] position Bottom-to-top insertion index, clamped [0,layerCount].
      * @param[in] layer Optional borrowed layer; null no-op. Must not already be registered.
-     * @param[in] pushUndo True pushes command only; false performs direct insertion for
-     *   redo/internal load.
+     * @param[in] pushUndo True pushes command only for persistent layers; false or a temporary
+     *   layer performs direct insertion for redo/internal load/session-only display.
      * @note Connects repaint/CRS/flow hooks, sets z-values, applies canvas CRS BEFORE scene
      *   population; nonraster insert repopulates vector layers above. Seeds network GPU preference,
      *   beacon hooks, emits layerAdded and invalidates Raster/Scene/Overlay. Does not change
@@ -328,7 +329,8 @@ public:
     void insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo = true);
     /**
      * @param[in] index Current zero-based stack index.
-     * @param[in] pushUndo True pushes RemoveLayerCommand; false direct detach.
+     * @param[in] pushUndo True pushes RemoveLayerCommand for persistent layers; false or a
+     *   temporary layer performs direct detach without retaining an undo reference.
      * @return Borrowed removed layer, never deleted, or null for invalid index. Command redo has
      *   completed before returning.
      * @note Stops visible composition, disconnects repaint hook, returns mesh/results rendering to
@@ -341,7 +343,8 @@ public:
     /**
      * @param[in] fromIndex Existing zero-based bottom-to-top index.
      * @param[in] toIndex Existing destination index, not one-past-end.
-     * @param[in] pushUndo True command path, false direct reorder.
+     * @param[in] pushUndo True command path for persistent layers; false or moving a temporary
+     *   layer performs direct reorder.
      * @note Invalid/equal indices no-op. Direct move updates z scalars, depopulates/repopulates all
      *   nonraster layers, invalidates all channels, emits layerOrderChanged/update. No category
      *   validation; caller preserves grouping. No object ownership change.

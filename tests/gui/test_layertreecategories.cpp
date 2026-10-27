@@ -122,13 +122,13 @@ void TestLayerTreeCategories::imageryWmsWmtsGoToBasemaps()
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMTSLayer), openswmmvis::ui::CatBasemaps);
 }
 
-/** @brief Verify ordinary and time-series tabular layers belong to Tables. */
+/** @brief Ordinary tables remain Tables; native observations have an independent category. */
 void TestLayerTreeCategories::tabularGoesToTables()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMTabularDataLayer),
              openswmmvis::ui::CatTables);
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer),
-             openswmmvis::ui::CatTables);
+             openswmmvis::ui::CatTimeSeries);
 }
 
 // ── §5 — fall-back ──────────────────────────────────────────────────────────
@@ -160,6 +160,7 @@ void TestLayerTreeCategories::categoryInfoLabelsMatchPlan()
              QStringLiteral("Raster Layers"));
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatBasemaps).name), QStringLiteral("Basemaps"));
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatTables).name), QStringLiteral("Tables"));
+    QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatTimeSeries).name), QStringLiteral("Time Series"));
 }
 
 /** @brief Verify mesh/2D output categories use CreateMesh while 1D outputs retain Chart. */

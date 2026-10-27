@@ -189,7 +189,10 @@ set(
         # ── App ──────────────────────────────────────────────────────────────
         include/swmmvis.h
         src/swmmvisextensions.cpp
+        src/swmmvistimeseries.cpp
         src/plugins/extensionmodelaccess.cpp
+        include/plugins/extensiontimeseriesaccess.h
+        src/plugins/extensiontimeseriesaccess.cpp
         include/plugins/extensionviewaccess.h
         src/plugins/extensionviewaccess.cpp
         src/plugins/extensionmodelevents.cpp
@@ -428,6 +431,13 @@ set(
         include/layers/openswmmvislayer.h
         include/layers/tilepyramidlayer.h
         include/layers/gisvectorlayer.h
+        include/layers/timeserieslayer.h
+        include/ui/panels/timeserieslayerbrowser.h
+        include/timeseries/timeseriesdataset.h
+        include/timeseries/timeseriesstore.h
+        include/plot/timeseriesrunlayer.h
+        include/timeseries/timeseriesassignment.h
+        include/ui/dialogs/timeseriesassignmentdialog.h
         # Editable feature layers (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN
         # 2026-09-07 §3). featuregeometry / featuretypes / featurestore are
         # leaf modules — Qt + GDAL only, no layer or UI dependency — so they
@@ -1233,6 +1243,13 @@ set(
         src/layers/openswmmvislayer.cpp
         src/layers/tilepyramidlayer.cpp
         src/layers/gisvectorlayer.cpp
+        src/layers/timeserieslayer.cpp
+        src/ui/panels/timeserieslayerbrowser.cpp
+        src/timeseries/timeseriesstore.cpp
+        src/plot/timeseriesrunlayer.cpp
+        src/timeseries/timeseriesassignment.cpp
+        src/ui/dialogs/timeseriesassignmentdialog.cpp
+        src/ui/dialogs/comparisonplot_timeseries.cpp
         src/feature/featuregeometry.cpp
         src/feature/featuretypes.cpp
         src/feature/featureroles.cpp

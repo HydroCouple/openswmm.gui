@@ -43,6 +43,7 @@ enum CategoryId {
     CatRasterLayers,
     CatBasemaps,
     CatTables,
+    CatTimeSeries, ///< Native observations; appended to preserve stored category identities.
     CatCount
 };
 
@@ -129,7 +130,7 @@ enum class LayerTypeOrdinal : int {
  */
 constexpr int kDefaultCategoryDisplayOrder[CatCount] = {
     CatSwmm1DOutputs, CatSwmm2DOutputs, CatSwmm,     CatMeshes,
-    CatFeatureLayers, CatRasterLayers,  CatBasemaps, CatTables,
+    CatTimeSeries, CatFeatureLayers, CatRasterLayers, CatBasemaps, CatTables,
 };
 
 } // namespace openswmmvis::ui

@@ -20,6 +20,7 @@
 #include "map/mapundostack.h"
 #include "layers/featurelayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/timeserieslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/vjsourcesummary.h"
@@ -1227,6 +1228,9 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel, Qt::KeyboardMo
 
     const auto outputHit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
     auto layers = m_canvas->layers();
+    // Canvas order is bottom-to-top. Click the visible topmost layer first,
+    // so a containing boundary beneath a point cannot steal the point pick.
+    std::reverse(layers.begin(), layers.end());
     if (outputHit.results)
         layers.prepend(outputHit.results);
     for (OpenSWMMVisLayer *l : layers) {
@@ -1289,7 +1293,7 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel, Qt::KeyboardMo
 
         if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
             // Identify nearest feature
-            QList<QVariantMap> features = vl->identifyAt(mapX, mapY, tol);
+            QList<QVariantMap> features = vl->identifyAt(mapX, mapY, m_canvas->canvasSRS(), tol);
             if (features.isEmpty())
                 continue;
 
@@ -1473,6 +1477,38 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     SWMMModelLayer *hitLayer = plotHit.model;
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const QPoint globalPt = widget ? widget->mapToGlobal(pixel) : pixel;
+
+    const auto observations = timeSeriesHitsAt(m_canvas, mapX, mapY, tol);
+    if (!observations.isEmpty()) {
+        const QPointer<OpenSWMMVisMapToolSelect> owner(this);
+        const QPointer<MapCanvas> canvasGuard(m_canvas);
+        const QPointer<SWMMModelLayer> modelGuard(plotHit.model);
+        const QPointer<SWMMResultsLayer> resultsGuard(plotHit.results);
+        QMenu chooser;
+        connect(this, &QObject::destroyed, &chooser, &QWidget::close);
+        connect(m_canvas, &QObject::destroyed, &chooser, &QWidget::close);
+        connect(m_canvas, &MapCanvas::layerRemoved, &chooser, &QWidget::close);
+        QHash<QAction *, QPair<QPointer<TimeSeriesLayer>, QString>> targets;
+        for (const auto &candidate : observations) {
+            if (!candidate.layer) continue;
+            auto *group = chooser.addMenu(QObject::tr("Plot time series — %1").arg(candidate.layer->name()));
+            for (const auto &id : candidate.seriesIds) {
+                auto *action = group->addAction(candidate.layer->seriesCaption(id));
+                targets.insert(action, {candidate.layer, id});
+            }
+        }
+        QAction *modelActions = ref.isValid() ? chooser.addAction(QObject::tr("Model / result actions…")) : nullptr;
+        auto *chosen = chooser.exec(globalPt);
+        if (!owner || !canvasGuard)
+            return;
+        if (targets.contains(chosen)) {
+            const auto target = targets.value(chosen);
+            if (target.first) emit target.first->plotRequested({target.second});
+            return;
+        }
+        if (!modelActions || chosen != modelActions || !modelGuard ||
+            (plotHit.results && !resultsGuard)) return;
+    }
 
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty()) {
         QMenu bgMenu(widget);

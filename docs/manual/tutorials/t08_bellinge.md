@@ -372,7 +372,7 @@ colour ramp and a dry-depth cut-off matching the engine's `DRY_DEPTH 0.0001`.
 The GUI reads that value from the engine, so the wet/dry edge in the animation
 matches the solver's.
 
-Then use the **Results** ribbon transport. On a mesh this size:
+Then use the **Animation** ribbon transport. On a mesh this size:
 
 - Keep the mesh **wireframe off** while animating; the terrain fill and the
   results fill are what you want to see.

@@ -451,7 +451,7 @@ void SWMMVis::initializeCompactToolbar()
     // Its actions are still project-gated by applyProjectOpenToActions.
     mCompactToolbar->addTab(QStringLiteral("features"), tr("Features"), {mToolBarFeatures});
     mCompactToolbar->addTab(QStringLiteral("analysis"), tr("Analysis"), {mToolBarAnalysis});
-    mCompactToolbar->addTab(QStringLiteral("results"), tr("Results"), {mToolBarAnimation});
+    mCompactToolbar->addTab(QStringLiteral("results"), tr("Animation"), {mToolBarAnimation});
     mCompactToolbar->addTab(QStringLiteral("view"), tr("View"), {mToolBarView});
     mCompactToolbar->finalize();
 

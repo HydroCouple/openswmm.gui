@@ -47,23 +47,28 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <ogr_spatialref.h>
 #include <ogrsf_frmts.h>
+#include <cpl_vsi.h>
 #include <QDir>
 #include <QRegularExpression>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QSaveFile>
 #include <QGraphicsItemGroup>
 #include <QGraphicsPathItem>
 #include <QGraphicsEllipseItem>
+#include <QGraphicsSimpleTextItem>
 #include <QPainterPath>
 #include <QPen>
 #include <QMetaProperty>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QThread>
 #include <cmath>
 #include <memory>
 #include <map>
 #include <utility>
+#include <cstring>
 
 using namespace OpenSWMM::Sdk;
 namespace openswmmvis
@@ -308,23 +313,27 @@ class NativeEditCommand final : public QUndoCommand
 public:
     NativeEditCommand(SWMMVisProjectWindow *window, QString before, QString after,
                       const QString &label, QSet<SWMMObjectRef> beforeSelection,
-                      QSet<SWMMObjectRef> afterSelection)
+                      QSet<SWMMObjectRef> afterSelection, QVariant beforeAssignments,
+                      QVariant afterAssignments)
         : QUndoCommand(label), mWindow(window), mBefore(std::move(before)),
           mAfter(std::move(after)), mBeforeSelection(std::move(beforeSelection)),
-          mAfterSelection(std::move(afterSelection))
+          mAfterSelection(std::move(afterSelection)),
+          mBeforeAssignments(std::move(beforeAssignments)),
+          mAfterAssignments(std::move(afterAssignments))
     {
     }
-    void undo() override { replay(mBefore, mBeforeSelection); }
+    void undo() override { replay(mBefore, mBeforeSelection, mBeforeAssignments); }
     void redo() override
     {
         if (mInitial)
             mInitial = false;
         else
-            replay(mAfter, mAfterSelection);
+            replay(mAfter, mAfterSelection, mAfterAssignments);
     }
 
 private:
-    void replay(const QString &path, const QSet<SWMMObjectRef> &selection)
+    void replay(const QString &path, const QSet<SWMMObjectRef> &selection,
+                const QVariant &assignments)
     {
         const QPointer<SWMMVisProjectWindow> owner(mWindow);
         const auto target = path;
@@ -333,13 +342,16 @@ private:
         QString error;
         if (!restoreSnapshot(owner, target, &error))
             qWarning().noquote() << "Extension snapshot replay failed:" << target << error;
-        else
+        else if (owner && !owner->isClosing()) {
+            owner->setProperty("timeSeriesAssignments", assignments);
             restoreSpatialSelection(owner, identities, others);
+        }
     }
     QPointer<SWMMVisProjectWindow> mWindow;
     QString mBefore, mAfter;
     QSet<SWMMObjectRef> mBeforeSelection,
         mAfterSelection; ///< Model identities matching each snapshot.
+    QVariant mBeforeAssignments, mAfterAssignments; ///< Provenance matching each engine snapshot.
     bool mInitial = true;
 };
 
@@ -360,6 +372,7 @@ public:
         mBlocked = window->modelLayer()->blockSignals(true);
         mWasDirty = window->hasChanges();
         mBeforeSelection = spatialSelection(window);
+        mBeforeAssignments = window->property("timeSeriesAssignments");
         connect(window, &SWMMVisProjectWindow::aboutToClose, this, [this]() { abort(); });
     }
     ~NativeEditScope() override
@@ -396,7 +409,8 @@ public:
             owner->setHasChanges(true);
         if (owner && !owner->isClosing())
             owner->canvas()->undoStack()->push(new NativeEditCommand(
-                owner, mBefore, after, mLabel, mBeforeSelection, afterSelection));
+                owner, mBefore, after, mLabel, mBeforeSelection, afterSelection,
+                mBeforeAssignments, owner->property("timeSeriesAssignments")));
         mLease.reset();
         clearMarker();
         return owner && !owner->isClosing();
@@ -416,6 +430,8 @@ public:
         mFinished = true;
         owner->modelLayer()->blockSignals(mBlocked);
         const bool ok = restoreSnapshot(owner, mBefore, error);
+        if (ok && owner && !owner->isClosing())
+            owner->setProperty("timeSeriesAssignments", mBeforeAssignments);
         if (ok && owner && !owner->isClosing())
             restoreSpatialSelection(owner, mBeforeSelection, others);
         if (ok && owner && !owner->isClosing())
@@ -441,6 +457,7 @@ private:
     QString mBefore;
     QString mMarker;
     QSet<SWMMObjectRef> mBeforeSelection; ///< Pre-edit spatial identities for abort and undo.
+    QVariant mBeforeAssignments; ///< Assignment provenance before the corresponding engine edit.
     bool mBlocked = false, mFinished = false, mWasDirty = false;
 };
 
@@ -596,6 +613,13 @@ public:
     ProjectFacade(SWMMVisProjectWindow *window, QString plugin)
         : mWindow(window), mPlugin(std::move(plugin))
     {
+        connect(window, &SWMMVisProjectWindow::aboutToClose, this,
+                [this] { clearPreview(); });
+        connect(window->canvas(), &MapCanvas::layerRemoved, this,
+                [this](OpenSWMMVisLayer *layer) {
+                    if (layer == mPreviewLayer && !mChangingPreview)
+                        mPreviewSuppressed = true;
+                });
     }
     ~ProjectFacade() override { clearPreview(); }
     ModelFacade *model = nullptr;
@@ -795,7 +819,7 @@ public:
             return result;
         for (auto *base : mWindow->canvas()->layers()) {
             auto *layer = qobject_cast<GISVectorLayer *>(base);
-            if (!layer || !layer->ogrLayer())
+            if (!layer || layer->isTemporary() || !layer->ogrLayer())
                 continue;
             const auto type = wkbFlatten(layer->ogrLayer()->GetGeomType());
             if (type == wkbPolygon || type == wkbMultiPolygon || type == wkbUnknown)
@@ -864,9 +888,29 @@ public:
             delete mPreview;
         mPreview = nullptr;
         mPreviewScene = nullptr;
+        // Clear ownership before native removal emits callbacks. A layer manually
+        // detached through the Layers panel still belongs to this facade until its
+        // deferred deletion or this cleanup completes.
+        const QPointer<GISVectorLayer> layer = mPreviewLayer;
+        const QPointer<MapCanvas> canvas = mPreviewCanvas;
+        mPreviewLayer = nullptr;
+        mPreviewCanvas = nullptr;
+        mPreviewLayerCollection = {};
+        mPreviewSuppressed = false;
+        if (layer && canvas) {
+            const int index = canvas->layers().indexOf(layer);
+            if (index >= 0)
+                canvas->takeLayer(index, false);
+        }
+        if (layer)
+            delete layer.data();
     }
     bool showPreview(const QJsonObject &collection, QString *error) override
     {
+        if (mChangingPreview) {
+            spatialError(error, "The preview is already being updated.");
+            return false;
+        }
         if (collection["type"].toString() != "FeatureCollection" ||
             !collection["features"].isArray()) {
             spatialError(error, "Preview data must be a GeoJSON FeatureCollection.");
@@ -880,10 +924,15 @@ public:
         auto *scene = mWindow->canvas()->mapScene();
         if (!scene)
             return false;
+        if (collection["previewStyle"].toObject()["asFeatureLayer"].toBool())
+            return showPreviewLayer(collection, error);
         auto *group = new QGraphicsItemGroup;
         const QPen outline(QColor(0, 145, 170), 0);
+        const auto labelProperty =
+            collection["previewStyle"].toObject()["pointLabelProperty"].toString();
         for (const auto &value : collection["features"].toArray()) {
-            const auto json = QJsonDocument(value.toObject()["geometry"].toObject())
+            const auto feature = value.toObject();
+            const auto json = QJsonDocument(feature["geometry"].toObject())
                                   .toJson(QJsonDocument::Compact);
             auto *geometry = OGRGeometryFactory::createFromGeoJson(json.constData());
             if (!geometry || !supportedPreviewGeometry(geometry) || !projectGeometry(geometry)) {
@@ -892,14 +941,31 @@ public:
                 spatialError(error, "A preview geometry could not be transformed to the map CRS.");
                 return false;
             }
-            addPreviewGeometry(group, geometry, outline);
+            const auto label = labelProperty.isEmpty()
+                                   ? QString{}
+                                   : feature["properties"].toObject()[labelProperty]
+                                         .toString()
+                                         .simplified()
+                                         .left(256);
+            addPreviewGeometry(group, geometry, outline, label);
             OGRGeometryFactory::destroyGeometry(geometry);
         }
+        const QPointer<ProjectFacade> self(this);
+        const QPointer<QGraphicsScene> destination(scene);
+        mChangingPreview = true;
+        const auto release = qScopeGuard([self] {
+            if (self)
+                self->mChangingPreview = false;
+        });
         clearPreview();
+        if (!self || !destination || !mWindow || mWindow->isClosing()) {
+            delete group;
+            return false;
+        }
         mPreview = group;
         mPreviewScene = scene;
         group->setZValue(1e9);
-        scene->addItem(group);
+        destination->addItem(group);
         return true;
     }
 
@@ -914,9 +980,170 @@ private:
     {
         if (mWindow && mWindow->canvas())
             for (auto *base : mWindow->canvas()->layers())
-                if (base->layerId() == id)
+                if (!base->isTemporary() && base->layerId() == id)
                     return qobject_cast<GISVectorLayer *>(base);
         return nullptr;
+    }
+    /** @brief Publish a bounded, host-owned native vector preview without persistent assets.
+     * @param[in] collection Valid FeatureCollection with optional previewStyle rendering hints.
+     * @param[out] error Optional refusal detail; invalid input leaves the old display untouched.
+     * @return True after publication, or an unchanged attached native preview.
+     * @note Nested property values become compact JSON strings in the transient OGR copy.
+     * Native layer signals remain visible to the normal typed extension event stream. */
+    bool showPreviewLayer(const QJsonObject &collection, QString *error)
+    {
+        if (mChangingPreview) {
+            spatialError(error, "The preview layer is already being updated.");
+            return false;
+        }
+        if (mPreviewLayer && mPreviewCanvas &&
+            mPreviewCanvas->layers().contains(mPreviewLayer) &&
+            collection == mPreviewLayerCollection)
+            return true; // Preserve native filtering, selection, visibility and styling.
+        if (!mWindow || mWindow->isClosing() || !mWindow->modelLayer()) {
+            spatialError(error, "The model is no longer available for a preview layer.");
+            return false;
+        }
+        const auto features = collection["features"].toArray();
+        if (features.size() > 5000) {
+            spatialError(error, "A preview layer is limited to 5000 features.");
+            return false;
+        }
+        QJsonArray normalized;
+        QSet<QString> fields;
+        for (const auto &value : features) {
+            auto feature = value.toObject();
+            if (feature["type"].toString() != "Feature" ||
+                (!feature["properties"].isObject() && !feature["properties"].isNull())) {
+                spatialError(error, "A preview layer requires features with object or null properties.");
+                return false;
+            }
+            const auto json = QJsonDocument(feature["geometry"].toObject())
+                                  .toJson(QJsonDocument::Compact);
+            auto *geometry = OGRGeometryFactory::createFromGeoJson(json.constData());
+            const bool supported = geometry && supportedPreviewGeometry(geometry) &&
+                                   projectGeometry(geometry);
+            OGRGeometryFactory::destroyGeometry(geometry);
+            if (!supported) {
+                spatialError(error, "A preview geometry could not be transformed to the map CRS.");
+                return false;
+            }
+            auto properties = feature["properties"].toObject();
+            for (auto it = properties.begin(); it != properties.end(); ++it) {
+                if (it.key().isEmpty() || it.key().size() > 256) {
+                    spatialError(error, "Preview attribute names must contain 1 to 256 characters.");
+                    return false;
+                }
+                fields.insert(it.key());
+                if (fields.size() > 256) {
+                    spatialError(error, "A preview layer is limited to 256 source attributes.");
+                    return false;
+                }
+                if (it.value().isObject())
+                    it.value() = QString::fromUtf8(QJsonDocument(it.value().toObject())
+                                                     .toJson(QJsonDocument::Compact));
+                else if (it.value().isArray())
+                    it.value() = QString::fromUtf8(QJsonDocument(it.value().toArray())
+                                                     .toJson(QJsonDocument::Compact));
+            }
+            feature["properties"] = properties;
+            normalized.append(feature);
+        }
+        const auto style = collection["previewStyle"].toObject();
+        const auto labelProperty = style["pointLabelProperty"].toString();
+        QString labelField;
+        if (!labelProperty.isEmpty()) {
+            labelField = QStringLiteral("__openswmm_preview_label");
+            for (int suffix = 1; fields.contains(labelField); ++suffix)
+                labelField = QStringLiteral("__openswmm_preview_label_%1").arg(suffix);
+            for (qsizetype i = 0; i < normalized.size(); ++i) {
+                auto feature = normalized.at(i).toObject();
+                auto properties = feature["properties"].toObject();
+                // Keep the original attribute intact; the native label uses a
+                // bounded display-only column that can be inspected like any field.
+                properties[labelField] = features.at(i).toObject()["properties"]
+                                             .toObject()[labelProperty]
+                                             .toString()
+                                             .simplified()
+                                             .left(256);
+                feature["properties"] = properties;
+                normalized[i] = feature;
+            }
+        }
+        const auto bytes = QJsonDocument(QJsonObject{{"type", "FeatureCollection"},
+                                                     {"features", normalized}})
+                               .toJson(QJsonDocument::Compact);
+        if (bytes.size() > 20 * 1024 * 1024) {
+            spatialError(error, "A preview layer is limited to 20 MiB of GeoJSON.");
+            return false;
+        }
+        if (mPreviewSuppressed)
+            return true; // A local selection/filter refresh must respect manual removal.
+        const auto path = QStringLiteral("/vsimem/openswmm-preview-%1.geojson")
+                              .arg(QUuid::createUuid().toString(QUuid::WithoutBraces))
+                              .toUtf8();
+        auto *buffer = static_cast<GByte *>(VSI_MALLOC_VERBOSE(size_t(bytes.size())));
+        if (!buffer) {
+            spatialError(error, "Cannot allocate the preview layer datasource.");
+            return false;
+        }
+        std::memcpy(buffer, bytes.constData(), size_t(bytes.size()));
+        auto *file = VSIFileFromMemBuffer(path.constData(), buffer, bytes.size(), true);
+        if (!file) {
+            CPLFree(buffer);
+            spatialError(error, "Cannot create the preview layer datasource.");
+            return false;
+        }
+        if (VSIFCloseL(file) != 0) {
+            VSIUnlink(path.constData());
+            spatialError(error, "Cannot finish the preview layer datasource.");
+            return false;
+        }
+        auto layer = std::make_unique<GISVectorLayer>(QString::fromUtf8(path), QString{},
+                                                     mWindow->modelLayer()->workspace());
+        // Retain the native workspace accessor, but make the facade the exclusive
+        // QObject owner only after native removal callbacks have completed.
+        layer->setParent(nullptr);
+        // QObject destruction follows the GISVectorLayer destructor, so the OGR
+        // dataset is closed before the virtual source's owned bytes are released.
+        connect(layer.get(), &QObject::destroyed, [path] { VSIUnlink(path.constData()); });
+        if (!layer->ogrLayer()) {
+            spatialError(error, "GDAL could not open the preview layer datasource.");
+            return false;
+        }
+        layer->setTemporary(true);
+        const auto title = style["title"].toString().trimmed().left(256);
+        layer->setName(title.isEmpty() ? tr("Extension preview") : title);
+        auto symbol = layer->symbol();
+        symbol.markerSize = 8.;
+        symbol.markerFill = QColor(0, 145, 170, 150);
+        symbol.markerOutline = QColor(0, 145, 170);
+        layer->setSymbol(symbol);
+        if (!labelField.isEmpty()) {
+            auto labels = layer->labelConfig();
+            labels.enabled = true;
+            labels.fieldName = labelField;
+            labels.haloEnabled = true;
+            layer->setLabelConfig(labels);
+        }
+        const QPointer<ProjectFacade> self(this);
+        const QPointer<SWMMVisProjectWindow> owner(mWindow);
+        const QPointer<MapCanvas> canvas(mWindow->canvas());
+        mChangingPreview = true;
+        const auto release = qScopeGuard([self] {
+            if (self)
+                self->mChangingPreview = false;
+        });
+        clearPreview();
+        if (!self || !owner || owner->isClosing() || !canvas)
+            return false;
+        layer->setParent(this);
+        mPreviewLayer = layer.release();
+        mPreviewCanvas = canvas;
+        mPreviewLayerCollection = collection;
+        const QPointer<GISVectorLayer> published(mPreviewLayer);
+        canvas->addLayer(mPreviewLayer, false);
+        return self && canvas && published && canvas->layers().contains(published);
     }
     static QJsonObject geographicGeometry(const OGRGeometry *source, SpatialReferenceSystem *srs,
                                           QString *error)
@@ -971,8 +1198,13 @@ private:
                 return false;
         return true;
     }
+    /** @brief Add transformed preview geometry with optional plain-text point annotations.
+     * @param[in] group Unpublished overlay group under construction.
+     * @param[in] geometry Geometry already transformed into the canvas CRS.
+     * @param[in] pen Cosmetic preview outline.
+     * @param[in] pointLabel Bounded optional text shared by this feature's points. */
     static void addPreviewGeometry(QGraphicsItemGroup *group, const OGRGeometry *geometry,
-                                   const QPen &pen)
+                                   const QPen &pen, const QString &pointLabel)
     {
         const auto type = wkbFlatten(geometry->getGeometryType());
         if (type == wkbPoint) {
@@ -982,6 +1214,13 @@ private:
             item->setFlag(QGraphicsItem::ItemIgnoresTransformations);
             item->setPen(pen);
             item->setBrush(QColor(0, 145, 170, 150));
+            if (!pointLabel.isEmpty()) {
+                // The point is the fixed-pixel anchor, so both the text and its
+                // six-pixel offset stay legible as the map view is scaled.
+                auto *label = new QGraphicsSimpleTextItem(pointLabel, item);
+                label->setPos(6, -16);
+                label->setBrush(QColor(0, 90, 105));
+            }
         } else if (type == wkbPolygon) {
             const auto *polygon = geometry->toPolygon();
             QPainterPath path;
@@ -1003,7 +1242,7 @@ private:
         } else if (OGR_GT_IsSubClassOf(type, wkbGeometryCollection)) {
             const auto *collection = geometry->toGeometryCollection();
             for (int i = 0; i < collection->getNumGeometries(); ++i)
-                addPreviewGeometry(group, collection->getGeometryRef(i), pen);
+                addPreviewGeometry(group, collection->getGeometryRef(i), pen, pointLabel);
         }
     }
     bool transform(QPointF point, QPointF *result, bool toGeographic) const
@@ -1031,6 +1270,11 @@ private:
     QString mPlugin;
     QPointer<QGraphicsScene> mPreviewScene;
     QGraphicsItemGroup *mPreview = nullptr;
+    QPointer<GISVectorLayer> mPreviewLayer; ///< Host-owned native preview, never serialized.
+    QPointer<MapCanvas> mPreviewCanvas;    ///< Exact native attachment used for guarded removal.
+    QJsonObject mPreviewLayerCollection;   ///< Canonical owning input for identity-preserving no-ops.
+    bool mChangingPreview = false;        ///< Refuse nested replacement while native signals publish.
+    bool mPreviewSuppressed = false;      ///< Manual removal remains effective until clearPreview().
 };
 class ModelFacade final : public IModelInstance
 {
@@ -1427,6 +1671,28 @@ private:
     std::vector<std::unique_ptr<ModelFacade>> mRetired;
     std::vector<std::unique_ptr<ProjectFacade>> mProjects;
 };
+}
+std::unique_ptr<IEditScope> beginTimeSeriesModelEdit(SWMMVisProjectWindow *window,
+                                                   const QString &label, QString *error)
+{
+    if (error)
+        error->clear();
+    if (!window || QThread::currentThread() != window->thread() || window->isClosing() ||
+        !window->modelLayer() || !window->modelLayer()->engine() ||
+        window->property("extensionRunCount").toInt() ||
+        !window->property("extensionWriteLease").toString().isEmpty() ||
+        window->property("extensionReadLeases").toInt()) {
+        if (error)
+            *error = QStringLiteral("The destination model is unavailable or locked by a run/edit.");
+        return {};
+    }
+    auto lease = std::make_unique<EngineLease>(window, LeaseKind::Write,
+                                              QStringLiteral("native-timeseries"));
+    const auto before = writeSnapshot(window, error);
+    if (before.isEmpty())
+        return {};
+    return std::make_unique<EditScope>(window, label, std::move(lease), before,
+                                       QStringLiteral("native-timeseries"));
 }
 void installExtensionModelAccess(GuiExtensionHost *host,
                                  std::function<QList<SWMMVisProjectWindow *>()> windows,

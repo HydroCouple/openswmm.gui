@@ -157,7 +157,8 @@ public:
         SWMMRasterLayer = 5,             /*!< GDAL raster dataset. */
         SWMMImageryLayer = 6,            /*!< Background imagery (WMS/WMTS). */
         SWMMTabularDataLayer = 7,        /*!< Attribute-only tabular data. */
-        SWMMTabularyTimeSeriesLayer = 8, /*!< Time-series tabular data. */
+        SWMMTabularyTimeSeriesLayer = 8, /*!< Legacy spelling, retained for source compatibility. */
+        SWMMTimeSeriesLayer = 8,        /*!< Native persistent observation collection. */
         SWMMSubProjectLayer = 9,         /*!< Collection of layers for one SWMM sub-project. */
         SWMMWMSLayer = 10,               /*!< OGC WMS service. */
         SWMMWMTSLayer = 11,              /*!< OGC WMTS service. */
@@ -227,6 +228,23 @@ public:
      * @return Stored concrete-kind discriminator; base begins SWMMDefaultLayer and derived classes set it through setLayerType().
      */
     [[nodiscard]] OpenSWMMVisLayerType layerType() const;
+
+    /**
+     * @brief Report whether this auxiliary layer exists only for the current session.
+     * @return True for a temporary layer, which is omitted from project/recovery layer
+     * persistence and attached, moved or removed without layer-stack undo commands.
+     * @note Native inspection, filtering, selection, styling and notifications still apply.
+     */
+    [[nodiscard]] bool isTemporary() const { return m_temporary; }
+
+    /**
+     * @brief Set session-only ownership before attaching an auxiliary layer to a canvas.
+     * @param[in] temporary True to omit the layer from persistence and layer-stack undo.
+     * @note Set only before first attachment, or after detaching and releasing every undo
+     * reference. Changing an attached layer's policy is unsupported. No signal, scene
+     * update, file deletion or ownership transfer occurs; the creator still cleans it up.
+     */
+    void setTemporary(bool temporary) { m_temporary = temporary; }
 
     // ----- Visibility & rendering -----------------------------------------
 
@@ -807,6 +825,7 @@ protected:
     BasemapHttpHeaders m_httpHeaders; ///< arbitrary headers (incl. "referer")
 
 private:
+    bool m_temporary = false; ///< Auxiliary session-only layer; fixed before canvas attachment.
     QString m_layerId;
     OpenSWMMVisWorkspace *mParent = nullptr;
     QString mName;

@@ -346,12 +346,12 @@ class VectorPointItem : public QGraphicsEllipseItem
 {
 public:
     /**
-     * @brief Create selectable hover-enabled GIS point, canonical marker Circle initially.
+     * @brief Create a selectable hover-enabled GIS point with a fixed-pixel Circle marker.
      * @param[in] fid OGR feature ID stored unchanged.
-     * @param[in] sceneX Ellipse center X stored in local rect (not item setPos).
-     * @param[in] sceneY Ellipse center Y in same prepared frame.
-     * @param[in] radius Raw local-coordinate radius, unchecked; item does NOT set
-     *   IgnoreTransformations.
+     * @param[in] sceneX Map anchor X stored as item position.
+     * @param[in] sceneY Map anchor Y in the same prepared scene frame.
+     * @param[in] radius Logical screen-pixel radius, unchecked. The origin-centered
+     *   ellipse ignores map transformations so size is independent of map CRS/zoom.
      * @param[in] parent Optional QGraphicsItem parent owns item; otherwise scene/caller controls
      *   lifetime. GUI-thread access only.
      * @note Input geometry already in item/scene coordinates, no CRS projection or engine/OGR
@@ -391,7 +391,7 @@ public:
      */
     void setHighlighted(bool on);
     /**
-     * @param[in] r Raw new local radius, caller supplies nonnegative finite; no clamp.
+     * @param[in] r New logical screen-pixel radius, caller supplies nonnegative finite; no clamp.
      * @brief Resize local ellipse bounding rect around current rect center; item position
      *   unchanged. No engine geometry or attribute change. Qt setRect updates scene
      *   geometry/repaint.

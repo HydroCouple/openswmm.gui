@@ -107,7 +107,34 @@ public:
      * @param[in] featureCollection RFC 7946 FeatureCollection containing Point/MultiPoint and Polygon/MultiPolygon geometries.
      * @param[out] error Optional transformation failure detail.
      * @return True after replacing the overlay; false retains the preceding preview.
-     * @note Preview is transformed to the canvas CRS and is never saved as a model layer or download payload. */
+     * @note Preview is transformed to the canvas CRS and is never saved as a model layer or download payload.
+     * Optional collection-level `previewStyle: {pointLabelProperty: "field"}` draws each
+     * point's string-valued `properties.field` beside its fixed-pixel marker. Missing,
+     * empty or non-string values have no label. Text is plain, whitespace-normalized,
+     * limited to 256 characters and starts six pixels right and sixteen pixels above
+     * the marker center. Polygon geometry is unaffected. Omitting the hint preserves
+     * the geometry-only presentation.
+     * The host retains the display until replacement, clearPreview() or facade destruction;
+     * extensions remain responsible for tracking whether displayed results are still
+     * eligible for export after viewport/source changes. No review authority is conferred.
+     *
+     * `previewStyle: {asFeatureLayer: true, title: "Sites"}` instead creates a
+     * host-owned temporary native GIS layer. It appears in Layers and the native
+     * attribute table, query, selection and styling tools, but is excluded from
+     * project persistence and boundary choices. Its datasource exists only in GDAL
+     * virtual memory. Repeating an identical collection preserves its native identity,
+     * filter, selection and style; changed input is validated before replacement.
+     * Manually removing it suppresses subsequent refreshes until clearPreview()
+     * explicitly resets that choice. The host clears it when its model closes or
+     * this extension's project facade is destroyed. Normal native layer/revision
+     * events are still published; callers must reconcile review authority separately.
+     * Native previews accept at most 5000 features, 256 distinct source attributes,
+     * 256 characters per nonempty attribute name, and 20 MiB of normalized GeoJSON.
+     * Scalar property types use GDAL's schema inference; nested objects and arrays
+     * are compact JSON strings in the native copy. A requested point label adds a
+     * uniquely named `__openswmm_preview_label` display column, preserving the original
+     * attribute. Native edits to presentation/filter/selection are session-only;
+     * saving source records remains an explicit consumer operation. */
     virtual bool showPreview(const QJsonObject &featureCollection, QString *error = nullptr) = 0;
     /** @brief Remove this extension's preview overlay without altering model/feature layers.
      * @note Safe after model closure; the host also removes the overlay when its facade is destroyed. */

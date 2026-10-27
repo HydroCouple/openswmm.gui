@@ -17,7 +17,7 @@ as an animation on a shared time cursor.
 | Load a `.2d.h5` | **File → Import → Add 2D Results…**; ribbon **Home → Import** |
 | The loaded results layers | The **Layers** dock, under the **SWMM Results** category |
 | Which run is active | The **Results Layers** group at the head of the **Analysis** ribbon tab — **1D results:** and **2D results:** combos |
-| Playback | The **Results** menu and the **Results** ribbon tab |
+| Playback | The **Results** menu and the **Animation** ribbon tab |
 | Styling | **Results → Set Style**, or right-click a layer → **Properties…** |
 | Legend | **Results → Show Legend** (canvas overlay); **View → Panels → Legend** (`Ctrl+Alt+5`) for the dock |
 
@@ -122,9 +122,9 @@ layer's properties.
 
 \figtodo{21_legend_overlay_and_dock.png, The canvas legend overlay beside the dockable Legend panel}
 
-### Playback — the Results ribbon tab
+### Playback — the Animation ribbon tab
 
-The **Results** tab (and the **Results** menu) carries the animation. One time
+The **Animation** tab (and the **Results** menu) carries the animation. One time
 cursor drives the 1D and 2D outputs selected in Analysis. The 1D report times
 are authoritative when available; otherwise the selected 2D output supplies
 the clock.
@@ -164,7 +164,7 @@ pausing disables live following so incoming frames do not override the chosen
 time. Stop is a momentary action: it clears Play, Pause and live following,
 then rewinds the selected results and slider.
 
-\fig{21_results_ribbon_tab.png, The Results ribbon tab — Playback; Timeline and Display groups}
+\fig{21_results_ribbon_tab.png, The Animation ribbon tab — Playback; Timeline and Display groups}
 
 
 ### Styling 2D results
@@ -201,7 +201,7 @@ Particles use the velocity field of the currently displayed result frame and
 adjust as that frame changes. When result time is held, they can continue moving
 through that fixed field to illustrate its direction. **Animate flow streaks**
 in the layer's context menu can freeze this illustrative motion separately;
-there is no separate Flow Motion control in the Results ribbon. Older cached-path
+there is no separate Flow Motion control in the Animation ribbon. Older cached-path
 styles migrate to Normal motion and the nearest density/trail presets; existing
 particle styles keep their saved values.
 

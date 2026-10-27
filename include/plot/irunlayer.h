@@ -26,6 +26,9 @@
 
 #include "plot/plotattribute.h"
 #include "plot/resultdescriptor.h"
+#include "plot/seriesstatistics.h"
+#include <optional>
+#include <atomic>
 
 #include <QDateTime>
 #include <QString>
@@ -262,6 +265,12 @@ struct SeriesData {
     std::vector<double> values; ///< Same length as timesJulian.
     bool ok = false;            ///< False if the source couldn't fulfil the request.
     QString errorMessage;       ///< Populated when ok == false.
+    bool displayOnly = false; ///< Decimated data: never consume for statistics or export.
+    bool allowPairing = true; ///< False until observation clock/statistic pairing is explicitly prepared.
+    bool pointsOnly = false; ///< Irregular/calendar data require explicit continuity before connecting.
+    QString displayNote; ///< Honest explanation of view reduction or temporal support.
+    std::optional<SeriesStatistics> fullStatistics; ///< Exact full-resolution summary for the returned window.
+    QDateTime statisticsFrom, statisticsTo; ///< Inclusive display window summarized above.
 
     /*! INPUT — first period (0-based) to resolve. A live chart that already
      *  holds periods [0, n) asks for n and gets only the tail; before this the

@@ -103,7 +103,12 @@ class GISRasterLayer;
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
 class MapCanvas;
+class TimeSeriesLayer;
 class SWMMVisProjectWindow;
+namespace openswmmvis
+{
+struct ExtensionUiBridge;
+}
 class LayerTreePanel;
 class ObjectBrowserPanel;
 class PropertiesPanel;
@@ -1386,6 +1391,15 @@ private slots:
      * not itself reveal it, bind a run or transfer ownership.
      */
     openswmmvis::ui::ComparisonPlotDialog *ensureComparisonPlotDialog();
+    /** @brief Route native collection plot/model actions through this application's controllers.
+     * @param[in] owner Exact project owning the attached source.
+     * @param[in] layer Host-owned collection; no source samples are copied into widgets. */
+    void wireTimeSeriesLayer(SWMMVisProjectWindow *owner, TimeSeriesLayer *layer);
+    /** @brief Attach native collection UI routing once for a model canvas and its current layers.
+     * @param[in] owner Current project; QObject guards keep pending routes inert after closure. */
+    void wireTimeSeriesLayers(SWMMVisProjectWindow *owner);
+    /** @brief Import a native dataset/descriptor or map one CSV series into a durable layer. */
+    void onAddTimeSeriesLayer();
     /**
      * @brief Create owned Time Series, 1D Profile and 2D Profile docks with stable settings
      * names.
@@ -1878,6 +1892,12 @@ private:
      * @note GUI thread only. Builds scoped SDK hosts and UI bridges; safe mode skips plugin code.
      * @see gui_extension_sdk */
     void initializeExtensions();
+    /** @brief Install native log and shared status-progress routes on a per-plugin bridge.
+     * @param[in,out] bridge Host-owned callbacks, invoked only on the GUI thread.
+     * Progress UUIDs identify one accepted operation across updates and retirement. The
+     * native window retains copied presentation values, never plugin objects or widgets.
+     * Completion removes only the matching UUID and restores other active producers. */
+    void configureExtensionActivityBridge(openswmmvis::ExtensionUiBridge &bridge);
     class QToolBar *mToolBarHome = nullptr;
     class QToolBar *mToolBarModel = nullptr;
     class QToolBar *mToolBarMesh2D = nullptr;
@@ -2068,16 +2088,23 @@ private:
     QPointer<class OpenSWMMVisMapTool> mPrevMapTool;
 
     // ── Status-bar progress arbitration (LOAD_PERF Phase 1c) ──────────────
-    // One QProgressBar serves three producers: simulation runs (real
-    // percent), project opens (real percent), and a handful of genuinely
-    // unmeasurable operations (raster/table open) that still want a spinner.
-    // They are mutually exclusive, so ownership is explicit and every writer
-    // goes through applyProgressBarState().
+    // One QProgressBar serves simulation runs, project opens, plugin scopes
+    // and unmeasurable raster/table operations. Concurrent producers retain
+    // independent state; every writer goes through applyProgressBarState().
 
     /*! Who currently owns \ref mProgressBar. Simulation outranks Open: a run
      *  is the longer, explicitly user-initiated task, and a 200 ms open must
      *  not blank a 40-minute run's percentage. */
-    enum class ProgressOwner { None, Busy, Open, Simulation };
+    enum class ProgressOwner { None, Busy, Extension, Open, Simulation };
+
+    /** @brief Copied presentation state for one host-owned extension progress scope. */
+    struct ExtensionProgressState {
+        QString title;          ///< Plugin-qualified operation caption.
+        double fraction = -1.;  ///< Negative means indeterminate; otherwise finite [0,1].
+        QString stage;          ///< Current human-readable stage, without executable markup.
+    };
+    QHash<QUuid, ExtensionProgressState>
+        mExtensionProgress; ///< Independent UUIDs prevent one plugin from clearing another.
 
     /*! In-flight project opens keyed by open id. The bar shows the MINIMUM
      *  percent across them, matching the min-across-jobs rule the simulation
@@ -2087,10 +2114,11 @@ private:
     int mBusyRefCount = 0; //!< nesting depth of onSetProgressBarBusy(true)
 
     /**
-     * @brief Arbitrate the shared progress widget with Simulation above Open above Busy above
+     * @brief Arbitrate the shared progress widget with Simulation above Open above Extension above Busy above
      * hidden.
      * Simulation shows rounded/clamped minimum job fraction; open shows minimum percent and its
-     * stage label; busy is indeterminate. During simulation a nonempty concurrent open label
+     * stage label; extensions show the minimum known fraction, or indeterminate while any
+     * scope has unknown progress; busy is indeterminate. During simulation a nonempty concurrent open label
      * can still appear, with hash iteration deciding ties/label choice. Requires finite sensible
      * simulation fractions and live registered models; missing bar is inert. Does not advance,
      * finish or cancel work or change ownership of tracked jobs.

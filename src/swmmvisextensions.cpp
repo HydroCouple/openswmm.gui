@@ -16,10 +16,12 @@
 #include "plugins/extensionmanager.h"
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionmodelaccess.h"
+#include "plugins/extensiontimeseriesaccess.h"
 #include "plugins/extensionactivityui.h"
 #include "ui/actionregistry.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include "ui/toolbars/ribbongroup.h"
+#include "ui/toolbars/ribboncompactor.h"
 #include "simulation/simulationstatusmodel.h"
 #include "simulation/simulationrunner.h"
 #include "layers/swmmresultslayer.h"
@@ -84,6 +86,28 @@ QStringList dialogCommandIds()
 }
 }
 
+void SWMMVis::configureExtensionActivityBridge(openswmmvis::ExtensionUiBridge &bridge)
+{
+    bridge.logMessage = [this](const QString &level, const QString &message) {
+        const auto severity = level.compare("error", Qt::CaseInsensitive) == 0
+                                  ? OpenSWMMVisLogMessage::Error
+                              : level.compare("warning", Qt::CaseInsensitive) == 0 ||
+                                        level.compare("warn", Qt::CaseInsensitive) == 0
+                                  ? OpenSWMMVisLogMessage::Warning
+                                  : OpenSWMMVisLogMessage::Information;
+        onLogMessage(message, severity);
+    };
+    bridge.progressChanged = [this](const QUuid &operationId, const QString &title,
+                                    double fraction, const QString &stage) {
+        mExtensionProgress.insert(operationId, {title, fraction, stage});
+        applyProgressBarState();
+    };
+    bridge.progressFinished = [this](const QUuid &operationId) {
+        mExtensionProgress.remove(operationId);
+        applyProgressBarState();
+    };
+}
+
 void SWMMVis::initializeExtensions()
 {
     using namespace openswmmvis;
@@ -99,6 +123,7 @@ void SWMMVis::initializeExtensions()
     manager->start(
         [this](const QString &id) -> std::unique_ptr<ExtensionHost> {
             ExtensionUiBridge bridge;
+            configureExtensionActivityBridge(bridge);
             bridge.addTab = [this](const RibbonTabSpec &spec,
                                    const QHash<QString, QPointer<QAction>> &actions) {
                 if (!mCompactToolbar || mCompactToolbar->tabIds().contains(spec.id))
@@ -112,6 +137,9 @@ void SWMMVis::initializeExtensions()
                     bar->addWidget(group);
                 }
                 mCompactToolbar->addTab(spec.id, spec.title, {bar}, spec.contextual);
+                const auto groups = bar->findChildren<RibbonGroup *>(Qt::FindDirectChildrenOnly);
+                if (!groups.isEmpty())
+                    new RibbonCompactor(bar, groups);
                 return true;
             };
             bridge.removeTab = [this](const QString &id) {
@@ -339,6 +367,7 @@ void SWMMVis::initializeExtensions()
                     return windows;
                 },
                 [this]() { return activeProjectWindow(); });
+            installExtensionTimeSeriesAccess(host.get());
             if (mSimStatusModel) {
                 const auto runsChanged = [guard = QPointer<GuiExtensionHost>(host.get())]() {
                     if (guard)

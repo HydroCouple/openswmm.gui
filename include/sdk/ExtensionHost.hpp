@@ -25,18 +25,21 @@ namespace OpenSWMM::Sdk
 class IModelInstance;
 class IProject;
 
-/** @brief Host-owned plain-text output channel scoped to one extension. */
+/** @brief Host-owned plain-text output channel scoped to one extension and forwarded to native Logs. */
 class IConsole
 {
 public:
     /** @brief Destroy a console implementation; the host owns the public facade. */
     virtual ~IConsole() = default;
-    /** @brief Append literal text to this extension's bounded output history.
-     * @param[in] level Display severity, such as info, warning or error.
+    /** @brief Append literal text to this extension's bounded Output and native timestamped Logs.
+     * @param[in] level Case-insensitive severity: warning/warn, error, or information for all
+     * other values, including info.
      * @param[in] text Plain text; never interpreted as HTML or executable content.
-     * @note Thread-safe entry point: worker calls are queued to the GUI thread. */
+     * @note Thread-safe entry point: worker calls are queued to the GUI thread. Native Logs adds
+     * the plugin identity; the extension should supply its message without that prefix. */
     virtual void append(const QString &level, const QString &text) = 0;
-    /** @brief Clear this extension output history. @note GUI thread only. */
+    /** @brief Clear only this extension's Output history; native Logs history is retained.
+     * @note GUI thread only. */
     virtual void clear() = 0;
     /** @brief Append literal output associated with a source file location.
      * @param[in] level Display severity, as for append().

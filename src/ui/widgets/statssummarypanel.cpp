@@ -275,7 +275,7 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
                 continue;
             SeriesData data;
             m_model->resolveSeries(sIdx, data);
-            if (!data.ok)
+            if (!data.ok || data.displayOnly || !data.allowPairing)
                 continue;
             baselineByObj[refKey(spec.objectRef)] = data.values;
             baselineTimesByObj[refKey(spec.objectRef)] = data.timesJulian;
@@ -307,7 +307,17 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
             filtered.push_back(data.values[i]);
         }
 
-        const auto stats = computeStatistics(filtered);
+        // Native display buffers are deliberately decimated. Only their separately computed
+        // full-resolution window summary may populate statistics; never summarize the pixels.
+        const bool sameWindow = (!m_selLo.isValid() && !m_selHi.isValid()) ||
+                                (data.statisticsFrom == m_selLo && data.statisticsTo == m_selHi);
+        if ((data.displayOnly || spec.descriptor().isObservation()) && (!data.fullStatistics || !sameWindow)) {
+            table->setItem(outRow,0,new NumericTableWidgetItem(
+                tr("%1 — select the plot window and wait for full-resolution statistics").arg(spec.legendOverride)));
+            ++outRow;
+            continue;
+        }
+        const auto stats = data.fullStatistics ? *data.fullStatistics : computeStatistics(filtered);
 
         const QString legendName =
             !spec.legendOverride.isEmpty()
@@ -351,7 +361,7 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
             auto it = baselineByObj.find(refKey(spec.objectRef));
             FitMetrics fit;
             bool haveFit = false;
-            if (it != baselineByObj.end() && spec.runIndex != baselineRun) {
+            if (it != baselineByObj.end() && spec.runIndex != baselineRun && data.allowPairing && !data.displayOnly) {
                 const auto &btimes = baselineTimesByObj[refKey(spec.objectRef)];
                 const auto &bvals = it->second;
                 const double halfStep =

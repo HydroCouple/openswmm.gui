@@ -87,7 +87,7 @@ void OpenSWMMVisMapToolIdentify::mousePressEvent(QMouseEvent *event)
         result.layerName = layer->name();
 
         if (auto *vl = qobject_cast<GISVectorLayer *>(layer)) {
-            result.features = vl->identifyAt(m_lastX, m_lastY, m_tolerance);
+            result.features = vl->identifyAt(m_lastX, m_lastY, m_canvas->canvasSRS(), m_tolerance);
         } else if (auto *ml = qobject_cast<SWMMModelLayer *>(layer)) {
             QVariantMap feat = ml->identifyAt(m_lastX, m_lastY, m_tolerance);
             if (!feat.isEmpty())

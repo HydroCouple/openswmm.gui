@@ -107,9 +107,9 @@ public:
      * @brief Query clicked canvas location across supported visible layers from highest stack index
      *   downward.
      * @note Only GISVectorLayer and SWMMModelLayer recognized; no opacity/scale/show-kind gating
-     *   beyond delegated queries. Calls convenience identifyAt overloads with no explicit canvas
-     *   SRS; model uses prepared cached inverse, vector follows its own convenience coordinate
-     *   behavior. Model results are lightweight identity maps, not full static properties.
+     *   beyond delegated queries. Vector queries receive the canvas SRS and tolerance in canvas
+     *   units; model queries use their prepared cached inverse. Model results are lightweight
+     *   identity maps, not full static properties.
      * @note Omits empty result layers; false queryAll stops at first hit, not first visible layer.
      *   Emits identifyResult even empty, sets marker present even miss, then invalidates Overlay.
      *   No model selection/edit or undo; event not accepted.
