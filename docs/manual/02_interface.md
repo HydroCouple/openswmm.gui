@@ -93,7 +93,7 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 | **Features** | **Select** · **Layer** (New Layer) · **Edit** (Edit Mode; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (Add Part; Add Hole; Edit Vertices; Move) — see \ref manual_feature_layers |
 | **Analysis** | **Select** · **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View) · **Plots** (Time Series; Profile; 2D Profile) · **Network Analysis** (Flow Balance Downstream/Upstream; Travel Time Downstream/Upstream; Mass Balance) |
 | **Results** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
-| **View** | **Panels** (the dock toggles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
+| **View** | **Panels** (the dock toggles) · **Plots** (Time Series; 1D Profiles; 2D Profiles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
 
 \fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
 
@@ -225,7 +225,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Pan** | | Pan tool (checkable) |
 | **Measure** | `Ctrl+Shift+M` | Measures distances and areas on the canvas |
 | **Show Legend** | | Toggles the draggable legend overlay on the active canvas |
-| **Panels ▸** | | The nine dock toggles — see the table below |
+| **Panels ▸** | | The dock toggles, including Time Series, 1D Profiles and 2D Profiles — see the table below |
 | **Layer Styling Dock** | `Ctrl+Alt+8` | Shows or hides the live layer-styling editor; opening it loads the layer selected in **Layers** |
 | **Appearance ▸** | | **System** / **Light** / **Dark**; mirrors the Preferences Appearance page |
 | **Command Palette…** | `Ctrl+Shift+P` | Opens the palette |
@@ -364,8 +364,10 @@ The document area's background and the Welcome tab track the application theme
 
 ### Dock panels
 
-Nine docks have toggle actions in **View → Panels ▸** and on the **View** ribbon
-tab. **Layer Styling** has its own View-menu entry and shortcut.
+Dock panels have toggle actions in **View → Panels ▸** and on the **View** ribbon
+tab. The ribbon's **Plots** group toggles **Time Series**, **1D Profiles** and
+**2D Profiles**. Hiding a plot panel retains its plot tabs so they are available
+when you show it again. **Layer Styling** has its own View-menu entry and shortcut.
 
 | Panel | Shortcut | What it shows | Chapter |
 |---|---|---|---|
@@ -379,6 +381,9 @@ tab. **Layer Styling** has its own View-menu entry and shortcut.
 | **Layer Styling** | `Ctrl+Alt+8` | The always-open variant of the Symbology tab; edits apply live to the canvas and follow the layer selected in **Layers** | \ref manual_styling |
 | **Section View** | `Ctrl+Alt+9` | The cross-section drawing for the selected link or transect | \ref manual_object_browser |
 | **Features** | `Ctrl+Alt+0` | Editable GIS layers; fields; feature attributes; vertex coordinates and elevation sources | \ref manual_feature_layers |
+| **Time Series** | | Time-series plot tabs; hiding the panel retains the plots | \ref manual_time_series_plots |
+| **1D Profiles** | | Network profile plot tabs | \ref manual_profile_plots |
+| **2D Profiles** | | Mesh profile plot tabs | \ref manual_profile_plots |
 
 \fig{02_docks_default_layout.png, An example dock arrangement with the Object Browser; Properties; Message Logs and Attribute Table}
 
