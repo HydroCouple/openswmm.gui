@@ -268,6 +268,9 @@ void SWMMVis::initializeCompactToolbar()
         {"actionToggleDockLegend", QT_TR_NOOP("Legend")},
         {"actionToggleDockSimulationStatus", QT_TR_NOOP("Simulation\nStatus")},
         {"actionToggleDockMessageLogs", QT_TR_NOOP("Message\nLogs")},
+        {"actionToggleDockTimeSeries", QT_TR_NOOP("Time\nSeries")},
+        {"actionToggleDockProfiles1D", QT_TR_NOOP("1D\nProfiles")},
+        {"actionToggleDockProfiles2D", QT_TR_NOOP("2D\nProfiles")},
         {"actionLayerStylingDock", QT_TR_NOOP("Layer\nStyling")},
         {"actionStyleManager", QT_TR_NOOP("Styles")},
         {"actionShowWelcome", QT_TR_NOOP("Welcome")},
@@ -385,6 +388,9 @@ void SWMMVis::initializeCompactToolbar()
               "actionToggleDockAttributeTable", "actionToggleDockFeatures",
               "actionToggleDockLegend", "actionToggleDockSimulationStatus",
               "actionToggleDockMessageLogs"});
+    addGroup(mToolBarView, tr("Plots"),
+             {"actionToggleDockTimeSeries", "actionToggleDockProfiles1D",
+              "actionToggleDockProfiles2D"});
     addGroup(mToolBarView, tr("Styling"), {"actionLayerStylingDock", "actionStyleManager"});
     addGroup(mToolBarView, tr("Start"), {"actionShowWelcome"});
 
