@@ -27,6 +27,8 @@
 #include "ui/properties/userflagseditref.h"
 
 #include <QComboBox>
+#include "ui/properties/linkendpointcombobox.h"
+#include "ui/panels/swmmattributetablemodel.h"
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
@@ -149,6 +151,29 @@ void IntegerDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 // ---------------------------------------------------------------------------
 // EnumDelegate
 // ---------------------------------------------------------------------------
+
+QWidget *LinkEndpointDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &,
+                                            const QModelIndex &) const
+{
+    auto *editor = new LinkEndpointComboBox(parent);
+    auto *self = const_cast<LinkEndpointDelegate *>(this);
+    connect(editor, &LinkEndpointComboBox::valueChanged, self,
+            [self, editor] { emit self->commitData(editor); });
+    return editor;
+}
+
+void LinkEndpointDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
+{
+    if (auto *combo = qobject_cast<LinkEndpointComboBox *>(editor))
+        combo->setValue(index.data(kLinkEndpointRole).value<LinkEndpointRef>());
+}
+
+void LinkEndpointDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                        const QModelIndex &index) const
+{
+    if (auto *combo = qobject_cast<LinkEndpointComboBox *>(editor))
+        model->setData(index, combo->value().nodeName, Qt::EditRole);
+}
 
 EnumDelegate::EnumDelegate(QObject *parent, QVariantList values)
     : QStyledItemDelegate(parent), m_values(std::move(values))

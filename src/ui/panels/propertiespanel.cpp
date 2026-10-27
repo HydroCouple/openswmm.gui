@@ -31,6 +31,7 @@
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
 #include "ui/properties/linkcompoundeditref.h"
+#include "ui/properties/linkendpointcombobox.h"
 // ATTRIBUTE_EDITOR_WIRING Phase 0 — culvert code inline combobox.
 #include "ui/properties/culvertcodecombobox.h"
 #include "ui/properties/culvertcoderef.h"
@@ -238,6 +239,13 @@ public:
                           const QModelIndex &index) const override
     {
         QWidget *w = QPropertyItemDelegate::createEditor(parent, option, index);
+        if (w) {
+            if (auto *endpoint = w->findChild<LinkEndpointComboBox *>()) {
+                auto *self = const_cast<PropertyStepDelegate *>(this);
+                connect(endpoint, &LinkEndpointComboBox::valueChanged, self,
+                        [self, w] { emit self->commitData(w); });
+            }
+        }
         // The library wraps the spin box in its own editor widget.
         auto *spin = qobject_cast<QDoubleSpinBox *>(w);
         if (!spin && w)
@@ -399,6 +407,11 @@ void PropertiesPanel::setupUi()
     m_model = new QPropertyModel(this);
     auto *delegate = new PropertyStepDelegate(this); // feedback C7
     m_delegate = delegate;
+
+    registerLinkEndpointRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        static_cast<QMetaType::Type>(qMetaTypeId<LinkEndpointRef>()),
+        new QStandardItemEditorCreator<LinkEndpointComboBox>());
 
     // Slice DB.2 — register the custom editor creator for the node
     // compound-attribute metatype so QPropertyItemDelegate hands out
@@ -1077,6 +1090,22 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                 auto applyGeomRowFlags = [pm, this]() {
                     if (!pm || !m_linkAdapter)
                         return;
+                    for (const auto &ref :
+                         {m_linkAdapter->fromNodeRef(), m_linkAdapter->toNodeRef()}) {
+                        const int link =
+                            swmm_link_index(ref.engine, ref.linkName.toUtf8().constData());
+                        const int node =
+                            swmm_node_index(ref.engine, ref.nodeName.toUtf8().constData());
+                        int isVirtual = 0;
+                        const bool editable =
+                            linkendpoint::allowed(ref.engine, link, ref.upstream, node) &&
+                            swmm_node_is_virtual(ref.engine, node, &isVirtual) == SWMM_OK &&
+                            !isVirtual;
+                        setRowEditable(pm, m_linkAdapter,
+                                       ref.upstream ? QStringLiteral("fromNode")
+                                                    : QStringLiteral("toNode"),
+                                       editable);
+                    }
                     const int shape = m_linkAdapter->xsectShapeId();
                     for (int k = 1; k <= 4; ++k)
                         setRowEditable(pm, m_linkAdapter, QStringLiteral("geom%1").arg(k),

@@ -213,8 +213,19 @@ public:
                       const QModelIndex &index) const override;
 };
 
-/*! Enum editor.  The list is `{label, data}` pairs — display shows
- *  the label, the model stores the data value. */
+/*! Existing-node search picker; the model validates and applies the connection. */
+class LinkEndpointDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override;
+};
+
+/*! Enum editor. The list is `{label, data}` pairs. */
 class EnumDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
