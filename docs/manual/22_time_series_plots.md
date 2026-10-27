@@ -21,7 +21,8 @@ own comparison tab.
 | Right-click a node / link / subcatchment on the **map** → **Plot Time Series** | Pops the attribute menu for that kind; the pick is added as one series |
 | Right-click an object in the **Object Browser** → **Plot Time Series** | Same. With more than one `.out` loaded the entry becomes a **Plot Time Series ▸ *run*** submenu so you choose which run |
 | Right-click a **2D mesh cell / edge / vertex** on the map | The mesh attribute menu — see \ref manual_analysis_tools |
-| **Add from Map…** on the plot toolbar | Arms a one-shot map pick so you can keep adding objects without leaving the plot |
+| **Add from Map…** on the plot toolbar | Adds model/results objects, native monitoring stations or linked-feature observations to the invoking plot tab |
+| Right-click a native **Time Series** layer/series or station → **Plot time series…** | Adds selected observation series without requiring a simulation result |
 
 Map and Object Browser commands reuse the **Comparison** tab in the **Time Series**
 panel. A time-series request from a 1D profile opens a separate tab associated with
@@ -137,6 +138,43 @@ default, configure explicit pairs (below).
 
 \figtodo{22_series_tree_context_menu.png, The series tree with a run group; a baseline marker and the series context menu}
 
+### Plotting native observation layers
+
+Right-click a collection, series or monitoring station and choose **Plot time
+series…**. The existing Comparison tab keeps its zoom, pan, styles and export
+controls. Multiple series at one station are offered in a chooser. Native plots
+also work for records with no location or feature link.
+
+Axes retain the measurement, statistic and actual native unit. Different units
+or statistics remain distinct rows; data is never silently relabelled as SI/US.
+Continuous source times are displayed as UTC. Daily statistics use a labelled
+calendar-date axis and markers, not invented midnight UTC measurements.
+Irregular or missing observations are shown as samples without interpolated
+lines. Ordinary line-series NaN gaps are separated into finite segments.
+
+When observations and model results share a plot, a prompt requires the model's
+fixed UTC offset before aligning continuous observations with the model's
+wall-clock fields. Daily data keeps its source calendar date. This changes only
+the plot view. Native observation fit/scatter pairing remains disabled: an
+explicit statistical matching/aggregation policy is required before those
+metrics can be meaningful.
+
+Large observation plots load on a worker and use at most 12,000 display points
+per series/window, preserving extrema. Zooming requests a new bounded window;
+**Fit** returns to full coverage. Statistics are computed separately from all
+source samples in the loaded query window, never from the reduced display.
+Exact percentile summaries support up to one million samples per window; choose
+a shorter range for larger records. A selected statistics range is published
+only after its matching full-resolution query finishes.
+
+**Export Data** for native series writes full-resolution long-form CSV with
+original timestamp text, source IDs, units, approval/qualifiers and metadata.
+It exports the complete selected source series, independent of zoom and display
+reduction, and can be cancelled without publishing a partial file. Export native
+observations and model-result series separately because their timestamp and
+metadata formats differ. Use **Use in model…** to prepare explicit model-clock
+and unit conversions before writing a model time series.
+
 ### Loading observed data
 
 **Load Observed…** accepts `*.csv`, `*.tsv`, `*.tsf` and `*.dat`. Column 0 is the
@@ -144,8 +182,9 @@ timestamp; every other column becomes one series. Timestamps are recognised as:
 
 - ISO 8601 — `2026-01-01T00:15:00` or `2026-01-01 00:15:00`;
 - SWMM external time series — `01/01/2026 00:15`;
-- hours since the start of the run — a bare number, tried only when nothing else
-  matches.
+Numeric hours-since-start values are not accepted by this plot loader because
+it has no simulation-start anchor. Use the model time-series editor when an
+explicit relative-time anchor is needed.
 
 After the file is chosen you are asked **which attribute** the value columns
 represent — Depth (node), Head, Total inflow, Overflow, Flow, Depth (link),

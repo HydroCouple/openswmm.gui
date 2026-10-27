@@ -205,8 +205,13 @@ VectorPointItem::VectorPointItem(qint64 fid, double sceneX, double sceneY, doubl
     : QGraphicsEllipseItem(parent), m_fid(fid)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
+    setFlag(QGraphicsItem::ItemIgnoresTransformations);
     setAcceptHoverEvents(true);
-    setRect(sceneX - radius, sceneY - radius, radius * 2.0, radius * 2.0);
+    // The anchor follows map coordinates; marker geometry stays in logical
+    // screen pixels. Keeping a world-space center inside rect() scales both
+    // size and hit area with the CRS, making ordinary GIS points subpixel.
+    setPos(sceneX, sceneY);
+    setRect(-radius, -radius, radius * 2.0, radius * 2.0);
 }
 
 void VectorPointItem::setHighlighted(bool on)

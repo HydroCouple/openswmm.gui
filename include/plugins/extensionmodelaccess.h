@@ -13,6 +13,16 @@
 class SWMMVisProjectWindow;
 namespace openswmmvis
 {
+/** @brief Begin a checked native time-series assignment transaction.
+ * @param[in] window Exact live target; running/leased/closing models are refused.
+ * @param[in] label Complete undo caption.
+ * @param[out] error Snapshot/lease refusal detail, cleared on entry.
+ * @return Owned mediated scope. Assignment provenance in the window's
+ * timeSeriesAssignments property is restored with engine state on abort/undo/redo.
+ * @note GUI thread only; do not process events inside the scope. */
+std::unique_ptr<OpenSWMM::Sdk::IEditScope>
+beginTimeSeriesModelEdit(SWMMVisProjectWindow *window, const QString &label,
+                         QString *error = nullptr);
 /** @brief Install QPointer-backed SDK model facades owned by the extension host.
  * @param[in] host Live private host; owns the adapter context and every facade.
  * @param[in] windows GUI-thread callback enumerating current nonclosing project windows.

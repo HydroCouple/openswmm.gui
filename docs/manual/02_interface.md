@@ -92,8 +92,9 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 | **Mesh 2D** *(contextual)* | **Mesh** (Generate Mesh; Burn Channels) · **Cell Data** (From Raster; From Shapefile) · **Groundwater (2D)** (Aquifer Parameters; Initial Conditions) — plus the Mesh Editing toolbar's own groups: **Mesh** · **Vertices** · **Edges** · **2D Results** · **Profile** · **Coupling** |
 | **Features** | **Select** · **Layer** (New Layer) · **Edit** (Edit Mode; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (Add Part; Add Hole; Edit Vertices; Move) — see \ref manual_feature_layers |
 | **Analysis** | **Select** · **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View) · **Plots** (Time Series; Profile; 2D Profile) · **Network Analysis** (Flow Balance Downstream/Upstream; Travel Time Downstream/Upstream; Mass Balance) |
-| **Results** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
+| **Animation** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
 | **View** | **Panels** (the dock toggles) · **Plots** (Time Series; 1D Profiles; 2D Profiles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
+| **Extension tabs** | Each loaded GUI extension can add its own named tabs, such as **Data** for USGS monitoring sites and elevation footprints |
 
 \fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
 
@@ -110,6 +111,9 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 
 Both are hidden again as soon as the last qualifying layer is removed, and they
 follow the active project tab.
+
+GUI extensions can add their own named ribbon tabs and command groups. An
+extension can provide multiple tabs, each with independent visibility and commands.
 
 #### Split buttons
 
@@ -553,4 +557,4 @@ explanatory tooltip. See \ref manual_object_browser.
 - \ref manual_layers — the Layers panel and every data source
 - \ref manual_object_browser — the Object Browser; Properties and Section View
 - \ref manual_running — the Simulation Status and Message Logs docks in use
-- \ref manual_results — the Results tab and map animation
+- \ref manual_results — the Animation tab and map animation

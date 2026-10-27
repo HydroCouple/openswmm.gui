@@ -3,7 +3,7 @@
 # Run this focused check from the repository root:
 #   doxygen docs/sdk/Doxyfile
 PROJECT_NAME = "OpenSWMM GUI Extension SDK"
-PROJECT_NUMBER = 1.5
+PROJECT_NUMBER = 1.7
 OUTPUT_DIRECTORY = build/docs/sdk
 INPUT = include/sdk docs/sdk/extensions.dox docs/manual/26_extensions.md examples/extensions/template/extension.cpp examples/extensions/events/extension.cpp examples/extensions/lifecycle/extension.cpp examples/extensions/views/extension.cpp examples/extensions/activity/extension.cpp examples/extensions/values/extension.cpp examples/extensions/values/ValueEventAdapter.hpp examples/extensions/values/ValueEventAdapter.cpp
 RECURSIVE = YES

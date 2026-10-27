@@ -169,7 +169,7 @@ inlet-capacity or flood-risk benchmark.
 
 Load the matching `coupled_plaza.out` and `coupled_plaza.2d.h5` if they are not
 already present. Select the appropriate 1D and 2D result layers on **Analysis**.
-On **Results**, choose the surface layer and **Set Style → Cell Depth Fill**.
+On **Animation**, choose the surface layer and **Set Style → Cell Depth Fill**.
 Use **Fixed over run** or a user range of 0–0.07 m. The checked maximum cell
 depth is about 0.0641 m at 01:00:00; final maximum depth is about 0.0116 m.
 All 48 cells still exceed 1 mm at the final frame.

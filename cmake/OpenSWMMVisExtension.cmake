@@ -1,6 +1,6 @@
 # Generate Qt plugin metadata from the exact SDK used by an external build.
 # Usage: openswmmvis_add_extension(target ID org.example.plugin CAPTION "Example"
-#          VERSION 1.0.0 SOURCES extension.cpp [REQUIRES_ENGINE_ABI])
+#          VERSION 1.0.0 SOURCES extension.cpp [icons.qrc] [REQUIRES_ENGINE_ABI])
 function(openswmmvis_add_extension target)
     cmake_parse_arguments(EXT "REQUIRES_ENGINE_ABI" "ID;CAPTION;VERSION;VENDOR;LICENSE" "SOURCES" ${ARGN})
     if(NOT EXT_ID OR NOT EXT_CAPTION OR NOT EXT_VERSION OR NOT EXT_SOURCES)
@@ -52,7 +52,8 @@ function(openswmmvis_add_extension target)
     file(MAKE_DIRECTORY "${_metadata_dir}")
     file(WRITE "${_metadata_dir}/plugin.json" "${_metadata}\n")
     add_library(${target} MODULE ${EXT_SOURCES})
-    set_target_properties(${target} PROPERTIES AUTOMOC ON)
+    # Bundle plugin-owned icons and other Qt resources supplied in SOURCES.
+    set_target_properties(${target} PROPERTIES AUTOMOC ON AUTORCC ON)
     target_include_directories(${target} PRIVATE "${_metadata_dir}")
     target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
 endfunction()

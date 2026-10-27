@@ -143,6 +143,7 @@ bindings. The list, by menu path:
 - **File → Import** — SWMM Output, Vector Data, Raster Data, WMS Data,
   Delimited Data, Basemap, 2D Mesh
 - **Results** — Play, Pause, Stop, Skip Back, Skip Forward, Set Style
+  (**Animation** ribbon tab)
 
 The **Mesh** group is contextual: those commands appear on the **Mesh 2D**
 ribbon tab and are enabled only while a 2D mesh is active.

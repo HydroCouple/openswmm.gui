@@ -13,7 +13,13 @@
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
+#include "layers/gisvectorlayer.h"
+#include "layers/xyztilelayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include <ogrsf_frmts.h>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QtTest>
 #include <memory>
@@ -86,6 +92,136 @@ private slots:
         qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
         qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
         qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
+    }
+    /** @brief Temporary GIS content and stack keys stay out of normal and recovery saves. */
+    void temporaryLayersAreSessionOnly()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        const QDir retained(
+            QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath())
+                .absoluteFilePath("../verification/usgs_preview_2026-10-26/temporary-layers"));
+        QVERIFY(QDir().mkpath(retained.absolutePath()));
+        const auto path = retained.filePath("temporary-layer-source.geojson");
+        QFile source(path);
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        const QByteArray data =
+            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Test gage","flow":12.5},"geometry":{"type":"Point","coordinates":[-76,40]}}]})";
+        QCOMPARE(source.write(data), qint64(data.size()));
+        source.close();
+        auto *permanent = new GISVectorLayer(path);
+        permanent->setParent(&window);
+        permanent->setName("Saved monitoring locations");
+        auto *temporary = new GISVectorLayer(path);
+        temporary->setParent(&window);
+        temporary->setTemporary(true);
+        temporary->setName("Temporary monitoring locations");
+        QVERIFY(permanent->ogrLayer());
+        QVERIFY(temporary->ogrLayer());
+        QVERIFY(!permanent->isTemporary());
+        QVERIFY(temporary->isTemporary());
+        window.canvas()->addLayer(permanent, false);
+        auto *savedBasemap = new XYZTileLayer("https://example.invalid/{z}/{x}/{y}", 256, &window);
+        savedBasemap->setName("Saved basemap");
+        savedBasemap->setVisible(false); // This persistence-only fixture never requests tiles.
+        window.canvas()->addLayer(savedBasemap, false);
+        auto *temporaryBasemap =
+            new XYZTileLayer("https://example.invalid/{z}/{x}/{y}", 256, &window);
+        temporaryBasemap->setName("Temporary basemap");
+        temporaryBasemap->setVisible(false);
+        temporaryBasemap->setTemporary(true);
+        window.canvas()->addLayer(temporaryBasemap);
+        window.setHasChanges(false);
+        const int history = window.canvas()->undoStack()->count();
+        window.canvas()->addLayer(temporary); // The temporary policy overrides normal undo routing.
+        QCOMPARE(window.canvas()->undoStack()->count(), history);
+        QVERIFY(!window.hasChanges());
+        temporary->setFilterExpression("flow >= 10");
+        // The public unforced count may be unknown after an OGR attribute filter.
+        QCOMPARE(temporary->ogrLayer()->GetFeatureCount(true), GIntBig(1));
+        QVERIFY(!window.hasChanges());
+        const auto temporaryKey = MapCanvas::layerOrderKey(temporary);
+        const auto permanentKey = MapCanvas::layerOrderKey(permanent);
+        for (const auto &name : {QStringLiteral("temporary-project.oswp"),
+                                 QStringLiteral("temporary-recovery.oswp")}) {
+            const auto savedPath = retained.filePath(name);
+            QString error;
+            QVERIFY2(ProjectSerializer::saveToFile(savedPath, &window, &error), qPrintable(error));
+            const auto saved = QJsonDocument::fromJson(bytes(savedPath)).object();
+            const auto gis = saved["gisLayers"].toArray();
+            QCOMPARE(gis.size(), 1);
+            QCOMPARE(gis.first().toObject()["id"].toString(), permanent->layerId());
+            const auto order = saved["canvas"].toObject()["layerOrder"].toArray();
+            QVERIFY(order.contains(permanentKey));
+            QVERIFY(!order.contains(temporaryKey));
+            QVERIFY(!order.contains(MapCanvas::layerOrderKey(temporaryBasemap)));
+            const auto basemaps = saved["basemaps"].toArray();
+            QCOMPARE(basemaps.size(), 1);
+            QCOMPARE(basemaps.first().toObject()["name"].toString(), savedBasemap->name());
+        }
+        auto *removed = window.canvas()->takeLayer(window.canvas()->layers().indexOf(temporary));
+        QCOMPARE(removed, temporary);
+        delete removed;
+        QCOMPARE(window.canvas()->undoStack()->count(), history);
+        QVERIFY(!window.hasChanges());
+    }
+    /** @brief Permanent move/reorder undo survives inserted, removed and deleted temporary layers. */
+    void temporaryLayersDoNotCorruptPermanentStackHistory()
+    {
+        MapCanvas canvas;
+        const auto create = [&canvas](const QString &name, bool temporary = false) {
+            auto *layer = new GISVectorLayer(QString{});
+            layer->setName(name);
+            layer->setParent(&canvas);
+            layer->setTemporary(temporary);
+            return layer;
+        };
+        auto *a = create("A"), *b = create("B"), *c = create("C");
+        canvas.addLayer(a, false);
+        canvas.addLayer(b, false);
+        canvas.addLayer(c, false);
+        canvas.moveLayer(0, 2);
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a}));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        auto *preview = create("Preview", true);
+        canvas.insertLayer(0, preview);
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.moveLayer(0, 3); // Moving only the preview is also outside undo history.
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, b, c, preview}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a, preview}));
+        canvas.reorderLayers({preview, a, c, b});
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        delete canvas.takeLayer(canvas.layers().indexOf(preview));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, b}));
+        auto *later = create("Later preview", true);
+        canvas.insertLayer(0, later);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, b, later}));
+        delete canvas.takeLayer(canvas.layers().indexOf(b), false);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, a, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, later}));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, later}));
+        delete canvas.takeLayer(canvas.layers().indexOf(a), false);
+        canvas.undoStack()->redo(); // A deleted move target must not move a different current row.
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, later}));
     }
     /** @brief Verify selecting the current engine version is silent while changing it marks the project dirty exactly once. */
     void engineVersionOnlyRecordsActualUserChanges()

@@ -400,9 +400,9 @@ class MoveLayerCommand : public MapCommand
 {
 public:
     /**
-     * @brief Capture before/after layer-stack indices for reorder replay.
+     * @brief Capture guarded before/after layer identities for reorder replay.
      * @param[in] oldIndex Original zero-based layer-stack index.
-     * @param[in] newIndex Target zero-based index; caller preserves intervening stack coherence.
+     * @param[in] newIndex Target zero-based index in the current stack.
      * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
      *   lifetime.
      * @param[in] parent Optional QUndoCommand owner; otherwise stack owns after push.
@@ -412,19 +412,19 @@ public:
     MoveLayerCommand(int oldIndex, int newIndex, MapCanvas *canvas, QUndoCommand *parent = nullptr);
 
     /**
-     * @brief Move layer from new index back to old using pushUndo=false; no pointer identity
-     *   snapshot or nested undo.
+     * @brief Restore attached surviving old identities without nested undo; append later layers.
      */
     void undo() override;
     /**
-     * @brief Move layer from old index to new using pushUndo=false; null canvas no-op, canvas
-     *   validates indices.
+     * @brief Restore attached surviving new identities without nested undo; append later layers.
      */
     void redo() override;
 
 private:
-    int m_oldIndex;
-    int m_newIndex;
+    QPointer<OpenSWMMVisLayer>
+        m_layer; ///< Moved identity; detached/deleted targets are not replayed.
+    QList<QPointer<OpenSWMMVisLayer>> m_oldOrder; ///< Guarded original attachment order.
+    QList<QPointer<OpenSWMMVisLayer>> m_newOrder; ///< Guarded requested attachment order.
 };
 
 /*!
@@ -1616,11 +1616,9 @@ class ReorderLayersCommand : public MapCommand
 {
 public:
     /**
-     * @brief Capture complete before/after raw layer-pointer orders for an already-applied reorder.
-     * @param[in] oldOrder Previous full pointer permutation; external layer ownership/lifetimes
-     *   retained.
-     * @param[in] newOrder Already-applied new permutation, later passed back without
-     *   reconstruction.
+     * @brief Capture guarded before/after layer identities for an already-applied reorder.
+     * @param[in] oldOrder Previous full pointer permutation; guards do not take ownership.
+     * @param[in] newOrder Already-applied new permutation, copied into lifetime guards.
      * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
      *   lifetime.
      * @param[in] parent Optional QUndoCommand owner; otherwise stack owns after push.
@@ -1632,18 +1630,17 @@ public:
     ReorderLayersCommand(QList<OpenSWMMVisLayer *> oldOrder, QList<OpenSWMMVisLayer *> newOrder,
                          MapCanvas *canvas, QUndoCommand *parent = nullptr);
     /**
-     * @brief Restore old full order through canvas without nested undo; null canvas no-op.
+     * @brief Restore attached old survivors, appending current unmentioned layers; never reattach.
      */
     void undo() override;
     /**
-     * @brief Skip first call unconditionally; later apply new full order without nested undo when
-     *   canvas exists.
+     * @brief Skip first call; later restore attached new survivors without nested undo.
      */
     void redo() override;
 
 private:
-    QList<OpenSWMMVisLayer *> m_oldOrder;
-    QList<OpenSWMMVisLayer *> m_newOrder;
+    QList<QPointer<OpenSWMMVisLayer>> m_oldOrder; ///< Old identities; disposed layers become null.
+    QList<QPointer<OpenSWMMVisLayer>> m_newOrder; ///< New identities; disposed layers become null.
     bool m_firstRedo = true;
 };
 

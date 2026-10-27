@@ -10,6 +10,7 @@
 #include "map/tools/maptoolplotpick.h"
 
 #include "layers/swmmmodellayer.h"
+#include "layers/timeserieslayer.h"
 #include "map/networkplotpick.h"
 #include "map/mapcanvas.h"
 #include "ui/widgets/attributepickermenu.h"
@@ -56,6 +57,44 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
 
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const QPoint globalPt = widget ? widget->mapToGlobal(pixel) : pixel;
+
+    const auto observations = timeSeriesHitsAt(m_canvas, mapX, mapY, tol);
+    if (!observations.isEmpty()) {
+        const QPointer<OpenSWMMVisMapToolPlotPick> owner(this);
+        const QPointer<MapCanvas> canvasGuard(m_canvas);
+        const QPointer<SWMMModelLayer> modelGuard(hit.model);
+        const QPointer<SWMMResultsLayer> resultsGuard(hit.results);
+        QMenu chooser;
+        connect(this, &QObject::destroyed, &chooser, &QWidget::close);
+        connect(m_canvas, &QObject::destroyed, &chooser, &QWidget::close);
+        connect(m_canvas, &MapCanvas::layerRemoved, &chooser, &QWidget::close);
+        QHash<QAction *, QPair<QPointer<TimeSeriesLayer>, QString>> targets;
+        for (const auto &candidate : observations) {
+            if (!candidate.layer) continue;
+            auto *group = chooser.addMenu(candidate.layer->name());
+            for (const auto &id : candidate.seriesIds) {
+                auto *action = group->addAction(candidate.layer->seriesCaption(id));
+                targets.insert(action, {candidate.layer, id});
+            }
+        }
+        QAction *networkAction = nullptr;
+        if (ref.isValid()) networkAction = chooser.addAction(QObject::tr("Model / result variables…"));
+        if (targets.size() == 1 && !networkAction) {
+            const auto target = targets.cbegin().value();
+            if (target.first) emit timeSeriesPicked(target.first, {target.second});
+            event->accept(); return;
+        }
+        auto *chosen = chooser.exec(globalPt);
+        if (!owner || !canvasGuard)
+            return;
+        if (targets.contains(chosen)) {
+            const auto target = targets.value(chosen);
+            if (target.first) emit timeSeriesPicked(target.first, {target.second});
+            event->accept(); return;
+        }
+        if (!networkAction || chosen != networkAction || !modelGuard ||
+            (hit.results && !resultsGuard)) { event->accept(); return; }
+    }
 
     // Background hit → offer the system-attribute submenu.
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty()) {

@@ -49,6 +49,8 @@
  * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for V3 view observations.
  * sdk/IEventSourceV4.hpp | Unique process attempts, retained activity snapshots and scoped UI invalidations.
  * sdk/IActivityControlsV1.hpp | Identity-checked run start/cancellation and document/dock/command controls.
+ * sdk/ITimeSeriesLayersV1.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
+ * sdk/IProgressV1.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
  * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for V4 process and UI observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
@@ -147,9 +149,29 @@
  *
  * Register commands before a RibbonTabSpec refers to them. The host prefixes
  * local identities with ext.&lt;pluginId&gt;. Commands appear in the command
- * palette; ribbon tabs can be added and removed after application startup.
+ * palette; ribbon contributions can be added and removed after application startup.
+ * Each RibbonTabSpec creates its own tab using its title and ordered groups. A plugin
+ * may register multiple tabs with distinct local IDs; different plugins may reuse
+ * local IDs because the host qualifies them with the plugin ID. Each tab has its own
+ * visibility, activation and removal lifecycle. Contextual tabs start hidden; hiding
+ * or removing one tab leaves the other tabs available.
  * QAction pointers are borrowed. Parent a newly allocated action to
  * ExtensionHost::lifetime() to give the host ownership.
+ *
+ * Command icons use the existing QAction API; no separate SDK icon service is needed:
+ * @code{.cpp}
+ * auto *action = new QAction(tr("Monitoring sites…"), host->lifetime());
+ * action->setIcon(QIcon(QStringLiteral(":/example/icons/gage.svg")));
+ * action->setIconVisibleInMenu(true);
+ * host->ui()->registerAction(QStringLiteral("sites"), action);
+ * @endcode
+ * Include @c QIcon and bundle the referenced asset in a plugin-owned @c .qrc resource
+ * namespace. Add that @c .qrc to openswmmvis_add_extension() @c SOURCES; the helper enables
+ * Qt resource compilation. Older installed helpers can use target property @c AUTORCC
+ * explicitly. Registered QAction icons reach ribbon buttons and collapsed command menus;
+ * native menu policy determines menu presentation. Provide disabled/selected variants or
+ * palette-aware rendering and refresh QAction::setIcon() when the application palette
+ * changes. Keep icon resources available for the lifetime of all action/icon copies.
  *
  * A dock factory returns a newly allocated QWidget that becomes owned by
  * the host QDockWidget. Document factories remain borrowed while registered;
@@ -1018,6 +1040,51 @@
  * Missing or untransformable CRS information is an error; do not assume
  * that unknown coordinates are longitude/latitude.
  *
+ * A preview FeatureCollection may opt into point labels with the foreign member
+ * `"previewStyle": {"pointLabelProperty": "catalogue_title"}`. Each Point or
+ * MultiPoint marker then uses that feature's string-valued
+ * `properties.catalogue_title`; choose any property name appropriate to the
+ * catalogue. Missing, empty and non-string values produce no label. The host
+ * treats labels as plain text, normalizes whitespace and limits each label to
+ * 256 characters. Text begins six pixels right and sixteen pixels above the marker
+ * center; its size and offset stay fixed when the map is scaled.
+ * Polygon previews are unaffected, and a collection
+ * without this hint keeps the geometry-only presentation. The hint controls
+ * transient rendering; it does not configure a saved feature layer's style.
+ *
+ * To use normal native GIS tools, also set `"asFeatureLayer": true` and optionally
+ * `"title": "USGS sites (preview)"` inside previewStyle. This creates a host-owned
+ * temporary GIS vector layer backed by GDAL virtual memory. The layer appears in
+ * Layers and supports the ordinary Attribute Table, identify, query, feature
+ * selection, filter, visibility and style controls. It is never serialized into
+ * the project or its layer order, and is not offered as a download boundary.
+ * Native attachment and revision events still describe its lifecycle; creating
+ * a preview layer does not authorize a consumer to accept arbitrary later revisions.
+ *
+ * Identical FeatureCollections are no-ops while the native layer remains attached,
+ * preserving its identity and any native filter, selection or custom style. A
+ * changed collection is fully validated before replacing the previous layer.
+ * Manual removal from Layers suppresses further refreshes until the consumer calls
+ * clearPreview(), normally when starting another explicit preview. Clearing, model
+ * closure or extension-facade destruction removes the layer and releases its
+ * virtual datasource. Presentation changes are session-only. The consumer must
+ * separately save original catalogue records when the user requests a persistent layer.
+ *
+ * Native previews are bounded to 5000 features, 256 distinct source attributes,
+ * nonempty field names of at most 256 characters, and 20 MiB of normalized GeoJSON.
+ * GDAL infers scalar column types. Nested object/array properties become compact
+ * JSON strings so each original property remains one inspectable/queryable column.
+ * When pointLabelProperty is requested, the native copy adds a uniquely named
+ * `__openswmm_preview_label` column containing bounded plain display text. It is
+ * distinct from the original full attribute and any original consumer export.
+ *
+ * The host retains an overlay until another successful showPreview(), an explicit
+ * clearPreview(), or destruction of its project facade. Display is separate from
+ * download/export authority: retaining dots for orientation after a viewport
+ * change does not make the old reviewed area current. The consumer owns that
+ * validity decision, must reproject retained geometry after a canvas CRS change,
+ * and must clear its overlay when its model/source is no longer appropriate.
+ *
  * A remote catalogue may accept only a bounding box. Query with the chosen
  * area's envelope, then filter returned sites/footprints against its exact
  * polygon before presenting the preview. Keep that reviewed area with the
@@ -1025,7 +1092,7 @@
  * polygon or relevant viewport invalidate the preview; do not download
  * using a silently recomputed area. Legacy/V1 viewportChanged, layersChanged,
  * selectionChanged and boundaryChanged remain available to old consumers.
- * The current openswmm.gui.data consumer requires SDK 1.5 and uses authoritative
+ * The current openswmm.gui.data consumer requires SDK 1.7 and uses authoritative
  * V2/V3/V4 metadata instead; legacy name translation alone does not establish
  * session readiness, an unambiguous attachment identity or a source revision.
  *
@@ -1080,6 +1147,76 @@
  * NOAA/USGS service clients and the final download product are separate
  * extension implementations.
  *
+ * @section sdk_timeseries_layers SDK 1.6 native observation layers
+ *
+ * Include sdk/ITimeSeriesLayersV1.hpp and discover ITimeSeriesLayersV1 on
+ * host->lifetime(). This independently versioned capability leaves IProject,
+ * ExtensionHost, IPlotService and the V1–V4 event interfaces unchanged. Native
+ * observations are persistent GUI data, independent of the plugin and engine.
+ * Creating a layer does not create model time series or assign forcing.
+ *
+ * Submit a TimeSeriesImportRequest with the original Ready sessionId and exact
+ * loadGeneration, a fresh importId, a completed local JSON descriptor and a new
+ * durable packagePath. The host imports on a cancellable worker, then rechecks
+ * the same target before GUI publication. Retain the borrowed IJob to cancel;
+ * use a GUI-thread QObject context for the result callback. Receiver destruction
+ * and host shutdown suppress publication/callbacks. No source samples or plugin
+ * callback pointers are retained by an attached layer. A deliberate subsequent
+ * download uses a new identity; repeating a published import is idempotent while
+ * its original attachment remains available. timeSeriesLayers() returns at most
+ * 1000 metadata records without reading observations.
+ *
+ * A source-neutral descriptor uses schema openswmm.timeseries-import/1:
+ * @code{.json}
+ * {
+ *   "schema": "openswmm.timeseries-import/1",
+ *   "datasetId": "83694fd0-0eae-4269-9924-4f49eb70dafe",
+ *   "title": "Station observations",
+ *   "sources": [{
+ *     "path": "observations.csv",
+ *     "columns": {"time":"timestamp", "value":"value", "sourceSeriesId":"series"},
+ *     "defaults": {"provider":"example", "collection":"continuous",
+ *                  "timeBasis":"instant", "unit":"m3/s"}
+ *   }]
+ * }
+ * @endcode
+ *
+ * Source paths resolve relative to the descriptor. Map semantic fields to CSV
+ * header strings with columns, or provide constant strings in defaults. Supported
+ * fields include siteId, parameter, sourceSeriesId, statistic, time, timeBasis,
+ * value, unit, observationId, approval, qualifier, properties and geometry.
+ * provider, collection, title and locationId can also be defaults. properties
+ * and geometry contain quoted JSON in CSV; ordinary CSV quote escaping applies.
+ * Empty values are null observations. Instants require an explicit UTC offset;
+ * calendar-date records require yyyy-MM-dd. Do not fabricate midnight instants
+ * for daily statistics. Distinct source series/statistics retain independent
+ * identities. Conflicting same-series timestamps or unit changes refuse import;
+ * identical duplicates may collapse. Detect conflicts before a plugin's own
+ * reduction step so they remain visible to native validation.
+ *
+ * Optional locations contain id, title, attributes and an RFC7946 Point geometry.
+ * Preserve reviewed catalogue coordinates even if observation geometry is absent.
+ * A native layer can be entirely nonspatial. Its own monitoring locations stay
+ * independent of optional project feature links; never persist a temporary
+ * preview's FID as a permanent association. Native feature links are explicit,
+ * and unresolved sources do not remove observations or their owned locations.
+ *
+ * The host writes a schema-versioned, indexed GeoPackage and keeps samples out
+ * of the project JSON. Tables use bounded readers; the existing Comparison plot
+ * uses cancellable window reads and separate full-resolution exports. Units,
+ * statistics, source clocks and nulls remain part of the observation semantics.
+ * Any comparison with model time must explicitly map the source clock to SWMM's
+ * wall-clock interpretation. Unsupported fit/metric pairing remains disabled.
+ *
+ * The Data consumer submits only completed nonempty downloads. Partial/cancelled
+ * downloads keep reviewable files without automatically publishing an incomplete
+ * collection. A closed/reloaded target reports saved assets separately from map
+ * success, never redirects to the active model, and does not grant a new catalogue
+ * review revision. DEM downloads continue using addRasterLayer() for the validated
+ * exact-area derived raster. The host's native Use in model action separately
+ * prepares a copy, validates units/time/gaps/targets and records provenance with
+ * its engine transaction; layer removal and later downloads do not alter that copy.
+ *
  * @section sdk_services Settings, output, jobs and networking
  *
  * settings() is scoped to extensions/&lt;pluginId&gt;/ and refuses traversal keys.
@@ -1087,6 +1224,10 @@
  * separately scoped project JSON, persisted under extensions.&lt;pluginId&gt;.
  * Output is plain text in a shared Output dock with one tab per extension.
  * Its bounded history avoids unlimited growth from long-running tools.
+ * console()->append() also forwards the same message to the application's
+ * native Logs panel, with the extension identity and severity. This uses the
+ * existing console interface; authors do not need a private window pointer or
+ * a second logger. A plugin's Output tab remains its own focused message view.
  * appendLocation() attaches a source path and one-based line to literal
  * output. Double-clicking a located line calls setLocationHandler()'s guarded
  * GUI-thread receiver; it never executes text or opens a path automatically.
@@ -1099,6 +1240,10 @@
  * frequently, return normally, and use a GUI continuation for publication.
  * Worker exceptions become completion errors. The host shows progress and
  * cancellation and joins outstanding work before plugin shutdown.
+ * runJob() automatically contributes to the shared status bar and logs its
+ * start, stage changes and terminal outcome. Repeated numerical progress in
+ * the same stage does not need a separate console line. Do not register a
+ * second manual progress scope for the same job.
  * SDK 1.5 adds unique private-job metadata and identity-based cancellation
  * through IEventSourceV4 and IActivityControlsV1; see @ref sdk_process_controls.
  *
@@ -1114,6 +1259,79 @@
  * process outcome. Cancelling a job does not automatically abort a reply or
  * establish that an HTTP transfer has finished. Coordinate reply cancellation
  * and publication on the GUI thread using guarded native Qt lifetimes.
+ *
+ * @subsection sdk_shared_progress SDK 1.7 shared status progress
+ *
+ * IProgressV1 is a separately discoverable capability for work that does not
+ * run inside runJob(), including asynchronous QNetworkReply transfers. Query
+ * `qobject_cast<IProgressV1 *>(host->lifetime())`; a consumer supporting older
+ * SDKs must handle a null result. A consumer that requires this service declares
+ * SDK 1.7 as its minimum and checks it during initialize(). ExtensionHost,
+ * IUiHost and IConsole keep their existing vtables and interface identities.
+ *
+ * Method | Contract
+ * --- | ---
+ * beginProgress(title, context) | Supply a nonempty title and live GUI-thread QObject context. Begin an indeterminate operation owned by this extension/context and retain its QUuid; a null UUID means it was refused.
+ * updateProgress(id, fraction, stage) | Publish the latest fraction and stage for an active owned operation. Finite negative values mean indeterminate; nonnegative values are clamped to [0,1]. Nonfinite values are refused.
+ * finishProgress(id, outcome, detail) | Finish once with ProgressOutcome::Succeeded, Failed or Cancelled and optional terminal detail. Only this operation is removed from shared progress.
+ *
+ * These calls require the GUI thread. Do not call updateProgress() from a
+ * parsing worker; post a guarded continuation or use runJob() and its
+ * IJobContext. Updates and finishes refuse invalid, foreign or finished IDs,
+ * off-thread calls, a stopping host or a context moved off the GUI thread.
+ * An invalid ProgressOutcome value is also refused.
+ * A false result means the change was not accepted; never substitute another
+ * operation ID. Finishing a display scope
+ * is not cancellation of a reply, job or import: its owner must cancel the
+ * underlying work and report the actual terminal outcome separately.
+ *
+ * The context is borrowed and must outlive its operation. Destroying it or
+ * shutting down the extension removes that extension's unfinished scopes.
+ * Context destruction records cancellation and releases only its operations.
+ * Host shutdown releases the native UI IDs while suppressing further logs,
+ * updates and public callbacks.
+ * Context destruction must also disconnect or guard the operation's network
+ * callbacks so late delivery cannot recreate progress or publish stale data.
+ * No scope may change another extension's status or hide native progress.
+ * The service logs one start, each distinct nonempty stage transition and
+ * one terminal outcome, already identified by extension. Do not duplicate those
+ * messages with console()->append(); use the console for additional domain
+ * details such as retained asset paths or import diagnostics.
+ * Keep stage wording stable while bytes or counts change; use the fraction for
+ * numerical progress. Identical updates are coalesced. Native publication is
+ * synchronous and can reenter application code, so rediscover the service through
+ * a guarded host lifetime after a call that could release its owner.
+ *
+ * @code{.cpp}
+ * #include <sdk/IProgressV1.hpp>
+ * #include <QPointer>
+ * using namespace OpenSWMM::Sdk;
+ *
+ * // GUI thread; context is the operation's QObject, not a worker object.
+ * QPointer<QObject> lifetime(host->lifetime());
+ * auto *progress = qobject_cast<IProgressV1 *>(lifetime.data());
+ * const QUuid id = progress ? progress->beginProgress("Retrieve observations", context)
+ *                           : QUuid{};
+ * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()); current && !id.isNull())
+ *     current->updateProgress(id, -1.0, "Requesting source metadata");
+ *
+ * // In later GUI-thread callbacks, rediscover through the guarded lifetime.
+ * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()))
+ *     current->updateProgress(id, 0.5, "Downloading observations");
+ *
+ * // Call only after validation/publication has reached its real terminal state.
+ * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()))
+ *     current->finishProgress(id, ProgressOutcome::Succeeded, "Collection added");
+ * @endcode
+ *
+ * The native status bar chooses simulation progress before project opening,
+ * then extension progress, then a generic busy indication. A lower-priority
+ * operation remains tracked and can become visible when higher-priority work
+ * finishes. Concurrent extension operations show the slowest known fraction;
+ * if any has an unknown amount of work, their combined indication is busy.
+ * Finishing or destroying one operation recomputes the display from survivors.
+ * The status bar is a shared summary; use native Logs for stage and outcome
+ * details and the extension's own controls for cancellation.
  *
  * @section sdk_application_services Runs, results, plots and built-in dialogs
  *
@@ -1157,8 +1375,9 @@
  * The engine now supplies a runtime ABI tag and installed manifest. The
  * broader program still calls for borrowed Python handles, external-image
  * bindings and the separate Python product. The independent openswmm.gui.data
- * consumer implements catalogue previews; precipitation, observation imports
- * and terrain payload retrieval remain subsequent data packages.
+ * consumer implements catalogue previews, dated observation downloads and native
+ * collection import, and terrain payload retrieval with exact-area raster import.
+ * Precipitation design storms remain a subsequent data package.
  * SDK 1.1 adds derived model attributes and console source
  * navigation; the root IGuiExtension IID remains at 1.0 because its interface
  * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
@@ -1176,6 +1395,12 @@
  * without adding V4 types to frozen V1/V2/V3 header layouts. Activity clients
  * require SDK 1.5. Existing SDK 1.1 Data, 1.2 event and 1.3 lifecycle consumers
  * retain their separately versioned contracts.
+ * SDK 1.6 adds ITimeSeriesLayersV1 for native observation datasets; see
+ * @ref sdk_timeseries_layers. SDK 1.7 adds IProgressV1 for scoped asynchronous
+ * operation progress in the shared status bar; see @ref sdk_shared_progress.
+ * It does not revise the frozen host, UI, console or earlier capability interfaces.
+ * The updated Data consumer requires SDK 1.7, including native observation
+ * import and shared progress.
  *
  * The current openswmm.gui.data consumer requires the newer typed capabilities;
  * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.

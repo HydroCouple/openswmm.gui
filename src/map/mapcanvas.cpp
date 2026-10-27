@@ -9,6 +9,7 @@
  */
 
 #include "map/mapcanvas.h"
+#include "layers/timeserieslayer.h"
 #include "map/scalebarsettings.h"
 #include "core/preferencesmanager.h"
 #include "layers/swmmresultslayer.h"
@@ -1111,12 +1112,14 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
     // So when pushUndo is true we ONLY push the command — performing the
     // insertion here too would add the layer twice. Caller-facing API stays
     // unchanged; this just routes the work through the command path.
-    if (pushUndo) {
+    if (pushUndo && !layer->isTemporary()) {
         m_undoStack->push(new AddLayerCommand(layer, position, this));
         return;
     }
 
     m_layers.insert(position, layer);
+    if (auto *series = qobject_cast<TimeSeriesLayer *>(layer))
+        series->bindCanvas(this);
 
     connect(layer, &OpenSWMMVisLayer::repaintRequested, this, &MapCanvas::onLayerRepaintRequested);
     if (auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer)) {
@@ -1221,7 +1224,7 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     // Same pattern as insertLayer: when pushUndo is true, route through the
     // undo command so QUndoStack::push() → RemoveLayerCommand::redo() does
     // the actual removal exactly once via takeLayer(index, false).
-    if (pushUndo) {
+    if (pushUndo && !m_layers.at(index)->isTemporary()) {
         OpenSWMMVisLayer *layer = m_layers.at(index);
         m_undoStack->push(new RemoveLayerCommand(layer, index, this));
         return layer; // command's redo() has already removed it
@@ -1229,6 +1232,8 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
 
     stopVisibleComposition();
     OpenSWMMVisLayer *layer = m_layers.takeAt(index);
+    if (auto *series = qobject_cast<TimeSeriesLayer *>(layer))
+        series->bindCanvas(nullptr);
 
     disconnect(layer, &OpenSWMMVisLayer::repaintRequested, this,
                &MapCanvas::onLayerRepaintRequested);
@@ -1278,7 +1283,7 @@ void MapCanvas::moveLayer(int fromIndex, int toIndex, bool pushUndo)
 
     // Same pattern as insertLayer / takeLayer: route through the undo
     // command so the work happens exactly once via redo() on push.
-    if (pushUndo) {
+    if (pushUndo && !m_layers.at(fromIndex)->isTemporary()) {
         m_undoStack->push(new MoveLayerCommand(fromIndex, toIndex, this));
         return;
     }
@@ -1360,21 +1365,31 @@ QVector<int> MapCanvas::layerGroupOrder() const
 void MapCanvas::setLayerGroupOrder(const QVector<int> &order)
 {
     using openswmmvis::ui::CatCount;
-    if (order.size() != CatCount)
-        return;
-    QVector<bool> seen(CatCount, false);
+    // Preserve old sidecars when new categories are appended. Invalid/duplicate
+    // known identities still reject the request; unknown future groups are ignored.
+    QVector<int> normalized;
+    QSet<int> seen;
     for (int id : order) {
-        if (id < 0 || id >= CatCount || seen[id])
+        if (id < 0 || seen.contains(id))
             return;
-        seen[id] = true;
+        seen.insert(id);
+        if (id < CatCount)
+            normalized.append(id);
     }
-    m_layerGroupOrder = order;
+    for (int id = 0; id < openswmmvis::ui::CatTimeSeries; ++id)
+        if (!seen.contains(id)) return; // A complete legacy permutation is required.
+    for (int id : openswmmvis::ui::kDefaultCategoryDisplayOrder)
+        if (!seen.contains(id))
+            normalized.append(id);
+    m_layerGroupOrder = normalized;
 }
 
 QString MapCanvas::layerOrderKey(const OpenSWMMVisLayer *layer)
 {
     if (!layer)
         return {};
+    if (auto *series = qobject_cast<const TimeSeriesLayer *>(layer))
+        return QStringLiteral("timeseries|") + series->layerId();
     return QString::number(int(layer->layerType())) + QLatin1Char('|') +
            layer->sourceDescription() + QLatin1Char('|') + layer->name();
 }

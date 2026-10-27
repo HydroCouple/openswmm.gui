@@ -466,7 +466,7 @@ const char *layerTypeLabel(int t)
     case L::SWMMTabularDataLayer:
         return "Tabular";
     case L::SWMMTabularyTimeSeriesLayer:
-        return "Tabular time-series";
+        return "Time series";
     case L::SWMMSubProjectLayer:
         return "Sub-project";
     case L::SWMM2DMeshLayer:

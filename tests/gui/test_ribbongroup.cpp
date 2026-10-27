@@ -17,6 +17,7 @@
 #include <QtTest/QtTest>
 
 #include <QAction>
+#include <QDir>
 #include <QComboBox>
 #include <QGridLayout>
 #include <QLabel>
@@ -100,6 +101,7 @@ private slots:
 
     // group
     void groupMirrorsDefaultAction();
+    void groupTracksLateActionIcons();
     void groupModeSwitchingKeepsHeight();
     void groupWidthsShrinkAcrossModes();
     void groupWidgetHostIsRigid();
@@ -154,6 +156,13 @@ void TestRibbonGroup::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("ribbongroup-test"));
+    const auto directory = qEnvironmentVariable("OPENSWMM_RIBBON_TEST_DIRECTORY",
+                                                QCoreApplication::applicationDirPath()) +
+                           "/ribbon-group-settings";
+    QVERIFY(QDir().mkpath(directory));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, directory);
     wipeRibbonSettings();
 
     RibbonGroupWidths g;
@@ -350,6 +359,38 @@ void TestRibbonGroup::groupModeSwitchingKeepsHeight()
     group->setMode(RibbonMode::Full);
     QVERIFY(buttonA->isVisible());
     QCOMPARE(buttonA->toolButtonStyle(), Qt::ToolButtonTextUnderIcon);
+}
+
+/** @brief Icons set or replaced after registration reach regular and collapsed plugin commands. */
+void TestRibbonGroup::groupTracksLateActionIcons()
+{
+    QObject owner;
+    auto *first = new QAction("USGS sites", &owner);
+    auto *second = new QAction("DEM", &owner);
+    RibbonGroup group("Data");
+    auto *firstButton = group.addAction(first);
+    group.addAction(second);
+    group.setMode(RibbonMode::Collapsed);
+    QToolButton *collapsed = nullptr;
+    for (auto *button : group.findChildren<QToolButton *>())
+        if (button->menu())
+            collapsed = button;
+    QVERIFY(collapsed);
+    QVERIFY(collapsed->icon().isNull());
+    const auto icon = testIcon();
+    first->setIcon(icon);
+    QCOMPARE(firstButton->icon().cacheKey(), icon.cacheKey());
+    QCOMPARE(collapsed->icon().cacheKey(), icon.cacheKey());
+    QPixmap terrain(24, 24);
+    terrain.fill(Qt::darkGreen);
+    const QIcon terrainIcon(terrain);
+    second->setIcon(terrainIcon);
+    first->setIcon(QIcon{});
+    QCOMPARE(collapsed->icon().cacheKey(), terrainIcon.cacheKey());
+    delete first;
+    QCOMPARE(group.groupActions(), QList<QAction *>{second});
+    second->setIcon(QIcon{});
+    QVERIFY(collapsed->icon().isNull());
 }
 
 /**

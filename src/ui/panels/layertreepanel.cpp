@@ -1,4 +1,7 @@
 #include "layers/traceanalysislayer.h"
+#include "layers/timeserieslayer.h"
+#include <QMessageBox>
+#include <QSignalBlocker>
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "swmmvisprojectwindow.h"
 /**
@@ -425,6 +428,8 @@ void LayerTreeModel::rebuildCategories()
 {
     m_categories.clear();
     m_layerToCategory.clear();
+    m_seriesRows.clear();
+    m_seriesRowPtrs.clear();
     if (!m_canvas)
         return;
 
@@ -472,6 +477,13 @@ void LayerTreeModel::rebuildCategories()
         OpenSWMMVisLayer *layer = it.key();
         if (!layer)
             continue;
+        if (auto *collection = qobject_cast<TimeSeriesLayer *>(layer)) {
+            disconnect(collection, &TimeSeriesLayer::seriesSelectionChanged, this, nullptr);
+            connect(collection, &TimeSeriesLayer::seriesSelectionChanged, this,
+                [this, collection](const QStringList &ids) {
+                    if (m_layerToCategory.contains(collection)) emit collectionSelectionChanged(collection, ids);
+                });
+        }
         QObject::disconnect(layer, &OpenSWMMVisLayer::opacityChanged, this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::visibilityChanged, this, nullptr);
         QObject::disconnect(layer, &OpenSWMMVisLayer::nameChanged, this, nullptr);
@@ -700,6 +712,11 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
     // (SWMMModelLayer does, others don't). If so, return a kind-row index
     // whose internalPointer is the stable address of the per-kind sentinel.
     auto *parentLayer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
+    const auto seriesIt = m_seriesRows.find(parentLayer);
+    if (seriesIt != m_seriesRows.end()) {
+        if (row < 0 || row >= int(seriesIt->second.size())) return {};
+        return createIndex(row, column, seriesIt->second[row].get());
+    }
     auto it = m_kindRowStorage.constFind(parentLayer);
     if (it != m_kindRowStorage.constEnd()) {
         if (row < 0 || row >= kKindsPerSwmmModelLayer)
@@ -727,6 +744,8 @@ QModelIndex LayerTreeModel::parent(const QModelIndex &child) const
     void *p = child.internalPointer();
     if (!p)
         return {}; // child is a category — no parent
+
+    if (m_seriesRowPtrs.contains(p)) return indexForLayer(static_cast<SeriesRow *>(p)->layer);
 
     // Slice BI-MK.LT — kind row: parent is the layer row.
     if (m_kindRowPtrSet.contains(p)) {
@@ -774,6 +793,9 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
         return (catIdx >= 0 && catIdx < m_categories.size()) ? m_categories[catIdx].layers.size()
                                                              : 0;
     }
+    if (m_seriesRowPtrs.contains(parent.internalPointer())) return 0;
+    const auto seriesIt = m_seriesRows.find(static_cast<OpenSWMMVisLayer *>(parent.internalPointer()));
+    if (seriesIt != m_seriesRows.end()) return int(seriesIt->second.size());
     // Slice BI-MK.LT / S3 — layer row: has kind sub-rows for multi-kind
     // layers OR sublayer sub-rows for sublayer hosts (mutually exclusive
     // per the eligibility rule in rebuildSublayerRows).
@@ -790,6 +812,41 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
     return 0; // kind rows and sublayer rows are leaves
 }
 
+bool LayerTreeModel::hasChildren(const QModelIndex &parent) const
+{
+    if (parent.isValid() && parent.column() != 0) return false;
+    if (canFetchMore(parent)) return true;
+    return rowCount(parent) > 0;
+}
+bool LayerTreeModel::canFetchMore(const QModelIndex &parent) const
+{
+    if (!parent.isValid() || parent.column() != 0 || !parent.internalPointer() ||
+        m_seriesRowPtrs.contains(parent.internalPointer()) || m_kindRowPtrSet.contains(parent.internalPointer()) ||
+        m_sublayerRowPtrSet.contains(parent.internalPointer())) return false;
+    auto *layer = qobject_cast<TimeSeriesLayer *>(static_cast<OpenSWMMVisLayer *>(parent.internalPointer()));
+    if (!layer || !layer->dataset()) return false;
+    const auto it = m_seriesRows.find(layer);
+    return (it == m_seriesRows.end() ? 0 : int(it->second.size())) < layer->dataset()->series.size();
+}
+void LayerTreeModel::fetchMore(const QModelIndex &parent)
+{
+    if (!canFetchMore(parent)) return;
+    auto *layer = qobject_cast<TimeSeriesLayer *>(layerForIndex(parent));
+    auto &rows = m_seriesRows[layer];
+    const int start = int(rows.size()), stop = qMin(start + 128, int(layer->dataset()->series.size()));
+    beginInsertRows(parent, start, stop - 1);
+    for (int i = start; i < stop; ++i) {
+        auto row = std::make_unique<SeriesRow>(); row->layer = layer; row->id = layer->dataset()->series[i].id;
+        m_seriesRowPtrs.insert(row.get()); rows.push_back(std::move(row));
+    }
+    endInsertRows();
+}
+QString LayerTreeModel::seriesIdForIndex(const QModelIndex &index) const
+{
+    return index.isValid() && m_seriesRowPtrs.contains(index.internalPointer()) ?
+        static_cast<SeriesRow *>(index.internalPointer())->id : QString{};
+}
+
 int LayerTreeModel::columnCount(const QModelIndex & /*parent*/) const
 {
     return 2; // Column 0: name + visibility; Column 1: opacity
@@ -801,6 +858,17 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
         return {};
 
     void *p = index.internalPointer();
+
+    if (p && m_seriesRowPtrs.contains(p)) {
+        const auto *row = static_cast<SeriesRow *>(p);
+        auto *layer = qobject_cast<TimeSeriesLayer *>(row->layer);
+        if (!layer || index.column() != 0) return {};
+        if (role == Qt::DisplayRole) return layer->seriesCaption(row->id);
+        if (role == Qt::DecorationRole) return QIcon(QStringLiteral(":/swmmvis/Chart"));
+        if (role == Qt::UserRole) return row->id;
+        if (role == Qt::ToolTipRole) return layer->associationStatus(row->id);
+        return {};
+    }
 
     // ---- Sublayer row (Slice S3) -------------------------------------------
     if (p && m_sublayerRowPtrSet.contains(p)) {
@@ -939,8 +1007,9 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
             case OpenSWMMVisLayer::SWMMWMTSLayer:
                 return QIcon(QStringLiteral(":/swmmvis/AddBasemap"));
             case OpenSWMMVisLayer::SWMMTabularDataLayer:
-            case OpenSWMMVisLayer::SWMMTabularyTimeSeriesLayer:
                 return QIcon(QStringLiteral(":/swmmvis/TableView"));
+            case OpenSWMMVisLayer::SWMMTabularyTimeSeriesLayer:
+                return QIcon(QStringLiteral(":/swmmvis/Chart"));
             case OpenSWMMVisLayer::SWMMSubProjectLayer:
                 return QIcon(QStringLiteral(":/swmmvis/Layers"));
             // Slice LTR-2026-05-30 — mesh / 2D-results glyph matches the
@@ -975,6 +1044,7 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
         return false;
 
     void *p = index.internalPointer();
+    if (m_seriesRowPtrs.contains(p)) return false;
 
     // Slice S3 — sublayer-row check-state toggles per-sublayer visibility;
     // column 1 edits per-sublayer opacity.
@@ -1060,6 +1130,7 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
         return Qt::NoItemFlags;
 
     void *p = index.internalPointer();
+    if (m_seriesRowPtrs.contains(p)) return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
 
     // Slice S3 — sublayer sub-row: column 0 checkable (visibility), column 1
     // editable (opacity), enabled + selectable.
@@ -1143,6 +1214,7 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
 
     const QModelIndex first = indexes.first();
     void *p = first.internalPointer();
+    if (m_seriesRowPtrs.contains(p)) return nullptr;
     auto *mime = new QMimeData;
     QByteArray encoded;
     QDataStream stream(&encoded, QIODevice::WriteOnly);
@@ -1197,6 +1269,7 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
 bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction action, int row,
                                      int column, const QModelIndex &parent) const
 {
+    if (parent.isValid() && m_seriesRowPtrs.contains(parent.internalPointer())) return false;
     Q_UNUSED(action)
     Q_UNUSED(column)
     Q_UNUSED(row)
@@ -1321,6 +1394,7 @@ bool LayerTreeModel::reorderCategory(int categoryId, int dstTreeRow)
 bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int row,
                                   int /*column*/, const QModelIndex &parent)
 {
+    if (parent.isValid() && m_seriesRowPtrs.contains(parent.internalPointer())) return false;
     if (!m_canvas || action != Qt::MoveAction)
         return false;
 
@@ -1464,6 +1538,7 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
     void *p = index.internalPointer();
     if (!p)
         return nullptr;
+    if (m_seriesRowPtrs.contains(p)) return static_cast<SeriesRow *>(p)->layer;
     // Slice BI-MK.LT — kind sub-row: return its parent layer.
     if (m_kindRowPtrSet.contains(p))
         return static_cast<const KindRow *>(p)->layer;
@@ -1621,6 +1696,7 @@ void LayerTreeModel::notifyHostSubOrderChanged()
     // QModelIndex internalPointer (the SublayerRow / KindRow structs are
     // re-allocated), avoiding any chance of a stale pointer dereference.
     beginResetModel();
+    m_seriesRows.clear(); m_seriesRowPtrs.clear();
     rebuildKindRows();
     rebuildSublayerRows();
     endResetModel();
@@ -1730,6 +1806,27 @@ void LayerTreePanel::setupUi()
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this,
             &LayerTreePanel::rememberCurrentRow);
     connect(m_proxy, &QAbstractItemModel::modelReset, this, &LayerTreePanel::restoreRememberedRow);
+
+    connect(m_model, &LayerTreeModel::collectionSelectionChanged, this,
+        [this](TimeSeriesLayer *layer, const QStringList &ids) {
+            const auto parent = m_model->indexForLayer(layer);
+            if (!parent.isValid()) return;
+            const QSignalBlocker blocker(m_treeView->selectionModel());
+            if (ids.isEmpty()) {
+                if (selectedLayer() == layer) m_treeView->clearSelection();
+                return;
+            }
+            const auto all = layer->seriesIds(); const int wanted = all.indexOf(ids.first());
+            if (wanted < 0) return;
+            while (m_model->rowCount(parent) <= wanted && m_model->canFetchMore(parent)) m_model->fetchMore(parent);
+            const auto source = m_model->index(wanted, 0, parent);
+            const auto proxy = m_proxy->mapFromSource(source);
+            if (proxy.isValid()) {
+                m_treeView->expand(proxy.parent());
+                m_treeView->setCurrentIndex(proxy);
+                m_treeView->scrollTo(proxy);
+            }
+        });
 
     // Selection + interactions
     connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
@@ -1908,12 +2005,23 @@ void LayerTreePanel::onSelectionChanged()
     // layer in layerForIndex, so announce them separately with the ordinal
     // (== SWMMModelLayer::Category) for category-level listeners.
     const QModelIndex srcIdx = toSourceIndex(m_treeView->currentIndex());
+    const auto seriesId = m_model->seriesIdForIndex(srcIdx);
+    if (!seriesId.isEmpty())
+        if (auto *collection = qobject_cast<TimeSeriesLayer *>(m_model->layerForIndex(srcIdx)))
+            collection->setSelectedSeriesIds({seriesId});
     if (m_model->isKindIndex(srcIdx))
         emit kindSelected(m_model->kindParentLayer(srcIdx), m_model->kindOrdinal(srcIdx));
 }
 
 void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
 {
+    const auto seriesId = m_model->seriesIdForIndex(toSourceIndex(index));
+    if (!seriesId.isEmpty()) {
+        if (auto *collection = qobject_cast<TimeSeriesLayer *>(m_model->layerForIndex(toSourceIndex(index))))
+            collection->requestPlot({seriesId}, this);
+        return;
+    }
+
     if (index.column() == 0)
         if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(
                 m_model->sublayerForIndex(toSourceIndex(index)))) {
@@ -1984,6 +2092,41 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             onMoveCategoryDown();
         else if (picked == actBottom)
             moveSelectedCategoryToRow(catCount - 1);
+        return;
+    }
+
+    if (auto *collection = qobject_cast<TimeSeriesLayer *>(m_model->layerForIndex(idx))) {
+        const QPointer<LayerTreePanel> owner(this);
+        QPointer<TimeSeriesLayer> guard(collection);
+        const auto id = m_model->seriesIdForIndex(idx);
+        const QStringList ids = id.isEmpty() ? collection->selectedSeriesIds() : QStringList{id};
+        QMenu menu;
+        connect(this, &QObject::destroyed, &menu, &QWidget::close);
+        connect(collection, &QObject::destroyed, &menu, &QWidget::close);
+        if (m_canvas)
+            connect(m_canvas, &MapCanvas::layerRemoved, &menu, &QWidget::close);
+        auto *plot = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")), tr("Plot time series…"));
+        auto *data = menu.addAction(tr("View observations…"));
+        auto *use = menu.addAction(tr("Use in model…"));
+        use->setEnabled(ids.size() == 1 && collection->seriesInfo(ids.first()).validCount > 0);
+        plot->setEnabled(bool(collection->dataset())); data->setEnabled(bool(collection->dataset()));
+        menu.addSeparator();
+        auto *attach = menu.addAction(tr("Attach to selected feature…")); attach->setEnabled(!ids.isEmpty());
+        auto *detach = menu.addAction(tr("Detach from feature")); detach->setEnabled(!ids.isEmpty());
+        menu.addSeparator();
+        auto *locate = menu.addAction(tr("Locate source…"));
+        auto *properties = menu.addAction(tr("Properties…"));
+        auto *remove = id.isEmpty() ? menu.addAction(tr("Remove layer")) : nullptr;
+        auto *chosen = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+        if (!owner || !guard || !chosen || !m_canvas || !m_canvas->layers().contains(guard)) return;
+        if (chosen == plot) guard->requestPlot(ids, this);
+        else if (chosen == data) guard->showData(this, id);
+        else if (chosen == use) emit guard->useInModelRequested(ids.first());
+        else if (chosen == attach) { QString error; if (!guard->attachToSelectedFeature(ids, &error)) QMessageBox::information(this, tr("Attach time series"), error); }
+        else if (chosen == detach) guard->detachFeatures(ids);
+        else if (chosen == locate) guard->locateSource(this);
+        else if (chosen == properties) emit layerPropertiesRequested(guard);
+        else if (chosen == remove && m_canvas) { const int row = m_canvas->layers().indexOf(guard); if (row >= 0) m_canvas->takeLayer(row); }
         return;
     }
 

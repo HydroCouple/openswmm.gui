@@ -98,6 +98,14 @@ RibbonGroup::RibbonGroup(const QString &caption, QWidget *parent)
     outer->addWidget(mSeparator, 0);
 }
 
+RibbonGroup::~RibbonGroup()
+{
+    // QObject child destruction follows destruction of the derived member containers.
+    // Actions parented to this group must not call those containers during teardown.
+    for (auto *action : std::as_const(mWatchedActions))
+        disconnect(action, nullptr, this, nullptr);
+}
+
 QToolButton *RibbonGroup::makeButton()
 {
     auto *button = new QToolButton(this);
@@ -117,6 +125,7 @@ QToolButton *RibbonGroup::addAction(QAction *action, const QString &shortLabel)
     mContentLayout->addWidget(button);
 
     mActions.append(action);
+    watchActionPresentation(action);
     mButtons.append(button);
     mCollapsedButton->menu()->addAction(action);
     if (mCollapsedButton->icon().isNull() && !action->icon().isNull())
@@ -137,6 +146,7 @@ RibbonSplitButton *RibbonGroup::addFamily(const QString &familyId, const QList<Q
     mButtons.append(button);
     for (QAction *member : members) {
         mActions.append(member);
+        watchActionPresentation(member);
         mCollapsedButton->menu()->addAction(member);
         if (mCollapsedButton->icon().isNull() && !member->icon().isNull())
             mCollapsedButton->setIcon(member->icon());
@@ -145,6 +155,33 @@ RibbonSplitButton *RibbonGroup::addFamily(const QString &familyId, const QList<Q
     invalidateWidthCache();
     applyMode(mMode);
     return button;
+}
+
+void RibbonGroup::watchActionPresentation(QAction *action)
+{
+    if (mWatchedActions.contains(action))
+        return;
+    mWatchedActions.insert(action);
+    connect(action, &QAction::changed, this, &RibbonGroup::refreshActionPresentation);
+    connect(action, &QObject::destroyed, this, [this, action] {
+        mWatchedActions.remove(action);
+        mActions.removeAll(action);
+        refreshActionPresentation();
+    });
+}
+
+void RibbonGroup::refreshActionPresentation()
+{
+    QIcon icon;
+    for (auto *action : std::as_const(mActions))
+        if (!action->icon().isNull()) {
+            icon = action->icon();
+            break;
+        }
+    mCollapsedButton->setIcon(icon);
+    invalidateWidthCache();
+    setMode(mMode);
+    applyMode(mMode);
 }
 
 void RibbonGroup::addWidget(QWidget *widget, int stretch)

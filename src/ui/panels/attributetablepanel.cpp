@@ -44,6 +44,7 @@
 #include "layers/tabulardatalayer.h"
 #include "layers/gisobjectref.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/timeserieslayer.h"
 #include "layers/featurelayer.h"
 #include "mesh/meshobjectref.h"
 #include "map/mapcanvas.h"
@@ -1730,6 +1731,11 @@ void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
 {
     if (!layer)
         return;
+
+    if (auto *series = qobject_cast<TimeSeriesLayer *>(layer)) {
+        series->showData(this);
+        return;
+    }
 
     QString key;
     if (qobject_cast<GISVectorLayer *>(layer))

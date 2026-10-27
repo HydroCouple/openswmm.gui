@@ -396,7 +396,7 @@ page's **User Manual** link instead.
 - **`SWMM_LOG_FILE`.** Set this environment variable to a path (or to `1` for an
   automatic location under the application data folder) to tee every diagnostic
   message to a file. Useful on Windows, where the application has no console.
-- **The 2D and results tabs appear only when they apply.** **Mesh 2D** shows up
+- **The Terrain and Mesh 2D tabs appear only when they apply.** **Mesh 2D** shows up
   once a mesh or 2D-results layer is loaded, **Terrain** once any raster is
   loaded — they are contextual ribbon tabs, not missing features.
 

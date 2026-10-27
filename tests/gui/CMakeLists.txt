@@ -17,6 +17,17 @@ set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 # or link against compiled .o files via the SWMMVis_obj target if extracted later).
 function(add_swmmvis_gui_test TEST_NAME)
     add_executable(${TEST_NAME} ${ARGN})
+    # Native observation layers participate in every canvas, while samples stay
+    # in a bounded disk-backed store independent of the optional Data plugin.
+    if("${CMAKE_SOURCE_DIR}/src/map/mapcanvas.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/include/layers/timeserieslayer.h
+            ${CMAKE_SOURCE_DIR}/include/ui/panels/timeserieslayerbrowser.h
+            ${CMAKE_SOURCE_DIR}/src/layers/timeserieslayer.cpp
+            ${CMAKE_SOURCE_DIR}/src/ui/panels/timeserieslayerbrowser.cpp
+            ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
+        target_link_libraries(${TEST_NAME} PRIVATE GDAL::GDAL Qt6::Concurrent)
+    endif()
     if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
@@ -28,7 +39,9 @@ function(add_swmmvis_gui_test TEST_NAME)
     if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
-            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp)
+            ${CMAKE_SOURCE_DIR}/src/swmmvistimeseries.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensiontimeseriesaccess.cpp)
         target_link_libraries(${TEST_NAME} PRIVATE openswmmvis_extensions)
     endif()
     set_target_properties(${TEST_NAME} PROPERTIES
@@ -80,6 +93,24 @@ add_swmmvis_gui_test(test_traceanalysisstore
 target_link_libraries(test_traceanalysisstore PRIVATE GDAL::GDAL)
 target_compile_definitions(test_traceanalysisstore PRIVATE
     SWMMVIS_TRACE_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/flow_trace_2026-10-01/store")
+
+add_swmmvis_gui_test(test_timeseriesstore
+    test_timeseriesstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
+target_link_libraries(test_timeseriesstore PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_timeseries_observation_workflow
+    test_timeseries_observation_workflow.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/timeseriesrunlayer.h
+    ${CMAKE_SOURCE_DIR}/src/plot/timeseriesrunlayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstatistics.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp)
+target_link_libraries(test_timeseries_observation_workflow PRIVATE GDAL::GDAL)
 
 # These exercise headers/sources that are simple enough to include directly.
 
@@ -3007,6 +3038,14 @@ target_compile_definitions(test_extensionviewevents PRIVATE
     SDK_NATIVE_VIEW_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev3/native"
     SDK_NATIVE_VIEW_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
 swmmvis_link_full_app_deps(test_extensionviewevents)
+
+add_swmmvis_gui_test(test_timeserieslayer
+    test_timeserieslayer.cpp
+    test_timeseriesassignment_transaction.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_timeserieslayer)
 
 # EV4 accepted attempts, reused rows, cancellation and terminal history in the native controller.
 add_swmmvis_gui_test(test_extensionactivity

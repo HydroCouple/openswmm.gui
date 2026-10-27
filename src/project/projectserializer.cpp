@@ -25,6 +25,7 @@
 #include "layers/featurelayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/timeserieslayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
@@ -362,6 +363,7 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
         return {};
     obj["extensions"] = pw->property("extensionData").toJsonObject();
     obj["views"] = pw->property("extensionViews").toJsonArray();
+    obj["timeSeriesAssignments"] = pw->property("timeSeriesAssignments").toJsonArray();
     obj["instanceId"] = pw->property("extensionInstanceId").toUuid().toString();
 
     QJsonArray calibration;
@@ -444,6 +446,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     QJsonArray traces;
     if (pw->canvas())
         for (auto *mapLayer : pw->canvas()->layers()) {
+            if (mapLayer->isTemporary())
+                continue;
             auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
             if (!output)
                 continue;
@@ -676,6 +680,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
         // Companion map (path → relative .rpt path) for the Report Viewer.
         QJsonObject reportMap;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
+            if (l->isTemporary())
+                continue;
             if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
                 if (!rl->property("traceStoredRunId").toString().isEmpty())
                     continue;
@@ -762,6 +768,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (auto *canvas = pw->canvas()) {
         QJsonArray meshArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
+            if (l->isTemporary())
+                continue;
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
             if (!ml)
                 continue;
@@ -804,6 +812,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (auto *canvas = pw->canvas()) {
         QJsonArray r2dArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
+            if (l->isTemporary())
+                continue;
             auto *rl = qobject_cast<SWMM2DResultsLayer *>(l);
             if (!rl)
                 continue;
@@ -852,8 +862,9 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (auto *canvas = pw->canvas()) {
         QJsonArray textLayers;
         for (auto *layer : canvas->layers())
-            if (auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(layer))
-                textLayers.append(text->layerJson());
+            if (!layer->isTemporary())
+                if (auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(layer))
+                    textLayers.append(text->layerJson());
         obj["textLayers"] = textLayers; // Includes empty layers and their settings.
     }
     if (pw->modelLayer())
@@ -871,6 +882,7 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     pw->setExtensionProjectIdentity(QUuid(sessionObj.value("instanceId").toString()), oswpFile);
     pw->setProperty("extensionData", sessionObj.value("extensions").toObject());
     pw->setProperty("extensionViews", sessionObj.value("views").toArray());
+    pw->setProperty("timeSeriesAssignments", sessionObj.value("timeSeriesAssignments").toArray());
 
     QJsonArray calibration;
     for (const auto &value : sessionObj.value("calibrationData").toArray()) {
@@ -1542,7 +1554,8 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
 
             QJsonArray layerOrder;
             for (OpenSWMMVisLayer *l : canvas->layers())
-                layerOrder.append(MapCanvas::layerOrderKey(l));
+                if (!l->isTemporary())
+                    layerOrder.append(MapCanvas::layerOrderKey(l));
             canvasObj[kLayerOrder] = layerOrder;
         }
         if (!canvasObj.isEmpty())
@@ -1550,7 +1563,7 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
 
         QJsonArray basemapsArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
-            if (!l->isBasemapLayer())
+            if (l->isTemporary() || !l->isBasemapLayer())
                 continue;
             const QJsonObject bm = serializeBasemapLayer(l, oswpPath);
             if (!bm.isEmpty())
@@ -1564,7 +1577,7 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         // above; these are the non-basemap GDAL/OGR data layers.
         QJsonArray gisArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
-            if (l->isBasemapLayer())
+            if (l->isTemporary() || l->isBasemapLayer())
                 continue;
             const QJsonObject g = serializeGisLayer(l, oswpPath);
             if (!g.isEmpty())
@@ -1926,6 +1939,8 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
                                                      const QString &oswpPath)
 {
     QJsonObject obj;
+    if (!layer || layer->isTemporary())
+        return obj;
     // Local raster basemap — a GISRasterLayer flagged via setIsBasemap().
     // Checked first; GISRasterLayer is unrelated to the XYZ/WMTS/WMS service
     // types below so the qobject_casts can't collide. Georeferencing needs no
@@ -2056,10 +2071,27 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
 QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const QString &oswpPath)
 {
     QJsonObject obj;
-    if (!layer)
+    if (!layer || layer->isTemporary())
         return obj;
 
-    if (auto *r = qobject_cast<GISRasterLayer *>(layer)) {
+    if (auto *series = qobject_cast<TimeSeriesLayer *>(layer)) {
+        if (series->sourcePath().isEmpty()) return obj;
+        obj[kGisType] = QStringLiteral("timeseries");
+        obj[kGisPath] = toRelativePath(series->sourcePath(), oswpPath);
+        obj[kGisName] = series->name();
+        obj[kGisVisible] = series->isVisible();
+        obj[kGisOpacity] = series->opacity();
+        obj["datasetId"] = series->datasetId();
+        obj["importIdentity"] = series->property("timeSeriesImportIdentity").toString();
+        obj["vectorStyle"] = OpenSWMM::Render::StyleFileIO::styleToJson(series);
+        auto associations = series->associations();
+        for (int i = 0; i < associations.size(); ++i) {
+            auto link = associations[i].toObject();
+            if (link.value("kind") == "gis") link["source"] = toRelativePath(link.value("source").toString(), oswpPath);
+            associations[i] = link;
+        }
+        obj["associations"] = associations;
+    } else if (auto *r = qobject_cast<GISRasterLayer *>(layer)) {
         if (r->filePath().isEmpty())
             return obj; // nothing to reopen from
         obj[kGisType] = QStringLiteral("raster");
@@ -2114,6 +2146,28 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
     if (rel.isEmpty())
         return;
     const QString path = resolveStoredPath(rel, oswpPath);
+    // Missing native observations keep their identity and links so Locate Source can recover them.
+    if (type == QStringLiteral("timeseries")) {
+        auto *layer = new TimeSeriesLayer();
+        layer->restoreLayerId(obj.value("id").toString());
+        layer->setProperty("timeSeriesImportIdentity", obj.value("importIdentity").toString());
+        QString error;
+        if (!layer->openTimeSeries(path, obj.value("datasetId").toString(), &error) && warningsOut)
+            *warningsOut << QObject::tr("Time-series source unavailable: %1 — %2").arg(path, error);
+        if (!obj.value(kGisName).toString().isEmpty()) layer->setName(obj.value(kGisName).toString());
+        layer->setVisible(obj.value(kGisVisible).toBool(true));
+        layer->setOpacity(obj.value(kGisOpacity).toDouble(1.0));
+        if (obj.contains("vectorStyle")) OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, obj.value("vectorStyle").toObject());
+        auto associations = obj.value("associations").toArray();
+        for (int i = 0; i < associations.size(); ++i) {
+            auto link = associations[i].toObject();
+            if (link.value("kind") == "gis") link["source"] = resolveStoredPath(link.value("source").toString(), oswpPath);
+            associations[i] = link;
+        }
+        layer->restoreAssociations(associations);
+        canvas->addLayer(layer, false);
+        return;
+    }
     if (!QFile::exists(path)) {
         if (warningsOut) {
             // The label used to read "Vector" for every non-raster type; with

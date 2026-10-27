@@ -137,7 +137,7 @@ time-series pick opens a dedicated tab in the **Time Series** panel —
 see \ref manual_time_series_plots.
 
 The profile follows the global animation cursor, so pressing **Play** on the
-Results tab animates the HGL along the section while the map animates in step.
+Animation tab animates the HGL along the section while the map animates in step.
 
 \fig{23_profile_toolbar_layers.png, The profile window and its toolbar — use Display Options for HGL and label settings}
 

@@ -16,6 +16,7 @@
 #include <QtTest/QtTest>
 
 #include <QLabel>
+#include <QDir>
 #include <QMainWindow>
 #include <QSet>
 #include <QTabBar>
@@ -42,6 +43,9 @@ private slots:
     void hidingCurrentTabFallsBack();
     void lastTabPersists();
     void catalogTabIdsAreMounted();
+    void pluginTabsRemainIndependentAndRetainOwners();
+    void contextualPluginTabsRemainIndependent();
+    void pluginTabPreferenceRestoresAfterRegistration();
 
     // iteration 3 — tab-scoped own-row bars (Terrain / Mesh Editing)
     void ownRowBarSitsBelowBreak();
@@ -69,6 +73,13 @@ void TestCompactToolbar::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("compacttoolbar-test"));
+    const auto directory = qEnvironmentVariable("OPENSWMM_RIBBON_TEST_DIRECTORY",
+                                                QCoreApplication::applicationDirPath()) +
+                           "/compact-toolbar-settings";
+    QVERIFY(QDir().mkpath(directory));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, directory);
 }
 
 /**
@@ -223,6 +234,92 @@ void TestCompactToolbar::catalogTabIdsAreMounted()
                      qPrintable(QStringLiteral("entry '%1' names unmounted tab '%2'")
                                     .arg(QLatin1String(entry.id), tab)));
     }
+}
+
+/** @brief Qualified plugin tabs retain their own captions, toolbar visibility and cleanup. */
+void TestCompactToolbar::pluginTabsRemainIndependentAndRetainOwners()
+{
+    Rig rig = makeRig();
+    auto *data = new QToolBar("Data", rig.window);
+    auto *other = new QToolBar("Other", rig.window);
+    rig.controller->addTab("ext.data.tab", "Data", {data});
+    rig.controller->addTab("ext.other.tab", "Other", {other});
+    rig.controller->addTab("ext.data.tab", "Duplicate", {other});
+    QCOMPARE(rig.controller->tabIds().count("ext.data.tab"), 1);
+    QVERIFY(!rig.controller->tabIds().contains("plugins"));
+    QCOMPARE(rig.controller->toolbarsForTab("ext.data.tab"), QList<QToolBar *>{data});
+    auto *tabs = rig.window->findChild<QTabBar *>("compactToolbarTabBar");
+    QVERIFY(tabs);
+    const auto ids = rig.controller->tabIds();
+    QCOMPARE(tabs->tabText(ids.indexOf("ext.data.tab")), "Data");
+    QCOMPARE(tabs->tabText(ids.indexOf("ext.other.tab")), "Other");
+    rig.controller->setCurrentTab("ext.data.tab");
+    QCOMPARE(rig.controller->currentTab(), "ext.data.tab");
+    QVERIFY(!data->isHidden());
+    QVERIFY(other->isHidden());
+    QVERIFY(rig.home->isHidden());
+    rig.controller->setCurrentTab("ext.other.tab");
+    QVERIFY(data->isHidden());
+    QVERIFY(!other->isHidden());
+    rig.controller->removeTab("ext.data.tab");
+    delete data;
+    QCOMPARE(rig.controller->currentTab(), "ext.other.tab");
+    QVERIFY(!other->isHidden());
+    QCOMPARE(rig.controller->toolbarsForTab("ext.other.tab"), QList<QToolBar *>{other});
+    rig.controller->removeTab("ext.other.tab");
+    delete other;
+    QVERIFY(!rig.controller->tabIds().contains("ext.other.tab"));
+    QVERIFY(rig.controller->toolbarsForTab("ext.data.tab").isEmpty());
+    delete rig.window;
+}
+
+/** @brief A contextual plugin tab can be revealed or hidden without changing another plugin. */
+void TestCompactToolbar::contextualPluginTabsRemainIndependent()
+{
+    Rig rig = makeRig(false);
+    auto *hidden = new QToolBar("Contextual", rig.window);
+    auto *shown = new QToolBar("Shown", rig.window);
+    rig.controller->addTab("ext.context.tab", "Contextual", {hidden}, true);
+    rig.controller->addTab("ext.shown.tab", "Shown", {shown});
+    rig.controller->finalize();
+    QVERIFY(!rig.controller->isTabVisible("ext.context.tab"));
+    QVERIFY(rig.controller->isTabVisible("ext.shown.tab"));
+    rig.controller->setCurrentTab("ext.context.tab");
+    QCOMPARE(rig.controller->currentTab(), "home");
+    rig.controller->setCurrentTab("ext.shown.tab");
+    QVERIFY(hidden->isHidden());
+    QVERIFY(!shown->isHidden());
+    rig.controller->setTabVisible("ext.context.tab", true);
+    QVERIFY(hidden->isHidden());
+    QVERIFY(!shown->isHidden());
+    rig.controller->setCurrentTab("ext.context.tab");
+    QVERIFY(!hidden->isHidden());
+    QVERIFY(shown->isHidden());
+    rig.controller->setTabVisible("ext.shown.tab", false);
+    QVERIFY(!hidden->isHidden());
+    rig.controller->setTabVisible("ext.context.tab", false);
+    QVERIFY(rig.controller->currentTab() != "ext.context.tab");
+    QVERIFY(hidden->isHidden());
+    QVERIFY(shown->isHidden());
+    rig.controller->setTabVisible("ext.shown.tab", true);
+    rig.controller->setCurrentTab("ext.shown.tab");
+    QCOMPARE(rig.controller->currentTab(), "ext.shown.tab");
+    QVERIFY(!shown->isHidden());
+    QVERIFY(hidden->isHidden());
+    delete rig.window;
+}
+
+/** @brief A saved plugin-owned tab identity restores when its contribution registers after setup. */
+void TestCompactToolbar::pluginTabPreferenceRestoresAfterRegistration()
+{
+    QSettings settings;
+    settings.setValue("SWMMVis::MainWindow/CompactToolbarTab", "ext.data.tab");
+    Rig rig = makeRig();
+    auto *data = new QToolBar("Data", rig.window);
+    rig.controller->addTab("ext.data.tab", "Data", {data});
+    QCOMPARE(rig.controller->currentTab(), "ext.data.tab");
+    QCOMPARE(settings.value("SWMMVis::MainWindow/CompactToolbarTab").toString(), "ext.data.tab");
+    delete rig.window;
 }
 
 /**

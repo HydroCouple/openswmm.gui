@@ -11,6 +11,8 @@
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionpreferences.h"
 #include "plugins/extensionattributes.h"
+#include "plugins/extensionstateregistry.h"
+#include "sdk/ITimeSeriesLayersV1.hpp"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include <QDir>
 #include <QDockWidget>
@@ -101,6 +103,10 @@ private slots:
         plugin.sdkApiVersion = "1.5";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
         plugin.sdkApiVersion = "1.6";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.7";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.8";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
                     .contains("sdkApiVersion"));
         auto olderHost = expected;
@@ -115,6 +121,48 @@ private slots:
         QVERIFY(warning.contains("engineAbiTag"));
         QVERIFY(
             ExtensionManager::compatibilityError(expected, plugin, true).contains("engineAbiTag"));
+    }
+    /** @brief Discover the optional observation capability and refuse stale/closed targets. */
+    void timeSeriesCapabilityTargetsReadyGeneration()
+    {
+        ExtensionStateRegistry registry;
+        QObject owner, receiver;
+        const auto id = registry.registerSession(&owner, {QUuid::createUuid(), "Series model"});
+        const auto generation = registry.beginLoad(id);
+        registry.finishLoad(id, generation, true);
+        GuiExtensionHost service("org.openswmm.series-service", ExtensionManager::buildManifest(),
+                                 &window, mdi, {}, settings.get(), nullptr, &registry);
+        auto *capability = qobject_cast<ITimeSeriesLayersV1 *>(service.lifetime());
+        QVERIFY(capability);
+        int calls = 0;
+        service.setTimeSeriesControls(
+            [&calls](const TimeSeriesImportRequest &, QObject *,
+                     std::function<void(const TimeSeriesImportResult &)>, QString *) -> IJob * {
+                ++calls;
+                return nullptr;
+            },
+            [](const QUuid &) {
+                QList<TimeSeriesLayerInfo> entries;
+                for (int i = 0; i < 1002; ++i)
+                    entries.append({QString::number(i), "dataset", "Observations", "data.gpkg", 2});
+                return entries;
+            });
+        QCOMPARE(capability->timeSeriesLayers(id).size(), 1000);
+        QVERIFY(capability->timeSeriesLayers(QUuid::createUuid()).isEmpty());
+        TimeSeriesImportRequest request{id, generation, QUuid::createUuid(), "source.json", "data.gpkg"};
+        QString error;
+        capability->importTimeSeries(request, &receiver, [](const TimeSeriesImportResult &) {}, &error);
+        QCOMPARE(calls, 1);
+        QVERIFY(error.isEmpty());
+        ++request.loadGeneration;
+        capability->importTimeSeries(request, &receiver, [](const TimeSeriesImportResult &) {}, &error);
+        QCOMPARE(calls, 1);
+        QVERIFY(!error.isEmpty());
+        service.prepareShutdown();
+        QVERIFY(capability->timeSeriesLayers(id).isEmpty());
+        request.loadGeneration = generation;
+        capability->importTimeSeries(request, &receiver, [](const TimeSeriesImportResult &) {}, &error);
+        QCOMPARE(calls, 1);
     }
     void runtimeIdentityOverridesBuildMetadata()
     {
@@ -140,22 +188,68 @@ private slots:
         QVERIFY(!settings->contains("extensions/org.openswmm.conformance/initialized"));
         QVERIFY(!manager.records().first().loaded);
     }
+    /** @brief Public registrations allow multiple own tabs and identical local IDs in other plugins. */
     void dynamicRibbonRegistration()
     {
         QMainWindow main;
+        auto *area = new QMdiArea(&main);
+        main.setCentralWidget(area);
         openswmmvis::ui::CompactToolbarController controller(&main);
         auto *home = new QToolBar("Home", &main);
         controller.addTab("home", "Home", {home});
         controller.finalize();
-        auto *plugin = new QToolBar("Plugin", &main);
-        controller.addTab("ext.test.tab", "Plugin", {plugin});
-        QCOMPARE(controller.tabIds(), QStringList({"home", "ext.test.tab"}));
-        controller.setCurrentTab("ext.test.tab");
-        QVERIFY(!plugin->isHidden());
-        QVERIFY(home->isHidden());
-        controller.removeTab("ext.test.tab");
+        const auto makeHost = [&](const QString &pluginId) {
+            ExtensionUiBridge bridge;
+            bridge.addTab = [&](const RibbonTabSpec &tab,
+                                const QHash<QString, QPointer<QAction>> &actions) {
+                auto *bar = new QToolBar(tab.title, &main);
+                bar->setObjectName(tab.id);
+                for (const auto &group : tab.groups)
+                    for (const auto &id : group.actionIds)
+                        bar->addAction(actions.value(id));
+                controller.addTab(tab.id, tab.title, {bar}, tab.contextual);
+                return controller.tabIds().contains(tab.id);
+            };
+            bridge.removeTab = [&](const QString &id) {
+                const auto bars = controller.toolbarsForTab(id);
+                controller.removeTab(id);
+                qDeleteAll(bars);
+            };
+            return std::make_unique<GuiExtensionHost>(pluginId, ExtensionManager::buildManifest(),
+                                                      &main, area, std::move(bridge),
+                                                      settings.get());
+        };
+        auto first = makeHost("org.test.first");
+        auto second = makeHost("org.test.second");
+        auto *firstAction = new QAction("First action", first->lifetime());
+        auto *secondAction = new QAction("Second action", second->lifetime());
+        QVERIFY(first->ui()->registerAction("open", firstAction));
+        QVERIFY(second->ui()->registerAction("open", secondAction));
+        QVERIFY(
+            first->ui()->registerRibbonTab({"data", "First data", false, {{"Tools", {"open"}}}}));
+        QVERIFY(
+            first->ui()->registerRibbonTab({"extra", "First extra", false, {{"Tools", {"open"}}}}));
+        QVERIFY(
+            second->ui()->registerRibbonTab({"data", "Second data", false, {{"Tools", {"open"}}}}));
+        QVERIFY(
+            !first->ui()->registerRibbonTab({"data", "Duplicate", false, {{"Tools", {"open"}}}}));
+        QCOMPARE(controller.tabIds(),
+                 QStringList({"home", "ext.org.test.first.data", "ext.org.test.first.extra",
+                              "ext.org.test.second.data"}));
+        controller.setCurrentTab("ext.org.test.first.data");
+        QVERIFY(!controller.toolbarsForTab("ext.org.test.first.data").first()->isHidden());
+        QVERIFY(controller.toolbarsForTab("ext.org.test.first.extra").first()->isHidden());
+        QVERIFY(controller.toolbarsForTab("ext.org.test.second.data").first()->isHidden());
+        first->ui()->unregisterRibbonTab("data");
+        QVERIFY(!controller.tabIds().contains("ext.org.test.first.data"));
+        QVERIFY(controller.tabIds().contains("ext.org.test.first.extra"));
+        QVERIFY(controller.tabIds().contains("ext.org.test.second.data"));
+        first.reset();
+        QCOMPARE(controller.tabIds(), QStringList({"home", "ext.org.test.second.data"}));
+        controller.setCurrentTab("ext.org.test.second.data");
+        QVERIFY(!controller.toolbarsForTab("ext.org.test.second.data").first()->isHidden());
+        second.reset();
         QCOMPARE(controller.tabIds(), QStringList{"home"});
-        delete plugin;
     }
     void pendingViewsRoundTripAndCleanup()
     {

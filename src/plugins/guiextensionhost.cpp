@@ -91,6 +91,7 @@ struct GuiExtensionHost::Job : IJob, IJobContext {
     QDateTime startedAt;  ///< Worker entry timestamp, copied to the registry.
     QDateTime finishedAt; ///< Worker settlement timestamp, copied to the registry.
     std::function<void(bool, const QString &)> completion; ///< GUI-only user callback.
+    std::function<void()> publicationCancellation; ///< Atomic-only private hook, protected by mutex.
     /** @brief Create retained job state before scheduling its worker.
      * @param[in] owner Borrowed host that will join the worker before destruction.
      * @param[in] caption Owning user-visible operation title. */
@@ -149,7 +150,17 @@ struct GuiExtensionHost::Job : IJob, IJobContext {
             publishCancellation();
         return true;
     }
-    void cancel() override { requestCancellation(); }
+    void cancel() override
+    {
+        std::function<void()> hook;
+        {
+            std::lock_guard lock(mutex);
+            hook = publicationCancellation;
+        }
+        if (hook)
+            hook();
+        requestCancellation();
+    }
     bool isFinished() const override { return finished.load(); }
     bool isCancelled() const override { return cancelled.load(); }
     void setProgress(double fraction, const QString &text) override
@@ -275,6 +286,9 @@ struct GuiExtensionHost::Job : IJob, IJobContext {
         if (!owner || owner->mStopping || !callbacks)
             return;
         if (update) {
+            owner->updateProgress(operation, value, text);
+            if (!owner || owner->mStopping)
+                return;
             owner->notify("jobProgress", {{"title", caption}, {"progress", value}, {"text", text}});
             if (!owner || owner->mStopping)
                 return;
@@ -284,6 +298,13 @@ struct GuiExtensionHost::Job : IJob, IJobContext {
         if (!owner || owner->mStopping || !finish)
             return;
         const bool ok = result == ProcessPhase::Succeeded;
+        owner->finishProgress(operation, ok ? ProgressOutcome::Succeeded
+                                           : result == ProcessPhase::Cancelled
+                                                 ? ProgressOutcome::Cancelled
+                                                 : ProgressOutcome::Failed,
+                              failure);
+        if (!owner || owner->mStopping)
+            return;
         if (callback) {
             try {
                 callback(ok, failure);
@@ -351,6 +372,120 @@ INetworkPolicy *GuiExtensionHost::network()
 QString GuiExtensionHost::qualified(const QString &id) const
 {
     return QStringLiteral("ext.%1.%2").arg(mId, id);
+}
+
+QUuid GuiExtensionHost::beginProgress(const QString &title, QObject *context)
+{
+    return beginProgressOperation(title, context, QUuid::createUuid());
+}
+QUuid GuiExtensionHost::beginProgressOperation(const QString &inputTitle, QObject *context,
+                                             const QUuid &inputOperationId)
+{
+    const QString title = inputTitle;
+    const QUuid operationId = inputOperationId;
+    if (QThread::currentThread() != thread() || mStopping || !context ||
+        context->thread() != thread() || title.trimmed().isEmpty() || operationId.isNull() ||
+        mProgress.contains(operationId))
+        return {};
+    ProgressOperation operation;
+    operation.context = context;
+    operation.title = title;
+    operation.destroyed = connect(context, &QObject::destroyed, this, [this, operationId] {
+        releaseProgress(operationId, ProgressOutcome::Cancelled,
+                        tr("The operation context was closed."), !mStopping);
+    });
+    mProgress.insert(operationId, operation);
+    const QPointer<GuiExtensionHost> owner(this);
+    append(QStringLiteral("info"), tr("%1: started.").arg(title));
+    if (!owner || owner->mStopping)
+        return {};
+    const auto current = owner->mProgress.constFind(operationId);
+    if (current == owner->mProgress.cend())
+        return {};
+    // A log observer may have updated or finished this operation synchronously.
+    if (current->revision == 0) {
+        const auto publish = owner->mBridge.progressChanged;
+        const auto caption = QStringLiteral("[%1] %2").arg(owner->mId, title);
+        if (publish)
+            publish(operationId, caption, -1., {});
+    }
+    return owner && !owner->mStopping && owner->mProgress.contains(operationId) ? operationId
+                                                                             : QUuid{};
+}
+bool GuiExtensionHost::updateProgress(const QUuid &inputOperationId, double fraction,
+                                      const QString &inputStage)
+{
+    const QUuid operationId = inputOperationId;
+    const QString stage = inputStage;
+    if (QThread::currentThread() != thread() || mStopping || !std::isfinite(fraction))
+        return false;
+    auto operation = mProgress.find(operationId);
+    if (operation == mProgress.end() || !operation->context ||
+        operation->context->thread() != thread())
+        return false;
+    const double value = fraction < 0. ? -1. : std::clamp(fraction, 0., 1.);
+    if (operation->fraction == value && operation->stage == stage)
+        return true;
+    const bool logStage = !stage.isEmpty() && operation->stage != stage;
+    operation->fraction = value;
+    operation->stage = stage;
+    const quint64 revision = ++operation->revision;
+    const auto title = operation->title;
+    const QPointer<GuiExtensionHost> owner(this);
+    if (logStage)
+        append(QStringLiteral("info"), QStringLiteral("%1: %2").arg(title, stage));
+    if (!owner || owner->mStopping)
+        return true;
+    const auto current = owner->mProgress.constFind(operationId);
+    if (current == owner->mProgress.cend() || current->revision != revision)
+        return true;
+    const auto publish = owner->mBridge.progressChanged;
+    const auto caption = QStringLiteral("[%1] %2").arg(owner->mId, title);
+    if (publish)
+        publish(operationId, caption, value, stage);
+    return true;
+}
+bool GuiExtensionHost::finishProgress(const QUuid &operationId, ProgressOutcome outcome,
+                                      const QString &detail)
+{
+    if (QThread::currentThread() != thread() || mStopping)
+        return false;
+    if (outcome != ProgressOutcome::Succeeded && outcome != ProgressOutcome::Failed &&
+        outcome != ProgressOutcome::Cancelled)
+        return false;
+    const auto operation = mProgress.constFind(operationId);
+    if (operation == mProgress.cend() || !operation->context ||
+        operation->context->thread() != thread())
+        return false;
+    return releaseProgress(operationId, outcome, detail, true);
+}
+bool GuiExtensionHost::releaseProgress(const QUuid &inputOperationId, ProgressOutcome outcome,
+                                       const QString &inputDetail, bool writeLog)
+{
+    const QUuid operationId = inputOperationId;
+    const QString detail = inputDetail;
+    const auto operation = mProgress.find(operationId);
+    if (operation == mProgress.end())
+        return false;
+    const auto title = operation->title;
+    disconnect(operation->destroyed);
+    mProgress.erase(operation); // Commit ownership removal before any reentrant callback.
+    const QPointer<GuiExtensionHost> owner(this);
+    const auto remove = mBridge.progressFinished;
+    if (remove)
+        remove(operationId);
+    if (!owner || owner->mStopping || !writeLog)
+        return true;
+    const auto state = outcome == ProgressOutcome::Succeeded ? tr("completed")
+                       : outcome == ProgressOutcome::Failed ? tr("failed")
+                                                            : tr("cancelled");
+    QString message = tr("%1: %2.").arg(title, state);
+    if (!detail.isEmpty())
+        message += QStringLiteral(" ") + detail;
+    owner->append(outcome == ProgressOutcome::Failed ? QStringLiteral("error")
+                                                    : QStringLiteral("info"),
+                  message);
+    return true;
 }
 
 QList<QVariantMap> GuiExtensionHost::runs() const
@@ -648,6 +783,45 @@ StateSnapshot GuiExtensionHost::stateSnapshot() const
         return {};
     return mStateRegistry->snapshot();
 }
+IJob *GuiExtensionHost::importTimeSeries(
+    const TimeSeriesImportRequest &request, QObject *context,
+    std::function<void(const TimeSeriesImportResult &)> finished, QString *error)
+{
+    if (error)
+        error->clear();
+    if (QThread::currentThread() != thread() || mStopping || !context ||
+        context->thread() != thread() || !finished || !mTimeSeriesImport || !mStateRegistry) {
+        if (error)
+            *error = tr("The time-series import service or receiver is unavailable on this thread.");
+        return nullptr;
+    }
+    const auto state = mStateRegistry->session(request.sessionId);
+    if (state.sessionId.isNull() || state.status != SessionStatus::Ready ||
+        state.loadGeneration != request.loadGeneration || state.saving ||
+        request.importId.isNull() || request.descriptorPath.isEmpty() ||
+        request.packagePath.isEmpty()) {
+        if (error)
+            *error = tr("Choose a completed dataset and its original open project before importing.");
+        return nullptr;
+    }
+    return mTimeSeriesImport(request, context, std::move(finished), error);
+}
+QList<TimeSeriesLayerInfo> GuiExtensionHost::timeSeriesLayers(const QUuid &sessionId) const
+{
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry ||
+        !mTimeSeriesLayers || mStateRegistry->session(sessionId).status != SessionStatus::Ready)
+        return {};
+    return mTimeSeriesLayers(sessionId).mid(0, 1000);
+}
+void GuiExtensionHost::setTimeSeriesControls(
+    std::function<IJob *(const TimeSeriesImportRequest &, QObject *,
+                        std::function<void(const TimeSeriesImportResult &)>, QString *)> importer,
+    std::function<QList<TimeSeriesLayerInfo>(const QUuid &)> layers)
+{
+    checkThread();
+    mTimeSeriesImport = std::move(importer);
+    mTimeSeriesLayers = std::move(layers);
+}
 IModelInstance *GuiExtensionHost::resolveSession(const QUuid &sessionId) const
 {
     if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mSessionResolver)
@@ -906,7 +1080,24 @@ IJob *GuiExtensionHost::runJob(const QString &title, std::function<void(IJobCont
         }
         state->settle(error);
     }));
-    return state;
+    const QPointer<GuiExtensionHost> owner(this);
+    beginProgressOperation(title.isEmpty() ? tr("Extension job") : title, this, state->operationId);
+    return owner && !owner->mStopping ? state : nullptr;
+}
+void GuiExtensionHost::setJobCancellationHook(IJob *job, std::function<void()> hook)
+{
+    if (QThread::currentThread() != thread() || !job)
+        return;
+    for (const auto &state : mJobs)
+        if (static_cast<IJob *>(state.get()) == job) {
+            std::lock_guard lock(state->mutex);
+            state->publicationCancellation = std::move(hook);
+            return;
+        }
+}
+bool GuiExtensionHost::isStopping() const
+{
+    return QThread::currentThread() != thread() || mStopping;
 }
 QUuid GuiExtensionHost::jobOperationId(IJob *job) const
 {
@@ -961,14 +1152,26 @@ void GuiExtensionHost::prepareShutdown()
     mSettings->sync();
     mLocationHandler = {};
     mLocationContext = nullptr;
+    const QPointer<GuiExtensionHost> owner(this);
+    const auto progressIds = mProgress.keys();
+    for (const auto &operationId : progressIds) {
+        releaseProgress(operationId, ProgressOutcome::Cancelled, {}, false);
+        if (!owner)
+            return;
+    }
     emit aboutToShutdown();
 }
-void GuiExtensionHost::append(const QString &level, const QString &text)
+void GuiExtensionHost::append(const QString &inputLevel, const QString &inputText)
 {
+    const QString level = inputLevel;
+    const QString text = inputText;
     if (QThread::currentThread() != thread()) {
         postToMainThread([this, level, text]() { append(level, text); });
         return;
     }
+    if (mStopping)
+        return;
+    const QPointer<GuiExtensionHost> owner(this);
     if (!mOutput && mWindow) {
         auto *dock = mWindow->findChild<QDockWidget *>("dockExtensionOutput");
         if (!dock) {
@@ -990,6 +1193,12 @@ void GuiExtensionHost::append(const QString &level, const QString &text)
     }
     if (mText)
         mText->appendPlainText(QStringLiteral("[%1] %2").arg(level, text));
+    if (owner && !owner->mStopping) {
+        const auto publish = owner->mBridge.logMessage;
+        const auto message = QStringLiteral("[%1] %2").arg(owner->mId, text);
+        if (publish)
+            publish(level, message);
+    }
 }
 void GuiExtensionHost::clear()
 {
@@ -997,16 +1206,20 @@ void GuiExtensionHost::clear()
     if (mText)
         mText->clear();
 }
-void GuiExtensionHost::appendLocation(const QString &level, const QString &text,
-                                      const QString &path, int line)
+void GuiExtensionHost::appendLocation(const QString &inputLevel, const QString &inputText,
+                                      const QString &inputPath, int line)
 {
+    const QString level = inputLevel;
+    const QString text = inputText;
+    const QString path = inputPath;
     if (QThread::currentThread() != thread()) {
         postToMainThread(
             [this, level, text, path, line]() { appendLocation(level, text, path, line); });
         return;
     }
+    const QPointer<GuiExtensionHost> owner(this);
     append(level, text);
-    if (!mText || path.isEmpty() || line <= 0)
+    if (!owner || owner->mStopping || !mText || path.isEmpty() || line <= 0)
         return;
     auto block = mText->document()->lastBlock();
     const int count = qMin(mText->document()->blockCount(), int(text.count('\n')) + 1);

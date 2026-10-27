@@ -174,8 +174,16 @@ private slots:
         auto checkScene = [type](GISVectorLayer *layer, const QColor &color) {
             QGraphicsScene scene;
             layer->populateScene(&scene, MapExtent(-1, -1, 11, 11), nullptr);
-            QCOMPARE(scene.items().size(), 1);
-            auto *item = scene.items().first();
+            QList<QGraphicsItem *> features;
+            for (auto *item : scene.items())
+                if (dynamic_cast<VectorPointItem *>(item) ||
+                    dynamic_cast<VectorLineItem *>(item) ||
+                    dynamic_cast<VectorPolygonPathItem *>(item))
+                    features.append(item);
+            // Labels are separate native scene items; this case verifies the
+            // independently styled feature geometry rather than annotation count.
+            QCOMPARE(features.size(), 1);
+            auto *item = features.first();
             if (type == GeometryType::Point) {
                 auto *point = dynamic_cast<VectorPointItem *>(item);
                 QVERIFY(point);

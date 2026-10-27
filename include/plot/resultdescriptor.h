@@ -58,6 +58,28 @@ struct ResultDescriptor {
     QString variableLabel;
     QString variableUnits;
 
+    /** Native observation identity, including quantity/statistic/unit/time basis. */
+    QString observationKey;
+    QString observationLabel; ///< Human-readable observation quantity/statistic.
+    QString observationUnits; ///< Actual native unit; never inferred from SI/US.
+
+    /** @return True for a native observation descriptor. */
+    [[nodiscard]] bool isObservation() const noexcept { return !observationKey.isEmpty(); }
+
+    /** @brief Construct a native observation row without pretending it is a model result.
+     * @param[in] key Stable quantity/statistic/unit/clock identity.
+     * @param[in] label Human-readable axis title.
+     * @param[in] units Native units carried by the dataset.
+     * @return Independent descriptor; an empty key remains invalid. */
+    static ResultDescriptor forObservation(QString key, QString label, QString units)
+    {
+        ResultDescriptor d;
+        d.observationKey = std::move(key);
+        d.observationLabel = std::move(label);
+        d.observationUnits = std::move(units);
+        return d;
+    }
+
     /**
      * @brief Recognize the name-keyed species branch.
      * @return True when attr is Unknown and species is nonempty; variableKey is ignored in this test.
@@ -82,7 +104,7 @@ struct ResultDescriptor {
      */
     [[nodiscard]] bool isValid() const noexcept
     {
-        return attr != PlotAttribute::Unknown || !species.isEmpty() || !variableKey.isEmpty();
+        return attr != PlotAttribute::Unknown || !species.isEmpty() || !variableKey.isEmpty() || isObservation();
     }
 
     /*! \brief Picker label: `labelFor(attr)` for a fixed attribute;
@@ -150,7 +172,7 @@ struct ResultDescriptor {
      */
     bool operator==(const ResultDescriptor &o) const noexcept
     {
-        return attr == o.attr && species == o.species && variableKey == o.variableKey;
+        return attr == o.attr && species == o.species && variableKey == o.variableKey && observationKey == o.observationKey;
     }
     /**
      * @brief Test whether stored result identities differ.

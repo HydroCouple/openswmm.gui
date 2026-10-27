@@ -16,6 +16,8 @@ namespace openswmmvis::plot
 
 QString ResultDescriptor::label() const
 {
+    if (isObservation())
+        return observationLabel.isEmpty() ? observationKey : observationLabel;
     if (isSpecies())
         return OpenSWMMVis::Species::speciesDisplayLabel(species);
     if (isMeshVariable())
@@ -25,6 +27,8 @@ QString ResultDescriptor::label() const
 
 QString ResultDescriptor::unitLabel(UnitSystem u, const QString &concentrationUnit) const
 {
+    if (isObservation())
+        return observationUnits;
     if (isSpecies())
         return OpenSWMMVis::Species::speciesUnitLabel(species, concentrationUnit);
     if (isMeshVariable())

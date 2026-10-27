@@ -14,9 +14,9 @@ then save a style you like and reuse it.
 | **Layer Properties** (the style dialog) | Layer right-click → **Properties…**, or **Styles ▸ Edit Symbology…**, or double-click a kind row | — |
 | **Layer Styling** dock | **View → Layer Styling** (ribbon **View**) | `Ctrl+Alt+8` |
 | **Style Manager** | **Tools → Style Manager** (ribbon **View**) | — |
-| **Set Style** | **Results → Set Style** (ribbon **Results**) | — |
+| **Set Style** | **Results → Set Style** (ribbon **Animation**) | — |
 | **Legend** dock | **View → Panels → Legend** | `Ctrl+Alt+5` |
-| On-canvas legend | **View → Show Legend** (ribbon **Results**) | — |
+| On-canvas legend | **View → Show Legend** (ribbon **Animation**) | — |
 | **Legend Properties** | Right-click the on-canvas legend → **Properties…** | — |
 | Annotation style | Place or click a text annotation with the **Add Text** tool | — |
 

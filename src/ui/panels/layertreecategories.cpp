@@ -52,8 +52,9 @@ CategoryId categoryForLayerType(int t)
         return CatBasemaps;
 
     case LayerTypeOrdinal::SWMMTabularDataLayer:
-    case LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer:
         return CatTables;
+    case LayerTypeOrdinal::SWMMTabularyTimeSeriesLayer:
+        return CatTimeSeries;
 
     case LayerTypeOrdinal::SWMMAnnotationLayer:
         return CatFeatureLayers;
@@ -87,6 +88,8 @@ CategoryInfo categoryInfo(CategoryId id)
         return {"Basemaps", ":/swmmvis/Globe"};
     case CatTables:
         return {"Tables", ":/swmmvis/TableView"};
+    case CatTimeSeries:
+        return {"Time Series", ":/swmmvis/Chart"};
     case CatCount:
     default:
         return {"Feature Layers", ":/swmmvis/AddVector"};

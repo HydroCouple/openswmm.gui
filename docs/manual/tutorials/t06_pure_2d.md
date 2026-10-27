@@ -259,7 +259,7 @@ Style the 2D results layer (double-click it in **Layers**). Its style panel has
 scalar-fill tabs plus **Depth Contours**, **Depth Isolines**, **Flow Velocity**,
 **Mesh Edges** and **Mesh Vertices**.
 
-Use the **Results** ribbon tab transport — **Play**, **Pause**, **Stop**,
+Use the **Animation** ribbon tab transport — **Play**, **Pause**, **Stop**,
 **Skip Back**, **Skip Forward** — and the **Show Legend** toggle. Then look for:
 
 - rain accumulating uniformly across every cell during the first hour, because

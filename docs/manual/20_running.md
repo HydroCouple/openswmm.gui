@@ -160,7 +160,7 @@ select one first. Both actions are disabled unless at least one run is active.
 
 ### Live results while the run is going
 
-**Live rendering** on the **Results** ribbon follows the incoming results
+**Live rendering** on the **Animation** ribbon follows the incoming results
 selected in the **Analysis** tab's **1D results** and **2D results** selectors.
 Both use one time cursor: the 1D output drives when it has frames, and the 2D
 output shows its latest frame at or before that time. A 2D-only run can drive

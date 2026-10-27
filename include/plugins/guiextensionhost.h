@@ -15,6 +15,8 @@
 #include "sdk/IViewControlsV1.hpp"
 #include "sdk/IEventSourceV4.hpp"
 #include "sdk/IActivityControlsV1.hpp"
+#include "sdk/ITimeSeriesLayersV1.hpp"
+#include "sdk/IProgressV1.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -67,6 +69,12 @@ struct ExtensionUiBridge {
     std::function<QAction *(const QString &)> dialogAction; ///< Resolve approved dialog action metadata.
     std::function<QMetaObject::Connection(QObject *, std::function<void()>)>
         watchDialogActions; ///< Observe native approved-command catalogue registration changes.
+    std::function<void(const QUuid &, const QString &, double, const QString &)>
+        progressChanged; ///< Publish one operation with a plugin-qualified title; negative is busy.
+    std::function<void(const QUuid &)>
+        progressFinished; ///< Remove exactly one native progress operation, including at shutdown.
+    std::function<void(const QString &, const QString &)>
+        logMessage; ///< Append severity and already plugin-prefixed text to native timestamped Logs.
 };
 
 /** Per-extension facade: ownership and IDs cannot cross another extension's namespace. */
@@ -83,10 +91,12 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IEventSourceV3,
                                public OpenSWMM::Sdk::IViewControlsV1,
                                public OpenSWMM::Sdk::IEventSourceV4,
-                               public OpenSWMM::Sdk::IActivityControlsV1
+                               public OpenSWMM::Sdk::IActivityControlsV1,
+                               public OpenSWMM::Sdk::ITimeSeriesLayersV1,
+                               public OpenSWMM::Sdk::IProgressV1
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1)
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1 OpenSWMM::Sdk::ITimeSeriesLayersV1 OpenSWMM::Sdk::IProgressV1)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -112,6 +122,13 @@ public:
     OpenSWMM::Sdk::IUiHost *ui() override { return this; }
     OpenSWMM::Sdk::ISettings *settings() override { return this; }
     OpenSWMM::Sdk::IConsole *console() override { return this; }
+    /** @copydoc OpenSWMM::Sdk::IProgressV1::beginProgress */
+    QUuid beginProgress(const QString &title, QObject *context) override;
+    /** @copydoc OpenSWMM::Sdk::IProgressV1::updateProgress */
+    bool updateProgress(const QUuid &operationId, double fraction, const QString &stage) override;
+    /** @copydoc OpenSWMM::Sdk::IProgressV1::finishProgress */
+    bool finishProgress(const QUuid &operationId, OpenSWMM::Sdk::ProgressOutcome outcome,
+                        const QString &detail = {}) override;
     OpenSWMM::Sdk::INetworkPolicy *network() override;
     OpenSWMM::Sdk::IRunRegistry *runRegistry() override { return this; }
     OpenSWMM::Sdk::IPlotService *plots() override { return this; }
@@ -151,6 +168,37 @@ public:
     /** @brief Copy live session metadata and its atomic registry watermark.
      * @return Owning snapshot, or empty off the GUI thread/after shutdown. */
     OpenSWMM::Sdk::StateSnapshot stateSnapshot() const override;
+    /** @brief Start a guarded native observation import through the installed application bridge.
+     * @param[in] request Exact session/generation and completed local asset paths.
+     * @param[in] context Required GUI-thread receiver lifetime.
+     * @param[in] finished Managed terminal receiver suppressed during shutdown.
+     * @param[out] error Immediate refusal detail, cleared on acceptance.
+     * @return Borrowed cancellable worker handle, null for an invalid/unavailable request. */
+    OpenSWMM::Sdk::IJob *importTimeSeries(
+        const OpenSWMM::Sdk::TimeSeriesImportRequest &request, QObject *context,
+        std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)> finished,
+        QString *error = nullptr) override;
+    /** @brief Query bounded native observation-layer metadata for one Ready session.
+     * @param[in] sessionId Exact open lifetime; persistent UUIDs are not accepted.
+     * @return At most 1000 copied layer descriptors, empty off-thread/after closure. */
+    QList<OpenSWMM::Sdk::TimeSeriesLayerInfo> timeSeriesLayers(const QUuid &sessionId) const override;
+    /** @brief Install private native dataset routes before extension initialization.
+     * @param[in] importer Cancellable application import/controller bridge.
+     * @param[in] layers Lookup-only attached collection metadata query. */
+    void setTimeSeriesControls(
+        std::function<OpenSWMM::Sdk::IJob *(
+            const OpenSWMM::Sdk::TimeSeriesImportRequest &, QObject *,
+            std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)>, QString *)> importer,
+        std::function<QList<OpenSWMM::Sdk::TimeSeriesLayerInfo>(const QUuid &)> layers);
+    /** @brief Install a host-internal publication cancellation hook on a retained job.
+     * @param[in] job Borrowed job issued by this host.
+     * @param[in] hook Thread-safe callback invoked by IJob::cancel(), including after worker
+     * settlement. Use only copied atomic state, never GUI objects. Empty clears the hook.
+     * @note GUI-thread registration; this does not alter the frozen worker/activity outcome. */
+    void setJobCancellationHook(OpenSWMM::Sdk::IJob *job, std::function<void()> hook);
+    /** @brief Report shutdown or wrong-thread access before private bridges read GUI state.
+     * @return True outside the host thread or once shutdown begins. */
+    bool isStopping() const;
     /** @brief Resolve a ready session without creating a facade or emitting events.
      * @param[in] sessionId Per-open session identity, independent of the saved instance UUID.
      * @return Borrowed live facade, or null for unavailable/unready/retired sessions. */
@@ -325,6 +373,29 @@ protected:
 
 private:
     struct Job;
+    /** @brief GUI-thread state for one owned shared-progress operation. */
+    struct ProgressOperation {
+        QPointer<QObject> context; ///< Required owner lifetime, never dereferenced off-thread.
+        QMetaObject::Connection destroyed; ///< Auto-release registration, removed at settlement.
+        QString title; ///< Local title; native bridge receives plugin-qualified text.
+        QString stage; ///< Latest stage, compared to coalesce repeated log messages.
+        double fraction = -1.; ///< Normalized progress, negative for indeterminate.
+        quint64 revision = 0; ///< Reentrancy fence for synchronous native publication.
+    };
+    /** @brief Begin progress with an already allocated identity, also used by retained jobs.
+     * @param[in] title Nonempty local caption.
+     * @param[in] context Required GUI-thread lifetime guard.
+     * @param[in] operationId Unique identity reserved before synchronous native publication.
+     * @return Identity while still owned, null if validation/publication released it. */
+    QUuid beginProgressOperation(const QString &title, QObject *context, const QUuid &operationId);
+    /** @brief Release an operation before native/log callbacks, including context destruction.
+     * @param[in] operationId Owned active UUID.
+     * @param[in] outcome Terminal log classification.
+     * @param[in] detail Optional literal terminal explanation.
+     * @param[in] writeLog False for silent host shutdown cleanup.
+     * @return True only when an owned operation was removed. */
+    bool releaseProgress(const QUuid &operationId, OpenSWMM::Sdk::ProgressOutcome outcome,
+                         const QString &detail, bool writeLog);
     struct View {
         QString kind;
         OpenSWMM::Sdk::IModelInstance *instance;
@@ -352,6 +423,7 @@ private:
     QThreadPool mPool;
     ExtensionNetwork *mNetwork = nullptr;
     std::vector<std::unique_ptr<Job>> mJobs;
+    QHash<QUuid, ProgressOperation> mProgress; ///< Per-host UUID ownership; finished IDs are erased.
     bool mStopping = false;
     QUuid mActivityOwnerId = QUuid::createUuid(); ///< Unique per-host private activity scope.
     QUuid mActivityWindowId; ///< Established main-window lifetime.
@@ -362,6 +434,10 @@ private:
     std::function<OpenSWMM::Sdk::IModelInstance *(const QUuid &)> mSessionResolver;
     std::function<bool(const OpenSWMM::Sdk::ViewCommand &, QString *)> mViewCommand;
     std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> mViewSelection;
+    std::function<OpenSWMM::Sdk::IJob *(
+        const OpenSWMM::Sdk::TimeSeriesImportRequest &, QObject *,
+        std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)>, QString *)> mTimeSeriesImport;
+    std::function<QList<OpenSWMM::Sdk::TimeSeriesLayerInfo>(const QUuid &)> mTimeSeriesLayers;
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
     /** @brief Request one own job cancellation without relying on title or public handle layout.

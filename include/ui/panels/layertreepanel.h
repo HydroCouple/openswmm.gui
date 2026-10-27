@@ -21,6 +21,8 @@
 
 #include <array>
 #include <vector>
+#include <map>
+#include <memory>
 
 #include "ui/panels/layertreetargets.h"
 
@@ -144,6 +146,14 @@ public:
      * @return Two even without source or for leaf rows.
      */
     int columnCount(const QModelIndex &parent = {}) const override;
+    /** @brief Report lazy collection children without allocating per-observation rows. */
+    bool hasChildren(const QModelIndex &parent = {}) const override;
+    /** @brief Whether another bounded batch of series metadata can be exposed. */
+    bool canFetchMore(const QModelIndex &parent) const override;
+    /** @brief Append at most 128 stable series row sentinels; samples are never read. */
+    void fetchMore(const QModelIndex &parent) override;
+    /** @return Stable collection series ID for a series child, empty for other rows. */
+    QString seriesIdForIndex(const QModelIndex &index) const;
     /**
      * @param[in] index Expected current model index; invalid/group-out-of-range returns invalid.
      *   Layer/raw sentinel lifetime must follow resets.
@@ -394,6 +404,12 @@ public:
      */
     void notifyHostSubOrderChanged();
 
+signals:
+    /** @brief Forward qualified native collection selection to the visible tree.
+     * @param[in] layer Borrowed attached collection.
+     * @param[in] ids Stable series IDs; no source samples are read. */
+    void collectionSelectionChanged(class TimeSeriesLayer *layer, const QStringList &ids);
+
 private slots:
     /**
      * @param[in] layer Unused borrowed notification payload, implementation unnamed.
@@ -457,6 +473,11 @@ private:
     // and never modified afterwards, so element addresses stay stable for
     // the model's lifetime — same stability contract as the KindRow
     // std::array storage.
+    /** @brief Immutable child identity; unique allocation survives vector growth. */
+    struct SeriesRow { OpenSWMMVisLayer *layer = nullptr; QString id; };
+    std::map<OpenSWMMVisLayer *, std::vector<std::unique_ptr<SeriesRow>>> m_seriesRows;
+    QSet<const void *> m_seriesRowPtrs;
+
     struct SublayerRow {
         OpenSWMMVisLayer *layer = nullptr;
         OpenSWMM::Render::ISublayer *sublayer = nullptr;

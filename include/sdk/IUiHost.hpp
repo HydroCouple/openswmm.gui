@@ -22,16 +22,20 @@ class ExtensionHost;
 class IModelInstance;
 class ISettings;
 
-/** @brief One captioned ribbon group using commands already registered by the extension. */
+/** @brief One captioned ribbon group using commands already registered by the extension.
+ * @details Each command retains its QAction icon, text and enabled state in ribbon buttons
+ * and collapsed menus. The caption appears within the plugin's registered tab. */
 struct RibbonGroupSpec {
     QString caption;       ///< Translated group caption.
     QStringList actionIds; ///< Ordered extension-local action identities.
 };
-/** @brief Value-described ribbon tab suitable for native or future Python-authored contributions. */
+/** @brief Value-described ribbon contribution suitable for native or future Python-authored UI.
+ * @details Each registration creates an independent ribbon tab. An extension may register
+ * multiple tabs with different local identities, captions and command groups. */
 struct RibbonTabSpec {
     QString id;                    ///< Stable extension-local tab identity.
-    QString title;                 ///< Translated tab caption.
-    bool contextual = false;       ///< Start hidden until explicitly revealed by the host.
+    QString title;                 ///< Translated caption of this extension-owned ribbon tab.
+    bool contextual = false;       ///< Start this contribution hidden until explicitly revealed.
     QList<RibbonGroupSpec> groups; ///< Ordered groups and their registered commands.
 };
 
@@ -109,15 +113,21 @@ public:
     /** @brief Register an extension command in the host command palette and shortcut context.
      * @param[in] id Nonempty extension-local command ID.
      * @param[in] action Borrowed QAction; parent it to ExtensionHost::lifetime() for host ownership.
-     * @return False for null action, duplicate ID or an unavailable main window. */
+     * @return False for null action, duplicate ID or an unavailable main window.
+     * @note Icons are supported through QAction::setIcon(). Bundle SVG/PNG resources in the
+     * plugin's .qrc and pass it to openswmmvis_add_extension() SOURCES. Set
+     * QAction::setIconVisibleInMenu(true) when menu icons are desired; native menu policy applies.
+     * Update the action icon when its palette-dependent rendering changes. */
     virtual bool registerAction(const QString &id, QAction *action) = 0;
     /** @brief Remove a command without deleting its QAction. @param[in] id Extension-local command identity. */
     virtual void unregisterAction(const QString &id) = 0;
-    /** @brief Register a dynamically removable ribbon tab.
+    /** @brief Register an independent, dynamically removable extension-owned ribbon tab.
      * @param[in] tab Data-described tab; every action ID must already be registered by this extension.
+     * Register multiple distinct local tab IDs to create multiple tabs; the host scopes each ID to this extension.
      * @return False for duplicate/empty IDs, unknown actions or an unavailable toolbar bridge. */
     virtual bool registerRibbonTab(const RibbonTabSpec &tab) = 0;
-    /** @brief Remove a ribbon tab and its host-owned toolbar. @param[in] id Extension-local tab identity. */
+    /** @brief Remove only this contribution and its host-owned toolbars.
+     * @param[in] id Extension-local contribution identity; other plugins remain available. */
     virtual void unregisterRibbonTab(const QString &id) = 0;
     /** @brief Instantiate and mount a dock with View-menu and layout persistence.
      * @param[in] factory Borrowed factory during this call; returned widget becomes host-owned.

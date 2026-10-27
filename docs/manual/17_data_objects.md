@@ -270,21 +270,61 @@ Creating a pattern shows the same create card as the other editors, with a
 **Type** combo (**Monthly (12)**, **Daily (7)**, **Hourly (24)**,
 **Weekend (24)**) and a uniqueness-validated **Name**.
 
-### Calibration data and observed series
+### Observations and model time-series copies
 
-Observed measurements are compared against simulated results in the comparison
-plots — see \ref manual_time_series_plots. Observed data is loaded there
-directly: the comparison plot dialog's **Load Observed…** adds a CSV, TSV or
-`.dat` file as an extra run source whose series are labelled by their column
-headers, and the fit statistics are computed against it.
+Native observation collections belong to **Layers → Time Series**. They retain
+original site metadata, measurement/statistic identities, time text, units,
+approval/qualifier fields and missing values. Downloading, plotting or linking a
+series to a feature does not create model forcing. See \ref manual_layers and
+\ref manual_time_series_plots for inspection and plotting.
 
-A separate **Calibration Data** dialog exists in the codebase — a table of
-(object kind, object name, attribute, observed file, column) rows persisted in
-the project — but it is **not reachable from any menu in this build** and
-nothing currently reads the bindings it saves. Register observed data through
-the comparison plot instead.
+Select one usable series and choose **Use in model…**. The native dialog creates
+a model-owned copy, optionally binding it to a node FLOW inflow, outfall stage
+or rain gage. **Create time series only** makes it available in existing model
+editors and selectors. It does not create a live link to the downloaded file.
 
-\figtodo{17_observed_comparison.png, A comparison plot with an observed series loaded alongside a simulated one}
+1. Review the proposed new name and optional receiving object ID.
+2. Confirm the target units. Binding targets use the destination model's units;
+   supported physical conversions change values, not just the units caption.
+3. Select the period in source time and explicitly choose the model clock.
+   Continuous data can use UTC or a fixed UTC offset; machine-local time is never
+   assumed. Daily statistics retain their calendar dates and require explicit
+   confirmation before being held across each model day, with a one-second
+   transition between successive days.
+4. Review the recording interval and quality policy. Missing samples and gaps
+   exceeding a declared interval block assignment. Provisional or qualified
+   records require explicit acceptance. Irregular finite samples require an
+   explicit interpolation choice; selecting a contiguous complete period is the
+   preferred way to resolve missing data.
+5. Choose **Prepare preview**, inspect the first/last converted points and total
+   count, then **Create and apply**. Changing an option or editing the destination
+   model invalidates the preview.
+
+Stage binding requires a reviewed datum offset in model length units. Rain-gage
+binding requires compatible rainfall units, recording interval and
+intensity/volume/cumulative interpretation; daily-statistic holding is not a
+rainfall interval conversion. A node that already has a FLOW inflow is refused
+by the shortcut: create the series only and select it in the existing inflow
+editor. Existing named time series are never silently replaced.
+
+Creation, optional binding and conversion provenance form one Undo/Redo step.
+Cancel or a failed checked write leaves the model unchanged. Removing the source
+layer or downloading a newer record does not alter a prepared model copy.
+Unknown/incompatible conversions, conflicting times after whole-second rounding,
+and preparations exceeding one million points require correction or a shorter
+period. Regional daylight-saving time-zone conversion and arbitrary filling
+transformations are not offered by this initial dialog.
+
+### Legacy observed-file plotting
+
+The Comparison plot's **Load Observed…** still loads wide CSV, TSV, TSF and DAT
+files directly as plot sources. It is separate from persistent native observation
+layers and does not parse the Data plugin's long-form metadata exports.
+
+The old model editor's **Geopackage observed series** source-mode placeholder
+and the dormant **Calibration Data** dialog are not the native observation
+store. The latter saves object/file bindings but has no active menu or consuming
+workflow. Use native Time Series layers for downloaded observations.
 
 ### External file paths and project portability
 

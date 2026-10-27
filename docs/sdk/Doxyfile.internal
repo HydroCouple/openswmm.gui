@@ -6,6 +6,8 @@ OUTPUT_DIRECTORY = build/docs/sdk-internal
 INPUT += include/plugins/extensionmanager.h \
          include/plugins/guiextensionhost.h \
          include/plugins/extensionmodelaccess.h \
+         include/plugins/extensiontimeseriesaccess.h \
+         src/plugins/extensiontimeseriesaccess.cpp \
          include/plugins/extensionnetwork.h \
          include/plugins/extensionpreferences.h \
          include/plugins/extensionattributes.h \

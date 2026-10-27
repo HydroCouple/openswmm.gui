@@ -25,6 +25,8 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+#include "map/tools/maptoolidentify.h"
+#include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolselectpolygon.h"
 #include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
@@ -52,6 +54,8 @@
 #include <QSignalSpy>
 #include <QTableView>
 #include <QTest>
+
+#include <limits>
 
 namespace
 {
@@ -770,6 +774,258 @@ private slots:
         const QSet<long long> expected{5'000'000'000LL, 5'000'000'002LL};
         QCOMPARE(layer.featureIdsInPolygon(polygon, canvasSRS.get()), expected);
         QCOMPARE(layer.featureIdsInPolygon(polygon), expected);
+    }
+
+    /** @brief Exercise exact identify distance and source-filter restoration in geographic and projected canvases. */
+    void identifyQuery_canvasCoordinates_data()
+    {
+        QTest::addColumn<int>("canvasEpsg");
+        QTest::newRow("same CRS") << 4326;
+        QTest::newRow("reprojected CRS") << 3857;
+    }
+
+    /**
+     * @brief Require explicit-CRS identify to rank nearest geometry, reject holes/empty bbox corners and preserve filters.
+     * @details The legacy overload must still accept source coordinates after a projected query.
+     * Invalid coordinates/tolerance and an untransformable local target must yield no hits.
+     */
+    void identifyQuery_canvasCoordinates()
+    {
+        QFETCH(int, canvasEpsg);
+        GISVectorLayer layer(polygonQueryPath(), QStringLiteral("geometries"));
+        QVERIFY(layer.ogrLayer());
+        SpatialReferenceSystem source(QStringLiteral("EPSG"), 4326);
+        SpatialReferenceSystem target(QStringLiteral("EPSG"), canvasEpsg);
+        auto *transform = source.createTransformationTo(target);
+        QVERIFY(transform);
+        // Isolated point, first point, polygon hole, empty triangle bbox corner,
+        // line interior, and one degree of canvas X for the radius scale.
+        double xs[]{0.85, 0.5, 4.5, 0.7, 0.5, 0, 1};
+        double ys[]{0.85, 0.5, 1.5, 0.7, 0.75, 0, 0};
+        const bool transformed = transform->Transform(7, xs, ys);
+        OGRCoordinateTransformation::DestroyCT(transform);
+        QVERIFY(transformed);
+        const double unit = xs[6] - xs[5];
+        const long long base = 5'000'000'000LL;
+        const auto ids = [](const QList<QVariantMap> &hits) {
+            QSet<long long> result;
+            for (const auto &hit : hits)
+                result.insert(hit.value(QStringLiteral("fid")).toLongLong());
+            return result;
+        };
+
+        const auto near = layer.identifyAt(xs[0], ys[0], &target, 0.6 * unit);
+        QVERIFY(near.size() > 1);
+        QCOMPARE(near.first().value(QStringLiteral("fid")).toLongLong(), base + 5);
+        QCOMPARE(ids(layer.identifyAt(xs[1], ys[1], &target, 0.01 * unit)),
+                 (QSet<long long>{base, base + 2}));
+        QVERIFY(layer.identifyAt(xs[2], ys[2], &target, 0.01 * unit).isEmpty());
+        QVERIFY(layer.identifyAt(xs[3], ys[3], &target, 0.01 * unit).isEmpty());
+        QCOMPARE(ids(layer.identifyAt(xs[4], ys[4], &target, 0.01 * unit)),
+                 (QSet<long long>{base + 1}));
+        // The cached canvas projection must never reinterpret legacy inputs.
+        QCOMPARE(ids(layer.identifyAt(0.5, 0.5, 0.01)), (QSet<long long>{base, base + 2}));
+
+        layer.ogrLayer()->SetSpatialFilterRect(8, 0, 9, 1);
+        const std::string saved = layer.ogrLayer()->GetSpatialFilter()->exportToWkt();
+        QCOMPARE(ids(layer.identifyAt(xs[0], ys[0], &target, 0.01 * unit)),
+                 (QSet<long long>{base + 5}));
+        QCOMPARE(layer.ogrLayer()->GetSpatialFilter()->exportToWkt(), saved);
+        QVERIFY(layer.ogrLayer()->SetAttributeFilter("fid = 5000000000") == OGRERR_NONE);
+        QVERIFY(layer.identifyAt(xs[0], ys[0], &target, 0.01 * unit).isEmpty());
+        QCOMPARE(layer.ogrLayer()->GetSpatialFilter()->exportToWkt(), saved);
+        QCOMPARE(ids(layer.identifyAt(xs[1], ys[1], &target, 0.01 * unit)),
+                 (QSet<long long>{base}));
+        layer.ogrLayer()->SetAttributeFilter(nullptr);
+
+        QVERIFY(layer.identifyAt(xs[0], ys[0], &target, -1).isEmpty());
+        QVERIFY(
+            layer.identifyAt(std::numeric_limits<double>::infinity(), ys[0], &target, 1).isEmpty());
+        std::unique_ptr<SpatialReferenceSystem> local(SpatialReferenceSystem::untitled());
+        QVERIFY(layer.identifyAt(0.5, 0.5, local.get(), 1).isEmpty());
+        QCOMPARE(layer.ogrLayer()->GetSpatialFilter()->exportToWkt(), saved);
+    }
+
+    /** @brief Run real click/drag gestures for imported temporary and editable layers in both canvas CRSes. */
+    void clickSelect_canvasCoordinates_data()
+    {
+        QTest::addColumn<int>("canvasEpsg");
+        QTest::addColumn<bool>("editable");
+        QTest::newRow("temporary same CRS") << 4326 << false;
+        QTest::newRow("temporary reprojected") << 3857 << false;
+        QTest::newRow("editable same CRS") << 4326 << true;
+        QTest::newRow("editable reprojected") << 3857 << true;
+    }
+
+    /**
+     * @brief Require canvas click selection and modifiers to synchronize layer/bus/table in the rendered coordinate frame.
+     * @details Hidden and attribute-filtered points cannot be picked. A projected rectangle and
+     * the Identify tool must keep targeting the same feature; no datasource edit is requested.
+     */
+    void clickSelect_canvasCoordinates()
+    {
+        QFETCH(int, canvasEpsg);
+        QFETCH(bool, editable);
+        std::unique_ptr<GISVectorLayer> layer;
+        if (editable) {
+            auto feature = std::make_unique<FeatureLayer>();
+            QVERIFY(feature->openTable(polygonQueryPath(), QStringLiteral("geometries")));
+            layer = std::move(feature);
+        } else {
+            layer =
+                std::make_unique<GISVectorLayer>(polygonQueryPath(), QStringLiteral("geometries"));
+            layer->setTemporary(true);
+        }
+        QVERIFY(layer->ogrLayer());
+        // Isolate the two point features from the mixed-geometry query fixture.
+        const char *pointFilter = "fid IN (5000000000, 5000000005)";
+        QVERIFY(layer->ogrLayer()->SetAttributeFilter(pointFilter) == OGRERR_NONE);
+        MapCanvas canvas;
+        canvas.resize(960, 480);
+        QVERIFY(canvas.setCanvasSRSByCode(QStringLiteral("EPSG"), canvasEpsg));
+        canvas.addLayer(layer.get(), false);
+        SelectionManager selection;
+        GisSelectionBridge bridge(&selection, &canvas);
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &selection, &canvas);
+        panel.showLayerSource(layer.get());
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view && view->model());
+
+        SpatialReferenceSystem source(QStringLiteral("EPSG"), 4326);
+        auto *transform = source.createTransformationTo(*canvas.canvasSRS());
+        QVERIFY(transform);
+        double xs[]{0.5, 0.85, -0.2, 1.2, 0.8, 0.9};
+        double ys[]{0.5, 0.85, -0.2, 1.2, 0.8, 0.9};
+        const bool transformed = transform->Transform(6, xs, ys);
+        OGRCoordinateTransformation::DestroyCT(transform);
+        QVERIFY(transformed);
+        canvas.show();
+        canvas.setExtent(MapExtent(xs[2], ys[2], xs[3], ys[3]), false);
+        OpenSWMMVisMapToolSelect tool(&canvas);
+        tool.setPixelTolerance(6);
+        canvas.setActiveTool(&tool);
+        const auto pixel = [&](int index) {
+            int x, y;
+            canvas.toPixelCoords(xs[index], ys[index], x, y);
+            return QPoint(x, y);
+        };
+        const auto click = [&](int index, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QTest::mouseClick(&canvas, Qt::LeftButton, modifiers, pixel(index));
+        };
+        const auto tableIds = [&]() {
+            QSet<long long> result;
+            for (const QModelIndex &row : view->selectionModel()->selectedRows(0))
+                result.insert(row.data().toLongLong());
+            return result;
+        };
+        const long long first = 5'000'000'000LL, second = first + 5;
+        click(0);
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{first}));
+        QCOMPARE(selection.selection(),
+                 (QSet<SWMMObjectRef>{GisObjectRef::feature(layer->layerId(), first)}));
+        QCOMPARE(tableIds(), (QSet<long long>{first}));
+        click(1, Qt::ShiftModifier);
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{first, second}));
+        QCOMPARE(tableIds(), (QSet<long long>{first, second}));
+        click(0, Qt::ControlModifier);
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{second}));
+
+        QVERIFY(layer->ogrLayer()->SetAttributeFilter("fid = 5000000000") == OGRERR_NONE);
+        click(1);
+        QVERIFY(layer->selectedFeatureIds().isEmpty());
+        click(0);
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{first}));
+        QVERIFY(layer->ogrLayer()->SetAttributeFilter(pointFilter) == OGRERR_NONE);
+        layer->setVisible(false);
+        click(1, Qt::ShiftModifier);
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{first}));
+        layer->setVisible(true);
+
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, pixel(4));
+        QTest::mouseMove(&canvas, pixel(5));
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, pixel(5));
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{second}));
+        QCOMPARE(tableIds(), (QSet<long long>{second}));
+
+        OpenSWMMVisMapToolIdentify identify(&canvas);
+        identify.setMapTolerance((xs[3] - xs[2]) / 100);
+        QList<IdentifyResult> identified;
+        connect(&identify, &OpenSWMMVisMapToolIdentify::identifyResult, &canvas,
+                [&](const QList<IdentifyResult> &results) { identified = results; });
+        canvas.setActiveTool(&identify);
+        click(1);
+        QCOMPARE(identified.size(), 1);
+        QCOMPARE(identified.first().features.first().value(QStringLiteral("fid")).toLongLong(),
+                 second);
+        canvas.setActiveTool(nullptr);
+    }
+
+    /** @brief Cover topmost GIS picks in matching and reprojected canvas coordinate systems. */
+    void clickSelect_respectsVisibleLayerOrder_data()
+    {
+        QTest::addColumn<int>("canvasEpsg");
+        QTest::newRow("geographic") << 4326;
+        QTest::newRow("projected") << 3857;
+    }
+
+    /** @brief A boundary below a gage cannot steal its click; reordering reverses the chosen layer. */
+    void clickSelect_respectsVisibleLayerOrder()
+    {
+        QFETCH(int, canvasEpsg);
+        const auto prefix = outDir() + QStringLiteral("/topmost-%1-").arg(canvasEpsg);
+        const auto write = [](const QString &name, const QByteArray &bytes) {
+            QFile file(name);
+            return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+        };
+        QVERIFY(write(prefix + "boundary.geojson", R"json({"type":"FeatureCollection","features":[{"type":"Feature","id":10,"properties":{"name":"Boundary"},"geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}}]})json"));
+        QVERIFY(write(prefix + "gage.geojson", R"json({"type":"FeatureCollection","features":[{"type":"Feature","id":20,"properties":{"name":"Gage"},"geometry":{"type":"Point","coordinates":[0.5,0.5]}}]})json"));
+        GISVectorLayer boundary(prefix + "boundary.geojson");
+        GISVectorLayer gage(prefix + "gage.geojson");
+        gage.setTemporary(true);
+        QVERIFY(boundary.ogrLayer() && gage.ogrLayer());
+        MapCanvas canvas;
+        canvas.resize(640, 480);
+        QVERIFY(canvas.setCanvasSRSByCode("EPSG", canvasEpsg));
+        canvas.addLayer(&boundary, false);
+        canvas.addLayer(&gage, false);
+        SelectionManager selection;
+        GisSelectionBridge bridge(&selection, &canvas);
+        SpatialReferenceSystem source("EPSG", 4326);
+        auto *projection = source.createTransformationTo(*canvas.canvasSRS());
+        QVERIFY(projection);
+        double xs[]{0.5, -0.1, 1.1}, ys[]{0.5, -0.1, 1.1};
+        const bool transformed = projection->Transform(3, xs, ys);
+        OGRCoordinateTransformation::DestroyCT(projection);
+        QVERIFY(transformed);
+        canvas.show();
+        canvas.setExtent(MapExtent(xs[1], ys[1], xs[2], ys[2]), false);
+        OpenSWMMVisMapToolSelect tool(&canvas);
+        tool.setPixelTolerance(6);
+        canvas.setActiveTool(&tool);
+        int px, py;
+        canvas.toPixelCoords(xs[0], ys[0], px, py);
+        QVERIFY(canvas.layers().indexOf(&boundary) < canvas.layers().indexOf(&gage));
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, QPoint(px, py));
+        QCOMPARE(gage.selectedFeatureIds(), (QSet<long long>{20}));
+        QVERIFY(boundary.selectedFeatureIds().isEmpty());
+        QCOMPARE(selection.selection(),
+                 (QSet<SWMMObjectRef>{GisObjectRef::feature(gage.layerId(), 20)}));
+        gage.clearSelection();
+        canvas.moveLayer(canvas.layers().indexOf(&gage), canvas.layers().indexOf(&boundary), false);
+        QVERIFY(canvas.layers().indexOf(&gage) < canvas.layers().indexOf(&boundary));
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, QPoint(px, py));
+        QCOMPARE(boundary.selectedFeatureIds(), (QSet<long long>{10}));
+        QVERIFY(gage.selectedFeatureIds().isEmpty());
+        QCOMPARE(selection.selection(),
+                 (QSet<SWMMObjectRef>{GisObjectRef::feature(boundary.layerId(), 10)}));
+        boundary.clearSelection();
+        boundary.setVisible(false);
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, QPoint(px, py));
+        QCOMPARE(gage.selectedFeatureIds(), (QSet<long long>{20}));
+        canvas.setActiveTool(nullptr);
+        canvas.takeLayer(canvas.layers().indexOf(&gage), false);
+        canvas.takeLayer(canvas.layers().indexOf(&boundary), false);
     }
 
     /**

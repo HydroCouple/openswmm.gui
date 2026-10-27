@@ -30,6 +30,7 @@
 
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 
@@ -71,6 +72,8 @@ public:
      *   fixed horizontal size until positive-stretch widget added.
      */
     explicit RibbonGroup(const QString &caption, QWidget *parent = nullptr);
+    /** @brief Disconnect action callbacks before QWidget destroys group-owned action children. */
+    ~RibbonGroup() override;
 
     /**
      * @return Copied original caption, including mnemonic markers; no later setter.
@@ -207,6 +210,11 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
+    /** @brief Track a hosted action's icon/text changes without taking QAction ownership.
+     * @param[in] action Required borrowed command, registered once per group. */
+    void watchActionPresentation(QAction *action);
+    /** @brief Mirror the first available action icon and refresh measured/button presentation. */
+    void refreshActionPresentation();
     /**
      * @param[in] mode Temporary/requested visual mode, does not itself assign mMode.
      * @brief Toggle content/collapsed face, set button icons/text styles and invalidate complete
@@ -236,6 +244,7 @@ private:
     QFrame *mSeparator = nullptr;
     QToolButton *mCollapsedButton = nullptr;
     QList<QAction *> mActions;
+    QSet<QAction *> mWatchedActions; ///< Commands with active presentation/lifetime observations.
     QList<QToolButton *> mButtons;
     mutable QHash<int, int> mWidthCache;
 };

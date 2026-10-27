@@ -315,7 +315,7 @@ sortable, filterable with the **Query:** box, and exportable with
 
 ### 9. Colour the map by result and animate it
 
-The **Results** ribbon tab drives playback.
+The **Animation** ribbon tab drives playback.
 
 1. Select the results layer, then **Set Style → Symbology**. Choose
    **Conduits** in the left tree and **Color by: flow (m³/s)**, or choose
@@ -412,7 +412,7 @@ and the maximum-HGL envelope. Its header reads
 line**, **Current HGL fill**, **Current EGL**, **Max HGL band**,
 **Max HGL line** and **Max EGL line**, plus node/link labelling and legend
 and timestamp styling. Turn on **Show Animation Cursor** in the Comparison
-Plot and press **Play** on the Results tab to watch the HGL and the plots
+Plot and press **Play** on the Animation tab to watch the HGL and the plots
 move together.
 
 \figtodo{t01_profile_plot.png, Profile plot from J3 to the outfall with the maximum HGL envelope}
