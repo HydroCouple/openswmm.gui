@@ -10,6 +10,12 @@
 #include "ui/dialogs/layerstyledialog.h"
 #include "layers/swmm2dresultslayer.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/featurelayer.h"
+#include "map/graphicsitems.h"
+#include "map/mapextent.h"
+#include "ui/dialogs/editors/gisvectorsymboleditor.h"
+#include "ui/dialogs/labelstab.h"
+#include "ui/widgets/colorbutton.h"
 #include <QLineEdit>
 #include "render/sublayers/resultscalarsublayer.h"
 #include "ui/dialogs/ilayerstylesubject.h"
@@ -19,6 +25,10 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QUndoStack>
+#include <QJsonDocument>
+#include <QGraphicsScene>
+#include <QTabWidget>
+#include <QTemporaryDir>
 #include <QtTest>
 #include <memory>
 
@@ -86,6 +96,138 @@ class TestLayerStyleDialogTransactions : public QObject
 {
     Q_OBJECT
 private slots:
+    void featureLayerStylesAreIndependent_data()
+    {
+        using openswmmvis::feature::GeometryType;
+        QTest::addColumn<int>("geometryType");
+        QTest::addColumn<int>("symbolTab");
+        QTest::newRow("points") << int(GeometryType::Point) << 0;
+        QTest::newRow("lines") << int(GeometryType::LineString) << 1;
+        QTest::newRow("polygons") << int(GeometryType::Polygon) << 2;
+    }
+
+    // Exercise real layer editors, scene items and project persistence for two
+    // same-type/same-role tables in one GeoPackage, including Apply/Cancel/undo.
+    void featureLayerStylesAreIndependent()
+    {
+        using namespace openswmmvis::feature;
+        using namespace openswmmvis::ui;
+        QFETCH(int, geometryType);
+        QFETCH(int, symbolTab);
+        const auto type = static_cast<GeometryType>(geometryType);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString gpkg = dir.filePath("features.gpkg");
+        QString error;
+        auto first = std::unique_ptr<FeatureLayer>(FeatureLayer::create(
+            gpkg, "First", type, {}, {}, {}, FeatureLayerRole::General, &error));
+        QVERIFY2(first, qPrintable(error));
+        auto second = std::unique_ptr<FeatureLayer>(FeatureLayer::create(
+            gpkg, "Second", type, {}, {}, {}, FeatureLayerRole::General, &error));
+        QVERIFY2(second, qPrintable(error));
+        Feature feature;
+        feature.geometry.setType(type);
+        Part part;
+        part.exterior.pts = {{0, 0}};
+        if (type != GeometryType::Point)
+            part.exterior.pts.append({10, 0});
+        if (type == GeometryType::Polygon)
+            part.exterior.pts.append({0, 10});
+        feature.geometry.parts().append(part);
+        QVERIFY(first->addFeature(feature, &error) >= 0);
+        QVERIFY(second->addFeature(feature, &error) >= 0);
+        const auto originalFirst = first->symbol().toJson();
+        const auto originalSecond = second->symbol().toJson();
+        const QColor firstColor("#d34a7f"), secondColor("#1c527e");
+        QUndoStack undo;
+        LayerStyleDialog firstDialog(first.get(), "symbology", nullptr, &undo);
+        LayerStyleDialog secondDialog(second.get(), "symbology");
+        QVERIFY(firstDialog.findChild<LabelsTab *>());
+        auto *firstEditor = firstDialog.findChild<GisVectorSymbolEditor *>();
+        auto *secondEditor = secondDialog.findChild<GisVectorSymbolEditor *>();
+        QVERIFY(firstEditor);
+        QVERIFY(secondEditor);
+        auto *firstTabs = firstEditor->findChild<QTabWidget *>();
+        auto *secondTabs = secondEditor->findChild<QTabWidget *>();
+        QVERIFY(firstTabs);
+        QVERIFY(secondTabs);
+        auto *firstControl = firstTabs->widget(symbolTab)->findChild<ColorButton *>();
+        auto *secondControl = secondTabs->widget(symbolTab)->findChild<ColorButton *>();
+        QVERIFY(firstControl);
+        QVERIFY(secondControl);
+        firstControl->setColor(firstColor);
+        QCOMPARE(second->symbol().toJson(), originalSecond);
+        firstDialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        firstControl->setColor(Qt::green);
+        firstDialog.reject();
+        const auto acceptedFirst = first->symbol().toJson();
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(first->symbol().toJson(), originalFirst);
+        QCOMPARE(second->symbol().toJson(), originalSecond);
+        undo.redo();
+        QCOMPARE(first->symbol().toJson(), acceptedFirst);
+        secondControl->setColor(secondColor);
+        secondDialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(first->symbol().toJson(), acceptedFirst);
+
+        auto checkScene = [type](GISVectorLayer *layer, const QColor &color) {
+            QGraphicsScene scene;
+            layer->populateScene(&scene, MapExtent(-1, -1, 11, 11), nullptr);
+            QCOMPARE(scene.items().size(), 1);
+            auto *item = scene.items().first();
+            if (type == GeometryType::Point) {
+                auto *point = dynamic_cast<VectorPointItem *>(item);
+                QVERIFY(point);
+                QCOMPARE(point->brush().color(), color);
+            } else if (type == GeometryType::LineString) {
+                auto *line = dynamic_cast<VectorLineItem *>(item);
+                QVERIFY(line);
+                QCOMPARE(line->pen().color(), color);
+            } else {
+                auto *polygon = dynamic_cast<VectorPolygonPathItem *>(item);
+                QVERIFY(polygon);
+                QCOMPARE(polygon->brush().color(), color);
+            }
+            layer->depopulateScene(&scene);
+        };
+        checkScene(first.get(), firstColor);
+        checkScene(second.get(), secondColor);
+
+        auto labels = first->labelConfig();
+        labels.enabled = true;
+        labels.color = firstColor;
+        first->setLabelConfig(labels);
+        // A rich-label-only change must survive even if the legacy fields match.
+        labels.haloEnabled = true;
+        labels.haloRadiusPx = 3.5;
+        first->setLabelConfig(labels);
+        // Round-trip the feature-layer payload used by ProjectSerializer,
+        // reopening the same tables before applying their saved styles.
+        const auto firstRecord =
+            QJsonDocument::fromJson(QJsonDocument(first->toJson()).toJson()).object();
+        const auto secondRecord =
+            QJsonDocument::fromJson(QJsonDocument(second->toJson()).toJson()).object();
+        FeatureLayer restoredFirst, restoredSecond;
+        QVERIFY2(restoredFirst.openTable(gpkg, firstRecord["layerName"].toString(), &error),
+                 qPrintable(error));
+        QVERIFY2(restoredSecond.openTable(gpkg, secondRecord["layerName"].toString(), &error),
+                 qPrintable(error));
+        restoredFirst.applyJson(firstRecord);
+        restoredSecond.applyJson(secondRecord);
+        checkScene(&restoredFirst, firstColor);
+        checkScene(&restoredSecond, secondColor);
+        QCOMPARE(restoredFirst.labelConfig().toJson(), first->labelConfig().toJson());
+        QCOMPARE(restoredSecond.labelConfig().toJson(), second->labelConfig().toJson());
+
+        // Existing projects with only the legacy symbol block still open.
+        QJsonObject legacy = firstRecord;
+        legacy.remove("vectorStyle");
+        FeatureLayer legacyLayer;
+        legacyLayer.applyJson(legacy);
+        QCOMPARE(legacyLayer.symbol().toJson(), first->symbol().toJson());
+    }
+
     /**
      *
      * @brief Require rejecting a dialog after adding an unavailable scalar sublayer to restore

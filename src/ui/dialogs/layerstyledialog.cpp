@@ -453,6 +453,8 @@ const char *layerTypeLabel(int t)
     case L::SWMMVectorLayer:
     case L::SWMMGISLayer:
         return "Vector";
+    case L::SWMMFeatureLayer:
+        return "Editable Feature Layer";
     case L::SWMMRasterLayer:
         return "Raster / DEM";
     case L::SWMMImageryLayer:
@@ -502,6 +504,7 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
     case L::SWMMResultsLayer:
     case L::SWMMVectorLayer:
     case L::SWMMGISLayer:
+    case L::SWMMFeatureLayer:
     case L::SWMMRasterLayer:
     case L::SWMM2DMeshLayer:
     case L::SWMM2DResultsLayer:
@@ -521,6 +524,7 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
     case L::SWMMResultsLayer:
     case L::SWMMVectorLayer:
     case L::SWMMGISLayer:
+    case L::SWMMFeatureLayer:
     case L::SWMMRasterLayer:
     case L::SWMM2DMeshLayer:
     case L::SWMM2DResultsLayer:
@@ -538,6 +542,7 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
     case L::SWMMModelLayer:
     case L::SWMMVectorLayer:
     case L::SWMMGISLayer:
+    case L::SWMMFeatureLayer:
     case L::SWMMResultsLayer:
     case L::SWMM2DResultsLayer:
     case L::SWMM2DMeshLayer:

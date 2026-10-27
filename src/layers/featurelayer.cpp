@@ -16,6 +16,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
+#include "render/stylefileio.h"
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
@@ -610,6 +611,9 @@ QJsonObject FeatureLayer::toJson() const
     o.insert(QStringLiteral("role"), featureLayerRoleToken(m_role));
     o.insert(QStringLiteral("zPolicy"), m_zPolicy.toJson());
     o.insert(QStringLiteral("symbol"), symbol().toJson());
+    // Retain the legacy symbol for older projects/readers; the complete style
+    // also preserves this layer's label configuration and renderer settings.
+    o.insert(QStringLiteral("vectorStyle"), OpenSWMM::Render::StyleFileIO::styleToJson(this));
     return o;
 }
 
@@ -628,4 +632,7 @@ void FeatureLayer::applyJson(const QJsonObject &o)
         s.fromJson(o.value(QStringLiteral("symbol")).toObject());
         setSymbol(s);
     }
+    if (o.contains(QStringLiteral("vectorStyle")))
+        OpenSWMM::Render::StyleFileIO::applyStyleJson(
+            this, o.value(QStringLiteral("vectorStyle")).toObject());
 }
