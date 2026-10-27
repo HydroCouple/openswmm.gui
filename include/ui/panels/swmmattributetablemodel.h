@@ -42,34 +42,36 @@ namespace openswmmvis
 
 /*! Slice Z.5.2 — How a column is edited (or not). */
 enum class EditorKind {
-    ReadOnly,   ///< Default; flags() omits ItemIsEditable.
-    Numeric,    ///< NumericDelegate (QDoubleSpinBox).
-    Integer,    ///< IntegerDelegate (QSpinBox).
-    Enum,       ///< EnumDelegate (QComboBox) with pre-baked pairs.
-    Text,       ///< Plain QLineEdit (default delegate); used for Name column.
-    Compound,   ///< CompoundEditDelegate (NodeCompoundEditButton). Used for
-                ///< per-node multi-row attributes (Inflows / DWF / RDII /
-                ///< Treatment) where the cell shows a summary + opens a
-                ///< dedicated dialog. The model returns a
-                ///< NodeCompoundEditRef QVariant for these columns.
-    Interval,   ///< IntervalDelegate (editable QComboBox of legacy H:MM
-                ///< presets). The cell stores/edits a clock string; the
-                ///< setter wrappers convert to/from engine seconds. First
-                ///< user: rain gage Recording Interval (DA.2 parity).
-    FileBrowse, ///< FileBrowseDelegate (QLineEdit + "…" QFileDialog button).
-                ///< ColumnSpec::fileFilter carries the dialog's name filter.
-                ///< First user: rain gage Rain File (path) — multi-column
-                ///< series files, spec §4 task 4.
-    FileColumn, ///< FileColumnDelegate (editable QComboBox). Per-row options
-                ///< come from the model via kFileColumnOptionsRole (the
-                ///< row's rain-file column headers). First user: rain gage
-                ///< Rain File Column.
+    ReadOnly,     ///< Default; flags() omits ItemIsEditable.
+    Numeric,      ///< NumericDelegate (QDoubleSpinBox).
+    Integer,      ///< IntegerDelegate (QSpinBox).
+    Enum,         ///< EnumDelegate (QComboBox) with pre-baked pairs.
+    Text,         ///< Plain QLineEdit (default delegate); used for Name column.
+    Compound,     ///< CompoundEditDelegate (NodeCompoundEditButton). Used for
+                  ///< per-node multi-row attributes (Inflows / DWF / RDII /
+                  ///< Treatment) where the cell shows a summary + opens a
+                  ///< dedicated dialog. The model returns a
+                  ///< NodeCompoundEditRef QVariant for these columns.
+    Interval,     ///< IntervalDelegate (editable QComboBox of legacy H:MM
+                  ///< presets). The cell stores/edits a clock string; the
+                  ///< setter wrappers convert to/from engine seconds. First
+                  ///< user: rain gage Recording Interval (DA.2 parity).
+    FileBrowse,   ///< FileBrowseDelegate (QLineEdit + "…" QFileDialog button).
+                  ///< ColumnSpec::fileFilter carries the dialog's name filter.
+                  ///< First user: rain gage Rain File (path) — multi-column
+                  ///< series files, spec §4 task 4.
+    FileColumn,   ///< FileColumnDelegate (editable QComboBox). Per-row options
+                  ///< come from the model via kFileColumnOptionsRole (the
+                  ///< row's rain-file column headers). First user: rain gage
+                  ///< Rain File Column.
+    LinkEndpoint, ///< Searchable existing-node picker with live endpoint validation.
 };
 
 /*! Custom data() role for EditorKind::FileColumn cells — returns the
  *  QStringList of column names enumerated from the row's resolved data
  *  file (ui/util/externalcolumnfile.h readHeaders). */
 inline constexpr int kFileColumnOptionsRole = Qt::UserRole + 21;
+inline constexpr int kLinkEndpointRole = Qt::UserRole + 22;
 
 /*! Round-4 follow-up 2026-05-12 — semantic unit class.  Resolves to
  *  a string at render time via `UnitSystem::instance()` so the

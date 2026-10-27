@@ -25,9 +25,44 @@
 SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter(SWMM_Engine engine, QString name, QObject *parent)
     : QObject(parent), m_engine(engine), m_name(std::move(name))
 {
+    registerLinkEndpointRefConverter();
     if (auto *u = UnitSystem::instance()) {
         connect(u, &UnitSystem::unitsChanged, this, [this] { emit displayLabelsChanged(); });
     }
+}
+
+void SWMMLinkPropertyAdapter::setFromNodeRef(const LinkEndpointRef &ref)
+{
+    if (ref.engine != m_engine || ref.linkName != m_name || !ref.upstream)
+        return;
+    const int link = swmm_link_index(m_engine, m_name.toUtf8().constData());
+    const int node = swmm_node_index(m_engine, ref.nodeName.trimmed().toUtf8().constData());
+    if (!linkendpoint::allowed(m_engine, link, true, node) || fromNode() == ref.nodeName)
+        return;
+    int opposite = -1;
+    if (swmm_link_get_to_node(m_engine, link, &opposite) != SWMM_OK)
+        return;
+    const bool applied = m_layer ? m_layer->pushLinkEndpointEdit(link, true, node)
+                                 : swmm_link_set_nodes(m_engine, link, node, opposite) == SWMM_OK;
+    if (applied)
+        emit changed();
+}
+
+void SWMMLinkPropertyAdapter::setToNodeRef(const LinkEndpointRef &ref)
+{
+    if (ref.engine != m_engine || ref.linkName != m_name || ref.upstream)
+        return;
+    const int link = swmm_link_index(m_engine, m_name.toUtf8().constData());
+    const int node = swmm_node_index(m_engine, ref.nodeName.trimmed().toUtf8().constData());
+    if (!linkendpoint::allowed(m_engine, link, false, node) || toNode() == ref.nodeName)
+        return;
+    int opposite = -1;
+    if (swmm_link_get_from_node(m_engine, link, &opposite) != SWMM_OK)
+        return;
+    const bool applied = m_layer ? m_layer->pushLinkEndpointEdit(link, false, node)
+                                 : swmm_link_set_nodes(m_engine, link, opposite, node) == SWMM_OK;
+    if (applied)
+        emit changed();
 }
 
 QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const

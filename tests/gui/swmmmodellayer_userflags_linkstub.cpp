@@ -31,3 +31,10 @@ bool SWMMModelLayer::inletUsageFor(int, int, SWMM_InletUsage *) const
 {
     return false;
 }
+
+// Leaf adapter tests use bare engines; layer-mediated endpoint editing is
+// exercised by test_attributetableschema with the real model layer.
+bool SWMMModelLayer::pushLinkEndpointEdit(int, bool, int)
+{
+    return false;
+}

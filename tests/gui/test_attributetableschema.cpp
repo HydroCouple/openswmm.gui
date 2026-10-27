@@ -26,9 +26,17 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "map/swmmlayeritem.h"
+#include "map/swmmlayerqsgrenderer.h"
 #include "plugins/extensionattributes.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/panels/attributedelegates.h"
+#include "ui/panels/propertiespanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/properties/linkendpointcombobox.h"
 #include "ui/properties/attributegroups.h"
 #ifdef HAVE_QPROPERTYMODEL
 #include "ui/properties/groupedpropertymodel.h"
@@ -60,9 +68,17 @@
 #include <algorithm> // std::reverse — ordering-override pin
 
 #include <QComboBox>
+#include <QCompleter>
+#include <QSignalSpy>
+#include <QScopeGuard>
+#include <QTemporaryDir>
+#include <QTreeView>
+#include <QUndoStack>
 #include <QDir>
 #include <QHeaderView>
 #include <QLineEdit>
+#include <QPainter>
+#include <QStyleOptionGraphicsItem>
 #include <QLocale>
 #include <QObject>
 #include <QStyledItemDelegate>
@@ -193,6 +209,290 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void linkEndpointsAreEditable_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<bool>("upstream");
+        for (int kind = SWMM_LINK_CONDUIT; kind <= SWMM_LINK_OUTLET; ++kind) {
+            QTest::newRow(qPrintable(QString("type%1-from").arg(kind))) << kind << true;
+            QTest::newRow(qPrintable(QString("type%1-to").arg(kind))) << kind << false;
+        }
+    }
+
+    /** Both endpoint columns support validated edits, undo and persistence for every link type. */
+    void linkEndpointsAreEditable()
+    {
+        QFETCH(int, kind);
+        QFETCH(bool, upstream);
+        auto layer = openLayer();
+        QVERIFY(layer);
+        int link = -1;
+        const QVector<QPointF> bends = {QPointF(25, 35), QPointF(45, 55)};
+        QVERIFY(layer->applyLinkAdd("LPicker", kind, "J1", "X1", bends, &link));
+        const auto category = SWMMModelLayer::Category(int(SWMMModelLayer::CatConduits) + kind);
+        QUndoStack undo;
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), category);
+        model.setUndoStack(&undo);
+        int row = -1;
+        for (int r = 0; r < model.rowCount(); ++r)
+            if (model.objectNameAt(r) == "LPicker")
+                row = r;
+        QVERIFY(row >= 0);
+        const auto specs = model.columnSpecs();
+        const int col = colFor(specs, upstream ? "From node" : "To node");
+        QVERIFY(col >= 0);
+        QCOMPARE(specs[col].editor, EditorKind::LinkEndpoint);
+        const auto cell = model.index(row, col);
+        QVERIFY(model.flags(cell) & Qt::ItemIsEditable);
+        const QString original = upstream ? "J1" : "X1";
+        QCOMPARE(cell.data().toString(), original);
+        for (const QString invalid :
+             {QString(), QString("missing"), upstream ? QString("X1") : QString("J1")})
+            QVERIFY(!model.setData(cell, invalid));
+        QCOMPARE(undo.count(), 0);
+        QSignalSpy geometry(layer.get(), &SWMMModelLayer::geometryChanged);
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QVERIFY(model.setData(cell, "O1"));
+        QCOMPARE(cell.data().toString(), QString("O1"));
+        QCOMPARE(layer->cachedLinkInteriorVertices(link), bends);
+        const auto polyline = layer->cachedLinkPolyline(link);
+        const auto oldPolyline = polyline;
+        double x = 0, y = 0;
+        QVERIFY(layer->cachedNodeCoord(layer->nodeIndex("O1"), &x, &y));
+        QCOMPARE(upstream ? polyline.first() : polyline.last(), QPointF(x, y));
+        QCOMPARE(geometry.count(), 1);
+        QCOMPARE(dirty.count(), 1);
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(cell.data().toString(), original);
+        undo.redo();
+        QCOMPARE(cell.data().toString(), QString("O1"));
+        QCOMPARE(layer->cachedLinkPolyline(link), oldPolyline);
+        SWMMLinkPropertyAdapter adapter(layer->engine(), "LPicker");
+        adapter.setModelLayer(layer.get());
+        auto ref = upstream ? adapter.fromNodeRef() : adapter.toNodeRef();
+        ref.nodeName = original;
+        if (upstream)
+            adapter.setFromNodeRef(ref);
+        else
+            adapter.setToNodeRef(ref);
+        QCOMPARE(upstream ? adapter.fromNode() : adapter.toNode(), original);
+        ref.nodeName = "O1";
+        if (upstream)
+            adapter.setFromNodeRef(ref);
+        else
+            adapter.setToNodeRef(ref);
+        QCOMPARE(upstream ? adapter.fromNode() : adapter.toNode(), QString("O1"));
+        QTemporaryDir saved;
+        QVERIFY(saved.isValid());
+        const auto path = saved.filePath("endpoints.inp");
+        QCOMPARE(swmm_model_write(layer->engine(), path.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reloaded(path);
+        QList<QString> warnings, errors;
+        QVERIFY(reloaded.loadModel(warnings, errors));
+        SWMMLinkPropertyAdapter reread(reloaded.engine(), "LPicker");
+        QCOMPARE(upstream ? reread.fromNode() : reread.toNode(), QString("O1"));
+    }
+
+    /** The table's live delegate searches existing nodes and rejects incomplete IDs. */
+    void linkEndpointPickerUsesCompletion()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), nullptr, nullptr);
+        panel.showModelCategory(layer.get(), SWMMModelLayer::CatConduits);
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view);
+        auto *model = view->model();
+        int col = -1;
+        for (int c = 0; c < model->columnCount(); ++c)
+            if (model->headerData(c, Qt::Horizontal).toString() == "From Node")
+                col = c;
+        QVERIFY(col >= 0);
+        int row = -1;
+        for (int r = 0; r < model->rowCount(); ++r)
+            if (model->index(r, 0).data().toString() == "C1")
+                row = r;
+        QVERIFY(row >= 0);
+        const auto cell = model->index(row, col);
+        auto *delegate = view->itemDelegateForIndex(cell);
+        QWidget host;
+        std::unique_ptr<QWidget> widget(delegate->createEditor(&host, {}, cell));
+        auto *combo = qobject_cast<LinkEndpointComboBox *>(widget.get());
+        QVERIFY(combo);
+        delegate->setEditorData(combo, cell);
+        QCOMPARE(combo->currentText(), QString("J1"));
+        QVERIFY(combo->findText("X1") < 0); // Opposite endpoint.
+        combo->completer()->setCompletionPrefix("o");
+        QCOMPARE(combo->completer()->completionCount(), 1);
+        QCOMPARE(combo->completer()->currentCompletion(), QString("O1"));
+        combo->setEditText("missing");
+        delegate->setModelData(combo, model, cell);
+        QCOMPARE(cell.data().toString(), QString("J1"));
+        combo->setEditText("O1");
+        delegate->setModelData(combo, model, cell);
+        QCOMPARE(cell.data().toString(), QString("O1"));
+    }
+
+    void linkEndpointPickerProtectsVirtualConnections()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        int virtualNode = -1, otherLink = -1;
+        QString error;
+        QVERIFY2(layer->applyInsertVirtualJunction("C1", 0.5, "VPicker", "CSplit", &virtualNode,
+                                                   &otherLink, &error),
+                 qPrintable(error));
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        const int to = colFor(model.columnSpecs(), "To node");
+        const int from = colFor(model.columnSpecs(), "From node");
+        QVERIFY(to >= 0 && from >= 0);
+        const auto fixed = model.index(0, to); // C1 now ends at VPicker.
+        QCOMPARE(fixed.data().toString(), QString("VPicker"));
+        QVERIFY(!(model.flags(fixed) & Qt::ItemIsEditable));
+        QVERIFY(!model.setData(fixed, "O1"));
+        // A different link must not create a third connection at that virtual node.
+        const int link = swmm_link_index(layer->engine(), "X1");
+        QVERIFY(!layer->applyLinkEndpoint(link, true, virtualNode));
+        LinkEndpointComboBox picker;
+        picker.setValue({layer->engine(), "X1", true, "X1"});
+        QVERIFY(picker.findText("VPicker") < 0);
+        const auto ref = fixed.data(openswmmvis::kLinkEndpointRole).value<LinkEndpointRef>();
+        picker.setValue(ref);
+        QCOMPARE(picker.count(), 1);
+        QCOMPARE(picker.currentText(), QString("VPicker"));
+    }
+
+    void linkEndpointPickerHandlesLargeNodeLists()
+    {
+        const auto engine = swmm_engine_new();
+        QVERIFY(engine);
+        const auto cleanup = qScopeGuard([engine] { swmm_engine_destroy(engine); });
+        for (int i = 0; i < 20000; ++i) {
+            const auto id = QString("N%1").arg(i, 5, 10, QLatin1Char('0')).toUtf8();
+            QCOMPARE(swmm_node_add(engine, id.constData(), SWMM_NODE_JUNCTION), SWMM_OK);
+        }
+        QCOMPARE(swmm_link_add(engine, "L", SWMM_LINK_CONDUIT), SWMM_OK);
+        QCOMPARE(swmm_link_set_nodes(engine, 0, 0, 1), SWMM_OK);
+        LinkEndpointComboBox picker;
+        picker.setValue({engine, "L", true, "N00000"});
+        QCOMPARE(picker.count(), 19999);
+        picker.completer()->setCompletionPrefix("n1999");
+        QCOMPARE(picker.completer()->completionCount(), 10);
+        QCOMPARE(picker.completer()->currentCompletion(), QString("N19990"));
+        QCOMPARE(picker.currentText(), QString("N00000")); // Searching alone never edits a link.
+    }
+
+    /** A viewport outside the old link bbox must draw and select the reconnected link immediately. */
+    void linkEndpointGraphicsTrackEdits()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        layer->setCategoryVisible(SWMMModelLayer::CatConduits, false);
+        layer->setShowNodes(false);
+        layer->setShowSubcatchments(false);
+        layer->setShowRainGages(false);
+        layer->setShowLabels(false);
+        layer->setQsgRenderKinds({});
+        int link = -1;
+        QVERIFY(layer->applyLinkAdd("LGraphics", SWMM_LINK_CONDUIT, "J1", "X1",
+                                    {QPointF(500, 100)}, &link));
+        SWMMLayerQSGRenderer renderer;
+        renderer.setLayer(layer.get());
+        const auto contentRevision = renderer.contentRevision();
+        const auto geometryRevision = layer->geomRevision();
+        const auto paint = [&] {
+            QImage image(400, 80, QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            painter.scale(2, 2);
+            painter.translate(-1400, 60);
+            QStyleOptionGraphicsItem option;
+            option.exposedRect = QRectF(1400, -60, 200, 40);
+            SWMMLayerItem item(layer.get());
+            item.paint(&painter, &option, nullptr);
+            return image;
+        };
+        const auto before = paint();
+        QVERIFY(!layer->linksInRect(1400, 20, 1600, 60).contains("LGraphics"));
+        SWMMAttributeTableModel model;
+        QUndoStack undo;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        model.setUndoStack(&undo);
+        int row = -1;
+        for (int r = 0; r < model.rowCount(); ++r)
+            if (model.objectNameAt(r) == "LGraphics")
+                row = r;
+        QVERIFY(row >= 0);
+        const auto cell = model.index(row, colFor(model.columnSpecs(), "To node"));
+        QVERIFY(model.setData(cell, "O1"));
+        QVERIFY(layer->geomRevision() > geometryRevision);
+        QVERIFY(renderer.contentRevision() > contentRevision);
+        QVERIFY(layer->linksInRect(1400, 20, 1600, 60).contains("LGraphics"));
+        const auto after = paint();
+        QVERIFY(after != before);
+        undo.undo();
+        QVERIFY(!layer->linksInRect(1400, 20, 1600, 60).contains("LGraphics"));
+        QCOMPARE(paint(), before);
+        undo.redo();
+        QCOMPARE(paint(), after);
+    }
+
+#ifdef HAVE_QPROPERTYMODEL
+    /** Exercise the actual Properties dock's editor registration and immediate selection commit. */
+    void linkPropertyPickerCommitsSelection()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMMConduitPropertyAdapter adapter(layer->engine(), "C1");
+        adapter.setModelLayer(layer.get());
+        MapCanvas canvas;
+        layer->setEditCanvas(&canvas);
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showObject(&adapter);
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        const auto find = [&](auto &&self, const QModelIndex &parent) -> QModelIndex {
+            for (int r = 0; r < tree->model()->rowCount(parent); ++r) {
+                auto row = tree->model()->index(r, 0, parent);
+                if (row.data().toString() == "From Node")
+                    return row.siblingAtColumn(1);
+                const auto child = self(self, row);
+                if (child.isValid())
+                    return child;
+            }
+            return {};
+        };
+        const auto cell = find(find, {});
+        QVERIFY(cell.isValid());
+        QVERIFY(cell.flags() & Qt::ItemIsEditable);
+        panel.resize(500, 650);
+        panel.show();
+        tree->expandAll();
+        tree->edit(cell);
+        auto *combo = tree->findChild<LinkEndpointComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->currentText(), QString("J1"));
+        combo->setCurrentIndex(combo->findText("O1"));
+        QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex())));
+        QCOMPARE(adapter.fromNode(), QString("O1"));
+        QCOMPARE(cell.data().toString(), QString("O1"));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(adapter.fromNode(), QString("J1"));
+        canvas.undoStack()->redo();
+        QCOMPARE(adapter.fromNode(), QString("O1"));
+        auto invalid = adapter.fromNodeRef();
+        invalid.nodeName = "X1";
+        adapter.setFromNodeRef(invalid);
+        QCOMPARE(adapter.fromNode(), QString("O1"));
+    }
+#endif
+
     /**
      *
      * @brief Require station-id keys to remain ungrouped while statistic/coupling aliases share

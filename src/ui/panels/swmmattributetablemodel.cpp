@@ -23,6 +23,7 @@
 #include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"    // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
+#include "ui/properties/linkendpointref.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h" // Phase 3 compound cells
 #include "ui/properties/userflagseditref.h"        // per-object User Flags cell
@@ -229,6 +230,18 @@ ColumnSpec nameCol()
     c.label = QStringLiteral("Name");
     c.editor = EditorKind::Text;
     c.setter = QStringLiteral("rename");
+    return c;
+}
+
+ColumnSpec endpointCol(bool upstream)
+{
+    ColumnSpec c;
+    c.key = upstream ? QStringLiteral("From node") : QStringLiteral("To node");
+    c.label = upstream ? QStringLiteral("From Node") : QStringLiteral("To Node");
+    c.editor = EditorKind::LinkEndpoint;
+    c.setter = upstream ? QStringLiteral("link_from_node") : QStringLiteral("link_to_node");
+    c.tooltip = upstream ? QObject::tr("Upstream node. Type a node ID to search.")
+                         : QObject::tr("Downstream node. Type a node ID to search.");
     return c;
 }
 
@@ -1024,8 +1037,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             nameCol(),
             ro("Link type", "Link Type"),
             ro("Vertex count", "Vertex Count"),
-            ro("From node", "From Node"),
-            ro("To node", "To Node"),
+            endpointCol(true),
+            endpointCol(false),
             tagCol("link_tag"),
             num("Length", "Length", "link_length", 0.0, 1e9, 2, UnitKind::Length, 1.0),
             // Derived from the end-node inverts and offsets, so read-only.
@@ -1072,8 +1085,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             nameCol(),
             ro("Link type", "Link Type"),
             ro("Vertex count", "Vertex Count"),
-            ro("From node", "From Node"),
-            ro("To node", "To Node"),
+            endpointCol(true),
+            endpointCol(false),
             tagCol("link_tag"),
             // Picker cell (DataObjectRef) — same editor the Property
             // Browser row hands out; legacy PumpProps[5] position.
@@ -1094,8 +1107,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             nameCol(),
             ro("Link type", "Link Type"),
             ro("Vertex count", "Vertex Count"),
-            ro("From node", "From Node"),
-            ro("To node", "To Node"),
+            endpointCol(true),
+            endpointCol(false),
             tagCol("link_tag"),
             enumCol("Weir type", "Type", "link_weir_type", weirTypeValues()),
             // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — the
@@ -1130,8 +1143,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             nameCol(),
             ro("Link type", "Link Type"),
             ro("Vertex count", "Vertex Count"),
-            ro("From node", "From Node"),
-            ro("To node", "To Node"),
+            endpointCol(true),
+            endpointCol(false),
             tagCol("link_tag"),
             enumCol("Orifice type", "Type", "link_orifice_type", orificeTypeValues()),
             num("Offset up", "Offset", "link_offset_up", -1e6, 1e6, 4, UnitKind::Length, 0.1),
@@ -1162,8 +1175,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             nameCol(),
             ro("Link type", "Link Type"),
             ro("Vertex count", "Vertex Count"),
-            ro("From node", "From Node"),
-            ro("To node", "To Node"),
+            endpointCol(true),
+            endpointCol(false),
             tagCol("link_tag"),
             num("Offset up", "Offset", "link_offset_up", -1e6, 1e6, 4, UnitKind::Length, 0.1),
             enumCol("Rating type", "Rating Curve", "link_outlet_rating_type",
@@ -3760,6 +3773,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     if (col < 0 || col >= m_columnSpecs.size())
         return {};
 
+    if (role == openswmmvis::kLinkEndpointRole) {
+        const auto &spec = m_columnSpecs[col];
+        if (!m_layer || spec.editor != EditorKind::LinkEndpoint)
+            return {};
+        return QVariant::fromValue(LinkEndpointRef{m_layer->engine(), objectNameAt(row),
+                                                   spec.setter == QLatin1String("link_from_node"),
+                                                   data(index, Qt::EditRole).toString()});
+    }
+
     // FileColumn cells (spec §4 task 4): the delegate asks for the row's
     // available column names via this role. They come from the same header
     // enumeration the timeseries dialog uses (engine detection parity), read
@@ -4364,7 +4386,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     // endpoints. identifyByName doesn't carry From/To node keys, so
     // resolve them live from the engine (mirrors
     // SWMMLinkPropertyAdapter::fromNode / toNode).
-    if (spec.editor == EditorKind::ReadOnly && m_layer &&
+    if (spec.editor == EditorKind::LinkEndpoint && m_layer &&
         (spec.key == QStringLiteral("From node") || spec.key == QStringLiteral("To node"))) {
         SWMM_Engine eng = m_layer->engine();
         const QString name = objectNameAt(row);
@@ -4407,6 +4429,19 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
         return f;
     const auto &spec = m_columnSpecs[col];
     if (spec.editor != EditorKind::ReadOnly && !spec.setter.isEmpty()) {
+        if (spec.editor == EditorKind::LinkEndpoint && m_layer) {
+            const auto engine = m_layer->engine();
+            const int link =
+                swmm_link_index(engine, objectNameAt(index.row()).toUtf8().constData());
+            int current = -1, isVirtual = 0;
+            const int rc = spec.setter == QLatin1String("link_from_node")
+                               ? swmm_link_get_from_node(engine, link, &current)
+                               : swmm_link_get_to_node(engine, link, &current);
+            if (rc != SWMM_OK ||
+                (current >= 0 &&
+                 (swmm_node_is_virtual(engine, current, &isVirtual) != SWMM_OK || isVirtual)))
+                return f;
+        }
         // Lock edits while a simulation is running.
         if (m_layer && m_layer->engine()) {
             int state = 0;
@@ -4594,6 +4629,18 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index, const 
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty())
         return false;
+
+    if (spec.editor == EditorKind::LinkEndpoint) {
+        const auto engine = m_layer->engine();
+        const QString name = objectNameAt(row);
+        const int link = swmm_link_index(engine, name.toUtf8().constData());
+        const int node = swmm_node_index(engine, value.toString().trimmed().toUtf8().constData());
+        if (!m_layer->applyLinkEndpoint(link, spec.setter == QLatin1String("link_from_node"), node))
+            return false;
+        refreshObject(name); // Offsets in elevation mode and slope also depend on endpoints.
+        emit objectEdited(name);
+        return true;
+    }
 
     // Name column (col 0, EditorKind::Text, setter == "rename").
     if (col == 0 && spec.editor == EditorKind::Text) {
@@ -5138,6 +5185,16 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty())
         return false;
+
+    if (spec.editor == EditorKind::LinkEndpoint) {
+        const auto engine = m_layer->engine();
+        const int link = swmm_link_index(engine, objectNameAt(row).toUtf8().constData());
+        const int node = swmm_node_index(engine, value.toString().trimmed().toUtf8().constData());
+        if (!(flags(index) & Qt::ItemIsEditable) ||
+            !linkendpoint::allowed(engine, link, spec.setter == QLatin1String("link_from_node"),
+                                   node))
+            return false; // Reject invalid paste/calculator edits before creating an undo entry.
+    }
 
     if (spec.setter.startsWith(QLatin1String("node_2d_"))) {
         if (!(flags(index) & Qt::ItemIsEditable))

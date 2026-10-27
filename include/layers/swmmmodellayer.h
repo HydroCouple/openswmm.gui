@@ -2538,6 +2538,14 @@ public:
      */
     bool applyLinkLength(int linkIdx, double length);
 
+    /** Reassign one link endpoint without changing offsets, length or bends.
+     * Validates node eligibility, refreshes cached map geometry and announces
+     * geometry/attribute/model edits. The caller owns any undo command.
+     */
+    bool applyLinkEndpoint(int linkIdx, bool upstream, int nodeIdx);
+    /** Apply an endpoint edit through the project's undo stack when attached. */
+    bool pushLinkEndpointEdit(int linkIdx, bool upstream, int nodeIdx);
+
     /*!
      * \brief Apply the user's answer to legacy UpdateOffsets' "convert all
      *        link offsets?" prompt after LINK_OFFSETS has been flipped.

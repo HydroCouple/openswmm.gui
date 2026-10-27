@@ -2070,6 +2070,9 @@ void AttributeTablePanel::installColumnDelegates(const QList<openswmmvis::Column
         case openswmmvis::EditorKind::Enum:
             del = new openswmmvis::EnumDelegate(this, spec.enumValues);
             break;
+        case openswmmvis::EditorKind::LinkEndpoint:
+            del = new openswmmvis::LinkEndpointDelegate(this);
+            break;
         case openswmmvis::EditorKind::Interval:
             del = new openswmmvis::IntervalDelegate(this);
             break;
@@ -3375,6 +3378,7 @@ QVariant AttributeTablePanel::promptBulkValue(int column, const QVariant &curren
         }
         return {};
     }
+    case EditorKind::LinkEndpoint:
     case EditorKind::Text: {
         bool got = false;
         const QString tv =

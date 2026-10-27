@@ -92,6 +92,14 @@ Link offset columns follow the `LINK_OFFSETS` mode — **Inlet/Outlet Offset** i
 depth mode, **Upstream/Downstream Elevation** in elevation mode. See
 \ref manual_object_browser.
 
+For conduits, pumps, orifices, weirs and outlets, click **From Node** (upstream)
+or **To Node** (downstream) to change the connection. Type the beginning of a
+node ID and choose a matching suggestion, or enter an existing ID in full.
+The same searchable picker appears in the Properties panel. Changes update the
+map immediately and support Undo/Redo; link bends, length and offsets are retained.
+Unknown IDs and connections back to the opposite endpoint are rejected.
+Virtual and inlet junctions keep their fixed conduit connections.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

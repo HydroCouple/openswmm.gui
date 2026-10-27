@@ -25,6 +25,7 @@
 
 #include "ui/properties/culvertcoderef.h" // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/linkendpointref.h"
 #include "ui/properties/initialqualityeditref.h" // Initial-quality UI round
 #include "ui/properties/linkcompoundeditref.h"   // Slice SC.1
 #include "ui/properties/userflagseditref.h"      // USER_FLAGS Phase 4
@@ -115,8 +116,8 @@ public:
     // Common to every link type.
     Q_PROPERTY(QString name READ name WRITE setName)
     Q_PROPERTY(LinkKind linkKind READ linkKind)
-    Q_PROPERTY(QString fromNode READ fromNode)
-    Q_PROPERTY(QString toNode READ toNode)
+    Q_PROPERTY(LinkEndpointRef fromNode READ fromNodeRef WRITE setFromNodeRef NOTIFY changed)
+    Q_PROPERTY(LinkEndpointRef toNode READ toNodeRef WRITE setToNodeRef NOTIFY changed)
     /*! Slice SA — Free-form `[TAGS]` label (mirrors
      *  `SWMMNodePropertyAdapter::tag`). Editable text; index-keyed in the
      *  engine, so it survives a rename. Subclasses must declare a matching
@@ -162,6 +163,10 @@ public:
      * @return Downstream node ID resolved from current connectivity, or empty when missing/read fails.
      */
     [[nodiscard]] QString toNode() const;
+    LinkEndpointRef fromNodeRef() const { return {m_engine, m_name, true, fromNode()}; }
+    LinkEndpointRef toNodeRef() const { return {m_engine, m_name, false, toNode()}; }
+    void setFromNodeRef(const LinkEndpointRef &ref);
+    void setToNodeRef(const LinkEndpointRef &ref);
     /**
      * @return UTF-8 descriptive tag from a 256-byte buffer, or empty on unresolved/unreadable object.
      */

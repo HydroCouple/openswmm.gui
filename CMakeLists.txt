@@ -801,6 +801,8 @@ set(
         include/ui/properties/culvertcodes.h
         include/ui/properties/culvertcoderef.h
         include/ui/properties/culvertcodecombobox.h
+        include/ui/properties/linkendpointref.h
+        include/ui/properties/linkendpointcombobox.h
 
         # ── Rain gage recording-interval H:MM combo (DA.2 parity) ───────────
         include/ui/properties/rainintervalref.h
@@ -1616,6 +1618,7 @@ set(
         src/ui/properties/culvertcodes.cpp
         src/ui/properties/culvertcoderef.cpp
         src/ui/properties/culvertcodecombobox.cpp
+        src/ui/properties/linkendpointcombobox.cpp
 
         # Rain gage recording-interval H:MM combo (DA.2 parity)
         src/ui/properties/rainintervalref.cpp

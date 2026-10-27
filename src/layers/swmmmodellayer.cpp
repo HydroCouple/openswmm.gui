@@ -8,6 +8,7 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "ui/properties/linkendpointref.h"
 #include "plugins/extensionattributes.h"
 #include "layers/swmmelementsymboladapter.h"
 #include "layers/hydrographmodels.h"
@@ -5911,6 +5912,102 @@ bool SWMMModelLayer::applyLinkConvert(const QString &name, int newLinkType, QStr
     emit repaintRequested();
     emit geometryChanged();
     emit attributeChanged(name);
+    return true;
+}
+
+namespace
+{
+class LinkEndpointEditCommand final : public QUndoCommand
+{
+public:
+    LinkEndpointEditCommand(SWMMModelLayer *layer, int link, bool upstream, int before, int after)
+        : m_layer(layer), m_link(QString::fromUtf8(swmm_link_id(layer->engine(), link))),
+          m_upstream(upstream), m_before(QString::fromUtf8(swmm_node_id(layer->engine(), before))),
+          m_after(QString::fromUtf8(swmm_node_id(layer->engine(), after)))
+    {
+        setText(upstream ? QObject::tr("Change upstream node")
+                         : QObject::tr("Change downstream node"));
+    }
+    void redo() override { apply(m_after); }
+    void undo() override { apply(m_before); }
+
+private:
+    void apply(const QString &node)
+    {
+        if (!m_layer)
+            return;
+        const auto engine = m_layer->engine();
+        if (!m_layer->applyLinkEndpoint(swmm_link_index(engine, m_link.toUtf8().constData()),
+                                        m_upstream,
+                                        swmm_node_index(engine, node.toUtf8().constData())))
+            setObsolete(true);
+    }
+    QPointer<SWMMModelLayer> m_layer;
+    QString m_link;
+    bool m_upstream;
+    QString m_before, m_after;
+};
+} // namespace
+
+bool SWMMModelLayer::pushLinkEndpointEdit(int linkIdx, bool upstream, int nodeIdx)
+{
+    if (!linkendpoint::allowed(m_engine, linkIdx, upstream, nodeIdx))
+        return false;
+    int before = -1;
+    const int rc = upstream ? swmm_link_get_from_node(m_engine, linkIdx, &before)
+                            : swmm_link_get_to_node(m_engine, linkIdx, &before);
+    if (rc != SWMM_OK)
+        return false;
+    if (before == nodeIdx)
+        return true;
+    if (m_editCanvas && m_editCanvas->undoStack()) {
+        m_editCanvas->undoStack()->push(
+            new LinkEndpointEditCommand(this, linkIdx, upstream, before, nodeIdx));
+        return true;
+    }
+    return applyLinkEndpoint(linkIdx, upstream, nodeIdx);
+}
+
+bool SWMMModelLayer::applyLinkEndpoint(int linkIdx, bool upstream, int nodeIdx)
+{
+    if (linkIdx < 0 || linkIdx >= m_links.size() || nodeIdx < 0 || nodeIdx >= m_nodes.size() ||
+        !linkendpoint::allowed(m_engine, linkIdx, upstream, nodeIdx))
+        return false;
+    auto &link = m_links[linkIdx];
+    int from = -1, to = -1;
+    if (swmm_link_get_from_node(m_engine, linkIdx, &from) != SWMM_OK ||
+        swmm_link_get_to_node(m_engine, linkIdx, &to) != SWMM_OK)
+        return false;
+    if (nodeIdx == (upstream ? from : to))
+        return true;
+    if (upstream)
+        from = nodeIdx;
+    else
+        to = nodeIdx;
+    if (swmm_link_set_nodes(m_engine, linkIdx, from, to) != SWMM_OK)
+        return false;
+    link.fromNodeIdx = from;
+    link.toNodeIdx = to;
+    const auto full = cachedLinkPolyline(linkIdx);
+    if (!full.isEmpty() && linkIdx < m_linkBboxes.size()) {
+        double x0 = full.first().x(), x1 = x0;
+        double y0 = full.first().y(), y1 = y0;
+        for (const auto &point : full) {
+            x0 = std::min(x0, point.x());
+            x1 = std::max(x1, point.x());
+            y0 = std::min(y0, point.y());
+            y1 = std::max(y1, point.y());
+        }
+        m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
+    }
+    refreshSceneCoordsForLink(linkIdx);
+    m_linkGrid.rebuild(m_linkSceneBBoxes);
+    ++m_geomRevision;
+    m_needsRebuild = true;
+    emit geometryChanged();
+    emit repaintRequested();
+    emit attributeChanged(link.name);
+    emit modelEdited();
     return true;
 }
 
