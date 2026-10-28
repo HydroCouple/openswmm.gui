@@ -16,6 +16,7 @@
 #include "project/openswmmvisworkspace.h"
 #include "sdk/IEventSourceV3.hpp"
 #include "sdk/IViewControlsV1.hpp"
+#include "sdk/IPreviewLayersV1.hpp"
 #include "sdk/IProject.hpp"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
@@ -28,6 +29,7 @@
 #include "map/openswmmvisscene.h"
 #include "map/mapundostack.h"
 #include "map/spatialreferencesystem.h"
+#include "map/tools/maptoolselect.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
@@ -660,6 +662,137 @@ private slots:
         layer->setVisible(true);
         layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
         QVERIFY(render("preview-filtered-visible") > 20);
+    }
+
+    /** @brief The preview lookup maps string-identified records to FIDs, and the real select
+     * tool, typed view commands and the attribute table share that one native selection. */
+    void nativePreviewSelectionSharesSelectToolAndAttributeTable()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        fixture.main.resize(640, 480);
+        fixture.main.show();
+        fixture.window->showMaximized();
+        auto *canvas = fixture.window->canvas();
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 4326));
+        canvas->setExtent(MapExtent(-76.03, 39.98, -75.97, 40.03), false);
+        auto *previews = qobject_cast<IPreviewLayersV1 *>(fixture.host->lifetime());
+        QVERIFY(previews);
+        const auto session = fixture.window->extensionSessionId();
+        QList<qint64> fids{42};
+        QVERIFY(previews->previewLayer(session, &fids).isNull());
+        QVERIFY(fids.isEmpty());
+        // Catalogue records use string identities, so GDAL chooses the native FIDs.
+        const QStringList ids{"USGS-03", "USGS-01", "USGS-02"};
+        const QList<QPointF> points{{-76.01, 39.995}, {-75.99, 40.015}, {-76.0, 40.005}};
+        QJsonArray features;
+        for (int i = 0; i < ids.size(); ++i)
+            features.append(QJsonObject{
+                {"type", "Feature"},
+                {"id", ids[i]},
+                {"properties", QJsonObject{{"catalogue_id", ids[i]}}},
+                {"geometry", QJsonObject{{"type", "Point"},
+                                         {"coordinates", QJsonArray{points[i].x(), points[i].y()}}}}});
+        QJsonObject collection{
+            {"type", "FeatureCollection"},
+            {"previewStyle", QJsonObject{{"asFeatureLayer", true}, {"title", "Sites (preview)"}}},
+            {"features", features}};
+        auto *project = fixture.instance()->project();
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QPointer<GISVectorLayer> layer(nativePreview(fixture));
+        QVERIFY(layer);
+        observe(fixture);
+        const auto attachment = previews->previewLayer(session, &fids);
+        QVERIFY(!attachment.isNull());
+        QCOMPARE(attachment, layerState(fixture, layer->layerId()).layerSessionId);
+        QCOMPARE(fids.size(), ids.size());
+        for (int i = 0; i < ids.size(); ++i) {
+            auto *feature = layer->ogrLayer()->GetFeature(fids[i]);
+            QVERIFY(feature);
+            QCOMPARE(QString::fromUtf8(feature->GetFieldAsString("catalogue_id")), ids[i]);
+            OGRFeature::DestroyFeature(feature);
+        }
+
+        AttributeTablePanel table;
+        table.setProject(fixture.window->modelLayer(), fixture.window->selectionManager(), canvas);
+        table.showLayerSource(layer);
+        auto *view = table.findChild<QTableView *>();
+        QVERIFY(view);
+        const auto tableIds = [view] {
+            QSet<long long> result;
+            for (const auto &row : view->selectionModel()->selectedRows(0))
+                result.insert(row.data().toLongLong());
+            return result;
+        };
+        OpenSWMMVisMapToolSelect tool(canvas);
+        tool.setPixelTolerance(6);
+        canvas->setActiveTool(&tool);
+        const auto pixel = [canvas](QPointF point) {
+            int x, y;
+            canvas->toPixelCoords(point.x(), point.y(), x, y);
+            return QPoint(x, y);
+        };
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pixel(points[1]));
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{fids[1]}));
+        QCOMPARE(tableIds(), (QSet<long long>{fids[1]}));
+        QTRY_COMPARE(count(ViewEventKind::LayerSelectionChanged, attachment), 1);
+        QCOMPARE(fixture.controls()->selectedLayerFeatures(session, attachment, 0, 10),
+                 QList<qint64>{fids[1]});
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, pixel(points[2]));
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{fids[1], fids[2]}));
+        QCOMPARE(tableIds(), (QSet<long long>{fids[1], fids[2]}));
+        // Undelivered same-attachment invalidations coalesce; deliver each one.
+        QTRY_COMPARE(count(ViewEventKind::LayerSelectionChanged, attachment), 2);
+
+        // A selected polygon-mode boundary in another layer must survive Data-driven writes.
+        auto *boundary = new GISVectorLayer(vectors(), {}, fixture.workspace.get());
+        canvas->addLayer(boundary, false);
+        boundary->setSelectedFeatureIds({1});
+        auto change = command(fixture, ViewCommandKind::SelectLayerFeatures, attachment);
+        change.featureIds = {fids[0]};
+        QVERIFY2(fixture.controls()->executeViewCommand(change, &error), qPrintable(error));
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{fids[0]}));
+        QCOMPARE(tableIds(), (QSet<long long>{fids[0]}));
+        QCOMPARE(boundary->selectedFeatureIds(), (QSet<long long>{1}));
+        QTRY_COMPARE(count(ViewEventKind::LayerSelectionChanged, attachment), 3);
+        // An empty-space click clears the preview selection like any other layer.
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier,
+                          pixel(QPointF(-75.975, 39.985)));
+        QVERIFY(layer->selectedFeatureIds().isEmpty());
+        QVERIFY(tableIds().isEmpty());
+
+        // DEM footprints use the same native layer path and polygon hit testing.
+        QJsonObject tiles{
+            {"type", "FeatureCollection"},
+            {"previewStyle", QJsonObject{{"asFeatureLayer", true}, {"title", "DEM tiles (preview)"}}},
+            {"features",
+             QJsonArray{QJsonObject{
+                 {"type", "Feature"},
+                 {"id", "tile-a"},
+                 {"properties", QJsonObject{{"catalogue_id", "tile-a"}}},
+                 {"geometry",
+                  QJsonObject{{"type", "Polygon"},
+                              {"coordinates",
+                               QJsonArray{QJsonArray{QJsonArray{-76.02, 39.99}, QJsonArray{-76.0, 39.99},
+                                                     QJsonArray{-76.0, 40.01}, QJsonArray{-76.02, 40.01},
+                                                     QJsonArray{-76.02, 39.99}}}}}}}}}};
+        QVERIFY2(project->showPreview(tiles, &error), qPrintable(error));
+        QVERIFY(!layer);
+        layer = nativePreview(fixture);
+        QVERIFY(layer);
+        const auto tileAttachment = previews->previewLayer(session, &fids);
+        QVERIFY(!tileAttachment.isNull());
+        QVERIFY(tileAttachment != attachment);
+        QCOMPARE(fids.size(), 1);
+        QCOMPARE(layer->symbol().polygonFill.color(), QColor(0, 145, 170, 35));
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, pixel(QPointF(-76.01, 40.)));
+        QCOMPARE(layer->selectedFeatureIds(), (QSet<long long>{fids[0]}));
+        QTRY_COMPARE(count(ViewEventKind::LayerSelectionChanged, tileAttachment), 1);
+
+        project->clearPreview();
+        QVERIFY(previews->previewLayer(session, &fids).isNull());
+        QVERIFY(fids.isEmpty());
     }
 
     /** @brief Cached glyph rendering is pixel-identical to normal label styling and avoids repeated shaping. */

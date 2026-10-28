@@ -822,6 +822,20 @@ void GuiExtensionHost::setTimeSeriesControls(
     mTimeSeriesImport = std::move(importer);
     mTimeSeriesLayers = std::move(layers);
 }
+QUuid GuiExtensionHost::previewLayer(const QUuid &sessionId, QList<qint64> *featureIds) const
+{
+    if (featureIds)
+        featureIds->clear();
+    if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mPreviewLayer ||
+        mStateRegistry->session(sessionId).status != SessionStatus::Ready)
+        return {};
+    return mPreviewLayer(sessionId, featureIds);
+}
+void GuiExtensionHost::setPreviewLayers(std::function<QUuid(const QUuid &, QList<qint64> *)> lookup)
+{
+    checkThread();
+    mPreviewLayer = std::move(lookup);
+}
 IModelInstance *GuiExtensionHost::resolveSession(const QUuid &sessionId) const
 {
     if (QThread::currentThread() != thread() || mStopping || !mStateRegistry || !mSessionResolver)

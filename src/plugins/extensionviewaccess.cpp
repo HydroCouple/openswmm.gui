@@ -112,4 +112,8 @@ QList<qint64> ExtensionViewAccess::selectedFeatures(const QUuid &id, int offset,
     return mWindow && !mWindow->isClosing() ? mLayers->selectedFeatures(id, offset, limit)
                                             : QList<qint64>{};
 }
+QUuid ExtensionViewAccess::identity(OpenSWMMVisLayer *layer) const
+{
+    return mWindow && !mWindow->isClosing() ? mLayers->identity(layer) : QUuid{};
+}
 }

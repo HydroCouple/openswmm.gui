@@ -17,6 +17,7 @@
 #include "sdk/IActivityControlsV1.hpp"
 #include "sdk/ITimeSeriesLayersV1.hpp"
 #include "sdk/IProgressV1.hpp"
+#include "sdk/IPreviewLayersV1.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -93,10 +94,11 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IEventSourceV4,
                                public OpenSWMM::Sdk::IActivityControlsV1,
                                public OpenSWMM::Sdk::ITimeSeriesLayersV1,
-                               public OpenSWMM::Sdk::IProgressV1
+                               public OpenSWMM::Sdk::IProgressV1,
+                               public OpenSWMM::Sdk::IPreviewLayersV1
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1 OpenSWMM::Sdk::ITimeSeriesLayersV1 OpenSWMM::Sdk::IProgressV1)
+    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1 OpenSWMM::Sdk::ITimeSeriesLayersV1 OpenSWMM::Sdk::IProgressV1 OpenSWMM::Sdk::IPreviewLayersV1)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -190,6 +192,11 @@ public:
             const OpenSWMM::Sdk::TimeSeriesImportRequest &, QObject *,
             std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)>, QString *)> importer,
         std::function<QList<OpenSWMM::Sdk::TimeSeriesLayerInfo>(const QUuid &)> layers);
+    /** @copydoc OpenSWMM::Sdk::IPreviewLayersV1::previewLayer */
+    QUuid previewLayer(const QUuid &sessionId, QList<qint64> *featureIds = nullptr) const override;
+    /** @brief Install the private native preview-layer lookup before extension initialization.
+     * @param[in] lookup Session-scoped resolver for this host's own preview facade. */
+    void setPreviewLayers(std::function<QUuid(const QUuid &, QList<qint64> *)> lookup);
     /** @brief Install a host-internal publication cancellation hook on a retained job.
      * @param[in] job Borrowed job issued by this host.
      * @param[in] hook Thread-safe callback invoked by IJob::cancel(), including after worker
@@ -438,6 +445,7 @@ private:
         const OpenSWMM::Sdk::TimeSeriesImportRequest &, QObject *,
         std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)>, QString *)> mTimeSeriesImport;
     std::function<QList<OpenSWMM::Sdk::TimeSeriesLayerInfo>(const QUuid &)> mTimeSeriesLayers;
+    std::function<QUuid(const QUuid &, QList<qint64> *)> mPreviewLayer;
     std::function<QList<OpenSWMM::Sdk::IProject *>()> mProjects;
     std::function<OpenSWMM::Sdk::IModelInstance *()> mActive;
     /** @brief Request one own job cancellation without relying on title or public handle layout.
