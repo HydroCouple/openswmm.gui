@@ -10,8 +10,8 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV3.hpp"
-#include "sdk/IEventSourceV4.hpp"
+#include "sdk/IViewEvents.hpp"
+#include "sdk/IActivityEvents.hpp"
 #include <QPointer>
 #include <memory>
 
@@ -208,10 +208,10 @@ signals:
     /** @brief Deliver a copied transition from the ordered GUI-thread drain.
      * @param[in] event Immutable observation; hosts recheck per receiver before forwarding. */
     void stateEventReady(const OpenSWMM::Sdk::StateEvent &event);
-    /** @brief Deliver domain metadata in the same globally ordered V2/V3 drain.
+    /** @brief Deliver domain metadata in the same globally ordered session/view drain.
      * @param[in] event Copied native view invalidation. */
     void viewEventReady(const OpenSWMM::Sdk::ViewEvent &event);
-    /** @brief Deliver process/UI metadata from the ordered V2/V3/V4 drain.
+    /** @brief Deliver process/UI metadata from the ordered session/view/activity drain.
      * @param[in] event Immutable owning activity observation. */
     void activityEventReady(const OpenSWMM::Sdk::ActivityEvent &event);
     /** @brief Synchronously collect extension state before native persistence starts.

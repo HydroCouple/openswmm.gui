@@ -15,7 +15,7 @@
 #include "plugins/guiextensionhost.h"
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"
-#include "sdk/IEventSourceV2.hpp"
+#include "sdk/ISessionEvents.hpp"
 #include "sdk/IProject.hpp"
 #include "sdk/IUiHost.hpp"
 #include "swmmvisprojectwindow.h"
@@ -480,7 +480,7 @@ private slots:
         active = fixture.window;
         mdi->addSubWindow(fixture.window);
         const auto id = fixture.window->extensionSessionId();
-        auto *source = qobject_cast<IEventSourceV2 *>(host.lifetime());
+        auto *source = qobject_cast<ISessionEvents *>(host.lifetime());
         QVERIFY(source);
         QVERIFY(!source->resolveSession(id));
         QList<QString> warnings, errors;
@@ -607,7 +607,7 @@ private slots:
         active = fixture.window;
         mdi->addSubWindow(fixture.window);
         const auto id = fixture.window->extensionSessionId();
-        auto *source = qobject_cast<IEventSourceV2 *>(host.lifetime());
+        auto *source = qobject_cast<ISessionEvents *>(host.lifetime());
         QVERIFY(source);
         QList<QString> warnings, errors;
         QVERIFY2(fixture.window->loadModel(warnings, errors), qPrintable(errors.join(';')));
@@ -729,7 +729,7 @@ private slots:
         const auto id = fixture.window->extensionSessionId();
         QList<QString> warnings, errors;
         QVERIFY2(fixture.window->loadModel(warnings, errors), qPrintable(errors.join(';')));
-        auto *source = qobject_cast<IEventSourceV2 *>(host.lifetime());
+        auto *source = qobject_cast<ISessionEvents *>(host.lifetime());
         QVERIFY(source);
         auto *instance = source->resolveSession(id);
         QVERIFY(instance);

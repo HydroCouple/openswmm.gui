@@ -8,8 +8,8 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IActivityControlsV1.hpp"
-#include "sdk/IEventSourceV4.hpp"
+#include "sdk/IActivityControls.hpp"
+#include "sdk/IActivityEvents.hpp"
 #include <QObject>
 #include <memory>
 

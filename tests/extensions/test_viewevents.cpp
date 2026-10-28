@@ -1,6 +1,7 @@
 /**
  * @file test_viewevents.cpp
- * @brief Core acceptance of shared V2/V3 ordering, copied metadata, guarded subscriptions and adapters.
+ * @brief Core acceptance of shared session/view ordering, copied metadata, guarded
+ * subscriptions and adapters.
  * @details Uses the actual plugin host/registry without native engine/GIS objects.
  * Settings and installed-consumer evidence stay under the repository verification directory.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
@@ -90,12 +91,12 @@ private slots:
     void discoverySharedSnapshotsAndPureQueries()
     {
         ViewFixture f;
-        auto *views = qobject_cast<IEventSourceV3 *>(f.host.get());
-        auto *controls = qobject_cast<IViewControlsV1 *>(f.host.get());
+        auto *views = qobject_cast<IViewEvents *>(f.host.get());
+        auto *controls = qobject_cast<IViewControls *>(f.host.get());
         QVERIFY(views);
         QVERIFY(controls);
-        QVERIFY(qobject_cast<IEventSourceV2 *>(f.host.get()));
-        QVERIFY(qobject_cast<IEventSourceV1 *>(f.host.get()));
+        QVERIFY(qobject_cast<ISessionEvents *>(f.host.get()));
+        QVERIFY(qobject_cast<IModelEvents *>(f.host.get()));
         GuiExtensionHost other("org.openswmm.view-other", ExtensionManager::buildManifest(),
                                &f.window, qobject_cast<QMdiArea *>(f.window.centralWidget()), {},
                                &f.settings, nullptr, &f.registry);
@@ -110,7 +111,8 @@ private slots:
         }
         QCOMPARE(f.registry.snapshot().sequence, watermark);
     }
-    /** @brief Bound a burst to its final displayed frame and preserve V2/V3 sequence ordering. */
+    /** @brief Bound a burst to its final displayed frame and preserve session/view
+     * sequence ordering. */
     void playbackBurstCoalescesAndSharesOrdering()
     {
         ViewFixture f;

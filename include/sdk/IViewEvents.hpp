@@ -1,20 +1,21 @@
 /**
- * @file IEventSourceV3.hpp
+ * @file IViewEvents.hpp
  * @brief Versioned model, layer and attached-results observations and copied view metadata.
  * @details Optional SDK 1.4 capability discovered on ExtensionHost::lifetime().
  * All calls use the GUI thread. Values own metadata, never native objects or data
- * arrays. V1/V2 interfaces and layouts are unchanged; this contract has its own IID.
+ * arrays. The model and session event interfaces and layouts are unchanged; this
+ * contract has its own IID.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "IEventSourceV2.hpp"
+#include "ISessionEvents.hpp"
 #include <QDateTime>
 #include <QStringList>
 
 /** @brief Frozen discovery identity for SDK 1.4 model/layer/results observations. */
-#define OPENSWMM_EVENT_SOURCE_V3_IID "io.opensimulator.openswmm.IEventSource/3.0"
+#define OPENSWMM_VIEW_EVENTS_IID "io.opensimulator.openswmm.IEventSource/3.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -95,7 +96,7 @@ struct ResultsViewState {
  * @details Subscribe before the initial query and retain that initial cutoff.
  * This is not geometry/results data, a historical event log or an engine lease. */
 struct ViewSnapshot {
-    quint64 sequence = 0;            ///< Same application registry watermark used by V2 snapshots.
+    quint64 sequence = 0;            ///< Same application registry watermark as session snapshots.
     ModelSessionState session;       ///< Null sessionId means unknown/retired session.
     QList<LayerViewState> layers;    ///< Current attachments in native bottom-to-top order.
     QList<ResultsViewState> results; ///< Attached result sources, including unavailable sources.
@@ -111,7 +112,7 @@ struct ViewSnapshot {
  * does not grant access to a removed layer. */
 struct ViewEvent {
     ViewEventKind kind = ViewEventKind::ModelGeometryChanged; ///< Invalidation reason.
-    quint64 sequence = 0;      ///< Shared V2/V3 registry publication sequence.
+    quint64 sequence = 0;      ///< Shared session/view registry publication sequence.
     ModelSessionState session; ///< Copied open-lifetime/revision metadata.
     QUuid layerSessionId;      ///< Affected attachment, null for session-wide changes.
     QString layerId; ///< Copied native ID, which alone is not an unambiguous command target.
@@ -126,7 +127,7 @@ struct ViewEvent {
 
 /** @brief Registration-time reason, session and runtime-attachment selection. */
 struct ViewEventFilter {
-    QList<ViewEventKind> kinds; ///< Empty accepts every V3 reason.
+    QList<ViewEventKind> kinds; ///< Empty accepts every IViewEvents reason.
     QUuid sessionId;            ///< Null accepts all model sessions.
     QUuid layerSessionId;       ///< Null accepts all attachments and session-wide changes.
     /** @brief Match a copied observation without consulting native state.
@@ -141,13 +142,13 @@ struct ViewEventFilter {
 };
 
 /** @brief Frozen optional GUI-thread view metadata and deferred domain observation service. */
-class IEventSourceV3
+class IViewEvents
 {
 public:
     /** @brief Destroy an implementation; consumers borrow the host-owned capability. */
-    virtual ~IEventSourceV3() = default;
+    virtual ~IViewEvents() = default;
     /** @brief Copy one session's current tracked view state, without side effects.
-     * @param[in] sessionId Per-open identity obtained from IEventSourceV2.
+     * @param[in] sessionId Per-open identity obtained from ISessionEvents.
      * @return Metadata, or a null-session snapshot when unavailable/off-thread/stopping. */
     virtual ViewSnapshot viewSnapshot(const QUuid &sessionId) const = 0;
     /** @brief Observe future queued invalidations on the GUI thread.
@@ -163,7 +164,7 @@ public:
                  std::function<void(const ViewEvent &)> callback) = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IEventSourceV3, OPENSWMM_EVENT_SOURCE_V3_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IViewEvents, OPENSWMM_VIEW_EVENTS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ViewEvent)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ViewSnapshot)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ViewEventKind)

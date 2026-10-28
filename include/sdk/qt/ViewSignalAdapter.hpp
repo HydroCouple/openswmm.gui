@@ -9,12 +9,12 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV1.hpp"
-#include "sdk/IEventSourceV3.hpp"
+#include "sdk/IModelEvents.hpp"
+#include "sdk/IViewEvents.hpp"
 
 namespace OpenSWMM::Sdk
 {
-/** @brief Consumer-owned QObject with typed signals from one guarded V3 subscription. */
+/** @brief Consumer-owned QObject with typed signals from one guarded IViewEvents subscription. */
 class ViewSignalAdapter final : public QObject
 {
     Q_OBJECT
@@ -23,7 +23,7 @@ public:
      * @param[in] source Borrowed optional host capability, null creates an inert adapter.
      * @param[in] filter Copied kind/session/attachment selection.
      * @param[in] parent Optional GUI-thread QObject owner. */
-    explicit ViewSignalAdapter(IEventSourceV3 *source, const ViewEventFilter &filter = {},
+    explicit ViewSignalAdapter(IViewEvents *source, const ViewEventFilter &filter = {},
                                QObject *parent = nullptr);
     /** @brief Disconnect before QObject teardown. */
     ~ViewSignalAdapter() override;

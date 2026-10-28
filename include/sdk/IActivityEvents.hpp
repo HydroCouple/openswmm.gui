@@ -1,5 +1,5 @@
 /**
- * @file IEventSourceV4.hpp
+ * @file IActivityEvents.hpp
  * @brief Versioned process attempts and scoped UI lifecycle observations.
  * @details Optional SDK 1.5 capability discovered on ExtensionHost::lifetime().
  * Calls and managed callbacks use the GUI thread. Metadata owns values, never
@@ -19,7 +19,7 @@
 #include <functional>
 
 /** @brief Frozen Qt discovery identity for process/UI observations. */
-#define OPENSWMM_EVENT_SOURCE_V4_IID "io.opensimulator.openswmm.IEventSource/4.0"
+#define OPENSWMM_ACTIVITY_EVENTS_IID "io.opensimulator.openswmm.IEventSource/4.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -119,7 +119,7 @@ struct UiActivityState {
     QList<DockState> docks;         ///< Calling extension's registered docks only.
     QList<CommandState> commands;   ///< Own commands plus approved built-in dialog commands.
 };
-/** @brief Pure copied retained process/UI metadata at the shared V2/V3/V4 watermark.
+/** @brief Pure copied retained process/UI metadata at the shared session/view/activity watermark.
  * @details Subscribe before the initial query. This is current retained state,
  * not replay: superseded run attempts and older completed job records can retire.
  * Active operations are retained; private terminal job snapshots are bounded.
@@ -163,7 +163,7 @@ struct ActivityEvent {
 };
 /** @brief Registration-time event reason and optional process/session selection. */
 struct ActivityEventFilter {
-    QList<ActivityEventKind> kinds; ///< Empty accepts all scoped V4 observations.
+    QList<ActivityEventKind> kinds; ///< Empty accepts all scoped IActivityEvents observations.
     QUuid operationId;              ///< Null accepts all processes and UI changes.
     QUuid
         sessionId; ///< Null accepts all; a specific session selects matching processes and excludes UI.
@@ -178,11 +178,11 @@ struct ActivityEventFilter {
     }
 };
 /** @brief Frozen optional GUI-thread process and UI snapshot/observation capability. */
-class IEventSourceV4
+class IActivityEvents
 {
 public:
     /** @brief Destroy an implementation; consumers borrow the host-owned capability. */
-    virtual ~IEventSourceV4() = default;
+    virtual ~IActivityEvents() = default;
     /** @brief Copy current retained process and scoped UI metadata without creating state.
      * @return Owning snapshot, empty after shutdown or on the wrong thread. */
     virtual ActivitySnapshot activitySnapshot() const = 0;
@@ -199,7 +199,7 @@ public:
                     std::function<void(const ActivityEvent &)> callback) = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IEventSourceV4, OPENSWMM_EVENT_SOURCE_V4_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IActivityEvents, OPENSWMM_ACTIVITY_EVENTS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ProcessState)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ActivityEvent)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ActivitySnapshot)

@@ -41,18 +41,18 @@
  * sdk/Version.hpp | Version constants and owning compatibility manifest serialization.
  * sdk/IGuiExtension.hpp | Qt plugin root interface, metadata and lifecycle contract.
  * sdk/ExtensionHost.hpp | Scoped service access, notifications, console and jobs.
- * sdk/IEventSourceV1.hpp | Frozen synchronous typed observations, filters and scoped connection ownership.
- * sdk/qt/EventSignalAdapter.hpp | Optional consumer-local Qt signals for the V1 observations.
- * sdk/IEventSourceV2.hpp | Authoritative session identities, readiness, revision snapshots and save lifecycle.
- * sdk/IEventSourceV3.hpp | Copied model/layer/results view metadata and deferred domain invalidations.
- * sdk/IViewControlsV1.hpp | Validated layer/result commands and paged vector selection queries.
- * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for V3 view observations.
- * sdk/IEventSourceV4.hpp | Unique process attempts, retained activity snapshots and scoped UI invalidations.
- * sdk/IActivityControlsV1.hpp | Identity-checked run start/cancellation and document/dock/command controls.
- * sdk/ITimeSeriesLayersV1.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
- * sdk/IProgressV1.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
- * sdk/IPreviewLayersV1.hpp | SDK 1.8 native preview-layer attachment and feature-order FIDs for selection sync.
- * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for V4 process and UI observations.
+ * sdk/IModelEvents.hpp | Frozen synchronous typed observations, filters and scoped connection ownership.
+ * sdk/qt/EventSignalAdapter.hpp | Optional consumer-local Qt signals for the IModelEvents observations.
+ * sdk/ISessionEvents.hpp | Authoritative session identities, readiness, revision snapshots and save lifecycle.
+ * sdk/IViewEvents.hpp | Copied model/layer/results view metadata and deferred domain invalidations.
+ * sdk/IViewControls.hpp | Validated layer/result commands and paged vector selection queries.
+ * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for IViewEvents observations.
+ * sdk/IActivityEvents.hpp | Unique process attempts, retained activity snapshots and scoped UI invalidations.
+ * sdk/IActivityControls.hpp | Identity-checked run start/cancellation and document/dock/command controls.
+ * sdk/ITimeSeriesLayers.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
+ * sdk/IProgress.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
+ * sdk/IPreviewLayers.hpp | SDK 1.8 native preview-layer attachment and feature-order FIDs for selection sync.
+ * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for IActivityEvents process and UI observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
  * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
@@ -72,16 +72,16 @@
  * plugins/extensionpreferences.h | Guarded registration of Preferences factories.
  * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
  * plugins/extensionstateregistry.* | Shared authoritative session state, deferred dispatch and native save scopes.
- * plugins/extensionviewaccess.* | One native coordinator per window for V3 snapshots and commands.
+ * plugins/extensionviewaccess.* | One native coordinator per window for IViewEvents snapshots and commands.
  * plugins/extensionactivityui.* | Shared native MDI attachment tracking and per-host UI metadata/controls.
  * plugins/extensionmodelevents.cpp | Canonical model geometry/options/rename/schema/selection/unit observations.
  * plugins/extensionlayerevents.cpp | Runtime canvas attachment identities, layer watchers and native commands.
  * plugins/extensionresultsevents.cpp | Attached reader/source epochs, semantic variables and displayed cursor observations.
  * src/sdk/EventSignalAdapter.cpp | Installed optional adapter source compiled inside each consumer module.
- * src/sdk/ViewSignalAdapter.cpp | Installed optional V3 adapter source, also compiled per consumer.
- * src/sdk/ActivitySignalAdapter.cpp | Installed optional V4 adapter source, also compiled per consumer.
+ * src/sdk/ViewSignalAdapter.cpp | Installed optional IViewEvents adapter source, also compiled per consumer.
+ * src/sdk/ActivitySignalAdapter.cpp | Installed optional IActivityEvents adapter source, also compiled per consumer.
  * examples/extensions/activity/ | Independently built SDK 1.5 process/document consumer.
- * examples/extensions/values/ValueEventAdapter.* | Consumer-local example projecting V2/V3/V4 metadata into primitive owning Qt values.
+ * examples/extensions/values/ValueEventAdapter.* | Consumer-local example projecting session/view/activity metadata into primitive owning Qt values.
  * examples/extensions/values/ | Installed SDK 1.5 diagnostic module; optional explicit JSONL representation capture, without a scripting runtime.
  * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
  * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
@@ -217,13 +217,13 @@
  *
  * @section sdk_events Events, signals and commands
  *
- * SDK 1.2 provides typed host observations through the optional IEventSourceV1
+ * SDK 1.2 provides typed host observations through the optional IModelEvents
  * interface, together with a consumer-local EventSignalAdapter for ordinary Qt
- * signals. SDK 1.3 adds the separate IEventSourceV2 capability for authoritative
+ * signals. SDK 1.3 adds the separate ISessionEvents capability for authoritative
  * session readiness, revision snapshots and save outcomes. SDK 1.4 adds
- * IEventSourceV3 and IViewControlsV1 for detailed map/model/results observations
- * and validated view commands. SDK 1.5 adds IEventSourceV4 and
- * IActivityControlsV1 for unique run/job attempts and scoped UI activity.
+ * IViewEvents and IViewControls for detailed map/model/results observations
+ * and validated view commands. SDK 1.5 adds IActivityEvents and
+ * IActivityControls for unique run/job attempts and scoped UI activity.
  * ExtensionHost::observe()
  * remains available for existing consumers. These interfaces have different
  * delivery/identity contracts; choose the one needed by the integration.
@@ -237,23 +237,24 @@
  * use the existing edit/lease and undo paths; layer import does not promise undo.
  * An event reports a change; it is not a command or permission to modify a private
  * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
- * such as IEventSourceV1, IEventSourceV2, IEventSourceV3, IViewControlsV1,
- * IEventSourceV4 and IActivityControlsV1,
+ * such as IModelEvents, ISessionEvents, IViewEvents, IViewControls,
+ * IActivityEvents and IActivityControls,
  * while private host classes remain
  * implementation details.
  *
  * | Observation interface | Minimum SDK | Delivery and identity |
  * | --- | --- | --- |
  * | ExtensionHost::observe() | 1.0 | Synchronous string/map notifications with persistent model UUIDs. |
- * | IEventSourceV1 | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
- * | IEventSourceV2 | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
- * | IEventSourceV3 | 1.4 | Deferred model/layer/results invalidations and copied view metadata at the shared V2/V3 watermark. |
- * | IEventSourceV4 | 1.5 | Deferred unique process transitions and scoped UI invalidations, with retained activity snapshots at the shared V2/V3/V4 watermark. |
+ * | IModelEvents | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
+ * | ISessionEvents | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
+ * | IViewEvents | 1.4 | Deferred model/layer/results invalidations and copied view metadata at the shared session/view watermark. |
+ * | IActivityEvents | 1.5 | Deferred unique process transitions and scoped UI invalidations, with retained activity snapshots at the shared session/view/activity watermark. |
  *
  * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
  *
- * Include sdk/IEventSourceV1.hpp, require OpenSWMMVisSdk 1.2, and discover the
- * capability with qobject_cast<IEventSourceV1 *>(host->lifetime()). Check for a
+ * Include sdk/IModelEvents.hpp, require OpenSWMMVisSdk 1.9 (the capability dates
+ * from SDK 1.2 under its former name), and discover the
+ * capability with qobject_cast<IModelEvents *>(host->lifetime()). Check for a
  * null result and fail initialization clearly if this capability is required.
  * The loader refuses a plugin requiring SDK 1.2 on an SDK 1.1 host before its
  * code is instantiated. The existing ExtensionHost vtable and root plugin IID
@@ -263,8 +264,8 @@
  * Event contains an EventKind, a host-local publication sequence and an owning
  * EventPayload variant. Use std::get_if to read the expected domain value.
  * EventFilter selects kinds and optionally a persistent model UUID. Empty kinds
- * accept all V1 kinds; a null UUID includes all model and global observations.
- * A specific UUID excludes global events and no-active-model activation. V1 has
+ * accept all IModelEvents kinds; a null UUID includes all model and global observations.
+ * A specific UUID excludes global events and no-active-model activation. IModelEvents has
  * no layer-ID filter because broad layer-membership events have no layer identity.
  *
  * | Payload alternative | Contents and scope |
@@ -285,7 +286,7 @@
  * follow the legacy catalogue below with their initial letter capitalized.
  *
  * @code{.cpp}
- * auto *events = qobject_cast<OpenSWMM::Sdk::IEventSourceV1 *>(host->lifetime());
+ * auto *events = qobject_cast<OpenSWMM::Sdk::IModelEvents *>(host->lifetime());
  * OpenSWMM::Sdk::EventFilter filter;
  * filter.kinds = {OpenSWMM::Sdk::EventKind::ViewportChanged};
  * filter.instanceId = modelId; // A persistent UUID previously read from the SDK.
@@ -325,17 +326,18 @@
  *
  * Known host observations have one canonical typed value, from which the legacy
  * name and map are projected. Unknown private diagnostic/test event names remain
- * legacy-only. Plugins cannot publish host events through IEventSourceV1.
+ * legacy-only. Plugins cannot publish host events through IModelEvents.
  *
  * @subsection sdk_state_events SDK 1.3 session readiness and revision snapshots
  *
- * Include sdk/IEventSourceV2.hpp, require OpenSWMMVisSdk 1.3 and discover the
- * optional interface with qobject_cast<IEventSourceV2 *>(host->lifetime()).
+ * Include sdk/ISessionEvents.hpp, require OpenSWMMVisSdk 1.9 (the capability
+ * dates from SDK 1.3) and discover the
+ * optional interface with qobject_cast<ISessionEvents *>(host->lifetime()).
  * Check the result and report a missing required capability during initialize().
  * The loader refuses a 1.3 consumer on an older SDK host before initializing it.
- * V1 and V2 remain separately discoverable frozen interfaces; V2 adds no methods
- * or fields to V1 or the existing ExtensionHost vtable. EventSignalAdapter wraps
- * V1; the installed examples/extensions/lifecycle consumer demonstrates V2's
+ * IModelEvents and ISessionEvents remain separately discoverable frozen interfaces; ISessionEvents adds no methods
+ * or fields to IModelEvents or the existing ExtensionHost vtable. EventSignalAdapter wraps
+ * IModelEvents; the installed examples/extensions/lifecycle consumer demonstrates ISessionEvents'
  * callbacks and ordinary plugin-owned Qt views.
  *
  * Every native model-window lifetime has a unique sessionId. Its instanceId is
@@ -350,7 +352,7 @@
  * for that open lifetime; modelRevision is the native authored-model revision
  * scoped by session and load generation. The shared registry's sequence orders
  * state publications across plugin hosts and is the StateSnapshot watermark.
- * It is separate from V1's host-local sequence. Revisions and watermarks cover
+ * It is separate from IModelEvents' host-local sequence. Revisions and watermarks cover
  * observed metadata/invalidation; they are not atomic copies of arbitrary engine,
  * geometry, selection or result arrays. Continue using leases and copied queries
  * for those payloads.
@@ -383,7 +385,7 @@
  *
  * @code{.cpp}
  * // In initialize(), these are persistent members of a GUI-thread QObject controller.
- * mStateSource = qobject_cast<OpenSWMM::Sdk::IEventSourceV2 *>(host->lifetime());
+ * mStateSource = qobject_cast<OpenSWMM::Sdk::ISessionEvents *>(host->lifetime());
  * if (!mStateSource)
  *     return false; // Report the missing required capability through initialize()'s error output.
  * mStateConnection = mStateSource->observeState(this, {},
@@ -462,9 +464,10 @@
  *
  * @subsection sdk_view_events SDK 1.4 model, map and attached-results observations
  *
- * Include sdk/IEventSourceV3.hpp and require OpenSWMMVisSdk 1.4. Discover
- * IEventSourceV3 on host->lifetime() with qobject_cast and check availability
- * during initialization. V1 and V2 remain separately frozen interfaces; V3
+ * Include sdk/IViewEvents.hpp and require OpenSWMMVisSdk 1.9 (the capability
+ * dates from SDK 1.4). Discover
+ * IViewEvents on host->lifetime() with qobject_cast and check availability
+ * during initialization. IModelEvents and ISessionEvents remain separately frozen interfaces; IViewEvents
  * does not extend their value layouts or existing service vtables. The installed
  * examples/extensions/views consumer demonstrates its own Qt panel and commands.
  * openswmmvis_add_view_adapter(target) compiles ViewSignalAdapter into the
@@ -474,8 +477,8 @@
  * slots keep Qt's usual delivery rules and must not throw.
  *
  * viewSnapshot(sessionId) returns copied metadata for one registered open
- * lifetime. Its session field carries the V2 load generation and revisions;
- * sequence uses the same application registry watermark as V2. Public queries
+ * lifetime. Its session field carries the ISessionEvents load generation and revisions;
+ * sequence uses the same application registry watermark as ISessionEvents. Public queries
  * never create facades or trackers, start a source open, discover result arrays
  * or publish observations. No payload contains native window/layer/renderer,
  * reader or engine pointers. Use existing leases and data queries for actual
@@ -484,7 +487,7 @@
  * LayerViewState carries a runtime layerSessionId distinct from its native
  * layerId. Native IDs can be restored, changed or repeated across layers. Every
  * detach ends the runtime attachment; undo/reinsertion receives a fresh runtime
- * UUID even when it reuses the same native object. All V3 attachment filters and
+ * UUID even when it reuses the same native object. All IViewEvents attachment filters and
  * view commands use layerSessionId. LayerRemoved is a copied historical detach
  * record, and never permits resolving or acting on that retired attachment.
  * Snapshot layers are in native bottom-to-top order, with title/type/CRS,
@@ -507,8 +510,8 @@
  *
  * @code{.cpp}
  * // Members of a GUI-thread plugin controller; check both services at initialization.
- * mViews = qobject_cast<OpenSWMM::Sdk::IEventSourceV3 *>(host->lifetime());
- * mControls = qobject_cast<OpenSWMM::Sdk::IViewControlsV1 *>(host->lifetime());
+ * mViews = qobject_cast<OpenSWMM::Sdk::IViewEvents *>(host->lifetime());
+ * mControls = qobject_cast<OpenSWMM::Sdk::IViewControls *>(host->lifetime());
  * mViewConnection = mViews->observeViews(this, {{}, mSessionId, {}},
  *     [this](const OpenSWMM::Sdk::ViewEvent &event) {
  *         if (event.sequence <= mInitialViewWatermark)
@@ -577,7 +580,7 @@
  *
  * @subsection sdk_view_commands Validated map and results commands
  *
- * Include sdk/IViewControlsV1.hpp and discover IViewControlsV1 on the host lifetime.
+ * Include sdk/IViewControls.hpp and discover IViewControls on the host lifetime.
  * executeViewCommand accepts a Ready session and its current runtime attachment.
  * Every request supplies loadGeneration copied from the current view snapshot;
  * an exact generation check refuses work prepared before a reload in the same
@@ -634,12 +637,13 @@
  *
  * @subsection sdk_activity_events SDK 1.5 process attempts and scoped UI activity
  *
- * Include sdk/IEventSourceV4.hpp and sdk/IActivityControlsV1.hpp, require
- * OpenSWMMVisSdk 1.5, and discover both optional capabilities on
+ * Include sdk/IActivityEvents.hpp and sdk/IActivityControls.hpp, require
+ * OpenSWMMVisSdk 1.9 (the capabilities date from SDK 1.5), and discover both
+ * optional capabilities on
  * host->lifetime() using qobject_cast. Check required capabilities during
- * initialize(). V4 is a separate frozen interface: IEventSourceV1, V2 and V3
+ * initialize(). IActivityEvents is a separate frozen interface: IModelEvents, ISessionEvents and IViewEvents
  * retain their earlier layouts, delivery rules and discovery identities.
- * Their headers contain no V4 payload additions. Existing ExtensionHost,
+ * Their headers contain no IActivityEvents payload additions. Existing ExtensionHost,
  * IRunRegistry, IJob, IJobContext and IUiHost vtables remain unchanged.
  *
  * activitySnapshot() copies current retained process and UI metadata. It does
@@ -665,15 +669,15 @@
  * excludes UI observations, which have no process identity. Register with a
  * nonnull GUI-thread QObject guard, subscribe before taking the initial
  * snapshot on the same call stack, and retain its initial sequence cutoff.
- * V2, V3 and V4 share the registry watermark and ordered dispatcher; sequence
+ * Session, view and activity events share the registry watermark and ordered dispatcher; sequence
  * gaps are expected after coalescing. A refreshed snapshot is retained current
  * state, not event-history replay. Do not advance the initial cutoff whenever
  * refreshing if the consumer also retains future terminal/removal history.
  *
  * @code{.cpp}
  * // Persistent members of a GUI-thread controller; validate both capabilities.
- * mActivity = qobject_cast<OpenSWMM::Sdk::IEventSourceV4 *>(host->lifetime());
- * mActivityControls = qobject_cast<OpenSWMM::Sdk::IActivityControlsV1 *>(host->lifetime());
+ * mActivity = qobject_cast<OpenSWMM::Sdk::IActivityEvents *>(host->lifetime());
+ * mActivityControls = qobject_cast<OpenSWMM::Sdk::IActivityControls *>(host->lifetime());
  * if (!mActivity || !mActivityControls)
  *     return false; // Set initialize()'s error output to identify the required SDK.
  * mActivityConnection = mActivity->observeActivity(this, {},
@@ -831,7 +835,7 @@
  * It introduces no interpreter, engine dependency, command gateway or network IO.
  *
  * Construct the adapter in C++ with the borrowed ExtensionHost::lifetime()
- * QObject. It discovers V2/V3/V4 and uses managed subscriptions with its own
+ * QObject. It discovers session/view/activity and uses managed subscriptions with its own
  * GUI-thread receiver context. Connect stateOccurred, viewOccurred and
  * activityOccurred before initial stateSnapshot(), viewSnapshot(sessionId)
  * and activitySnapshot() queries. isSubscribed() requires all three live
@@ -877,8 +881,8 @@
  * Snapshot lists retain complete current source metadata, rather than adding
  * geometry, selected feature IDs, result arrays, readers, engine addresses or
  * widgets. The adapter adds no history/replay store or second event backlog.
- * Existing source scopes, retention, coalescing and the shared V2/V3/V4 sequence
- * still apply. V1's separate host-local sequence is deliberately excluded.
+ * Existing source scopes, retention, coalescing and the shared session/view/activity sequence
+ * still apply. IModelEvents' separate host-local sequence is deliberately excluded.
  * Keep the initial shared cutoff immutable; later queries refresh display state
  * without changing the event-counter cutoff. A historical event or copied map
  * grants no authority to mutate a retired target. Use current typed controller
@@ -903,7 +907,7 @@
  * in the GUI by this example. Cross-platform, ASan and release gates require their
  * own recorded execution; a representation test does not close them.
  *
- * @subsection sdk_event_delivery Legacy/V1 synchronous subscription and delivery
+ * @subsection sdk_event_delivery Legacy/IModelEvents synchronous subscription and delivery
  *
  * Register on the GUI thread with a nonnull GUI-thread QObject context and a
  * nonempty callback. The returned QMetaObject::Connection supports explicit
@@ -918,7 +922,7 @@
  * copy them if retaining them. No raw engine, runner or layer pointer is an
  * event payload. There is no initial replay: subscribe first, then enumerate
  * current state. Native lifecycle registration attaches facades; enumeration
- * itself does not create or announce a new model. Use V2's session snapshot and
+ * itself does not create or announce a new model. Use ISessionEvents' session snapshot and
  * resolution methods when readiness or a specific open lifetime matters.
  *
  * Notifications currently follow native signal timing and may occur inside
@@ -979,11 +983,11 @@
  *
  * @subsection sdk_event_limits Coverage boundaries
  *
- * V2 provides authoritative session readiness, revision snapshots, close and
- * project-save lifecycle. V1 retains its earlier synchronous observation scope.
- * V3 adds detailed model/layer/result invalidations, copied view metadata and
+ * ISessionEvents provides authoritative session readiness, revision snapshots, close and
+ * project-save lifecycle. IModelEvents retains its earlier synchronous observation scope.
+ * IViewEvents adds detailed model/layer/result invalidations, copied view metadata and
  * validated commands; it does not extend the earlier interfaces' semantics.
- * V4 adds unique run/job attempts and the scoped document/dock/command metadata
+ * IActivityEvents adds unique run/job attempts and the scoped document/dock/command metadata
  * and controls described above. StateChanged categories remain broad
  * invalidations. There is no general event-history replay or plugin-to-plugin
  * publishing service. UI metadata does not expose private widget state, and
@@ -1081,17 +1085,17 @@
  *
  * @subsection sdk_preview_selection SDK 1.8 preview-layer selection
  *
- * IPreviewLayersV1 lets a consumer keep its own list in step with the native
- * preview layer's selection. Query `qobject_cast<IPreviewLayersV1 *>(host->lifetime())`,
+ * IPreviewLayers lets a consumer keep its own list in step with the native
+ * preview layer's selection. Query `qobject_cast<IPreviewLayers *>(host->lifetime())`,
  * then call previewLayer(sessionId, &featureIds) after a successful showPreview().
  * It returns the layer's runtime attachment and its native FIDs in the feature
  * order of the accepted collection. GDAL assigns those FIDs for string-identified
  * GeoJSON features, so never assume they equal feature positions.
  *
- * - Map → consumer: observe IEventSourceV3 LayerSelectionChanged for that
+ * - Map → consumer: observe IViewEvents LayerSelectionChanged for that
  *   attachment. The select tool, rubber band, Attribute Table and typed commands
  *   all change the same native selection. Read it with
- *   IViewControlsV1::selectedLayerFeatures().
+ *   IViewControls::selectedLayerFeatures().
  * - Consumer → map: send ViewCommandKind::SelectLayerFeatures with the mapped FIDs.
  *   The Attribute Table and map highlight follow immediately.
  *
@@ -1112,10 +1116,10 @@
  * polygon before presenting the preview. Keep that reviewed area with the
  * result identities selected for download. Changes to source, filters,
  * polygon or relevant viewport invalidate the preview; do not download
- * using a silently recomputed area. Legacy/V1 viewportChanged, layersChanged,
+ * using a silently recomputed area. Legacy/IModelEvents viewportChanged, layersChanged,
  * selectionChanged and boundaryChanged remain available to old consumers.
- * The current openswmm.gui.data consumer requires SDK 1.8 and uses authoritative
- * V2/V3/V4 metadata instead; legacy name translation alone does not establish
+ * The current openswmm.gui.data consumer requires SDK 1.9 and uses authoritative
+ * session/view/activity metadata instead; legacy name translation alone does not establish
  * session readiness, an unambiguous attachment identity or a source revision.
  *
  * @subsection sdk_data_invalidation Typed Data catalogue review contract
@@ -1124,19 +1128,19 @@
  * each explicit review with a separate cutoff. A review captures the exact Ready
  * per-open sessionId/loadGeneration and chosen runtime layerSessionId/FID, rather
  * than treating a persistent model UUID, display title or row number as identity.
- * V4's actual active model document selects the intended open lifetime; moving
+ * IActivityEvents' actual active model document selects the intended open lifetime; moving
  * focus to a utility document retains the existing model context. Duplicate
  * persistent UUIDs in two open model windows remain independent sessions.
  *
  * Source/change | Current catalogue-review behavior
  * --- | ---
  * Bound session closes, reloads, fails or ceases to be Ready; another model document becomes active | Cancel pending work, clear review authority/overlay and bind only an exact current Ready lifetime.
- * Viewport-mode V2 Viewport change, including extent, resize or canvas CRS | Invalidate the frozen viewport review; a new explicit preview is required.
+ * Viewport-mode ISessionEvents Viewport change, including extent, resize or canvas CRS | Invalidate the frozen viewport review; a new explicit preview is required.
  * Polygon-mode viewport change | Preserve a matching chosen boundary; a map pan does not change the frozen polygon.
- * Chosen polygon's V3 feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
+ * Chosen polygon's IViewEvents feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
  * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
  * Another attachment changes, including the layer added by an own export | Preserve an unchanged chosen boundary after guarded revision reconciliation.
- * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalogue rows or native layer; downloads wait for the write's detailed V3 evidence, then the unchanged review continues.
+ * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalogue rows or native layer; downloads wait for the write's detailed IViewEvents evidence, then the unchanged review continues.
  * Result playback, layer style/order or utility document/dock/command activity | Preserve an unchanged review; these are not source geometry changes.
  * Source/dataset/area/boundary choice changes in the Data panel | Cancel/discard the old review and require an explicit new preview.
  *
@@ -1149,7 +1153,7 @@
  * prevents an old completion from acquiring authority over the new review.
  * Network reply cancellation and worker settlement remain separate lifecycles.
  *
- * Frozen V3 snapshots do not expose historical per-layer revisions or a source
+ * Frozen IViewEvents snapshots do not expose historical per-layer revisions or a source
  * path. Exact current content alone cannot distinguish a source replacement or
  * an A-to-B-to-A change before deferred notifications arrive. Therefore publication
  * also requires the captured source-authoritative session stateRevision. A newer
@@ -1157,9 +1161,9 @@
  * and overlay, and requires a fresh explicit preview, even if geometry has already
  * returned to the same value. Delivered irrelevant changes can preserve a review
  * through deferred reconciliation only when exact content still matches and the
- * current revision is proved by detailed V3 or unambiguous V2 observations.
+ * current revision is proved by detailed IViewEvents or unambiguous ISessionEvents observations.
  * A queued callback alone is not a shared-drain barrier: another observer can
- * enter a nested event loop before the pending detailed reason arrives. Broad V2
+ * enter a nested event loop before the pending detailed reason arrives. Broad ISessionEvents
  * Layers or Model observations therefore cannot advance the proof revision.
  * Unobserved newer revisions are never silently adopted. Coalesced broad changes
  * can conservatively leave the review awaiting detail; an action attempted while
@@ -1172,9 +1176,9 @@
  *
  * @section sdk_timeseries_layers SDK 1.6 native observation layers
  *
- * Include sdk/ITimeSeriesLayersV1.hpp and discover ITimeSeriesLayersV1 on
+ * Include sdk/ITimeSeriesLayers.hpp and discover ITimeSeriesLayers on
  * host->lifetime(). This independently versioned capability leaves IProject,
- * ExtensionHost, IPlotService and the V1–V4 event interfaces unchanged. Native
+ * ExtensionHost, IPlotService and the model, session, view and activity event interfaces unchanged. Native
  * observations are persistent GUI data, independent of the plugin and engine.
  * Creating a layer does not create model time series or assign forcing.
  *
@@ -1268,7 +1272,7 @@
  * the same stage does not need a separate console line. Do not register a
  * second manual progress scope for the same job.
  * SDK 1.5 adds unique private-job metadata and identity-based cancellation
- * through IEventSourceV4 and IActivityControlsV1; see @ref sdk_process_controls.
+ * through IActivityEvents and IActivityControls; see @ref sdk_process_controls.
  *
  * network()->shared() enforces HTTPS, rejects URL credentials, observes
  * extensions/network/offline and an optional extensions/network/allowedHosts
@@ -1285,9 +1289,9 @@
  *
  * @subsection sdk_shared_progress SDK 1.7 shared status progress
  *
- * IProgressV1 is a separately discoverable capability for work that does not
+ * IProgress is a separately discoverable capability for work that does not
  * run inside runJob(), including asynchronous QNetworkReply transfers. Query
- * `qobject_cast<IProgressV1 *>(host->lifetime())`; a consumer supporting older
+ * `qobject_cast<IProgress *>(host->lifetime())`; a consumer supporting older
  * SDKs must handle a null result. A consumer that requires this service declares
  * SDK 1.7 as its minimum and checks it during initialize(). ExtensionHost,
  * IUiHost and IConsole keep their existing vtables and interface identities.
@@ -1326,24 +1330,24 @@
  * a guarded host lifetime after a call that could release its owner.
  *
  * @code{.cpp}
- * #include <sdk/IProgressV1.hpp>
+ * #include <sdk/IProgress.hpp>
  * #include <QPointer>
  * using namespace OpenSWMM::Sdk;
  *
  * // GUI thread; context is the operation's QObject, not a worker object.
  * QPointer<QObject> lifetime(host->lifetime());
- * auto *progress = qobject_cast<IProgressV1 *>(lifetime.data());
+ * auto *progress = qobject_cast<IProgress *>(lifetime.data());
  * const QUuid id = progress ? progress->beginProgress("Retrieve observations", context)
  *                           : QUuid{};
- * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()); current && !id.isNull())
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()); current && !id.isNull())
  *     current->updateProgress(id, -1.0, "Requesting source metadata");
  *
  * // In later GUI-thread callbacks, rediscover through the guarded lifetime.
- * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()))
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()))
  *     current->updateProgress(id, 0.5, "Downloading observations");
  *
  * // Call only after validation/publication has reached its real terminal state.
- * if (auto *current = qobject_cast<IProgressV1 *>(lifetime.data()))
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()))
  *     current->finishProgress(id, ProgressOutcome::Succeeded, "Collection added");
  * @endcode
  *
@@ -1365,7 +1369,7 @@
  * Normal preflight dialogs can still require user interaction. Observe
  * runsChanged and read a fresh metadata snapshot rather than retaining
  * references into a mutable status model. SDK 1.5 consumers can use
- * startRunAttempt() and the captured V4 operation UUID for attempt-specific
+ * startRunAttempt() and the captured IActivityEvents operation UUID for attempt-specific
  * progress, outcome and cancellation; row IDs remain presentation data.
  *
  * IModelInstance::results() describes loaded 1D/2D result layers and their
@@ -1405,25 +1409,32 @@
  * navigation; the root IGuiExtension IID remains at 1.0 because its interface
  * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
  * the new services must declare a minimum SDK version of 1.1.
- * SDK 1.2 adds IEventSourceV1 and the optional consumer-local Qt signal adapter.
+ * SDK 1.2 adds IModelEvents and the optional consumer-local Qt signal adapter.
  * Plugins using these require SDK 1.2; SDK 1.0/1.1 consumers keep their existing
  * interfaces and observation names. SDK 1.3 adds separately discoverable
- * IEventSourceV2 for session identities, load generations, readiness/revision
- * snapshots and normal/sidecar/recovery save outcomes. A V2 consumer requires
- * SDK 1.3; its capabilities do not change the frozen V1 delivery contract.
- * SDK 1.4 adds IEventSourceV3, IViewControlsV1 and the consumer-local
- * ViewSignalAdapter, without changing V1/V2 or existing public vtables. View
- * clients require SDK 1.4. SDK 1.5 adds IEventSourceV4, IActivityControlsV1 and
+ * ISessionEvents for session identities, load generations, readiness/revision
+ * snapshots and normal/sidecar/recovery save outcomes. A ISessionEvents consumer requires
+ * SDK 1.3; its capabilities do not change the frozen IModelEvents delivery contract.
+ * SDK 1.4 adds IViewEvents, IViewControls and the consumer-local
+ * ViewSignalAdapter, without changing the model or session event interfaces or existing public vtables. View
+ * clients require SDK 1.4. SDK 1.5 adds IActivityEvents, IActivityControls and
  * ActivitySignalAdapter for unique process attempts and scoped UI activity,
- * without adding V4 types to frozen V1/V2/V3 header layouts. Activity clients
+ * without adding IActivityEvents types to frozen model, session and view event header layouts. Activity clients
  * require SDK 1.5. Existing SDK 1.1 Data, 1.2 event and 1.3 lifecycle consumers
  * retain their separately versioned contracts.
- * SDK 1.6 adds ITimeSeriesLayersV1 for native observation datasets; see
- * @ref sdk_timeseries_layers. SDK 1.7 adds IProgressV1 for scoped asynchronous
+ * SDK 1.6 adds ITimeSeriesLayers for native observation datasets; see
+ * @ref sdk_timeseries_layers. SDK 1.7 adds IProgress for scoped asynchronous
  * operation progress in the shared status bar; see @ref sdk_shared_progress.
  * It does not revise the frozen host, UI, console or earlier capability interfaces.
- * SDK 1.8 adds IPreviewLayersV1 for native preview-layer selection sync; see
- * @ref sdk_preview_selection. The updated Data consumer requires SDK 1.8,
+ * SDK 1.8 adds IPreviewLayers for native preview-layer selection sync; see
+ * @ref sdk_preview_selection. SDK 1.9 renames the interfaces to descriptive names
+ * without changing their IID strings, vtables or value layouts, so plugins built
+ * against earlier SDKs still load: IEventSourceV1–V4 became IModelEvents,
+ * ISessionEvents, IViewEvents and IActivityEvents, and IViewControls,
+ * IActivityControls, ITimeSeriesLayers, IProgress and IPreviewLayers dropped
+ * their V1 suffix, as did the header and IID macro names. Source using the old
+ * names must be updated. An interface's version is carried only by its IID string.
+ * The updated Data consumer requires SDK 1.9,
  * including native observation import, shared progress and preview selection.
  *
  * The current openswmm.gui.data consumer requires the newer typed capabilities;
@@ -1465,14 +1476,14 @@
  * snapshot/ready/save/close display updates and shutdown cleanup. The main GUI
  * conformance runner also exercises the native load/save paths; synthetic core
  * tests alone do not establish those controller completion barriers.
- * test_gui_extension_viewevents checks V3 filters, shared metadata watermarks,
+ * test_gui_extension_viewevents checks IViewEvents filters, shared metadata watermarks,
  * runtime attachment/source generations, stale delivery, managed subscriptions
  * and the consumer-local signal adapter. test_extensionviewevents exercises
  * real native model/layer/results signals and commands; source-open failure,
  * close/reopen and asynchronous adoption require these native acceptance cases.
  * View evidence and retained artifacts belong under
  * tests/verification/extension_events_2026-10/ev3/.
- * test_gui_extension_activityevents checks V4 filters, shared watermarks,
+ * test_gui_extension_activityevents checks IActivityEvents filters, shared watermarks,
  * immutable terminal/removal copies, bounded/coalesced metadata and the
  * consumer-local ActivitySignalAdapter. test_gui_extension_activity_jobs
  * checks same-title ownership, worker/GUI publication, queued cancellation,

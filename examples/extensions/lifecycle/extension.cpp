@@ -11,7 +11,7 @@
  * @license GPL-3.0-or-later
  */
 #include <sdk/ExtensionHost.hpp>
-#include <sdk/IEventSourceV2.hpp>
+#include <sdk/ISessionEvents.hpp>
 #include <sdk/IGuiExtension.hpp>
 #include <sdk/IProject.hpp>
 
@@ -61,7 +61,7 @@ public:
         shutdown();
         mSourceLifetime = host ? host->lifetime() : nullptr;
         mSource =
-            mSourceLifetime ? qobject_cast<IEventSourceV2 *>(mSourceLifetime.data()) : nullptr;
+            mSourceLifetime ? qobject_cast<ISessionEvents *>(mSourceLifetime.data()) : nullptr;
         if (!mSource) {
             if (error)
                 *error = tr("This example requires the lifecycle event service from SDK 1.3.");
@@ -266,7 +266,7 @@ private:
                                          : rows.join(QStringLiteral("\n\n")));
     }
 
-    IEventSourceV2 *mSource =
+    ISessionEvents *mSource =
         nullptr; ///< Borrowed capability, used only with the live source guard.
     QPointer<QObject> mSourceLifetime; ///< Borrowed host lifetime; never transferred or reparented.
     QMetaObject::Connection mStateConnection; ///< Queued lifecycle observation subscription.

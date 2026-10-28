@@ -10,7 +10,7 @@
 
 namespace OpenSWMM::Sdk
 {
-ViewSignalAdapter::ViewSignalAdapter(IEventSourceV3 *source, const ViewEventFilter &filter,
+ViewSignalAdapter::ViewSignalAdapter(IViewEvents *source, const ViewEventFilter &filter,
                                      QObject *parent)
     : QObject(parent)
 {

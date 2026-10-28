@@ -11,12 +11,12 @@
 #include <sdk/IGuiExtension.hpp>
 #include <sdk/ExtensionHost.hpp>
 #include <sdk/IProject.hpp>
-#include <sdk/IEventSourceV1.hpp>
-#include <sdk/IEventSourceV2.hpp>
-#include <sdk/IEventSourceV3.hpp>
-#include <sdk/IEventSourceV4.hpp>
-#include <sdk/IActivityControlsV1.hpp>
-#include <sdk/IViewControlsV1.hpp>
+#include <sdk/IModelEvents.hpp>
+#include <sdk/ISessionEvents.hpp>
+#include <sdk/IViewEvents.hpp>
+#include <sdk/IActivityEvents.hpp>
+#include <sdk/IActivityControls.hpp>
+#include <sdk/IViewControls.hpp>
 #include <openswmm/engine/openswmm_engine.h>
 #if __has_include(<openswmm/engine/openswmm_abi_tag.h>)
 #include <openswmm/engine/openswmm_abi_tag.h>
@@ -61,7 +61,7 @@ struct EventConformance {
     bool typedAvailable = false; ///< The real application exposes the optional typed service.
     int typedViewportNotices = 0; ///< Typed viewport observations paired with legacy callbacks.
     int discoveries = 0; ///< Legacy facade-discovery notices, used to detect impure getters.
-    IEventSourceV2 *stateSource = nullptr; ///< Borrowed optional capability owned by this host.
+    ISessionEvents *stateSource = nullptr; ///< Borrowed optional capability owned by this host.
     quint64 watermark = 0;    ///< Initial subscribe-before-snapshot cutoff; never advanced later.
     quint64 lastSequence = 0; ///< Last accepted transition, used to check global ordering.
     bool ordered = true;      ///< Every accepted transition follows the previous sequence.
@@ -72,8 +72,8 @@ struct EventConformance {
     QUuid primarySession;   ///< Open lifetime of model.inp, independent of its persistent UUID.
     QUuid survivingSession; ///< Other open lifetime in the optional duplicate-UUID fixture.
     QString recoveryPath;   ///< Final returned recovery destination for terminal-event assertions.
-    IEventSourceV3 *viewSource = nullptr; ///< Borrowed pure metadata/observation capability.
-    IViewControlsV1 *controls = nullptr;  ///< Borrowed validated view controller capability.
+    IViewEvents *viewSource = nullptr; ///< Borrowed pure metadata/observation capability.
+    IViewControls *controls = nullptr;  ///< Borrowed validated view controller capability.
     QList<ViewEvent> views;               ///< Copied detailed observations, never native objects.
     quint64 lastViewSequence = 0;         ///< Latest accepted detailed observation publication.
     bool viewOrdered = true;  ///< Detailed callbacks retain their shared publication order.
@@ -83,8 +83,8 @@ struct EventConformance {
     qint64 finalResultsIndex = -1; ///< Last requested 1D frame, expected to be published later.
     QHash<QUuid, qint64>
         publishedCursors; ///< Fresh cursor metadata observed from delivered time events.
-    IEventSourceV4 *activitySource = nullptr; ///< Borrowed authoritative retained activity source.
-    IActivityControlsV1 *activityControls = nullptr; ///< Borrowed exact-identity native controls.
+    IActivityEvents *activitySource = nullptr; ///< Borrowed authoritative retained activity source.
+    IActivityControls *activityControls = nullptr; ///< Borrowed exact-identity native controls.
     quint64 activityWatermark = 0;    ///< Initial subscribe-before-snapshot cutoff, never advanced.
     quint64 lastActivitySequence = 0; ///< Last delivered activity publication after the cutoff.
     bool activityOrdered = true;      ///< Accepted activity publications have increasing sequences.
@@ -140,9 +140,9 @@ public:
             return false;
         }
         auto events = std::make_shared<EventConformance>();
-        events->controls = qobject_cast<IViewControlsV1 *>(host->lifetime());
-        events->activityControls = qobject_cast<IActivityControlsV1 *>(host->lifetime());
-        if (auto *source = qobject_cast<IEventSourceV4 *>(host->lifetime())) {
+        events->controls = qobject_cast<IViewControls *>(host->lifetime());
+        events->activityControls = qobject_cast<IActivityControls *>(host->lifetime());
+        if (auto *source = qobject_cast<IActivityEvents *>(host->lifetime())) {
             events->activitySource = source;
             source->observeActivity(host->lifetime(), {}, [events](const ActivityEvent &event) {
                 if (event.sequence <= events->activityWatermark)
@@ -154,7 +154,7 @@ public:
             events->activityWatermark = source->activitySnapshot().sequence;
             events->lastActivitySequence = events->activityWatermark;
         }
-        if (auto *source = qobject_cast<IEventSourceV3 *>(host->lifetime())) {
+        if (auto *source = qobject_cast<IViewEvents *>(host->lifetime())) {
             events->viewSource = source;
             source->observeViews(host->lifetime(), {}, [events, source](const ViewEvent &event) {
                 if (event.sequence <= events->watermark)
@@ -169,7 +169,7 @@ public:
                                                             result.currentIndex);
             });
         }
-        if (auto *source = qobject_cast<IEventSourceV2 *>(host->lifetime())) {
+        if (auto *source = qobject_cast<ISessionEvents *>(host->lifetime())) {
             events->stateSource = source;
             source->observeState(host->lifetime(), {}, [events, source](const StateEvent &event) {
                 if (event.sequence <= events->watermark)
@@ -193,7 +193,7 @@ public:
                 events->beforeSaves.append(request);
             });
         }
-        if (auto *source = qobject_cast<IEventSourceV1 *>(host->lifetime())) {
+        if (auto *source = qobject_cast<IModelEvents *>(host->lifetime())) {
             events->typedAvailable = true;
             source->subscribe(host->lifetime(), {{EventKind::ViewportChanged}, {}},
                               [events](const Event &) { ++events->typedViewportNotices; });

@@ -31,13 +31,13 @@ using namespace openswmmvis;
 
 /** @brief Public-only copied source for extreme values unavailable through finite native runs. */
 class ValueSource final : public QObject,
-                          public IEventSourceV2,
-                          public IEventSourceV3,
-                          public IEventSourceV4
+                          public ISessionEvents,
+                          public IViewEvents,
+                          public IActivityEvents
 {
     Q_OBJECT
     Q_INTERFACES(
-        OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IEventSourceV4)
+        OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IActivityEvents)
 public:
     StateSnapshot states;      ///< Copied lifecycle metadata.
     ViewSnapshot views;        ///< Copied layer/results metadata.

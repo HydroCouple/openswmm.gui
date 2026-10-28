@@ -8,8 +8,8 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV3.hpp"
-#include "sdk/IViewControlsV1.hpp"
+#include "sdk/IViewEvents.hpp"
+#include "sdk/IViewControls.hpp"
 #include <QObject>
 #include <QPointer>
 #include <memory>

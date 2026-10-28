@@ -535,9 +535,9 @@ private slots:
         QMainWindow window;
         auto first = host("first", registry, window, settings);
         auto second = host("second", registry, window, settings);
-        QVERIFY(qobject_cast<IEventSourceV1 *>(first->lifetime()));
-        auto *one = qobject_cast<IEventSourceV2 *>(first->lifetime());
-        auto *two = qobject_cast<IEventSourceV2 *>(second->lifetime());
+        QVERIFY(qobject_cast<IModelEvents *>(first->lifetime()));
+        auto *one = qobject_cast<ISessionEvents *>(first->lifetime());
+        auto *two = qobject_cast<ISessionEvents *>(second->lifetime());
         QVERIFY(one);
         QVERIFY(two);
         QObject owner;

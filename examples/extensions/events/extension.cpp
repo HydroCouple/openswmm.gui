@@ -12,7 +12,7 @@
  * @license GPL-3.0-or-later
  */
 #include <sdk/ExtensionHost.hpp>
-#include <sdk/IEventSourceV1.hpp>
+#include <sdk/IModelEvents.hpp>
 #include <sdk/IGuiExtension.hpp>
 #include <sdk/qt/EventSignalAdapter.hpp>
 
@@ -68,7 +68,7 @@ public:
         mLastKey.clear();
         setObjectName(info().id);
         refreshStatus();
-        auto *source = host ? qobject_cast<IEventSourceV1 *>(host->lifetime()) : nullptr;
+        auto *source = host ? qobject_cast<IModelEvents *>(host->lifetime()) : nullptr;
         if (!source) {
             if (error)
                 *error = tr("This example requires the typed event service from SDK 1.2.");

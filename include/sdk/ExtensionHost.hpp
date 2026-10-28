@@ -103,12 +103,12 @@ public:
     virtual QString pluginId() const = 0;
     /** @brief Obtain a safe QObject context for actions and signal connections.
      * @return Borrowed host QObject; do not delete or reparent it.
-     * @note SDK 1.2 supports qobject_cast to IEventSourceV1; SDK 1.3 adds
-     * IEventSourceV2 for authoritative lifecycle/state snapshots.
-     * SDK 1.4 also supports IEventSourceV3 and IViewControlsV1 for typed view
+     * @note SDK 1.2 supports qobject_cast to IModelEvents; SDK 1.3 adds
+     * ISessionEvents for authoritative lifecycle/state snapshots.
+     * SDK 1.4 also supports IViewEvents and IViewControls for typed view
      * observations and validated native controller commands. Private host
      * classes and arbitrary slots remain implementation details. SDK 1.5 adds
-     * IEventSourceV4 and IActivityControlsV1 for process attempts and scoped UI activity. */
+     * IActivityEvents and IActivityControls for process attempts and scoped UI activity. */
     virtual QObject *lifetime() const = 0;
     /** @brief Enumerate open projects. @return Borrowed host-owned project facades, excluding closed instances. */
     virtual QList<IProject *> projects() const = 0;

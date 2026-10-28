@@ -1,10 +1,10 @@
 /**
- * @file IViewControlsV1.hpp
+ * @file IViewControls.hpp
  * @brief Versioned validated canvas and attached-results commands for extensions.
  * @details Discover on ExtensionHost::lifetime(). GUI-thread commands target a
  * Ready session and its runtime attachment UUID. They use native controllers,
  * return explicit refusal details and suppress no-op writes. Metadata queries
- * remain separate on IEventSourceV3. Interface layout is frozen for this IID.
+ * remain separate on IViewEvents. Interface layout is frozen for this IID.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license GPL-3.0-or-later
@@ -16,7 +16,7 @@
 #include <QUuid>
 
 /** @brief Frozen discovery identity for validated SDK view commands. */
-#define OPENSWMM_VIEW_CONTROLS_V1_IID "io.opensimulator.openswmm.IViewControls/1.0"
+#define OPENSWMM_VIEW_CONTROLS_IID "io.opensimulator.openswmm.IViewControls/1.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -57,11 +57,11 @@ struct ViewCommand {
 };
 
 /** @brief Frozen optional validated controller entry point for view changes. */
-class IViewControlsV1
+class IViewControls
 {
 public:
     /** @brief Destroy an implementation; consumers borrow the host-owned service. */
-    virtual ~IViewControlsV1() = default;
+    virtual ~IViewControls() = default;
     /** @brief Apply one validated action through the existing native route.
      * @param[in] command Copied request targeting a Ready session/current attachment.
      * @param[out] error Optional explicit refusal detail, cleared on success.
@@ -80,4 +80,4 @@ public:
                                                 int offset = 0, int limit = 500) const = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IViewControlsV1, OPENSWMM_VIEW_CONTROLS_V1_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IViewControls, OPENSWMM_VIEW_CONTROLS_IID)

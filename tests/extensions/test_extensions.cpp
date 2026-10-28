@@ -12,8 +12,8 @@
 #include "plugins/extensionpreferences.h"
 #include "plugins/extensionattributes.h"
 #include "plugins/extensionstateregistry.h"
-#include "sdk/ITimeSeriesLayersV1.hpp"
-#include "sdk/IPreviewLayersV1.hpp"
+#include "sdk/ITimeSeriesLayers.hpp"
+#include "sdk/IPreviewLayers.hpp"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include <QDir>
 #include <QDockWidget>
@@ -110,6 +110,8 @@ private slots:
         plugin.sdkApiVersion = "1.8";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
         plugin.sdkApiVersion = "1.9";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.10";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
                     .contains("sdkApiVersion"));
         auto olderHost = expected;
@@ -135,7 +137,7 @@ private slots:
         registry.finishLoad(id, generation, true);
         GuiExtensionHost service("org.openswmm.series-service", ExtensionManager::buildManifest(),
                                  &window, mdi, {}, settings.get(), nullptr, &registry);
-        auto *capability = qobject_cast<ITimeSeriesLayersV1 *>(service.lifetime());
+        auto *capability = qobject_cast<ITimeSeriesLayers *>(service.lifetime());
         QVERIFY(capability);
         int calls = 0;
         service.setTimeSeriesControls(
@@ -176,7 +178,7 @@ private slots:
         registry.finishLoad(id, registry.beginLoad(id), true);
         GuiExtensionHost service("org.openswmm.preview-service", ExtensionManager::buildManifest(),
                                  &window, mdi, {}, settings.get(), nullptr, &registry);
-        auto *capability = qobject_cast<IPreviewLayersV1 *>(service.lifetime());
+        auto *capability = qobject_cast<IPreviewLayers *>(service.lifetime());
         QVERIFY(capability);
         QList<qint64> fids{99};
         QVERIFY(capability->previewLayer(id, &fids).isNull());

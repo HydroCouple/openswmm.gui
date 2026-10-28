@@ -100,7 +100,7 @@ private slots:
     void capabilityAndFiniteProgress()
     {
         auto owner = host("test.progress", bridge());
-        auto *service = qobject_cast<IProgressV1 *>(owner->lifetime());
+        auto *service = qobject_cast<IProgress *>(owner->lifetime());
         QVERIFY(service);
         QObject context;
         QVERIFY(service->beginProgress({}, &context).isNull());
