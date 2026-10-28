@@ -82,6 +82,12 @@ existing Comparison plot tab without requiring simulation results. When a
 station has several series, choose the desired measurement/statistic. The plot
 panel's **Add from Map…** also recognizes stations and associated features.
 
+Use **Zoom to location** in the series browser or a series context menu to frame
+its monitoring point. A series without its own location can use a resolved
+feature link; an unresolved or nonspatial series has no location zoom. **Zoom to
+selected** also frames selected GIS and time-series features, including a single
+station in a different coordinate system from the map.
+
 To associate data with another feature, select exactly one persistent feature,
 then use **Attach to selected feature…** for the selected series. **Detach from
 feature** removes the relationship only. Temporary preview features are not

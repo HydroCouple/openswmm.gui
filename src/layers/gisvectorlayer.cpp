@@ -28,12 +28,16 @@
 #include "render/labelpainter.h"
 
 #include <QGraphicsScene>
+#include <QCache>
+#include <QGlobalStatic>
+#include <QImage>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QPaintEngine>
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QScopeGuard>
@@ -178,9 +182,23 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
     return out;
 }
 
-/** @brief A plain-text GIS annotation with pixel-sized font, halo and placement.
+/** @brief One lazily rasterized immutable label and the painter state baked into it. */
+struct GisLabelRaster {
+    QImage image;  ///< Premultiplied raster at the current device pixel ratio.
+    QPointF origin; ///< Local logical-pixel position of the raster's top-left corner.
+    qreal opacity; ///< Effective source opacity already included in every label paint stage.
+};
+/** @brief GUI-thread label cache, bounded independently of application pixmap preferences.
+ * @details Cost includes image bytes and a conservative per-entry allowance. Entries are
+ * created only for painted visible labels and removed when their owning item is destroyed. */
+using GisLabelRasterCache = QCache<quintptr, GisLabelRaster>;
+Q_GLOBAL_STATIC_WITH_ARGS(GisLabelRasterCache, gisLabelRasters, (64 * 1024 * 1024))
+
+/** @brief A static GIS annotation with cached glyphs and bounded lazy pixel rasters.
  * @details The scene owns this noninteractive item alongside its feature marker.
- * Geometry has already been projected; no OGR access occurs while painting. */
+ * Geometry, text shaping and font metrics are resolved once during population;
+ * raster repaint reuses a visible label's image within a shared 64 MiB LRU budget.
+ * Vector output and unusually large labels retain the shared glyph painter. */
 class GisFeatureLabelItem final : public QGraphicsItem
 {
 public:
@@ -192,7 +210,7 @@ public:
      * @param[in] config Complete owning label style. */
     GisFeatureLabelItem(GISVectorLayer *owner, MapCanvas *canvas, const QPointF &anchor,
                        QString text, const OpenSWMM::Render::LabelConfig &config)
-        : mOwner(owner), mCanvas(canvas), mText(std::move(text)), mConfig(config)
+        : mOwner(owner), mCanvas(canvas), mConfig(config)
     {
         setPos(anchor);
         setFlag(ItemIgnoresTransformations);
@@ -200,20 +218,27 @@ public:
         const QFont font = config.effectiveFont();
         const QFontMetricsF metrics(font);
         const auto textRect = OpenSWMM::Render::LabelPainter::labelRect(
-            config, {}, {metrics.horizontalAdvance(mText), metrics.height()});
-        QPainterPath glyphs;
-        glyphs.addText({0., metrics.ascent()}, font, mText);
-        mBounds = textRect.united(glyphs.boundingRect().translated(textRect.topLeft()));
+            config, {}, {metrics.horizontalAdvance(text), metrics.height()});
+        mGlyphs.addText({textRect.x(), textRect.y() + metrics.ascent()}, font, text);
+        mBounds = textRect.united(mGlyphs.boundingRect());
         const qreal halo = config.haloEnabled ? std::max(qreal(1.), config.haloRadiusPx) : 0.;
         const qreal background = config.backgroundEnabled
                                      ? std::max(qreal(0.), config.backgroundPaddingPx)
                                      : 0.;
         const qreal padding = std::max(halo, background) + 1.;
+        mRasterBounds = mGlyphs.boundingRect().adjusted(-padding, -padding, padding, padding);
         mBounds.adjust(-padding, -padding, padding, padding);
         // Cosmetic-item scene indexing must retain the map anchor as well as
         // the pixel-sized text offset. An offset-only box can lie degrees
         // outside a geographic viewport before the device transform is applied.
         mBounds = mBounds.united(QRectF(0., 0., 1e-6, 1e-6));
+    }
+
+    /** @brief Retire this item's sole cached DPR/opacity variant before its identity is reused. */
+    ~GisFeatureLabelItem() override
+    {
+        if (gisLabelRasters.exists())
+            gisLabelRasters->remove(reinterpret_cast<quintptr>(this));
     }
 
     /** @brief Include anchor, glyph bearings, halo, background and antialiasing in scene culling.
@@ -229,19 +254,88 @@ public:
     {
         Q_UNUSED(UnusedOption);
         Q_UNUSED(UnusedWidget);
-        if (!mOwner || !mOwner->isVisible() || !mOwner->labelConfig().enabled ||
+        if (!mOwner || !mOwner->isVisible() || !mOwner->labelConfig().enabled)
+            return;
+        // Cosmetic scene items can be offered to the painter outside a geographic
+        // viewport. Reject them in device coordinates before any label drawing.
+        const QRectF deviceRect(0., 0., painter->device()->width(), painter->device()->height());
+        if (!painter->deviceTransform().mapRect(mBounds).intersects(deviceRect))
+            return;
+        // Most labels have no scale limits. Avoid querying screen DPI and map
+        // units once per feature when the visibility decision is unconditional.
+        if ((mConfig.minScale > 0. || mConfig.maxScale > 0.) &&
             !OpenSWMM::Render::LabelPainter::scaleVisible(
                 mConfig, mCanvas ? mCanvas->scaleDenominator() : 0.))
             return;
-        OpenSWMM::Render::LabelPainter::drawLabelAt(*painter, {}, mText, mConfig);
+        if (const auto *raster = cachedRaster(*painter)) {
+            // The cached stages already include effective opacity. Applying it
+            // again would fade halo/background intersections differently.
+            const QImage image = raster->image;
+            const QPointF origin = raster->origin;
+            painter->save();
+            painter->setOpacity(1.);
+            painter->drawImage(origin, image);
+            painter->restore();
+        } else {
+            OpenSWMM::Render::LabelPainter::drawGlyphPath(*painter, mGlyphs, mConfig);
+        }
     }
 
 private:
+    /** @brief Borrow or lazily create one cache entry for ordinary screen-raster painting.
+     * @param[in] painter Active item painter; no font/layout work is repeated here.
+     * @return LRU-owned raster for translation-only raster/source-over painting, or null
+     * for vector/rotated/scaled/custom-composition output, empty glyphs or oversized images.
+     * @note GUI thread only. A DPR or effective-opacity change replaces this item's entry.
+     * Each image is at most 1 MiB and 4096 pixels per side; larger labels remain vector.
+     * The returned value is used immediately and must not survive another cache mutation. */
+    const GisLabelRaster *cachedRaster(const QPainter &painter) const
+    {
+        if (!painter.paintEngine() || painter.paintEngine()->type() != QPaintEngine::Raster ||
+            painter.compositionMode() != QPainter::CompositionMode_SourceOver ||
+            painter.combinedTransform().type() > QTransform::TxTranslate || mGlyphs.isEmpty())
+            return nullptr;
+        const qreal ratio = painter.device()->devicePixelRatioF();
+        const qreal opacity = painter.opacity();
+        if (!std::isfinite(ratio) || ratio <= 0. || !std::isfinite(opacity))
+            return nullptr;
+        auto &cache = *gisLabelRasters;
+        const auto key = reinterpret_cast<quintptr>(this);
+        if (auto *raster = cache.object(key)) {
+            if (qFuzzyCompare(raster->image.devicePixelRatioF(), ratio) &&
+                qFuzzyCompare(raster->opacity, opacity))
+                return raster;
+            cache.remove(key);
+        }
+        const QPointF origin(std::floor(mRasterBounds.left() * ratio) / ratio,
+                              std::floor(mRasterBounds.top() * ratio) / ratio);
+        const qreal width = std::ceil(mRasterBounds.right() * ratio) - origin.x() * ratio;
+        const qreal height = std::ceil(mRasterBounds.bottom() * ratio) - origin.y() * ratio;
+        if (!std::isfinite(width) || !std::isfinite(height) || width <= 0. || height <= 0. ||
+            width > 4096. || height > 4096. || width * height * 4. > 1024. * 1024.)
+            return nullptr;
+        QImage image(qRound(width), qRound(height), QImage::Format_ARGB32_Premultiplied);
+        if (image.isNull())
+            return nullptr;
+        image.setDevicePixelRatio(ratio);
+        image.fill(Qt::transparent);
+        {
+            QPainter rasterPainter(&image);
+            rasterPainter.setOpacity(opacity);
+            rasterPainter.translate(-origin);
+            OpenSWMM::Render::LabelPainter::drawGlyphPath(rasterPainter, mGlyphs, mConfig);
+        }
+        const int cost = int(image.sizeInBytes() + sizeof(GisLabelRaster) + 128);
+        if (!cache.insert(key, new GisLabelRaster{std::move(image), origin, opacity}, cost))
+            return nullptr;
+        return cache.object(key);
+    }
     QPointer<GISVectorLayer> mOwner; ///< Guarded source lifetime and layer visibility.
     QPointer<MapCanvas> mCanvas;    ///< Guarded canvas for scale-denominator visibility.
-    QString mText;                 ///< Owning resolved label, independent of the OGR cursor.
+    QPainterPath mGlyphs;           ///< Immutable prepared glyphs; never reshaped during repaint.
     OpenSWMM::Render::LabelConfig mConfig; ///< Owning style snapshot rebuilt on label changes.
     QRectF mBounds; ///< Conservative logical-pixel paint/index envelope including the anchor.
+    QRectF mRasterBounds; ///< Actual paint bounds without the scene-index anchor envelope.
 };
 
 /** @brief Resolve a configured OGR field or token into the normal numeric/text label convention.
@@ -333,6 +427,16 @@ GISVectorLayer::GISVectorLayer(const QString &filePath, const QString &layerName
     connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleChanged, this, [this](int) {
         syncSymbolFromRenderer();
         emit rendererChanged();
+    });
+
+    // A checkbox edit must affect existing scene items immediately, including
+    // direct scene renders and the interval before the canvas's debounced refresh.
+    connect(this, &OpenSWMMVisLayer::visibilityChanged, this, [this](bool visible) {
+        if (visible && m_sceneItems.isEmpty())
+            m_needsRebuild = true;
+        for (auto *item : std::as_const(m_sceneItems))
+            if (item)
+                item->setVisible(visible);
     });
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
@@ -1374,8 +1478,10 @@ void GISVectorLayer::refreshScene(QGraphicsScene *scene, const MapExtent &canvas
         // reflect. Re-apply the current opacity to the cached items in
         // place; cheap and avoids a full re-read of the OGR source.
         for (auto *item : std::as_const(m_sceneItems))
-            if (item)
+            if (item) {
                 item->setOpacity(opacity());
+                item->setVisible(isVisible());
+            }
         return;
     }
 

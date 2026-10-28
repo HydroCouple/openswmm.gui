@@ -847,8 +847,8 @@ private:
     /**
      * @param[in] layer Optional borrowed target, current canvas required; must outlive deferred GIS
      *   open callback.
-     * @note Use canvas-projected layer extent: valid fits exactly; finite ordered nonnull
-     *   degenerate extent padded 5% largest span each side, or 25 canvas units for point.
+     * @note Use canvas-projected layer extent with ordinary navigation margins and CRS-aware
+     * point/line padding. Observation collections resolve owned stations or current feature links.
      *   Null/invalid GIS vector extent connects SingleShot openFinished retry on success, repeated
      *   calls can add retries. Callback uses CURRENT panel canvas, not original canvas, so host
      *   must coordinate project switches. No selection/layer edit; canvas setExtent manages

@@ -29,12 +29,16 @@
 #include "ui/panels/layertreecategories.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/timeserieslayerbrowser.h"
+#include "ui/panels/attributetablepanel.h"
+#include <QAction>
 #include <QComboBox>
 #include <QFile>
 #include <QJsonDocument>
 #include <QPushButton>
 #include <QQmlEngine>
 #include <QTableView>
+#include <QTreeView>
+#include <QSortFilterProxyModel>
 #include <QTimeZone>
 #include <QMainWindow>
 #include <QMdiArea>
@@ -42,6 +46,7 @@
 #include <openswmm/engine/openswmm_tables.h>
 #include <QtTest>
 #include <ogrsf_frmts.h>
+#include <cmath>
 
 using namespace OpenSWMM::TimeSeries;
 /** @brief Real retained source fixtures; no network or temporary directory dependencies. */
@@ -162,6 +167,126 @@ private slots:
         QVERIFY(other.seriesIdForRef(layer.seriesRef(m_primary)).isEmpty());
         QCOMPARE(layer.seriesRef(m_primary).objectType, SWMMObjectRef::ObservedSeries);
         QVERIFY(layer.seriesRef(m_primary).objectType != SWMMObjectRef::TimeSeries);
+    }
+    /** @brief Single station bounds transform before padding; all native zoom routes use it. */
+    void pointLocationsZoomInCanvasCrs()
+    {
+        MapCanvas canvas;
+        canvas.resize(800, 600);
+        QVERIFY(canvas.setCanvasSRSByCode("EPSG", 3857));
+        auto *layer = new TimeSeriesLayer;
+        layer->setParent(&canvas);
+        QVERIFY(layer->openTimeSeries(m_package));
+        canvas.addLayer(layer, false);
+        const QPointF station(-8571600.791082066, 4721671.572580108);
+        const auto projected = canvas.layerExtentInCanvasCRS(layer);
+        QVERIFY(qAbs(projected.centerX() - station.x()) < 1.);
+        QVERIFY(qAbs(projected.centerY() - station.y()) < 1.);
+        QCOMPARE(projected.width(), 0.);
+        QCOMPARE(projected.height(), 0.);
+        layer->setSelectedSeriesIds({m_primary});
+        canvas.setExtent(MapExtent(0, 0, 1000, 1000), false);
+        QVERIFY(canvas.zoomToSelection());
+        QVERIFY(canvas.extent().contains(station.x(), station.y()));
+        QVERIFY(canvas.extent().width() < 1000.);
+        QVERIFY(canvas.extent().height() < 1000.);
+        QVERIFY(canvas.extent().width() >= 200.);
+        QVERIFY(layer->canZoomToLocations({m_primary}));
+        QVERIFY(!layer->canZoomToLocations({m_unlocated}));
+        const auto before = canvas.extent();
+        QVERIFY(!layer->zoomToLocations({m_unlocated}));
+        QCOMPARE(canvas.extent(), before);
+
+        auto *browser = new TimeSeriesLayerBrowser(layer);
+        auto *zoom = browser->findChild<QAction *>("timeSeriesZoomToLocation");
+        QVERIFY(zoom);
+        QVERIFY(zoom->isEnabled());
+        canvas.setExtent(MapExtent(0, 0, 1000, 1000), false);
+        zoom->trigger();
+        QVERIFY(canvas.extent().contains(station.x(), station.y()));
+        layer->setSelectedSeriesIds({m_unlocated});
+        QVERIFY(!zoom->isEnabled());
+        browser->close();
+
+        LayerTreePanel panel(&canvas);
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(tree->model());
+        QVERIFY(proxy);
+        tree->setCurrentIndex(proxy->mapFromSource(panel.model()->indexForLayer(layer)));
+        canvas.setExtent(MapExtent(0, 0, 1000, 1000), false);
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onZoomToSelectedLayer", Qt::DirectConnection));
+        QVERIFY(canvas.extent().contains(station.x(), station.y()));
+
+        // A failed source-to-canvas transform must not be mistaken for either
+        // a legitimate origin station or already-projected raw lon/lat bounds.
+        const auto invalid = canvas.extentInCanvasCRS(layer, MapExtent(-77, 1000, -77, 1000));
+        QVERIFY(!std::isfinite(invalid.xMin()));
+        const auto unchanged = canvas.extent();
+        QVERIFY(!canvas.zoomToExtent(invalid));
+        QCOMPARE(canvas.extent(), unchanged);
+    }
+    /** @brief GIS attribute-table Zoom uses selected FIDs, including native station-table sources. */
+    void stationAttributeTableZoomUsesFids()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        auto *canvas = window.canvas();
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 3857));
+        auto *stations = new GISVectorLayer(m_package, "ts_locations");
+        stations->setParent(&window);
+        QVERIFY(stations->ogrLayer());
+        canvas->addLayer(stations, false);
+        AttributeTablePanel panel;
+        panel.setProject(window.modelLayer(), window.selectionManager(), canvas);
+        panel.showLayerSource(stations);
+        auto *table = panel.findChild<QTableView *>();
+        QVERIFY(table);
+        QCOMPARE(table->model()->rowCount(), 1);
+        table->selectRow(0);
+        QVERIFY(!window.selectionManager()->isEmpty());
+        canvas->setExtent(MapExtent(0, 0, 1000, 1000), false);
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onZoomToSelectedClicked", Qt::DirectConnection));
+        QVERIFY(canvas->extent().contains(-8571600.791082066, 4721671.572580108));
+        QVERIFY(canvas->extent().width() < 1000.);
+    }
+    /** @brief A real station at zero degrees remains zoomable; an unlocated series is inert. */
+    void originPointIsNotAnEmptyDataset()
+    {
+        QFile source(m_dir + "/import.json");
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        auto descriptor = QJsonDocument::fromJson(source.readAll()).object();
+        descriptor["datasetId"] = "cb9b65db-97c4-4487-b189-40ccfb98acda";
+        auto locations = descriptor["locations"].toArray();
+        auto location = locations[0].toObject();
+        location["geometry"] = QJsonObject{{"type", "Point"}, {"coordinates", QJsonArray{0., 0.}}};
+        locations[0] = location;
+        descriptor["locations"] = locations;
+        const auto input = m_dir + "/origin-import.json", package = m_dir + "/origin.gpkg";
+        QVERIFY(write(input, QJsonDocument(descriptor).toJson()));
+        QFile::remove(package);
+        QString error;
+        QVERIFY2(TimeSeriesStore::importDescriptor(input, package, &error), qPrintable(error));
+        MapCanvas canvas;
+        QVERIFY(canvas.setCanvasSRSByCode("EPSG", 3857));
+        auto *layer = new TimeSeriesLayer;
+        layer->setParent(&canvas);
+        QVERIFY(layer->openTimeSeries(package));
+        canvas.addLayer(layer, false);
+        QString located;
+        for (const auto &id : layer->seriesIds())
+            if (!layer->seriesInfo(id).locationId.isEmpty()) {
+                located = id;
+                break;
+            }
+        QVERIFY(!located.isEmpty());
+        QVERIFY(layer->canZoomToLocations({located}));
+        QVERIFY(layer->zoomToLocations({located}));
+        QVERIFY(canvas.extent().contains(0, 0));
+        QVERIFY(canvas.extent().width() > 0.);
+        QVERIFY(canvas.extent().width() < 1000.);
     }
     /** @brief Metadata children are lazy and carry stable IDs instead of observation row positions. */
     void lazyTreeAndCategoryMigration()
@@ -284,7 +409,7 @@ private slots:
         const auto path = m_dir + "/linked-feature.geojson";
         QVERIFY(write(
             path,
-            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":"permanent-site"},"geometry":{"type":"Point","coordinates":[-77,39]}}]})"));
+            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":"permanent-site"},"geometry":{"type":"Point","coordinates":[-76,38]}}]})"));
         auto *feature = new GISVectorLayer(path);
         feature->setParent(&window);
         QVERIFY(feature->ogrLayer());
@@ -308,8 +433,21 @@ private slots:
         QCOMPARE(layer->associationStatus(m_primary), QString("Not linked"));
         window.canvas()->undoStack()->redo();
         QCOMPARE(layer->associationStatus(m_primary), QString("Linked"));
+        QVERIFY(window.canvas()->setCanvasSRSByCode("EPSG", 4326));
+        QVERIFY(layer->zoomToLocations({m_primary}));
+        QVERIFY(qAbs(window.canvas()->extent().centerX() + 77.) < 1e-8);
+        QVERIFY(qAbs(window.canvas()->extent().centerY() - 39.) < 1e-8);
+        // An assigned feature at another coordinate does not move the source station.
+        window.selectionManager()->select(ref);
+        QVERIFY2(layer->attachToSelectedFeature({m_unlocated}, &error), qPrintable(error));
+        QVERIFY(layer->zoomToLocations({m_unlocated}));
+        QVERIFY(qAbs(window.canvas()->extent().centerX() + 76.) < 1e-8);
+        QVERIFY(qAbs(window.canvas()->extent().centerY() - 38.) < 1e-8);
+        QVERIFY(window.canvas()->extent().width() < .01);
         window.canvas()->takeLayer(window.canvas()->layers().indexOf(feature), false);
         QCOMPARE(layer->associationStatus(m_primary), QString("Unresolved link"));
+        QVERIFY(layer->canZoomToLocations({m_primary}));
+        QVERIFY(!layer->canZoomToLocations({m_unlocated}));
         QVERIFY(layer->dataset());
         window.canvas()->setCanvasSRSByCode("EPSG", 4326);
         const auto hits = timeSeriesHitsAt(window.canvas(), -77, 39, 0.01);

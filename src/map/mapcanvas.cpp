@@ -45,6 +45,7 @@
 
 #include <QElapsedTimer>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <QQmlError>
 #include <QQmlComponent>
@@ -78,6 +79,7 @@
 #include <chrono>
 
 #include <ogr_spatialref.h> // OGRCoordinateTransformation for fullExtent
+#include <ogrsf_frmts.h>
 
 // The map uses the GUI render loop. Images are implicitly shared and
 // uploaded only when their content changes; viewport transforms move the
@@ -985,6 +987,73 @@ void MapCanvas::zoomToFullExtent(bool pushUndo)
     setExtent(fe, pushUndo);
 }
 
+bool MapCanvas::zoomToExtent(const MapExtent &bounds)
+{
+    if (!std::isfinite(bounds.xMin()) || !std::isfinite(bounds.yMin()) ||
+        !std::isfinite(bounds.xMax()) || !std::isfinite(bounds.yMax()) ||
+        bounds.xMin() > bounds.xMax() || bounds.yMin() > bounds.yMax())
+        return false;
+    double pointX = 100., pointY = 100.;
+    if (m_canvasSRS && m_canvasSRS->isGeographic()) {
+        const auto *reference = m_canvasSRS->ogrSpatialReference();
+        const double radians = reference ? reference->GetAngularUnits() : 0.;
+        if (std::isfinite(radians) && radians > 0.) {
+            pointY = 100. / (6378137. * radians);
+            pointX = pointY / std::max(.01, std::abs(std::cos(bounds.centerY() * radians)));
+        }
+    } else if (m_canvasSRS) {
+        const double metres = m_canvasSRS->linearUnitsToMetres();
+        if (std::isfinite(metres) && metres > 0.)
+            pointX = pointY = 100. / metres;
+    }
+    const double padX = bounds.width() > 0. ? bounds.width() * .1 : pointX;
+    const double padY = bounds.height() > 0. ? bounds.height() * .1 : pointY;
+    const MapExtent framed(bounds.xMin() - padX, bounds.yMin() - padY,
+                           bounds.xMax() + padX, bounds.yMax() + padY);
+    if (!framed.isValid())
+        return false;
+    setExtent(framed);
+    return true;
+}
+
+bool MapCanvas::zoomToSelection(const OpenSWMMVisLayer *onlyLayer)
+{
+    MapExtent bounds;
+    bool any = false;
+    const auto include = [&](OpenSWMMVisLayer *source, const MapExtent &native) {
+        const auto extent = extentInCanvasCRS(source, native);
+        if (!std::isfinite(extent.xMin()) || !std::isfinite(extent.yMin()) ||
+            !std::isfinite(extent.xMax()) || !std::isfinite(extent.yMax()) ||
+            extent.xMin() > extent.xMax() || extent.yMin() > extent.yMax())
+            return;
+        bounds = any ? bounds.united(extent) : extent;
+        any = true;
+    };
+    for (auto *layer : std::as_const(m_layers)) {
+        if (!layer || (onlyLayer ? layer != onlyLayer : !layer->isVisible()))
+            continue;
+        if (auto *vector = qobject_cast<GISVectorLayer *>(layer)) {
+            auto *source = vector->ogrLayer();
+            if (!source)
+                continue;
+            for (auto fid : vector->selectedFeatureIds()) {
+                auto *feature = source->GetFeature(fid);
+                if (feature && feature->GetGeometryRef() && !feature->GetGeometryRef()->IsEmpty()) {
+                    OGREnvelope envelope;
+                    feature->GetGeometryRef()->getEnvelope(&envelope);
+                    include(vector, MapExtent(envelope.MinX, envelope.MinY,
+                                              envelope.MaxX, envelope.MaxY));
+                }
+                OGRFeature::DestroyFeature(feature);
+            }
+        } else if (auto *model = qobject_cast<SWMMModelLayer *>(layer)) {
+            for (const auto &name : model->selectedElementNames())
+                include(model, model->objectExtent(name));
+        }
+    }
+    return any && zoomToExtent(bounds);
+}
+
 void MapCanvas::zoomIn(double factor)
 {
     setExtent(m_extent.scaled(1.0 / factor));
@@ -1507,42 +1576,47 @@ OpenSWMMVisLayer *MapCanvas::layerAt(int index) const
     return (index >= 0 && index < m_layers.count()) ? m_layers.at(index) : nullptr;
 }
 
-// Helper: transform a layer's native-CRS extent into canvas-CRS by
-// reprojecting its four corners. Falls back to the untransformed
-// extent when the layer's CRS matches the canvas's (identity) or
-// when no canvas SRS has been set yet.
 /**
- * @param[in] layer Required borrowed live layer, no null guard.
+ * @brief Reproject finite ordered bounds without rejecting a point or line.
+ * @param[in] layer Optional borrowed source whose CRS defines the coordinates.
  * @param[in] canvasSRS Optional borrowed canvas CRS.
- * @return Layer extent transformed at four corners; returns raw native bounds for invalid extent,
- *   missing/equal CRS or transform construction failure. Does not inspect Transform return or
- *   finite output, so point failures are not reported. Temporary OGR transform destroyed, no layer
- *   mutation.
+ * @param[in] nativeExtent Explicit Y-up source bounds.
+ * @return Raw bounds for unavailable/equal CRS or malformed input; nonfinite bounds for a
+ * failed transformation. Successful four-corner bounds may remain degenerate until framed.
  */
-static MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer,
-                                        const SpatialReferenceSystem *canvasSRS)
+static MapExtent transformExtent(const OpenSWMMVisLayer *layer,
+                                 const SpatialReferenceSystem *canvasSRS,
+                                 const MapExtent &nativeExtent)
 {
-    const MapExtent le = layer->extent();
-    if (!le.isValid())
-        return le;
+    if (!layer || !std::isfinite(nativeExtent.xMin()) || !std::isfinite(nativeExtent.yMin()) ||
+        !std::isfinite(nativeExtent.xMax()) || !std::isfinite(nativeExtent.yMax()) ||
+        nativeExtent.xMin() > nativeExtent.xMax() || nativeExtent.yMin() > nativeExtent.yMax())
+        return nativeExtent;
     auto *lsrs = layer->srs();
     if (!lsrs || !canvasSRS || !lsrs->ogrSpatialReference() || !canvasSRS->ogrSpatialReference())
-        return le;
+        return nativeExtent;
     if (lsrs->ogrSpatialReference()->IsSame(canvasSRS->ogrSpatialReference()))
-        return le;
+        return nativeExtent;
 
+    const double missing = std::numeric_limits<double>::quiet_NaN();
     auto *xform = OGRCreateCoordinateTransformation(lsrs->ogrSpatialReference(),
                                                     canvasSRS->ogrSpatialReference());
     if (!xform)
-        return le;
+        return MapExtent(missing, missing, missing, missing);
 
-    double xs[4] = {le.xMin(), le.xMax(), le.xMax(), le.xMin()};
-    double ys[4] = {le.yMin(), le.yMin(), le.yMax(), le.yMax()};
-    xform->Transform(4, xs, ys);
+    double xs[4] = {nativeExtent.xMin(), nativeExtent.xMax(), nativeExtent.xMax(),
+                    nativeExtent.xMin()};
+    double ys[4] = {nativeExtent.yMin(), nativeExtent.yMin(), nativeExtent.yMax(),
+                    nativeExtent.yMax()};
+    const bool transformed = xform->Transform(4, xs, ys);
     OGRCoordinateTransformation::DestroyCT(xform);
+    if (!transformed)
+        return MapExtent(missing, missing, missing, missing);
 
     double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
-    for (int i = 1; i < 4; ++i) {
+    for (int i = 0; i < 4; ++i) {
+        if (!std::isfinite(xs[i]) || !std::isfinite(ys[i]))
+            return MapExtent(missing, missing, missing, missing);
         x0 = std::min(x0, xs[i]);
         x1 = std::max(x1, xs[i]);
         y0 = std::min(y0, ys[i]);
@@ -1554,35 +1628,7 @@ static MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer,
 MapExtent MapCanvas::extentInCanvasCRS(const OpenSWMMVisLayer *layer,
                                        const MapExtent &nativeExtent) const
 {
-    if (!layer || !nativeExtent.isValid())
-        return nativeExtent;
-    auto *lsrs = layer->srs();
-    if (!lsrs || !m_canvasSRS || !lsrs->ogrSpatialReference() ||
-        !m_canvasSRS->ogrSpatialReference())
-        return nativeExtent;
-    if (lsrs->ogrSpatialReference()->IsSame(m_canvasSRS->ogrSpatialReference()))
-        return nativeExtent;
-
-    auto *xform = OGRCreateCoordinateTransformation(lsrs->ogrSpatialReference(),
-                                                    m_canvasSRS->ogrSpatialReference());
-    if (!xform)
-        return nativeExtent;
-
-    double xs[4] = {nativeExtent.xMin(), nativeExtent.xMax(), nativeExtent.xMax(),
-                    nativeExtent.xMin()};
-    double ys[4] = {nativeExtent.yMin(), nativeExtent.yMin(), nativeExtent.yMax(),
-                    nativeExtent.yMax()};
-    xform->Transform(4, xs, ys);
-    OGRCoordinateTransformation::DestroyCT(xform);
-
-    double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
-    for (int i = 1; i < 4; ++i) {
-        x0 = std::min(x0, xs[i]);
-        x1 = std::max(x1, xs[i]);
-        y0 = std::min(y0, ys[i]);
-        y1 = std::max(y1, ys[i]);
-    }
-    return MapExtent(x0, y0, x1, y1);
+    return transformExtent(layer, m_canvasSRS, nativeExtent);
 }
 
 MapExtent MapCanvas::layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer) const

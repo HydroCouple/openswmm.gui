@@ -1874,22 +1874,27 @@ void LayerTreePanel::zoomToLayer(OpenSWMMVisLayer *layer)
     if (!m_canvas || !layer)
         return;
 
+    if (auto *collection = qobject_cast<TimeSeriesLayer *>(layer)) {
+        collection->zoomToLocations(collection->seriesIds());
+        return;
+    }
+
     const MapExtent ext = m_canvas->layerExtentInCanvasCRS(layer);
     if (ext.isValid()) {
-        m_canvas->setExtent(ext);
+        m_canvas->zoomToExtent(ext);
         return;
     }
 
     // Degenerate-but-real extent (single point, or a purely vertical /
     // horizontal feature set → zero width or height): pad it so the zoom
     // still lands on the data instead of silently doing nothing.
-    if (!ext.isNull() && std::isfinite(ext.xMin()) && std::isfinite(ext.yMin()) &&
+    const auto *vector = qobject_cast<GISVectorLayer *>(layer);
+    const bool originPoint = ext.isNull() && vector && vector->ogrLayer() &&
+                             vector->featureCount() > 0;
+    if ((!ext.isNull() || originPoint) && std::isfinite(ext.xMin()) && std::isfinite(ext.yMin()) &&
         std::isfinite(ext.xMax()) && std::isfinite(ext.yMax()) && ext.xMin() <= ext.xMax() &&
         ext.yMin() <= ext.yMax()) {
-        const double span = std::max(ext.width(), ext.height());
-        const double buf = (span > 0.0) ? span * 0.05 : 25.0;
-        m_canvas->setExtent(
-            MapExtent(ext.xMin() - buf, ext.yMin() - buf, ext.xMax() + buf, ext.yMax() + buf));
+        m_canvas->zoomToExtent(ext);
         return;
     }
 
@@ -1899,7 +1904,7 @@ void LayerTreePanel::zoomToLayer(OpenSWMMVisLayer *layer)
         connect(
             gis, &GISVectorLayer::openFinished, this,
             [this, gis](bool ok) {
-                if (ok)
+                if (ok && m_canvas && m_canvas->layers().contains(gis))
                     zoomToLayer(gis);
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
@@ -2110,6 +2115,10 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         auto *use = menu.addAction(tr("Use in model…"));
         use->setEnabled(ids.size() == 1 && collection->seriesInfo(ids.first()).validCount > 0);
         plot->setEnabled(bool(collection->dataset())); data->setEnabled(bool(collection->dataset()));
+        const auto zoomIds = ids.isEmpty() ? collection->seriesIds() : ids;
+        auto *zoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+                                    tr("Zoom to location"));
+        zoom->setEnabled(collection->canZoomToLocations(zoomIds));
         menu.addSeparator();
         auto *attach = menu.addAction(tr("Attach to selected feature…")); attach->setEnabled(!ids.isEmpty());
         auto *detach = menu.addAction(tr("Detach from feature")); detach->setEnabled(!ids.isEmpty());
@@ -2120,6 +2129,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         auto *chosen = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!owner || !guard || !chosen || !m_canvas || !m_canvas->layers().contains(guard)) return;
         if (chosen == plot) guard->requestPlot(ids, this);
+        else if (chosen == zoom) guard->zoomToLocations(zoomIds);
         else if (chosen == data) guard->showData(this, id);
         else if (chosen == use) emit guard->useInModelRequested(ids.first());
         else if (chosen == attach) { QString error; if (!guard->attachToSelectedFeature(ids, &error)) QMessageBox::information(this, tr("Attach time series"), error); }

@@ -32,6 +32,7 @@
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "selection/selectionmanager.h"
+#include "render/labelpainter.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/attributetablepanel.h"
 #include <openswmm/engine/openswmm_engine.h>
@@ -39,6 +40,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QEvent>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QGraphicsEllipseItem>
@@ -48,6 +50,9 @@
 #include <QJsonDocument>
 #include <QImage>
 #include <QPainter>
+#include <QPainterPath>
+#include <QFontMetricsF>
+#include <QPdfWriter>
 #include <QMainWindow>
 #include <QMdiArea>
 #include <QPointer>
@@ -589,6 +594,297 @@ private slots:
         QVERIFY(!nativePreview(fixture));
         QCOMPARE(project->layers().size(), layerCount);
         QCOMPARE(fixture.window->hasChanges(), wasDirty);
+    }
+
+    /** @brief Hidden preview geometry stays hidden during direct rendering, style refresh and catalogue replacement. */
+    void nativeFeaturePreviewVisibilitySurvivesRefreshAndReplacement()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *canvas = fixture.window->canvas();
+        canvas->resize(320, 240);
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 4326));
+        canvas->setExtent(MapExtent(-76.02, 39.985, -75.98, 40.015), false);
+        auto collection = nativePreviewCollection();
+        auto *project = fixture.instance()->project();
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QPointer<GISVectorLayer> layer(nativePreview(fixture));
+        QVERIFY(layer);
+        const auto render = [&](const QString &name) {
+            QImage image(320, 240, QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::transparent);
+            QPainter painter(&image);
+            const auto extent = canvas->extent();
+            canvas->mapScene()->renderSlice(
+                &painter, QRectF(0, 0, 320, 240),
+                QRectF(extent.xMin(), -extent.yMax(), extent.width(), extent.height()),
+                layer->layerZValue(), layer->layerZValue() + 1000.);
+            painter.end();
+            if (!image.save(path(name + ".png")))
+                return -1;
+            int pixels = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    pixels += image.pixelColor(x, y).alpha() > 0;
+            return pixels;
+        };
+        QVERIFY(render("preview-visible") > 20);
+        layer->setSelectedFeatureIds({0});
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        layer->setVisible(false);
+        // No canvas timer, event-loop turn or source rebuild is required to hide.
+        QCOMPARE(render("preview-hidden-immediately"), 0);
+        layer->setOpacity(.35);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QCOMPARE(render("preview-hidden-after-opacity"), 0);
+        auto symbols = layer->symbol();
+        symbols.markerSize = 12.;
+        layer->setSymbol(symbols);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QCOMPARE(render("preview-hidden-after-rebuild"), 0);
+        layer->setVisible(true);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QVERIFY(render("preview-visible-again") > 20);
+        layer->setVisible(false);
+        auto features = collection["features"].toArray();
+        features.removeLast(); // The Data catalogue filter publishes a new subset.
+        collection["features"] = features;
+        QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
+        QVERIFY(!layer);
+        layer = nativePreview(fixture);
+        QVERIFY(layer);
+        QVERIFY(!layer->isVisible());
+        QCOMPARE(layer->opacity(), .35);
+        QCOMPARE(render("preview-filtered-hidden"), 0);
+        layer->setVisible(true);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QVERIFY(render("preview-filtered-visible") > 20);
+    }
+
+    /** @brief Cached glyph rendering is pixel-identical to normal label styling and avoids repeated shaping. */
+    void preparedLabelGlyphsPreserveSharedStyling()
+    {
+        using OpenSWMM::Render::LabelConfig;
+        using OpenSWMM::Render::LabelPainter;
+        LabelConfig config;
+        config.font.setItalic(true);
+        config.color = QColor(110, 20, 130);
+        config.haloEnabled = true;
+        config.haloColor = QColor(250, 230, 20);
+        config.haloRadiusPx = 1.5;
+        config.backgroundEnabled = true;
+        config.backgroundColor = QColor(10, 90, 130, 100);
+        const QString text = QStringLiteral("USGS 01646500 — Potomac River");
+        for (int ratio : {1, 2})
+            for (const auto placement : {LabelConfig::AutoPlacement, LabelConfig::Below,
+                                         LabelConfig::Centre}) {
+                config.placement = placement;
+                const auto font = config.effectiveFont();
+                const QFontMetricsF metrics(font);
+                const QPointF anchor(200., 100.);
+                const auto rectangle = LabelPainter::labelRect(
+                    config, anchor, {metrics.horizontalAdvance(text), metrics.height()});
+                QPainterPath glyphs;
+                glyphs.addText({rectangle.x(), rectangle.y() + metrics.ascent()}, font, text);
+                QImage original(800 * ratio, 240 * ratio, QImage::Format_ARGB32_Premultiplied);
+                original.setDevicePixelRatio(ratio);
+                original.fill(Qt::transparent);
+                QImage prepared = original;
+                {
+                    QPainter painter(&original);
+                    LabelPainter::drawLabelAt(painter, anchor, text, config);
+                }
+                {
+                    QPainter painter(&prepared);
+                    LabelPainter::drawGlyphPath(painter, glyphs, config);
+                }
+                QCOMPARE(prepared, original);
+                QVERIFY(prepared.save(path(QStringLiteral("prepared-%1-%2.png").arg(ratio).arg(placement))));
+            }
+
+        const int iterations = 500;
+        const QFont font = config.effectiveFont();
+        const QFontMetricsF metrics(font);
+        const auto rectangle = LabelPainter::labelRect(
+            config, {200., 100.}, {metrics.horizontalAdvance(text), metrics.height()});
+        QPainterPath glyphs;
+        glyphs.addText({rectangle.x(), rectangle.y() + metrics.ascent()}, font, text);
+        QImage image(800, 240, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        QElapsedTimer timer;
+        timer.start();
+        for (int i = 0; i < iterations; ++i)
+            LabelPainter::drawLabelAt(painter, {200., 100.}, text, config);
+        const qint64 originalNanoseconds = timer.nsecsElapsed();
+        timer.restart();
+        for (int i = 0; i < iterations; ++i)
+            LabelPainter::drawGlyphPath(painter, glyphs, config);
+        const qint64 preparedNanoseconds = timer.nsecsElapsed();
+        painter.end();
+        QFile evidence(path("prepared-label-benchmark.json"));
+        QVERIFY(evidence.open(QIODevice::WriteOnly));
+        evidence.write(QJsonDocument(QJsonObject{
+            {"labelsDrawn", iterations}, {"pixelsMatch", true},
+            {"originalGlyphLayouts", iterations}, {"preparedGlyphLayouts", 1},
+            {"originalMs", originalNanoseconds / 1e6},
+            {"preparedMs", preparedNanoseconds / 1e6}}).toJson());
+    }
+
+    /** @brief Dense labelled previews repaint without rebuilding their projected items or glyphs. */
+    void densePreviewLabelsReuseSceneItems()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *canvas = fixture.window->canvas();
+        canvas->resize(640, 480);
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 4326));
+        canvas->setExtent(MapExtent(-76., 40., -75.96, 40.03), false);
+        auto collection = nativePreviewCollection();
+        QJsonArray features;
+        for (int i = 0; i < 1000; ++i)
+            features.append(QJsonObject{
+                {"type", "Feature"}, {"id", i},
+                {"properties", QJsonObject{{"station_name", QStringLiteral("USGS station %1").arg(i)}}},
+                {"geometry", QJsonObject{{"type", "Point"},
+                    {"coordinates", QJsonArray{-75.9995 + (i % 40) * .001,
+                                                40.0005 + (i / 40) * .001}}}}});
+        collection["features"] = features;
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY2(fixture.instance()->project()->showPreview(collection, &error), qPrintable(error));
+        const auto populateMs = timer.elapsed();
+        auto *layer = nativePreview(fixture);
+        QVERIFY(layer);
+        const auto items = canvas->mapScene()->items();
+        int layerItems = 0;
+        for (auto *item : items)
+            layerItems += item->zValue() >= layer->layerZValue() &&
+                          item->zValue() < layer->layerZValue() + 1000.;
+        QCOMPARE(layerItems, 2000); // One point and one prepared label per station.
+        QImage image(640, 480, QImage::Format_ARGB32_Premultiplied);
+        QList<double> renderMs;
+        for (int pass = 0; pass < 8; ++pass) {
+            layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+            QCOMPARE(canvas->mapScene()->items(), items);
+            image.fill(Qt::transparent);
+            QPainter painter(&image);
+            timer.restart();
+            const auto extent = canvas->extent();
+            canvas->mapScene()->renderSlice(
+                &painter, QRectF(0, 0, 640, 480),
+                QRectF(extent.xMin(), -extent.yMax(), extent.width(), extent.height()),
+                layer->layerZValue(), layer->layerZValue() + 1000.);
+            renderMs.append(timer.nsecsElapsed() / 1e6);
+        }
+        QVERIFY(image.save(path("dense-preview.png")));
+        QJsonArray timings;
+        for (double value : renderMs)
+            timings.append(value);
+        QFile evidence(path("dense-preview-benchmark.json"));
+        QVERIFY(evidence.open(QIODevice::WriteOnly));
+        evidence.write(QJsonDocument(QJsonObject{{"features", 1000}, {"sceneItems", layerItems},
+            {"populateMs", populateMs}, {"renderMs", timings}, {"itemsReused", true}}).toJson());
+    }
+
+    /** @brief Raster label reuse preserves DPR/style/opacity and keeps vector export and oversized-label fallbacks. */
+    void nativeLabelRasterCacheRetainsRenderingPolicies()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *canvas = fixture.window->canvas();
+        canvas->resize(320, 240);
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 4326));
+        canvas->setExtent(MapExtent(-76.02, 39.985, -75.98, 40.015), false);
+        auto collection = nativePreviewCollection();
+        collection["features"] = QJsonArray{collection["features"].toArray().at(0)};
+        QVERIFY2(fixture.instance()->project()->showPreview(collection, &error), qPrintable(error));
+        auto *layer = nativePreview(fixture);
+        QVERIFY(layer);
+        auto labels = layer->labelConfig();
+        labels.haloEnabled = true;
+        labels.haloColor = QColor(250, 220, 20);
+        labels.backgroundEnabled = true;
+        labels.backgroundColor = QColor(20, 100, 140, 100);
+        labels.color = QColor(170, 0, 170);
+        layer->setLabelConfig(labels);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        const auto originalItems = canvas->mapScene()->items();
+        auto render = [&](int ratio, const QString &name) {
+            QImage image(320 * ratio, 240 * ratio, QImage::Format_ARGB32_Premultiplied);
+            image.setDevicePixelRatio(ratio);
+            image.fill(Qt::transparent);
+            {
+                QPainter painter(&image);
+                const auto extent = canvas->extent();
+                canvas->mapScene()->renderSlice(
+                    &painter, QRectF(0, 0, 320, 240),
+                    QRectF(extent.xMin(), -extent.yMax(), extent.width(), extent.height()),
+                    layer->layerZValue() + 3., layer->layerZValue() + 4.);
+            }
+            image.save(path(name + ".png"));
+            return image;
+        };
+        const auto first = render(1, "cache-dpr1-cold");
+        QCOMPARE(render(1, "cache-dpr1-warm"), first);
+        const auto highDpi = render(2, "cache-dpr2-cold");
+        QCOMPARE(render(2, "cache-dpr2-warm"), highDpi);
+        QCOMPARE(render(1, "cache-dpr1-return"), first);
+        QCOMPARE(canvas->mapScene()->items(), originalItems);
+
+        layer->setOpacity(.35);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        const auto faded = render(1, "cache-faded-cold");
+        QVERIFY(faded != first);
+        QCOMPARE(render(1, "cache-faded-warm"), faded);
+        layer->setOpacity(1.);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        QCOMPARE(render(1, "cache-opacity-restored"), first);
+
+        canvas->setExtent(MapExtent(-76.021, 39.985, -75.981, 40.015), false);
+        const auto panned = render(1, "cache-pan");
+        QVERIFY(panned != first);
+        QCOMPARE(canvas->mapScene()->items(), originalItems);
+        canvas->setExtent(MapExtent(-76.03, 39.9775, -75.97, 40.0225), false);
+        QCOMPARE(render(1, "cache-zoom"), first); // Same anchor, fixed-pixel label size.
+        QCOMPARE(canvas->mapScene()->items(), originalItems);
+
+        const auto pdfPath = path("cached-label-vector-export.pdf");
+        {
+            QPdfWriter pdf(pdfPath);
+            pdf.setResolution(96);
+            QPainter painter(&pdf);
+            const auto extent = canvas->extent();
+            canvas->mapScene()->renderSlice(
+                &painter, QRectF(0, 0, 320, 240),
+                QRectF(extent.xMin(), -extent.yMax(), extent.width(), extent.height()),
+                layer->layerZValue() + 3., layer->layerZValue() + 4.);
+        }
+        QFile pdf(pdfPath);
+        QVERIFY(pdf.open(QIODevice::ReadOnly));
+        const auto pdfBytes = pdf.readAll();
+        QVERIFY(pdfBytes.startsWith("%PDF-"));
+        QVERIFY2(!pdfBytes.contains("/Subtype /Image"), "Vector label export embedded a raster cache.");
+
+        labels.color = QColor(0, 150, 20);
+        layer->setLabelConfig(labels);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        const auto restyled = render(1, "cache-restyled");
+        QVERIFY(restyled != first);
+        QCOMPARE(render(1, "cache-restyled-warm"), restyled);
+        labels.fontSizePt = 256.; // Larger than the per-label raster allocation limit.
+        labels.placement = OpenSWMM::Render::LabelConfig::Centre;
+        layer->setLabelConfig(labels);
+        layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
+        const auto oversized = render(1, "cache-oversized-vector-fallback");
+        int visible = 0;
+        for (int y = 0; y < oversized.height(); ++y)
+            for (int x = 0; x < oversized.width(); ++x)
+                visible += oversized.pixelColor(x, y).alpha() > 0;
+        QVERIFY(visible > 100);
     }
 
     /** @brief Manual removal stays removed, temporary polygons are not boundaries, and close releases bytes. */

@@ -2566,6 +2566,11 @@ void AttributeTablePanel::onZoomToSelectedClicked()
         return;
     if (dataSourceActive())
         return; // data objects have no map geometry
+    if (gisSourceActive()) {
+        // GIS and native time-series stations use FIDs rather than SWMM names.
+        m_canvas->zoomToSelection(m_gisModel->layer());
+        return;
+    }
 
     // The extent is accumulated in the SOURCE layer's own CRS, then projected
     // once — so the mesh branch resolves against the mesh layer, not the model.
