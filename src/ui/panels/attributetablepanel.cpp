@@ -698,6 +698,22 @@ public:
      */
     [[nodiscard]] QString queryText() const { return m_queryText; }
 
+    bool bulkEditNeedsSortFilter() const
+    {
+        // Bulk edits cannot change the identity in column zero.
+        return m_predicate.isValid() || sortColumn() > 0;
+    }
+
+    /** Re-evaluate row membership and restore sorting once after a bulk cell edit. */
+    void finishBulkEdit()
+    {
+        // Rebuild membership as a whole: incrementally removing millions of
+        // alternating rows repeatedly shifts Qt's source/proxy mapping arrays.
+        if (m_predicate.isValid())
+            invalidate();
+        setDynamicSortFilter(true);
+    }
+
     /**
      * @brief Replace the optional exact-string restriction on the configured identity column.
      * @param names Borrowed set copied as filter keys, compared case-sensitively to filterRole
@@ -2185,9 +2201,8 @@ void AttributeTablePanel::meshSelectionToBus()
         return;
 
     QSet<SWMMObjectRef> refs;
-    for (const QModelIndex &proxyIdx : sel->selectedRows()) {
-        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
-        const SWMMObjectRef ref = m_meshModel->refForRow(srcIdx.row());
+    for (int row : selectedSourceRows()) {
+        const SWMMObjectRef ref = m_meshModel->refForRow(row);
         if (ref.isValid())
             refs.insert(ref);
     }
@@ -2394,9 +2409,8 @@ void AttributeTablePanel::dataSelectionToBus()
         return;
     const auto type = m_dataModel->objectType();
     QSet<SWMMObjectRef> refs;
-    for (const QModelIndex &proxyIdx : sel->selectedRows()) {
-        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
-        const QString name = m_dataModel->objectNameAt(srcIdx.row());
+    for (int row : selectedSourceRows()) {
+        const QString name = m_dataModel->objectNameAt(row);
         if (!name.isEmpty())
             refs.insert(SWMMObjectRef(type, name));
     }
@@ -2457,9 +2471,8 @@ void AttributeTablePanel::onTableSelectionChanged()
 
     const auto type = objectTypeForCategory(m_model->category());
     QSet<SWMMObjectRef> refs;
-    for (const QModelIndex &proxyIdx : sel->selectedRows()) {
-        const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
-        const QString name = m_model->objectNameAt(srcIdx.row());
+    for (int row : selectedSourceRows()) {
+        const QString name = m_model->objectNameAt(row);
         if (!name.isEmpty())
             refs.insert(SWMMObjectRef(type, name));
     }
@@ -3262,14 +3275,33 @@ QList<int> AttributeTablePanel::selectedSourceRows() const
     QList<int> rows;
     if (!m_view || !m_view->selectionModel())
         return rows;
-    QSet<int> seen;
+    const auto selection = m_view->selectionModel()->selection();
+    const int lastColumn = m_view->model()->columnCount() - 1;
+    bool fullRows = true;
+    qsizetype count = 0;
+    for (const auto &range : selection) {
+        fullRows &= range.left() == 0 && range.right() == lastColumn;
+        count += range.height();
+    }
+    if (fullRows) {
+        // SelectRows produces disjoint full-width ranges. Avoid selectedRows(),
+        // whose per-row isRowSelected() scans every range for sparse selections.
+        rows.reserve(count);
+        for (const auto &range : selection) {
+            for (int row = range.top(); row <= range.bottom(); ++row) {
+                const auto pi = m_view->model()->index(row, 0);
+                const auto si = m_proxy ? m_proxy->mapToSource(pi) : pi;
+                if (si.isValid())
+                    rows.append(si.row());
+            }
+        }
+        return rows;
+    }
     const QModelIndexList sel = m_view->selectionModel()->selectedRows();
     for (const QModelIndex &pi : sel) {
         const QModelIndex si = m_proxy ? m_proxy->mapToSource(pi) : pi;
-        if (si.isValid() && !seen.contains(si.row())) {
-            seen.insert(si.row());
+        if (si.isValid())
             rows.append(si.row());
-        }
     }
     return rows;
 }
@@ -3280,14 +3312,55 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
     if (column < 0 || sourceRows.isEmpty())
         return;
     // Whichever source is bound — SWMM objects, mesh elements or data
-    // objects — the writes go through that model's setData, which pushes onto
-    // the same undo stack.
+    // objects — each source retains its validation and shared undo stack.
     QAbstractItemModel *model = meshSourceActive() ? static_cast<QAbstractItemModel *>(m_meshModel)
                                 : dataSourceActive()
                                     ? static_cast<QAbstractItemModel *>(m_dataModel)
                                     : static_cast<QAbstractItemModel *>(m_model);
     if (!model)
         return;
+
+    // Reordering/filtering after every cell repeatedly remaps the selection.
+    const bool dynamicSortFilter = m_proxy && m_proxy->dynamicSortFilter() &&
+        static_cast<FilteringProxy *>(m_proxy)->bulkEditNeedsSortFilter();
+    if (dynamicSortFilter)
+        m_proxy->setDynamicSortFilter(false);
+    const auto restoreSortFilter = qScopeGuard([this, model, &sourceRows, dynamicSortFilter] {
+        if (dynamicSortFilter) {
+            auto *selection = m_view->selectionModel();
+            QSignalBlocker selectionSignals(selection);
+            // Avoid creating a persistent Qt index for each selected row
+            // while a large sorted/filtered table changes its layout.
+            selection->clearSelection();
+            static_cast<FilteringProxy *>(m_proxy)->finishBulkEdit();
+            selectSourceRows(selection, m_proxy, model, sourceRows);
+            selectionSignals.unblock();
+            onTableSelectionChanged();
+            updateSelectionCount();
+            m_view->viewport()->update();
+        }
+    });
+
+    // Keep each edited identity for cross-view refresh, but mark the project
+    // edited only once. modelEdited also refreshes whole-mesh ownership data.
+    QStringList editedNames;
+    const auto recordEdit = [&editedNames](const QString &name) { editedNames.append(name); };
+    const auto editConnection = meshSourceActive()
+        ? connect(m_meshModel, &MeshAttributeTableModel::objectEdited, this, recordEdit)
+        : dataSourceActive()
+            ? connect(m_dataModel, &DataObjectAttributeTableModel::objectEdited, this, recordEdit)
+            : connect(m_model, &SWMMAttributeTableModel::objectEdited, this, recordEdit);
+    const bool suppressEditForward = m_suppressEditForward;
+    m_suppressEditForward = true;
+    const auto restoreEditForward = qScopeGuard([this, editConnection, suppressEditForward] {
+        disconnect(editConnection);
+        m_suppressEditForward = suppressEditForward;
+    });
+
+    // Mesh listeners aggregate the entire selection, so refresh them once
+    // after all setters have run, using the existing layer-wide notifications.
+    auto *meshLayer = meshSourceActive() ? m_meshModel->layer() : nullptr;
+    QSignalBlocker meshSignals(meshLayer);
 
     // Collapse the whole batch into one undo step when a stack is attached
     // (each setData pushes its own AttributeEditCommand inside the macro).
@@ -3297,18 +3370,39 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
                                             : (m_model ? m_model->undoStack() : nullptr);
     if (undo)
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
-    for (int row : sourceRows) {
-        const QModelIndex idx = model->index(row, column);
-        if (!idx.isValid())
-            continue;
-        // Skip rows whose cell isn't editable (running sim, an inapplicable
-        // cross-section geom, or a BC field on an interior mesh edge).
-        if (!(model->flags(idx) & Qt::ItemIsEditable))
-            continue;
-        model->setData(idx, value, Qt::EditRole);
+    if (dataSourceActive()) {
+        m_dataModel->setDataForRows(column, sourceRows, value);
+    } else if (meshSourceActive()) {
+        m_meshModel->setDataForRows(column, sourceRows, value);
+    } else {
+        for (int row : sourceRows) {
+            const QModelIndex idx = model->index(row, column);
+            if (!idx.isValid())
+                continue;
+            // Skip running simulations and fields inapplicable to this row.
+            if (!(model->flags(idx) & Qt::ItemIsEditable))
+                continue;
+            model->setData(idx, value, Qt::EditRole);
+        }
     }
     if (undo)
         undo->endMacro();
+
+    if (!suppressEditForward && !editedNames.isEmpty()) {
+        {
+            const QSignalBlocker dirtySignals(m_layer);
+            for (const auto &name : editedNames)
+                emit objectEdited(name);
+        }
+        if (m_layer)
+            m_layer->markEdited();
+    }
+    meshSignals.unblock();
+    if (meshLayer && !editedNames.isEmpty()) {
+        emit meshLayer->attributeChanged(mesh::MeshObjectRef::layerKey(meshLayer->sourcePath()));
+        emit meshLayer->meshEditsChanged();
+        emit meshLayer->repaintRequested();
+    }
 }
 
 QVariant AttributeTablePanel::promptBulkValue(int column, const QVariant &current, bool *ok) const

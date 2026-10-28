@@ -729,6 +729,55 @@ private:
     QVariant m_old, m_new;
 };
 
+// Resolve the field/providers once and flush the registry once on apply,
+// undo and redo; the single-cell command deliberately keeps its existing path.
+class DataObjectBulkFieldEditCommand : public QUndoCommand
+{
+public:
+    DataObjectBulkFieldEditCommand(SWMMModelLayer *layer, DC::DataCategory category,
+                                  QString key, QStringList names, QList<QVariant> oldValues,
+                                  QList<QVariant> newValues, const QString &label)
+        : QUndoCommand(QObject::tr("Apply %1 to %2 rows").arg(label).arg(names.size())),
+          m_layer(layer), m_category(category), m_key(std::move(key)),
+          m_names(std::move(names)), m_old(std::move(oldValues)), m_new(std::move(newValues))
+    {
+    }
+
+    void undo() override { apply(m_old); }
+    void redo() override { apply(m_new); }
+
+private:
+    void apply(const QList<QVariant> &values)
+    {
+        if (!m_layer)
+            return;
+        auto *registry = registryFor(m_layer, m_category);
+        QHash<QString, QPointer<QObject>> providers;
+        for (auto *provider : providersOf(registry, m_category))
+            providers.insert(nameOf(provider, m_category), provider);
+        for (const auto &field : fieldsFor(m_layer, m_category)) {
+            if (field.spec.key != m_key || !field.set)
+                continue;
+            bool changed = false;
+            for (int i = 0; i < m_names.size(); ++i) {
+                if (auto *provider = providers.value(m_names[i]).data()) {
+                    field.set(provider, values[i]);
+                    changed = true;
+                }
+            }
+            if (changed)
+                saveToEngine(registry, m_category, m_layer);
+            return;
+        }
+    }
+
+    QPointer<SWMMModelLayer> m_layer;
+    DC::DataCategory m_category;
+    QString m_key;
+    QStringList m_names;
+    QList<QVariant> m_old, m_new;
+};
+
 } // anonymous namespace
 
 // ===========================================================================
@@ -842,8 +891,11 @@ void DataObjectAttributeTableModel::reload()
     beginResetModel();
     m_fields = fieldsFor(m_layer, m_category);
     m_rows.clear();
-    for (QObject *p : providersOf(m_registry, m_category))
+    m_providerRows.clear();
+    for (QObject *p : providersOf(m_registry, m_category)) {
+        m_providerRows.insert(p, m_rows.size());
         m_rows << p;
+    }
     endResetModel();
 }
 
@@ -886,12 +938,10 @@ void DataObjectAttributeTableModel::connectRegistry()
 
 void DataObjectAttributeTableModel::onProviderParamsChanged(QObject *provider)
 {
-    for (int r = 0; r < m_rows.size(); ++r) {
-        if (m_rows[r] != provider)
-            continue;
+    const int r = m_providerRows.value(provider, -1);
+    if (r >= 0) {
         // Whole row: an inlet type change flips which cells apply.
         emit dataChanged(index(r, 0), index(r, columnCount() - 1));
-        return;
     }
 }
 
@@ -983,6 +1033,41 @@ bool DataObjectAttributeTableModel::setData(const QModelIndex &index, const QVar
     }
     emit objectEdited(name);
     return true;
+}
+
+void DataObjectAttributeTableModel::setDataForRows(int column, const QList<int> &rows,
+                                                  const QVariant &value)
+{
+    if (column < 0 || column >= m_fields.size())
+        return;
+    const auto &field = m_fields[column];
+    QStringList names;
+    QList<QVariant> oldValues, newValues;
+    for (int row : rows) {
+        const auto cell = index(row, column);
+        if (!(flags(cell) & Qt::ItemIsEditable))
+            continue;
+        const auto oldValue = field.get(m_rows[row].data());
+        auto newValue = value;
+        if (!newValue.convert(oldValue.metaType()) || newValue == oldValue)
+            continue;
+        names.append(objectNameAt(row));
+        oldValues.append(oldValue);
+        newValues.append(newValue);
+    }
+    if (names.isEmpty())
+        return;
+    auto *command = new DataObjectBulkFieldEditCommand(m_layer, m_category, field.spec.key,
+                                                      names, oldValues, newValues,
+                                                      field.spec.label);
+    if (m_undoStack)
+        m_undoStack->push(command);
+    else {
+        command->redo();
+        delete command;
+    }
+    for (const auto &name : names)
+        emit objectEdited(name);
 }
 
 Qt::ItemFlags DataObjectAttributeTableModel::flags(const QModelIndex &index) const

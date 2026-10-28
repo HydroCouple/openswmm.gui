@@ -26,12 +26,18 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "map/swmmlayeritem.h"
 #include "map/swmmlayerqsgrenderer.h"
+#include "mesh/meshobjectref.h"
+#include "mesh/meshresult.h"
 #include "plugins/extensionattributes.h"
+#include "selection/selectionmanager.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
@@ -45,6 +51,9 @@
 #include <QAbstractItemModelTester>
 #endif
 #include "ui/properties/xsectshapegeom.h"
+#include "ui/toolbars/mesheditingtoolbar.h"
+#include "street/streetprovider.h"
+#include "street/streetregistry.h"
 
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
@@ -67,16 +76,21 @@
 
 #include <algorithm> // std::reverse — ordering-override pin
 
+#include <QApplication>
 #include <QComboBox>
 #include <QCompleter>
+#include <QElapsedTimer>
 #include <QSignalSpy>
+#include <QSortFilterProxyModel>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTreeView>
 #include <QUndoStack>
 #include <QDir>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 #include <QLocale>
@@ -202,6 +216,45 @@ bool isDynamics(const ColumnSpec &s)
     return s.setter.contains(QStringLiteral("_stat_"));
 }
 
+bool applyBulkCell(AttributeTablePanel &panel, QTableView *view, const QModelIndex &clicked,
+                   bool prompt = false, double value = 0.0)
+{
+    if (!clicked.isValid())
+        return false;
+    panel.resize(1200, 600);
+    panel.show();
+    view->scrollTo(clicked);
+    QCoreApplication::processEvents();
+    const QPoint pos = view->visualRect(clicked).center();
+    if (!view->viewport()->rect().contains(pos))
+        return false;
+    bool applied = false;
+    QTimer::singleShot(0, &panel, [&] {
+        auto *menu = panel.findChild<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
+        if (!menu)
+            return;
+        for (auto *action : menu->actions()) {
+            if (action->text().startsWith(prompt ? "Apply \"" : "Apply this ")) {
+                if (prompt) {
+                    QTimer::singleShot(0, &panel, [&] {
+                        if (auto *input = qobject_cast<QInputDialog *>(
+                                QApplication::activeModalWidget())) {
+                            input->setDoubleValue(value);
+                            input->accept();
+                        }
+                    });
+                }
+                action->trigger();
+                applied = true;
+                break;
+            }
+        }
+        menu->close();
+    });
+    return QMetaObject::invokeMethod(&panel, "onContextMenuRequested", Q_ARG(QPoint, pos)) &&
+           applied;
+}
+
 } // namespace
 
 class TestAttributeTableSchema : public QObject
@@ -209,6 +262,267 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void meshBulkApplyRefreshesOnce_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<double>("value");
+        QTest::newRow("cells") << QString("c") << QString("mannings") << 0.04;
+        QTest::newRow("edges") << QString("e") << QString("conveyance") << 0.5;
+        QTest::newRow("vertices") << QString("v") << QString("z") << 42.0;
+        QTest::newRow("infiltration") << QString("c") << QString("infil.f0") << 40.0;
+        QTest::newRow("coupling") << QString("v") << QString("couplingCd") << 0.75;
+    }
+
+    void meshBulkApplyRefreshesOnce()
+    {
+        QFETCH(QString, kind);
+        QFETCH(QString, key);
+        QFETCH(double, value);
+        auto layer = openLayer();
+        QVERIFY(layer);
+        mesh::MeshResult meshData;
+        const int scaleVertices = qEnvironmentVariableIntValue("SWMMVIS_BULK_SCALE_VERTICES");
+        const int cells = kind == "v" ? std::max(512, (scaleVertices + 2) / 3) : 512;
+        meshData.vertices.reserve(cells * 3);
+        meshData.triangles.reserve(cells);
+        for (int i = 0; i < cells; ++i) {
+            const int first = meshData.vertices.size();
+            for (const auto &xy : {QPointF(i * 2, 0), QPointF(i * 2 + 1, 0), QPointF(i * 2, 1)}) {
+                mesh::MeshVertex vertex;
+                vertex.xy = xy;
+                vertex.z = 0.0;
+                if (key == "couplingCd") {
+                    vertex.coupledNode = "J1";
+                    vertex.couplingCdSet = false;
+                    vertex.couplingAreaSet = false;
+                }
+                meshData.vertices.append(vertex);
+            }
+            mesh::MeshTriangle triangle;
+            triangle.v0 = first;
+            triangle.v1 = first + 1;
+            triangle.v2 = first + 2;
+            triangle.mannings = 0.02;
+            meshData.triangles.append(triangle);
+        }
+        if (key.startsWith("infil.")) {
+            mesh::InfilRow inherited;
+            inherited.method = mesh::InfilMethod::Horton;
+            for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                inherited.p[k] = k + 1.0;
+            meshData.infilDefaults.append({"*", inherited});
+            for (int row = 1; row < cells; row += 2) {
+                auto override = inherited;
+                override.p[1] = row + 10.0;
+                meshData.infilOverrides.insert(row, override);
+            }
+        }
+        meshData.ok = true;
+        SWMM2DMeshLayer meshLayer(meshData, QStringLiteral("bulk-mesh.2dm"));
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        meshLayer.setActiveMesh(true);
+        SelectionManager selection;
+        MeshEditingToolbar toolbar(QStringLiteral("Mesh"));
+        toolbar.rebindCanvas(&canvas);
+        toolbar.rebindSelectionManager(&selection);
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), &selection, &canvas);
+        panel.refresh();
+        auto *combo = panel.findChild<QComboBox *>();
+        auto *view = panel.findChild<QTableView *>();
+        auto *model = panel.findChild<MeshAttributeTableModel *>();
+        QVERIFY(combo && view && model);
+        const auto sourceKey = QString("mesh:%1:%2").arg(meshLayer.layerId(), kind);
+        const int category = combo->findData(sourceKey);
+        QVERIFY(category >= 0);
+        combo->setCurrentIndex(category);
+        const int column = colFor(model->columnSpecs(), qPrintable(key));
+        QVERIFY(column >= 0);
+        const auto clickedSource = model->index(model->rowCount() - 1, column);
+        const double original = model->index(0, column).data(Qt::EditRole).toDouble();
+        QVERIFY(model->setData(clickedSource, value));
+        canvas.undoStack()->clear();
+        QSet<SWMMObjectRef> selected;
+        for (int row = 0; row < model->rowCount(); ++row)
+            selected.insert(model->refForRow(row));
+        selection.select(selected, SelectionManager::Replace);
+        QCOMPARE(view->selectionModel()->selectedRows().size(), model->rowCount());
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
+        QVERIFY(proxy);
+        const auto clicked = proxy->mapFromSource(clickedSource);
+        QSignalSpy attributes(&meshLayer, &SWMM2DMeshLayer::attributeChanged);
+        QSignalSpy refreshes(model, &QAbstractItemModel::dataChanged);
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        // Mirror the main window's dirty bridge; it must be coalesced too.
+        connect(&panel, &AttributeTablePanel::objectEdited, layer.get(),
+                [&](const QString &) { layer->markEdited(); });
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(applyBulkCell(panel, view, clicked));
+        qInfo() << kind << "bulk apply:" << model->rowCount() << "rows in" << timer.elapsed()
+                << "ms; mesh refreshes:" << attributes.count();
+        QCOMPARE(attributes.count(), 1);
+        QCOMPARE(refreshes.count(), 1);
+        QCOMPARE(dirty.count(), 1);
+        QVERIFY(selection.selection() == selected);
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(canvas.undoStack()->command(0)->childCount(), 1);
+        for (int row = 0; row < model->rowCount(); ++row)
+            QCOMPARE(model->index(row, column).data(Qt::EditRole).toDouble(), value);
+        timer.restart();
+        canvas.undoStack()->undo();
+        qInfo() << kind << "bulk undo:" << timer.elapsed() << "ms";
+        QCOMPARE(attributes.count(), 2);
+        QCOMPARE(model->index(0, column).data(Qt::EditRole).toDouble(), original);
+        QCOMPARE(clickedSource.data(Qt::EditRole).toDouble(), value);
+        if (key.startsWith("infil.")) {
+            QVERIFY(!meshLayer.mesh().infilOverrides.contains(0));
+            QCOMPARE(meshLayer.mesh().infilOverrides[1].p[1], 11.0);
+        }
+        if (key == "couplingCd")
+            QVERIFY(!meshLayer.mesh().vertices[0].couplingCdSet);
+        timer.restart();
+        canvas.undoStack()->redo();
+        qInfo() << kind << "bulk redo:" << timer.elapsed() << "ms";
+        QCOMPARE(attributes.count(), 3);
+        QCOMPARE(model->index(0, column).data(Qt::EditRole).toDouble(), value);
+    }
+
+    void dataBulkApplyRetainsUndoAndReferences()
+    {
+        auto layer = std::make_unique<SWMMModelLayer>(
+            QDir(dataDir()).filePath("data_object_table_fixture.inp"), nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY(layer->loadModel(warnings, errors));
+        auto *registry = qobject_cast<openswmmvis::street::StreetRegistry *>(
+            layer->ensureStreetRegistry());
+        QVERIFY(registry);
+        DataObjectAttributeTableModel model;
+        QUndoStack undo;
+        model.setSource(layer.get(), SWMMModelLayer::DataStreets);
+        model.setUndoStack(&undo);
+        const int column = colFor(model.columnSpecs(), "roadRoughness");
+        QVERIFY(column >= 0);
+        const auto engineRoughness = [&](const char *name) {
+            double roughness = -1.0;
+            swmm_street_get_params(layer->engine(), swmm_street_index(layer->engine(), name),
+                                   nullptr, nullptr, nullptr, &roughness, nullptr, nullptr,
+                                   nullptr, nullptr, nullptr, nullptr);
+            return roughness;
+        };
+        QSignalSpy edits(&model, &DataObjectAttributeTableModel::objectEdited);
+        model.setDataForRows(column, {0, 1, -1, model.rowCount()}, 0.02);
+        QCOMPARE(edits.count(), 2);
+        QCOMPARE(undo.count(), 1);
+        for (int row = 0; row < model.rowCount(); ++row)
+            QCOMPARE(model.index(row, column).data(Qt::EditRole).toDouble(), 0.02);
+        QCOMPARE(engineRoughness("ST1"), 0.02);
+        QCOMPARE(engineRoughness("ST2"), 0.02);
+        model.setDataForRows(column, {0, 1}, 0.02); // no-op
+        model.setDataForRows(column, {0, 1}, QStringLiteral("invalid"));
+        model.setDataForRows(0, {0, 1}, QStringLiteral("read-only name"));
+        QCOMPARE(undo.count(), 1);
+        QCOMPARE(edits.count(), 2);
+        // Replay remains tied to the original category after rebinding the view.
+        model.setSource(layer.get(), SWMMModelLayer::DataPollutants);
+        undo.undo();
+        QCOMPARE(registry->findByName("ST1")->roadRoughness(), 0.016);
+        QCOMPARE(registry->findByName("ST2")->roadRoughness(), 0.016);
+        QCOMPARE(engineRoughness("ST1"), 0.016);
+        QCOMPARE(engineRoughness("ST2"), 0.016);
+        undo.redo();
+        QCOMPARE(registry->findByName("ST1")->roadRoughness(), 0.02);
+        QCOMPARE(registry->findByName("ST2")->roadRoughness(), 0.02);
+        QCOMPARE(engineRoughness("ST1"), 0.02);
+        QCOMPARE(engineRoughness("ST2"), 0.02);
+    }
+
+    void bulkApplyDefersSorting_data()
+    {
+        QTest::addColumn<bool>("filtered");
+        QTest::newRow("sorted") << false;
+        QTest::newRow("filtered") << true;
+    }
+
+    /** Bulk apply must edit the captured rows with one sort/filter pass and one undo step. */
+    void bulkApplyDefersSorting()
+    {
+        QFETCH(bool, filtered);
+        auto layer = openLayer();
+        QVERIFY(layer);
+        constexpr int count = 256;
+        {
+            SWMMModelLayer::BulkEdit bulk(layer.get());
+            for (int i = 0; i < count; ++i) {
+                const auto name = QString("Bulk%1").arg(i, 4, 10, QLatin1Char('0'));
+                int node = -1;
+                QVERIFY(layer->applyNodeAdd(name, SWMM_NODE_JUNCTION, i, 0.0, &node));
+                QCOMPARE(swmm_node_set_invert_elev(layer->engine(), node, i + 1.0), SWMM_OK);
+            }
+        }
+        SelectionManager selection;
+        MapCanvas canvas;
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), &selection, &canvas);
+        panel.refresh();
+        auto *combo = panel.findChild<QComboBox *>();
+        auto *view = panel.findChild<QTableView *>();
+        auto *model = panel.findChild<SWMMAttributeTableModel *>();
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(view ? view->model() : nullptr);
+        QVERIFY(combo && view && model && proxy);
+        combo->setCurrentIndex(combo->findData(int(SWMMModelLayer::CatJunctions)));
+        const int column = colFor(model->columnSpecs(), "Invert elev");
+        QVERIFY(column >= 0);
+        const auto cellFor = [&](int i) {
+            const auto name = QString("Bulk%1").arg(i, 4, 10, QLatin1Char('0'));
+            return model->index(model->rowForName(name), column);
+        };
+        view->sortByColumn(column, Qt::AscendingOrder);
+        if (filtered) {
+            auto *query = panel.findChild<QLineEdit *>();
+            QVERIFY(query);
+            query->setText("[Invert elev] < 256");
+            QVERIFY(QMetaObject::invokeMethod(&panel, "onQueryApplyClicked"));
+        }
+        QSet<SWMMObjectRef> selected;
+        for (int i = 0; i < count - 1; i += 2)
+            selected.insert({SWMMObjectRef::Node,
+                             QString("Bulk%1").arg(i, 4, 10, QLatin1Char('0'))});
+        selection.select(selected, SelectionManager::Replace);
+        QCOMPARE(view->selectionModel()->selectedRows().size(), selected.size());
+        const double value = filtered ? 512.0 : 255.0;
+        const auto clicked = proxy->mapFromSource(cellFor(254));
+        QVERIFY(clicked.isValid());
+        QSignalSpy layouts(proxy, &QAbstractItemModel::layoutChanged);
+        QSignalSpy edits(&panel, &AttributeTablePanel::objectEdited);
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(applyBulkCell(panel, view, clicked, filtered, value));
+        qInfo() << "bulk apply:" << timer.elapsed() << "ms; layout changes:" << layouts.count();
+        const int layoutCount = layouts.count();
+        if (!filtered)
+            QVERIFY(selection.selection() == selected);
+        QCOMPARE(edits.count(), selected.size() - (filtered ? 0 : 1));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (int i = 0; i < count; ++i) {
+            const auto index = cellFor(i);
+            QCOMPARE(index.data(Qt::EditRole).toDouble(), i % 2 == 0 ? value : i + 1.0);
+            if (i % 2 == 0)
+                QCOMPARE(proxy->mapFromSource(index).isValid(), !filtered);
+        }
+        canvas.undoStack()->undo();
+        for (int i = 0; i < count; ++i)
+            QCOMPARE(cellFor(i).data(Qt::EditRole).toDouble(), i + 1.0);
+        canvas.undoStack()->redo();
+        for (const auto &ref : selected)
+            QCOMPARE(model->index(model->rowForName(ref.name), column).data(Qt::EditRole).toDouble(),
+                     value);
+        QVERIFY2(layoutCount <= (filtered ? 2 : 1),
+                 "Bulk apply must rebuild the view once, rather than after every row");
+    }
+
     void linkEndpointsAreEditable_data()
     {
         QTest::addColumn<int>("kind");

@@ -679,7 +679,8 @@ private:
      * @param value Borrowed proposed EditRole value; each model performs its own conversion.
      * Uses active mesh/data model, otherwise retained SWMM model. Opens/closes one undo macro
      * when a corresponding stack exists, skips invalid/noneditable cells and ignores setter
-     * results. No all-or-nothing rollback, aggregate success result or project/file save;
+     * results. Defers sorting/filtering, mesh refreshes and dirty notifications until batch end;
+     * data-object edits flush their registry once. No all-or-nothing rollback or file save;
      * GIS/tabular bulk editing is not implemented by this helper.
      */
     void applyValueToSelectedRows(int column, const QList<int> &sourceRows, const QVariant &value);

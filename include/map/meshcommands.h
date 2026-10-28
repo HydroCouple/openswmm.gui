@@ -27,11 +27,28 @@
 #include <QByteArray>
 #include <QPair>
 #include <QPointer>
+#include <QSignalBlocker>
 #include <QString>
 #include <QVariant>
 #include <QVector>
 
 class SWMM2DMeshLayer;
+
+namespace mesh
+{
+/** Coalesce multi-element command notifications, including undo/redo; nestable. */
+class AttributeEditBatch
+{
+public:
+    AttributeEditBatch(SWMM2DMeshLayer *layer, qsizetype count);
+    ~AttributeEditBatch();
+    AttributeEditBatch(const AttributeEditBatch &) = delete;
+    AttributeEditBatch &operator=(const AttributeEditBatch &) = delete;
+private:
+    QPointer<SWMM2DMeshLayer> m_layer;
+    QSignalBlocker m_signals;
+};
+}
 
 /**
  * @class MeshSetTriangleTagCommand
@@ -428,6 +445,11 @@ public:
                                 mesh::InfilRow newRow, QVector<mesh::InfilRow> oldRows,
                                 QVector<mesh::InfilProvenance> oldProv, const QString &text,
                                 MapCanvas *canvas, QUndoCommand *parent = nullptr);
+    MeshSetTriangleInfilCommand(SWMM2DMeshLayer *layer, QVector<int> triangles,
+                                QVector<mesh::InfilRow> newRows,
+                                QVector<mesh::InfilRow> oldRows,
+                                QVector<mesh::InfilProvenance> oldProv, const QString &text,
+                                MapCanvas *canvas);
 
     /**
      * @brief Restore old override rows or clear overrides to recover tag/star/no-row inheritance.
@@ -436,7 +458,7 @@ public:
      */
     void undo() override;
     /**
-     * @brief Write same complete infiltration override on every stored cell.
+     * @brief Write the stored uniform or per-cell complete infiltration overrides.
      * @note Null/deleted layer no-op. No local editability/row validation; layer rejects invalid
      *   cells or values as applicable, statuses ignored. Invoked on initial stack push as well as
      *   later redo.
@@ -452,6 +474,7 @@ private:
     QPointer<SWMM2DMeshLayer> m_layer;
     QVector<int> m_tris;
     mesh::InfilRow m_newRow;
+    QVector<mesh::InfilRow> m_newRows;
     QVector<mesh::InfilRow> m_oldRows;
     QVector<mesh::InfilProvenance> m_oldProv;
 };
@@ -621,6 +644,9 @@ int pushCellParamEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
  */
 int pushCellInfilEdit(SWMM2DMeshLayer *layer, const QVector<int> &triangles, const InfilRow &row,
                       MapCanvas *canvas);
+/** Same provenance-preserving edit, with a distinct resolved target row per cell. */
+int pushCellInfilEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
+                       const QVector<InfilRow> &rows, MapCanvas *canvas);
 
 /*!
  * \brief Snapshot each tag's existing `[2D_INFILTRATION_DEFAULTS]` row (and

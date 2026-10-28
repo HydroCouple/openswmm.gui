@@ -202,6 +202,10 @@ public:
      *   referential validation, disk save or rollback; helper/layer notifications refresh data.
      */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
+    /** Uniform bulk edit: compact numeric snapshots or shared multi-element commands.
+     * Emits objectEdited once with the layer key when at least one candidate changes.
+     */
+    void setDataForRows(int column, const QList<int> &rows, const QVariant &value);
     /**
      * @param[in] index Expected current model index; invalid/no source/outside columns retains base
      *   flags.
@@ -237,9 +241,9 @@ signals:
      *  MeshObjectRef name. Distinct from `dataChanged` so listeners can tell a
      *  user edit from a synthetic refresh and avoid feedback loops — the same
      *  convention `SWMMAttributeTableModel::objectEdited` follows.
-     * @param[in] refName Encoded MeshObjectRef name of current edited element; no raw layer
+     * @param[in] refName Encoded MeshObjectRef name, or layer key for a bulk edit; no raw layer
      *   ownership or immutable topology identity.
-     * @note Emitted only after setData positive candidate-attempt count, not external
+     * @note Emitted after setData/setDataForRows positive candidate-attempt count, not external
      *   writes/undo/redo/refresh, and is not independently confirmed persistence. Receiver manages
      *   project dirty/selection feedback.
      */
