@@ -14,9 +14,9 @@
 #include "plugins/extensionstateregistry.h"
 #include "plugins/guiextensionhost.h"
 #include "project/openswmmvisworkspace.h"
-#include "sdk/IEventSourceV3.hpp"
-#include "sdk/IViewControlsV1.hpp"
-#include "sdk/IPreviewLayersV1.hpp"
+#include "sdk/IViewEvents.hpp"
+#include "sdk/IViewControls.hpp"
+#include "sdk/IPreviewLayers.hpp"
 #include "sdk/IProject.hpp"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
@@ -126,16 +126,16 @@ struct ViewFixture {
         error = errors.join(';');
         return ok;
     }
-    /** @brief Borrow the discoverable V3 service. @return Host-owned capability. */
-    IEventSourceV3 *source() const { return qobject_cast<IEventSourceV3 *>(host->lifetime()); }
+    /** @brief Borrow the discoverable IViewEvents service. @return Host-owned capability. */
+    IViewEvents *source() const { return qobject_cast<IViewEvents *>(host->lifetime()); }
     /** @brief Borrow validated view controllers. @return Host-owned capability. */
-    IViewControlsV1 *controls() const { return qobject_cast<IViewControlsV1 *>(host->lifetime()); }
+    IViewControls *controls() const { return qobject_cast<IViewControls *>(host->lifetime()); }
     /** @brief Copy the current tracked state. @return Owning session metadata. */
     ViewSnapshot snapshot() const { return source()->viewSnapshot(window->extensionSessionId()); }
     /** @brief Resolve the ready model facade. @return Borrowed host model, or null. */
     IModelInstance *instance() const
     {
-        return qobject_cast<IEventSourceV2 *>(host->lifetime())
+        return qobject_cast<ISessionEvents *>(host->lifetime())
             ->resolveSession(window->extensionSessionId());
     }
 };
@@ -677,7 +677,7 @@ private slots:
         auto *canvas = fixture.window->canvas();
         QVERIFY(canvas->setCanvasSRSByCode("EPSG", 4326));
         canvas->setExtent(MapExtent(-76.03, 39.98, -75.97, 40.03), false);
-        auto *previews = qobject_cast<IPreviewLayersV1 *>(fixture.host->lifetime());
+        auto *previews = qobject_cast<IPreviewLayers *>(fixture.host->lifetime());
         QVERIFY(previews);
         const auto session = fixture.window->extensionSessionId();
         QList<qint64> fids{42};

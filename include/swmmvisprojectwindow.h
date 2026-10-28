@@ -15,7 +15,7 @@
 
 #include "mesh/channelburnprofile.h"
 #include "mesh/corridorsource.h"
-#include "sdk/IEventSourceV2.hpp"
+#include "sdk/ISessionEvents.hpp"
 
 #include <QHash>
 #include <QJsonArray>

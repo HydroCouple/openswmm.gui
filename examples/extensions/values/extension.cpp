@@ -229,9 +229,9 @@ private:
     QPointer<ValueEventAdapter> mAdapter; ///< Consumer-owned observation/value converter.
     QPointer<QLabel> mStatus;             ///< Guarded host-owned diagnostic label.
     QFile mCapture;                ///< Optional explicitly requested append-only diagnostic output.
-    quint64 mStateEvents = 0;      ///< Accepted V2 observations after the immutable initial cutoff.
-    quint64 mViewEvents = 0;       ///< Accepted V3 observations after the immutable initial cutoff.
-    quint64 mActivityEvents = 0;   ///< Accepted V4 observations after the immutable initial cutoff.
+    quint64 mStateEvents = 0;      ///< Accepted session events after the immutable initial cutoff.
+    quint64 mViewEvents = 0;       ///< Accepted view events after the immutable initial cutoff.
+    quint64 mActivityEvents = 0;   ///< Accepted activity events after the immutable initial cutoff.
     quint64 mInitialWatermark = 0; ///< Initial shared cutoff, never advanced by refresh.
     quint64 mLastSequence = 0;     ///< Last accepted observation's shared sequence.
 };

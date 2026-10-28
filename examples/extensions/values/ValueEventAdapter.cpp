@@ -232,9 +232,9 @@ ValueEventAdapter::ValueEventAdapter(QObject *sourceLifetime, QObject *parent) :
         sourceLifetime->thread() != thread())
         return;
     mLifetime = sourceLifetime;
-    mState = qobject_cast<IEventSourceV2 *>(sourceLifetime);
-    mView = qobject_cast<IEventSourceV3 *>(sourceLifetime);
-    mActivity = qobject_cast<IEventSourceV4 *>(sourceLifetime);
+    mState = qobject_cast<ISessionEvents *>(sourceLifetime);
+    mView = qobject_cast<IViewEvents *>(sourceLifetime);
+    mActivity = qobject_cast<IActivityEvents *>(sourceLifetime);
     if (mState)
         mStateSubscription.reset(mState->observeState(this, {}, [this](const StateEvent &v) {
             if (canQuery(mStateSubscription))

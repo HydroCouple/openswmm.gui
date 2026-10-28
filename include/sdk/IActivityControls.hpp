@@ -1,5 +1,5 @@
 /**
- * @file IActivityControlsV1.hpp
+ * @file IActivityControls.hpp
  * @brief Versioned identity-checked process cancellation/start and scoped UI commands.
  * @details Optional SDK 1.5 GUI-thread capability. Existing IJob, IJobContext,
  * ExtensionHost and IRunRegistry vtables remain unchanged. No arbitrary private
@@ -14,7 +14,7 @@
 #include <QUuid>
 
 /** @brief Frozen Qt identity for typed process and scoped UI commands. */
-#define OPENSWMM_ACTIVITY_CONTROLS_V1_IID "io.opensimulator.openswmm.IActivityControls/1.0"
+#define OPENSWMM_ACTIVITY_CONTROLS_IID "io.opensimulator.openswmm.IActivityControls/1.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -34,11 +34,11 @@ struct UiActivityCommand {
     QUuid origin;     ///< Optional caller token on synchronous resulting observations.
 };
 /** @brief Frozen optional typed activity control capability. */
-class IActivityControlsV1
+class IActivityControls
 {
 public:
     /** @brief Destroy an implementation; consumers borrow the host-owned capability. */
-    virtual ~IActivityControlsV1() = default;
+    virtual ~IActivityControls() = default;
     /** @brief Start through the existing native run controller for an exact Ready model generation.
      * @param[in] sessionId Per-open model identity, never a persistent project UUID.
      * @param[in] loadGeneration Exact accepted generation from a current state snapshot.
@@ -69,4 +69,4 @@ public:
                                           QString *error = nullptr) = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IActivityControlsV1, OPENSWMM_ACTIVITY_CONTROLS_V1_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IActivityControls, OPENSWMM_ACTIVITY_CONTROLS_IID)

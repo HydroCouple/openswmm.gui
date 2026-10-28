@@ -9,7 +9,7 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV1.hpp"
+#include "sdk/IModelEvents.hpp"
 #include <QVariantMap>
 #include <optional>
 

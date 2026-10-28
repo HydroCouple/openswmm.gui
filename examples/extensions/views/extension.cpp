@@ -10,7 +10,7 @@
  */
 #include "sdk/IGuiExtension.hpp"
 #include "sdk/ExtensionHost.hpp"
-#include "sdk/IViewControlsV1.hpp"
+#include "sdk/IViewControls.hpp"
 #include "sdk/qt/ViewSignalAdapter.hpp"
 #include <QComboBox>
 #include <QLabel>
@@ -47,9 +47,9 @@ public:
     bool initialize(ExtensionHost *host, QString *error) override
     {
         mLifetime = host ? host->lifetime() : nullptr;
-        mSessions = mLifetime ? qobject_cast<IEventSourceV2 *>(mLifetime.data()) : nullptr;
-        mSource = mLifetime ? qobject_cast<IEventSourceV3 *>(mLifetime.data()) : nullptr;
-        mControls = mLifetime ? qobject_cast<IViewControlsV1 *>(mLifetime.data()) : nullptr;
+        mSessions = mLifetime ? qobject_cast<ISessionEvents *>(mLifetime.data()) : nullptr;
+        mSource = mLifetime ? qobject_cast<IViewEvents *>(mLifetime.data()) : nullptr;
+        mControls = mLifetime ? qobject_cast<IViewControls *>(mLifetime.data()) : nullptr;
         if (!mSessions || !mSource || !mControls) {
             if (error)
                 *error = tr("The map and results example requires SDK 1.4 view services.");
@@ -180,9 +180,9 @@ private:
         }
     }
     QPointer<QObject> mLifetime;          ///< Borrowed capability lifetime.
-    IEventSourceV2 *mSessions = nullptr;  ///< Borrowed open-session query source.
-    IEventSourceV3 *mSource = nullptr;    ///< Borrowed copied view query source.
-    IViewControlsV1 *mControls = nullptr; ///< Borrowed validated command entry point.
+    ISessionEvents *mSessions = nullptr;  ///< Borrowed open-session query source.
+    IViewEvents *mSource = nullptr;    ///< Borrowed copied view query source.
+    IViewControls *mControls = nullptr; ///< Borrowed validated command entry point.
     QPointer<ViewSignalAdapter> mAdapter; ///< Consumer-owned typed QObject signal adapter.
     QMetaObject::Connection mLifecycle;   ///< Managed lifecycle refresh connection.
     QPointer<QLabel> mStatus;             ///< Host-owned copied metadata summary.

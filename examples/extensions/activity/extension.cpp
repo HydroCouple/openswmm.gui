@@ -10,7 +10,7 @@
  */
 #include "sdk/ExtensionHost.hpp"
 #include "sdk/IGuiExtension.hpp"
-#include "sdk/IActivityControlsV1.hpp"
+#include "sdk/IActivityControls.hpp"
 #include "sdk/qt/ActivitySignalAdapter.hpp"
 #include <QLabel>
 #include <QPointer>
@@ -51,8 +51,8 @@ public:
     {
         mLifetime = host ? host->lifetime() : nullptr;
         mHost = host;
-        mSource = mLifetime ? qobject_cast<IEventSourceV4 *>(mLifetime.data()) : nullptr;
-        mControls = mLifetime ? qobject_cast<IActivityControlsV1 *>(mLifetime.data()) : nullptr;
+        mSource = mLifetime ? qobject_cast<IActivityEvents *>(mLifetime.data()) : nullptr;
+        mControls = mLifetime ? qobject_cast<IActivityControls *>(mLifetime.data()) : nullptr;
         if (!mSource || !mControls) {
             if (error)
                 *error = tr("This example requires SDK 1.5 activity services.");
@@ -208,8 +208,8 @@ private:
     }
     QPointer<QObject> mLifetime;              ///< Borrowed host lifetime.
     ExtensionHost *mHost = nullptr;           ///< Borrowed scoped host, discarded on shutdown.
-    IEventSourceV4 *mSource = nullptr;        ///< Borrowed copied-state source.
-    IActivityControlsV1 *mControls = nullptr; ///< Borrowed identity-checked controls.
+    IActivityEvents *mSource = nullptr;        ///< Borrowed copied-state source.
+    IActivityControls *mControls = nullptr; ///< Borrowed identity-checked controls.
     QPointer<ActivitySignalAdapter> mAdapter; ///< Consumer-owned typed QObject projection.
     QPointer<QLabel> mStatus;                 ///< Host-owned status summary.
     QSet<QUuid> mJobTerminals, mRunTerminals; ///< Copied distinct terminal identities.

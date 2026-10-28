@@ -1,5 +1,5 @@
 /**
- * @file IProgressV1.hpp
+ * @file IProgress.hpp
  * @brief SDK 1.7 capability for shared application progress and operation logs.
  * @details Discover this optional interface with qobject_cast on ExtensionHost::lifetime().
  * It reports GUI-thread asynchronous work, including network transfers that do not use runJob().
@@ -16,7 +16,7 @@
 #include <QUuid>
 
 /** @brief Frozen discovery identity for shared application progress. */
-#define OPENSWMM_PROGRESS_V1_IID "io.opensimulator.openswmm.IProgress/1.0"
+#define OPENSWMM_PROGRESS_IID "io.opensimulator.openswmm.IProgress/1.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -31,11 +31,11 @@ enum class ProgressOutcome {
  * @note Progress is informational and does not start, cancel or own the underlying work.
  * The extension must stop its work separately when its receiver is destroyed. Host runJob()
  * workers already publish through this service and should not create a duplicate operation. */
-class IProgressV1
+class IProgress
 {
 public:
     /** @brief Destroy an implementation; plugins only borrow the host capability. */
-    virtual ~IProgressV1() = default;
+    virtual ~IProgress() = default;
     /** @brief Begin an operation and immediately publish indeterminate shared progress.
      * @param[in] title Nonempty user-facing title; the host adds the plugin identity.
      * @param[in] context Required GUI-thread lifetime guard, kept on the GUI thread.
@@ -66,5 +66,5 @@ public:
                                 const QString &detail = {}) = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IProgressV1, OPENSWMM_PROGRESS_V1_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IProgress, OPENSWMM_PROGRESS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ProgressOutcome)

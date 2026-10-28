@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(OpenSWMMEventExtension VERSION 1.0.0 LANGUAGES CXX)
 
-find_package(OpenSWMMVisSdk 1.2 CONFIG REQUIRED)
+find_package(OpenSWMMVisSdk 1.9 CONFIG REQUIRED)
 
 set(OPENSWMM_EVENTS_EXAMPLE_ID "org.openswmm.events-example" CACHE STRING
     "Unique reverse-DNS identity for this independently built example")

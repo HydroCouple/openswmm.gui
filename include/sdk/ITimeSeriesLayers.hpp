@@ -1,5 +1,5 @@
 /**
- * @file ITimeSeriesLayersV1.hpp
+ * @file ITimeSeriesLayers.hpp
  * @brief SDK 1.6 capability for durable native observation-layer imports.
  * @details Discover on ExtensionHost::lifetime(). GUI-thread requests target an
  * exact Ready model session/load. Parsing and package creation run in a host job;
@@ -17,7 +17,7 @@
 #include <functional>
 
 /** @brief Frozen discovery identity for the first native time-series service. */
-#define OPENSWMM_TIMESERIES_LAYERS_V1_IID "io.opensimulator.openswmm.ITimeSeriesLayers/1.0"
+#define OPENSWMM_TIMESERIES_LAYERS_IID "io.opensimulator.openswmm.ITimeSeriesLayers/1.0"
 
 namespace OpenSWMM::Sdk
 {
@@ -49,11 +49,11 @@ struct TimeSeriesLayerInfo {
     int seriesCount = 0; ///< Series descriptors, not observation rows.
 };
 /** @brief Optional host-owned import service; all public entry points use the GUI thread. */
-class ITimeSeriesLayersV1
+class ITimeSeriesLayers
 {
 public:
     /** @brief Destroy an implementation; plugins only borrow this capability. */
-    virtual ~ITimeSeriesLayersV1() = default;
+    virtual ~ITimeSeriesLayers() = default;
     /** @brief Prepare and attach a native dataset through a cancellable host job.
      * @param[in] request Exact target and immutable local files; no samples are copied into widgets.
      * @param[in] context Required GUI-thread callback lifetime guard.
@@ -73,5 +73,5 @@ public:
     virtual QList<TimeSeriesLayerInfo> timeSeriesLayers(const QUuid &sessionId) const = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::ITimeSeriesLayersV1, OPENSWMM_TIMESERIES_LAYERS_V1_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::ITimeSeriesLayers, OPENSWMM_TIMESERIES_LAYERS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::TimeSeriesImportResult)

@@ -145,7 +145,8 @@ private slots:
         for (const auto &event : events)
             QVERIFY(event.process.operationId == own || event.process.operationId == shared);
     }
-    /** @brief Preserve one global V2/V3/V4 FIFO despite coalescing and reentrant event-loop attempts. */
+    /** @brief Preserve one global session/view/activity FIFO despite coalescing and
+     * reentrant event-loop attempts. */
     void sharedOrderingAndNonrecursiveDrain()
     {
         ActivityFixture f;

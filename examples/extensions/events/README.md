@@ -1,7 +1,7 @@
 # Typed event extension example
 
 This example builds against the installed OpenSWMM GUI SDK 1.2. It discovers
-`IEventSourceV1` through the host's public lifetime object, subscribes to typed
+`IModelEvents` through the host's public lifetime object, subscribes to typed
 settings events, and compiles a plugin-local `EventSignalAdapter` to expose the
 same events as normal Qt signals.
 

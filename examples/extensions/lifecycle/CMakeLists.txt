@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(OpenSWMMLifecycleExtension VERSION 1.0.0 LANGUAGES CXX)
 
-find_package(OpenSWMMVisSdk 1.3 CONFIG REQUIRED)
+find_package(OpenSWMMVisSdk 1.9 CONFIG REQUIRED)
 
 set(OPENSWMM_LIFECYCLE_EXAMPLE_ID "org.openswmm.lifecycle-example" CACHE STRING
     "Unique reverse-DNS identity for this independently built example")

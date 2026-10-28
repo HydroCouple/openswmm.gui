@@ -14,7 +14,7 @@
 #include "plugins/extensionstateregistry.h"
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionmanager.h"
-#include "sdk/IProgressV1.hpp"
+#include "sdk/IProgress.hpp"
 #include "core/loadprogress.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/simulationstatusmodel.h"
@@ -194,7 +194,7 @@ private slots:
         GuiExtensionHost host("org.openswmm.progress-native", ExtensionManager::buildManifest(),
                               mApp.get(), mApp->findChild<QMdiArea *>("mdiAreaCentral"),
                               bridge, &settings);
-        auto *progress = qobject_cast<IProgressV1 *>(host.lifetime());
+        auto *progress = qobject_cast<IProgress *>(host.lifetime());
         QVERIFY(progress);
         QObject firstContext, secondContext;
         const auto first = progress->beginProgress("Download DEM", &firstContext);

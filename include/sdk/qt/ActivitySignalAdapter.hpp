@@ -9,12 +9,12 @@
  * @license GPL-3.0-or-later
  */
 #pragma once
-#include "sdk/IEventSourceV1.hpp"
-#include "sdk/IEventSourceV4.hpp"
+#include "sdk/IModelEvents.hpp"
+#include "sdk/IActivityEvents.hpp"
 
 namespace OpenSWMM::Sdk
 {
-/** @brief Consumer-owned typed QObject projection of one managed V4 subscription. */
+/** @brief Consumer-owned typed QObject projection of one managed IActivityEvents subscription. */
 class ActivitySignalAdapter final : public QObject
 {
     Q_OBJECT
@@ -23,7 +23,7 @@ public:
      * @param[in] source Borrowed optional host capability; null creates an inert adapter.
      * @param[in] filter Copied reason/operation/session selection.
      * @param[in] parent Optional GUI-thread QObject owner. */
-    explicit ActivitySignalAdapter(IEventSourceV4 *source, const ActivityEventFilter &filter = {},
+    explicit ActivitySignalAdapter(IActivityEvents *source, const ActivityEventFilter &filter = {},
                                    QObject *parent = nullptr);
     /** @brief Disconnect before QObject teardown. */
     ~ActivitySignalAdapter() override;

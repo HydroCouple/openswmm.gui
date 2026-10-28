@@ -12,13 +12,13 @@
  */
 #pragma once
 
-#include "sdk/IEventSourceV1.hpp"
+#include "sdk/IModelEvents.hpp"
 #include <QObject>
 
 namespace OpenSWMM::Sdk
 {
 /** @brief Consumer-owned typed Qt signals backed by one managed host subscription.
- * @details Create on the GUI thread after discovering IEventSourceV1. This
+ * @details Create on the GUI thread after discovering IModelEvents. This
  * adapter borrows the source only during construction; its QObject context
  * guards subsequent callbacks. Destroying or disconnecting it ends its managed
  * source subscription. Ordinary queued downstream slots may still receive
@@ -38,7 +38,7 @@ public:
      * @param[in] filter Copied selection of event kinds and optional persistent model UUID.
      * @param[in] parent Optional QObject owner, on the same GUI thread.
      * @note Invalid/wrong-thread registration leaves isSubscribed() false. */
-    explicit EventSignalAdapter(IEventSourceV1 *source, const EventFilter &filter = {},
+    explicit EventSignalAdapter(IModelEvents *source, const EventFilter &filter = {},
                                 QObject *parent = nullptr);
     /** @brief Disconnect the source subscription before QObject teardown. */
     ~EventSignalAdapter() override;

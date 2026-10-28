@@ -1,5 +1,5 @@
 /**
- * @file IEventSourceV1.hpp
+ * @file IModelEvents.hpp
  * @brief Versioned, typed observations of GUI extension host state.
  * @details This optional interface is discovered through ExtensionHost::lifetime()
  * with qobject_cast. Values describe the existing SDK event coverage, including
@@ -24,12 +24,12 @@
 #include <variant>
 
 /** @brief Frozen Qt interface identity for the first typed host event service. */
-#define OPENSWMM_EVENT_SOURCE_V1_IID "io.opensimulator.openswmm.IEventSource/1.0"
+#define OPENSWMM_MODEL_EVENTS_IID "io.opensimulator.openswmm.IEventSource/1.0"
 
 namespace OpenSWMM::Sdk
 {
-/** @brief Discoverable interface IID, equivalent to OPENSWMM_EVENT_SOURCE_V1_IID. */
-inline constexpr auto EVENT_SOURCE_V1_IID = OPENSWMM_EVENT_SOURCE_V1_IID;
+/** @brief Discoverable interface IID, equivalent to OPENSWMM_MODEL_EVENTS_IID. */
+inline constexpr auto MODEL_EVENTS_IID = OPENSWMM_MODEL_EVENTS_IID;
 
 /** @brief Existing host observations with explicit, stable numeric identities.
  * @note Discovery and closing describe facade discovery and the beginning of
@@ -104,7 +104,7 @@ struct JobFinishedEvent {
     QString error; ///< Failure detail; cancellation may produce an empty string.
 };
 
-/** @brief Closed, owning payload alternatives for the frozen V1 event service. */
+/** @brief Closed, owning payload alternatives for the frozen IModelEvents event service. */
 using EventPayload = std::variant<ModelEvent, SpatialEvent, ResultsEvent, RunsEvent, SettingsEvent,
                                   ThemeEvent, JobProgressEvent, JobFinishedEvent>;
 
@@ -141,9 +141,9 @@ struct Event {
  * @details An empty kind list accepts every known kind. A null instanceId accepts
  * every model and global observation. A specific UUID excludes global events
  * and null-UUID activation events. Layer membership observations do not carry
- * a layer ID, so V1 deliberately has no layer-identity filter. */
+ * a layer ID, so IModelEvents deliberately has no layer-identity filter. */
 struct EventFilter {
-    QList<EventKind> kinds; ///< Accepted kinds, or empty for every V1 kind.
+    QList<EventKind> kinds; ///< Accepted kinds, or empty for every IModelEvents kind.
     QUuid instanceId;       ///< Accepted model UUID, or null for every model/global event.
 
     /** @brief Test a typed value against this filter without consulting host state.
@@ -157,15 +157,15 @@ struct EventFilter {
 };
 
 /** @brief Optional, frozen interface for receiver-scoped typed GUI observations.
- * @details Discover with qobject_cast<IEventSourceV1 *>(host->lifetime()).
+ * @details Discover with qobject_cast<IModelEvents *>(host->lifetime()).
  * A null result means the capability is unavailable. The host owns this
  * interface; never delete, reparent or retain it after its QObject lifetime.
  * Commands continue through the public model/project/UI/application services. */
-class IEventSourceV1
+class IModelEvents
 {
 public:
     /** @brief Destroy an implementation; plugins borrow the host-owned service. */
-    virtual ~IEventSourceV1() = default;
+    virtual ~IModelEvents() = default;
 
     /** @brief Subscribe to filtered typed observations on the GUI thread.
      * @param[in] context Required GUI-thread QObject receiver lifetime; destruction disconnects.
@@ -242,7 +242,7 @@ private:
 };
 }
 
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IEventSourceV1, OPENSWMM_EVENT_SOURCE_V1_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IModelEvents, OPENSWMM_MODEL_EVENTS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::EventKind)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ModelEvent)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::SpatialEvent)

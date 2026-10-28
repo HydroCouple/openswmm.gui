@@ -1,7 +1,7 @@
 # Session lifecycle extension example
 
 This example builds against the installed OpenSWMM GUI SDK 1.3. It discovers
-`IEventSourceV2`, displays copied session metadata, and uses the separate
+`ISessionEvents`, displays copied session metadata, and uses the separate
 synchronous pre-save hook to collect its own project state. It links only to
 the public SDK and Qt; no additional signal adapter is required.
 

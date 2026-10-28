@@ -58,7 +58,7 @@ function(openswmmvis_add_extension target)
     target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
 endfunction()
 
-# Compile the optional V3 Qt view adapter into a consumer, with private symbols.
+# Compile the optional IViewEvents Qt adapter into a consumer, with private symbols.
 function(openswmmvis_add_view_adapter target)
     if(NOT TARGET ${target})
         message(FATAL_ERROR "openswmmvis_add_view_adapter needs an existing target")
@@ -79,7 +79,7 @@ function(openswmmvis_add_view_adapter target)
         OPENSWMMVIS_VIEW_ADAPTER_ADDED TRUE)
 endfunction()
 
-# Compile the optional V4 Qt activity adapter into a consumer with private symbols.
+# Compile the optional IActivityEvents Qt adapter into a consumer with private symbols.
 function(openswmmvis_add_activity_adapter target)
     if(NOT TARGET ${target})
         message(FATAL_ERROR "openswmmvis_add_activity_adapter needs an existing target")

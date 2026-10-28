@@ -1,8 +1,8 @@
 /**
- * @file IEventSourceV2.hpp
+ * @file ISessionEvents.hpp
  * @brief Authoritative model-session lifecycle, revision snapshots and project-save observations.
  * @details This optional SDK 1.3 capability is discovered through the host lifetime
- * QObject. It preserves the separately frozen V1 event contract. All operations
+ * QObject. It preserves the separately frozen IModelEvents event contract. All operations
  * use the GUI thread; values contain identities and copied metadata, never private
  * window or engine pointers. Interface and value layouts are frozen for this IID.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
@@ -21,13 +21,13 @@
 #include <functional>
 
 /** @brief Frozen Qt discovery identity for authoritative lifecycle observations. */
-#define OPENSWMM_EVENT_SOURCE_V2_IID "io.opensimulator.openswmm.IEventSource/2.0"
+#define OPENSWMM_SESSION_EVENTS_IID "io.opensimulator.openswmm.IEventSource/2.0"
 
 namespace OpenSWMM::Sdk
 {
 class IModelInstance;
-inline constexpr auto EVENT_SOURCE_V2_IID =
-    OPENSWMM_EVENT_SOURCE_V2_IID; ///< Public alias for the frozen discovery identity.
+inline constexpr auto SESSION_EVENTS_IID =
+    OPENSWMM_SESSION_EVENTS_IID; ///< Public alias for the frozen discovery identity.
 
 /** @brief Current availability of an open model-window session. */
 enum class SessionStatus : quint32 {
@@ -75,7 +75,7 @@ struct ModelSessionState {
  * is not an atomic copy of arbitrary engine, geometry or result payloads. */
 struct StateSnapshot {
     quint64 sequence =
-        0; ///< Registry-wide committed-publication watermark, not V1's host sequence.
+        0; ///< Registry-wide committed-publication watermark, not IModelEvents' host sequence.
     QList<ModelSessionState> sessions; ///< Live Created/Loading/Ready/Failed/Closing sessions.
 };
 
@@ -159,11 +159,11 @@ struct SaveRequest {
 };
 
 /** @brief Frozen optional access to session snapshots and authoritative lifecycle observations. */
-class IEventSourceV2
+class ISessionEvents
 {
 public:
     /** @brief Destroy an implementation; callers borrow the host-owned capability. */
-    virtual ~IEventSourceV2() = default;
+    virtual ~ISessionEvents() = default;
     /** @brief Copy live session metadata without creating facades or publishing events.
      * @return Atomic GUI-thread snapshot with a shared registry watermark. */
     virtual StateSnapshot stateSnapshot() const = 0;
@@ -193,7 +193,7 @@ public:
     observeBeforeSave(QObject *context, std::function<void(const SaveRequest &)> callback) = 0;
 };
 }
-Q_DECLARE_INTERFACE(OpenSWMM::Sdk::IEventSourceV2, OPENSWMM_EVENT_SOURCE_V2_IID)
+Q_DECLARE_INTERFACE(OpenSWMM::Sdk::ISessionEvents, OPENSWMM_SESSION_EVENTS_IID)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::ModelSessionState)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::StateSnapshot)
 Q_DECLARE_METATYPE(OpenSWMM::Sdk::StateEvent)

@@ -25,7 +25,7 @@
 #include "plugins/extensiontimeseriesaccess.h"
 #include "plugins/extensionstateregistry.h"
 #include "plugins/guiextensionhost.h"
-#include "sdk/ITimeSeriesLayersV1.hpp"
+#include "sdk/ITimeSeriesLayers.hpp"
 #include "ui/panels/layertreecategories.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/timeserieslayerbrowser.h"
@@ -526,7 +526,7 @@ private slots:
         mdi->addSubWindow(window);
         QList<QString> warnings, errors;
         QVERIFY(window->loadModel(warnings, errors));
-        auto *capability = qobject_cast<ITimeSeriesLayersV1 *>(host->lifetime());
+        auto *capability = qobject_cast<ITimeSeriesLayers *>(host->lifetime());
         QVERIFY(capability);
         const auto state = host->stateRegistry()->session(window->extensionSessionId());
         TimeSeriesImportRequest request{state.sessionId, state.loadGeneration, QUuid::createUuid(),

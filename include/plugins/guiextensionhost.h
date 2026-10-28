@@ -9,15 +9,15 @@
  */
 #pragma once
 #include "sdk/ExtensionHost.hpp"
-#include "sdk/IEventSourceV1.hpp"
-#include "sdk/IEventSourceV2.hpp"
-#include "sdk/IEventSourceV3.hpp"
-#include "sdk/IViewControlsV1.hpp"
-#include "sdk/IEventSourceV4.hpp"
-#include "sdk/IActivityControlsV1.hpp"
-#include "sdk/ITimeSeriesLayersV1.hpp"
-#include "sdk/IProgressV1.hpp"
-#include "sdk/IPreviewLayersV1.hpp"
+#include "sdk/IModelEvents.hpp"
+#include "sdk/ISessionEvents.hpp"
+#include "sdk/IViewEvents.hpp"
+#include "sdk/IViewControls.hpp"
+#include "sdk/IActivityEvents.hpp"
+#include "sdk/IActivityControls.hpp"
+#include "sdk/ITimeSeriesLayers.hpp"
+#include "sdk/IProgress.hpp"
+#include "sdk/IPreviewLayers.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -87,18 +87,18 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IRunRegistry,
                                public OpenSWMM::Sdk::IPlotService,
                                public OpenSWMM::Sdk::IDialogs,
-                               public OpenSWMM::Sdk::IEventSourceV1,
-                               public OpenSWMM::Sdk::IEventSourceV2,
-                               public OpenSWMM::Sdk::IEventSourceV3,
-                               public OpenSWMM::Sdk::IViewControlsV1,
-                               public OpenSWMM::Sdk::IEventSourceV4,
-                               public OpenSWMM::Sdk::IActivityControlsV1,
-                               public OpenSWMM::Sdk::ITimeSeriesLayersV1,
-                               public OpenSWMM::Sdk::IProgressV1,
-                               public OpenSWMM::Sdk::IPreviewLayersV1
+                               public OpenSWMM::Sdk::IModelEvents,
+                               public OpenSWMM::Sdk::ISessionEvents,
+                               public OpenSWMM::Sdk::IViewEvents,
+                               public OpenSWMM::Sdk::IViewControls,
+                               public OpenSWMM::Sdk::IActivityEvents,
+                               public OpenSWMM::Sdk::IActivityControls,
+                               public OpenSWMM::Sdk::ITimeSeriesLayers,
+                               public OpenSWMM::Sdk::IProgress,
+                               public OpenSWMM::Sdk::IPreviewLayers
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IEventSourceV1 OpenSWMM::Sdk::IEventSourceV2 OpenSWMM::Sdk::IEventSourceV3 OpenSWMM::Sdk::IViewControlsV1 OpenSWMM::Sdk::IEventSourceV4 OpenSWMM::Sdk::IActivityControlsV1 OpenSWMM::Sdk::ITimeSeriesLayersV1 OpenSWMM::Sdk::IProgressV1 OpenSWMM::Sdk::IPreviewLayersV1)
+    Q_INTERFACES(OpenSWMM::Sdk::IModelEvents OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IViewControls OpenSWMM::Sdk::IActivityEvents OpenSWMM::Sdk::IActivityControls OpenSWMM::Sdk::ITimeSeriesLayers OpenSWMM::Sdk::IProgress OpenSWMM::Sdk::IPreviewLayers)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -124,11 +124,11 @@ public:
     OpenSWMM::Sdk::IUiHost *ui() override { return this; }
     OpenSWMM::Sdk::ISettings *settings() override { return this; }
     OpenSWMM::Sdk::IConsole *console() override { return this; }
-    /** @copydoc OpenSWMM::Sdk::IProgressV1::beginProgress */
+    /** @copydoc OpenSWMM::Sdk::IProgress::beginProgress */
     QUuid beginProgress(const QString &title, QObject *context) override;
-    /** @copydoc OpenSWMM::Sdk::IProgressV1::updateProgress */
+    /** @copydoc OpenSWMM::Sdk::IProgress::updateProgress */
     bool updateProgress(const QUuid &operationId, double fraction, const QString &stage) override;
-    /** @copydoc OpenSWMM::Sdk::IProgressV1::finishProgress */
+    /** @copydoc OpenSWMM::Sdk::IProgress::finishProgress */
     bool finishProgress(const QUuid &operationId, OpenSWMM::Sdk::ProgressOutcome outcome,
                         const QString &detail = {}) override;
     OpenSWMM::Sdk::INetworkPolicy *network() override;
@@ -192,7 +192,7 @@ public:
             const OpenSWMM::Sdk::TimeSeriesImportRequest &, QObject *,
             std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)>, QString *)> importer,
         std::function<QList<OpenSWMM::Sdk::TimeSeriesLayerInfo>(const QUuid &)> layers);
-    /** @copydoc OpenSWMM::Sdk::IPreviewLayersV1::previewLayer */
+    /** @copydoc OpenSWMM::Sdk::IPreviewLayers::previewLayer */
     QUuid previewLayer(const QUuid &sessionId, QList<qint64> *featureIds = nullptr) const override;
     /** @brief Install the private native preview-layer lookup before extension initialization.
      * @param[in] lookup Session-scoped resolver for this host's own preview facade. */
@@ -228,7 +228,7 @@ public:
      * @param[in] sessionId Per-open model identity.
      * @return Owning state, or a null-session value when unavailable. */
     OpenSWMM::Sdk::ViewSnapshot viewSnapshot(const QUuid &sessionId) const override;
-    /** @brief Observe future V3 domain invalidations on the ordered shared dispatcher.
+    /** @brief Observe future IViewEvents domain invalidations on the ordered shared dispatcher.
      * @param[in] context Required GUI-thread lifetime guard.
      * @param[in] filter Copied reason/session/attachment filter.
      * @param[in] callback Managed exception-isolated observer.
@@ -368,7 +368,7 @@ signals:
     void eventOccurred(const QString &event, const QVariantMap &data);
     /** @brief Publish one canonical typed notification before its legacy projection.
      * @param[in] event Owning domain value with per-host publication sequence.
-     * @note Private implementation signal; plugins discover IEventSourceV1 instead. */
+     * @note Private implementation signal; plugins discover IModelEvents instead. */
     void typedEventOccurred(const OpenSWMM::Sdk::Event &event);
 
 protected:
@@ -437,7 +437,7 @@ private:
     std::unique_ptr<ExtensionActivityUi> mActivityUi; ///< Native scoped UI observation/controller bridge.
     quint64 mEventSequence = 0; ///< Per-host typed publication identity, not state revision.
     QPointer<ExtensionStateRegistry> mStateRegistry; ///< Shared authoritative lifecycle source.
-    QList<QMetaObject::Connection> mStateConnections; ///< Managed V2 callbacks cleared before plugin shutdown.
+    QList<QMetaObject::Connection> mStateConnections; ///< Session callbacks, cleared at shutdown.
     std::function<OpenSWMM::Sdk::IModelInstance *(const QUuid &)> mSessionResolver;
     std::function<bool(const OpenSWMM::Sdk::ViewCommand &, QString *)> mViewCommand;
     std::function<QList<qint64>(const QUuid &, const QUuid &, int, int)> mViewSelection;

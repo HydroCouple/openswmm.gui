@@ -13,7 +13,7 @@
  */
 #include "plugins/extensionmanager.h"
 #include "plugins/guiextensionhost.h"
-#include "sdk/IEventSourceV1.hpp"
+#include "sdk/IModelEvents.hpp"
 #include "sdk/qt/EventSignalAdapter.hpp"
 #include <QDir>
 #include <QLabel>
@@ -104,10 +104,10 @@ private slots:
     void capabilityDiscovery()
     {
         auto h = host("event-capability");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         QObject unsupportedHost;
-        QVERIFY(!qobject_cast<IEventSourceV1 *>(&unsupportedHost));
+        QVERIFY(!qobject_cast<IModelEvents *>(&unsupportedHost));
     }
 
     /** @brief Enumerate the existing notification names without inventing richer lifecycle events. */
@@ -141,7 +141,7 @@ private slots:
         QFETCH(QString, name);
         QFETCH(int, kind);
         auto h = host("event-payloads");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         QList<Event> delivered;
         QStringList legacyNames;
@@ -293,7 +293,7 @@ private slots:
     void filtersKindsAndInstanceIdentity()
     {
         auto h = host("event-filters");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         const auto selected = QUuid::createUuid();
         const auto other = QUuid::createUuid();
@@ -327,8 +327,8 @@ private slots:
     {
         auto a = host("event-sequence-a");
         auto b = host("event-sequence-b");
-        auto *firstSource = qobject_cast<IEventSourceV1 *>(a->lifetime());
-        auto *secondSource = qobject_cast<IEventSourceV1 *>(b->lifetime());
+        auto *firstSource = qobject_cast<IModelEvents *>(a->lifetime());
+        auto *secondSource = qobject_cast<IModelEvents *>(b->lifetime());
         QVERIFY(firstSource);
         QVERIFY(secondSource);
         QList<quint64> first;
@@ -358,7 +358,7 @@ private slots:
     void reentrantDeliveryCanReorderPublicationsForLaterObservers()
     {
         auto h = host("event-reentrant");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         QList<quint64> first;
         QList<quint64> second;
@@ -378,7 +378,7 @@ private slots:
     void subscriptionsFollowReceiverAndHostLifetimes()
     {
         auto h = host("event-lifetimes");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         auto receiver = std::make_unique<QObject>();
         int calls = 0;
@@ -406,7 +406,7 @@ private slots:
     void scopedSubscriptionsOwnTheirConnections()
     {
         auto h = host("event-scoped");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         int first = 0;
         int second = 0;
@@ -440,7 +440,7 @@ private slots:
     void subscriptionsRejectInvalidAndWorkerContexts()
     {
         auto h = host("event-threads");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         std::atomic<int> calls{0};
         const auto callback = [&](const Event &) { ++calls; };
@@ -476,7 +476,7 @@ private slots:
     void movedReceiversDoNotReceiveWorkerCallbacks()
     {
         auto h = host("event-moved");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         QThread worker;
         QObject receiver;
@@ -499,7 +499,7 @@ private slots:
     void shutdownSuppressesRemainingAndPostedDelivery()
     {
         auto h = host("event-stop");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         int typed = 0;
         int legacy = 0;
@@ -523,7 +523,7 @@ private slots:
     void exceptionsDoNotInterruptOtherTypedOrLegacyObservers()
     {
         auto h = host("event-exceptions");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         int typed = 0;
         int legacy = 0;
@@ -547,7 +547,7 @@ private slots:
     void observerMayDestroyHostBeforeThrowing()
     {
         auto h = host("event-destroy");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         QVERIFY(source->subscribe(this, {}, [&](const Event &) {
             h.reset();
@@ -564,7 +564,7 @@ private slots:
     void adapterCanDisconnectOrBeDeletedDuringOccurred()
     {
         auto h = host("event-adapter-lifetime");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         EventSignalAdapter unsupported(nullptr);
         QVERIFY(!unsupported.isSubscribed());
@@ -603,7 +603,7 @@ private slots:
     void queuedAdapterValuesFollowQtDisconnectSemantics()
     {
         auto h = host("event-adapter-queue");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         EventSignalAdapter adapter(source);
         QObject receiver;
@@ -643,7 +643,7 @@ private slots:
     void adapterBecomesUnsubscribedWhenSourceStops()
     {
         auto h = host("event-adapter-stop");
-        auto *source = qobject_cast<IEventSourceV1 *>(h->lifetime());
+        auto *source = qobject_cast<IModelEvents *>(h->lifetime());
         QVERIFY(source);
         EventSignalAdapter adapter(source);
         QVERIFY(adapter.isSubscribed());

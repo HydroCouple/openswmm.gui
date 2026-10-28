@@ -1,8 +1,8 @@
 # Copied event values example
 
 This ordinary C++ Qt plugin demonstrates a consumer-local `ValueEventAdapter`
-built against the installed SDK 1.5 alone. It observes V2 lifecycle/save, V3
-model/layer/results and V4 process/UI metadata. The example adds a diagnostic dock
+built against the installed SDK 1.9 alone. It observes ISessionEvents lifecycle/save, IViewEvents
+model/layer/results and IActivityEvents process/UI metadata. The example adds a diagnostic dock
 and a command to show it. No scripting runtime, engine library or new host service
 is introduced.
 
@@ -63,7 +63,7 @@ rendering-channel descriptors, retained attempts, documents and scoped commands
 and docks. They contain no geometry, feature selections, result data arrays,
 reader handles, engine addresses or widgets. The adapter adds no replay/history
 store or event backlog. Source retention, coalescing, scopes and filters still
-govern delivery. V1's separate host-local sequence is not mixed into this example.
+govern delivery. IModelEvents' separate host-local sequence is not mixed into this example.
 
 Keep each initial shared sequence cutoff immutable after subscribing. Later
 queries refresh current display state; they must not move an event counter's

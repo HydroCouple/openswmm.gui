@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.8")
+set(OPENSWMMVIS_SDK_API_VERSION "1.9")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)

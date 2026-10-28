@@ -1,6 +1,6 @@
 /**
  * @file ActivitySignalAdapter.cpp
- * @brief Consumer-local typed Qt projection of V4 process/UI observations.
+ * @brief Consumer-local typed Qt projection of IActivityEvents process/UI observations.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license GPL-3.0-or-later
@@ -10,7 +10,7 @@
 
 namespace OpenSWMM::Sdk
 {
-ActivitySignalAdapter::ActivitySignalAdapter(IEventSourceV4 *source,
+ActivitySignalAdapter::ActivitySignalAdapter(IActivityEvents *source,
                                              const ActivityEventFilter &filter, QObject *parent)
     : QObject(parent)
 {

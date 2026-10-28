@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 cmake_minimum_required(VERSION 3.21)
 project(OpenSWMMActivityExtension VERSION 1.0.0 LANGUAGES CXX)
-find_package(OpenSWMMVisSdk 1.5 CONFIG REQUIRED)
+find_package(OpenSWMMVisSdk 1.9 CONFIG REQUIRED)
 set(OPENSWMM_ACTIVITY_EXAMPLE_ID "org.openswmm.activity-example" CACHE STRING
     "Unique reverse-DNS identity for this independently built activity example")
 if(NOT OPENSWMM_ACTIVITY_EXAMPLE_ID MATCHES "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)+$")

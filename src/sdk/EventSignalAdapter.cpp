@@ -1,6 +1,6 @@
 /**
  * @file EventSignalAdapter.cpp
- * @brief Plugin-local Qt signal projection of the optional V1 host event service.
+ * @brief Plugin-local Qt signal projection of the optional IModelEvents host event service.
  * @details This source is compiled by consumers against the installed public SDK.
  * It registers owning value metatypes and retains one receiver-scoped subscription.
  * Direct slots may disconnect or destroy the adapter while handling occurred();
@@ -16,7 +16,7 @@
 
 namespace OpenSWMM::Sdk
 {
-EventSignalAdapter::EventSignalAdapter(IEventSourceV1 *source, const EventFilter &filter,
+EventSignalAdapter::EventSignalAdapter(IModelEvents *source, const EventFilter &filter,
                                        QObject *parent)
     : QObject(parent)
 {
