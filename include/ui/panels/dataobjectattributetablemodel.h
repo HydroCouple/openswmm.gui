@@ -33,6 +33,7 @@
 #include "ui/panels/swmmattributetablemodel.h" // openswmmvis::ColumnSpec
 
 #include <QAbstractTableModel>
+#include <QHash>
 #include <QList>
 #include <QPointer>
 
@@ -198,6 +199,8 @@ public:
      *   dialog. GUI-thread/source lifetime must remain valid through synchronous notifications.
      */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
+    /** Apply a uniform value to editable rows with one registry flush and one undo command. */
+    void setDataForRows(int column, const QList<int> &rows, const QVariant &value);
     /**
      * @param[in] index Expected current model index; invalid returns base flags. Foreign/stale
      *   indexes not supported.
@@ -293,6 +296,7 @@ private:
 
     QList<Field> m_fields;           ///< column 0 (Name) included
     QList<QPointer<QObject>> m_rows; ///< providers in registry order
+    QHash<QObject *, int> m_providerRows; ///< provider notifications resolve without a row scan
 };
 
 #endif // OPENSWMMVIS_UI_PANELS_DATAOBJECTATTRIBUTETABLEMODEL_H

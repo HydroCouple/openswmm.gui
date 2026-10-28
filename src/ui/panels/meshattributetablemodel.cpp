@@ -275,6 +275,71 @@ bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
     return *va >= 0 && *va < m.vertices.size() && *vb >= 0 && *vb < m.vertices.size();
 }
 
+// Common million-row numeric edits need only one old double and one index
+// per changed element, rather than full vertex/BC snapshots or N commands.
+class MeshTableNumericCommand : public QUndoCommand
+{
+public:
+    MeshTableNumericCommand(SWMM2DMeshLayer *layer, QByteArray key, QVector<int> indices,
+                            QVector<double> oldValues, double value, const QString &label)
+        : QUndoCommand(label), m_layer(layer), m_key(std::move(key)),
+          m_indices(std::move(indices)), m_old(std::move(oldValues)), m_value(value)
+    {
+    }
+    void undo() override { apply(true); }
+    void redo() override { apply(false); }
+private:
+    void apply(bool undo)
+    {
+        if (!m_layer)
+            return;
+        mesh::AttributeEditBatch batch(m_layer, m_indices.size());
+        for (int i = 0; i < m_indices.size(); ++i) {
+            const double value = undo ? m_old[i] : m_value;
+            const int index = m_indices[i];
+            if (m_key == "z")
+                m_layer->applyMeshVertexZ(index, value);
+            else if (m_key == "mannings")
+                m_layer->applyMeshTriangleMannings(index, value);
+            else if (m_key == "initDepth")
+                m_layer->applyMeshTriangleInitDepth(index, value);
+            else
+                m_layer->applyMeshEdgeConveyance(mesh::slotCell(index), mesh::slotLocal(index), value);
+        }
+    }
+    QPointer<SWMM2DMeshLayer> m_layer;
+    QByteArray m_key;
+    QVector<int> m_indices;
+    QVector<double> m_old;
+    double m_value;
+};
+
+bool editedInfilRow(SWMM2DMeshLayer *layer, int row, const QByteArray &key,
+                    const QVariant &value, mesh::InfilRow *next)
+{
+    *next = mesh::resolveInfil(layer->mesh(), row).row;
+    if (key == "infil.method") {
+        bool ok = false;
+        const int method = value.toInt(&ok);
+        if (!ok || method < int(mesh::InfilMethod::None) || method > int(mesh::InfilMethod::Constant))
+            return false;
+        next->method = static_cast<mesh::InfilMethod>(method);
+        for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+            if (!mesh::infilUsesParam(next->method, k))
+                next->p[k] = std::numeric_limits<double>::quiet_NaN();
+    } else {
+        const int slot = mesh::infilSlotForKey(next->method, key);
+        if (slot < 0)
+            return false;
+        bool ok = false;
+        const double number = value.toDouble(&ok);
+        if (!ok)
+            return false;
+        next->p[slot] = number;
+    }
+    return true;
+}
+
 /*! Placeholder shown in a cell that does not apply to this row (a BC field on
  *  an interior edge, a per-cell parameter awaiting engine support). */
 
@@ -1008,29 +1073,9 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
             // and the whole thing is pushed through the one funnel that
             // snapshots provenance, so undo can put an inheriting cell back
             // to inheriting rather than to a materialised copy.
-            mesh::InfilRow next = mesh::resolveInfil(m_layer->mesh(), row).row;
-            if (key == "infil.method") {
-                bool okm = false;
-                const int mi = v.toInt(&okm);
-                if (!okm || mi < int(mesh::InfilMethod::None) ||
-                    mi > int(mesh::InfilMethod::Constant))
-                    return false;
-                next.method = static_cast<mesh::InfilMethod>(mi);
-                // Slots the new method does not read carry no meaning — clear
-                // them so a method switch cannot leave a stale number behind.
-                for (int k = 0; k < mesh::kInfilMaxParams; ++k)
-                    if (!mesh::infilUsesParam(next.method, k))
-                        next.p[k] = std::numeric_limits<double>::quiet_NaN();
-            } else {
-                const int slot = mesh::infilSlotForKey(next.method, key);
-                if (slot < 0)
-                    return false; // masked — flags() refuses it too
-                bool okv = false;
-                const double dv = v.toDouble(&okv);
-                if (!okv)
-                    return false;
-                next.p[slot] = dv;
-            }
+            mesh::InfilRow next;
+            if (!editedInfilRow(m_layer, row, key, v, &next))
+                return false;
             changed = mesh::pushCellInfilEdit(m_layer, {row}, next, m_canvas);
         } else {
             changed = mesh::pushCellParamEdit(m_layer, {row}, key, v.toDouble(), m_canvas);
@@ -1044,6 +1089,92 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     // objectEdited is the user-edit-only signal other views key off.
     emit objectEdited(refForRow(row).name);
     return true;
+}
+
+void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourceRows,
+                                            const QVariant &value)
+{
+    if (!m_layer || column < 0 || column >= m_columnSpecs.size())
+        return;
+    QVector<int> rows;
+    rows.reserve(sourceRows.size());
+    for (int row : sourceRows)
+        if (flags(index(row, column)) & Qt::ItemIsEditable)
+            rows.append(row);
+    if (rows.isEmpty())
+        return;
+    const auto &spec = m_columnSpecs[column];
+    const auto key = spec.key.toUtf8();
+    QVariant v = value;
+    if (v.userType() == qMetaTypeId<DataObjectRef>())
+        v = v.value<DataObjectRef>().currentName;
+    int changed = 0;
+    const bool compactNumeric = (m_kind == Kind::Vertex && key == "z") ||
+        (m_kind == Kind::Edge && key == "conveyance") ||
+        (m_kind == Kind::Cell && (key == "mannings" || key == "initDepth"));
+    if (compactNumeric) {
+        bool ok = false;
+        const double number = v.toDouble(&ok);
+        if ((!ok && m_kind != Kind::Cell) || !std::isfinite(number) ||
+            (key == "mannings" && number <= 0.0) ||
+            (key == "initDepth" && number < 0.0) ||
+            (key == "conveyance" && (number < 0.0 || number > 1.0)))
+            return;
+        QVector<int> indices;
+        QVector<double> oldValues;
+        indices.reserve(rows.size());
+        oldValues.reserve(rows.size());
+        for (int row : rows) {
+            const int index = m_kind == Kind::Edge ? slotForRow(row) : row;
+            const double before = m_kind == Kind::Vertex ? m_layer->mesh().vertices[row].z
+                : m_kind == Kind::Edge ? m_layer->edgeBCs()[index].conveyance
+                : key == "mannings" ? m_layer->mesh().triangles[row].mannings
+                                     : m_layer->mesh().triangles[row].initDepth;
+            if (std::isfinite(before) && before == number)
+                continue;
+            indices.append(index);
+            oldValues.append(m_kind == Kind::Cell && !std::isfinite(before)
+                ? mesh::cellParamSpec(key)->defaultValue : before);
+        }
+        changed = indices.size();
+        if (changed) {
+            auto *command = new MeshTableNumericCommand(m_layer, key, std::move(indices),
+                std::move(oldValues), number, tr("Apply %1 to %2 rows").arg(spec.label).arg(changed));
+            if (m_canvas && m_canvas->undoStack())
+                m_canvas->undoStack()->push(command);
+            else {
+                command->redo();
+                delete command;
+            }
+        }
+    } else if (m_kind == Kind::Vertex) {
+        changed = mesh::pushVertexParamEdit(m_layer, rows, key, v, m_canvas);
+    } else if (m_kind == Kind::Edge) {
+        QVector<QPair<int, int>> edges;
+        edges.reserve(rows.size());
+        for (int row : rows) {
+            const int slot = slotForRow(row);
+            edges.append(qMakePair(mesh::slotCell(slot), mesh::slotLocal(slot)));
+        }
+        changed = mesh::pushEdgeParamEdit(m_layer, edges, key, v, m_canvas);
+    } else if (key == "tag") {
+        changed = mesh::pushCellTagEdit(m_layer, rows, v.toString(), m_canvas);
+    } else if (key.startsWith("infil.")) {
+        QVector<int> cells;
+        QVector<mesh::InfilRow> targets;
+        cells.reserve(rows.size());
+        targets.reserve(rows.size());
+        for (int row : rows) {
+            mesh::InfilRow next;
+            if (editedInfilRow(m_layer, row, key, v, &next)) {
+                cells.append(row);
+                targets.append(next);
+            }
+        }
+        changed = mesh::pushCellInfilEdits(m_layer, cells, targets, m_canvas);
+    }
+    if (changed > 0)
+        emit objectEdited(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));
 }
 
 QVariant MeshAttributeTableModel::headerData(int section, Qt::Orientation orientation,

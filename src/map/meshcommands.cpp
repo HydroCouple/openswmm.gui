@@ -15,10 +15,26 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshinfil.h"
+#include "mesh/meshobjectref.h"
 
 #include <QCoreApplication>
 
 #include <cmath>
+
+mesh::AttributeEditBatch::AttributeEditBatch(SWMM2DMeshLayer *layer, qsizetype count)
+    : m_layer(count > 1 ? layer : nullptr), m_signals(m_layer)
+{
+}
+
+mesh::AttributeEditBatch::~AttributeEditBatch()
+{
+    m_signals.unblock();
+    if (m_layer && !m_layer->signalsBlocked()) {
+        emit m_layer->attributeChanged(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));
+        emit m_layer->meshEditsChanged();
+        emit m_layer->repaintRequested();
+    }
+}
 
 namespace
 {
@@ -102,6 +118,7 @@ void MeshSetTriangleAttributeCommand::apply(const QVector<double> &values)
 {
     if (!m_layer)
         return; // layer closed — nothing to restore onto
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
     for (int i = 0; i < m_tris.size() && i < values.size(); ++i) {
         const double v = values[i];
         // NaN = "was unset". The layer has no way to clear an attribute back
@@ -141,6 +158,7 @@ void MeshSetTriangleTagCommand::redo()
 {
     if (!m_layer)
         return;
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
     for (int t : m_tris)
         m_layer->applyMeshTriangleTag(t, m_newTag);
 }
@@ -149,6 +167,7 @@ void MeshSetTriangleTagCommand::undo()
 {
     if (!m_layer)
         return;
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
     for (int i = 0; i < m_tris.size() && i < m_oldTags.size(); ++i)
         m_layer->applyMeshTriangleTag(m_tris[i], m_oldTags[i]);
 }
@@ -172,6 +191,7 @@ void MeshSetVertexAttributeCommand::apply(const QVector<mesh::MeshVertex> &attrs
 {
     if (!m_layer)
         return; // layer closed — nothing to restore onto
+    mesh::AttributeEditBatch batch(m_layer, m_verts.size());
     for (int i = 0; i < m_verts.size() && i < attrs.size(); ++i) {
         const int v = m_verts[i];
         const mesh::MeshVertex &a = attrs[i];
@@ -241,6 +261,7 @@ void MeshSetEdgeAttributeCommand::apply(const QVector<mesh::MeshEdgeBC> &bcs)
 {
     if (!m_layer)
         return;
+    mesh::AttributeEditBatch batch(m_layer, m_slots.size());
     const bool conveyance = (m_key == "conveyance");
     for (int i = 0; i < m_slots.size() && i < bcs.size(); ++i) {
         const int tri = mesh::slotCell(m_slots[i]);
@@ -282,14 +303,25 @@ void MeshSetTriangleInfilCommand::redo()
 {
     if (!m_layer)
         return; // layer closed — nothing to write onto
-    for (int t : m_tris)
-        m_layer->applyMeshTriangleInfil(t, m_newRow);
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
+    for (int i = 0; i < m_tris.size() && (m_newRows.isEmpty() || i < m_newRows.size()); ++i)
+        m_layer->applyMeshTriangleInfil(m_tris[i], m_newRows.isEmpty() ? m_newRow : m_newRows[i]);
+}
+
+MeshSetTriangleInfilCommand::MeshSetTriangleInfilCommand(
+    SWMM2DMeshLayer *layer, QVector<int> triangles, QVector<mesh::InfilRow> newRows,
+    QVector<mesh::InfilRow> oldRows, QVector<mesh::InfilProvenance> oldProv,
+    const QString &text, MapCanvas *canvas)
+    : MapCommand(text, canvas), m_layer(layer), m_tris(std::move(triangles)),
+      m_newRows(std::move(newRows)), m_oldRows(std::move(oldRows)), m_oldProv(std::move(oldProv))
+{
 }
 
 void MeshSetTriangleInfilCommand::undo()
 {
     if (!m_layer)
         return;
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
     for (int i = 0; i < m_tris.size() && i < m_oldProv.size(); ++i) {
         // THE correctness point of GG0c. A cell that was inheriting from its
         // region tag (or from the '*' row) had NO [2D_INFILTRATION] row of its
@@ -711,6 +743,39 @@ int pushCellInfilEdit(SWMM2DMeshLayer *layer, const QVector<int> &triangles, con
     const QString text = QCoreApplication::translate(
         "MeshCommands", "Set infiltration on %n cell(s)", nullptr, int(tris.size()));
     pushOrRun(new MeshSetTriangleInfilCommand(layer, tris, row, oldRows, oldProv, text, canvas),
+              canvas);
+    return tris.size();
+}
+
+int pushCellInfilEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
+                       const QVector<InfilRow> &rows, MapCanvas *canvas)
+{
+    if (!layer)
+        return 0;
+    QVector<int> tris;
+    QVector<InfilRow> newRows, oldRows;
+    QVector<InfilProvenance> oldProv;
+    tris.reserve(triangles.size());
+    newRows.reserve(triangles.size());
+    oldRows.reserve(triangles.size());
+    oldProv.reserve(triangles.size());
+    for (int i = 0; i < triangles.size() && i < rows.size(); ++i) {
+        const int t = triangles[i];
+        if (t < 0 || t >= layer->mesh().triangles.size() || !layer->surfaceInfiltrationEditable(t))
+            continue;
+        const auto before = resolveInfil(layer->mesh(), t);
+        if (before.isOverride() && before.row == rows[i])
+            continue;
+        tris.append(t);
+        newRows.append(rows[i]);
+        oldRows.append(before.row);
+        oldProv.append(before.provenance);
+    }
+    if (tris.isEmpty())
+        return 0;
+    const auto text = QCoreApplication::translate("MeshCommands", "Set infiltration on %n cell(s)",
+                                                 nullptr, int(tris.size()));
+    pushOrRun(new MeshSetTriangleInfilCommand(layer, tris, newRows, oldRows, oldProv, text, canvas),
               canvas);
     return tris.size();
 }
