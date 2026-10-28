@@ -13,6 +13,7 @@
 #include "plugins/extensionattributes.h"
 #include "plugins/extensionstateregistry.h"
 #include "sdk/ITimeSeriesLayersV1.hpp"
+#include "sdk/IPreviewLayersV1.hpp"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include <QDir>
 #include <QDockWidget>
@@ -107,6 +108,8 @@ private slots:
         plugin.sdkApiVersion = "1.7";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
         plugin.sdkApiVersion = "1.8";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.9";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
                     .contains("sdkApiVersion"));
         auto olderHost = expected;
@@ -163,6 +166,38 @@ private slots:
         request.loadGeneration = generation;
         capability->importTimeSeries(request, &receiver, [](const TimeSeriesImportResult &) {}, &error);
         QCOMPARE(calls, 1);
+    }
+    /** @brief Discover the optional preview-layer lookup and refuse unknown/stopped sessions. */
+    void previewLayerCapabilityTargetsReadySession()
+    {
+        ExtensionStateRegistry registry;
+        QObject owner;
+        const auto id = registry.registerSession(&owner, {QUuid::createUuid(), "Preview model"});
+        registry.finishLoad(id, registry.beginLoad(id), true);
+        GuiExtensionHost service("org.openswmm.preview-service", ExtensionManager::buildManifest(),
+                                 &window, mdi, {}, settings.get(), nullptr, &registry);
+        auto *capability = qobject_cast<IPreviewLayersV1 *>(service.lifetime());
+        QVERIFY(capability);
+        QList<qint64> fids{99};
+        QVERIFY(capability->previewLayer(id, &fids).isNull());
+        QVERIFY(fids.isEmpty());
+        const auto attachment = QUuid::createUuid();
+        int calls = 0;
+        service.setPreviewLayers([&](const QUuid &session, QList<qint64> *out) {
+            ++calls;
+            if (out)
+                *out = {7, 3};
+            return session == id ? attachment : QUuid{};
+        });
+        QCOMPARE(capability->previewLayer(id, &fids), attachment);
+        QCOMPARE(fids, (QList<qint64>{7, 3}));
+        QCOMPARE(capability->previewLayer(id), attachment);
+        QVERIFY(capability->previewLayer(QUuid::createUuid(), &fids).isNull());
+        QVERIFY(fids.isEmpty());
+        QCOMPARE(calls, 2);
+        service.prepareShutdown();
+        QVERIFY(capability->previewLayer(id, &fids).isNull());
+        QCOMPARE(calls, 2);
     }
     void runtimeIdentityOverridesBuildMetadata()
     {

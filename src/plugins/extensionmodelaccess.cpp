@@ -896,6 +896,7 @@ public:
         mPreviewLayer = nullptr;
         mPreviewCanvas = nullptr;
         mPreviewLayerCollection = {};
+        mPreviewFids.clear();
         mPreviewSuppressed = false;
         if (layer && canvas) {
             const int index = canvas->layers().indexOf(layer);
@@ -967,6 +968,17 @@ public:
         group->setZValue(1e9);
         destination->addItem(group);
         return true;
+    }
+    /** @brief Resolve the attached native preview and its FIDs in accepted feature order.
+     * @param[out] featureIds Optional destination, emptied when no layer is attached.
+     * @return Borrowed attached layer, or null after removal, clearing or a scene-only preview. */
+    GISVectorLayer *previewLayer(QList<qint64> *featureIds) const
+    {
+        const bool attached = mPreviewLayer && mPreviewCanvas &&
+                              mPreviewCanvas->layers().contains(mPreviewLayer);
+        if (featureIds)
+            *featureIds = attached ? mPreviewFids : QList<qint64>{};
+        return attached ? mPreviewLayer.data() : nullptr;
     }
 
 private:
@@ -1115,6 +1127,21 @@ private:
             spatialError(error, "GDAL could not open the preview layer datasource.");
             return false;
         }
+        // GDAL numbers string-identified GeoJSON features itself. Read the FIDs
+        // back in source order so a caller can map them to its own records.
+        QList<qint64> fids;
+        fids.reserve(normalized.size());
+        auto *source = layer->ogrLayer();
+        source->ResetReading();
+        while (auto *feature = source->GetNextFeature()) {
+            fids.append(feature->GetFID());
+            OGRFeature::DestroyFeature(feature);
+        }
+        source->ResetReading();
+        if (fids.size() != normalized.size()) {
+            spatialError(error, "The preview layer features could not be indexed.");
+            return false;
+        }
         layer->setTemporary(true);
         layer->setVisible(visible);
         layer->setOpacity(layerOpacity);
@@ -1124,6 +1151,9 @@ private:
         symbol.markerSize = 8.;
         symbol.markerFill = QColor(0, 145, 170, 150);
         symbol.markerOutline = QColor(0, 145, 170);
+        // Footprints keep the scene overlay's faint fill so the map stays readable.
+        symbol.polygonFill = QBrush(QColor(0, 145, 170, 35));
+        symbol.polygonOutline = QPen(QColor(0, 145, 170), 1.0);
         layer->setSymbol(symbol);
         if (!labelField.isEmpty()) {
             auto labels = layer->labelConfig();
@@ -1147,6 +1177,7 @@ private:
         mPreviewLayer = layer.release();
         mPreviewCanvas = canvas;
         mPreviewLayerCollection = collection;
+        mPreviewFids = fids;
         const QPointer<GISVectorLayer> published(mPreviewLayer);
         canvas->addLayer(mPreviewLayer, false);
         return self && canvas && published && canvas->layers().contains(published);
@@ -1279,7 +1310,8 @@ private:
     QPointer<GISVectorLayer> mPreviewLayer; ///< Host-owned native preview, never serialized.
     QPointer<MapCanvas> mPreviewCanvas;    ///< Exact native attachment used for guarded removal.
     QJsonObject mPreviewLayerCollection;   ///< Canonical owning input for identity-preserving no-ops.
-    bool mChangingPreview = false;        ///< Refuse nested replacement while native signals publish.
+    QList<qint64> mPreviewFids;            ///< Native FIDs in accepted collection feature order.
+    bool mChangingPreview = false;       ///< Refuse nested replacement while native signals publish.
     bool mPreviewSuppressed = false;      ///< Manual removal remains effective until clearPreview().
 };
 class ModelFacade final : public IModelInstance
@@ -1751,6 +1783,18 @@ void installExtensionModelAccess(GuiExtensionHost *host,
                 auto *views = viewAccess(sessionId);
                 return views ? views->selectedFeatures(layerId, offset, limit) : QList<qint64>{};
             });
+        host->setPreviewLayers([access, registry](const QUuid &sessionId, QList<qint64> *fids) {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(sessionId));
+            auto *instance = access->model(window);
+            auto *views = instance ? ExtensionViewAccess::find(window) : nullptr;
+            // Every facade in this adapter is a ProjectFacade owned by the same host.
+            auto *layer =
+                views ? static_cast<ProjectFacade *>(instance->project())->previewLayer(fids) : nullptr;
+            const auto id = layer ? views->identity(layer) : QUuid{};
+            if (id.isNull() && fids)
+                fids->clear();
+            return id;
+        });
     }
     host->setModelAccess([access]() { return access->projects(); },
                          [access]() { return access->model(access->active()); });

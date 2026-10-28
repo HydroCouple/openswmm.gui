@@ -48,16 +48,20 @@ The separate `openswmm.gui.data` extension adds **USGS time series…** and
 **Elevation raster…** on its **Data** tab, with gage
 and terrain icons. Its area chooser uses the current map viewport
 or a chosen polygon from a loaded feature layer. Preview results respect polygon
-holes and multiple parts. USGS previews create a temporary feature layer with
-labels and the normal attribute-table, query, selection and styling tools.
-Data-table filtering narrows the displayed population; native layer queries and
-selection remain independent of the Data table's selected rows. Save selected
+holes and multiple parts. USGS site and elevation tile previews create a temporary
+feature layer with the normal attribute-table, query, selection and styling tools;
+USGS sites are labelled. Selection is shared: picking sites or tiles with the map
+**Select** tool or in the attribute table selects the matching Data rows, and
+selecting Data rows selects them on the map and in the attribute table. An
+empty-space click with the **Select** tool clears both. Data-table filtering
+narrows the displayed population; a native layer query does not narrow the Data
+table. Save selected
 Data rows to add a persistent GIS layer with the reviewed area and response
 provenance. Panning retains the completed viewport preview for inspection while
 requiring another preview before saving under the changed area.
 
-Use **Clear preview** beside **Preview** to remove the elevation footprints or
-the temporary USGS site layer and clear the catalogue results. It also cancels a
+Use **Clear preview** beside **Preview** to remove the temporary site or tile
+layer and clear the catalogue results. It also cancels a
 pending preview so a late response cannot put the graphics back. Downloaded
 files, imported Time Series collections and loaded rasters remain available.
 The button is unavailable during a payload download or native collection import;

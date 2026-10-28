@@ -129,6 +129,10 @@ public:
      * @param[in] limit Requested page count.
      * @return Copied sorted FIDs. */
     QList<qint64> selectedFeatures(const QUuid &id, int offset, int limit) const;
+    /** @brief Resolve a tracked native layer to its current runtime attachment.
+     * @param[in] layer Borrowed native pointer; never adopted.
+     * @return Attachment UUID, or null when detached or during teardown. */
+    QUuid identity(OpenSWMMVisLayer *layer) const;
 
 private:
     QPointer<SWMMVisProjectWindow> mWindow;           ///< Guarded native owner.

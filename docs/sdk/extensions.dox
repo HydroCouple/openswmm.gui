@@ -51,6 +51,7 @@
  * sdk/IActivityControlsV1.hpp | Identity-checked run start/cancellation and document/dock/command controls.
  * sdk/ITimeSeriesLayersV1.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
  * sdk/IProgressV1.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
+ * sdk/IPreviewLayersV1.hpp | SDK 1.8 native preview-layer attachment and feature-order FIDs for selection sync.
  * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for V4 process and UI observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
@@ -1078,6 +1079,27 @@
  * `__openswmm_preview_label` column containing bounded plain display text. It is
  * distinct from the original full attribute and any original consumer export.
  *
+ * @subsection sdk_preview_selection SDK 1.8 preview-layer selection
+ *
+ * IPreviewLayersV1 lets a consumer keep its own list in step with the native
+ * preview layer's selection. Query `qobject_cast<IPreviewLayersV1 *>(host->lifetime())`,
+ * then call previewLayer(sessionId, &featureIds) after a successful showPreview().
+ * It returns the layer's runtime attachment and its native FIDs in the feature
+ * order of the accepted collection. GDAL assigns those FIDs for string-identified
+ * GeoJSON features, so never assume they equal feature positions.
+ *
+ * - Map → consumer: observe IEventSourceV3 LayerSelectionChanged for that
+ *   attachment. The select tool, rubber band, Attribute Table and typed commands
+ *   all change the same native selection. Read it with
+ *   IViewControlsV1::selectedLayerFeatures().
+ * - Consumer → map: send ViewCommandKind::SelectLayerFeatures with the mapped FIDs.
+ *   The Attribute Table and map highlight follow immediately.
+ *
+ * Compare before writing so the two directions do not echo. A selection write
+ * is a normal source revision; it confers no review authority. A changed
+ * collection creates a new attachment with new FIDs and an empty selection, and
+ * a scene-only preview, manual removal or clearPreview() returns a null attachment.
+ *
  * The host retains an overlay until another successful showPreview(), an explicit
  * clearPreview(), or destruction of its project facade. Display is separate from
  * download/export authority: retaining dots for orientation after a viewport
@@ -1092,7 +1114,7 @@
  * polygon or relevant viewport invalidate the preview; do not download
  * using a silently recomputed area. Legacy/V1 viewportChanged, layersChanged,
  * selectionChanged and boundaryChanged remain available to old consumers.
- * The current openswmm.gui.data consumer requires SDK 1.7 and uses authoritative
+ * The current openswmm.gui.data consumer requires SDK 1.8 and uses authoritative
  * V2/V3/V4 metadata instead; legacy name translation alone does not establish
  * session readiness, an unambiguous attachment identity or a source revision.
  *
@@ -1114,6 +1136,7 @@
  * Chosen polygon's V3 feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
  * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
  * Another attachment changes, including the layer added by an own export | Preserve an unchanged chosen boundary after guarded revision reconciliation.
+ * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalogue rows or native layer; downloads wait for the write's detailed V3 evidence, then the unchanged review continues.
  * Result playback, layer style/order or utility document/dock/command activity | Preserve an unchanged review; these are not source geometry changes.
  * Source/dataset/area/boundary choice changes in the Data panel | Cancel/discard the old review and require an explicit new preview.
  *
@@ -1399,8 +1422,9 @@
  * @ref sdk_timeseries_layers. SDK 1.7 adds IProgressV1 for scoped asynchronous
  * operation progress in the shared status bar; see @ref sdk_shared_progress.
  * It does not revise the frozen host, UI, console or earlier capability interfaces.
- * The updated Data consumer requires SDK 1.7, including native observation
- * import and shared progress.
+ * SDK 1.8 adds IPreviewLayersV1 for native preview-layer selection sync; see
+ * @ref sdk_preview_selection. The updated Data consumer requires SDK 1.8,
+ * including native observation import, shared progress and preview selection.
  *
  * The current openswmm.gui.data consumer requires the newer typed capabilities;
  * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.
