@@ -99,6 +99,16 @@ public:
     /** @param[in] fids Owned station table IDs.
      * @return Corresponding series, each once in source order. */
     QStringList seriesForLocations(const QSet<long long> &fids) const;
+    /** @brief Whether exact series have an owned station or a currently resolved feature link.
+     * @param[in] ids Stable source-series identities; missing IDs are ignored.
+     * @return True for at least one finite location in the attached canvas CRS. Owned stations
+     * take precedence over linked model features; unlocated/unresolved series return false. */
+    bool canZoomToLocations(const QStringList &ids) const;
+    /** @brief Frame the requested source stations, falling back to links for unlocated series.
+     * @param[in] ids Stable series identities, independent of the current map selection.
+     * @return True after accepted canvas navigation; false for detached/nonspatial/unresolved
+     * series. Uses CRS-aware point padding and never changes series selection or geometry. */
+    bool zoomToLocations(const QStringList &ids);
     /** @brief Show the modeless native series/observation browser.
      * @param[in] parent Optional window parent.
      * @param[in] initialSeries Optional row selected on opening. */
@@ -137,6 +147,10 @@ signals:
     void useInModelRequested(const QString &id);
 
 private:
+    /** @brief Resolve source locations to the current canvas without changing selection.
+     * @param[in] ids Requested stable series identities.
+     * @return Finite ordered bounds, possibly a point/line; nonfinite bounds mean no location. */
+    MapExtent locationsExtent(const QStringList &ids) const;
     /** @brief Synchronize runtime selection without recursive bus notifications. */
     void synchronizeSelection();
     /** @brief Apply links for undo/redo; source samples remain unchanged.

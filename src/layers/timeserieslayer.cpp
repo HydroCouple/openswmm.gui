@@ -27,6 +27,7 @@
 #include <QScopeGuard>
 #include <QScopedValueRollback>
 #include <QVBoxLayout>
+#include <cmath>
 #include <ogrsf_frmts.h>
 
 using namespace OpenSWMM::TimeSeries;
@@ -267,6 +268,81 @@ QStringList TimeSeriesLayer::seriesForLocations(const QSet<long long> &fids) con
             if (locations.contains(s.locationId))
                 ids.append(s.id);
     return ids;
+}
+MapExtent TimeSeriesLayer::locationsExtent(const QStringList &ids) const
+{
+    const double missing = std::numeric_limits<double>::quiet_NaN();
+    MapExtent bounds(missing, missing, missing, missing);
+    if (!m_canvas || !m_canvas->layers().contains(const_cast<TimeSeriesLayer *>(this)) || !m_data)
+        return bounds;
+    const QSet<QString> wanted(ids.begin(), ids.end());
+    QSet<QString> wantedLocations, ownedLocations;
+    for (const auto &id : wanted) {
+        const auto series = seriesInfo(id);
+        if (!series.locationId.isEmpty())
+            wantedLocations.insert(series.locationId);
+    }
+    bool any = false;
+    const auto include = [&](const OpenSWMMVisLayer *source, const MapExtent &native) {
+        const auto extent = m_canvas->extentInCanvasCRS(source, native);
+        if (!std::isfinite(extent.xMin()) || !std::isfinite(extent.yMin()) ||
+            !std::isfinite(extent.xMax()) || !std::isfinite(extent.yMax()) ||
+            extent.xMin() > extent.xMax() || extent.yMin() > extent.yMax())
+            return;
+        bounds = any ? bounds.united(extent) : extent;
+        any = true;
+    };
+    const auto includeFeature = [&](GISVectorLayer *source, long long fid) {
+        auto *feature = source && source->ogrLayer() ? source->ogrLayer()->GetFeature(fid) : nullptr;
+        const bool spatial = feature && feature->GetGeometryRef() &&
+                             !feature->GetGeometryRef()->IsEmpty();
+        if (spatial) {
+            OGREnvelope envelope;
+            feature->GetGeometryRef()->getEnvelope(&envelope);
+            include(source, MapExtent(envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY));
+        }
+        OGRFeature::DestroyFeature(feature);
+        return spatial;
+    };
+    for (auto it = m_locationFids.cbegin(); it != m_locationFids.cend(); ++it)
+        if (wantedLocations.contains(it.value()) &&
+            includeFeature(const_cast<TimeSeriesLayer *>(this), it.key()))
+            ownedLocations.insert(it.value());
+    for (const auto &value : m_associations) {
+        const auto link = value.toObject();
+        const auto id = link.value("seriesId").toString();
+        // A feature assignment does not move a downloaded station. Linked geometry
+        // is a useful fallback only when the source series has no owned location.
+        if (!wanted.contains(id) || ownedLocations.contains(seriesInfo(id).locationId))
+            continue;
+        SWMMObjectRef ref;
+        if (!resolveAssociation(link, &ref))
+            continue;
+        for (auto *source : m_canvas->layers()) {
+            if (source->layerId() != link.value("layerId").toString())
+                continue;
+            if (auto *gis = qobject_cast<GISVectorLayer *>(source)) {
+                QString owner;
+                long long fid = -1;
+                if (GisObjectRef::parseFeature(ref, &owner, &fid) && owner == source->layerId())
+                    includeFeature(gis, fid);
+            } else if (auto *model = qobject_cast<::SWMMModelLayer *>(source)) {
+                include(model, model->objectExtent(ref.name));
+            }
+        }
+    }
+    return bounds;
+}
+bool TimeSeriesLayer::canZoomToLocations(const QStringList &ids) const
+{
+    const auto bounds = locationsExtent(ids);
+    return std::isfinite(bounds.xMin()) && std::isfinite(bounds.yMin()) &&
+           std::isfinite(bounds.xMax()) && std::isfinite(bounds.yMax());
+}
+bool TimeSeriesLayer::zoomToLocations(const QStringList &ids)
+{
+    const auto bounds = locationsExtent(ids);
+    return m_canvas && m_canvas->zoomToExtent(bounds);
 }
 void TimeSeriesLayer::setSelectedSeriesIds(const QStringList &ids)
 {

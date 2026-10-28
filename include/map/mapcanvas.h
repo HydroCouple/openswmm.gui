@@ -208,6 +208,19 @@ public:
      *   bounds are projectable.
      */
     void zoomToFullExtent(bool pushUndo = true);
+    /** @brief Frame finite canvas-CRS bounds, including a point or a horizontal/vertical line.
+     * @param[in] canvasExtent Explicit Y-up canvas coordinates; empty/unknown callers must not
+     * pass a default origin-point sentinel. Nonfinite or inverted bounds are rejected.
+     * @return True after accepting navigation. Adds ten-percent margins; zero-span dimensions
+     * use approximately 100 metres in the canvas CRS (100 raw units without usable CRS units).
+     * The canvas applies its ordinary aspect fitting and navigation undo. */
+    bool zoomToExtent(const MapExtent &canvasExtent);
+    /** @brief Frame current selected SWMM objects and GIS features in a common map CRS.
+     * @param[in] onlyLayer Optional attached layer restriction; an explicit layer may be hidden.
+     * Without a restriction, only visible layers participate. Source filters are not changed.
+     * @return True if any finite geometry was resolved and navigation was accepted; false for
+     * unavailable/empty selection. Single-point GIS/time-series stations are supported. */
+    bool zoomToSelection(const OpenSWMMVisLayer *onlyLayer = nullptr);
     /**
      * @param[in] factor Finite positive zoom factor expected, not locally validated. Reciprocal
      *   extent multiplier, factor 2 halves width/height.
@@ -466,18 +479,18 @@ public:
      *  CRSes match or when either SRS is unavailable.
      * @param[in] layer Optional source layer whose CRS defines nativeExtent.
      * @param[in] nativeExtent Y-up source-map bounds, not scene-negated.
-     * @return Four-transformed-corner bounding box. Original unchanged for null layer, invalid
-     *   extent, missing/equal CRS or transform-construction failure. Transform return/finite status
-     *   is not checked, so point failures are not reliably signaled. No edge
-     *   densification/antimeridian handling; source never mutated.
+     * @return Four-transformed-corner bounding box, including finite point/line bounds. Original
+     * unchanged for null layer, nonfinite/inverted extent or missing/equal CRS. Failed coordinate
+     * transformations return nonfinite bounds instead of unprojected source coordinates. No edge
+     * densification/antimeridian handling; source never mutated.
      */
     [[nodiscard]] MapExtent extentInCanvasCRS(const OpenSWMMVisLayer *layer,
                                               const MapExtent &nativeExtent) const;
 
     /*! \brief Convenience overload: reprojects the full extent of \p layer.
      * @param[in] layer Optional borrowed source layer.
-     * @return Invalid for null, else extentInCanvasCRS(layer,layer->extent()) with same raw
-     *   fallback and corner-transform limitations.
+     * @return Invalid for null, else extentInCanvasCRS(layer,layer->extent()) with the same
+     * missing-CRS fallback and corner-transform limitations.
      */
     [[nodiscard]] MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer) const;
 

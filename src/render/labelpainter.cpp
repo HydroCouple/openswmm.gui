@@ -74,6 +74,14 @@ void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft, const QString 
     QPainterPath path;
     path.addText(baseline, font, text);
 
+    drawGlyphPath(p, path, cfg);
+}
+
+void LabelPainter::drawGlyphPath(QPainter &p, const QPainterPath &glyphs, const LabelConfig &cfg)
+{
+    if (glyphs.isEmpty())
+        return;
+
     p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
@@ -81,7 +89,7 @@ void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft, const QString 
     // 1) Background rounded-rect behind the glyphs.
     if (cfg.backgroundEnabled) {
         const qreal pad = cfg.backgroundPaddingPx;
-        const QRectF bg = path.boundingRect().adjusted(-pad, -pad, pad, pad);
+        const QRectF bg = glyphs.boundingRect().adjusted(-pad, -pad, pad, pad);
         p.setPen(Qt::NoPen);
         p.setBrush(cfg.backgroundColor);
         p.drawRoundedRect(bg, cfg.backgroundRadiusPx, cfg.backgroundRadiusPx);
@@ -93,13 +101,13 @@ void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft, const QString 
                   Qt::RoundJoin);
         p.setPen(halo);
         p.setBrush(Qt::NoBrush);
-        p.drawPath(path);
+        p.drawPath(glyphs);
     }
 
     // 3) Glyph fill.
     p.setPen(Qt::NoPen);
     p.setBrush(cfg.color);
-    p.drawPath(path);
+    p.drawPath(glyphs);
 
     p.restore();
 }

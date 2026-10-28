@@ -2438,69 +2438,8 @@ void SWMMVis::initializeMapTools()
             w->zoomToFullExtent();
     });
     connect(ui->actionZoomToSelection, &QAction::triggered, this, [this]() {
-        MapCanvas *c = activeCanvas();
-        if (!c)
-            return;
-
-        // Union the layer-CRS bbox of every selected SWMM object across
-        // every visible SWMMModelLayer. Slice R Phase 3 retired the
-        // per-object QGraphicsItems so `mapScene()->selectedItems()` no
-        // longer reports SWMM features — selection lives on the layer
-        // itself via `selectedElementNames` + `objectExtent`.
-        double xMin = std::numeric_limits<double>::infinity();
-        double yMin = std::numeric_limits<double>::infinity();
-        double xMax = -std::numeric_limits<double>::infinity();
-        double yMax = -std::numeric_limits<double>::infinity();
-        bool any = false;
-
-        for (OpenSWMMVisLayer *l : c->layers()) {
-            if (!l->isVisible())
-                continue;
-            auto *sl = qobject_cast<SWMMModelLayer *>(l);
-            if (!sl)
-                continue;
-            for (const QString &name : sl->selectedElementNames()) {
-                const MapExtent e = sl->objectExtent(name);
-                if (!std::isfinite(e.xMin()))
-                    continue;
-                xMin = std::min(xMin, e.xMin());
-                yMin = std::min(yMin, e.yMin());
-                xMax = std::max(xMax, e.xMax());
-                yMax = std::max(yMax, e.yMax());
-                any = true;
-            }
-        }
-        if (!any)
-            return;
-
-        // Pad: 25 % of the union's span for a comfortable framing
-        // around extents that aren't degenerate; for a single-point
-        // selection (node / gage) fall back to a layer-relative
-        // buffer so the zoom stays at a reasonable scale.
-        double padX = (xMax - xMin) * 0.25;
-        double padY = (yMax - yMin) * 0.25;
-        if (padX <= 0.0 && padY <= 0.0) {
-            // Single-point selection — borrow ObjectBrowserPanel's
-            // logic: 0.5 % of the layer extent's diagonal, floor 25.
-            double buffer = 100.0;
-            for (OpenSWMMVisLayer *l : c->layers()) {
-                if (!l->isVisible())
-                    continue;
-                if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
-                    const MapExtent &le = sl->extent();
-                    if (!le.isValid())
-                        continue;
-                    const double dx = le.xMax() - le.xMin();
-                    const double dy = le.yMax() - le.yMin();
-                    buffer = std::max(buffer, std::max(25.0, 0.005 * std::max(dx, dy)));
-                }
-            }
-            padX = buffer;
-            padY = buffer;
-        }
-        MapExtent zoom(xMin - padX, yMin - padY, xMax + padX, yMax + padY);
-        if (zoom.isValid())
-            c->setExtent(zoom);
+        if (auto *canvas = activeCanvas())
+            canvas->zoomToSelection();
     });
     connect(ui->actionSelectUpstream, &QAction::triggered, this, &SWMMVis::onSelectUpstream);
     connect(ui->actionSelectDownstream, &QAction::triggered, this, &SWMMVis::onSelectDownstream);

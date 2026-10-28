@@ -1079,6 +1079,10 @@ private:
         }
         if (mPreviewSuppressed)
             return true; // A local selection/filter refresh must respect manual removal.
+        // Local catalogue filtering replaces the source collection. Preserve the
+        // user's visibility/opacity choice instead of resurrecting hidden points.
+        const bool visible = !mPreviewLayer || mPreviewLayer->isVisible();
+        const double layerOpacity = mPreviewLayer ? mPreviewLayer->opacity() : 1.;
         const auto path = QStringLiteral("/vsimem/openswmm-preview-%1.geojson")
                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces))
                               .toUtf8();
@@ -1112,6 +1116,8 @@ private:
             return false;
         }
         layer->setTemporary(true);
+        layer->setVisible(visible);
+        layer->setOpacity(layerOpacity);
         const auto title = style["title"].toString().trimmed().left(256);
         layer->setName(title.isEmpty() ? tr("Extension preview") : title);
         auto symbol = layer->symbol();

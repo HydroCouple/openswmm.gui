@@ -128,6 +128,7 @@ public:
     QPushButton *next = nullptr; ///< Pushes the current page's final time key before reading the next page.
     QAction *use = nullptr; ///< Requests an explicit model-owned copy of one usable selected series.
     QAction *plot = nullptr; ///< Sends selected stable identities to the native comparison plot controller.
+    QAction *zoom = nullptr; ///< Frames selected source stations or resolved nonspatial-series links.
     QAction *attach = nullptr; ///< Creates an undoable association to the selected persistent feature.
     QAction *detach = nullptr; ///< Removes selected series' feature relationships without changing samples.
     QAction *exportAction = nullptr; ///< Starts complete original-sample export independently of paging.
@@ -206,6 +207,7 @@ public:
             sampleSeries->setCurrentIndex(sampleSeries->findData(selected.first()));
         use->setEnabled(selected.size() == 1 && layer->seriesInfo(selected.first()).validCount > 0);
         plot->setEnabled(!selected.isEmpty());
+        zoom->setEnabled(layer->canZoomToLocations(selected));
         attach->setEnabled(!selected.isEmpty());
         detach->setEnabled(!selected.isEmpty());
         exportAction->setEnabled(!selected.isEmpty() && !exportCancel);
@@ -323,6 +325,8 @@ TimeSeriesLayerBrowser::TimeSeriesLayerBrowser(TimeSeriesLayer *layer, QWidget *
     auto *bar = new QToolBar(this);
     d->plot = bar->addAction(tr("Plot"));
     d->use = bar->addAction(tr("Use in model…"));
+    d->zoom = bar->addAction(tr("Zoom to location"));
+    d->zoom->setObjectName(QStringLiteral("timeSeriesZoomToLocation"));
     bar->addSeparator();
     d->attach = bar->addAction(tr("Attach to selected feature"));
     d->detach = bar->addAction(tr("Detach"));
@@ -389,6 +393,10 @@ TimeSeriesLayerBrowser::TimeSeriesLayerBrowser(TimeSeriesLayer *layer, QWidget *
         if (d->layer && ids.size() == 1)
             emit d->layer->useInModelRequested(ids.first());
     });
+    connect(d->zoom, &QAction::triggered, this, [this] {
+        if (d->layer)
+            d->layer->zoomToLocations(d->selection());
+    });
     connect(d->attach, &QAction::triggered, this, [this] {
         QString error;
         if (d->layer && !d->layer->attachToSelectedFeature(d->selection(), &error))
@@ -404,7 +412,7 @@ TimeSeriesLayerBrowser::TimeSeriesLayerBrowser(TimeSeriesLayer *layer, QWidget *
         QMenu menu;
         connect(this, &QObject::destroyed, &menu, &QWidget::close);
         connect(this, &QDialog::finished, &menu, &QWidget::close);
-        for (auto *action : {d->plot, d->use, d->attach, d->detach, d->exportAction})
+        for (auto *action : {d->plot, d->use, d->zoom, d->attach, d->detach, d->exportAction})
             menu.addAction(action);
         menu.exec(d->seriesView->viewport()->mapToGlobal(point));
         if (!guard)

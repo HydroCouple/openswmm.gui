@@ -31,6 +31,7 @@
 #include <QString>
 
 class QPainter;
+class QPainterPath;
 
 namespace OpenSWMM::Render
 {
@@ -97,6 +98,15 @@ public:
      */
     static void drawLabel(QPainter &p, const QPointF &topLeft, const QString &text,
                           const LabelConfig &cfg);
+
+    /** @brief Paint an already prepared glyph outline using the standard label styling.
+     * @param[in,out] p Active painter in logical screen-pixel coordinates; paint state is restored.
+     * @param[in] glyphs Immutable text outline, including its final placement/baseline.
+     * @param[in] cfg Background, halo and fill configuration; font/placement/scale are already
+     * resolved by the caller. Empty paths paint nothing.
+     * @note Allows static labels to cache shaping and font metrics while sharing exactly the
+     * same background, halo and fill convention as drawLabel(). Does not retain the path. */
+    static void drawGlyphPath(QPainter &p, const QPainterPath &glyphs, const LabelConfig &cfg);
 
     /*!
      * \brief Convenience overload — places the text at \p anchor per the

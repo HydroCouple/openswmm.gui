@@ -412,7 +412,7 @@ public:
      * @param[in] scene Required borrowed destination scene when the layer is open/visible; owns added graphics items until depopulateScene() deletes them.
      * @param[in] canvasExtent Ignored; scene culling handles viewport changes without restricting loaded features.
      * @param[in] canvasSRS Optional borrowed canvas CRS establishes the cached transform; absent CRS retains existing transform/assumes compatible coordinates.
-     * @note GUI-thread operation. Clears any spatial filter, reads supported single/multi point/line/polygon geometry, flips Y and adds typed-symbol items. Enabled labels use the configured field or token template (FID fallback), numeric precision and shared LabelPainter at a projected feature centroid. Label items retain screen-pixel font/halo/placement, honor layer opacity/visibility and configured scale bounds, and do not intercept mouse selection. Scene culling applies; GIS labels have no additional collision-pruning policy. Call depopulateScene() first to avoid duplicates. Transform failures have no return channel. Successful population clears the dirty flag; closed/hidden layers return early.
+     * @note GUI-thread operation. Clears any spatial filter, reads supported single/multi point/line/polygon geometry, flips Y and adds typed-symbol items. Enabled labels use the configured field or token template (FID fallback), numeric precision and shared LabelPainter styling at a projected feature centroid. Glyphs/metrics are prepared until content/style rebuild. Visible screen labels lazily share a 64 MiB raster LRU (one DPR/opacity variant per item, at most 1 MiB per image); vector/custom-composition/transformed output and oversized labels draw prepared paths instead. Offscreen device bounds are rejected before caching. Labels retain pixel font/halo/placement, layer opacity/visibility and scale bounds without intercepting selection. GIS labels have no additional collision-pruning policy. Call depopulateScene() first to avoid duplicates. Transform failures have no return channel. Successful population clears the dirty flag; closed/hidden layers return early.
      */
     void populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
                        const SpatialReferenceSystem *canvasSRS) override;
@@ -425,11 +425,11 @@ public:
     void depopulateScene(QGraphicsScene *scene) override;
 
     /**
-     * @brief Rebuild dirty items or update their opacity in place.
+     * @brief Rebuild dirty items or update their opacity and visibility in place.
      * @param[in] scene Required borrowed destination scene for a dirty visible/open layer; see populateScene().
      * @param[in] canvasExtent Forwarded to population, where it is ignored.
      * @param[in] canvasSRS Optional borrowed canvas CRS used only when rebuilding.
-     * @note GUI thread only. Dirty refresh deletes/repopulates all tracked items and finally clears the dirty flag even if population skipped a hidden/closed layer. A clean refresh changes only item opacity.
+     * @note GUI thread only. Dirty refresh deletes/repopulates all tracked items and finally clears the dirty flag even if population skipped a hidden/closed layer. Visibility signals immediately hide/show surviving items; a visible layer without items is marked dirty so it can be repopulated after a hidden refresh.
      */
     void refreshScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
                       const SpatialReferenceSystem *canvasSRS) override;
