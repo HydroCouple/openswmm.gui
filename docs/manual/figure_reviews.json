@@ -929,12 +929,6 @@
     "baseline": "retained historical application screenshot; original capture provenance unavailable",
     "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
   },
-  "20_live_toggles.png": {
-    "reviewedAt": "2026-10-02T07:21:45.385955+00:00",
-    "sha256": "467761cc73328b3cd88fd0f0fff1f3c2c15276c3206d53157636c1f08052d286",
-    "baseline": "documentation_2026-10-02_round7/results-ribbons",
-    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
-  },
   "20_message_logs.png": {
     "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
     "sha256": "6e2ad0b3d7f9bc66fa5b2589353a3e5c0922f177d5ec9238b180be5894ada48f",
