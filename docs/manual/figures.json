@@ -819,17 +819,6 @@
       "tabIn": "compactToolbarTabBar"
     },
     {
-      "name": "20_live_toggles.png",
-      "widget": "ribbonGroupDisplay",
-      "tab": "Results",
-      "hostSize": "1600x900",
-      "_model": "examples/site_drainage/site_drainage_model.inp",
-      "lane": "live",
-      "tabIn": "compactToolbarTabBar",
-      "maxWidth": 1400,
-      "_note": "Completed site-drainage run; Results/Analysis controls captured at 1600 px window width. Display group capture isolates Live 1D/2D toggles; unavailable 2D state is visible."
-    },
-    {
       "name": "a03_plugins_dialog.png",
       "action": "tools.plugins",
       "size": "1000x700",
