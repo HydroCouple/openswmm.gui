@@ -342,6 +342,10 @@ jobs:
         run: python3 scripts/gen_error_catalogue.py --check
                --engine "${{ github.workspace }}/openswmm.engine"
 
+      - name: Test configure download retries
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s tests/ci -p 'test_configure_retry.py' -v
+
       # EPA SWMM 5.2.4 sources for the bundled openswmm-legacy-worker-5.2.4.
       # Handed to CMake as FETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524 in the
       # Configure step, which makes cmake/EngineVersions.cmake skip BOTH its
@@ -571,7 +575,7 @@ jobs:
           #     (find_package(HYPRE REQUIRED) → configure fails if hypre is
           #     missing). The verify step below hard-fails if the plugin binary
           #     is absent post-install.
-          cmake --preset=${{ matrix.cmake_preset }} \
+          bash "${{ github.workspace }}/scripts/ci_configure_retry.sh" cmake --preset=${{ matrix.cmake_preset }} \
             -DCMAKE_INSTALL_PREFIX="$PWD/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
             -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
@@ -654,7 +658,7 @@ jobs:
           # the release build rather than an inherited default — if the default
           # is ever flipped, the packages must still carry it, and the gates
           # below must be the thing that fails, not the shipped .dmg/.exe.
-          cmake --preset=${{ matrix.cmake_preset }} \
+          bash scripts/ci_configure_retry.sh cmake --preset=${{ matrix.cmake_preset }} \
             -DSWMMVIS_BUILD_TESTS=OFF \
             -DOPENSWMMENGINE_INSTALL_DIR="${{ github.workspace }}/openswmm.engine/install/${{ matrix.cmake_preset }}" \
             -DSWMMVIS_ENABLE_ENGINE_524=ON \
