@@ -860,6 +860,10 @@ QString MeshEditingToolbar::meshAreaUnitLabel() const
 
 void MeshEditingToolbar::refreshVertexEditor()
 {
+    // Native focus/value notifications can re-enter while the suffix or a
+    // sibling editor is refreshed, before Area receives the new model value.
+    // Never let that display refresh commit the area's previous value.
+    const QSignalBlocker areaSignals(m_vertexAreaSpin);
     if (m_vertexAreaSpin)
         m_vertexAreaSpin->setSuffix(QStringLiteral(" ") + meshAreaUnitLabel());
     const QList<int> verts = currentSelectedVertices();
@@ -959,7 +963,6 @@ void MeshEditingToolbar::refreshVertexEditor()
         m_vertexCdSpin->setValue((nCoupled > 0 && cdSame) ? commonCd : 0.65);
     }
     if (m_vertexAreaSpin) {
-        QSignalBlocker block(m_vertexAreaSpin);
         m_vertexAreaSpin->setValue((nCoupled > 0 && areaSame) ? commonArea : 1.0);
     }
 }
