@@ -1002,6 +1002,8 @@ INPUT                  = ../README.md \
                          ../AUTHORS.md \
                          ../include \
                          ../src \
+                         ../libraries/meshkit/include \
+                         ../libraries/meshkit/src \
                          ./manual \
                          ./sdk \
                          ../examples/extensions/template/extension.cpp \

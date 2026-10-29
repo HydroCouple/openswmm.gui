@@ -142,38 +142,15 @@ include(FetchQPropertyModel)
 include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
 include(GuiExtensionSdk)
+add_subdirectory(libraries/meshkit)
 
 # ── Additional engine versions shipped as subprocess workers ────────────────
 # EPA SWMM 5.2.4 (pinned tag on the build-v5.2.4 branch), compiled statically
 # into openswmm-legacy-worker-5.2.4 and bundled beside the 5.3.0 worker.
 include(EngineVersions)
 
-# ── Robust geometric predicates (Shewchuk, public domain) — vendored at
-#    vendor/predicates/. One C file; orient2d()/incircle() back the mesh
-#    generator's constrained Delaunay kernel (src/mesh/meshcdt.cpp). See
-#    resources/licenses/predicates.txt.
-add_library(predicates_lib STATIC vendor/predicates/predicates.c)
-target_include_directories(predicates_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/predicates)
-if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
-    # 1996 K&R definitions; leave the upstream source untouched.
-    target_compile_options(predicates_lib PRIVATE
-        -Wno-deprecated-non-prototype
-        -Wno-strict-prototypes
-        -Wno-unused-function
-        -Wno-unused-variable
-        -Wno-implicit-function-declaration
-        -Wno-old-style-definition
-    )
-endif()
-if(MSVC)
-    target_compile_options(predicates_lib PRIVATE /wd4996 /wd4244 /wd4267 /wd4101)
-endif()
-set_target_properties(predicates_lib PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    AUTOMOC OFF
-    AUTOUIC OFF
-    AUTORCC OFF
-)
+# Compatibility name for existing test/consumer targets.
+add_library(predicates_lib ALIAS meshkit_predicates)
 
 set(TS_FILES translation/SWMMVis_en_US.ts)
 
@@ -215,7 +192,6 @@ set(
         include/core/unitsystem.h
         include/core/loadprogress.h
         include/core/crsreproject.h
-        include/core/editgeometry.h
         include/core/gageassignment.h
         include/core/gageblend.h
         include/core/gisdatapaths.h
@@ -665,9 +641,6 @@ set(
         include/timeseries/timeseriesundocommands.h
         include/mesh/dtmsampler.h
         include/mesh/dtmraster.h
-        include/mesh/meshcdt.h
-        include/mesh/meshedgekey.h
-        include/mesh/inpmeshreader.h
         include/mesh/burnedrasterwriter.h
         include/mesh/channelburnexport.h
         include/mesh/channelburnmesh.h
@@ -679,37 +652,18 @@ set(
         include/mesh/channelburnnetwork.h
         include/mesh/channelburnprofile.h
         include/mesh/channelburnselector.h
-        include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
-        include/mesh/meshbctype.h
         include/mesh/meshboundarygraph.h
-        include/mesh/meshcellparams.h
         include/mesh/meshenginesync.h
-        include/mesh/meshedgebc.h
-        include/mesh/meshgenerator.h
-        include/mesh/meshinfil.h
-        include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
         include/mesh/boundaryconditioning.h
-        include/mesh/pslgprep.h
-        include/mesh/sizefield.h
         include/mesh/terrainsizefield.h
         include/mesh/terrainerrorfield.h
         include/mesh/terrainlocalcopy.h
-        include/mesh/quadblocks.h
         include/mesh/terrainbreaklines.h
-        include/mesh/breaklinestrips.h
-        include/mesh/sms2dmreader.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
-        include/mesh/meshpatch.h
         include/mesh/corridorsource.h
-        include/mesh/meshquadquality.h
-        include/mesh/meshquadregion.h
-        include/mesh/meshquadmatch.h
-        include/mesh/meshquadcleanup.h
-        include/mesh/meshresult.h
-        include/mesh/meshcellgeom.h
         include/plugins/filefilterregistry.h
 
         # ── Output (Slice QA) ────────────────────────────────────────────────
@@ -897,6 +851,9 @@ set(
         # Phase GG0d — mesh generation region-defaults table (INTEGRATED2D_GW
         # GUI plan §3.3), extracted so buildUi() does not grow further (§7).
         include/ui/widgets/meshregiondefaultswidget.h
+        include/ui/widgets/meshrunlogwidget.h
+        include/ui/widgets/meshconstraintsourceswidget.h
+        include/ui/widgets/meshconstraintpreviewwidget.h
         include/ui/widgets/corridorsourceswidget.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
@@ -1062,7 +1019,6 @@ set(
         src/core/unitsystem.cpp
         src/core/loadprogress.cpp
         src/core/crsreproject.cpp
-        src/core/editgeometry.cpp
         src/core/swmmidentifier.cpp
         src/core/gageassignment.cpp
         src/core/gageblend.cpp
@@ -1496,40 +1452,21 @@ set(
         src/mesh/channelburnprofile.cpp
         src/mesh/channelburnselector.cpp
         src/mesh/dtmsampler.cpp
-        src/mesh/inpmeshreader.cpp
-        src/mesh/inpmeshwriter.cpp
         src/mesh/meshautocouple.cpp
-        src/mesh/meshbctype.cpp
         src/mesh/meshboundarygraph.cpp
-        src/mesh/meshcellparams.cpp
-        src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
-        src/mesh/meshgenerator.cpp
-        src/mesh/meshinfil.cpp
-        src/mesh/meshpatch.cpp
         src/mesh/corridorsource.cpp
-        src/mesh/meshquadregion.cpp
-        src/mesh/meshquadmatch.cpp
-        src/mesh/meshquadcleanup.cpp
-        src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
         src/mesh/dtmraster.cpp
-        src/mesh/meshcdt.cpp
         src/mesh/boundaryconditioning.cpp
-        src/mesh/pslgprep.cpp
-        src/mesh/sizefield.cpp
         src/mesh/terrainsizefield.cpp
         src/mesh/terrainerrorfield.cpp
         src/mesh/terrainlocalcopy.cpp
-        src/mesh/quadblocks.cpp
         src/mesh/terrainbreaklines.cpp
-        src/mesh/breaklinestrips.cpp
-        src/mesh/sms2dmreader.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
         src/mesh/meshgwpreview.cpp
         src/mesh/meshobjectref.cpp
-        src/mesh/naturalnbinterpolator.cpp
         src/plugins/filefilterregistry.cpp
 
         # Output (Slice QA)
@@ -1826,6 +1763,9 @@ set(
         src/ui/widgets/stylepropertydelegate.cpp
         # Phase GG0d — mesh generation region-defaults table impl.
         src/ui/widgets/meshregiondefaultswidget.cpp
+        src/ui/widgets/meshrunlogwidget.cpp
+        src/ui/widgets/meshconstraintsourceswidget.cpp
+        src/ui/widgets/meshconstraintpreviewwidget.cpp
         src/ui/widgets/meshresolutionwidget.cpp
         src/ui/widgets/nodecouplingselector.cpp
         src/ui/widgets/corridorsourceswidget.cpp
@@ -1886,6 +1826,7 @@ target_include_directories(SWMMVis PRIVATE ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(SWMMVis
     PRIVATE
+        meshkit::runtime meshkit::core_qt meshkit::io_qt
         openswmmvis_extensions
         swmmvis_build_info
         Qt${QT_VERSION_MAJOR}::Widgets

@@ -40,7 +40,7 @@ struct ResolutionSettings {
      * @return Empty string when accepted, otherwise the first English validation error. All
      * present lengths must be finite in (0,1e12] metres, maximum must not precede minimum, and
      * enabled feature refinement must lie within minimum/maximum. Coarsening passes must be
-     * 0..10, breakline count 0..10000000, transition finite in [1.05,2]. Enum validity and
+     * 0..10, breakline count 0..10000000, transition finite and >=1.05. Enum validity and
      * relationships between other tolerances are not checked. No project mutation or implicit
      * fallback application.
      */
@@ -66,8 +66,8 @@ struct ResolutionSettings {
         if (refineFeatures && featureM && maximumM && *featureM > *maximumM)
             return QStringLiteral(
                 "Feature target size exceeds the maximum target size. Increase the maximum or reduce the feature target.");
-        if (!std::isfinite(transition) || transition < 1.05 || transition > 2.0)
-            return QStringLiteral("Size transition rate must be between 1.05 and 2.");
+        if (!std::isfinite(transition) || transition < 1.05)
+            return QStringLiteral("Size transition rate must be finite and at least 1.05.");
         return {};
     }
 

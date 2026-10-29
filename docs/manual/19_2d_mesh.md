@@ -78,10 +78,37 @@ editing, in three groups:
 ### The Generate 2D Mesh dialog
 
 **Model → Generate Mesh** opens a tabbed dialog — **Sources**, **Quality**,
-and **Hydraulics** — with the output destination in a fixed
+**Hydraulics**, and **Run log** — with the output destination in a fixed
 footer. Generation runs
 in the background with a progress bar and a live stage label; **Cancel
 Generation** stops it cleanly at the next stage boundary.
+
+The **Quality settings** navigation column is docked beside its settings page.
+Drag its title bar to move it to the left or right, or float it as a separate
+panel. Its minimum width follows the longest category name and the current font,
+so category labels stay readable when text is enlarged. The text column fills
+the navigation panel and follows its width as the dock or dialog is resized.
+
+The **Run log** opens when generation starts and remains available afterward.
+It lists elapsed times, stages, diagnostics, and separate triangle/quad counts;
+working vertex counts can include unused slots and are not cell counts. Open-area
+quad generation identifies its second pass explicitly. Overall progress never
+moves backward when that pass starts.
+
+Filter warnings/errors or search a stage or message. Select a row to read its
+full details, use **Follow latest** after scrolling back, and **Copy log** or
+**Export…** to save retained messages as text or JSON Lines. The log keeps at most
+10,000 rows and combines repeated progress updates. Any messages omitted by the
+retention limits are counted in the display and export. Each generation has its
+own log; export it before selecting **Generate again** if you want to retain it.
+Exception highlighting selects at most 10,000 cells; the final report retains
+the total count and states when the highlighted set is a sample.
+
+The final report distinguishes completion, completion with exceptions, cancellation,
+failure, and a resource limit. A resource-limited candidate is **not applied** to
+the project; the previous mesh remains available. Review its report and adjust
+the cell budget or requested resolution before generating again. Successful
+generation leaves the dialog open for review; **Close** returns to the map.
 
 \fig{19_generate_mesh_sources.png, The Generate 2D Mesh dialog on the Sources tab}
 
@@ -158,7 +185,7 @@ node-removal controls are no longer used.
 | **Terrain reference** | **Averaged DEM** or **Full DEM**. Averaging follows the minimum target unless a custom scale is chosen in Terrain accuracy | Averaged DEM |
 | **Align edges with terrain features** | Detect ridges, banks and slope breaks as constrained mesh edges | On |
 | **Terrain features** | Independent breakline detection tolerance, minimum line length and line count | Breakline estimates automatic; minimum length four times minimum target |
-| **Size transition rate** (Cell size) | Growth rate of the background size field | 2 |
+| **Size transition rate** (Cell size) | Growth rate of the background size field; any finite value at least 1.05, with no fixed upper cap | 2 |
 | **Advanced terrain settings** (Terrain accuracy) | Terrain refinement method and direct DEM reading | Adaptive elevation error; use a local copy |
 
 Sizes describe characteristic cell spacing, not a guaranteed length of every
@@ -196,23 +223,83 @@ measurements.
 | **Cell budget** | Stop refinement and report the unmet requirements at the resource limit | 20,000,000 |
 | **Terrain cache** | Budget per DEM-tile or feature-mask cache. **Automatic** uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache speeds up large DEMs and never changes the mesh. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | Automatic |
 
+**Off (triangles only)** disables all generated quad sources, including conduit
+strips and four-sided regions. Region outlines, tags and local sizes still apply.
+A prebuilt quad patch conflicts with this mode: remove the patch or enable quads.
+The mixed modes prefer quads where they fit; they do not target a quad percentage.
+
+On **Quality → Boundaries**, **Default geometry policy** controls source cleanup:
+
+- **Use existing trimming settings** keeps the previous trimming and footprint-handling recipe.
+- **Preserve authored geometry** skips discretionary source trimming and footprint generalization.
+- **Bounded simplification** removes redundant source vertices within the XY/elevation and ring-area limits. It checks each proposed shortcut against the original span, other constraints, holes and mandatory points. Conflicts keep the original geometry. The maximum-turn control protects significant corners; zero permits only collinear removal.
+
+Preserve and bounded modes retain closely spaced constraint coordinates rather
+than welding them at the minimum target size. Conduit paths retaining more than
+two vertices use plain constrained edges so strip resampling cannot discard
+authored vertices. Quad-region
+and prebuilt-patch outlines remain protected. Invalid protected holes stop the
+run so their source can be repaired. Lines with a mixture of inside/outside
+vertices must be clipped to the domain first; these modes refuse the previous
+behavior of deleting outside intermediate vertices and straightening the path. Geometry mode is saved with the project;
+existing recipes keep their previous mode until changed.
+
+In preserve/bounded modes, auxiliary line features can override the default through `mesh_simplify`
+(`inherit`, `preserve`, or `simplify`), `mesh_xy_tol` (mesh horizontal units), and
+`mesh_z_tol` (mesh elevation units, after the configured source conversion). Invalid
+override values stop the run. **Source-specific limits** sets preserve/simplify
+and optional XY, elevation, corner, ring-area and clearance limits for a boundary
+source or line layer. An unchecked limit inherits the default. Feature attributes
+take precedence over the source settings. Conduits inherit preservation unless
+explicitly changed. Selecting a source here does not include it: include layers
+on **Sources**. These overrides are saved with the project in physical units;
+changing display units does not change the limits. Unavailable saved sources
+remain listed so their settings can be reviewed or reset.
+
+Exactly shared original segments are assembled into shared chains and simplified
+once under the stricter owner limits. Preserve wins; ring-area rejection restores
+the whole connected shared component. Differently sampled overlaps are retained
+conservatively. Work or memory limits also retain the original constraints.
+
+The run log identifies source
+layer/feature IDs, removals, deviations, area changes, rejected shortcuts and
+rollbacks, with bounded examples. The library API additionally returns retained
+source-vertex mappings. An independent preparation audit checks the full geometry,
+and a delivered-mesh audit checks required paths against actual incident cell
+edges, including domain/hole sides and retained authored elevations. A failed or
+incomplete audit prevents adoption. This checks constraints; it is not a general
+proof that arbitrary cells never overlap.
+
+**Preview constraints…** runs preparation and its audit, then opens **Constraint
+preview** without generating or replacing a mesh. Compare the prepared original
+paths (blue dashed), proposed paths (green) and removed samples (red); select a
+source row to focus, or use **Fit overview**. Drawing is capped at 50,000 vertices
+and 500 features, with sampled display explicitly labelled. Counts and audits use
+the full geometry. Changing an input marks the preview stale. Polygon preparation
+may dissolve selected polygons before this comparison, so the overlay compares
+prepared constraints rather than the undissolved GIS features.
+
 **Remove unnecessary vertices after refinement**, on **Cell shape**, optionally
 reduces cell count while retaining the minimum-angle rules, local target size and
 certified elevation tolerance. It never removes the mesh's input representation
 of a feature: node pins, constraint vertices and quad-region vertices are retained.
-Only free vertices added during meshing can be removed. Unknown DEM coverage
+Only free vertices added during meshing can be removed. Triangle-only regions
+remain eligible for coarsening under their local size limits; only actual mapped
+quad patches protect their interiors. Unknown DEM coverage
 prevents removal. Advanced coarsening settings limit reconsideration to 1–10
 attempts per vertex (3 when enabled). The option is off by default and stays off
 when older projects are loaded. The results show removed vertices and triangles,
 rejection counts and elapsed time. A vertex can be reconsidered after a neighbouring
 removal, so rejection counts are not unique vertex counts. With **No limit**, flat
 open areas can become large triangles; set a maximum target when their size matters.
+The log distinguishes unavailable terrain certification, no eligible free vertices,
+and attempted removals that were all rejected by the geometry or accuracy checks.
 
 Final verification uses the exported geometry and elevations. Fixed strips,
 minimum spacing, missing DEM data or prescribed rim elevations may prevent the
 requested tolerance. The result then includes counts and example locations;
 model elevation offsets are distinguished from insufficient terrain resolution.
-The **Mesh generation results** report separates requested targets from achieved
+The final **Run log** report separates requested targets from achieved
 edge lengths, shape, terrain error bounds and resource limits. **Highlight
 exception cells** marks cells with short edges, small angles, terrain exceedances
 or unknown coverage on the map. An upper error bound is not an exact measured

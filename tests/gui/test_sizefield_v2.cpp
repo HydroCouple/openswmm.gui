@@ -69,6 +69,28 @@ class TestSizeFieldV2 : public QObject
 {
     Q_OBJECT
 private slots:
+    void largeTransitionRatesRemainEffectiveAndFinite()
+    {
+        SizeField slow, fast, extreme;
+        SizeFieldOptions options;
+        options.nearSize = 10;
+        options.gradation = 1;
+        options.maxSize = 100;
+        const QRectF extent(0, 0, 1000, 1000);
+        QVERIFY(slow.build(extent, {midSegment()}, {}, {}, options));
+        options.gradation = 24; // User transition rate 25, well beyond ten.
+        QVERIFY(fast.build(extent, {midSegment()}, {}, {}, options));
+        QVERIFY(fast.sizeAt(500, 520) > slow.sizeAt(500, 520));
+        options.gradation = std::numeric_limits<double>::max();
+        QVERIFY(extreme.build(extent, {midSegment()}, {}, {}, options));
+        for (int y = 0; y <= 1000; y += 10)
+            for (int x = 0; x <= 1000; x += 10) {
+                const double h = extreme.sizeAt(x, y);
+                QVERIFY(std::isfinite(h));
+                QVERIFY(h >= 10 && h <= 100);
+            }
+    }
+
     // ── TerrainSizeField ────────────────────────────────────────────────
 
     /**

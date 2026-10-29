@@ -148,6 +148,10 @@ int liveTriangles(const ConstrainedDelaunay &cdt)
 bool topologyConsistent(const ConstrainedDelaunay &cdt)
 {
     const auto &T = cdt.triangles();
+    const int scannedLive =
+        std::count_if(T.begin(), T.end(), [](const auto &t) { return t.alive; });
+    if (scannedLive != cdt.liveTriangleCount())
+        return false;
     for (int t = 0; t < T.size(); ++t)
         for (int i = 0; i < 3; ++i) {
             const int n = T[t].adj[i];
@@ -323,6 +327,30 @@ class TestMeshCdt : public QObject
 {
     Q_OBJECT
 private slots:
+    void progressCountsRemainAccurateAcrossCoarsening()
+    {
+        ConstrainedDelaunay cdt;
+        QVERIFY(buildRings(cdt, {{{0, 0}, {20, 0}, {20, 20}, {0, 20}}}));
+        for (int y = 2; y < 20; y += 2)
+            for (int x = 2; x < 20; x += 2)
+                QVERIFY(cdt.insertPoint({double(x), double(y)}) >= 0);
+        ConstrainedDelaunay::QualityOptions options;
+        options.hAt = [](double, double) { return 6.0; };
+        options.minAngleDeg = 20;
+        options.maxInsertions = 10000;
+        options.coarsenPasses = 3;
+        QVector<mesh::GenerationProgress> updates;
+        options.onProgress = [&](const mesh::GenerationProgress &state) { updates.append(state); };
+        const auto report = cdt.refineQuality(options);
+        QVERIFY(report.coarsenRemoved > 0);
+        QVERIFY(!updates.isEmpty());
+        QCOMPARE(updates.last().triangles, std::int64_t(cdt.liveTriangleCount()));
+        QCOMPARE(updates.last().workingVertices, std::int64_t(cdt.vertices().size() - 3));
+        QCOMPARE(updates.last().inserted, std::int64_t(report.inserted));
+        QCOMPARE(updates.last().removed, std::int64_t(report.coarsenRemoved));
+        QVERIFY(topologyConsistent(cdt));
+        QVERIFY(updates.size() < 100); // No callback per output cell.
+    }
     /**
      * @brief Verify interior vertex removal preserves live area, constrained chains and local
      * Delaunay topology.

@@ -46,6 +46,7 @@
 
 #include <functional>
 #include <limits>
+#include "meshprogress.h"
 
 namespace mesh
 {
@@ -275,6 +276,9 @@ public:
         double minEdge = 0.0;
         /*! Polled every 4096 insertions; returning true stops refinement. */
         std::function<bool()> cancelled;
+        /*! Advisory typed counters at bounded checkpoints; no topology scans.
+         * Callback must not throw or reenter the kernel. */
+        std::function<void(const GenerationProgress &)> onProgress;
     };
     struct QualityReport {
         int inserted = 0; ///< Vertices added, segment splits included.
@@ -440,7 +444,7 @@ public:
     [[nodiscard]] const QVector<double> &terrainElevations() const { return m_terrainElevations; }
     /**
      * @brief Count slots whose alive flag is true, including super faces if still alive.
-     * @return Nonnegative live-slot count from a linear scan; not necessarily real exported
+     * @return Nonnegative live-slot count maintained in constant time; not necessarily exported
      * triangle count. No allocation/mutation, requires no concurrent edits.
      */
     [[nodiscard]] int liveTriangleCount() const;
@@ -722,6 +726,7 @@ private:
     QVector<quint32> m_origins;
     QVector<double> m_terrainElevations;
     QVector<Triangle> m_tris;
+    int m_liveTriangles = 0;
     QVector<int> m_vertexTri; ///< Some live triangle incident to each vertex.
     int m_superBase = 0;
     int m_lastLocate = 0;

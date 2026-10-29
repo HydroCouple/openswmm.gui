@@ -20,8 +20,8 @@
 #ifndef OPENSWMMVIS_MESH_MESHENGINESYNC_H
 #define OPENSWMMVIS_MESH_MESHENGINESYNC_H
 
-#include "meshresult.h"
-#include "meshedgebc.h"
+#include "mesh/meshresult.h"
+#include "mesh/meshedgebc.h"
 
 #include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 

@@ -22,6 +22,9 @@
 #include "mesh/channelburnprofile.h"
 #include "project/generatedmeshartifacts.h"
 #include "ui/widgets/corridorsourceswidget.h"
+#include "ui/widgets/meshresolutionwidget.h"
+#include "ui/widgets/meshconstraintsourceswidget.h"
+#include "ui/widgets/meshconstraintpreviewwidget.h"
 #include "mesh/meshcellgeom.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
@@ -43,6 +46,9 @@
 #include <QMessageBox>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
+#include <QTabWidget>
 #include <QLineF>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -397,6 +403,249 @@ class TestMeshTerrainPipeline : public QObject
     }
 
 private slots:
+    void boundedConstraintPolicyPreservesHolesAndOverrides()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/meshing_policies_2026-10-29/pipeline"));
+        Inputs in;
+        QVERIFY(prepareBurnFixture(dir, in, false));
+        in.burnEnabled = false;
+        in.quadMode = 0;
+        in.geometryMode = 2;
+        in.trimTurnDeg = 10;
+        in.trimDeviation = .2;
+        in.geometryPolicy.maxAreaChangeFraction = .01;
+        in.domains = {QPolygonF{{0, 0}, {16, .01}, {32, 0}, {32, 32}, {0, 32}}};
+        in.holeRings = {{{2, 2}, {4, 2}, {4, 4}, {2, 4}}};
+        in.auxLines.clear();
+        GenerationInputs::AuxLine line;
+        line.sourceId = "survey-line";
+        line.path = {{6, 8}, {16, 8.01}, {26, 8}};
+        line.simplificationMode = 0;
+        in.auxLines.append(line);
+        const auto result = run(in);
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        const auto metrics = result.metrics["constraintSimplification"].toObject();
+        QCOMPARE(metrics["mode"].toInt(), 2);
+        QVERIFY(metrics["preparationAuditPassed"].toBool());
+        QVERIFY(metrics["deliveredAuditPassed"].toBool());
+        QCOMPARE(metrics["removedVertices"].toInt(), 1);
+        for (const auto &cell : result.meshResult.triangles) {
+            QPointF center;
+            for (int k = 0; k < cell.vertexCount(); ++k)
+                center += result.meshResult.vertices[cell.vertex(k)].xy;
+            center /= cell.vertexCount();
+            QVERIFY(!(center.x() > 2 && center.x() < 4 && center.y() > 2 && center.y() < 4));
+        }
+        in.geometryMode = 1;
+        const auto preserved = run(in);
+        QVERIFY2(preserved.ok, qPrintable(preserved.errorMsg));
+        QCOMPARE(
+            preserved.metrics["constraintSimplification"].toObject()["removedVertices"].toInt(), 0);
+        in.auxLines[0].path = {{6, 8}, {40, 8}, {26, 8}};
+        const auto crossing = run(in);
+        QVERIFY(!crossing.ok);
+        QVERIFY(crossing.errorMsg.contains("Clip the source line"));
+    }
+
+    void sourceOverridesAndPreparationOnlyPreview()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/constraint-review-2026-10-29/source-overrides"));
+        Inputs in;
+        QVERIFY(prepareBurnFixture(dir, in, false));
+        in.burnEnabled = false;
+        in.constraintPreviewOnly = true;
+        in.geometryMode = 1; // Preserve by default, simplify the boundary explicitly.
+        in.trimTurnDeg = 5; in.trimDeviation = .1;
+        in.geometryPolicy.maxZDeviation = .1;
+        in.boundaryPolicy.mode = 1;
+        in.boundaryPolicy.maxDeviation = .1;
+        in.domains = {QPolygonF{{0, 0}, {16, -.01}, {32, 0}, {32, 32}, {0, 32}}};
+        in.holeRings = {{{2, 2}, {4, 2}, {4, 4}, {2, 4}}};
+        Inputs::AuxLine line;
+        line.sourceId = "survey:7";
+        line.sourceLabel = "Surveyed bank — feature 7";
+        line.path = {{6, 8}, {16, 8.01}, {26, 8}};
+        line.hasZ = true; line.z = {10, 10.01, 10};
+        line.sourcePolicy.mode = 0;
+        in.auxLines = {line};
+        const auto preview = run(in);
+        QVERIFY2(preview.ok, qPrintable(preview.errorMsg));
+        QVERIFY(preview.constraintPreviewOnly);
+        QVERIFY(preview.meshResult.vertices.isEmpty());
+        QVERIFY(preview.meshResult.triangles.isEmpty());
+        QCOMPARE(preview.generationStats.refineInserted, 0);
+        const auto metrics = preview.metrics["constraintSimplification"].toObject();
+        QVERIFY(metrics["preparationAuditPassed"].toBool());
+        QCOMPARE(metrics["removedVertices"].toInt(), 1);
+        bool found = false;
+        for (const auto &feature : preview.constraintPreview.features)
+            if (feature.id == line.sourceId) {
+                found = true;
+                QCOMPARE(feature.verticesAfter, quint64(3));
+            }
+        QVERIFY(found);
+        QVERIFY(!QFileInfo::exists(dir.filePath("model.2dm")));
+        in.auxLines[0].simplificationMode = 1; // Feature overrides the preserving source.
+        const auto featureOverride = run(in);
+        QVERIFY2(featureOverride.ok, qPrintable(featureOverride.errorMsg));
+        QCOMPARE(featureOverride.metrics["constraintSimplification"].toObject()["removedVertices"].toInt(), 2);
+        in.constraintPreviewOnly = false;
+        in.quadMode = 0;
+        const auto delivered = run(in);
+        QVERIFY2(delivered.ok, qPrintable(delivered.errorMsg));
+        QVERIFY(delivered.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+        in.geometryMode = 0;
+        in.constraintPreviewOnly = true;
+        const auto legacy = run(in);
+        QVERIFY(!legacy.ok);
+        QVERIFY(legacy.errorMsg.contains("before previewing"));
+    }
+
+    void dialogPreviewDoesNotAdoptOrSaveAndSourcePoliciesRoundTrip()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/constraint-review-2026-10-29/dialog-preview"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        QFile fixture(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                          .filePath("typed_selection_fixture.inp"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const auto authored = fixture.readAll();
+        const auto projectPath = dir.filePath("preview.inp");
+        QVERIFY(writeBytes(projectPath, authored));
+        auto workspace = std::unique_ptr<OpenSWMMVisWorkspace>(
+            OpenSWMMVisWorkspace::newInstance(QString(), nullptr));
+        auto window = std::make_unique<SWMMVisProjectWindow>(workspace.get(), projectPath, nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(window->loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        const auto optionsBefore = window->meshGenerationOptions();
+        const int undoBefore = window->canvas()->undoStack()->count();
+        const int layersBefore = window->canvas()->layers().size();
+        MeshGenerationDialog dialog(window.get(), nullptr);
+        dialog.m_geometryModeCombo->setCurrentIndex(1);
+        dialog.m_constraintSources->fromJson({QJsonObject{{"id", "model:conduits"}, {"mode", 0},
+                                                         {"maximumXYM", .123456789}}});
+        QVERIFY(dialog.m_previewBtn->isEnabled());
+        dialog.onPreviewConstraints();
+        QVERIFY(dialog.m_watcher);
+        QVERIFY(!dialog.m_generateBtn->isEnabled());
+        QVERIFY(!dialog.m_previewBtn->isEnabled());
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_watcher, 30000);
+        QVERIFY(dialog.m_generateBtn->isEnabled() && dialog.m_previewBtn->isEnabled());
+        QVERIFY2(dialog.m_progressLabel->text().contains("preview ready"),
+                 qPrintable(dialog.m_progressLabel->text()));
+        QCOMPARE(dialog.m_tabs->currentWidget(), static_cast<QWidget *>(dialog.m_constraintPreview));
+        QCOMPARE(window->canvas()->undoStack()->count(), undoBefore);
+        QCOMPARE(window->canvas()->layers().size(), layersBefore);
+        QCOMPARE(window->meshGenerationOptions(), optionsBefore);
+        QVERIFY(!dialog.m_meshApplied);
+        QFile project(projectPath);
+        QVERIFY(project.open(QIODevice::ReadOnly));
+        QCOMPARE(project.readAll(), authored);
+        QVERIFY(!QFileInfo::exists(dir.filePath("preview.2dm")));
+        QVERIFY(!QFileInfo::exists(dir.filePath("preview.oswp")));
+        auto *summary = dialog.m_constraintPreview->findChild<QLabel *>("constraintPreviewSummary");
+        QVERIFY(summary && !summary->text().contains("Inputs changed"));
+        dialog.m_trimDeviationSpin->setValue(dialog.m_trimDeviationSpin->value() + .1);
+        QVERIFY(summary->text().contains("Inputs changed"));
+        dialog.saveOptions(); // Explicit draft persistence, separate from preview.
+        MeshGenerationDialog restored(window.get(), nullptr);
+        const auto policy = restored.m_constraintSources->policy("model:conduits");
+        QCOMPARE(policy.mode, 0);
+        QCOMPARE(policy.maxDeviation.value(), .123456789);
+    }
+
+    void preservePolicyRefusesUnavailableBoundariesAndInvalidLineMetadata()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/constraint-review-2026-10-29/invalid-source"));
+        Inputs in;
+        QVERIFY(prepareBurnFixture(dir, in, false));
+        in.burnEnabled = false; in.geometryMode = 1;
+        in.boundaryKind = Inputs::BoundaryKind::VectorFile;
+        in.boundaryPath = dir.filePath("missing.gpkg");
+        auto result = run(in);
+        QVERIFY(!result.ok);
+        QVERIFY(result.errorMsg.contains("boundary source cannot be opened"));
+        in.boundaryKind = Inputs::BoundaryKind::AutoBBox;
+        Inputs::AuxLine line;
+        line.path = {{6, 8}, {16, 8}, {26, 8}};
+        line.sourceId = "survey:8";
+        line.sourcePolicy.mode = 2;
+        in.auxLines = {line};
+        result = run(in);
+        QVERIFY(!result.ok);
+        QVERIFY(result.errorMsg.contains("source geometry mode"));
+        in.auxLines[0].sourcePolicy.mode = -1;
+        in.auxLines[0].hasZ = true;
+        in.auxLines[0].z = {10};
+        result = run(in);
+        QVERIFY(!result.ok);
+        QVERIFY(result.errorMsg.contains("elevation count"));
+    }
+
+    void runEventsPreserveGeometryAndReportOutcomes()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/meshing_library_2026-10-29/pipeline"));
+        Inputs in;
+        QVERIFY(prepareBurnFixture(dir, in, false));
+        in.burnEnabled = false;
+        in.quadMode = 0;
+        mesh::QuadRegion region;
+        region.ring = QPolygonF{{8, 4}, {24, 4}, {24, 12}, {8, 12}};
+        region.spacing = 4;
+        region.tag = "triangles-only-region";
+        in.quadRegions.append(region);
+        const auto baseline = run(in);
+        QVERIFY2(baseline.ok, qPrintable(baseline.errorMsg));
+        QCOMPARE(baseline.meshResult.quadCount(), 0);
+        QCOMPARE(baseline.exceptionCells.size(),
+                 std::min(10000, baseline.metrics["exceptionCellCount"].toInt()));
+        in.events = std::make_shared<meshkit::EventChannel>();
+        const auto observed = run(in);
+        QVERIFY2(observed.ok, qPrintable(observed.errorMsg));
+        QCOMPARE(observed.meshResult.vertices.size(), baseline.meshResult.vertices.size());
+        QCOMPARE(observed.meshResult.triangles.size(), baseline.meshResult.triangles.size());
+        for (int i = 0; i < observed.meshResult.vertices.size(); ++i) {
+            QCOMPARE(observed.meshResult.vertices[i].xy, baseline.meshResult.vertices[i].xy);
+            QCOMPARE(observed.meshResult.vertices[i].z, baseline.meshResult.vertices[i].z);
+        }
+        for (int i = 0; i < observed.meshResult.triangles.size(); ++i)
+            for (int j = 0; j < 4; ++j)
+                QCOMPARE(observed.meshResult.triangles[i].vertex(j),
+                         baseline.meshResult.triangles[i].vertex(j));
+        auto batch = in.events->drain();
+        QVERIFY(!batch.events.empty());
+        QCOMPARE(batch.events.back().kind, meshkit::EventKind::Completed);
+        QCOMPARE(batch.events.back().counts.cells(),
+                 std::int64_t(observed.meshResult.triangles.size()));
+        QCOMPARE(batch.events.back().counts.vertices,
+                 std::int64_t(observed.meshResult.vertices.size()));
+        int percent = -1;
+        for (const auto &event : batch.events)
+            if (event.percent >= 0) {
+                QVERIFY(event.percent >= percent);
+                percent = event.percent;
+            }
+
+        in.events = std::make_shared<meshkit::EventChannel>();
+        in.genOpts.maxCells = 1;
+        const auto capped = run(in);
+        QVERIFY(capped.ok); // A candidate exists; its status explicitly forbids application.
+        QCOMPARE(capped.status, meshkit::RunStatus::ResourceLimit);
+        QCOMPARE(capped.metrics["status"].toString(), QString("resource_limit"));
+        QCOMPARE(in.events->drain().events.back().status, meshkit::RunStatus::ResourceLimit);
+
+        in.events = std::make_shared<meshkit::EventChannel>();
+        in.resolution = mesh::ResolutionSettings{};
+        in.resolution->minimumM = -1;
+        const auto failed = run(in);
+        QVERIFY(!failed.ok);
+        QCOMPARE(failed.status, meshkit::RunStatus::Failed);
+        QCOMPARE(in.events->drain().events.back().status, meshkit::RunStatus::Failed);
+    }
     /**
      * @brief Verify minimum spacing, maximum size, feature refinement and elevation availability
      * remain independent.
@@ -405,6 +654,71 @@ private slots:
      * elevation point gives four. Burn disabled, no terrain unresolved cells, summary says No
      * limit; writes fixture/cache only.
      */
+    void coarseningCheckboxReachesWorkerInsideTriangleRegions()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                           .absoluteFilePath("../../output/constraint-review-2026-10-29/coarsening"));
+        Inputs in;
+        QVERIFY(prepareBurnFixture(dir, in, false));
+        in.burnEnabled = false;
+        in.modelExtent = MapExtent(0, 0, 120, 100);
+        in.domains = {QPolygonF{{0, 0}, {120, 0}, {120, 100}, {0, 100}}};
+        in.auxPoints = {{{60, 25}, 10, true}};
+        in.constraintSegs = {{{{10, 25}, {110, 25}}, 7, "C1"}};
+        in.genOpts.minAngleDeg = 28;
+        in.genOpts.latticeSeeding = true;
+        in.genOpts.smoothingPasses = 2;
+        in.quadMode = 0;
+        // A triangle-only region is a size/tag constraint, not a fixed quad patch.
+        mesh::QuadRegion region;
+        region.ring = in.domains.first();
+        region.spacing = 10;
+        region.tag = "triangular-region";
+        in.quadRegions = {region};
+        auto *raster = static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8(), GA_Update));
+        QVERIFY(raster);
+        double transform[] = {-4, 4, 0, 144, 0, -4};
+        const auto transformed = raster->SetGeoTransform(transform);
+        GDALClose(raster);
+        QCOMPARE(transformed, CE_None);
+
+        MeshResolutionWidget editor;
+        mesh::ResolutionSettings settings;
+        settings.minimumM = 2;
+        settings.maximumM = 10;
+        settings.toleranceM = .05;
+        settings.alignTerrain = false;
+        settings.reference = mesh::ResolutionSettings::Reference::Full;
+        for (bool terrain : {false, true}) {
+            settings.terrain = terrain ? mesh::ResolutionSettings::Terrain::Adaptive
+                                       : mesh::ResolutionSettings::Terrain::Off;
+            editor.setSettings(settings);
+            editor.coarsenEnabled->setChecked(false);
+            in.resolution = editor.settings();
+            const auto disabled = run(in);
+            QVERIFY2(disabled.ok, qPrintable(disabled.errorMsg));
+            QCOMPARE(disabled.generationStats.coarsenAttempts, 0);
+            QCOMPARE(disabled.generationStats.coarsenRemoved, 0);
+
+            editor.coarsenEnabled->setChecked(true);
+            in.resolution = editor.settings();
+            QCOMPARE(in.resolution->coarsenPasses, 3);
+            const auto enabled = run(in);
+            QVERIFY2(enabled.ok, qPrintable(enabled.errorMsg));
+            QVERIFY(!enabled.generationStats.coarsenSkippedTerrain);
+            QVERIFY(enabled.generationStats.coarsenAttempts > 0);
+            QVERIFY(enabled.generationStats.coarsenRemoved > 0);
+            QVERIFY(enabled.meshResult.triangles.size() < disabled.meshResult.triangles.size());
+            QCOMPARE(enabled.generationStats.terrainUnresolved, 0);
+            QCOMPARE(enabled.generationStats.terrainUnknown, 0);
+            QVERIFY(enabled.summary.contains("Removed by coarsening:"));
+            qInfo("coarsening check: terrain=%d cells=%lld->%lld attempts=%d removed=%d", terrain,
+                  (long long)disabled.meshResult.triangles.size(),
+                  (long long)enabled.meshResult.triangles.size(),
+                  enabled.generationStats.coarsenAttempts, enabled.generationStats.coarsenRemoved);
+        }
+    }
+
     void independentResolutionControls()
     {
         const QDir dir(
@@ -1386,7 +1700,9 @@ NODE C interior
      * resource use.
      * @note Skips SWMMVIS_TERRAIN_SCALE_CELLS<100000, requires review output root; writes
      * target-scaled plane.tif/model, uses 20 million cell budget/16 MiB cache, optional
-     * SWMMVIS_CHANNEL_SCALE. Requires >0.85*target cells, no unresolved/unknown/capped terrain,
+     * SWMMVIS_CHANNEL_SCALE. Triangle-only sizing calibration; SWMMVIS_TERRAIN_SCALE_QUADS
+     * optionally selects mixed mode, whose actual cell count is reported independently.
+     * Requires >0.85*target cells in triangle mode, no unresolved/unknown/capped terrain,
      * planar no-channel inserts zero terrain points. Logs elapsed/normalized process peak RSS;
      * no time or memory limit asserted.
      */
@@ -1432,6 +1748,8 @@ NODE C interior
         inputs.genOpts.minCellSize = inputs.minCellSize;
         inputs.genOpts.maxArea = .4330127018922193 * inputs.cellSize * inputs.cellSize;
         inputs.genOpts.maxCells = 20'000'000;
+        inputs.quadMode = qEnvironmentVariableIntValue("SWMMVIS_TERRAIN_SCALE_QUADS");
+        QVERIFY(inputs.quadMode >= 0 && inputs.quadMode <= 2);
         inputs.terrainTolerance = .01;
         inputs.terrainAdaptive = true;
         inputs.terrainCacheMiB = 16;
@@ -1463,15 +1781,23 @@ NODE C interior
         rss *= 1024;
 #endif
 #endif
-        qInfo("pipeline scale: target=%d cells=%lld DEM_samples=%lld ms=%lld peakRSS=%lld", target,
-              (long long)result.meshResult.triangles.size(), (long long)pixels * pixels,
-              (long long)ms, (long long)rss);
+        qInfo(
+            "pipeline scale: target=%d mode=%d cells=%lld quads=%d DEM_samples=%lld ms=%lld peakRSS=%lld",
+            target, inputs.quadMode, (long long)result.meshResult.triangles.size(),
+            result.meshResult.quadCount(), (long long)pixels * pixels, (long long)ms,
+            (long long)rss);
         if (!channel)
             QCOMPARE(result.generationStats.terrainInserted, 0);
         QCOMPARE(result.generationStats.terrainUnresolved, 0);
         QCOMPARE(result.generationStats.terrainUnknown, 0);
         QVERIFY(!result.generationStats.refineCapped);
-        QVERIFY(result.meshResult.triangles.size() > target * .85);
+        if (inputs.quadMode == 0) {
+            QCOMPARE(result.meshResult.quadCount(), 0);
+            QVERIFY(result.meshResult.triangles.size() > target * .85);
+        } else {
+            // A target calibrated by triangle area is not a mixed-cell count.
+            QVERIFY(!result.meshResult.triangles.isEmpty());
+        }
     }
     // Opt-in reproduction of a real project through the dialog's own input
     // collection: SWMMVIS_REPRO_INP, SWMMVIS_REPRO_DEM, SWMMVIS_REPRO_BOUNDARY
@@ -2251,7 +2577,7 @@ NODE C interior
         QTest::addColumn<QString>("outcome");
         QTest::addColumn<bool>("bankPair");
         for (bool banks : {false, true})
-            for (const char *outcome : {"success", "stale", "source", "failure", "cancel"})
+            for (const char *outcome : {"success", "stale", "source", "failure", "cancel", "cap"})
                 QTest::newRow(qPrintable(QString(banks ? "banks-" : "centerline-") + outcome))
                     << QString(outcome) << banks;
     }
@@ -2308,6 +2634,11 @@ NODE C interior
             result.ok = false;
             result.errorMsg = "test refusal";
         }
+        if (outcome == "cap") {
+            result.status = meshkit::RunStatus::ResourceLimit;
+            result.generationStats.refineCapped = true;
+            result.summary = "test resource limit";
+        }
         QPromise<GenerationResult> promise;
         promise.start();
         promise.addResult(result);
@@ -2327,6 +2658,10 @@ NODE C interior
         if (outcome == "success")
             QVERIFY(!window->corridorSources().first().geometryDigest.isEmpty());
         QCOMPARE(window->corridorRecipeLoadError().isEmpty(), outcome == "success");
+        QCOMPARE(dialog.m_meshApplied, outcome == "success");
+        dialog.reject();
+        QCOMPARE(dialog.result(),
+                 outcome == "success" ? int(QDialog::Accepted) : int(QDialog::Rejected));
     }
 
     /**

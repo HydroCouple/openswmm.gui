@@ -210,3 +210,4 @@ examples/channel_burn_boundary/*
 /tests/gui/data/simopts_roundtrip_*_before.inp
 /tests/gui/data/simopts_roundtrip_*_after.inp
 /build-burn/
+/build-mesh-policies/

@@ -16,7 +16,20 @@ set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 # test sources include the .cpp files they exercise directly when small enough,
 # or link against compiled .o files via the SWMMVis_obj target if extracted later).
 function(add_swmmvis_gui_test TEST_NAME)
-    add_executable(${TEST_NAME} ${ARGN})
+    # Extracted meshing sources are linked from the standalone project once.
+    # Retain source entries at call sites to document each test's dependency.
+    set(test_sources ${ARGN})
+    set(uses_meshkit FALSE)
+    foreach(source IN LISTS ARGN)
+        if(source MATCHES "/libraries/meshkit/(src|include)/")
+            list(REMOVE_ITEM test_sources "${source}")
+            set(uses_meshkit TRUE)
+        endif()
+    endforeach()
+    add_executable(${TEST_NAME} ${test_sources})
+    if(uses_meshkit)
+        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
+    endif()
     # Native observation layers participate in every canvas, while samples stay
     # in a bounded disk-backed store independent of the optional Data plugin.
     if("${CMAKE_SOURCE_DIR}/src/map/mapcanvas.cpp" IN_LIST ARGN)
@@ -52,6 +65,7 @@ function(add_swmmvis_gui_test TEST_NAME)
         ${CMAKE_SOURCE_DIR}/forms
     )
     target_link_libraries(${TEST_NAME} PRIVATE
+        meshkit::runtime
         openswmmvis_extensions
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
@@ -85,6 +99,25 @@ function(add_swmmvis_gui_test TEST_NAME)
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────
+add_swmmvis_gui_test(test_meshconstraintwidgets
+    test_meshconstraintwidgets.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshconstraintsourceswidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshconstraintpreviewwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/meshconstraintsourceswidget.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/meshconstraintpreviewwidget.h)
+target_link_libraries(test_meshconstraintwidgets PRIVATE meshkit::core_qt)
+target_compile_definitions(test_meshconstraintwidgets PRIVATE
+    MESH_CONSTRAINT_WIDGET_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/constraint-review-2026-10-29")
+add_swmmvis_gui_test(test_meshsettingsdock
+    test_meshsettingsdock.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshresolutionwidget.cpp)
+target_compile_definitions(test_meshsettingsdock PRIVATE
+    MESH_SETTINGS_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/meshing_policies_2026-10-29")
+add_swmmvis_gui_test(test_meshrunlogwidget
+    test_meshrunlogwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshrunlogwidget.cpp)
+target_compile_definitions(test_meshrunlogwidget PRIVATE
+    MESH_RUN_LOG_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/meshing_library_2026-10-29")
 add_swmmvis_gui_test(test_lidstates test_lidstates.cpp ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp)
 add_swmmvis_gui_test(test_traceanalysisstore
     test_traceanalysisstore.cpp
@@ -470,7 +503,7 @@ target_compile_definitions(test_profileplot_crown_visibility PRIVATE
 # Layer-metadata plan — mesh edge-count identity (2·E = 3·T + B). Value types.
 add_swmmvis_gui_test(test_meshedgecount
     test_meshedgecount.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 # Slice Z.17-files — RuleList .swmm-rule.json I/O tests.
@@ -797,15 +830,15 @@ add_swmmvis_gui_test(test_2d_sublayers
     # and MeshFillSublayer labels its ramp with cellParamLabel(). Both are
     # leaf translation units (QObject / QCoreApplication only), so the lean
     # link stays lean.
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellparams.h
     # GG0f — MeshFillSublayer colours cells by infil.* : categorically through
     # CategoricalPalette::byName + mesh::infilMethodLabels(), and per-cell
     # through mesh::resolveInfil / infilSlotForKey.
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
     ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
     ${CMAKE_SOURCE_DIR}/include/render/categoricalpalette.h
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
@@ -842,8 +875,8 @@ add_swmmvis_gui_test(test_meshbc_couplednode_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
 )
@@ -2162,8 +2195,8 @@ add_swmmvis_gui_test(test_selectionmanager
 
 add_swmmvis_gui_test(test_editgeometry
     test_editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/core/editgeometry.h
 )
 
 # Volume-conserving weighted blend of rain-gage series. Reproduces the engine's
@@ -2178,10 +2211,10 @@ add_swmmvis_gui_test(test_gageblend
 add_swmmvis_gui_test(test_gageassignment
     test_gageassignment.cpp
     ${CMAKE_SOURCE_DIR}/src/core/gageassignment.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/core/gageassignment.h
-    ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/core/editgeometry.h
 )
 target_link_libraries(test_gageassignment PRIVATE predicates_lib)
 
@@ -2200,38 +2233,38 @@ target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 # predicates.
 add_swmmvis_gui_test(test_meshgenerator
     test_meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 target_link_libraries(test_meshgenerator PRIVATE Qt6::Concurrent predicates_lib)
 
 # End-to-end generator gates: conformity, holes, junctions, region tags,
 # the angle bound, grading, coarseness, four-sided regions, determinism, timing.
 add_swmmvis_gui_test(test_meshgenerator_v2
-    test_meshgenerator_v2.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/quadblocks.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/tests/test_meshgenerator_v2.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/quadblocks.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
 )
 target_link_libraries(test_meshgenerator_v2 PRIVATE Qt6::Concurrent predicates_lib)
 
@@ -2239,25 +2272,25 @@ target_link_libraries(test_meshgenerator_v2 PRIVATE Qt6::Concurrent predicates_l
 # recovery, vertices on constraints, regions, cocircular input, and quality
 # refinement (angle and size bounds, small input angles, fixed segments).
 add_swmmvis_gui_test(test_meshcdt
-    test_meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcdt.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/tests/test_meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcdt.h
 )
 target_link_libraries(test_meshcdt PRIVATE predicates_lib)
 
 add_swmmvis_gui_test(test_meshpatch
     test_meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshpatch.h
 )
 target_link_libraries(test_meshpatch PRIVATE Qt6::Concurrent predicates_lib)
 
@@ -2268,39 +2301,39 @@ target_link_libraries(test_meshpatch PRIVATE Qt6::Concurrent predicates_lib)
 # skew, convexity, default bounds, combined score).
 add_swmmvis_gui_test(test_meshquadquality
     test_meshquadquality.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadquality.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadquality.h
 )
 
 # Region geometry: normalisation, turning angles, classification,
 # validation against domains / holes, overlap, resampling.
 add_swmmvis_gui_test(test_meshquadregion
     test_meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadregion.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadregion.h
 )
 
 # Template pairing, blossom gap pairing (vs brute force), unionQuad.
 add_swmmvis_gui_test(test_meshquadmatch
     test_meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadmatch.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadmatch.h
 )
 
 # Doublet removal, diagonal swap, guarded smoothing, reorder.
 add_swmmvis_gui_test(test_meshquadcleanup
     test_meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshquadcleanup.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadcleanup.h
 )
 
 add_swmmvis_gui_test(test_nninterpdegenerate
     test_nninterpdegenerate.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/naturalnbinterpolator.h
 )
 target_link_libraries(test_nninterpdegenerate PRIVATE predicates_lib)
 
@@ -2310,9 +2343,9 @@ target_link_libraries(test_nninterpdegenerate PRIVATE predicates_lib)
 # elevation fallback.
 add_swmmvis_gui_test(test_nninterpvalues
     test_nninterpvalues.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/naturalnbinterpolator.h
 )
 target_link_libraries(test_nninterpvalues PRIVATE predicates_lib)
 
@@ -2329,9 +2362,9 @@ target_link_libraries(test_dtmsampler PRIVATE GDAL::GDAL)
 find_package(Qt6 REQUIRED COMPONENTS Concurrent)
 add_swmmvis_gui_test(test_pslgprep
     test_pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/pslgprep.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/pslgprep.h
 )
 target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
 
@@ -2339,9 +2372,9 @@ target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
 # straightness trimming, size resampling, coincidence flags.
 add_swmmvis_gui_test(test_pslgtrim
     test_pslgtrim.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/pslgprep.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/pslgprep.h
 )
 target_link_libraries(test_pslgtrim PRIVATE Qt6::Concurrent)
 
@@ -2350,9 +2383,9 @@ target_link_libraries(test_pslgtrim PRIVATE Qt6::Concurrent)
 # container harness during Phases 0-6; registered here in Phase 7.
 add_swmmvis_gui_test(test_sizefield_v2
     test_sizefield_v2.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sizefield.h
     ${CMAKE_SOURCE_DIR}/include/mesh/terrainsizefield.h
 )
 target_include_directories(test_sizefield_v2 PRIVATE ${GDAL_INCLUDE_DIRS})
@@ -2362,7 +2395,7 @@ add_swmmvis_gui_test(test_terrainerrorfield
     test_terrainerrorfield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainerrorfield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainlocalcopy.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
 )
 target_include_directories(test_terrainerrorfield PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_terrainerrorfield PRIVATE GDAL::GDAL Qt6::Concurrent predicates_lib)
@@ -2371,8 +2404,8 @@ target_link_libraries(test_terrainerrorfield PRIVATE GDAL::GDAL Qt6::Concurrent 
 # rule, determinism, budget coarsening.
 add_swmmvis_gui_test(test_meshsizefield
     test_meshsizefield.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/sizefield.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sizefield.h
 )
 
 # Terrain break-line extraction (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE §2.1):
@@ -2389,21 +2422,21 @@ add_swmmvis_gui_test(test_terrainbreaklines
 # tests/output/mesh_triangle_engine_2026-09-30.
 add_swmmvis_gui_test(test_meshfeaturecapture
     test_meshfeaturecapture.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/terrainbreaklines.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
 )
 target_link_libraries(test_meshfeaturecapture PRIVATE Qt6::Concurrent predicates_lib GDAL::GDAL)
 target_compile_definitions(test_meshfeaturecapture PRIVATE
@@ -2417,24 +2450,24 @@ set_tests_properties(test_meshfeaturecapture PROPERTIES
 # break-line pairs, streets between curbs, conduit strips, crowded strips.
 add_swmmvis_gui_test(test_meshstrips
     test_meshstrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellstats.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/breaklinestrips.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/breaklinestrips.h
 )
 target_link_libraries(test_meshstrips PRIVATE Qt6::Concurrent predicates_lib)
 
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
     test_meshreorder.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshreorder.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshreorder.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshreorder.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshreorder.h
 )
 
 # Mesh stage cache: payload round-trips, key sensitivity, pruning.
@@ -2494,12 +2527,12 @@ add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
 # design (writes live in map/meshcommands.cpp), so this links nothing heavy.
 add_swmmvis_gui_test(test_meshcellparams
     test_meshcellparams.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellparams.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
     # mesh::infil* resolver, masks and tokens for the infil.* columns.
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
 
 )
 
@@ -2507,30 +2540,30 @@ add_swmmvis_gui_test(test_meshcellparams
 # Same lean link set as test_inpmeshwriter (no app objects).
 add_swmmvis_gui_test(test_inpmeshreader
     test_inpmeshreader.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 add_swmmvis_gui_test(test_inpmeshwriter
     test_inpmeshwriter.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
     # patchAttributeSections coverage round-trips through the reader.
-    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
     # inpmeshwriter.cpp now uses mesh::MeshBCTypes::inpToken for the BC
     # section serialiser.
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshwriter.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
     # mesh::infil* resolver, masks and tokens for the infil.* columns.
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
 
 )
 
@@ -2538,12 +2571,12 @@ add_swmmvis_gui_test(test_inpmeshwriter
 # mesh helpers (meshcellgeom.h) plus the reader; same lean link set.
 add_swmmvis_gui_test(test_sms2dmreader
     test_sms2dmreader.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/sms2dmreader.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/sms2dmreader.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellgeom.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sms2dmreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sms2dmreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellgeom.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 # Slice BJ.2-lite — marching-triangles contour line extraction. Header-only
@@ -2923,6 +2956,7 @@ find_package(Qt6 REQUIRED COMPONENTS OpenGL OpenGLWidgets Network Concurrent
 find_package(HDF5 REQUIRED COMPONENTS C)
 
 function(swmmvis_link_full_app_deps TEST_NAME)
+    target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
     # CMAKE_AUTOUIC_SEARCH_PATHS is set to the RELATIVE path "forms" at root
     # scope, resolved against each target's own CMAKE_CURRENT_SOURCE_DIR —
     # "forms" under the root source dir for SWMMVis, but under tests/gui/
@@ -4032,8 +4066,8 @@ add_swmmvis_gui_test(test_mesh2dresultsexport
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
     ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
     ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
     ${CMAKE_SOURCE_DIR}/include/io/mesh2dresultsexport.h
 )
 target_include_directories(test_mesh2dresultsexport PRIVATE
@@ -4077,17 +4111,17 @@ set_tests_properties(test_meshimportartifacts PROPERTIES LABELS "gui")
 # Phase25: corridor placement and structured patch authoring.
 add_swmmvis_gui_test(test_meshpatchplacement
     test_meshpatchplacement.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/breaklinestrips.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadmatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadcleanup.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshpatch.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshpatch.h
 )
 target_link_libraries(test_meshpatchplacement PRIVATE Qt6::Concurrent predicates_lib)
 
@@ -4095,8 +4129,8 @@ target_link_libraries(test_meshpatchplacement PRIVATE Qt6::Concurrent predicates
 add_swmmvis_gui_test(test_corridorsource
     test_corridorsource.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/corridorsource.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
 )
 target_link_libraries(test_corridorsource PRIVATE GDAL::GDAL)
 
@@ -4181,10 +4215,10 @@ add_swmmvis_gui_test(test_featurefielddelegate
     ${CMAKE_SOURCE_DIR}/src/feature/featureroles.cpp
     ${CMAKE_SOURCE_DIR}/src/feature/featuretypes.cpp
     ${CMAKE_SOURCE_DIR}/src/feature/featuregeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/panels/featurefielddelegate.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
 )
 target_link_libraries(test_featurefielddelegate PRIVATE GDAL::GDAL)
 
@@ -4265,9 +4299,9 @@ add_swmmvis_gui_test(test_groundwaterassignmentsampling
     ../unit/test_groundwaterassignmentsampling.cpp
     ${CMAKE_SOURCE_DIR}/src/assignment/meshassignmentsampling.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp)
-target_sources(test_groundwaterassignmentsampling PRIVATE ${CMAKE_SOURCE_DIR}/src/mesh/meshcdt.cpp)
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp)
+target_link_libraries(test_groundwaterassignmentsampling PRIVATE meshkit::core_qt)
 target_link_libraries(test_groundwaterassignmentsampling PRIVATE GDAL::GDAL predicates_lib)
 
 add_swmmvis_gui_test(test_meshprofile_combined

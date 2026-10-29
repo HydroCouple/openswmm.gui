@@ -20,6 +20,7 @@ class QSpinBox;
 class QLabel;
 class QTreeWidget;
 class QStackedWidget;
+class QDockWidget;
 
 // Shared editor: dialog and Preferences use identical meanings and units.
 class MeshResolutionWidget : public QWidget
@@ -75,7 +76,12 @@ public:
     QCheckBox *coarsenEnabled;
     QLabel *report;
 
+protected:
+    void changeEvent(QEvent *event) override;
+    bool eventFilter(QObject *object, QEvent *event) override;
+
 private:
+    void updateNavigationWidth();
     /**
      * @brief Recompute control visibility, terrain gates and reference-resolution guidance from current draft choices.
      * @note Does not clear disabled values or validate relationships such as maximum >= minimum.
@@ -86,7 +92,8 @@ private:
     QCheckBox *m_refineTerrain;
     QWidget *m_featureRow;
     QLabel *m_referenceNote;
-    QTreeWidget *m_categories;
+    QTreeWidget *m_categories = nullptr;
+    QDockWidget *m_categoryDock = nullptr;
     QStackedWidget *m_pages;
 };
 #endif
