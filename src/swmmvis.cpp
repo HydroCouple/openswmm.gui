@@ -11107,6 +11107,22 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                                                          : QFileInfo(h5Path).fileName()));
         });
 
+    // Native velocity lands before depth within one queued runner callback.
+    // Depth publishes the complete tick; do not display an incomplete pair.
+    connect(runner, &SimulationRunner::twoDVelocitiesAvailable, this,
+            [self, attemptCurrent](int jobId, QVector<float> vx, QVector<float> vy,
+                                   QDateTime simTime, double elapsedSec) {
+                if (!self || !attemptCurrent())
+                    return;
+                auto it = self->mActive2DResultsLayers.constFind(jobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                if (auto *source = dynamic_cast<EngineMesh2DSource *>(it.value()->source()))
+                    source->pushVelocities(std::vector<float>(vx.begin(), vx.end()),
+                                             std::vector<float>(vy.begin(), vy.end()),
+                                             simTime, elapsedSec);
+            });
+
     // Per-tick depth slice — push into the live EngineMesh2DSource.
     connect(runner, &SimulationRunner::twoDDepthsAvailable, this,
             [self, attemptCurrent](int twoDJobId, QVector<float> depths, QDateTime simTime, double elapsedSec) {

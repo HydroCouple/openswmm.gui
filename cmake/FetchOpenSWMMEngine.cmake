@@ -86,6 +86,7 @@ set(_oe_api_sentinels
     "openswmm_infrastructure.h:swmm_street_rename"
     "openswmm_trace.h:swmm_trace_prepare_live"
     "openswmm_2d.h:swmm_2d_set_auto_backend_cpu"
+    "openswmm_2d.h:swmm_2d_get_velocities_bulk"
 )
 get_target_property(_oe_incdirs OpenSWMMEngine::openswmm_engine
                     INTERFACE_INCLUDE_DIRECTORIES)

@@ -21,7 +21,7 @@ struct FlowParticleNativeTriangle {
     std::array<double, 3> flux{}; // outward m3/s, opposite each corner
     std::array<float, 3> depth{};
     double meanDepth = 0;
-    QPointF velocitySI; // optional cell-mean fallback when edge flux is absent
+    QPointF velocitySI; // authoritative cell-mean velocity when supplied
     bool velocityOnly = false;
     unsigned char residentEdges = 7;
     bool available = false;
