@@ -8,7 +8,18 @@
 
 # Helper — compile test + listed sources into one executable, register with CTest
 function(add_swmmvis_unit_test TEST_NAME)
-    add_executable(${TEST_NAME} ${ARGN})
+    set(test_sources ${ARGN})
+    set(uses_meshkit FALSE)
+    foreach(source IN LISTS ARGN)
+        if(source MATCHES "/libraries/meshkit/")
+            list(REMOVE_ITEM test_sources "${source}")
+            set(uses_meshkit TRUE)
+        endif()
+    endforeach()
+    add_executable(${TEST_NAME} ${test_sources})
+    if(uses_meshkit)
+        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
+    endif()
     target_include_directories(${TEST_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(${TEST_NAME}
         PRIVATE
@@ -169,8 +180,8 @@ add_swmmvis_unit_test(test_meshobjectref
 
 add_swmmvis_unit_test(test_meshbctype
     test_meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
 )
 
 # CSR-backed spatial index used by SWMM2DMeshLayer to cull triangles /
@@ -194,29 +205,29 @@ add_swmmvis_unit_test(test_meshspatialgrid
 # forms for a mesh kept outside the model folder.
 add_swmmvis_unit_test(test_inpmeshwriter_relpath
     test_inpmeshwriter_relpath.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
     # The writer emits the GG0a [2D_INFILTRATION*] family, so it needs the
     # mesh::infil* token/mask helpers.
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
 )
 
 add_swmmvis_unit_test(test_meshinpbcroundtrip
     test_meshinpbcroundtrip.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
     # inpmeshreader/inpmeshwriter parse and emit the per-cell
     # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
 )
 
 # Channel burn-in, phase P0: section reconstruction, thalweg anchoring,
@@ -270,8 +281,8 @@ add_swmmvis_unit_test(test_channelburnlattice
     ${PROJECT_SOURCE_DIR}/include/mesh/channelburnlattice.h
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
 )
 target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
 
@@ -286,8 +297,8 @@ if(TARGET openswmm_engine)
         ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/channelburnselector.cpp
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
         ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
     )
@@ -315,7 +326,7 @@ add_swmmvis_unit_test(test_channelburnnetwork
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
 )
 target_link_libraries(test_channelburnnetwork PRIVATE Qt6::Gui)
 
@@ -337,8 +348,8 @@ add_swmmvis_unit_test(test_meshboundarygraph
 # Cell-area statistics for the mesh Metadata tab (Plan Part A).
 add_swmmvis_unit_test(test_meshcellstats
     test_meshcellstats.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshcellstats.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellstats.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
 )
 
 # Node→mesh remapping (Plan Part C.1): coincident → vertex coupling,
@@ -369,16 +380,16 @@ add_swmmvis_unit_test(test_meshgwpreview
 if(TARGET openswmm_engine)
     add_swmmvis_unit_test(test_meshenginesync
         test_meshenginesync.cpp
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
         # inpmeshreader/inpmeshwriter parse and emit the per-cell
         # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
@@ -389,16 +400,16 @@ if(TARGET openswmm_engine)
     # SWMM_PROFILE_SAVE_INP names a fixture, so CI is unaffected.
     add_swmmvis_unit_test(test_savepathperf
         test_savepathperf.cpp
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
         # inpmeshreader/inpmeshwriter parse and emit the per-cell
         # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_savepathperf PRIVATE Qt6::Gui openswmm_engine)
@@ -583,7 +594,7 @@ target_compile_definitions(test_rastergeoref
 add_swmmvis_unit_test(test_featuregeometry
     test_featuregeometry.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
 )
 target_link_libraries(test_featuregeometry PRIVATE Qt6::Gui GDAL::GDAL)
 
@@ -600,9 +611,9 @@ add_swmmvis_unit_test(test_featurestore
     ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
 )
 target_link_libraries(test_featurestore PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_featurestore
@@ -617,9 +628,9 @@ add_swmmvis_unit_test(test_featureroles
     ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
 )
 target_link_libraries(test_featureroles PRIVATE Qt6::Gui GDAL::GDAL)
 
@@ -644,11 +655,11 @@ add_swmmvis_unit_test(test_meshexport
     ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
     ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshcellparams.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
 )
 target_link_libraries(test_meshexport PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_meshexport PRIVATE
@@ -806,14 +817,14 @@ add_swmmvis_unit_test(test_channelburnmesh
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnmesh.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshcavity.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshedgebcremap.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshnodemapper.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp

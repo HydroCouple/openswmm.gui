@@ -1,0 +1,70 @@
+cmake_minimum_required(VERSION 3.21)
+project(MeshKit VERSION 0.1.0 LANGUAGES C CXX)
+
+# The standard C++ event API is independent of the optional transitional Qt targets.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+add_library(meshkit_runtime INTERFACE)
+add_library(meshkit::runtime ALIAS meshkit_runtime)
+set_target_properties(meshkit_runtime PROPERTIES EXPORT_NAME runtime)
+target_compile_features(meshkit_runtime INTERFACE cxx_std_17)
+target_include_directories(meshkit_runtime INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+find_package(Threads REQUIRED)
+target_link_libraries(meshkit_runtime INTERFACE Threads::Threads)
+
+option(MESHKIT_BUILD_QT "Build the extracted mesher and codecs with their current Qt API" ON)
+if(MESHKIT_BUILD_QT)
+    include(cmake/QtTargets.cmake)
+endif()
+
+option(MESHKIT_BUILD_BENCHMARKS "Build opt-in standalone capacity probes" OFF)
+if(MESHKIT_BUILD_BENCHMARKS AND MESHKIT_BUILD_QT)
+    add_executable(meshkit_scale_probe tests/scale_probe.cpp)
+    set_target_properties(meshkit_scale_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_link_libraries(meshkit_scale_probe PRIVATE meshkit::core_qt)
+endif()
+
+install(TARGETS meshkit_runtime EXPORT MeshKitTargets)
+install(DIRECTORY include/meshkit DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(MESHKIT_BUILD_QT)
+    install(DIRECTORY include/mesh include/core DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()
+install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/MeshKit)
+install(EXPORT MeshKitTargets NAMESPACE meshkit:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/MeshKit)
+configure_package_config_file(cmake/MeshKitConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/MeshKitConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/MeshKit)
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/MeshKitConfigVersion.cmake
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/MeshKitConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/MeshKitConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/MeshKit)
+
+option(MESHKIT_BUILD_TESTS "Build standalone MeshKit tests" ${PROJECT_IS_TOP_LEVEL})
+if(MESHKIT_BUILD_TESTS)
+    enable_testing()
+    add_executable(meshkit_runtime_test tests/runtime_test.cpp)
+    set_target_properties(meshkit_runtime_test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_link_libraries(meshkit_runtime_test PRIVATE meshkit::runtime)
+    add_test(NAME meshkit_runtime_test COMMAND meshkit_runtime_test)
+    if(MESHKIT_BUILD_QT)
+        find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+        add_executable(meshkit_constraints_test tests/constraints_test.cpp)
+        set_target_properties(meshkit_constraints_test PROPERTIES AUTOMOC ON AUTOUIC OFF AUTORCC OFF)
+        target_link_libraries(meshkit_constraints_test PRIVATE meshkit::core_qt Qt6::Test)
+        add_test(NAME meshkit_constraints_test COMMAND meshkit_constraints_test)
+        foreach(suite meshcdt meshgenerator_v2)
+            add_executable(meshkit_${suite}_test tests/test_${suite}.cpp)
+            set_target_properties(meshkit_${suite}_test PROPERTIES AUTOMOC ON AUTOUIC OFF AUTORCC OFF)
+            target_link_libraries(meshkit_${suite}_test PRIVATE meshkit::core_qt Qt6::Test)
+            add_test(NAME meshkit_${suite}_test COMMAND meshkit_${suite}_test)
+            set_tests_properties(meshkit_${suite}_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        endforeach()
+        add_executable(meshkit_mesher_io_test tests/mesher_io_test.cpp)
+        set_target_properties(meshkit_mesher_io_test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+        target_link_libraries(meshkit_mesher_io_test PRIVATE meshkit::core_qt meshkit::io_qt)
+        add_test(NAME meshkit_mesher_io_test COMMAND meshkit_mesher_io_test)
+    endif()
+endif()

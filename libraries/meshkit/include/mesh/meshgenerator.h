@@ -31,6 +31,7 @@
 #include "meshpatch.h"
 #include "meshquadquality.h"
 #include "meshquadregion.h"
+#include "meshprogress.h"
 
 #include <QHash>
 #include <QPair>
@@ -90,8 +91,12 @@ struct RefineHook {
      *  Return <= 0 for "no limit here". When set, this SUPERSEDES
      *  GenerationOptions::maxArea. */
     std::function<double(double x, double y)> targetAreaAt;
-    /*! Called every so often with a running cell count. Purely advisory. */
+    /*! Legacy callback: allocated vertex slots, including super/unused vertices;
+     * this is NOT a cell count. Prefer onDetailedProgress. */
     std::function<void(qint64 count)> onProgress;
+    std::function<void(const GenerationProgress &)> onDetailedProgress;
+    std::function<void(const QString &)>
+        onDiagnostic; ///< Per-job geometry/patch notes; no global logger.
     /*! Ground elevation at a mesh coordinate (NaN = unknown), for
      *  GenerationOptions::quadsBetweenBreaklines: two facing break lines
      *  become a quad strip only where the ground between them is lower than
@@ -157,6 +162,11 @@ struct GenerationOptions {
      *  output vertices. 0 = 1e-7. */
     double patchSnapEps = 0.0;
     double terrainMinLineLength = 0.0; ///< 0 = four times minimum target size.
+    /*! Global cell-shape gate. False retains region outlines, tags and local
+     *  spacing but disables generated quad regions and all strips. Explicit
+     *  prebuilt quad patches conflict with this mode and cause a clear failure. */
+    bool allowQuads = true;
+    bool preserveConstraintCoordinates = false; ///< Only exact junctions/crossings are joined.
 };
 
 /*! \brief Per-region outcome of generate() (MeshGenerator::quadRegionReports()). */

@@ -14,19 +14,23 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDockWidget>
+#include <QEvent>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMainWindow>
 #include <QSignalBlocker>
 #include <QSpinBox>
-#include <QSplitter>
+#include <QStyle>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <limits>
 
 namespace
 {
@@ -67,29 +71,35 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
 {
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    auto *body = new QSplitter(Qt::Horizontal, this);
+    auto *body = new QMainWindow(this);
+    body->setWindowFlags(Qt::Widget);
     outer->addWidget(body, 1);
-    body->setObjectName("meshSettingsSplitter");
-    body->setChildrenCollapsible(false);
+    body->setObjectName("meshSettingsDockHost");
+    body->setDockOptions(QMainWindow::AnimatedDocks);
     m_categories = new QTreeWidget(this);
     m_categories->setObjectName("meshSettingsCategories");
+    m_categories->installEventFilter(this);
     m_categories->setAccessibleName(tr("Mesh setting categories"));
     m_categories->setHeaderHidden(true);
     m_categories->setRootIsDecorated(false);
     m_categories->setUniformRowHeights(true);
-    // Let the delegate measure labels with the current font/style. Keep the
-    // full column visible instead of capping its width or eliding long names.
+    // A hidden header still controls the text column. Stretch that column to
+    // the viewport; enlarging just the dock otherwise leaves it at 100 px.
     m_categories->setItemDelegate(new MeshCategoryDelegate(m_categories));
-    m_categories->header()->setStretchLastSection(false);
-    m_categories->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_categories->header()->setStretchLastSection(true);
+    m_categories->header()->setSectionResizeMode(QHeaderView::Stretch);
+    m_categories->setTextElideMode(Qt::ElideNone);
     m_categories->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
     m_categories->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    m_categoryDock = new QDockWidget(tr("Quality settings"), body);
+    m_categoryDock->setObjectName("meshSettingsNavigationDock");
+    m_categoryDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_categoryDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    m_categoryDock->setWidget(m_categories);
+    body->addDockWidget(Qt::LeftDockWidgetArea, m_categoryDock);
     m_pages = new QStackedWidget(this);
     m_pages->setObjectName("meshSettingsPages");
-    body->addWidget(m_categories);
-    body->addWidget(m_pages);
-    body->setStretchFactor(0, 0);
-    body->setStretchFactor(1, 1);
+    body->setCentralWidget(m_pages);
     connect(m_categories, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem *item) {
         if (item)
             m_pages->setCurrentIndex(m_categories->indexOfTopLevelItem(item));
@@ -205,11 +215,11 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     transition = spin("meshSizeRatioSpin");
     transition->setProperty("meshDistance", false);
     transition->setSuffix({});
-    transition->setRange(1.05, 2);
+    transition->setRange(1.05, std::numeric_limits<double>::max());
     transition->setDecimals(2);
     transition->setSingleStep(.05);
     transition->setToolTip(tr(
-        "Growth of the background size field. Smaller values make smoother transitions and more cells; final neighbouring cells can differ more near constraints."));
+        "Growth of the background size field, with no fixed upper limit. Smaller values make smoother transitions and more cells; final neighbouring cells can differ more near constraints."));
     sizes->addRow(tr("Size transition rate:"), transition);
     breaklineTolerance = spin("meshBreaklineTolSpin");
     breaklineMode = choice("meshBreaklineMode", {tr("Automatic estimate"), tr("Specify a value")});
@@ -302,8 +312,37 @@ void MeshResolutionWidget::addSettingsPage(const QString &title, QWidget *conten
     m_pages->addWidget(scroll);
     auto *item = new QTreeWidgetItem(m_categories, {title});
     item->setToolTip(0, title);
+    updateNavigationWidth();
     if (!m_categories->currentItem())
         m_categories->setCurrentItem(item);
+}
+
+void MeshResolutionWidget::updateNavigationWidth()
+{
+    int labelWidth = 0;
+    for (int i = 0; i < m_categories->topLevelItemCount(); ++i)
+        labelWidth = std::max(labelWidth, m_categories->fontMetrics().horizontalAdvance(
+                                              m_categories->topLevelItem(i)->text(0)));
+    // Reserve space for item margins, the frame and a vertical scrollbar, even
+    // before layout. ResizeToContents alone does not size the containing dock.
+    m_categories->setMinimumWidth(labelWidth + 24 + 2 * m_categories->frameWidth() +
+                                  style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+}
+
+void MeshResolutionWidget::changeEvent(QEvent *event)
+{
+    QWidget::changeEvent(event);
+    if (m_categories &&
+        (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange))
+        updateNavigationWidth();
+}
+
+bool MeshResolutionWidget::eventFilter(QObject *object, QEvent *event)
+{
+    if (object == m_categories &&
+        (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange))
+        updateNavigationWidth();
+    return QWidget::eventFilter(object, event);
 }
 
 void MeshResolutionWidget::showSettingsPage(QWidget *control)

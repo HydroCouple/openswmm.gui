@@ -15,6 +15,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshgenerator.h"
+#include "mesh/constraintaudit.h"
 #include "mesh/quadblocks.h"
 #include "mesh/meshquadquality.h"
 
@@ -99,6 +100,107 @@ class TestMeshGeneratorV2 : public QObject
 {
     Q_OBJECT
 private slots:
+    void preserveCoordinatesKeepsNarrowHole()
+    {
+        MeshGenerator g;
+        g.setDomain(rect(0,0,20,20));
+        ConstraintSegment hole;
+        hole.path={{9.95,4},{10.05,4},{10.05,16},{9.95,16},{9.95,4}};
+        g.addConstraintSegment(hole);
+        g.addHole({10,10});
+        GenerationOptions options;
+        options.maxArea=25; options.minCellSize=2; options.minAngleDeg=20;
+        options.preserveConstraintCoordinates=true;
+        g.setOptions(options);
+        const auto result=g.generate();
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QCOMPARE(missingConstraintEdges(result),0);
+        QVERIFY(std::abs(totalArea(result)-398.8)<1e-6);
+        for(const auto &point:hole.path)
+            QVERIFY(std::any_of(result.vertices.begin(),result.vertices.end(),
+                                [&](const auto &v){return v.xy==point;}));
+    }
+
+    void preserveCoordinatesKeepsCloseVerticesInProjectedFrame()
+    {
+        MeshGenerator generator;
+        const double origin = 1000000000;
+        QPolygonF domain{{origin, origin}, {origin + 20, origin},
+                         {origin + 20, origin + 20}, {origin, origin + 20},
+                         {origin, origin + .0001}};
+        generator.setDomain(domain);
+        GenerationOptions options;
+        options.maxArea = 25; options.minCellSize = 2; options.minAngleDeg = 0;
+        options.smoothingPasses = 0;
+        options.preserveConstraintCoordinates = true;
+        generator.setOptions(options);
+        const auto result = generator.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        mesh::SimplificationFeature required;
+        required.id = "projected-domain"; required.xy = domain; required.closed = true;
+        required.role = mesh::SimplificationFeature::Role::Domain;
+        const auto audit = mesh::auditMeshConstraints({required}, result);
+        if (!audit.ok)
+            for (const auto &example : audit.examples)
+                qInfo() << example.segment << example.message;
+        QVERIFY2(audit.ok, qPrintable(audit.error));
+        for (const auto point : domain)
+            QVERIFY(std::any_of(result.vertices.begin(), result.vertices.end(),
+                [&](const auto &vertex) { return vertex.xy.x() == point.x() && vertex.xy.y() == point.y(); }));
+    }
+
+    void trianglesOnlyGatesRegionsAndStrips()
+    {
+        for (bool allow : {true, false}) {
+            MeshGenerator g;
+            g.setDomain(rect(0, 0, 200, 200));
+            mesh::QuadRegion region;
+            region.ring = rect(20, 20, 60, 40);
+            region.spacing = 5;
+            region.tag = "local";
+            g.addQuadRegion(region);
+            ConstraintSegment conduit;
+            conduit.path = {{20, 150}, {180, 150}};
+            conduit.stripWidth = 10;
+            conduit.marker = 100;
+            conduit.tag = "conduit";
+            g.addConstraintSegment(conduit);
+            GenerationOptions options;
+            options.maxArea = .4330127018922193 * 100;
+            options.minCellSize = 2;
+            options.minAngleDeg = 20;
+            options.allowQuads = allow;
+            g.setOptions(options);
+            const auto result = g.generate();
+            QVERIFY2(result.ok, qPrintable(result.errorMsg));
+            QCOMPARE(missingConstraintEdges(result), 0);
+            QVERIFY(std::abs(totalArea(result) - 40000) < 1e-6);
+            QCOMPARE(result.quadCount() > 0, allow);
+            QVERIFY(std::any_of(result.triangles.begin(), result.triangles.end(),
+                                [](const auto &c) { return c.tag == "local"; }));
+            if (!allow) {
+                QCOMPARE(g.stats().conduitStrips, 0);
+                QCOMPARE(g.quadRegionReports()[0].resolved, mesh::QuadRegionMode::TrianglesOnly);
+                QVERIFY(g.quadRegionReports()[0].message.contains("global"));
+            }
+        }
+    }
+
+    void trianglesOnlyRejectsExplicitQuadPatch()
+    {
+        MeshGenerator g;
+        g.setDomain(rect(0, 0, 100, 100));
+        mesh::PatchMesh patch;
+        patch.xy = {{20, 20}, {40, 20}, {40, 40}, {20, 40}};
+        patch.quads.append({0, 1, 2, 3});
+        g.addPatch(patch);
+        GenerationOptions options;
+        options.allowQuads = false;
+        g.setOptions(options);
+        const auto result = g.generate();
+        QVERIFY(!result.ok);
+        QVERIFY(result.errorMsg.contains("explicit quad patch"));
+    }
     /**
      * @brief Verify three coarsening passes remove cells while preserving pins, constraints,
      * quads and size exceptions.
@@ -107,6 +209,47 @@ private slots:
      * not increase beyond 1.22^2 calibrated area bound. Requires positive coarsenRemoved and
      * fewer total cells.
      */
+    void triangularRegionsDoNotSuppressCoarsening()
+    {
+        for (bool allowQuads : {false, true}) {
+            int baselineCells = 0;
+            for (bool enabled : {false, true}) {
+                MeshGenerator generator;
+                generator.setDomain(rect(0, 0, 120, 100));
+                generator.addConstraintSegment({{{10, 25}, {110, 25}}, 7, "C1"});
+                generator.addSteinerPoint({{60, 25}, 101, "J1"});
+                QuadRegion region;
+                region.ring = rect(0, 0, 120, 100);
+                region.spacing = 10;
+                region.mode = QuadRegionMode::TrianglesOnly;
+                region.tag = "triangular-region";
+                generator.addQuadRegion(region);
+                GenerationOptions options;
+                options.maxArea = .4330127018922193 * 100;
+                options.minCellSize = 2;
+                options.minAngleDeg = 28;
+                options.latticeSeeding = true;
+                options.smoothingPasses = 2;
+                options.allowQuads = allowQuads;
+                options.coarsenPasses = enabled ? 3 : 0;
+                generator.setOptions(options);
+                const auto mesh = generator.generate();
+                QVERIFY2(mesh.ok, qPrintable(mesh.errorMsg));
+                QCOMPARE(mesh.quadCount(), 0);
+                QCOMPARE(missingConstraintEdges(mesh), 0);
+                QVERIFY(std::abs(totalArea(mesh) - 12000) < 1e-6);
+                if (!enabled) {
+                    baselineCells = mesh.triangles.size();
+                    QCOMPARE(generator.stats().coarsenAttempts, 0);
+                } else {
+                    QVERIFY(generator.stats().coarsenAttempts > 0);
+                    QVERIFY(generator.stats().coarsenRemoved > 0);
+                    QVERIFY(mesh.triangles.size() < baselineCells);
+                }
+            }
+        }
+    }
+
     void coarseningKeepsPinsConstraintsAndQuadRegions()
     {
         int previousCells = 0, previousQuads = 0, previousOversize = 0;

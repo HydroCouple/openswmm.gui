@@ -15,6 +15,7 @@
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/widgets/meshconstraintsourceswidget.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -22,7 +23,10 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QGroupBox>
+#include <QTabWidget>
 #include <QTest>
+#include <QTreeWidget>
+#include <algorithm>
 
 namespace
 {
@@ -152,7 +156,10 @@ private slots:
         QCOMPARE(shape->findChildren<QCheckBox *>().size(),
                  2); // worst angles first, lattice seeding
         QCOMPARE(shape->findChildren<QSpinBox *>().size(), 1);     // smoothing passes
-        QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size(), 2); // turn, deviation
+        auto *sources = bnd->findChild<MeshConstraintSourcesWidget *>("meshConstraintSources");
+        QVERIFY(sources);
+        QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size() -
+                     sources->findChildren<QDoubleSpinBox *>().size(), 4);
         // The retired groups are gone.
         for (const char *gone :
              {"Triangle quality", "Minimum Cell Size", "Terrain-Adaptive Thinning", "Quad quality",
@@ -183,12 +190,18 @@ private slots:
                  resolution.maximumM ? 1 : 0);
         QCOMPARE(m_dlg->findChild<QComboBox *>("meshToleranceMode")->currentIndex(),
                  resolution.toleranceM ? 1 : 0);
-        QVERIFY(transition->minimum() >= 1.0 && transition->maximum() <= 2.0);
+        QCOMPARE(transition->minimum(), 1.05);
+        transition->setValue(25.0);
+        QCOMPARE(transition->value(), 25.0);
+        transition->setValue(resolution.transition);
         QVERIFY(!minimum->suffix().trimmed().isEmpty());
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
         const auto bspins = bnd->findChildren<QDoubleSpinBox *>();
-        QCOMPARE(bspins[0]->value(), t.meshTrimTurnDeg);
-        QCOMPARE(bspins[0]->suffix(), QStringLiteral("°"));
+        auto turn = std::find_if(bspins.begin(), bspins.end(), [](QDoubleSpinBox *spin) {
+            return spin->suffix() == QStringLiteral("°");
+        });
+        QVERIFY(turn != bspins.end());
+        QCOMPARE((*turn)->value(), t.meshTrimTurnDeg);
         // Triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
         QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshMinAngleSpin"))->value(),
                  t.meshMinAngleDeg);
@@ -197,6 +210,50 @@ private slots:
         QVERIFY(qAbs(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshConduitStripSpin"))
                          ->value() -
                      3.048 * toUnit) < 1e-3);
+    }
+
+    void navigationFillsTheRealDialogAndAcceptsLargeTransitions()
+    {
+        auto *categories = m_dlg->findChild<QTreeWidget *>("meshSettingsCategories");
+        auto *tabs = m_dlg->findChild<QTabWidget *>();
+        auto *transition = m_dlg->findChild<QDoubleSpinBox *>("meshSizeRatioSpin");
+        QVERIFY(categories && tabs && transition);
+        for (int i = 0; i < tabs->count(); ++i)
+            if (tabs->tabText(i) == QStringLiteral("Quality"))
+                tabs->setCurrentIndex(i);
+        categories->setCurrentItem(categories->topLevelItem(0));
+        m_dlg->resize(900, 620);
+        m_dlg->show();
+        QTRY_VERIFY(categories->isVisible());
+        QTRY_COMPARE(categories->columnWidth(0), categories->viewport()->width());
+        for (int i = 0; i < categories->topLevelItemCount(); ++i)
+            QVERIFY(categories->viewport()->width() >=
+                    categories->fontMetrics().horizontalAdvance(
+                        categories->topLevelItem(i)->text(0)) + 8);
+        transition->setFocus();
+        transition->selectAll();
+        QTest::keyClicks(transition, "25");
+        QTest::keyClick(transition, Qt::Key_Tab);
+        QCOMPARE(transition->value(), 25.0);
+        const QString output = qEnvironmentVariable("SWMMVIS_MESH_UI_REVIEW_OUTPUT");
+        if (!output.isEmpty())
+            QVERIFY(m_dlg->grab().save(output + "/quality-dialog-native.png"));
+        m_dlg->resize(1200, 720);
+        QTRY_COMPARE(categories->columnWidth(0), categories->viewport()->width());
+        if (!output.isEmpty())
+            QVERIFY(m_dlg->grab().save(output + "/quality-dialog-native-wide.png"));
+        m_dlg->findChild<QComboBox *>("meshGeometryPolicy")->setCurrentIndex(2);
+        for (int i = 0; i < categories->topLevelItemCount(); ++i)
+            if (categories->topLevelItem(i)->text(0) == "Boundaries")
+                categories->setCurrentItem(categories->topLevelItem(i));
+        QTest::qWait(50);
+        if (!output.isEmpty())
+            QVERIFY(m_dlg->grab().save(output + "/boundary-dialog-native-wide.png"));
+        m_dlg->resize(900, 620);
+        QTest::qWait(50);
+        if (!output.isEmpty())
+            QVERIFY(m_dlg->grab().save(output + "/boundary-dialog-native.png"));
+        m_dlg->hide();
     }
 
 private:

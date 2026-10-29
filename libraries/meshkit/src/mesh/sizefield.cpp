@@ -267,14 +267,14 @@ void SizeField::buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> 
             }
             if (h < hFloor)
                 h = hFloor;
-            m_h[i] = static_cast<float>(h);
+            m_h[i] = static_cast<float>(std::min(h, double(kInf)));
         }
     // Gradation limiting: h(p) <= h(q) + g·|p − q|. The feature term already
     // satisfies it (it IS near + g·chamfer distance), so with no other source
     // this leaves the grid unchanged; the terrain and region minima are what
     // it smooths out.
-    chamferRelax(m_h, m_cols, m_rows, static_cast<float>(m_g * m_pitch),
-                 static_cast<float>(m_g * m_pitch * 1.41421356237309515));
+    chamferRelax(m_h, m_cols, m_rows, static_cast<float>(std::min(m_g * m_pitch, double(kInf))),
+                 static_cast<float>(std::min(m_g * m_pitch * 1.41421356237309515, double(kInf))));
     if (hFloor > 0.0)
         for (float &v : m_h)
             if (v < hFloor)

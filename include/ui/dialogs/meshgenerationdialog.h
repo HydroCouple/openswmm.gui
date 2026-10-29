@@ -40,6 +40,9 @@
 #include <QStringList>
 #include <QVector>
 #include <memory>
+#include <meshkit/events.hpp>
+#include "mesh/constraintsimplifier.h"
+#include "mesh/constraintpreview.h"
 
 class SWMMVisProjectWindow;
 class SWMMModelLayer;
@@ -48,6 +51,10 @@ class GISVectorLayer;
 class MeshRegionDefaultsWidget;
 class CorridorSourcesWidget;
 class MeshResolutionWidget;
+class MeshRunLogWidget;
+class MeshConstraintSourcesWidget;
+class MeshConstraintPreviewWidget;
+class QTabWidget;
 
 class QCheckBox;
 class QComboBox;
@@ -80,6 +87,8 @@ public:
      *         Collected on the main thread by collectInputs() so the worker
      *         never touches Qt widgets or SWMMModelLayer. */
     struct PipelineInputs {
+        std::shared_ptr<meshkit::EventChannel>
+            events; ///< Per-job bounded diagnostics, no GUI handles.
         // Files
         QString inpPath;
         QString dtmPath;
@@ -104,6 +113,8 @@ public:
         QString boundaryPath;      ///< VectorFile: datasource path
         QString boundaryLayerName; ///< VectorFile: OGR layer name ("" = first)
         QString boundaryCRSWkt;    ///< VectorFile: source SRS WKT ("" = mesh CRS)
+        QString boundarySourceId, boundarySourceLabel;
+        mesh::ConstraintPolicyOverride boundaryPolicy, conduitPolicy;
         /*! Close, open and simplify the dissolved boundary at minCellSize
          *  (building holes and gaps narrower than a cell; redundant
          *  vertices). Off here so other callers keep their geometry; the
@@ -146,6 +157,11 @@ public:
             QVector<QPointF> path;
             QVector<double> z;
             bool hasZ = false;
+            QString sourceId;
+            int simplificationMode = -1; // -1 inherits, 0 preserves, 1 simplifies
+            std::optional<double> xyTolerance, zTolerance;
+            mesh::ConstraintPolicyOverride sourcePolicy;
+            QString sourceLabel;
         };
         QVector<AuxLine> auxLines;
         QVector<QPair<QString, QPointF>> subcatchSeeds;
@@ -201,6 +217,9 @@ public:
         // ── Boundaries ──────────────────────────────────────────────
         double trimTurnDeg = 0.0;   ///< Straightness trimming: max turn (deg); 0 = off.
         double trimDeviation = 0.0; ///< Straightness trimming: max deviation (map units).
+        int geometryMode = 0;       // 0 legacy recipe, 1 preserve, 2 bounded simplification
+        mesh::ConstraintSimplificationPolicy geometryPolicy;
+        bool constraintPreviewOnly = false;
         /*! Conduit quad strip width (map units); 0 = conduits are plain
          *  constrained edges (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.4). */
         double conduitStripWidth = 0.0;
@@ -317,10 +336,13 @@ public:
     /*! \brief Result produced by the pipeline worker and consumed on the
      *         main thread inside onMeshFinished(). */
     struct PipelineResult {
+        meshkit::RunStatus status = meshkit::RunStatus::Failed;
         bool ok = false;
         QString errorMsg;
         QString summary;
         QJsonObject metrics;
+        bool constraintPreviewOnly = false;
+        mesh::ConstraintPreview constraintPreview;
         QVector<int> exceptionCells;
         QStringList alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
         mesh::MeshResult meshResult;
@@ -388,6 +410,8 @@ private slots:
      * future watcher.
      */
     void onAccept();
+    void onPreviewConstraints();
+    void startPipeline(bool previewOnly);
     /**
      * @brief Consume completed worker state on the GUI thread and adopt only a valid current-owner
      * result.
@@ -395,9 +419,9 @@ private slots:
      * failed/exception/stale results. Rechecks source-file stamps before preparing a detached mesh
      * and ChannelMeshAdoptionCommand. Successful undo-stack adoption owns the layer, starts
      * deferred heavy scene geometry, stores corridor/metrics/options, marks project dirty and
-     * accepts. Preparation failures preserve the previous working mesh. Opens a modeless report
-     * with optional exception-cell highlighting. Final .inp/.2dm writes are deferred to project
-     * Save.
+     * retains the dialog and run log for review, export and optional exception-cell highlighting.
+     * Closing after successful adoption returns Accepted. Preparation failures and resource
+     * limits preserve the previous working mesh. Final .inp/.2dm writes are deferred to Save.
      */
     void onMeshFinished();
     /*! Handles both "Cancel" (no job running → close dialog) and
@@ -524,7 +548,7 @@ private:
      * resolution is converted from SI into mesh XY/elevation units; other display distances are
      * scaled once. Does not persist final mesh files or mutate engine topology.
      */
-    bool collectInputs(PipelineInputs *out, QString *errOut) const;
+    bool collectInputs(PipelineInputs *out, QString *errOut, bool previewOnly = false) const;
 
     /**
      * @brief Capture current project model/engine/path/edit revision and observe input mutations.
@@ -638,6 +662,11 @@ private:
     // Boundaries
     QDoubleSpinBox *m_trimTurnSpin = nullptr; ///< straightness trim: max turn (deg); (off) at 0
     QDoubleSpinBox *m_trimDeviationSpin = nullptr; ///< straightness trim: max deviation (map units)
+    QComboBox *m_geometryModeCombo = nullptr;
+    QDoubleSpinBox *m_geometryZSpin = nullptr;
+    QDoubleSpinBox *m_geometryAreaSpin = nullptr;
+    MeshConstraintSourcesWidget *m_constraintSources = nullptr;
+    MeshConstraintPreviewWidget *m_constraintPreview = nullptr;
 
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
     // These two stay the editors for the '*' row; the region-defaults table
@@ -658,7 +687,12 @@ private:
     QFutureWatcher<PipelineResult> *m_watcher = nullptr;
     QProgressBar *m_progressBar = nullptr;
     QLabel *m_progressLabel = nullptr;
+    MeshRunLogWidget *m_runLog = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    bool m_meshApplied = false; ///< Keep exec() acceptance semantics while retaining the run log.
     QPushButton *m_generateBtn = nullptr; ///< "Generate" — disabled while running.
+    QPushButton *m_previewBtn = nullptr;
+    bool m_runningPreview = false;
     QPushButton *m_cancelBtn = nullptr;   ///< "Cancel" / "Cancel Generation".
 };
 

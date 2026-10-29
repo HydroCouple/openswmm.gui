@@ -365,11 +365,7 @@ int ConstrainedDelaunay::locate(const QPointF &p) const
 
 int ConstrainedDelaunay::liveTriangleCount() const
 {
-    int n = 0;
-    for (const Triangle &t : m_tris)
-        if (t.alive)
-            ++n;
-    return n;
+    return m_liveTriangles;
 }
 
 // ── Flips and splits ─────────────────────────────────────────────────────
@@ -494,6 +490,7 @@ void ConstrainedDelaunay::splitTriangle(int t, int v)
     m_tris[t1] = T1;
     m_tris.append(T2);
     m_tris.append(T3);
+    m_liveTriangles += old.alive ? 2 : 0;
     if (old.adj[2] >= 0)
         for (int i = 0; i < 3; ++i)
             if (m_tris[old.adj[2]].adj[i] == t)
@@ -556,6 +553,7 @@ void ConstrainedDelaunay::splitEdge(int t, int e, int v)
     T2.constrained[2] = f;
     m_tris[t1] = T1;
     m_tris.append(T2);
+    m_liveTriangles += old.alive ? 1 : 0;
     if (Tab >= 0)
         for (int i = 0; i < 3; ++i)
             if (m_tris[Tab].adj[i] == t)
@@ -599,6 +597,7 @@ void ConstrainedDelaunay::splitEdge(int t, int e, int v)
         N2.constrained[2] = false;
         m_tris[n1] = N1;
         m_tris.append(N2);
+        m_liveTriangles += oldN.alive ? 1 : 0;
         if (N1.adj[0] >= 0)
             for (int i = 0; i < 3; ++i)
                 if (m_tris[N1.adj[0]].adj[i] == n)
@@ -633,6 +632,7 @@ bool ConstrainedDelaunay::build(const QVector<QPointF> &points, QVector<int> *ve
     m_origins.clear();
     m_pts.clear();
     m_tris.clear();
+    m_liveTriangles = 0;
     m_vertexTri.clear();
     m_errorMsg.clear();
     m_terrainElevations.clear();
@@ -702,6 +702,7 @@ bool ConstrainedDelaunay::build(const QVector<QPointF> &points, QVector<int> *ve
     sup.constrained[0] = sup.constrained[1] = sup.constrained[2] = false;
     sup.alive = true;
     m_tris.append(sup);
+    m_liveTriangles = 1;
     m_vertexTri[m_superBase] = m_vertexTri[m_superBase + 1] = m_vertexTri[m_superBase + 2] = 0;
 
     // Insertion order: Morton on a 2^20 quantisation (deterministic, local).
@@ -945,6 +946,7 @@ void ConstrainedDelaunay::removeExterior()
             continue;
         if (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) {
             m_tris[i].alive = false;
+            --m_liveTriangles;
             stack.append(i);
         }
     }
@@ -955,6 +957,7 @@ void ConstrainedDelaunay::removeExterior()
             if (n < 0 || !m_tris[n].alive || m_tris[t].constrained[i])
                 continue;
             m_tris[n].alive = false;
+            --m_liveTriangles;
             stack.append(n);
         }
     }
@@ -963,8 +966,10 @@ void ConstrainedDelaunay::removeExterior()
 void ConstrainedDelaunay::removeSuperTriangles()
 {
     for (Triangle &T : m_tris)
-        if (T.alive && (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])))
+        if (T.alive && (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))) {
             T.alive = false;
+            --m_liveTriangles;
+        }
 }
 
 int ConstrainedDelaunay::removeRegionAt(const QPointF &p)
@@ -974,6 +979,7 @@ int ConstrainedDelaunay::removeRegionAt(const QPointF &p)
         return 0;
     QVector<int> stack{t0};
     m_tris[t0].alive = false;
+    --m_liveTriangles;
     int removed = 1;
     while (!stack.isEmpty()) {
         const int t = stack.takeLast();
@@ -982,6 +988,7 @@ int ConstrainedDelaunay::removeRegionAt(const QPointF &p)
             if (n < 0 || !m_tris[n].alive || m_tris[t].constrained[i])
                 continue;
             m_tris[n].alive = false;
+            --m_liveTriangles;
             ++removed;
             stack.append(n);
         }
@@ -1021,6 +1028,7 @@ int ConstrainedDelaunay::removeRegionLeftOf(int a, int b)
         if (!m_tris[t].alive)
             continue;
         m_tris[t].alive = false;
+        --m_liveTriangles;
         ++removed;
         for (int e = 0; e < 3; ++e) {
             const int n = m_tris[t].adj[e];
@@ -1359,6 +1367,7 @@ void ConstrainedDelaunay::commitRemoval(int v, const Removal &r)
                 m_tris[neighbour].adj[e] = replacement;
     }
     for (int t : r.star) {
+        m_liveTriangles -= m_tris[t].alive ? 1 : 0;
         m_tris[t].alive = false;
         for (int &a : m_tris[t].adj)
             a = -1;
@@ -1366,6 +1375,7 @@ void ConstrainedDelaunay::commitRemoval(int v, const Removal &r)
     for (int i = 0; i < r.replacement.size(); ++i) {
         const int t = r.star[i];
         m_tris[t] = r.replacement[i];
+        m_liveTriangles += m_tris[t].alive ? 1 : 0;
         for (int q : m_tris[t].v)
             m_vertexTri[q] = t;
         if (m_triangleChanged)
@@ -1661,6 +1671,19 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // The cell budget counts live triangles: removed regions (exterior,
     // holes, patch interiors) leave dead slots that are never refilled.
     const qsizetype deadAtStart = m_tris.size() - liveTriangleCount();
+    GenerationProgress::Stage progressStage = GenerationProgress::Stage::Refining;
+    auto publishProgress = [&] {
+        if (opt.onProgress) {
+            GenerationProgress state;
+            state.stage = progressStage;
+            state.workingVertices = std::max<qsizetype>(0, m_pts.size() - 3);
+            state.triangles = liveTriangleCount();
+            state.inserted = rep.inserted;
+            state.removed = rep.coarsenRemoved;
+            opt.onProgress(state);
+        }
+    };
+    publishProgress();
     const auto clearObserver = qScopeGuard([&] { m_triangleChanged = {}; });
     auto queueEncroachedOf = [&](int t) {
         const Triangle &T = m_tris[t];
@@ -1688,9 +1711,12 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             rep.capped = true;
             stop = true;
         }
-        if ((rep.inserted & 4095) == 0 && opt.cancelled && opt.cancelled()) {
-            rep.cancelled = true;
-            stop = true;
+        if ((rep.inserted & 4095) == 0) {
+            publishProgress();
+            if (opt.cancelled && opt.cancelled()) {
+                rep.cancelled = true;
+                stop = true;
+            }
         }
     };
     auto drainSegments = [&]() {
@@ -1782,9 +1808,12 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             const int t = dequeue();
             if (t < 0)
                 break;
-            if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) {
-                rep.cancelled = true;
-                break;
+            if ((++examined & 4095) == 0) {
+                publishProgress();
+                if (opt.cancelled && opt.cancelled()) {
+                    rep.cancelled = true;
+                    break;
+                }
             }
             QPointF p;
             if (!badPoint(t, &p))
@@ -1797,6 +1826,8 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // Non-degrading smoothing (MESH_REGIONAL_TRIQUAD_PLAN D-R6): before any
     // terrain point is placed, so no sampled height is moved off its spot.
     if (opt.smoothingPasses > 0 && (!terrain || opt.terrainWorstFirst) && !stop && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Smoothing;
+        publishProgress();
         auto minAngleOf = [&](int t) {
             const auto &T = m_tris[t];
             const QPointF &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
@@ -1872,6 +1903,8 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // run still has even fidelity. Each insertion restores quality locally,
     // then only the triangles it changed are measured again.
     if (terrain && opt.terrainWorstFirst && !stop && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Terrain;
+        publishProgress();
         // Smoothing may have moved vertices since the initial grid build.
         rebuildTerrainGrid();
         struct Candidate {
@@ -1930,6 +1963,8 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // replacement triangles. Removed slots and vertex ids remain stable.
     m_triangleChanged = {};
     if (opt.coarsenPasses > 0 && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Coarsening;
+        publishProgress();
         QElapsedTimer clock;
         clock.start();
         rep.coarsenSkippedTerrain = terrain && !opt.terrainErrorBound;
@@ -2068,9 +2103,12 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
                 const int v = c.v;
                 if (c.version != versions[v] || !isVertexActive(v))
                     continue;
-                if ((rep.coarsenAttempts & 255) == 0 && opt.cancelled && opt.cancelled()) {
-                    rep.cancelled = true;
-                    break;
+                if ((rep.coarsenAttempts & 255) == 0) {
+                    publishProgress();
+                    if (opt.cancelled && opt.cancelled()) {
+                        rep.cancelled = true;
+                        break;
+                    }
                 }
                 ++attempts[v];
                 ++rep.coarsenAttempts;
@@ -2191,7 +2229,9 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // Independent pass over the final geometry: every live triangle is checked,
     // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.
     // A value is reused only for the identical ordered vertex triple.
-    if (terrain && opt.terrainFinalCheck && !rep.cancelled)
+    if (terrain && opt.terrainFinalCheck && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Verifying;
+        publishProgress();
         for (int t = 0; t < m_tris.size(); ++t) {
             const auto &T = m_tris[t];
             if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))
@@ -2216,6 +2256,8 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
                     ++rep.terrainUnresolved;
             }
         }
+    }
+    publishProgress();
     return rep;
 }
 
