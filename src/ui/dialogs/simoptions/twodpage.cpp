@@ -274,12 +274,32 @@ void TwoDPage::buildUi()
     m_turbulenceCombo->setObjectName("turbulenceModelCombo");
     m_turbulenceCombo->addItem(tr("Off"), "NONE");
     m_turbulenceCombo->addItem(tr("Smagorinsky"), "SMAGORINSKY");
+    m_turbulenceCombo->addItem(tr("Mixing length (depth)"), "MIXING_LENGTH");
+    m_turbulenceCombo->setItemData(2, tr("Shear-based mixing length set by the water depth and capped "
+                                         "near boundaries, instead of the cell size, so the eddy "
+                                         "viscosity does not shrink as the mesh is refined."),
+                                   Qt::ToolTipRole);
     physicsForm->addRow(tr("Horizontal turbulent mixing:"), m_turbulenceCombo);
     m_smagorinskyRow = inputRow(tr("Smagorinsky coefficient Cs:"), m_smagorinskyCs, "smagorinskyCsEdit");
     m_smagorinskyCs->setToolTip(tr("Dimensionless coefficient; 0.10 is a starting value. "
                                  "Investigate 0.05–0.20 and mesh sensitivity. Filter width is "
                                  "the square root of each cell's area. This models horizontal "
                                  "subgrid mixing in the depth-averaged equations."));
+    m_mixingLengthRow = inputRow(tr("Mixing-length coefficient c:"), m_mixingLengthCoefficient,
+                                 "mixingLengthCoefficientEdit");
+    m_mixingLengthCoefficient->setToolTip(tr("Dimensionless; the horizontal mixing length is c times "
+                                            "the local water depth, capped at 0.41 times the distance "
+                                            "to the nearest mesh boundary. 0.5 is the depth-averaged "
+                                            "value reported by Stansby (2003, 2006). Intended for "
+                                            "shallow flows."));
+    m_eddyViscosityBackgroundRow = inputRow(tr("Background eddy viscosity (m²/s):"),
+                                            m_eddyViscosityBackground, "eddyViscosityBackgroundEdit");
+    m_eddyViscosityBackground->setPlaceholderText(tr("0 (none)"));
+    m_eddyViscosityBackground->setToolTip(tr("Constant horizontal eddy viscosity added to the "
+                                           "closure's eddy viscosity. It is a model parameter, not a "
+                                           "measured constant: report the value used and test "
+                                           "sensitivity. A value suited to one model scale does "
+                                           "not transfer to another."));
     m_momentumPhysicsStatus = new QLabel(m_momentumPhysicsGroup);
     m_momentumPhysicsStatus->setWordWrap(true);
     physicsForm->addRow(m_momentumPhysicsStatus);
@@ -894,7 +914,8 @@ void TwoDPage::buildUi()
         {"GRADIENTS", "Reconstruction gradients (diagnostic)",
          "Mesh2_face_grad_* (4 fields) — solver diagnostics only."},
         {"TURBULENCE", "Turbulent viscosity and strain",
-         "Smagorinsky eddy viscosity and strain-rate maps; written when mixing is enabled."},
+         "Horizontal eddy viscosity (background plus closure) and strain-rate maps; "
+         "written when mixing is enabled."},
         {"CONTINUITY", "Continuity error (diagnostic)",
          "Mesh2_face_continuity_err (+ its envelope) — solver diagnostics only."},
         {"ENVELOPES", "Run maxima (once per run)",
@@ -1075,6 +1096,8 @@ void TwoDPage::tagWidgets()
     tagOption(m_coriolisF, "CORIOLIS_F");
     tagOption(m_turbulenceCombo, "TURBULENCE_MODEL");
     tagOption(m_smagorinskyCs, "SMAGORINSKY_CS");
+    tagOption(m_eddyViscosityBackground, "EDDY_VISCOSITY_BACKGROUND");
+    tagOption(m_mixingLengthCoefficient, "MIXING_LENGTH_COEFFICIENT");
     tagOption(m_reconOrder2DSpin, "RECONSTRUCTION_ORDER");
     tagOption(m_advection2DBox, "ADVECTION");
     tagOption(m_backend2DCombo, "BACKEND");
@@ -1113,7 +1136,7 @@ bool TwoDPage::validate(QString *warn)
     const bool enabled = m_coriolisCombo->currentData() != "OFF" ||
                          m_turbulenceCombo->currentData() != "NONE";
     if (enabled && (m_momentum2DCombo->currentData() != "FULL_SWE" || m_ltsTiersSpin->value() != 1))
-        return fail(tr("Coriolis and Smagorinsky require full shallow-water equations and one timestep tier."));
+        return fail(tr("Coriolis and turbulence closures require full shallow-water equations and one timestep tier."));
     bool ok = false;
     const double latitude = m_coriolisLatitude->text().trimmed().toDouble(&ok);
     if ((!m_coriolisLatitude->text().trimmed().isEmpty() || m_coriolisCombo->currentData() == "LATITUDE") &&
@@ -1126,6 +1149,17 @@ bool TwoDPage::validate(QString *warn)
     const double cs = m_smagorinskyCs->text().trimmed().toDouble(&ok);
     if (!ok || !std::isfinite(cs) || cs < 0)
         return fail(tr("Enter a finite, nonnegative Smagorinsky coefficient."));
+    if (m_eddyViscosityBackground->property("engineSupported").toBool()) {
+        const QString text = m_eddyViscosityBackground->text().trimmed();
+        const double nu = text.isEmpty() ? 0.0 : text.toDouble(&ok);
+        if ((!text.isEmpty() && !ok) || !std::isfinite(nu) || nu < 0)
+            return fail(tr("Enter a finite, nonnegative background eddy viscosity in m²/s."));
+    }
+    if (m_mixingLengthCoefficient->property("engineSupported").toBool()) {
+        const double c = m_mixingLengthCoefficient->text().trimmed().toDouble(&ok);
+        if (!ok || !std::isfinite(c) || c < 0)
+            return fail(tr("Enter a finite, nonnegative mixing-length coefficient."));
+    }
     return true;
 }
 
@@ -1137,6 +1171,11 @@ void TwoDPage::refreshGates()
         m_coriolisLatitudeRow->setVisible(m_coriolisCombo->currentData() == "LATITUDE");
         m_coriolisFRow->setVisible(m_coriolisCombo->currentData() == "CONSTANT_F");
         m_smagorinskyRow->setVisible(m_turbulenceCombo->currentData() == "SMAGORINSKY");
+        m_mixingLengthRow->setVisible(m_turbulenceCombo->currentData() == "MIXING_LENGTH" &&
+                                      m_mixingLengthCoefficient->property("engineSupported").toBool());
+        m_eddyViscosityBackgroundRow->setVisible(
+            m_turbulenceCombo->currentData() != "NONE" &&
+            m_eddyViscosityBackground->property("engineSupported").toBool());
         const bool supported = m_momentumPhysicsGroup->property("engineSupported").toBool();
         m_momentumPhysicsStatus->setText(supported
             ? tr("Requires full shallow-water equations, one timestep tier, and uncoupled "
@@ -1465,6 +1504,16 @@ void TwoDPage::read()
     readOptional(m_coriolisLatitude, "CORIOLIS_LATITUDE", "UNSET");
     readOptional(m_coriolisF, "CORIOLIS_F", "UNSET");
     readOptional(m_smagorinskyCs, "SMAGORINSKY_CS", "0.1");
+    // Per-key probe: an engine with Smagorinsky but no background term leaves it hidden.
+    const QString background = getExt("EDDY_VISCOSITY_BACKGROUND", QString());
+    m_eddyViscosityBackground->setProperty("engineSupported", !background.isEmpty());
+    m_eddyViscosityBackground->setText(background);
+    // The MIXING_LENGTH closure ships with its coefficient key; offer it only when present.
+    const QString mixingLength = getExt("MIXING_LENGTH_COEFFICIENT", QString());
+    m_mixingLengthCoefficient->setProperty("engineSupported", !mixingLength.isEmpty());
+    m_mixingLengthCoefficient->setText(mixingLength);
+    if (auto *items = qobject_cast<QStandardItemModel *>(m_turbulenceCombo->model()))
+        items->item(m_turbulenceCombo->findData("MIXING_LENGTH"))->setEnabled(!mixingLength.isEmpty());
 
     m_advection2DBox->setChecked(
         SOD::parseEngineBool(getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
@@ -1662,6 +1711,12 @@ int TwoDPage::write()
                            ? "UNSET" : m_coriolisF->text().trimmed());
         writeIfChanged("TURBULENCE_MODEL", m_turbulenceCombo->currentData().toString());
         writeIfChanged("SMAGORINSKY_CS", m_smagorinskyCs->text().trimmed());
+        if (m_eddyViscosityBackground->property("engineSupported").toBool())
+            writeIfChanged("EDDY_VISCOSITY_BACKGROUND",
+                           m_eddyViscosityBackground->text().trimmed().isEmpty()
+                               ? "0" : m_eddyViscosityBackground->text().trimmed());
+        if (m_mixingLengthCoefficient->property("engineSupported").toBool())
+            writeIfChanged("MIXING_LENGTH_COEFFICIENT", m_mixingLengthCoefficient->text().trimmed());
     }
 
     writeIfChanged("ADVECTION", SOD::engineBoolString(m_advection2DBox->isChecked()));
