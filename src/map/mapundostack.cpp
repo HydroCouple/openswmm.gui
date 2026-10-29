@@ -1053,6 +1053,7 @@ void DeleteObjectCommand::snapshotNode(const QString &name)
     swmm_node_get_initial_depth(eng, idx, &m_node.initDepth);
     swmm_node_get_surcharge_depth(eng, idx, &m_node.surchargeDepth);
     swmm_node_get_ponded_area(eng, idx, &m_node.pondedArea);
+    swmm_node_get_storage_area(eng, idx, &m_node.storageArea);
     swmm_node_is_virtual(eng, idx, &m_node.isVirtual);
     swmm_node_get_rim_depth(eng, idx, &m_node.rimDepth);
     // Inlet junction: the flag AND its usage row. The row is stored with the
@@ -1185,6 +1186,8 @@ void DeleteObjectCommand::restoreNode()
         swmm_node_set_initial_depth(eng, idx, m_node.initDepth);
         swmm_node_set_surcharge_depth(eng, idx, m_node.surchargeDepth);
         swmm_node_set_pond_area(eng, idx, m_node.pondedArea);
+        if (m_node.nodeType == 0 && !m_node.isVirtual && !m_node.isInlet)
+            swmm_node_set_storage_area(eng, idx, m_node.storageArea);
         if (m_node.nodeType == 1) { // Outfall
             swmm_node_set_outfall_type(eng, idx, m_node.outfallType);
             swmm_node_set_outfall_flap_gate(eng, idx, m_node.outfallFlapGate);
@@ -1793,6 +1796,7 @@ ConvertNodeTypeCommand::ConvertNodeTypeCommand(SWMMModelLayer *layer, QString no
     swmm_node_get_type(eng, idx, &m_oldType);
     swmm_node_get_invert_elev(eng, idx, &m_oldInvert);
     swmm_node_get_max_depth(eng, idx, &m_oldMaxDepth);
+    swmm_node_get_storage_area(eng, idx, &m_oldStorageArea);
 
     char buf[256] = {0};
     if (swmm_node_get_tag(eng, idx, buf, int(sizeof(buf))) == SWMM_OK)
@@ -1864,6 +1868,8 @@ void ConvertNodeTypeCommand::undo()
     if (idx >= 0) {
         swmm_node_set_invert_elev(eng, idx, m_oldInvert);
         swmm_node_set_max_depth(eng, idx, m_oldMaxDepth);
+        if (m_oldType == kNodeTypeJunction)
+            swmm_node_set_storage_area(eng, idx, m_oldStorageArea);
         swmm_node_set_tag(eng, idx, m_oldTag.toUtf8().constData());
     }
     m_converted = false;

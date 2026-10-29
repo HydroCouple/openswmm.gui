@@ -3867,6 +3867,8 @@ SWMMModelLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
         return f;
     };
 
+    int projectUnits = 0;
+    if (m_engine) swmm_get_unit_system(m_engine, &projectUnits);
     QVector<AttributeField> out;
     switch (cat) {
     case CatJunctions:
@@ -3877,6 +3879,8 @@ SWMMModelLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
         out.append(make("maxDepth", "max depth (m)", "m"));
         out.append(make("initDepth", "initial depth (m)", "m"));
         out.append(make("surfaceArea", "surface area (m²)", "m²"));
+        if (cat == CatJunctions)
+            out.append(make("storageArea", "junction storage area", projectUnits == 1 ? "m2" : "ft2"));
         out.append(make("tag", "tag", "", QMetaType::QString));
         break;
     case CatConduits:
@@ -4639,6 +4643,8 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name, quint8 kindMask)
                     m[QStringLiteral("maxDepth")] = v;
                 if (swmm_node_get_initial_depth(m_engine, idx, &v) == SWMM_OK)
                     m[QStringLiteral("initDepth")] = v;
+                if (swmm_node_get_storage_area(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Storage area")] = m[QStringLiteral("storageArea")] = v;
                 if (swmm_node_get_ponded_area(m_engine, idx, &v) == SWMM_OK)
                     m[QStringLiteral("surfaceArea")] = v;
                 char tag[256] = {0};

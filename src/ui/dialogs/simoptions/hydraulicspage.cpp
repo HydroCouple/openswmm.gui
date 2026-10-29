@@ -413,8 +413,8 @@ void HydraulicsPage::buildUi()
     m_minSurfAreaSpin->setRange(0.0, 1.0e6);
     m_minSurfAreaSpin->setDecimals(4);
     m_minSurfAreaSpin->setToolTip(
-        tr("Minimum nodal surface area used in dynamic-wave routing (MIN_SURFAREA)."));
-    condForm->addRow(tr("Min surface area:"), m_minSurfAreaSpin);
+        tr("Numerical stability area for legacy junctions (MIN_SURFAREA). A positive junction Storage Area supplies physical chamber storage independently."));
+    condForm->addRow(tr("Numerical stability area:"), m_minSurfAreaSpin);
 
     m_minSlopeSpin = new QDoubleSpinBox(condGroup);
     m_minSlopeSpin->setRange(0.0, 100.0);

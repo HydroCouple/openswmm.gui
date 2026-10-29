@@ -209,7 +209,7 @@ The page is a four-tab form:
 
 | Tab | Groups and the properties in each |
 |---|---|
-| **Nodes** | **Junctions** — Max depth (0 = highest crown); Initial depth; Surcharge depth; Ponded area. **Outfalls** — Type; Flap gate. **Storage units** — Max depth; Area coefficient (a); Area exponent (b); Area constant (c); Seepage rate. **Dividers** — Type |
+| **Nodes** | **Junctions** — Max depth (0 = highest crown); Initial depth; Surcharge depth; Storage area (0 = legacy behavior); Ponded area. **Outfalls** — Type; Flap gate. **Storage units** — Max depth; Area coefficient (a); Area exponent (b); Area constant (c); Seepage rate. **Dividers** — Type |
 | **Links** | **Conduits** — Cross-section shape; Geom1 (diameter / height); Geom2; Geom3; Geom4; Roughness (Manning n); Length (when auto-length is off); Barrels; Entry loss coefficient; Exit loss coefficient; Flap gate. **Pumps (ideal — no curve)** — Initially on; Startup depth; Shutoff depth. **Orifices** — Type; Diameter; Discharge coefficient; Flap gate; Open/close rate (hr). **Weirs** — Type; Height (geom1); Length (geom2); Discharge coefficient; End contractions; Flap gate. **Outlets (rating Q = C·hⁿ)** — Rating basis; Coefficient (C); Exponent (n); Flap gate |
 | **Subcatchments** | **Surface** — Area (when auto-area is off); Width; Slope (%); Imperviousness (%); N imperv; N perv; Depression storage imperv and perv; Zero-storage imperv (%). **Infiltration** — Horton max rate; Horton min rate; Horton decay (1/hr); Horton drying time (days); Green-Ampt suction head; Green-Ampt conductivity; Green-Ampt initial deficit; Curve number; Curve number drying time (days) |
 | **Rain Gages** | Rain format; Recording interval (min); Snow catch factor |

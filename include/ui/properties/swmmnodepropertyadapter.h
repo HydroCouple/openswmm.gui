@@ -216,6 +216,7 @@ public:
      * @return Current engine value in the stated units; zero for unresolved object/read failure. No input is changed.
      */
     [[nodiscard]] double pondedArea() const;
+    [[nodiscard]] double storageArea() const;
     /**
      * @brief Read the storage-node seepage rate in project rainfall units (in/hr or mm/hr).
      * @return Current engine value in the stated units; zero for unresolved object/read failure. No input is changed.
@@ -553,6 +554,7 @@ public slots:
      * @details Resolves the current object and passes the value to the typed engine setter; local range/finiteness checks are not added. Missing objects or engine refusal return silently; successful writes emit changed.
      */
     void setPondedArea(double v);
+    void setStorageArea(double v);
     /**
      * @brief Update the storage-node seepage rate in project rainfall units (in/hr or mm/hr).
      * @param[in] v New authored value in the stated units; engine lifecycle/physical validation remains authoritative.
@@ -1137,6 +1139,7 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double maxDepth READ maxDepth WRITE setMaxDepth NOTIFY changed)
     Q_PROPERTY(double initialDepth READ initialDepth WRITE setInitialDepth NOTIFY changed)
     Q_PROPERTY(double surchargeDepth READ surchargeDepth WRITE setSurchargeDepth NOTIFY changed)
+    Q_PROPERTY(double storageArea READ storageArea WRITE setStorageArea NOTIFY changed)
     Q_PROPERTY(double pondedArea READ pondedArea WRITE setPondedArea NOTIFY changed)
     // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
     Q_PROPERTY(bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed)

@@ -108,6 +108,24 @@ private:
     }
 
 private slots:
+    void junctionStorageAreaUsesTheAuthoritativeEngineProperty()
+    {
+        const auto e = buildFixture();
+        QVERIFY(e);
+        SWMMJunctionPropertyAdapter adapter(e, QStringLiteral("J1"));
+        QSignalSpy changed(&adapter, &SWMMNodePropertyAdapter::changed);
+        QVERIFY(adapter.setProperty("storageArea", 0.125));
+        QCOMPARE(adapter.storageArea(), 0.125);
+        double value = 0;
+        QCOMPARE(swmm_node_get_storage_area(e, 0, &value), 0);
+        QCOMPARE(value, 0.125);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(adapter.nodeKind(), SWMMNodePropertyAdapter::Junction);
+        QCOMPARE(swmm_node_set_storage_area(e, 0, -1), SWMM_ERR_BADPARAM);
+        QCOMPARE(adapter.storageArea(), 0.125);
+        swmm_engine_destroy(e);
+    }
+
     /**
      *
      * @brief Require an unchanged compound initial-quality property assignment to remain silent

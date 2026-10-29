@@ -2159,6 +2159,7 @@ PreferencesManager::ObjectDefaults PreferencesManager::objectDefaults(bool si) c
         readObjSetting<double>(s, si, QStringLiteral("Junction/InitDepth"), d.junctionInitDepth);
     d.junctionSurDepth =
         readObjSetting<double>(s, si, QStringLiteral("Junction/SurDepth"), d.junctionSurDepth);
+    d.junctionStorageArea = readObjSetting<double>(s, si, QStringLiteral("Junction/StorageArea"), d.junctionStorageArea);
     d.junctionPondedArea =
         readObjSetting<double>(s, si, QStringLiteral("Junction/PondedArea"), d.junctionPondedArea);
     d.outfallType = readObjSetting<QString>(s, si, QStringLiteral("Outfall/Type"), d.outfallType);
@@ -2272,6 +2273,7 @@ void PreferencesManager::setObjectDefaults(const ObjectDefaults &d, bool si)
     put(QStringLiteral("Junction/InitDepth"), d.junctionInitDepth);
     put(QStringLiteral("Junction/SurDepth"), d.junctionSurDepth);
     put(QStringLiteral("Junction/PondedArea"), d.junctionPondedArea);
+    put(QStringLiteral("Junction/StorageArea"), d.junctionStorageArea);
     put(QStringLiteral("Outfall/Type"), d.outfallType);
     put(QStringLiteral("Outfall/FlapGate"), d.outfallFlapGate);
     put(QStringLiteral("Storage/MaxDepth"), d.storageMaxDepth);
