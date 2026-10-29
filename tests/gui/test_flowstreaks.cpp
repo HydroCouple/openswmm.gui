@@ -365,6 +365,35 @@ public:
         return true;
     }
 };
+
+// Carries both edge flux and a distinct authoritative momentum velocity.
+class StoredVelocityFlowSource : public VelocityOnlyFlowSource
+{
+public:
+    bool missingAtOne = false, nonfiniteAtOne = false;
+    StoredVelocityFlowSource() { fluxEnabled = true; }
+    bool readFaceFieldAt(const char *name, int time, std::vector<float> &values) override
+    {
+        if (missingAtOne && time == 1 && QString::fromLatin1(name) == "Mesh2_face_vy")
+            return false; // Deliberately leave recycled storage untouched.
+        values.assign(2, QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        if (nonfiniteAtOne && time == 1)
+            values[0] = std::numeric_limits<float>::quiet_NaN();
+        return true;
+    }
+    bool readFaceFieldCellsAt(const char *name, int time, const std::vector<int> &ids,
+                              std::vector<float> &values) override
+    {
+        if (missingAtOne && time == 1 && QString::fromLatin1(name) == "Mesh2_face_vy")
+            return false;
+        values.assign(ids.size(), QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        if (nonfiniteAtOne && time == 1)
+            for (size_t i = 0; i < ids.size(); ++i)
+                if (ids[i] == 0)
+                    values[i] = std::numeric_limits<float>::quiet_NaN();
+        return true;
+    }
+};
 class GridFlowSource : public FlowSource
 {
 public:
@@ -756,6 +785,33 @@ public:
         return true;
     }
 };
+class StoredVelocityGridSource : public VelocityOnlyGridSource
+{
+public:
+    using VelocityOnlyGridSource::VelocityOnlyGridSource;
+    bool readEdgeFluxAt(int time, std::vector<float> &values) override
+    {
+        return GridFlowSource::readEdgeFluxAt(time, values);
+    }
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+    readHydraulicCellsAt(int time, const std::vector<int> &ids) override
+    {
+        return GridFlowSource::readHydraulicCellsAt(time, ids);
+    }
+    bool readFaceFieldAt(const char *name, int, std::vector<float> &values) override
+    {
+        values.assign(triangleCount(), QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        return true;
+    }
+    bool readFaceFieldCellsAt(const char *name, int, const std::vector<int> &ids,
+                              std::vector<float> &values) override
+    {
+        ++subsetReads;
+        values.assign(ids.size(), QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        return true;
+    }
+};
+
 class TestRenderer : public SWMM2DResultsQSGRenderer
 {
 public:
@@ -1285,6 +1341,102 @@ private slots:
         animation.stop();
         QTest::qWait(100);
         QCOMPARE(layer.currentTimeIndex(), 0);
+    }
+
+    void storedVelocityWinsOverSimultaneousFlux()
+    {
+        for (bool async : {false, true}) {
+            SWMM2DResultsLayer layer;
+            layer.setAsyncSurface(async);
+            layer.setSource(std::make_unique<StoredVelocityFlowSource>());
+            QVERIFY(std::abs(layer.maxVelocity() - std::hypot(.125f, .25f)) < 1e-6);
+            for (int time = 0; time < 3; ++time) {
+                layer.setCurrentTimeIndex(time);
+                QTRY_COMPARE(layer.currentTimeIndex(), time);
+                QVERIFY(layer.hasVelocityData());
+                for (const auto &tri : layer.m_sceneTris) {
+                    QVERIFY(std::abs(tri.vx - .125f) < 1e-6);
+                    QVERIFY(std::abs(tri.vy - .25f) < 1e-6); // scene Y flip
+                    QVERIFY(std::abs(tri.vmag - std::hypot(.125f, .25f)) < 1e-6);
+                }
+            }
+            layer.flowStreakSublayer()->setVisible(true);
+            QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox, 1));
+            const auto input = layer.captureFlowParticleInput(layer.m_sceneBBox, 1);
+            QVERIFY(input && !input->triangles.empty());
+            for (const auto &tri : input->triangles) {
+                QVERIFY(tri.available);
+                QVERIFY(tri.velocityOnly);
+                QCOMPARE(tri.velocitySI, QPointF(.125, -.25));
+            }
+        }
+    }
+
+    void missingOrInvalidStoredVelocityFallsBackToCurrentFlux()
+    {
+        for (bool async : {false, true})
+            for (bool invalid : {false, true}) {
+                SWMM2DResultsLayer layer;
+                layer.setAsyncSurface(async);
+                auto source = std::make_unique<StoredVelocityFlowSource>();
+                source->missingAtOne = !invalid;
+                source->nonfiniteAtOne = invalid;
+                layer.setSource(std::move(source));
+                for (int time : {0, 1, 2, 1}) {
+                    layer.setCurrentTimeIndex(time);
+                    QTRY_COMPARE(layer.currentTimeIndex(), time);
+                    for (size_t i = 0; i < layer.m_sceneTris.size(); ++i) {
+                        const bool fallback = time == 1 && (!invalid || i == 0);
+                        const auto &tri = layer.m_sceneTris[i];
+                        QVERIFY(std::abs(tri.vx - (fallback ? 2.f : .125f)) < 1e-5);
+                        QVERIFY(std::abs(tri.vy - (fallback ? 0.f : .25f)) < 1e-5);
+                    }
+                }
+                layer.flowStreakSublayer()->setVisible(true);
+                QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox, 1));
+                const auto input = layer.captureFlowParticleInput(layer.m_sceneBBox, 1);
+                QVERIFY(input && !input->triangles.empty());
+                for (size_t i = 0; i < input->triangles.size(); ++i) {
+                    const auto &tri = input->triangles[i];
+                    QVERIFY(tri.available);
+                    QCOMPARE(tri.velocityOnly, invalid && input->mesh->sourceTriangles[i] != 0);
+                }
+            }
+    }
+
+    void regionalStoredVelocityWinsOverSimultaneousFlux()
+    {
+        const auto previous = qgetenv("OPENSWMM_REGIONAL_SURFACE");
+        qputenv("OPENSWMM_REGIONAL_SURFACE", "1");
+        const auto restore = qScopeGuard([previous] {
+            if (previous.isNull())
+                qunsetenv("OPENSWMM_REGIONAL_SURFACE");
+            else
+                qputenv("OPENSWMM_REGIONAL_SURFACE", previous);
+        });
+        SWMM2DResultsLayer layer;
+        auto source = std::make_unique<StoredVelocityGridSource>(100, 100);
+        auto *raw = source.get();
+        layer.setSource(std::move(source));
+        const QRectF view(50, -50, 10, 10);
+        QVERIFY(layer.prepareFlowStreaksForCapture(view, 32));
+        QVERIFY(layer.regionalHydraulicsPublished());
+        QVERIFY(raw->subsetReads > 0);
+        int checked = 0;
+        for (const auto &tri : layer.m_sceneTris)
+            if (std::isfinite(tri.depth) && tri.depth > 0) {
+                QVERIFY(std::abs(tri.vx - .125f) < 1e-6);
+                QVERIFY(std::abs(tri.vy - .25f) < 1e-6);
+                ++checked;
+            }
+        QVERIFY(checked > 0);
+        const auto input = layer.captureFlowParticleInput(view, 32);
+        QVERIFY(input && !input->triangles.empty());
+        for (const auto &tri : input->triangles) {
+            QVERIFY(tri.available);
+            QVERIFY(tri.velocityOnly);
+            QCOMPARE(tri.velocitySI, QPointF(.125, -.25));
+        }
     }
 
     void savedVelocityVectorsWithoutEdgeFlux()
@@ -5844,6 +5996,147 @@ private slots:
      * unavailable time; verifies the first packet reports 24 payload bytes.
      *
      */
+    void liveNativeVelocitiesPairAndReadSparsely()
+    {
+        FlowSource fixture;
+        std::vector<double> x, y, z;
+        std::vector<std::array<int, 3>> cells;
+        fixture.readMeshGeometry(x, y, z, cells);
+        for (bool velocityFirst : {false, true}) {
+            EngineMesh2DSource live(x, y, z, cells);
+            QVERIFY(!live.hasStoredVelocity());
+            QVERIFY(!live.pushVelocities({.3f}, {-.4f}, fixture.simTimeAt(0), 0));
+            QCOMPARE(live.timeCount(), 0);
+            const auto velocity = [&] {
+                return live.pushVelocities({.3f, .6f}, {-.4f, -.8f}, fixture.simTimeAt(0), 0);
+            };
+            if (velocityFirst)
+                QVERIFY(velocity());
+            live.pushDepths({.003f, .003f}, fixture.simTimeAt(0), 0);
+            if (!velocityFirst)
+                QVERIFY(velocity());
+            std::vector<float> flux;
+            fixture.readEdgeFluxAt(0, flux);
+            live.pushFlux(flux, fixture.simTimeAt(0), 0);
+            QCOMPARE(live.timeCount(), 1);
+            QVERIFY(live.hasStoredVelocity());
+            QCOMPARE(live.historyBytes(), size_t(56));
+            std::vector<float> values;
+            QVERIFY(live.readFaceFieldAt("Mesh2_face_vx", 0, values));
+            QCOMPARE(values, (std::vector<float>{.3f, .6f}));
+            QVERIFY(live.readFaceFieldCellsAt("Mesh2_face_vy", 0, {1}, values));
+            QCOMPARE(values, (std::vector<float>{-.8f}));
+            QVERIFY(!live.readFaceFieldCellsAt("Mesh2_face_vx", 0, {1, 0}, values));
+            QVERIFY(!live.readFaceFieldCellsAt("Mesh2_face_vx", 0, {2}, values));
+            QVERIFY(!live.readFaceFieldCellsAt("Mesh2_face_vx", 0, {0, 0}, values));
+            const int revision = live.frameContentRevision(0);
+            QVERIFY(live.pushVelocities({1, 2}, {3, 4}, fixture.simTimeAt(0), 0));
+            QCOMPARE(live.frameContentRevision(0), revision + 1);
+            QCOMPARE(live.timeCount(), 1);
+            QVERIFY(live.readFaceFieldAt("Mesh2_face_vx", 0, values));
+            QCOMPARE(values, (std::vector<float>{1, 2}));
+        }
+        EngineMesh2DSource bounded(x, y, z, cells);
+        bounded.setMaxBytes(560);
+        for (int t = 0; t < 100; ++t) {
+            bounded.pushDepths({.003f, .003f}, fixture.simTimeAt(t), t);
+            std::vector<float> flux;
+            fixture.readEdgeFluxAt(0, flux);
+            bounded.pushFlux(flux, fixture.simTimeAt(t), t);
+            QVERIFY(bounded.pushVelocities({float(t), float(t)}, {0, 0}, fixture.simTimeAt(t), t));
+            QVERIFY(bounded.historyBytes() <= 560);
+        }
+        QVERIFY(bounded.historyGeneration() > 0);
+        std::vector<float> values;
+        QVERIFY(bounded.readFaceFieldCellsAt("Mesh2_face_vx", bounded.timeCount() - 1, {1}, values));
+        QCOMPARE(values, (std::vector<float>{99}));
+    }
+
+    void liveRunnerPublishesNativeVelocityBeforeDepth()
+    {
+        const QString folder = QDir::current().absoluteFilePath(
+            "tests/verification/issue197_velocity_2026-10-28/live_runner");
+        QVERIFY(QDir().mkpath(folder));
+        for (bool native : {false, true}) {
+            const QString stem = native ? "full_swe" : "local_inertial";
+            const QString input = QDir(folder).filePath(stem + ".inp");
+            QFile deck(input);
+            QVERIFY(deck.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream text(&deck);
+            text << "[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                    "START_DATE 01/01/2026\nEND_DATE 01/01/2026\nEND_TIME 00:00:10\n"
+                    "REPORT_STEP 00:00:01\nROUTING_STEP 1\n"
+                    "[JUNCTIONS]\nJ1 0 3 0 0 0\n[OUTFALLS]\nO1 -1 FREE NO\n"
+                    "[CONDUITS]\nC1 J1 O1 100 .013 0 0 0\n"
+                    "[XSECTIONS]\nC1 CIRCULAR .3 0 0 0 1\n"
+                    "[2D_OPTIONS]\nBACKEND CPU\nLTS_TIERS 1\nCFL_NUMBER .5\n"
+                    "MAX_TIMESTEP 1\nDRY_DEPTH .0001\nH_MOVE .0001\nMOMENTUM_EQUATION "
+                 << (native ? "FULL_SWE" : "LOCAL_INERTIAL") << "\nOUTPUT_FILE " << stem
+                 << ".2d.h5\n[2D_VERTICES]\n0 0 0\n10 0 0\n10 10 0\n0 10 0\n"
+                    "[2D_TRIANGLES]\n0 1 2 .03 .02\n0 2 3 .03 .02\n"
+                    "[2D_INITIAL_VELOCITY]\n0 .3 -.4\n1 .3 -.4\n";
+            text.flush();
+            deck.close();
+            SWMM2DResultsLayer layer;
+            EngineMesh2DSource *source = nullptr;
+            int depthTicks = 0, velocityTicks = 0, badPairs = 0;
+            double velocityTime = -1;
+            QVector<float> lastX, lastY;
+            bool done = false;
+            auto *runner = new SimulationRunner(native ? 1971 : 1970, stem, input,
+                QDir(folder).filePath(stem + ".rpt"), QDir(folder).filePath(stem + ".out"),
+                "6.0.0", this);
+            QPointer<SimulationRunner> guard(runner);
+            const auto cleanup = qScopeGuard([&] { if (guard && !done) guard->cancel(); });
+            connect(runner, &SimulationRunner::twoDInitialized, &layer,
+                    [&](int, QString, QVector<double> x, QVector<double> y, QVector<double> z,
+                        QVector<int> flat) {
+                std::vector<std::array<int, 4>> cells(size_t(flat.size() / 4));
+                for (size_t c = 0; c < cells.size(); ++c)
+                    std::copy_n(flat.begin() + 4 * c, 4, cells[c].begin());
+                auto live = std::make_unique<EngineMesh2DSource>(
+                    std::vector<double>(x.begin(), x.end()), std::vector<double>(y.begin(), y.end()),
+                    std::vector<double>(z.begin(), z.end()), std::move(cells));
+                source = live.get();
+                layer.setSource(std::move(live));
+            });
+            connect(runner, &SimulationRunner::twoDVelocitiesAvailable, &layer,
+                    [&](int, QVector<float> x, QVector<float> y, QDateTime time, double elapsed) {
+                ++velocityTicks;
+                velocityTime = elapsed;
+                lastX = x; lastY = y;
+                if (!source || !source->pushVelocities({x.begin(), x.end()}, {y.begin(), y.end()},
+                                                        time, elapsed)) ++badPairs;
+            });
+            connect(runner, &SimulationRunner::twoDDepthsAvailable, &layer,
+                    [&](int, QVector<float> depth, QDateTime time, double elapsed) {
+                ++depthTicks;
+                if (!source) { ++badPairs; return; }
+                source->pushDepths({depth.begin(), depth.end()}, time, elapsed);
+                if (native) {
+                    std::vector<float> x, y;
+                    const int frame = source->timeCount() - 1;
+                    if (velocityTime != elapsed || !source->hasStoredVelocity() ||
+                        !source->readFaceFieldAt("Mesh2_face_vx", frame, x) ||
+                        !source->readFaceFieldAt("Mesh2_face_vy", frame, y) ||
+                        x != std::vector<float>(lastX.begin(), lastX.end()) ||
+                        y != std::vector<float>(lastY.begin(), lastY.end())) ++badPairs;
+                }
+            });
+            QSignalSpy finished(runner, &SimulationRunner::finished);
+            QEventLoop loop;
+            connect(runner, &SimulationRunner::finished, &loop, [&] { done = true; loop.quit(); });
+            QTimer::singleShot(30000, &loop, &QEventLoop::quit);
+            runner->start();
+            loop.exec();
+            QCOMPARE(finished.count(), 1);
+            QVERIFY2(finished.front()[1].toBool(), qPrintable(finished.front()[3].toString()));
+            QVERIFY(depthTicks > 0);
+            QCOMPARE(velocityTicks, native ? depthTicks : 0);
+            QCOMPARE(badPairs, 0);
+        }
+    }
+
     void compactLiveHydraulicSnapshots()
     {
         FlowSource fixture;

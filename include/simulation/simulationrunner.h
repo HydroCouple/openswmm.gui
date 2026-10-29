@@ -327,6 +327,11 @@ signals:
      */
     void twoDFluxAvailable(int jobId, QVector<float> flux, QDateTime simTime, double elapsedSec);
 
+    /// Authoritative SI m/s, emitted immediately before the matching depth
+    /// signal within the same queued callback (FULL_SWE only).
+    void twoDVelocitiesAvailable(int jobId, QVector<float> vx, QVector<float> vy,
+                                 QDateTime simTime, double elapsedSec);
+
     // Per-tick rainfall intensity (m/s) + cumulative rainfall volume (m³)
     // per cell from swmm_2d_get_rainfall_bulk / swmm_2d_get_rain_volume_bulk.
     // Same cadence/pairing as twoDFluxAvailable; pushed into

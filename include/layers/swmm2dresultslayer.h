@@ -287,7 +287,7 @@ public:
      *   thinning, HDF5 after every open attempt.
      */
     virtual int historyGeneration() const { return 0; }
-    /*! Bumped when the depths or flux stored at \p timeIdx are replaced while
+    /*! Bumped when the depths, velocity or flux stored at \p timeIdx are replaced while
      *  the index stays the same (a live tick completed by a later push), so a
      *  cached reconstruction of that frame is recognised as stale.
      * @param[in] timeIdx Zero-based retained tick/report index.
@@ -394,6 +394,13 @@ public:
     {
         (void)dataset;
         return false;
+    }
+
+    /// True for velocity fields carried by the source, rather than reconstructed
+    /// on demand from edge flux. Renderers prefer these authoritative values.
+    virtual bool hasStoredVelocity() const
+    {
+        return hasFaceField("Mesh2_face_vx") && hasFaceField("Mesh2_face_vy");
     }
 
     /*! \brief Fetch one time slice of a named per-face field (engine SI
@@ -530,6 +537,13 @@ public:
      *   tick enforces retention unless pinned. Same-tick merge increments hydraulic revision.
      */
     void pushFlux(std::vector<float> flux, QDateTime simTime, double elapsedSec);
+
+    /// Store an authoritative SI velocity pair at the matching elapsed time.
+    /// Wrong-sized pairs are refused without modifying history. Either field
+    /// may arrive before depth; the runner delivers the pair before its depth
+    /// signal in one queued callback, so the first visible frame is consistent.
+    bool pushVelocities(std::vector<float> vx, std::vector<float> vy,
+                        QDateTime simTime, double elapsedSec);
 
     /*!
      * \brief Append one tick's worth of SIGNED per-vertex render depths
@@ -869,16 +883,16 @@ public:
      *   and leaves output unchanged.
      */
     bool readVertexDepthsAt(int timeIdx, std::vector<float> &vdepths) override;
-    /*! Live fields: rainfall / rain_cum (when any tick carried them), head
-     *  (when any tick carried heads), and vx / vy — reconstructed on demand
-     *  from the tick's edge flux and the installed edge geometry with the
-     *  engine's own RT0 formula (mesh::rt0CellDischarge ÷ depth).
+    /*! Live fields: rainfall / rain_cum, head and vx / vy. Authoritative
+     *  streamed velocity is preferred. Legacy ticks without it reconstruct
+     *  from edge flux using the engine's RT0 formula.
      * @param[in] dataset Nullable exact engine dataset name, not a display label.
      * @return Run-wide capability, not proof every tick contains this field:
-     *   rainfall/rain_cum,head,or vx/vy reconstructed when flux and edge lengths exist.
+     *   rainfall/rain_cum, head, or vx/vy when native vectors or flux geometry exist.
      *   Unknown/null names return false.
      */
     bool hasFaceField(const char *dataset) const override;
+    bool hasStoredVelocity() const override { return has_velocity_; }
     /**
      * @param[in] dataset Exact engine dataset identity; use hasFaceField() to probe capability.
      * @param[in] timeIdx Zero-based retained report/tick index.
@@ -889,6 +903,8 @@ public:
      *   values or reconstructs velocity with dry-depth masking.
      */
     bool readFaceFieldAt(const char *dataset, int timeIdx, std::vector<float> &values) override;
+    bool readFaceFieldCellsAt(const char *dataset, int timeIdx, const std::vector<int> &cells,
+                              std::vector<float> &values) override;
     /**
      * @param[in] dataset Nullable exact envelope identity Mesh2_face_max_depth (m) or
      *   Mesh2_face_max_velocity (m/s).
@@ -918,6 +934,7 @@ private:
         std::vector<float> rainfall; ///< [tri] m/s; empty when engine lacks the rainfall bulk API.
         std::vector<float> rain_cum; ///< [tri] m³ cumulative; paired with rainfall.
         std::vector<float> heads;    ///< [tri] m water surface; empty when not pushed.
+        std::vector<float> velocity_x, velocity_y; ///< optional native SI m/s pair
         openswmmvis::io::Mesh2DLiveVariablesPtr variables;
         QDateTime sim_time;
         double elapsed_sec = 0.0;
@@ -929,6 +946,7 @@ private:
     bool has_rainfall_ = false;        ///< any tick carried rainfall
     bool has_heads_ = false;           ///< any tick carried heads
     bool has_flux_ = false;            ///< any tick carried flux
+    bool has_velocity_ = false;        ///< any tick carried authoritative velocity
     std::vector<float> env_max_depth_; ///< see setEnvelopes (empty = none yet)
     std::vector<float> env_max_vel_;
     double dry_depth_ = 1e-4;     ///< see setDryDepth

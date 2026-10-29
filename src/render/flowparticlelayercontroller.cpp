@@ -528,7 +528,8 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
                        m_particleInput->revision == m_layer->frame_revision_;
     std::vector<int> velocityCells;
     std::vector<float> velocityX, velocityY;
-    if (!m_layer->m_edgeFluxAvailable && m_layer->source_->hasFaceField("Mesh2_face_vx") &&
+    if ((m_layer->source_->hasStoredVelocity() || !m_layer->m_edgeFluxAvailable) &&
+        m_layer->source_->hasFaceField("Mesh2_face_vx") &&
         m_layer->source_->hasFaceField("Mesh2_face_vy")) {
         for (int id : mesh->sourceTriangles) {
             const int cell = m_layer->triCell_[size_t(id)];
@@ -539,8 +540,13 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
                                                     velocityCells, velocityX) ||
             !m_layer->source_->readFaceFieldCellsAt("Mesh2_face_vy", m_layer->current_time_idx_,
                                                     velocityCells, velocityY) ||
-            velocityX.size() != velocityCells.size() || velocityY.size() != velocityCells.size() ||
-            !coherent())
+            velocityX.size() != velocityCells.size() || velocityY.size() != velocityCells.size()) {
+            velocityX.clear();
+            velocityY.clear();
+            if (!m_layer->m_edgeFluxAvailable)
+                return {};
+        }
+        if (!coherent())
             return {};
     }
     std::vector<int> missing;
@@ -633,13 +639,14 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
                 t.flux[diagonal] =
                     area > 0 ? total * split.area[size_t(sub)] / area - external : NAN;
             }
-            if (!flux && !velocityX.empty()) {
+            if (!velocityX.empty()) {
                 const auto it = std::lower_bound(velocityCells.begin(), velocityCells.end(), cell);
                 const size_t local = size_t(it - velocityCells.begin());
-                t.velocitySI = {velocityX[local], velocityY[local]};
-                t.velocityOnly = true;
-                t.available = std::isfinite(t.meanDepth) && std::isfinite(t.velocitySI.x()) &&
-                              std::isfinite(t.velocitySI.y());
+                if (std::isfinite(velocityX[local]) && std::isfinite(velocityY[local])) {
+                    t.velocitySI = {velocityX[local], velocityY[local]};
+                    t.velocityOnly = true;
+                    t.available = std::isfinite(t.meanDepth);
+                }
             }
         }
         t.residentEdges = 7;

@@ -881,6 +881,10 @@ void SimulationRunner::start()
             swmm_2d_is_active(eng, &twoD_active);
             int twoD_n_tri = 0; // CELL count (triangles + quads; historical name)
             int twoD_n_vert = 0;
+            SWMM_2DRunStats twoDInitialStats{};
+            const bool twoDNativeVelocity = twoD_active &&
+                swmm_2d_get_run_stats(eng, &twoDInitialStats) == SWMM_OK &&
+                twoDInitialStats.momentum == 1; // FULL_SWE
             // Engine bulk edge arrays are [cell*stride + e], stride 3 for an
             // all-triangle mesh and 4 once any quad exists
             // (swmm_2d_edge_stride). Everything shipped to the GUI is
@@ -1157,9 +1161,26 @@ void SimulationRunner::start()
                     QVector<float> depths(twoD_n_tri);
                     for (int t = 0; t < twoD_n_tri; ++t)
                         depths[t] = static_cast<float>(raw[t]);
+                    QVector<float> velocityX, velocityY;
+                    if (twoDNativeVelocity) {
+                        std::vector<double> ux(twoD_n_tri), uy(twoD_n_tri);
+                        if (swmm_2d_get_velocities_bulk(eng, ux.data(), uy.data()) == SWMM_OK) {
+                            velocityX.resize(twoD_n_tri);
+                            velocityY.resize(twoD_n_tri);
+                            for (int c = 0; c < twoD_n_tri; ++c) {
+                                velocityX[c] = static_cast<float>(ux[c]);
+                                velocityY[c] = static_cast<float>(uy[c]);
+                            }
+                        }
+                    }
                     QMetaObject::invokeMethod(
                         rawSelf,
-                        [rawSelf, jobId, depths = std::move(depths), curQDT, curTSec]() mutable {
+                        [rawSelf, jobId, depths = std::move(depths),
+                         velocityX = std::move(velocityX), velocityY = std::move(velocityY),
+                         curQDT, curTSec]() mutable {
+                            if (!velocityX.isEmpty())
+                                emit rawSelf->twoDVelocitiesAvailable(jobId, velocityX, velocityY,
+                                                                      curQDT, curTSec);
                             emit rawSelf->twoDDepthsAvailable(jobId, depths, curQDT, curTSec);
                         },
                         Qt::QueuedConnection);

@@ -1381,14 +1381,14 @@ std::vector<float> EngineMesh2DSource::toEdgeSlots_(std::vector<float> a) const
 
 void EngineMesh2DSource::pushDepths(std::vector<float> depths, QDateTime simTime, double elapsedSec)
 {
-    // If the runner already delivered flux for this same tick (flux arrived
-    // first because of queue ordering or because depth bulk happens to be
-    // slower), fold into the existing Tick rather than emitting a new frame.
+    // Native velocity or flux may arrive before depth for the same tick.
+    // Merge into that tick so its first depth publication has matching fields.
     if (!history_.empty() && history_.back().depths.empty() &&
         std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
         history_.back().depths = std::move(depths);
         history_.back().sim_time = simTime;
         ++history_.back().revision;
+        enforceCap_();
         return;
     }
     Tick t;
@@ -1420,6 +1420,29 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux, QDateTime simTime, do
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     enforceCap_();
+}
+
+bool EngineMesh2DSource::pushVelocities(std::vector<float> vx, std::vector<float> vy,
+                                       QDateTime simTime, double elapsedSec)
+{
+    if (vx.size() != cells_.size() || vy.size() != cells_.size() ||
+        !std::isfinite(elapsedSec))
+        return false;
+    has_velocity_ = true;
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
+        history_.back().velocity_x = std::move(vx);
+        history_.back().velocity_y = std::move(vy);
+        ++history_.back().revision;
+    } else {
+        Tick t;
+        t.velocity_x = std::move(vx);
+        t.velocity_y = std::move(vy);
+        t.sim_time = simTime;
+        t.elapsed_sec = elapsedSec;
+        history_.emplace_back(std::move(t));
+    }
+    enforceCap_();
+    return true;
 }
 
 void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths, QDateTime simTime,
@@ -1603,7 +1626,7 @@ size_t EngineMesh2DSource::historyBytes() const
     size_t n = 0;
     for (const Tick &t : history_)
         n += t.depths.size() + t.flux.size() + t.vertex_depths.size() + t.rainfall.size() +
-             t.rain_cum.size() + t.heads.size();
+             t.rain_cum.size() + t.heads.size() + t.velocity_x.size() + t.velocity_y.size();
     size_t bytes = n * sizeof(float);
     for (const Tick &t : history_)
         if (t.variables)
@@ -1665,7 +1688,7 @@ bool EngineMesh2DSource::hasFaceField(const char *dataset) const
     if (std::strcmp(dataset, "Mesh2_face_head") == 0)
         return has_heads_;
     if (std::strcmp(dataset, "Mesh2_face_vx") == 0 || std::strcmp(dataset, "Mesh2_face_vy") == 0)
-        return has_flux_ && !edge_length_.empty();
+        return has_velocity_ || (has_flux_ && !edge_length_.empty());
     return false;
 }
 
@@ -1681,6 +1704,11 @@ bool EngineMesh2DSource::readFaceFieldAt(const char *dataset, int timeIdx,
     const bool wantVx = std::strcmp(dataset, "Mesh2_face_vx") == 0;
     const bool wantVy = std::strcmp(dataset, "Mesh2_face_vy") == 0;
     if (wantVx || wantVy) {
+        const auto& tick = history_[static_cast<size_t>(timeIdx)];
+        if (tick.velocity_x.size() == cells_.size() && tick.velocity_y.size() == cells_.size()) {
+            values = wantVx ? tick.velocity_x : tick.velocity_y;
+            return true;
+        }
         std::vector<float> vx, vy;
         if (!reconstructVelocity_(timeIdx, vx, vy)) {
             values.assign(cells_.size(), 0.0f);
@@ -1700,6 +1728,27 @@ bool EngineMesh2DSource::readFaceFieldAt(const char *dataset, int timeIdx,
     }
     values = src;
     return true;
+}
+
+bool EngineMesh2DSource::readFaceFieldCellsAt(const char *dataset, int timeIdx,
+                                             const std::vector<int> &cells,
+                                             std::vector<float> &values)
+{
+    const bool wantVx = dataset && std::strcmp(dataset, "Mesh2_face_vx") == 0;
+    const bool wantVy = dataset && std::strcmp(dataset, "Mesh2_face_vy") == 0;
+    if ((wantVx || wantVy) && timeIdx >= 0 && timeIdx < int(history_.size())) {
+        const auto& tick = history_[size_t(timeIdx)];
+        if (tick.velocity_x.size() == cells_.size() && tick.velocity_y.size() == cells_.size()) {
+            if (!openswmmvis::io::validHydraulicCells(cells, int(cells_.size())))
+                return false;
+            const auto& src = wantVx ? tick.velocity_x : tick.velocity_y;
+            values.resize(cells.size());
+            for (size_t i = 0; i < cells.size(); ++i)
+                values[i] = src[size_t(cells[i])];
+            return true;
+        }
+    }
+    return IMesh2DSource::readFaceFieldCellsAt(dataset, timeIdx, cells, values);
 }
 
 bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float> &vx,
@@ -2262,19 +2311,34 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
         if (peak > 0 && !max_velocity_user_set_)
             max_velocity_ = peak;
     }
-    // Auto-seed max_velocity_ from a bounded RT0 scan so the colour
+    // Auto-seed max_velocity_ from stored velocities or a bounded RT0 scan so the colour
     // ramp + arrow-length log scaling are anchored to the run's peak speed.
     // The layer's per-frame applyCurrentFlux_() only auto-GROWS max_velocity_;
     // without this seed it starts at the default (1 m/s) and shallow-flow
     // demos (snoopy peak ≈ 0.14 mm/s) end up with sub-pixel arrows.
     // Cheap: 480 frames × 128 cells × nv edges + 2×2 inverse per cell.
-    if (source_ && have_edge_geom_ && !cells_.empty() && n > 0 && !max_velocity_user_set_ &&
+    if (source_ && (source_->hasStoredVelocity() || have_edge_geom_) && !cells_.empty() &&
+        n > 0 && !max_velocity_user_set_ &&
         !haveEnvelope && quint64(n) * cells_.size() <= 500000) {
         constexpr float kQMax = 10.0f;
         const int nCell = static_cast<int>(cells_.size());
         float scanned_max = 0.0f;
-        std::vector<float> fluxBuf;
+        std::vector<float> fluxBuf, vxBuf, vyBuf, depthBuf;
         for (int t = 0; t < n; ++t) {
+            if (source_->hasStoredVelocity() &&
+                source_->readFaceFieldAt("Mesh2_face_vx", t, vxBuf) &&
+                source_->readFaceFieldAt("Mesh2_face_vy", t, vyBuf) &&
+                source_->readDepthsAt(t, depthBuf) && vxBuf.size() == cells_.size() &&
+                vyBuf.size() == cells_.size() && depthBuf.size() == cells_.size()) {
+                for (int i = 0; i < nCell; ++i)
+                    if (std::isfinite(depthBuf[i]) && depthBuf[i] > 0 &&
+                        depthBuf[i] >= dry_depth_ && std::isfinite(vxBuf[i]) &&
+                        std::isfinite(vyBuf[i]))
+                        scanned_max = std::max(scanned_max, std::hypot(vxBuf[i], vyBuf[i]));
+                continue;
+            }
+            if (!have_edge_geom_)
+                continue;
             if (!source_->readEdgeFluxAt(t, fluxBuf))
                 continue;
             if (static_cast<int>(fluxBuf.size()) != mesh::edgeSlotCount(nCell))
@@ -2640,7 +2704,7 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
             if (!reader.readEdgeFluxAt(job.key.frame, job.flux))
                 job.flux.clear();
         }
-        if (ok && job.flux.empty() && reader.hasFaceField("Mesh2_face_vx") &&
+        if (ok && reader.hasFaceField("Mesh2_face_vx") &&
             reader.hasFaceField("Mesh2_face_vy")) {
             const bool velocityOk = job.region
                 ? reader.readFaceFieldCellsAt("Mesh2_face_vx", job.key.frame, job.region->cells,
@@ -4637,9 +4701,8 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
     const bool haveFlux = have_edge_geom_ && current_flux_.size() == nSlots &&
                           edge_length_.size() == nSlots;
     std::vector<float> readVx, readVy;
-    if (!haveFlux && !savedVx && source_) {
-        if (source_->hasFaceField("Mesh2_face_vx") && source_->hasFaceField("Mesh2_face_vy") &&
-            source_->readFaceFieldAt("Mesh2_face_vx", current_time_idx_, readVx) &&
+    if (!savedVx && source_ && source_->hasStoredVelocity()) {
+        if (source_->readFaceFieldAt("Mesh2_face_vx", current_time_idx_, readVx) &&
             source_->readFaceFieldAt("Mesh2_face_vy", current_time_idx_, readVy)) {
             savedVx = &readVx;
             savedVy = &readVy;
@@ -4660,9 +4723,8 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
         return;
     }
 
-    // RT0 cell-centred reconstruction (mesh::rt0CellDischarge — the same
-    // per-cell solve the live export uses). The cell's vector is written to
-    // each of its display sub-triangles.
+    // Stored velocities carry the solver's chosen reconstruction (in particular
+    // FULL_SWE cell momentum). Edge-based RT0 is the legacy-source fallback.
     const double dryEps = dry_depth_;
 
     float running_max = 0.0f;
@@ -4678,17 +4740,17 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
             continue;
 
         double vx_model = 0.0, vy_model = 0.0;
-        if (haveFlux) {
+        if (haveSavedVelocity && std::isfinite((*savedVx)[size_t(c)]) &&
+            std::isfinite((*savedVy)[size_t(c)])) {
+            vx_model = (*savedVx)[size_t(c)];
+            vy_model = (*savedVy)[size_t(c)];
+        } else if (haveFlux) {
             if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]), current_flux_.data(),
                                 edge_length_.data(), edge_nx_.data(), edge_ny_.data(), depth,
                                 dryEps, vx_model, vy_model))
                 continue;
-        } else {
-            vx_model = (*savedVx)[size_t(c)];
-            vy_model = (*savedVy)[size_t(c)];
-            if (!std::isfinite(vx_model) || !std::isfinite(vy_model))
-                continue;
-        }
+        } else
+            continue;
 
         // Scene-space velocity: vy is flipped so the arrow points the right
         // way after the rebuildSceneGeometry_() Y-flip on vertex coords.
