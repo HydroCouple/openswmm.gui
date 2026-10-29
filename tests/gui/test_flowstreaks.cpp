@@ -788,6 +788,7 @@ public:
 class StoredVelocityGridSource : public VelocityOnlyGridSource
 {
 public:
+    bool unavailable = false;
     using VelocityOnlyGridSource::VelocityOnlyGridSource;
     bool readEdgeFluxAt(int time, std::vector<float> &values) override
     {
@@ -801,6 +802,9 @@ public:
     bool readFaceFieldAt(const char *name, int, std::vector<float> &values) override
     {
         values.assign(triangleCount(), QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        if (unavailable)
+            for (size_t i = 0; i < values.size(); ++i)
+                if (i % 7 == 0) values[i] = std::numeric_limits<float>::quiet_NaN();
         return true;
     }
     bool readFaceFieldCellsAt(const char *name, int, const std::vector<int> &ids,
@@ -808,6 +812,9 @@ public:
     {
         ++subsetReads;
         values.assign(ids.size(), QString::fromLatin1(name) == "Mesh2_face_vx" ? .125f : -.25f);
+        if (unavailable)
+            for (size_t i = 0; i < ids.size(); ++i)
+                if (ids[i] % 7 == 0) values[i] = std::numeric_limits<float>::quiet_NaN();
         return true;
     }
 };
@@ -1372,7 +1379,7 @@ private slots:
         }
     }
 
-    void missingOrInvalidStoredVelocityFallsBackToCurrentFlux()
+    void missingVelocityFallsBackButUnavailableVelocityStaysUnavailable()
     {
         for (bool async : {false, true})
             for (bool invalid : {false, true}) {
@@ -1386,10 +1393,21 @@ private slots:
                     layer.setCurrentTimeIndex(time);
                     QTRY_COMPARE(layer.currentTimeIndex(), time);
                     for (size_t i = 0; i < layer.m_sceneTris.size(); ++i) {
-                        const bool fallback = time == 1 && (!invalid || i == 0);
+                        const bool unavailable = time == 1 && invalid && i == 0;
+                        const bool fallback = time == 1 && !invalid;
                         const auto &tri = layer.m_sceneTris[i];
-                        QVERIFY(std::abs(tri.vx - (fallback ? 2.f : .125f)) < 1e-5);
-                        QVERIFY(std::abs(tri.vy - (fallback ? 0.f : .25f)) < 1e-5);
+                        if (unavailable) {
+                            QVERIFY(std::isnan(tri.vx));
+                            QVERIFY(std::isnan(tri.vy));
+                            QVERIFY(std::isnan(tri.vmag));
+                            float x = 0, y = 0;
+                            const auto center = (tri.a + tri.b + tri.c) / 3.;
+                            QVERIFY(!layer.velocityAtScene(center, x, y));
+                            QVERIFY(!layer.velocityAtScene(center, x, y, layer.captureVelocityField()));
+                        } else {
+                            QVERIFY(std::abs(tri.vx - (fallback ? 2.f : .125f)) < 1e-5);
+                            QVERIFY(std::abs(tri.vy - (fallback ? 0.f : .25f)) < 1e-5);
+                        }
                     }
                 }
                 layer.flowStreakSublayer()->setVisible(true);
@@ -1398,8 +1416,9 @@ private slots:
                 QVERIFY(input && !input->triangles.empty());
                 for (size_t i = 0; i < input->triangles.size(); ++i) {
                     const auto &tri = input->triangles[i];
-                    QVERIFY(tri.available);
-                    QCOMPARE(tri.velocityOnly, invalid && input->mesh->sourceTriangles[i] != 0);
+                    const bool unavailable = invalid && input->mesh->sourceTriangles[i] == 0;
+                    QCOMPARE(tri.available, !unavailable);
+                    QCOMPARE(tri.velocityOnly, invalid);
                 }
             }
     }
@@ -1436,6 +1455,54 @@ private slots:
             QVERIFY(tri.available);
             QVERIFY(tri.velocityOnly);
             QCOMPARE(tri.velocitySI, QPointF(.125, -.25));
+        }
+    }
+
+    void regionalUnavailableVelocityCannotFallBackToFlux()
+    {
+        const auto previous = qgetenv("OPENSWMM_REGIONAL_SURFACE");
+        qputenv("OPENSWMM_REGIONAL_SURFACE", "1");
+        const auto restore = qScopeGuard([previous] {
+            if (previous.isNull())
+                qunsetenv("OPENSWMM_REGIONAL_SURFACE");
+            else
+                qputenv("OPENSWMM_REGIONAL_SURFACE", previous);
+        });
+        SWMM2DResultsLayer layer;
+        auto source = std::make_unique<StoredVelocityGridSource>(100, 100);
+        source->unavailable = true;
+        auto *raw = source.get();
+        layer.setSource(std::move(source));
+        const QRectF view(50, -50, 10, 10);
+        QVERIFY(layer.prepareFlowStreaksForCapture(view, 32));
+        QVERIFY(layer.regionalHydraulicsPublished());
+        QVERIFY(raw->subsetReads > 0);
+        int checked = 0, missing = 0;
+        for (int i = 0; i < layer.m_sceneTris.size(); ++i) {
+            const auto &tri = layer.m_sceneTris[i];
+            if (!std::isfinite(tri.depth) || tri.depth <= 0) continue;
+            if (i % 7 == 0) {
+                QVERIFY(std::isnan(tri.vmag));
+                float x, y;
+                const auto center = (tri.a + tri.b + tri.c) / 3.;
+                QVERIFY(!layer.velocityAtScene(center, x, y));
+                QVERIFY(!layer.velocityAtScene(center, x, y, layer.captureVelocityField()));
+                ++missing;
+            } else {
+                QVERIFY(std::abs(tri.vx - .125f) < 1e-6);
+                QVERIFY(std::abs(tri.vy - .25f) < 1e-6);
+                ++checked;
+            }
+        }
+        QVERIFY(checked > 0 && missing > 0);
+        const auto input = layer.captureFlowParticleInput(view, 32);
+        QVERIFY(input && !input->triangles.empty());
+        for (size_t i = 0; i < input->triangles.size(); ++i) {
+            const auto &tri = input->triangles[i];
+            const int cell = input->mesh->sourceTriangles[i];
+            QCOMPARE(tri.available, cell % 7 != 0);
+            QVERIFY(tri.velocityOnly);
+            if (tri.available) QCOMPARE(tri.velocitySI, QPointF(.125, -.25));
         }
     }
 
@@ -6052,13 +6119,12 @@ private slots:
         QCOMPARE(values, (std::vector<float>{99}));
     }
 
-    void liveRunnerPublishesNativeVelocityBeforeDepth()
+    void liveRunnerPublishesEveryClosureVelocityBeforeDepth()
     {
         const QString folder = QDir::current().absoluteFilePath(
             "tests/verification/issue197_velocity_2026-10-28/live_runner");
         QVERIFY(QDir().mkpath(folder));
-        for (bool native : {false, true}) {
-            const QString stem = native ? "full_swe" : "local_inertial";
+        for (const QString stem : {QString("full_swe"), QString("local_inertial"), QString("diffusive_wave")}) {
             const QString input = QDir(folder).filePath(stem + ".inp");
             QFile deck(input);
             QVERIFY(deck.open(QIODevice::WriteOnly | QIODevice::Text));
@@ -6071,7 +6137,7 @@ private slots:
                     "[XSECTIONS]\nC1 CIRCULAR .3 0 0 0 1\n"
                     "[2D_OPTIONS]\nBACKEND CPU\nLTS_TIERS 1\nCFL_NUMBER .5\n"
                     "MAX_TIMESTEP 1\nDRY_DEPTH .0001\nH_MOVE .0001\nMOMENTUM_EQUATION "
-                 << (native ? "FULL_SWE" : "LOCAL_INERTIAL") << "\nOUTPUT_FILE " << stem
+                 << stem.toUpper() << "\nOUTPUT_FILE " << stem
                  << ".2d.h5\n[2D_VERTICES]\n0 0 0\n10 0 0\n10 10 0\n0 10 0\n"
                     "[2D_TRIANGLES]\n0 1 2 .03 .02\n0 2 3 .03 .02\n"
                     "[2D_INITIAL_VELOCITY]\n0 .3 -.4\n1 .3 -.4\n";
@@ -6083,7 +6149,7 @@ private slots:
             double velocityTime = -1;
             QVector<float> lastX, lastY;
             bool done = false;
-            auto *runner = new SimulationRunner(native ? 1971 : 1970, stem, input,
+            auto *runner = new SimulationRunner(197, stem, input,
                 QDir(folder).filePath(stem + ".rpt"), QDir(folder).filePath(stem + ".out"),
                 "6.0.0", this);
             QPointer<SimulationRunner> guard(runner);
@@ -6113,7 +6179,7 @@ private slots:
                 ++depthTicks;
                 if (!source) { ++badPairs; return; }
                 source->pushDepths({depth.begin(), depth.end()}, time, elapsed);
-                if (native) {
+                {
                     std::vector<float> x, y;
                     const int frame = source->timeCount() - 1;
                     if (velocityTime != elapsed || !source->hasStoredVelocity() ||
@@ -6132,7 +6198,7 @@ private slots:
             QCOMPARE(finished.count(), 1);
             QVERIFY2(finished.front()[1].toBool(), qPrintable(finished.front()[3].toString()));
             QVERIFY(depthTicks > 0);
-            QCOMPARE(velocityTicks, native ? depthTicks : 0);
+            QCOMPARE(velocityTicks, depthTicks);
             QCOMPARE(badPairs, 0);
         }
     }
