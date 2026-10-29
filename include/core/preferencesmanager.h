@@ -1174,6 +1174,7 @@ public:
         double junctionMaxDepth = 0.0;   ///< ft | m (0 = auto)
         double junctionInitDepth = 0.0;  ///< ft | m
         double junctionSurDepth = 0.0;   ///< ft | m
+        double junctionStorageArea = 0.0; ///< Physical ft2 | m2; zero = legacy behavior
         double junctionPondedArea = 0.0; ///< ft2 | m2
 
         // Outfalls

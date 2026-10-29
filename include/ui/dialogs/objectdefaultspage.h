@@ -119,6 +119,7 @@ private:
     QDoubleSpinBox *m_junctionInitDepth = nullptr;
     QDoubleSpinBox *m_junctionSurDepth = nullptr;
     QDoubleSpinBox *m_junctionPondedArea = nullptr;
+    QDoubleSpinBox *m_junctionStorageArea = nullptr;
     QComboBox *m_outfallType = nullptr;
     QCheckBox *m_outfallFlapGate = nullptr;
     QDoubleSpinBox *m_storageMaxDepth = nullptr;

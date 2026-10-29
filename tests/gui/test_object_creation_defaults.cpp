@@ -22,11 +22,15 @@
 #include <QSettings>
 
 #include <memory>
+#include <cmath>
 
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapundostack.h"
+#include "simulation/simulationrunner.h"
+#include <QFile>
+#include <QSignalSpy>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -87,6 +91,8 @@ private slots:
     void terrainInvert_winsOverDefaults();
     void editedPreference_flowsThroughToCreation();
     void undo_rollsTheWholeObjectBack();
+    void junctionStorageDefaultsAndDeleteUndo();
+    void junctionStorageRunsThroughTheGuiRunner();
 
 private:
     void clearStoredDefaults();
@@ -315,6 +321,82 @@ void TestObjectCreationDefaults::undo_rollsTheWholeObjectBack()
     QVERIFY(swmm_link_index(eng, "C_UNDO") >= 0);
     addConduit.undo();
     QVERIFY(swmm_link_index(eng, "C_UNDO") < 0);
+}
+
+void TestObjectCreationDefaults::junctionStorageDefaultsAndDeleteUndo()
+{
+    for (bool si : {false, true}) {
+        auto layer = openLayer(si ? QStringLiteral("object_defaults_cms.inp")
+                                  : QStringLiteral("object_defaults_cfs.inp"));
+        QVERIFY(layer);
+        ScopedUnits scope(layer.get());
+        auto *prefs = PreferencesManager::instance();
+        auto defaults = prefs->objectDefaults(si);
+        QCOMPARE(defaults.junctionStorageArea, 0.0);
+        defaults.junctionStorageArea = 0.125;
+        prefs->setObjectDefaults(defaults, si);
+        QCOMPARE(prefs->objectDefaults(si).junctionStorageArea, 0.125);
+        AddNodeCommand add(layer.get(), QStringLiteral("CHAMBER"), 0, 10, 10, nullptr, 0);
+        add.redo();
+        const auto eng = layer->engine();
+        int idx = swmm_node_index(eng, "CHAMBER");
+        QVERIFY(idx >= 0);
+        double area = 0;
+        QCOMPARE(swmm_node_get_storage_area(eng, idx, &area), 0);
+        QCOMPARE(area, 0.125);
+        DeleteObjectCommand remove(layer.get(), QStringLiteral("CHAMBER"), DeleteObjectCommand::DeleteNode, nullptr);
+        remove.redo();
+        QVERIFY(swmm_node_index(eng, "CHAMBER") < 0);
+        remove.undo();
+        idx = swmm_node_index(eng, "CHAMBER");
+        QVERIFY(idx >= 0);
+        QCOMPARE(swmm_node_get_storage_area(eng, idx, &area), 0);
+        QCOMPARE(area, 0.125);
+        int type = -1;
+        QCOMPARE(swmm_node_get_type(eng, idx, &type), 0);
+        QCOMPARE(type, 0);
+        ConvertNodeTypeCommand convert(layer.get(), QStringLiteral("CHAMBER"), 2, {}, nullptr);
+        convert.redo();
+        QVERIFY(convert.converted());
+        QCOMPARE(swmm_node_get_storage_area(eng, idx, &area), 0);
+        QCOMPARE(area, 0.0);
+        convert.undo();
+        QCOMPARE(swmm_node_get_storage_area(eng, idx, &area), 0);
+        QCOMPARE(area, 0.125);
+    }
+}
+
+void TestObjectCreationDefaults::junctionStorageRunsThroughTheGuiRunner()
+{
+    const QString folder = QDir(dataDir()).absoluteFilePath(QStringLiteral("junction_storage_issue10"));
+    QVERIFY(QDir().mkpath(folder));
+    const QString input = QDir(folder).filePath(QStringLiteral("gui-chamber.inp"));
+    QFile file(input);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("[OPTIONS]\nFLOW_UNITS CFS\nFLOW_ROUTING DYNWAVE\nSTART_DATE 01/01/2026\nEND_DATE 01/01/2026\nEND_TIME 00:10:00\nROUTING_STEP 1\nVARIABLE_STEP 0\nREPORT_STEP 00:00:10\n[JUNCTIONS]\nJ1 0 10 0 0 0 100\n[OUTFALLS]\nO1 0 FREE NO\n[INFLOWS]\nJ1 FLOW \"\" FLOW 1 1 1\n");
+    file.close();
+    QStringList versions{QStringLiteral("6.0.0")};
+    // Installed test workers exercise the same capability probe as real runs.
+    const QString workers = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../bin"));
+    if (QFile::exists(QDir(workers).filePath(QStringLiteral("openswmm-legacy-worker"))))
+        versions << QStringLiteral("5.3.0");
+    if (QFile::exists(QDir(workers).filePath(QStringLiteral("openswmm-legacy-worker-5.2.4"))))
+        versions << QStringLiteral("5.2.4");
+    for (const auto &version : versions) {
+        const QString stem = QDir(folder).filePath(QStringLiteral("runner-") + version);
+        SimulationRunner runner(10, QStringLiteral("physical chamber"), input, stem + ".rpt", stem + ".out", version);
+        QSignalSpy finished(&runner, &SimulationRunner::finished);
+        runner.start();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 15000);
+        const auto result = finished.takeFirst();
+        if (version == QStringLiteral("5.2.4")) {
+            QVERIFY(!result[1].toBool());
+            QVERIFY(result[3].toString().contains(QStringLiteral("does not support junction")));
+        } else {
+            QVERIFY2(result[1].toBool(), qPrintable(result[3].toString()));
+            QVERIFY(std::abs(result[5].toDouble()) < .001);
+        }
+    }
 }
 
 QTEST_MAIN(TestObjectCreationDefaults)

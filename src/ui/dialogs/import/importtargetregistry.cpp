@@ -325,6 +325,7 @@ QVector<TargetAttribute> ImportTargetRegistry::attributesFor(TargetKind kind)
           << dbl("maxDepth", tr("Max Depth"), "maxDepth")
           << dbl("initialDepth", tr("Initial Depth"), "initialDepth")
           << dbl("surchargeDepth", tr("Surcharge Depth"), "surchargeDepth")
+          << dbl("storageArea", tr("Storage Area"), "storageArea")
           << dbl("pondedArea", tr("Ponded Area"), "pondedArea") << str("tag", tr("Tag"), "tag");
         break;
 

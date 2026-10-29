@@ -39,6 +39,7 @@ struct NodeSnapshot {
     double initDepth = 0;
     double surchargeDepth = 0;
     double pondedArea = 0;
+    double storageArea = 0;
     // virtual junction: the flag plus its rendering-only ground depth. Without
     // these, undoing the delete of a virtual junction resurrected a plain
     // junction (and the drawn ground line with it).
@@ -2138,6 +2139,7 @@ private:
     // conversion but the spec may overwrite.
     double m_oldInvert = 0.0;
     double m_oldMaxDepth = 0.0;
+    double m_oldStorageArea = 0.0;
     QString m_oldTag;
     bool m_haveSnapshot = false;
     bool m_converted = false;

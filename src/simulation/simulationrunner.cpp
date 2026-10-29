@@ -347,6 +347,27 @@ QStringList optionTokens(const QString &line)
     return tokens;
 }
 
+bool runHasJunctionStorage(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false; // the engine reports the unreadable input
+    bool junctions = false;
+    while (!f.atEnd()) {
+        const QString line = withoutInpComment(QString::fromUtf8(f.readLine()));
+        if (line.startsWith('[')) {
+            junctions = line.compare(QStringLiteral("[JUNCTIONS]"), Qt::CaseInsensitive) == 0;
+            continue;
+        }
+        if (!junctions) continue;
+        const auto tokens = optionTokens(line);
+        if (tokens.size() > 6 && tokens[6].toDouble() > 0.0) return true;
+    }
+    return false;
+}
+
+
+
 struct RunFileReferences {
     QStringList inputs, outputs;
 };
@@ -1437,6 +1458,20 @@ void SimulationRunner::start()
                     0.0, 0.0};
             }
 
+            if (runHasJunctionStorage(QString::fromUtf8(inp))) {
+                QProcess probe;
+                probe.start(workerPath, {QStringLiteral("--features")});
+                const bool started = probe.waitForStarted(5000);
+                const bool finished = started && probe.waitForFinished(5000);
+                const auto features = QJsonDocument::fromJson(probe.readAllStandardOutput()).object();
+                if (!finished || probe.exitCode() != 0 ||
+                    !features.value(QStringLiteral("junction_storage")).toBool()) {
+                    probe.kill();
+                    probe.waitForFinished(1000);
+                    return {false, SWMM_ERR_BADPARAM,
+                            tr("This worker does not support junction Storage Area. Select an updated 5.3.0 or 6.0.0 engine."), 0.0, 0.0};
+                }
+            }
             if (!removeOldLidStates())
                 return {false, SWMM_ERR_INTERNAL, tr("Cannot replace LID results: %1").arg(lidPath),
                         0.0, 0.0};

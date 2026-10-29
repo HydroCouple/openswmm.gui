@@ -60,6 +60,7 @@ const QHash<QString, QString> &keyForSetter()
         {QStringLiteral("node_initial_depth"), QStringLiteral("initialDepth")},
         {QStringLiteral("node_surcharge_depth"), QStringLiteral("surchargeDepth")},
         {QStringLiteral("node_ponded_area"), QStringLiteral("pondedArea")},
+        {QStringLiteral("node_storage_area"), QStringLiteral("storageArea")},
         {QStringLiteral("node_outfall_type"), QStringLiteral("outfallType")},
         {QStringLiteral("node_outfall_stage"), QStringLiteral("outfallStage")},
         {QStringLiteral("node_outfall_flap_gate"), QStringLiteral("flapGate")},

@@ -112,6 +112,7 @@ void ObjectDefaultsPage::buildUi()
         jf->addRow(tr("Max depth (0 = highest crown):"), m_junctionMaxDepth = makeSpin(1e6, 3));
         jf->addRow(tr("Initial depth:"), m_junctionInitDepth = makeSpin(1e6, 3));
         jf->addRow(tr("Surcharge depth:"), m_junctionSurDepth = makeSpin(1e6, 3));
+        jf->addRow(tr("Storage area (0 = legacy):"), m_junctionStorageArea = makeSpin(1e9, 6));
         jf->addRow(tr("Ponded area:"), m_junctionPondedArea = makeSpin(1e9, 2));
         v->addWidget(junction);
 
@@ -288,6 +289,7 @@ void ObjectDefaultsPage::populateWidgets(const OD &d)
     m_junctionInitDepth->setValue(d.junctionInitDepth);
     m_junctionSurDepth->setValue(d.junctionSurDepth);
     m_junctionPondedArea->setValue(d.junctionPondedArea);
+    m_junctionStorageArea->setValue(d.junctionStorageArea);
     selectData(m_outfallType, d.outfallType);
     m_outfallFlapGate->setChecked(d.outfallFlapGate);
     m_storageMaxDepth->setValue(d.storageMaxDepth);
@@ -357,6 +359,7 @@ void ObjectDefaultsPage::commitWidgets(OD &d) const
     d.junctionInitDepth = m_junctionInitDepth->value();
     d.junctionSurDepth = m_junctionSurDepth->value();
     d.junctionPondedArea = m_junctionPondedArea->value();
+    d.junctionStorageArea = m_junctionStorageArea->value();
     d.outfallType = m_outfallType->currentData().toString();
     d.outfallFlapGate = m_outfallFlapGate->isChecked();
     d.storageMaxDepth = m_storageMaxDepth->value();

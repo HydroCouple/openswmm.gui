@@ -888,6 +888,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Init depth", "Initial Depth", "node_initial_depth", 0.0, 1e6, 4, UnitKind::Length),
             num("Surcharge depth", "Surcharge Depth", "node_surcharge_depth", 0.0, 1e6, 4,
                 UnitKind::Length),
+            num("Storage area", "Storage Area", "node_storage_area", 0.0, 1e9, 6, UnitKind::Area),
             num("Ponded area", "Ponded Area", "node_ponded_area", 0.0, 1e9, 2, UnitKind::Area),
         };
         cols.append(nodeCouplingColumns(cat));
@@ -2683,6 +2684,8 @@ SetterEntry setterForUncached(const QString &tag)
         return {EntityKind::Node, &swmm_node_set_initial_depth, &swmm_node_get_initial_depth};
     if (tag == QStringLiteral("node_surcharge_depth"))
         return {EntityKind::Node, &swmm_node_set_surcharge_depth, &swmm_node_get_surcharge_depth};
+    if (tag == QStringLiteral("node_storage_area"))
+        return {EntityKind::Node, &swmm_node_set_storage_area, &swmm_node_get_storage_area};
     if (tag == QStringLiteral("node_ponded_area"))
         return {EntityKind::Node, &swmm_node_set_pond_area, &swmm_node_get_ponded_area};
     if (tag == QStringLiteral("node_storage_seep_rate"))

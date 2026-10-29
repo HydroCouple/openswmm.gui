@@ -76,6 +76,8 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
         return tr("Initial Depth (%1)").arg(L);
     if (property == QLatin1String("surchargeDepth"))
         return tr("Surcharge Depth (%1)").arg(L);
+    if (property == QLatin1String("storageArea"))
+        return tr("Storage Area (%1)").arg(L2);
     if (property == QLatin1String("pondedArea"))
         return tr("Ponded Area (%1)").arg(L2);
     if (property == QLatin1String("seepRate"))
@@ -737,6 +739,7 @@ GETTER(rimDepth, swmm_node_get_rim_depth)
 GETTER(initialDepth, swmm_node_get_initial_depth)
 GETTER(surchargeDepth, swmm_node_get_surcharge_depth)
 GETTER(pondedArea, swmm_node_get_ponded_area)
+GETTER(storageArea, swmm_node_get_storage_area)
 GETTER(seepRate, swmm_node_get_storage_seep_rate)
 GETTER(crownElev, swmm_node_get_crown_elev)
 GETTER(fullVolume, swmm_node_get_full_volume)
@@ -857,6 +860,7 @@ SETTER(setRimDepth, swmm_node_set_rim_depth)
 SETTER(setInitialDepth, swmm_node_set_initial_depth)
 SETTER(setSurchargeDepth, swmm_node_set_surcharge_depth)
 SETTER(setPondedArea, swmm_node_set_pond_area)
+SETTER(setStorageArea, swmm_node_set_storage_area)
 SETTER(setSeepRate, swmm_node_set_storage_seep_rate)
 
 void SWMMNodePropertyAdapter::setXCoord(double v)

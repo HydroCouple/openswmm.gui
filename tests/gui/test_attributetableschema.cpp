@@ -262,6 +262,40 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void junctionStorageTableEditUndoAndSave()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMMAttributeTableModel model;
+        QUndoStack undo;
+        model.setUndoStack(&undo);
+        model.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        const int col = colFor(model.columnSpecs(), QStringLiteral("Storage area"));
+        QVERIFY(col >= 0);
+        const int ni = layer->soaIndexAt(SWMMModelLayer::CatJunctions, 0);
+        const QModelIndex cell = model.index(0, col);
+        QVERIFY(model.setData(cell, 0.125, Qt::EditRole));
+        double area = 0;
+        QCOMPARE(swmm_node_get_storage_area(layer->engine(), ni, &area), 0);
+        QCOMPARE(area, 0.125);
+        undo.undo();
+        QCOMPARE(swmm_node_get_storage_area(layer->engine(), ni, &area), 0);
+        QCOMPARE(area, 0.0);
+        undo.redo();
+        QCOMPARE(swmm_node_get_storage_area(layer->engine(), ni, &area), 0);
+        QCOMPARE(area, 0.125);
+        const QString outDir = QDir(dataDir()).filePath(QStringLiteral("junction_storage_issue10"));
+        QVERIFY(QDir().mkpath(outDir));
+        const QByteArray saved = QDir(outDir).filePath(QStringLiteral("table-edited.inp")).toUtf8();
+        QCOMPARE(swmm_model_write(layer->engine(), saved.constData()), 0);
+        SWMM_Engine reopened = swmm_engine_create();
+        QCOMPARE(swmm_engine_open(reopened, saved.constData(), nullptr, nullptr, nullptr), 0);
+        const QByteArray name = model.objectNameAt(0).toUtf8();
+        QCOMPARE(swmm_node_get_storage_area(reopened, swmm_node_index(reopened, name.constData()), &area), 0);
+        QCOMPARE(area, 0.125);
+        swmm_engine_destroy(reopened);
+    }
+
     void meshBulkApplyRefreshesOnce_data()
     {
         QTest::addColumn<QString>("kind");

@@ -83,6 +83,8 @@ set(_oe_api_sentinels
     "openswmm_checkpoint.h:swmm_checkpoint_start_session"
     "openswmm_gw2d.h:swmm_gw2d_node_replace"
     "openswmm_nodes.h:swmm_node_get_rim_depth"
+    "openswmm_nodes.h:swmm_node_get_storage_area"
+    "openswmm_nodes.h:swmm_node_set_storage_area"
     "openswmm_infrastructure.h:swmm_street_rename"
     "openswmm_trace.h:swmm_trace_prepare_live"
     "openswmm_2d.h:swmm_2d_set_auto_backend_cpu"

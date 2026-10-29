@@ -165,6 +165,7 @@ void applyNodeDefaults(SWMM_Engine engine, int idx, int nodeType)
         swmm_node_set_initial_depth(engine, idx, d.junctionInitDepth);
         swmm_node_set_surcharge_depth(engine, idx, d.junctionSurDepth);
         swmm_node_set_pond_area(engine, idx, d.junctionPondedArea);
+        swmm_node_set_storage_area(engine, idx, d.junctionStorageArea);
         break;
     case 1: // SWMM_NODE_OUTFALL
         swmm_node_set_outfall_type(engine, idx, outfallTypeCode(d.outfallType));
