@@ -830,17 +830,24 @@ void SimulationRunner::start()
             } engineGuard;
             SWMM_Engine eng = engineGuard.eng;
 
-            // Specific failure text. The engine records the actual cause
-            // ("ERROR 209: ...", "USE HOTSTART: ...") retrievable via
-            // swmm_get_last_error_msg; swmm_error_message(code) is only the
-            // generic category ("Input file parse error") — same reason the
-            // end-of-run capture below reads the engine message first. Must
-            // be read BEFORE close/destroy.
+            // Capture every diagnostic at every failure phase, before cleanup
+            // can replace them. initialize() can reject several objects while
+            // last_error_msg exposes only one of them. These are engine API
+            // messages, including SWMM error numbers and object IDs.
             auto engineFailureText = [](SWMM_Engine e, int code) -> QString {
-                QString msg = QString::fromUtf8(swmm_get_last_error_msg(e)).trimmed();
-                if (msg.isEmpty())
-                    msg = QString::fromUtf8(swmm_error_message(code));
-                return msg;
+                QStringList messages;
+                const int count = swmm_get_error_count(e);
+                for (int i = 0; i < count; ++i) {
+                    const QString msg = QString::fromUtf8(swmm_get_error_at(e, i)).trimmed();
+                    if (!msg.isEmpty() && !messages.contains(msg))
+                        messages.append(msg);
+                }
+                const QString last = QString::fromUtf8(swmm_get_last_error_msg(e)).trimmed();
+                if (!last.isEmpty() && !messages.contains(last))
+                    messages.append(last);
+                if (messages.isEmpty())
+                    messages.append(QString::fromUtf8(swmm_error_message(code)));
+                return messages.join(QLatin1Char('\n'));
             };
 
             // Open
@@ -849,15 +856,7 @@ void SimulationRunner::start()
             int rc =
                 swmm_engine_open(eng, inp.constData(), rpt.constData(), out.constData(), nullptr);
             if (rc != SWMM_OK) {
-                QString msg = engineFailureText(eng, rc);
-                // A failed parse usually records several errors — surface
-                // them all in the log, not just the first.
-                const int nErr = swmm_get_error_count(eng);
-                for (int i = 0; i < nErr; ++i) {
-                    const QString e = QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
-                    if (!e.isEmpty() && e != msg)
-                        msg += QLatin1Char('\n') + e;
-                }
+                const QString msg = engineFailureText(eng, rc);
                 return {false, rc, msg, 0.0, 0.0}; // engineGuard closes + destroys
             }
 
@@ -1360,15 +1359,7 @@ void SimulationRunner::start()
                         .arg(simStart.isValid()
                                  ? simStart.addMSecs(qint64(simSec * 1000.0)).toString(Qt::ISODate)
                                  : QStringLiteral("%1 s").arg(simSec, 0, 'f', 0));
-                QString msg = engineFailureText(eng, rc);
-                // The engine's error list carries the specific cause (a
-                // diverging node, a plugin failure …) — surface all of it.
-                const int nErr = swmm_get_error_count(eng);
-                for (int i = 0; i < nErr; ++i) {
-                    const QString e = QString::fromUtf8(swmm_get_error_at(eng, i)).trimmed();
-                    if (!e.isEmpty() && !msg.contains(e))
-                        msg += QLatin1Char('\n') + e;
-                }
+                const QString msg = engineFailureText(eng, rc);
                 stepFailMsg =
                     (rc == SWMM_ERR_NUMERICAL)
                         ? QStringLiteral("Routing diverged (%1): %2").arg(stepFailPhase, msg)
@@ -1407,7 +1398,8 @@ void SimulationRunner::start()
             // only yields the generic category text ("Input file parse
             // error"), which hides the actual cause from the user.
             const int lastErr = swmm_get_last_error(eng);
-            const QString lastErrMsg = QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
+            const QString lastErrMsg =
+                lastErr != SWMM_OK ? engineFailureText(eng, lastErr) : QString();
             const bool cancelled = rawSelf->m_cancel.load();
 
             // Report + close. A cancelled run still writes the report —
