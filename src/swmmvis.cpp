@@ -4647,7 +4647,8 @@ void SWMMVis::initializeSimulationStatusDockWidget()
             text = idx.data(Qt::DisplayRole).toString();
         QApplication::clipboard()->setText(text);
     });
-    view->setUniformRowHeights(true);
+    view->setUniformRowHeights(false);
+    view->setWordWrap(true);
     view->setAlternatingRowColors(true);
     view->header()->setStretchLastSection(false);
 
@@ -4682,8 +4683,12 @@ void SWMMVis::initializeSimulationStatusDockWidget()
 
     connect(mSimStatusModel, &QAbstractItemModel::rowsInserted, view,
             [view, this](const QModelIndex &parent, int first, int last) {
-                if (parent.isValid())
-                    return; // job rows only
+                if (parent.isValid()) {
+                    for (int r = first; r <= last; ++r)
+                        view->setFirstColumnSpanned(r, parent, true);
+                    view->expand(parent);
+                    return;
+                }
                 for (int r = first; r <= last; ++r) {
                     view->openPersistentEditor(
                         mSimStatusModel->index(r, SimulationStatusModel::ColStartDate));

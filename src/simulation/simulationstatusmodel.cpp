@@ -278,14 +278,24 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode, cons
     if (rec.status == SimulationJobStatus::Success && rec.endSimDate.isValid())
         rec.currentSimDate = rec.endSimDate;
 
-    // The failure reason as a child row (like the warnings), not only a
-    // tooltip: multi-line engine messages stay readable and can be copied.
+    // Give each diagnostic line a visible child row. A single multiline cell
+    // hid later errors (and their object IDs) behind the first line.
     if (rec.status == SimulationJobStatus::Failed && !errMsg.isEmpty()) {
+        QStringList lines;
+        for (const QString &line : errMsg.split(QLatin1Char('\n'))) {
+            const QString text = line.trimmed();
+            if (!text.isEmpty())
+                lines.append(text.startsWith(QLatin1String("ERROR "))
+                                 ? text
+                                 : QStringLiteral("ERROR [%1] %2").arg(errCode).arg(text));
+        }
         const QModelIndex jobIdx = createIndex(row, 0, kRootId);
         const int childRow = rec.warnings.size();
-        beginInsertRows(jobIdx, childRow, childRow);
-        rec.warnings.append(QStringLiteral("ERROR [%1] %2").arg(errCode).arg(errMsg));
-        endInsertRows();
+        if (!lines.isEmpty()) {
+            beginInsertRows(jobIdx, childRow, childRow + lines.size() - 1);
+            rec.warnings.append(lines);
+            endInsertRows();
+        }
     }
 
     const QModelIndex tl = createIndex(row, 0, kRootId);
@@ -412,7 +422,7 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return rec.warnings.at(index.row());
         if (role == Qt::ForegroundRole) {
             // The failure row (finishJob) is red; warnings stay amber.
-            if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR [")))
+            if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR ")))
                 return QBrush(QColor(0xC0, 0x00, 0x00));
             return QBrush(QColor(0xD0, 0x6F, 0x00)); // amber for warnings
         }
@@ -420,7 +430,10 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         // severity for color-blind users and assistive tech.
         if (role == Qt::DecorationRole && index.column() == 0) {
             if (auto *style = QApplication::style())
-                return style->standardIcon(QStyle::SP_MessageBoxWarning);
+                return style->standardIcon(
+                    rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR "))
+                        ? QStyle::SP_MessageBoxCritical
+                        : QStyle::SP_MessageBoxWarning);
         }
         return {};
     }

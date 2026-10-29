@@ -3,7 +3,7 @@
  * @brief     SimulationRunner as the last point of failure capture: a run that
  *         fails at open, a worker that throws mid-run, and an engine step
  *         that reports a numerical abort must each end in finished(false,
- *         code, message) with the phase named, a red "ERROR [code]" child
+ *         code, message) with the phase named, a red error child
  *         row under the job in SimulationStatusModel, and a per-run
  *         &lt;stem&gt;.runlog.txt beside the report — never in std::terminate.
  *
@@ -19,6 +19,7 @@
 
 #include <QtTest>
 #include <QSignalSpy>
+#include <QAbstractItemModelTester>
 #include <QDir>
 #include <QFile>
 #include <QProcess>
@@ -156,7 +157,7 @@ Finished runToEnd(QObject *parent, SimulationStatusModel &model, const QString &
 /** @brief Find the first formatted error child of one status-model job.
  * @param[in] model Stable status tree, unchanged.
  * @param[in] row Intended top-level job row.
- * @return Owned first child text starting ERROR [, or empty if none; an invalid
+ * @return Owned first child text starting ERROR, or empty if none; an invalid
  * row yields an invalid parent index whose enumeration follows model semantics.
  * Does not assert error color, alter status or retain QModelIndex storage. */
 QString errorChildText(const SimulationStatusModel &model, int row)
@@ -164,7 +165,7 @@ QString errorChildText(const SimulationStatusModel &model, int row)
     const QModelIndex job = model.index(row, 0);
     for (int i = 0; i < model.rowCount(job); ++i) {
         const QString t = model.index(i, 0, job).data(Qt::DisplayRole).toString();
-        if (t.startsWith(QStringLiteral("ERROR [")))
+        if (t.startsWith(QStringLiteral("ERROR ")))
             return t;
     }
     return {};
@@ -597,8 +598,7 @@ private slots:
 
         // The reason is a child row (red), copyable — not only a tooltip.
         const QString child = errorChildText(model, 0);
-        QVERIFY2(child.startsWith(QStringLiteral("ERROR [%1]").arg(r.errorCode)),
-                 qPrintable(child));
+        QVERIFY2(child.contains(r.message.section(QLatin1Char('\n'), 0, 0)), qPrintable(child));
         QCOMPARE(model.index(0, SimulationStatusModel::ColStatus).data().toString(),
                  QStringLiteral("Failed"));
 
@@ -614,6 +614,68 @@ private slots:
                      log.contains(QStringLiteral("phase=initialize")),
                  qPrintable(log));
         QVERIFY2(log.contains(r.message.section(QLatin1Char('\n'), 0, 0)), qPrintable(log));
+    }
+
+    /** @brief Forward every object-specific initialization error even with report output disabled. */
+    void initializationErrorsRetainAllObjectIds()
+    {
+        QByteArray deck(kMinimal1D);
+        deck += "\n[JUNCTIONS]\nJ2 0 2 0 0 0\nJ3 0 2 0 0 0\nJ4 0 2 0 0 0\n"
+                "[OUTFALLS]\nO2 -1 FREE NO\n"
+                "[CONDUITS]\nC2 J2 O1 100 .013 0 0\n"
+                "C3 J3 O2 100 .013 0 0\nC4 J4 O2 100 .013 0 0\n"
+                "[XSECTIONS]\nC2 CIRCULAR 1 0 0 0 1\n"
+                "C3 CIRCULAR 1 0 0 0 1\nC4 CIRCULAR 1 0 0 0 1\n"
+                "[REPORT]\nDISABLED YES\n";
+        const QString name = QStringLiteral("multiple_bad_outfalls");
+        const QString inp = writeDeck(name, deck.constData());
+        QVERIFY(!inp.isEmpty());
+        const QString rpt = QDir(outputDir()).filePath(name + QStringLiteral(".rpt"));
+        QFile::remove(rpt);
+        SimulationStatusModel model;
+        QAbstractItemModelTester tester(&model,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        const Finished r = runToEnd(this, model, name, inp);
+        QVERIFY(!r.success);
+        QCOMPARE(r.errorCode, int(SWMM_ERR_PARSE));
+        QVERIFY2(r.message.contains("ERROR 141: Outfall O1"), qPrintable(r.message));
+        QVERIFY2(r.message.contains("ERROR 141: Outfall O2"), qPrintable(r.message));
+        QVERIFY2(r.message.contains("ERROR 145:"), qPrintable(r.message));
+        QCOMPARE(r.message.count("ERROR 141: Outfall O1"), 1);
+        QVERIFY(!QFileInfo::exists(rpt)); // diagnostics come directly from the API
+
+        const QModelIndex job = model.index(0, 0);
+        QCOMPARE(model.rowCount(job), 3);
+        for (int row = 0; row < 3; ++row) {
+            const auto child = model.index(row, 0, job);
+            const QString text = child.data().toString();
+            QVERIFY(!text.contains(QLatin1Char('\n')));
+            QVERIFY(text.startsWith("ERROR "));
+            QVERIFY(!text.startsWith("ERROR [5]")); // show the SWMM code, not its API category
+            QCOMPARE(child.data(Qt::ToolTipRole).toString(), text);
+        }
+        QVERIFY(model.index(0, 0, job).data().toString().contains("Outfall O1"));
+        QVERIFY(model.index(1, 0, job).data().toString().contains("Outfall O2"));
+        QCOMPARE(job.data(Qt::ToolTipRole).toString(), r.message);
+    }
+
+    /** @brief Keep distinct parse diagnostics and their referenced names without duplicating the first. */
+    void parseErrorsRetainAllReferencedObjects()
+    {
+        QByteArray deck(kMinimal1D);
+        deck.replace("C1      J1    O1", "C1      MissingUpstream    MissingDownstream");
+        const QString name = QStringLiteral("multiple_missing_nodes");
+        const QString inp = writeDeck(name, deck.constData());
+        QVERIFY(!inp.isEmpty());
+        SimulationStatusModel model;
+        const Finished r = runToEnd(this, model, name, inp);
+        QVERIFY(!r.success);
+        QVERIFY2(r.message.contains("ERROR 209: undefined object MissingUpstream"),
+                 qPrintable(r.message));
+        QVERIFY2(r.message.contains("ERROR 209: undefined object MissingDownstream"),
+                 qPrintable(r.message));
+        QCOMPARE(r.message.count("ERROR 209: undefined object MissingUpstream"), 1);
+        QCOMPARE(model.rowCount(model.index(0, 0)), 2);
     }
 
     /** @brief Require injected step bad_alloc to become an INTERNAL failed result, error child and phase-named exception log without process termination. */
