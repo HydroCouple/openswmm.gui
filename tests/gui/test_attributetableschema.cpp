@@ -62,6 +62,9 @@
 #include "snowpack/snowpackregistry.h"
 #include <QTimer>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QStyleFactory>
+#include <QStyle>
 #include <QPushButton>
 
 #include <openswmm/engine/openswmm_gages.h>
@@ -217,7 +220,8 @@ bool isDynamics(const ColumnSpec &s)
 }
 
 bool applyBulkCell(AttributeTablePanel &panel, QTableView *view, const QModelIndex &clicked,
-                   bool prompt = false, double value = 0.0)
+                   bool prompt = false, double value = 0.0, bool typeValue = false,
+                   bool cancel = false)
 {
     if (!clicked.isValid())
         return false;
@@ -239,13 +243,38 @@ bool applyBulkCell(AttributeTablePanel &panel, QTableView *view, const QModelInd
                     QTimer::singleShot(0, &panel, [&] {
                         if (auto *input = qobject_cast<QInputDialog *>(
                                 QApplication::activeModalWidget())) {
-                            input->setDoubleValue(value);
-                            input->accept();
+                            if (typeValue) {
+                                input->setStyle(panel.style());
+                                for (auto *widget : input->findChildren<QWidget *>())
+                                    widget->setStyle(panel.style());
+                            }
+                            if (cancel) {
+                                input->reject();
+                            } else if (typeValue) {
+                                auto *spin = input->findChild<QDoubleSpinBox *>();
+                                auto *line = spin ? spin->findChild<QLineEdit *>() : nullptr;
+                                auto *buttons = input->findChild<QDialogButtonBox *>();
+                                auto *ok = buttons ? buttons->button(QDialogButtonBox::Ok) : nullptr;
+                                if (!line || !ok) { input->reject(); return; }
+                                line->setFocus();
+                                line->selectAll();
+                                QTest::keyClicks(line, QString::number(value));
+                                QTest::mouseClick(ok, Qt::LeftButton);
+                            } else {
+                                input->setDoubleValue(value);
+                                input->accept();
+                            }
                         }
                     });
                 }
-                action->trigger();
-                applied = true;
+                if (typeValue) {
+                    QObject::connect(action, &QAction::triggered, &panel, [&] { applied = true; });
+                    menu->setActiveAction(action);
+                    QTest::keyClick(menu, Qt::Key_Return);
+                } else {
+                    action->trigger();
+                    applied = true;
+                }
                 break;
             }
         }
@@ -422,6 +451,156 @@ private slots:
         qInfo() << kind << "bulk redo:" << timer.elapsed() << "ms";
         QCOMPARE(attributes.count(), 3);
         QCOMPARE(model->index(0, column).data(Qt::EditRole).toDouble(), value);
+    }
+
+    void meshCouplingAreaBulkDialog_data()
+    {
+        QTest::addColumn<QString>("style");
+        QTest::addColumn<bool>("cancel");
+        QTest::addColumn<bool>("activeEditor");
+        QTest::addColumn<bool>("reentrant");
+        QTest::addColumn<bool>("bulk");
+        for (const QString &style : {QString("Windows"), QString("Fusion")}) {
+            for (bool activeEditor : {false, true}) {
+                const QString suffix = activeEditor ? "-editor" : "-plain";
+                QTest::newRow(qPrintable(style + "-apply" + suffix)) << style << false << activeEditor << false << true;
+                QTest::newRow(qPrintable(style + "-cancel" + suffix)) << style << true << activeEditor << false << true;
+            }
+            QTest::newRow(qPrintable(style + "-refresh-single")) << style << false << false << true << false;
+            QTest::newRow(qPrintable(style + "-refresh-bulk")) << style << false << false << true << true;
+        }
+    }
+
+    void meshCouplingAreaBulkDialog()
+    {
+        QFETCH(QString, style);
+        QFETCH(bool, cancel);
+        QFETCH(bool, activeEditor);
+        QFETCH(bool, reentrant);
+        QFETCH(bool, bulk);
+        // Keep style ownership local; changing the application style can
+        // leave native macOS popup callbacks referring to a deleted style.
+        auto testStyle = std::unique_ptr<QStyle>(QStyleFactory::create(style));
+        QVERIFY(testStyle);
+        auto layer = openLayer();
+        QVERIFY(layer);
+        mesh::MeshResult meshData;
+        const QVector<double> originalAreas{1., 2., 5., 4.};
+        for (int i = 0; i < 4; ++i) {
+            mesh::MeshVertex v;
+            v.xy = QPointF(i % 2, i / 2);
+            v.z = i + 10.;
+            v.tag = QString("keep%1").arg(i);
+            v.coupledNode = i == 3 ? QString() : QStringLiteral("J1");
+            v.couplingArea = originalAreas[i];
+            v.couplingCdSet = reentrant;
+            v.couplingAreaSet = activeEditor;
+            meshData.vertices.append(v);
+        }
+        mesh::MeshTriangle t;
+        t.v0 = 0; t.v1 = 1; t.v2 = 2; meshData.triangles.append(t);
+        meshData.ok = true;
+        SWMM2DMeshLayer meshLayer(meshData, QStringLiteral("coupling-bulk.2dm"));
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        meshLayer.setActiveMesh(true);
+        SelectionManager selection;
+        MeshEditingToolbar toolbar(QStringLiteral("Mesh"));
+        toolbar.rebindCanvas(&canvas);
+        toolbar.rebindSelectionManager(&selection);
+        AttributeTablePanel panel;
+        toolbar.setStyle(testStyle.get());
+        for (auto *widget : toolbar.findChildren<QWidget *>()) widget->setStyle(testStyle.get());
+        panel.setStyle(testStyle.get());
+        for (auto *widget : panel.findChildren<QWidget *>()) widget->setStyle(testStyle.get());
+        panel.setProject(layer.get(), &selection, &canvas);
+        panel.refresh();
+        auto *combo = panel.findChild<QComboBox *>();
+        auto *view = panel.findChild<QTableView *>();
+        auto *model = panel.findChild<MeshAttributeTableModel *>();
+        QVERIFY(combo && view && model);
+        const int category = combo->findData(QString("mesh:%1:v").arg(meshLayer.layerId()));
+        QVERIFY(category >= 0);
+        combo->setCurrentIndex(category);
+        const int column = colFor(model->columnSpecs(), "couplingArea");
+        QVERIFY(column >= 0);
+        QSet<SWMMObjectRef> selected;
+        for (int i = 0; i < (bulk ? 4 : 1); ++i) selected.insert(model->refForRow(i));
+        selection.select(selected, SelectionManager::Replace);
+        QCOMPARE(view->selectionModel()->selectedRows().size(), bulk ? 4 : 1);
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
+        QVERIFY(proxy);
+        QSignalSpy changes(&meshLayer, &SWMM2DMeshLayer::attributeChanged);
+        const auto clicked = proxy->mapFromSource(model->index(0, column));
+        bool commitInjected = false;
+        QMetaObject::Connection injection;
+        const auto disconnectInjection = qScopeGuard([&] { QObject::disconnect(injection); });
+        if (reentrant) {
+            QDoubleSpinBox *area = nullptr;
+            QComboBox *node = nullptr;
+            for (auto *spin : toolbar.findChildren<QDoubleSpinBox *>())
+                if (spin->toolTip().startsWith("Coupling exchange area")) area = spin;
+            for (auto *combo : toolbar.findChildren<QComboBox *>())
+                if (combo->toolTip().startsWith("Coupled SWMM node")) node = combo;
+            QVERIFY(area && node && node->lineEdit());
+            auto *line = node->lineEdit();
+            {
+                const QSignalBlocker blockCombo(node), blockLine(line);
+                line->setText("stale display");
+            }
+            // A native value notification can re-enter while another vertex
+            // editor refreshes, before the area spin receives the new value.
+            // Simulate that notification deterministically on either platform.
+            injection = connect(line, &QLineEdit::textChanged, &toolbar, [&, area] {
+                if (commitInjected) return;
+                commitInjected = true;
+                QMetaObject::invokeMethod(area, "valueChanged", Qt::DirectConnection,
+                                         Q_ARG(double, area->value()));
+            });
+        }
+        if (activeEditor) {
+            panel.resize(1200, 600);
+            panel.show();
+            view->scrollTo(clicked);
+            QCoreApplication::processEvents();
+            view->selectionModel()->setCurrentIndex(clicked, QItemSelectionModel::NoUpdate);
+            view->edit(clicked);
+            QVERIFY(view->indexWidget(clicked));
+        }
+        if (bulk)
+            QVERIFY(applyBulkCell(panel, view, clicked, true, 5., true, cancel));
+        else
+            QVERIFY(model->setData(model->index(0, column), 5.));
+        QCoreApplication::processEvents();
+        QCOMPARE(commitInjected, reentrant);
+        for (int i = 0; i < 4; ++i) {
+            const auto &v = meshLayer.mesh().vertices[i];
+            const bool edited = !cancel && i < 3 && (bulk || i == 0);
+            QCOMPARE(v.couplingArea, edited ? 5. : originalAreas[i]);
+            QCOMPARE(v.couplingAreaSet, activeEditor || edited);
+            QCOMPARE(v.couplingCdSet, reentrant);
+            QCOMPARE(v.coupledNode, i == 3 ? QString() : QStringLiteral("J1"));
+            QCOMPARE(v.tag, QString("keep%1").arg(i));
+            QCOMPARE(v.z, i + 10.);
+        }
+        QCOMPARE(changes.count(), cancel ? 0 : 1);
+        QCOMPARE(canvas.undoStack()->count(), cancel ? 0 : 1);
+        QCOMPARE(view->selectionModel()->selectedRows().size(), bulk ? 4 : 1);
+        if (!cancel) {
+            canvas.undoStack()->undo();
+            for (int i = 0; i < 4; ++i) {
+                QCOMPARE(meshLayer.mesh().vertices[i].couplingArea, originalAreas[i]);
+                QCOMPARE(meshLayer.mesh().vertices[i].couplingAreaSet, activeEditor);
+            }
+            canvas.undoStack()->redo();
+            QCOMPARE(meshLayer.mesh().vertices[0].couplingArea, 5.);
+        }
+        const int cdColumn = colFor(model->columnSpecs(), "couplingCd");
+        QVERIFY(cdColumn >= 0);
+        const double areaBeforeCd = meshLayer.mesh().vertices[0].couplingArea;
+        QVERIFY(model->setData(model->index(0, cdColumn), .8));
+        QCOMPARE(meshLayer.mesh().vertices[0].couplingCd, .8);
+        QCOMPARE(meshLayer.mesh().vertices[0].couplingArea, areaBeforeCd);
     }
 
     void dataBulkApplyRetainsUndoAndReferences()
