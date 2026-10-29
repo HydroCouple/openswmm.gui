@@ -255,23 +255,20 @@ void SWMM2DResultsLayer::publishRegionalSurface_(const SurfaceJob &job)
         double vx = 0, vy = 0;
         if (!job.flux.empty())
             std::copy_n(job.flux.data() + 4 * i, 4, current_flux_.data() + 4 * c);
-        if (job.velocityX.size() == region.cells.size() &&
-            job.velocityY.size() == region.cells.size() &&
-            std::isfinite(job.depths[i]) && job.depths[i] > 0 &&
-            job.depths[i] >= dry_depth_ &&
-            CellWaterGeometry::visible(
-                CellWaterGeometry::displayState(job.smooth[i], nv, job.policy), job.policy) &&
-            std::isfinite(job.velocityX[i]) && std::isfinite(job.velocityY[i])) {
+        const bool wet = std::isfinite(job.depths[i]) && job.depths[i] > 0 &&
+            job.depths[i] >= dry_depth_ && CellWaterGeometry::visible(
+                CellWaterGeometry::displayState(job.smooth[i], nv, job.policy), job.policy);
+        if (wet && job.velocityX.size() == region.cells.size() &&
+            job.velocityY.size() == region.cells.size()) {
             vx = job.velocityX[i];
             vy = job.velocityY[i];
-        } else if (!job.flux.empty()) {
-            if (have_edge_geom_ &&
-                CellWaterGeometry::visible(
-                    CellWaterGeometry::displayState(job.smooth[i], nv, job.policy), job.policy))
-                if (!mesh::cellVelocity(int(c), nv, current_flux_.data(), edge_length_.data(),
-                                        edge_nx_.data(), edge_ny_.data(), job.depths[i], dry_depth_,
-                                        vx, vy))
-                    vx = vy = 0;
+            if (!std::isfinite(vx) || !std::isfinite(vy))
+                vx = vy = std::numeric_limits<double>::quiet_NaN();
+        } else if (wet && !job.flux.empty() && have_edge_geom_) {
+            if (!mesh::cellVelocity(int(c), nv, current_flux_.data(), edge_length_.data(),
+                                    edge_nx_.data(), edge_ny_.data(), job.depths[i], dry_depth_,
+                                    vx, vy))
+                vx = vy = 0;
         }
         const float speed = float(std::hypot(vx, vy));
         peak = std::max(peak, speed);

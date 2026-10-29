@@ -2108,6 +2108,7 @@ public:
      */
     [[nodiscard]] bool velocityAtScene(const QPointF &scenePt, float &outVx, float &outVy) const;
 
+    // NaN cell velocity is unavailable and must not borrow neighboring vectors.
     // Immutable velocity input for a completed contour frame. Geometry is
     // shared with the layer; callers must discard this on geometry changes.
     struct VelocityField {

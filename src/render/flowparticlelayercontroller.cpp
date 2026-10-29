@@ -212,14 +212,19 @@ bool FlowParticleLayerController::prepareOverviewSeeds(const QRectF &view, doubl
         raw->depths.size() != cells.size())
         return false;
     std::vector<float> vx, vy;
-    if (raw->flux.empty()) {
+    if (m_layer->source_->hasStoredVelocity() || raw->flux.empty()) {
         if (!m_layer->source_->readFaceFieldCellsAt("Mesh2_face_vx", m_layer->current_time_idx_,
                                                     cells, vx) ||
             !m_layer->source_->readFaceFieldCellsAt("Mesh2_face_vy", m_layer->current_time_idx_,
                                                     cells, vy) ||
-            vx.size() != cells.size() || vy.size() != cells.size())
-            return false;
-    } else if (raw->flux.size() != 4 * cells.size())
+            vx.size() != cells.size() || vy.size() != cells.size()) {
+            vx.clear();
+            vy.clear();
+            if (raw->flux.empty())
+                return false;
+        }
+    }
+    if (!raw->flux.empty() && raw->flux.size() != 4 * cells.size())
         return false;
     std::vector<OverviewSeed> wet;
     wet.reserve(probes.size());
@@ -642,11 +647,10 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
             if (!velocityX.empty()) {
                 const auto it = std::lower_bound(velocityCells.begin(), velocityCells.end(), cell);
                 const size_t local = size_t(it - velocityCells.begin());
-                if (std::isfinite(velocityX[local]) && std::isfinite(velocityY[local])) {
-                    t.velocitySI = {velocityX[local], velocityY[local]};
-                    t.velocityOnly = true;
-                    t.available = std::isfinite(t.meanDepth);
-                }
+                t.velocitySI = {velocityX[local], velocityY[local]};
+                t.velocityOnly = true;
+                t.available = std::isfinite(t.meanDepth) && std::isfinite(velocityX[local]) &&
+                              std::isfinite(velocityY[local]);
             }
         }
         t.residentEdges = 7;

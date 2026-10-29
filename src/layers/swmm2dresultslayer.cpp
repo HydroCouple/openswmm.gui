@@ -3929,9 +3929,11 @@ SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() con
             const auto state = CellWaterGeometry::displayState(surfaceDepths_[size_t(c)],
                                                                cellSplit_[size_t(c)].vertexCount(),
                                                                waterVisibilityPolicy());
-            field.depths.push_back(CellWaterGeometry::visible(state, waterVisibilityPolicy())
-                                       ? current_depths_[size_t(c)]
-                                       : 0.f);
+            field.depths.push_back((cellTri0_[size_t(c)] >= m_sceneTris.size() ||
+                !std::isfinite(m_sceneTris[cellTri0_[size_t(c)]].vmag))
+                                      ? std::numeric_limits<float>::quiet_NaN()
+                                      : CellWaterGeometry::visible(state, waterVisibilityPolicy())
+                                            ? current_depths_[size_t(c)] : 0.f);
         }
         for (int v : field.vertices) {
             field.vx.push_back(vvx_[size_t(v)]);
@@ -3941,7 +3943,10 @@ SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() con
     }
     VelocityField field{current_depths_, vvx_, vvy_, {}, {}};
     for (size_t c = 0; c < field.depths.size(); ++c)
-        if (!CellWaterGeometry::visible(CellWaterGeometry::displayState(surfaceDepths_[c],
+        if (cellTri0_[c] >= m_sceneTris.size() ||
+            !std::isfinite(m_sceneTris[cellTri0_[c]].vmag))
+            field.depths[c] = std::numeric_limits<float>::quiet_NaN();
+        else if (!CellWaterGeometry::visible(CellWaterGeometry::displayState(surfaceDepths_[c],
                                                                         cellSplit_[c].vertexCount(),
                                                                         waterVisibilityPolicy()),
                                         waterVisibilityPolicy()))
@@ -3953,6 +3958,8 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF &scenePt, float &outVx, f
 {
     const int cell = pickCellAt(scenePt);
     if (cell < 0 || size_t(cell) >= surfaceDepths_.size() ||
+        (cellTri0_[size_t(cell)] >= m_sceneTris.size() ||
+         !std::isfinite(m_sceneTris[cellTri0_[size_t(cell)]].vmag)) ||
         !CellWaterGeometry::visible(
             CellWaterGeometry::displayState(surfaceDepths_[size_t(cell)],
                                             cellSplit_[size_t(cell)].vertexCount(),
@@ -4740,10 +4747,13 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
             continue;
 
         double vx_model = 0.0, vy_model = 0.0;
-        if (haveSavedVelocity && std::isfinite((*savedVx)[size_t(c)]) &&
-            std::isfinite((*savedVy)[size_t(c)])) {
+        if (haveSavedVelocity) {
+            // A present pair is authoritative. Nonfinite means unavailable,
+            // not permission to resurrect the mean-depth flux reconstruction.
             vx_model = (*savedVx)[size_t(c)];
             vy_model = (*savedVy)[size_t(c)];
+            if (!std::isfinite(vx_model) || !std::isfinite(vy_model))
+                vx_model = vy_model = std::numeric_limits<double>::quiet_NaN();
         } else if (haveFlux) {
             if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]), current_flux_.data(),
                                 edge_length_.data(), edge_nx_.data(), edge_ny_.data(), depth,
@@ -4790,7 +4800,8 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
         wsum.assign(static_cast<size_t>(nVert), 0.0f);
         for (int c = 0; c < nCell; ++c) {
             const float depth = current_depths_[size_t(c)];
-            if (depth < dryEps || !cellHasSurface(c) || cellVm[size_t(c)] <= 0.0f)
+            if (depth < dryEps || !cellHasSurface(c) || !std::isfinite(cellVm[size_t(c)]) ||
+                cellVm[size_t(c)] <= 0.0f)
                 continue;
             const auto &cell = cells_[size_t(c)];
             const int nv = cellVertexCount(cell);
