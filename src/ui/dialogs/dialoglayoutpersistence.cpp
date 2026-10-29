@@ -44,6 +44,13 @@ bool userNamed_(const QString &name)
     return !name.isEmpty() && !name.startsWith(QLatin1String("qt_"));
 }
 
+// A single column with no header has no user-resizable divider. Keep its
+// authored automatic sizing, including when old settings contain a fixed width.
+bool automaticTreeColumn_(const QTreeView *view)
+{
+    return view->isHeaderHidden() && view->header() && view->header()->count() == 1;
+}
+
 /**
  * @param[in] root Optional borrowed root, null empty.
  * @param[in] windowLayout False use root name; true root window name unless root already window.
@@ -228,7 +235,7 @@ void saveDialogLayout(QWidget *root, bool windowLayout)
     }
     const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
     for (QTreeView *v : trees) {
-        if (!userNamed_(v->objectName()))
+        if (!userNamed_(v->objectName()) || automaticTreeColumn_(v))
             continue;
         if (QHeaderView *h = v->header())
             s.setValue(v->objectName(), h->saveState());
@@ -315,7 +322,7 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
     }
     const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
     for (QTreeView *v : trees) {
-        if (!userNamed_(v->objectName()))
+        if (!userNamed_(v->objectName()) || automaticTreeColumn_(v))
             continue;
         const QByteArray state = s.value(v->objectName()).toByteArray();
         QHeaderView *h = v->header();
@@ -371,6 +378,8 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
         table->horizontalHeader()->setStretchLastSection(false);
     }
     for (QTreeView *tree : trees) {
+        if (automaticTreeColumn_(tree))
+            continue;
         tree->header()->setSectionResizeMode(QHeaderView::Interactive);
         tree->header()->setStretchLastSection(false);
     }

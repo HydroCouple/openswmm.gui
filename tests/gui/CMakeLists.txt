@@ -3990,7 +3990,15 @@ add_swmmvis_gui_test(test_dialog_layout_persistence
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutwatcher.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/plotvariablepickerdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/plotvariablepickerdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshresolutionwidget.cpp
 )
+target_compile_definitions(test_dialog_layout_persistence PRIVATE
+    DIALOG_LAYOUT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/dialog-labels-2026-10-29")
 
 # Profile attribute tracks — the synced attribute-chart pane below the
 # profile plot: options round-trip / signal discipline, the pixel↔virtual-x

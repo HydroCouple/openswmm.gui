@@ -21,19 +21,28 @@
 
 #include <QAction>
 #include <QDialog>
+#include <QDir>
+#include <QDockWidget>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMainWindow>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
+#include <memory>
 
 #include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
+#include "ui/dialogs/plotvariablepickerdialog.h"
+#include "ui/widgets/meshresolutionwidget.h"
 
 using openswmmvis::ui::clampToVisibleScreen;
 using openswmmvis::ui::DialogLayoutWatcher;
@@ -118,6 +127,8 @@ private slots:
     void namedSplitterOptInOnly();
     void headerStateRoundTrips();
     void legacySizingModesBecomeResizable();
+    void hiddenTreeLabelsSurviveRestore_data();
+    void hiddenTreeLabelsSurviveRestore();
     void tabAndPageIndicesBoundsChecked();
     void toggleRestoreFiresToggled();
     void emptyObjectNameIsNoOp();
@@ -267,6 +278,98 @@ void TestDialogLayoutPersistence::legacySizingModesBecomeResizable()
         QCOMPARE(fresh.table->columnWidth(column), 137 + column);
     }
     QVERIFY(!fresh.table->horizontalHeader()->stretchLastSection());
+}
+
+void TestDialogLayoutPersistence::hiddenTreeLabelsSurviveRestore_data()
+{
+    QTest::addColumn<bool>("plotPicker");
+    QTest::addColumn<bool>("legacyHeader");
+    QTest::newRow("plot-first-open") << true << false;
+    QTest::newRow("plot-saved-narrow-column") << true << true;
+    QTest::newRow("mesh-first-open") << false << false;
+    QTest::newRow("mesh-saved-narrow-column") << false << true;
+}
+
+void TestDialogLayoutPersistence::hiddenTreeLabelsSurviveRestore()
+{
+    QFETCH(bool, plotPicker);
+    QFETCH(bool, legacyHeader);
+    DialogLayoutWatcher watcher;
+    qApp->installEventFilter(&watcher);
+
+    // Exercise the real widgets through the app's first-Show restore, then
+    // close and recreate them to cover the saved-layout path as well.
+    for (int open = 0; open < 2; ++open) {
+        std::unique_ptr<QDialog> dialog;
+        QTreeWidget *tree = nullptr;
+        if (plotPicker) {
+            using namespace openswmmvis::plot;
+            dialog = std::make_unique<openswmmvis::ui::PlotVariablePickerDialog>(
+                QVector<ObjectRef>{ObjectRef::forNode(QStringLiteral("J1"))}, nullptr,
+                UnitSystem::SI);
+            tree = dialog->findChild<QTreeWidget *>(QStringLiteral("variableTree"));
+        } else {
+            dialog = std::make_unique<QDialog>();
+            dialog->setObjectName(QStringLiteral("MeshGenerationDialog"));
+            auto *layout = new QVBoxLayout(dialog.get());
+            auto *resolution = new MeshResolutionWidget(dialog.get());
+            resolution->addSettingsPage(QStringLiteral("Quads and regions"), new QWidget);
+            resolution->addSettingsPage(QStringLiteral("Boundaries"), new QWidget);
+            layout->addWidget(resolution);
+            dialog->resize(1000, 700);
+            tree = resolution->findChild<QTreeWidget *>(QStringLiteral("meshSettingsCategories"));
+        }
+        QVERIFY(tree);
+        if (legacyHeader && open == 0) {
+            QTreeWidget legacy;
+            legacy.header()->setSectionResizeMode(QHeaderView::Interactive);
+            legacy.header()->setStretchLastSection(false);
+            legacy.setColumnWidth(0, 100);
+            QSettings settings;
+            settings.setValue(QStringLiteral("Dialogs/%1/header/%2")
+                                  .arg(dialog->objectName(), tree->objectName()),
+                              legacy.header()->saveState());
+        }
+        dialog->show();
+        QVERIFY(QTest::qWaitForWindowExposed(dialog.get()));
+        QCOMPARE(tree->header()->sectionResizeMode(0), QHeaderView::Stretch);
+        QTRY_COMPARE(tree->columnWidth(0), tree->viewport()->width());
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            // visualItemRect excludes the tree indentation. Check the actual
+            // label area, including room for checkboxes in the plot picker.
+            const int checkWidth = (*it)->flags().testFlag(Qt::ItemIsUserCheckable)
+                                       ? tree->style()->pixelMetric(QStyle::PM_IndicatorWidth) + 8
+                                       : 0;
+            QVERIFY2(tree->visualItemRect(*it).width() >=
+                         tree->fontMetrics().horizontalAdvance((*it)->text(0)) + checkWidth + 8,
+                     qPrintable((*it)->text(0)));
+        }
+        if (legacyHeader && open == 0) {
+            QDir().mkpath(DIALOG_LAYOUT_TEST_OUTPUT);
+            QVERIFY(dialog->grab().save(QStringLiteral(DIALOG_LAYOUT_TEST_OUTPUT) +
+                                       (plotPicker ? "/plot-variables.png" : "/mesh-quality.png")));
+        }
+        const int initialDialogWidth = dialog->width();
+        auto *dock = dialog->findChild<QDockWidget *>("meshSettingsNavigationDock");
+        auto *host = dialog->findChild<QMainWindow *>("meshSettingsDockHost");
+        QVERIFY(plotPicker || (dock && host));
+        const int initialDockWidth = dock ? dock->width() : 0;
+        int previousOffset = 0;
+        for (int offset : {160, 0, 240, 0}) {
+            const int previousWidth = tree->viewport()->width();
+            if (plotPicker)
+                dialog->resize(initialDialogWidth + offset, dialog->height());
+            else
+                host->resizeDocks({dock}, {initialDockWidth + offset}, Qt::Horizontal);
+            if (offset > previousOffset)
+                QTRY_VERIFY(tree->viewport()->width() > previousWidth);
+            else
+                QTRY_VERIFY(tree->viewport()->width() < previousWidth);
+            QTRY_COMPARE(tree->columnWidth(0), tree->viewport()->width());
+            previousOffset = offset;
+        }
+        dialog->hide();
+    }
 }
 
 /**

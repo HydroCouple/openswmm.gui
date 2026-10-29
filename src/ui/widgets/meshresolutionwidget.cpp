@@ -86,7 +86,7 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     // A hidden header still controls the text column. Stretch that column to
     // the viewport; enlarging just the dock otherwise leaves it at 100 px.
     m_categories->setItemDelegate(new MeshCategoryDelegate(m_categories));
-    m_categories->header()->setStretchLastSection(true);
+    m_categories->header()->setStretchLastSection(false);
     m_categories->header()->setSectionResizeMode(QHeaderView::Stretch);
     m_categories->setTextElideMode(Qt::ElideNone);
     m_categories->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);

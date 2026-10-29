@@ -24,6 +24,8 @@
  * Set the "noLayoutPersistence" dynamic property to opt a dialog out.
  * Children named "qt_*" (Qt-internal) are ignored. Multi-instance dialogs
  * share their class key — last close wins.
+ * Single-column trees with hidden headers keep their authored sizing rather
+ * than persisting a column width the user cannot resize.
  *
  * QSettings keys live under `Dialogs/<objectName>/...` so they're isolated
  * from main-window state and from one another.
@@ -62,8 +64,9 @@ namespace openswmmvis::ui
  *   splitters/table/tree headers/tabs/stacks/checkable QAction toggles. Only QAction has direct
  *   noLayoutPersistence guard here; root opt-out enforced by watcher, not free helper. Named root
  *   child itself not included by findChildren. Duplicate child names collide, last traversed state
- *   wins; stores full header state, not just widths. No settings error checking, forced sync or
- *   application-content/engine write. GUI thread, setters not invoked during save.
+ *   wins; stores full header state, not just widths, except for single-column trees with hidden
+ *   headers. No settings error checking, forced sync or application-content/engine write.
+ *   GUI thread, setters not invoked during save.
  */
 void saveDialogLayout(QWidget *root, bool windowLayout = true);
 
@@ -81,12 +84,14 @@ void saveDialogLayout(QWidget *root, bool windowLayout = true);
  *   restore children.
  * @return True if valid geometry, successful splitter/header restore, valid tab/page index or saved
  *   action toggle processed; false can STILL alter every descendant table/tree header mode to
- *   Interactive/no stretch. Does not prove every state key restored.
+ *   Interactive/no stretch, except single-column trees with hidden headers. Does not prove every
+ *   state key restored.
  * @note Restore QSettings children under same naming rules, geometry clamped, out-of-range tab/page
  *   ignored. Signals are NOT blocked: changing tab/page/action emits normal behavior/side effects.
- *   At end force ALL table/tree descendant headers (even unnamed) Interactive and
- *   stretchLastSection=false, overriding restored resize mode. Root opt-out not checked here. No
- *   content/engine save, transaction or rollback on partial failure.
+ *   At end force table/tree descendant headers (even unnamed) Interactive and
+ *   stretchLastSection=false, overriding restored resize mode. Single-column trees with hidden
+ *   headers retain their authored sizing and ignore stale saved header state. Root opt-out not
+ *   checked here. No content/engine save, transaction or rollback on partial failure.
  */
 bool restoreDialogLayout(QWidget *root, bool windowLayout = true);
 
