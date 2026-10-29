@@ -142,6 +142,16 @@ private slots:
         }
         QCOMPARE(get(engine.e, "TURBULENCE_MODEL"), "NONE");
         QCOMPARE(get(engine.e, "CORIOLIS_LATITUDE"), "UNSET");
+        QCOMPARE(get(engine.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), 0.0);
+        {
+            // A no-edit write leaves the background key exactly as the engine had it.
+            TwoDPage page(context);
+            page.read();
+            QVERIFY(page.findChild<QLineEdit *>("eddyViscosityBackgroundEdit")
+                        ->property("engineSupported").toBool());
+            page.write();
+        }
+        QCOMPARE(get(engine.e, "EDDY_VISCOSITY_BACKGROUND"), "0");
     }
     void editsSaveAndReopen()
     {
@@ -163,6 +173,10 @@ private slots:
         page.findChild<QLineEdit *>("coriolisLatitudeEdit")->setText("-41.123456789");
         page.findChild<QComboBox *>("turbulenceModelCombo")->setCurrentIndex(1);
         page.findChild<QLineEdit *>("smagorinskyCsEdit")->setText("0.123456789");
+        auto *background = page.findChild<QLineEdit *>("eddyViscosityBackgroundEdit");
+        QVERIFY(background);
+        QVERIFY(!background->parentWidget()->isHidden());
+        background->setText("0.00123456789");
         QString warning;
         QVERIFY2(page.validate(&warning), qPrintable(warning));
         page.resize(900, 1500);
@@ -173,6 +187,7 @@ private slots:
         QCOMPARE(get(engine.e, "CORIOLIS"), "LATITUDE");
         QCOMPARE(get(engine.e, "TURBULENCE_MODEL"), "SMAGORINSKY");
         QCOMPARE(get(engine.e, "SMAGORINSKY_CS").toDouble(), .123456789);
+        QCOMPARE(get(engine.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), .00123456789);
         QCOMPARE(swmm_2d_set_edge_wall_drag(engine.e, 0, 0, .0123456789), 0);
         QCOMPARE(swmm_2d_set_edge_bc_group(engine.e,0,0,"THROAT"),0);
         QCOMPARE(swmm_2d_set_edge_bc_group(engine.e,1,0,"OTHER_WALLS"),0);
@@ -191,6 +206,7 @@ private slots:
         QCOMPARE(get(reopened.e, "CORIOLIS_LATITUDE").toDouble(), -41.123456789);
         QCOMPARE(get(reopened.e, "TURBULENCE_MODEL"), "SMAGORINSKY");
         QCOMPARE(get(reopened.e, "SMAGORINSKY_CS").toDouble(), .123456789);
+        QCOMPARE(get(reopened.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), .00123456789);
         QCOMPARE(get(reopened.e, "RECONSTRUCTION_ORDER"), "2");
         const auto gpkg = QDir(outputDir()).filePath("roundtrip.gpkg");
         QFile::remove(gpkg);
@@ -209,7 +225,61 @@ private slots:
         QCOMPARE(get(spatial.e, "CORIOLIS_LATITUDE").toDouble(), -41.123456789);
         QCOMPARE(get(spatial.e, "TURBULENCE_MODEL"), "SMAGORINSKY");
         QCOMPARE(get(spatial.e, "SMAGORINSKY_CS").toDouble(), .123456789);
+        QCOMPARE(get(spatial.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), .00123456789);
         QCOMPARE(get(spatial.e, "RECONSTRUCTION_ORDER"), "2");
+    }
+    void mixingLengthSaveAndReopen()
+    {
+        Engine engine;
+        QCOMPARE(engine.open(), 0);
+        SimOptionsContext context(engine.e, nullptr, nullptr, {});
+        TwoDPage page(context);
+        page.read();
+        auto *momentum = option<QComboBox>(page, "MOMENTUM_EQUATION");
+        momentum->setCurrentIndex(momentum->findData("FULL_SWE"));
+        option<QSpinBox>(page, "LTS_TIERS")->setValue(1);
+        auto *model = page.findChild<QComboBox *>("turbulenceModelCombo");
+        model->setCurrentIndex(model->findData("MIXING_LENGTH"));
+        QCOMPARE(model->currentData().toString(), "MIXING_LENGTH");
+        // The cell-filter coefficient belongs to Smagorinsky; the depth coefficient to mixing length.
+        QVERIFY(page.findChild<QLineEdit *>("smagorinskyCsEdit")->parentWidget()->isHidden());
+        auto *coefficient = page.findChild<QLineEdit *>("mixingLengthCoefficientEdit");
+        QVERIFY(coefficient);
+        QVERIFY(!coefficient->parentWidget()->isHidden());
+        QCOMPARE(coefficient->text().toDouble(), .5);
+        auto *background = page.findChild<QLineEdit *>("eddyViscosityBackgroundEdit");
+        QVERIFY(!background->parentWidget()->isHidden());
+        coefficient->setText("0.41234567");
+        background->setText("0.0005");
+        QString warning;
+        QVERIFY2(page.validate(&warning), qPrintable(warning));
+        coefficient->setText("-1");
+        QVERIFY(!page.validate(&warning));
+        coefficient->setText("0.41234567");
+        page.write();
+        QCOMPARE(get(engine.e, "TURBULENCE_MODEL"), "MIXING_LENGTH");
+        QCOMPARE(get(engine.e, "MIXING_LENGTH_COEFFICIENT").toDouble(), .41234567);
+        QCOMPARE(get(engine.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), .0005);
+        const auto path = QDir(outputDir()).filePath("mixing-length.inp");
+        QCOMPARE(swmm_model_write(engine.e, path.toUtf8().constData()), 0);
+        Engine reopened;
+        QCOMPARE(reopened.open(path), 0);
+        QCOMPARE(get(reopened.e, "TURBULENCE_MODEL"), "MIXING_LENGTH");
+        QCOMPARE(get(reopened.e, "MIXING_LENGTH_COEFFICIENT").toDouble(), .41234567);
+        const auto gpkg = QDir(outputDir()).filePath("mixing-length.gpkg");
+        QFile::remove(gpkg);
+        QCOMPARE(swmm_model_write_with_plugin(engine.e, gpkg.toUtf8().constData(),
+                                              "org.hydrocouple.openswmm.plugins.geopackage"),
+                 0);
+        Engine spatial;
+        QCOMPARE(spatial.open(gpkg), 0);
+        QCOMPARE(get(spatial.e, "TURBULENCE_MODEL"), "MIXING_LENGTH");
+        QCOMPARE(get(spatial.e, "MIXING_LENGTH_COEFFICIENT").toDouble(), .41234567);
+        SimOptionsContext again(reopened.e, nullptr, nullptr, {});
+        TwoDPage reread(again);
+        reread.read();
+        QCOMPARE(reread.findChild<QComboBox *>("turbulenceModelCombo")->currentData().toString(), "MIXING_LENGTH");
+        QCOMPARE(reread.findChild<QLineEdit *>("mixingLengthCoefficientEdit")->text().toDouble(), .41234567);
     }
     void invalidDraftsAndMissingCapability()
     {
@@ -230,6 +300,16 @@ private slots:
         QVERIFY(!page.validate(&warning));
         page.findChild<QLineEdit *>("coriolisLatitudeEdit")->setText("0");
         QVERIFY2(page.validate(&warning), qPrintable(warning));
+        auto *background = page.findChild<QLineEdit *>("eddyViscosityBackgroundEdit");
+        for (const char *bad : {"-0.001", "nan", "inf", "abc"}) {
+            background->setText(bad);
+            QVERIFY2(!page.validate(&warning), bad);
+        }
+        background->setText("");
+        QVERIFY2(page.validate(&warning), qPrintable(warning));
+        // Hidden when no closure is selected, like the coefficient row.
+        page.findChild<QComboBox *>("turbulenceModelCombo")->setCurrentIndex(0);
+        QVERIFY(background->parentWidget()->isHidden());
         SimOptionsContext missing(nullptr, nullptr, nullptr, {});
         TwoDPage old(missing);
         old.read();

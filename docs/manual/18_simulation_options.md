@@ -780,6 +780,16 @@ Choose Coriolis **From latitude** and enter signed degrees north, or choose the 
 
 Smagorinsky is a depth-averaged horizontal subgrid mixing closure. It represents unresolved horizontal shear mixing while Manning's roughness remains the bed-friction model. Its dimensionless coefficient defaults to 0.10 when enabled; investigate 0.05–0.20 and mesh/timestep sensitivity. The filter width is the square root of each cell's area. It does not provide vertical turbulence or a three-dimensional LES. Wall and open-boundary turbulent traction is zero in this implementation.
 
+**Background eddy viscosity (m²/s)** adds a constant horizontal eddy viscosity to the closure's value (`EDDY_VISCOSITY_BACKGROUND`, default 0). With a Smagorinsky coefficient of 0 it gives constant-viscosity mixing. On a fine mesh the Smagorinsky term alone can be far smaller than the mixing in a jet or shear layer, because its length scale is the cell rather than the shear-layer width. The background value is a model parameter, not a measured constant: report it and test sensitivity. A physically equivalent value grows with model scale (as length^1.5 under Froude similarity), so a value suited to a laboratory flume does not transfer to field scale. The row appears whenever a turbulence closure is selected; a stored value is kept but inactive when mixing is off. Engines without this option hide the row.
+
+**Mixing length (depth)** uses the same mixing as Smagorinsky but with a shear-based mixing length set by the flow rather than the cell. The eddy viscosity is l² times the vorticity, where l is c times the water depth, capped at 0.41 times the distance to the nearest mesh boundary. **Mixing-length coefficient c** defaults to 0.5, the depth-averaged horizontal mixing length reported by Stansby (2003, 2006).
+
+- Because the cell size does not enter, refining the mesh does not shrink the mixing the way it does with Smagorinsky.
+- Because it acts on vorticity, smoothly converging or accelerating flow into an opening is not damped.
+- It is intended for shallow flows, where horizontal eddies are limited by depth.
+- The background viscosity still adds to it, and its viscosity and strain maps are written like Smagorinsky's.
+- Engines without this closure do not offer it.
+
 Select **Turbulent viscosity and strain** in the output variable list to write viscosity (m²/s) and strain rate (1/s) maps. These fields appear in the general 2D results variable selector when present. Old result files remain readable. Optional-process velocities are published from accepted cell momentum; edge discharges retain their flux/continuity meaning.
 
 Enabling these processes selects conservative shared-face stresses, nonlinear stage checks and global stepping. Mixing may require shorter steps. The engine reports the effective Coriolis parameter, coefficient and filter convention; results files retain the corresponding metadata. The coefficient is not a universal calibration, and improved agreement at one gauge alone does not establish correctness.

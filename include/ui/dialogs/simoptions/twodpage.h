@@ -289,7 +289,11 @@ private:
     QDoubleSpinBox *m_froudeMaxSpin = nullptr;
     QComboBox *m_coriolisCombo = nullptr, *m_turbulenceCombo = nullptr;
     QLineEdit *m_coriolisLatitude = nullptr, *m_coriolisF = nullptr, *m_smagorinskyCs = nullptr;
+    QLineEdit *m_eddyViscosityBackground = nullptr; ///< EDDY_VISCOSITY_BACKGROUND (m2/s)
     QWidget *m_coriolisLatitudeRow = nullptr, *m_coriolisFRow = nullptr, *m_smagorinskyRow = nullptr;
+    QWidget *m_eddyViscosityBackgroundRow = nullptr;
+    QLineEdit *m_mixingLengthCoefficient = nullptr; ///< MIXING_LENGTH_COEFFICIENT (l = min(c*h, 0.41*d))
+    QWidget *m_mixingLengthRow = nullptr;
     QGroupBox *m_momentumPhysicsGroup = nullptr;
     QLabel *m_momentumPhysicsStatus = nullptr;
     QComboBox *m_momentum2DCombo = nullptr; ///< MOMENTUM_EQUATION
