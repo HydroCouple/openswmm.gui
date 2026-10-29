@@ -11,6 +11,7 @@
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -85,6 +86,9 @@ PlotVariablePickerDialog::PlotVariablePickerDialog(const QVector<ObjectRef> &fea
     m_tree = new QTreeWidget(this);
     m_tree->setObjectName(QStringLiteral("variableTree"));
     m_tree->setHeaderHidden(true);
+    // Bind the label column to the panel's available width in both directions.
+    m_tree->header()->setStretchLastSection(false);
+    m_tree->header()->setSectionResizeMode(QHeaderView::Stretch);
     m_tree->setSelectionMode(QAbstractItemView::NoSelection);
     m_tree->setUniformRowHeights(true);
     root->addWidget(m_tree, 1);
