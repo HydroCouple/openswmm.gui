@@ -179,6 +179,8 @@ bool SizeField::build(const QRectF &bbox, const QVector<ConstraintSegment> &segs
     m_cols = m_rows = 0;
     m_dist.clear();
     m_h.clear();
+    m_minLevels.clear();
+    m_regionBounds.clear();
 
     int cols = 0, rows = 0;
     if (!gridLayout(bbox, opt, cols, rows, m_pitch, m_x0, m_y0))
@@ -225,7 +227,91 @@ bool SizeField::build(const QRectF &bbox, const QVector<ConstraintSegment> &segs
 
     // ── Combined, gradation-limited size grid (overhaul Stage 2) ──────────
     buildSizeGrid(opt, stepDist);
+    {
+        QVector<RegionBound> regions;
+        for(const auto &region:opt.regions)
+            if(region.h>0) regions.append({region.ring.boundingRect(),std::max(region.h,std::sqrt(std::max(0.,m_floor)/0.4330127018922193)),0});
+        for(const auto &region:opt.terrainRegions) {
+            if(!(region.h>0) || !std::isfinite(region.h))return false;
+            regions.append({region.ring.boundingRect(),region.h,0,true});
+        }
+        auto indexRegions=[&](auto &&self,int begin,int end)->void {
+            const int node=m_regionBounds.size();
+            QRectF bounds=regions[begin].box;
+            for(int i=begin+1;i<end;++i) bounds=bounds.united(regions[i].box);
+            m_regionBounds.append({bounds,0,0});
+            if(end-begin<=4) {
+                for(int i=begin;i<end;++i) {
+                    auto leaf=regions[i];leaf.end=m_regionBounds.size()+1;m_regionBounds.append(leaf);
+                }
+            } else {
+                const bool x=bounds.width()>=bounds.height();
+                const int middle=begin+(end-begin)/2;
+                std::nth_element(regions.begin()+begin,regions.begin()+middle,regions.begin()+end,
+                    [x](const auto &a,const auto &b){return x ? a.box.center().x()<b.box.center().x() : a.box.center().y()<b.box.center().y();});
+                self(self,begin,middle);self(self,middle,end);
+            }
+            m_regionBounds[node].end=m_regionBounds.size();
+        };
+        if(!regions.isEmpty()) indexRegions(indexRegions,0,regions.size());
+    }
+    if(opt.footprintBounds) {
+        int columns=m_cols, rows=m_rows;
+        const QVector<float> *previous=&m_h;
+        while(columns>1 || rows>1) {
+            MinLevel level{(columns+1)/2,(rows+1)/2,{}};
+            level.values.fill(kInf,level.columns*level.rows);
+            for(int y=0;y<rows;++y) for(int x=0;x<columns;++x)
+                level.values[(y/2)*level.columns+x/2]=std::min(level.values[(y/2)*level.columns+x/2],(*previous)[y*columns+x]);
+            m_minLevels.append(std::move(level));
+            columns=m_minLevels.last().columns; rows=m_minLevels.last().rows;
+            previous=&m_minLevels.last().values;
+        }
+    }
     return true;
+}
+
+double SizeField::minimumSizeInBox(const QRectF &box) const {return minimumSizeInBoxImpl(box,false);}
+double SizeField::minimumTerrainSizeInBox(const QRectF &box) const {return minimumSizeInBoxImpl(box,true);}
+double SizeField::minimumSizeInBoxImpl(const QRectF &box,bool includeTerrain) const
+{
+    if (!isValid() || !std::isfinite(box.left()) || !std::isfinite(box.right()) ||
+        !std::isfinite(box.top()) || !std::isfinite(box.bottom())) return 0;
+    auto index=[&](double v,double origin,int n,bool high) {
+        const double p=std::clamp((v-origin)/m_pitch,0.,double(n-1));
+        return std::min(n-1,int(std::floor(p))+int(high));
+    };
+    const int x0=index(box.left(),m_x0,m_cols,false),x1=index(box.right(),m_x0,m_cols,true),
+              y0=index(box.top(),m_y0,m_rows,false),y1=index(box.bottom(),m_y0,m_rows,true);
+    auto query=[&](auto &&self,int level,int x,int y)->float {
+        const qint64 span=qint64(1)<<level, left=qint64(x)*span, top=qint64(y)*span;
+        if(left>x1 || top>y1 || left+span<=x0 || top+span<=y0) return kInf;
+        if(level==0) return m_h[y*m_cols+x];
+        const auto &grid=m_minLevels[level-1];
+        if(left>=x0 && top>=y0 && left+span-1<=x1 && top+span-1<=y1) return grid.values[y*grid.columns+x];
+        const int columns=level==1?m_cols:m_minLevels[level-2].columns,
+                  rows=level==1?m_rows:m_minLevels[level-2].rows;
+        float result=kInf;
+        for(int dy=0;dy<2;++dy) for(int dx=0;dx<2;++dx)
+            if(2*x+dx<columns && 2*y+dy<rows) result=std::min(result,self(self,level-1,2*x+dx,2*y+dy));
+        return result;
+    };
+    float result=kInf;
+    if(!m_minLevels.isEmpty()) result=query(query,m_minLevels.size(),0,0);
+    else for(int y=y0;y<=y1;++y) for(int x=x0;x<=x1;++x) result=std::min(result,m_h[y*m_cols+x]);
+    double bound=result>=kInf ? 0 : double(result);
+    const double floor=m_floor>0 ? std::sqrt(m_floor/0.4330127018922193) : 0;
+    if(bound>0)bound=std::max(bound,floor);
+
+    // Even a source narrower than the sampling grid must constrain the result.
+    // Source bboxes deliberately overestimate the affected footprint.
+    for(int i=0;i<m_regionBounds.size();) {
+        const auto &region=m_regionBounds[i];
+        if(!region.box.intersects(box)) {i=region.end;continue;}
+        if(region.size>0 && (includeTerrain || !region.terrainOnly)) bound=bound>0?std::min(bound,region.size):region.size;
+        ++i;
+    }
+    return bound;
 }
 
 void SizeField::buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> &stepDist)

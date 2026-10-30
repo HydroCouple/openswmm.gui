@@ -1787,7 +1787,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
                     error("The source format changed during import. Import the SMS mesh again.");
                 return out;
             }
-            auto mesh = mesh::Sms2dmReader::read(snapshot, false);
+            QStringList smsWarnings;
+            auto mesh = mesh::Sms2dmReader::read(snapshot, false, &smsWarnings);
             if (!mesh.ok) {
                 out.errorMsg = mesh.errorMsg;
                 return out;
@@ -1796,6 +1797,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
                 error("SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
                     .arg(mesh.triangles.size() - mesh.quadCount())
                     .arg(mesh.quadCount());
+            if (!smsWarnings.isEmpty()) out.read.warning += QStringLiteral("\n") + smsWarnings.join(QStringLiteral("\n"));
             QSaveFile converted(snapshot);
             converted.setDirectWriteFallback(false);
             const QByteArray text =

@@ -141,6 +141,39 @@ QuadBlockGrid quadBlockGridFromMesh(const MeshResult &mesh, double pitch,
     return g;
 }
 
+QuadBlockGrid quadBlockGridFromField(const QRectF &bounds,double pitch,
+    const std::function<double(const QRectF &)> &maximumSize,
+    const QVector<QVector<QPointF>> &blockers,const std::function<bool()> &cancelled,qint64 maximumCells)
+{
+    QuadBlockGrid grid;
+    if(!bounds.isValid() || !(pitch>0) || !std::isfinite(pitch) || !maximumSize || maximumCells<1)return grid;
+    const double columns=std::ceil(bounds.width()/pitch),rows=std::ceil(bounds.height()/pitch);
+    if(!std::isfinite(columns) || !std::isfinite(rows) || columns<1 || rows<1 || columns*rows>maximumCells || columns>100000000 || rows>100000000)return grid;
+    grid.origin=bounds.topLeft();grid.pitch=pitch;grid.cols=int(columns);grid.rows=int(rows);grid.h.fill(kUnusable,grid.cols*grid.rows);
+    for(int y=0;y<grid.rows;++y)for(int x=0;x<grid.cols;++x){
+        const int at=y*grid.cols+x;if((at&4095)==0 && cancelled && cancelled())return {};
+        const double h=maximumSize(QRectF(grid.origin+QPointF(x*pitch,y*pitch),QSizeF(pitch,pitch)));
+        if(std::isfinite(h) && h>0 && h<std::numeric_limits<float>::max())grid.h[at]=float(.9*h);
+    }
+    quint64 ticks=0;
+    for(const auto &line:blockers)for(int k=1;k<line.size();++k){
+        const auto a=line[k-1],b=line[k];const double length=std::hypot(b.x()-a.x(),b.y()-a.y());
+        if(!std::isfinite(length))return {};
+        const double requested=std::ceil(length/(.5*pitch));
+        if(requested>100000000)return {};
+        const int parts=std::max(1,int(requested));
+        for(int j=0;j<=parts;++j){if((++ticks&4095)==0 && cancelled && cancelled())return {};
+            const auto p=a+(b-a)*(double(j)/parts);
+            const double cx=std::floor((p.x()-grid.origin.x())/pitch),cy=std::floor((p.y()-grid.origin.y())/pitch);
+            if(!std::isfinite(cx) || !std::isfinite(cy))return {};
+            if(cx<-1 || cy<-1 || cx>grid.cols || cy>grid.rows)continue;
+            for(int y=std::max(0,int(cy)-1);y<=std::min(grid.rows-1,int(cy)+1);++y)
+                for(int x=std::max(0,int(cx)-1);x<=std::min(grid.cols-1,int(cx)+1);++x)grid.h[y*grid.cols+x]=kUnusable;
+        }
+    }
+    return grid;
+}
+
 QVector<QuadRegion> placeQuadBlocks(const QuadBlockGrid &grid, const QuadBlockOptions &options)
 {
     QVector<QuadRegion> out;

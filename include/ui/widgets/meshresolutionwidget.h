@@ -68,9 +68,9 @@ public:
     void showSettingsPage(QWidget *control);
 
     QDoubleSpinBox *minimum, *maximum, *feature, *tolerance, *breaklineTolerance, *averaging,
-        *transition, *minimumBreakline;
+        *transition, *minimumBreakline, *minimumEdge, *terrainReferenceSize, *terrainToleranceFloor, *terrainToleranceCap;
     QComboBox *maximumMode, *featureMode, *toleranceMode, *breaklineMode, *averagingMode,
-        *terrainMode, *reference, *minimumBreaklineMode;
+        *terrainMode, *reference, *minimumBreaklineMode, *sizingMode, *minimumEdgeMode, *cellPlanning, *terrainToleranceScaling, *coarseningOrder;
     QCheckBox *refineFeatures, *alignTerrain;
     QSpinBox *maxBreaklines, *coarsenPasses;
     QCheckBox *coarsenEnabled;

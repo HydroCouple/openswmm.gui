@@ -39,6 +39,7 @@
 #include "map/spatialreferencesystem.h"
 #include "layers/featurelayer.h"
 #include <QApplication>
+#include <QBitArray>
 #include <QSpinBox>
 #include <QTextStream>
 #include <QDoubleSpinBox>
@@ -403,6 +404,171 @@ class TestMeshTerrainPipeline : public QObject
     }
 
 private slots:
+    void sharedVerticesBetweenBoundariesAndLines_data()
+    {
+        QTest::addColumn<int>("kind");QTest::addColumn<int>("policy");
+        for(int policy:{1,2}) {
+            QTest::newRow(qPrintable(QString("shared-corner-%1").arg(policy)))<<0<<policy;
+            QTest::newRow(qPrintable(QString("boundary-overlap-%1").arg(policy)))<<1<<policy;
+            QTest::newRow(qPrintable(QString("adjacent-domains-%1").arg(policy)))<<2<<policy;
+        }
+    }
+    void sharedVerticesBetweenBoundariesAndLines()
+    {
+        QFETCH(int,kind);QFETCH(int,policy);
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/shared_constraints/"+QString::fromLatin1(QTest::currentDataTag()));
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;in.auxPoints.clear();in.geometryMode=policy;in.quadMode=0;
+        in.domains={QPolygonF{{0,0},{32,0},{32,32},{0,32}}};in.holeRings.clear();in.auxLines.clear();
+        Inputs::AuxLine first;first.sourceId="survey:first";first.path=kind==0?QVector<QPointF>{{0,0},{16,16}}:QVector<QPointF>{{8,0},{24,0}};
+        Inputs::AuxLine second;second.sourceId="survey:second";second.path=kind==0?QVector<QPointF>{{16,16},{32,0}}:QVector<QPointF>{{24,0},{16,0},{8,0}};
+        if(kind==2)in.domains={QPolygonF{{0,0},{16,0},{16,32},{0,32}},QPolygonF{{16,0},{32,0},{32,32},{16,32}}};
+        else in.auxLines={first,second};
+        const auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        const auto metrics=result.metrics["constraintSimplification"].toObject();QVERIFY(metrics["preparationAuditPassed"].toBool());QVERIFY(metrics["deliveredAuditPassed"].toBool());
+        if(kind!=2)for(auto point:first.path)QVERIFY(std::any_of(result.meshResult.vertices.begin(),result.meshResult.vertices.end(),[&](const auto &v){return v.xy.x()==point.x() && v.xy.y()==point.y();}));
+    }
+    void targetSizeWeightedTerrainPreservesFineDetail()
+    {
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/weighted_terrain");
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;in.auxPoints.clear();in.geometryMode=1;in.quadMode=0;
+        auto *dataset=static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8().constData(),GA_Update));QVERIFY(dataset);
+        std::vector<float> values(1600);for(int y=0;y<40;++y)for(int x=0;x<40;++x)values[y*40+x]=float(10+.01*x*x+.005*y*y);
+        const auto written=dataset->GetRasterBand(1)->RasterIO(GF_Write,0,0,40,40,values.data(),40,40,GDT_Float32,0,0);GDALClose(dataset);QCOMPARE(written,CE_None);
+        mesh::ResolutionSettings settings;settings.minimumM=.5;settings.maximumM=8;settings.transition=3;
+        settings.sizing=mesh::ResolutionSettings::Sizing::Verified;settings.cellPlanning=mesh::ResolutionSettings::CellPlanning::Unified;
+        settings.coarsenPasses=3;settings.coarseningOrder=mesh::CoarseningOrder::ResolutionAware;
+        settings.toleranceM=.2;settings.reference=mesh::ResolutionSettings::Reference::Full;settings.alignTerrain=false;
+        mesh::QuadRegion fine;fine.ring={{8,8},{16,8},{16,16},{8,16}};fine.spacing=2;fine.mode=mesh::QuadRegionMode::TrianglesOnly;in.quadRegions={fine};
+        in.resolution=settings;const auto constant=run(in);QVERIFY2(constant.ok,qPrintable(constant.errorMsg));
+        settings.terrainTolerancePolicy={mesh::TerrainToleranceMode::TargetSize,40,.005,0};in.resolution=settings;
+        const auto weighted=run(in);QVERIFY2(weighted.ok,qPrintable(weighted.errorMsg));
+        QVERIFY(weighted.meshResult.triangles.size()>constant.meshResult.triangles.size());
+        QCOMPARE(weighted.generationStats.terrainUnresolved,0);QCOMPARE(weighted.generationStats.terrainUnknown,0);
+        const auto policy=weighted.metrics["terrainTolerancePolicy"].toObject();QCOMPARE(policy["mode"].toInt(),1);
+        QVERIFY(policy["minimumAppliedM"].toDouble()<=.010001);QVERIFY(policy["maximumAppliedM"].toDouble()<=.040001);
+        QVERIFY(policy["largestErrorRatio"].toDouble()<=1+1e-8);
+        QVERIFY(weighted.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+        QVERIFY(weighted.metrics["coarseningPolicy"].toObject()["priorityQueries"].toInt()>0);
+        QVERIFY(weighted.generationStats.coarsenQueuePeak<=quint64(weighted.meshResult.vertices.size()+weighted.generationStats.coarsenRemoved));
+        qInfo("weighted terrain: constant cells=%lld weighted=%lld tolerance range=%g..%g ratio=%g removed=%d",(long long)constant.meshResult.triangles.size(),(long long)weighted.meshResult.triangles.size(),policy["minimumAppliedM"].toDouble(),policy["maximumAppliedM"].toDouble(),policy["largestErrorRatio"].toDouble(),weighted.generationStats.coarsenRemoved);
+        in.dtmPath.clear();const auto missing=run(in);QVERIFY(!missing.ok);QVERIFY(!missing.errorMsg.isEmpty());
+        in.resolution->terrain=mesh::ResolutionSettings::Terrain::Off;in.resolution->terrainTolerancePolicy.mode=mesh::TerrainToleranceMode::Constant;
+        in.auxPoints={{{16,16},10,true}};const auto disabled=run(in);QVERIFY2(disabled.ok,qPrintable(disabled.errorMsg));
+        QCOMPARE(disabled.metrics["terrainTolerancePolicy"].toObject()["mode"].toInt(),0);
+
+    }
+    void unifiedOpenBlocksUseTheSizeFieldBeforeTriangulation()
+    {
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/unified_open_blocks");
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;in.auxPoints.clear();
+        in.geometryMode=1;in.quadMode=2;
+        mesh::ResolutionSettings settings;settings.minimumM=.5;settings.maximumM=4;settings.transition=2;
+        settings.cellPlanning=mesh::ResolutionSettings::CellPlanning::Unified;settings.sizing=mesh::ResolutionSettings::Sizing::Verified;
+        settings.toleranceM=.1;settings.alignTerrain=false;in.resolution=settings;
+        const auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        const auto planning=result.metrics["cellPlanning"].toObject();QVERIFY(planning["unified"].toBool());
+        QVERIFY(planning["automaticCandidates"].toInt()>0);QVERIFY(planning["automaticAccepted"].toInt()>0);
+        QCOMPARE(planning["triangulationPasses"].toInt(),1);QVERIFY(result.meshResult.quadCount()>0);
+        QVERIFY(planning["quadAreaFraction"].toDouble()>0);QVERIFY(planning["quadCountFraction"].toDouble()>0);
+        QVERIFY(result.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+        const auto audit=result.metrics["sizingAudit"].toObject();QCOMPARE(audit["transitionFaces"].toInt(),0);
+        QCOMPARE(audit["aboveFootprintMaximum"].toInt(),0);QCOMPARE(result.generationStats.terrainUnresolved,0);
+    }
+    void requiredRegionPolicyReachesWorker_data()
+    {
+        QTest::addColumn<QString>("policy");QTest::addColumn<bool>("triangles");QTest::addColumn<bool>("success");
+        QTest::newRow("required")<<QString("required_quads")<<false<<true;
+        QTest::newRow("local_triangles")<<QString("triangles")<<false<<true;
+        QTest::newRow("global_conflict")<<QString("required_quads")<<true<<false;
+        QTest::newRow("unknown_policy")<<QString("bad_policy")<<false<<false;
+        QTest::newRow("empty_required")<<QString("required_quads")<<false<<false;
+        QTest::newRow("missing_source")<<QString("required_quads")<<false<<false;
+        QTest::newRow("region_hole")<<QString("auto")<<false<<true;
+    }
+    void requiredRegionPolicyReachesWorker()
+    {
+        QFETCH(QString,policy);QFETCH(bool,triangles);QFETCH(bool,success);
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/unified_policy/"+QTest::currentDataTag());
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;in.auxPoints.clear();in.geometryMode=1;
+        mesh::ResolutionSettings settings;settings.minimumM=.5;settings.maximumM=4;settings.transition=3;
+        settings.cellPlanning=mesh::ResolutionSettings::CellPlanning::Unified;settings.sizing=mesh::ResolutionSettings::Sizing::Verified;
+        settings.toleranceM=.1;settings.alignTerrain=false;in.resolution=settings;in.quadMode=triangles?0:1;
+        const QString scenario=QString::fromLatin1(QTest::currentDataTag());
+        in.requireMappedRegions=scenario!="region_hole";
+        const auto path=dir.filePath("regions.geojson");
+        auto json=QString(R"({"type":"FeatureCollection","name":"regions","features":[{"type":"Feature","properties":{"cells":"%1","h":2,"tag":"local"},"geometry":{"type":"Polygon","coordinates":[[[8,8],[24,8],[24,24],[8,24],[8,8]]]}}]})").arg(policy).toUtf8();
+        if(scenario=="empty_required")json.replace("[[[8,8],[24,8],[24,24],[8,24],[8,8]]]","[]");
+        if(scenario=="region_hole")json.replace("[8,8]]]","[8,8]],[[12,12],[12,16],[16,16],[16,12],[12,12]]]");
+        QVERIFY(writeBytes(path,json));
+        in.quadRegionLayers={{path,"regions",in.meshCRSWkt}};
+        if(scenario=="missing_source")in.quadRegionLayers[0].path+=".missing";
+        const auto result=run(in);QCOMPARE(result.ok,success);
+        if(success){QCOMPARE(result.meshResult.quadCount()>0,policy=="required_quads");QVERIFY(result.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+            double area=0;for(const auto &cell:result.meshResult.triangles)area+=mesh::cellGeom(result.meshResult.vertices,cell).area;
+            QVERIFY(std::abs(area-1024.)<1e-7);
+        }
+        else QVERIFY(!result.errorMsg.isEmpty());
+    }
+    void verifiedSizingRepairRetainsTerrainAccuracyAndFineRegions()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+            .absoluteFilePath("../../output/sizing-review-2026-10-29/terrain"));
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;
+        auto *dataset=static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8().constData(),GA_Update));
+        QVERIFY(dataset);
+        std::vector<float> values(1600);
+        for(int y=0;y<40;++y)for(int x=0;x<40;++x)values[y*40+x]=float(10+.002*x*x+.001*y*y);
+        const auto written=dataset->GetRasterBand(1)->RasterIO(GF_Write,0,0,40,40,values.data(),40,40,GDT_Float32,0,0);
+        GDALClose(dataset);QCOMPARE(written,CE_None);
+        mesh::ResolutionSettings settings;
+        settings.minimumM=.5;settings.maximumM=8;settings.transition=1.5;settings.coarsenPasses=3;
+        settings.sizing=mesh::ResolutionSettings::Sizing::Verified;
+        settings.toleranceM=.02;settings.reference=mesh::ResolutionSettings::Reference::Full;settings.alignTerrain=false;
+        in.resolution=settings;in.geometryMode=1;in.quadMode=0;in.auxPoints.clear();
+        mesh::QuadRegion fine;fine.ring={{8,8},{16,8},{16,16},{8,16}};fine.spacing=2;fine.tag="fine";
+        in.quadRegions={fine};
+        const auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QCOMPARE(result.generationStats.terrainUnresolved,0);QCOMPARE(result.generationStats.terrainUnknown,0);
+        const auto audit=result.metrics["sizingAudit"].toObject();
+        QVERIFY(audit["complete"].toBool());QCOMPARE(audit["aboveMaximum"].toInt(),0);
+        QCOMPARE(audit["aboveFootprintMaximum"].toInt(),0);
+        QVERIFY(result.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+        QVERIFY(result.generationStats.sizingRepairPasses<=3);
+    }
+
+    void verifiedSizingChecksDeliveryAndStrictRefusesUnresolvedQuads()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+            .absoluteFilePath("../../output/sizing-review-2026-10-29/pipeline"));
+        Inputs in;QVERIFY(prepareBurnFixture(dir,in,false));in.burnEnabled=false;
+        mesh::ResolutionSettings settings;
+        settings.minimumM=1;settings.maximumM=4;settings.transition=25;
+        settings.sizing=mesh::ResolutionSettings::Sizing::Strict;
+        settings.terrain=mesh::ResolutionSettings::Terrain::Off;settings.alignTerrain=false;
+        in.resolution=settings;in.geometryMode=1;in.quadMode=0;
+        auto result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        auto audit=result.metrics["sizingAudit"].toObject();
+        QVERIFY(audit["limitsSatisfied"].toBool());
+        QCOMPARE(audit["cellsChecked"].toInt(),result.meshResult.triangles.size());
+        QCOMPARE(audit["aboveMaximum"].toInt(),0);
+        QCOMPARE(audit["aboveFootprintMaximum"].toInt(),0);
+        QVERIFY(result.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+        mesh::StructuredPatch patch;patch.corners={{8,8},{24,8},{24,24},{8,24}};patch.n=patch.m=1;patch.tag="fixed";
+        in.patches={mesh::makeTransfinitePatch(patch)};in.quadMode=1;
+        result=run(in);QVERIFY(!result.ok);QVERIFY2(result.errorMsg.contains("Strict sizing refused"),qPrintable(result.errorMsg));
+        in.resolution->sizing=mesh::ResolutionSettings::Sizing::Verified;
+        result=run(in);QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        audit=result.metrics["sizingAudit"].toObject();QVERIFY(!audit["limitsSatisfied"].toBool());
+        QVERIFY(audit["aboveMaximum"].toInt()>0);
+        QCOMPARE(result.status,meshkit::RunStatus::CompleteWithExceptions);
+        QVERIFY(!result.exceptionCells.isEmpty());
+        in.patches.clear();in.quadMode=0;
+        in.resolution->sizing=mesh::ResolutionSettings::Sizing::Strict;
+        in.resolution->minimumEdgeM=2;
+        in.domains={QPolygonF{{0,0},{32,0},{32,32},{0,32},{0,.5}}};
+        result=run(in);QVERIFY(!result.ok);QVERIFY(result.errorMsg.contains("protected source"));
+    }
+
     void boundedConstraintPolicyPreservesHolesAndOverrides()
     {
         const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
@@ -709,6 +875,7 @@ private slots:
             QVERIFY(enabled.generationStats.coarsenAttempts > 0);
             QVERIFY(enabled.generationStats.coarsenRemoved > 0);
             QVERIFY(enabled.meshResult.triangles.size() < disabled.meshResult.triangles.size());
+            QCOMPARE(disabled.meshResult.vertices.size()-enabled.meshResult.vertices.size(),enabled.generationStats.coarsenRemoved);
             QCOMPARE(enabled.generationStats.terrainUnresolved, 0);
             QCOMPARE(enabled.generationStats.terrainUnknown, 0);
             QVERIFY(enabled.summary.contains("Removed by coarsening:"));
@@ -1755,6 +1922,14 @@ NODE C interior
         inputs.terrainCacheMiB = 16;
         inputs.terrainBreaklines = true;
         inputs.mapNodesAfterGen = false;
+        const bool weighted=qEnvironmentVariableIsSet("SWMMVIS_WEIGHTED_TERRAIN_SCALE");
+        if(weighted) {
+            mesh::ResolutionSettings settings;settings.minimumM=inputs.minCellSize;settings.maximumM=inputs.cellSize*1.22;
+            settings.transition=3;settings.toleranceM=.01;settings.alignTerrain=false;
+            settings.sizing=mesh::ResolutionSettings::Sizing::Verified;settings.coarsenPasses=1;settings.coarseningOrder=mesh::CoarseningOrder::ResolutionAware;
+            settings.terrainTolerancePolicy={mesh::TerrainToleranceMode::TargetSize,4*settings.maximumM.value(),0,0};
+            inputs.resolution=settings;inputs.geometryMode=1;
+        }
         if (channel) {
             inputs.burnEnabled = true;
             inputs.burnOutputDir = dir.filePath("terrain");
@@ -1786,6 +1961,18 @@ NODE C interior
             target, inputs.quadMode, (long long)result.meshResult.triangles.size(),
             result.meshResult.quadCount(), (long long)pixels * pixels, (long long)ms,
             (long long)rss);
+        if(weighted) {
+            QBitArray incident(result.meshResult.vertices.size());
+            for(const auto &cell:result.meshResult.triangles)for(int k=0;k<cell.vertexCount();++k)incident.setBit(cell.vertex(k));
+            QCOMPARE(incident.count(true),result.meshResult.vertices.size());
+            const auto policy=result.metrics["coarseningPolicy"].toObject();QVERIFY(policy["priorityQueries"].toDouble()>0);
+            QVERIFY(result.metrics["terrainTolerancePolicy"].toObject()["largestErrorRatio"].toDouble()<=1+1e-8);
+            QVERIFY(result.metrics["constraintSimplification"].toObject()["deliveredAuditPassed"].toBool());
+            const auto sizing=result.metrics["sizingAudit"].toObject();QVERIFY(sizing["complete"].toBool());QCOMPARE(sizing["aboveFootprintMaximum"].toInt(),0);
+            auto report=result.metrics;report["cells"]=qint64(result.meshResult.triangles.size());report["vertices"]=qint64(result.meshResult.vertices.size());report["elapsedMs"]=ms;report["peakBytes"]=rss;
+            QVERIFY(writeBytes(dir.filePath("weighted-scale.json"),QJsonDocument(report).toJson()));
+            qInfo("weighted scale: priorityQueries=%g queuePeak=%g removed=%d coarsenSeconds=%g",policy["priorityQueries"].toDouble(),policy["queuePeak"].toDouble(),result.generationStats.coarsenRemoved,result.generationStats.coarsenSeconds);
+        }
         if (!channel)
             QCOMPARE(result.generationStats.terrainInserted, 0);
         QCOMPARE(result.generationStats.terrainUnresolved, 0);

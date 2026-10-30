@@ -23,6 +23,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QVector>
+#include <functional>
 
 namespace mesh
 {
@@ -82,6 +83,14 @@ struct QuadBlockOptions {
  */
 QuadBlockGrid quadBlockGridFromMesh(const MeshResult &mesh, double pitch,
                                     const QVector<QVector<QPointF>> &blockers);
+// Bounded pre-triangulation candidate grid from the immutable size field.
+// No triangle pilot pass is needed. Candidates still require geometric and
+// metric/terrain validation by the joint planner. Zero/unbounded targets are
+// unusable. Cancellation/invalid layouts return an invalid grid.
+QuadBlockGrid quadBlockGridFromField(const QRectF &,double pitch,
+    const std::function<double(const QRectF &)> &maximumSize,
+    const QVector<QVector<QPointF>> &blockers,
+    const std::function<bool()> &cancelled = {},qint64 maximumCells = 1000000);
 
 /**
  * @brief Greedily select axis-aligned mapped quad regions from approximately uniform usable grid

@@ -56,6 +56,7 @@ namespace mesh
 {
 
 struct SizeFieldOptions {
+    bool footprintBounds = false; ///< Build a compact min pyramid for verified sizing.
     /*! Element size (edge length, map units) AT a feature.  Callers derive it
      *  from the uniform area cap: side of the equilateral triangle of
      *  GenerationOptions::maxArea.  Must be > 0. */
@@ -93,6 +94,8 @@ struct SizeFieldOptions {
         double h = 0.0;
     };
     QVector<Region> regions;
+    QVector<Region> terrainRegions; ///< Finer prescribed directional scales; footprint terrain queries only.
+
     /*! Terrain break lines (mesh coordinates) that the generator lays mesh
      *  edges along (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D13). A step
      *  makes the terrain term fine in a cone around it — a block that holds
@@ -114,6 +117,11 @@ struct SizeFieldOptions {
 class SizeField
 {
 public:
+    // Conservative bound on every bilinear target over this rectangle. Zero
+    // means unbounded/invalid field. Includes all interpolation support nodes.
+    double minimumSizeInBox(const QRectF &) const;
+    double minimumTerrainSizeInBox(const QRectF &) const; ///< Includes finer directional source bounds without changing nominal sizing.
+
     /**
      * @brief Replace this field with sampled feature-distance, terrain and region size bounds.
      * @param[in] bbox Borrowed finite valid positive-width/height rectangle in mesh planar
@@ -301,6 +309,11 @@ private:
 
     QVector<float> m_dist; ///< row-major distance at cell centres
     QVector<float> m_h;    ///< row-major final size h at cell centres (gradation-limited)
+    struct MinLevel { int columns, rows; QVector<float> values; };
+    QVector<MinLevel> m_minLevels;
+    double minimumSizeInBoxImpl(const QRectF &,bool includeTerrain) const;
+    struct RegionBound { QRectF box; double size = 0; int end = 0; bool terrainOnly=false; };
+    QVector<RegionBound> m_regionBounds; ///< Preorder BVH; end skips a disjoint subtree.
     int m_cols = 0, m_rows = 0;
     double m_x0 = 0.0, m_y0 = 0.0; ///< centre of cell (0, 0)
     double m_pitch = 0.0;

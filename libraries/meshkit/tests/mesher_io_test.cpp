@@ -66,5 +66,11 @@ int main(int argc, char **argv)
         require(a.v0 == b.v0 && a.v1 == b.v1 && a.v2 == b.v2 && a.v3 == b.v3,
                 "roundtrip connectivity changed");
     }
+    const auto smsPath = dir.filePath("streamed.2dm");
+    QFile smsFile(smsPath); require(smsFile.open(QIODevice::WriteOnly), "SMS fixture open");
+    smsFile.write("MESH2D\nE3T 8 10 20 30 earth\nND 10 0 0 1\nND 20 2 0 2\nND 30 0 2 3\nNS 10 -20\nUNSUPPORTED data\n");smsFile.close();
+    QStringList warnings;const auto streamed=mesh::Sms2dmReader::read(smsPath,false,&warnings);
+    require(streamed.ok,qPrintable(streamed.errorMsg));require(streamed.triangles[0].tag=="matearth","legacy tag retained");
+    require(streamed.boundaryEdges.size()==1,"node string retained");require(!warnings.empty(),"unknown card reported");
     std::cout << "Standalone generation and mixed-cell SMS/native mesh codec roundtrip passed.\n";
 }

@@ -746,8 +746,8 @@ PatchMesh makeTransfinitePatch(const StructuredPatch &p, QString *err)
  * as a mesh station. Final full patch validation rejects folding/invalid boundary. err not
  * cleared on success. No callbacks/cancellation.
  */
-PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, int m,
-                               const QString &tag, QString *err)
+static PatchMesh transfiniteImpl(const QVector<QVector<QPointF>> &sides, int n, int m,
+                                const QString &tag, QString *err, bool stationed)
 {
     PatchMesh pm;
     auto fail = [&](const QString &msg) {
@@ -776,7 +776,8 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
     }
     for (int k = 0; k < 4; ++k) {
         const QPointF &a = sides[k].last(), &b = sides[(k + 1) % 4].first();
-        if (std::abs(a.x() - b.x()) > 1e-9 * scale || std::abs(a.y() - b.y()) > 1e-9 * scale)
+        if (stationed ? (a.x()!=b.x() || a.y()!=b.y()) :
+            (std::abs(a.x() - b.x()) > 1e-9 * scale || std::abs(a.y() - b.y()) > 1e-9 * scale))
             return fail(
                 QStringLiteral("Transfinite patch side %1 does not end where side %2 starts.")
                     .arg(k)
@@ -798,6 +799,10 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
     const QPointF P11 = sides[2].first(), P01 = sides[3].first();
     auto T = [&](double u) { return Tr.at(1.0 - u); };
     auto L = [&](double v) { return Lr.at(1.0 - v); };
+    auto bottom=[&](int i){return stationed?sides[0][i]:B.at(double(i)/n);};
+    auto top=[&](int i){return stationed?sides[2][n-i]:T(double(i)/n);};
+    auto left=[&](int j){return stationed?sides[3][m-j]:L(double(j)/m);};
+    auto right=[&](int j){return stationed?sides[1][j]:R.at(double(j)/m);};
 
     pm.tag = tag;
     pm.xy.reserve((n + 1) * (m + 1));
@@ -808,19 +813,25 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
             // Boundary vertices sit exactly ON the polylines (the Coons formula
             // reproduces them only up to rounding).
             if (j == 0) {
-                pm.xy.append(B.at(u));
+                pm.xy.append(bottom(i));
                 continue;
             }
             if (j == m) {
-                pm.xy.append(T(u));
+                pm.xy.append(top(i));
                 continue;
             }
             if (i == 0) {
-                pm.xy.append(L(v));
+                pm.xy.append(left(j));
                 continue;
             }
             if (i == n) {
-                pm.xy.append(R.at(v));
+                pm.xy.append(right(j));
+                continue;
+            }
+            if(stationed) {
+                pm.xy.append(P00+(1-v)*(bottom(i)-P00)+v*(top(i)-P00)+
+                    (1-u)*(left(j)-P00)+u*(right(j)-P00)-
+                    (u*(1-v)*(P10-P00)+(1-u)*v*(P01-P00)+u*v*(P11-P00)));
                 continue;
             }
             pm.xy.append(
@@ -869,6 +880,23 @@ PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, in
     if (!bad.isEmpty())
         return fail(bad);
     return pm;
+}
+
+PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides,int n,int m,
+                              const QString &tag,QString *err)
+{
+    return transfiniteImpl(sides,n,m,tag,err,false);
+}
+
+PatchMesh makeTransfinitePatchAtStations(const QVector<QVector<QPointF>> &sides,
+                                       const QString &tag,QString *err)
+{
+    if(sides.size()!=4 || sides[0].size()<2 || sides[1].size()<2 ||
+       sides[0].size()!=sides[2].size() || sides[1].size()!=sides[3].size()) {
+        if(err) *err=QStringLiteral("Stationed patch needs four cyclic sides with matching opposite counts.");
+        return {};
+    }
+    return transfiniteImpl(sides,sides[0].size()-1,sides[1].size()-1,tag,err,true);
 }
 
 namespace

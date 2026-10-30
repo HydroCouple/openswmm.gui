@@ -1,0 +1,2431 @@
+/**
+ * @file      meshcdt.cpp
+ * @brief     Constrained Delaunay triangulation kernel (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md
+ *            Stage 4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ *
+ * Constrained Delaunay kernel — see meshcdt.h.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ */
+
+#pragma once
+#include "meshkit/cdt.hpp"
+#include "meshkit/coarseningqueue.hpp"
+#include "predicates.h"
+#include <array>
+#include <algorithm>
+#include <cmath>
+#include <queue>
+#include <cstring>
+#include <limits>
+#include <mutex>
+
+namespace meshkit
+{
+
+namespace cdt_detail
+{
+
+inline std::once_flag gPredicatesInit;
+
+/**
+ * @brief Interleave two unsigned 32-bit coordinates into a Morton ordering key.
+ * @param[in] x Quantized x coordinate, even output bit positions.
+ * @param[in] y Quantized y coordinate, odd output bit positions.
+ * @return Lossless 64-bit bit interleave, not a distance metric. No allocation, mutation or
+ * input retention.
+ */
+inline std::uint64_t mortonKey(std::uint32_t x, std::uint32_t y)
+{
+    auto spread = [](std::uint64_t v) {
+        v &= 0xffffffffull;
+        v = (v | (v << 16)) & 0x0000ffff0000ffffull;
+        v = (v | (v << 8)) & 0x00ff00ff00ff00ffull;
+        v = (v | (v << 4)) & 0x0f0f0f0f0f0f0f0full;
+        v = (v | (v << 2)) & 0x3333333333333333ull;
+        v = (v | (v << 1)) & 0x5555555555555555ull;
+        return v;
+    };
+    return spread(x) | (spread(y) << 1);
+}
+
+/**
+ * @brief Pack a normalized integer vertex pair into a 64-bit undirected edge identity.
+ * @param[in] a Endpoint ID, intended nonnegative valid index, not dereferenced or checked.
+ * @param[in] b Endpoint ID, sorted numerically with a before unsigned packing.
+ * @return Smaller signed ID's 32-bit representation in high word, larger in low. No
+ * allocation/mutation.
+ *
+ * @details Undirected edge key: (min << 32) | max.
+ */
+inline std::uint64_t edgeKey64(int a, int b)
+{
+    if (a > b)
+        std::swap(a, b);
+    return (std::uint64_t(std::uint32_t(a)) << 32) | std::uint64_t(std::uint32_t(b));
+}
+/**
+ * @brief Recover the smaller endpoint word from an edgeKey64 key.
+ * @param[in] k Packed key, expected valid nonnegative int endpoints.
+ * @return High 32-bit word cast to int (name refers to endpoint ordering, not bit position). No
+ * validation, allocation or state mutation.
+ */
+inline int keyLo(std::uint64_t k)
+{
+    return int(std::uint32_t(k >> 32));
+}
+/**
+ * @brief Recover the larger endpoint word from an edgeKey64 key.
+ * @param[in] k Packed key, expected valid nonnegative int endpoints.
+ * @return Low 32-bit word cast to int, no validation, allocation or state mutation.
+ */
+inline int keyHi(std::uint64_t k)
+{
+    return int(std::uint32_t(k & 0xffffffffull));
+}
+
+/**
+ * @brief Evaluate adaptive orientation on three borrowed Cartesian points after predicate
+ * initialization.
+ * @param[in] a Borrowed finite origin, unchanged.
+ * @param[in] b Borrowed finite second point, unchanged.
+ * @param[in] c Borrowed finite query, unchanged, common predicate-safe coordinate frame.
+ * @return Signed determinant-like orientation, positive CCW/negative CW/exact zero collinear.
+ * Caller must initialize exactinit through build/orientExact first; no initialization guard
+ * here. No allocation/mutation.
+ */
+template<class Point>
+double orientPts(const Point &a, const Point &b, const Point &c)
+{
+    const double pa[2] = {a.x(), a.y()}, pb[2] = {b.x(), b.y()}, pc[2] = {c.x(), c.y()};
+    return orient2d(pa, pb, pc);
+}
+
+/**
+ * @brief Compute ordinary squared Cartesian distance without overflow/finite checking.
+ * @param[in] a Borrowed point, unchanged.
+ * @param[in] b Borrowed point in same XY frame, unchanged.
+ * @return Nonnegative squared horizontal units for ordinary finite inputs, no square root,
+ * allocation or mutation.
+ */
+template<class Point>
+inline double dist2(const Point &a, const Point &b)
+{
+    const double dx = a.x() - b.x(), dy = a.y() - b.y();
+    return dx * dx + dy * dy;
+}
+
+// Preserve the existing refinement coincidence rule during extraction.
+// Input build/dedup remains exact, with signed-zero normalization.
+template<class Point> bool refinementCoincident(const Point &a,const Point &b) {
+    auto close=[](double x,double y){return (x==0 || y==0)?std::abs(x-y)<=1e-12:std::abs(x-y)*1e12<=std::min(std::abs(x),std::abs(y));};
+    return close(a.x(),b.x()) && close(a.y(),b.y());
+}
+
+constexpr double kEquilateralArea = 0.4330127018922193; // √3/4
+
+} // namespace cdt_detail
+using namespace cdt_detail;
+
+// ── Predicates ───────────────────────────────────────────────────────────
+
+template<class Storage>
+double BasicConstrainedDelaunay<Storage>::orientExact(const Point &a, const Point &b, const Point &c)
+{
+    std::call_once(gPredicatesInit, [] { exactinit(); });
+    return orientPts(a, b, c);
+}
+
+template<class Storage>
+double BasicConstrainedDelaunay<Storage>::orient(int a, int b, int c) const
+{
+    const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
+    const double pb[2] = {m_pts[b].x(), m_pts[b].y()};
+    const double pc[2] = {m_pts[c].x(), m_pts[c].y()};
+    return orient2d(pa, pb, pc);
+}
+
+template<class Storage>
+double BasicConstrainedDelaunay<Storage>::orient(int a, int b, const Point &p) const
+{
+    const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
+    const double pb[2] = {m_pts[b].x(), m_pts[b].y()};
+    const double pc[2] = {p.x(), p.y()};
+    return orient2d(pa, pb, pc);
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::inCircle(int a, int b, int c, int d) const
+{
+    const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
+    const double pb[2] = {m_pts[b].x(), m_pts[b].y()};
+    const double pc[2] = {m_pts[c].x(), m_pts[c].y()};
+    const double pd[2] = {m_pts[d].x(), m_pts[d].y()};
+    return incircle(pa, pb, pc, pd) > 0.0;
+}
+
+// ── Topology helpers ─────────────────────────────────────────────────────
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::edgeIndex(int t, int v) const
+{
+    const Triangle &T = m_tris[t];
+    for (int i = 0; i < 3; ++i)
+        if (T.v[i] == v)
+            return i;
+    return -1;
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::trianglesAround(int v, Vector<int> *out) const
+{
+    const int start = m_vertexTri[v];
+    if (start < 0)
+        return;
+    for (int dir = 0; dir < 2; ++dir) {
+        int t = start;
+        for (int guard = 0; guard < 100000; ++guard) {
+            const int i = edgeIndex(t, v);
+            if (i < 0)
+                break;
+            if (!(dir == 1 && t == start))
+                out->append(t);
+            const int next = m_tris[t].adj[dir == 0 ? (i + 1) % 3 : (i + 2) % 3];
+            if (next < 0)
+                break;
+            if (next == start)
+                return; // closed fan: done after one direction
+            t = next;
+        }
+    }
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::setAdj(int t, int e, int n)
+{
+    if (t >= 0)
+        m_tris[t].adj[e] = n;
+}
+
+/*! Live triangle with directed edge a→b (a = v[i+1], b = v[i+2] for the
+ *  returned edge index i), or -1. Rotates around vertex a. */
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::triangleWithEdge(int a, int b, int *edgeIndexOut) const
+{
+    const int start = m_vertexTri[a];
+    if (start < 0)
+        return -1;
+    int t = start;
+    for (int guard = 0; guard < 100000; ++guard) {
+        const Triangle &T = m_tris[t];
+        const int i = edgeIndex(t, a);
+        if (i < 0)
+            return -1;
+        if (T.v[(i + 1) % 3] == b) {
+            if (edgeIndexOut)
+                *edgeIndexOut = (i + 2) % 3;
+            return t;
+        }
+        // Rotate counter-clockwise around a: next triangle across the edge
+        // (a, v[i+2]) which is opposite v[i+1].
+        const int next = T.adj[(i + 1) % 3];
+        if (next < 0 || next == start)
+            break;
+        t = next;
+    }
+    // Rotate the other way in case the fan is open on one side.
+    t = start;
+    for (int guard = 0; guard < 100000; ++guard) {
+        const Triangle &T = m_tris[t];
+        const int i = edgeIndex(t, a);
+        if (i < 0)
+            return -1;
+        if (T.v[(i + 1) % 3] == b) {
+            if (edgeIndexOut)
+                *edgeIndexOut = (i + 2) % 3;
+            return t;
+        }
+        const int next = T.adj[(i + 2) % 3];
+        if (next < 0 || next == start)
+            break;
+        t = next;
+    }
+    return -1;
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::isConstrained(int a, int b) const
+{
+    int e = -1;
+    int t = triangleWithEdge(a, b, &e);
+    if (t < 0)
+        t = triangleWithEdge(b, a, &e);
+    return t >= 0 && m_tris[t].constrained[e];
+}
+
+template<class Storage>
+auto BasicConstrainedDelaunay<Storage>::constrainedChain(int a, int b) const -> Vector<int>
+{
+    // Follow constrained edges from a: first the edge to b itself, then the
+    // subsegments refinement or insertion split off (a, b) — its origin — and
+    // failing both an exactly collinear constrained edge towards b.
+    const std::uint64_t origin = edgeKey64(a, b);
+    Vector<int> chain{a};
+    int cur = a, prev = -1;
+    for (int guard = 0; guard < 1000000 && cur != b; ++guard) {
+        Vector<int> fan;
+        trianglesAround(cur, &fan);
+        bool reachesB = false;
+        int byOrigin = -1, byLine = -1;
+        double bestD2 = std::numeric_limits<double>::infinity();
+        const Point &P = m_pts[cur], &B = m_pts[b];
+        for (int t : fan) {
+            const Triangle &T = m_tris[t];
+            const int i = edgeIndex(t, cur);
+            for (int k = 1; k <= 2; ++k) {
+                const int v = T.v[(i + k) % 3];
+                const int e =
+                    (i + (k == 1 ? 2 : 1)) % 3; // edge (cur, v) is opposite the third vertex
+                if (!T.constrained[e] || v == cur || v == prev)
+                    continue;
+                if (v == b) {
+                    reachesB = true;
+                    continue;
+                }
+                const std::uint64_t ek = edgeKey64(cur, v);
+                const auto it = m_segOrigin.constFind(ek);
+                if (it != m_segOrigin.constEnd() &&
+                    (it.value() == origin || m_segOriginExtra.contains(ek, origin))) {
+                    byOrigin = v;
+                    continue;
+                }
+                if (orient(a, b, v) != 0.0)
+                    continue;
+                const Point &V = m_pts[v];
+                const double dot =
+                    (V.x() - P.x()) * (B.x() - P.x()) + (V.y() - P.y()) * (B.y() - P.y());
+                if (dot <= 0.0)
+                    continue;
+                const double d2 = dist2(V, P);
+                if (d2 < bestD2) {
+                    bestD2 = d2;
+                    byLine = v;
+                }
+            }
+        }
+        const int next = reachesB ? b : (byOrigin >= 0 ? byOrigin : byLine);
+        if (next < 0)
+            return {};
+        chain.append(next);
+        prev = cur;
+        cur = next;
+    }
+    return cur == b ? chain : Vector<int>();
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::markConstrained(int a, int b)
+{
+    for (int dir = 0; dir < 2; ++dir) {
+        int e = -1;
+        const int t = dir == 0 ? triangleWithEdge(a, b, &e) : triangleWithEdge(b, a, &e);
+        if (t < 0)
+            continue;
+        m_tris[t].constrained[e] = true;
+        const int n = m_tris[t].adj[e];
+        if (n >= 0)
+            for (int i = 0; i < 3; ++i)
+                if (m_tris[n].adj[i] == t)
+                    m_tris[n].constrained[i] = true;
+    }
+}
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::findTriangle(const Point &p, int start) const
+{
+    if (m_tris.isEmpty())
+        return -1;
+    int t = (start >= 0 && start < m_tris.size()) ? start : 0;
+    const int cap = m_tris.size() * 2 + 16;
+    for (int step = 0; step < cap; ++step) {
+        const Triangle &T = m_tris[t];
+        int next = -1;
+        for (int i = 0; i < 3; ++i) {
+            if (orient(T.v[(i + 1) % 3], T.v[(i + 2) % 3], p) < 0.0) {
+                next = T.adj[i];
+                if (next < 0)
+                    return -1;
+                break;
+            }
+        }
+        if (next < 0)
+            return t;
+        t = next;
+    }
+    // Cycle guard: brute force.
+    for (int i = 0; i < m_tris.size(); ++i) {
+        const Triangle &T = m_tris[i];
+        if (orient(T.v[1], T.v[2], p) >= 0.0 && orient(T.v[2], T.v[0], p) >= 0.0 &&
+            orient(T.v[0], T.v[1], p) >= 0.0)
+            return i;
+    }
+    return -1;
+}
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::locate(const Point &p) const
+{
+    const int t = findTriangle(p, m_lastLocate);
+    return (t >= 0 && m_tris[t].alive) ? t : -1;
+}
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::liveTriangleCount() const
+{
+    return m_liveTriangles;
+}
+
+// ── Flips and splits ─────────────────────────────────────────────────────
+
+/*! Flip edge e of t. On return t = (a, b, d) and n = (a, d, c) with a =
+ *  the old t.v[e] at index 0 of both. */
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::flip(int t, int e)
+{
+    Triangle &T = m_tris[t];
+    const int n = T.adj[e];
+    Triangle &N = m_tris[n];
+    const int a = T.v[e], b = T.v[(e + 1) % 3], c = T.v[(e + 2) % 3];
+    int k = 0;
+    for (int i = 0; i < 3; ++i)
+        if (N.adj[i] == t) {
+            k = i;
+            break;
+        }
+    const int d = N.v[k];
+    const int Tca = T.adj[(e + 1) % 3], Tab = T.adj[(e + 2) % 3];
+    const int Nbd = N.adj[(k + 1) % 3], Ndc = N.adj[(k + 2) % 3];
+    const bool cCA = T.constrained[(e + 1) % 3], cAB = T.constrained[(e + 2) % 3];
+    const bool cBD = N.constrained[(k + 1) % 3], cDC = N.constrained[(k + 2) % 3];
+
+    T.v[0] = a;
+    T.v[1] = b;
+    T.v[2] = d;
+    T.adj[0] = Nbd;
+    T.adj[1] = n;
+    T.adj[2] = Tab;
+    T.constrained[0] = cBD;
+    T.constrained[1] = false;
+    T.constrained[2] = cAB;
+    N.v[0] = a;
+    N.v[1] = d;
+    N.v[2] = c;
+    N.adj[0] = Ndc;
+    N.adj[1] = Tca;
+    N.adj[2] = t;
+    N.constrained[0] = cDC;
+    N.constrained[1] = cCA;
+    N.constrained[2] = false;
+    if (Nbd >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[Nbd].adj[i] == n)
+                m_tris[Nbd].adj[i] = t;
+    if (Tca >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[Tca].adj[i] == t)
+                m_tris[Tca].adj[i] = n;
+    m_vertexTri[a] = t;
+    m_vertexTri[b] = t;
+    m_vertexTri[d] = t;
+    m_vertexTri[c] = n;
+    if (m_triangleChanged) {
+        m_triangleChanged(t);
+        m_triangleChanged(n);
+    }
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::legalize(int t0, int e0)
+{
+    Vector<std::pair<int, int>> stack;
+    stack.append(std::make_pair(t0, e0));
+    while (!stack.isEmpty()) {
+        const std::pair<int, int> te = stack.takeLast();
+        const int t = te.first, e = te.second;
+        const Triangle &T = m_tris[t];
+        const int n = T.adj[e];
+        if (n < 0 || T.constrained[e])
+            continue;
+        const Triangle &N = m_tris[n];
+        int k = 0;
+        for (int i = 0; i < 3; ++i)
+            if (N.adj[i] == t) {
+                k = i;
+                break;
+            }
+        const int d = N.v[k];
+        if (!inCircle(T.v[0], T.v[1], T.v[2], d))
+            continue;
+        flip(t, e);
+        // t = (a, b, d), n = (a, d, c): recheck the quad's four outer edges.
+        stack.append(std::make_pair(t, 0));
+        stack.append(std::make_pair(t, 2));
+        stack.append(std::make_pair(n, 0));
+        stack.append(std::make_pair(n, 1));
+    }
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::splitTriangle(int t, int v)
+{
+    const Triangle old = m_tris[t];
+    const int a = old.v[0], b = old.v[1], c = old.v[2];
+    const int t1 = t, t2 = m_tris.size(), t3 = m_tris.size() + 1;
+    Triangle T1, T2, T3;
+    T1.v[0] = v;
+    T1.v[1] = a;
+    T1.v[2] = b;
+    T2.v[0] = v;
+    T2.v[1] = b;
+    T2.v[2] = c;
+    T3.v[0] = v;
+    T3.v[1] = c;
+    T3.v[2] = a;
+    T1.adj[0] = old.adj[2];
+    T1.adj[1] = t2;
+    T1.adj[2] = t3;
+    T2.adj[0] = old.adj[0];
+    T2.adj[1] = t3;
+    T2.adj[2] = t1;
+    T3.adj[0] = old.adj[1];
+    T3.adj[1] = t1;
+    T3.adj[2] = t2;
+    T1.constrained[0] = old.constrained[2];
+    T1.constrained[1] = T1.constrained[2] = false;
+    T2.constrained[0] = old.constrained[0];
+    T2.constrained[1] = T2.constrained[2] = false;
+    T3.constrained[0] = old.constrained[1];
+    T3.constrained[1] = T3.constrained[2] = false;
+    T1.alive = T2.alive = T3.alive = old.alive;
+    m_tris[t1] = T1;
+    m_tris.append(T2);
+    m_tris.append(T3);
+    m_liveTriangles += old.alive ? 2 : 0;
+    if (old.adj[2] >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[old.adj[2]].adj[i] == t)
+                m_tris[old.adj[2]].adj[i] = t1;
+    if (old.adj[0] >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[old.adj[0]].adj[i] == t)
+                m_tris[old.adj[0]].adj[i] = t2;
+    if (old.adj[1] >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[old.adj[1]].adj[i] == t)
+                m_tris[old.adj[1]].adj[i] = t3;
+    m_vertexTri[v] = t1;
+    m_vertexTri[a] = t1;
+    m_vertexTri[b] = t2;
+    m_vertexTri[c] = t3;
+    legalize(t1, 0);
+    legalize(t2, 0);
+    legalize(t3, 0);
+    if (m_triangleChanged) {
+        m_triangleChanged(t1);
+        m_triangleChanged(t2);
+        m_triangleChanged(t3);
+    }
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::splitEdge(int t, int e, int v)
+{
+    const Triangle old = m_tris[t];
+    const int a = old.v[e], b = old.v[(e + 1) % 3], c = old.v[(e + 2) % 3];
+    const int n = old.adj[e];
+    const bool f = old.constrained[e];
+    const int t1 = t, t2 = m_tris.size();
+    Triangle T1, T2;
+    T1.v[0] = v;
+    T1.v[1] = a;
+    T1.v[2] = b;
+    T2.v[0] = v;
+    T2.v[1] = c;
+    T2.v[2] = a;
+    T1.alive = T2.alive = old.alive;
+    int n1 = -1, n2 = -1;
+    if (n >= 0) {
+        n1 = n;
+        n2 = m_tris.size() + 1;
+    }
+    // Old edges: (a, b) is opposite c = index e+2; (c, a) is opposite b = index e+1.
+    const int Tab = old.adj[(e + 2) % 3], Tca = old.adj[(e + 1) % 3];
+    T1.adj[0] = Tab;
+    T1.adj[1] = n1;
+    T1.adj[2] = t2;
+    T2.adj[0] = Tca;
+    T2.adj[1] = t1;
+    T2.adj[2] = n2;
+    T1.constrained[0] = old.constrained[(e + 2) % 3];
+    T1.constrained[1] = f;
+    T1.constrained[2] = false;
+    T2.constrained[0] = old.constrained[(e + 1) % 3];
+    T2.constrained[1] = false;
+    T2.constrained[2] = f;
+    m_tris[t1] = T1;
+    m_tris.append(T2);
+    m_liveTriangles += old.alive ? 1 : 0;
+    if (Tab >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[Tab].adj[i] == t)
+                m_tris[Tab].adj[i] = t1;
+    if (Tca >= 0)
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[Tca].adj[i] == t)
+                m_tris[Tca].adj[i] = t2;
+    m_vertexTri[v] = t1;
+    m_vertexTri[a] = t1;
+    m_vertexTri[b] = t1;
+    m_vertexTri[c] = t2;
+    if (n >= 0) {
+        const Triangle oldN = m_tris[n];
+        int k = 0;
+        for (int i = 0; i < 3; ++i)
+            if (oldN.adj[i] == t) {
+                k = i;
+                break;
+            }
+        const int d = oldN.v[k];
+        Triangle N1, N2;
+        N1.v[0] = v;
+        N1.v[1] = b;
+        N1.v[2] = d;
+        N2.v[0] = v;
+        N2.v[1] = d;
+        N2.v[2] = c;
+        N1.alive = N2.alive = oldN.alive;
+        N1.adj[0] = oldN.adj[(k + 1) % 3];
+        N1.adj[1] = n2;
+        N1.adj[2] = t1;
+        N2.adj[0] = oldN.adj[(k + 2) % 3];
+        N2.adj[1] = t2;
+        N2.adj[2] = n1;
+        N1.constrained[0] = oldN.constrained[(k + 1) % 3];
+        N1.constrained[1] = false;
+        N1.constrained[2] = f;
+        N2.constrained[0] = oldN.constrained[(k + 2) % 3];
+        N2.constrained[1] = f;
+        N2.constrained[2] = false;
+        m_tris[n1] = N1;
+        m_tris.append(N2);
+        m_liveTriangles += oldN.alive ? 1 : 0;
+        if (N1.adj[0] >= 0)
+            for (int i = 0; i < 3; ++i)
+                if (m_tris[N1.adj[0]].adj[i] == n)
+                    m_tris[N1.adj[0]].adj[i] = n1;
+        if (N2.adj[0] >= 0)
+            for (int i = 0; i < 3; ++i)
+                if (m_tris[N2.adj[0]].adj[i] == n)
+                    m_tris[N2.adj[0]].adj[i] = n2;
+        m_vertexTri[d] = n1;
+    }
+    legalize(t1, 0);
+    legalize(t2, 0);
+    if (n >= 0) {
+        legalize(n1, 0);
+        legalize(n2, 0);
+    }
+    if (m_triangleChanged) {
+        m_triangleChanged(t1);
+        m_triangleChanged(t2);
+        if (n >= 0) {
+            m_triangleChanged(n1);
+            m_triangleChanged(n2);
+        }
+    }
+}
+
+// ── Construction ─────────────────────────────────────────────────────────
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<int> *vertexOfPoint, const std::function<bool()> &cancelled,const std::function<void(std::uint64_t)> &progress)
+{
+    std::call_once(gPredicatesInit, [] { exactinit(); });
+    m_origins.clear();
+    m_pts.clear();
+    m_tris.clear();
+    m_liveTriangles = 0;
+    m_vertexTri.clear();
+    m_errorMsg.clear();
+    m_terrainElevations.clear();
+    m_segOrigin.clear();
+    m_segOriginExtra.clear();
+    m_segPiece.clear();
+    m_vertexSeg.clear();
+    m_fixedSub.clear();
+    m_lastLocate = 0;
+    auto stopped=[&] {if(cancelled && cancelled()){m_errorMsg=Storage::message("cdt: cancelled");return true;}return false;};
+    if(stopped())return false;
+
+    // Dedup on the exact bit pattern.
+    Hash<std::pair<std::int64_t, std::int64_t>, int> seen;
+    seen.reserve(points.size());
+    if (vertexOfPoint)
+        vertexOfPoint->resize(points.size());
+    double minX = std::numeric_limits<double>::infinity(), minY = minX, maxX = -minX, maxY = -minX;
+    for (int i = 0; i < points.size(); ++i) {
+        if((i&4095)==0 && stopped())return false;
+        const Point &p = points[i];
+        if (!std::isfinite(p.x()) || !std::isfinite(p.y())) {
+            m_errorMsg = Storage::invalidPointMessage(i);
+            return false;
+        }
+        std::int64_t kx, ky;
+        double x = p.x(), y = p.y();
+        if (x == 0.0)
+            x = 0.0;
+        if (y == 0.0)
+            y = 0.0; // fold -0
+        std::memcpy(&kx, &x, 8);
+        std::memcpy(&ky, &y, 8);
+        const std::pair<std::int64_t, std::int64_t> key(kx, ky);
+        auto it = seen.constFind(key);
+        int id;
+        if (it == seen.constEnd()) {
+            id = m_pts.size();
+            m_pts.append(p);
+            seen.insert(key, id);
+            minX = std::min(minX, p.x());
+            maxX = std::max(maxX, p.x());
+            minY = std::min(minY, p.y());
+            maxY = std::max(maxY, p.y());
+        } else
+            id = it.value();
+        if (vertexOfPoint)
+            (*vertexOfPoint)[i] = id;
+    }
+    if (m_pts.size() < 3) {
+        m_errorMsg = Storage::message("cdt: fewer than 3 distinct points");
+        return false;
+    }
+
+    // Super triangle far outside the data.
+    const Box bbox(Point(minX, minY), Point(maxX, maxY));
+    const double ext = std::max({bbox.width(), bbox.height(), 1e-9});
+    const double cx = bbox.center().x(), cy = bbox.center().y();
+    const double R = ext * 1e5;
+    m_superBase = m_pts.size();
+    m_pts.append(Point(cx - 2.0 * R, cy - R));
+    m_pts.append(Point(cx + 2.0 * R, cy - R));
+    m_pts.append(Point(cx, cy + 2.0 * R));
+    m_vertexTri.fill(-1, m_pts.size());
+    Triangle sup;
+    sup.v[0] = m_superBase;
+    sup.v[1] = m_superBase + 1;
+    sup.v[2] = m_superBase + 2;
+    sup.adj[0] = sup.adj[1] = sup.adj[2] = -1;
+    sup.constrained[0] = sup.constrained[1] = sup.constrained[2] = false;
+    sup.alive = true;
+    m_tris.append(sup);
+    m_liveTriangles = 1;
+    m_vertexTri[m_superBase] = m_vertexTri[m_superBase + 1] = m_vertexTri[m_superBase + 2] = 0;
+
+    // Insertion order: Morton on a 2^20 quantisation (deterministic, local).
+    Vector<std::pair<std::uint64_t, int>> order(m_superBase);
+    const double sx = bbox.width() > 0 ? 1048575.0 / bbox.width() : 0.0;
+    const double sy = bbox.height() > 0 ? 1048575.0 / bbox.height() : 0.0;
+    for (int i = 0; i < m_superBase; ++i) {
+        const std::uint32_t qx = std::uint32_t((m_pts[i].x() - bbox.left()) * sx);
+        const std::uint32_t qy = std::uint32_t((m_pts[i].y() - bbox.top()) * sy);
+        order[i] = std::make_pair(mortonKey(qx, qy), i);
+    }
+    if(!cancelled)std::sort(order.begin(),order.end());
+    else {struct CancelBuild{};std::uint64_t comparisons=0;
+        try {std::sort(order.begin(),order.end(),[&](const auto &a,const auto &b){if((++comparisons&16383)==0 && stopped())throw CancelBuild{};return a<b;});}catch(const CancelBuild &){return false;}}
+
+    m_tris.reserve(2 * m_superBase + 8);
+    std::uint64_t completed=0;
+    for (const std::pair<std::uint64_t, int> &o : order) {
+        if((completed++&4095)==0){if(stopped())return false;if(progress)progress(completed-1);}
+        const int v = o.second;
+        const int t = findTriangle(m_pts[v], m_lastLocate);
+        if (t < 0) {
+            m_errorMsg = Storage::message("cdt: point location failed");
+            return false;
+        }
+        const Triangle &T = m_tris[t];
+        int onEdge = -1;
+        for (int i = 0; i < 3; ++i)
+            if (orient(T.v[(i + 1) % 3], T.v[(i + 2) % 3], v) == 0.0) {
+                onEdge = i;
+                break;
+            }
+        if (onEdge >= 0)
+            splitEdge(t, onEdge, v);
+        else
+            splitTriangle(t, v);
+        m_lastLocate = m_vertexTri[v];
+    }
+    return true;
+}
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::insertPoint(const Point &p)
+{
+    const int t = findTriangle(p, m_lastLocate);
+    if (t < 0 || !m_tris[t].alive)
+        return -1;
+    const int v = m_pts.size();
+    m_pts.append(p);
+    if (!m_origins.isEmpty())
+        m_origins.append(0);
+    m_vertexTri.append(-1);
+    const Triangle &T = m_tris[t];
+    int onEdge = -1;
+    for (int i = 0; i < 3; ++i)
+        if (orient(T.v[(i + 1) % 3], T.v[(i + 2) % 3], v) == 0.0) {
+            onEdge = i;
+            break;
+        }
+    if (onEdge >= 0) {
+        // Coincident with a vertex? Then reuse it.
+        for (int i = 0; i < 3; ++i)
+            if (refinementCoincident(m_pts[T.v[i]],p)) {
+                m_pts.removeLast();
+                m_vertexTri.removeLast();
+                return T.v[i];
+            }
+        splitEdge(t, onEdge, v);
+    } else
+        splitTriangle(t, v);
+    m_lastLocate = m_vertexTri[v];
+    return v;
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::insertConstraint(int a, int b)
+{
+    return insertConstraintImpl(a, b, edgeKey64(a, b));
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::insertConstraintImpl(int a, int b, std::uint64_t origin)
+{
+    if (a == b)
+        return true;
+    if (a < 0 || b < 0 || a >= m_pts.size() || b >= m_pts.size() || isSuperVertex(a) ||
+        isSuperVertex(b))
+        return false;
+    int e = -1;
+    // Record the input segment and the piece an edge realises. A second
+    // constraint over the same edge (an overlap) adds its origin.
+    auto record = [&](int x, int y) {
+        const std::uint64_t k = edgeKey64(x, y);
+        const auto it = m_segOrigin.constFind(k);
+        if (it == m_segOrigin.constEnd())
+            m_segOrigin.insert(k, origin);
+        else if (it.value() != origin && !m_segOriginExtra.contains(k, origin))
+            m_segOriginExtra.insert(k, origin);
+        if (!m_segPiece.contains(k))
+            m_segPiece.insert(k, k);
+    };
+    if (triangleWithEdge(a, b, &e) >= 0 || triangleWithEdge(b, a, &e) >= 0) {
+        markConstrained(a, b);
+        record(a, b);
+        return true;
+    }
+
+    // Find the triangle at a whose opposite edge the segment a→b crosses.
+    // A vertex lying exactly on the segment splits the constraint there.
+    auto onSegment = [&](int p) {
+        if (p == a || p == b || orient(a, b, p) != 0.0)
+            return false;
+        const Point &A = m_pts[a], &B = m_pts[b], &P = m_pts[p];
+        return (P.x() - A.x()) * (B.x() - A.x()) + (P.y() - A.y()) * (B.y() - A.y()) > 0.0 &&
+               (P.x() - B.x()) * (A.x() - B.x()) + (P.y() - B.y()) * (A.y() - B.y()) > 0.0;
+    };
+    int start = -1, startEdge = -1;
+    for (int dir = 0; dir < 2 && start < 0; ++dir) {
+        const int t0 = m_vertexTri[a];
+        int t = t0;
+        for (int guard = 0; guard < 1000000 && t >= 0; ++guard) {
+            const int i = edgeIndex(t, a);
+            if (i < 0)
+                break;
+            const int p = m_tris[t].v[(i + 1) % 3], q = m_tris[t].v[(i + 2) % 3];
+            if (onSegment(p))
+                return insertConstraintImpl(a, p, origin) && insertConstraintImpl(p, b, origin);
+            if (onSegment(q))
+                return insertConstraintImpl(a, q, origin) && insertConstraintImpl(q, b, origin);
+            if (orient(a, b, p) < 0.0 && orient(a, b, q) > 0.0) {
+                start = t;
+                startEdge = i;
+                break;
+            }
+            const int next = m_tris[t].adj[dir == 0 ? (i + 1) % 3 : (i + 2) % 3];
+            if (next < 0 || next == t0)
+                break;
+            t = next;
+        }
+    }
+    if (start < 0) {
+        m_errorMsg = Storage::message("cdt: constraint start not found");
+        return false;
+    }
+
+    // Collect the crossed edges by walking from a to b.
+    Vector<std::pair<int, int>> crossed;
+    {
+        int t = start, e = startEdge;
+        for (int guard = 0; guard < 10000000; ++guard) {
+            const int p = m_tris[t].v[(e + 1) % 3], q = m_tris[t].v[(e + 2) % 3];
+            if (m_tris[t].constrained[e]) {
+                m_errorMsg = Storage::message("cdt: constraint crosses another constraint");
+                return false;
+            }
+            crossed.append(std::make_pair(p, q));
+            const int n = m_tris[t].adj[e];
+            if (n < 0) {
+                m_errorMsg = Storage::message("cdt: walked off the triangulation");
+                return false;
+            }
+            int k = 0;
+            for (int i = 0; i < 3; ++i)
+                if (m_tris[n].adj[i] == t) {
+                    k = i;
+                    break;
+                }
+            const int r = m_tris[n].v[k];
+            if (r == b)
+                break;
+            const double orr = orient(a, b, r);
+            if (orr == 0.0)
+                return insertConstraintImpl(a, r, origin) && insertConstraintImpl(r, b, origin);
+            // Next crossed edge: (p, r) if r is left of a→b (q side), else (r, q).
+            // In n (CCW): v[k]=r, v[k+1]=q, v[k+2]=p. Edge opposite v[k+1] is (p, r)... indices:
+            // edge opposite index j is (v[j+1], v[j+2]).
+            // r left of a→b: exit through (p, r) = (v[k+2], v[k]), opposite k+1;
+            // r right: exit through (r, q) = (v[k], v[k+1]), opposite k+2.
+            e = (orr > 0.0) ? (k + 1) % 3 : (k + 2) % 3;
+            t = n;
+        }
+    }
+
+    // Sloan: flip crossed edges until none crosses a→b.
+    Vector<std::pair<int, int>> newEdges;
+    int spins = 0;
+    while (!crossed.isEmpty()) {
+        const std::pair<int, int> pq = crossed.takeFirst();
+        int te = -1;
+        int t = triangleWithEdge(pq.first, pq.second, &te);
+        if (t < 0)
+            t = triangleWithEdge(pq.second, pq.first, &te);
+        if (t < 0) {
+            m_errorMsg = Storage::message("cdt: lost a crossed edge");
+            return false;
+        }
+        const int n = m_tris[t].adj[te];
+        const int apex = m_tris[t].v[te];
+        int k = 0;
+        for (int i = 0; i < 3; ++i)
+            if (m_tris[n].adj[i] == t) {
+                k = i;
+                break;
+            }
+        const int d = m_tris[n].v[k];
+        // Convex quad test: p and q on opposite sides of apex→d.
+        const int p = m_tris[t].v[(te + 1) % 3], q = m_tris[t].v[(te + 2) % 3];
+        const double s1 = orient(apex, d, p), s2 = orient(apex, d, q);
+        if (!((s1 > 0.0 && s2 < 0.0) || (s1 < 0.0 && s2 > 0.0))) {
+            crossed.append(pq);
+            if (++spins > 100 * (crossed.size() + 1)) {
+                m_errorMsg = Storage::message("cdt: constraint recovery stalled");
+                return false;
+            }
+            continue;
+        }
+        spins = 0;
+        flip(t, te);
+        // New edge (apex, d): does it still cross a→b?
+        const double o1 = orient(a, b, apex), o2 = orient(a, b, d);
+        const bool isTarget = (apex == a && d == b) || (apex == b && d == a);
+        if (!isTarget && ((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0)))
+            crossed.append(std::make_pair(apex, d));
+        else if (!isTarget)
+            newEdges.append(std::make_pair(apex, d));
+    }
+    markConstrained(a, b);
+    record(a, b);
+    // Restore the Delaunay property on the edges created by the flips.
+    for (const std::pair<int, int> &ed : newEdges) {
+        int e2 = -1;
+        int t = triangleWithEdge(ed.first, ed.second, &e2);
+        if (t < 0)
+            t = triangleWithEdge(ed.second, ed.first, &e2);
+        if (t >= 0)
+            legalize(t, e2);
+    }
+    return true;
+}
+
+// ── Regions ─────────────────────────────────────────────────────────────
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::removeExterior()
+{
+    Vector<int> stack;
+    for (int i = 0; i < m_tris.size(); ++i) {
+        const Triangle &T = m_tris[i];
+        if (!T.alive)
+            continue;
+        if (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2])) {
+            m_tris[i].alive = false;
+            --m_liveTriangles;
+            stack.append(i);
+        }
+    }
+    while (!stack.isEmpty()) {
+        const int t = stack.takeLast();
+        for (int i = 0; i < 3; ++i) {
+            const int n = m_tris[t].adj[i];
+            if (n < 0 || !m_tris[n].alive || m_tris[t].constrained[i])
+                continue;
+            m_tris[n].alive = false;
+            --m_liveTriangles;
+            stack.append(n);
+        }
+    }
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::removeSuperTriangles()
+{
+    for (Triangle &T : m_tris)
+        if (T.alive && (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))) {
+            T.alive = false;
+            --m_liveTriangles;
+        }
+}
+
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::removeRegionAt(const Point &p)
+{
+    const int t0 = locate(p);
+    if (t0 < 0)
+        return 0;
+    Vector<int> stack{t0};
+    m_tris[t0].alive = false;
+    --m_liveTriangles;
+    int removed = 1;
+    while (!stack.isEmpty()) {
+        const int t = stack.takeLast();
+        for (int i = 0; i < 3; ++i) {
+            const int n = m_tris[t].adj[i];
+            if (n < 0 || !m_tris[n].alive || m_tris[t].constrained[i])
+                continue;
+            m_tris[n].alive = false;
+            --m_liveTriangles;
+            ++removed;
+            stack.append(n);
+        }
+    }
+    return removed;
+}
+
+// Seed by topology, not an epsilon-offset point (which can cross a thin region).
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::removeRegionLeftOf(int a, int b)
+{
+    if (!isConstrained(a, b))
+        return 0;
+    Vector<int> stack;
+    const auto chain = constrainedChain(a, b);
+    for (int k = 0; k + 1 < chain.size(); ++k) {
+        Vector<int> around;
+        trianglesAround(chain[k], &around);
+        for (int t : around) {
+            const auto &tri = m_tris[t];
+            if (!tri.alive)
+                continue;
+            bool hasB = false;
+            int apex = -1;
+            for (int v : tri.v) {
+                if (v == chain[k + 1])
+                    hasB = true;
+                else if (v != chain[k])
+                    apex = v;
+            }
+            if (hasB && apex >= 0 && orient(a, b, apex) > 0)
+                stack.append(t);
+        }
+    }
+    int removed = 0;
+    while (!stack.isEmpty()) {
+        const int t = stack.takeLast();
+        if (!m_tris[t].alive)
+            continue;
+        m_tris[t].alive = false;
+        --m_liveTriangles;
+        ++removed;
+        for (int e = 0; e < 3; ++e) {
+            const int n = m_tris[t].adj[e];
+            if (n >= 0 && m_tris[n].alive && !m_tris[t].constrained[e])
+                stack.append(n);
+        }
+    }
+    return removed;
+}
+
+// ── Quality refinement ──────────────────────────────────────────────────
+// Ruppert's algorithm with Shewchuk's refinements, as Triangle implements
+// them (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §4).
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::setFixedConstraint(int a, int b)
+{
+    const Vector<int> chain = constrainedChain(a, b);
+    for (int i = 0; i + 1 < chain.size(); ++i)
+        m_fixedSub.insert(edgeKey64(chain[i], chain[i + 1]));
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::isFixedSub(int a, int b) const
+{
+    return !m_fixedSub.isEmpty() && m_fixedSub.contains(edgeKey64(a, b));
+}
+
+/*! A live triangle on either side of subsegment (a, b) has its apex strictly
+ *  inside the diametral circle (an angle over 90° at the apex). */
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::subsegmentEncroached(int a, int b) const
+{
+    const Point &A = m_pts[a], &B = m_pts[b];
+    for (int dir = 0; dir < 2; ++dir) {
+        int e = -1;
+        const int t = dir == 0 ? triangleWithEdge(a, b, &e) : triangleWithEdge(b, a, &e);
+        if (t < 0 || !m_tris[t].alive)
+            continue;
+        const int c = m_tris[t].v[e];
+        if (isSuperVertex(c))
+            continue;
+        const Point &C = m_pts[c];
+        if ((A.x() - C.x()) * (B.x() - C.x()) + (A.y() - C.y()) * (B.y() - C.y()) < 0.0)
+            return true;
+    }
+    return false;
+}
+
+/*! Split subsegment (a, b) and return the new vertex (-1 when it cannot be
+ *  split further). Midpoint, or — when exactly one end is an input vertex
+ *  with another segment at an acute angle — the power of two in [L/3, 2L/3]
+ *  measured from that end, so splits around a small input angle land on
+ *  concentric circles (Ruppert's shells) and the refinement terminates. */
+template<class Storage>
+int BasicConstrainedDelaunay<Storage>::splitSubsegment(int a, int b)
+{
+    int e = -1;
+    int t = triangleWithEdge(a, b, &e);
+    if (t < 0)
+        t = triangleWithEdge(b, a, &e);
+    if (t < 0)
+        return -1;
+    const std::uint64_t key = edgeKey64(a, b);
+    const std::uint64_t origin = m_segOrigin.value(key, key);
+    const std::uint64_t piece = m_segPiece.value(key, key);
+    const Vector<std::uint64_t> extra = m_segOriginExtra.values(key);
+
+    auto acuteAt = [&](int x, int other) {
+        if (x >= m_superBase)
+            return false; // refinement vertex, not an input corner
+        const Point &X
+        = m_pts[x], &O = m_pts[other];
+        Vector<int> fan;
+        trianglesAround(x, &fan);
+        for (int ft : fan) {
+            const Triangle &T = m_tris[ft];
+            const int i = edgeIndex(ft, x);
+            if (i < 0)
+                continue;
+            for (int k = 1; k <= 2; ++k) {
+                const int w = T.v[(i + k) % 3];
+                const int ei = (i + (k == 1 ? 2 : 1)) % 3;
+                if (!T.constrained[ei] || w == other)
+                    continue;
+                const Point &W = m_pts[w];
+                if ((W.x() - X.x()) * (O.x() - X.x()) + (W.y() - X.y()) * (O.y() - X.y()) > 0.0)
+                    return true;
+            }
+        }
+        return false;
+    };
+    const Point A = m_pts[a], B = m_pts[b];
+    const double len = std::sqrt(dist2(A, B));
+    if (!(len > 0.0) || !std::isfinite(len))
+        return -1;
+    const bool acA = acuteAt(a, b), acB = acuteAt(b, a);
+    double split = 0.5;
+    if (acA != acB) {
+        double pw = 1.0;
+        while (len > 3.0 * pw)
+            pw *= 2.0;
+        while (len < 1.5 * pw)
+            pw *= 0.5;
+        split = pw / len;
+        if (acB)
+            split = 1.0 - split;
+    }
+    const Point p = A + (B - A) * split;
+    if (p == A || p == B)
+        return -1; // below floating-point resolution
+    const int v = m_pts.size();
+    m_pts.append(p);
+    if (!m_origins.isEmpty())
+        m_origins.append(0);
+    m_vertexTri.append(-1);
+    if (!m_origins.isEmpty())
+        m_origins[v] = ((m_origins[a] | m_origins[b]) & 127u) | SegmentSplit;
+    splitEdge(t, e, v); // topological split: both halves stay constrained
+    m_segOrigin.remove(key);
+    m_segPiece.remove(key);
+    m_segOriginExtra.remove(key);
+    for (const std::uint64_t half : {edgeKey64(a, v), edgeKey64(v, b)}) {
+        m_segOrigin.insert(half, origin);
+        m_segPiece.insert(half, piece);
+        for (std::uint64_t o : extra)
+            m_segOriginExtra.insert(half, o);
+    }
+    m_vertexSeg.insert(v, piece);
+    return v;
+}
+
+/*! Shewchuk's exemption: the shortest edge (u, v) joins two refinement
+ *  vertices on different input pieces that share an input vertex, at the
+ *  same distance from it (concentric shells) — the triangle is thin because
+ *  the input angle is, and splitting it would never end. (Pieces, not
+ *  origins: a segment split at a vertex lying on it meets its neighbour at
+ *  that vertex.) */
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::exemptShortestEdge(int u, int v) const
+{
+    const auto iu = m_vertexSeg.constFind(u), iv = m_vertexSeg.constFind(v);
+    if (iu == m_vertexSeg.constEnd() || iv == m_vertexSeg.constEnd() || iu.value() == iv.value())
+        return false;
+    const int a1 = keyLo(iu.value()), b1 = keyHi(iu.value());
+    const int a2 = keyLo(iv.value()), b2 = keyHi(iv.value());
+    int j = -1;
+    if (a1 == a2 || a1 == b2)
+        j = a1;
+    else if (b1 == a2 || b1 == b2)
+        j = b1;
+    if (j < 0)
+        return false;
+    const double d1 = dist2(m_pts[u], m_pts[j]), d2 = dist2(m_pts[v], m_pts[j]);
+    return d1 < 1.001 * d2 && d1 > 0.999 * d2;
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::smallAngleExempt(int t) const
+{
+    const Triangle &T = m_tris[t];
+    double best = std::numeric_limits<double>::infinity();
+    int s = 0;
+    for (int k = 0; k < 3; ++k) {
+        const double l = dist2(m_pts[T.v[(k + 1) % 3]], m_pts[T.v[(k + 2) % 3]]);
+        if (l < best) {
+            best = l;
+            s = k;
+        }
+    }
+    return exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3]);
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::touchesFixed(int t) const
+{
+    if (m_fixedSub.isEmpty())
+        return false;
+    for (int k = 0; k < 3; ++k) {
+        const int x = m_tris[t].v[k];
+        Vector<int> fan;
+        trianglesAround(x, &fan);
+        for (int ft : fan) {
+            const Triangle &T = m_tris[ft];
+            const int i = edgeIndex(ft, x);
+            if (i < 0)
+                continue;
+            for (int kk = 1; kk <= 2; ++kk) {
+                const int ei = (i + (kk == 1 ? 2 : 1)) % 3;
+                if (T.constrained[ei] && m_fixedSub.contains(edgeKey64(x, T.v[(i + kk) % 3])))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Build and legalize a cavity before touching shared topology. The ring is
+// ordered by the closed fan, so boundary edges retain their direction and flags.
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::prepareRemoval(int v, Removal *out) const
+{
+    if (v < m_superBase + 3 || !isVertexActive(v) || m_vertexSeg.contains(v))
+        return false;
+    Removal r;
+    trianglesAround(v, &r.star);
+    if (r.star.size() < 3 || r.star.size() > 128)
+        return false;
+    for (int t : r.star) {
+        const auto &T = m_tris[t];
+        const int i = edgeIndex(t, v);
+        if (!T.alive || i < 0 || T.constrained[(i + 1) % 3] || T.constrained[(i + 2) % 3] ||
+            T.adj[(i + 1) % 3] < 0 || T.adj[(i + 2) % 3] < 0)
+            return false;
+        for (int k = 0; k < 3; ++k)
+            if (isSuperVertex(T.v[k]))
+                return false;
+        r.ring.append(T.v[(i + 1) % 3]);
+    }
+    const int n = r.ring.size();
+    for (int j = 0; j < n; ++j) {
+        const auto &T = m_tris[r.star[j]];
+        if (T.v[(edgeIndex(r.star[j], v) + 2) % 3] != r.ring[(j + 1) % n])
+            return false;
+    }
+    auto triangle = [](int a, int b, int c) {
+        return Triangle{{a, b, c}, {-1, -1, -1}, {false, false, false}, true};
+    };
+    Vector<int> polygon = r.ring;
+    while (polygon.size() > 3) {
+        bool clipped = false;
+        for (int j = 0; j < polygon.size(); ++j) {
+            const int a = polygon[(j + polygon.size() - 1) % polygon.size()], b = polygon[j],
+                      c = polygon[(j + 1) % polygon.size()];
+            if (!(orient(a, b, c) > 0))
+                continue;
+            bool occupied = false;
+            for (int q : polygon)
+                if (q != a && q != b && q != c && orient(a, b, q) >= 0 && orient(b, c, q) >= 0 &&
+                    orient(c, a, q) >= 0) {
+                    occupied = true;
+                    break;
+                }
+            if (occupied)
+                continue;
+            r.replacement.append(triangle(a, b, c));
+            polygon.removeAt(j);
+            clipped = true;
+            break;
+        }
+        if (!clipped)
+            return false;
+    }
+    if (!(orient(polygon[0], polygon[1], polygon[2]) > 0))
+        return false;
+    r.replacement.append(triangle(polygon[0], polygon[1], polygon[2]));
+    // Lawson flips confined to scratch triangles. Never call the global
+    // legalizer after quality gates: it may change triangles outside the star.
+    bool settled = false;
+    for (int guard = 0; guard < 4 * n * n; ++guard) {
+        bool flipped = false;
+        for (int i = 0; i < r.replacement.size() && !flipped; ++i)
+            for (int j = i + 1; j < r.replacement.size() && !flipped; ++j)
+                for (int e = 0; e < 3 && !flipped; ++e)
+                    for (int f = 0; f < 3 && !flipped; ++f) {
+                        auto &T = r.replacement[i];
+                        auto &N = r.replacement[j];
+                        const int a = T.v[e], b = T.v[(e + 1) % 3], c = T.v[(e + 2) % 3],
+                                  d = N.v[f];
+                        if (b != N.v[(f + 2) % 3] || c != N.v[(f + 1) % 3])
+                            continue;
+                        if (orient(a, b, d) <= 0 || orient(a, d, c) <= 0 ||
+                            !inCircle(T.v[0], T.v[1], T.v[2], d))
+                            continue;
+                        T = triangle(a, b, d);
+                        N = triangle(a, d, c);
+                        flipped = true;
+                    }
+        if (!flipped) {
+            settled = true;
+            break;
+        }
+    }
+    if (!settled)
+        return false;
+    for (int i = 0; i < r.replacement.size(); ++i)
+        for (int e = 0; e < 3; ++e) {
+            auto &T = r.replacement[i];
+            const int a = T.v[(e + 1) % 3], b = T.v[(e + 2) % 3];
+            bool found = false;
+            for (int j = 0; j < n; ++j)
+                if (a == r.ring[j] && b == r.ring[(j + 1) % n]) {
+                    const auto &old = m_tris[r.star[j]];
+                    const int k = edgeIndex(r.star[j], v), neighbour = old.adj[k];
+                    T.adj[e] = neighbour;
+                    T.constrained[e] = old.constrained[k];
+                    found = true;
+                    // Conservatively reject a cavity whose outer edge would need a
+                    // flip. Outside triangles are never modified by legalization.
+                    if (neighbour >= 0 && !T.constrained[e]) {
+                        const auto &N = m_tris[neighbour];
+                        if (!N.alive)
+                            return false;
+                        for (int f = 0; f < 3; ++f)
+                            if (N.adj[f] == r.star[j] && inCircle(T.v[0], T.v[1], T.v[2], N.v[f]))
+                                return false;
+                    }
+                    break;
+                }
+            if (found)
+                continue;
+            for (int j = 0; j < r.replacement.size() && !found; ++j)
+                if (i != j)
+                    for (int f = 0; f < 3; ++f)
+                        if (r.replacement[j].v[(f + 1) % 3] == b &&
+                            r.replacement[j].v[(f + 2) % 3] == a) {
+                            T.adj[e] = r.star[j];
+                            found = true;
+                            break;
+                        }
+            if (!found)
+                return false;
+        }
+    *out = std::move(r);
+    return true;
+}
+
+template<class Storage>
+void BasicConstrainedDelaunay<Storage>::commitRemoval(int v, const Removal &r)
+{
+    // Repair external backlinks before reusing any old slot.
+    for (int j = 0; j < r.ring.size(); ++j) {
+        const int old = r.star[j], k = edgeIndex(old, v), neighbour = m_tris[old].adj[k];
+        if (neighbour < 0)
+            continue;
+        int replacement = -1;
+        for (int i = 0; i < r.replacement.size(); ++i)
+            for (int e = 0; e < 3; ++e)
+                if (r.replacement[i].v[(e + 1) % 3] == r.ring[j] &&
+                    r.replacement[i].v[(e + 2) % 3] == r.ring[(j + 1) % r.ring.size()])
+                    replacement = r.star[i];
+        for (int e = 0; e < 3; ++e)
+            if (m_tris[neighbour].v[(e + 1) % 3] == r.ring[(j + 1) % r.ring.size()] &&
+                m_tris[neighbour].v[(e + 2) % 3] == r.ring[j])
+                m_tris[neighbour].adj[e] = replacement;
+    }
+    for (int t : r.star) {
+        m_liveTriangles -= m_tris[t].alive ? 1 : 0;
+        m_tris[t].alive = false;
+        for (int &a : m_tris[t].adj)
+            a = -1;
+    }
+    for (int i = 0; i < r.replacement.size(); ++i) {
+        const int t = r.star[i];
+        m_tris[t] = r.replacement[i];
+        m_liveTriangles += m_tris[t].alive ? 1 : 0;
+        for (int q : m_tris[t].v)
+            m_vertexTri[q] = t;
+        if (m_triangleChanged)
+            m_triangleChanged(t);
+    }
+    m_vertexTri[v] = -1;
+    m_lastLocate = r.star[0];
+}
+
+template<class Storage>
+bool BasicConstrainedDelaunay<Storage>::removeVertex(int v)
+{
+    Removal r;
+    if (!prepareRemoval(v, &r))
+        return false;
+    commitRemoval(v, r);
+    return true;
+}
+
+template<class Storage>
+auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt) -> QualityReport
+{
+    QualityReport rep;
+    const bool resolutionOrder=opt.coarseningOrder==CoarseningOrder::ResolutionAware;
+    if((opt.coarseningOrder!=CoarseningOrder::LegacyFlatness && !resolutionOrder) ||
+       (resolutionOrder && (!opt.coarseningTargetSize || !(opt.coarseningReferenceSize>0) || !std::isfinite(opt.coarseningReferenceSize) || !(opt.normalVerticalToXY>0) || !std::isfinite(opt.normalVerticalToXY))) ||
+       (opt.terrainToleranceForFootprint && (!(opt.terrainTolerance>0) || !opt.terrainError || !opt.terrainElevationAt))) {
+        rep.invalidPolicy=true;return rep;
+    }
+    auto triangleBox=[&](const Triangle &cell) {
+        double x0=m_pts[cell.v[0]].x(),x1=x0,y0=m_pts[cell.v[0]].y(),y1=y0;
+        for(int k=1;k<3;++k){const auto p=m_pts[cell.v[k]];x0=std::min(x0,p.x());x1=std::max(x1,p.x());y0=std::min(y0,p.y());y1=std::max(y1,p.y());}
+        return Box(Point(x0,y0),Point(x1,y1));
+    };
+    auto toleranceFor=[&](const Triangle &cell) {
+        const double value=opt.terrainToleranceForFootprint?opt.terrainToleranceForFootprint(triangleBox(cell)):opt.terrainTolerance;
+        if(value>0 && std::isfinite(value))return value;
+        if(opt.terrainToleranceForFootprint)rep.invalidPolicy=true;
+        return std::numeric_limits<double>::quiet_NaN();
+    };
+    const double theta = std::clamp(opt.minAngleDeg, 0.0, 60.0) * M_PI / 180.0;
+    const double sinMin = std::sin(theta);
+    // Üngör's off-centre at Triangle's 0.475 factor: the new triangle on the
+    // shortest edge gets an apex angle just over the bound.
+    const double offK =
+        theta > 0.0 ? 0.475 * std::sqrt((1.0 + std::cos(theta)) / (1.0 - std::cos(theta))) : 0.0;
+    bool stop = false;
+    const double minEdge2 = opt.minEdge > 0.0 ? opt.minEdge * opt.minEdge : 0.0;
+    auto tooShortToSplit = [&](int a, int b) {
+        return minEdge2 > 0.0 && dist2(m_pts[a], m_pts[b]) < 4.0 * minEdge2;
+    };
+    const bool terrain = opt.terrainError && opt.terrainElevationAt && opt.terrainTolerance > 0;
+    // Terrain insertion must respect nearby vertices beyond the source
+    // triangle too. Quality/constraint repairs retain their separate floor.
+    const double terrainSpacing = std::max(opt.terrainMinSpacing, opt.minEdge);
+    Hash<std::pair<std::int64_t, std::int64_t>, Vector<int>> terrainGrid;
+    auto terrainKey = [&](const Point &p) {
+        return std::make_pair(std::int64_t(std::floor(p.x() / terrainSpacing)),
+                         std::int64_t(std::floor(p.y() / terrainSpacing)));
+    };
+    auto indexTerrainVertex = [&](int v) {
+        if (terrain && terrainSpacing > 0 && !isSuperVertex(v))
+            terrainGrid[terrainKey(m_pts[v])].append(v);
+    };
+    auto rebuildTerrainGrid = [&] {
+        terrainGrid.clear();
+        for (int v = 0; v < m_pts.size(); ++v)
+            indexTerrainVertex(v);
+    };
+    auto terrainClear = [&](const Point &p) {
+        if (!(terrainSpacing > 0))
+            return true;
+        const auto key = terrainKey(p);
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const auto it = terrainGrid.constFind(std::make_pair(key.first + dx, key.second + dy));
+                if (it != terrainGrid.cend())
+                    for (int v : *it)
+                        if (dist2(p, m_pts[v]) < terrainSpacing * terrainSpacing * (1.0 - 1e-12))
+                            return false;
+            }
+        return true;
+    };
+    if (terrain)
+        rebuildTerrainGrid();
+    m_terrainElevations.clear();
+    auto &heights = m_terrainElevations;
+    auto terrainError = [&](int t, Point *p) {
+        const auto &T = m_tris[t];
+        while (heights.size() < m_pts.size())
+            heights.append(std::numeric_limits<double>::infinity());
+        Point xy[3];
+        double z[3];
+        for (int k = 0; k < 3; ++k) {
+            const int v = T.v[k];
+            xy[k] = m_pts[v];
+            if (std::isinf(heights[v])) {
+                const double h = opt.terrainElevationAt(xy[k].x(), xy[k].y());
+                heights[v] = std::isfinite(h) ? h : std::numeric_limits<double>::quiet_NaN();
+            }
+            z[k] = heights[v];
+        }
+        return opt.terrainError(xy, z, p);
+    };
+    // The terrain error is a pure function of a triangle's ordered vertices
+    // (heights never change once set), so the final pass may reuse the last
+    // finite value measured for the same triple in the same slot.
+    struct Measured {
+        int v[3] = {-1, -1, -1};
+        double e = 0;
+    };
+    Vector<Measured> measured;
+    auto measure = [&](int t, Point *p) {
+        const double e = terrainError(t, p);
+        if (std::isfinite(e)) {
+            if (measured.size() <= t)
+                measured.resize(std::max<std::ptrdiff_t>(t + 1, measured.size() * 3 / 2));
+            Measured &m = measured[t];
+            for (int k = 0; k < 3; ++k)
+                m.v[k] = m_tris[t].v[k];
+            m.e = e;
+        }
+        return e;
+    };
+    int reason = 0; // 1 size, 2 angle, 3 terrain; count successful inserts only.
+    bool repairing = false;
+    int repairBegin = 0;
+    auto footprintCap = [&](const Triangle &t) {
+        if (!opt.maximumAreaForTriangle) return 0.;
+        const Point xy[3]={m_pts[t.v[0]],m_pts[t.v[1]],m_pts[t.v[2]]};
+        return opt.maximumAreaForTriangle(xy);
+    };
+
+    // Point for a bad triangle; false when it meets both bounds.
+    auto badPoint = [&](int t, Point *out) {
+        reason = 0;
+        const Triangle &T = m_tris[t];
+        if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))
+            return false;
+        const Point &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
+        const double cross = (B.x() - A.x()) * (C.y() - A.y()) - (B.y() - A.y()) * (C.x() - A.x());
+        if (!(cross > 0.0))
+            return false;
+        const double l[3] = {dist2(B, C), dist2(C, A), dist2(A, B)}; // edge opposite v[i]
+        const int s = (l[0] <= l[1] && l[0] <= l[2]) ? 0 : (l[1] <= l[2] ? 1 : 2);
+        bool bad = false;
+        if (opt.hAt) {
+            const Point g = (A + B + C) / 3.0;
+            const double h = opt.hAt(g.x(), g.y());
+            if (h > 0.0 && 0.5 * cross > kEquilateralArea * h * h) {
+                bad = true;
+                reason = 1;
+            }
+        }
+        if (!bad && opt.maximumAreaForTriangle) {
+            const double cap=footprintCap(T);
+            if(cap>0 && .5*cross>cap*(1+1e-10)) { bad=true; reason=1; }
+        }
+        if (!bad && repairing && opt.maximumAdjacentRatio>=1) {
+            for(int neighbour:T.adj) {
+                if(neighbour<0 || !m_tris[neighbour].alive) continue;
+                const auto &other=m_tris[neighbour];
+                if(isSuperVertex(other.v[0]) || isSuperVertex(other.v[1]) || isSuperVertex(other.v[2])) continue;
+                const double otherArea=std::abs(orientPts(m_pts[other.v[0]],m_pts[other.v[1]],m_pts[other.v[2]]))*.5;
+                if(std::sqrt(.5*cross/otherArea)>opt.maximumAdjacentRatio*(1+1e-10)) {bad=true;reason=1;break;}
+            }
+            if(!bad && opt.fixedNeighbourSize)
+                for(int k=0;k<3;++k){const double neighbour=opt.fixedNeighbourSize(T.v[(k+1)%3],T.v[(k+2)%3]);
+                    if(neighbour>0 && std::sqrt(.5*cross/kEquilateralArea)/neighbour>opt.maximumAdjacentRatio*(1+1e-10)){bad=true;reason=1;break;}
+                }
+        }
+        if (!bad && sinMin > 0.0 && l[s] >= minEdge2) {
+            const double sinA =
+                cross /
+                std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]); // angle opposite the shortest edge
+            if (sinA < sinMin && !exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3])) {
+                bad = true;
+                reason = 2;
+            }
+        }
+        if (!bad && terrain && (!opt.terrainWorstFirst || repairing)) {
+            const double e = measure(t, out);
+            if (std::isfinite(e) && e > toleranceFor(T)) {
+                const double clearance = std::max(opt.terrainMinSpacing, opt.minEdge);
+                // A protected elevation or minimum spacing may make the
+                // tolerance impossible. Leave it for the explicit final report.
+                if (std::min({dist2(*out, A), dist2(*out, B), dist2(*out, C)}) <=
+                    clearance * clearance)
+                    return false;
+                reason = 3;
+                return true;
+            }
+        }
+        if (!bad)
+            return false;
+        // Shortest edge P→Q with R on its left (counter-clockwise order).
+        const Point &P = m_pts[T.v[(s + 1) % 3]], &Q = m_pts[T.v[(s + 2) % 3]],
+                      &R = m_pts[T.v[s]];
+        const double bx = Q.x() - P.x(), by = Q.y() - P.y(), cx = R.x() - P.x(), cy = R.y() - P.y();
+        const double d = 2.0 * (bx * cy - by * cx);
+        if (!(d > 0.0))
+            return false;
+        const double b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+        double ux = (cy * b2 - by * c2) / d, uy = (bx * c2 - cx * b2) / d;
+        if (offK > 0.0) {
+            const double mx = 0.5 * bx, my = 0.5 * by;
+            const double ox = mx - offK * by, oy = my + offK * bx;
+            if ((ox - mx) * (ox - mx) + (oy - my) * (oy - my) <
+                (ux - mx) * (ux - mx) + (uy - my) * (uy - my)) {
+                ux = ox;
+                uy = oy;
+            }
+        }
+        *out = Point(P.x() + ux, P.y() + uy);
+        return std::isfinite(out->x()) && std::isfinite(out->y());
+    };
+
+    // Straight walk from triangle t's centroid to p. Returns the live
+    // triangle containing p, or -1 with *blockT/*blockE set to the first
+    // constrained edge the walk would cross (-1 when lost).
+    auto walkTo = [&](int t, const Point &p, int *blockT, int *blockE) {
+        *blockT = *blockE = -1;
+        const Triangle &T0 = m_tris[t];
+        const Point g = (m_pts[T0.v[0]] + m_pts[T0.v[1]] + m_pts[T0.v[2]]) / 3.0;
+        const int cap = 4 * m_tris.size() + 16;
+        for (int step = 0; step < cap; ++step) {
+            const Triangle &T = m_tris[t];
+            double o[3];
+            for (int i = 0; i < 3; ++i)
+                o[i] = orient(T.v[(i + 1) % 3], T.v[(i + 2) % 3], p);
+            if (o[0] >= 0.0 && o[1] >= 0.0 && o[2] >= 0.0)
+                return t;
+            int exit = -1;
+            for (int i = 0; i < 3 && exit < 0; ++i) {
+                if (!(o[i] < 0.0))
+                    continue;
+                const double s1 = orientPts(g, p, m_pts[T.v[(i + 1) % 3]]);
+                const double s2 = orientPts(g, p, m_pts[T.v[(i + 2) % 3]]);
+                if ((s1 <= 0.0 && s2 >= 0.0) || (s1 >= 0.0 && s2 <= 0.0))
+                    exit = i;
+            }
+            if (exit < 0)
+                for (int i = 0; i < 3 && exit < 0; ++i)
+                    if (o[i] < 0.0)
+                        exit = i;
+            if (T.constrained[exit]) {
+                *blockT = t;
+                *blockE = exit;
+                return -1;
+            }
+            const int n = T.adj[exit];
+            if (n < 0 || !m_tris[n].alive)
+                return -1;
+            t = n;
+        }
+        return -1;
+    };
+
+    // Constrained edges of the insertion cavity of p (triangles whose
+    // circumcircle holds p, reached without crossing a constraint) whose
+    // diametral circle holds p.
+    auto cavityEncroached = [&](int t0, const Point &p, Vector<std::uint64_t> *enc) {
+        const double pd[2] = {p.x(), p.y()};
+        Vector<int> stack{t0}, seen{t0};
+        while (!stack.isEmpty()) {
+            const int t = stack.takeLast();
+            const Triangle &T = m_tris[t];
+            for (int k = 0; k < 3; ++k) {
+                const int a = T.v[(k + 1) % 3], b = T.v[(k + 2) % 3];
+                if (T.constrained[k]) {
+                    const Point &A = m_pts[a], &B = m_pts[b];
+                    if ((A.x() - p.x()) * (B.x() - p.x()) + (A.y() - p.y()) * (B.y() - p.y()) < 0.0)
+                        enc->append(edgeKey64(a, b));
+                    continue;
+                }
+                const int n = T.adj[k];
+                if (n < 0 || !m_tris[n].alive || seen.contains(n))
+                    continue;
+                const Triangle &N = m_tris[n];
+                if (isSuperVertex(N.v[0]) || isSuperVertex(N.v[1]) || isSuperVertex(N.v[2]))
+                    continue;
+                const double pa[2] = {m_pts[N.v[0]].x(), m_pts[N.v[0]].y()};
+                const double pb[2] = {m_pts[N.v[1]].x(), m_pts[N.v[1]].y()};
+                const double pc[2] = {m_pts[N.v[2]].x(), m_pts[N.v[2]].y()};
+                if (!(incircle(pa, pb, pc, pd) > 0.0))
+                    continue;
+                seen.append(n);
+                stack.append(n);
+            }
+        }
+    };
+
+    Vector<std::uint64_t> segQueue;
+    // Intrusive FIFO angle buckets: one pending entry per triangle, no stale
+    // history proportional to all insertions, and no O(log N) heap operations.
+    std::array<int, 32> heads, tails;
+    heads.fill(-1);
+    tails.fill(-1);
+    Vector<int> next(m_tris.size(), -2); // -2 means not queued, -1 end of list
+    auto enqueue = [&](int t) {
+        while (next.size() < m_tris.size())
+            next.append(-2);
+        const auto &T = m_tris[t];
+        if (!T.alive || next[t] != -2)
+            return;
+        int bucket = 31;
+        if (opt.prioritizeQuality && sinMin > 0) {
+            const auto &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+            const double cross =
+                std::abs((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()));
+            const double l0 = dist2(a, b), l1 = dist2(b, c), l2 = dist2(c, a);
+            const double denom = std::sqrt(std::max({l0 * l1, l1 * l2, l2 * l0}));
+            if (denom > 0)
+                bucket = std::clamp(int(31 * cross / (denom * sinMin)), 0, 31);
+        }
+        next[t] = -1;
+        if (tails[bucket] >= 0)
+            next[tails[bucket]] = t;
+        else
+            heads[bucket] = t;
+        tails[bucket] = t;
+    };
+    auto dequeue = [&]() {
+        for (int k = 0; k < 32; ++k)
+            if (heads[k] >= 0) {
+                const int t = heads[k];
+                heads[k] = next[t];
+                if (heads[k] < 0)
+                    tails[k] = -1;
+                next[t] = -2;
+                return t;
+            }
+        return -1;
+    };
+    m_triangleChanged = enqueue;
+    // The cell budget counts live triangles: removed regions (exterior,
+    // holes, patch interiors) leave dead slots that are never refilled.
+    GenerationProgress::Stage progressStage = GenerationProgress::Stage::Refining;
+    auto publishProgress = [&] {
+        if (opt.onProgress) {
+            GenerationProgress state;
+            state.stage = progressStage;
+            state.workingVertices = std::max<std::ptrdiff_t>(0, m_pts.size() - 3);
+            state.triangles = liveTriangleCount();
+            state.inserted = rep.inserted;
+            state.removed = rep.coarsenRemoved;
+            opt.onProgress(state);
+        }
+    };
+    publishProgress();
+    const auto clearObserver = detail::scopeExit([&] { m_triangleChanged = {}; });
+    auto queueEncroachedOf = [&](int t) {
+        const Triangle &T = m_tris[t];
+        for (int k = 0; k < 3; ++k) {
+            if (!T.constrained[k])
+                continue;
+            const int a = T.v[(k + 1) % 3], b = T.v[(k + 2) % 3];
+            if (isSuperVertex(a) || isSuperVertex(b) || isFixedSub(a, b))
+                continue;
+            if (subsegmentEncroached(a, b))
+                segQueue.append(edgeKey64(a, b));
+        }
+    };
+    auto afterInsert = [&](int v) {
+        indexTerrainVertex(v);
+        ++rep.inserted;
+        Vector<int> star;
+        trianglesAround(v, &star);
+        for (int t : std::as_const(star))
+            if (m_tris[t].alive) {
+                enqueue(t);
+                queueEncroachedOf(t);
+            }
+        if (rep.inserted >= opt.maxInsertions || liveTriangleCount() >= opt.maxTriangles) {
+            rep.capped = true;
+            stop = true;
+        }
+        if(repairing && rep.inserted-repairBegin>=opt.maximumSizingRepairInsertions)
+            rep.sizingRepairLimited=true;
+        if ((rep.inserted & 4095) == 0) {
+            publishProgress();
+            if (opt.cancelled && opt.cancelled()) {
+                rep.cancelled = true;
+                stop = true;
+            }
+        }
+    };
+    auto drainSegments = [&]() {
+        while (!segQueue.isEmpty() && !stop && !(repairing && rep.sizingRepairLimited)) {
+            const std::uint64_t k = segQueue.takeLast();
+            const int a = keyLo(k), b = keyHi(k);
+            if (isFixedSub(a, b) || tooShortToSplit(a, b) || !isConstrained(a, b) ||
+                !subsegmentEncroached(a, b))
+                continue;
+            const int v = splitSubsegment(a, b);
+            if (v < 0)
+                continue;
+            ++rep.segmentSplits;
+            afterInsert(v);
+        }
+    };
+
+    for (int i = 0; i < m_tris.size(); ++i)
+        if (m_tris[i].alive) {
+            enqueue(i);
+            queueEncroachedOf(i);
+        }
+    if (liveTriangleCount() >= opt.maxTriangles) {
+        rep.capped = true;
+        stop = true;
+    }
+    drainSegments();
+
+    Vector<std::uint64_t> enc;
+    // Insert p for bad triangle t (reason already set), or split the
+    // subsegments p would encroach. Returns false when nothing changed.
+    auto tryInsert = [&](int t, Point p) {
+        if (reason == 3 && !terrainClear(p))
+            return false;
+        enc.clear();
+        int blockT = -1, blockE = -1;
+        int c = walkTo(t, p, &blockT, &blockE);
+        if (c < 0) {
+            if (blockT < 0)
+                return false; // lost the point: leave the triangle
+            enc.append(
+                edgeKey64(m_tris[blockT].v[(blockE + 1) % 3], m_tris[blockT].v[(blockE + 2) % 3]));
+        } else
+            cavityEncroached(c, p, &enc);
+        if (!enc.isEmpty()) {
+            // Split what the point would encroach instead of inserting it
+            // (the subsegments need not be encroached by an existing vertex).
+            bool split = false;
+            for (std::uint64_t k : std::as_const(enc)) {
+                const int a = keyLo(k), b = keyHi(k);
+                if (stop || isFixedSub(a, b) || tooShortToSplit(a, b) || !isConstrained(a, b))
+                    continue;
+                if (reason == 3 && !terrainClear((m_pts[a] + m_pts[b]) * 0.5))
+                    continue;
+                const int v = splitSubsegment(a, b);
+                if (v < 0)
+                    continue;
+                ++rep.segmentSplits;
+                split = true;
+                afterInsert(v);
+            }
+            if (!split) {
+                ++rep.blockedByFixed;
+                // Size repair may need a skinny triangle against an immutable
+                // quad edge. An interior insertion preserves that edge exactly;
+                // ordinary constrained edges must still use segment recovery.
+                if(!repairing || reason!=1 || !opt.maximumAreaForTriangle)return false;
+                const auto &cell=m_tris[t];
+                const auto a=m_pts[cell.v[0]],b=m_pts[cell.v[1]],cxy=m_pts[cell.v[2]];
+                const double cap=footprintCap(cell);
+                if(!(cap>0) || orientPts(a,b,cxy)*.5<=cap*(1+1e-10))return false;
+                const Point center=a+((b-a)+(cxy-a))/3.;
+                if(!std::isfinite(center.x()) || !std::isfinite(center.y()) ||
+                   std::min({dist2(center,a),dist2(center,b),dist2(center,cxy)})<minEdge2 ||
+                   orientPts(a,b,center)<=0 || orientPts(b,cxy,center)<=0 || orientPts(cxy,a,center)<=0)return false;
+                enc.clear();cavityEncroached(t,center,&enc);
+                for(std::uint64_t key:enc)if(!isFixedSub(keyLo(key),keyHi(key)))return false;
+                p=center;c=t;
+            } else {
+                enqueue(t); // retried with the subsegments split
+                drainSegments();
+                return true;
+            }
+        }
+        m_lastLocate = c;
+        const int before = m_pts.size();
+        const int v = insertPoint(p);
+        if (v < 0 || v < before)
+            return false; // outside or coincident
+        addVertexOrigin(v, reason == 1 ? Size : reason == 2 ? Angle : Terrain);
+        if (reason == 1)
+            ++rep.sizeInsertions;
+        else if (reason == 2)
+            ++rep.qualityInsertions;
+        else if (reason == 3)
+            ++rep.terrainInsertions;
+        afterInsert(v);
+        drainSegments();
+        return true;
+    };
+    int examined = 0;
+    auto drainQueue = [&]() {
+        while (!stop && !rep.invalidPolicy && !(repairing && rep.sizingRepairLimited)) {
+            const int t = dequeue();
+            if (t < 0)
+                break;
+            if ((++examined & 4095) == 0) {
+                publishProgress();
+                if (opt.cancelled && opt.cancelled()) {
+                    rep.cancelled = true;
+                    break;
+                }
+            }
+            Point p;
+            if (!badPoint(t, &p))
+                continue;
+            tryInsert(t, p);
+        }
+    };
+    drainQueue();
+
+    // Non-degrading smoothing (MESH_REGIONAL_TRIQUAD_PLAN D-R6): before any
+    // terrain point is placed, so no sampled height is moved off its spot.
+    if (opt.smoothingPasses > 0 && (!terrain || opt.terrainWorstFirst) && !stop && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Smoothing;
+        publishProgress();
+        auto minAngleOf = [&](int t) {
+            const auto &T = m_tris[t];
+            const Point &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+            const double l[3] = {dist2(b, c), dist2(c, a), dist2(a, b)};
+            const double cross =
+                std::abs((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()));
+            // sin of the angle opposite the shortest edge
+            const int s = (l[0] <= l[1] && l[0] <= l[2]) ? 0 : (l[1] <= l[2] ? 1 : 2);
+            return cross / std::sqrt(l[(s + 1) % 3] * l[(s + 2) % 3]);
+        };
+        auto positive = [&](int t) {
+            const auto &T = m_tris[t];
+            const Point &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+            return (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()) > 0.0;
+        };
+        const int firstFree = m_superBase + 3;
+        Vector<int> star;
+        for (int pass = 0; pass < opt.smoothingPasses; ++pass) {
+            for (int v = firstFree; v < m_pts.size(); ++v) {
+                star.clear();
+                trianglesAround(v, &star);
+                if (star.size() < 3)
+                    continue;
+                bool fixed = false;
+                double wsum = 0, cx = 0, cy = 0, before = 1e300;
+                for (int t : std::as_const(star)) {
+                    const auto &T = m_tris[t];
+                    const int i = edgeIndex(t, v);
+                    if (!T.alive || i < 0 || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) ||
+                        isSuperVertex(T.v[2]) || T.constrained[(i + 1) % 3] ||
+                        T.constrained[(i + 2) % 3] || T.adj[(i + 1) % 3] < 0 ||
+                        T.adj[(i + 2) % 3] < 0) {
+                        fixed = true;
+                        break;
+                    }
+                    const Point &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+                    const double area = 0.5 * std::abs((b.x() - a.x()) * (c.y() - a.y()) -
+                                                       (b.y() - a.y()) * (c.x() - a.x()));
+                    cx += area * (a.x() + b.x() + c.x()) / 3.0;
+                    cy += area * (a.y() + b.y() + c.y()) / 3.0;
+                    wsum += area;
+                    before = std::min(before, minAngleOf(t));
+                }
+                if (fixed || !(wsum > 0.0))
+                    continue;
+                const Point old = m_pts[v];
+                m_pts[v] = Point(cx / wsum, cy / wsum);
+                double after = 1e300;
+                bool valid = true;
+                for (int t : std::as_const(star)) {
+                    if (!positive(t)) {
+                        valid = false;
+                        break;
+                    }
+                    after = std::min(after, minAngleOf(t));
+                }
+                if (!valid || !(after > before * (1.0 + 1e-9))) {
+                    m_pts[v] = old;
+                    continue;
+                }
+                for (int t : std::as_const(star))
+                    if (m_tris[t].alive) {
+                        const int i = edgeIndex(t, v);
+                        if (i >= 0)
+                            legalize(t, i);
+                    }
+            }
+        }
+    }
+
+    // Worst-first terrain refinement: with size and angle met, spend the
+    // remaining cell budget where the surface error is largest, so a capped
+    // run still has even fidelity. Each insertion restores quality locally,
+    // then only the triangles it changed are measured again.
+    if (terrain && opt.terrainWorstFirst && !stop && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Terrain;
+        publishProgress();
+        // Smoothing may have moved vertices since the initial grid build.
+        rebuildTerrainGrid();
+        struct Candidate {
+            double e;
+            int t;
+            int v[3];
+            Point p;
+        };
+        auto worse = [](const Candidate &a, const Candidate &b) { return a.e < b.e; };
+        std::priority_queue<Candidate, std::vector<Candidate>, decltype(worse)> heap(worse);
+        auto consider = [&](int t) {
+            const Triangle &T = m_tris[t];
+            if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))
+                return;
+            const Point &A = m_pts[T.v[0]], &B = m_pts[T.v[1]], &C = m_pts[T.v[2]];
+            if (!((B.x() - A.x()) * (C.y() - A.y()) - (B.y() - A.y()) * (C.x() - A.x()) > 0.0))
+                return;
+            Point p;
+            const double e = measure(t, &p);
+            const double localTolerance=toleranceFor(T);
+            if (!std::isfinite(e) || !std::isfinite(localTolerance) || e <= localTolerance)
+                return;
+            const double clearance = std::max(opt.terrainMinSpacing, opt.minEdge);
+            if (std::min({dist2(p, A), dist2(p, B), dist2(p, C)}) <= clearance * clearance)
+                return;
+            heap.push({opt.terrainToleranceForFootprint?e/localTolerance:e, t, {T.v[0], T.v[1], T.v[2]}, p});
+        };
+        for (int t = 0; t < m_tris.size(); ++t)
+            consider(t);
+        Vector<int> changed;
+        m_triangleChanged = [&](int t) {
+            enqueue(t);
+            changed.append(t);
+        };
+        while (!heap.empty() && !stop) {
+            const Candidate c = heap.top();
+            heap.pop();
+            const Triangle &T = m_tris[c.t];
+            if (!T.alive || T.v[0] != c.v[0] || T.v[1] != c.v[1] || T.v[2] != c.v[2])
+                continue;
+            if ((++examined & 4095) == 0 && opt.cancelled && opt.cancelled()) {
+                rep.cancelled = true;
+                break;
+            }
+            changed.clear();
+            reason = 3;
+            if (!tryInsert(c.t, c.p))
+                continue;
+            drainQueue();
+            for (int t : std::as_const(changed))
+                consider(t);
+        }
+        m_triangleChanged = enqueue;
+    }
+    // Coarsening cannot use refinement witnesses as upper bounds. Only the
+    // explicit coverage-aware callback (and bounds derived from it) certifies
+    // replacement triangles. Removed slots and vertex ids remain stable.
+    m_triangleChanged = {};
+    if (opt.coarsenPasses > 0 && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Coarsening;
+        publishProgress();
+        detail::Timer clock;
+        clock.start();
+        rep.coarsenSkippedTerrain = terrain && !opt.terrainErrorBound;
+        if (!rep.coarsenSkippedTerrain) {
+            const double unknown = std::numeric_limits<double>::quiet_NaN();
+            Vector<double> bounds(terrain ? m_tris.size() : 0, unknown);
+            Vector<unsigned char> attempts(m_pts.size(), 0);
+            Vector<unsigned> versions(resolutionOrder?0:m_pts.size(), 0);
+            const auto freeSlots=std::max<std::ptrdiff_t>(0,m_pts.size()-m_superBase-3);
+            CoarseningQueue resolutionHeap(resolutionOrder && freeSlots?m_pts.size():0,resolutionOrder?freeSlots:0);
+            // Serial Morton tiles improve DEM locality; boundary stars are
+            // allowed because no concurrent topology mutation takes place.
+            double x0 = std::numeric_limits<double>::infinity(), y0 = x0, x1 = -x0, y1 = -x0;
+            Vector<char> used(m_pts.size(), 0);
+            for (const auto &T : m_tris)
+                if (T.alive)
+                    for (int v : T.v)
+                        if (!isSuperVertex(v)) {
+                            used[v] = 1;
+                            x0 = std::min(x0, m_pts[v].x());
+                            y0 = std::min(y0, m_pts[v].y());
+                            x1 = std::max(x1, m_pts[v].x());
+                            y1 = std::max(y1, m_pts[v].y());
+                        }
+            auto key = [&](int v, unsigned scale) {
+                const unsigned x =
+                    x1 > x0
+                        ? unsigned(std::clamp((m_pts[v].x() - x0) / (x1 - x0), 0.0, 1.0) * scale)
+                        : 0;
+                const unsigned y =
+                    y1 > y0
+                        ? unsigned(std::clamp((m_pts[v].y() - y0) / (y1 - y0), 0.0, 1.0) * scale)
+                        : 0;
+                return mortonKey(x, y);
+            };
+            if (terrain) {
+                // Capped refinement may not have reached terrain at all.
+                // Sample each needed elevation once, spatially ordered; the
+                // assembly stage reuses these same values afterwards.
+                while (heights.size() < m_pts.size())
+                    heights.append(std::numeric_limits<double>::infinity());
+                Vector<std::pair<std::uint64_t, int>> pending;
+                for (int v = 0; v < m_pts.size(); ++v)
+                    if (used[v] && std::isinf(heights[v]))
+                        pending.append({key(v, 65535), v});
+                std::sort(pending.begin(), pending.end());
+                for (int i = 0; i < pending.size(); ++i) {
+                    if ((i & 4095) == 0 && opt.cancelled && opt.cancelled()) {
+                        rep.cancelled = true;
+                        break;
+                    }
+                    const int v = pending[i].second;
+                    heights[v] = opt.terrainElevationAt(m_pts[v].x(), m_pts[v].y());
+                }
+            }
+            struct Candidate {
+                float score;
+                int v;
+                unsigned version, tile;
+            };
+            auto less = [](const Candidate &a, const Candidate &b) {
+                if (a.tile != b.tile)
+                    return a.tile > b.tile;
+                return a.score != b.score ? a.score < b.score : a.v > b.v;
+            };
+            std::priority_queue<Candidate, std::vector<Candidate>, decltype(less)> heap(less);
+            auto height = [&](int v) {
+                while (heights.size() < m_pts.size())
+                    heights.append(std::numeric_limits<double>::infinity());
+                if (std::isinf(heights[v]))
+                    heights[v] = opt.terrainElevationAt(m_pts[v].x(), m_pts[v].y());
+                return heights[v];
+            };
+            auto score = [&](int v,const Vector<int> &star) {
+                if (!terrain)
+                    return 1.0;
+                std::array<double, 3> sum{0, 0, 0};
+                Vector<std::array<double, 3>> normals;
+                for (int t : star) {
+                    const auto &T = m_tris[t];
+                    const Point b = m_pts[T.v[1]] - m_pts[T.v[0]],
+                                  c = m_pts[T.v[2]] - m_pts[T.v[0]];
+                    const double scale=resolutionOrder?opt.normalVerticalToXY:1.;
+                    const double z = height(T.v[0]), bz = (height(T.v[1]) - z)*scale,
+                                 cz = (height(T.v[2]) - z)*scale;
+                    if (!std::isfinite(z) || !std::isfinite(bz) || !std::isfinite(cz))
+                        return -1.0;
+                    std::array<double, 3> normal{b.y() * cz - bz * c.y(), bz * c.x() - b.x() * cz,
+                                                 b.x() * c.y() - b.y() * c.x()};
+                    const double length = std::hypot(normal[0], normal[1], normal[2]);
+                    if (!(length > 0))
+                        return -1.0;
+                    for (int k = 0; k < 3; ++k) {
+                        sum[k] += normal[k];
+                        normal[k] /= length;
+                    }
+                    normals.append(normal);
+                }
+                const double length = std::hypot(sum[0], sum[1], sum[2]);
+                if (!(length > 0))
+                    return -1.0;
+                double result = 1;
+                for (const auto &n : normals)
+                    result =
+                        std::min(result, (n[0] * sum[0] + n[1] * sum[1] + n[2] * sum[2]) / length);
+                return result;
+            };
+            const int limit = std::clamp(opt.coarsenPasses, 1, 10);
+            auto queue = [&](int v) {
+                if (v < m_superBase + 3 || !isVertexActive(v) || m_vertexSeg.contains(v) ||
+                    opt.protectedVertices.contains(v) ||
+                    (opt.protectedLocation && opt.protectedLocation(m_pts[v])) ||
+                    attempts[v] >= limit)
+                    return;
+                Vector<int> star;if(terrain || resolutionOrder)trianglesAround(v,&star);
+                const double flatness=score(v,star);
+                if(!resolutionOrder) {
+                    heap.push({float(flatness),v,++versions[v],unsigned(key(v,31))});
+                    rep.coarsenQueuePeak=std::max<std::uint64_t>(rep.coarsenQueuePeak,heap.size());
+                    return;
+                }
+                Box box;double totalArea=0;bool first=true;
+                for(int t:star){const auto &cell=m_tris[t];const auto bound=triangleBox(cell);
+                    box=first?bound:box.united(bound);first=false;
+                    totalArea+=.5*orientPts(m_pts[cell.v[0]],m_pts[cell.v[1]],m_pts[cell.v[2]]);}
+                ++rep.coarsenPriorityQueries;
+                double target=opt.coarseningTargetSize(box);
+                if(!std::isfinite(target) || target<0){rep.invalidPolicy=true;return;}
+                if(target==0)target=opt.coarseningReferenceSize;
+                const double actual=star.isEmpty()?0:std::sqrt(totalArea/(star.size()*kEquilateralArea));
+                const double density=actual/target;
+                const double importance=flatness>=-1?resolutionRemovalImportance(flatness,actual,target):std::numeric_limits<double>::infinity();
+                const auto compact=[](double value){return float(std::min(value,double(std::numeric_limits<float>::max())));};
+                resolutionHeap.update({compact(importance),compact(density),v,unsigned(key(v,31))});
+                rep.coarsenQueuePeak=std::max<std::uint64_t>(rep.coarsenQueuePeak,resolutionHeap.size());
+            };
+            for (int v = m_superBase + 3; v < m_pts.size() && !rep.cancelled && !rep.invalidPolicy; ++v) {
+                if ((v & 4095) == 0 && opt.cancelled && opt.cancelled()) {
+                    rep.cancelled = true;
+                    break;
+                }
+                queue(v);
+            }
+            auto plane = [&](const Triangle &T, const Point &p) {
+                const auto &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+                const double z = height(T.v[0]);
+                const double cross = orientPts(a, b, c);
+                const double u =
+                    ((p.x() - a.x()) * (c.y() - a.y()) - (p.y() - a.y()) * (c.x() - a.x())) / cross;
+                const double w =
+                    ((b.x() - a.x()) * (p.y() - a.y()) - (b.y() - a.y()) * (p.x() - a.x())) / cross;
+                return z + u * (height(T.v[1]) - z) + w * (height(T.v[2]) - z);
+            };
+            while (!(resolutionOrder?resolutionHeap.empty():heap.empty()) && !rep.cancelled && !rep.invalidPolicy) {
+                Candidate c{};
+                if(resolutionOrder){const auto next=resolutionHeap.pop();c.v=next.vertex;}
+                else {c=heap.top();heap.pop();}
+                const int v = c.v;
+                if ((!resolutionOrder && c.version != versions[v]) || !isVertexActive(v))
+                    continue;
+                if ((rep.coarsenAttempts & 255) == 0) {
+                    publishProgress();
+                    if (opt.cancelled && opt.cancelled()) {
+                        rep.cancelled = true;
+                        break;
+                    }
+                }
+                ++attempts[v];
+                ++rep.coarsenAttempts;
+                Removal r;
+                if (!prepareRemoval(v, &r))
+                    continue;
+                double shortest = std::numeric_limits<double>::infinity();
+                for (int t : r.star)
+                    for (int k = 0; k < 3; ++k)
+                        shortest = std::min(shortest, dist2(m_pts[m_tris[t].v[k]],
+                                                            m_pts[m_tris[t].v[(k + 1) % 3]]));
+                bool accepted = true;
+                for (const auto &T : r.replacement) {
+                    const Point &a = m_pts[T.v[0]], &b = m_pts[T.v[1]], &c = m_pts[T.v[2]];
+                    const double cross = orientPts(a, b, c);
+                    const double l[3] = {dist2(b, c), dist2(c, a), dist2(a, b)};
+                    const int k = l[0] <= l[1] && l[0] <= l[2] ? 0 : l[1] <= l[2] ? 1 : 2;
+                    if (l[k] < shortest * (1 - 1e-12)) {
+                        ++rep.coarsenRejectedEdge;
+                        accepted = false;
+                        break;
+                    }
+                    if (l[k] >= minEdge2 &&
+                        cross / std::sqrt(l[(k + 1) % 3] * l[(k + 2) % 3]) < sinMin &&
+                        !exemptShortestEdge(T.v[(k + 1) % 3], T.v[(k + 2) % 3])) {
+                        ++rep.coarsenRejectedAngle;
+                        accepted = false;
+                        break;
+                    }
+                    const Point g = (a + b + c) / 3;
+                    const double h = opt.hAt ? opt.hAt(g.x(), g.y()) : 0;
+                    if (h > 0 && cross * .5 > kEquilateralArea * h * h) {
+                        ++rep.coarsenRejectedSize;
+                        accepted = false;
+                        break;
+                    }
+                    if(resolutionOrder) {
+                        const double target=opt.coarseningTargetSize(triangleBox(T));
+                        if(!std::isfinite(target) || target<0){rep.invalidPolicy=true;accepted=false;break;}
+                        if(target>0 && static_cast<long double>(cross)*.5>kEquilateralArea*static_cast<long double>(target)*target*(1+1e-10)) {
+                            ++rep.coarsenRejectedSize;accepted=false;break;
+                        }
+                    }
+                    const double cap=footprintCap(T);
+                    if(cap>0 && cross*.5>cap*(1+1e-10)) {
+                        ++rep.coarsenRejectedSize; accepted=false; break;
+                    }
+                }
+                if (!accepted)
+                    continue;
+                Vector<double> newBounds;
+                if (terrain) {
+                    // A necessary condition only: the removed reference height
+                    // must still fit the new plane covering its location.
+                    for (const auto &T : r.replacement)
+                        if (orient(T.v[0], T.v[1], m_pts[v]) >= 0 &&
+                            orient(T.v[1], T.v[2], m_pts[v]) >= 0 &&
+                            orient(T.v[2], T.v[0], m_pts[v]) >= 0) {
+                            const double error = std::abs(plane(T, m_pts[v]) - height(v));
+                            if (!std::isfinite(error) || !std::isfinite(toleranceFor(T)) || error > toleranceFor(T)) {
+                                ++rep.coarsenHeightRejects;
+                                accepted = false;
+                            }
+                            break;
+                        }
+                    for (const auto &T : r.replacement) {
+                        if (!accepted)
+                            break;
+                        double bound = 0;
+                        // The plane difference is affine. Bounding it at all
+                        // three vertices of EVERY old triangle covers every
+                        // overlap, without assuming the polygons are convex.
+                        for (int t : r.star) {
+                            if (!std::isfinite(bounds[t])) {
+                                bound = unknown;
+                                break;
+                            }
+                            double difference = 0;
+                            for (int q : m_tris[t].v) {
+                                const double d = std::abs(plane(T, m_pts[q]) - height(q));
+                                if (!std::isfinite(d)) {
+                                    difference = unknown;
+                                    break;
+                                }
+                                difference = std::max(difference, d);
+                            }
+                            if (!std::isfinite(difference)) {
+                                bound = unknown;
+                                break;
+                            }
+                            bound = std::max(bound, bounds[t] + difference);
+                        }
+                        if (std::isfinite(bound) && bound <= toleranceFor(T) * (1 - 1e-10))
+                            ++rep.coarsenBoundAccepts;
+                        else {
+                            Point xy[3];
+                            double z[3];
+                            for (int k = 0; k < 3; ++k) {
+                                xy[k] = m_pts[T.v[k]];
+                                z[k] = height(T.v[k]);
+                            }
+                            bound = opt.terrainErrorBound(xy, z);
+                            ++rep.coarsenExactQueries;
+                        }
+                        if (!std::isfinite(bound) || bound < 0 || !std::isfinite(toleranceFor(T)) || bound > toleranceFor(T))
+                            accepted = false;
+                        newBounds.append(bound);
+                    }
+                    if (!accepted) {
+                        ++rep.coarsenRejectedTerrain;
+                        continue;
+                    }
+                }
+                commitRemoval(v, r);
+                ++rep.coarsenRemoved;
+                for (int i = 0; i < r.star.size(); ++i) {
+                    const int t = r.star[i];
+                    if (t < measured.size())
+                        measured[t] = Measured{};
+                    if (terrain)
+                        bounds[t] = i < newBounds.size() ? newBounds[i] : unknown;
+                }
+                for (int q : r.ring)
+                    queue(q);
+            }
+        }
+        rep.coarsenSeconds = clock.nsecsElapsed() / 1e9;
+    }
+    // Bounded repair after smoothing, terrain insertion and coarsening. Ordinary
+    // constraints may be subdivided but never moved/deleted; fixed patch edges
+    // retain their stations. Terrain is rechecked inline for every changed cell.
+    if(opt.sizingRepairPasses>0 && !stop && !rep.cancelled) {
+        repairing=true; repairBegin=rep.inserted;
+        if(opt.maximumSizingRepairInsertions<=0) rep.sizingRepairLimited=true;
+        progressStage=GenerationProgress::Stage::Refining;
+        m_triangleChanged=[&](int t) {
+            enqueue(t);
+            for(int n:m_tris[t].adj) if(n>=0) enqueue(n);
+        };
+        for(int pass=0;pass<std::clamp(opt.sizingRepairPasses,0,3) && !stop && !rep.cancelled && !rep.sizingRepairLimited;++pass) {
+            heads.fill(-1); tails.fill(-1); next.fill(-2,m_tris.size());
+            const int before=rep.inserted;
+            ++rep.sizingRepairPasses;
+            for(int t=0;t<m_tris.size();++t) {
+                if((t&4095)==0 && opt.cancelled && opt.cancelled()) {rep.cancelled=true;break;}
+                if(m_tris[t].alive) enqueue(t);
+            }
+            if(rep.cancelled) break;
+            drainQueue();
+            if(rep.inserted==before) break;
+        }
+        rep.sizingRepairInserted=rep.inserted-repairBegin;
+        m_triangleChanged={};
+    }
+    // Independent pass over the final geometry: every live triangle is checked,
+    // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.
+    // A value is reused only for the identical ordered vertex triple.
+    if (terrain && opt.terrainFinalCheck && !rep.cancelled) {
+        progressStage = GenerationProgress::Stage::Verifying;
+        publishProgress();
+        for (int t = 0; t < m_tris.size(); ++t) {
+            const auto &T = m_tris[t];
+            if (!T.alive || isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))
+                continue;
+            if ((t & 4095) == 0 && opt.cancelled && opt.cancelled()) {
+                rep.cancelled = true;
+                break;
+            }
+            double e;
+            if (t < measured.size() && measured[t].v[0] == T.v[0] && measured[t].v[1] == T.v[1] &&
+                measured[t].v[2] == T.v[2])
+                e = measured[t].e;
+            else {
+                Point p;
+                e = terrainError(t, &p);
+            }
+            if (!std::isfinite(e) || !std::isfinite(toleranceFor(T)))
+                ++rep.terrainUnknown;
+            else {
+                rep.maxTerrainError = std::max(rep.maxTerrainError, e);
+                if (e > toleranceFor(T))
+                    ++rep.terrainUnresolved;
+            }
+        }
+    }
+    publishProgress();
+    return rep;
+}
+
+} // namespace mesh

@@ -1952,13 +1952,18 @@ bool buildConstraintPolys(const QVector<QPolygonF> &domains,
         polys->append(p);
     }
     for (int i = 0; i < regionRings.size(); ++i) {
-        if (regionRings[i].size() < 3 || regions[i].isBackground)
+        if (regionRings[i].size() < 3 || regions[i].isBackground || regions[i].automaticCandidate)
             continue;
         Poly p;
         p.pts = regionRings[i];
         p.closed = true;
         p.regionIndex = i;
         polys->append(p);
+        if(exactCoordinates)for(const auto &hole:regions[i].holes) {
+            Poly inner;inner.pts=openRing(hole,true);inner.closed=true;
+            if(inner.pts.size()<3)return false;
+            polys->append(inner);
+        }
     }
     for (const PatchMesh &pm : patches)
         appendPatchBoundary(pm, true, polys);
@@ -2003,11 +2008,11 @@ QVector<QVector<QPointF>> MeshGenerator::previewTerrainBreaklines() const
     QVector<QVector<QPointF>> regionRings(m_quadRegions.size());
     for (int i = 0; i < m_quadRegions.size(); ++i)
         regionRings[i] =
-            openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()), m_opts.preserveConstraintCoordinates);
+            openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()), (m_opts.preserveConstraintCoordinates || m_opts.unifiedCellPlanning));
     QVector<Poly> polys;
     QVector<QVector<QPointF>> domainRings, holeRings;
     if (!buildConstraintPolys(m_domains, m_segments, regionRings, m_quadRegions, m_patches, m_holes,
-                              &polys, &domainRings, &holeRings, m_opts.preserveConstraintCoordinates))
+                              &polys, &domainRings, &holeRings, (m_opts.preserveConstraintCoordinates || m_opts.unifiedCellPlanning)))
         return m_terrainLines;
     if (!m_opts.allowQuads)
         for (auto &poly : polys)
@@ -2035,17 +2040,25 @@ QVector<QVector<QPointF>> MeshGenerator::previewTerrainBreaklines() const
 MeshResult MeshGenerator::generate() const
 {
     m_leakedPatches.clear();
+    m_disabledPlanRegions.clear();
+    m_planRefinements.clear();
     for (int attempt = 0;; ++attempt) {
         QPair<qint64, qint64> leaked{std::numeric_limits<qint64>::min(), 0};
         MeshResult r = generateOnce(&leaked);
-        if (leaked.first == std::numeric_limits<qint64>::min() || attempt >= 64)
+        m_stats.triangulationPasses=attempt+1;
+        if(m_opts.unifiedCellPlanning && attempt>=3 && (!m_planRetryReason.isEmpty() || leaked.first!=std::numeric_limits<qint64>::min())) {
+            r.ok=false;
+            r.errorMsg=QStringLiteral("Unified cell planning stopped after three regeneration retries: ")+r.errorMsg;
             return r;
-        m_leakedPatches.insert(leaked);
+        }
+        if ((leaked.first == std::numeric_limits<qint64>::min() && m_planRetryReason.isEmpty()) || attempt >= (m_opts.unifiedCellPlanning?3:64))
+            return r;
+        if(leaked.first != std::numeric_limits<qint64>::min())m_leakedPatches.insert(leaked);
         GeneratorDiagnostic(m_refineHook.onDiagnostic).noquote()
-            << QStringLiteral(
+            << (m_planRetryReason.isEmpty()?QStringLiteral(
                    "[Mesh] a structured patch's ring is not watertight; regenerating with it "
                    "as triangles (%1 excluded so far)")
-                   .arg(m_leakedPatches.size());
+                   .arg(m_leakedPatches.size()):QString("[Mesh][planning] %1; retry %2 of 3").arg(m_planRetryReason).arg(attempt+1));
     }
 }
 
@@ -2057,6 +2070,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     m_edgeTagByMarker.clear();
     m_triangleTagByRegionId.clear();
     m_quadReports.clear();
+    m_patchDecisions.clear();
+    m_planRetryReason.clear();
     m_stats = GenerationStats();
 
     auto fail = [&](const QString &msg) {
@@ -2073,6 +2088,11 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
 
     if (m_domains.isEmpty())
         return fail(QStringLiteral("MeshGenerator: domain is empty."));
+    if(m_opts.unifiedCellPlanning && !m_opts.verifiedSizing)
+        return fail(QStringLiteral("Unified cell planning requires verified sizing."));
+    if(!m_opts.unifiedCellPlanning)
+        for(const auto &region:m_quadRegions)if(region.requireMapped)
+            return fail(QStringLiteral("Required mapped regions need unified cell planning."));
     if (!m_opts.allowQuads)
         for (const PatchMesh &patch : m_patches)
             if (!patch.quads.isEmpty())
@@ -2133,13 +2153,19 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     // ── Size function ────────────────────────────────────────────────────
     const double hUniform = m_opts.maxArea > 0.0 ? std::sqrt(m_opts.maxArea / kEquilateral) : 0.0;
     const bool haveHook = bool(m_refineHook.targetAreaAt);
+    if(m_opts.verifiedSizing && (!std::isfinite(m_opts.maximumAdjacentRatio) ||
+       m_opts.maximumAdjacentRatio<0 || (m_opts.maximumAdjacentRatio>0 && m_opts.maximumAdjacentRatio<1) ||
+       m_opts.sizingRepairPasses<0 || m_opts.sizingRepairPasses>3 || m_opts.maximumSizingRepairInsertions<0))
+        return fail(QStringLiteral("Invalid verified sizing or repair limits."));
+    if((m_opts.verifiedSizing || m_opts.unifiedCellPlanning) && haveHook && !m_refineHook.footprintMaximumSize)
+        return fail(QStringLiteral("Verified sizing requires a footprint bound for a spatial size field."));
 
     QVector<QPair<QVector<QPointF>, double>> spacingOverrides; // quad regions with a spacing
     QVector<QRectF> spacingOverrideBounds;                     // quick reject for hAt
     QVector<QVector<QPointF>> regionRings(m_quadRegions.size());
     for (int i = 0; i < m_quadRegions.size(); ++i) {
         regionRings[i] =
-            openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()), m_opts.preserveConstraintCoordinates);
+            openRing(QVector<QPointF>(m_quadRegions[i].ring.begin(), m_quadRegions[i].ring.end()), (m_opts.preserveConstraintCoordinates || m_opts.unifiedCellPlanning));
         if (m_quadRegions[i].spacing > 0.0 && regionRings[i].size() >= 3) {
             spacingOverrides.append(qMakePair(regionRings[i], m_quadRegions[i].spacing));
             spacingOverrideBounds.append(QPolygonF(regionRings[i]).boundingRect());
@@ -2196,7 +2222,13 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         if (!(std::isfinite(m_opts.patchSnapEps) && m_opts.patchSnapEps >= 0.0))
             return fail(QStringLiteral(
                 "MeshGenerator: patch snap tolerance is invalid or too small for the coordinate span."));
-        const QString err = validatePatchPlacement(m_patches, m_domains, m_holes, m_segments,
+        QVector<ConstraintSegment> placementSegments=m_segments;
+        if(m_opts.unifiedCellPlanning)
+            for(const auto &region:m_quadRegions)if(!region.automaticCandidate && !region.isBackground){
+                ConstraintSegment boundary;boundary.path=region.ring;if(!boundary.path.isEmpty() && (boundary.path.first().x()!=boundary.path.last().x() || boundary.path.first().y()!=boundary.path.last().y()))boundary.path.append(boundary.path.first());
+                placementSegments.append(boundary);
+            }
+        const QString err = validatePatchPlacement(m_patches, m_domains, m_holes, placementSegments,
                                                    patchOrigin, &patchExclusionBoundaries);
         if (!err.isEmpty())
             return fail(err);
@@ -2206,7 +2238,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     QVector<Poly> polys;
     QVector<QVector<QPointF>> domainRings, holeRings;
     if (!buildConstraintPolys(m_domains, m_segments, regionRings, m_quadRegions, m_patches, m_holes,
-                              &polys, &domainRings, &holeRings, m_opts.preserveConstraintCoordinates))
+                              &polys, &domainRings, &holeRings, (m_opts.preserveConstraintCoordinates || m_opts.unifiedCellPlanning)))
         return fail(QStringLiteral("MeshGenerator: no domain ring with 3 or more vertices."));
     if (!m_opts.allowQuads)
         for (auto &poly : polys)
@@ -2272,7 +2304,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                             tol = std::min(tol, length * 0.1);
                     }
         const JoinReport jr =
-            joinConstraints(polys, anchors, tol, m_opts.preserveConstraintCoordinates);
+            joinConstraints(polys, anchors, tol, (m_opts.preserveConstraintCoordinates || m_opts.unifiedCellPlanning));
         if (jr.merged + jr.snapped + jr.crossings > 0)
             GeneratorDiagnostic(m_refineHook.onDiagnostic).noquote()
                 << QStringLiteral(
@@ -2381,6 +2413,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     // sided quad regions and conduit strips. A generated strip that does not
     // fit is dropped and its feature stays a triangle mesh.
     QVector<PatchMesh> patches = m_patches;
+    QVector<int> patchRegionIds(m_patches.size(),-1);
     QVector<QPolygonF> patchRings;
     QVector<ClearEdge> stripEdges; // every strip boundary edge, for the terrain lines
     auto addStripEdges = [&](const PatchMesh &pm) {
@@ -2448,6 +2481,38 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         return std::isfinite(h) ? h : hMin;
     };
 
+    PatchLimits patchLimits;
+    patchLimits.minimumEdge=m_opts.minimumRequiredEdge;
+    patchLimits.minimumAngleDegrees=m_opts.minAngleDeg;
+    patchLimits.maximumSize=m_refineHook.footprintMaximumSize;
+    if(!patchLimits.maximumSize)patchLimits.maximumSize=[&](const QRectF &){return hUniform;};
+    patchLimits.elevationAt=m_refineHook.terrainElevationAt;
+    patchLimits.terrainBound=m_refineHook.terrainErrorBound;
+    patchLimits.terrainTolerance=m_refineHook.terrainTolerance;
+    patchLimits.terrainToleranceForFootprint=m_refineHook.terrainToleranceForFootprint;
+    patchLimits.cancelled=cancelled;
+    QVector<const QVector<QPointF> *> triangleMasks;
+    for(int i=0;i<m_quadRegions.size();++i)
+        if(m_quadRegions[i].mode==QuadRegionMode::TrianglesOnly)triangleMasks.append(&regionRings[i]);
+    const RingIndex triangleMaskIndex(triangleMasks);
+    auto patchGate=[&](const PatchMesh &patch)->QString {
+        if(!m_opts.unifiedCellPlanning && !m_refineHook.terrainToleranceForFootprint)return {};
+        for(const auto &cell:patch.quads) {
+            const QPointF center=(patch.xy[cell.v0]+patch.xy[cell.v1]+patch.xy[cell.v2]+patch.xy[cell.v3])*.25;
+            if(triangleMaskIndex.anyContains(center))return QStringLiteral("Local triangles-only region takes priority.");
+        }
+        return assessPlannedPatch(patch,patchLimits).reason;
+    };
+    if(m_opts.unifiedCellPlanning || m_refineHook.terrainToleranceForFootprint) {
+        for(int i=0;i<m_patches.size();++i) {
+            const auto &patch=m_patches[i];const QString error=patchGate(patch);
+            PatchDecision d;d.source=QString("fixed:%1 %2").arg(i).arg(patch.tag);d.required=true;d.cells=patch.quads.size();
+            d.disposition=error.isEmpty()?PatchDisposition::Accepted:PatchDisposition::RequiredFailure;d.reason=error;
+            m_patchDecisions.append(d);
+            if(!error.isEmpty())return fail(QStringLiteral("Required fixed patch %1: %2").arg(d.source,error));
+        }
+    }
+
     m_quadReports.resize(m_quadRegions.size());
     for (int i = 0; i < m_quadRegions.size(); ++i) {
         QuadRegionReport &r = m_quadReports[i];
@@ -2459,7 +2524,51 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         if (!r.accepted)
             r.message = QStringLiteral("region ring has fewer than 3 vertices");
     }
-    for (int pi = 0; pi < polys.size(); ++pi) {
+    if(m_opts.unifiedCellPlanning) {
+        QuadPlanningGeometry geometry;geometry.domains=m_domains;
+        for(const auto &ring:holeRings)geometry.holes.append(QPolygonF(ring));
+        for(const auto &segment:m_segments)geometry.lines.append(segment.path);
+        geometry.lines+=previewTerrainBreaklines();
+        for(const auto &point:m_steiners)geometry.pins.append(point.xy);
+        geometry.fixedPatches=m_patches;
+        QuadPlanningOptions options;options.allowQuads=m_opts.allowQuads;
+        options.defaultSize=hUniform>0?std::max(hMin,hUniform):hMin;
+        options.limits=patchLimits;options.maximumCells=std::max(0,m_opts.maxCells);
+        for(const auto &patch:m_patches)options.maximumCells-=std::min<quint64>(options.maximumCells,patch.quads.size());
+        options.excluded=[&](const QPolygonF &outline){return m_leakedPatches.contains(patchKey(outline));};
+        auto adjustedRegions=m_quadRegions;
+        for(int ri=0;ri<adjustedRegions.size();++ri) {
+            auto &region=adjustedRegions[ri];
+            if(m_disabledPlanRegions.contains(ri))region.mode=QuadRegionMode::TrianglesOnly;
+            const double factor=std::ldexp(1.,-m_planRefinements.value(ri));
+            region.spacing=(region.spacing>0?region.spacing:options.defaultSize)*factor;
+            if(region.directionalSpacing){region.hAlong*=factor;region.hAcross*=factor;}
+        }
+        auto plan=planQuadRegions(adjustedRegions,geometry,options);
+        for(auto &decision:plan.decisions) {
+            if(m_disabledPlanRegions.contains(decision.region))
+                decision.reason="Preferred patch omitted after a delivered interface conflict; authored constraints retained.";
+            if(m_planRefinements.value(decision.region)>0 && (decision.disposition==PatchDisposition::Accepted || decision.disposition==PatchDisposition::Repaired)) {
+                decision.disposition=PatchDisposition::Repaired;
+                decision.repairRounds+=m_planRefinements.value(decision.region);
+                decision.reason="Required patch repaired after independent delivered-interface verification.";
+            }
+        }
+        m_patchDecisions+=plan.decisions;
+        if(!plan.ok)return fail(plan.error);
+        for(const auto &decision:plan.decisions){auto &report=m_quadReports[decision.region];report.message=decision.reason;
+            report.resolved=decision.disposition==PatchDisposition::Accepted || decision.disposition==PatchDisposition::Repaired?QuadRegionMode::Mapped:QuadRegionMode::TrianglesOnly;
+            if(report.resolved==QuadRegionMode::Mapped){++m_stats.plannedPatches;m_stats.repairedPatches+=decision.repairRounds>0;}
+            else if(m_quadRegions[decision.region].mode!=QuadRegionMode::TrianglesOnly && m_opts.allowQuads)++m_stats.triangleFallbacks;
+        }
+        for(int i=0;i<plan.patches.size();++i) {
+            const int region=plan.patchRegions[i];
+            for(auto &poly:polys)if(poly.regionIndex==region)poly.dropped=true;
+            const auto &patch=plan.patches[i];const auto outline=orderedPatchBoundary(patch);
+            appendPatchBoundary(patch,true,&polys);checker.addRing(outline);patchRings.append(outline);addStripEdges(patch);patches.append(patch);patchRegionIds.append(region);++m_stats.regionPatches;
+        }
+    }
+    if(!m_opts.unifiedCellPlanning) for (int pi = 0; pi < polys.size(); ++pi) {
         const int ri = polys[pi].regionIndex;
         if (ri < 0 || polys[pi].isHole)
             continue;
@@ -2487,6 +2596,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         QPolygonF outline;
         if (err.isEmpty())
             outline = orderedPatchBoundary(pm, &err);
+        if(err.isEmpty())err=patchGate(pm);
         if (err.isEmpty())
             err = checker.misfit(outline, pi);
         if (!err.isEmpty()) {
@@ -2505,6 +2615,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         patchRings.append(outline);
         addStripEdges(pm);
         patches.append(pm);
+        patchRegionIds.append(-2);
         rep.resolved = QuadRegionMode::Mapped;
         ++m_stats.regionPatches;
     }
@@ -2571,6 +2682,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         }
         if (err.isEmpty() && m_leakedPatches.contains(patchKey(outline)))
             err = QStringLiteral("ring not watertight");
+        if(err.isEmpty())err=patchGate(pm);
+        if(m_opts.unifiedCellPlanning){PatchDecision d;d.source=QString("conduit:%1").arg(src.tag);d.cells=pm.quads.size();d.reason=err.isEmpty()?QStringLiteral("Preferred conduit strip accepted."):err;d.disposition=err.isEmpty()?PatchDisposition::Accepted:PatchDisposition::Triangles;m_patchDecisions.append(d);}
         if (!err.isEmpty()) {
             GeneratorDiagnostic(m_refineHook.onDiagnostic).noquote()
                 << QStringLiteral("[Mesh] conduit strip%1 dropped: %2")
@@ -2602,6 +2715,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         patchRings.append(outline);
         addStripEdges(pm);
         patches.append(pm);
+        patchRegionIds.append(-2);
         ++m_stats.conduitStrips;
     }
 
@@ -2708,6 +2822,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                     err = checker.misfit(outline, std::numeric_limits<int>::min());
                 if (err.isEmpty() && m_leakedPatches.contains(patchKey(outline)))
                     err = QStringLiteral("ring not watertight");
+                if(err.isEmpty())err=patchGate(pm);
+                if(m_opts.unifiedCellPlanning){PatchDecision d;d.source=QStringLiteral("terrain bank pair");d.cells=pm.quads.size();d.reason=err.isEmpty()?QStringLiteral("Preferred bank pair accepted."):err;d.disposition=err.isEmpty()?PatchDisposition::Accepted:PatchDisposition::Triangles;m_patchDecisions.append(d);}
                 if (!err.isEmpty()) {
                     ++m_stats.stripsDropped;
                     continue;
@@ -2718,6 +2834,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                 addStripEdges(pm);
                 excluded.append(QVector<QPointF>(outline.begin(), outline.end()));
                 patches.append(pm);
+        patchRegionIds.append(-2);
                 ++accepted;
             }
             m_stats.breaklineStrips = accepted;
@@ -2743,12 +2860,15 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
 
     // ── Resample constraints at h(x) ─────────────────────────────────────
     for (Poly &p : polys) {
-        if (!p.resample || p.dropped)
+        if (!p.resample || p.dropped || m_opts.unifiedCellPlanning)
             continue;
         QVector<QPointF> path = p.pts;
         if (p.closed)
             path.append(path.first());
-        path = pslg::resampleAtSize(path, hClamped);
+        // Integrate and place generated stations in one canonical direction.
+        // Reversed owners then share identical doubles rather than producing
+        // almost coincident vertices and microscopic constraint edges.
+        path = pslg::resampleAtSize(path, hClamped, m_opts.preserveConstraintCoordinates);
         if (p.closed)
             path.removeLast();
         p.pts = path;
@@ -3006,8 +3126,61 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                 if (h > 0.0)
                     expected += dx * dy / (kEquilateral * h * h);
             }
+        bool invalidFootprintBound=false;
         ConstrainedDelaunay::QualityOptions qo;
         qo.hAt = [&](double x, double y) { return kMeanEdge * hClamped(x, y); };
+        if(m_opts.verifiedSizing) {
+            qo.maximumAreaForTriangle=[&](const QPointF *p) {
+                QRectF box(p[0],p[0]);
+                double x0=p[0].x(),x1=x0,y0=p[0].y(),y1=y0;
+                for(int k=1;k<3;++k){x0=std::min(x0,p[k].x());x1=std::max(x1,p[k].x());y0=std::min(y0,p[k].y());y1=std::max(y1,p[k].y());}
+                box=QRectF(QPointF(x0,y0),QPointF(x1,y1));
+                double h=m_refineHook.footprintMaximumSize ? m_refineHook.footprintMaximumSize(box) : 0;
+                if(!m_refineHook.footprintMaximumSize) {
+                    for(int k=0;k<3;++k) {const double v=hClamped(p[k].x(),p[k].y());if(v>0) h=h>0?std::min(h,v):v;}
+                    for(int k=0;k<spacingOverrides.size();++k)
+                        if(spacingOverrideBounds[k].intersects(box)) {
+                            const double v=std::max(hMin,spacingOverrides[k].second);
+                            h=h>0?std::min(h,v):v;
+                        }
+                }
+                const double cap=h>0 ? kEquilateral*h*h : 0;
+                if(!std::isfinite(h) || h<0 || !std::isfinite(cap)) {
+                    invalidFootprintBound=true;
+                    return 0.;
+                }
+                return cap;
+            };
+            qo.maximumAdjacentRatio=m_opts.maximumAdjacentRatio;
+            qo.sizingRepairPasses=m_opts.sizingRepairPasses;
+            qo.maximumSizingRepairInsertions=m_opts.maximumSizingRepairInsertions;
+        }
+        // Store only fixed perimeter edges. Refinement cannot split these
+        // stations; it can reduce an oversized triangular neighbour instead.
+        QHash<EdgeKey,double> fixedSizes;
+        if(m_opts.unifiedCellPlanning && m_opts.maximumAdjacentRatio>=1) {
+            QHash<QPair<qint64,qint64>,int> fixedVertices;
+            for(const auto &poly:polys)if(poly.fixed && !poly.dropped)
+                for(int k=0;k<poly.pts.size();++k)fixedVertices.insert(coordKey(poly.pts[k]),poly.cdtIds[k]);
+            for(const auto &patch:patches) {
+                QHash<EdgeKey,double> sizes;
+                for(auto edge:patch.boundarySegments)sizes.insert(edgeKey(edge.first,edge.second),0);
+                for(const auto &cell:patch.quads) {
+                    auto origin=patch.xy[cell.v0];long double twice=0;
+                    for(int k=0;k<4;++k){auto a=patch.xy[cell.vertex(k)]-origin,b=patch.xy[cell.vertex((k+1)%4)]-origin;
+                        twice+=static_cast<long double>(a.x())*b.y()-static_cast<long double>(a.y())*b.x();}
+                    const double size=std::sqrt(double(twice*.5));
+                    for(int k=0;k<4;++k){auto found=sizes.find(edgeKey(cell.vertex(k),cell.vertex((k+1)%4)));if(found!=sizes.end())*found=size;}
+                }
+                for(auto it=sizes.cbegin();it!=sizes.cend();++it) {
+                    const int a=fixedVertices.value(coordKey(patch.xy[it.key().first]),-1),b=fixedVertices.value(coordKey(patch.xy[it.key().second]),-1);
+                    if(a<0 || b<0)return fail(QStringLiteral("A fixed interface station is missing from triangulation."));
+                    auto found=fixedSizes.find(edgeKey(a,b));
+                    if(found==fixedSizes.end())fixedSizes.insert(edgeKey(a,b),it.value());else *found=std::min(*found,it.value());
+                }
+            }
+            qo.fixedNeighbourSize=[&](int a,int b){return fixedSizes.value(edgeKey(a,b),0);};
+        }
         qo.minAngleDeg = std::clamp(m_opts.minAngleDeg, 0.0, 34.0);
         qo.maxInsertions = int(std::min(2.0e9, 8.0 * expected + 20.0 * cdtPoints.size() + 10000.0));
         qo.minEdge =
@@ -3018,10 +3191,16 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         qo.terrainErrorBound = m_refineHook.terrainErrorBound;
         qo.terrainElevationAt = m_refineHook.terrainElevationAt;
         qo.terrainTolerance = m_refineHook.terrainTolerance;
+        qo.terrainToleranceForFootprint=m_refineHook.terrainToleranceForFootprint;
         qo.terrainWorstFirst = m_refineHook.terrainWorstFirst;
         qo.terrainFinalCheck = m_refineHook.terrainFinalCheck;
         qo.smoothingPasses = m_opts.smoothingPasses;
         qo.coarsenPasses = m_opts.coarsenPasses;
+        qo.coarseningOrder=m_opts.coarseningOrder;
+        qo.coarseningReferenceSize=m_opts.coarseningReferenceSize;
+        qo.normalVerticalToXY=m_opts.normalVerticalToXY;
+        if(m_opts.coarseningOrder==CoarseningOrder::ResolutionAware)
+            qo.coarseningTargetSize=m_refineHook.footprintMaximumSize?m_refineHook.footprintMaximumSize:std::function<double(const QRectF &)>([&](const QRectF &){return hUniform;});
         // A region that resolves to triangles still participates in local
         // sizing and tagging; it is not a fixed quad patch. Protecting every
         // requested region suppressed all coarsening when a triangular region
@@ -3044,16 +3223,24 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             };
         // Terrain may require far more cells than the coarse size estimate.
         // The explicit cell budget remains the hard resource limit.
-        if (qo.terrainError)
+        if (qo.terrainError || m_opts.verifiedSizing)
             qo.maxInsertions = std::max(qo.maxInsertions, qo.maxTriangles);
         qo.cancelled = [&]() {
             progress(cdt.vertices().size());
             return cancelled();
         };
         const auto rep = cdt.refineQuality(qo);
+        if(rep.invalidPolicy)return fail(QStringLiteral("Invalid resolution-weighted coarsening/terrain policy or prescribed size bound."));
+        m_stats.coarsenQueuePeak=rep.coarsenQueuePeak;
+        m_stats.coarsenPriorityQueries=rep.coarsenPriorityQueries;
+        if(invalidFootprintBound)
+            return fail(QStringLiteral("Verified sizing received an invalid footprint bound."));
         if (rep.cancelled || cancelled())
             return fail(QStringLiteral("Cancelled."));
         m_stats.refineInserted = rep.inserted;
+        m_stats.sizingRepairInserted=rep.sizingRepairInserted;
+        m_stats.sizingRepairPasses=rep.sizingRepairPasses;
+        m_stats.sizingRepairLimited=rep.sizingRepairLimited;
         m_stats.coarsenRemoved = rep.coarsenRemoved;
         m_stats.coarsenRejectedAngle = rep.coarsenRejectedAngle;
         m_stats.coarsenRejectedSize = rep.coarsenRejectedSize;
@@ -3224,7 +3411,11 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                 m_refineHook.terrainElevationAt(cdt.vertices()[v].x(), cdt.vertices()[v].y());
     }
     for (int v = 0; v < cdt.vertices().size(); ++v)
-        if (!cdt.isSuperVertex(v))
+        // Removal keeps stable CDT slots internally. Do not export inactive
+        // generated slots as disconnected vertices. Original constraints/pins
+        // retain their existing treatment, including patch station identity.
+        if (!cdt.isSuperVertex(v) &&
+            (m_opts.coarsenPasses==0 || v<cdt.inputVertexCount()+3 || cdt.isVertexActive(v)))
             cdtToGlobal[v] = addVertex(cdt.vertices()[v], vertexZ[v]);
 
     QVector<int> cellOfCdtTriangle(cdt.triangles().size(), -1);
@@ -3289,11 +3480,13 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         const double eps = m_opts.patchSnapEps > 0.0 ? m_opts.patchSnapEps : 1e-7;
         const QPointF origin = bbox.center();
         auto keyOf = [&](const QPointF &p) {
+            if(m_opts.unifiedCellPlanning)return coordKey(p);
             return QPair<qint64, qint64>(qRound64((p.x() - origin.x()) / eps),
                                          qRound64((p.y() - origin.y()) / eps));
         };
         // A tiny snap tolerance must never push qRound64 out of range.
         const auto validSnapKey = [&](const QPointF &p) {
+            if(m_opts.unifiedCellPlanning)return std::isfinite(p.x()) && std::isfinite(p.y());
             const double x = (p.x() - origin.x()) / eps, y = (p.y() - origin.y()) / eps;
             const double limit = std::ldexp(1.0, 63);
             return std::isfinite(x) && std::isfinite(y) && std::abs(x) < limit &&
@@ -3313,7 +3506,34 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         outIndex.reserve(result.vertices.size());
         for (int i = 0; i < result.vertices.size(); ++i)
             outIndex.insert(keyOf(result.vertices[i].xy), i);
+        auto interfaceRetry=[&](int patchIndex,const QString &reason,bool refineRequired)->MeshResult {
+            const int region=patchRegionIds[patchIndex];
+            if(region>=0) {
+                const bool required=m_quadRegions[region].requireMapped || m_quadRegions[region].directionalSpacing;
+                if(required) {
+                    if(!refineRequired || m_planRefinements.value(region)>=3)
+                        return fail(QString("Required mapped region %1: %2").arg(region+1).arg(reason));
+                    ++m_planRefinements[region];
+                    m_planRetryReason=QString("Refining required mapped region %1 after %2").arg(region+1).arg(reason);
+                } else {
+                    m_disabledPlanRegions.insert(region);
+                    m_planRetryReason=QString("Using triangles in preferred region %1 after %2").arg(region+1).arg(reason);
+                }
+            } else if(region==-1) {
+                return fail(QString("Required fixed patch '%1': %2. Revise its stations or the transition limit.").arg(patches[patchIndex].tag,reason));
+            } else {
+                m_leakedPatches.insert(patchKey(orderedPatchBoundary(patches[patchIndex])));
+                m_planRetryReason=QString("Omitting preferred strip after %1").arg(reason);
+            }
+            return fail(m_planRetryReason);
+        };
+        QVector<int> patchCellEnds;
+        int cellEnd=triangleCells;
+        for(const auto &patch:patches){cellEnd+=patch.quads.size();patchCellEnds.append(cellEnd);}
+        auto patchOfCell=[&](int cell){return cell<triangleCells?-1:int(std::upper_bound(patchCellEnds.cbegin(),patchCellEnds.cend(),cell)-patchCellEnds.cbegin());};
         QHash<EdgeKey, int> patchEdgeIncidence;
+        QHash<EdgeKey,int> patchOwners;
+        int patchIndex=0;
         for (const PatchMesh &pm : std::as_const(patches)) {
             if (pm.quads.isEmpty())
                 continue;
@@ -3350,9 +3570,11 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                         "MeshGenerator: structured patch '%1' is invalid after vertex welding: %2 "
                         "Reduce the patch snap tolerance or revise its spacing.")
                         .arg(pm.tag, error));
-            for (const auto &edge : pm.boundarySegments)
-                patchEdgeIncidence.insert(
-                    edgeKey(localToGlobal[edge.first], localToGlobal[edge.second]), 0);
+            for (const auto &edge : pm.boundarySegments) {
+                const auto key=edgeKey(localToGlobal[edge.first],localToGlobal[edge.second]);
+                patchEdgeIncidence.insert(key,0);patchOwners.insert(key,patchIndex);
+            }
+            ++patchIndex;
             for (const MeshTriangle &q : pm.quads) {
                 MeshTriangle c = q;
                 c.v0 = localToGlobal[q.v0];
@@ -3403,6 +3625,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             const QPointF b = result.vertices[it.key().second].xy - patchOrigin;
             if (it.value() == 1 && patchEdgeOnOutline(a, b, outlines, outlineTol))
                 continue;
+            if(m_opts.unifiedCellPlanning)
+                return interfaceRetry(patchOwners.value(it.key()),QStringLiteral("a nonconforming delivered interface"),false);
             const QPointF at = 0.5 * (a + b) + patchOrigin;
             // Diagnose: a vertex on the edge means a T-junction; none means
             // the neighbouring cell was removed (a leaking region removal).
@@ -3484,6 +3708,29 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                     .arg(at.y(), 0, 'f', 2)
                     .arg(cause));
         }
+        if(m_opts.unifiedCellPlanning && m_opts.maximumAdjacentRatio>=1) {
+            QVector<MeshEdge> boundary;
+            boundary.reserve(patchEdgeIncidence.size());
+            for(auto it=patchEdgeIncidence.cbegin();it!=patchEdgeIncidence.cend();++it)boundary.append({it.key().first,it.key().second,0});
+            const auto audit=auditPatchInterfaces(result,boundary,m_opts.maximumAdjacentRatio,cancelled);
+            if(!audit.ok)return fail(audit.error);
+            if(audit.violations) {
+                const auto conflict=audit.examples.first();
+                const int a=patchOfCell(conflict.first),b=patchOfCell(conflict.second);
+                auto preferred=[&](int index){return index>=0 && (patchRegionIds[index]==-2 || (patchRegionIds[index]>=0 && !m_quadRegions[patchRegionIds[index]].requireMapped && !m_quadRegions[patchRegionIds[index]].directionalSpacing));};
+                int culprit=preferred(b)?b:preferred(a)?a:(conflict.firstSize>conflict.secondSize?a:b);
+                if(culprit<0)culprit=std::max(a,b);
+                if(culprit<0)return fail(QStringLiteral("Interface size conflict has no owning patch."));
+                return interfaceRetry(culprit,QString("a delivered size transition above %1 (largest %2)").arg(m_opts.maximumAdjacentRatio).arg(audit.largestRatio),true);
+            }
+        }
+    }
+    if(m_opts.unifiedCellPlanning && !m_steiners.isEmpty()) {
+        QSet<QPair<qint64,qint64>> pending;
+        for(const auto &point:m_steiners)pending.insert(coordKey(point.xy));
+        for(const auto &cell:result.triangles)for(int k=0;k<cell.vertexCount();++k)
+            pending.remove(coordKey(result.vertices[cell.vertex(k)].xy));
+        if(!pending.isEmpty())return fail(QStringLiteral("A required point is not incident to a delivered cell. Revise the fixed patch stations or point location."));
     }
     if (result.triangles.isEmpty())
         return fail(QStringLiteral(

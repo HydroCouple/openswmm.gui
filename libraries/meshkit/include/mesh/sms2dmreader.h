@@ -6,18 +6,9 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Phase G5 of workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md — a minimal
- * reader for the SMS 2DM mesh format (Aquaveo). Only the cards that carry
- * geometry are consumed:
- *
- *     ND  id  x  y  z              node (1-based id)
- *     E3T id  n1 n2 n3 [mat]       triangle
- *     E4Q id  n1 n2 n3 n4 [mat]    quadrilateral (cyclic node order)
- *
- * Every other card (MESH2D, NUM_MATERIALS_PER_ELEM, NS, BEGPARAMDEF, …) is
- * ignored. NOT the engine's own `.2dm` sidecar grammar (that is
- * mesh::InpMeshReader's `[2D_*]` sections in a file that merely happens to
- * use the same extension).
+ * File reads use the bounded native streaming SMS codec; the legacy whole-text
+ * parse helper remains for callers that already hold text. This is separate
+ * from the application's `[2D_*]` mesh-sidecar grammar.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -27,6 +18,7 @@
 #include "meshresult.h"
 
 #include <QString>
+#include <QStringList>
 
 namespace mesh
 {
@@ -35,29 +27,16 @@ class Sms2dmReader
 {
 public:
     /**
-     * @brief Read an entire SMS geometry file as UTF-8 text and pass it to parse().
-     * @param[in] path Borrowed input pathname, unchanged; opened read-only/text and closed by
-     * local QFile.
-     * @param[in] splitQuads True replaces each E4Q with the shared elevation-selected
-     * two-triangle fan; false preserves quad records. No CRS/unit conversion or convexity repair
-     * accompanies splitting.
-     * @return Owned MeshResult. Open failure leaves ok=false and a file diagnostic; parsing
-     * failures can retain partial vertices/cells with line-specific error. No separate post-read
-     * error check or size budget. Does not modify source files, retain inputs or create engine
-     * state; numeric geometry is verbatim file units.
-     *
-     * @details Parse the SMS 2DM file at \p path into a MeshResult.
-     *
-     * Nodes land in `vertices` in file order (ids are remapped to 0-based indices, so gaps or
-     * out-of-order ids are fine); every element's node references are resolved through that map.
-     * Cells land in `triangles` in the engine's order — E3T rows first, then E4Q rows (as quads
-     * with `v3 >= 0`), each in file order. The material id becomes the cell tag `mat<n>` (empty
-     * when the column is absent); Manning's n is left unset.
-     *
-     *
-     * On failure `ok` is false and `errorMsg` names the offending line.
+     * Stream a bounded two-pass SMS file through meshkit::io. Sparse identifiers
+     * and forward references are resolved before returning geometry. Cells are
+     * finite, convex and counterclockwise; clockwise input is reoriented. Failure
+     * returns no partial mesh. NS node strings become tagged constraint edges.
+     * The GUI compatibility mode retains optional/text material tags; unsupported
+     * cards and winding changes are reported through warnings when supplied.
+     * Coordinates stay in file units. The legacy parse(text) helper remains below.
      */
-    [[nodiscard]] static MeshResult read(const QString &path, bool splitQuads = false);
+    [[nodiscard]] static MeshResult read(const QString &path, bool splitQuads = false,
+                                        QStringList *warnings = nullptr);
 
     /**
      * @brief Decode case-sensitive ND/E3T/E4Q cards into owned vertices and engine-ordered

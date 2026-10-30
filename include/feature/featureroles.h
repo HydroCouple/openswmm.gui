@@ -174,20 +174,20 @@ struct FeatureRoleSpec {
 [[nodiscard]] QString corridorTagFieldName(); ///< "tag"
 
 /*! Values of the Region `cells` field. */
-enum class RegionCells { Auto, Triangles };
+enum class RegionCells { Auto, Triangles, RequiredQuads };
 /*!
  * \brief Interpret a Region `cells` value.
  * \param known  Set false for a non-empty value that is not a token; the
- *               caller logs it and treats the region as Auto (§6).
+ *               caller chooses legacy fallback or refuses an invalid unified policy.
  * An empty or null value is Auto and known.
  * @param[in] value Trimmed case-insensitive cells token; empty means Auto.
- * @return Triangles for triangles, Auto for auto/empty/unknown; optional known distinguishes the unknown case.
+ * @return RequiredQuads for required_quads, Triangles for triangles, Auto for auto/empty/unknown.
  */
 [[nodiscard]] RegionCells regionCellsFromValue(const QString &value, bool *known = nullptr);
 /**
  * @brief Encode a region cell-generation preference.
  * @param[in] c Preference enum.
- * @return triangles for Triangles; auto for every other value.
+ * @return required_quads, triangles, or auto.
  */
 [[nodiscard]] QString regionCellsToken(RegionCells c);
 
