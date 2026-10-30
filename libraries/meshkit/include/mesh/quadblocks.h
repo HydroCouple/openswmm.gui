@@ -4,7 +4,7 @@
  *            phases 2-3).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Automatic open-area quad blocks (workplans/MESH_REGIONAL_TRIQUAD_PLAN_2026-10-03.md,
  * phases 2-3). Rectangles are placed where the cells a first triangle pass

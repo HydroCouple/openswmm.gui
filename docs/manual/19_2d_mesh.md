@@ -1136,6 +1136,4 @@ Self-intersecting rings, genuinely outside source geometry and missing required
 edges still produce errors.
 
 The independently buildable native meshing API and streaming codecs are described
-in [MeshKit's native API](../../libraries/meshkit/NATIVE_API.md). Native triangle
-jobs, MKB and SMS 2DM I/O work without Qt. The GUI's automatic mixed/mapped planner
-still uses the Qt interface; Python bindings remain planned. Licensing is unchanged.
+in [MeshKit's native API](../../libraries/meshkit/NATIVE_API.md). Native triangle/mixed jobs, mapped planning, source cleanup, size fields, bilinear terrain checks, MKB and SMS 2DM I/O work without Qt. The GUI's planning, sizing and constraint facades use those same implementations. [Python bindings](../../libraries/meshkit/python/README.md) provide owned array views, progress and cancellation. MeshKit is Apache-2.0 under the rights holder's recorded authorization; this GUI remains GPL.

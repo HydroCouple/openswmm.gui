@@ -3,7 +3,7 @@
  * @brief     Tests for meshcdt.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Constrained Delaunay kernel (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 4):
  * the Delaunay property by brute force, constraint recovery, vertices on

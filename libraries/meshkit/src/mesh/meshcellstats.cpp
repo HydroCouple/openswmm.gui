@@ -4,7 +4,7 @@
  *            Metadata tab.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * MESH_DECOUPLED_1D2D_REMAP_PLAN Part A — cell-area statistics.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

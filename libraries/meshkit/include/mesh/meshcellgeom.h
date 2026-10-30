@@ -4,7 +4,7 @@
  *            phase G1).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Mixed triangle/quad cell helpers (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md,
  * phase G1). ONE place decides how a cell's edges are numbered, how its

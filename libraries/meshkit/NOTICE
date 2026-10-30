@@ -1,0 +1,12 @@
+MeshKit
+Copyright (c) 2026 Caleb Buahin and the contributors identified in source files.
+
+This distribution includes the independently extracted and modified meshing code
+from OpenSWMM GUI. Its rights holder authorized Apache-2.0 licensing on
+2026-10-29. Copyright notices in individual files are retained. Earlier GPL
+releases retain their existing grants; the surrounding OpenSWMM GUI remains GPL.
+
+Robust geometric predicates by Jonathan Richard Shewchuk are distributed under
+their original public-domain notice in vendor/predicates/LICENSE. No Triangle
+mesher is included. Python and optional Qt runtimes are separate dependencies
+and retain their respective licenses; they are not relicensed by this notice.

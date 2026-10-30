@@ -1,4 +1,4 @@
-# Native API, version 1
+# Native API — MeshKit 0.2, job report version 2
 
 `meshkit::core` and `meshkit::io` require standard C++17, threads and the vendored
 public-domain robust predicates. They contain no Qt, GUI, engine, GDAL or Python
@@ -13,7 +13,7 @@ cmake --install build-meshkit-native --prefix /your/install/path
 ```
 
 ```cmake
-find_package(MeshKit 0.1 CONFIG REQUIRED COMPONENTS core io runtime)
+find_package(MeshKit 0.2 CONFIG REQUIRED COMPONENTS core io runtime)
 target_link_libraries(my_program PRIVATE meshkit::core meshkit::io)
 ```
 
@@ -49,12 +49,13 @@ conversion occurs here. Unknown units fail a job; imported SMS 2DM units start
 unknown. Metadata strings are UTF-8. Provider identity is caller-supplied evidence
 of the dataset/version; it is not a library-generated content fingerprint.
 
-The current native job supports **triangles**. Requesting `AutomaticMixed` fails
-with `unsupported_cell_plan`. The GUI's mapped patch planner, quad matching,
-constraint simplification, size-field construction and project orchestration
-remain in the explicit `_qt` API. The shared triangulation/refinement/coarsening
-implementation is instantiated for standard storage and Qt storage; the GUI does
-not copy its working triangulation through a second container mirror.
+`CellPlan::AutomaticMixed` enables jointly planned mapped patches, optionally automatic open-area blocks, and triangle infill. `quadRegions` carry required/preferred/triangles-only policies and optional directional spacing. `fixedPatches` accept validated local quad geometry and incident line chains. Source/hole/line geometry protects patch placement. Shared sides reuse canonical stations. Incompatible required shapes fail; preferred patches fall back with bounded decision records. Up to three mixed-interface retries repair required spacing or decline a preferred patch. Final face incidence must be conforming; no hanging patch interface is accepted.
+
+`meshkit::plan` exposes the same patch, planning, size-field, source simplification and independent audit algorithms used by Qt facades. Its containers are standard C++ storage; no Qt headers/runtime are needed. The generic result uses owned vectors. Final audits borrow read-only arrays through accessors rather than copying millions of vertices. Legacy Qt free-quad matching and application-specific mesh attributes remain optional adapters.
+
+`pointElevations` optionally supplies authored heights (NaN samples the provider). Coincident finite heights must agree. `RasterSurface` owns a regular node grid, supports missing data, and supplies native bilinear elevation/witness/bounds. Row index increases in +Y; spacing is positive. Its full triangle/raster intersection check includes extrema along clipped edges and a conservative numerical margin. NoData is unknown, not interpolated across gaps. Query work is bounded. It certifies the chosen bilinear reference, not the physical accuracy of the source DEM.
+
+Apache-2.0 applies to this project under the recorded rights-holder authorization. See [RELICENSING.md](RELICENSING.md); predicates retain their separate notice. [Python API and build instructions](python/README.md) describe asynchronous jobs, buffer ownership, native raster input and codecs.
 
 ## Sizing, terrain and completion
 
@@ -63,7 +64,7 @@ footprint, including narrow sources. Zero means no provider limit; a global
 positive maximum still applies. Negative/nonfinite bounds fail. The minimum
 target is advisory because protected geometry can require smaller cells. An
 independent minimum actual edge requirement is optional. Nominal triangle size
-is the equilateral side of equal area. Transition ratio compares adjacent
+is the equilateral side of equal area; quad size is the square root of area. Region spacing remains a conservative footprint bound after triangle fallback. Concave/holed local region bounding boxes may conservatively over-refine. Transition ratio compares adjacent
 nominal cell sizes. Repair has explicit pass/insertion limits.
 
 Positive terrain tolerance requires elevation, residual witness and certified

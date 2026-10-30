@@ -4,7 +4,7 @@
  *            SMS 2DM mesh format (Aquaveo).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * File reads use the bounded native streaming SMS codec; the legacy whole-text
  * parse helper remains for callers that already hold text. This is separate

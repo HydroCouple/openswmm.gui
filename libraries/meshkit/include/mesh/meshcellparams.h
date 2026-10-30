@@ -4,7 +4,7 @@
  *            interactively, plus the read/write dispatch every editing surface shares.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Registry of the per-cell (per-triangle) 2D mesh parameters the user can
  * prescribe interactively, plus the read/write dispatch every editing surface

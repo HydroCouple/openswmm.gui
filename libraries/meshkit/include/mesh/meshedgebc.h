@@ -5,7 +5,7 @@
  *            = 4; slot 3 of a triangle is padding).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Slice §V.VA — per-edge boundary condition value, stored on the
  * SWMM2DMeshLayer in a SoA QVector indexed flat: `mesh::edgeSlot(cell, edgeLocal)`

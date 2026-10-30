@@ -4,7 +4,7 @@
  *            §5).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Quadrilateral quality metrics
  * (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §5).

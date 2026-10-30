@@ -1,4 +1,58 @@
-# Extraction validation — 2026-10-29
+# MeshKit 0.2 completion validation — 2026-10-29/30
+
+All five follow-on items are implemented: native mixed planning and source/size preparation, representative shared-contact checks, a complete six-million-scale mixed job, Python bindings/packages, and the authorized Apache-2.0 license. Measurements below are local Apple arm64/macOS observations, not portable speed or worst-case terrain guarantees.
+
+| Gate | Result |
+| --- | --- |
+| Qt-free Release build and tests | 6/6 CTest suites pass; Python suite contains 8 cases |
+| Optional Qt facades and parity | 13/13 CTest suites pass |
+| Integrated GUI meshing worker | 97 passed, 0 failed, 3 optional workloads skipped |
+| Quality/settings/SMS GUI checks | 7 passed each, including resizing and transition values above 10 |
+| Installed native CMake consumer | Qt discovery disabled; generates and independently audits a mesh |
+| Clean wheel | Python 3.12/macOS arm64 installs; mixed meshing and MKB round-trip run without NumPy, Qt or GDAL |
+| Installed wheel with NumPy | All 8 Python tests pass, including buffer lifetime, strided input, metadata, cancellation and terrain |
+| Source archive | Fresh extraction builds a wheel with no build-time network fetch |
+| Native dependencies | Python extension links only libc++ and libSystem; predicates are compiled in with their separate notice |
+| Local GUI preview | Ad-hoc signature verified; separate application launched and native main-window state confirmed |
+
+## Complete mixed capacity job
+
+The installed release wheel generates **7,123,030 vertices and 7,983,065 cells**: 6,250,000 quads and 1,733,065 triangles. Job time is **18.788 s**, wall time **18.789 s**, peak process RSS **1,862,631,424 bytes** (1.86 GB decimal). This includes 100 required mapped patches, triangle corridors, one hole, authored line junctions, reversed/shared line owners, a native bilinear terrain surface and final independent constraint/size/edge/transition/terrain checks. All violation and unknown-terrain counts are zero; 414 source segments pass the delivered audit. No interface retry or partial result is needed. Default patch limits remain active; the probe explicitly permits 12 million vertices, 14 million cells and 8 GiB estimated workspace. Actual peak RSS includes Python, NumPy and retained job/result buffers.
+
+Reproduce with the installed Python package and NumPy:
+
+```sh
+python libraries/meshkit/tests/mixed_scale_probe.py --full --report /path/to/report.json
+```
+
+The pilot without `--full` uses the same checks on a small domain. This benchmark excludes DEM reprojection, project adoption, GUI rendering and export. Earlier separate weighted-coarsening and streaming capacity measurements remain recorded below. They must not be added together or described as one end-to-end job.
+
+## Supplied Bellinge geometry and terrain
+
+The existing Bellinge mesh supplies the actual 286-vertex footprint (34,892,400 square metres approximately), with two reversed line owners sharing its first boundary segments. The supplied SRTM raster is reprojected once into the footprint's metric frame through an external GDAL data adapter. The native package receives an owned regular grid, with explicit repeated edge nodes and unchanged NoData holes. Its certificate concerns that bilinear reference, not the physical accuracy of SRTM.
+
+The complete mixed job returns **778,423 vertices / 793,141 cells** (762,880 quads, 30,261 triangles), using six automatic patches. Time is **1.545 s** (1.568 s including Python setup/polling), peak process RSS **558,792,704 bytes**. All size, edge, transition, terrain and unknown counters are zero; all 290 delivered source segments pass. Terrain tolerance is 0.5 Z units, maximum nominal size 50 XY units, minimum target 2, adjacent ratio limit 4. The actual largest adjacent ratio is 2.8423. Data preparation and output writing are excluded from that job time. This footprint has no holes; hole handling is exercised in the complete scale job and existing GUI fixtures.
+
+Source SHA-256:
+
+- DEM: `0ad7561201833ac10bc11b08c58920dbde69b94070c6ce52cad4124451e2fec7`
+- Mesh: `5245cce5684acf74cc71246b3b87db0ba3ef50ede485976ed38d31632aae14c9`
+
+The first automatic candidate exceeded the patch budget and correctly fell back to triangles. Automatic candidates are now tiled with clearance and refinement headroom before planning, producing the verified mixed result above. A source cleanup regression also caught legal endpoint-on-edge contacts being treated as shortcut crossings; endpoint contacts now remain protected while allowing redundant interior vertices to be removed. Existing crossing, exterior-cell and filled-hole negative cases continue to fail as intended.
+
+## Release scope and evidence
+
+License/NOTICE/third-party notice inclusion is checked in the wheel and source archive. Relicensing follows the explicit rights-holder authorization in RELICENSING.md. Python output arrays retain native ownership and are read-only. Progress is bounded, callbacks execute on the caller thread, and cancellation requests do not cross into Python inner loops. Final reports include resolved options, provider identity, bounded decisions and examples. The macOS numeric I/O fallback avoids requiring the newer floating `from_chars` runtime and preserves subnormal/17-digit values in round trips.
+
+CI configuration adds native build/test/package jobs for Linux, Windows and macOS. Only macOS execution is verified here; the other runners have not been run locally. Native source paths must already express intended intersections as nodes; exact shared/T/overlapping contacts are accepted without proximity welding. The GUI retains its crossing preparation, GIS/project capture and rendering adapters. General arbitrary all-quad decomposition is outside the supported mapped/fallback contract.
+
+Raw evidence is in [`tests/output/meshkit-completion-2026-10-29/`](../../tests/output/meshkit-completion-2026-10-29/): `native-tests-final.log`, `qt-tests-final.log`, `gui-pipeline.log`, `gui-quality.log`, `gui-settings.log`, `gui-sms.log`, `mixed-scale-release.json`, `realdata-report.json`, `wheel-clean-smoke.log`, `wheel-full-tests.log`, `sdist-clean-build.log`, `consumer-run.log`, `cli-smoke.log`, and `preview.json`. Package artifacts are in its `dist/` subfolder. Earlier failed trial logs remain as diagnostic history, not acceptance evidence.
+
+## Historical validation checkpoints
+
+The following entries describe successive earlier increments and their then-current scope.
+
+### Initial extraction validation — 2026-10-29
 
 - Standalone Release configure/build/install succeeds with Qt 6.9.3 on Apple arm64/macOS 27.0.1, without GUI/engine/GDAL dependencies.
 - Five standalone suites pass: runtime events, constraint simplification/audits, CDT, generator, and generation/native/SMS codec roundtrip.

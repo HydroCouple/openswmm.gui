@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 #include "mesh/constraintsimplifier.h"
 #include "mesh/constraintaudit.h"
 #include "mesh/meshgenerator.h"

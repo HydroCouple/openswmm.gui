@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Qt storage facade over the shared constrained triangulation implementation.
 #pragma once
 #include "meshkit/cdt.hpp"

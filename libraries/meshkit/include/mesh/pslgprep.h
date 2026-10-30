@@ -6,7 +6,7 @@
  *            point-in-rings index.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * PSLG preparation utilities shared by the mesh-generation pipeline and its
  * tests: RDP simplification, ring densification, hole-ring preparation

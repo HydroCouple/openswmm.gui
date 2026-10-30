@@ -15,7 +15,7 @@ if(MSVC)
 endif()
 
 
-add_library(meshkit_core STATIC src/native/cdt.cpp src/native/mesh.cpp src/native/job.cpp)
+add_library(meshkit_core STATIC src/native/cdt.cpp src/native/mesh.cpp src/native/job.cpp src/native/patch.cpp src/native/regions.cpp src/native/planning.cpp src/native/sizefield.cpp src/native/blocks.cpp src/native/constraints.cpp src/native/constraintshared.cpp src/native/constraintaudit.cpp src/native/raster.cpp)
 add_library(meshkit::core ALIAS meshkit_core)
 set_target_properties(meshkit_core PROPERTIES EXPORT_NAME core POSITION_INDEPENDENT_CODE ON AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_compile_features(meshkit_core PUBLIC cxx_std_17)

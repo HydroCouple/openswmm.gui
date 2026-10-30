@@ -8,7 +8,7 @@
  *          lightweight QtTest binary without dragging in the full
  *          SWMMModelLayer / MapCanvas graph.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  */
 
 #ifndef EDITGEOMETRY_H

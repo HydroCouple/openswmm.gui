@@ -6,7 +6,7 @@
  *            curbs, a ditch between its banks.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Facing break-line pairs (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md
  * D12.3): two terrain break lines that run side by side at a steady

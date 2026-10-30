@@ -9,7 +9,7 @@
  *            resolving the `[2D_MESH_FILE]` indirection when present.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Read the `[2D_*]` mesh sections — `[2D_VERTICES]`, `[2D_TRIANGLES]`,
  * `[2D_QUADS]` (mixed meshes: quads appended after the triangles, cell

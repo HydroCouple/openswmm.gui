@@ -4,7 +4,7 @@
  *            (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.4f) — no external library.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Pairing region triangles into quads (QUAD_MESHING_REDESIGN_PLAN §4.4f):
  * template lookup by sorted vertex triple (best score first), then an

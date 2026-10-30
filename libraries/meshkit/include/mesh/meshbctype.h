@@ -4,7 +4,7 @@
  *            Mesh Editing toolbar.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Slice §V.VA / §V.VC — enumeration of 2D mesh boundary-condition types
  * surfaced by the Mesh Editing toolbar. Order is locked because the int

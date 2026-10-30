@@ -4,7 +4,7 @@
  *            Stage 4).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Constrained Delaunay triangulation kernel
  * (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md Stage 4). Replaces Triangle
@@ -44,18 +44,17 @@
 namespace meshkit
 {
 
-template<class Storage>
-class BasicConstrainedDelaunay
+template <class Storage> class BasicConstrainedDelaunay
 {
 public:
-    using Point=typename Storage::Point;
-    using Box=typename Storage::Box;
-    using String=typename Storage::String;
-    using PointInput=typename Storage::PointInput;
-    template<class T> using Vector=typename Storage::template Vector<T>;
-    template<class K,class V> using Hash=typename Storage::template Hash<K,V>;
-    template<class K,class V> using MultiHash=typename Storage::template MultiHash<K,V>;
-    template<class K> using Set=typename Storage::template Set<K>;
+    using Point = typename Storage::Point;
+    using Box = typename Storage::Box;
+    using String = typename Storage::String;
+    using PointInput = typename Storage::PointInput;
+    template <class T> using Vector = typename Storage::template Vector<T>;
+    template <class K, class V> using Hash = typename Storage::template Hash<K, V>;
+    template <class K, class V> using MultiHash = typename Storage::template MultiHash<K, V>;
+    template <class K> using Set = typename Storage::template Set<K>;
     struct Triangle {
         int v[3];   ///< Counter-clockwise.
         int adj[3]; ///< Neighbour across the edge opposite v[i] (v[i+1], v[i+2]); -1 = none.
@@ -103,7 +102,8 @@ public:
      * caller inspection.
      */
     bool build(const PointInput &points, Vector<int> *vertexOfPoint = nullptr,
-               const std::function<bool()> &cancelled = {},const std::function<void(std::uint64_t)> &progress = {});
+               const std::function<bool()> &cancelled = {},
+               const std::function<void(std::uint64_t)> &progress = {});
 
     /**
      * @brief Recover/mark a straight constraint, recursively splitting at exactly collinear
@@ -235,7 +235,7 @@ public:
         std::function<double(double, double)> hAt;
         std::function<double(const Point *)> maximumAreaForTriangle;
         double maximumAdjacentRatio = 0;
-        std::function<double(int,int)> fixedNeighbourSize;
+        std::function<double(int, int)> fixedNeighbourSize;
         int sizingRepairPasses = 0, maximumSizingRepairInsertions = 200000;
         /*! Actual surface error at the reference DEM samples covered by a
          * triangle. Return a failing residual and its source point; NaN means
@@ -243,7 +243,8 @@ public:
         std::function<double(const Point *, const double *, Point *)> terrainError;
         std::function<double(double, double)> terrainElevationAt;
         double terrainTolerance = 0.0;
-        std::function<double(const Box &)> terrainToleranceForFootprint; ///< Positive immutable full-footprint tolerance; invalid means unknown.
+        std::function<double(const Box &)>
+            terrainToleranceForFootprint; ///< Positive immutable full-footprint tolerance; invalid means unknown.
 
         double terrainMinSpacing = 0.0;
         /*! Refine size and angle first, then insert terrain points worst
@@ -264,9 +265,10 @@ public:
          *  without terrain). 0 = off. */
         int smoothingPasses = 0;
         int coarsenPasses = 0; ///< Maximum attempts per free vertex; 0 = off.
-        CoarseningOrder coarseningOrder=CoarseningOrder::LegacyFlatness;
-        std::function<double(const Box &)> coarseningTargetSize; ///< Prescribed size; zero means unbounded, never evolving geometry.
-        double coarseningReferenceSize=10, normalVerticalToXY=1;
+        CoarseningOrder coarseningOrder = CoarseningOrder::LegacyFlatness;
+        std::function<double(const Box &)>
+            coarseningTargetSize; ///< Prescribed size; zero means unbounded, never evolving geometry.
+        double coarseningReferenceSize = 10, normalVerticalToXY = 1;
 
         std::function<bool(const Point &)> protectedLocation;
         Set<int> protectedVertices; ///< Additional template vertices to retain.
@@ -311,9 +313,8 @@ public:
         int coarsenHeightRejects = 0, coarsenBoundAccepts = 0, coarsenExactQueries = 0;
         bool coarsenSkippedTerrain = false;
         double coarsenSeconds = 0;
-        std::uint64_t coarsenQueuePeak=0,coarsenPriorityQueries=0;
-        bool invalidPolicy=false;
-
+        std::uint64_t coarsenQueuePeak = 0, coarsenPriorityQueries = 0;
+        bool invalidPolicy = false;
     };
     /**
      * @brief Mutate live constrained triangulation by bounded size/angle/terrain refinement and
@@ -756,12 +757,13 @@ private:
         m_segOriginExtra; ///< further input segments sharing that subsegment (overlaps)
     Hash<std::uint64_t, std::uint64_t>
         m_segPiece; ///< constrained subsegment → the edge it was inserted as (input piece)
-    Hash<int, std::uint64_t> m_vertexSeg; ///< vertex added on a segment by refinement → its input piece
-    Set<std::uint64_t> m_fixedSub;        ///< subsegments refinement may not split
+    Hash<int, std::uint64_t>
+        m_vertexSeg;               ///< vertex added on a segment by refinement → its input piece
+    Set<std::uint64_t> m_fixedSub; ///< subsegments refinement may not split
     // Installed only during refinement. Every geometric edit invalidates the
     // affected work, including flips outside the inserted vertex's final star.
     std::function<void(int)> m_triangleChanged;
 };
 
-using ConstrainedDelaunay=BasicConstrainedDelaunay<detail::StandardStorage>;
+using ConstrainedDelaunay = BasicConstrainedDelaunay<detail::StandardStorage>;
 } // namespace meshkit

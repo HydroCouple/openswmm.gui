@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 
 /**
  * @file      meshresolution.h
@@ -6,7 +6,7 @@
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  */
 
 #ifndef OPENSWMM_MESH_RESOLUTION_H
