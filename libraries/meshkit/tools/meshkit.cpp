@@ -1,15 +1,16 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 #include "meshkit/job.hpp"
 #include "meshkit/io.hpp"
 #include <iostream>
-#include <charconv>
+#include <sstream>
+#include <locale>
 #include <cstring>
 #include <algorithm>
 #include <csignal>
 #include <limits>
 #include <cmath>
 namespace {volatile std::sig_atomic_t stopped=0;void stop(int){stopped=1;}
-double number(const char *s){double v;auto end=s+std::strlen(s);auto r=std::from_chars(s,end,v);if(r.ec!=std::errc{} || r.ptr!=end || !std::isfinite(v))throw std::runtime_error("Invalid number.");return v;}
+double number(const char *s){double v;std::istringstream input(s);input.imbue(std::locale::classic());input>>std::noskipws>>v;if(!input || input.peek()!=std::char_traits<char>::eof() || !std::isfinite(v))throw std::runtime_error("Invalid number.");return v;}
 void report(const meshkit::OperationReport &r){std::cout<<meshkit::statusName(r.status)<<": "<<r.code<<": "<<r.message<<" ("<<r.seconds<<" s)\n";}
 meshkit::ReadResult read(const std::filesystem::path &p,const meshkit::IOOptions &o){return p.extension()==".mkb"?meshkit::readBinary(p,o):meshkit::read2dm(p,o);}
 meshkit::IOReport write(const std::filesystem::path &p,const meshkit::Mesh &m,const meshkit::IOOptions &o){if(p.extension()==".mkb")return meshkit::writeBinary(p,m,o);if(p.extension()==".2dm")return meshkit::write2dm(p,m,o);throw std::runtime_error("Output extension must be .mkb or .2dm.");}}

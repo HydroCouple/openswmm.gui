@@ -4,7 +4,7 @@
  *            Stage 4).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Constrained Delaunay kernel — see meshcdt.h.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -96,8 +96,7 @@ inline int keyHi(std::uint64_t k)
  * Caller must initialize exactinit through build/orientExact first; no initialization guard
  * here. No allocation/mutation.
  */
-template<class Point>
-double orientPts(const Point &a, const Point &b, const Point &c)
+template <class Point> double orientPts(const Point &a, const Point &b, const Point &c)
 {
     const double pa[2] = {a.x(), a.y()}, pb[2] = {b.x(), b.y()}, pc[2] = {c.x(), c.y()};
     return orient2d(pa, pb, pc);
@@ -110,8 +109,7 @@ double orientPts(const Point &a, const Point &b, const Point &c)
  * @return Nonnegative squared horizontal units for ordinary finite inputs, no square root,
  * allocation or mutation.
  */
-template<class Point>
-inline double dist2(const Point &a, const Point &b)
+template <class Point> inline double dist2(const Point &a, const Point &b)
 {
     const double dx = a.x() - b.x(), dy = a.y() - b.y();
     return dx * dx + dy * dy;
@@ -119,9 +117,13 @@ inline double dist2(const Point &a, const Point &b)
 
 // Preserve the existing refinement coincidence rule during extraction.
 // Input build/dedup remains exact, with signed-zero normalization.
-template<class Point> bool refinementCoincident(const Point &a,const Point &b) {
-    auto close=[](double x,double y){return (x==0 || y==0)?std::abs(x-y)<=1e-12:std::abs(x-y)*1e12<=std::min(std::abs(x),std::abs(y));};
-    return close(a.x(),b.x()) && close(a.y(),b.y());
+template <class Point> bool refinementCoincident(const Point &a, const Point &b)
+{
+    auto close = [](double x, double y) {
+        return (x == 0 || y == 0) ? std::abs(x - y) <= 1e-12
+                                  : std::abs(x - y) * 1e12 <= std::min(std::abs(x), std::abs(y));
+    };
+    return close(a.x(), b.x()) && close(a.y(), b.y());
 }
 
 constexpr double kEquilateralArea = 0.4330127018922193; // √3/4
@@ -131,15 +133,15 @@ using namespace cdt_detail;
 
 // ── Predicates ───────────────────────────────────────────────────────────
 
-template<class Storage>
-double BasicConstrainedDelaunay<Storage>::orientExact(const Point &a, const Point &b, const Point &c)
+template <class Storage>
+double BasicConstrainedDelaunay<Storage>::orientExact(const Point &a, const Point &b,
+                                                      const Point &c)
 {
     std::call_once(gPredicatesInit, [] { exactinit(); });
     return orientPts(a, b, c);
 }
 
-template<class Storage>
-double BasicConstrainedDelaunay<Storage>::orient(int a, int b, int c) const
+template <class Storage> double BasicConstrainedDelaunay<Storage>::orient(int a, int b, int c) const
 {
     const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
     const double pb[2] = {m_pts[b].x(), m_pts[b].y()};
@@ -147,7 +149,7 @@ double BasicConstrainedDelaunay<Storage>::orient(int a, int b, int c) const
     return orient2d(pa, pb, pc);
 }
 
-template<class Storage>
+template <class Storage>
 double BasicConstrainedDelaunay<Storage>::orient(int a, int b, const Point &p) const
 {
     const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
@@ -156,7 +158,7 @@ double BasicConstrainedDelaunay<Storage>::orient(int a, int b, const Point &p) c
     return orient2d(pa, pb, pc);
 }
 
-template<class Storage>
+template <class Storage>
 bool BasicConstrainedDelaunay<Storage>::inCircle(int a, int b, int c, int d) const
 {
     const double pa[2] = {m_pts[a].x(), m_pts[a].y()};
@@ -168,8 +170,7 @@ bool BasicConstrainedDelaunay<Storage>::inCircle(int a, int b, int c, int d) con
 
 // ── Topology helpers ─────────────────────────────────────────────────────
 
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::edgeIndex(int t, int v) const
+template <class Storage> int BasicConstrainedDelaunay<Storage>::edgeIndex(int t, int v) const
 {
     const Triangle &T = m_tris[t];
     for (int i = 0; i < 3; ++i)
@@ -178,7 +179,7 @@ int BasicConstrainedDelaunay<Storage>::edgeIndex(int t, int v) const
     return -1;
 }
 
-template<class Storage>
+template <class Storage>
 void BasicConstrainedDelaunay<Storage>::trianglesAround(int v, Vector<int> *out) const
 {
     const int start = m_vertexTri[v];
@@ -202,8 +203,7 @@ void BasicConstrainedDelaunay<Storage>::trianglesAround(int v, Vector<int> *out)
     }
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::setAdj(int t, int e, int n)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::setAdj(int t, int e, int n)
 {
     if (t >= 0)
         m_tris[t].adj[e] = n;
@@ -211,7 +211,7 @@ void BasicConstrainedDelaunay<Storage>::setAdj(int t, int e, int n)
 
 /*! Live triangle with directed edge a→b (a = v[i+1], b = v[i+2] for the
  *  returned edge index i), or -1. Rotates around vertex a. */
-template<class Storage>
+template <class Storage>
 int BasicConstrainedDelaunay<Storage>::triangleWithEdge(int a, int b, int *edgeIndexOut) const
 {
     const int start = m_vertexTri[a];
@@ -255,8 +255,7 @@ int BasicConstrainedDelaunay<Storage>::triangleWithEdge(int a, int b, int *edgeI
     return -1;
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::isConstrained(int a, int b) const
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::isConstrained(int a, int b) const
 {
     int e = -1;
     int t = triangleWithEdge(a, b, &e);
@@ -265,7 +264,7 @@ bool BasicConstrainedDelaunay<Storage>::isConstrained(int a, int b) const
     return t >= 0 && m_tris[t].constrained[e];
 }
 
-template<class Storage>
+template <class Storage>
 auto BasicConstrainedDelaunay<Storage>::constrainedChain(int a, int b) const -> Vector<int>
 {
     // Follow constrained edges from a: first the edge to b itself, then the
@@ -325,8 +324,7 @@ auto BasicConstrainedDelaunay<Storage>::constrainedChain(int a, int b) const -> 
     return cur == b ? chain : Vector<int>();
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::markConstrained(int a, int b)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::markConstrained(int a, int b)
 {
     for (int dir = 0; dir < 2; ++dir) {
         int e = -1;
@@ -342,7 +340,7 @@ void BasicConstrainedDelaunay<Storage>::markConstrained(int a, int b)
     }
 }
 
-template<class Storage>
+template <class Storage>
 int BasicConstrainedDelaunay<Storage>::findTriangle(const Point &p, int start) const
 {
     if (m_tris.isEmpty())
@@ -374,15 +372,13 @@ int BasicConstrainedDelaunay<Storage>::findTriangle(const Point &p, int start) c
     return -1;
 }
 
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::locate(const Point &p) const
+template <class Storage> int BasicConstrainedDelaunay<Storage>::locate(const Point &p) const
 {
     const int t = findTriangle(p, m_lastLocate);
     return (t >= 0 && m_tris[t].alive) ? t : -1;
 }
 
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::liveTriangleCount() const
+template <class Storage> int BasicConstrainedDelaunay<Storage>::liveTriangleCount() const
 {
     return m_liveTriangles;
 }
@@ -391,8 +387,7 @@ int BasicConstrainedDelaunay<Storage>::liveTriangleCount() const
 
 /*! Flip edge e of t. On return t = (a, b, d) and n = (a, d, c) with a =
  *  the old t.v[e] at index 0 of both. */
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::flip(int t, int e)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::flip(int t, int e)
 {
     Triangle &T = m_tris[t];
     const int n = T.adj[e];
@@ -446,8 +441,7 @@ void BasicConstrainedDelaunay<Storage>::flip(int t, int e)
     }
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::legalize(int t0, int e0)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::legalize(int t0, int e0)
 {
     Vector<std::pair<int, int>> stack;
     stack.append(std::make_pair(t0, e0));
@@ -477,8 +471,7 @@ void BasicConstrainedDelaunay<Storage>::legalize(int t0, int e0)
     }
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::splitTriangle(int t, int v)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::splitTriangle(int t, int v)
 {
     const Triangle old = m_tris[t];
     const int a = old.v[0], b = old.v[1], c = old.v[2];
@@ -539,8 +532,7 @@ void BasicConstrainedDelaunay<Storage>::splitTriangle(int t, int v)
     }
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::splitEdge(int t, int e, int v)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::splitEdge(int t, int e, int v)
 {
     const Triangle old = m_tris[t];
     const int a = old.v[e], b = old.v[(e + 1) % 3], c = old.v[(e + 2) % 3];
@@ -649,8 +641,10 @@ void BasicConstrainedDelaunay<Storage>::splitEdge(int t, int e, int v)
 
 // ── Construction ─────────────────────────────────────────────────────────
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<int> *vertexOfPoint, const std::function<bool()> &cancelled,const std::function<void(std::uint64_t)> &progress)
+template <class Storage>
+bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<int> *vertexOfPoint,
+                                              const std::function<bool()> &cancelled,
+                                              const std::function<void(std::uint64_t)> &progress)
 {
     std::call_once(gPredicatesInit, [] { exactinit(); });
     m_origins.clear();
@@ -666,8 +660,15 @@ bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<i
     m_vertexSeg.clear();
     m_fixedSub.clear();
     m_lastLocate = 0;
-    auto stopped=[&] {if(cancelled && cancelled()){m_errorMsg=Storage::message("cdt: cancelled");return true;}return false;};
-    if(stopped())return false;
+    auto stopped = [&] {
+        if (cancelled && cancelled()) {
+            m_errorMsg = Storage::message("cdt: cancelled");
+            return true;
+        }
+        return false;
+    };
+    if (stopped())
+        return false;
 
     // Dedup on the exact bit pattern.
     Hash<std::pair<std::int64_t, std::int64_t>, int> seen;
@@ -676,7 +677,8 @@ bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<i
         vertexOfPoint->resize(points.size());
     double minX = std::numeric_limits<double>::infinity(), minY = minX, maxX = -minX, maxY = -minX;
     for (int i = 0; i < points.size(); ++i) {
-        if((i&4095)==0 && stopped())return false;
+        if ((i & 4095) == 0 && stopped())
+            return false;
         const Point &p = points[i];
         if (!std::isfinite(p.x()) || !std::isfinite(p.y())) {
             m_errorMsg = Storage::invalidPointMessage(i);
@@ -741,14 +743,32 @@ bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<i
         const std::uint32_t qy = std::uint32_t((m_pts[i].y() - bbox.top()) * sy);
         order[i] = std::make_pair(mortonKey(qx, qy), i);
     }
-    if(!cancelled)std::sort(order.begin(),order.end());
-    else {struct CancelBuild{};std::uint64_t comparisons=0;
-        try {std::sort(order.begin(),order.end(),[&](const auto &a,const auto &b){if((++comparisons&16383)==0 && stopped())throw CancelBuild{};return a<b;});}catch(const CancelBuild &){return false;}}
+    if (!cancelled)
+        std::sort(order.begin(), order.end());
+    else {
+        struct CancelBuild {
+        };
+        std::uint64_t comparisons = 0;
+        try {
+            std::sort(order.begin(), order.end(), [&](const auto &a, const auto &b) {
+                if ((++comparisons & 16383) == 0 && stopped())
+                    throw CancelBuild{};
+                return a < b;
+            });
+        } catch (const CancelBuild &) {
+            return false;
+        }
+    }
 
     m_tris.reserve(2 * m_superBase + 8);
-    std::uint64_t completed=0;
+    std::uint64_t completed = 0;
     for (const std::pair<std::uint64_t, int> &o : order) {
-        if((completed++&4095)==0){if(stopped())return false;if(progress)progress(completed-1);}
+        if ((completed++ & 4095) == 0) {
+            if (stopped())
+                return false;
+            if (progress)
+                progress(completed - 1);
+        }
         const int v = o.second;
         const int t = findTriangle(m_pts[v], m_lastLocate);
         if (t < 0) {
@@ -771,8 +791,7 @@ bool BasicConstrainedDelaunay<Storage>::build(const PointInput &points, Vector<i
     return true;
 }
 
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::insertPoint(const Point &p)
+template <class Storage> int BasicConstrainedDelaunay<Storage>::insertPoint(const Point &p)
 {
     const int t = findTriangle(p, m_lastLocate);
     if (t < 0 || !m_tris[t].alive)
@@ -792,7 +811,7 @@ int BasicConstrainedDelaunay<Storage>::insertPoint(const Point &p)
     if (onEdge >= 0) {
         // Coincident with a vertex? Then reuse it.
         for (int i = 0; i < 3; ++i)
-            if (refinementCoincident(m_pts[T.v[i]],p)) {
+            if (refinementCoincident(m_pts[T.v[i]], p)) {
                 m_pts.removeLast();
                 m_vertexTri.removeLast();
                 return T.v[i];
@@ -804,13 +823,12 @@ int BasicConstrainedDelaunay<Storage>::insertPoint(const Point &p)
     return v;
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::insertConstraint(int a, int b)
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::insertConstraint(int a, int b)
 {
     return insertConstraintImpl(a, b, edgeKey64(a, b));
 }
 
-template<class Storage>
+template <class Storage>
 bool BasicConstrainedDelaunay<Storage>::insertConstraintImpl(int a, int b, std::uint64_t origin)
 {
     if (a == b)
@@ -972,8 +990,7 @@ bool BasicConstrainedDelaunay<Storage>::insertConstraintImpl(int a, int b, std::
 
 // ── Regions ─────────────────────────────────────────────────────────────
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::removeExterior()
+template <class Storage> void BasicConstrainedDelaunay<Storage>::removeExterior()
 {
     Vector<int> stack;
     for (int i = 0; i < m_tris.size(); ++i) {
@@ -999,8 +1016,7 @@ void BasicConstrainedDelaunay<Storage>::removeExterior()
     }
 }
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::removeSuperTriangles()
+template <class Storage> void BasicConstrainedDelaunay<Storage>::removeSuperTriangles()
 {
     for (Triangle &T : m_tris)
         if (T.alive && (isSuperVertex(T.v[0]) || isSuperVertex(T.v[1]) || isSuperVertex(T.v[2]))) {
@@ -1009,8 +1025,7 @@ void BasicConstrainedDelaunay<Storage>::removeSuperTriangles()
         }
 }
 
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::removeRegionAt(const Point &p)
+template <class Storage> int BasicConstrainedDelaunay<Storage>::removeRegionAt(const Point &p)
 {
     const int t0 = locate(p);
     if (t0 < 0)
@@ -1035,8 +1050,7 @@ int BasicConstrainedDelaunay<Storage>::removeRegionAt(const Point &p)
 }
 
 // Seed by topology, not an epsilon-offset point (which can cross a thin region).
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::removeRegionLeftOf(int a, int b)
+template <class Storage> int BasicConstrainedDelaunay<Storage>::removeRegionLeftOf(int a, int b)
 {
     if (!isConstrained(a, b))
         return 0;
@@ -1082,23 +1096,21 @@ int BasicConstrainedDelaunay<Storage>::removeRegionLeftOf(int a, int b)
 // Ruppert's algorithm with Shewchuk's refinements, as Triangle implements
 // them (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §4).
 
-template<class Storage>
-void BasicConstrainedDelaunay<Storage>::setFixedConstraint(int a, int b)
+template <class Storage> void BasicConstrainedDelaunay<Storage>::setFixedConstraint(int a, int b)
 {
     const Vector<int> chain = constrainedChain(a, b);
     for (int i = 0; i + 1 < chain.size(); ++i)
         m_fixedSub.insert(edgeKey64(chain[i], chain[i + 1]));
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::isFixedSub(int a, int b) const
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::isFixedSub(int a, int b) const
 {
     return !m_fixedSub.isEmpty() && m_fixedSub.contains(edgeKey64(a, b));
 }
 
 /*! A live triangle on either side of subsegment (a, b) has its apex strictly
  *  inside the diametral circle (an angle over 90° at the apex). */
-template<class Storage>
+template <class Storage>
 bool BasicConstrainedDelaunay<Storage>::subsegmentEncroached(int a, int b) const
 {
     const Point &A = m_pts[a], &B = m_pts[b];
@@ -1122,8 +1134,7 @@ bool BasicConstrainedDelaunay<Storage>::subsegmentEncroached(int a, int b) const
  *  with another segment at an acute angle — the power of two in [L/3, 2L/3]
  *  measured from that end, so splits around a small input angle land on
  *  concentric circles (Ruppert's shells) and the refinement terminates. */
-template<class Storage>
-int BasicConstrainedDelaunay<Storage>::splitSubsegment(int a, int b)
+template <class Storage> int BasicConstrainedDelaunay<Storage>::splitSubsegment(int a, int b)
 {
     int e = -1;
     int t = triangleWithEdge(a, b, &e);
@@ -1206,7 +1217,7 @@ int BasicConstrainedDelaunay<Storage>::splitSubsegment(int a, int b)
  *  the input angle is, and splitting it would never end. (Pieces, not
  *  origins: a segment split at a vertex lying on it meets its neighbour at
  *  that vertex.) */
-template<class Storage>
+template <class Storage>
 bool BasicConstrainedDelaunay<Storage>::exemptShortestEdge(int u, int v) const
 {
     const auto iu = m_vertexSeg.constFind(u), iv = m_vertexSeg.constFind(v);
@@ -1225,8 +1236,7 @@ bool BasicConstrainedDelaunay<Storage>::exemptShortestEdge(int u, int v) const
     return d1 < 1.001 * d2 && d1 > 0.999 * d2;
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::smallAngleExempt(int t) const
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::smallAngleExempt(int t) const
 {
     const Triangle &T = m_tris[t];
     double best = std::numeric_limits<double>::infinity();
@@ -1241,8 +1251,7 @@ bool BasicConstrainedDelaunay<Storage>::smallAngleExempt(int t) const
     return exemptShortestEdge(T.v[(s + 1) % 3], T.v[(s + 2) % 3]);
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::touchesFixed(int t) const
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::touchesFixed(int t) const
 {
     if (m_fixedSub.isEmpty())
         return false;
@@ -1267,7 +1276,7 @@ bool BasicConstrainedDelaunay<Storage>::touchesFixed(int t) const
 
 // Build and legalize a cavity before touching shared topology. The ring is
 // ordered by the closed fan, so boundary edges retain their direction and flags.
-template<class Storage>
+template <class Storage>
 bool BasicConstrainedDelaunay<Storage>::prepareRemoval(int v, Removal *out) const
 {
     if (v < m_superBase + 3 || !isVertexActive(v) || m_vertexSeg.contains(v))
@@ -1395,7 +1404,7 @@ bool BasicConstrainedDelaunay<Storage>::prepareRemoval(int v, Removal *out) cons
     return true;
 }
 
-template<class Storage>
+template <class Storage>
 void BasicConstrainedDelaunay<Storage>::commitRemoval(int v, const Removal &r)
 {
     // Repair external backlinks before reusing any old slot.
@@ -1433,8 +1442,7 @@ void BasicConstrainedDelaunay<Storage>::commitRemoval(int v, const Removal &r)
     m_lastLocate = r.star[0];
 }
 
-template<class Storage>
-bool BasicConstrainedDelaunay<Storage>::removeVertex(int v)
+template <class Storage> bool BasicConstrainedDelaunay<Storage>::removeVertex(int v)
 {
     Removal r;
     if (!prepareRemoval(v, &r))
@@ -1443,25 +1451,40 @@ bool BasicConstrainedDelaunay<Storage>::removeVertex(int v)
     return true;
 }
 
-template<class Storage>
+template <class Storage>
 auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt) -> QualityReport
 {
     QualityReport rep;
-    const bool resolutionOrder=opt.coarseningOrder==CoarseningOrder::ResolutionAware;
-    if((opt.coarseningOrder!=CoarseningOrder::LegacyFlatness && !resolutionOrder) ||
-       (resolutionOrder && (!opt.coarseningTargetSize || !(opt.coarseningReferenceSize>0) || !std::isfinite(opt.coarseningReferenceSize) || !(opt.normalVerticalToXY>0) || !std::isfinite(opt.normalVerticalToXY))) ||
-       (opt.terrainToleranceForFootprint && (!(opt.terrainTolerance>0) || !opt.terrainError || !opt.terrainElevationAt))) {
-        rep.invalidPolicy=true;return rep;
+    const bool resolutionOrder = opt.coarseningOrder == CoarseningOrder::ResolutionAware;
+    if ((opt.coarseningOrder != CoarseningOrder::LegacyFlatness && !resolutionOrder) ||
+        (resolutionOrder &&
+         (!opt.coarseningTargetSize || !(opt.coarseningReferenceSize > 0) ||
+          !std::isfinite(opt.coarseningReferenceSize) || !(opt.normalVerticalToXY > 0) ||
+          !std::isfinite(opt.normalVerticalToXY))) ||
+        (opt.terrainToleranceForFootprint &&
+         (!(opt.terrainTolerance > 0) || !opt.terrainError || !opt.terrainElevationAt))) {
+        rep.invalidPolicy = true;
+        return rep;
     }
-    auto triangleBox=[&](const Triangle &cell) {
-        double x0=m_pts[cell.v[0]].x(),x1=x0,y0=m_pts[cell.v[0]].y(),y1=y0;
-        for(int k=1;k<3;++k){const auto p=m_pts[cell.v[k]];x0=std::min(x0,p.x());x1=std::max(x1,p.x());y0=std::min(y0,p.y());y1=std::max(y1,p.y());}
-        return Box(Point(x0,y0),Point(x1,y1));
+    auto triangleBox = [&](const Triangle &cell) {
+        double x0 = m_pts[cell.v[0]].x(), x1 = x0, y0 = m_pts[cell.v[0]].y(), y1 = y0;
+        for (int k = 1; k < 3; ++k) {
+            const auto p = m_pts[cell.v[k]];
+            x0 = std::min(x0, p.x());
+            x1 = std::max(x1, p.x());
+            y0 = std::min(y0, p.y());
+            y1 = std::max(y1, p.y());
+        }
+        return Box(Point(x0, y0), Point(x1, y1));
     };
-    auto toleranceFor=[&](const Triangle &cell) {
-        const double value=opt.terrainToleranceForFootprint?opt.terrainToleranceForFootprint(triangleBox(cell)):opt.terrainTolerance;
-        if(value>0 && std::isfinite(value))return value;
-        if(opt.terrainToleranceForFootprint)rep.invalidPolicy=true;
+    auto toleranceFor = [&](const Triangle &cell) {
+        const double value = opt.terrainToleranceForFootprint
+                                 ? opt.terrainToleranceForFootprint(triangleBox(cell))
+                                 : opt.terrainTolerance;
+        if (value > 0 && std::isfinite(value))
+            return value;
+        if (opt.terrainToleranceForFootprint)
+            rep.invalidPolicy = true;
         return std::numeric_limits<double>::quiet_NaN();
     };
     const double theta = std::clamp(opt.minAngleDeg, 0.0, 60.0) * M_PI / 180.0;
@@ -1482,7 +1505,7 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
     Hash<std::pair<std::int64_t, std::int64_t>, Vector<int>> terrainGrid;
     auto terrainKey = [&](const Point &p) {
         return std::make_pair(std::int64_t(std::floor(p.x() / terrainSpacing)),
-                         std::int64_t(std::floor(p.y() / terrainSpacing)));
+                              std::int64_t(std::floor(p.y() / terrainSpacing)));
     };
     auto indexTerrainVertex = [&](int v) {
         if (terrain && terrainSpacing > 0 && !isSuperVertex(v))
@@ -1499,7 +1522,8 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
         const auto key = terrainKey(p);
         for (int dy = -1; dy <= 1; ++dy)
             for (int dx = -1; dx <= 1; ++dx) {
-                const auto it = terrainGrid.constFind(std::make_pair(key.first + dx, key.second + dy));
+                const auto it =
+                    terrainGrid.constFind(std::make_pair(key.first + dx, key.second + dy));
                 if (it != terrainGrid.cend())
                     for (int v : *it)
                         if (dist2(p, m_pts[v]) < terrainSpacing * terrainSpacing * (1.0 - 1e-12))
@@ -1552,8 +1576,9 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
     bool repairing = false;
     int repairBegin = 0;
     auto footprintCap = [&](const Triangle &t) {
-        if (!opt.maximumAreaForTriangle) return 0.;
-        const Point xy[3]={m_pts[t.v[0]],m_pts[t.v[1]],m_pts[t.v[2]]};
+        if (!opt.maximumAreaForTriangle)
+            return 0.;
+        const Point xy[3] = {m_pts[t.v[0]], m_pts[t.v[1]], m_pts[t.v[2]]};
         return opt.maximumAreaForTriangle(xy);
     };
 
@@ -1579,20 +1604,39 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
             }
         }
         if (!bad && opt.maximumAreaForTriangle) {
-            const double cap=footprintCap(T);
-            if(cap>0 && .5*cross>cap*(1+1e-10)) { bad=true; reason=1; }
-        }
-        if (!bad && repairing && opt.maximumAdjacentRatio>=1) {
-            for(int neighbour:T.adj) {
-                if(neighbour<0 || !m_tris[neighbour].alive) continue;
-                const auto &other=m_tris[neighbour];
-                if(isSuperVertex(other.v[0]) || isSuperVertex(other.v[1]) || isSuperVertex(other.v[2])) continue;
-                const double otherArea=std::abs(orientPts(m_pts[other.v[0]],m_pts[other.v[1]],m_pts[other.v[2]]))*.5;
-                if(std::sqrt(.5*cross/otherArea)>opt.maximumAdjacentRatio*(1+1e-10)) {bad=true;reason=1;break;}
+            const double cap = footprintCap(T);
+            if (cap > 0 && .5 * cross > cap * (1 + 1e-10)) {
+                bad = true;
+                reason = 1;
             }
-            if(!bad && opt.fixedNeighbourSize)
-                for(int k=0;k<3;++k){const double neighbour=opt.fixedNeighbourSize(T.v[(k+1)%3],T.v[(k+2)%3]);
-                    if(neighbour>0 && std::sqrt(.5*cross/kEquilateralArea)/neighbour>opt.maximumAdjacentRatio*(1+1e-10)){bad=true;reason=1;break;}
+        }
+        if (!bad && repairing && opt.maximumAdjacentRatio >= 1) {
+            for (int neighbour : T.adj) {
+                if (neighbour < 0 || !m_tris[neighbour].alive)
+                    continue;
+                const auto &other = m_tris[neighbour];
+                if (isSuperVertex(other.v[0]) || isSuperVertex(other.v[1]) ||
+                    isSuperVertex(other.v[2]))
+                    continue;
+                const double otherArea =
+                    std::abs(orientPts(m_pts[other.v[0]], m_pts[other.v[1]], m_pts[other.v[2]])) *
+                    .5;
+                if (std::sqrt(.5 * cross / otherArea) > opt.maximumAdjacentRatio * (1 + 1e-10)) {
+                    bad = true;
+                    reason = 1;
+                    break;
+                }
+            }
+            if (!bad && opt.fixedNeighbourSize)
+                for (int k = 0; k < 3; ++k) {
+                    const double neighbour =
+                        opt.fixedNeighbourSize(T.v[(k + 1) % 3], T.v[(k + 2) % 3]);
+                    if (neighbour > 0 && std::sqrt(.5 * cross / kEquilateralArea) / neighbour >
+                                             opt.maximumAdjacentRatio * (1 + 1e-10)) {
+                        bad = true;
+                        reason = 1;
+                        break;
+                    }
                 }
         }
         if (!bad && sinMin > 0.0 && l[s] >= minEdge2) {
@@ -1620,8 +1664,7 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
         if (!bad)
             return false;
         // Shortest edge P→Q with R on its left (counter-clockwise order).
-        const Point &P = m_pts[T.v[(s + 1) % 3]], &Q = m_pts[T.v[(s + 2) % 3]],
-                      &R = m_pts[T.v[s]];
+        const Point &P = m_pts[T.v[(s + 1) % 3]], &Q = m_pts[T.v[(s + 2) % 3]], &R = m_pts[T.v[s]];
         const double bx = Q.x() - P.x(), by = Q.y() - P.y(), cx = R.x() - P.x(), cy = R.y() - P.y();
         const double d = 2.0 * (bx * cy - by * cx);
         if (!(d > 0.0))
@@ -1801,8 +1844,8 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
             rep.capped = true;
             stop = true;
         }
-        if(repairing && rep.inserted-repairBegin>=opt.maximumSizingRepairInsertions)
-            rep.sizingRepairLimited=true;
+        if (repairing && rep.inserted - repairBegin >= opt.maximumSizingRepairInsertions)
+            rep.sizingRepairLimited = true;
         if ((rep.inserted & 4095) == 0) {
             publishProgress();
             if (opt.cancelled && opt.cancelled()) {
@@ -1875,18 +1918,26 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                 // Size repair may need a skinny triangle against an immutable
                 // quad edge. An interior insertion preserves that edge exactly;
                 // ordinary constrained edges must still use segment recovery.
-                if(!repairing || reason!=1 || !opt.maximumAreaForTriangle)return false;
-                const auto &cell=m_tris[t];
-                const auto a=m_pts[cell.v[0]],b=m_pts[cell.v[1]],cxy=m_pts[cell.v[2]];
-                const double cap=footprintCap(cell);
-                if(!(cap>0) || orientPts(a,b,cxy)*.5<=cap*(1+1e-10))return false;
-                const Point center=a+((b-a)+(cxy-a))/3.;
-                if(!std::isfinite(center.x()) || !std::isfinite(center.y()) ||
-                   std::min({dist2(center,a),dist2(center,b),dist2(center,cxy)})<minEdge2 ||
-                   orientPts(a,b,center)<=0 || orientPts(b,cxy,center)<=0 || orientPts(cxy,a,center)<=0)return false;
-                enc.clear();cavityEncroached(t,center,&enc);
-                for(std::uint64_t key:enc)if(!isFixedSub(keyLo(key),keyHi(key)))return false;
-                p=center;c=t;
+                if (!repairing || reason != 1 || !opt.maximumAreaForTriangle)
+                    return false;
+                const auto &cell = m_tris[t];
+                const auto a = m_pts[cell.v[0]], b = m_pts[cell.v[1]], cxy = m_pts[cell.v[2]];
+                const double cap = footprintCap(cell);
+                if (!(cap > 0) || orientPts(a, b, cxy) * .5 <= cap * (1 + 1e-10))
+                    return false;
+                const Point center = a + ((b - a) + (cxy - a)) / 3.;
+                if (!std::isfinite(center.x()) || !std::isfinite(center.y()) ||
+                    std::min({dist2(center, a), dist2(center, b), dist2(center, cxy)}) < minEdge2 ||
+                    orientPts(a, b, center) <= 0 || orientPts(b, cxy, center) <= 0 ||
+                    orientPts(cxy, a, center) <= 0)
+                    return false;
+                enc.clear();
+                cavityEncroached(t, center, &enc);
+                for (std::uint64_t key : enc)
+                    if (!isFixedSub(keyLo(key), keyHi(key)))
+                        return false;
+                p = center;
+                c = t;
             } else {
                 enqueue(t); // retried with the subsegments split
                 drainSegments();
@@ -2031,13 +2082,16 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                 return;
             Point p;
             const double e = measure(t, &p);
-            const double localTolerance=toleranceFor(T);
+            const double localTolerance = toleranceFor(T);
             if (!std::isfinite(e) || !std::isfinite(localTolerance) || e <= localTolerance)
                 return;
             const double clearance = std::max(opt.terrainMinSpacing, opt.minEdge);
             if (std::min({dist2(p, A), dist2(p, B), dist2(p, C)}) <= clearance * clearance)
                 return;
-            heap.push({opt.terrainToleranceForFootprint?e/localTolerance:e, t, {T.v[0], T.v[1], T.v[2]}, p});
+            heap.push({opt.terrainToleranceForFootprint ? e / localTolerance : e,
+                       t,
+                       {T.v[0], T.v[1], T.v[2]},
+                       p});
         };
         for (int t = 0; t < m_tris.size(); ++t)
             consider(t);
@@ -2080,9 +2134,10 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
             const double unknown = std::numeric_limits<double>::quiet_NaN();
             Vector<double> bounds(terrain ? m_tris.size() : 0, unknown);
             Vector<unsigned char> attempts(m_pts.size(), 0);
-            Vector<unsigned> versions(resolutionOrder?0:m_pts.size(), 0);
-            const auto freeSlots=std::max<std::ptrdiff_t>(0,m_pts.size()-m_superBase-3);
-            CoarseningQueue resolutionHeap(resolutionOrder && freeSlots?m_pts.size():0,resolutionOrder?freeSlots:0);
+            Vector<unsigned> versions(resolutionOrder ? 0 : m_pts.size(), 0);
+            const auto freeSlots = std::max<std::ptrdiff_t>(0, m_pts.size() - m_superBase - 3);
+            CoarseningQueue resolutionHeap(resolutionOrder && freeSlots ? m_pts.size() : 0,
+                                           resolutionOrder ? freeSlots : 0);
             // Serial Morton tiles improve DEM locality; boundary stars are
             // allowed because no concurrent topology mutation takes place.
             double x0 = std::numeric_limits<double>::infinity(), y0 = x0, x1 = -x0, y1 = -x0;
@@ -2146,7 +2201,7 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                     heights[v] = opt.terrainElevationAt(m_pts[v].x(), m_pts[v].y());
                 return heights[v];
             };
-            auto score = [&](int v,const Vector<int> &star) {
+            auto score = [&](int v, const Vector<int> &star) {
                 if (!terrain)
                     return 1.0;
                 std::array<double, 3> sum{0, 0, 0};
@@ -2154,10 +2209,10 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                 for (int t : star) {
                     const auto &T = m_tris[t];
                     const Point b = m_pts[T.v[1]] - m_pts[T.v[0]],
-                                  c = m_pts[T.v[2]] - m_pts[T.v[0]];
-                    const double scale=resolutionOrder?opt.normalVerticalToXY:1.;
-                    const double z = height(T.v[0]), bz = (height(T.v[1]) - z)*scale,
-                                 cz = (height(T.v[2]) - z)*scale;
+                                c = m_pts[T.v[2]] - m_pts[T.v[0]];
+                    const double scale = resolutionOrder ? opt.normalVerticalToXY : 1.;
+                    const double z = height(T.v[0]), bz = (height(T.v[1]) - z) * scale,
+                                 cz = (height(T.v[2]) - z) * scale;
                     if (!std::isfinite(z) || !std::isfinite(bz) || !std::isfinite(cz))
                         return -1.0;
                     std::array<double, 3> normal{b.y() * cz - bz * c.y(), bz * c.x() - b.x() * cz,
@@ -2187,29 +2242,51 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                     (opt.protectedLocation && opt.protectedLocation(m_pts[v])) ||
                     attempts[v] >= limit)
                     return;
-                Vector<int> star;if(terrain || resolutionOrder)trianglesAround(v,&star);
-                const double flatness=score(v,star);
-                if(!resolutionOrder) {
-                    heap.push({float(flatness),v,++versions[v],unsigned(key(v,31))});
-                    rep.coarsenQueuePeak=std::max<std::uint64_t>(rep.coarsenQueuePeak,heap.size());
+                Vector<int> star;
+                if (terrain || resolutionOrder)
+                    trianglesAround(v, &star);
+                const double flatness = score(v, star);
+                if (!resolutionOrder) {
+                    heap.push({float(flatness), v, ++versions[v], unsigned(key(v, 31))});
+                    rep.coarsenQueuePeak =
+                        std::max<std::uint64_t>(rep.coarsenQueuePeak, heap.size());
                     return;
                 }
-                Box box;double totalArea=0;bool first=true;
-                for(int t:star){const auto &cell=m_tris[t];const auto bound=triangleBox(cell);
-                    box=first?bound:box.united(bound);first=false;
-                    totalArea+=.5*orientPts(m_pts[cell.v[0]],m_pts[cell.v[1]],m_pts[cell.v[2]]);}
+                Box box;
+                double totalArea = 0;
+                bool first = true;
+                for (int t : star) {
+                    const auto &cell = m_tris[t];
+                    const auto bound = triangleBox(cell);
+                    box = first ? bound : box.united(bound);
+                    first = false;
+                    totalArea +=
+                        .5 * orientPts(m_pts[cell.v[0]], m_pts[cell.v[1]], m_pts[cell.v[2]]);
+                }
                 ++rep.coarsenPriorityQueries;
-                double target=opt.coarseningTargetSize(box);
-                if(!std::isfinite(target) || target<0){rep.invalidPolicy=true;return;}
-                if(target==0)target=opt.coarseningReferenceSize;
-                const double actual=star.isEmpty()?0:std::sqrt(totalArea/(star.size()*kEquilateralArea));
-                const double density=actual/target;
-                const double importance=flatness>=-1?resolutionRemovalImportance(flatness,actual,target):std::numeric_limits<double>::infinity();
-                const auto compact=[](double value){return float(std::min(value,double(std::numeric_limits<float>::max())));};
-                resolutionHeap.update({compact(importance),compact(density),v,unsigned(key(v,31))});
-                rep.coarsenQueuePeak=std::max<std::uint64_t>(rep.coarsenQueuePeak,resolutionHeap.size());
+                double target = opt.coarseningTargetSize(box);
+                if (!std::isfinite(target) || target < 0) {
+                    rep.invalidPolicy = true;
+                    return;
+                }
+                if (target == 0)
+                    target = opt.coarseningReferenceSize;
+                const double actual =
+                    star.isEmpty() ? 0 : std::sqrt(totalArea / (star.size() * kEquilateralArea));
+                const double density = actual / target;
+                const double importance =
+                    flatness >= -1 ? resolutionRemovalImportance(flatness, actual, target)
+                                   : std::numeric_limits<double>::infinity();
+                const auto compact = [](double value) {
+                    return float(std::min(value, double(std::numeric_limits<float>::max())));
+                };
+                resolutionHeap.update(
+                    {compact(importance), compact(density), v, unsigned(key(v, 31))});
+                rep.coarsenQueuePeak =
+                    std::max<std::uint64_t>(rep.coarsenQueuePeak, resolutionHeap.size());
             };
-            for (int v = m_superBase + 3; v < m_pts.size() && !rep.cancelled && !rep.invalidPolicy; ++v) {
+            for (int v = m_superBase + 3; v < m_pts.size() && !rep.cancelled && !rep.invalidPolicy;
+                 ++v) {
                 if ((v & 4095) == 0 && opt.cancelled && opt.cancelled()) {
                     rep.cancelled = true;
                     break;
@@ -2226,10 +2303,16 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                     ((b.x() - a.x()) * (p.y() - a.y()) - (b.y() - a.y()) * (p.x() - a.x())) / cross;
                 return z + u * (height(T.v[1]) - z) + w * (height(T.v[2]) - z);
             };
-            while (!(resolutionOrder?resolutionHeap.empty():heap.empty()) && !rep.cancelled && !rep.invalidPolicy) {
+            while (!(resolutionOrder ? resolutionHeap.empty() : heap.empty()) && !rep.cancelled &&
+                   !rep.invalidPolicy) {
                 Candidate c{};
-                if(resolutionOrder){const auto next=resolutionHeap.pop();c.v=next.vertex;}
-                else {c=heap.top();heap.pop();}
+                if (resolutionOrder) {
+                    const auto next = resolutionHeap.pop();
+                    c.v = next.vertex;
+                } else {
+                    c = heap.top();
+                    heap.pop();
+                }
                 const int v = c.v;
                 if ((!resolutionOrder && c.version != versions[v]) || !isVertexActive(v))
                     continue;
@@ -2275,16 +2358,26 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                         accepted = false;
                         break;
                     }
-                    if(resolutionOrder) {
-                        const double target=opt.coarseningTargetSize(triangleBox(T));
-                        if(!std::isfinite(target) || target<0){rep.invalidPolicy=true;accepted=false;break;}
-                        if(target>0 && static_cast<long double>(cross)*.5>kEquilateralArea*static_cast<long double>(target)*target*(1+1e-10)) {
-                            ++rep.coarsenRejectedSize;accepted=false;break;
+                    if (resolutionOrder) {
+                        const double target = opt.coarseningTargetSize(triangleBox(T));
+                        if (!std::isfinite(target) || target < 0) {
+                            rep.invalidPolicy = true;
+                            accepted = false;
+                            break;
+                        }
+                        if (target > 0 && static_cast<long double>(cross) * .5 >
+                                              kEquilateralArea * static_cast<long double>(target) *
+                                                  target * (1 + 1e-10)) {
+                            ++rep.coarsenRejectedSize;
+                            accepted = false;
+                            break;
                         }
                     }
-                    const double cap=footprintCap(T);
-                    if(cap>0 && cross*.5>cap*(1+1e-10)) {
-                        ++rep.coarsenRejectedSize; accepted=false; break;
+                    const double cap = footprintCap(T);
+                    if (cap > 0 && cross * .5 > cap * (1 + 1e-10)) {
+                        ++rep.coarsenRejectedSize;
+                        accepted = false;
+                        break;
                     }
                 }
                 if (!accepted)
@@ -2298,7 +2391,8 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                             orient(T.v[1], T.v[2], m_pts[v]) >= 0 &&
                             orient(T.v[2], T.v[0], m_pts[v]) >= 0) {
                             const double error = std::abs(plane(T, m_pts[v]) - height(v));
-                            if (!std::isfinite(error) || !std::isfinite(toleranceFor(T)) || error > toleranceFor(T)) {
+                            if (!std::isfinite(error) || !std::isfinite(toleranceFor(T)) ||
+                                error > toleranceFor(T)) {
                                 ++rep.coarsenHeightRejects;
                                 accepted = false;
                             }
@@ -2343,7 +2437,8 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
                             bound = opt.terrainErrorBound(xy, z);
                             ++rep.coarsenExactQueries;
                         }
-                        if (!std::isfinite(bound) || bound < 0 || !std::isfinite(toleranceFor(T)) || bound > toleranceFor(T))
+                        if (!std::isfinite(bound) || bound < 0 || !std::isfinite(toleranceFor(T)) ||
+                            bound > toleranceFor(T))
                             accepted = false;
                         newBounds.append(bound);
                     }
@@ -2370,28 +2465,42 @@ auto BasicConstrainedDelaunay<Storage>::refineQuality(const QualityOptions &opt)
     // Bounded repair after smoothing, terrain insertion and coarsening. Ordinary
     // constraints may be subdivided but never moved/deleted; fixed patch edges
     // retain their stations. Terrain is rechecked inline for every changed cell.
-    if(opt.sizingRepairPasses>0 && !stop && !rep.cancelled) {
-        repairing=true; repairBegin=rep.inserted;
-        if(opt.maximumSizingRepairInsertions<=0) rep.sizingRepairLimited=true;
-        progressStage=GenerationProgress::Stage::Refining;
-        m_triangleChanged=[&](int t) {
+    if (opt.sizingRepairPasses > 0 && !stop && !rep.cancelled) {
+        repairing = true;
+        repairBegin = rep.inserted;
+        if (opt.maximumSizingRepairInsertions <= 0)
+            rep.sizingRepairLimited = true;
+        progressStage = GenerationProgress::Stage::Refining;
+        m_triangleChanged = [&](int t) {
             enqueue(t);
-            for(int n:m_tris[t].adj) if(n>=0) enqueue(n);
+            for (int n : m_tris[t].adj)
+                if (n >= 0)
+                    enqueue(n);
         };
-        for(int pass=0;pass<std::clamp(opt.sizingRepairPasses,0,3) && !stop && !rep.cancelled && !rep.sizingRepairLimited;++pass) {
-            heads.fill(-1); tails.fill(-1); next.fill(-2,m_tris.size());
-            const int before=rep.inserted;
+        for (int pass = 0; pass < std::clamp(opt.sizingRepairPasses, 0, 3) && !stop &&
+                           !rep.cancelled && !rep.sizingRepairLimited;
+             ++pass) {
+            heads.fill(-1);
+            tails.fill(-1);
+            next.fill(-2, m_tris.size());
+            const int before = rep.inserted;
             ++rep.sizingRepairPasses;
-            for(int t=0;t<m_tris.size();++t) {
-                if((t&4095)==0 && opt.cancelled && opt.cancelled()) {rep.cancelled=true;break;}
-                if(m_tris[t].alive) enqueue(t);
+            for (int t = 0; t < m_tris.size(); ++t) {
+                if ((t & 4095) == 0 && opt.cancelled && opt.cancelled()) {
+                    rep.cancelled = true;
+                    break;
+                }
+                if (m_tris[t].alive)
+                    enqueue(t);
             }
-            if(rep.cancelled) break;
+            if (rep.cancelled)
+                break;
             drainQueue();
-            if(rep.inserted==before) break;
+            if (rep.inserted == before)
+                break;
         }
-        rep.sizingRepairInserted=rep.inserted-repairBegin;
-        m_triangleChanged={};
+        rep.sizingRepairInserted = rep.inserted - repairBegin;
+        m_triangleChanged = {};
     }
     // Independent pass over the final geometry: every live triangle is checked,
     // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.

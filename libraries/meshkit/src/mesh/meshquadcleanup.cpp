@@ -4,7 +4,7 @@
  *            (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.4g–h).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Topological cleanup and guarded smoothing inside quad regions
  * (QUAD_MESHING_REDESIGN_PLAN §4.4g–h): doublet removal, valence-driven

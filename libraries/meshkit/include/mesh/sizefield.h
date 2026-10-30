@@ -4,7 +4,7 @@
  *            (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track B).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Graded element sizing for Delaunay refinement
  * (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track B).
@@ -50,6 +50,7 @@
 #include "mesh/meshgenerator.h"
 
 #include <QRectF>
+#include "meshkit/sizefield.hpp"
 #include <QVector>
 
 namespace mesh
@@ -200,7 +201,7 @@ public:
      * source freshness or size bounds. Constant read-only query; require a completed successful
      * build before sampling.
      */
-    [[nodiscard]] bool isValid() const { return m_cols > 0 && m_rows > 0; }
+    [[nodiscard]] bool isValid() const { return m_native.isValid(); }
     /**
      * @brief Check whether the valid field reports a positive size at its first grid-center
      * coordinate.
@@ -208,26 +209,26 @@ public:
      * finite source propagates throughout; this is not a geometry-wide exact constraint/coverage
      * certificate. No allocation, callback or mutation; requires stable completed field data.
      */
-    [[nodiscard]] bool hasSizeBound() const { return isValid() && sizeAt(m_x0, m_y0) > 0.0; }
+    [[nodiscard]] bool hasSizeBound() const { return m_native.hasSizeBound(); }
     /**
      * @brief Read the background grid spacing retained by the latest layout attempt.
      * @return Pitch in mesh planar units, initially zero; after failed build it may retain a
      * prior/partial layout value. Check successful build/isValid() before interpreting it.
      * Constant read-only query.
      */
-    [[nodiscard]] double pitch() const { return m_pitch; }
+    [[nodiscard]] double pitch() const { return m_native.pitch(); }
     /**
      * @brief Read the number of grid columns.
      * @return Positive count after successful build, zero initially or after checked layout
      * refusal. No allocation, geometry lookup or state mutation.
      */
-    [[nodiscard]] int cols() const { return m_cols; }
+    [[nodiscard]] int cols() const { return m_native.cols(); }
     /**
      * @brief Read the number of grid rows.
      * @return Positive count after successful build, zero initially or after checked layout
      * refusal. No allocation, geometry lookup or state mutation.
      */
-    [[nodiscard]] int rows() const { return m_rows; }
+    [[nodiscard]] int rows() const { return m_native.rows(); }
 
     /**
      * @brief Bilinearly read the approximate chamfer distance-to-feature grid.
@@ -245,81 +246,7 @@ public:
     [[nodiscard]] double distanceAt(double x, double y) const;
 
 private:
-    /**
-     * @brief Read one feature-distance sample with clamped integer grid coordinates.
-     * @param[in] cx Column index, arbitrary int clamped to [0,cols-1]; require positive
-     * dimensions and a full grid.
-     * @param[in] cy Row index, similarly clamped.
-     * @return Stored float distance promoted to double in mesh units; unseeded max-float
-     * sentinel becomes zero. No validity/array-size checks, allocation or mutation; private
-     * caller ensures completed grid.
-     */
-    [[nodiscard]] double cellDist(int cx, int cy) const;
-    /**
-     * @brief Read one combined target-size sample with clamped grid indices.
-     * @param[in] cx Column index clamped to [0,cols-1], valid positive dimensions/full size
-     * storage required.
-     * @param[in] cy Row index clamped to [0,rows-1].
-     * @return Stored float target length promoted to double, including the internal unbounded
-     * sentinel. No public sentinel translation, array-size checks, allocation or state mutation.
-     */
-    [[nodiscard]] double cellSize(int cx, int cy) const;
-    /**
-     * @brief Combine local size sources, relax octile gradation and reapply the area-derived
-     * size floor.
-     * @param[in] opt Borrowed sizing policy matching the active grid; terrainSizeAt is called
-     * synchronously per center and may allocate/throw, with no callback retention. Region
-     * polygons use odd-even inclusion.
-     * @param[in] stepDist Borrowed empty vector or a full rows*cols distance grid in mesh units;
-     * unchanged. A finite step cone can suppress terrain refinement where
-     * ht>=0.5*stepDistance-pitch.
-     * @note Overwrites/allocates m_h. Finite positive maxSize is applied before terrain and the
-     * floor; a positive area floor can raise above that upper source cap. Two chamfer sweeps use
-     * gradation*pitch and sqrt(2) diagonal weights, with float rounding. Requires exclusive
-     * valid-grid access, no rollback on exceptions, no retained policy references or
-     * source/engine mutation.
-     */
-    void buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> &stepDist);
-    /**
-     * @brief Lower distance samples in a 3x3 neighborhood around one nearest-grid seed anchor.
-     * @param[in] p Borrowed finite point in mesh units, unchanged; rounded normalized index plus
-     * offsets must fit int. Out-of-grid stencil entries are skipped, coordinates are not
-     * globally clipped first.
-     * @param[in,out] into Borrowed writable rows*cols distance array, lowered only where exact
-     * point Euclidean distance is smaller; existing unseeded values normally use max-float
-     * sentinel.
-     * @note Requires active positive grid dimensions/pitch, no array checks/allocation or
-     * field-array selection; no input point retention or geometry mutation.
-     */
-    void stampSeedPoint(const QPointF &p, QVector<float> &into);
-    /**
-     * @brief Stamp exact segment distances near half-pitch samples along a feature edge.
-     * @param[in] a Borrowed finite first endpoint in mesh units, unchanged.
-     * @param[in] b Borrowed finite second endpoint, unchanged; zero length delegates to point
-     * stamping. Segment length/(pitch*0.5), loop counters and normalized stencil indices must
-     * fit int with headroom.
-     * @param[in,out] into Borrowed writable full rows*cols distance grid, only lowered within
-     * accepted stencils.
-     * @note Walks at least one step then stamps 3x3 neighborhoods with exact segment distance
-     * promoted/ rounded to float. This seeding alone does not populate every cell or guarantee
-     * exact final distance. Requires positive active pitch, no allocation, callbacks, ownership
-     * retention or geometry mutation.
-     */
-    void stampSeedSegment(const QPointF &a, const QPointF &b, QVector<float> &into);
-
-    QVector<float> m_dist; ///< row-major distance at cell centres
-    QVector<float> m_h;    ///< row-major final size h at cell centres (gradation-limited)
-    struct MinLevel { int columns, rows; QVector<float> values; };
-    QVector<MinLevel> m_minLevels;
-    double minimumSizeInBoxImpl(const QRectF &,bool includeTerrain) const;
-    struct RegionBound { QRectF box; double size = 0; int end = 0; bool terrainOnly=false; };
-    QVector<RegionBound> m_regionBounds; ///< Preorder BVH; end skips a disjoint subtree.
-    int m_cols = 0, m_rows = 0;
-    double m_x0 = 0.0, m_y0 = 0.0; ///< centre of cell (0, 0)
-    double m_pitch = 0.0;
-    double m_near = 0.0, m_g = 0.0, m_floor = 0.0;
+    meshkit::plan::SizeField m_native;
 };
-
-} // namespace mesh
-
-#endif // OPENSWMMVIS_MESH_SIZEFIELD_H
+}
+#endif

@@ -6,7 +6,7 @@
  *            curbs, a ditch between its banks.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Facing break-line pairs — see breaklinestrips.h.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

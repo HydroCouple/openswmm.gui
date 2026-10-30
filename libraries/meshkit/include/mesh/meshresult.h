@@ -3,7 +3,7 @@
  * @brief     value types for the 2D mesh generator.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Slice AU — value types for the 2D mesh generator. Pure value types
  * with no Qt-meta or meshing-kernel includes — safe to depend on from

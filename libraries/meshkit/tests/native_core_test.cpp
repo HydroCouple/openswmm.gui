@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 #include "meshkit/cdt.hpp"
 #include "meshkit/job.hpp"
 #include <iostream>
@@ -25,7 +25,7 @@ int main(){try {
     bool marker20=false,marker30=false;for(auto edge:result.mesh.edges){marker20|=edge.marker==20;marker30|=edge.marker==30;}CHECK(marker20 && marker30);
     r=rectangle();r.points.insert(r.points.end(),{{3,3},{5,3},{5,5},{3,5}});r.paths.push_back({{4,5,6,7},PathKind::Hole,40,4,true});
     result=runJob(r);if(!result.report.complete())std::cerr<<result.report.code<<": "<<result.report.message<<'\n';CHECK(result.report.complete());double area=0;for(const auto &cell:result.mesh.cells){auto a=result.mesh.vertices[cell.vertices[0]],b=result.mesh.vertices[cell.vertices[1]],c=result.mesh.vertices[cell.vertices[2]];area+=((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))*.5;}CHECK(std::abs(area-60)<1e-8);
-    r.options.cells=CellPlan::AutomaticMixed;result=runJob(r);CHECK(result.report.status==RunStatus::Infeasible && result.mesh.cells.empty());
+    r.options.cells=CellPlan::AutomaticMixed;result=runJob(r);CHECK(result.report.complete());
     r=rectangle();r.options.limits.maxWorkspaceBytes=1;CHECK(runJob(r).report.status==RunStatus::ResourceLimit);
     r=rectangle();r.options.limits.maxWork=1;CHECK(runJob(r).report.status==RunStatus::ResourceLimit);
     Providers p;p.cancelled=[] {return true;};EventChannel events;result=runJob(rectangle(),p,&events);CHECK(result.report.status==RunStatus::Cancelled && result.mesh.vertices.empty());CHECK(events.drain().events.back().status==RunStatus::Cancelled);

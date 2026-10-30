@@ -6,7 +6,7 @@
  *            existing sections in place).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Slice AU — emit `[2D_VERTICES]` / `[2D_TRIANGLES]` /
  * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` (plus the GG0a

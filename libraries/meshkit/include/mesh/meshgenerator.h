@@ -7,7 +7,7 @@
  *            break lines, conduits.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * 2D mesh generator (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): a
  * constrained Delaunay triangulation of every constraint, refined to the

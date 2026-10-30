@@ -1,8 +1,8 @@
 # Meshing implementation progress
 
-Date: 2026-10-29. Based on the [review and implementation plan](2026-10-29-meshing-review-and-library-extraction-plan.md). This records the implemented foundation and its remaining limits; the full numerical-policy redesign is not complete.
+Date: 2026-10-29. Based on the [review and implementation plan](2026-10-29-meshing-review-and-library-extraction-plan.md). The requested follow-on implementation and independent package are complete; the validation and supported scope are recorded below. Earlier entries retain the historical state at each delivery.
 
-Latest checkpoint: [native jobs, streaming I/O and shared constraint fixes](#native-jobs-streaming-io-and-shared-constraint-fixes). Earlier sections record the successive deliveries and their then-current limits.
+Latest checkpoint: [MeshKit 0.2 completion](#meshkit-02-completion--2026-10-2930). Earlier sections record the successive deliveries and their then-current limits.
 
 ## Implemented
 
@@ -369,3 +369,35 @@ bindings/packaging. Representative complex real-terrain/GIS/render capacity,
 general mapped-region decomposition and ownership/licensing release review remain
 separate gates. **GPL-3.0-or-later remains unchanged.** This checkpoint does not
 mark the entire original redesign complete.
+
+
+## MeshKit 0.2 completion — 2026-10-29/30
+
+All five items from the last next-steps review are delivered:
+
+1. **Qt-free planning and preparation.** Mapped patch generation, joint side stationing, automatic block placement, size fields, source simplification and independent audits live in standard C++. Qt facades use these implementations. Final audits borrow delivered arrays, avoiding an extra full-mesh copy. Native jobs assemble quads with triangle infill, recover each source owner's edges, check actual shared-face incidence and reject unresolved constraints. Local size caps survive fallback to triangles; fixed patch lines and domain membership are validated. Automatic blocks are tiled before bounded planning/refinement.
+2. **Representative shared geometry.** The supplied Bellinge footprint and SRTM raster pass a mixed native job with reversed owners sharing actual boundary vertices. There are 778,423 vertices and 793,141 cells; all constraint, size, edge, transition and terrain checks pass. Time is 1.545 s / 558.8 MB peak process RSS, excluding reprojection/export. Protected line endpoints on an edge no longer prevent removal of a redundant interior source vertex. Negative topology cases remain rejected.
+3. **Complete capacity check.** The installed wheel generates 7,123,030 vertices and 7,983,065 cells, including 6,250,000 quads, triangle corridors, a hole, shared line junctions and native bilinear terrain certification. Time is 18.788 s and peak process RSS 1.863 GB, with zero size/edge/transition/terrain violations and zero unknown terrain. This is a synthetic numerical workload; it excludes rendering and is not a worst-case physical-terrain guarantee. The permanent opt-in probe is `libraries/meshkit/tests/mixed_scale_probe.py`.
+4. **Python distribution.** CPython bindings accept buffer inputs, expose owned read-only zero-copy output views, execute jobs without the GIL, and provide progress polling and cancellation. NumPy is optional. The native raster provider avoids per-cell Python callbacks; source cleanup preserves authored heights. Reports include resolved options, limits, bounded examples and provider identity. MKB/SMS codecs retain atomic publication and explicit loss reporting. A clean macOS arm64/Python 3.12 wheel and source archive build and install successfully; all eight Python tests pass. Linux/Windows/macOS CI jobs are configured; local execution covers macOS only.
+5. **Apache 2.0.** The rights holder explicitly authorized relicensing all non-third-party MeshKit contributions. LICENSE, NOTICE, source identifiers and RELICENSING.md now record Apache-2.0. Existing copyright identities and predicate notices remain. The parent GUI stays GPL and historical GPL grants remain available.
+
+```mermaid
+flowchart LR
+    GUI[Meshing GUI and project adapter] --> Qt[Thin Qt planning / sizing / constraint facades]
+    Qt --> Core[Standard C++ MeshKit core]
+    Python[Python worker and owned buffers] --> Core
+    Native[Independent C++ client] --> Core
+    Python --> IO[MKB / SMS streaming I/O]
+    Native --> IO
+    IO --> Core
+    Core --> Raster[Native bilinear terrain certificate]
+    Core --> Pred[Public-domain robust predicates]
+```
+
+Validation: 13/13 standalone suites with Qt, 6/6 without Qt (including eight Python cases), 97 GUI meshing pipeline cases, and seven cases each for Quality, settings and SMS import. A separate installed CMake client runs with Qt discovery disabled. The clean wheel runs mixed jobs and MKB round trips without NumPy, Qt or GDAL. A fresh source archive builds offline against the installed compiler/CMake/Python tools.
+
+The separately signed **SWMMVis MeshKit Complete Preview** is launched at `build-mesh-policies/meshkit-complete-preview/SWMMVis.app`. Its main window was confirmed through native application state; older sessions remain open. The preview binary matches the newly built application, with its packaged signature and dependencies checked.
+
+The supported standalone contract still requires a common planar frame and intended intersections supplied as nodes. The GUI retains its intersection/GIS/project adapters. Preferred quads can fall back with a reason; unsupported required mappings fail. General arbitrary all-quad decomposition, cross-platform runtime qualification and GUI rendering of six million cells are not claimed by these numerical/package checks. Weighted thinning, the removal checkbox, transition values above ten, and responsive Quality navigation retain their existing regression coverage.
+
+Detailed measurements, limits, source fingerprints and evidence links: [MeshKit validation](../../libraries/meshkit/VALIDATION.md). API: [native C++](../../libraries/meshkit/NATIVE_API.md), [Python](../../libraries/meshkit/python/README.md). Local package artifacts and raw logs: `tests/output/meshkit-completion-2026-10-29/`.

@@ -3,7 +3,7 @@
  * @brief     Tests for meshgenerator v2.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * End-to-end generator on the triangle engine
  * (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): conformity to every

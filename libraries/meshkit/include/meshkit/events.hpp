@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// License retained pending the extraction's file-by-file rights audit.
+// SPDX-License-Identifier: Apache-2.0
+// Apache-2.0 relicensing authorized by the project rights holder, 2026-10-29.
 #pragma once
 
 #include <algorithm>

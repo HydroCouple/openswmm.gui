@@ -3,7 +3,7 @@
  * @brief     Hilbert-curve renumbering of a freshly generated mesh.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 

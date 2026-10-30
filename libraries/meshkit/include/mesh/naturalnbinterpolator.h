@@ -3,7 +3,7 @@
  * @brief     Natural-neighbour interpolation over a sparse set of scattered seed points (x, y, z).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Natural-neighbour interpolation over a sparse set of scattered seed
  * points (x, y, z).  Used as an alternative to inverse-distance weighting

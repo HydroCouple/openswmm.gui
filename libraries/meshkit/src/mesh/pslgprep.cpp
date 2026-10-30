@@ -6,7 +6,7 @@
  *            point-in-rings index.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * The RDP / densify / dedupe helpers are moved verbatim from
  * meshgenerationdialog.cpp's anonymous namespace so the pipeline,

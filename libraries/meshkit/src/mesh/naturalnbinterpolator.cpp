@@ -3,7 +3,7 @@
  * @brief     Natural-neighbour interpolation over a sparse set of scattered seed points (x, y, z).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Natural-neighbour (Sibson / Laplace) interpolation built on a Delaunay
  * triangulation of the seed points from the in-house kernel

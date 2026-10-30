@@ -6,7 +6,7 @@
  *            existing sections in place).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Slice AU — InpMeshWriter implementation. Section formats per
  * openswmm.engine/docs/2dModelStrategy.md §1.4–1.7.

@@ -5,7 +5,7 @@
  *            MESH_OVERHAUL_PLAN_2026-09-29.md Phase 5).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
- * @license   GPL-3.0-or-later
+ * @license   Apache-2.0
  *
  * Unordered vertex-pair key shared by the quad pairing, cleanup and
  * generator code (formerly in meshquadmerge.h, retired with the tri-pair

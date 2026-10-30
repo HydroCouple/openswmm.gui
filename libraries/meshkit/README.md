@@ -1,17 +1,17 @@
-# MeshKit extraction
+# MeshKit 0.2
 
 MeshKit is an independently configurable, buildable and installable CMake project. OpenSWMM links the same compiled targets that a separate application can consume; there is one implementation of each extracted algorithm and codec.
 
 | Target | Contents | Dependencies |
 | --- | --- | --- |
 | `meshkit::runtime` | Bounded job events, typed counts and run outcomes | Standard C++17 and threads |
-| `meshkit::core` | Owned neutral arrays, triangle job API, constrained Delaunay refinement/coarsening and final checks | Standard C++17, threads, public-domain predicates |
+| `meshkit::core` | Owned neutral arrays, mixed triangle/quad jobs, joint mapped planning, source cleanup/audits, size fields, bilinear terrain certificates, refinement/coarsening and final checks | Standard C++17, threads, public-domain predicates |
 | `meshkit::io` | Streaming neutral MKB and SMS 2DM codecs, atomic file publication | `core`; standard C++ filesystem |
 | `meshkit::core_qt` | Constrained Delaunay refinement/coarsening, size field, patch/strip placement, quad regions/matching/cleanup, mesh geometry/statistics/reordering, natural-neighbor interpolation, shared geometry helpers | Qt 6 Core, Gui value geometry, Concurrent; public-domain predicates; `model_qt` |
 | `meshkit::model_qt` | Existing mesh values, boundary-condition vocabulary and infiltration/cell parameters | Qt Core/Gui; currently also contains infiltration serialization helpers |
 | `meshkit::io_qt` | Native INP/2DM mesh sections and SMS 2DM reader | Qt Core/Gui, `model_qt`, and native `io` |
 
-The `_qt` names make the remaining transitional API explicit. These targets do not depend on Qt Widgets, the OpenSWMM application, the simulation engine, GDAL, or Python. **`runtime`, `core`, and `io` are Qt-free.** The native job currently supports triangles; mapped/mixed quad planning and the GUI's terrain/GIS and project orchestration remain in the Qt API. The native and Qt triangulation specializations share one algorithm implementation, with no GUI working-array mirror. See [the native API contract](NATIVE_API.md) for units, ownership, capabilities, error reporting, file schemas and examples.
+The `_qt` names make the remaining transitional API explicit. These targets do not depend on Qt Widgets, the OpenSWMM application, the simulation engine, GDAL, or Python. **`runtime`, `core`, and `io` are Qt-free.** The native job supports triangles and jointly planned mapped/automatic mixed meshes. The Qt planning, patch, sizing and constraint facades delegate to the same standard C++ implementations. The GUI retains terrain/GIS capture, legacy free quad matching and project orchestration. The native and Qt triangulation specializations share one algorithm implementation, with no GUI working-array mirror. See [the native API contract](NATIVE_API.md) for units, ownership, capabilities, error reporting, file schemas and examples.
 
 ## Build and use
 
@@ -29,7 +29,7 @@ For standard C++ meshing, streaming I/O and events, configure with `-DMESHKIT_BU
 A downstream client:
 
 ```cmake
-find_package(MeshKit 0.1 CONFIG REQUIRED COMPONENTS core io runtime)
+find_package(MeshKit 0.2 CONFIG REQUIRED COMPONENTS core io runtime)
 target_link_libraries(my_mesher PRIVATE meshkit::core meshkit::io)
 ```
 
@@ -37,7 +37,7 @@ Include `<mesh/meshgenerator.h>`, `<mesh/inpmeshreader.h>`, `<mesh/inpmeshwriter
 
 `GenerationOptions::allowQuads=false` disables generated quad regions, conduit strips and terrain strips, while retaining region boundaries, tags and local targets. A prebuilt quad patch conflicts with that mode and returns a diagnostic. Default `true` preserves existing callers.
 
-The retained generator API's `MeshResult::ok` means that a candidate was produced. Consumers must also inspect `MeshGenerator::stats().refineCapped` before accepting a mesh; a capped candidate is incomplete. The GUI adapter exposes that distinction as the structured `ResourceLimit` outcome and refuses to apply it. The native triangle `runJob` API supplies the owned request/report contract and refuses partial/capped results; moving mixed quad planning behind that native contract remains later work.
+The retained generator API's `MeshResult::ok` means that a candidate was produced. Consumers must also inspect `MeshGenerator::stats().refineCapped` before accepting a mesh; a capped candidate is incomplete. The GUI adapter exposes that distinction as the structured `ResourceLimit` outcome and refuses to apply it. The native mixed `runJob` API supplies the owned request/report contract and refuses partial/capped results. Its constraint and size audits borrow native or Qt buffers without copying the full mesh.
 
 ## Progress and capacity
 
@@ -54,11 +54,13 @@ build/meshkit-standalone/meshkit_scale_probe 3000 2000 # 6,000,000 vertices; 11,
 
 This measures a uniform-grid CDT, four constrained sides, positive triangle areas, expected count/area, elapsed time and process peak RSS. It is a kernel capacity probe, not a terrain, codec, renderer or end-to-end meshing benchmark. It is deliberately excluded from normal CTest runs.
 
-## Licensing and remaining extraction
+## License and independent use
 
-Licensing remains GPL-3.0-or-later. Moving files does not grant a permissive license to the existing algorithm. Existing notices remain in each source. See [the provenance inventory](PROVENANCE.md). A file-level ownership/dependency review and explicit license decision are required before a permissive release. The vendored predicates retain their separate public-domain notice; the Triangle mesher is not included.
+MeshKit is licensed under **Apache-2.0**, following the rights holder's explicit authorization on 2026-10-29. See [LICENSE](LICENSE), [NOTICE](NOTICE), [authorization and scope](RELICENSING.md), and the [historical provenance inventory](PROVENANCE.md). The predicates retain their public-domain notice. The surrounding GUI remains GPL; earlier GPL revisions retain their existing grants. Optional Qt/runtime dependencies retain their own terms and are not bundled in the Python wheel.
 
-The native geometry, triangle jobs and generic streaming codec boundaries are implemented. Remaining boundaries include mixed quad planning, source/size-field construction, optional GDAL adapters, and the full project pipeline. The Qt CDT facade already uses the shared implementation with original Qt storage. Python bindings should consume the installed package with array-oriented buffers and explicit ownership; no GUI dependency should enter that interface.
+[Python bindings](python/README.md) build with `python -m pip install ./libraries/meshkit`. Python 3.10+, a C++17 compiler, CMake and Python development headers are required for source builds; NumPy is optional. Output buffers are owned and read-only, with zero-copy NumPy views. Native worker threads release the GIL, poll bounded progress and support cancellation. Terrain queries run in native code, with no per-cell Python callbacks.
+
+The standard C++ project includes planning, source simplification, conservative sizing, mixed job assembly, shared-constraint audits and generic file I/O. GDAL reprojection/file loading, GUI project capture, coupling attributes, adoption/undo and renderer integration remain application adapters. Native callers supply a common planar frame and an authored graph with crossing intersections noded; exact shared vertices/overlaps do not require proximity welding. Unsupported required mapped geometry fails with a reason; preferred quads can fall back to triangles. General all-quad decomposition of arbitrary polygons is not promised.
 
 ## Constraint simplification
 
@@ -226,3 +228,7 @@ Opt-in `meshkit_native_scale_probe io 2450` checks MKB and 2DM streaming roundtr
 with 6,002,500 vertices and 5,997,601 quadrilaterals. `... job 1734` checks native
 triangle job orchestration with 3,006,756 source vertices and 6,006,578 cells.
 These synthetic probes exclude terrain/GIS, mixed patch planning and rendering.
+
+## Completion validation
+
+The full mixed job produced **7,123,030 vertices and 7,983,065 cells** (6,250,000 quads plus 1,733,065 triangles) in 18.79 s, at 1,862,631,424 bytes process peak RSS on this Apple arm64 workstation. It includes 100 mapped patches, a hole, junction/shared reversed line owners, a bilinear terrain certificate, and final source/size/edge/transition checks, all passing. This synthetic terrain case excludes GUI rendering and is not a worst-case guarantee. The supplied Bellinge boundary/DEM also passes a separate mixed job. See [validation](VALIDATION.md) for scope and reproducible evidence.

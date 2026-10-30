@@ -1,0 +1,81 @@
+#include "meshkit/regions.hpp"
+#include "meshkit/patch.hpp"
+#include "meshkit/detail/planmodel.hpp"
+// SPDX-License-Identifier: Apache-2.0
+#pragma once
+#include <functional>
+
+namespace meshkit::plan
+{
+enum class PatchDisposition { Triangles, Accepted, Repaired, RequiredFailure };
+struct PatchDecision {
+    Text source, reason;
+    int region = -1;
+    bool required = false;
+    PatchDisposition disposition = PatchDisposition::Triangles;
+    std::uint64_t cells = 0;
+    int repairRounds = 0;
+};
+struct PatchLimits {
+    double minimumEdge = 0, minimumAngleDegrees = 0, maximumAspect = 0;
+    double alongSize = 0, acrossSize = 0, alongAngleDegrees = 0;
+    double terrainTolerance = 0;
+    std::function<double(const Box2 &)> terrainToleranceForFootprint;
+    std::function<double(const Box2 &)> maximumSize;
+    std::function<double(double, double)> elevationAt;
+    std::function<double(const Point2 *, const double *)> terrainBound;
+    std::function<bool()> cancelled;
+};
+struct PatchAssessment {
+    bool ok = false, repairable = false, cancelled = false;
+    Text reason;
+};
+PatchAssessment assessPlannedPatch(const PatchMesh &, const PatchLimits &);
+struct QuadPlanningOptions {
+    bool allowQuads = true;
+    double defaultSize = 1;
+    PatchLimits limits;
+    int maximumRepairRounds = 3;
+    std::uint64_t maximumCells = 20000000, maximumPatchCells = 250000;
+    std::uint64_t maximumWorkspaceBytes = std::uint64_t(2) << 30, workBudget = 0;
+    // Previous bounded conformity retry found this candidate unsafe.
+    std::function<bool(const Polygon &)> excluded;
+};
+struct QuadPlanningGeometry {
+    Vector<Polygon> domains, holes;
+    Vector<Vector<Point2>> lines;
+    Vector<Point2> pins;
+    Vector<PatchMesh> fixedPatches;
+};
+struct QuadPlan {
+    bool ok = false, cancelled = false, resourceLimited = false;
+    Text error;
+    Vector<PatchMesh> patches;
+    Vector<int> patchRegions;
+    Vector<PatchDecision> decisions;
+    std::uint64_t sharedSides = 0, workUsed = 0, plannedCells = 0;
+};
+// Plan all region patches together before CDT construction. Full shared sides
+// use one exact station sequence; opposite/shared counts are solved jointly.
+// Authored vertices and indexed source junctions are retained. Unknown/infeasible
+// preferred candidates use triangles; a required failure refuses the whole plan.
+QuadPlan planQuadRegions(const Vector<QuadRegion> &, const QuadPlanningGeometry &,
+                         const QuadPlanningOptions & = {});
+struct PatchInterfaceConflict {
+    int first = -1, second = -1;
+    double firstSize = 0, secondSize = 0;
+};
+struct PatchInterfaceReport {
+    bool ok = false, cancelled = false;
+    Text error;
+    std::uint64_t sharedFaces = 0, violations = 0;
+    double largestRatio = 1;
+    Vector<PatchInterfaceConflict> examples;
+};
+// Compact independent incidence/ratio check restricted to actual patch edges.
+// Ordinary triangles are scanned once; storage grows with patch perimeter.
+PatchInterfaceReport auditPatchInterfaces(const MeshResult &, const Vector<MeshEdge> &,
+                                          double maximumRatio,
+                                          const std::function<bool()> &cancelled = {},
+                                          int maximumExamples = 64);
+}

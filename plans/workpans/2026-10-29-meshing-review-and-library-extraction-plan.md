@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-29
 
-**Status:** Implementation started. See the [first-delivery record](2026-10-29-meshing-implementation-progress.md) for completed work, measurements and remaining phases. The review findings below describe the pre-implementation baseline unless stated otherwise.
+**Status (2026-10-30):** Requested implementation and the five follow-on delivery items are complete as MeshKit 0.2. See the [completion record](2026-10-29-meshing-implementation-progress.md#meshkit-02-completion--2026-10-2930) and [validation](../../libraries/meshkit/VALIDATION.md) for supported scope, measurements and remaining qualification limits. The review findings and proposals below describe the pre-implementation baseline unless stated otherwise.
 
 **Scope:** Meshing rules, constraints, terrain refinement/coarsening, progress, standalone algorithm and file I/O, and six-million-scale operation.
 
