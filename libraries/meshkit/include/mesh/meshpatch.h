@@ -130,6 +130,11 @@ PatchMesh makeBankPairPatch(const BankPairPatch &p, QString *err = nullptr);
  *  not matching, n or m < 1, folded quad). */
 PatchMesh makeTransfinitePatch(const QVector<QVector<QPointF>> &sides, int n, int m,
                                const QString &tag, QString *err = nullptr);
+// Four already-stationed cyclic sides. Opposite side counts must agree.
+// Retains every boundary coordinate exactly; shared owners can reuse/reverse
+// one canonical sequence. No independent boundary resampling occurs.
+PatchMesh makeTransfinitePatchAtStations(const QVector<QVector<QPointF>> &sides,
+                                        const QString &tag, QString *err = nullptr);
 
 /*! \brief Split a CCW ring at the four \p corners (ring vertex indices, ring
  *  order) into polyline sides, choose n = max(1, round(mean(len0, len2)/h)),

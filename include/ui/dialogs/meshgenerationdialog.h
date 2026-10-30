@@ -130,6 +130,7 @@ public:
         /*! 0 = triangles only, 1 = quads in corridors and strips only,
          *  2 = also automatic open-area quad blocks. */
         int quadMode = 2;
+        bool requireMappedRegions = false;
         QVector<QVector<QPointF>> subcatchPolys; ///< Subcatchments: raw rings (mesh CRS)
         MapExtent modelExtent;                   ///< AutoBBox fallback frame
 
@@ -206,6 +207,8 @@ public:
          *  wherever the DEM deviates from a cell-sized plane by more than
          *  this (mesh::TerrainSizeField). No terrain vertices are generated. */
         double terrainTolerance = 0.0;
+        mesh::TerrainTolerancePolicy terrainTolerancePolicy; ///< Reference size in XY units; tolerances in output Z units.
+
         bool terrainAdaptive =
             true; ///< Certify/refine actual triangles rather than a block size surrogate.
         bool terrainAutoTolerance =
@@ -644,6 +647,7 @@ private:
     QCheckBox *m_qualityOrderBox = nullptr;
     QComboBox *m_terrainReferenceCombo = nullptr;
     QComboBox *m_quadModeCombo = nullptr;
+    QCheckBox *m_requireMappedRegions = nullptr;
     QCheckBox *m_latticeSeedingBox = nullptr;
     QSpinBox *m_smoothingSpin = nullptr;
     QSpinBox *m_maxBreaklinesSpin = nullptr;

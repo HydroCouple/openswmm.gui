@@ -13,6 +13,7 @@
 #define OPENSWMM_MESH_RESOLUTION_H
 
 #include <QJsonObject>
+#include "terrainpolicy.h"
 #include <QString>
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,12 @@ struct ResolutionSettings {
     int maxBreaklines = 0;
     int coarsenPasses = 0; ///< Absent in older projects: retain their original mesh behaviour.
     double transition = 2.0;
+    enum class Sizing { Legacy, Verified, Strict } sizing = Sizing::Legacy;
+    enum class CellPlanning { Legacy, Unified } cellPlanning = CellPlanning::Legacy;
+    std::optional<double> minimumEdgeM;
+    CoarseningOrder coarseningOrder=CoarseningOrder::LegacyFlatness;
+    TerrainTolerancePolicy terrainTolerancePolicy; // SI metres, independent of display units.
+
     bool refineFeatures = false, alignTerrain = true;
     enum class Terrain { Adaptive, Legacy, Off } terrain = Terrain::Adaptive;
     enum class Reference { Averaged, Full, Direct } reference = Reference::Averaged;
@@ -47,6 +54,27 @@ struct ResolutionSettings {
     QString validate() const
     {
         auto positive = [](double v) { return std::isfinite(v) && v > 0 && v <= 1e12; };
+        if (int(sizing) < 0 || int(sizing) > 2)
+            return QStringLiteral("Invalid sizing rules version or mode.");
+        if(int(cellPlanning)<0 || int(cellPlanning)>1)
+            return QStringLiteral("Invalid cell planning policy.");
+        if(cellPlanning==CellPlanning::Unified && sizing==Sizing::Legacy)
+            return QStringLiteral("Unified cell planning requires verified or strict sizing rules.");
+        if(coarseningOrder!=CoarseningOrder::LegacyFlatness && coarseningOrder!=CoarseningOrder::ResolutionAware)
+            return QStringLiteral("Invalid coarsening policy version or order.");
+        if(!terrainTolerancePolicy.valid() || terrainTolerancePolicy.referenceSize>1e12 || terrainTolerancePolicy.minimumTolerance>1e12 || terrainTolerancePolicy.maximumTolerance>1e12)
+            return QStringLiteral("Invalid resolution-weighted terrain tolerance policy.");
+        if((coarseningOrder==CoarseningOrder::ResolutionAware || terrainTolerancePolicy.mode==TerrainToleranceMode::TargetSize) && sizing==Sizing::Legacy)
+            return QStringLiteral("Resolution-weighted terrain or coarsening requires verified sizing.");
+        if(terrainTolerancePolicy.mode==TerrainToleranceMode::TargetSize) {
+            if(terrain!=Terrain::Adaptive)return QStringLiteral("Size-weighted tolerance requires adaptive terrain refinement.");
+            if(toleranceM && !std::isfinite(terrainTolerancePolicy.tolerance(*toleranceM,terrainTolerancePolicy.referenceSize)))
+                return QStringLiteral("The terrain tolerance floor exceeds its resolved cap.");
+        }
+        if (minimumEdgeM && !positive(*minimumEdgeM))
+            return QStringLiteral("The separate minimum edge requirement must be a positive finite length.");
+        if (sizing == Sizing::Legacy && minimumEdgeM)
+            return QStringLiteral("Choose verified or strict sizing to request a minimum edge length.");
         if (!positive(minimumM))
             return QStringLiteral("Minimum target cell size must be a positive finite length.");
         for (const auto &v : {maximumM, featureM, toleranceM, breaklineToleranceM, averagingM,
@@ -83,7 +111,12 @@ struct ResolutionSettings {
         auto value = [](std::optional<double> v) {
             return v ? QJsonValue(*v) : QJsonValue(QJsonValue::Null);
         };
-        return {{"coarsenPasses", coarsenPasses},
+        return {{"coarseningPolicy",QJsonObject{{"version",1},{"order",int(coarseningOrder)}}},
+                {"terrainTolerancePolicy",QJsonObject{{"version",1},{"mode",int(terrainTolerancePolicy.mode)},
+                    {"referenceSizeM",terrainTolerancePolicy.referenceSize},{"minimumM",terrainTolerancePolicy.minimumTolerance},
+                    {"maximumM",terrainTolerancePolicy.maximumTolerance}}}, {"sizingVersion", 1}, {"sizingMode", int(sizing)},
+                {"cellPlanningVersion",1},{"cellPlanningMode",int(cellPlanning)},
+                {"minimumEdgeM", value(minimumEdgeM)}, {"coarsenPasses", coarsenPasses},
                 {"minimumM", minimumM},
                 {"maximumM", value(maximumM)},
                 {"featureM", value(featureM)},
@@ -121,6 +154,22 @@ struct ResolutionSettings {
             return v.isDouble() ? std::optional<double>(v.toDouble()) : std::nullopt;
         };
         r.coarsenPasses = o.value("coarsenPasses").toInt(0);
+        const auto coarsening=o.value("coarseningPolicy").toObject();
+        r.coarseningOrder=CoarseningOrder(coarsening.value("order").toInt(0));
+        if(!coarsening.isEmpty() && coarsening.value("version").toInt()!=1)r.coarseningOrder=CoarseningOrder(-1);
+        const auto tolerancePolicy=o.value("terrainTolerancePolicy").toObject();
+        r.terrainTolerancePolicy.mode=TerrainToleranceMode(tolerancePolicy.value("mode").toInt(0));
+        if(!tolerancePolicy.isEmpty() && tolerancePolicy.value("version").toInt()!=1)r.terrainTolerancePolicy.mode=TerrainToleranceMode(-1);
+        r.terrainTolerancePolicy.referenceSize=tolerancePolicy.value("referenceSizeM").toDouble(10);
+        r.terrainTolerancePolicy.minimumTolerance=tolerancePolicy.value("minimumM").toDouble(0);
+        r.terrainTolerancePolicy.maximumTolerance=tolerancePolicy.value("maximumM").toDouble(0);
+
+        r.sizing = Sizing(o.value("sizingMode").toInt(0));
+        r.cellPlanning=CellPlanning(o.value("cellPlanningMode").toInt(0));
+        if(o.contains("cellPlanningVersion") && o.value("cellPlanningVersion").toInt()!=1)r.cellPlanning=CellPlanning(-1);
+        if (o.contains("sizingVersion") && o.value("sizingVersion").toInt() != 1)
+            r.sizing = Sizing(-1);
+        r.minimumEdgeM = value("minimumEdgeM");
         r.minimumM = o.value("minimumM").toDouble(r.minimumM);
         r.maximumM = value("maximumM");
         r.featureM = value("featureM");
@@ -161,6 +210,11 @@ struct ResolutionSettings {
     static ResolutionSettings migrate(const QJsonObject &c, ResolutionSettings r, double extentM)
     {
         r.coarsenPasses = 0;
+        r.coarseningOrder=CoarseningOrder::LegacyFlatness;
+        r.terrainTolerancePolicy={};
+        r.sizing = Sizing::Legacy;
+        r.cellPlanning=CellPlanning::Legacy;
+        r.minimumEdgeM.reset();
         double feature = c.value("meshCellSizeSpin").toDouble(r.featureM.value_or(r.minimumM));
         if (feature <= 0)
             feature = extentM > 0 ? extentM / 100.0 : 1.0;

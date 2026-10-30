@@ -2,6 +2,8 @@
 #include "mesh/constraintsimplifier.h"
 #include "mesh/constraintaudit.h"
 #include "mesh/meshgenerator.h"
+#include "mesh/meshreorder.h"
+#include "mesh/pslgprep.h"
 #include <QTest>
 #include <QElapsedTimer>
 #ifdef Q_OS_UNIX
@@ -93,6 +95,72 @@ private slots:
         r = simplifyConstraints({outer});
         QCOMPARE(r.features[0].xy, outer.xy);
         QVERIFY(r.changes[0].rolledBack);
+    }
+    void sharedLineBoundaryVertices_data()
+    {
+        QTest::addColumn<int>("configuration");
+        QTest::newRow("boundary-corner") << 0;
+        QTest::newRow("boundary-interior-T") << 1;
+        QTest::newRow("reversed-overlapping-boundary-lines") << 2;
+        QTest::newRow("shared-line-junction") << 3;
+        QTest::newRow("adjacent-domain-shared-side") << 4;
+        QTest::newRow("adjacent-domain-shared-vertex") << 5;
+    }
+    void sharedLineBoundaryVertices()
+    {
+        QFETCH(int, configuration);
+        SimplificationFeature outer; outer.id="outer"; outer.role=SimplificationFeature::Role::Domain;
+        outer.closed=true; outer.xy={{0,0},{10,0},{10,10},{0,10}};
+        QVector<SimplificationFeature> sources{outer};
+        auto line=[&](QString id,QVector<QPointF> xy,int marker) {
+            SimplificationFeature f;f.id=id;f.xy=xy;f.marker=marker;sources.append(f);
+        };
+        if(configuration==0)line("corner",{{0,0},{5,5}},31);
+        if(configuration==1)line("T",{{5,0},{5,5}},31);
+        if(configuration==2){line("overlap",{{2,0},{8,0}},31);line("reversed",{{8,0},{5,0},{2,0}},32);}
+        if(configuration==3){line("first",{{0,5},{5,5},{10,5}},31);line("branch",{{5,5},{5,10}},32);}
+        if(configuration>=4){auto second=outer;second.id="second";second.xy=configuration==4?QVector<QPointF>{{10,0},{20,0},{20,10},{10,10}}:QVector<QPointF>{{10,10},{20,10},{20,20},{10,20}};sources.append(second);}
+        if(configuration==4)for(auto &f:sources)for(auto &p:f.xy)p*=3.2;
+        auto prepared=simplifyConstraints(sources);QVERIFY2(prepared.ok,qPrintable(prepared.error));
+        auto before=auditConstraintSimplification(sources,prepared);QVERIFY2(before.ok,qPrintable(before.error));
+        MeshGenerator generator;QVector<QPolygonF> domains;
+        for(const auto &f:prepared.features)if(f.role==SimplificationFeature::Role::Domain)domains.append(QPolygonF(f.xy));else generator.addConstraintSegment({f.xy,f.marker,f.id});
+        generator.setDomains(domains);GenerationOptions options;options.preserveConstraintCoordinates=true;options.minAngleDeg=20;options.maxArea=configuration==4?64:2;if(configuration==4)options.minAngleDeg=30;generator.setOptions(options);
+        auto generated=generator.generate();QVERIFY2(generated.ok,qPrintable(generated.errorMsg));
+        reorderMeshHilbert(&generated);
+        auto after=auditMeshConstraints(prepared.features,generated);
+        QVERIFY2(after.ok,qPrintable(after.error));
+    }
+    void sharedDomainAuditStillRejectsExteriorCells()
+    {
+        SimplificationFeature a,b;a.id="a";a.closed=true;a.role=SimplificationFeature::Role::Domain;
+        a.xy={{0,0},{10,0},{10,10},{0,10}};b=a;b.id="b";b.xy={{20,0},{30,0},{30,10},{20,10}};
+        MeshGenerator generator;generator.setDomains({QPolygonF(a.xy),QPolygonF(b.xy)});
+        GenerationOptions options;options.minAngleDeg=0;generator.setOptions(options);
+        auto result=generator.generate();QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(auditMeshConstraints({a,b},result).ok);
+        for(const auto &edge:result.boundaryEdges) {
+            const auto p=result.vertices[edge.v0].xy,q=result.vertices[edge.v1].xy;
+            if(p.y()!=0 || q.y()!=0 || std::max(p.x(),q.x())>10)continue;
+            MeshVertex extra;extra.xy=(p+q)/2+QPointF(0,-1);int at=result.vertices.size();result.vertices.append(extra);
+            MeshTriangle cell;cell.v0=edge.v0;cell.v1=edge.v1;cell.v2=at;result.triangles.append(cell);break;
+        }
+        const auto audit=auditMeshConstraints({a,b},result);QVERIFY(!audit.ok);QVERIFY(audit.error.contains("wrong side"));
+    }
+    void indexedDomainCoversEveryBoundaryAndOverlappingInteriors()
+    {
+        pslg::PointInRingsIndex index;QPolygonF first{{0,0},{10,0},{10,10},{0,10}},second{{5,0},{15,0},{15,10},{5,10}};
+        index.build({first,second},{{{2,2},{4,2},{4,4},{2,4}}});
+        for(auto p:QVector<QPointF>{{0,0},{10,0},{10,10},{0,10},{5,0},{15,0},{15,10},{5,10},{7,5},{10,5},{2,3}})QVERIFY(index.covers(p));
+        for(auto p:QVector<QPointF>{{-.00001,0},{15.00001,5},{5,10.00001},{3,3}})QVERIFY(!index.covers(p));
+    }
+    void reversedSharedSegmentsHaveIdenticalGeneratedStations()
+    {
+        const QVector<QPointF> forward{{32,0},{32,32}},reverse{{32,32},{32,0}};
+        auto h=[](double,double y){return y<12?11.:12.;};
+        const auto a=pslg::resampleAtSize(forward,h,true);auto b=pslg::resampleAtSize(reverse,h,true);
+        std::reverse(b.begin(),b.end());QCOMPARE(a.size(),b.size());
+        for(int i=0;i<a.size();++i){QCOMPARE(a[i].x(),b[i].x());QCOMPARE(a[i].y(),b[i].y());}
     }
     void sharedEdgesAndJunctionsRemain()
     {

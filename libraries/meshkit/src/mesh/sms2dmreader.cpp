@@ -10,6 +10,8 @@
 
 #include "mesh/sms2dmreader.h"
 #include "mesh/meshcellgeom.h"
+#include "meshkit/io.hpp"
+#include <filesystem>
 
 #include <QFile>
 #include <QTextStream>
@@ -39,15 +41,66 @@ QStringList tokenize(const QString &raw)
 
 } // namespace
 
-MeshResult Sms2dmReader::read(const QString &path, bool splitQuads)
+MeshResult Sms2dmReader::read(const QString &path, bool splitQuads, QStringList *warnings)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        MeshResult r;
-        r.errorMsg = QStringLiteral("Cannot open %1 for reading.").arg(path);
-        return r;
+    meshkit::IOOptions options;
+    options.legacy2dm = true;
+    options.unknownRecords = meshkit::UnknownRecords::IgnoreWithReport;
+#ifdef Q_OS_WIN
+    const std::filesystem::path nativePath(path.toStdWString());
+#else
+    const std::filesystem::path nativePath(path.toUtf8().constData());
+#endif
+    auto decoded = meshkit::read2dm(nativePath, options);
+    MeshResult out;
+    if (!decoded.report.complete()) {
+        out.errorMsg = QStringLiteral("2DM line %1: %2 (%3)")
+            .arg(decoded.report.record).arg(QString::fromStdString(decoded.report.message),
+                                           QString::fromStdString(decoded.report.code));
+        return out;
     }
-    return parse(QString::fromUtf8(f.readAll()), splitQuads);
+    if (warnings && decoded.report.ignoredRecords)
+        warnings->append(QStringLiteral("%1 unsupported SMS records were ignored: %2")
+            .arg(decoded.report.ignoredRecords)
+            .arg([&] { QStringList names; for (const auto &code : decoded.report.losses)
+                      names.append(QString::fromStdString(code)); return names.join(", "); }()));
+    if (warnings && decoded.report.reorientedCells)
+        warnings->append(QStringLiteral("%1 clockwise SMS cells were oriented counterclockwise.")
+                             .arg(decoded.report.reorientedCells));
+    QHash<int, QString> tags;
+    for (const auto &label : decoded.mesh.labels)
+        tags.insert(label.id, QString::fromStdString(label.name));
+    out.vertices.reserve(decoded.mesh.vertices.size());
+    for (const auto &point : decoded.mesh.vertices) {
+        MeshVertex vertex; vertex.xy = {point.x, point.y}; vertex.z = point.z;
+        out.vertices.append(vertex);
+    }
+    out.triangles.reserve(decoded.mesh.cells.size());
+    for (int corners : {3, 4}) for (const auto &cell : decoded.mesh.cells) {
+        if (cell.count != corners) continue;
+        MeshTriangle c; c.v0 = cell.vertices[0]; c.v1 = cell.vertices[1];
+        c.v2 = cell.vertices[2]; c.v3 = corners == 4 ? int(cell.vertices[3]) : -1;
+        c.tag = tags.value(cell.region);
+        if (corners == 3 || !splitQuads) out.triangles.append(c);
+        else {
+            const CellGeom geometry = cellGeom(out.vertices, c);
+            for (int k = 0; k < geometry.nSub; ++k) {
+                MeshTriangle t; t.v0 = geometry.sub[k][0]; t.v1 = geometry.sub[k][1];
+                t.v2 = geometry.sub[k][2]; t.tag = c.tag; out.triangles.append(t);
+            }
+        }
+    }
+    for (const auto &line : decoded.mesh.paths) {
+        const auto count = line.vertices.size() - (line.closed ? 0 : 1);
+        for (std::size_t i = 0; i < count; ++i) {
+            MeshEdge edge; edge.v0 = line.vertices[i];
+            edge.v1 = line.vertices[(i + 1) % line.vertices.size()];
+            edge.marker = int(line.id); edge.tag = QStringLiteral("NS%1").arg(line.id);
+            out.boundaryEdges.append(edge);
+        }
+    }
+    out.ok = true;
+    return out;
 }
 
 MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)

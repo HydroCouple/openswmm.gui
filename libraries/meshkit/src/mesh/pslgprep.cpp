@@ -15,6 +15,7 @@
  */
 
 #include "mesh/pslgprep.h"
+#include "mesh/meshcdt.h"
 
 #include "core/editgeometry.h"
 
@@ -249,7 +250,8 @@ QVector<QPointF> trimByStraightness(const QVector<QPointF> &pts, double maxTurnD
 }
 
 QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
-                                const std::function<double(double, double)> &hAt)
+                                const std::function<double(double, double)> &hAt,
+                                bool canonicalSegments)
 {
     if (!hAt || path.size() < 2)
         return path;
@@ -257,7 +259,11 @@ QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
     out.reserve(path.size() * 2);
     out.append(path.first());
     for (int i = 1; i < path.size(); ++i) {
-        const QPointF &a = path[i - 1], &b = path[i];
+        const auto &start = path[i - 1], &end = path[i];
+        const bool reverse = canonicalSegments && (end.x() < start.x() ||
+                             (end.x() == start.x() && end.y() < start.y()));
+        const QPointF a = reverse ? end : start, b = reverse ? start : end;
+        const auto generatedStart = out.size();
         const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
         if (len > 0.0) {
             // Integrate ds/h along the edge on a fine sampling (a quarter of
@@ -310,7 +316,8 @@ QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
                 }
             }
         }
-        out.append(b);
+        if (reverse) std::reverse(out.begin() + generatedStart, out.end());
+        out.append(end);
     }
     return out;
 }
@@ -791,7 +798,7 @@ bool prepareHoleRings(const QVector<QVector<QPointF>> &raw, double simplifyEps, 
 // PointInRingsIndex — extracted verbatim from the worker's banded PIP code
 // ---------------------------------------------------------------------------
 
-void PointInRingsIndex::addRing(const QVector<QPointF> &ring)
+void PointInRingsIndex::addRing(const QVector<QPointF> &ring, int owner)
 {
     const int rn = ring.size();
     if (rn < 3)
@@ -801,10 +808,10 @@ void PointInRingsIndex::addRing(const QVector<QPointF> &ring)
     for (int i = 0; i < en; ++i) {
         const QPointF &a = ring[i];
         const QPointF &b = ring[(i + 1) % en];
-        if (a.y() == b.y())
-            continue; // horizontal: never crossed
+        if (a.y() != b.y()) ++m_crossingEdges;
         const int ei = m_edges.size();
         m_edges.append(qMakePair(a, b));
+        m_owners.append(owner);
         int b0 = static_cast<int>(std::floor((std::min(a.y(), b.y()) - m_y0) / m_bandH));
         int b1 = static_cast<int>(std::floor((std::max(a.y(), b.y()) - m_y0) / m_bandH));
         b0 = std::clamp(b0, 0, m_nBands - 1);
@@ -818,6 +825,8 @@ void PointInRingsIndex::build(const QVector<QPolygonF> &domains,
                               const QVector<QVector<QPointF>> &holes, int nBands)
 {
     m_edges.clear();
+    m_owners.clear();
+    m_crossingEdges = 0;
     m_bandEdges.clear();
     m_nBands = 0;
 
@@ -848,10 +857,10 @@ void PointInRingsIndex::build(const QVector<QPolygonF> &domains,
     m_bandH = (y1 > y0) ? (y1 - y0) / m_nBands : 1.0;
     m_bandEdges.resize(m_nBands);
 
-    for (const QPolygonF &dom : domains)
-        addRing(dom);
-    for (const QVector<QPointF> &hr : holes)
-        addRing(hr);
+    for (int i = 0; i < domains.size(); ++i)
+        addRing(domains[i], i + 1);
+    for (int i = 0; i < holes.size(); ++i)
+        addRing(holes[i], -i - 1);
 }
 
 bool PointInRingsIndex::contains(const QPointF &p) const
@@ -875,9 +884,31 @@ bool PointInRingsIndex::contains(const QPointF &p) const
     return inside;
 }
 
+bool PointInRingsIndex::covers(const QPointF &p) const
+{
+    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !m_crossingEdges ||
+        p.x() < m_x0 || p.x() > m_x1 || p.y() < m_y0 || p.y() > m_y1) return false;
+    const int band = std::clamp(int(std::floor((p.y() - m_y0) / m_bandH)), 0, m_nBands - 1);
+    // Edge indices are appended by ring, so each band's owners are grouped.
+    // This avoids allocating a per-query set for overlapping domain rings.
+    bool outer = false, hole = false, inside = false;
+    int owner = 0;
+    auto finish = [&] { if (owner > 0) outer |= inside; else if (owner < 0) hole |= inside; };
+    for (int index : m_bandEdges[band]) {
+        if (m_owners[index] != owner) { finish(); owner = m_owners[index]; inside = false; }
+        const auto &a = m_edges[index].first, &b = m_edges[index].second;
+        const double turn = ConstrainedDelaunay::orientExact(a, b, p);
+        if (turn == 0 && p.x() >= std::min(a.x(), b.x()) && p.x() <= std::max(a.x(), b.x()) &&
+            p.y() >= std::min(a.y(), b.y()) && p.y() <= std::max(a.y(), b.y())) return true;
+        if ((a.y() > p.y()) != (b.y() > p.y()) &&
+            ((b.y() > a.y() && turn > 0) || (b.y() < a.y() && turn < 0))) inside = !inside;
+    }
+    finish(); return outer && !hole;
+}
+
 QRectF PointInRingsIndex::boundingBox() const
 {
-    if (m_edges.isEmpty())
+    if (!m_crossingEdges)
         return {};
     return QRectF(QPointF(m_x0, m_y0), QPointF(m_x1, m_y1));
 }

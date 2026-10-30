@@ -27,9 +27,11 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
+#include "terrainpolicy.h"
 #include "meshedgekey.h"
 #include "meshpatch.h"
 #include "meshquadquality.h"
+#include "cellplanner.h"
 #include "meshquadregion.h"
 #include "meshprogress.h"
 
@@ -91,6 +93,7 @@ struct RefineHook {
      *  Return <= 0 for "no limit here". When set, this SUPERSEDES
      *  GenerationOptions::maxArea. */
     std::function<double(double x, double y)> targetAreaAt;
+    std::function<double(const QRectF &)> footprintMaximumSize; ///< Verified sizing: bound over the full footprint.
     /*! Legacy callback: allocated vertex slots, including super/unused vertices;
      * this is NOT a cell count. Prefer onDetailedProgress. */
     std::function<void(qint64 count)> onProgress;
@@ -108,6 +111,8 @@ struct RefineHook {
         terrainErrorBound; ///< Certified residual and coverage for coarsening.
     std::function<double(double, double)> terrainElevationAt;
     double terrainTolerance = 0.0;
+    std::function<double(const QRectF &)> terrainToleranceForFootprint;
+
     /*! Insert terrain points worst error first once size and angle are met
      *  (ConstrainedDelaunay::QualityOptions::terrainWorstFirst), so the cell
      *  budget goes where the surface error is largest. */
@@ -148,6 +153,9 @@ struct GenerationOptions {
     int smoothingPasses = 0;
     bool diagnosticProvenance = false; ///< Review harness only; no effect on geometry.
     int coarsenPasses = 0; ///< Bounded attempts to remove unnecessary free vertices; 0 = off.
+    CoarseningOrder coarseningOrder=CoarseningOrder::LegacyFlatness;
+    double coarseningReferenceSize=10,normalVerticalToXY=1;
+
     /*! Smallest spacing between distinct channel corridor vertices (lattice
      *  offsets and stations). Constraint joining stays below a tenth of it so
      *  a narrow bank crest is never welded to its toe. 0 = derive it from the
@@ -167,6 +175,11 @@ struct GenerationOptions {
      *  prebuilt quad patches conflict with this mode and cause a clear failure. */
     bool allowQuads = true;
     bool preserveConstraintCoordinates = false; ///< Only exact junctions/crossings are joined.
+    bool verifiedSizing = false;
+    bool unifiedCellPlanning = false;
+    double minimumRequiredEdge = 0;
+    double maximumAdjacentRatio = 0;
+    int sizingRepairPasses = 2, maximumSizingRepairInsertions = 200000;
 };
 
 /*! \brief Per-region outcome of generate() (MeshGenerator::quadRegionReports()). */
@@ -200,7 +213,12 @@ struct GenerationStats {
     int coarsenHeightRejects = 0, coarsenBoundAccepts = 0, coarsenExactQueries = 0;
     bool coarsenSkippedTerrain = false;
     double coarsenSeconds = 0;
+    quint64 coarsenQueuePeak=0,coarsenPriorityQueries=0;
+
     bool refineCapped = false; ///< Refinement stopped at its safety cap.
+    int sizingRepairInserted = 0, sizingRepairPasses = 0;
+    bool sizingRepairLimited = false;
+    int triangulationPasses = 0, plannedPatches = 0, repairedPatches = 0, triangleFallbacks = 0;
 };
 
 /*! \brief Generate a 2D triangular mesh.
@@ -420,6 +438,7 @@ public:
      * @details Counts from the last generate().
      */
     [[nodiscard]] const GenerationStats &stats() const { return m_stats; }
+    [[nodiscard]] const QVector<PatchDecision> &cellPlanDecisions() const { return m_patchDecisions; }
     /**
      * @brief Return the compatibility placeholder for triangle-pairing locks.
      * @param[in] mesh Borrowed result, ignored/unchanged; generator never pairs existing
@@ -529,8 +548,12 @@ private:
     QVector<QVector<QPointF>> m_terrainLines;
     mutable QVector<QVector<QPointF>> m_acceptedTerrainLines;
     mutable QVector<QuadRegionReport> m_quadReports;
+    mutable QVector<PatchDecision> m_patchDecisions;
     mutable GenerationStats m_stats;
     mutable QSet<QPair<qint64, qint64>> m_leakedPatches; ///< Patch centroid keys excluded on retry.
+    mutable QSet<int> m_disabledPlanRegions;
+    mutable QHash<int,int> m_planRefinements;
+    mutable QString m_planRetryReason;
     /**
      * @brief Run one generation attempt and replace mutable diagnostic/cache state.
      * @param[out] leaked Optional borrowed retry key, assigned only when a patch interior flood

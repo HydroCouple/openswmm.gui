@@ -185,8 +185,48 @@ node-removal controls are no longer used.
 | **Terrain reference** | **Averaged DEM** or **Full DEM**. Averaging follows the minimum target unless a custom scale is chosen in Terrain accuracy | Averaged DEM |
 | **Align edges with terrain features** | Detect ridges, banks and slope breaks as constrained mesh edges | On |
 | **Terrain features** | Independent breakline detection tolerance, minimum line length and line count | Breakline estimates automatic; minimum length four times minimum target |
-| **Size transition rate** (Cell size) | Growth rate of the background size field; any finite value at least 1.05, with no fixed upper cap | 2 |
+| **Size transition rate** (Cell size) | Background-field growth; verified/strict rules also audit the ratio of nominal sizes across shared cell faces. Any finite value at least 1.05, with no fixed upper cap | 2 |
 | **Advanced terrain settings** (Terrain accuracy) | Terrain refinement method and direct DEM reading | Adaptive elevation error; use a local copy |
+
+**Sizing rules**, on **Cell size**, selects a versioned contract. **Legacy
+targets** retains saved construction behavior. **Verified sizes — report
+exceptions** applies footprint size limits and bounded local repair, then reports
+unresolved limits. **Strict sizes — refuse unmet limits** uses the same
+construction and refuses a candidate that fails a delivered size, transition or
+separately requested edge-floor requirement. Old settings load as legacy; changing
+the mode is explicit and is saved in project options and Preferences.
+
+In verified/strict rules, nominal size is the equilateral side with a triangle's
+area, `sqrt(4 A / sqrt(3))`, or the square side with a quad's area, `sqrt(A)`.
+**Maximum target cell size** bounds that metric. **Minimum target cell size**
+still controls discretionary refinement and is advisory for delivered cells.
+**Minimum delivered edge** is a separate optional geometric floor. Strict mode
+refuses a protected source edge already shorter than that floor before meshing.
+It reports other unresolved edge-floor conflicts after construction.
+
+The construction cap uses a conservative bound over the whole cell bounding box,
+including interpolation support samples and the bounding boxes of explicit local
+regions. This can refine more ground around a narrow or nonrectangular region;
+it avoids missing fine requests between the centroid and the cell edges. A
+compact minimum pyramid accelerates field queries. The new nominal cap does not
+use the legacy 1.22 spacing calibration.
+
+After ordinary refinement, smoothing, terrain insertion and optional coarsening,
+up to two local repair passes (at most 200,000 additional vertices) address size
+and triangle-to-triangle transition failures. The job cell budget remains a hard
+resource ceiling. Constraints retain their coordinates; ordinary constrained
+edges may be subdivided and fixed quad stations remain fixed. Changed triangle
+terrain errors are checked during repair and the finished mesh receives the
+existing final terrain check. Fixed quads are not rebuilt in this pass: remaining
+quad or interface conflicts are reported, and strict sizing refuses them.
+
+The independent final audit measures every cell and shared face, including mixed
+triangle/quad interfaces. It reports advisory undersized nominal cells, actual
+edge-floor conflicts, global/footprint maximum exceedances and transition faces.
+Examples identify cell/neighbour IDs and locations; highlighted exceptions use
+the existing bounded selection. Invalid connectivity, cancellation or audit work/
+memory exhaustion prevents acceptance. A successful sizing audit certifies these
+size metrics; it is not a general mesh-overlap or terrain certificate.
 
 Sizes describe characteristic cell spacing, not a guaranteed length of every
 edge. A 20 ft minimum target and a 0.5 ft elevation tolerance describe different
@@ -227,6 +267,40 @@ measurements.
 strips and four-sided regions. Region outlines, tags and local sizes still apply.
 A prebuilt quad patch conflicts with this mode: remove the patch or enable quads.
 The mixed modes prefer quads where they fit; they do not target a quad percentage.
+
+On **Quality → Quads and regions**, choose **Unified patch planning** to plan
+mapped regions and open blocks before triangulating the remaining area. This
+selects verified sizing unless strict sizing is already active. Saved projects
+keep legacy routing until changed.
+
+| Cell choice | Unified behavior |
+| --- | --- |
+| Global triangles only | Every generated region/strip uses triangles; an explicit required quad is a conflict |
+| Region `cells=triangles` | Keep that region triangular, overriding the dialog's default requirement |
+| Region `cells=auto` or empty | Prefer a mapped patch where geometry, size, angle and terrain permit; otherwise retain its outline and fill with triangles |
+| Region `cells=required_quads` | Require a conforming mapped patch; stop with a reason if bounded repair cannot meet its limits |
+| **Require mapped quads in selected regions** | Apply the hard requirement to selected regions unless their feature explicitly requests triangles |
+
+Matching full logical sides share the same exact stations, including authored
+junctions. Partial sides must already have matching atomic subdivisions; otherwise
+split the source region into conforming pieces. Mapped candidates currently need
+four logical sides. A region containing a hole or crossing a protected line uses
+triangles, or is refused if required. Required points must be incident to delivered
+cells. Lines, boundaries and holes retain their constraints.
+
+The planner allows up to three subdivision repairs and three exceptional
+regeneration retries. It refines triangular neighbours of fixed patch edges where
+possible. A preferred patch with an unresolved interface conflict falls back to
+triangles; a required generated patch can receive finer stations. A prebuilt patch
+has fixed stations and is refused if they prevent a valid transition. Each mapped
+patch is limited to 250,000 cells; larger required regions need conforming pieces.
+This keeps each patch operation bounded while allowing a much larger total mesh.
+
+The Run log records decisions for up to 100 regions and totals for the remaining
+regions. The result reports quad shares by **cell count and area**, without a target
+percentage. Full delivered geometry, sizing and terrain checks still run after
+assembly. These checks do not guarantee every triangle's requested angle or terrain
+tolerance; inspect the reported exceptions and strict-size outcome.
 
 On **Quality → Boundaries**, **Default geometry policy** controls source cleanup:
 
@@ -368,6 +442,57 @@ curve of their triangle centroids — the engine's cell index is the file line
 order, so spatial neighbours being index-adjacent measurably helps both the
 solver's cache behaviour and the map renderer. It is a pure permutation: the
 geometry and every per-element attribute are unchanged.
+
+### Resolution-weighted terrain and removal order
+
+Existing projects retain constant elevation tolerance and the existing flatness
+order. These new choices are opt-in and select verified sizing when needed.
+
+On **Quality → Cell shape**, enable **Remove unnecessary vertices after
+refinement**, then open **Advanced coarsening settings → Removal order →
+Resolution and flatness**. The order favors redundant sampling relative to the
+prescribed target and uses compatible physical units for facet normals. It keeps
+one queue entry per vertex. Switching the checkbox off disables removal. The
+order does not grant permission to remove a boundary, hole, line, node, or fixed
+patch vertex, or to exceed the target size, angle, or terrain checks.
+
+On **Quality → Terrain accuracy → Tolerance rule**, choose **Scale with target
+cell size (experimental)**. Under **Advanced terrain settings**, set the target
+size at the reference tolerance, an optional smallest tolerance, and a largest
+tolerance. Zero largest tolerance uses the ordinary elevation tolerance. The
+linear rule is:
+
+```text
+allowed error = clamp(reference tolerance × prescribed target / reference size,
+                      smallest tolerance, largest tolerance)
+```
+
+For a reference tolerance of 0.10 m at a target size of 10 m, targets of 2 m and
+10 m allow 0.02 m and 0.10 m respectively. Coarser targets remain capped at
+0.10 m unless a larger cap is explicitly entered. A zero floor does not impose
+an extra lower clamp. These are tolerances against the chosen DEM reference;
+they do not establish physical accuracy beyond the source data.
+
+The smallest target over the full cell footprint governs the tolerance. Narrow
+fine regions cannot disappear between samples. For directional regions the
+finer prescribed direction is used, without forcing nominal quad sizes to that
+finer isotropic size. Bounding boxes can conservatively tighten nearby ground.
+Unbounded target areas use the cap. The prescribed field stays fixed during
+removal, so deleting vertices cannot relax the error allowance.
+
+Refinement, preferred/fixed quad checks, removal certificates, and final delivered
+terrain checks use this same rule. Unknown coverage rejects removal. Required
+fixed patches are refused when their stations cannot certify the requested
+terrain tolerance; preferred patches can use triangles. Minimum spacing, fixed
+geometry, or a resource limit can still leave terrain exceptions. Inspect the
+Run log's applied tolerance range, largest error/tolerance ratio, and highlighted
+cells. Strict sizing remains a separate size/edge/transition setting.
+
+Weighted tolerance requires an adaptive terrain reference and a selected DEM.
+Turning terrain refinement off deactivates the weighted rule. The rule selector
+remains available when a raster is removed, allowing a saved weighted request to
+be switched back to constant tolerance. Averaging changes the reference itself;
+weighting cannot recover detail already removed from it.
 
 ### Burning channels into an existing mesh
 
@@ -996,3 +1121,21 @@ Slope and aspect must be supplied together before applying the snow draft.
 **Apply** in the snow editor saves all staged rows as one Undo operation.
 Preview and Undo text name the source layer/field or raster/band. The assignment
 is a snapshot; later GIS changes do not automatically modify the model.
+
+
+### Shared line and boundary vertices
+
+Under **Preserve** or **Bounded** geometry policies, a line may end exactly on a
+boundary vertex or edge. Independent lines may share a junction or overlap a
+boundary segment in either direction. Adjacent domain polygons may share an
+edge. These contacts are accepted without moving authored coordinates. Shared
+edges receive matching generated subdivisions and are checked against the
+combined meshing domain and holes. Nearby distinct vertices remain distinct;
+strict minimum-edge requirements may therefore identify a real sizing conflict.
+Self-intersecting rings, genuinely outside source geometry and missing required
+edges still produce errors.
+
+The independently buildable native meshing API and streaming codecs are described
+in [MeshKit's native API](../../libraries/meshkit/NATIVE_API.md). Native triangle
+jobs, MKB and SMS 2DM I/O work without Qt. The GUI's automatic mixed/mapped planner
+still uses the Qt interface; Python bindings remain planned. Licensing is unchanged.

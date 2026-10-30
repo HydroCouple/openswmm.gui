@@ -68,3 +68,17 @@ The runtime event transport, new smoke/capacity tests, and packaging files added
 ## Boundaries not moved
 
 GDAL terrain providers and boundary conditioning, corridor/project capture, engine synchronization, feature exports, project mesh adoption/undo and save orchestration remain application adapters. `model_qt` retains the existing shared infiltration metadata and serialization helpers; separating generic arrays from application-specific attributes is still required for the final Qt-free interface.
+
+
+## Native extraction update, 2026-10-29
+
+`include/meshkit/cdt.hpp` and `src/native/cdt_impl.hpp` continue the kernel from
+`include/mesh/meshcdt.h` and `src/mesh/meshcdt.cpp` listed above. Both retain the
+original copyright/GPL notices. The old Qt paths now select/instantiate that
+shared implementation with Qt storage. Terrain scalar policy, progress and
+coarsening queue definitions moved to standard C++ headers with forwarding Qt
+aliases. Native model/job/orchestration, streaming codecs, CLI and tests use
+GPL-3.0-or-later. No change of licensing or ownership is inferred from removal
+of Qt dependencies. The native package links only the standard runtime/threads
+and separately noticed robust predicates; the optional Qt package still carries
+its existing dependencies and application-specific attributes.

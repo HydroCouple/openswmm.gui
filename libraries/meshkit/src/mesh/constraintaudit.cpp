@@ -3,6 +3,8 @@
 #include "mesh/meshcdt.h"
 #include "mesh/meshresult.h"
 #include <QHash>
+#include <QSet>
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -451,7 +453,9 @@ ConstraintAuditReport auditMeshConstraints(const QVector<SimplificationFeature> 
         }
         const quint64 edgeWorkspace = quint64(mesh.boundaryEdges.size()) * 160;
         work.memory(edgeWorkspace);
-        struct Incidence { int count = 0; QPointF center; };
+        // One geometric edge may have several source owners. Count incident
+        // cells once, independently of repeated marker/tag edge records.
+        struct Incidence { int count = 0; std::array<QPointF, 2> centers; };
         auto edgeKey = [](int a, int b) {
             return quint64(quint32(std::min(a, b))) << 32 | quint32(std::max(a, b));
         };
@@ -488,10 +492,47 @@ ConstraintAuditReport auditMeshConstraints(const QVector<SimplificationFeature> 
             for (int k = 0; k < n; ++k) {
                 work.use();
                 auto it = incidence.find(edgeKey(cell.vertex(k), cell.vertex((k + 1) % n)));
-                if (it != incidence.end()) { ++it->count; it->center = center; }
+                if (it != incidence.end()) { if (it->count < 2) it->centers[it->count] = center; ++it->count; }
             }
         }
         const Tree delivered(std::move(edges), work);
+        // Adjacent outer rings legitimately share an internal edge with one
+        // cell on each side. Verify both cells against the union of authored
+        // domains minus holes, using a source-edge BVH rather than a scan of
+        // every ring for every delivered cell. A hole still requires one side.
+        int domains = 0;
+        double rightmost = -std::numeric_limits<double>::infinity();
+        std::vector<Edge> domainEdges;
+        for (int fi = 0; fi < constraints.size(); ++fi) {
+            const auto &f = constraints[fi];
+            if (f.role != SimplificationFeature::Role::Domain &&
+                f.role != SimplificationFeature::Role::Hole) continue;
+            domains += f.role == SimplificationFeature::Role::Domain;
+            const int n = openCount(f);
+            for (int k = 0; k < n; ++k) {
+                work.use(); rightmost = std::max(rightmost, f.xy[k].x());
+                domainEdges.push_back({f.xy[k], f.xy[(k + 1) % n], fi, k});
+            }
+        }
+        work.memory(edgeWorkspace + quint64(domainEdges.size()) * 128);
+        const Tree domainSource(std::move(domainEdges), work);
+        auto insideRetained = [&](QPointF p) {
+            QSet<int> odd;
+            if (p.x() > rightmost) return false;
+            domainSource.query({p.x(), p.y(), rightmost, p.y()}, [&](const Edge &e) {
+                if ((e.a.y() > p.y()) == (e.b.y() > p.y())) return;
+                const double turn = orientation(e.a, e.b, p);
+                if ((e.b.y() > e.a.y() && turn > 0) || (e.b.y() < e.a.y() && turn < 0)) {
+                    if (!odd.remove(e.feature)) odd.insert(e.feature);
+                }
+            });
+            bool outer = false, hole = false;
+            for (int owner : odd) {
+                outer |= constraints[owner].role == SimplificationFeature::Role::Domain;
+                hole |= constraints[owner].role == SimplificationFeature::Role::Hole;
+            }
+            return outer && !hole;
+        };
         for (const auto &f : constraints) {
             if (!f.requiredInMesh) continue;
             ++report.featuresChecked;
@@ -535,9 +576,15 @@ ConstraintAuditReport auditMeshConstraints(const QVector<SimplificationFeature> 
                     if (std::max(t0, t1) <= 0 || std::min(t0, t1) >= length) return;
                     report.maximumXYDeviation = std::max(report.maximumXYDeviation, error);
                     if (f.role == SimplificationFeature::Role::Domain || f.role == SimplificationFeature::Role::Hole) {
-                        const double side = orientation(a, b, adjacent.center);
+                        const double side = orientation(a, b, adjacent.centers[0]);
                         const bool wantsInside = f.role == SimplificationFeature::Role::Domain;
-                        if (adjacent.count != 1 || side == 0 || (side > 0) != ((area > 0) == wantsInside)) {
+                        const double otherSide = adjacent.count == 2
+                            ? orientation(a, b, adjacent.centers[1]) : 0;
+                        const bool sharedDomain = wantsInside && domains > 1 && adjacent.count == 2 &&
+                            opposite(side, otherSide) && insideRetained(adjacent.centers[0]) &&
+                            insideRetained(adjacent.centers[1]);
+                        if (!sharedDomain && (adjacent.count != 1 || side == 0 ||
+                            (side > 0) != ((area > 0) == wantsInside))) {
                             issue(report, options, f.id, j, "A domain or hole edge has cells on the wrong side.");
                             return;
                         }

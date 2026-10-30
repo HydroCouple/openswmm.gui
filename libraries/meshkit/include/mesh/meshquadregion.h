@@ -57,6 +57,8 @@ struct QuadRegion {
      *  because the region *is* that ring. */
     bool isBackground = false;
     QuadRegionMode mode = QuadRegionMode::Auto;
+    bool requireMapped = false; ///< Explicit hard requirement, used by unified planning.
+    bool automaticCandidate = false; ///< Derived candidate; no outline constraint on fallback.
     double spacing = 0.0; ///< Target quad edge length h; 0 = derive from the size field / max area.
     bool directionalSpacing =
         false; ///< Explicit Mapped spacing; failure must not fall back to isotropic cells.

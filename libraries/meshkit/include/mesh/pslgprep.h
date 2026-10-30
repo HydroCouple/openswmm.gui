@@ -141,7 +141,8 @@ namespace pslg
  * point; a non-positive sample means "no limit" there. No-op when hAt is null.
  */
 [[nodiscard]] QVector<QPointF> resampleAtSize(const QVector<QPointF> &path,
-                                              const std::function<double(double, double)> &hAt);
+                                              const std::function<double(double, double)> &hAt,
+                                      bool canonicalSegments = false);
 
 /**
  * @brief Flag query vertices within an inclusive tolerance of any vertex in other paths.
@@ -438,7 +439,7 @@ public:
      * feasible allocation and finite representable band-coordinate index arithmetic. No upper
      * memory cap is enforced.
      * @note Clears old edges/bands first, returns empty for no domain vertices. Implicitly
-     * closes each ring, skips repeated closing duplicate/horizontal edges and rings with fewer
+     * closes each ring, skips repeated closing duplicates and rings with fewer
      * than three input points. Zero-height domains have no crossed interior. Allocates copied
      * edges/band indices, retains no inputs; read-only queries can run concurrently only after
      * construction and without mutation.
@@ -457,6 +458,12 @@ public:
      * with stable index storage.
      */
     [[nodiscard]] bool contains(const QPointF &p) const;
+    /** Union of domain interiors minus hole interiors, including exact authored
+     * boundary vertices/edges. No proximity tolerance or coordinate movement.
+     * Uses the same y bands with ring ownership, with no allocation per query.
+     * Intended for accepting constrained line endpoints on domain/hole outlines;
+     * contains() retains the legacy global parity semantics. */
+    [[nodiscard]] bool covers(const QPointF &p) const;
     /**
      * @brief Read the domain-vertex extent used to bound indexed queries.
      * @return Owned domain bbox, or null QRectF when no nonhorizontal edges were retained. Holes
@@ -470,11 +477,11 @@ public:
      * input; false otherwise. Does not certify polygon validity, interior area or usable domain
      * topology. Read-only query.
      */
-    [[nodiscard]] bool isEmpty() const { return m_edges.isEmpty(); }
+    [[nodiscard]] bool isEmpty() const { return m_crossingEdges == 0; }
 
 private:
     /**
-     * @brief Append one implicitly closed ring's nonhorizontal edges to an initialized band
+     * @brief Append one implicitly closed ring's edges to an initialized band
      * index.
      * @param[in] ring Borrowed finite polygon points in index units, unchanged. Rings with fewer
      * than three input points are skipped; exact repeated closing duplicate is excluded before
@@ -484,9 +491,11 @@ private:
      * domain bounds or validate polygon topology. Caller excludes concurrent reads/mutation; no
      * input references retained.
      */
-    void addRing(const QVector<QPointF> &ring);
+    void addRing(const QVector<QPointF> &ring, int owner);
 
     QVector<QPair<QPointF, QPointF>> m_edges;
+    QVector<int> m_owners;
+    int m_crossingEdges = 0;
     QVector<QVector<int>> m_bandEdges;
     double m_x0 = 0.0, m_x1 = 0.0, m_y0 = 0.0, m_y1 = 0.0;
     double m_bandH = 0.0;

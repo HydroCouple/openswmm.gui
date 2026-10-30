@@ -144,6 +144,9 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
         return l;
     };
     auto *sizes = group(tr("Cell size"));
+    sizingMode=choice("meshSizingMode",{tr("Legacy targets"),tr("Verified sizes — report exceptions"),tr("Strict sizes — refuse unmet limits")});
+    sizes->addRow(tr("Sizing rules:"),sizingMode);
+    note(sizes,tr("Verified and strict rules measure triangle size by its equal-area equilateral side and quad size by its equal-area square side. The transition rate also limits adjacent nominal-size ratios. Existing projects retain legacy behavior."));
     minimum = spin("meshMinCellSizeSpin");
     sizes->addRow(tr("Minimum target cell size:"), minimum);
     note(
@@ -155,6 +158,12 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     note(
         sizes,
         tr("No limit allows large cells where terrain, geometry and local targets permit. Sizes describe typical spacing, not every edge."));
+    minimumEdge=spin("meshMinimumEdgeSpin");
+    minimumEdgeMode=choice("meshMinimumEdgeMode",{tr("No separate edge floor"),tr("Specify a minimum edge")});
+    sizes->addRow(tr("Minimum delivered edge:"),row(minimumEdgeMode,minimumEdge));
+    note(sizes,tr("The minimum target guides refinement. A separate edge floor checks actual edges; strict mode refuses conflicts, including protected narrow geometry. Fixed quads and terrain/shape limits can leave size or transition exceptions."));
+    connect(sizingMode,&QComboBox::currentIndexChanged,this,[this]{sync();});
+    connect(minimumEdgeMode,&QComboBox::currentIndexChanged,this,[this]{sync();});
 
     auto *local = group(tr("Local refinement"));
     refineFeatures = new QCheckBox(tr("Refine near selected features"), this);
@@ -211,6 +220,20 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     connect(toggle, &QToolButton::toggled, this, [=](bool on) {
         advanced->setVisible(on);
         toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+    });
+    terrainToleranceScaling=choice("meshTerrainToleranceScaling",{tr("Constant elevation tolerance"),tr("Scale with target cell size (experimental)")});
+    terrain->insertRow(2,tr("Tolerance rule:"),terrainToleranceScaling);
+    terrainReferenceSize=spin("meshTerrainReferenceSize");
+    terrainToleranceFloor=spin("meshTerrainToleranceFloor");terrainToleranceFloor->setMinimum(0);terrainToleranceFloor->setSpecialValueText(tr("No floor"));
+    terrainToleranceCap=spin("meshTerrainToleranceCap");terrainToleranceCap->setMinimum(0);terrainToleranceCap->setSpecialValueText(tr("Use elevation tolerance"));
+    for(auto *control:{terrainReferenceSize,terrainToleranceFloor,terrainToleranceCap}){control->setMinimumWidth(220);control->setMaximumWidth(260);}
+    f->addRow(tr("Target size at reference tolerance:"),terrainReferenceSize);
+    f->addRow(tr("Smallest allowed terrain tolerance:"),terrainToleranceFloor);
+    f->addRow(tr("Largest allowed terrain tolerance:"),terrainToleranceCap);
+    note(f,tr("Experimental linear scaling: tolerance × target size ÷ reference size, clamped to these limits. Fine regions preserve more terrain detail. The smallest prescribed target over each full cell footprint governs insertion, removal, quads and final checks. Zero cap uses the reference elevation tolerance. This compares against the selected DEM reference and does not restore detail lost by averaging."));
+    connect(terrainToleranceScaling,&QComboBox::currentIndexChanged,this,[this]{
+        if(terrainToleranceScaling->currentIndex()==1){if(sizingMode->currentIndex()==0)sizingMode->setCurrentIndex(1);terrainMode->setCurrentIndex(0);m_refineTerrain->setChecked(true);}
+        sync();
     });
     transition = spin("meshSizeRatioSpin");
     transition->setProperty("meshDistance", false);
@@ -283,6 +306,11 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     coarsenPasses->setToolTip(
         tr("Maximum attempts per vertex. Neighbours are reconsidered after a removal."));
     coarsenLayout->addRow(tr("Coarsening passes:"), coarsenPasses);
+    coarseningOrder=choice("meshCoarseningOrder",{tr("Existing flatness order"),tr("Resolution and flatness")});
+    coarsenLayout->addRow(tr("Removal order:"),coarseningOrder);
+    note(coarsenLayout,tr("Resolution order prioritizes redundant sampling relative to the prescribed target and uses physical units for normals. It keeps one queue entry per vertex. Constraints, target sizes, angles and certified terrain error still decide whether removal is allowed."));
+    connect(coarseningOrder,&QComboBox::currentIndexChanged,this,[this]{if(coarseningOrder->currentIndex()==1 && sizingMode->currentIndex()==0)sizingMode->setCurrentIndex(1);});
+
     shape->addRow(coarsenDetails);
     coarsenDetails->hide();
     connect(coarsenAdvanced, &QToolButton::toggled, this, [=](bool on) {
@@ -290,6 +318,13 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
         coarsenAdvanced->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
     });
     connect(coarsenEnabled, &QCheckBox::toggled, coarsenPasses, &QWidget::setEnabled);
+    auto *planning=group(tr("Quads and regions"));
+    cellPlanning=choice("meshCellPlanningMode",{tr("Legacy patch routing"),tr("Unified patch planning")});
+    planning->addRow(tr("Patch planning:"),cellPlanning);
+    note(planning,tr("Unified planning coordinates shared patch sides before triangulation. Local triangles take priority; preferred patches may use triangles, while required mapped patches must meet geometry, size and terrain limits. It enables verified sizing unless strict sizing is already selected."));
+    connect(cellPlanning,&QComboBox::currentIndexChanged,this,[this]{if(cellPlanning->currentIndex()==1 && sizingMode->currentIndex()==0)sizingMode->setCurrentIndex(1);});
+    connect(sizingMode,&QComboBox::currentIndexChanged,this,[this]{if(sizingMode->currentIndex()==0 && cellPlanning->currentIndex()==1)cellPlanning->setCurrentIndex(0);});
+    connect(sizingMode,&QComboBox::currentIndexChanged,this,[this]{if(sizingMode->currentIndex()==0){terrainToleranceScaling->setCurrentIndex(0);coarseningOrder->setCurrentIndex(0);}});
     setSettings({});
 }
 
@@ -360,6 +395,9 @@ void MeshResolutionWidget::showSettingsPage(QWidget *control)
 
 void MeshResolutionWidget::sync()
 {
+    minimumEdgeMode->setEnabled(sizingMode->currentIndex()!=0);
+    minimumEdge->setVisible(minimumEdgeMode->currentIndex()==1);
+    minimumEdge->setEnabled(minimumEdgeMode->isEnabled());
     maximum->setVisible(maximumMode->currentIndex() == 1);
     m_featureRow->setVisible(refineFeatures->isChecked());
     feature->setVisible(featureMode->currentIndex() == 1);
@@ -376,6 +414,11 @@ void MeshResolutionWidget::sync()
     minimumBreakline->setVisible(minimumBreaklineMode->currentIndex() == 1);
     minimumBreakline->setEnabled(breaklineMode->isEnabled());
     maxBreaklines->setEnabled(breaklineMode->isEnabled());
+    const bool scaled=m_hasTerrain && m_refineTerrain->isChecked() && terrainToleranceScaling->currentIndex()==1;
+    // Keep the rule selectable so a saved weighted request can be disabled
+    // after its raster is removed from Sources.
+    terrainToleranceScaling->setEnabled(true);
+    for(auto *control:{terrainReferenceSize,terrainToleranceFloor,terrainToleranceCap})control->setEnabled(scaled);
     m_refineTerrain->setEnabled(m_hasTerrain);
     alignTerrain->setEnabled(m_hasTerrain);
     terrainMode->setEnabled(m_hasTerrain);
@@ -399,7 +442,16 @@ mesh::ResolutionSettings MeshResolutionWidget::settings() const
                                          : std::nullopt;
     };
     r.coarsenPasses = coarsenEnabled->isChecked() ? coarsenPasses->value() : 0;
+    r.coarseningOrder=mesh::CoarseningOrder(coarseningOrder->currentIndex());
+    r.terrainTolerancePolicy.mode=mesh::TerrainToleranceMode(terrainToleranceScaling->currentIndex());
+    r.terrainTolerancePolicy.referenceSize=terrainReferenceSize->value()*m_toSI;
+    r.terrainTolerancePolicy.minimumTolerance=terrainToleranceFloor->value()*m_toSI;
+    r.terrainTolerancePolicy.maximumTolerance=terrainToleranceCap->value()*m_toSI;
+
     r.minimumM = minimum->value() * m_toSI;
+    r.sizing=mesh::ResolutionSettings::Sizing(sizingMode->currentIndex());
+    r.cellPlanning=mesh::ResolutionSettings::CellPlanning(cellPlanning->currentIndex());
+    r.minimumEdgeM=sizingMode->currentIndex()!=0 ? value(minimumEdgeMode,minimumEdge) : std::nullopt;
     r.maximumM = value(maximumMode, maximum);
     r.featureM = value(featureMode, feature);
     r.toleranceM = value(toleranceMode, tolerance);
@@ -411,6 +463,11 @@ mesh::ResolutionSettings MeshResolutionWidget::settings() const
     r.refineFeatures = refineFeatures->isChecked();
     r.alignTerrain = alignTerrain->isChecked();
     r.terrain = mesh::ResolutionSettings::Terrain(terrainMode->currentIndex());
+    if(r.terrain==mesh::ResolutionSettings::Terrain::Off)r.terrainTolerancePolicy.mode=mesh::TerrainToleranceMode::Constant;
+    if(r.terrainTolerancePolicy.mode==mesh::TerrainToleranceMode::Constant) {
+        r.terrainTolerancePolicy.minimumTolerance=0;r.terrainTolerancePolicy.maximumTolerance=0;
+    }
+
     r.reference = reference->currentIndex() == 0 ? mesh::ResolutionSettings::Reference::Averaged
                   : findChild<QCheckBox *>("meshReadTerrainDirectBox")->isChecked()
                       ? mesh::ResolutionSettings::Reference::Direct
@@ -424,11 +481,20 @@ void MeshResolutionWidget::setSettings(const mesh::ResolutionSettings &r)
     coarsenEnabled->setChecked(r.coarsenPasses > 0);
     coarsenPasses->setEnabled(r.coarsenPasses > 0);
     minimum->setValue(r.minimumM / m_toSI);
+    sizingMode->setCurrentIndex(int(r.sizing));
+    cellPlanning->setCurrentIndex(int(r.cellPlanning));
+    terrainToleranceScaling->setCurrentIndex(int(r.terrainTolerancePolicy.mode));
+    coarseningOrder->setCurrentIndex(int(r.coarseningOrder));
+    terrainReferenceSize->setValue(r.terrainTolerancePolicy.referenceSize/m_toSI);
+    terrainToleranceFloor->setValue(r.terrainTolerancePolicy.minimumTolerance/m_toSI);
+    terrainToleranceCap->setValue(r.terrainTolerancePolicy.maximumTolerance/m_toSI);
+
     auto set = [&](QComboBox *c, QDoubleSpinBox *s, std::optional<double> v, double fallback) {
         s->setValue(v.value_or(fallback) / m_toSI);
         c->setCurrentIndex(v ? 1 : 0);
     };
     set(maximumMode, maximum, r.maximumM, 10 * r.minimumM);
+    set(minimumEdgeMode,minimumEdge,r.minimumEdgeM,r.minimumM/4);
     set(featureMode, feature, r.featureM, r.minimumM);
     set(toleranceMode, tolerance, r.toleranceM, .1);
     set(breaklineMode, breaklineTolerance, r.breaklineToleranceM, .1);
@@ -454,7 +520,7 @@ void MeshResolutionWidget::setUnits(double metresPerUnit, const QString &label)
     const auto r = settings();
     m_toSI = metresPerUnit;
     for (auto *s :
-         {minimum, maximum, feature, tolerance, breaklineTolerance, averaging, minimumBreakline})
+         {minimum, maximum, feature, tolerance, breaklineTolerance, averaging, minimumBreakline,minimumEdge,terrainReferenceSize,terrainToleranceFloor,terrainToleranceCap})
         s->setSuffix(" " + label);
     setSettings(r);
 }

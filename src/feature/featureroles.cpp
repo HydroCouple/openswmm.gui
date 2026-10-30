@@ -221,7 +221,8 @@ QVector<FeatureRoleSpec> buildRegistry()
                        "triangles.",
                        /*required=*/true,
                        {{QStringLiteral("auto"), tr_("Quads if four-sided")},
-                        {QStringLiteral("triangles"), tr_("Triangles")}},
+                        {QStringLiteral("triangles"), tr_("Triangles")},
+                        {QStringLiteral("required_quads"),tr_("Required mapped quads (unified planning)")}},
                        QStringLiteral("auto")),
             suggestedField("tag", "Tag written on every cell inside the region."),
         };
@@ -459,6 +460,7 @@ RegionCells regionCellsFromValue(const QString &value, bool *known)
         return RegionCells::Auto;
     if (t == regionCellsToken(RegionCells::Triangles))
         return RegionCells::Triangles;
+    if(t==regionCellsToken(RegionCells::RequiredQuads))return RegionCells::RequiredQuads;
     if (known)
         *known = false;
     return RegionCells::Auto;
@@ -466,7 +468,8 @@ RegionCells regionCellsFromValue(const QString &value, bool *known)
 
 QString regionCellsToken(RegionCells c)
 {
-    return c == RegionCells::Triangles ? QStringLiteral("triangles") : QStringLiteral("auto");
+    return c == RegionCells::Triangles ? QStringLiteral("triangles") :
+           c==RegionCells::RequiredQuads ? QStringLiteral("required_quads") : QStringLiteral("auto");
 }
 
 bool bcFieldApplies(const QString &bcType, const QString &field)

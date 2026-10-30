@@ -11,6 +11,7 @@
  */
 
 #include "core/unitsystem.h"
+#include "feature/featureroles.h"
 #include "core/preferencesmanager.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -26,6 +27,7 @@
 #include <QTabWidget>
 #include <QTest>
 #include <QTreeWidget>
+#include <QToolButton>
 #include <algorithm>
 
 namespace
@@ -112,6 +114,18 @@ private slots:
      * initially disabled with remembered 3 passes, checkbox toggles spin enablement. Requires
      * initialized suite dialog, local edits only.
      */
+    void requiredQuadsSelectUnifiedPlanning()
+    {
+        auto *required=m_dlg->findChild<QCheckBox *>("meshRequireMappedRegions");
+        auto *planning=m_dlg->findChild<QComboBox *>("meshCellPlanningMode");
+        auto *sizing=m_dlg->findChild<QComboBox *>("meshSizingMode");
+        QVERIFY(required && planning && sizing);
+        required->setChecked(true);QCOMPARE(planning->currentIndex(),1);QVERIFY(sizing->currentIndex()>0);
+        bool known=false;
+        QCOMPARE(openswmmvis::feature::regionCellsFromValue(" Required_Quads ",&known),openswmmvis::feature::RegionCells::RequiredQuads);QVERIFY(known);
+        QCOMPARE(openswmmvis::feature::regionCellsToken(openswmmvis::feature::RegionCells::RequiredQuads),QString("required_quads"));
+        required->setChecked(false);planning->setCurrentIndex(0);sizing->setCurrentIndex(0);
+    }
     void coarseningSettingsAreSharedAndMigrateOff()
     {
         mesh::ResolutionSettings settings;
@@ -147,11 +161,12 @@ private slots:
         QGroupBox *shape = groupTitled(m_dlg, QStringLiteral("Shape"));
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
         QVERIFY(sizes && local && terrain && shape && bnd);
-        QCOMPARE(sizes->findChildren<QDoubleSpinBox *>().size(), 3);
+        QCOMPARE(sizes->findChildren<QDoubleSpinBox *>().size(), 4);
         QCOMPARE(local->findChildren<QDoubleSpinBox *>().size(), 1);
-        QCOMPARE(terrain->findChildren<QDoubleSpinBox *>().size(), 2);
+        QCOMPARE(terrain->findChildren<QDoubleSpinBox *>().size(), 5);
         QVERIFY(!m_dlg->findChild<QDoubleSpinBox *>("meshCoarsenSpin"));
         QCOMPARE(shape->findChildren<QComboBox *>().size(), 0); // quad controls have their own page
+        QVERIFY(groupTitled(m_dlg,QStringLiteral("Cell shape"))->findChild<QComboBox *>("meshCoarseningOrder"));
         QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 1); // minimum angle
         QCOMPARE(shape->findChildren<QCheckBox *>().size(),
                  2); // worst angles first, lattice seeding
@@ -242,6 +257,11 @@ private slots:
         QTRY_COMPARE(categories->columnWidth(0), categories->viewport()->width());
         if (!output.isEmpty())
             QVERIFY(m_dlg->grab().save(output + "/quality-dialog-native-wide.png"));
+        m_dlg->findChild<QComboBox *>("meshSizingMode")->setCurrentIndex(1);
+        m_dlg->findChild<QComboBox *>("meshMinimumEdgeMode")->setCurrentIndex(1);
+        QTest::qWait(50);
+        if (!output.isEmpty())
+            QVERIFY(m_dlg->grab().save(output + "/verified-sizing-dialog-wide.png"));
         m_dlg->findChild<QComboBox *>("meshGeometryPolicy")->setCurrentIndex(2);
         for (int i = 0; i < categories->topLevelItemCount(); ++i)
             if (categories->topLevelItem(i)->text(0) == "Boundaries")
@@ -253,6 +273,21 @@ private slots:
         QTest::qWait(50);
         if (!output.isEmpty())
             QVERIFY(m_dlg->grab().save(output + "/boundary-dialog-native.png"));
+        auto *required=m_dlg->findChild<QCheckBox *>("meshRequireMappedRegions");required->setChecked(true);
+        for(int i=0;i<categories->topLevelItemCount();++i)
+            if(categories->topLevelItem(i)->text(0)=="Quads and regions")categories->setCurrentItem(categories->topLevelItem(i));
+        m_dlg->resize(1200,800);QTest::qWait(50);
+        if(!output.isEmpty())QVERIFY(m_dlg->grab().save(output+"/unified-planning-dialog.png"));
+        required->setChecked(false);
+        auto *scaling=m_dlg->findChild<QComboBox *>("meshTerrainToleranceScaling");scaling->setCurrentIndex(1);
+        for(int i=0;i<categories->topLevelItemCount();++i)if(categories->topLevelItem(i)->text(0)=="Terrain accuracy")categories->setCurrentItem(categories->topLevelItem(i));
+        for(auto *button:m_dlg->findChildren<QToolButton *>())if(button->text()=="Advanced terrain settings")button->setChecked(true);
+        m_dlg->resize(1200,920);QTest::qWait(50);
+        if(!output.isEmpty())QVERIFY(m_dlg->grab().save(output+"/weighted-terrain-dialog.png"));
+        for(int i=0;i<categories->topLevelItemCount();++i)if(categories->topLevelItem(i)->text(0)=="Cell shape")categories->setCurrentItem(categories->topLevelItem(i));
+        for(auto *button:m_dlg->findChildren<QToolButton *>())if(button->text()=="Advanced coarsening settings")button->setChecked(true);
+        m_dlg->findChild<QComboBox *>("meshCoarseningOrder")->setCurrentIndex(1);
+        QTest::qWait(50);if(!output.isEmpty())QVERIFY(m_dlg->grab().save(output+"/weighted-coarsening-dialog.png"));
         m_dlg->hide();
     }
 

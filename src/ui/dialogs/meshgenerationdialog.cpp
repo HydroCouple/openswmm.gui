@@ -40,6 +40,7 @@
 #include "ui/widgets/meshconstraintsourceswidget.h"
 #include "ui/widgets/meshconstraintpreviewwidget.h"
 #include "mesh/constraintaudit.h"
+#include "mesh/sizingaudit.h"
 #include "mesh/meshnodemapper.h"
 #include "mesh/meshenginesync.h" // coupleableNodes / couplingAuthorsCdArea
 #include "selection/selectionmanager.h"
@@ -289,6 +290,19 @@ static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
     in.genOpts.maxArea = 0.4330127018922193 * in.maximumCellSize * in.maximumCellSize;
     in.genOpts.minCellSize = in.minCellSize;
     in.genOpts.coarsenPasses = r.coarsenPasses;
+    in.genOpts.coarseningOrder=r.coarseningOrder;
+    in.genOpts.coarseningReferenceSize=r.terrainTolerancePolicy.referenceSize/in.meshLinearUnitToSI;
+    in.genOpts.normalVerticalToXY=in.verticalUnitToSI/in.meshLinearUnitToSI;
+    in.terrainTolerancePolicy=r.terrainTolerancePolicy;
+    in.terrainTolerancePolicy.referenceSize/=in.meshLinearUnitToSI;
+    in.terrainTolerancePolicy.minimumTolerance/=in.verticalUnitToSI;
+    in.terrainTolerancePolicy.maximumTolerance/=in.verticalUnitToSI;
+
+    in.genOpts.verifiedSizing = r.sizing != mesh::ResolutionSettings::Sizing::Legacy;
+    in.genOpts.unifiedCellPlanning=r.cellPlanning==mesh::ResolutionSettings::CellPlanning::Unified;
+    in.genOpts.minimumRequiredEdge=r.minimumEdgeM.value_or(0)/in.meshLinearUnitToSI;
+    if(in.genOpts.unifiedCellPlanning)in.genOpts.preserveConstraintCoordinates=true;
+    in.genOpts.maximumAdjacentRatio = in.genOpts.verifiedSizing ? r.transition : 0;
     in.genOpts.terrainMinLineLength =
         r.minimumBreaklineLengthM.value_or(4 * r.minimumM) / in.meshLinearUnitToSI;
     in.maxTerrainBreaklines =
@@ -876,7 +890,9 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
          * @brief Query the prepared domain ring index. Argument `p`: borrowed point in mesh CRS.
          * Returns: captured index containment result; no geometry mutation.
          */
-        auto inDomain = [&domIdx](const QPointF &p) { return domIdx.contains(p); };
+        auto inDomain = [&domIdx, &in](const QPointF &p) {
+            return in.geometryMode == 0 ? domIdx.contains(p) : domIdx.covers(p);
+        };
 
         /**
          * @brief Drop consecutive path points separated by Manhattan distance at most 1e-9 mesh
@@ -1209,16 +1225,18 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             return;
         }
         qsizetype nRegionXformFailed = 0;
+        bool invalidRegionPolicy=false,invalidRequiredGeometry=false;
         for (const auto &spec : std::as_const(in.quadRegionLayers)) {
             OGRCoordinateTransformation *regionCT = nullptr; // region layer → mesh CRS
             if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty()) {
                 OGRSpatialReference rSRS, mSRS;
                 rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                if (rSRS.importFromWkt(spec.crsWkt.toUtf8().constData()) == OGRERR_NONE &&
-                    mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE &&
-                    !rSRS.IsSame(&mSRS))
-                    regionCT = OGRCreateCoordinateTransformation(&rSRS, &mSRS);
+                const bool validCRS=rSRS.importFromWkt(spec.crsWkt.toUtf8().constData())==OGRERR_NONE && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData())==OGRERR_NONE;
+                if(validCRS && !rSRS.IsSame(&mSRS))regionCT=OGRCreateCoordinateTransformation(&rSRS,&mSRS);
+                if(in.genOpts.unifiedCellPlanning && (!validCRS || (!rSRS.IsSame(&mSRS) && !regionCT))) {
+                    fail(QObject::tr("The selected quad region source cannot be transformed to the mesh projection."));return;
+                }
             }
             GDALDataset *ds = static_cast<GDALDataset *>(
                 GDALOpenEx(spec.path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
@@ -1226,6 +1244,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             if (!ds) {
                 if (regionCT)
                     OGRCoordinateTransformation::DestroyCT(regionCT);
+                if(in.genOpts.unifiedCellPlanning){fail(QObject::tr("The selected quad region source could not be opened: %1").arg(spec.path));return;}
                 reporter.line(meshkit::Severity::Warning)
                     << "[Mesh][quad] region layer could not be opened:" << spec.path;
                 continue;
@@ -1237,6 +1256,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 GDALClose(ds);
                 if (regionCT)
                     OGRCoordinateTransformation::DestroyCT(regionCT);
+                if(in.genOpts.unifiedCellPlanning){fail(QObject::tr("The selected quad region layer was not found: %1").arg(spec.layerName));return;}
                 reporter.line(meshkit::Severity::Warning)
                     << "[Mesh][quad] region layer not found:" << spec.layerName;
                 continue;
@@ -1255,17 +1275,21 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 // One "cells" choice per feature, whatever its part count. An
                 // unknown value is logged and treated as auto (plan §6).
                 mesh::QuadRegionMode regionMode = mesh::QuadRegionMode::Auto;
+                bool requireMapped=in.requireMappedRegions;
                 if (const int i = fieldIdx(cellsField.constData());
                     i >= 0 && f->IsFieldSetAndNotNull(i)) {
                     const QString value = QString::fromUtf8(f->GetFieldAsString(i));
                     bool known = true;
-                    if (openswmmvis::feature::regionCellsFromValue(value, &known) ==
-                        openswmmvis::feature::RegionCells::Triangles)
+                    const auto cells=openswmmvis::feature::regionCellsFromValue(value,&known);
+                    if (cells == openswmmvis::feature::RegionCells::Triangles) {
                         regionMode = mesh::QuadRegionMode::TrianglesOnly;
+                        requireMapped=false;
+                    } else if(cells==openswmmvis::feature::RegionCells::RequiredQuads)requireMapped=true;
+                    if(!known && in.genOpts.unifiedCellPlanning)invalidRegionPolicy=true;
                     if (!known)
                         reporter.line(meshkit::Severity::Warning).noquote()
                             << "[Mesh][quad] region feature" << f->GetFID()
-                            << "has cells =" << value << "— not auto or triangles; treated as auto";
+                            << "has cells =" << value << (in.genOpts.unifiedCellPlanning?"— invalid cell policy; unified planning refused":"— unknown cell policy; treated as auto");
                 }
                 /**
                  * @brief Append one region exterior with feature-level size/cell-mode/tag values.
@@ -1276,8 +1300,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 auto readRing = [&](const OGRPolygon *poly) {
                     mesh::QuadRegion r;
                     const OGRLinearRing *ext = poly ? poly->getExteriorRing() : nullptr;
-                    if (!ext || ext->getNumPoints() < 3)
-                        return;
+                    if (!ext || ext->getNumPoints() < 3){invalidRequiredGeometry|=requireMapped;return;}
                     const int n = ext->getNumPoints();
                     QVector<double> xs(n), ys(n);
                     for (int i = 0; i < n; ++i) {
@@ -1291,11 +1314,20 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                     for (int i = 0; i < n; ++i)
                         if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
                             pts.append(QPointF(xs[i], ys[i]));
-                    if (pts.size() < 3)
-                        return;
+                    if (pts.size() < 3){invalidRequiredGeometry|=requireMapped;return;}
                     r.ring = QPolygonF(
                         trimByStraightness(pts, in.trimTurnDeg, in.trimDeviation, {}, true));
+                    if(in.genOpts.unifiedCellPlanning)for(int h=0;h<poly->getNumInteriorRings();++h) {
+                        const auto *inner=poly->getInteriorRing(h);const int count=inner->getNumPoints();
+                        QVector<double> hx(count),hy(count);
+                        for(int k=0;k<count;++k){hx[k]=inner->getX(k);hy[k]=inner->getY(k);}
+                        if(regionCT)nRegionXformFailed+=transformChecked(regionCT,count,hx.data(),hy.data());
+                        QPolygonF hole;
+                        for(int k=0;k<count;++k)if(std::isfinite(hx[k]) && std::isfinite(hy[k]))hole.append({hx[k],hy[k]});
+                        if(hole.size()<3)invalidRequiredGeometry=true;else r.holes.append(hole);
+                    }
                     r.mode = regionMode;
+                    r.requireMapped=requireMapped;
                     for (const QString &name : sizeFields)
                         if (const int i = fieldIdx(name.toUtf8().constData());
                             i >= 0 && f->IsFieldSetAndNotNull(i)) {
@@ -1309,6 +1341,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                         r.spacing = 0.0;
                     quadRegions.append(std::move(r));
                 };
+                const auto before=quadRegions.size();
                 if (const OGRGeometry *geom = f->GetGeometryRef()) {
                     const OGRwkbGeometryType t = wkbFlatten(geom->getGeometryType());
                     if (t == wkbPolygon)
@@ -1317,11 +1350,15 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                         for (const auto *poly : *geom->toMultiPolygon())
                             readRing(poly);
                 }
+                if(requireMapped && quadRegions.size()==before)invalidRequiredGeometry=true;
                 OGRFeature::DestroyFeature(f);
             }
             GDALClose(ds);
             if (regionCT)
                 OGRCoordinateTransformation::DestroyCT(regionCT);
+        }
+        if(in.genOpts.unifiedCellPlanning && (nRegionXformFailed>0 || invalidRegionPolicy || invalidRequiredGeometry)) {
+            fail(QObject::tr("Quad region geometry or cell policy is invalid. Correct the source geometry, projection, or cells value before unified planning."));return;
         }
         if (nRegionXformFailed > 0)
             reporter.line(meshkit::Severity::Warning)
@@ -1332,6 +1369,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     const int nLayerQuadRegions = quadRegions.size();
     for (const mesh::QuadRegion &src : std::as_const(in.quadRegions)) {
         mesh::QuadRegion r = src;
+        if(in.requireMappedRegions && r.mode!=mesh::QuadRegionMode::TrianglesOnly)r.requireMapped=true;
         r.ring =
             QPolygonF(trimByStraightness(src.ring, in.trimTurnDeg, in.trimDeviation, {}, true));
         quadRegions.append(std::move(r));
@@ -1417,6 +1455,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             graph.last().role = SimplificationFeature::Role::Protected;
             graph.last().requiredInMesh = !quadRegions[i].isBackground;
             graph.last().label = QObject::tr("Region %1").arg(quadRegions[i].tag);
+            for(int h=0;h<quadRegions[i].holes.size();++h) {
+                append(QString("region:%1/hole:%2").arg(i).arg(h),quadRegions[i].holes[h],true,false);
+                graph.last().role=SimplificationFeature::Role::Protected;
+                graph.last().label=QObject::tr("Region %1 inner ring %2").arg(quadRegions[i].tag).arg(h+1);
+            }
         }
         for (int i = 0; i < in.patches.size(); ++i) {
             append(QString("patch:%1").arg(i), mesh::orderedPatchBoundary(in.patches[i]), true,
@@ -1536,6 +1579,20 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         reporter.complete(preview.status, preview.summary);
         promise.addResult(std::move(preview));
         return;
+    }
+    if(in.resolution && in.resolution->sizing==mesh::ResolutionSettings::Sizing::Strict &&
+       in.resolution->minimumEdgeM && in.genOpts.preserveConstraintCoordinates) {
+        const double floor=*in.resolution->minimumEdgeM/in.meshLinearUnitToSI;
+        for(const auto &feature:acceptedConstraints) {
+            const int n=feature.xy.size();
+            for(int j=0;j<n-1+int(feature.closed);++j) {
+                if((j&4095)==0 && promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+                const double length=QLineF(feature.xy[j],feature.xy[(j+1)%n]).length();
+                if(length>0 && length<floor*(1-1e-9)) {
+                    fail(QObject::tr("Strict sizing is infeasible: protected source '%1' has an edge of %2, below the requested minimum edge %3. Reduce the edge floor or explicitly permit a geometry edit.").arg(feature.id).arg(length).arg(floor));return;
+                }
+            }
+        }
     }
     mesh::MeshGenerator g;
     g.setDomains(in.domains);
@@ -1833,6 +1890,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // and the coarsening cap. Built after the DTM block so the terrain
     // term can be sampled.
     mesh::SizeFieldOptions sizeOptions;
+    sizeOptions.footprintBounds = in.genOpts.verifiedSizing;
     sizeOptions.nearSize = in.cellSize;
     sizeOptions.gradation = std::max(in.sizeRatio - 1.0, 0.0);
     sizeOptions.areaFloor = areaFloor;
@@ -1850,6 +1908,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             }
             sizeOptions.regions.append({region.ring, region.spacing});
         }
+    for(const auto &region:quadRegions)if(region.directionalSpacing) {
+        const double fine=std::min(region.hAlong,region.hAcross);
+        if(!(fine>0) || !std::isfinite(fine)){fail(QObject::tr("Directional region spacing must be finite and positive."));return;}
+        sizeOptions.terrainRegions.append({region.ring,fine});
+    }
     // Terrain-error size term (Stage 2). Lives here so the size field built
     // after the DTM block can still sample it.
     mesh::TerrainSizeField terrainField;
@@ -2259,6 +2322,26 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     int generationPass = 1;
     // Cancellation and progress ride on the hook; the graded field is the
     // size function (it folds in the floor and the coarsening cap).
+    const bool scaledTerrainTolerance=in.terrainTolerancePolicy.mode==mesh::TerrainToleranceMode::TargetSize;
+    if(!in.terrainTolerancePolicy.valid() || (scaledTerrainTolerance && (!useAdaptiveTerrain || !in.genOpts.verifiedSizing))) {
+        fail(QObject::tr("Size-weighted terrain tolerance requires adaptive terrain, a selected DEM and verified sizing."));return;
+    }
+    auto toleranceForBox=[&](const QRectF &box) {
+        if(!scaledTerrainTolerance)return in.terrainTolerance;
+        const double target=useGrading?sizeField.minimumTerrainSizeInBox(box):in.maximumCellSize;
+        return in.terrainTolerancePolicy.tolerance(in.terrainTolerance,target);
+    };
+    if(scaledTerrainTolerance && !std::isfinite(toleranceForBox(QRectF(QPointF(bx0,by0),QPointF(bx1,by1))))) {
+        fail(QObject::tr("The resolved terrain tolerance floor/cap or prescribed target field is invalid."));return;
+    }
+    if(scaledTerrainTolerance)reporter.line(meshkit::Severity::Info)<<"[Mesh][terrain] linear target-size tolerance; reference size"<<in.terrainTolerancePolicy.referenceSize
+        <<"reference tolerance"<<in.terrainTolerance<<"floor"<<in.terrainTolerancePolicy.minimumTolerance
+        <<"cap"<<(in.terrainTolerancePolicy.maximumTolerance>0?in.terrainTolerancePolicy.maximumTolerance:in.terrainTolerance);
+    auto footprintBox=[](const QPointF *xy,int count) {
+        double x0=xy[0].x(),x1=x0,y0=xy[0].y(),y1=y0;
+        for(int k=1;k<count;++k){x0=std::min(x0,xy[k].x());x1=std::max(x1,xy[k].x());y0=std::min(y0,xy[k].y());y1=std::max(y1,xy[k].y());}
+        return QRectF(QPointF(x0,y0),QPointF(x1,y1));
+    };
     {
         mesh::RefineHook hook;
         /**
@@ -2341,6 +2424,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             };
         if (useAdaptiveTerrain) {
             hook.terrainTolerance = in.terrainTolerance;
+            if(scaledTerrainTolerance)hook.terrainToleranceForFootprint=toleranceForBox;
             // Adaptive terrain spends the cell budget worst error first.
             hook.terrainWorstFirst = useAdaptiveTerrain;
             // The final terrain verification below measures every cell of the
@@ -2380,7 +2464,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 for (int k = 0; k < 3; ++k)
                     if (missingTerrainVertices.contains(keyOf(xy[k].x(), xy[k].y())))
                         return std::numeric_limits<double>::quiet_NaN();
-                const auto q = terrainReference.queryTriangle(xy, z, in.terrainTolerance);
+                const auto q = terrainReference.queryTriangle(xy, z, toleranceForBox(footprintBox(xy,3)));
                 return q.valid && q.noDataSamples == 0 ? q.upperBound
                                                        : std::numeric_limits<double>::quiet_NaN();
             };
@@ -2393,16 +2477,43 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
              */
             hook.terrainError = [&](const QPointF *xy, const double *z, QPointF *out) {
                 auto q = useAdaptiveTerrain
-                             ? terrainReference.queryWorst(xy, z, in.terrainTolerance)
+                             ? terrainReference.queryWorst(xy, z, toleranceForBox(footprintBox(xy,3)))
                              : mesh::TerrainErrorField::Query{};
                 double error = q.valid ? q.maxError : 0;
                 *out = q.point;
                 return error;
             };
         }
+        if(in.genOpts.verifiedSizing)
+            hook.footprintMaximumSize=[&](const QRectF &box) {
+                double bound=useGrading ? sizeField.minimumSizeInBox(box) : 0;
+                if(in.maximumCellSize>0) bound=bound>0?std::min(bound,in.maximumCellSize):in.maximumCellSize;
+                return bound;
+            };
         g.setRefineHook(hook);
     }
 
+    int plannedOpenCandidates=0;
+    if(in.genOpts.unifiedCellPlanning && in.quadMode==2 && useGrading && sizeField.hasSizeBound()) {
+        progress(40,QObject::tr("Planning open-area patches from requested sizes…"));
+        QRectF bounds;QVector<QVector<QPointF>> blockers;
+        for(const auto &ring:in.domains){bounds=bounds.isValid()?bounds.united(ring.boundingRect()):ring.boundingRect();auto path=QVector<QPointF>(ring);if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &ring:bprep.holeRings){auto path=ring;if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &line:in.constraintSegs)blockers.append(line.path);
+        for(const auto &region:quadRegions){auto path=QVector<QPointF>(region.ring);if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &patch:in.patches){auto path=QVector<QPointF>(mesh::orderedPatchBoundary(patch));if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &point:in.steinerPoints)blockers.append({point.xy,point.xy});
+        for(const auto &line:g.previewTerrainBreaklines())blockers.append(line);
+        const double pitch=std::max(4*in.minCellSize,std::max(bounds.width(),bounds.height())/512);
+        const auto grid=mesh::quadBlockGridFromField(bounds,pitch,[&](const QRectF &box){return sizeField.minimumSizeInBox(box);},blockers,[&]{return promise.isCanceled();});
+        if(promise.isCanceled()){fail(QObject::tr("Cancelled."));return;}
+        if(!grid.isValid()){fail(QObject::tr("The requested automatic patch planning grid could not be built within its limits."));return;}
+        mesh::QuadBlockOptions blocks;blocks.minSpacing=.5*in.minCellSize;blocks.maxBlocks=4096;
+        const auto candidates=mesh::placeQuadBlocks(grid,blocks);
+        for(auto candidate:candidates){candidate.automaticCandidate=true;candidate.isBackground=true;g.addQuadRegion(candidate);}
+        plannedOpenCandidates=candidates.size();
+        reporter.line(meshkit::Severity::Info)<<"[Mesh][planning]"<<plannedOpenCandidates<<"automatic candidate blocks from the size field; no triangle pilot pass";
+    }
     stageClock.restart();
     mesh::MeshResult result = g.generate();
     mesh::GenerationStats generationStats = g.stats();
@@ -2414,7 +2525,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // checks every block; one that does not fit stays triangles, and a failed
     // second pass keeps the triangle mesh.
     int openBlocks = 0, openBlockQuads = 0;
-    if (result.ok && in.quadMode == 2 && !promise.isCanceled()) {
+    if (result.ok && in.quadMode == 2 && !in.genOpts.unifiedCellPlanning && !promise.isCanceled()) {
         progress(65, QObject::tr("Placing open-area quad blocks…"));
         QVector<QVector<QPointF>> blockers;
         for (const auto &ring : std::as_const(in.domains)) {
@@ -2476,6 +2587,22 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                    .arg(pitch);
     }
     generationStats.coarsenSeconds = coarseningSeconds;
+    if(in.genOpts.unifiedCellPlanning){
+        for(int i=quadRegions.size();i<g.quadRegionReports().size();++i)openBlocks+=g.quadRegionReports()[i].resolved==mesh::QuadRegionMode::Mapped;
+        int shown=0;
+        for(const auto &decision:g.cellPlanDecisions()) {
+            if(shown++>=100)break;
+            const auto outcome=decision.disposition==mesh::PatchDisposition::Accepted?"quads accepted":
+                decision.disposition==mesh::PatchDisposition::Repaired?"quads repaired":
+                decision.disposition==mesh::PatchDisposition::RequiredFailure?"required quads refused":"triangles";
+            reporter.line(meshkit::Severity::Info)<<"[Mesh][planning]"<<decision.source<<"required"<<decision.required
+                <<outcome<<"cells"<<decision.cells<<"repair rounds"<<decision.repairRounds<<decision.reason;
+        }
+        if(g.cellPlanDecisions().size()>100)reporter.line(meshkit::Severity::Info)<<"[Mesh][planning] additional region decisions omitted from log:"<<g.cellPlanDecisions().size()-100;
+        reporter.line(meshkit::Severity::Info)<<"[Mesh][planning] accepted region patches"<<generationStats.plannedPatches
+            <<"repaired"<<generationStats.repairedPatches<<"triangle fallbacks"<<generationStats.triangleFallbacks
+            <<"triangulation passes"<<generationStats.triangulationPasses;
+    }
     if (!g.acceptedTerrainBreaklines().isEmpty())
         reporter.line(meshkit::Severity::Info) << "[Mesh][terrain] break lines kept as mesh edges"
                                                << g.acceptedTerrainBreaklines().size();
@@ -2514,6 +2641,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // ── Quad region reports ──────────────────────────────────────────
     QStringList alignmentWarnings;
     for (const mesh::QuadRegionReport &rep : g.quadRegionReports()) {
+        if(in.genOpts.unifiedCellPlanning)break; // Bounded decisions and complete totals above.
         if (rep.index >= quadRegions.size())
             break; // open blocks are summarised above
         reporter.line(meshkit::Severity::Info).nospace()
@@ -3020,6 +3148,8 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         }
     };
     int elevationOffsetOnly = 0;
+    double smallestTerrainTolerance=std::numeric_limits<double>::infinity(),largestTerrainTolerance=0,largestTerrainRatio=0;
+
     if (useAdaptiveTerrain) {
         stageClock.restart();
         generationStats.terrainUnresolved = 0;
@@ -3055,6 +3185,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 terrainReference.prefetch(boxes);
             }
             const auto &cell = result.triangles[i];
+            QPointF fullFootprint[4];
+            for(int k=0;k<cell.vertexCount();++k)fullFootprint[k]=result.vertices[cell.vertex(k)].xy;
+            const double cellTolerance=toleranceForBox(footprintBox(fullFootprint,cell.vertexCount()));
+            if(!(cellTolerance>0) || !std::isfinite(cellTolerance)){fail(QObject::tr("The delivered terrain tolerance is invalid."));return;}
+            smallestTerrainTolerance=std::min(smallestTerrainTolerance,cellTolerance);largestTerrainTolerance=std::max(largestTerrainTolerance,cellTolerance);
             // Same 0-2 diagonal used by mesh profile interpolation for quads.
             bool bad = false, unknown = false;
             bool referenceFails = false;
@@ -3071,22 +3206,23 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                         missingTerrainVertices.contains(keyOf(xy[k].x(), xy[k].y())))
                         unknown = true;
                 }
-                const auto q = terrainReference.queryTriangle(xy, z, in.terrainTolerance);
+                const auto q = terrainReference.queryTriangle(xy, z, cellTolerance);
                 unknown = unknown || !q.valid || q.noDataSamples > 0;
-                bad = bad || q.maxError > in.terrainTolerance;
+                bad = bad || q.maxError > cellTolerance;
                 if (q.maxError > cellError) {
                     cellError = q.maxError;
                     worstXY = q.point;
                 }
-                if (q.maxError > in.terrainTolerance) {
+                if (q.maxError > cellTolerance) {
                     double sourceZ[3];
                     for (int k = 0; k < 3; ++k)
                         sourceZ[k] = terrainReference.sampleAt(xy[k].x(), xy[k].y());
                     const auto source =
-                        terrainReference.queryTriangle(xy, sourceZ, in.terrainTolerance);
+                        terrainReference.queryTriangle(xy, sourceZ, cellTolerance);
                     referenceFails =
-                        referenceFails || !source.valid || source.maxError > in.terrainTolerance;
+                        referenceFails || !source.valid || source.maxError > cellTolerance;
                 }
+                largestTerrainRatio=std::max(largestTerrainRatio,q.upperBound/cellTolerance);
                 generationStats.maxTerrainError =
                     std::max(generationStats.maxTerrainError, q.upperBound);
             }
@@ -3104,7 +3240,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                                result.vertices[cell.v2].xy) /
                               3;
                 exceptions
-                    << QObject::tr("Cell %1 near (%2, %3): %4; measured error %5.")
+                    << QObject::tr("Cell %1 near (%2, %3): %4; measured error %5, allowed %6.")
                            .arg(i + 1)
                            .arg(worstXY.x(), 0, 'g', 12)
                            .arg(worstXY.y(), 0, 'g', 12)
@@ -3113,7 +3249,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                                     ? QObject::tr(
                                           "model elevation offset; source-only triangle passes")
                                     : QObject::tr("terrain resolution conflict"))
-                           .arg(cellError, 0, 'g', 6);
+                           .arg(cellError, 0, 'g', 6).arg(cellTolerance,0,'g',6);
             }
         }
         if (!terrainReference.errorMsg().isEmpty()) {
@@ -3123,11 +3259,11 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         if (generationStats.terrainUnresolved || generationStats.terrainUnknown)
             alignmentWarnings
                 << QObject::tr(
-                       "Terrain tolerance %1: %2 cells exceed it and %3 could not be verified. "
+                       "Terrain tolerance %1: %2 cells exceed their allowed value and %3 could not be verified. "
                        "Prescribed elevations, fixed strips or minimum spacing can prevent further refinement. "
                        "%5 exceedances disappear when model elevation overrides are removed from the check. "
                        "The maximum checked error bound is %4. This mesh does not certify the requested terrain tolerance.")
-                       .arg(in.terrainTolerance)
+                       .arg(scaledTerrainTolerance?QObject::tr("%1–%2 by prescribed target size").arg(smallestTerrainTolerance).arg(largestTerrainTolerance):QString::number(in.terrainTolerance))
                        .arg(generationStats.terrainUnresolved)
                        .arg(generationStats.terrainUnknown)
                        .arg(generationStats.maxTerrainError)
@@ -3139,7 +3275,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             << "[Mesh][terrain] final tolerance" << in.terrainTolerance << "| error upper bound"
             << generationStats.maxTerrainError << "| unresolved cells"
             << generationStats.terrainUnresolved << "| unknown cells"
-            << generationStats.terrainUnknown;
+            << generationStats.terrainUnknown<<"| allowed tolerance range"<<smallestTerrainTolerance<<largestTerrainTolerance<<"| largest error/tolerance"<<largestTerrainRatio;
         stageMark("final terrain verification");
     }
     if (generationStats.refineCapped)
@@ -3220,6 +3356,45 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         return;
     }
     progress(95, QObject::tr("Measuring final cell quality…"));
+    mesh::SizingAuditReport sizingAudit;
+    if(in.genOpts.verifiedSizing) {
+        mesh::SizingAuditOptions options;
+        options.minimumTarget=in.minCellSize;
+        options.maximumSize=in.maximumCellSize;
+        options.minimumEdge=in.resolution->minimumEdgeM.value_or(0)/in.meshLinearUnitToSI;
+        options.adjacentRatio=in.sizeRatio;
+        options.cancelled=[&]{return promise.isCanceled();};
+        if(useGrading) options.footprintMaximum=[&](const QRectF &box){return sizeField.minimumSizeInBox(box);};
+        sizingAudit=mesh::auditMeshSizing(result,options);
+        if(!sizingAudit.complete || !sizingAudit.valid) {
+            fail(QObject::tr("Delivered sizing audit failed: %1").arg(sizingAudit.error)); return;
+        }
+        for(int i=0;i<sizingAudit.cellFlags.size();++i)
+            if(sizingAudit.cellFlags[i] & ~mesh::TouchesConstraint) markException(i);
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][sizing] nominal triangle/square size; checked" << sizingAudit.cellsChecked
+            << "cells and" << sizingAudit.facesChecked << "shared faces; global/local maximum exceedances"
+            << sizingAudit.aboveMaximum << sizingAudit.aboveLocalMaximum << "; edge-floor conflicts"
+            << sizingAudit.belowEdgeFloor << "; transition faces" << sizingAudit.transitionFaces
+            << "; largest adjacent ratio" << sizingAudit.largestAdjacentRatio;
+        for(const auto &example:sizingAudit.examples)
+            reporter.line(meshkit::Severity::Warning)
+                << "[Mesh][sizing] cell" << example.cell+1 << "near" << example.location
+                << example.message << "measured/requested" << example.measured << example.requested;
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][sizing] local repair inserted" << generationStats.sizingRepairInserted
+            << "vertices in" << generationStats.sizingRepairPasses << "passes; repair limit reached"
+            << generationStats.sizingRepairLimited;
+        if(!sizingAudit.limitsSatisfied()) {
+            const QString conflicts=QObject::tr("%1 global maximum, %2 footprint maximum, %3 minimum-edge cells; %4 transition faces. Fixed quads and constraint/terrain/shape gates can prevent repair. Review cell examples in the run log.")
+                .arg(sizingAudit.aboveMaximum).arg(sizingAudit.aboveLocalMaximum)
+                .arg(sizingAudit.belowEdgeFloor).arg(sizingAudit.transitionFaces);
+            if(in.resolution->sizing==mesh::ResolutionSettings::Sizing::Strict) {
+                fail(QObject::tr("Strict sizing refused the candidate: %1").arg(conflicts)); return;
+            }
+            alignmentWarnings << QObject::tr("Verified sizing completed with unresolved limits: %1").arg(conflicts);
+        }
+    }
 
     // Bounded deterministic samples for distributions; extrema and exception
     // counts cover every cell. No multi-million-edge sorting on the worker.
@@ -3340,6 +3515,9 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             .arg(generationStats.segmentSplits)
             .arg(generationStats.refineCapped ? QObject::tr("Yes") : QObject::tr("No"));
 
+    if(useAdaptiveTerrain && scaledTerrainTolerance)
+        summary+=QObject::tr("\nSize-weighted terrain tolerance: %1–%2 %3 over full cell footprints; reference target size %4 %5. Largest error/tolerance ratio: %6.")
+            .arg(smallestTerrainTolerance).arg(largestTerrainTolerance).arg(verticalUnit).arg(in.terrainTolerancePolicy.referenceSize).arg(horizontalUnit).arg(largestTerrainRatio);
     if (in.genOpts.coarsenPasses > 0) {
         summary += QObject::tr("\nCoarsening enabled: up to %1 attempts per free vertex; %2 removal attempts made.")
                        .arg(in.genOpts.coarsenPasses)
@@ -3354,6 +3532,9 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 .arg(generationStats.coarsenRejectedTerrain)
                 .arg(generationStats.coarsenRejectedEdge)
                 .arg(generationStats.coarsenSeconds, 0, 'f', 2);
+        if(in.genOpts.coarseningOrder==mesh::CoarseningOrder::ResolutionAware)
+            summary+=QObject::tr("\nResolution/flatness removal order; peak queued vertices %1; prescribed-size priority queries %2.")
+                .arg(generationStats.coarsenQueuePeak).arg(generationStats.coarsenPriorityQueries);
         if (generationStats.coarsenSkippedTerrain)
             summary +=
                 QObject::tr("\nCoarsening skipped: certified terrain coverage was unavailable.");
@@ -3364,6 +3545,13 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             summary += QObject::tr(
                 "\nCoarsening ran, but topology, shape, size or terrain checks rejected every attempted removal.");
     }
+    if(in.genOpts.verifiedSizing)
+        summary+=QObject::tr("\nVerified nominal sizes: %1 to %2 %3. Below minimum target: %4 cells (advisory). Global / footprint maximum exceedances: %5 / %6 cells. Minimum-edge conflicts: %7 cells. Transition failures: %8 shared faces; largest adjacent size ratio %9. Local repair inserted %10 vertices in %11 passes; repair budget reached: %12.")
+            .arg(sizingAudit.smallestNominal).arg(sizingAudit.largestNominal).arg(horizontalUnit)
+            .arg(sizingAudit.belowTarget).arg(sizingAudit.aboveMaximum).arg(sizingAudit.aboveLocalMaximum)
+            .arg(sizingAudit.belowEdgeFloor).arg(sizingAudit.transitionFaces).arg(sizingAudit.largestAdjacentRatio)
+            .arg(generationStats.sizingRepairInserted).arg(generationStats.sizingRepairPasses)
+            .arg(generationStats.sizingRepairLimited ? QObject::tr("Yes") : QObject::tr("No"));
     const auto outputQuads = result.quadCount();
     PResult out;
     out.ok = true;
@@ -3419,7 +3607,43 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         {"referencePixelSpacingM", actualTerrainPixelSize * in.meshLinearUnitToSI},
         {"elapsedSeconds", totalClock.elapsed() / 1000.0},
         {"refinementCapped", generationStats.refineCapped}};
+    double totalArea=0,quadArea=0;quint64 deliveredQuads=0;
+    for(const auto &cell:result.triangles) {
+        const auto origin=result.vertices[cell.v0].xy;long double twice=0;
+        for(int k=0;k<cell.vertexCount();++k){auto a=result.vertices[cell.vertex(k)].xy-origin,b=result.vertices[cell.vertex((k+1)%cell.vertexCount())].xy-origin;
+            twice+=static_cast<long double>(a.x())*b.y()-static_cast<long double>(a.y())*b.x();}
+        const double area=double(std::abs(twice)*.5);totalArea+=area;
+        if(cell.isQuad()){quadArea+=area;++deliveredQuads;}
+    }
+    const double quadCountFraction=result.triangles.isEmpty()?0:double(deliveredQuads)/result.triangles.size();
+    const double quadAreaFraction=totalArea>0?quadArea/totalArea:0;
+    out.summary+=QObject::tr("\nQuads: %1% of cells, %2% of area.").arg(100*quadCountFraction,0,'f',1).arg(100*quadAreaFraction,0,'f',1);
+    out.metrics["summary"]=out.summary;
     out.metrics["coarsenRequestedPasses"] = in.genOpts.coarsenPasses;
+    out.metrics["coarseningPolicy"]=QJsonObject{{"version",1},{"order",int(in.genOpts.coarseningOrder)},
+        {"queuePeak",qint64(generationStats.coarsenQueuePeak)},{"priorityQueries",qint64(generationStats.coarsenPriorityQueries)}};
+    out.metrics["terrainTolerancePolicy"]=QJsonObject{{"version",1},{"mode",int(in.terrainTolerancePolicy.mode)},
+        {"referenceSizeM",in.terrainTolerancePolicy.referenceSize*in.meshLinearUnitToSI},
+        {"referenceToleranceM",in.terrainTolerance*in.verticalUnitToSI},
+        {"floorM",in.terrainTolerancePolicy.minimumTolerance*in.verticalUnitToSI},
+        {"capM",(in.terrainTolerancePolicy.maximumTolerance>0?in.terrainTolerancePolicy.maximumTolerance:in.terrainTolerance)*in.verticalUnitToSI},
+        {"minimumAppliedM",useAdaptiveTerrain?QJsonValue(smallestTerrainTolerance*in.verticalUnitToSI):QJsonValue()},
+        {"maximumAppliedM",useAdaptiveTerrain?QJsonValue(largestTerrainTolerance*in.verticalUnitToSI):QJsonValue()},
+        {"largestErrorRatio",largestTerrainRatio}};
+
+    out.metrics["cellPlanning"]=QJsonObject{{"unified",in.genOpts.unifiedCellPlanning},{"triangulationPasses",generationStats.triangulationPasses},
+        {"quadCountFraction",quadCountFraction},{"quadAreaFraction",quadAreaFraction},{"automaticCandidates",plannedOpenCandidates},{"automaticAccepted",openBlocks},{"plannedPatches",generationStats.plannedPatches},
+        {"repairedPatches",generationStats.repairedPatches},{"triangleFallbacks",generationStats.triangleFallbacks}};
+    if(in.genOpts.verifiedSizing) out.metrics["sizingAudit"] = QJsonObject{
+        {"version",1},{"mode",in.resolution?int(in.resolution->sizing):int(mesh::ResolutionSettings::Sizing::Verified)},{"complete",sizingAudit.complete},
+        {"limitsSatisfied",sizingAudit.limitsSatisfied()},{"cellsChecked",qint64(sizingAudit.cellsChecked)},
+        {"sharedFacesChecked",qint64(sizingAudit.facesChecked)},{"belowTarget",qint64(sizingAudit.belowTarget)},
+        {"belowEdgeFloor",qint64(sizingAudit.belowEdgeFloor)},{"aboveMaximum",qint64(sizingAudit.aboveMaximum)},
+        {"aboveFootprintMaximum",qint64(sizingAudit.aboveLocalMaximum)},{"transitionFaces",qint64(sizingAudit.transitionFaces)},
+        {"largestAdjacentRatio",sizingAudit.largestAdjacentRatio},{"smallestNominalM",sizingAudit.smallestNominal*in.meshLinearUnitToSI},
+        {"largestNominalM",sizingAudit.largestNominal*in.meshLinearUnitToSI},
+        {"repairInserted",generationStats.sizingRepairInserted},{"repairPasses",generationStats.sizingRepairPasses},
+        {"repairLimited",generationStats.sizingRepairLimited}};
     out.metrics["coarsenRemoved"] = generationStats.coarsenRemoved;
     out.metrics["coarsenRejectedAngle"] = generationStats.coarsenRejectedAngle;
     out.metrics["coarsenRejectedSize"] = generationStats.coarsenRejectedSize;
@@ -4164,13 +4388,20 @@ void MeshGenerationDialog::buildUi()
         m_quadModeCombo->setToolTip(tr(
             "Where the mesh uses quads; triangles fill everywhere else and every join is exact. "
             "Corridors and strips: selected corridors and streets or ditches between facing break "
-            "lines (each with its own option). Open blocks: after a first pass, rectangles are "
-            "placed where the cells are nearly uniform and no feature runs — water, parks, "
-            "yards, wide lots — and meshed as square quads in a second pass (more time). "
+            "lines (each with its own option). Unified planning places open blocks from the size field "
+            "before triangulating the remaining area. Legacy routing uses a triangle pilot pass. "
+            "Preferred blocks fall back to triangles when they conflict with constraints or limits. "
             "Off disables every generated quad source; region outlines, tags and local sizes "
             "still apply. A prebuilt quad patch must be removed or quads enabled. "
             "No mode promises a fixed percentage of quads."));
         f->addRow(tr("&Quads:"), m_quadModeCombo);
+        m_requireMappedRegions=new QCheckBox(tr("Require mapped quads in selected regions"),g);
+        m_requireMappedRegions->setObjectName("meshRequireMappedRegions");
+        m_requireMappedRegions->setToolTip(tr("Requires unified planning. Every selected region must produce a conforming mapped patch within the requested size, shape and terrain limits. A feature with cells=triangles overrides this default; cells=required_quads sets an individual hard requirement. Global triangles-only conflicts with required mapped quads."));
+        connect(m_requireMappedRegions,&QCheckBox::toggled,this,[this](bool required){
+            if(required)m_resolutionWidget->cellPlanning->setCurrentIndex(int(mesh::ResolutionSettings::CellPlanning::Unified));
+        });
+        f->addRow(m_requireMappedRegions);
 
         m_streetQuadsBox =
             new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), g);
@@ -4595,6 +4826,7 @@ void MeshGenerationDialog::seedDefaults()
     m_trimDeviationSpin->setValue(t.meshTrimDeviationM * toUnit);
     if (m_corridorSources && m_pw)
         m_corridorSources->setSources(m_pw->corridorSources());
+    if(m_requireMappedRegions)m_requireMappedRegions->setChecked(false);
     if (m_quadRegionLayerCombo)
         m_quadRegionLayerCombo->setCurrentIndex(0);
     if (m_quadRegionSubcatchEdit)
@@ -5177,6 +5409,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
     out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 4;
     out->terrainReference = m_terrainReferenceCombo ? m_terrainReferenceCombo->currentIndex() : 0;
     out->quadMode = m_quadModeCombo ? m_quadModeCombo->currentIndex() : 2;
+    out->requireMappedRegions=m_requireMappedRegions->isChecked();
     out->genOpts.minAngleDeg = m_minAngleSpin->value();
     out->genOpts.prioritizeQuality = m_qualityOrderBox->isChecked();
     out->genOpts.maxCells = m_maxCellsSpin->value();

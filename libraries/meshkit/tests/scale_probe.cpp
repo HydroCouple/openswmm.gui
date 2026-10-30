@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Opt-in capacity probe, not an end-to-end terrain/GUI performance claim.
 #include "mesh/meshcdt.h"
+#include "mesh/cellplanner.h"
 #include "mesh/constraintaudit.h"
 #include "mesh/meshresult.h"
+#include "mesh/sizingaudit.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonDocument>
@@ -24,6 +26,32 @@ int main(int argc, char **argv)
     if (!xOk || !yOk || nx < 2 || ny < 2 || points > 6'000'000 || expected > 12'000'000) {
         std::cerr << "Usage: meshkit_scale_probe columns rows (2.., at most 6000000 vertices)\n";
         return 2;
+    }
+    if(qEnvironmentVariableIntValue("MESHKIT_PLAN_QUADS")) {
+        QElapsedTimer timer;timer.start();mesh::QuadPlanningGeometry geometry;
+        geometry.domains={QPolygonF{{0,0},{double(nx),0},{double(nx),double(ny)},{0,double(ny)}}};
+        QVector<mesh::QuadRegion> regions;
+        const int sx=std::min(nx,300),sy=std::min(ny,200);
+        for(int y=0;y<ny;y+=sy)for(int x=0;x<nx;x+=sx){
+            mesh::QuadRegion region;const double x1=std::min(nx,x+sx),y1=std::min(ny,y+sy);
+            region.ring={{double(x),double(y)},{x1,double(y)},{x1,y1},{double(x),y1}};
+            region.spacing=1;region.requireMapped=true;regions.append(region);
+        }
+        mesh::QuadPlanningOptions options;options.limits.maximumSize=[](const QRectF &){return 1.;};
+        const auto plan=mesh::planQuadRegions(regions,geometry,options);
+        double peak=0;
+#if defined(__unix__) || defined(__APPLE__)
+        rusage usage{};if(getrusage(RUSAGE_SELF,&usage)==0){peak=double(usage.ru_maxrss);
+#ifndef __APPLE__
+        peak*=1024;
+#endif
+        }
+#endif
+        QJsonObject output{{"ok",plan.ok},{"cells",qint64(plan.plannedCells)},{"patches",plan.patches.size()},
+            {"sharedSides",qint64(plan.sharedSides)},{"work",qint64(plan.workUsed)},{"elapsedMs",timer.elapsed()},{"peakBytes",peak},
+            {"scope","Mapped planning and acceptance only; no CDT, DEM, file I/O or GUI."},{"error",plan.error}};
+        std::cout<<QJsonDocument(output).toJson(QJsonDocument::Compact).constData()<<'\n';
+        return plan.ok && plan.plannedCells==quint64(nx)*ny?0:1;
     }
     QElapsedTimer timer;
     timer.start();
@@ -62,8 +90,10 @@ int main(int argc, char **argv)
     }
     valid = valid && live == expected && live == cdt.liveTriangleCount() &&
             area == double(nx - 1) * (ny - 1);
-    const bool auditRequested = qEnvironmentVariableIntValue("MESHKIT_AUDIT_DELIVERED") != 0;
-    qint64 auditMs = 0, adapterMs = 0;
+    const bool sizingRequested=qEnvironmentVariableIntValue("MESHKIT_AUDIT_SIZING")!=0;
+    const bool auditRequested = sizingRequested || qEnvironmentVariableIntValue("MESHKIT_AUDIT_DELIVERED") != 0;
+    qint64 auditMs = 0, adapterMs = 0, sizingMs = 0;
+    mesh::SizingAuditReport sizing;
     mesh::ConstraintAuditReport audit;
     if (auditRequested) {
         const auto adapterStart = timer.elapsed();
@@ -89,6 +119,12 @@ int main(int argc, char **argv)
         auditMs = timer.elapsed() - auditStart;
         valid = valid && audit.ok && audit.cellsChecked == quint64(live);
         if (!audit.ok) std::cerr << qPrintable(audit.error) << '\n';
+        if(sizingRequested) {
+            mesh::SizingAuditOptions options;options.maximumSize=1.1;options.adjacentRatio=2;
+            const auto start=timer.elapsed();sizing=mesh::auditMeshSizing(delivered,options);sizingMs=timer.elapsed()-start;
+            valid=valid && sizing.limitsSatisfied() && sizing.cellsChecked==quint64(live);
+            if(!sizing.limitsSatisfied()) std::cerr<<qPrintable(sizing.error)<<'\n';
+        }
     }
     double peakBytes = 0;
 #if defined(__unix__) || defined(__APPLE__)
@@ -117,6 +153,10 @@ int main(int argc, char **argv)
         report["delivered_audit_passed"] = audit.ok;
         report["audited_cells"] = double(audit.cellsChecked);
         report["audit_work"] = double(audit.workUsed);
+    }
+    if(sizingRequested) {
+        report["sizing_audit_passed"]=sizing.limitsSatisfied();report["sizing_audit_ms"]=double(sizingMs);
+        report["shared_faces_checked"]=double(sizing.facesChecked);report["largest_adjacent_ratio"]=sizing.largestAdjacentRatio;
     }
     std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).constData() << '\n';
     return valid ? 0 : 1;
