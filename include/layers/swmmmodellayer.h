@@ -2245,7 +2245,8 @@ public:
      *        when \p idx is out of range or the subcatchment has no
      *        polygon (engine permits coordinate-less subcatchments).
      * @param[in] idx Global link/subcatch source index, not category display row.
-     * @return Owned native layer-map open polygon ring as stored/cleaned; invalid catch empty. No
+     * @return Owned native layer-map vertices as stored/cleaned; single rings are open,
+     *   multiple rings retain explicit closing vertices. Invalid catch empty. No
      *   transform, unit conversion, engine read or visibility filtering.
      */
     [[nodiscard]] QVector<QPointF> cachedSubcatchVertices(int idx) const;

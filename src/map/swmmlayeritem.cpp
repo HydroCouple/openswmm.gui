@@ -16,6 +16,7 @@
 #include "map/mapcanvas.h"
 #include "render/labelpainter.h"
 #include "render/linkstroke.h"
+#include "render/subcatchmentgeometry.h"
 // Slice Z.14-paint — polygon clip mask.
 #include "render/maskclipresolver.h"
 // Slice Z.5b-paint — perpendicular polyline offset.
@@ -479,7 +480,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             if (!exposed.isNull() && i < cboxes.size() && !exposed.intersects(cboxes[i]))
                 continue;
 
-            const QPolygonF poly(cps[i]);
+            const auto poly = OpenSWMM::Render::SubcatchmentGeometry::path(cps[i]);
             const bool sel = size_t(i) < catchSel.size() && catchSel[i];
             if (sel) {
                 painter->setBrush(
@@ -488,7 +489,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 const QColor col = m_layer->featureColor(SWMMModelLayer::CatSubcatchments, i);
                 painter->setBrush(QBrush(fade(col.isValid() ? col : sym.fillColor)));
             }
-            painter->drawPolygon(poly);
+            painter->drawPath(poly);
             if (sel || catchOverrides)
                 painter->setBrush(QBrush(fade(sym.fillColor)));
         }

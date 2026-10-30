@@ -32,6 +32,7 @@
 #include "timeseries/timeseriesprovider.h"
 #include "core/crsreproject.h"
 #include "core/editgeometry.h"
+#include "render/subcatchmentgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/swmmidentifier.h"
 #include "core/unitsystem.h"
@@ -119,6 +120,24 @@ Q_LOGGING_CATEGORY(lcBulkDelLayer, "openswmm.bulkdelete")
 // ---------------------------------------------------------------------------
 namespace
 {
+
+// Clean rings separately: a shared boundary vertex must not collapse the
+// closing marker of one part together with the start of the next.
+QVector<QPointF> cleanSubcatchmentVertices(const QVector<QPointF> &points)
+{
+    const auto rings = OpenSWMM::Render::SubcatchmentGeometry::rings(points);
+    if (rings.size() <= 1)
+        return EditGeometry::cleanPolygonRing(points);
+    QVector<QPointF> result;
+    for (const auto &range : rings) {
+        const auto ring = EditGeometry::cleanPolygonRing(points.mid(range.first, range.count));
+        if (ring.size() < 3)
+            continue;
+        result += ring;
+        result.append(ring.first());
+    }
+    return result;
+}
 
 // Adaptor for a pair of parallel double arrays (xs, ys), each of length n.
 struct PtAdaptor {
@@ -1069,7 +1088,13 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path, QString *erro
     // Running a model uses a fresh, strict open (SimulationRunner), so this does
     // not weaken run-time validation.
     swmm_engine_set_lenient_open(eng, 1);
-    const int openRc = swmm_engine_open(eng, inpPath.constData(), "", "", nullptr);
+    // The engine defaults to its INP reader; GeoPackage models must explicitly
+    // select the built-in GeoPackage plugin, including on the async open path.
+    const char *inputPlugin =
+        QFileInfo(path).suffix().compare(QStringLiteral("gpkg"), Qt::CaseInsensitive) == 0
+            ? "org.hydrocouple.openswmm.plugins.geopackage"
+            : nullptr;
+    const int openRc = swmm_engine_open(eng, inpPath.constData(), "", "", inputPlugin);
     if (openRc != 0) {
         // Surface the engine's real diagnostic (e.g. the offending section
         // and line) instead of a generic failure — otherwise a parse error
@@ -1385,7 +1410,7 @@ void SWMMModelLayer::buildFromEngine(SWMM_Engine engine, qint64 *soaMsOut, qint6
             for (int v = 0; v < polyCount; ++v)
                 ring[v] = QPointF(px[v], py[v]);
             // Collapse coincident vertices and drop a redundant closing point.
-            g.vertices = EditGeometry::cleanPolygonRing(ring);
+            g.vertices = cleanSubcatchmentVertices(ring);
         }
         m_catchments.append(g);
     }
@@ -5018,15 +5043,8 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
         const auto &v = c.vertices;
         if (v.size() < 3)
             continue;
-        bool inside = false;
-        for (int i = 0, j = v.size() - 1; i < v.size(); j = i++) {
-            const double xi = v[i].x(), yi = v[i].y();
-            const double xj = v[j].x(), yj = v[j].y();
-            const bool crosses = ((yi > clickLY) != (yj > clickLY)) &&
-                                 (clickLX < (xj - xi) * (clickLY - yi) / (yj - yi + 1e-20) + xi);
-            if (crosses)
-                inside = !inside;
-        }
+        const bool inside = OpenSWMM::Render::SubcatchmentGeometry::contains(
+            v, QPointF(clickLX, clickLY));
         if (inside) {
             best.clear();
             best[QStringLiteral("elementType")] = QStringLiteral("Subcatchment");
@@ -7193,7 +7211,7 @@ bool SWMMModelLayer::applySubcatchAdd(const QString &name, const QVector<QPointF
 
     // Collapse coincident vertices and drop a redundant closing point (e.g.
     // a final click back on the start vertex) before persisting / caching.
-    const QVector<QPointF> ring = EditGeometry::cleanPolygonRing(polygon);
+    const QVector<QPointF> ring = cleanSubcatchmentVertices(polygon);
 
     if (!ring.isEmpty()) {
         QVector<double> vx(ring.size()), vy(ring.size());
@@ -9017,7 +9035,7 @@ bool SWMMModelLayer::applySubcatchVertices(int idx, const QVector<QPointF> &vert
         return false;
 
     // Collapse coincident vertices and drop a redundant closing point.
-    const QVector<QPointF> vertices = EditGeometry::cleanPolygonRing(verticesIn);
+    const QVector<QPointF> vertices = cleanSubcatchmentVertices(verticesIn);
     if (vertices.isEmpty())
         return false;
 

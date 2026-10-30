@@ -29,6 +29,7 @@
 #include "layers/swmmmodellayer.h"
 #include "render/markershape.h"
 #include "render/linkstroke.h"
+#include "render/subcatchmentgeometry.h"
 #include "render/qsgpremultiply.h"
 
 #include <QDebug>
@@ -126,78 +127,6 @@ PerfSampler &sampler()
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
-
-// Simple ear-clipping triangulator for SWMM subcatchment polygons (O(n²)).
-/**
- * @param[in] poly Finite simple planar ring in source order, no repeated/collinear cleanup; no
- *   holes. n*n must fit int.
- * @return Owned flat triangle index triples into original ring; empty<3, may be PARTIAL if no ear
- *   found or n²iteration budget exhausted. Reverses working index order to CCW, rejects
- *   nonpositive-cross ears and any other point on/inside triangle. Does not repair
- *   invalid/self-intersecting/degenerate polygon or report completeness. No source mutation.
- */
-QVector<int> earcutTriangulate(const QVector<QPointF> &poly)
-{
-    QVector<int> tris;
-    const int n = poly.size();
-    if (n < 3)
-        return tris;
-
-    auto cross = [](QPointF a, QPointF b, QPointF c) -> double {
-        return (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
-    };
-
-    double signedArea = 0.0;
-    for (int i = 0; i < n; ++i) {
-        const QPointF &p0 = poly[i], &p1 = poly[(i + 1) % n];
-        signedArea += (p1.x() - p0.x()) * (p1.y() + p0.y());
-    }
-    const bool reverseToCcw = signedArea > 0.0;
-
-    QVector<int> indices;
-    indices.reserve(n);
-    if (reverseToCcw)
-        for (int i = n - 1; i >= 0; --i)
-            indices.append(i);
-    else
-        for (int i = 0; i < n; ++i)
-            indices.append(i);
-
-    auto pointInTri = [&](QPointF p, QPointF a, QPointF b, QPointF c) {
-        const double d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
-        return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
-    };
-
-    int safety = n * n;
-    while (indices.size() > 2 && safety-- > 0) {
-        bool earFound = false;
-        for (int idx = 0; idx < indices.size(); ++idx) {
-            const int prev = (idx - 1 + indices.size()) % indices.size();
-            const int next = (idx + 1) % indices.size();
-            const int iP = indices[prev], iC = indices[idx], iN = indices[next];
-            if (cross(poly[iP], poly[iC], poly[iN]) <= 0.0)
-                continue;
-            bool ok = true;
-            for (int k = 0; k < indices.size() && ok; ++k) {
-                if (k == idx || k == prev || k == next)
-                    continue;
-                if (pointInTri(poly[indices[k]], poly[iP], poly[iC], poly[iN]))
-                    ok = false;
-            }
-            if (!ok)
-                continue;
-            tris.append(iP);
-            tris.append(iC);
-            tris.append(iN);
-            indices.removeAt(idx);
-            earFound = true;
-            break;
-        }
-        if (!earFound)
-            break;
-    }
-    return tris;
-}
 
 // Shape-agnostic glyph emitter.
 //
@@ -1279,7 +1208,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             if (m_catchTriCache.revision != rev) {
                 m_catchTriCache.tris.resize(cps.size());
                 for (int i = 0; i < cps.size(); ++i)
-                    m_catchTriCache.tris[i] = earcutTriangulate(cps[i]);
+                    m_catchTriCache.tris[i] =
+                        OpenSWMM::Render::SubcatchmentGeometry::triangulate(cps[i]);
                 m_catchTriCache.revision = rev;
             }
 
@@ -1304,7 +1234,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const auto &poly = cps[i];
                 if (poly.size() < 3)
                     continue;
-                const QVector<int> &tris = m_catchTriCache.tris[i];
+                const auto &tris = m_catchTriCache.tris[i];
                 const bool sel = size_t(i) < cSel.size() && cSel[i];
                 // Per-feature override colour (Graduated/Categorized) or the
                 // kind default; `i` is the catch SoA index = featureColor key.
@@ -1314,10 +1244,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const uchar fA = uchar(ckop < 1.0 ? cc.alpha() * ckop : cc.alpha());
                 const uchar fR = premul(uchar(cc.red()), fA), fG = premul(uchar(cc.green()), fA),
                             fB = premul(uchar(cc.blue()), fA);
-                for (int idx : tris) {
+                for (const QPointF &point : tris) {
                     QSGGeometry::ColoredPoint2D p;
-                    p.x = float(poly[idx].x() - ox);
-                    p.y = float(poly[idx].y() - oy);
+                    p.x = float(point.x() - ox);
+                    p.y = float(point.y() - oy);
                     p.r = fR;
                     p.g = fG;
                     p.b = fB;
@@ -1325,26 +1255,32 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     fillBase.push_back(p);
                 }
                 if (edgeHW > 0.0f) {
-                    for (int j = 0; j < poly.size(); ++j) {
-                        const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
-                        const float bx = float(poly[(j + 1) % poly.size()].x() - ox);
-                        const float by = float(poly[(j + 1) % poly.size()].y() - oy);
-                        appendThickSegment(edgeBase, ax, ay, bx, by, edgeHW);
-                    }
+                    for (const auto &ring : OpenSWMM::Render::SubcatchmentGeometry::rings(poly))
+                        for (int j = ring.first; j < ring.first + ring.count; ++j) {
+                            const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
+                            const float bx = float(
+                                poly[ring.first + (j - ring.first + 1) % ring.count].x() - ox);
+                            const float by = float(
+                                poly[ring.first + (j - ring.first + 1) % ring.count].y() - oy);
+                            appendThickSegment(edgeBase, ax, ay, bx, by, edgeHW);
+                        }
                 }
                 if (sel) {
-                    for (int idx : tris) {
+                    for (const QPointF &point : tris) {
                         QSGGeometry::Point2D p;
-                        p.x = float(poly[idx].x() - ox);
-                        p.y = float(poly[idx].y() - oy);
+                        p.x = float(point.x() - ox);
+                        p.y = float(point.y() - oy);
                         fillSel.push_back(p);
                     }
-                    for (int j = 0; j < poly.size(); ++j) {
-                        const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
-                        const float bx = float(poly[(j + 1) % poly.size()].x() - ox);
-                        const float by = float(poly[(j + 1) % poly.size()].y() - oy);
-                        appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
-                    }
+                    for (const auto &ring : OpenSWMM::Render::SubcatchmentGeometry::rings(poly))
+                        for (int j = ring.first; j < ring.first + ring.count; ++j) {
+                            const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
+                            const float bx = float(
+                                poly[ring.first + (j - ring.first + 1) % ring.count].x() - ox);
+                            const float by = float(
+                                poly[ring.first + (j - ring.first + 1) % ring.count].y() - oy);
+                            appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
+                        }
                 }
             }
             uploadColoredVerts(catchFill, fillBase); // #33 Stage 1b — per-feature
@@ -1943,19 +1879,22 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const auto &poly = cps[i];
                 if (poly.size() < 3 || size_t(i) >= size_t(m_catchTriCache.tris.size()))
                     continue;
-                const QVector<int> &tris = m_catchTriCache.tris[i];
-                for (int idx : tris) {
+                const auto &tris = m_catchTriCache.tris[i];
+                for (const QPointF &point : tris) {
                     QSGGeometry::Point2D p;
-                    p.x = float(poly[idx].x() - ox);
-                    p.y = float(poly[idx].y() - oy);
+                    p.x = float(point.x() - ox);
+                    p.y = float(point.y() - oy);
                     fillSel.push_back(p);
                 }
-                for (int j = 0; j < poly.size(); ++j) {
-                    const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
-                    const float bx = float(poly[(j + 1) % poly.size()].x() - ox);
-                    const float by = float(poly[(j + 1) % poly.size()].y() - oy);
-                    appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
-                }
+                for (const auto &ring : OpenSWMM::Render::SubcatchmentGeometry::rings(poly))
+                    for (int j = ring.first; j < ring.first + ring.count; ++j) {
+                        const float ax = float(poly[j].x() - ox), ay = float(poly[j].y() - oy);
+                        const float bx =
+                            float(poly[ring.first + (j - ring.first + 1) % ring.count].x() - ox);
+                        const float by =
+                            float(poly[ring.first + (j - ring.first + 1) % ring.count].y() - oy);
+                        appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
+                    }
             }
             setNodeColor(catchSelFill, selPolyFill);
             setNodeColor(catchSelEdge, selPoly);

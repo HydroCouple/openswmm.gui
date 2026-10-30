@@ -195,11 +195,11 @@ private:
     bool m_selectionPending = false;
 
     // Subcatchment triangulation cache (Stage 4).
-    // Ear-clipping O(n²) result cached per geomRevision; reused on every
+    // Ring-aware O(n²) tessellation cached per geomRevision; reused on every
     // rebuild that does not change subcatchment geometry.
     struct CatchTriCache {
         quint64 revision = std::numeric_limits<quint64>::max();
-        QVector<QVector<int>> tris;
+        QVector<QVector<QPointF>> tris;
     };
     CatchTriCache m_catchTriCache;
 };
