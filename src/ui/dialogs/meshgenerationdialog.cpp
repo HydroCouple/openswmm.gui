@@ -87,7 +87,6 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QProgressBar>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -4710,14 +4709,20 @@ void MeshGenerationDialog::buildUi()
     outer->addWidget(m_progressBar);
 
     // ── Buttons ─────────────────────────────────────────────────────
-    auto *bb = new QDialogButtonBox(this);
-    m_previewBtn = bb->addButton(tr("Preview constraints…"), QDialogButtonBox::ActionRole);
+    // Keep the requested action order independent of platform button-box rules.
+    auto *buttons = new QHBoxLayout;
+    m_previewBtn = new QPushButton(tr("Preview constraints…"), this);
     m_previewBtn->setObjectName("meshPreviewConstraintsButton");
     m_previewBtn->setEnabled(m_geometryModeCombo->currentIndex() != 0);
     m_previewBtn->setToolTip(tr("Compare prepared source geometry before and after simplification without generating a mesh. Choose a preserve or bounded default policy on Quality → Boundaries."));
-    m_generateBtn = bb->addButton(tr("Generate"), QDialogButtonBox::AcceptRole);
-    m_cancelBtn = bb->addButton(tr("Close"), QDialogButtonBox::RejectRole);
-    outer->addWidget(bb);
+    m_generateBtn = new QPushButton(tr("Generate"), this);
+    m_generateBtn->setDefault(true);
+    m_cancelBtn = new QPushButton(tr("Close"), this);
+    buttons->addWidget(m_previewBtn);
+    buttons->addStretch();
+    buttons->addWidget(m_generateBtn);
+    buttons->addWidget(m_cancelBtn);
+    outer->addLayout(buttons);
 
     connect(m_browseMeshBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onBrowseMeshPath);
     connect(m_generateBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onAccept);
