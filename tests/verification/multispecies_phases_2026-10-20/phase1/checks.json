@@ -1,0 +1,30 @@
+{
+  "phase": 1,
+  "reaction_configuration_checks": 28,
+  "continuation_combinations": 24,
+  "network_solvers": [
+    "LEGACY",
+    "EULERIAN_ARD",
+    "LAGRANGIAN"
+  ],
+  "integrators": [
+    "EUL",
+    "RK5",
+    "ROS2",
+    "BDF2"
+  ],
+  "checks": [
+    "exact saved state and final binary output after restore",
+    "pattern clock crossing",
+    "hidden output species inventory",
+    "wet-pool reaction ledger",
+    "RWPT fixed-seed particle state",
+    "changed chemistry rejection without mutation",
+    "truncation rejection without mutation"
+  ],
+  "broader_checkpoint_regression": {
+    "passed": 129,
+    "failed": 43,
+    "note": "Mesh/output checks failed. Representative fresh mesh-header restoration failure reproduced with the saved pre-change library; no chemistry in that model."
+  }
+}

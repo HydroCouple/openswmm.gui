@@ -1,9 +1,9 @@
-/*!
- * \file   isublayerhost.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Mixin interface for layers that own a list of ISublayers.
+/**
+ * @file      isublayerhost.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Mixin interface for layers that own a list of ISublayers.
  *
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 3
  *         (animation dispatch) and §3 (every results layer owns an ordered
@@ -39,7 +39,9 @@
  *         Cross-slice: Slice S2 (sublayer host). Adopted by SWMMResultsLayer
  *         and SWMM2DResultsLayer in later sub-slices; the AnimationController
  *         dispatch wires through it in S2 final.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_ISUBLAYERHOST_H
 #define OPENSWMM_RENDER_ISUBLAYERHOST_H
 
@@ -51,6 +53,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 namespace OpenSWMM::Render
@@ -63,6 +66,7 @@ namespace OpenSWMM::Render
 class ISublayerHost
 {
 public:
+    /** @brief Destroy the interface base; concrete hosts manage their sublayer ownership. */
     virtual ~ISublayerHost() = default;
 
     /*!
@@ -75,6 +79,7 @@ public:
      *
      *        Returned references are non-owning; the host retains
      *        ownership of every sublayer.
+     * @return Owned list of borrowed pointers in bottom-to-top paint order.
      */
     [[nodiscard]] virtual QList<ISublayer *> sublayers() const = 0;
 
@@ -88,6 +93,10 @@ public:
      *
      *        Paint order = sublayers() index order (0 = bottom, painted
      *        first; size()-1 = top).
+     * @param from Current zero-based index in sublayers().
+     * @param to Requested zero-based destination index after the move.
+     * @return True when supported and successful; the base implementation always
+     * returns false and leaves the list unchanged, including for invalid indices.
      */
     virtual bool moveSublayer(int from, int to)
     {
@@ -112,15 +121,32 @@ public:
      *        implementation does not stash it — the renderer reads the
      *        authoritative value from AnimationController when building
      *        the context — but overrides may use it for per-host caching.
+     * @param period New animation period index; the default implementation ignores
+     * its value and invalidates every non-null dynamic sublayer.
      */
     virtual void dispatchAnimationTick(int period)
     {
         Q_UNUSED(period);
-        for (ISublayer *s : sublayers())
-        {
+        for (ISublayer *s : sublayers()) {
             if (s && s->isDynamic())
                 s->invalidate();
         }
+    }
+
+    /** @brief Prepare a structurally validated snapshot before ID-based restoration.
+     * @param j Full sublayer snapshot passed to loadSublayersFromJson().
+     * Dynamic hosts can create/remove entries here before styles and ordering
+     * are restored. The base implementation ignores the payload. */
+    // Dynamic hosts create/remove entries before the ordinary ID-based restore.
+    // A complete snapshot can therefore roll back newly added result sublayers.
+    virtual void prepareSublayersJsonLoad(const QJsonObject &j) { Q_UNUSED(j); }
+
+    /** @brief Migrate cross-sublayer data after styles and paint order are restored.
+     * @param sublayersJson Original validated snapshot, including unknown IDs.
+     * Invoked for both project load and style import; the base implementation is a no-op. */
+    virtual void onSublayersJsonLoaded(const QJsonObject &sublayersJson)
+    {
+        Q_UNUSED(sublayersJson);
     }
 
     // ── Slice S6.1 — JSON persistence helpers ──────────────────────────
@@ -142,14 +168,18 @@ public:
     // in the JSON are silently skipped (the layer ships with whatever
     // sublayers it constructed in its ctor).
 
+    /** @brief Snapshot sublayer identity, visibility, opacity, style and paint order.
+     * @param host Host to inspect synchronously; its sublayers must remain alive during traversal.
+     * @return Owned object containing a sublayers array in paint order. Null entries
+     * are skipped and style is omitted when style() returns nullptr. */
     [[nodiscard]] static QJsonObject saveSublayersToJson(const ISublayerHost &host)
     {
         QJsonArray arr;
-        for (const ISublayer *s : host.sublayers())
-        {
-            if (!s) continue;
+        for (const ISublayer *s : host.sublayers()) {
+            if (!s)
+                continue;
             QJsonObject row;
-            row.insert(QStringLiteral("id"),      s->id());
+            row.insert(QStringLiteral("id"), s->id());
             row.insert(QStringLiteral("visible"), s->isVisible());
             row.insert(QStringLiteral("opacity"), s->opacity());
             if (auto *style = const_cast<ISublayer *>(s)->style())
@@ -175,14 +205,17 @@ public:
      *
      *        Hidden sublayers contribute zero rows (they are not painted
      *        on screen, so they should not appear in the legend either).
+     * @param host Host whose current sublayer list is traversed synchronously.
+     * @return Concatenated rows from visible, non-null sublayers in paint order.
+     * Rows are copied verbatim; this helper does not insert IDs or adjust opacity.
      */
     [[nodiscard]] static QList<LegendSymbolItem>
-        aggregatedLegendSymbolItems(const ISublayerHost &host)
+    aggregatedLegendSymbolItems(const ISublayerHost &host)
     {
         QList<LegendSymbolItem> out;
-        for (const ISublayer *s : host.sublayers())
-        {
-            if (!s || !s->isVisible()) continue;
+        for (const ISublayer *s : host.sublayers()) {
+            if (!s || !s->isVisible())
+                continue;
             out.append(s->legendSymbolItems());
         }
         return out;
@@ -194,30 +227,62 @@ public:
      *        right-click handler in S4 to find the sublayer whose style
      *        dialog should open when the user clicks a sublayer-tagged
      *        swatch.
+     * @param host Host to inspect without transferring ownership.
+     * @param id Exact, case-sensitive stable ID to find; no trimming occurs.
+     * @return Borrowed first matching non-null pointer, or nullptr when absent.
      */
-    [[nodiscard]] static ISublayer *
-        findSublayer(const ISublayerHost &host, const QString &id)
+    [[nodiscard]] static ISublayer *findSublayer(const ISublayerHost &host, const QString &id)
     {
         for (ISublayer *s : host.sublayers())
-            if (s && s->id() == id) return s;
+            if (s && s->id() == id)
+                return s;
         return nullptr;
     }
 
+    /** @brief Restore a structurally valid sublayer snapshot by stable ID.
+     * @param[in,out] host Host receiving prepare/finish hooks, style/visibility/opacity
+     * updates, and attempted reordering. Concrete setters can emit repaint signals.
+     * @param j Object with a sublayers array. Every row must be an object with a
+     * unique nonempty string ID and, when present, an object-valued style.
+     * Malformed structure returns before invoking any hook or setter. Valid input
+     * invokes preparation, restores known IDs, attempts saved ordering, then invokes
+     * the finish hook. Unknown IDs are skipped. Missing properties retain current
+     * values; present visibility/opacity use Qt JSON conversions and concrete setters.
+     * This operation has no status result or rollback if a concrete hook/setter fails. */
     static void loadSublayersFromJson(ISublayerHost &host, const QJsonObject &j)
     {
+        if (!j.value(QStringLiteral("sublayers")).isArray())
+            return;
         const QJsonArray arr = j.value(QStringLiteral("sublayers")).toArray();
+        // Validate the complete structural snapshot before dynamic hosts remove
+        // anything. Malformed/ambiguous rows must not become an empty inventory.
+        QSet<QString> identities;
+        for (const auto &value : arr) {
+            if (!value.isObject())
+                return;
+            const auto row = value.toObject();
+            const auto id = row.value(QStringLiteral("id"));
+            if (!id.isString() || id.toString().isEmpty() || identities.contains(id.toString()))
+                return;
+            if (row.contains(QStringLiteral("style")) &&
+                !row.value(QStringLiteral("style")).isObject())
+                return;
+            identities.insert(id.toString());
+        }
+        host.prepareSublayersJsonLoad(j);
         // Index host's current sublayers by id so we can apply rows out of order
         // and tolerate added/removed sublayers between schema versions.
         QHash<QString, ISublayer *> byId;
         for (ISublayer *s : host.sublayers())
-            if (s) byId.insert(s->id(), s);
+            if (s)
+                byId.insert(s->id(), s);
 
-        for (const QJsonValue &val : arr)
-        {
+        for (const QJsonValue &val : arr) {
             const QJsonObject row = val.toObject();
             const QString id = row.value(QStringLiteral("id")).toString();
             auto it = byId.constFind(id);
-            if (it == byId.constEnd()) continue; // unknown sublayer id — skip
+            if (it == byId.constEnd())
+                continue; // unknown sublayer id — skip
 
             ISublayer *s = it.value();
             if (row.contains(QStringLiteral("visible")))
@@ -235,19 +300,25 @@ public:
         // don't implement reorder return false and the order silently
         // stays as constructed.
         int target = 0;
-        for (const QJsonValue &val : arr)
-        {
-            const QString id = val.toObject()
-                                  .value(QStringLiteral("id")).toString();
+        for (const QJsonValue &val : arr) {
+            const QString id = val.toObject().value(QStringLiteral("id")).toString();
             const auto cur = host.sublayers();
             int found = -1;
             for (int i = 0; i < cur.size(); ++i)
-                if (cur[i] && cur[i]->id() == id) { found = i; break; }
-            if (found < 0) continue;          // not in this host — skip silently
+                if (cur[i] && cur[i]->id() == id) {
+                    found = i;
+                    break;
+                }
+            if (found < 0)
+                continue; // not in this host — skip silently
             if (found != target)
                 host.moveSublayer(found, target);
             ++target;
         }
+
+        // Give the host a chance to migrate style data that moved between
+        // sublayers across schema versions (see onSublayersJsonLoaded).
+        host.onSublayersJsonLoaded(j);
     }
 };
 

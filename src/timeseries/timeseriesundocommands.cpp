@@ -1,9 +1,12 @@
-/*!
- * \file   timeseriesundocommands.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      timeseriesundocommands.cpp
+ * @brief     Each command operates on a single non-owning TimeseriesProvider*.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesundocommands.h"
 
 #include <QObject>
@@ -11,69 +14,67 @@
 #include <algorithm>
 #include <utility>
 
-namespace openswmmvis::timeseries {
+namespace openswmmvis::timeseries
+{
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SetPointValueCommand
 // ─────────────────────────────────────────────────────────────────────────────
 
-SetPointValueCommand::SetPointValueCommand(TimeseriesProvider *provider,
-                                           int index,
-                                           double newValue,
+SetPointValueCommand::SetPointValueCommand(TimeseriesProvider *provider, int index, double newValue,
                                            QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_index(index)
-    , m_oldValue(provider && index >= 0 && index < provider->pointCount()
+    : QUndoCommand(parent), m_provider(provider), m_index(index),
+      m_oldValue(provider && index >= 0 && index < provider->pointCount()
                      ? provider->pointAt(index).value
-                     : 0.0)
-    , m_newValue(newValue)
+                     : 0.0),
+      m_newValue(newValue)
 {
     setText(QObject::tr("Set timeseries value"));
 }
 
-void SetPointValueCommand::undo() { m_provider->setValueAt(m_index, m_oldValue); }
-void SetPointValueCommand::redo() { m_provider->setValueAt(m_index, m_newValue); }
+void SetPointValueCommand::undo()
+{
+    m_provider->setValueAt(m_index, m_oldValue);
+}
+void SetPointValueCommand::redo()
+{
+    m_provider->setValueAt(m_index, m_newValue);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MovePointCommand
 // ─────────────────────────────────────────────────────────────────────────────
 
-MovePointCommand::MovePointCommand(TimeseriesProvider *provider,
-                                   int index,
-                                   QDateTime newTime,
-                                   double newValue,
-                                   QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_index(index)
-    , m_oldTime(provider && index >= 0 && index < provider->pointCount()
+MovePointCommand::MovePointCommand(TimeseriesProvider *provider, int index, QDateTime newTime,
+                                   double newValue, QUndoCommand *parent)
+    : QUndoCommand(parent), m_provider(provider), m_index(index),
+      m_oldTime(provider && index >= 0 && index < provider->pointCount()
                     ? provider->pointAt(index).time
-                    : QDateTime())
-    , m_oldValue(provider && index >= 0 && index < provider->pointCount()
+                    : QDateTime()),
+      m_oldValue(provider && index >= 0 && index < provider->pointCount()
                      ? provider->pointAt(index).value
-                     : 0.0)
-    , m_newTime(std::move(newTime))
-    , m_newValue(newValue)
+                     : 0.0),
+      m_newTime(std::move(newTime)), m_newValue(newValue)
 {
     setText(QObject::tr("Move timeseries point"));
 }
 
-void MovePointCommand::undo() { m_provider->setPointAt(m_index, m_oldTime, m_oldValue); }
-void MovePointCommand::redo() { m_provider->setPointAt(m_index, m_newTime, m_newValue); }
+void MovePointCommand::undo()
+{
+    m_provider->setPointAt(m_index, m_oldTime, m_oldValue);
+}
+void MovePointCommand::redo()
+{
+    m_provider->setPointAt(m_index, m_newTime, m_newValue);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // InsertPointCommand
 // ─────────────────────────────────────────────────────────────────────────────
 
-InsertPointCommand::InsertPointCommand(TimeseriesProvider *provider,
-                                       QDateTime time,
-                                       double value,
+InsertPointCommand::InsertPointCommand(TimeseriesProvider *provider, QDateTime time, double value,
                                        QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_time(std::move(time))
-    , m_value(value)
+    : QUndoCommand(parent), m_provider(provider), m_time(std::move(time)), m_value(value)
 {
     setText(QObject::tr("Insert timeseries point"));
 }
@@ -85,7 +86,8 @@ void InsertPointCommand::redo()
 
 void InsertPointCommand::undo()
 {
-    if (m_lastInsertedIndex < 0) return;
+    if (m_lastInsertedIndex < 0)
+        return;
     m_provider->removePointsAt({m_lastInsertedIndex});
     m_lastInsertedIndex = -1;
 }
@@ -94,11 +96,9 @@ void InsertPointCommand::undo()
 // DeletePointsCommand
 // ─────────────────────────────────────────────────────────────────────────────
 
-DeletePointsCommand::DeletePointsCommand(TimeseriesProvider *provider,
-                                         QVector<int> indices,
+DeletePointsCommand::DeletePointsCommand(TimeseriesProvider *provider, QVector<int> indices,
                                          QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
+    : QUndoCommand(parent), m_provider(provider)
 {
     setText(QObject::tr("Delete timeseries points"));
 
@@ -108,7 +108,8 @@ DeletePointsCommand::DeletePointsCommand(TimeseriesProvider *provider,
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     m_removed.reserve(indices.size());
     for (int idx : std::as_const(indices)) {
-        if (idx < 0 || idx >= provider->pointCount()) continue;
+        if (idx < 0 || idx >= provider->pointCount())
+            continue;
         m_removed.push_back(provider->pointAt(idx));
     }
 }
@@ -118,9 +119,12 @@ void DeletePointsCommand::redo()
     // Map removed time → current index in provider, then bulk-delete.
     QVector<int> idx;
     idx.reserve(m_removed.size());
-    for (const TimeseriesPoint& p : m_removed) {
+    for (const TimeseriesPoint &p : m_removed) {
         for (int i = 0; i < m_provider->pointCount(); ++i) {
-            if (m_provider->pointAt(i).time == p.time) { idx.push_back(i); break; }
+            if (m_provider->pointAt(i).time == p.time) {
+                idx.push_back(i);
+                break;
+            }
         }
     }
     m_provider->removePointsAt(std::move(idx));
@@ -128,7 +132,7 @@ void DeletePointsCommand::redo()
 
 void DeletePointsCommand::undo()
 {
-    for (const TimeseriesPoint& p : std::as_const(m_removed))
+    for (const TimeseriesPoint &p : std::as_const(m_removed))
         m_provider->insertPoint(p.time, p.value);
 }
 
@@ -137,37 +141,43 @@ void DeletePointsCommand::undo()
 // ─────────────────────────────────────────────────────────────────────────────
 
 BulkTransformCommand::BulkTransformCommand(TimeseriesProvider *provider,
-                                           QVector<TimeseriesPoint> newPoints,
-                                           QString description,
+                                           QVector<TimeseriesPoint> newPoints, QString description,
                                            QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_oldPoints(provider->points())
-    , m_newPoints(std::move(newPoints))
+    : QUndoCommand(parent), m_provider(provider), m_oldPoints(provider->points()),
+      m_newPoints(std::move(newPoints))
 {
     setText(description.isEmpty() ? QObject::tr("Bulk transform") : std::move(description));
 }
 
-void BulkTransformCommand::redo() { m_provider->setAllPoints(m_newPoints); }
-void BulkTransformCommand::undo() { m_provider->setAllPoints(m_oldPoints); }
+void BulkTransformCommand::redo()
+{
+    m_provider->setAllPoints(m_newPoints);
+}
+void BulkTransformCommand::undo()
+{
+    m_provider->setAllPoints(m_oldPoints);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RenameTimeseriesCommand
 // ─────────────────────────────────────────────────────────────────────────────
 
-RenameTimeseriesCommand::RenameTimeseriesCommand(TimeseriesProvider *provider,
-                                                 QString newName,
+RenameTimeseriesCommand::RenameTimeseriesCommand(TimeseriesProvider *provider, QString newName,
                                                  QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_oldName(provider->name())
-    , m_newName(std::move(newName))
+    : QUndoCommand(parent), m_provider(provider), m_oldName(provider->name()),
+      m_newName(std::move(newName))
 {
     setText(QObject::tr("Rename timeseries"));
 }
 
-void RenameTimeseriesCommand::redo() { m_provider->setName(m_newName); }
-void RenameTimeseriesCommand::undo() { m_provider->setName(m_oldName); }
+void RenameTimeseriesCommand::redo()
+{
+    m_provider->setName(m_newName);
+}
+void RenameTimeseriesCommand::undo()
+{
+    m_provider->setName(m_oldName);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ChangeSourceModeCommand
@@ -176,15 +186,43 @@ void RenameTimeseriesCommand::undo() { m_provider->setName(m_oldName); }
 ChangeSourceModeCommand::ChangeSourceModeCommand(TimeseriesProvider *provider,
                                                  TimeseriesProvider::SourceMode newMode,
                                                  QUndoCommand *parent)
-    : QUndoCommand(parent)
-    , m_provider(provider)
-    , m_oldMode(provider->sourceMode())
-    , m_newMode(newMode)
+    : QUndoCommand(parent), m_provider(provider), m_oldMode(provider->sourceMode()),
+      m_newMode(newMode)
 {
     setText(QObject::tr("Change timeseries source"));
 }
 
-void ChangeSourceModeCommand::redo() { m_provider->setSourceMode(m_newMode); }
-void ChangeSourceModeCommand::undo() { m_provider->setSourceMode(m_oldMode); }
+void ChangeSourceModeCommand::redo()
+{
+    m_provider->setSourceMode(m_newMode);
+}
+void ChangeSourceModeCommand::undo()
+{
+    m_provider->setSourceMode(m_oldMode);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SetTimeModeCommand
+// ─────────────────────────────────────────────────────────────────────────────
+
+SetTimeModeCommand::SetTimeModeCommand(TimeseriesProvider *provider,
+                                       TimeseriesProvider::TimeMode newMode,
+                                       QDateTime anchorForRelative, QUndoCommand *parent)
+    : QUndoCommand(parent), m_provider(provider), m_oldCount(provider->relativeCount()),
+      m_oldAnchor(provider->relativeAnchor()),
+      m_oldAllRelative(provider->timeMode() == TimeseriesProvider::TimeMode::Relative),
+      m_newMode(newMode), m_anchor(std::move(anchorForRelative))
+{
+    setText(QObject::tr("Change timeseries time mode"));
+}
+
+void SetTimeModeCommand::redo()
+{
+    m_provider->setTimeMode(m_newMode, m_anchor);
+}
+void SetTimeModeCommand::undo()
+{
+    m_provider->setRelativeInfo(m_oldCount, m_oldAnchor, m_oldAllRelative ? 1 : 0);
+}
 
 } // namespace openswmmvis::timeseries

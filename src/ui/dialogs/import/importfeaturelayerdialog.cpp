@@ -1,9 +1,13 @@
-/*!
- * \file   importfeaturelayerdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importfeaturelayerdialog.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — the "Import Feature Layer → SWMM Objects" dialog
+ *            (view).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/import/importfeaturelayerdialog.h"
 #include "ui/theme/themehelpers.h"
 
@@ -40,19 +44,19 @@
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 // ===========================================================================
 // Construction
 // ===========================================================================
 
-ImportFeatureLayerDialog::ImportFeatureLayerDialog(
-        SWMMVisProjectWindow *projectWindow, QWidget *parent)
-    : QDialog(parent),
-      m_projectWindow(projectWindow)
+ImportFeatureLayerDialog::ImportFeatureLayerDialog(SWMMVisProjectWindow *projectWindow,
+                                                   QWidget *parent)
+    : QDialog(parent), m_projectWindow(projectWindow)
 {
     if (m_projectWindow) {
-        m_canvas     = m_projectWindow->canvas();
+        m_canvas = m_projectWindow->canvas();
         m_modelLayer = m_projectWindow->modelLayer();
     }
 
@@ -64,12 +68,12 @@ ImportFeatureLayerDialog::ImportFeatureLayerDialog(
 
     buildUi();
 
-    connect(m_mappingModel, &ImportMappingModel::mappingEdited,
-            this, &ImportFeatureLayerDialog::onMappingEdited);
-    connect(&m_previewWatcher, &QFutureWatcher<PreviewResult>::finished,
-            this, &ImportFeatureLayerDialog::onPreviewFinished);
+    connect(m_mappingModel, &ImportMappingModel::mappingEdited, this,
+            &ImportFeatureLayerDialog::onMappingEdited);
+    connect(&m_previewWatcher, &QFutureWatcher<PreviewResult>::finished, this,
+            &ImportFeatureLayerDialog::onPreviewFinished);
 
-    onKindChanged();   // populates source combo + mapping rows + presets
+    onKindChanged(); // populates source combo + mapping rows + presets
 
     // Iteration 2 (D2) — first-run default; the app-wide
     // DialogLayoutWatcher restores the saved layout on first Show.
@@ -105,8 +109,7 @@ void ImportFeatureLayerDialog::buildUi()
     auto *sourceLay = new QVBoxLayout(sourceGroup);
     auto *sourceRow = new QHBoxLayout;
     m_sourceCombo = new QComboBox(this);
-    m_sourceCombo->setSizePolicy(QSizePolicy::Expanding,
-                                 QSizePolicy::Preferred);
+    m_sourceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     sourceRow->addWidget(m_sourceCombo, 1);
     m_selectedOnly = new QCheckBox(tr("Selected features only"), this);
     sourceRow->addWidget(m_selectedOnly);
@@ -123,8 +126,7 @@ void ImportFeatureLayerDialog::buildUi()
     for (TargetKind k : ImportTargetRegistry::allKinds()) {
         if (k == TargetKind::Conduit)
             m_kindCombo->insertSeparator(m_kindCombo->count());
-        m_kindCombo->addItem(ImportTargetRegistry::kindLabel(k),
-                             static_cast<int>(k));
+        m_kindCombo->addItem(ImportTargetRegistry::kindLabel(k), static_cast<int>(k));
     }
     targetLay->addWidget(m_kindCombo, 1);
     config->addWidget(targetGroup);
@@ -136,8 +138,7 @@ void ImportFeatureLayerDialog::buildUi()
     auto *presetRow = new QHBoxLayout;
     presetRow->addWidget(new QLabel(tr("Preset:"), this));
     m_presetCombo = new QComboBox(this);
-    m_presetCombo->setSizePolicy(QSizePolicy::Expanding,
-                                 QSizePolicy::Preferred);
+    m_presetCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     presetRow->addWidget(m_presetCombo, 1);
     m_presetSave = new QPushButton(tr("Save…"), this);
     presetRow->addWidget(m_presetSave);
@@ -151,11 +152,9 @@ void ImportFeatureLayerDialog::buildUi()
 
     m_mappingView = new QTableView(this);
     m_mappingView->setModel(m_mappingModel);
-    m_mappingView->setItemDelegateForColumn(
-        ImportMappingModel::SourceCol,
-        new SourceFieldDelegate(m_mappingModel, m_mappingView));
-    m_mappingView->horizontalHeader()->setSectionResizeMode(
-        QHeaderView::Stretch);
+    m_mappingView->setItemDelegateForColumn(ImportMappingModel::SourceCol,
+                                            new SourceFieldDelegate(m_mappingModel, m_mappingView));
+    m_mappingView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_mappingView->verticalHeader()->setVisible(false);
     m_mappingView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mappingView->setEditTriggers(QAbstractItemView::AllEditTriggers);
@@ -170,12 +169,10 @@ void ImportFeatureLayerDialog::buildUi()
     // Endpoints (link kinds) --------------------------------------------
     m_endpointGroup = new QGroupBox(tr("Link Endpoints"), this);
     auto *epLay = new QVBoxLayout(m_endpointGroup);
-    m_epFields = new QCheckBox(
-        tr("Use the mapped From Node / To Node columns"), this);
+    m_epFields = new QCheckBox(tr("Use the mapped From Node / To Node columns"), this);
     epLay->addWidget(m_epFields);
     auto *snapRow = new QHBoxLayout;
-    m_epSnap = new QCheckBox(
-        tr("Snap endpoints to existing nodes within"), this);
+    m_epSnap = new QCheckBox(tr("Snap endpoints to existing nodes within"), this);
     m_epSnap->setChecked(true);
     snapRow->addWidget(m_epSnap);
     m_epTolerance = new QDoubleSpinBox(this);
@@ -187,8 +184,7 @@ void ImportFeatureLayerDialog::buildUi()
     snapRow->addStretch(1);
     epLay->addLayout(snapRow);
     auto *autoRow = new QHBoxLayout;
-    m_epAutoCreate = new QCheckBox(
-        tr("Create junctions at unresolved endpoints, prefix:"), this);
+    m_epAutoCreate = new QCheckBox(tr("Create junctions at unresolved endpoints, prefix:"), this);
     autoRow->addWidget(m_epAutoCreate);
     m_epPrefix = new QLineEdit(QStringLiteral("J_"), this);
     m_epPrefix->setMaximumWidth(120);
@@ -200,12 +196,10 @@ void ImportFeatureLayerDialog::buildUi()
     // Conflicts ----------------------------------------------------------
     auto *conflictGroup = new QGroupBox(tr("Existing Objects"), this);
     auto *cfLay = new QVBoxLayout(conflictGroup);
-    m_conflictSkip = new QRadioButton(
-        tr("Skip — leave existing objects unchanged"), this);
+    m_conflictSkip = new QRadioButton(tr("Skip — leave existing objects unchanged"), this);
     m_conflictSkip->setChecked(true);
     cfLay->addWidget(m_conflictSkip);
-    m_conflictUpdate = new QRadioButton(
-        tr("Update existing objects (matched by name)"), this);
+    m_conflictUpdate = new QRadioButton(tr("Update existing objects (matched by name)"), this);
     cfLay->addWidget(m_conflictUpdate);
     auto *cfSubRow = new QHBoxLayout;
     cfSubRow->addSpacing(24);
@@ -228,8 +222,8 @@ void ImportFeatureLayerDialog::buildUi()
     pv->setContentsMargins(0, 0, 0, 0);
     m_previewView = new QTableView(this);
     m_previewView->setModel(m_previewModel);
-    m_previewView->horizontalHeader()->setSectionResizeMode(
-        ImportPreviewModel::DetailCol, QHeaderView::Stretch);
+    m_previewView->horizontalHeader()->setSectionResizeMode(ImportPreviewModel::DetailCol,
+                                                            QHeaderView::Interactive);
     m_previewView->verticalHeader()->setVisible(false);
     m_previewView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_previewView->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -253,42 +247,33 @@ void ImportFeatureLayerDialog::buildUi()
     root->addLayout(buttons);
 
     // ---- connections --------------------------------------------------
-    connect(m_kindCombo, &QComboBox::currentIndexChanged,
-            this, &ImportFeatureLayerDialog::onKindChanged);
-    connect(m_sourceCombo, &QComboBox::currentIndexChanged,
-            this, &ImportFeatureLayerDialog::onSourceLayerChanged);
-    connect(m_autoMatchBtn, &QPushButton::clicked, this, [this]() {
-        m_mappingModel->autoMatch();
-    });
-    connect(m_presetSave, &QPushButton::clicked,
-            this, &ImportFeatureLayerDialog::onSavePreset);
-    connect(m_presetDelete, &QPushButton::clicked,
-            this, &ImportFeatureLayerDialog::onDeletePreset);
-    connect(m_presetCombo, &QComboBox::activated,
-            this, &ImportFeatureLayerDialog::onLoadPreset);
-    connect(m_previewBtn, &QPushButton::clicked,
-            this, &ImportFeatureLayerDialog::onPreview);
-    connect(m_importBtn, &QPushButton::clicked,
-            this, &ImportFeatureLayerDialog::onImport);
+    connect(m_kindCombo, &QComboBox::currentIndexChanged, this,
+            &ImportFeatureLayerDialog::onKindChanged);
+    connect(m_sourceCombo, &QComboBox::currentIndexChanged, this,
+            &ImportFeatureLayerDialog::onSourceLayerChanged);
+    connect(m_autoMatchBtn, &QPushButton::clicked, this, [this]() { m_mappingModel->autoMatch(); });
+    connect(m_presetSave, &QPushButton::clicked, this, &ImportFeatureLayerDialog::onSavePreset);
+    connect(m_presetDelete, &QPushButton::clicked, this, &ImportFeatureLayerDialog::onDeletePreset);
+    connect(m_presetCombo, &QComboBox::activated, this, &ImportFeatureLayerDialog::onLoadPreset);
+    connect(m_previewBtn, &QPushButton::clicked, this, &ImportFeatureLayerDialog::onPreview);
+    connect(m_importBtn, &QPushButton::clicked, this, &ImportFeatureLayerDialog::onImport);
     connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::close);
 
-    connect(m_conflictUpdate, &QRadioButton::toggled, this,
-            [this](bool on) {
-                m_updateAttrs->setEnabled(on);
-                m_updateGeom->setEnabled(on);
-            });
+    connect(m_conflictUpdate, &QRadioButton::toggled, this, [this](bool on) {
+        m_updateAttrs->setEnabled(on);
+        m_updateGeom->setEnabled(on);
+    });
 
     // Any option edit invalidates the current plan.
     const auto invalidatePlan = [this]() {
         m_planIsCurrent = false;
         updateActionEnablement();
     };
-    for (QCheckBox *cb : { m_selectedOnly, m_epFields, m_epSnap,
-                           m_epAutoCreate, m_updateAttrs, m_updateGeom })
+    for (QCheckBox *cb :
+         {m_selectedOnly, m_epFields, m_epSnap, m_epAutoCreate, m_updateAttrs, m_updateGeom})
         connect(cb, &QCheckBox::toggled, this, invalidatePlan);
     connect(m_conflictSkip, &QRadioButton::toggled, this, invalidatePlan);
-    connect(m_epTolerance, &QDoubleSpinBox::valueChanged, this,
-            invalidatePlan);
+    connect(m_epTolerance, &QDoubleSpinBox::valueChanged, this, invalidatePlan);
     connect(m_epPrefix, &QLineEdit::textChanged, this, invalidatePlan);
 }
 
@@ -298,8 +283,7 @@ void ImportFeatureLayerDialog::buildUi()
 
 TargetKind ImportFeatureLayerDialog::currentKind() const
 {
-    return static_cast<TargetKind>(
-        m_kindCombo->currentData().toInt());
+    return static_cast<TargetKind>(m_kindCombo->currentData().toInt());
 }
 
 GISVectorLayer *ImportFeatureLayerDialog::currentSourceLayer() const
@@ -325,12 +309,14 @@ void ImportFeatureLayerDialog::repopulateSourceCombo()
     QSignalBlocker block(m_sourceCombo);
     m_sourceCombo->clear();
 
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     const bool wantLines = ImportTargetRegistry::isLinkKind(kind);
 
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         auto *vec = qobject_cast<GISVectorLayer *>(l);
-        if (!vec) continue;
+        if (!vec)
+            continue;
 
         // Filter by geometry family when the OGR layer reports one;
         // layers with unknown geometry stay listed (the preview flags
@@ -339,22 +325,20 @@ void ImportFeatureLayerDialog::repopulateSourceCombo()
         if (OGRLayer *ogr = vec->ogrLayer()) {
             const OGRwkbGeometryType t = wkbFlatten(ogr->GetGeomType());
             if (t != wkbUnknown && t != wkbNone) {
-                const bool isLine  = (t == wkbLineString
-                                      || t == wkbMultiLineString);
+                const bool isLine = (t == wkbLineString || t == wkbMultiLineString);
                 const bool isPoint = (t == wkbPoint || t == wkbMultiPoint);
                 compatible = wantLines ? isLine : isPoint;
             }
         }
-        if (!compatible) continue;
+        if (!compatible)
+            continue;
 
-        m_sourceCombo->addItem(vec->name(),
-                               QVariant::fromValue(vec));
+        m_sourceCombo->addItem(vec->name(), QVariant::fromValue(vec));
     }
 
     // Restore the previous choice when it survived the refilter.
     for (int i = 0; i < m_sourceCombo->count(); ++i) {
-        if (m_sourceCombo->itemData(i).value<GISVectorLayer *>()
-                == previous) {
+        if (m_sourceCombo->itemData(i).value<GISVectorLayer *>() == previous) {
             m_sourceCombo->setCurrentIndex(i);
             break;
         }
@@ -365,38 +349,34 @@ void ImportFeatureLayerDialog::refreshSourceInfo()
 {
     GISVectorLayer *src = currentSourceLayer();
     if (!src) {
-        m_sourceInfo->setText(
-            tr("No compatible feature layer in this project — add a "
-               "vector layer first (Layer → Add Vector Layer…)."));
+        m_sourceInfo->setText(tr("No compatible feature layer in this project — add a "
+                                 "vector layer first (Layer → Add Vector Layer…)."));
         return;
     }
-    QString info = tr("%1 feature(s) — CRS: %2")
-                       .arg(src->featureCount())
-                       .arg(src->crsDescription().isEmpty()
-                                ? tr("(unknown)") : src->crsDescription());
-    if (m_modelLayer
-        && src->crsDescription() != m_modelLayer->crsDescription())
+    QString info =
+        tr("%1 feature(s) — CRS: %2")
+            .arg(src->featureCount())
+            .arg(src->crsDescription().isEmpty() ? tr("(unknown)") : src->crsDescription());
+    if (m_modelLayer && src->crsDescription() != m_modelLayer->crsDescription())
         info += tr("  ⚠ differs from the model CRS (%1) — coordinates "
                    "will be transformed.")
-                    .arg(m_modelLayer->crsDescription().isEmpty()
-                             ? tr("unknown") : m_modelLayer->crsDescription());
+                    .arg(m_modelLayer->crsDescription().isEmpty() ? tr("unknown")
+                                                                  : m_modelLayer->crsDescription());
     m_sourceInfo->setText(info);
 }
 
 void ImportFeatureLayerDialog::syncOptionsIntoMapping()
 {
     ImportMapping &m = m_mappingModel->mappingRef();
-    m.endpointsFromFields   = m_epFields->isChecked();
-    m.endpointsSnap         = m_epSnap->isChecked();
+    m.endpointsFromFields = m_epFields->isChecked();
+    m.endpointsSnap = m_epSnap->isChecked();
     m.snapToleranceMapUnits = m_epTolerance->value();
-    m.autoCreateJunctions   = m_epAutoCreate->isChecked();
-    m.autoNodePrefix        = m_epPrefix->text().isEmpty()
-                                  ? QStringLiteral("J_") : m_epPrefix->text();
-    m.conflict = m_conflictUpdate->isChecked()
-                     ? ImportMapping::Conflict::Update
-                     : ImportMapping::Conflict::Skip;
-    m.updateAttributes     = m_updateAttrs->isChecked();
-    m.updateGeometry       = m_updateGeom->isChecked();
+    m.autoCreateJunctions = m_epAutoCreate->isChecked();
+    m.autoNodePrefix = m_epPrefix->text().isEmpty() ? QStringLiteral("J_") : m_epPrefix->text();
+    m.conflict = m_conflictUpdate->isChecked() ? ImportMapping::Conflict::Update
+                                               : ImportMapping::Conflict::Skip;
+    m.updateAttributes = m_updateAttrs->isChecked();
+    m.updateGeometry = m_updateGeom->isChecked();
     m.selectedFeaturesOnly = m_selectedOnly->isChecked();
 }
 
@@ -406,14 +386,12 @@ void ImportFeatureLayerDialog::updateActionEnablement()
     const QString error = m_mappingModel->validationError();
     m_validation->setText(error);
 
-    const bool ready = currentSourceLayer() && m_modelLayer
-                       && error.isEmpty() && !m_previewRunning;
+    const bool ready = currentSourceLayer() && m_modelLayer && error.isEmpty() && !m_previewRunning;
     m_previewBtn->setEnabled(ready);
 
     const ImportPlan &plan = m_previewModel->plan();
-    m_importBtn->setEnabled(ready && m_planIsCurrent
-                            && !m_previewModel->resultMode()
-                            && (plan.createCount + plan.updateCount) > 0);
+    m_importBtn->setEnabled(ready && m_planIsCurrent && !m_previewModel->resultMode() &&
+                            (plan.createCount + plan.updateCount) > 0);
 }
 
 // ===========================================================================
@@ -440,8 +418,7 @@ void ImportFeatureLayerDialog::onKindChanged()
 void ImportFeatureLayerDialog::onSourceLayerChanged()
 {
     GISVectorLayer *src = currentSourceLayer();
-    m_mappingModel->reset(currentKind(),
-                          src ? src->fieldNames() : QStringList());
+    m_mappingModel->reset(currentKind(), src ? src->fieldNames() : QStringList());
     refreshSourceInfo();
     m_previewModel->clear();
     m_summaryLabel->clear();
@@ -458,7 +435,8 @@ void ImportFeatureLayerDialog::onMappingEdited()
 void ImportFeatureLayerDialog::onPreview()
 {
     GISVectorLayer *src = currentSourceLayer();
-    if (!src || !m_modelLayer || m_previewRunning) return;
+    if (!src || !m_modelLayer || m_previewRunning)
+        return;
 
     syncOptionsIntoMapping();
     const QString error = m_mappingModel->validationError();
@@ -468,27 +446,25 @@ void ImportFeatureLayerDialog::onPreview()
     }
 
     // Main-thread capture; worker gets plain data only.
-    FeatureLayerImporter importer(src, m_modelLayer, m_canvas,
-                                  m_mappingModel->mapping());
-    const SourceSpec    spec     = importer.sourceSpec();
+    FeatureLayerImporter importer(src, m_modelLayer, m_canvas, m_mappingModel->mapping());
+    const SourceSpec spec = importer.sourceSpec();
     const ModelSnapshot snapshot = importer.captureModelSnapshot();
-    const ImportMapping mapping  = m_mappingModel->mapping();
+    const ImportMapping mapping = m_mappingModel->mapping();
 
     m_previewRunning = true;
     m_previewBtn->setText(tr("Previewing…"));
     updateActionEnablement();
 
-    m_previewWatcher.setFuture(QtConcurrent::run(
-        [spec, snapshot, mapping]() -> PreviewResult {
-            PreviewResult r;
-            const QVector<SourceFeature> features =
-                FeatureLayerImporter::readSourceFeatures(spec, &r.error);
-            if (!r.error.isEmpty())
-                return r;
-            r.featureCount = features.size();
-            r.plan = buildImportPlan(mapping, snapshot, features);
+    m_previewWatcher.setFuture(QtConcurrent::run([spec, snapshot, mapping]() -> PreviewResult {
+        PreviewResult r;
+        const QVector<SourceFeature> features =
+            FeatureLayerImporter::readSourceFeatures(spec, &r.error);
+        if (!r.error.isEmpty())
             return r;
-        }));
+        r.featureCount = features.size();
+        r.plan = buildImportPlan(mapping, snapshot, features);
+        return r;
+    }));
 }
 
 void ImportFeatureLayerDialog::onPreviewFinished()
@@ -506,10 +482,9 @@ void ImportFeatureLayerDialog::onPreviewFinished()
     }
 
     m_previewModel->setPlan(r.plan, /*resultMode*/ false);
-    m_summaryLabel->setText(r.featureCount == 0
-                                ? tr("The source layer yielded no features "
-                                     "(check filter / selection).")
-                                : m_previewModel->summaryText());
+    m_summaryLabel->setText(r.featureCount == 0 ? tr("The source layer yielded no features "
+                                                     "(check filter / selection).")
+                                                : m_previewModel->summaryText());
     m_planIsCurrent = true;
     updateActionEnablement();
 }
@@ -517,31 +492,30 @@ void ImportFeatureLayerDialog::onPreviewFinished()
 void ImportFeatureLayerDialog::onImport()
 {
     GISVectorLayer *src = currentSourceLayer();
-    if (!src || !m_modelLayer || !m_planIsCurrent) return;
+    if (!src || !m_modelLayer || !m_planIsCurrent)
+        return;
 
     const ImportPlan &plan = m_previewModel->plan();
     const int workCount = plan.createCount + plan.updateCount;
-    if (workCount == 0) return;
+    if (workCount == 0)
+        return;
 
-    QProgressDialog progress(tr("Importing %1 object(s)…").arg(workCount),
-                             tr("Stop"), 0, plan.items.size(), this);
+    QProgressDialog progress(tr("Importing %1 object(s)…").arg(workCount), tr("Stop"), 0,
+                             plan.items.size(), this);
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(400);
 
-    FeatureLayerImporter importer(src, m_modelLayer, m_canvas,
-                                  m_mappingModel->mapping());
-    const ImportPlan result = importer.execute(
-        plan, [&progress](int done, int total) -> bool {
-            progress.setMaximum(total);
-            progress.setValue(done);
-            return !progress.wasCanceled();
-        });
+    FeatureLayerImporter importer(src, m_modelLayer, m_canvas, m_mappingModel->mapping());
+    const ImportPlan result = importer.execute(plan, [&progress](int done, int total) -> bool {
+        progress.setMaximum(total);
+        progress.setValue(done);
+        return !progress.wasCanceled();
+    });
     progress.setValue(progress.maximum());
 
     m_previewModel->setPlan(result, /*resultMode*/ true);
-    m_summaryLabel->setText(
-        tr("Import finished — %1  (one undo step reverts everything)")
-            .arg(m_previewModel->summaryText()));
+    m_summaryLabel->setText(tr("Import finished — %1  (one undo step reverts everything)")
+                                .arg(m_previewModel->summaryText()));
     m_planIsCurrent = false;
     updateActionEnablement();
 }
@@ -552,8 +526,7 @@ void ImportFeatureLayerDialog::onImport()
 
 QString ImportFeatureLayerDialog::presetSettingsGroup() const
 {
-    return QStringLiteral("ImportPresets/kind%1")
-        .arg(static_cast<int>(currentKind()));
+    return QStringLiteral("ImportPresets/kind%1").arg(static_cast<int>(currentKind()));
 }
 
 void ImportFeatureLayerDialog::refreshPresetCombo()
@@ -570,13 +543,13 @@ void ImportFeatureLayerDialog::refreshPresetCombo()
 void ImportFeatureLayerDialog::onSavePreset()
 {
     bool ok = false;
-    const QString name = QInputDialog::getText(
-        this, tr("Save Mapping Preset"), tr("Preset name:"),
-        QLineEdit::Normal,
-        m_presetCombo->currentIndex() > 0 ? m_presetCombo->currentText()
-                                          : QString(),
-        &ok).trimmed();
-    if (!ok || name.isEmpty()) return;
+    const QString name =
+        QInputDialog::getText(
+            this, tr("Save Mapping Preset"), tr("Preset name:"), QLineEdit::Normal,
+            m_presetCombo->currentIndex() > 0 ? m_presetCombo->currentText() : QString(), &ok)
+            .trimmed();
+    if (!ok || name.isEmpty())
+        return;
 
     syncOptionsIntoMapping();
     const QJsonDocument doc(m_mappingModel->mapping().toJson());
@@ -591,12 +564,11 @@ void ImportFeatureLayerDialog::onSavePreset()
 
 void ImportFeatureLayerDialog::onDeletePreset()
 {
-    if (m_presetCombo->currentIndex() <= 0) return;
+    if (m_presetCombo->currentIndex() <= 0)
+        return;
     const QString name = m_presetCombo->currentText();
-    if (QMessageBox::question(
-            this, tr("Delete Preset"),
-            tr("Delete mapping preset \"%1\"?").arg(name))
-        != QMessageBox::Yes)
+    if (QMessageBox::question(this, tr("Delete Preset"),
+                              tr("Delete mapping preset \"%1\"?").arg(name)) != QMessageBox::Yes)
         return;
     QSettings s;
     s.beginGroup(presetSettingsGroup());
@@ -607,21 +579,22 @@ void ImportFeatureLayerDialog::onDeletePreset()
 
 void ImportFeatureLayerDialog::onLoadPreset(int comboIndex)
 {
-    if (comboIndex <= 0) return;
+    if (comboIndex <= 0)
+        return;
     const QString name = m_presetCombo->itemText(comboIndex);
     QSettings s;
     s.beginGroup(presetSettingsGroup());
     const QString jsonStr = s.value(name).toString();
     s.endGroup();
-    if (jsonStr.isEmpty()) return;
+    if (jsonStr.isEmpty())
+        return;
 
     QString error;
-    const auto parsed = ImportMapping::fromJson(
-        QJsonDocument::fromJson(jsonStr.toUtf8()).object(), &error);
+    const auto parsed =
+        ImportMapping::fromJson(QJsonDocument::fromJson(jsonStr.toUtf8()).object(), &error);
     if (!parsed) {
         QMessageBox::warning(this, tr("Load Preset"),
-                             tr("Preset \"%1\" could not be read: %2")
-                                 .arg(name, error));
+                             tr("Preset \"%1\" could not be read: %2").arg(name, error));
         return;
     }
 
@@ -635,18 +608,17 @@ void ImportFeatureLayerDialog::onLoadPreset(int comboIndex)
     m_epTolerance->setValue(parsed->snapToleranceMapUnits);
     m_epAutoCreate->setChecked(parsed->autoCreateJunctions);
     m_epPrefix->setText(parsed->autoNodePrefix);
-    (parsed->conflict == ImportMapping::Conflict::Update
-         ? m_conflictUpdate : m_conflictSkip)->setChecked(true);
+    (parsed->conflict == ImportMapping::Conflict::Update ? m_conflictUpdate : m_conflictSkip)
+        ->setChecked(true);
     m_updateAttrs->setChecked(parsed->updateAttributes);
     m_updateGeom->setChecked(parsed->updateGeometry);
     m_selectedOnly->setChecked(parsed->selectedFeaturesOnly);
 
     if (!dropped.isEmpty())
-        m_summaryLabel->setText(
-            tr("Preset loaded; %1 column(s) not present in this layer "
-               "were unmapped: %2")
-                .arg(dropped.size())
-                .arg(dropped.join(QStringLiteral(", "))));
+        m_summaryLabel->setText(tr("Preset loaded; %1 column(s) not present in this layer "
+                                   "were unmapped: %2")
+                                    .arg(dropped.size())
+                                    .arg(dropped.join(QStringLiteral(", "))));
 
     m_planIsCurrent = false;
     updateActionEnablement();

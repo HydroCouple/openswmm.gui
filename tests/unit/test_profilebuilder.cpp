@@ -1,7 +1,11 @@
 /**
- * @file test_profilebuilder.cpp
- * @brief Unit tests for ProfileBuilder — pure-logic chainage, HGL/EGL, and
+ * @file      test_profilebuilder.cpp
+ * @brief     Unit tests for ProfileBuilder — pure-logic chainage, HGL/EGL, and
  *        envelope computation.  Slice BC, Stage 2.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -15,15 +19,26 @@
 
 using namespace ProfileBuilder;
 
-namespace {
+namespace
+{
 
 // Build a simple linear path of N nodes and N-1 conduits.  All conduits
 // have unit length, zero offsets, and a 2.0-ft max depth.  All nodes share
 // `invertElev` (default 100 ft) and `maxDepth` (default 5 ft).  Use the
 // override helpers below for non-uniform fixtures.
-PathStatic linearPath(int n,
-                      double invertElev = 100.0,
-                      double nodeMaxDepth = 5.0,
+/**
+ *
+ * @brief Build ordered junction/conduit statics with computed chainage.
+ * @param n Nonnegative node count; products/indices must fit container capacity.
+ * @param invertElev Common node invert in consistent project length units, default 100.
+ * @param nodeMaxDepth Common node maximum depth in those units, default 5.
+ * @param linkLen Common link length in those units, default 1.
+ * @return Owned n nodes and max(n-1,0) conduits with zero offsets and link depth 2,
+ * plus production-computed chainage. Cases use feet or metres consistently with their
+ * gravity constant; no unit conversion, engine lookup or input validation occurs here.
+ *
+ */
+PathStatic linearPath(int n, double invertElev = 100.0, double nodeMaxDepth = 5.0,
                       double linkLen = 1.0)
 {
     PathStatic p;
@@ -31,18 +46,18 @@ PathStatic linearPath(int n,
         NodeStatic ns;
         ns.name = QString::number(i);
         ns.invertElev = invertElev;
-        ns.maxDepth   = nodeMaxDepth;
-        ns.kind       = NodeKind::Junction;
+        ns.maxDepth = nodeMaxDepth;
+        ns.kind = NodeKind::Junction;
         p.nodes.push_back(ns);
     }
     for (int i = 0; i + 1 < n; ++i) {
         LinkStatic ls;
         ls.name = QStringLiteral("L%1").arg(i);
-        ls.length   = linkLen;
-        ls.offset1  = 0.0;
-        ls.offset2  = 0.0;
+        ls.length = linkLen;
+        ls.offset1 = 0.0;
+        ls.offset2 = 0.0;
         ls.maxDepth = 2.0;
-        ls.kind     = LinkKind::Conduit;
+        ls.kind = LinkKind::Conduit;
         p.links.push_back(ls);
     }
     p.chainage = computeChainage(p.links);
@@ -52,16 +67,27 @@ PathStatic linearPath(int n,
 // Build a SourceSeries with constant head per node and constant velocity per
 // link.  Per-node head values come from `heads`; per-link velocities from
 // `vels`.
-SourceSeries constantSource(const PathStatic &path,
-                            const QVector<double> &heads,
-                            const QVector<double> &vels,
-                            int periodCount = 1)
+/**
+ *
+ * @brief Build constant hydraulic samples for every requested report period.
+ * @param path Borrowed ordered node/link statics determining output row counts.
+ * @param heads Borrowed per-node absolute heads in path length units; missing entries
+ * use zero and extra entries are ignored. Depth is head minus that node's invert.
+ * @param vels Borrowed signed per-link velocities in path length units/second;
+ * missing entries use zero, extras ignored.
+ * @param periodCount Nonnegative period count, default 1; allocation sizes must fit.
+ * @return Owned float samples, src1 identity, UTC start 2026-05-17 and 300-second
+ * report step. No validation of physical depth, time alignment or unit consistency.
+ *
+ */
+SourceSeries constantSource(const PathStatic &path, const QVector<double> &heads,
+                            const QVector<double> &vels, int periodCount = 1)
 {
     SourceSeries s;
-    s.sourceId      = QStringLiteral("src1");
-    s.startTime     = QDateTime::fromString("2026-05-17T00:00:00Z", Qt::ISODate);
+    s.sourceId = QStringLiteral("src1");
+    s.startTime = QDateTime::fromString("2026-05-17T00:00:00Z", Qt::ISODate);
     s.reportStepSec = 300;
-    s.periodCount   = periodCount;
+    s.periodCount = periodCount;
     s.nodeHead.resize(path.nodes.size());
     s.nodeDepth.resize(path.nodes.size());
     s.linkVelocity.resize(path.links.size());
@@ -69,7 +95,7 @@ SourceSeries constantSource(const PathStatic &path,
         s.nodeHead[n].resize(periodCount);
         s.nodeDepth[n].resize(periodCount);
         for (int p = 0; p < periodCount; ++p) {
-            s.nodeHead[n][p]  = static_cast<float>(heads.value(n, 0.0));
+            s.nodeHead[n][p] = static_cast<float>(heads.value(n, 0.0));
             s.nodeDepth[n][p] = static_cast<float>(heads.value(n, 0.0) - path.nodes[n].invertElev);
         }
     }
@@ -89,7 +115,7 @@ TEST(ProfileBuilder, Chainage_AccumulatesAlongPath)
 {
     auto p = linearPath(4, 100.0, 5.0, 10.0);
     ASSERT_EQ(p.chainage.size(), 4);
-    EXPECT_DOUBLE_EQ(p.chainage[0],  0.0);
+    EXPECT_DOUBLE_EQ(p.chainage[0], 0.0);
     EXPECT_DOUBLE_EQ(p.chainage[1], 10.0);
     EXPECT_DOUBLE_EQ(p.chainage[2], 20.0);
     EXPECT_DOUBLE_EQ(p.chainage[3], 30.0);
@@ -102,8 +128,10 @@ TEST(ProfileBuilder, Chainage_HandlesMixedLengths)
     PathStatic p;
     p.nodes.resize(4);
     LinkStatic a, b, c;
-    a.length = 12.5; b.length = 7.0; c.length = 100.0;
-    p.links = { a, b, c };
+    a.length = 12.5;
+    b.length = 7.0;
+    c.length = 100.0;
+    p.links = {a, b, c};
     p.chainage = computeChainage(p.links);
     EXPECT_DOUBLE_EQ(p.chainage[3], 119.5);
 }
@@ -130,14 +158,14 @@ TEST(ProfileBuilder, ConduitInverts_HonorOffset1AndOffset2)
 TEST(ProfileBuilder, EGL_EqualsHGLPlusVelocityHead_USUnits)
 {
     auto path = linearPath(3, 100.0, 5.0);
-    auto src  = constantSource(path, {103.0, 103.0, 103.0}, {4.0, 4.0});
-    auto d    = compute(path, src, kGravityFps2);
+    auto src = constantSource(path, {103.0, 103.0, 103.0}, {4.0, 4.0});
+    auto d = compute(path, src, kGravityFps2);
     // SourceDerived is period-major: outer = periodCount (1), inner = N (3).
     ASSERT_EQ(d.eglByPeriod.size(), 1);
     ASSERT_EQ(d.eglByPeriod[0].size(), 3);
     const double expectedVH = (4.0 * 4.0) / (2.0 * kGravityFps2);
     for (int n = 0; n < 3; ++n) {
-        EXPECT_NEAR(d.hglByPeriod[0][n], 103.0,             1e-9);
+        EXPECT_NEAR(d.hglByPeriod[0][n], 103.0, 1e-9);
         EXPECT_NEAR(d.eglByPeriod[0][n], 103.0 + expectedVH, 1e-3);
     }
 }
@@ -148,7 +176,7 @@ TEST(ProfileBuilder, EGL_HeadNode_UsesDownstreamVelocityOnly)
 {
     auto path = linearPath(3);
     // Distinct velocities: head node sees only link 0 velocity (5 ft/s)
-    auto src  = constantSource(path, {103.0, 103.0, 103.0}, {5.0, 1.0});
+    auto src = constantSource(path, {103.0, 103.0, 103.0}, {5.0, 1.0});
     const double vh0 = velocityHead(path, src, /*node*/ 0, /*period*/ 0, kGravityFps2);
     const double expected = (5.0 * 5.0) / (2.0 * kGravityFps2);
     EXPECT_NEAR(vh0, expected, 1e-9);
@@ -159,7 +187,7 @@ TEST(ProfileBuilder, EGL_HeadNode_UsesDownstreamVelocityOnly)
 TEST(ProfileBuilder, EGL_TailNode_UsesUpstreamVelocityOnly)
 {
     auto path = linearPath(3);
-    auto src  = constantSource(path, {103.0, 103.0, 103.0}, {5.0, 1.0});
+    auto src = constantSource(path, {103.0, 103.0, 103.0}, {5.0, 1.0});
     const double vh2 = velocityHead(path, src, /*node*/ 2, /*period*/ 0, kGravityFps2);
     const double expected = (1.0 * 1.0) / (2.0 * kGravityFps2);
     EXPECT_NEAR(vh2, expected, 1e-9);
@@ -170,7 +198,7 @@ TEST(ProfileBuilder, EGL_TailNode_UsesUpstreamVelocityOnly)
 TEST(ProfileBuilder, EGL_InteriorNode_AveragesAdjacentLinkVelocities)
 {
     auto path = linearPath(3);
-    auto src  = constantSource(path, {103.0, 103.0, 103.0}, {6.0, 2.0});
+    auto src = constantSource(path, {103.0, 103.0, 103.0}, {6.0, 2.0});
     // mean v = 4, vh = 16 / (2 * 32.174)
     const double vh1 = velocityHead(path, src, /*node*/ 1, /*period*/ 0, kGravityFps2);
     const double expected = (4.0 * 4.0) / (2.0 * kGravityFps2);
@@ -182,7 +210,7 @@ TEST(ProfileBuilder, EGL_InteriorNode_AveragesAdjacentLinkVelocities)
 TEST(ProfileBuilder, EGL_NegativeVelocity_StillContributesPositiveVelocityHead)
 {
     auto path = linearPath(2);
-    auto src  = constantSource(path, {103.0, 103.0}, {-4.0});
+    auto src = constantSource(path, {103.0, 103.0}, {-4.0});
     const double vh = velocityHead(path, src, /*node*/ 0, /*period*/ 0, kGravityFps2);
     EXPECT_NEAR(vh, (16.0) / (2.0 * kGravityFps2), 1e-9);
     EXPECT_GE(vh, 0.0);
@@ -197,9 +225,9 @@ TEST(ProfileBuilder, Envelope_MinMaxMatchesBruteForce)
 {
     auto path = linearPath(3);
     SourceSeries s;
-    s.sourceId      = "src";
+    s.sourceId = "src";
     s.reportStepSec = 60;
-    s.periodCount   = 5;
+    s.periodCount = 5;
     s.nodeHead.resize(3);
     s.nodeDepth.resize(3);
     s.linkVelocity.resize(2);
@@ -212,13 +240,14 @@ TEST(ProfileBuilder, Envelope_MinMaxMatchesBruteForce)
         s.nodeHead[n].resize(5);
         s.nodeDepth[n].resize(5);
         for (int p = 0; p < 5; ++p) {
-            s.nodeHead[n][p]  = heads[n][p];
+            s.nodeHead[n][p] = heads[n][p];
             s.nodeDepth[n][p] = heads[n][p] - 100.0f;
         }
     }
     for (int l = 0; l < 2; ++l) {
         s.linkVelocity[l].resize(5);
-        for (int p = 0; p < 5; ++p) s.linkVelocity[l][p] = 0.0f;
+        for (int p = 0; p < 5; ++p)
+            s.linkVelocity[l][p] = 0.0f;
     }
     auto d = compute(path, s, kGravityFps2);
     EXPECT_NEAR(d.minHgl[0], 100.0, 1e-9);
@@ -253,7 +282,7 @@ TEST(ProfileBuilder, Validate_RejectsLinkCountMismatch)
 {
     PathStatic p;
     p.nodes.resize(3);
-    p.links.resize(1);  // should be 2
+    p.links.resize(1); // should be 2
     SourceSeries src;
     src.nodeHead.resize(3);
     auto d = validate(p, src);
@@ -268,7 +297,7 @@ TEST(ProfileBuilder, Validate_RejectsNodeHeadDimMismatch)
     SourceSeries src;
     src.periodCount = 1;
     src.reportStepSec = 60;
-    src.nodeHead.resize(2);  // should be 3
+    src.nodeHead.resize(2); // should be 3
     src.linkVelocity.resize(2);
     auto d = validate(path, src);
     EXPECT_FALSE(d.error.isEmpty());
@@ -293,9 +322,7 @@ TEST(ProfileBuilder, Crown_EqualsConduitInvertPlusLinkMaxDepth)
 TEST(ProfileBuilder, MaxHgl_GreaterThanOrEqualToInvert_AtEveryNode)
 {
     auto path = linearPath(4);
-    auto src  = constantSource(path,
-                               {100.5, 101.0, 100.2, 100.0},
-                               {1.0, 1.0, 1.0});
+    auto src = constantSource(path, {100.5, 101.0, 100.2, 100.0}, {1.0, 1.0, 1.0});
     auto d = compute(path, src, kGravityFps2);
     for (int n = 0; n < path.nodes.size(); ++n)
         EXPECT_GE(d.maxHgl[n], path.nodes[n].invertElev);
@@ -306,7 +333,7 @@ TEST(ProfileBuilder, MaxHgl_GreaterThanOrEqualToInvert_AtEveryNode)
 TEST(ProfileBuilder, GravityUnits_AffectEGLButNotHGL)
 {
     auto path = linearPath(2);
-    auto src  = constantSource(path, {103.0, 103.0}, {3.0});
+    auto src = constantSource(path, {103.0, 103.0}, {3.0});
     auto us = compute(path, src, kGravityFps2);
     auto si = compute(path, src, kGravityMps2);
     EXPECT_NEAR(us.hglByPeriod[0][0], si.hglByPeriod[0][0], 1e-9);
@@ -320,8 +347,8 @@ TEST(ProfileBuilder, GravityUnits_AffectEGLButNotHGL)
 TEST(ProfileBuilder, ZeroVelocity_EGLEqualsHGL)
 {
     auto path = linearPath(3);
-    auto src  = constantSource(path, {102.0, 102.0, 102.0}, {0.0, 0.0});
-    auto d    = compute(path, src, kGravityFps2);
+    auto src = constantSource(path, {102.0, 102.0, 102.0}, {0.0, 0.0});
+    auto d = compute(path, src, kGravityFps2);
     // SourceDerived is period-major: outer = period (0), inner = node n.
     for (int n = 0; n < 3; ++n) {
         EXPECT_DOUBLE_EQ(d.hglByPeriod[0][n], d.eglByPeriod[0][n]);
@@ -336,8 +363,8 @@ TEST(ProfileBuilder, WaterSurface_EqualsInvertPlusDepth)
 {
     auto path = linearPath(3, /*invertElev*/ 100.0, /*nodeMaxDepth*/ 5.0);
     // constantSource sets nodeDepth = head - invert, so WaterSurface == head here.
-    auto src  = constantSource(path, {102.0, 103.5, 101.0}, {0.0, 0.0});
-    auto d    = compute(path, src, kGravityFps2);
+    auto src = constantSource(path, {102.0, 103.5, 101.0}, {0.0, 0.0});
+    auto d = compute(path, src, kGravityFps2);
     // SourceDerived is period-major: outer = periodCount (1), inner = N (3).
     ASSERT_EQ(d.waterSurfaceByPeriod.size(), 1);
     ASSERT_EQ(d.waterSurfaceByPeriod[0].size(), 3);
@@ -356,15 +383,15 @@ TEST(ProfileBuilder, WaterSurface_CapsAtRimWhenPressurized)
 {
     auto path = linearPath(2, /*invertElev*/ 100.0, /*nodeMaxDepth*/ 5.0);
     SourceSeries s;
-    s.sourceId      = "src";
+    s.sourceId = "src";
     s.reportStepSec = 60;
-    s.periodCount   = 1;
+    s.periodCount = 1;
     s.nodeHead.resize(2);
     s.nodeDepth.resize(2);
     s.linkVelocity.resize(1);
-    s.nodeHead[0]  = QVector<float>{108.0f};  // 3 ft above rim
-    s.nodeHead[1]  = QVector<float>{107.0f};
-    s.nodeDepth[0] = QVector<float>{5.0f};    // depth capped at maxDepth
+    s.nodeHead[0] = QVector<float>{108.0f}; // 3 ft above rim
+    s.nodeHead[1] = QVector<float>{107.0f};
+    s.nodeDepth[0] = QVector<float>{5.0f}; // depth capped at maxDepth
     s.nodeDepth[1] = QVector<float>{5.0f};
     s.linkVelocity[0] = QVector<float>{0.0f};
 
@@ -383,9 +410,9 @@ TEST(ProfileBuilder, WaterSurface_EnvelopeMatchesBruteForce)
 {
     auto path = linearPath(3, /*invertElev*/ 100.0, /*nodeMaxDepth*/ 5.0);
     SourceSeries s;
-    s.sourceId      = "src";
+    s.sourceId = "src";
     s.reportStepSec = 60;
-    s.periodCount   = 4;
+    s.periodCount = 4;
     s.nodeHead.resize(3);
     s.nodeDepth.resize(3);
     s.linkVelocity.resize(2);
@@ -398,7 +425,7 @@ TEST(ProfileBuilder, WaterSurface_EnvelopeMatchesBruteForce)
         s.nodeHead[n].resize(4);
         s.nodeDepth[n].resize(4);
         for (int p = 0; p < 4; ++p) {
-            s.nodeHead[n][p]  = 100.0f + depths[n][p];
+            s.nodeHead[n][p] = 100.0f + depths[n][p];
             s.nodeDepth[n][p] = depths[n][p];
         }
     }
@@ -424,9 +451,9 @@ TEST(ProfileBuilder, WaterSurface_MissingDepthLeavesNaN)
 {
     auto path = linearPath(2, /*invertElev*/ 100.0, /*nodeMaxDepth*/ 5.0);
     SourceSeries s;
-    s.sourceId      = "src";
+    s.sourceId = "src";
     s.reportStepSec = 60;
-    s.periodCount   = 2;
+    s.periodCount = 2;
     s.nodeHead.resize(2);
     s.linkVelocity.resize(1);
     s.nodeHead[0] = QVector<float>{102.0f, 103.0f};
@@ -441,4 +468,149 @@ TEST(ProfileBuilder, WaterSurface_MissingDepthLeavesNaN)
     EXPECT_TRUE(std::isnan(d.waterSurfaceByPeriod[1][1]));
     EXPECT_TRUE(std::isinf(d.minWaterSurface[0]));
     EXPECT_TRUE(std::isinf(d.maxWaterSurface[0]));
+}
+
+// ---- Live results: appendPeriods() ≡ compute() over the same periods ------
+
+namespace
+{
+
+// Varying heads/velocities so every envelope slot and EGL term is exercised.
+/**
+ *
+ * @brief Build deterministic changing heads/depths and signed velocities.
+ * @param path Borrowed topology providing row counts; fixture formulas assume a
+ * 100-unit datum rather than reading individual node inverts.
+ * @param periodCount Nonnegative report count with representable allocation sizes.
+ * @return Owned live series at 300-second steps, heads 100+modular perturbations,
+ * depths relative to 100 and signed link velocities in consistent fixture length/s.
+ * Start time retains its default. No engine access or physical validation.
+ *
+ */
+SourceSeries varyingSource(const PathStatic &path, int periodCount)
+{
+    SourceSeries s;
+    s.sourceId = QStringLiteral("live");
+    s.reportStepSec = 300;
+    s.periodCount = periodCount;
+    s.nodeHead.resize(path.nodes.size());
+    s.nodeDepth.resize(path.nodes.size());
+    s.linkVelocity.resize(path.links.size());
+    for (int n = 0; n < path.nodes.size(); ++n) {
+        s.nodeHead[n].resize(periodCount);
+        s.nodeDepth[n].resize(periodCount);
+        for (int p = 0; p < periodCount; ++p) {
+            const float h = 100.0f + float((n * 7 + p * 3) % 11) * 0.37f;
+            s.nodeHead[n][p] = h;
+            s.nodeDepth[n][p] = h - 100.0f;
+        }
+    }
+    for (int l = 0; l < path.links.size(); ++l) {
+        s.linkVelocity[l].resize(periodCount);
+        for (int p = 0; p < periodCount; ++p)
+            s.linkVelocity[l][p] = float((l + 1) * ((p % 5) - 2)) * 0.5f; // signed
+    }
+    return s;
+}
+
+// Truncate a series to its first `n` periods (what an earlier live tick saw).
+/**
+ *
+ * @brief Copy/resize all hydraulic rows to simulate an earlier live tick.
+ * @param full Borrowed original series, not modified.
+ * @param n Nonnegative requested period count, normally at most every row's size.
+ * @return Owned copy with periodCount n and resized head/depth/velocity rows. If n
+ * is larger, Qt appends zero values; no bound check enforces the intended prefix.
+ * Other identity/time metadata is retained.
+ *
+ */
+SourceSeries prefix(const SourceSeries &full, int n)
+{
+    SourceSeries s = full;
+    s.periodCount = n;
+    for (auto &row : s.nodeHead)
+        row.resize(n);
+    for (auto &row : s.nodeDepth)
+        row.resize(n);
+    for (auto &row : s.linkVelocity)
+        row.resize(n);
+    return s;
+}
+
+/**
+ *
+ * @brief Assert exact equality of derived hydraulic samples and envelopes.
+ * @param a Borrowed actual result, with internally consistent period row counts.
+ * @param b Borrowed expected result with matching HGL/EGL/water-surface outer shapes.
+ * Fatal assertions compare period rows, then nonfatal comparisons check all six
+ * min/max envelopes. No tolerance, metadata comparison, mutation or returned status;
+ * a fatal helper assertion stops this helper rather than its caller.
+ *
+ */
+void expectDerivedEqual(const SourceDerived &a, const SourceDerived &b)
+{
+    ASSERT_EQ(a.hglByPeriod.size(), b.hglByPeriod.size());
+    for (int p = 0; p < a.hglByPeriod.size(); ++p) {
+        ASSERT_EQ(a.hglByPeriod[p], b.hglByPeriod[p]) << "hgl period " << p;
+        ASSERT_EQ(a.eglByPeriod[p], b.eglByPeriod[p]) << "egl period " << p;
+        ASSERT_EQ(a.waterSurfaceByPeriod[p], b.waterSurfaceByPeriod[p]) << "ws period " << p;
+    }
+    EXPECT_EQ(a.minHgl, b.minHgl);
+    EXPECT_EQ(a.maxHgl, b.maxHgl);
+    EXPECT_EQ(a.minEgl, b.minEgl);
+    EXPECT_EQ(a.maxEgl, b.maxEgl);
+    EXPECT_EQ(a.minWaterSurface, b.minWaterSurface);
+    EXPECT_EQ(a.maxWaterSurface, b.maxWaterSurface);
+}
+
+} // namespace
+
+TEST(ProfileBuilder, AppendPeriods_MatchesFullComputeExactly)
+{
+    const auto path = linearPath(5);
+    const auto full = varyingSource(path, 12);
+    const auto reference = compute(path, full, kGravityFps2);
+
+    // Grow in uneven chunks: 0 → 1 → 4 → 4 (no-op) → 9 → 12.
+    SourceDerived live = compute(path, prefix(full, 0), kGravityFps2);
+    for (int n : {1, 4, 4, 9, 12}) {
+        ASSERT_TRUE(appendPeriods(path, prefix(full, n), kGravityFps2, live)) << "n=" << n;
+        expectDerivedEqual(live, compute(path, prefix(full, n), kGravityFps2));
+    }
+    expectDerivedEqual(live, reference); // bit-for-bit: same kernel
+}
+
+TEST(ProfileBuilder, AppendPeriods_RejectsShrunkOrForeignInput)
+{
+    const auto path = linearPath(4);
+    const auto full = varyingSource(path, 6);
+    SourceDerived live = compute(path, prefix(full, 4), kGravityFps2);
+    const SourceDerived before = live;
+
+    EXPECT_FALSE(appendPeriods(path, prefix(full, 2), kGravityFps2, live)); // shrank
+    expectDerivedEqual(live, before);
+
+    auto other = varyingSource(linearPath(3), 6); // wrong path
+    EXPECT_FALSE(appendPeriods(path, other, kGravityFps2, live));
+    expectDerivedEqual(live, before);
+}
+
+TEST(ProfileBuilder, EmptyLiveResultsKeepEnvelopeMissingUntilFirstPeriod)
+{
+    const auto path = linearPath(2, 100.0, 2.0, 1000.0);
+    const auto empty = constantSource(path, {100.5, 100.5}, {0.0}, 0);
+    auto derived = compute(path, empty, kGravityFps2);
+    for (const auto *values : {&derived.minHgl, &derived.maxHgl, &derived.minEgl, &derived.maxEgl,
+                               &derived.minWaterSurface, &derived.maxWaterSurface}) {
+        ASSERT_EQ(values->size(), 2);
+        for (double value : *values)
+            EXPECT_FALSE(std::isfinite(value));
+    }
+    const auto first = constantSource(path, {100.5, 100.75}, {0.0}, 1);
+    ASSERT_TRUE(appendPeriods(path, first, kGravityFps2, derived));
+    const auto complete = compute(path, first, kGravityFps2);
+    EXPECT_EQ(derived.minHgl, complete.minHgl);
+    EXPECT_EQ(derived.maxHgl, complete.maxHgl);
+    EXPECT_EQ(derived.minWaterSurface, complete.minWaterSurface);
+    EXPECT_EQ(derived.hglByPeriod, complete.hglByPeriod);
 }

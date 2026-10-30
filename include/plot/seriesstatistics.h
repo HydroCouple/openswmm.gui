@@ -1,9 +1,9 @@
-/*!
- * \file   seriesstatistics.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice AT.3 — pure summary statistics for one time-series.
+/**
+ * @file      seriesstatistics.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice AT.3 — pure summary statistics for one time-series.
  *
  * The `StatsSummaryPanel` calls `compute(values)` to fill a row of the
  * stats table. The function ignores NaN / Inf samples and copes with
@@ -11,7 +11,9 @@
  *
  * Goodness-of-fit metrics live in the existing `fitmetrics.h` and are
  * surfaced separately by the panel when a baseline run is set.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PLOT_SERIESSTATISTICS_H
 #define OPENSWMMVIS_PLOT_SERIESSTATISTICS_H
 
@@ -21,29 +23,37 @@
 
 #include <vector>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
 struct SeriesStatistics {
-    int    count  = 0;
-    double mean   = 0.0;
+    int count = 0;
+    double mean = 0.0;
     double median = 0.0;
-    double stddev = 0.0;     ///< Sample standard deviation (N-1 denominator).
-    double min    = 0.0;
-    double max    = 0.0;
-    double p05    = 0.0;
-    double p25    = 0.0;
-    double p50    = 0.0;     ///< Same as median, kept for column symmetry.
-    double p75    = 0.0;
-    double p95    = 0.0;
-    double sum    = 0.0;
+    double stddev = 0.0; ///< Sample standard deviation (N-1 denominator).
+    double min = 0.0;
+    double max = 0.0;
+    double p05 = 0.0;
+    double p25 = 0.0;
+    double p50 = 0.0; ///< Same as median, kept for column symmetry.
+    double p75 = 0.0;
+    double p95 = 0.0;
+    double sum = 0.0;
 };
 
 /*! \brief Compute summary statistics over `values`. NaN / Inf samples
- *  are skipped. Empty input yields count=0 and all-NaN fields. */
+ *  are skipped. Empty input yields count=0 and all-NaN fields.
+ * @param[in] values Samples in one common unit; copied for filtering/sorting so caller order is preserved.
+ * @return Finite-sample count, arithmetic sum/mean, sample standard deviation and linearly interpolated order-statistic percentiles. A single sample has zero standard deviation; no finite samples gives count zero and NaN in every numeric statistic. No time weighting or integration is applied.
+ */
 SeriesStatistics computeStatistics(const std::vector<double> &values);
 
 /*! \brief Format one statistics value using the supplied numeric format.
- *  Non-finite values render as an em dash. */
+ *  Non-finite values render as an em dash.
+ * @param[in] value Statistic in its existing display units.
+ * @param[in] format Number-format policy, including its validated custom override.
+ * @return Em dash for NaN/infinity, otherwise format.format(value).
+ */
 QString formatStatisticValue(double value, const NumberFormat &format);
 
 } // namespace openswmmvis::plot

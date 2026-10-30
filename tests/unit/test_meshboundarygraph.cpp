@@ -1,12 +1,17 @@
-/*!
- * \file   test_meshboundarygraph.cpp
- * \brief  Boundary-edge shortest-path graph behind Ctrl-click path selection.
+/**
+ * @file      test_meshboundarygraph.cpp
+ * @brief     Boundary-edge shortest-path graph behind Ctrl-click path selection.
  *
  * Covers: the shorter arc of a boundary loop wins; weights are geometric
  * length rather than hop count; disconnected loops report no path; a
  * marker-tagged internal boundary (degree-3 vertex) participates; and
  * non-boundary / out-of-range slots return nothing.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QHash>
@@ -17,102 +22,146 @@
 #include <cmath>
 
 #include "mesh/meshboundarygraph.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
-namespace {
+namespace
+{
 
-/*! Per-(tri,edgeLocal) boundary flags — the same rule the mesh layer's
- *  buildBoundaryFlags applies: an edge used by only one triangle is a
- *  boundary, and so is any edge listed in MeshResult::boundaryEdges
- *  (marker-tagged internal boundaries). */
+/**
+ *
+ * @brief Compute boundary bits from undirected fixture edge incidence.
+ * @param m Borrowed mesh with valid cells/vertex indices and optional explicitly
+ * marked edges. Cell count*edge stride must fit the output container.
+ * @return Owned edgeSlotCount flags: true for edges used by at most one cell or
+ * explicitly marked, false for other/interior and unused stride slots. No manifold
+ * validation, neighbor construction or input mutation.
+ *
+ */
 QVector<bool> boundaryFlags(const mesh::MeshResult &m)
 {
-    auto key = [](int a, int b) {
-        return (a < b) ? qMakePair(a, b) : qMakePair(b, a);
-    };
+    auto key = [](int a, int b) { return (a < b) ? qMakePair(a, b) : qMakePair(b, a); };
     const int nt = int(m.triangles.size());
 
-    QHash<QPair<int,int>, int> uses;
+    QHash<QPair<int, int>, int> uses;
     for (const auto &tri : m.triangles) {
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) ++uses[key(va[e], vb[e])];
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            ++uses[key(va, vb)];
+        }
     }
-    QSet<QPair<int,int>> marked;
-    for (const auto &e : m.boundaryEdges) marked.insert(key(e.v0, e.v1));
+    QSet<QPair<int, int>> marked;
+    for (const auto &e : m.boundaryEdges)
+        marked.insert(key(e.v0, e.v1));
 
-    QVector<bool> flags(nt * 3, false);
+    QVector<bool> flags(mesh::edgeSlotCount(nt), false);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = m.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const auto k = key(va[e], vb[e]);
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const auto k = key(va, vb);
             if (uses.value(k, 0) <= 1 || marked.contains(k))
-                flags[t * 3 + e] = true;
+                flags[mesh::edgeSlot(t, e)] = true;
         }
     }
     return flags;
 }
 
-/*! First boundary slot whose endpoints are {va, vb}; -1 if none. */
+/**
+ *
+ * @brief Find the first flagged edge joining two fixture vertices.
+ * @param m Borrowed mesh with valid cell topology.
+ * @param flags Borrowed per-edge bits with at least edgeSlotCount(cellCount) entries.
+ * @param va First vertex index, matched without orientation.
+ * @param vb Second vertex index.
+ * @return First cell-order/local-edge slot with these endpoints and a true flag,
+ * or -1 if absent. No bounds validation or topology changes.
+ *
+ */
 int slotFor(const mesh::MeshResult &m, const QVector<bool> &flags, int va, int vb)
 {
     for (int t = 0; t < int(m.triangles.size()); ++t) {
         const auto &tri = m.triangles[t];
-        const int a[3] = {tri.v1, tri.v2, tri.v0};
-        const int b[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int slot = t * 3 + e;
-            if (!flags[slot]) continue;
-            if ((a[e] == va && b[e] == vb) || (a[e] == vb && b[e] == va))
+        for (int e = 0; e < tri.vertexCount(); ++e) {
+            const int slot = mesh::edgeSlot(t, e);
+            if (!flags[slot])
+                continue;
+            int a = -1, b = -1;
+            mesh::edgeEndpoints(tri, e, a, b);
+            if ((a == va && b == vb) || (a == vb && b == va))
                 return slot;
         }
     }
     return -1;
 }
 
-/*! Any interior (non-boundary) slot; -1 if the mesh has none. */
+/**
+ *
+ * @brief Find a false entry in a fixture boundary-bit vector.
+ * @param flags Borrowed flat slot flags; unused stride slots may also be false.
+ * @return First false slot, or -1 if all true/empty. The helper does not verify that
+ * the selected slot corresponds to a real cell edge rather than padding.
+ *
+ */
 int anyInteriorSlot(const QVector<bool> &flags)
 {
     for (int i = 0; i < int(flags.size()); ++i)
-        if (!flags[i]) return i;
+        if (!flags[i])
+            return i;
     return -1;
 }
 
-/*! `wide` × 1 strip of unit quads, each split into two triangles.
- *  Vertex index for column x, row y is `x * 2 + y`; height sets the
- *  length of the left / right boundary edges. */
+/**
+ *
+ * @brief Build two counterclockwise triangles per unit-width strip column.
+ * @param wide Nonnegative column count with representable vertex/cell indices.
+ * @param height Positive strip height in common fixture coordinate units, default 1.
+ * @return Owned ok mesh with vertex index 2*x+y, zero elevations, no explicit boundary
+ * records or neighbor reconstruction. No dimensional/degeneracy checks.
+ *
+ */
 mesh::MeshResult makeStrip(int wide, double height = 1.0)
 {
     mesh::MeshResult m;
     for (int x = 0; x <= wide; ++x) {
-        m.vertices.append({{double(x), 0.0},    0.0, 0, {}});
+        m.vertices.append({{double(x), 0.0}, 0.0, 0, {}});
         m.vertices.append({{double(x), height}, 0.0, 0, {}});
     }
     for (int x = 0; x < wide; ++x) {
         const int b0 = x * 2, t0 = x * 2 + 1, b1 = (x + 1) * 2, t1 = (x + 1) * 2 + 1;
-        m.triangles.append({b0, b1, t1, {}});
-        m.triangles.append({b0, t1, t0, {}});
+        m.triangles.append({b0, b1, t1, -1, {}});
+        m.triangles.append({b0, t1, t0, -1, {}});
     }
     m.ok = true;
     return m;
 }
 
-/*! Fan triangulation of the closed polygon `ring` about its centroid, so
- *  every ring segment is a boundary edge and every spoke is interior.
- *  Ring vertex i is mesh vertex i; the centre is the last vertex. */
+/**
+ *
+ * @brief Fan-triangulate the fixture polygon around its vertex-mean centre.
+ * @param ring Borrowed unclosed nonempty polygon, intended convex/counterclockwise
+ * so the mean lies inside and all fan cells are valid; no validation performed.
+ * @return Owned ok mesh with ring vertices first, mean last and one triangle per edge,
+ * zero elevations and no explicit boundaries. Empty input divides by zero; concave
+ * or repeated/closed input need not produce a valid mesh. Does not alter ring.
+ *
+ */
 mesh::MeshResult makeFan(const QVector<QPointF> &ring)
 {
     mesh::MeshResult m;
     QPointF c(0.0, 0.0);
-    for (const QPointF &p : ring) { m.vertices.append({p, 0.0, 0, {}}); c += p; }
+    for (const QPointF &p : ring) {
+        m.vertices.append({p, 0.0, 0, {}});
+        c += p;
+    }
     const int centre = int(ring.size());
     m.vertices.append({c / double(ring.size()), 0.0, 0, {}});
 
     const int n = int(ring.size());
     for (int i = 0; i < n; ++i)
-        m.triangles.append({centre, i, (i + 1) % n, {}});
+        m.triangles.append({centre, i, (i + 1) % n, -1, {}});
     m.ok = true;
     return m;
 }
@@ -144,19 +193,19 @@ TEST(MeshBoundaryGraph, LoopPathTakesTheShorterArc)
     const auto flags = boundaryFlags(m);
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);
 
-    const int bottomLeft = slotFor(m, flags, 0, 2);   // (0,0)-(1,0)
-    const int topLeft    = slotFor(m, flags, 1, 3);   // (0,1)-(1,1)
-    const int left       = slotFor(m, flags, 0, 1);   // (0,0)-(0,1)
-    const int right      = slotFor(m, flags, 6, 7);   // (3,0)-(3,1)
+    const int bottomLeft = slotFor(m, flags, 0, 2); // (0,0)-(1,0)
+    const int topLeft = slotFor(m, flags, 1, 3);    // (0,1)-(1,1)
+    const int left = slotFor(m, flags, 0, 1);       // (0,0)-(0,1)
+    const int right = slotFor(m, flags, 6, 7);      // (3,0)-(3,1)
     ASSERT_GE(bottomLeft, 0);
     ASSERT_GE(topLeft, 0);
     ASSERT_GE(left, 0);
     ASSERT_GE(right, 0);
 
     const auto path = g.shortestPath(bottomLeft, topLeft);
-    ASSERT_EQ(path.size(), 3);          // start + left + end
+    ASSERT_EQ(path.size(), 3); // start + left + end
     EXPECT_EQ(path.first(), bottomLeft);
-    EXPECT_EQ(path.last(),  topLeft);
+    EXPECT_EQ(path.last(), topLeft);
     EXPECT_TRUE(path.contains(left));
     EXPECT_FALSE(path.contains(right)); // the long way round
 
@@ -164,7 +213,7 @@ TEST(MeshBoundaryGraph, LoopPathTakesTheShorterArc)
     const auto back = g.shortestPath(topLeft, bottomLeft);
     ASSERT_EQ(back.size(), 3);
     EXPECT_EQ(back.first(), topLeft);
-    EXPECT_EQ(back.last(),  bottomLeft);
+    EXPECT_EQ(back.last(), bottomLeft);
     EXPECT_TRUE(back.contains(left));
 }
 
@@ -174,8 +223,8 @@ TEST(MeshBoundaryGraph, AdjacentEdgesGiveATwoEdgePath)
     const auto flags = boundaryFlags(m);
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);
 
-    const int b0 = slotFor(m, flags, 0, 2);   // (0,0)-(1,0)
-    const int b1 = slotFor(m, flags, 2, 4);   // (1,0)-(2,0)
+    const int b0 = slotFor(m, flags, 0, 2); // (0,0)-(1,0)
+    const int b1 = slotFor(m, flags, 2, 4); // (1,0)-(2,0)
     ASSERT_GE(b0, 0);
     ASSERT_GE(b1, 0);
 
@@ -204,7 +253,8 @@ TEST(MeshBoundaryGraph, WeightIsGeometricLengthNotHopCount)
     // then a tall three-edge detour back to the origin. The fine arc is
     // 2.4 long over 8 hops; the detour is 43 long over 3 hops.
     QVector<QPointF> ring;
-    for (int i = 0; i <= 10; ++i) ring.append(QPointF(0.3 * i, 0.0));
+    for (int i = 0; i <= 10; ++i)
+        ring.append(QPointF(0.3 * i, 0.0));
     ring.append(QPointF(3.0, 20.0));
     ring.append(QPointF(0.0, 20.0));
 
@@ -213,16 +263,16 @@ TEST(MeshBoundaryGraph, WeightIsGeometricLengthNotHopCount)
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);
     ASSERT_EQ(g.edgeCount(), ring.size());
 
-    const int first = slotFor(m, flags, 0, 1);     // (0,0)-(0.3,0)
-    const int last  = slotFor(m, flags, 9, 10);    // (2.7,0)-(3.0,0)
+    const int first = slotFor(m, flags, 0, 1); // (0,0)-(0.3,0)
+    const int last = slotFor(m, flags, 9, 10); // (2.7,0)-(3.0,0)
     ASSERT_GE(first, 0);
     ASSERT_GE(last, 0);
 
     const auto path = g.shortestPath(first, last);
-    ASSERT_EQ(path.size(), 10);                    // the ten fine edges
+    ASSERT_EQ(path.size(), 10); // the ten fine edges
     EXPECT_EQ(path.first(), first);
-    EXPECT_EQ(path.last(),  last);
-    EXPECT_FALSE(path.contains(slotFor(m, flags, 11, 12)));  // detour top
+    EXPECT_EQ(path.last(), last);
+    EXPECT_FALSE(path.contains(slotFor(m, flags, 11, 12))); // detour top
 }
 
 TEST(MeshBoundaryGraph, MarkerTaggedInternalEdgeShortcutsThePath)
@@ -231,7 +281,7 @@ TEST(MeshBoundaryGraph, MarkerTaggedInternalEdgeShortcutsThePath)
     // giving two degree-3 boundary vertices. Bottom-middle to top-middle
     // is 4 long over the rung versus 6 the long way round.
     auto m = makeStrip(3, 4.0);
-    m.boundaryEdges.append({2, 3, 7, QStringLiteral("rung")});  // (1,0)-(1,4)
+    m.boundaryEdges.append({2, 3, 7, QStringLiteral("rung")}); // (1,0)-(1,4)
     const auto flags = boundaryFlags(m);
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);
 
@@ -240,15 +290,15 @@ TEST(MeshBoundaryGraph, MarkerTaggedInternalEdgeShortcutsThePath)
     // The rung is shared by two triangles, so it contributes two slots.
     EXPECT_EQ(g.edgeCount(), 10);
 
-    const int bottomMid = slotFor(m, flags, 2, 4);   // (1,0)-(2,0)
-    const int topMid    = slotFor(m, flags, 3, 5);   // (1,4)-(2,4)
+    const int bottomMid = slotFor(m, flags, 2, 4); // (1,0)-(2,0)
+    const int topMid = slotFor(m, flags, 3, 5);    // (1,4)-(2,4)
     ASSERT_GE(bottomMid, 0);
     ASSERT_GE(topMid, 0);
 
     const auto path = g.shortestPath(bottomMid, topMid);
     ASSERT_EQ(path.size(), 3);
     EXPECT_EQ(path.first(), bottomMid);
-    EXPECT_EQ(path.last(),  topMid);
+    EXPECT_EQ(path.last(), topMid);
     // Either rung slot is acceptable — both describe the same segment.
     EXPECT_TRUE(flags[path[1]]);
     EXPECT_NE(path[1], bottomMid);
@@ -264,12 +314,12 @@ TEST(MeshBoundaryGraph, DisconnectedLoopsHaveNoPath)
     for (const auto &v : other.vertices)
         m.vertices.append({QPointF(v.xy.x() + 100.0, v.xy.y()), 0.0, 0, {}});
     for (const auto &t : other.triangles)
-        m.triangles.append({t.v0 + base, t.v1 + base, t.v2 + base, {}});
+        m.triangles.append({t.v0 + base, t.v1 + base, t.v2 + base, -1, {}});
 
     const auto flags = boundaryFlags(m);
     const auto g = mesh::MeshBoundaryGraph::build(m, flags);
 
-    const int inFirst  = slotFor(m, flags, 0, 2);
+    const int inFirst = slotFor(m, flags, 0, 2);
     const int inSecond = slotFor(m, flags, base + 0, base + 2);
     ASSERT_GE(inFirst, 0);
     ASSERT_GE(inSecond, 0);

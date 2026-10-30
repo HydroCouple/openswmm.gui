@@ -1,9 +1,9 @@
-/*!
- * \file   plotattribute.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BL — canonical enumeration of plottable result attributes.
+/**
+ * @file      plotattribute.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BL — canonical enumeration of plottable result attributes.
  *
  * A `PlotAttribute` names what is being plotted (Depth, Flow, …) decoupled
  * from the object kind that produced it (node/link/subcatch/mesh-cell).
@@ -17,92 +17,135 @@
  * above invert in a manhole) and mesh-cell depth (water column over a
  * triangle) share units but are physically different quantities; sharing
  * a row would mis-axis them.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PLOT_PLOTATTRIBUTE_H
 #define OPENSWMMVIS_PLOT_PLOTATTRIBUTE_H
 
 #include <QString>
 #include <QVector>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
 /*! \brief Unit system carried per .out file. Sourced from
  *  `swmm_output_get_flow_units`: 0=CFS / 1=GPM / 2=MGD → US, 3=CMS / 4=LPS
  *  / 5=MLD → SI. */
 enum class UnitSystem {
-    US,   ///< ft, ft/s, ft³/s, ft³
-    SI    ///< m,  m/s,  m³/s,  m³
+    US, ///< ft, ft/s, ft³/s, ft³
+    SI  ///< m,  m/s,  m³/s,  m³
 };
 
 /*! \brief What a series plots. One row per attribute in the Nx2 grid. */
 enum class PlotAttribute {
-    Unknown          = 0,
+    Unknown = 0,
 
     // ----- 1D node variables (engine SWMM_OUT_NODE_*) -----------------------
-    NodeDepth        = 1,   ///< m / ft   — above invert
-    NodeHead         = 2,   ///< m / ft   — hydraulic head
-    NodeVolume       = 3,   ///< m³ / ft³
-    NodeLateralInflow= 4,   ///< m³/s / ft³/s
-    NodeTotalInflow  = 5,   ///< m³/s / ft³/s
-    NodeOverflow     = 6,   ///< m³/s / ft³/s
+    NodeDepth = 1,         ///< m / ft   — above invert
+    NodeHead = 2,          ///< m / ft   — hydraulic head
+    NodeVolume = 3,        ///< m³ / ft³
+    NodeLateralInflow = 4, ///< m³/s / ft³/s
+    NodeTotalInflow = 5,   ///< m³/s / ft³/s
+    NodeOverflow = 6,      ///< m³/s / ft³/s
 
     // ----- 1D link variables (engine SWMM_OUT_LINK_*) -----------------------
-    LinkFlow         = 7,   ///< m³/s / ft³/s
-    LinkDepth        = 8,   ///< m / ft
-    LinkVelocity     = 9,   ///< m/s / ft/s
-    LinkVolume       = 10,  ///< m³ / ft³
-    LinkCapacity     = 11,  ///< dimensionless 0..1
+    LinkFlow = 7,      ///< m³/s / ft³/s
+    LinkDepth = 8,     ///< m / ft
+    LinkVelocity = 9,  ///< m/s / ft/s
+    LinkVolume = 10,   ///< m³ / ft³
+    LinkCapacity = 11, ///< dimensionless 0..1
 
     // ----- 1D subcatchment variables (engine SWMM_OUT_SUBCATCH_*) -----------
-    SubcatchRainfall  = 12, ///< mm/hr / in/hr
+    SubcatchRainfall = 12,  ///< mm/hr / in/hr
     SubcatchSnowDepth = 13, ///< mm / in
-    SubcatchEvap      = 14, ///< mm/d / in/d
-    SubcatchInfil     = 15, ///< mm/hr / in/hr
-    SubcatchRunoff    = 16, ///< m³/s / ft³/s
+    SubcatchEvap = 14,      ///< mm/d / in/d
+    SubcatchInfil = 15,     ///< mm/hr / in/hr
+    SubcatchRunoff = 16,    ///< m³/s / ft³/s
 
     // ----- 2D mesh-cell variables (CF.3) -----------------------------------
     // Separate from Node*/Link* on purpose; see file header.
-    Mesh2DDepth       = 17, ///< m / ft   — water column over triangle
-    Mesh2DHGL         = 18, ///< m / ft   — depth + z_bed (GUI-computed)
+    Mesh2DDepth = 17,       ///< m / ft   — water column over triangle
+    Mesh2DHGL = 18,         ///< m / ft   — depth + z_bed (GUI-computed)
     Mesh2DVelocityMag = 19, ///< m/s / ft/s — sqrt(Vx² + Vy²)
-    Mesh2DVelocityX   = 20, ///< m/s / ft/s — projected map CRS, +east
-    Mesh2DVelocityY   = 21, ///< m/s / ft/s — projected map CRS, +north
+    Mesh2DVelocityX = 20,   ///< m/s / ft/s — projected map CRS, +east
+    Mesh2DVelocityY = 21,   ///< m/s / ft/s — projected map CRS, +north
 
     // ----- System-wide variables (engine SWMM_OUT_SYS_*) -------------------
     // Slice AT.2 — one global series per attribute per run. ObjectRef name
     // is unused; ObjectRef::Kind::System is the discriminator.
     SystemTemperature = 22, ///< °C / °F   — SYS_TEMPERATURE
-    SystemRainfall    = 23, ///< mm/hr / in/hr — SYS_RAINFALL  (avg over subcatchments)
-    SystemSnowDepth   = 24, ///< mm / in   — SYS_SNOW_DEPTH (avg)
-    SystemEvap        = 25, ///< mm/d / in/d — SYS_EVAP       (avg rate)
-    SystemInfil       = 26, ///< mm/hr / in/hr — SYS_INFIL    (avg rate)
-    SystemRunoff      = 27, ///< m³/s / ft³/s — SYS_RUNOFF    (total)
-    SystemDwInflow    = 28, ///< m³/s / ft³/s — SYS_DW_INFLOW (total)
-    SystemGwInflow    = 29, ///< m³/s / ft³/s — SYS_GW_INFLOW (total)
-    SystemLatInflow   = 30, ///< m³/s / ft³/s — SYS_LAT_INFLOW(total)
-    SystemFlooding    = 31, ///< m³/s / ft³/s — SYS_FLOODING  (total)
-    SystemOutflow     = 32, ///< m³/s / ft³/s — SYS_OUTFLOW   (total)
-    SystemStorage     = 33, ///< m³ / ft³  — SYS_STORAGE     (total volume)
-    SystemEvapTotal   = 34, ///< mm/d / in/d — SYS_EVAP_TOTAL (total rate)
-    SystemPET         = 35, ///< mm/d / in/d — SYS_PET        (potential ET)
+    SystemRainfall = 23,    ///< mm/hr / in/hr — SYS_RAINFALL  (avg over subcatchments)
+    SystemSnowDepth = 24,   ///< mm / in   — SYS_SNOW_DEPTH (avg)
+    SystemEvap = 25,        ///< mm/d / in/d — SYS_EVAP       (avg rate)
+    SystemInfil = 26,       ///< mm/hr / in/hr — SYS_INFIL    (avg rate)
+    SystemRunoff = 27,      ///< m³/s / ft³/s — SYS_RUNOFF    (total)
+    SystemDwInflow = 28,    ///< m³/s / ft³/s — SYS_DW_INFLOW (total)
+    SystemGwInflow = 29,    ///< m³/s / ft³/s — SYS_GW_INFLOW (total)
+    SystemLatInflow = 30,   ///< m³/s / ft³/s — SYS_TOTAL_INFLOW (total lateral inflow)
+    SystemFlooding = 31,    ///< m³/s / ft³/s — SYS_FLOODING  (total)
+    SystemOutflow = 32,     ///< m³/s / ft³/s — SYS_OUTFLOW   (total)
+    SystemStorage = 33,     ///< m³ / ft³  — SYS_STORAGE     (total volume)
+    SystemEvapTotal = 34,   ///< retired: the .out has no such slot; kept so saved plots load
+    SystemPET = 35,         ///< mm/d / in/d — SYS_PET        (potential ET)
 
     // ----- 2D mesh-edge variables ------------------------------------------
     // Both derive from the engine's single Mesh2_edge_flux dataset (volumetric
     // F_e, m³/s). Flow is that value directly; unit-width flux is F_e ÷ edge length.
-    Mesh2DEdgeFlux    = 36, ///< m²/s / ft²/s — unit-width flux q = F_e / edge length
-    Mesh2DEdgeFlow    = 37, ///< m³/s / ft³/s — volumetric flow Q across a mesh edge (= F_e)
+    Mesh2DEdgeFlux = 36, ///< m²/s / ft²/s — unit-width flux q = F_e / edge length
+    Mesh2DEdgeFlow = 37, ///< m³/s / ft³/s — volumetric flow Q across a mesh edge (= F_e)
+
+    // ----- 2D mesh-cell rainfall (engine Mesh2_face_rainfall / _rain_cum) --
+    Mesh2DRainfall = 38,   ///< mm/hr / in/hr — rainfall intensity applied to the cell
+    Mesh2DRainVolume = 39, ///< m³ / ft³ — cumulative rainfall volume applied to the cell
+    // Derived from Mesh2_face_rain_cum ÷ cell area, so rain that fell between
+    // report instants (invisible to the instantaneous Mesh2DRainfall) shows.
+    Mesh2DRainfallAvg = 40, ///< mm/hr / in/hr — mean intensity over the preceding report interval
+    Mesh2DRainDepth = 41,   ///< mm / in — cumulative rainfall depth applied to the cell
+
+    // ----- 1D subcatchment groundwater (engine SWMM_OUT_SUBCATCH_GW_*) -----
+    SubcatchGwFlow = 42,       ///< m³/s / ft³/s — lateral groundwater outflow
+    SubcatchGwElev = 43,       ///< m / ft — water table elevation
+    SubcatchSoilMoisture = 44, ///< fraction — upper-zone moisture content
+
+    // ----- More system-wide inflows (engine SWMM_OUT_SYS_*) ----------------
+    SystemRdiiInflow = 45,        ///< m³/s / ft³/s — SYS_RDII_INFLOW (total)
+    SubcatchSnowSWE = 47,         ///< m; SI, accepted snow clock
+    SubcatchSnowEnergy = 48,      ///< kJ/m²; SI, accepted snow clock
+    SubcatchSnowSurfaceTemp = 49, ///< °C; SI, accepted snow clock
+    SubcatchSnowBulkTemp = 50,    ///< °C; SI, accepted snow clock
+    SubcatchSnowAlbedo = 51,      ///< fraction; SI, accepted snow clock
+    SubcatchSnowCover = 52,       ///< fraction; SI, accepted snow clock
+    SubcatchSnowMelt = 53,        ///< m/s; SI, accepted snow clock
+    SubcatchSnowInput = 54,       ///< m/s; SI, accepted snow clock
+    SubcatchSnowSublimation = 55, ///< m/s; SI, accepted snow clock
+    SystemExtInflow = 46,         ///< m³/s / ft³/s — SYS_EXT_INFLOW  (total)
 };
 
-/*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */
+/*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|".
+ * @param[in] a Fixed result identifier.
+ * @return Untranslated display label, or Unknown for Unknown/unsupported identifiers.
+ */
 QString labelFor(PlotAttribute a);
 
-/*! \brief Unit string for the given attribute + unit system, e.g. "m", "ft³/s". */
+/*! \brief Unit string for the given attribute + unit system, e.g. "m", "ft³/s".
+ * @param[in] a Fixed result identifier.
+ * @param[in] u Requested display family; only US selects US labels, all other enum values follow SI.
+ * @return Unit label, empty for dimensionless/unknown attributes. Accepted-clock snow attributes always use their documented SI units, independent of u. This labels values without converting them.
+ */
 QString unitsFor(PlotAttribute a, UnitSystem u);
 
-/*! \brief Concatenation of `labelFor(a)` + "(" + unitsFor(a,u) + ")". */
+/*! \brief Concatenation of `labelFor(a)` + "(" + unitsFor(a,u) + ")".
+ * @param[in] a Fixed result identifier.
+ * @param[in] u Unit family used by unitsFor().
+ * @return Label followed by a space and parenthesized units; empty units omit the suffix entirely.
+ */
 QString labelWithUnits(PlotAttribute a, UnitSystem u);
 
-/*! \brief Map an engine `swmm_output_get_flow_units` return value to UnitSystem. */
+/*! \brief Map an engine `swmm_output_get_flow_units` return value to UnitSystem.
+ * @param[in] flowUnits Engine output flow-unit code, conventionally 0..5.
+ * @return SI for any code at least three, US otherwise; invalid codes are not rejected.
+ */
 UnitSystem unitSystemFromFlowUnits(int flowUnits);
 
 // ---------------------------------------------------------------------------
@@ -113,48 +156,72 @@ UnitSystem unitSystemFromFlowUnits(int flowUnits);
 // (`attributesForKind`) — the nested ObjectRef::Kind can't be named here.
 // ---------------------------------------------------------------------------
 
-/*! \brief The 6 per-node attributes, presentation order. */
+/*! \brief The 6 per-node attributes, presentation order.
+ * @return Six node attributes in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
 const QVector<PlotAttribute> &nodePlotAttributes();
 
-/*! \brief The 5 per-link attributes, presentation order. */
+/*! \brief The 5 per-link attributes, presentation order.
+ * @return Five link attributes in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
 const QVector<PlotAttribute> &linkPlotAttributes();
 
-/*! \brief The 5 per-subcatchment attributes, presentation order. */
+/*! \brief The per-subcatchment hydrology, groundwater and snow attributes,
+ *  presentation order.
+ * @return Hydrology, groundwater and accepted-clock snow attributes in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
 const QVector<PlotAttribute> &subcatchPlotAttributes();
 
-/*! \brief The 14 system-wide attributes, presentation order (matches the
- *  long-standing system picker menu: Rainfall first, Temperature last). */
+/*! \brief The 15 system-wide attributes, presentation order (matches the
+ *  long-standing system picker menu: Rainfall first, Temperature last).
+ * @return Fifteen system attributes, excluding the retired SystemEvapTotal slot in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
 const QVector<PlotAttribute> &systemPlotAttributes();
 
-/*! \brief True iff the attribute is a 2D mesh quantity (CF.3). */
+/*! \brief The 9 per-2D-cell attributes, presentation order.
+ * @return Nine cell attributes, including rainfall derivatives in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
+const QVector<PlotAttribute> &mesh2DCellPlotAttributes();
+
+/*! \brief The 2 per-2D-edge attributes (flow, unit-width flux).
+ * @return Edge flow then unit-width flux in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
+const QVector<PlotAttribute> &mesh2DEdgePlotAttributes();
+
+/*! \brief The 2 per-2D-vertex attributes (depth, HGL — interpolated).
+ * @return Depth then HGL in picker presentation order, as an immutable process-lifetime reference. The list does not test availability in any particular results source.
+ */
+const QVector<PlotAttribute> &mesh2DVertexPlotAttributes();
+
+/*! \brief True iff the attribute is a 2D mesh-cell quantity (CF.3).
+ * @param[in] a Fixed identifier to classify.
+ * @return True for the nine cell quantities only; mesh-edge attributes are deliberately excluded even though they are 2D results.
+ */
 inline bool isMesh2DAttribute(PlotAttribute a) noexcept
 {
-    return a == PlotAttribute::Mesh2DDepth      ||
-           a == PlotAttribute::Mesh2DHGL        ||
-           a == PlotAttribute::Mesh2DVelocityMag||
-           a == PlotAttribute::Mesh2DVelocityX  ||
-           a == PlotAttribute::Mesh2DVelocityY;
+    return a == PlotAttribute::Mesh2DDepth || a == PlotAttribute::Mesh2DHGL ||
+           a == PlotAttribute::Mesh2DVelocityMag || a == PlotAttribute::Mesh2DVelocityX ||
+           a == PlotAttribute::Mesh2DVelocityY || a == PlotAttribute::Mesh2DRainfall ||
+           a == PlotAttribute::Mesh2DRainVolume || a == PlotAttribute::Mesh2DRainfallAvg ||
+           a == PlotAttribute::Mesh2DRainDepth;
 }
 
 /*! \brief True iff the attribute is a system-wide quantity (Slice AT.2).
  *  System attributes resolve via `swmm_output_get_system_series` and
- *  carry no per-object name (ObjectRef::Kind::System suffices). */
+ *  carry no per-object name (ObjectRef::Kind::System suffices).
+ * @param[in] a Fixed identifier to classify.
+ * @return True for any listed system quantity including retired SystemEvapTotal, independent of its availability in a file.
+ */
 inline bool isSystemAttribute(PlotAttribute a) noexcept
 {
-    return a == PlotAttribute::SystemTemperature ||
-           a == PlotAttribute::SystemRainfall    ||
-           a == PlotAttribute::SystemSnowDepth   ||
-           a == PlotAttribute::SystemEvap        ||
-           a == PlotAttribute::SystemInfil       ||
-           a == PlotAttribute::SystemRunoff      ||
-           a == PlotAttribute::SystemDwInflow    ||
-           a == PlotAttribute::SystemGwInflow    ||
-           a == PlotAttribute::SystemLatInflow   ||
-           a == PlotAttribute::SystemFlooding    ||
-           a == PlotAttribute::SystemOutflow     ||
-           a == PlotAttribute::SystemStorage     ||
-           a == PlotAttribute::SystemEvapTotal   ||
-           a == PlotAttribute::SystemPET;
+    return a == PlotAttribute::SystemTemperature || a == PlotAttribute::SystemRainfall ||
+           a == PlotAttribute::SystemSnowDepth || a == PlotAttribute::SystemEvap ||
+           a == PlotAttribute::SystemInfil || a == PlotAttribute::SystemRunoff ||
+           a == PlotAttribute::SystemDwInflow || a == PlotAttribute::SystemGwInflow ||
+           a == PlotAttribute::SystemRdiiInflow || a == PlotAttribute::SystemExtInflow ||
+           a == PlotAttribute::SystemLatInflow || a == PlotAttribute::SystemFlooding ||
+           a == PlotAttribute::SystemOutflow || a == PlotAttribute::SystemStorage ||
+           a == PlotAttribute::SystemEvapTotal || a == PlotAttribute::SystemPET;
 }
 
 } // namespace openswmmvis::plot

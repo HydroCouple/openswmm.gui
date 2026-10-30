@@ -18,6 +18,15 @@
 //
 // Run: ./spike_qsgnode  (interactive — close the window to exit)
 
+/**
+ * @file      spike_qsgnode.cpp
+ * @brief     Tests for spike qsgnode.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QApplication>
 #include <QDebug>
 #include <QQuickItem>
@@ -27,19 +36,31 @@
 #include <QSGGeometryNode>
 #include <QSGRendererInterface>
 
-namespace {
+namespace
+{
 
+/** @brief Name a Qt scene-graph backend for diagnostic logging.
+ * @param[in] api Backend enum to map.
+ * @return Borrowed static literal for known backends, or Unknown; never free the returned pointer. */
 const char *graphicsApiName(QSGRendererInterface::GraphicsApi api)
 {
     switch (api) {
-    case QSGRendererInterface::Metal:        return "Metal";
-    case QSGRendererInterface::Vulkan:       return "Vulkan";
-    case QSGRendererInterface::Direct3D11:   return "Direct3D 11";
-    case QSGRendererInterface::Direct3D12:   return "Direct3D 12";
-    case QSGRendererInterface::OpenGL:       return "OpenGL";
-    case QSGRendererInterface::Software:     return "Software";
-    case QSGRendererInterface::Null:         return "Null";
-    default:                                 return "Unknown";
+    case QSGRendererInterface::Metal:
+        return "Metal";
+    case QSGRendererInterface::Vulkan:
+        return "Vulkan";
+    case QSGRendererInterface::Direct3D11:
+        return "Direct3D 11";
+    case QSGRendererInterface::Direct3D12:
+        return "Direct3D 12";
+    case QSGRendererInterface::OpenGL:
+        return "OpenGL";
+    case QSGRendererInterface::Software:
+        return "Software";
+    case QSGRendererInterface::Null:
+        return "Null";
+    default:
+        return "Unknown";
     }
 }
 
@@ -48,15 +69,19 @@ class TriangleItem : public QQuickItem
     Q_OBJECT
 
 public:
-    explicit TriangleItem(QQuickItem *parent = nullptr)
-        : QQuickItem(parent)
+    /** @brief Construct a scene-graph content item.
+     * @param[in] parent Optional Qt Quick parent controlling item ownership; marks ItemHasContents true. */
+    explicit TriangleItem(QQuickItem *parent = nullptr) : QQuickItem(parent)
     {
         setFlag(ItemHasContents, true);
     }
 
 protected:
-    QSGNode *updatePaintNode(QSGNode *oldNode,
-                             UpdatePaintNodeData *) override
+    /** @brief Create or update the triangle scene node during the Qt scene-graph synchronization phase.
+     * @param[in,out] oldNode Nullable node returned by the previous call; any non-null node must be this helper's QSGGeometryNode.
+     * The unnamed synchronization-data pointer is ignored.
+     * @return Scene-graph-owned geometry node with owned Point2D geometry and flat-color material; updates coordinates from current item size and marks geometry dirty. Must execute in Qt's rendering synchronization context; callers do not delete the live returned tree. */
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override
     {
         ++m_paintCount;
 
@@ -64,8 +89,7 @@ protected:
         if (!node) {
             node = new QSGGeometryNode();
 
-            auto *geo = new QSGGeometry(
-                QSGGeometry::defaultAttributes_Point2D(), 3);
+            auto *geo = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 3);
             geo->setDrawingMode(QSGGeometry::DrawTriangles);
             node->setGeometry(geo);
             node->setFlag(QSGNode::OwnsGeometry);
@@ -77,9 +101,9 @@ protected:
         }
 
         auto *geo = node->geometry();
-        auto *v   = geo->vertexDataAsPoint2D();
+        auto *v = geo->vertexDataAsPoint2D();
         v[0].set(float(width()) * 0.5f, 10.0f);
-        v[1].set(20.0f,                 float(height()) - 20.0f);
+        v[1].set(20.0f, float(height()) - 20.0f);
         v[2].set(float(width()) - 20.0f, float(height()) - 20.0f);
         node->markDirty(QSGNode::DirtyGeometry);
 
@@ -95,6 +119,10 @@ private:
 
 } // namespace
 
+/** @brief Run the interactive rendering probe until its window closes.
+ * @param[in] argc Process argument count passed to QApplication.
+ * @param[in,out] argv Standard mutable process argument array, whose storage must outlive QApplication.
+ * @return Application event-loop exit code; visual correctness and warning inspection are manual, not automated assertions. Creates a content-parented triangle that tracks window size and logs the renderer backend on scene-graph initialization. */
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
@@ -107,20 +135,14 @@ int main(int argc, char **argv)
     auto *triangle = new TriangleItem(window.contentItem());
     triangle->setSize(window.size());
     QObject::connect(&window, &QQuickWindow::widthChanged, triangle,
-                     [triangle, &window]() {
-                         triangle->setSize(window.size());
-                     });
+                     [triangle, &window]() { triangle->setSize(window.size()); });
     QObject::connect(&window, &QQuickWindow::heightChanged, triangle,
-                     [triangle, &window]() {
-                         triangle->setSize(window.size());
-                     });
+                     [triangle, &window]() { triangle->setSize(window.size()); });
 
-    QObject::connect(&window, &QQuickWindow::sceneGraphInitialized,
-                     &window, [&window]() {
-                         auto *iface = window.rendererInterface();
-                         qInfo() << "[spike] scene graph backend:"
-                                 << graphicsApiName(iface->graphicsApi());
-                     });
+    QObject::connect(&window, &QQuickWindow::sceneGraphInitialized, &window, [&window]() {
+        auto *iface = window.rendererInterface();
+        qInfo() << "[spike] scene graph backend:" << graphicsApiName(iface->graphicsApi());
+    });
 
     window.show();
     qInfo() << "[spike] window shown — close it to exit";

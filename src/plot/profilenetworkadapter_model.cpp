@@ -1,14 +1,16 @@
-/*!
- * \file   profilenetworkadapter_model.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Live-model glue for ProfileNetworkAdapter — pulls per-node and
+/**
+ * @file      profilenetworkadapter_model.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Live-model glue for ProfileNetworkAdapter — pulls per-node and
  *         per-link static data from a SWMMModelLayer's engine handle and
  *         forwards to the pure-logic builders in profilenetworkadapter.cpp.
  *
  *         This translation unit links the SWMM engine; the pure-logic
  *         translation unit does not.  Unit tests that need only the
  *         pure-logic surface link `profilenetworkadapter.cpp` alone.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/profilenetworkadapter.h"
@@ -18,9 +20,16 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+
+#include <cmath>
 
 #include <QByteArray>
+#include <QHash>
+#include <QSet>
 #include <QString>
+#include "ui/sectionview/xsectsampler.h"
+#include "core/unitsystem.h"
 
 namespace ProfileNetworkAdapter
 {
@@ -28,16 +37,38 @@ namespace ProfileNetworkAdapter
 namespace
 {
 
+/*! Unit system the engine's cross-section handles must be built in. The
+ *  sampler takes SI as a bool, and UnitSystem is the app-wide source the
+ *  Section View reads too, so both surfaces agree.
+ * @return Application UnitSystem::isSI(), or true if no singleton is available; no engine unit query occurs.
+ */
+bool profileUnitsAreSI()
+{
+    auto *us = UnitSystem::instance();
+    return us ? us->isSI() : true;
+}
+
+/**
+ * @brief Map a SWMM hydraulic link category to the profile renderer category.
+ * @param[in] swmmLinkType Code 0 conduit, 1 pump, 2 orifice, 3 weir, 4 outlet.
+ * @return Matching kind, or Conduit for unknown codes.
+ */
 ProfileBuilder::LinkKind toLinkKind(int swmmLinkType)
 {
     using K = ProfileBuilder::LinkKind;
     switch (swmmLinkType) {
-    case 0: return K::Conduit;
-    case 1: return K::Pump;
-    case 2: return K::Orifice;
-    case 3: return K::Weir;
-    case 4: return K::Outlet;
-    default: return K::Conduit;
+    case 0:
+        return K::Conduit;
+    case 1:
+        return K::Pump;
+    case 2:
+        return K::Orifice;
+    case 3:
+        return K::Weir;
+    case 4:
+        return K::Outlet;
+    default:
+        return K::Conduit;
     }
 }
 
@@ -49,9 +80,11 @@ ProfileBuilder::LinkKind toLinkKind(int swmmLinkType)
 ProfileRouter::Graph buildGraphFromModel(SWMMModelLayer *model, double nonConduitWeight)
 {
     ProfileRouter::Graph empty;
-    if (!model) return empty;
+    if (!model)
+        return empty;
     SWMM_Engine eng = model->engine();
-    if (!eng) return empty;
+    if (!eng)
+        return empty;
 
     int linkCount = swmm_link_count(eng);
     int nodeCount = swmm_node_count(eng);
@@ -65,51 +98,196 @@ ProfileRouter::Graph buildGraphFromModel(SWMMModelLayer *model, double nonCondui
         // types).  The endpoints are always populated when valid, so
         // gate only on the index sentinels.
         swmm_link_get_from_node(eng, i, &from);
-        swmm_link_get_to_node  (eng, i, &to);
-        swmm_link_get_type     (eng, i, &type);
-        if (from < 0 || from >= nodeCount) continue;
-        if (to   < 0 || to   >= nodeCount) continue;
+        swmm_link_get_to_node(eng, i, &to);
+        swmm_link_get_type(eng, i, &type);
+        if (from < 0 || from >= nodeCount)
+            continue;
+        if (to < 0 || to >= nodeCount)
+            continue;
         double len = 0.0;
-        swmm_link_get_length(eng, i, &len);   // 0 for non-conduits is fine
+        swmm_link_get_length(eng, i, &len); // 0 for non-conduits is fine
         LinkInfo li;
         li.engineLinkIdx = i;
-        li.fromNode      = from;
-        li.toNode        = to;
-        li.length        = len;
-        li.kind          = toLinkKind(type);
+        li.fromNode = from;
+        li.toNode = to;
+        li.length = len;
+        li.kind = toLinkKind(type);
         links.push_back(li);
     }
     return buildGraph(nodeCount, links, nonConduitWeight);
 }
 
-ProfileBuilder::PathStatic buildPathStaticFromModel(
-    SWMMModelLayer *model,
-    const ProfileRouter::Path &routerPath)
+namespace
+{
+
+/*!
+ * \brief Plan bearing of link \p engLinkIdx as it leaves the end selected by
+ *        \p nodeIsFrom.
+ * \details cachedLinkPolyline() carries the node endpoints, so the tangent is
+ *          taken from the node's own end toward the next point along — a
+ *          curved link then reads by the direction it actually leaves the
+ *          manhole rather than by the straight line to its far end. The
+ *          convention itself lives in bearingFromPoints() (pure half, unit
+ *          tested); this only picks the two points.
+ * @param[in] model Required borrowed model with cached map-coordinate link polylines.
+ * @param[in] engLinkIdx Current engine link index for the cached polyline lookup.
+ * @param[in] nodeIsFrom True uses first/second points, false last/penultimate points.
+ * @return bearingFromPoints() for the local tangent, or kNoBearing for fewer than two points or coincident endpoint/tangent points.
+ */
+double linkBearingAtNode(SWMMModelLayer *model, int engLinkIdx, bool nodeIsFrom)
+{
+    const QVector<QPointF> poly = model->cachedLinkPolyline(engLinkIdx);
+    if (poly.size() < 2)
+        return ProfileBuilder::kNoBearing;
+    const QPointF at = nodeIsFrom ? poly.first() : poly.last();
+    const QPointF away = nodeIsFrom ? poly.at(1) : poly.at(poly.size() - 2);
+    return bearingFromPoints(at, away);
+}
+
+} // namespace
+
+void collectNodeBranches(SWMMModelLayer *model, const ProfileRouter::Path &routerPath,
+                         ProfileBuilder::PathStatic &path)
+{
+    if (!model || path.nodes.isEmpty())
+        return;
+    SWMM_Engine eng = model->engine();
+    if (!eng)
+        return;
+
+    // ONE pass over the links, not one per path node: a long profile through
+    // an all-pipes model would otherwise make O(path nodes x links) engine
+    // calls just to discover incidence.
+    QHash<int, int> pathIndexOfNode; // engine node idx -> path idx
+    pathIndexOfNode.reserve(routerPath.nodes.size());
+    for (int i = 0; i < path.nodes.size() && i < routerPath.nodes.size(); ++i)
+        pathIndexOfNode.insert(routerPath.nodes[i], i);
+
+    QSet<int> pathLinks; // links the profile traverses
+    pathLinks.reserve(routerPath.linkIds.size());
+    for (int id : routerPath.linkIds)
+        pathLinks.insert(id);
+
+    const int nLinks = swmm_link_count(eng);
+    for (int l = 0; l < nLinks; ++l) {
+        int from = -1, to = -1;
+        swmm_link_get_from_node(eng, l, &from);
+        swmm_link_get_to_node(eng, l, &to);
+
+        // A link can touch the path at both ends (the profile's own links,
+        // and any branch that loops back), so both ends are considered.
+        for (int end = 0; end < 2; ++end) {
+            const bool isFrom = (end == 0);
+            const int engNodeIdx = isFrom ? from : to;
+            const auto it = pathIndexOfNode.constFind(engNodeIdx);
+            if (it == pathIndexOfNode.constEnd())
+                continue;
+            const int pathIdx = it.value();
+
+            ProfileBuilder::BranchLink b;
+            b.name = QString::fromUtf8(swmm_link_id(eng, l));
+            if (!path.nodes[pathIdx].lidLayers.isEmpty()) {
+                int layer = 0, top = 0;
+                if (swmm_lid_node_outlet_get(eng, l, &layer, &top) == SWMM_OK) {
+                    b.lidLayer = layer;
+                    b.lidAnchorTop = top != 0;
+                }
+            }
+            b.intoNode = !isFrom; // this node is the To-node
+            b.onPath = pathLinks.contains(l);
+
+            int linkType = 0;
+            swmm_link_get_type(eng, l, &linkType);
+            b.kind = toLinkKind(linkType);
+
+            // The offset at THIS end. The engine reports offsets against its
+            // own from/to ends, independent of how the profile traverses.
+            double offUp = 0.0, offDn = 0.0;
+            swmm_link_get_offset_up(eng, l, &offUp);
+            swmm_link_get_offset_dn(eng, l, &offDn);
+            b.invertElev = path.nodes[pathIdx].invertElev + (isFrom ? offUp : offDn);
+
+            int xsShape = 0;
+            double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
+            if (swmm_link_get_xsect(eng, l, &xsShape, &g1, &g2, &g3, &g4) == 0) {
+                // NOT g1: for STREET / IRREGULAR that is a table index.
+                b.maxDepth = openswmmvis::sectionview::linkFullDepth(
+                    eng, l, xsShape, g1, g2, g3, g4, profileUnitsAreSI(), &b.openTop);
+            }
+
+            // Unusable geometry keeps the stub (which needs only the invert)
+            // but loses the rose spoke — better a missing spoke than one
+            // pointing north by accident.
+            b.bearingRad = linkBearingAtNode(model, l, isFrom);
+
+            path.nodes[pathIdx].branches.push_back(b);
+        }
+    }
+}
+
+ProfileBuilder::PathStatic buildPathStaticFromModel(SWMMModelLayer *model,
+                                                    const ProfileRouter::Path &routerPath)
 {
     ProfileBuilder::PathStatic empty;
-    if (!model) return empty;
+    if (!model)
+        return empty;
     SWMM_Engine eng = model->engine();
-    if (!eng) return empty;
-    if (routerPath.nodes.isEmpty()) return empty;
+    if (!eng)
+        return empty;
+    if (routerPath.nodes.isEmpty())
+        return empty;
 
     QVector<NodeInfo> nodes;
     nodes.reserve(routerPath.nodes.size());
+    int flowUnits = 0;
+    swmm_get_flow_units(eng, &flowUnits);
+    // LID thickness is stored in mm/in; node elevations are in m/ft.
+    const double layerDepthScale = flowUnits >= 3 ? 0.001 : 1.0 / 12.0;
     for (int engNodeIdx : routerPath.nodes) {
         NodeInfo n;
         n.engineNodeIdx = engNodeIdx;
-        n.name          = QString::fromUtf8(swmm_node_id(eng, engNodeIdx));
-        double invert   = 0.0, maxDepth = 0.0, surchargeDepth = 0.0, rimDepth = 0.0;
-        int    nodeType = 0, isVirtual = 0;
-        swmm_node_get_invert_elev    (eng, engNodeIdx, &invert);
-        swmm_node_get_max_depth      (eng, engNodeIdx, &maxDepth);
+        n.name = QString::fromUtf8(swmm_node_id(eng, engNodeIdx));
+        double invert = 0.0, maxDepth = 0.0, surchargeDepth = 0.0, rimDepth = 0.0;
+        int nodeType = 0, isVirtual = 0, isInlet = 0;
+        swmm_node_get_invert_elev(eng, engNodeIdx, &invert);
+        swmm_node_get_max_depth(eng, engNodeIdx, &maxDepth);
         swmm_node_get_surcharge_depth(eng, engNodeIdx, &surchargeDepth);
-        swmm_node_get_type           (eng, engNodeIdx, &nodeType);
-        swmm_node_is_virtual         (eng, engNodeIdx, &isVirtual);
-        swmm_node_get_rim_depth      (eng, engNodeIdx, &rimDepth);
-        n.invertElev     = invert;
-        n.maxDepth       = renderRimDepth(isVirtual != 0, maxDepth, rimDepth);
+        swmm_node_get_type(eng, engNodeIdx, &nodeType);
+        swmm_node_is_virtual(eng, engNodeIdx, &isVirtual);
+        swmm_node_is_inlet(eng, engNodeIdx, &isInlet);
+        swmm_node_get_rim_depth(eng, engNodeIdx, &rimDepth);
+        n.invertElev = invert;
+        n.maxDepth = renderRimDepth(isVirtual != 0, maxDepth, rimDepth);
         n.surchargeDepth = std::max(0.0, surchargeDepth);
-        n.kind           = toNodeKind(nodeType, isVirtual != 0);
+        n.kind = toNodeKind(nodeType, isVirtual != 0);
+        // An inlet junction keeps the VirtualJunction kind (it IS one) and
+        // adds the flag the renderer uses for its extra glyph.
+        n.isInlet = (isInlet != 0);
+        if (n.kind == ProfileBuilder::NodeKind::Storage) {
+            int control = -1;
+            double saturation = 0.0;
+            if (swmm_node_get_lid(eng, engNodeIdx, &control, &saturation) == SWMM_OK &&
+                control >= 0) {
+                double top = n.invertElev + n.maxDepth;
+                const int count = swmm_lid_node_layer_count(eng, control);
+                for (int row = 0; row < count; ++row) {
+                    SWMM_LidNodeLayer layer{};
+                    if (swmm_lid_node_layer_get(eng, control, row, &layer) != SWMM_OK)
+                        break;
+                    if (layer.kind == SWMM_LID_NODE_BOTTOM)
+                        continue;
+                    const double depth = layer.params[0] * layerDepthScale;
+                    if (!std::isfinite(depth) || depth < 0.0)
+                        break;
+                    using Layer = ProfileBuilder::NodeLidLayer;
+                    const auto kind = layer.kind == SWMM_LID_NODE_SURFACE ? Layer::Surface
+                                      : layer.kind == SWMM_LID_NODE_MEDIA ? Layer::Media
+                                                                          : Layer::Aggregate;
+                    n.lidLayers.push_back({kind, top, top - depth});
+                    top -= depth;
+                }
+            }
+        }
         nodes.push_back(n);
     }
 
@@ -119,9 +297,9 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         const int engLinkIdx = routerPath.linkIds[i];
         PathLinkInfo l;
         l.engineLinkIdx = engLinkIdx;
-        l.name          = QString::fromUtf8(swmm_link_id(eng, engLinkIdx));
+        l.name = QString::fromUtf8(swmm_link_id(eng, engLinkIdx));
         double len = 0.0, rawOffUp = 0.0, rawOffDn = 0.0;
-        int    linkType = 0;
+        int linkType = 0;
         swmm_link_get_length(eng, engLinkIdx, &len);
         // Engine contract: swmm_link_get_offset_up/dn always returns the
         // offset as **depth above the connecting node invert**, regardless
@@ -133,19 +311,25 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         swmm_link_get_offset_dn(eng, engLinkIdx, &rawOffDn);
         swmm_link_get_type(eng, engLinkIdx, &linkType);
         l.length = len;
-        l.kind   = toLinkKind(linkType);
+        l.kind = toLinkKind(linkType);
         int xsShape = 0;
         double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
-        if (swmm_link_get_xsect(eng, engLinkIdx, &xsShape, &g1, &g2, &g3, &g4) == 0)
-            l.maxDepth = g1;
+        if (swmm_link_get_xsect(eng, engLinkIdx, &xsShape, &g1, &g2, &g3, &g4) == 0) {
+            l.isStreet = (xsShape == SWMM_XSECT_STREET);
+            // NOT g1: swmm_link_get_xsect reports a TABLE INDEX there for
+            // STREET and IRREGULAR, so assigning it made a street conduit on
+            // the first street a zero-height tube.
+            l.maxDepth = openswmmvis::sectionview::linkFullDepth(
+                eng, engLinkIdx, xsShape, g1, g2, g3, g4, profileUnitsAreSI(), &l.openTop);
+        }
 
         // Identify path-traversal orientation against the model link's
         // intrinsic from→to direction.
         int modelFrom = -1, modelTo = -1;
         swmm_link_get_from_node(eng, engLinkIdx, &modelFrom);
-        swmm_link_get_to_node  (eng, engLinkIdx, &modelTo);
-        const bool reversed = (modelFrom == routerPath.nodes[i + 1]
-                                  && modelTo == routerPath.nodes[i]);
+        swmm_link_get_to_node(eng, engLinkIdx, &modelTo);
+        const bool reversed =
+            (modelFrom == routerPath.nodes[i + 1] && modelTo == routerPath.nodes[i]);
         l.reversed = reversed;
 
         // Assign in path-traversal order: offset1 sits next to nodes[i],
@@ -164,8 +348,8 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         // the path-upstream invert is no longer the right anchor.  We
         // store the value as-is and rely on the path-traversal-aware
         // renderer to honour the `reversed` flag.
-        if (l.kind == ProfileBuilder::LinkKind::Weir
-            || l.kind == ProfileBuilder::LinkKind::Outlet) {
+        if (l.kind == ProfileBuilder::LinkKind::Weir ||
+            l.kind == ProfileBuilder::LinkKind::Outlet) {
             double crest = 0.0;
             swmm_link_get_crest_height(eng, engLinkIdx, &crest);
             l.crestHeight = crest;
@@ -174,23 +358,29 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         links.push_back(l);
     }
 
-    return buildPathStatic(routerPath, nodes, links);
+    ProfileBuilder::PathStatic path = buildPathStatic(routerPath, nodes, links);
+    collectNodeBranches(model, routerPath, path);
+    return path;
 }
 
 int findNodeIndex(SWMMModelLayer *model, const QString &name)
 {
-    if (!model) return -1;
+    if (!model)
+        return -1;
     SWMM_Engine eng = model->engine();
-    if (!eng) return -1;
+    if (!eng)
+        return -1;
     const QByteArray u = name.toUtf8();
     return swmm_node_index(eng, u.constData());
 }
 
 int findLinkIndex(SWMMModelLayer *model, const QString &name)
 {
-    if (!model) return -1;
+    if (!model)
+        return -1;
     SWMM_Engine eng = model->engine();
-    if (!eng) return -1;
+    if (!eng)
+        return -1;
     const QByteArray u = name.toUtf8();
     return swmm_link_index(eng, u.constData());
 }

@@ -29,6 +29,11 @@
   </provides>
 
   <releases>
+    <release version="6.0.0-alpha.4" date="2026-09-08">
+      <description>
+        <p>Alpha 4 release of the OpenSWMM GUI.</p>
+      </description>
+    </release>
     <release version="6.0.0-alpha.3" date="2026-07-12">
       <description>
         <p>Alpha 3 release of the OpenSWMM GUI.</p>

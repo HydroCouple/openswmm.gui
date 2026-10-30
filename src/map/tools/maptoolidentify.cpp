@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolidentify.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolidentify.cpp
+ * @brief     Holds identify results from a single layer.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolidentify.h"
@@ -24,23 +27,27 @@ QCursor OpenSWMMVisMapToolIdentify::cursor() const
     return Qt::WhatsThisCursor;
 }
 
-double OpenSWMMVisMapToolIdentify::mapTolerance() const { return m_tolerance; }
+double OpenSWMMVisMapToolIdentify::mapTolerance() const
+{
+    return m_tolerance;
+}
 
 void OpenSWMMVisMapToolIdentify::setMapTolerance(double tolerance)
 {
-    if (!qFuzzyCompare(m_tolerance, tolerance))
-    {
+    if (!qFuzzyCompare(m_tolerance, tolerance)) {
         m_tolerance = tolerance;
         emit mapToleranceChanged(tolerance);
     }
 }
 
-bool OpenSWMMVisMapToolIdentify::queryAllLayers() const { return m_queryAll; }
+bool OpenSWMMVisMapToolIdentify::queryAllLayers() const
+{
+    return m_queryAll;
+}
 
 void OpenSWMMVisMapToolIdentify::setQueryAllLayers(bool all)
 {
-    if (m_queryAll != all)
-    {
+    if (m_queryAll != all) {
         m_queryAll = all;
         emit queryAllLayersChanged(all);
     }
@@ -71,8 +78,7 @@ void OpenSWMMVisMapToolIdentify::mousePressEvent(QMouseEvent *event)
     const QList<OpenSWMMVisLayer *> &layers = m_canvas->layers();
 
     // Iterate top-down (highest index = topmost visible layer first)
-    for (int i = layers.size() - 1; i >= 0; --i)
-    {
+    for (int i = layers.size() - 1; i >= 0; --i) {
         OpenSWMMVisLayer *layer = layers.at(i);
         if (!layer->isVisible())
             continue;
@@ -80,19 +86,15 @@ void OpenSWMMVisMapToolIdentify::mousePressEvent(QMouseEvent *event)
         IdentifyResult result;
         result.layerName = layer->name();
 
-        if (auto *vl = qobject_cast<GISVectorLayer *>(layer))
-        {
-            result.features = vl->identifyAt(m_lastX, m_lastY, m_tolerance);
-        }
-        else if (auto *ml = qobject_cast<SWMMModelLayer *>(layer))
-        {
+        if (auto *vl = qobject_cast<GISVectorLayer *>(layer)) {
+            result.features = vl->identifyAt(m_lastX, m_lastY, m_canvas->canvasSRS(), m_tolerance);
+        } else if (auto *ml = qobject_cast<SWMMModelLayer *>(layer)) {
             QVariantMap feat = ml->identifyAt(m_lastX, m_lastY, m_tolerance);
             if (!feat.isEmpty())
                 result.features.append(feat);
         }
 
-        if (!result.features.isEmpty())
-        {
+        if (!result.features.isEmpty()) {
             results.append(result);
             if (!m_queryAll)
                 break; // Only query topmost layer
@@ -105,9 +107,8 @@ void OpenSWMMVisMapToolIdentify::mousePressEvent(QMouseEvent *event)
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("identify-tool"));
 }
 
-void OpenSWMMVisMapToolIdentify::paint(QPainter *painter,
-                                    const MapExtent &,
-                                    const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolIdentify::paint(QPainter *painter, const MapExtent &,
+                                       const SpatialReferenceSystem *)
 {
     if (!m_hasResult || !m_canvas)
         return;

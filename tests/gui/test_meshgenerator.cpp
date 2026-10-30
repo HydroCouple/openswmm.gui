@@ -1,15 +1,17 @@
-/*!
- * \file   test_meshgenerator.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshgenerator.cpp
+ * @brief     Tests for meshgenerator.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
- * Slice AU — QtTest coverage for MeshGenerator. The wrapper shells out
- * to vendored Shewchuk Triangle (vendor/triangle/), so the tests are
- * really integration smoke tests: they confirm the input/output round
+ * Slice AU — QtTest coverage for MeshGenerator and its in-tree constrained
+ * Delaunay kernel. These integration tests confirm the input/output round
  * trip including marker-based tag preservation that the
  * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` writer depends on.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QPolygonF>
 #include <QVector>
@@ -24,18 +26,28 @@ using namespace mesh;
 // Self-contained even-odd point-in-ring test, so this target needs no extra
 // link dependency. The robust interiorPoint() seed itself is covered in
 // test_editgeometry.cpp.
+/**
+ * @brief Classify a point against a fixture ring using an independent even-odd ray crossing.
+ * @param[in] ring Stable open or closed polygon in common planar units; fewer than three points
+ * refuses.
+ * @param[in] pt Query coordinate in the same units, preserved.
+ * @return True for odd rightward crossings, false otherwise; boundary classification follows
+ * strict comparison and is not a separate containment guarantee. No allocation or external
+ * dependencies.
+ */
 static bool pointInRingLocal(const QVector<QPointF> &ring, const QPointF &pt)
 {
     const int n = static_cast<int>(ring.size());
-    if (n < 3) return false;
+    if (n < 3)
+        return false;
     bool inside = false;
     for (int i = 0, j = n - 1; i < n; j = i++) {
         const QPointF &a = ring[i];
         const QPointF &b = ring[j];
         if ((a.y() > pt.y()) != (b.y() > pt.y())) {
-            const double xInt =
-                (b.x() - a.x()) * (pt.y() - a.y()) / (b.y() - a.y()) + a.x();
-            if (pt.x() < xInt) inside = !inside;
+            const double xInt = (b.x() - a.x()) * (pt.y() - a.y()) / (b.y() - a.y()) + a.x();
+            if (pt.x() < xInt)
+                inside = !inside;
         }
     }
     return inside;
@@ -47,6 +59,49 @@ class TestMeshGenerator : public QObject
 
 private slots:
 
+    /**
+     * @brief Verify absent/global-disabled size limits and a zero-returning hook do not
+     * reinstate uniform refinement.
+     * @note 100 square produces two triangles when maxArea 0 or hook 0; adding width 6 strip
+     * remains<10000 cells. Positive 100 area callback then refines beyond two cells. Local
+     * generation/options only.
+     */
+    void noGlobalSizeAndNoLimitHookDoNotRestoreUniformCap()
+    {
+        MeshGenerator g;
+        g.setDomain(QPolygonF(QVector<QPointF>{{0, 0}, {100, 0}, {100, 100}, {0, 100}}));
+        GenerationOptions options;
+        options.maxArea = 0;
+        options.minCellSize = 1;
+        options.minAngleDeg = 0;
+        options.latticeSeeding = true;
+        g.setOptions(options);
+        auto result = g.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QCOMPARE(result.triangles.size(), 2);
+        options.maxArea = 1;
+        g.setOptions(options);
+        RefineHook hook;
+        hook.targetAreaAt = [](double, double) { return 0.0; };
+        g.setRefineHook(hook);
+        result = g.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QCOMPARE(result.triangles.size(), 2);
+        ConstraintSegment strip;
+        strip.path = {{10, 50}, {90, 50}};
+        strip.marker = 7;
+        strip.stripWidth = 6;
+        g.addConstraintSegment(strip);
+        result = g.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QVERIFY(result.triangles.size() < 10000);
+        hook.targetAreaAt = [](double, double) { return 100.0; };
+        g.setRefineHook(hook);
+        result = g.generate();
+        QVERIFY2(result.ok, qPrintable(result.errorMsg));
+        QVERIFY(result.triangles.size() > 2);
+    }
+
     /*! Empty domain → ok=false, no crash, clear errorMsg. */
     void emptyDomain_failsCleanly()
     {
@@ -57,26 +112,31 @@ private slots:
         QVERIFY(!r.errorMsg.isEmpty());
     }
 
-    /*! Trivial 100×100 square: any quality min angle should give ≥2 tris. */
+    /*! A coarse100×100square domain produces a successful nonempty triangulation. */
+    /**
+     * @brief Verify a coarse 100 square domain produces nonempty valid mesh with at least four
+     * vertices.
+     * @note maxArea 5000, accepts any successful nonempty triangulation; does not require a
+     * particular internal meshing algorithm or exact topology. No fixture IO or project
+     * mutation.
+     */
     void unitSquare_hasTriangles()
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
         g.setDomain(dom);
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
-        QVERIFY(r.triangles.size() >= 2);
+        QVERIFY(!r.triangles.isEmpty());
         QVERIFY(r.vertices.size() >= 4);
     }
 
-    /*! A non-finite input coordinate must be rejected before Triangle runs.
-     *  NaN compares false against everything, so it survives duplicate and
-     *  degeneracy screening untouched; a vertex with both coordinates NaN
-     *  then SIGSEGVs inside Triangle's initial Delaunay merge (mergehulls →
-     *  counterclockwise), which setjmp cannot catch. DTM NoData and failed
-     *  reprojections are the realistic sources. */
+    /*! A non-finite input coordinate must be rejected before triangulation.
+     *  NaN compares false against everything, so duplicate and degeneracy
+     *  screening cannot establish valid geometry. DTM NoData and failed
+     *  reprojections are realistic sources. */
     void nonFiniteCoordinates_failCleanly()
     {
         const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -86,8 +146,7 @@ private slots:
         {
             MeshGenerator g;
             QPolygonF dom;
-            dom << QPointF(0,0) << QPointF(100,0)
-                << QPointF(100,100) << QPointF(0,100);
+            dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
             g.setDomain(dom);
             g.addSteinerPoint({QPointF(nan, nan), 7, "J1"});
             const MeshResult r = g.generate();
@@ -100,21 +159,19 @@ private slots:
         {
             MeshGenerator g;
             QPolygonF dom;
-            dom << QPointF(0,0) << QPointF(inf,0)
-                << QPointF(100,100) << QPointF(0,100);
+            dom << QPointF(0, 0) << QPointF(inf, 0) << QPointF(100, 100) << QPointF(0, 100);
             g.setDomain(dom);
             const MeshResult r = g.generate();
             QVERIFY(!r.ok);
             QVERIFY(r.errorMsg.contains("finite"));
         }
 
-        // (c) A single NaN component still counts — it silently drops the
-        //     vertex inside Triangle rather than crashing, which is worse.
+        // (c) A single NaN component still counts — reject the coordinate
+        //     rather than silently dropping a required vertex.
         {
             MeshGenerator g;
             QPolygonF dom;
-            dom << QPointF(0,0) << QPointF(100,0)
-                << QPointF(100,100) << QPointF(0,100);
+            dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
             g.setDomain(dom);
             g.addSteinerPoint({QPointF(nan, 50.0), 8, "J2"});
             const MeshResult r = g.generate();
@@ -126,11 +183,10 @@ private slots:
         {
             MeshGenerator g;
             QPolygonF dom;
-            dom << QPointF(0,0) << QPointF(100,0)
-                << QPointF(100,100) << QPointF(0,100);
+            dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
             g.setDomain(dom);
             g.addSteinerPoint({QPointF(50.0, 50.0), 9, "J3"});
-            g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+            g.setOptions({.maxArea = 500.0});
             const MeshResult r = g.generate();
             QVERIFY2(r.ok, qPrintable(r.errorMsg));
             QVERIFY(!r.triangles.isEmpty());
@@ -153,12 +209,10 @@ private slots:
         const double ox = 740000.0, oy = 2900000.0;
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(ox, oy)
-            << QPointF(ox + 100, oy)
-            << QPointF(ox + 100, oy + 100)
+        dom << QPointF(ox, oy) << QPointF(ox + 100, oy) << QPointF(ox + 100, oy + 100)
             << QPointF(ox, oy + 100);
         g.setDomain(dom);
-        g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 500.0});
         const MeshResult r = g.generate();
 
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
@@ -177,8 +231,7 @@ private slots:
         for (const QPointF &c : corners) {
             int hits = 0;
             for (const MeshVertex &v : r.vertices)
-                if (qAbs(v.xy.x() - c.x()) < 1e-6
-                    && qAbs(v.xy.y() - c.y()) < 1e-6)
+                if (qAbs(v.xy.x() - c.x()) < 1e-6 && qAbs(v.xy.y() - c.y()) < 1e-6)
                     ++hits;
             QCOMPARE(hits, 1);
         }
@@ -189,23 +242,26 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
         g.setDomain(dom);
 
         SteinerPoint sp;
         sp.xy = QPointF(50, 50);
         sp.marker = 42;
-        sp.tag    = QStringLiteral("J1");
+        sp.tag = QStringLiteral("J1");
         g.addSteinerPoint(sp);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
         // At least one output vertex should carry marker 42 + tag "J1".
         bool found = false;
         for (const MeshVertex &v : r.vertices)
-            if (v.marker == 42 && v.tag == QStringLiteral("J1")) { found = true; break; }
+            if (v.marker == 42 && v.tag == QStringLiteral("J1")) {
+                found = true;
+                break;
+            }
         QVERIFY2(found, "Steiner marker did not survive in output vertex.");
     }
 
@@ -214,22 +270,25 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
         g.setDomain(dom);
 
         ConstraintSegment cs;
-        cs.path  << QPointF(20, 50) << QPointF(80, 50);
+        cs.path << QPointF(20, 50) << QPointF(80, 50);
         cs.marker = 7;
-        cs.tag    = QStringLiteral("C5");
+        cs.tag = QStringLiteral("C5");
         g.addConstraintSegment(cs);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
         bool found = false;
         for (const MeshEdge &e : r.boundaryEdges)
-            if (e.marker == 7 && e.tag == QStringLiteral("C5")) { found = true; break; }
+            if (e.marker == 7 && e.tag == QStringLiteral("C5")) {
+                found = true;
+                break;
+            }
         QVERIFY2(found, "Constraint marker did not survive in output edge.");
     }
 
@@ -238,22 +297,25 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
         g.setDomain(dom);
 
         RegionMarker rm;
-        rm.xy = QPointF(50, 50);   // any interior point picks up the whole region
+        rm.xy = QPointF(50, 50); // any interior point picks up the whole region
         rm.attribute = 11;
         rm.tag = QStringLiteral("subcatch_S1");
         g.addRegion(rm);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
 
         bool found = false;
         for (const MeshTriangle &t : r.triangles)
-            if (t.tag == QStringLiteral("subcatch_S1")) { found = true; break; }
+            if (t.tag == QStringLiteral("subcatch_S1")) {
+                found = true;
+                break;
+            }
         QVERIFY2(found, "Region tag did not survive in output triangle.");
     }
 
@@ -262,28 +324,31 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(100, 100) << QPointF(0, 100);
         g.setDomain(dom);
 
-        // Steiner exactly at the (0,0) corner — must not crash Triangle.
+        // Steiner exactly at the (0,0) corner — must not fail triangulation.
         SteinerPoint sp;
         sp.xy = QPointF(0, 0);
         sp.marker = 99;
-        sp.tag    = QStringLiteral("corner");
+        sp.tag = QStringLiteral("corner");
         g.addSteinerPoint(sp);
 
-        g.setOptions({.maxArea = 5000.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         // The corner vertex should now carry marker 99 (promoted from 0).
         bool sawTag = false;
         for (const MeshVertex &v : r.vertices)
-            if (v.tag == QStringLiteral("corner")) { sawTag = true; break; }
+            if (v.tag == QStringLiteral("corner")) {
+                sawTag = true;
+                break;
+            }
         QVERIFY2(sawTag, "Coincident Steiner+corner lost its tag.");
     }
 
     /*! A non-convex (L-shaped) hole is carved out: the hole boundary is added
-     *  as a constraint and a seed strictly INSIDE the ring tells Triangle to
+     *  as a constraint and a seed strictly INSIDE the ring tells the mesher to
      *  leave the region unmeshed. No output triangle centroid may fall in the
      *  hole. Guards the old vertex-centroid-seed bug: for this ring the vertex
      *  centroid lies OUTSIDE the hole, so the old code could carve the wrong
@@ -292,18 +357,19 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(20,0) << QPointF(20,20) << QPointF(0,20);
+        dom << QPointF(0, 0) << QPointF(20, 0) << QPointF(20, 20) << QPointF(0, 20);
         g.setDomain(dom);
 
         // L-shaped hole. Its vertex centroid is OUTSIDE the ring (documented
         // below); a robust interior seed of (3,3) is strictly inside.
         QVector<QPointF> hole;
-        hole << QPointF(2,2)  << QPointF(14,2) << QPointF(14,5)
-             << QPointF(5,5)  << QPointF(5,14) << QPointF(2,14);
+        hole << QPointF(2, 2) << QPointF(14, 2) << QPointF(14, 5) << QPointF(5, 5) << QPointF(5, 14)
+             << QPointF(2, 14);
 
         // Document the bug the robust seed fixes: vertex centroid is outside.
-        QPointF centroid(0,0);
-        for (const QPointF &v : hole) centroid += v;
+        QPointF centroid(0, 0);
+        for (const QPointF &v : hole)
+            centroid += v;
         centroid /= double(hole.size());
         QVERIFY2(!pointInRingLocal(hole, centroid),
                  "Test premise: L-hole vertex centroid should be outside the ring.");
@@ -317,19 +383,19 @@ private slots:
         cs.path << hole.first();
         cs.marker = 0;
         g.addConstraintSegment(cs);
-        g.addHole(QPointF(3, 3));   // strictly inside the L (both arms)
+        g.addHole(QPointF(3, 3)); // strictly inside the L (both arms)
 
-        g.setOptions({.maxArea = 20.0, .minAngle = 28.0});
+        g.setOptions({.maxArea = 20.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         QVERIFY(!r.triangles.isEmpty());
 
         int inHole = 0;
         for (const MeshTriangle &t : r.triangles) {
-            const QPointF c = (r.vertices[t.v0].xy
-                             + r.vertices[t.v1].xy
-                             + r.vertices[t.v2].xy) / 3.0;
-            if (pointInRingLocal(hole, c)) ++inHole;
+            const QPointF c =
+                (r.vertices[t.v0].xy + r.vertices[t.v1].xy + r.vertices[t.v2].xy) / 3.0;
+            if (pointInRingLocal(hole, c))
+                ++inHole;
         }
         QCOMPARE(inHole, 0);
     }
@@ -340,8 +406,9 @@ private slots:
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0,0) << QPointF(100,0) << QPointF(50,80);
+        dom << QPointF(0, 0) << QPointF(100, 0) << QPointF(50, 80);
         g.setDomain(dom);
+        g.setOptions({.maxArea = 5000.0});
         const MeshResult r = g.generate();
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         QVERIFY(r.triangles.size() >= 1);
@@ -350,13 +417,13 @@ private slots:
     /*! A polygon whose vertices quantise down to 2 distinct points (thin
      *  dissolve sliver) must fail cleanly. The old vertex-count closure gate
      *  over-counted the first vertex, so such a ring emitted the degenerate
-     *  reversed pair (a,b),(b,a) as a "closed ring" into Triangle's PSLG. */
+     *  reversed pair (a,b),(b,a) as a "closed ring" into the PSLG. */
     void collapsedTwoVertexRing_failsCleanly()
     {
         MeshGenerator g;
         QPolygonF dom;
-        dom << QPointF(0, 0)     << QPointF(1e-9, 1e-9)
-            << QPointF(100, 100) << QPointF(100 + 1e-9, 100 - 1e-9);
+        dom << QPointF(0, 0) << QPointF(1e-9, 1e-9) << QPointF(100, 100)
+            << QPointF(100 + 1e-9, 100 - 1e-9);
         g.setDomain(dom);
         const MeshResult r = g.generate();
         QVERIFY(!r.ok);

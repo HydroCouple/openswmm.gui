@@ -1,0 +1,60 @@
+{
+  "native_targets": [
+    {
+      "target": "test_engine_lard_transport",
+      "passed": 6
+    },
+    {
+      "target": "test_engine_lard_wiring",
+      "passed": 7
+    },
+    {
+      "target": "test_engine_lid_nodes",
+      "passed": 109
+    },
+    {
+      "target": "test_engine_msx_buildup_washoff",
+      "passed": 44
+    },
+    {
+      "target": "test_engine_msx_parity",
+      "passed": 18
+    },
+    {
+      "target": "test_engine_reaction_ard_binding",
+      "passed": 9
+    },
+    {
+      "target": "test_engine_reaction_expressions",
+      "passed": 9
+    },
+    {
+      "target": "test_engine_reaction_integrators",
+      "passed": 9
+    },
+    {
+      "target": "test_engine_reaction_legacy_binding",
+      "passed": 10
+    },
+    {
+      "target": "test_engine_reactions_api",
+      "passed": 11
+    },
+    {
+      "target": "test_engine_reactions_config",
+      "passed": 37
+    }
+  ],
+  "native_passed": 269,
+  "python_passed": 56,
+  "qt_passed": 16,
+  "benchmarks_passed": 38,
+  "benchmark_negative_controls_passed": 3,
+  "profile": "macOS arm64 Release CPU, native engine and Qt offscreen",
+  "broader_checkpoint_regression": {
+    "passed": 129,
+    "failed": 43,
+    "tests": 172,
+    "note": "A representative mesh fresh-header failure was reproduced with the saved earlier engine library. Mesh-output code was left unchanged; no claim that every failure has been independently classified."
+  }
+}

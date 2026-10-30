@@ -1,11 +1,19 @@
-/*!
- * \file   meshgenerationdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshgenerationdialog.cpp
+ * @brief     Tools → Generate Mesh… dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
+#include "ui/widgets/meshresolutionwidget.h"
+
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "map/channelmeshadoptioncommand.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/widgets/meshregiondefaultswidget.h"
+#include "ui/widgets/corridorsourceswidget.h"
 
 #include "ui/uiscrollhelpers.h"
 
@@ -14,6 +22,7 @@
 #include "core/editgeometry.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "layers/swmmmodellayer.h"
@@ -21,18 +30,44 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/featurelayer.h"
+#include "feature/featureroles.h"
 
 #include "mesh/meshgenerator.h"
+#include "mesh/meshcdt.h"
+#include "mesh/pipelinereporter.h"
+#include "ui/widgets/meshrunlogwidget.h"
+#include "ui/widgets/meshconstraintsourceswidget.h"
+#include "ui/widgets/meshconstraintpreviewwidget.h"
+#include "mesh/constraintaudit.h"
+#include "mesh/sizingaudit.h"
 #include "mesh/meshnodemapper.h"
+#include "mesh/meshenginesync.h" // coupleableNodes / couplingAuthorsCdArea
+#include "selection/selectionmanager.h"
+#include "ui/widgets/nodecouplingselector.h"
+#include "mesh/meshpatch.h"
 #include "mesh/meshresult.h"
-#include "mesh/dtmthinner.h"
+#include <openswmm/engine/openswmm_edit.h>
+#include <QScopeGuard>
+#include "mesh/dtmraster.h"
 #include "mesh/inpmeshwriter.h"
+#include "mesh/inpmeshreader.h"
 #include "mesh/naturalnbinterpolator.h"
 #include "mesh/meshreorder.h"
+#include "mesh/boundaryconditioning.h"
 #include "mesh/meshstagecache.h"
 #include "mesh/pslgprep.h"
+#include "mesh/sizefield.h"
+#include "mesh/terrainbreaklines.h"
+#include "mesh/terrainsizefield.h"
+#include "mesh/terrainerrorfield.h"
+#include "mesh/terrainlocalcopy.h"
+#include "mesh/quadblocks.h"
+#include "project/meshcorridorrecipe.h"
 
+#include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_model.h>
 
 #include <gdal_priv.h>
@@ -44,13 +79,14 @@
 #include <QtConcurrent/QtConcurrent>
 
 #include <QApplication>
+#include <QBitArray>
 #include <QButtonGroup>
 #include <QCryptographicHash>
 #include <QDataStream>
 #include <QDebug>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QProgressBar>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -60,7 +96,10 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -73,12 +112,25 @@
 #include <QSet>
 #include <QSpinBox>
 #include <QStringList>
+#include <QTableWidget>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
+#if defined(Q_OS_WIN)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(Q_OS_MACOS)
+#include <sys/sysctl.h>
+#else
+#include <unistd.h>
+#endif
 
 // lcMeshPerf ("openswmm.mesh.perf") is defined in mesh/meshstagecache.cpp
 // and declared by its header, included above.
@@ -88,11 +140,41 @@
 // the using-declarations keep every unqualified call site below unchanged.
 // ---------------------------------------------------------------------------
 
-using mesh::pslg::simplifyPolyline;
-using mesh::pslg::simplifyRing;
-using mesh::pslg::densifyRing;
+using mesh::pslg::trimByStraightness;
 using mesh::pslg::distSqToSegment;
 using mesh::pslg::snapAndDedupe;
+
+/*! Terrain cache MiB for the dialog's "Automatic" (0) setting: one eighth of
+ *  physical memory, between 256 MiB and 8 GiB. Cache size bounds residency
+ *  only; it never changes the generated mesh. */
+/**
+ * @brief Resolve explicit or automatic terrain-cache residency budget.
+ * @param[in] requested Positive MiB budget returned unchanged, otherwise automatic mode.
+ * @return One eighth of physical memory clamped [256,8192] MiB; failed platform memory discovery
+ * yields 256. This affects residency/performance, not mesh geometry.
+ */
+static int resolvedTerrainCacheMiB(int requested)
+{
+    if (requested > 0)
+        return requested;
+    qint64 bytes = 0;
+#if defined(Q_OS_WIN)
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status))
+        bytes = qint64(status.ullTotalPhys);
+#elif defined(Q_OS_MACOS)
+    int64_t mem = 0;
+    size_t len = sizeof(mem);
+    if (sysctlbyname("hw.memsize", &mem, &len, nullptr, 0) == 0)
+        bytes = mem;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page > 0)
+        bytes = qint64(pages) * page;
+#endif
+    return int(std::clamp<qint64>(bytes / 8 / (1024 * 1024), 256, 8192));
+}
 
 // ---------------------------------------------------------------------------
 // Checked coordinate transform
@@ -111,29 +193,42 @@ using mesh::pslg::snapAndDedupe;
  * OGR leaves HUGE_VAL in a slot it could not transform. Canonicalising to NaN
  * matters for two reasons:
  *
- *  - NaN is already the pipeline's "no value" sentinel (DTMSampler,
- *    DTMThinner, NaturalNeighbourInterpolator all use it), so downstream
+ *  - NaN is already the pipeline's "no value" sentinel (DTMRaster,
+ *    NaturalNeighbourInterpolator both use it), so downstream
  *    finiteness checks catch it uniformly.
  *  - HUGE_VAL passes as an ordinary large coordinate. It survives a bbox
- *    comparison, gets averaged into a centroid, and reaches Triangle intact.
+ *    comparison, gets averaged into a centroid, and reaches the generator intact.
  *
  * Failures are real: PROJ rejects points outside a projection's domain of
  * validity (a UTM zone transform far from its meridian), points needing a
  * datum grid that is not installed, and inverse projections that do not
  * converge — all of which occur on the edges of regional datasets.
  */
-static qsizetype transformChecked(OGRCoordinateTransformation *ct,
-                                  qsizetype n, double *x, double *y)
+/**
+ * @brief Transform coordinate arrays in place and canonicalize failed/nonfinite outputs to NaN.
+ * @param[in,out] ct Nullable borrowed OGR transform, not owned; null means unchanged coordinates.
+ * @param[in] n Point count, nonpositive is a no-op; must fit the internal int-sized
+ * success-vector/index conversions.
+ * @param[in,out] x Required readable/writable array of at least n doubles when ct is nonnull and n
+ * positive.
+ * @param[in,out] y Required matching coordinate array. Coordinates start in source CRS and finish
+ * in target CRS on success.
+ * @return Number of per-point failures; zero for null transform/nonpositive count, without checking
+ * unchanged coordinates for finiteness. Ignores scalar Transform success in favor of per-point
+ * flags.
+ */
+static qsizetype transformChecked(OGRCoordinateTransformation *ct, qsizetype n, double *x,
+                                  double *y)
 {
-    if (!ct || n <= 0) return 0;
+    if (!ct || n <= 0)
+        return 0;
 
     QVector<int> ok(static_cast<int>(n), 0);
     ct->Transform(static_cast<size_t>(n), x, y, nullptr, ok.data());
 
     constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
     qsizetype nBad = 0;
-    for (qsizetype i = 0; i < n; ++i)
-    {
+    for (qsizetype i = 0; i < n; ++i) {
         if (ok[static_cast<int>(i)] && std::isfinite(x[i]) && std::isfinite(y[i]))
             continue;
         x[i] = kNaN;
@@ -146,34 +241,209 @@ static qsizetype transformChecked(OGRCoordinateTransformation *ct,
 /*! \brief Single-point form of transformChecked(). Returns false (and leaves
  *         \p x / \p y NaN) when the point could not be reprojected. A null
  *         \p ct means "same CRS" and succeeds unchanged. */
-static bool transformCheckedPt(OGRCoordinateTransformation *ct,
-                               double &x, double &y)
+/**
+ * @brief Apply the checked coordinate transform to one point.
+ * @param[in,out] ct Nullable borrowed transform, not destroyed here.
+ * @param[in,out] x Source X replaced by target X or NaN on failure.
+ * @param[in,out] y Source Y replaced by target Y or NaN on failure.
+ * @return True when checked failure count is zero; null transform succeeds unchanged even for an
+ * already nonfinite input.
+ */
+static bool transformCheckedPt(OGRCoordinateTransformation *ct, double &x, double &y)
 {
     return transformChecked(ct, 1, &x, &y) == 0;
 }
 
 // ---------------------------------------------------------------------------
-// Worker function — runs on QtConcurrent thread, NO widget access allowed.
+// Quad region helpers (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1)
 // ---------------------------------------------------------------------------
 
-static void
-runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
-                    MeshGenerationDialog::PipelineInputs            in)
+// Resolve the shared physical settings into the worker's map and elevation units.
+/**
+ * @brief Translate optional SI-canonical resolution into worker map/elevation fields.
+ * @param[in,out] in Owned worker inputs, requiring validated settings and finite positive
+ * horizontal/vertical metre-per-unit scales when resolution exists; absent resolution is a no-op.
+ * Writes sizes/tolerances/area limits/refinement/terrain/reference/caps; zero optional maximum
+ * means unbounded. Does not open files or validate scales itself.
+ */
+static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
+{
+    if (!in.resolution)
+        return;
+    const auto &r = *in.resolution;
+    in.minCellSize = r.minimumM / in.meshLinearUnitToSI;
+    in.cellSize =
+        (r.refineFeatures ? r.featureM.value_or(r.minimumM) : r.minimumM) / in.meshLinearUnitToSI;
+    in.maximumCellSize = r.maximumM.value_or(0) / in.meshLinearUnitToSI;
+    in.sizeRatio = r.transition;
+    in.refineAtFeatures = r.refineFeatures;
+    in.terrainAdaptive = r.terrain == mesh::ResolutionSettings::Terrain::Adaptive;
+    in.terrainAutoTolerance = !r.toleranceM && r.terrain != mesh::ResolutionSettings::Terrain::Off;
+    in.terrainTolerance = r.terrain == mesh::ResolutionSettings::Terrain::Off
+                              ? 0
+                              : r.toleranceM.value_or(0) / in.verticalUnitToSI;
+    in.terrainBreaklines = r.alignTerrain;
+    in.breaklineTolerance = r.breaklineToleranceM.value_or(0) / in.verticalUnitToSI;
+    in.terrainReference = int(r.reference);
+    in.terrainAveragingSize = r.averagingM.value_or(r.minimumM) / in.meshLinearUnitToSI;
+    in.genOpts.maxArea = 0.4330127018922193 * in.maximumCellSize * in.maximumCellSize;
+    in.genOpts.minCellSize = in.minCellSize;
+    in.genOpts.coarsenPasses = r.coarsenPasses;
+    in.genOpts.coarseningOrder=r.coarseningOrder;
+    in.genOpts.coarseningReferenceSize=r.terrainTolerancePolicy.referenceSize/in.meshLinearUnitToSI;
+    in.genOpts.normalVerticalToXY=in.verticalUnitToSI/in.meshLinearUnitToSI;
+    in.terrainTolerancePolicy=r.terrainTolerancePolicy;
+    in.terrainTolerancePolicy.referenceSize/=in.meshLinearUnitToSI;
+    in.terrainTolerancePolicy.minimumTolerance/=in.verticalUnitToSI;
+    in.terrainTolerancePolicy.maximumTolerance/=in.verticalUnitToSI;
+
+    in.genOpts.verifiedSizing = r.sizing != mesh::ResolutionSettings::Sizing::Legacy;
+    in.genOpts.unifiedCellPlanning=r.cellPlanning==mesh::ResolutionSettings::CellPlanning::Unified;
+    in.genOpts.minimumRequiredEdge=r.minimumEdgeM.value_or(0)/in.meshLinearUnitToSI;
+    if(in.genOpts.unifiedCellPlanning)in.genOpts.preserveConstraintCoordinates=true;
+    in.genOpts.maximumAdjacentRatio = in.genOpts.verifiedSizing ? r.transition : 0;
+    in.genOpts.terrainMinLineLength =
+        r.minimumBreaklineLengthM.value_or(4 * r.minimumM) / in.meshLinearUnitToSI;
+    in.maxTerrainBreaklines =
+        r.maxBreaklines > 0 ? r.maxBreaklines : std::max(1, in.genOpts.maxCells / 200);
+}
+
+/**
+ * @brief Execute staged geometry/terrain preparation and pending mesh construction on a worker.
+ * @param[in,out] promise Required framework result/progress/cancel channel; appends an ok=false
+ * diagnostic on early failure or a moved ok=true result on success. It does not finish the promise
+ * itself.
+ * @param[in] in Owned copied input snapshot, validated for shared resolution/scales when present;
+ * parallel coordinate/elevation/marker arrays must be consistent.
+ * Reads fresh source handles, conditions/caches boundaries with bbox fallback where configured
+ * reads fail, skips invalid holes, filters constraints, samples/refines terrain and optional quads,
+ * reorders/fills elevations and maps coupling. Preserves infiltration row inheritance and reports
+ * unresolved accuracy/resource exceptions rather than claiming certification. Cache writes can
+ * survive failure/cancel; returns in-memory topology and intended destination only, leaving final
+ * .inp/.2dm publication to project Save. Throws to the outer exception-converting wrapper.
+ */
+static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
+                                MeshGenerationDialog::PipelineInputs in)
 {
     using PResult = MeshGenerationDialog::PipelineResult;
+    mesh::PipelineReporter reporter(in.events);
 
     // Adds a failure result and marks the promise done.
     // Callers `return` immediately after calling this.
+    // Node vertices pinned to their rim (invert + max depth) where a DTM can
+    // still lower them: the rim applies only where the terrain is higher.
+    QSet<int> rimPinnedMarkers;
+    /**
+     * @brief Append a failed worker result. Argument `msg`: diagnostic copied into errorMsg.
+     * Returns: no value; does not finish the promise, so caller must return immediately. Cache
+     * writes already made are not rolled back.
+     */
     auto fail = [&](const QString &msg) {
-        PResult r; r.ok = false; r.errorMsg = msg;
+        PResult r;
+        r.ok = false;
+        r.errorMsg = msg;
+        r.status =
+            promise.isCanceled() ? meshkit::RunStatus::Cancelled : meshkit::RunStatus::Failed;
+        reporter.complete(r.status, msg);
         promise.addResult(r);
     };
 
+    if (in.resolution) {
+        const QString error = in.resolution->validate();
+        if (!error.isEmpty()) {
+            fail(error);
+            return;
+        }
+        if (!(in.meshLinearUnitToSI > 0) || !std::isfinite(in.meshLinearUnitToSI) ||
+            !(in.verticalUnitToSI > 0) || !std::isfinite(in.verticalUnitToSI)) {
+            fail(QObject::tr(
+                "Mesh horizontal and vertical units must have a finite positive scale."));
+            return;
+        }
+        applyResolution(in);
+    }
+    if (in.maximumCellSize < 0)
+        in.maximumCellSize = in.cellSize * std::max(1.0, in.coarsenFactor);
+    if (in.breaklineTolerance < 0)
+        in.breaklineTolerance = in.terrainTolerance;
+    in.genOpts.allowQuads = in.quadMode != 0;
+    if (!in.genOpts.allowQuads) {
+        in.genOpts.quadsBetweenBreaklines = false;
+        in.conduitStripWidth = 0;
+        for (auto &segment : in.constraintSegs)
+            segment.stripWidth = 0;
+        reporter.diagnostic(
+            meshkit::Severity::Info,
+            QObject::tr("Triangles only: all generated quad strips and regions are disabled; "
+                        "region outlines, tags and local sizes remain constraints."),
+            "cell_mode");
+    }
+    const double requestedTrimTurn = in.trimTurnDeg;
+    const double requestedTrimDeviation = in.trimDeviation;
+    if (in.geometryMode < 0 || in.geometryMode > 2) {
+        fail(QObject::tr("Invalid geometry policy."));
+        return;
+    }
+    if (in.constraintPreviewOnly && in.geometryMode == 0) {
+        fail(QObject::tr("Choose a preserve or bounded geometry policy before previewing constraints."));
+        return;
+    }
+    if (in.geometryMode != 0) {
+        for (const auto *source : {&in.boundaryPolicy, &in.conduitPolicy})
+            if (const auto error = source->validate(); !error.isEmpty()) {
+                fail(error);
+                return;
+            }
+        in.genOpts.preserveConstraintCoordinates = true;
+        in.conditionBoundary = false;
+        in.trimTurnDeg = 0;
+        in.trimDeviation = 0;
+    }
+    QHash<int, MeshGenerationDialog::PipelineInputs::AuxLine> linePolicies;
+    QJsonObject geometryMetrics;
+    QVector<mesh::SimplificationFeature> acceptedConstraints;
+    mesh::ConstraintPreview constraintPreview;
+    int terrainDecimation = 1;
+    double actualTerrainPixelSize = 0;
     promise.setProgressRange(0, 100);
 
+    /**
+     * @brief Publish worker progress and stage text. Argument `pct`: requested percent in the
+     * configured [0,100] range; Qt owns range handling. Argument `msg`: copied human-readable
+     * stage. Returns: no value; no widget access.
+     */
+    int overallProgress = 0;
     auto progress = [&](int pct, const QString &msg) {
-        promise.setProgressValueAndText(pct, msg);
+        overallProgress = std::max(overallProgress, pct);
+        promise.setProgressValueAndText(overallProgress, msg);
+        const QString stage = pct < 20   ? QObject::tr("Constraints")
+                              : pct < 40 ? QObject::tr("Terrain preparation")
+                              : pct < 65 ? QObject::tr("Mesh generation")
+                              : pct < 70 ? QObject::tr("Open quad blocks")
+                              : pct < 82 ? QObject::tr("Elevations")
+                              : pct < 85 ? QObject::tr("Coupling")
+                                         : QObject::tr("Validation");
+        reporter.progress(pct, msg, stage);
     };
+
+    progress(0, QObject::tr("Reading selected corridor features…"));
+    auto corridors = mesh::readCorridorSources(in.corridorSources, in.meshCRSWkt,
+                                               [&promise] { return promise.isCanceled(); });
+    if (!corridors.ok()) {
+        fail(corridors.error);
+        return;
+    }
+    QVector<QPolygonF> featureCorridorRings;
+    for (const auto &patch : std::as_const(corridors.patches)) {
+        QString error;
+        const auto boundary = mesh::orderedPatchBoundary(patch, &error);
+        if (!error.isEmpty()) {
+            fail(error);
+            return;
+        }
+        featureCorridorRings.append(boundary);
+        in.patches.append(patch);
+    }
 
     // 2026-07-19c — sub-stage timing. The 36 %→38 % band (reprojection,
     // Poisson filter, boundary filter) reported no intermediate progress,
@@ -183,10 +453,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     QElapsedTimer stageClock, totalClock;
     stageClock.start();
     totalClock.start();
+    /**
+     * @brief Log elapsed substage/running milliseconds. Argument `what`: required stable C-string
+     * stage label, read immediately. Returns: no value; restarts the substage timer only.
+     */
     auto stageMark = [&](const char *what) {
-        qCDebug(lcMeshPerf).nospace() << "[Mesh][t] " << what << ": "
-                           << stageClock.restart() << " ms (total "
-                           << totalClock.elapsed() << " ms)";
+        const qint64 elapsed = stageClock.restart();
+        reporter.stageCompleted(QString::fromUtf8(what), elapsed);
+        qCDebug(lcMeshPerf).nospace() << "[Mesh][t] " << what << ": " << elapsed << " ms (total "
+                                      << totalClock.elapsed() << " ms)";
     };
 
     // ── Stage-A cache: prepared boundary (domains + hole rings/seeds) ──
@@ -198,21 +473,17 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     mesh::MeshStageCache::BoundaryPrep bprep;
     bool bprepReady = false;
     QByteArray boundaryCacheKey;
-    if (in.boundaryKind != MeshGenerationDialog::PipelineInputs::BoundaryKind::AutoBBox
-        && cache.isUsable())
-    {
+    if (in.geometryMode == 0 &&
+        in.boundaryKind != MeshGenerationDialog::PipelineInputs::BoundaryKind::AutoBBox &&
+        cache.isUsable()) {
         mesh::MeshStageCache::FileIdentity srcId;
         QByteArray subHash;
-        if (in.boundaryKind
-            == MeshGenerationDialog::PipelineInputs::BoundaryKind::VectorFile)
-        {
+        if (in.boundaryKind == MeshGenerationDialog::PipelineInputs::BoundaryKind::VectorFile) {
             const QFileInfo bfi(in.boundaryPath);
-            srcId.absPath   = bfi.absoluteFilePath();
-            srcId.mtimeMs   = bfi.lastModified().toMSecsSinceEpoch();
+            srcId.absPath = bfi.absoluteFilePath();
+            srcId.mtimeMs = bfi.lastModified().toMSecsSinceEpoch();
             srcId.sizeBytes = bfi.size();
-        }
-        else
-        {
+        } else {
             QByteArray blob;
             {
                 QDataStream s(&blob, QIODevice::WriteOnly);
@@ -221,29 +492,29 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
             subHash = QCryptographicHash::hash(blob, QCryptographicHash::Sha256);
         }
+        // The trimming parameters participate in the key: the cached
+        // payload is the PREPARED rings, so an entry built with different
+        // trimming would silently mesh the wrong geometry.
         boundaryCacheKey = mesh::MeshStageCache::boundaryKey(
-            srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt,
-            in.meshCRSWkt, in.pslgSimplifyEps, in.maxBoundaryEdgeLen);
+            srcId, subHash, in.boundaryLayerName, in.boundaryCRSWkt, in.meshCRSWkt, in.trimTurnDeg,
+            in.trimDeviation, in.minCellSize, in.conditionBoundary);
 
         QElapsedTimer cacheClock;
         cacheClock.start();
-        if (cache.loadBoundary(boundaryCacheKey, &bprep))
-        {
-            bprepReady   = true;
-            in.domains   = bprep.domains;
+        if (cache.loadBoundary(boundaryCacheKey, &bprep)) {
+            bprepReady = true;
+            in.domains = bprep.domains;
             in.holeRings = bprep.holeRings;
-            qCInfo(lcMeshPerf) << "[Mesh][cache] boundary prep HIT"
-                               << boundaryCacheKey.left(12).constData()
-                               << "-" << bprep.holeRings.size() << "holes,"
-                               << bprep.domains.size() << "domains in"
-                               << cacheClock.elapsed() << "ms";
-            progress(11, QObject::tr("Boundary loaded from cache (%1 holes)")
-                             .arg(bprep.holeRings.size()));
-        }
-        else
-        {
-            qCInfo(lcMeshPerf) << "[Mesh][cache] boundary prep miss"
-                               << boundaryCacheKey.left(12).constData();
+            reporter.line(meshkit::Severity::Info)
+                << "[Mesh][cache] boundary prep HIT" << boundaryCacheKey.left(12).constData() << "-"
+                << bprep.holeRings.size() << "holes," << bprep.domains.size() << "domains in"
+                << cacheClock.elapsed() << "ms";
+            progress(
+                11,
+                QObject::tr("Boundary loaded from cache (%1 holes)").arg(bprep.holeRings.size()));
+        } else {
+            reporter.line(meshkit::Severity::Info)
+                << "[Mesh][cache] boundary prep miss" << boundaryCacheKey.left(12).constData();
         }
     }
 
@@ -252,282 +523,415 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // read, UnaryUnion dissolve, and exterior-ring prep run here so the GUI
     // thread never blocks on them.  Vector sources are re-opened by path —
     // GDAL dataset handles and OGR SRS/CT objects must not cross threads.
-    if (!bprepReady)
-    {
-    progress(2, QObject::tr("Reading boundary geometry…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-    {
-        using BoundaryKind = MeshGenerationDialog::PipelineInputs::BoundaryKind;
-
-        OGRCoordinateTransformation *boundaryCT = nullptr;  // boundary → mesh CRS
-        if (!in.boundaryCRSWkt.isEmpty() && !in.meshCRSWkt.isEmpty())
-        {
-            OGRSpatialReference bSRS, mSRS;
-            if (bSRS.importFromWkt(in.boundaryCRSWkt.toUtf8().constData()) == OGRERR_NONE
-                && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE)
-            {
-                bSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                if (!mSRS.IsSame(&bSRS))
-                    boundaryCT = OGRCreateCoordinateTransformation(&bSRS, &mSRS);
-            }
-        }
-
-        // Boundary vertices PROJ could not reproject. These define the meshing
-        // domain, so a dropped or fabricated one silently deforms it — count
-        // them and refuse the run below rather than meshing a wrong outline.
-        qsizetype nBoundaryXformFailed = 0;
-
-        auto ringToMesh = [&](const OGRLinearRing *r) {
-            const int n = r->getNumPoints();
-            QVector<QPointF> pts;
-            pts.reserve(n);
-            if (boundaryCT && n > 0)
-            {
-                QVector<double> xs(n), ys(n);
-                for (int i = 0; i < n; ++i) { xs[i] = r->getX(i); ys[i] = r->getY(i); }
-                nBoundaryXformFailed += transformChecked(boundaryCT, n,
-                                                         xs.data(), ys.data());
-                for (int i = 0; i < n; ++i)
-                {
-                    // Skip the failures so the ring stays well-formed for the
-                    // simplify/densify passes; the count above is what decides
-                    // whether the run proceeds.
-                    if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
-                        pts.append(QPointF(xs[i], ys[i]));
-                }
-            }
-            else
-            {
-                for (int i = 0; i < n; ++i) pts.append(QPointF(r->getX(i), r->getY(i)));
-            }
-            return pts;
-        };
-
-        auto pushOgrPolygon = [&](const OGRPolygon *poly) {
-            if (!poly) return;
-            const OGRLinearRing *ext = poly->getExteriorRing();
-            if (!ext || ext->getNumPoints() < 3) return;
-            // Simplify the exterior ring with RDP, then optionally densify:
-            // split edges longer than "Max boundary edge length" (pure vertex
-            // insertion — geometry unchanged).
-            //
-            // Validate the simplified ring the same way prepareHoleRing does
-            // for interior rings: RDP on a serpentine/concave boundary can
-            // make the exterior self-intersect, and a self-intersecting
-            // OUTER ring becomes crossing constrained segments in the PSLG
-            // (Triangle abort, or a flooded exterior carve). Fall back to
-            // the unsimplified ring — GEOS/OGR output is valid by
-            // construction; only RDP can break it.
-            const QVector<QPointF> rawExt = ringToMesh(ext);
-            QVector<QPointF> simpExt = simplifyRing(rawExt, in.pslgSimplifyEps);
-            {
-                EditGeometry::RingPolygon check;
-                check.exterior = simpExt;
-                if (EditGeometry::validateRingPolygon(check)
-                    != EditGeometry::RingValidity::Ok)
-                    simpExt = rawExt;
-            }
-            in.domains.append(QPolygonF(
-                densifyRing(simpExt, in.maxBoundaryEdgeLen)));
-            for (int h = 0; h < poly->getNumInteriorRings(); ++h)
-            {
-                const OGRLinearRing *hole = poly->getInteriorRing(h);
-                if (!hole || hole->getNumPoints() < 3) continue;
-                // Raw — mesh::pslg::prepareHoleRings handles these below.
-                in.holeRings.append(ringToMesh(hole));
-            }
-        };
-
-        auto walkOgrGeom = [&](const OGRGeometry *geom) {
-            if (!geom) return;
-            const auto gt = wkbFlatten(geom->getGeometryType());
-            if (gt == wkbPolygon)
-                pushOgrPolygon(geom->toPolygon());
-            else if (gt == wkbMultiPolygon)
-            {
-                const auto *mp = geom->toMultiPolygon();
-                for (int i = 0; i < mp->getNumGeometries(); ++i)
-                    pushOgrPolygon(mp->getGeometryRef(i)->toPolygon());
-            }
-        };
-
-        bool cancelled = false;
-        if (in.boundaryKind == BoundaryKind::Subcatchments)
-        {
-            // Subcatchment rings arrived as POD copies (mesh CRS).  Dissolve
-            // with UnaryUnion so internal boundaries between adjacent
-            // subcatchments disappear from the PSLG boundary.
-            OGRMultiPolygon mp;
-            for (const auto &verts : std::as_const(in.subcatchPolys))
-            {
-                OGRPolygon poly;
-                OGRLinearRing ring;
-                for (const QPointF &p : verts) ring.addPoint(p.x(), p.y());
-                if (verts.first() != verts.last())
-                    ring.addPoint(verts.first().x(), verts.first().y());
-                poly.addRing(&ring);
-                mp.addGeometry(&poly);
-            }
-            OGRGeometry *unioned = mp.UnaryUnion();
-            stageMark("boundary: UnaryUnion (subcatchments)");
-            if (unioned)
-            {
-                walkOgrGeom(unioned);
-                OGRGeometryFactory::destroyGeometry(unioned);
-            }
-            if (in.domains.isEmpty())
-                for (const auto &v : std::as_const(in.subcatchPolys))
-                    in.domains.append(QPolygonF(v));
-        }
-        else if (in.boundaryKind == BoundaryKind::VectorFile)
-        {
-            GDALDataset *ds = GDALDataset::Open(
-                in.boundaryPath.toUtf8().constData(),
-                GDAL_OF_VECTOR | GDAL_OF_READONLY);
-            if (!ds)
-            {
-                qWarning() << "[Mesh] boundary source open failed:"
-                           << in.boundaryPath
-                           << "— falling back to the model-extent box.";
-            }
-            else
-            {
-                OGRLayer *ol = in.boundaryLayerName.isEmpty()
-                                   ? ds->GetLayer(0)
-                                   : ds->GetLayerByName(
-                                         in.boundaryLayerName.toUtf8().constData());
-                if (!ol)
-                {
-                    qWarning() << "[Mesh] boundary layer not found:"
-                               << in.boundaryLayerName;
-                }
-                else
-                {
-                    // Collect every polygon into one multipolygon, dissolve
-                    // with UnaryUnion so the boundary is a clean outer shell.
-                    // (addGeometry clones, so per-feature destroy is safe.)
-                    OGRMultiPolygon mp;
-                    ol->ResetReading();
-                    OGRFeature *f = nullptr;
-                    qint64 nRead = 0;
-                    while ((f = ol->GetNextFeature()) != nullptr)
-                    {
-                        const OGRGeometry *geom = f->GetGeometryRef();
-                        if (geom)
-                        {
-                            const auto gt = wkbFlatten(geom->getGeometryType());
-                            if (gt == wkbPolygon)
-                                mp.addGeometry(geom);
-                            else if (gt == wkbMultiPolygon)
-                            {
-                                const auto *mpSrc = geom->toMultiPolygon();
-                                for (int i = 0; i < mpSrc->getNumGeometries(); ++i)
-                                    mp.addGeometry(mpSrc->getGeometryRef(i));
-                            }
-                        }
-                        OGRFeature::DestroyFeature(f);
-                        if (((++nRead) & 0xFFF) == 0 && promise.isCanceled())
-                        { cancelled = true; break; }
-                    }
-                    stageMark("boundary: feature read");
-
-                    if (!cancelled)
-                    {
-                        // UnaryUnion is a single uninterruptible GEOS call;
-                        // Stop takes effect at the next check.
-                        OGRGeometry *dissolved = mp.UnaryUnion();
-                        stageMark("boundary: UnaryUnion");
-                        if (dissolved)
-                        {
-                            walkOgrGeom(dissolved);
-                            OGRGeometryFactory::destroyGeometry(dissolved);
-                        }
-                        else
-                        {
-                            // Fallback: walk collected polygons without dissolve.
-                            for (int i = 0; i < mp.getNumGeometries(); ++i)
-                                walkOgrGeom(mp.getGeometryRef(i));
-                        }
-                    }
-                }
-                GDALClose(ds);
-            }
-        }
-        // BoundaryKind::AutoBBox falls through to the margin box below.
-
-        if (boundaryCT) OGRCoordinateTransformation::DestroyCT(boundaryCT);
-        if (cancelled || promise.isCanceled())
-        { fail(QObject::tr("Cancelled.")); return; }
-
-        if (nBoundaryXformFailed > 0)
-        {
-            // Those vertices were skipped above, so continuing would mesh a
-            // domain whose outline differs from the layer the user picked —
-            // silently, and in a way nothing downstream could detect.
-            fail(QObject::tr(
-                "%1 boundary vertices could not be reprojected from the "
-                "boundary layer's CRS to the mesh CRS.\n"
-                "The meshing domain would not match the boundary layer, so "
-                "generation was stopped. This usually means the two CRSs do "
-                "not overlap, the boundary extends outside the projection's "
-                "domain of validity, or a required datum grid is not "
-                "installed.").arg(nBoundaryXformFailed));
+    if (!bprepReady) {
+        progress(2, QObject::tr("Reading boundary geometry…"));
+        if (promise.isCanceled()) {
+            fail(QObject::tr("Cancelled."));
             return;
         }
-
-        if (in.domains.isEmpty())
         {
-            const double m = 0.05;
-            const MapExtent &me = in.modelExtent;
-            const double mdx = me.width() * m, mdy = me.height() * m;
-            QPolygonF box;
-            box << QPointF(me.xMin()-mdx, me.yMin()-mdy)
-                << QPointF(me.xMax()+mdx, me.yMin()-mdy)
-                << QPointF(me.xMax()+mdx, me.yMax()+mdy)
-                << QPointF(me.xMin()-mdx, me.yMax()+mdy);
-            in.domains.append(box);
-        }
-        stageMark("boundary ingestion");
-    }
-    }   // if (!bprepReady)
+            using BoundaryKind = MeshGenerationDialog::PipelineInputs::BoundaryKind;
 
+            OGRCoordinateTransformation *boundaryCT = nullptr; // boundary → mesh CRS
+            if (!in.boundaryCRSWkt.isEmpty() && !in.meshCRSWkt.isEmpty()) {
+                OGRSpatialReference bSRS, mSRS;
+                if (bSRS.importFromWkt(in.boundaryCRSWkt.toUtf8().constData()) == OGRERR_NONE &&
+                    mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE) {
+                    bSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    if (!mSRS.IsSame(&bSRS))
+                        boundaryCT = OGRCreateCoordinateTransformation(&bSRS, &mSRS);
+                }
+            }
+
+            // Boundary vertices PROJ could not reproject. These define the meshing
+            // domain, so a dropped or fabricated one silently deforms it — count
+            // them and refuse the run below rather than meshing a wrong outline.
+            qsizetype nBoundaryXformFailed = 0;
+
+            /**
+             * @brief Copy/reproject one boundary ring. Argument `r`: required borrowed OGR ring.
+             * Returns: owned mesh-XY vertices, skipping nonfinite transformed points and
+             * accumulating failure count so the enclosing boundary stage can fail. Does not
+             * retain/destroy the ring.
+             */
+            auto ringToMesh = [&](const OGRLinearRing *r) {
+                const int n = r->getNumPoints();
+                QVector<QPointF> pts;
+                pts.reserve(n);
+                if (boundaryCT && n > 0) {
+                    QVector<double> xs(n), ys(n);
+                    for (int i = 0; i < n; ++i) {
+                        xs[i] = r->getX(i);
+                        ys[i] = r->getY(i);
+                    }
+                    nBoundaryXformFailed += transformChecked(boundaryCT, n, xs.data(), ys.data());
+                    for (int i = 0; i < n; ++i) {
+                        // Skip the failures so the ring stays well-formed for the
+                        // simplify/densify passes; the count above is what decides
+                        // whether the run proceeds.
+                        if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
+                            pts.append(QPointF(xs[i], ys[i]));
+                    }
+                } else {
+                    for (int i = 0; i < n; ++i)
+                        pts.append(QPointF(r->getX(i), r->getY(i)));
+                }
+                return pts;
+            };
+
+            /**
+             * @brief Append validated/simplified outer domain and raw hole rings. Argument `poly`:
+             * nullable borrowed OGR polygon; absent/short exterior is ignored. Returns: no value;
+             * invalid simplified exterior falls back to raw geometry, ring transforms contribute
+             * failures.
+             */
+            auto pushOgrPolygon = [&](const OGRPolygon *poly) {
+                if (!poly)
+                    return;
+                const OGRLinearRing *ext = poly->getExteriorRing();
+                if (!ext || ext->getNumPoints() < 3)
+                    return;
+                // Simplify the exterior ring with RDP, then optionally densify:
+                // split edges longer than "Max boundary edge length" (pure vertex
+                // insertion — geometry unchanged).
+                //
+                // Validate the simplified ring the same way prepareHoleRing does
+                // for interior rings: RDP on a serpentine/concave boundary can
+                // make the exterior self-intersect, and a self-intersecting
+                // OUTER ring becomes crossing constrained segments in the PSLG
+                // (constraint recovery failure, or a flooded exterior carve).
+                // Fall back to the unsimplified ring — GEOS/OGR output is valid by
+                // construction; only RDP can break it.
+                const QVector<QPointF> rawExt = ringToMesh(ext);
+                // A conditioned boundary is already simplified with its holes in
+                // view; trimming the exterior alone could cut through a building
+                // merged into it as a notch.
+                QVector<QPointF> simpExt =
+                    in.conditionBoundary && in.minCellSize > 0.0
+                        ? rawExt
+                        : trimByStraightness(rawExt, in.trimTurnDeg, in.trimDeviation, {}, true);
+                {
+                    EditGeometry::RingPolygon check;
+                    check.exterior = simpExt;
+                    if (EditGeometry::validateRingPolygon(check) != EditGeometry::RingValidity::Ok)
+                        simpExt = rawExt;
+                }
+                in.domains.append(QPolygonF(simpExt));
+                for (int h = 0; h < poly->getNumInteriorRings(); ++h) {
+                    const OGRLinearRing *hole = poly->getInteriorRing(h);
+                    if (!hole || hole->getNumPoints() < 3)
+                        continue;
+                    // Raw — mesh::pslg::prepareHoleRings handles these below.
+                    in.holeRings.append(ringToMesh(hole));
+                }
+            };
+
+            /**
+             * @brief Visit polygon or multipolygon boundary components. Argument `geom`: nullable
+             * borrowed OGR geometry; other types ignored. Returns: no value; copies rings through
+             * pushOgrPolygon without taking ownership.
+             */
+            auto walkOgrGeom = [&](const OGRGeometry *geom) {
+                if (!geom)
+                    return;
+                const auto gt = wkbFlatten(geom->getGeometryType());
+                if (gt == wkbPolygon)
+                    pushOgrPolygon(geom->toPolygon());
+                else if (gt == wkbMultiPolygon) {
+                    const auto *mp = geom->toMultiPolygon();
+                    for (int i = 0; i < mp->getNumGeometries(); ++i)
+                        pushOgrPolygon(mp->getGeometryRef(i)->toPolygon());
+                }
+            };
+
+            // Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): close,
+            // open and simplify the dissolved region at the minimum cell size so
+            // building detail that adds no shape cannot force tiny cells.
+            /**
+             * @brief Optionally replace an owned dissolved footprint with minimum-size
+             * conditioning. Argument `region`: nonnull owned OGR geometry pointer by reference,
+             * destroyed/replaced only on successful conditioning; caller still owns the
+             * replacement. Returns: no value; failure logs and retains original.
+             */
+            auto conditionRegion = [&](OGRGeometry *&region) {
+                if (!in.conditionBoundary || !(in.minCellSize > 0.0))
+                    return;
+                mesh::BoundaryConditionReport rep;
+                OGRGeometry *conditioned =
+                    mesh::conditionMeshRegion(region, in.minCellSize, 0.25 * in.minCellSize, &rep);
+                if (!conditioned) {
+                    reporter.line(meshkit::Severity::Warning)
+                        << "[Mesh][boundary] conditioning failed; meshing the boundary as drawn";
+                    return;
+                }
+                OGRGeometryFactory::destroyGeometry(region);
+                region = conditioned;
+                reporter.line(meshkit::Severity::Info).noquote()
+                    << QStringLiteral(
+                           "[Mesh][boundary] conditioned at %1: polygons %2 -> %3, holes %4 -> %5, vertices %6 -> %7, area %8 -> %9 (%10 ms)")
+                           .arg(in.minCellSize)
+                           .arg(rep.polygonsIn)
+                           .arg(rep.polygonsOut)
+                           .arg(rep.holesIn)
+                           .arg(rep.holesOut)
+                           .arg(rep.verticesIn)
+                           .arg(rep.verticesOut)
+                           .arg(rep.areaIn, 0, 'f', 1)
+                           .arg(rep.areaOut, 0, 'f', 1)
+                           .arg(rep.milliseconds);
+                stageMark("boundary: conditioning");
+            };
+
+            bool cancelled = false;
+            if (in.boundaryKind == BoundaryKind::Subcatchments) {
+                // Subcatchment rings arrived as POD copies (mesh CRS).  Dissolve
+                // with UnaryUnion so internal boundaries between adjacent
+                // subcatchments disappear from the PSLG boundary.
+                OGRMultiPolygon mp;
+                for (const auto &verts : std::as_const(in.subcatchPolys)) {
+                    OGRPolygon poly;
+                    OGRLinearRing ring;
+                    for (const QPointF &p : verts)
+                        ring.addPoint(p.x(), p.y());
+                    if (verts.first() != verts.last())
+                        ring.addPoint(verts.first().x(), verts.first().y());
+                    poly.addRing(&ring);
+                    mp.addGeometry(&poly);
+                }
+                OGRGeometry *unioned = mp.UnaryUnion();
+                stageMark("boundary: UnaryUnion (subcatchments)");
+                if (unioned)
+                    conditionRegion(unioned);
+                if (unioned) {
+                    walkOgrGeom(unioned);
+                    OGRGeometryFactory::destroyGeometry(unioned);
+                }
+                if (in.domains.isEmpty())
+                    for (const auto &v : std::as_const(in.subcatchPolys))
+                        in.domains.append(QPolygonF(v));
+            } else if (in.boundaryKind == BoundaryKind::VectorFile) {
+                GDALDataset *ds = GDALDataset::Open(in.boundaryPath.toUtf8().constData(),
+                                                    GDAL_OF_VECTOR | GDAL_OF_READONLY);
+                if (!ds) {
+                    if (in.geometryMode != 0) {
+                        if (boundaryCT) OGRCoordinateTransformation::DestroyCT(boundaryCT);
+                        fail(QObject::tr("The selected boundary source cannot be opened: %1.").arg(in.boundaryPath));
+                        return;
+                    }
+                    reporter.line(meshkit::Severity::Warning)
+                        << "[Mesh] boundary source open failed:" << in.boundaryPath
+                        << "— falling back to the model-extent box.";
+                } else {
+                    OGRLayer *ol =
+                        in.boundaryLayerName.isEmpty()
+                            ? ds->GetLayer(0)
+                            : ds->GetLayerByName(in.boundaryLayerName.toUtf8().constData());
+                    if (!ol) {
+                        if (in.geometryMode != 0) {
+                            GDALClose(ds);
+                            if (boundaryCT) OGRCoordinateTransformation::DestroyCT(boundaryCT);
+                            fail(QObject::tr("The selected boundary layer does not exist: %1.").arg(in.boundaryLayerName));
+                            return;
+                        }
+                        reporter.line(meshkit::Severity::Warning)
+                            << "[Mesh] boundary layer not found:" << in.boundaryLayerName;
+                    } else {
+                        // Collect every polygon into one multipolygon, dissolve
+                        // with UnaryUnion so the boundary is a clean outer shell.
+                        // (addGeometry clones, so per-feature destroy is safe.)
+                        OGRMultiPolygon mp;
+                        ol->ResetReading();
+                        OGRFeature *f = nullptr;
+                        qint64 nRead = 0;
+                        while ((f = ol->GetNextFeature()) != nullptr) {
+                            const OGRGeometry *geom = f->GetGeometryRef();
+                            if (geom) {
+                                const auto gt = wkbFlatten(geom->getGeometryType());
+                                if (gt == wkbPolygon)
+                                    mp.addGeometry(geom);
+                                else if (gt == wkbMultiPolygon) {
+                                    const auto *mpSrc = geom->toMultiPolygon();
+                                    for (int i = 0; i < mpSrc->getNumGeometries(); ++i)
+                                        mp.addGeometry(mpSrc->getGeometryRef(i));
+                                }
+                            }
+                            OGRFeature::DestroyFeature(f);
+                            if (((++nRead) & 0xFFF) == 0 && promise.isCanceled()) {
+                                cancelled = true;
+                                break;
+                            }
+                        }
+                        stageMark("boundary: feature read");
+
+                        if (!cancelled) {
+                            // UnaryUnion is a single uninterruptible GEOS call;
+                            // Stop takes effect at the next check.
+                            OGRGeometry *dissolved = mp.UnaryUnion();
+                            stageMark("boundary: UnaryUnion");
+                            if (dissolved)
+                                conditionRegion(dissolved);
+                            if (dissolved) {
+                                walkOgrGeom(dissolved);
+                                OGRGeometryFactory::destroyGeometry(dissolved);
+                            } else {
+                                // Fallback: walk collected polygons without dissolve.
+                                for (int i = 0; i < mp.getNumGeometries(); ++i)
+                                    walkOgrGeom(mp.getGeometryRef(i));
+                            }
+                        }
+                    }
+                    GDALClose(ds);
+                }
+            }
+            // BoundaryKind::AutoBBox falls through to the margin box below.
+
+            if (boundaryCT)
+                OGRCoordinateTransformation::DestroyCT(boundaryCT);
+            if (cancelled || promise.isCanceled()) {
+                fail(QObject::tr("Cancelled."));
+                return;
+            }
+
+            if (nBoundaryXformFailed > 0) {
+                // Those vertices were skipped above, so continuing would mesh a
+                // domain whose outline differs from the layer the user picked —
+                // silently, and in a way nothing downstream could detect.
+                fail(QObject::tr("%1 boundary vertices could not be reprojected from the "
+                                 "boundary layer's CRS to the mesh CRS.\n"
+                                 "The meshing domain would not match the boundary layer, so "
+                                 "generation was stopped. This usually means the two CRSs do "
+                                 "not overlap, the boundary extends outside the projection's "
+                                 "domain of validity, or a required datum grid is not "
+                                 "installed.")
+                         .arg(nBoundaryXformFailed));
+                return;
+            }
+
+            if (in.domains.isEmpty()) {
+                const double m = 0.05;
+                const MapExtent &me = in.modelExtent;
+                const double mdx = me.width() * m, mdy = me.height() * m;
+                QPolygonF box;
+                box << QPointF(me.xMin() - mdx, me.yMin() - mdy)
+                    << QPointF(me.xMax() + mdx, me.yMin() - mdy)
+                    << QPointF(me.xMax() + mdx, me.yMax() + mdy)
+                    << QPointF(me.xMin() - mdx, me.yMax() + mdy);
+                in.domains.append(box);
+            }
+            stageMark("boundary ingestion");
+        }
+    } // if (!bprepReady)
+
+    // Read the DEM window once into the mesh cache as float32
+    // (MESH_SPEED_DEM_IO_PLAN_2026-10-03.md): break line ranking, vertex
+    // elevations and the final check each read the terrain again, and from a
+    // large uncompressed DEM on a slow volume every pass was bound by that
+    // volume. Later runs reuse the copy.
+    if (!in.dtmPath.isEmpty() && in.terrainReference == 0 && !cache.isUsable()) {
+        fail(QObject::tr(
+            "The averaged terrain reference needs a writable mesh cache. Choose a writable project location or explicitly select Full DEM."));
+        return;
+    }
+    if (!in.dtmPath.isEmpty() && cache.isUsable() && in.terrainReference != 2) {
+        QRectF domainBox;
+        for (const auto &ring : std::as_const(in.domains))
+            domainBox = domainBox.united(ring.boundingRect());
+        stageClock.restart();
+        progress(14, QObject::tr("Caching the terrain window…"));
+        const auto local = mesh::prepareLocalTerrain(
+            in.dtmPath, in.meshCRSWkt, domainBox, cache.dir(),
+            [&](double) { return !promise.isCanceled(); },
+            in.terrainReference == 0
+                ? (in.terrainAveragingSize > 0 ? in.terrainAveragingSize : in.minCellSize)
+                : 0.0);
+        if (promise.isCanceled()) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
+        if (!local.path.isEmpty()) {
+            reporter.line(meshkit::Severity::Info).noquote()
+                << QStringLiteral(
+                       "[Mesh][terrain] local copy %1 (%2 MB, %3 x %3 pixel average): %4")
+                       .arg(local.reused ? QStringLiteral("reused") : QStringLiteral("written"))
+                       .arg(local.bytes / 1e6, 0, 'f', 0)
+                       .arg(local.decimation)
+                       .arg(local.path);
+            in.dtmPath = local.path;
+            terrainDecimation = local.decimation;
+            cache.prune();
+        } else {
+            if (in.terrainReference == 0) {
+                fail(
+                    QObject::tr(
+                        "Could not prepare the selected averaged terrain reference: %1. The full DEM has not been substituted.")
+                        .arg(local.note));
+                return;
+            }
+            reporter.line(meshkit::Severity::Info).noquote()
+                << "[Mesh][terrain] no local copy:" << local.note;
+        }
+        stageMark("local terrain copy");
+    }
     // ── Candidate filtering + marker assignment (worker-side) ────────
     // Mirrors the original collectInputs sequence exactly — junctions →
     // conduits → aux points → aux lines → region markers → snapAndDedupe —
     // so PSLG marker numbering (from 100) is unchanged.
     progress(12, QObject::tr("Filtering features against the domain…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
     {
         mesh::pslg::PointInRingsIndex domIdx;
         domIdx.build(in.domains);
-        auto inDomain = [&domIdx](const QPointF &p) { return domIdx.contains(p); };
+        /**
+         * @brief Query the prepared domain ring index. Argument `p`: borrowed point in mesh CRS.
+         * Returns: captured index containment result; no geometry mutation.
+         */
+        auto inDomain = [&domIdx, &in](const QPointF &p) {
+            return in.geometryMode == 0 ? domIdx.contains(p) : domIdx.covers(p);
+        };
 
-        auto dedupeSegPath = [](const QVector<QPointF> &src) {
+        /**
+         * @brief Drop consecutive path points separated by Manhattan distance at most 1e-9 mesh
+         * units. Argument `src`: borrowed ordered vertices. Returns: owned path preserving
+         * first/nonconsecutive identities; no closure is added.
+         */
+        auto dedupeSegPath = [&in](const QVector<QPointF> &src) {
             QVector<QPointF> r;
             r.reserve(src.size());
             for (const QPointF &p : src)
-                if (r.isEmpty() || (p - r.last()).manhattanLength() > 1e-9)
+                if (r.isEmpty() || (in.geometryMode != 0 ? (p.x() != r.last().x() || p.y() != r.last().y())
+                                                         : (p - r.last()).manhattanLength() > 1e-9))
                     r.append(p);
             return r;
         };
 
         // Strip intermediate vertices that lie outside the domain POLYGON.
         // An unconstrained intermediate vertex outside the domain would
-        // make the PSLG non-planar and abort Triangle; endpoint filtering
-        // below is the primary guard, this strips runaway interior vertices.
+        // make the PSLG non-planar and prevent constraint recovery. Endpoint
+        // filtering below is the primary guard; this strips runaway interior vertices.
         // The test must be against the ring, not its bounding box: on a
         // non-rectangular (e.g. DEM-footprint) domain a link whose middle
         // bulges outside the polygon while staying inside the bbox would
-        // otherwise carry segments that cross the boundary ring — the exact
-        // "non-planar PSLG" Triangle aborts on.
+        // otherwise carry segments that cross the boundary ring and prevent
+        // constraint recovery.
+        /**
+         * @brief Filter intermediate path vertices by domain containment while retaining both
+         * endpoints. Argument `path`: borrowed ordered mesh-XY vertices. Returns: owned
+         * filtered/deduplicated path; input of at most two points is copied unchanged. This is
+         * vertex filtering, not geometric segment clipping.
+         */
         auto clipIntermediateToDomain = [&](const QVector<QPointF> &path) {
-            if (path.size() <= 2) return path;
+            if (path.size() <= 2)
+                return path;
             QVector<QPointF> r;
             r.reserve(path.size());
             r.append(path.first());
-            for (int k = 1; k < path.size()-1; ++k)
-                if (inDomain(path[k])) r.append(path[k]);
+            for (int k = 1; k < path.size() - 1; ++k)
+                if (inDomain(path[k]))
+                    r.append(path[k]);
             r.append(path.last());
             return dedupeSegPath(r);
         };
@@ -535,19 +939,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         const bool haveDTM = !in.dtmPath.isEmpty();
         int nextMarker = 100;
 
-        if (in.includeJunctions)
-        {
+        if (in.includeJunctions) {
             // In-domain candidates first (order preserved = category order:
             // junctions → outfalls → storage → dividers, model row order).
-            QVector<int>     nodeIdx;
+            QVector<int> nodeIdx;
             QVector<QPointF> nodeXY;
             nodeIdx.reserve(in.candidateNodes.size());
             nodeXY.reserve(in.candidateNodes.size());
-            for (int c = 0; c < in.candidateNodes.size(); ++c)
-            {
-                // Skip nodes outside the meshing domain — Triangle ignores
+            for (int c = 0; c < in.candidateNodes.size(); ++c) {
+                // Skip nodes outside the meshing domain — the mesher ignores
                 // them anyway but filtering early shrinks the PSLG.
-                if (!inDomain(in.candidateNodes[c].xy)) continue;
+                if (!inDomain(in.candidateNodes[c].xy))
+                    continue;
                 nodeIdx.append(c);
                 nodeXY.append(in.candidateNodes[c].xy);
             }
@@ -558,151 +961,232 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // constrained triangulation, before any quality pass can act).
             // Demoted nodes stay in couplingNodes, so the post-generation
             // mapper couples them via their containing CELL instead.
-            const QVector<bool> keepNode =
-                mesh::pslg::greedyMinSeparation(nodeXY, in.nodeMinSeparation);
+            //
+            // The separation is at least the minimum cell size (the coupling
+            // policy of MESH_OVERHAUL_PLAN_2026-09-29.md §3): two pinned
+            // nodes closer than h_min share a cell instead of forcing one.
+            const double effNodeSep = std::max(in.nodeMinSeparation, in.minCellSize);
+            const QVector<bool> keepNode = mesh::pslg::greedyMinSeparation(nodeXY, effNodeSep);
 
             int demoted = 0;
-            for (int k = 0; k < nodeIdx.size(); ++k)
-            {
-                if (!keepNode[k]) { ++demoted; continue; }
+            for (int k = 0; k < nodeIdx.size(); ++k) {
+                if (!keepNode[k]) {
+                    ++demoted;
+                    continue;
+                }
                 const auto &cand = in.candidateNodes[nodeIdx[k]];
                 mesh::SteinerPoint sp;
-                sp.xy = cand.xy; sp.marker = nextMarker; sp.tag = cand.name;
+                sp.xy = cand.xy;
+                sp.marker = nextMarker;
+                sp.tag = cand.name;
                 // Rim usage:  useRim → pin vertex to rim (+ flatten list);
                 // no DTM → rim is the only elevation source (IDW seed).
-                if (cand.hasRim && (in.nodesUseRim || !haveDTM))
-                {
-                    sp.z    = cand.rimZ;
+                if (cand.hasRim && (in.nodesUseRim || !haveDTM)) {
+                    sp.z = cand.rimZ;
                     sp.hasZ = true;
                 }
-                if (cand.hasRim && in.nodesUseRim)
-                {
+                if (cand.hasRim && in.nodesUseRim) {
                     in.nodeRimXY.append(cand.xy);
                     in.nodeRimZ.append(cand.rimZ);
+                    if (haveDTM)
+                        rimPinnedMarkers.insert(nextMarker);
                 }
                 in.steinerPoints.append(sp);
                 in.nodeMarkerToTag.insert(nextMarker, cand.name);
                 ++nextMarker;
             }
             if (demoted > 0)
-                qCInfo(lcMeshPerf) << "[Mesh] node min separation"
-                                   << in.nodeMinSeparation << "-"
-                                   << demoted << "node(s) demoted to cell coupling,"
-                                   << (nodeIdx.size() - demoted) << "pinned as vertices";
+                reporter.line(meshkit::Severity::Info)
+                    << "[Mesh] node min separation" << effNodeSep << "-" << demoted
+                    << "node(s) demoted to cell coupling," << (nodeIdx.size() - demoted)
+                    << "pinned as vertices";
         }
 
-        if (in.includeConduits)
-        {
-            for (const auto &link : std::as_const(in.candidateLinks))
-            {
-                // Dedupe then simplify — RDP removes nearly-collinear
-                // intermediate vertices from GIS-digitised alignments.
-                QVector<QPointF> path = simplifyPolyline(
-                    clipIntermediateToDomain(dedupeSegPath(link.second)),
-                    in.pslgSimplifyEps);
-                if (path.size() < 2) continue;
+        if (in.includeConduits) {
+            int unfolded = 0;
+            for (const auto &link : std::as_const(in.candidateLinks)) {
+                // Dedupe, unfold (a vertex list stored backwards or a stray
+                // vertex folds the alignment onto itself), then drop
+                // intermediate vertices closer than the minimum cell size
+                // (deviation-capped, endpoints kept): the alignment keeps its
+                // shape and coupling identity, and no conduit vertex pair can
+                // demand a sub-floor cell.
+                bool changed = false;
+                QVector<QPointF> path = dedupeSegPath(link.second);
+                if (in.geometryMode == 0)
+                    path = mesh::pslg::unfoldPolyline(path, 150.0, &changed);
+                if (changed)
+                    ++unfolded;
+                if (in.geometryMode == 0)
+                    path = mesh::pslg::resampleMinLength(clipIntermediateToDomain(path),
+                                                         in.minCellSize, 0.1 * in.minCellSize);
+                else if (std::any_of(path.begin(), path.end(), inDomain) &&
+                         std::any_of(path.begin(), path.end(),
+                                     [&](auto p) { return !inDomain(p); })) {
+                    fail(
+                        QObject::tr(
+                            "Conduit %1 has vertices outside the meshing domain. Clip its source geometry before using the preserve/bounded policy.")
+                            .arg(link.first));
+                    return;
+                }
+                if (path.size() < 2)
+                    continue;
                 // Both endpoints must be inside the domain polygon — a link
                 // crossing the boundary without a vertex at the crossing
-                // makes the PSLG non-planar and aborts Triangle.
-                if (!inDomain(path.first()) || !inDomain(path.last())) continue;
+                // makes the PSLG non-planar and prevents constraint recovery.
+                if (!inDomain(path.first()) || !inDomain(path.last()))
+                    continue;
                 mesh::ConstraintSegment cs;
-                cs.path = std::move(path); cs.marker = nextMarker; cs.tag = link.first;
+                cs.path = std::move(path);
+                cs.marker = nextMarker;
+                cs.tag = link.first;
+                cs.stripWidth =
+                    in.conduitStripWidth; // 0 = plain edges (MESH_TRIANGLE_ENGINE_PLAN D12.4)
+                if (in.geometryMode != 0) {
+                    MeshGenerationDialog::PipelineInputs::AuxLine metadata;
+                    metadata.sourceId = "conduit:" + link.first;
+                    metadata.sourceLabel = QObject::tr("Conduit %1").arg(link.first);
+                    metadata.sourcePolicy = in.conduitPolicy;
+                    linePolicies.insert(in.constraintSegs.size(), std::move(metadata));
+                }
                 in.constraintSegs.append(cs);
                 in.edgeMarkerToTag.insert(nextMarker, link.first);
                 ++nextMarker;
             }
+            if (unfolded > 0)
+                qInfo()
+                    << "[Mesh]" << unfolded
+                    << "conduit alignment(s) unfolded (vertices stored backwards or a stray vertex)";
         }
 
-        for (const auto &ap : std::as_const(in.auxPoints))
-        {
-            if (!inDomain(ap.xy)) continue;
-            if (ap.hasZ)
-            {
+        for (const auto &ap : std::as_const(in.auxPoints)) {
+            if (!inDomain(ap.xy))
+                continue;
+            if (ap.hasZ) {
                 mesh::SteinerPoint sp;
-                sp.xy = ap.xy; sp.z = ap.z; sp.hasZ = true;
+                sp.xy = ap.xy;
+                sp.z = ap.z;
+                sp.hasZ = true;
                 in.steinerPoints.append(sp);
-            }
-            else
-            {
+            } else {
                 in.steinerPoints.append({ap.xy, 0, {}});
             }
         }
 
-        for (const auto &al : std::as_const(in.auxLines))
-        {
+        for (const auto &al : std::as_const(in.auxLines)) {
+            if (al.hasZ && al.z.size() != al.path.size()) {
+                fail(QObject::tr("Authored elevation count does not match line %1.").arg(al.sourceId));
+                return;
+            }
+            if (in.geometryMode != 0) {
+                if (const auto error = al.sourcePolicy.validate(); !error.isEmpty()) {
+                    fail(al.sourceId + ": " + error);
+                    return;
+                }
+                for (int j = 1; al.hasZ && j < al.path.size(); ++j)
+                    if (al.path[j].x() == al.path[j - 1].x() && al.path[j].y() == al.path[j - 1].y() && al.z[j] != al.z[j - 1]) {
+                        fail(QObject::tr("Line %1 has conflicting authored heights at coincident vertices.").arg(al.sourceId));
+                        return;
+                    }
+                const bool inside = std::any_of(al.path.begin(), al.path.end(), inDomain);
+                const bool outside = std::any_of(al.path.begin(), al.path.end(),
+                                                 [&](auto p) { return !inDomain(p); });
+                if (inside && outside) {
+                    fail(
+                        QObject::tr(
+                            "Line %1 crosses the meshing domain with outside vertices. Clip the source line to the domain before using the preserve/bounded policy.")
+                            .arg(al.sourceId));
+                    return;
+                }
+            }
             // Seed elevCache by coordinate from the RAW (pre-simplify)
             // vertices so PSLG simplification can never desync z.
             if (al.hasZ)
-                for (int j = 0; j < al.path.size(); ++j)
-                {
-                    if (!std::isfinite(al.z[j])) continue;
-                    if (!inDomain(al.path[j])) continue;
+                for (int j = 0; j < al.path.size(); ++j) {
+                    if (!std::isfinite(al.z[j]))
+                        continue;
+                    if (!inDomain(al.path[j]))
+                        continue;
                     in.featureZSeedXY.append(al.path[j]);
                     in.featureZSeedZ.append(al.z[j]);
                 }
-            QVector<QPointF> path = simplifyPolyline(
-                clipIntermediateToDomain(dedupeSegPath(al.path)),
-                in.pslgSimplifyEps);
-            if (path.size() < 2) continue;
+            QVector<QPointF> path = trimByStraightness(
+                clipIntermediateToDomain(dedupeSegPath(al.path)), in.trimTurnDeg, in.trimDeviation);
+            if (path.size() < 2)
+                continue;
             // Same planar-graph rule: both endpoints inside the domain.
-            if (inDomain(path.first()) && inDomain(path.last()))
+            if (inDomain(path.first()) && inDomain(path.last())) {
+                if (in.geometryMode != 0) {
+                    auto metadata = al;
+                    metadata.path = path;
+                    if (al.hasZ) {
+                        QHash<QPair<double, double>, double> heights;
+                        for (int j = 0; j < al.path.size(); ++j)
+                            heights.insert({al.path[j].x(), al.path[j].y()}, al.z[j]);
+                        metadata.z.clear();
+                        for (auto p : path)
+                            metadata.z.append(heights.value({p.x(), p.y()}, qQNaN()));
+                    }
+                    linePolicies.insert(in.constraintSegs.size(), std::move(metadata));
+                }
                 in.constraintSegs.append({std::move(path), 0, {}});
+            }
         }
 
-        if (in.includeSubcatch)
-        {
-            for (const auto &sc : std::as_const(in.subcatchSeeds))
-            {
+        if (in.includeSubcatch) {
+            for (const auto &sc : std::as_const(in.subcatchSeeds)) {
                 mesh::RegionMarker rm;
-                rm.xy        = sc.second;
+                rm.xy = sc.second;
                 rm.attribute = nextMarker;
-                rm.tag       = QStringLiteral("subcatch_%1").arg(sc.first);
+                rm.tag = QStringLiteral("subcatch_%1").arg(sc.first);
                 in.regionMarkers.append(rm);
                 ++nextMarker;
             }
         }
 
         // Merge near-coincident untagged Steiner points from different
-        // sources; tagged SWMM points (marker != 0) are never merged.
-        snapAndDedupe(in.steinerPoints, in.pslgSnapEps);
+        // sources (automatic tolerance, a hundredth of the floor size);
+        // tagged SWMM points (marker != 0) are never merged.
+        snapAndDedupe(in.steinerPoints, 0.01 * in.minCellSize);
         stageMark("candidate filtering + markers");
     }
 
     // ── Domain + holes ──────────────────────────────────────────────
     progress(14, QObject::tr("Building input PSLG…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-    mesh::MeshGenerator g;
-    g.setDomains(in.domains);
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
 
     // Interior rings → constraint segments (hole boundary edges) + a seed
-    // point that tells Triangle to leave the region unmeshed.  Rings arrive
+    // point that tells the mesher to leave the region unmeshed.  Rings arrive
     // RAW from the boundary ingestion above; simplification, validation (on
     // the small simplified ring — see pslgprep.h), densification, and the
     // interior seed are computed in parallel chunks — or come straight from
     // the Stage-A cache on a hit.
-    if (!bprepReady)
-    {
+    if (!bprepReady) {
         QVector<mesh::pslg::PreparedRing> prepared;
         int skippedRings = 0;
+        // Conditioned rings are already simplified together; trim no further.
+        const bool conditioned = in.conditionBoundary && in.minCellSize > 0.0;
         const bool holesDone = mesh::pslg::prepareHoleRings(
-            in.holeRings, in.pslgSimplifyEps, in.maxBoundaryEdgeLen, &prepared,
-            [&promise] { return promise.isCanceled(); },
+            in.holeRings, 0.0, 0.0, &prepared, [&promise] { return promise.isCanceled(); },
             [&](int done, int total) {
-                promise.setProgressValueAndText(
-                    14 + static_cast<int>(5.0 * done / std::max(total, 1)),
-                    QObject::tr("Preparing hole rings… (%1 / %2)")
-                        .arg(done).arg(total));
+                progress(14 + static_cast<int>(5.0 * done / std::max(total, 1)),
+                         QObject::tr("Preparing hole rings… (%1 / %2)").arg(done).arg(total));
             },
-            &skippedRings);
-        if (!holesDone) { fail(QObject::tr("Cancelled.")); return; }
+            &skippedRings, conditioned ? 0.0 : in.trimTurnDeg,
+            conditioned ? 0.0 : in.trimDeviation);
+        if (!holesDone) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
 
         bprep.domains = in.domains;
         bprep.holeRings.reserve(prepared.size());
         bprep.holeSeeds.reserve(prepared.size());
         bprep.holeValid.reserve(prepared.size());
-        for (int k = 0; k < prepared.size(); ++k)
-        {
+        for (int k = 0; k < prepared.size(); ++k) {
             // Downstream consumers (PIP band index, constraint-segment hash)
             // must see the same densified geometry the PSLG uses.
             in.holeRings[k] = prepared[k].ring;
@@ -713,50 +1197,459 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         bprep.skippedRings = skippedRings;
         stageMark("hole ring prep");
 
-        if (!boundaryCacheKey.isEmpty())
-        {
+        if (!boundaryCacheKey.isEmpty()) {
             QElapsedTimer storeClock;
             storeClock.start();
             if (cache.storeBoundary(boundaryCacheKey, bprep))
-                qCInfo(lcMeshPerf) << "[Mesh][cache] boundary prep stored"
-                                   << boundaryCacheKey.left(12).constData()
-                                   << "in" << storeClock.elapsed() << "ms";
+                reporter.line(meshkit::Severity::Info)
+                    << "[Mesh][cache] boundary prep stored" << boundaryCacheKey.left(12).constData()
+                    << "in" << storeClock.elapsed() << "ms";
         }
     }
 
-    for (int k = 0; k < bprep.holeRings.size(); ++k)
-    {
+    // ── Quad regions (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12.1) ──
+    // A region is a polygon with an optional size (field "h" or
+    // "quad_spacing"), an optional "cells" choice and an optional "tag"
+    // (field names from the role registry — FEATURE_LAYER_ROLES_AND_FIELDS
+    // §4.3); a four-sided one is filled with quads aligned to its sides, any
+    // other keeps triangles inside, and cells = triangles keeps triangles
+    // whatever its shape. Layer regions are read HERE with a fresh GDAL
+    // handle (handles must not cross threads); subcatchment regions arrive
+    // resolved from collectInputs and are appended after them.
+    QVector<mesh::QuadRegion> quadRegions;
+    if (!in.quadRegionLayers.isEmpty()) {
+        progress(19, QObject::tr("Reading quad region polygons…"));
+        if (promise.isCanceled()) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
+        qsizetype nRegionXformFailed = 0;
+        bool invalidRegionPolicy=false,invalidRequiredGeometry=false;
+        for (const auto &spec : std::as_const(in.quadRegionLayers)) {
+            OGRCoordinateTransformation *regionCT = nullptr; // region layer → mesh CRS
+            if (!spec.crsWkt.isEmpty() && !in.meshCRSWkt.isEmpty()) {
+                OGRSpatialReference rSRS, mSRS;
+                rSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                const bool validCRS=rSRS.importFromWkt(spec.crsWkt.toUtf8().constData())==OGRERR_NONE && mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData())==OGRERR_NONE;
+                if(validCRS && !rSRS.IsSame(&mSRS))regionCT=OGRCreateCoordinateTransformation(&rSRS,&mSRS);
+                if(in.genOpts.unifiedCellPlanning && (!validCRS || (!rSRS.IsSame(&mSRS) && !regionCT))) {
+                    fail(QObject::tr("The selected quad region source cannot be transformed to the mesh projection."));return;
+                }
+            }
+            GDALDataset *ds = static_cast<GDALDataset *>(
+                GDALOpenEx(spec.path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                           nullptr, nullptr, nullptr));
+            if (!ds) {
+                if (regionCT)
+                    OGRCoordinateTransformation::DestroyCT(regionCT);
+                if(in.genOpts.unifiedCellPlanning){fail(QObject::tr("The selected quad region source could not be opened: %1").arg(spec.path));return;}
+                reporter.line(meshkit::Severity::Warning)
+                    << "[Mesh][quad] region layer could not be opened:" << spec.path;
+                continue;
+            }
+            OGRLayer *layer = spec.layerName.isEmpty()
+                                  ? ds->GetLayer(0)
+                                  : ds->GetLayerByName(spec.layerName.toUtf8().constData());
+            if (!layer) {
+                GDALClose(ds);
+                if (regionCT)
+                    OGRCoordinateTransformation::DestroyCT(regionCT);
+                if(in.genOpts.unifiedCellPlanning){fail(QObject::tr("The selected quad region layer was not found: %1").arg(spec.layerName));return;}
+                reporter.line(meshkit::Severity::Warning)
+                    << "[Mesh][quad] region layer not found:" << spec.layerName;
+                continue;
+            }
+            layer->ResetReading();
+            const QStringList sizeFields = openswmmvis::feature::regionSizeFieldNames();
+            const QByteArray cellsField = openswmmvis::feature::regionCellsFieldName().toUtf8();
+            const QByteArray tagField = openswmmvis::feature::regionTagFieldName().toUtf8();
+            while (OGRFeature *f = layer->GetNextFeature()) {
+                /**
+                 * @brief Resolve an attribute column on the current live OGR feature. Argument
+                 * `name`: required null-terminated field name. Returns: field index or OGR negative
+                 * missing value; no feature ownership transfer.
+                 */
+                auto fieldIdx = [&](const char *name) { return f->GetFieldIndex(name); };
+                // One "cells" choice per feature, whatever its part count. An
+                // unknown value is logged and treated as auto (plan §6).
+                mesh::QuadRegionMode regionMode = mesh::QuadRegionMode::Auto;
+                bool requireMapped=in.requireMappedRegions;
+                if (const int i = fieldIdx(cellsField.constData());
+                    i >= 0 && f->IsFieldSetAndNotNull(i)) {
+                    const QString value = QString::fromUtf8(f->GetFieldAsString(i));
+                    bool known = true;
+                    const auto cells=openswmmvis::feature::regionCellsFromValue(value,&known);
+                    if (cells == openswmmvis::feature::RegionCells::Triangles) {
+                        regionMode = mesh::QuadRegionMode::TrianglesOnly;
+                        requireMapped=false;
+                    } else if(cells==openswmmvis::feature::RegionCells::RequiredQuads)requireMapped=true;
+                    if(!known && in.genOpts.unifiedCellPlanning)invalidRegionPolicy=true;
+                    if (!known)
+                        reporter.line(meshkit::Severity::Warning).noquote()
+                            << "[Mesh][quad] region feature" << f->GetFID()
+                            << "has cells =" << value << (in.genOpts.unifiedCellPlanning?"— invalid cell policy; unified planning refused":"— unknown cell policy; treated as auto");
+                }
+                /**
+                 * @brief Append one region exterior with feature-level size/cell-mode/tag values.
+                 * Argument `poly`: nullable borrowed OGR polygon; short/failed rings are skipped.
+                 * Returns: no value; transforms/counts failed vertices, trims geometry and
+                 * normalizes nonpositive/nonfinite spacing to zero.
+                 */
+                auto readRing = [&](const OGRPolygon *poly) {
+                    mesh::QuadRegion r;
+                    const OGRLinearRing *ext = poly ? poly->getExteriorRing() : nullptr;
+                    if (!ext || ext->getNumPoints() < 3){invalidRequiredGeometry|=requireMapped;return;}
+                    const int n = ext->getNumPoints();
+                    QVector<double> xs(n), ys(n);
+                    for (int i = 0; i < n; ++i) {
+                        xs[i] = ext->getX(i);
+                        ys[i] = ext->getY(i);
+                    }
+                    if (regionCT)
+                        nRegionXformFailed += transformChecked(regionCT, n, xs.data(), ys.data());
+                    QVector<QPointF> pts;
+                    pts.reserve(n);
+                    for (int i = 0; i < n; ++i)
+                        if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
+                            pts.append(QPointF(xs[i], ys[i]));
+                    if (pts.size() < 3){invalidRequiredGeometry|=requireMapped;return;}
+                    r.ring = QPolygonF(
+                        trimByStraightness(pts, in.trimTurnDeg, in.trimDeviation, {}, true));
+                    if(in.genOpts.unifiedCellPlanning)for(int h=0;h<poly->getNumInteriorRings();++h) {
+                        const auto *inner=poly->getInteriorRing(h);const int count=inner->getNumPoints();
+                        QVector<double> hx(count),hy(count);
+                        for(int k=0;k<count;++k){hx[k]=inner->getX(k);hy[k]=inner->getY(k);}
+                        if(regionCT)nRegionXformFailed+=transformChecked(regionCT,count,hx.data(),hy.data());
+                        QPolygonF hole;
+                        for(int k=0;k<count;++k)if(std::isfinite(hx[k]) && std::isfinite(hy[k]))hole.append({hx[k],hy[k]});
+                        if(hole.size()<3)invalidRequiredGeometry=true;else r.holes.append(hole);
+                    }
+                    r.mode = regionMode;
+                    r.requireMapped=requireMapped;
+                    for (const QString &name : sizeFields)
+                        if (const int i = fieldIdx(name.toUtf8().constData());
+                            i >= 0 && f->IsFieldSetAndNotNull(i)) {
+                            r.spacing = f->GetFieldAsDouble(i);
+                            break;
+                        }
+                    if (const int i = fieldIdx(tagField.constData());
+                        i >= 0 && f->IsFieldSetAndNotNull(i))
+                        r.tag = QString::fromUtf8(f->GetFieldAsString(i));
+                    if (!(r.spacing > 0.0) || !std::isfinite(r.spacing))
+                        r.spacing = 0.0;
+                    quadRegions.append(std::move(r));
+                };
+                const auto before=quadRegions.size();
+                if (const OGRGeometry *geom = f->GetGeometryRef()) {
+                    const OGRwkbGeometryType t = wkbFlatten(geom->getGeometryType());
+                    if (t == wkbPolygon)
+                        readRing(geom->toPolygon());
+                    else if (t == wkbMultiPolygon)
+                        for (const auto *poly : *geom->toMultiPolygon())
+                            readRing(poly);
+                }
+                if(requireMapped && quadRegions.size()==before)invalidRequiredGeometry=true;
+                OGRFeature::DestroyFeature(f);
+            }
+            GDALClose(ds);
+            if (regionCT)
+                OGRCoordinateTransformation::DestroyCT(regionCT);
+        }
+        if(in.genOpts.unifiedCellPlanning && (nRegionXformFailed>0 || invalidRegionPolicy || invalidRequiredGeometry)) {
+            fail(QObject::tr("Quad region geometry or cell policy is invalid. Correct the source geometry, projection, or cells value before unified planning."));return;
+        }
+        if (nRegionXformFailed > 0)
+            reporter.line(meshkit::Severity::Warning)
+                << "[Mesh][quad]" << nRegionXformFailed
+                << "region vertex(es) failed reprojection and were dropped";
+        stageMark("quad region layer read");
+    }
+    const int nLayerQuadRegions = quadRegions.size();
+    for (const mesh::QuadRegion &src : std::as_const(in.quadRegions)) {
+        mesh::QuadRegion r = src;
+        if(in.requireMappedRegions && r.mode!=mesh::QuadRegionMode::TrianglesOnly)r.requireMapped=true;
+        r.ring =
+            QPolygonF(trimByStraightness(src.ring, in.trimTurnDeg, in.trimDeviation, {}, true));
+        quadRegions.append(std::move(r));
+    }
+    if (!quadRegions.isEmpty())
+        reporter.line(meshkit::Severity::Info).nospace()
+            << "[Mesh][quad] " << quadRegions.size() << " regions (" << nLayerQuadRegions
+            << " from layers, " << in.quadRegions.size() << " from subcatchments)";
+
+    // A single graph-wide simplification pass sees domains, holes, regions,
+    // lines, fixed patch outlines and mandatory points together.
+    if (in.geometryMode != 0) {
+        using mesh::SimplificationFeature;
+        QVector<SimplificationFeature> graph;
+        auto policy = in.geometryPolicy;
+        policy.mode = in.geometryMode == 1 ? mesh::ConstraintSimplificationPolicy::Mode::Preserve
+                                           : mesh::ConstraintSimplificationPolicy::Mode::Simplify;
+        policy.maxTurnDegrees = requestedTrimTurn;
+        policy.maxDeviation = requestedTrimDeviation;
+        auto append = [&](QString id, const QVector<QPointF> &xy, bool closed, bool editable) {
+            SimplificationFeature f;
+            f.id = std::move(id);
+            f.xy = xy;
+            f.closed = closed;
+            f.policy = policy;
+            if (!editable)
+                f.policy.mode = mesh::ConstraintSimplificationPolicy::Mode::Preserve;
+            graph.append(std::move(f));
+        };
+        for (int i = 0; i < in.domains.size(); ++i) {
+            append((in.boundarySourceId.isEmpty() ? QString("domain:%1").arg(i)
+                : in.boundarySourceId + QString("/domain:%1").arg(i)), in.domains[i], true, true);
+            graph.last().role = SimplificationFeature::Role::Domain;
+            graph.last().policy = in.boundaryPolicy.resolve(graph.last().policy);
+            graph.last().label = QObject::tr("%1 — outer ring %2").arg(in.boundarySourceLabel.isEmpty()
+                ? QObject::tr("Domain") : in.boundarySourceLabel).arg(i + 1);
+        }
+        const int holeStart = graph.size();
+        for (int i = 0; i < bprep.holeRings.size(); ++i) {
+            if (!bprep.holeValid[i]) {
+                fail(
+                    QObject::tr("Protected hole %1 is invalid; repair its geometry before meshing.")
+                        .arg(i));
+                return;
+            }
+            append(QString("hole:%1").arg(i), bprep.holeRings[i], true, true);
+            graph.last().role = SimplificationFeature::Role::Hole;
+            graph.last().policy = in.boundaryPolicy.resolve(graph.last().policy);
+            graph.last().label = QObject::tr("%1 — hole %2").arg(in.boundarySourceLabel.isEmpty()
+                ? QObject::tr("Domain") : in.boundarySourceLabel).arg(i + 1);
+        }
+        const int lineStart = graph.size();
+        for (int i = 0; i < in.constraintSegs.size(); ++i) {
+            append(QString("line:%1").arg(i), in.constraintSegs[i].path, false,
+                   in.constraintSegs[i].marker == 0);
+            graph.last().marker = in.constraintSegs[i].marker;
+            graph.last().label = in.constraintSegs[i].tag;
+            if (linePolicies.contains(i)) {
+                const auto &metadata = linePolicies[i];
+                auto &f = graph.last();
+                f.policy = metadata.sourcePolicy.resolve(f.policy);
+                f.label = metadata.sourceLabel;
+                if (!metadata.sourceId.isEmpty())
+                    f.id = metadata.sourceId;
+                if (metadata.hasZ)
+                    f.z = metadata.z;
+                if (metadata.simplificationMode >= 0)
+                    f.policy.mode = metadata.simplificationMode == 0
+                                        ? mesh::ConstraintSimplificationPolicy::Mode::Preserve
+                                        : mesh::ConstraintSimplificationPolicy::Mode::Simplify;
+                if (metadata.simplificationMode < -1 || metadata.simplificationMode > 1) {
+                    fail(QObject::tr("Invalid mesh_simplify value on %1.").arg(f.id));
+                    return;
+                }
+                if (metadata.xyTolerance)
+                    f.policy.maxDeviation = *metadata.xyTolerance;
+                if (metadata.zTolerance)
+                    f.policy.maxZDeviation = *metadata.zTolerance;
+            }
+        }
+        for (int i = 0; i < quadRegions.size(); ++i) {
+            append(QString("region:%1").arg(i), quadRegions[i].ring, true, false);
+            graph.last().role = SimplificationFeature::Role::Protected;
+            graph.last().requiredInMesh = !quadRegions[i].isBackground;
+            graph.last().label = QObject::tr("Region %1").arg(quadRegions[i].tag);
+            for(int h=0;h<quadRegions[i].holes.size();++h) {
+                append(QString("region:%1/hole:%2").arg(i).arg(h),quadRegions[i].holes[h],true,false);
+                graph.last().role=SimplificationFeature::Role::Protected;
+                graph.last().label=QObject::tr("Region %1 inner ring %2").arg(quadRegions[i].tag).arg(h+1);
+            }
+        }
+        for (int i = 0; i < in.patches.size(); ++i) {
+            append(QString("patch:%1").arg(i), mesh::orderedPatchBoundary(in.patches[i]), true,
+                   false);
+            graph.last().role = SimplificationFeature::Role::Protected;
+            graph.last().label = QObject::tr("Fixed patch %1").arg(in.patches[i].tag);
+        }
+        mesh::ConstraintSimplificationOptions options;
+        for (const auto &point : in.steinerPoints)
+            options.protectedPoints.append(point.xy);
+        options.cancelled = [&promise] { return promise.isCanceled(); };
+        progress(19, QObject::tr("Checking constraint simplification…"));
+        const auto simplified = mesh::simplifyConstraints(graph, options);
+        if (!simplified.ok) {
+            fail(simplified.cancelled ? QObject::tr("Cancelled.") : simplified.error);
+            return;
+        }
+        mesh::ConstraintAuditOptions auditOptions;
+        auditOptions.protectedPoints = options.protectedPoints;
+        auditOptions.cancelled = options.cancelled;
+        const auto audit = mesh::auditConstraintSimplification(graph, simplified, auditOptions);
+        if (!audit.ok) {
+            for (const auto &example : audit.examples)
+                reporter.line(meshkit::Severity::Error)
+                    << "[Mesh][constraint audit]" << example.featureId << "segment"
+                    << example.segment << example.message;
+            fail(QObject::tr("Constraint preparation failed its independent audit: %1").arg(audit.error));
+            return;
+        }
+        acceptedConstraints = simplified.features;
+        constraintPreview = mesh::makeConstraintPreview(graph, simplified, options.cancelled);
+        constraintPreview.horizontalUnit = in.meshLinearUnitName;
+        constraintPreview.verticalUnit = in.verticalUnitToSI == 1 ? QStringLiteral("m") : QStringLiteral("ft");
+        if (constraintPreview.cancelled) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
+        qint64 removed = 0, rollbacks = 0, budget = 0;
+        double deviation = 0;
+        for (const auto &change : simplified.changes) {
+            removed += change.removed;
+            rollbacks += change.rolledBack;
+            budget += change.budgetRetained;
+            deviation = std::max(deviation, change.maxDeviation);
+        }
+        int reportedChanges = 0;
+        for (const auto &change : simplified.changes) {
+            if (!(change.removed || change.rolledBack || change.budgetRetained))
+                continue;
+            if (reportedChanges++ >= 20)
+                break;
+            reporter.line(change.budgetRetained ? meshkit::Severity::Warning
+                                                : meshkit::Severity::Info)
+                << "[Mesh][constraints]" << change.id << ": removed" << change.removed
+                << "; XY/Z deviation" << change.maxDeviation << change.maxZDeviation
+                << "; area change" << change.areaChange << "; rejected shortcuts"
+                << change.rejectedShortcuts << "; rolled back" << change.rolledBack
+                << "; retained for work limit" << change.budgetRetained;
+        }
+        for (int i = 0; i < in.domains.size(); ++i)
+            in.domains[i] = QPolygonF(simplified.features[i].xy);
+        bprep.domains = in.domains;
+        for (int i = 0; i < bprep.holeRings.size(); ++i) {
+            bprep.holeRings[i] = simplified.features[holeStart + i].xy;
+            bprep.holeSeeds[i] = EditGeometry::interiorPoint(bprep.holeRings[i]);
+            in.holeRings[i] = bprep.holeRings[i];
+        }
+        int authoredPathsRetainedAsLines = 0;
+        for (int i = 0; i < in.constraintSegs.size(); ++i) {
+            in.constraintSegs[i].path = simplified.features[lineStart + i].xy;
+            auto &segment = in.constraintSegs[i];
+            if (segment.stripWidth > 0 && segment.path.size() > 2) {
+                segment.stripWidth = 0;
+                ++authoredPathsRetainedAsLines;
+            }
+        }
+        geometryMetrics = {{"mode", in.geometryMode},
+                           {"removedVertices", removed},
+                           {"maximumXYDeviation", audit.maximumXYDeviation},
+                           {"maximumZDeviation", audit.maximumZDeviation},
+                           {"sharedSegments", qint64(simplified.sharedSegments)},
+                           {"sharedChains", qint64(simplified.sharedChains)},
+                           {"preparationAuditPassed", true},
+                           {"auditedFeatures", qint64(audit.featuresChecked)},
+                           {"auditedSegments", qint64(audit.segmentsChecked)},
+                           {"rolledBackFeatures", rollbacks},
+                           {"budgetRetainedFeatures", budget}};
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][constraints] removed" << removed << "vertices; maximum XY deviation"
+            << deviation << "; rolled back" << rollbacks << "features; retained for work limit"
+            << budget << "; holes retained" << bprep.holeRings.size();
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][constraints] independent preparation audit passed; canonical shared chains"
+            << simplified.sharedChains << "; shared segments" << simplified.sharedSegments;
+        if (authoredPathsRetainedAsLines)
+            reporter.line(meshkit::Severity::Info)
+                << "[Mesh][constraints]" << authoredPathsRetainedAsLines
+                << "multi-vertex conduit paths use constrained triangle edges to retain authored vertices.";
+    }
+    linePolicies.clear();
+    in.auxLines.clear();
+    in.candidateLinks.clear();
+    if (in.constraintPreviewOnly) {
+        if (in.geometryMode == 0) {
+            fail(QObject::tr("Choose a preserve or bounded geometry policy before previewing constraints."));
+            return;
+        }
+        PResult preview;
+        preview.ok = true;
+        preview.constraintPreviewOnly = true;
+        preview.status = reporter.hasWarnings() ? meshkit::RunStatus::CompleteWithExceptions
+                                                : meshkit::RunStatus::Complete;
+        preview.constraintPreview = std::move(constraintPreview);
+        preview.metrics["constraintSimplification"] = geometryMetrics;
+        preview.summary = QObject::tr("Constraint preview ready. Independent preparation audit passed. No mesh was generated or replaced.");
+        progress(100, preview.summary);
+        reporter.complete(preview.status, preview.summary);
+        promise.addResult(std::move(preview));
+        return;
+    }
+    if(in.resolution && in.resolution->sizing==mesh::ResolutionSettings::Sizing::Strict &&
+       in.resolution->minimumEdgeM && in.genOpts.preserveConstraintCoordinates) {
+        const double floor=*in.resolution->minimumEdgeM/in.meshLinearUnitToSI;
+        for(const auto &feature:acceptedConstraints) {
+            const int n=feature.xy.size();
+            for(int j=0;j<n-1+int(feature.closed);++j) {
+                if((j&4095)==0 && promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+                const double length=QLineF(feature.xy[j],feature.xy[(j+1)%n]).length();
+                if(length>0 && length<floor*(1-1e-9)) {
+                    fail(QObject::tr("Strict sizing is infeasible: protected source '%1' has an edge of %2, below the requested minimum edge %3. Reduce the edge floor or explicitly permit a geometry edit.").arg(feature.id).arg(length).arg(floor));return;
+                }
+            }
+        }
+    }
+    mesh::MeshGenerator g;
+    g.setDomains(in.domains);
+    for (int k = 0; k < bprep.holeRings.size(); ++k) {
         // Invalid rings would break the PSLG (self-intersecting or
         // degenerate) — skip them so a bad hole produces a logged skip
-        // rather than a generic Triangle abort failing the whole mesh.
-        if (!bprep.holeValid[k]) continue;
+        // rather than a generic constraint recovery failure failing the whole mesh.
+        if (!bprep.holeValid[k])
+            continue;
 
         // Boundary edges of the hole must exist in the PSLG…
         mesh::ConstraintSegment cs;
-        cs.path   = bprep.holeRings[k];
+        cs.path = bprep.holeRings[k];
+        if (!cs.path.isEmpty() && cs.path.first() != cs.path.last())
+            cs.path.append(cs.path.first());
         cs.marker = 0;
         g.addConstraintSegment(cs);
 
-        // …plus a seed point strictly inside the ring so Triangle carves
+        // …plus a seed point strictly inside the ring so the mesher carves
         // it.  interiorPoint() is robust for non-convex rings; a vertex
         // centroid could fall outside the ring (or in another region),
         // silently leaving the hole unmeshed or removing the wrong area.
         g.addHole(bprep.holeSeeds[k]);
     }
     if (bprep.skippedRings > 0)
-        qWarning() << "[Mesh] Skipped" << bprep.skippedRings
-                   << "invalid hole ring(s) — self-intersecting or degenerate.";
+        reporter.line(meshkit::Severity::Warning)
+            << "[Mesh] Skipped" << bprep.skippedRings
+            << "invalid hole ring(s) — self-intersecting or degenerate.";
+
+    mesh::TerrainErrorField terrainReference;
 
     for (const auto &cs : std::as_const(in.constraintSegs))
         g.addConstraintSegment(cs);
-    for (const auto &rm : std::as_const(in.regionMarkers))
-        g.addRegion(rm);
+
+    // Refinement floor (area of the equilateral triangle of the minimum
+    // cell size); region area bounds may not go below it.
+    const double areaFloor =
+        in.minCellSize > 0.0 ? 0.4330127018922193 * in.minCellSize * in.minCellSize : 0.0;
+    for (const auto &rm : std::as_const(in.regionMarkers)) {
+        mesh::RegionMarker r = rm;
+        if (areaFloor > 0.0 && r.maxArea > 0.0 && r.maxArea < areaFloor)
+            r.maxArea = areaFloor;
+        g.addRegion(r);
+    }
     g.setOptions(in.genOpts);
+    // G3 structured patches: boundary → PSLG constraints, interior → hole,
+    // quads appended after the triangles by generate().
+    for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+        g.addPatch(pm);
+    // PSLG quad regions (layer regions first, then subcatchments — the order
+    // quadRegionReports() is indexed in).
+    for (const mesh::QuadRegion &qr : std::as_const(quadRegions))
+        g.addQuadRegion(qr);
 
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
-    // thinning / grid sampling, and post-Triangle vertex elevation fill.
-    // A single DTMThinner instance covers all three so the file is only
+    // thinning / grid sampling, and post-mesh vertex elevation fill.
+    // A single DTMRaster instance covers all three so the file is only
     // opened once and the same bilinear sampler is used throughout.
     //
     // When no DTM is provided, vertex z is filled by inverse-distance
@@ -764,17 +1657,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // node Steiner points (invert + maxDepth, set in collectInputs).
     const bool useDTM = !in.dtmPath.isEmpty();
 
-    mesh::DTMThinner thinner;
+    mesh::DTMRaster thinner;
     OGRCoordinateTransformation *meshToDTM = nullptr;
     OGRCoordinateTransformation *dtmToMesh = nullptr;
 
-    if (useDTM)
-    {
+    if (useDTM) {
         progress(20, QObject::tr("Opening DTM raster…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        if (promise.isCanceled()) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
 
-        if (!thinner.open(in.dtmPath))
-        {
+        if (!thinner.open(in.dtmPath)) {
             fail(QObject::tr("DTM open failed: %1").arg(thinner.errorMsg()));
             return;
         }
@@ -786,65 +1680,62 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // so that coordinate transforms and IsSame() behave consistently.
         const QString dtmCRSWkt = thinner.crsWkt();
         qCDebug(lcMeshPerf) << "[CRS] meshCRSWkt empty:" << in.meshCRSWkt.isEmpty()
-                 << "| dtmCRSWkt empty:" << dtmCRSWkt.isEmpty();
-        if (!in.meshCRSWkt.isEmpty() && !dtmCRSWkt.isEmpty())
-        {
+                            << "| dtmCRSWkt empty:" << dtmCRSWkt.isEmpty();
+        if (!in.meshCRSWkt.isEmpty() && !dtmCRSWkt.isEmpty()) {
             OGRSpatialReference mSRS, dSRS;
             mSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             dSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             if (mSRS.importFromWkt(in.meshCRSWkt.toUtf8().constData()) == OGRERR_NONE &&
-                dSRS.importFromWkt(dtmCRSWkt.toUtf8().constData())  == OGRERR_NONE)
-            {
+                dSRS.importFromWkt(dtmCRSWkt.toUtf8().constData()) == OGRERR_NONE) {
                 const bool same = mSRS.IsSame(&dSRS);
                 qCDebug(lcMeshPerf) << "[CRS] IsSame:" << same;
-                if (!same)
-                {
+                if (!same) {
                     meshToDTM = OGRCreateCoordinateTransformation(&mSRS, &dSRS);
                     dtmToMesh = OGRCreateCoordinateTransformation(&dSRS, &mSRS);
                     qCDebug(lcMeshPerf) << "[CRS] transforms created:"
-                             << "meshToDTM=" << (meshToDTM?"OK":"FAIL")
-                             << "dtmToMesh=" << (dtmToMesh?"OK":"FAIL");
+                                        << "meshToDTM=" << (meshToDTM ? "OK" : "FAIL")
+                                        << "dtmToMesh=" << (dtmToMesh ? "OK" : "FAIL");
                 }
             }
         }
-    }
-    else
-    {
+    } else {
         progress(20, QObject::tr("Using junction rim elevations (no DTM selected)…"));
     }
 
     // elevCache — keeps exact z values for every point we place as a
     // Steiner vertex.  Keyed by quantised mesh-CRS (x,y) at 1e7 precision.
-    // The post-Triangle elevation loop consults this first so those vertices
+    // The post-mesh elevation loop consults this first so those vertices
     // are never re-sampled.
-    QHash<QPair<qint64,qint64>, double> elevCache;
+    QHash<QPair<qint64, qint64>, double> elevCache;
 
     // Flat seed arrays for IDW fall-back when no DTM is supplied. Populated
     // alongside elevCache below — only steiner points with known z become
     // seeds.
     QVector<QPointF> seedXY;
-    QVector<double>  seedZ;
+    QVector<double> seedZ;
 
     // Provenance: keys (same quantisation as elevCache) whose z is already in
     // model/mesh vertical units (rim, feature Z, flattened terrain).  These
     // are excluded from the zConversionFactor multiply, which only applies to
     // raster-unit DTM samples.
-    QSet<QPair<qint64,qint64>> modelUnitKeys;
-    auto keyOf = [](double x, double y) {
-        return qMakePair(qRound64(x * 1e7), qRound64(y * 1e7));
-    };
+    QSet<QPair<qint64, qint64>> modelUnitKeys;
+    /**
+     * @brief Quantize elevation-cache identity. Arguments `x`, `y`: mesh-CRS coordinates expected
+     * finite and within qRound64 scaled range. Returns: pair rounded at 1e7 coordinate precision;
+     * does not preserve distinct closer positions.
+     */
+    auto keyOf = [](double x, double y) { return qMakePair(qRound64(x * 1e7), qRound64(y * 1e7)); };
 
     // 3D aux-line vertices: exact model-unit z seeded by coordinate.  Aux
     // points travel through in.steinerPoints (handled in Step 1); lines only
     // here — no double-seeding.
-    for (int i = 0; i < in.featureZSeedXY.size(); ++i)
-    {
+    for (int i = 0; i < in.featureZSeedXY.size(); ++i) {
         const QPointF &p = in.featureZSeedXY[i];
         const auto k = keyOf(p.x(), p.y());
         elevCache.insert(k, in.featureZSeedZ[i]);
         modelUnitKeys.insert(k);
         seedXY.append(p);
-        seedZ .append(in.featureZSeedZ[i]);
+        seedZ.append(in.featureZSeedZ[i]);
     }
 
     // ── Node rim-flatten spatial hash ─────────────────────────────────
@@ -853,38 +1744,44 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // rim z.  Spatial hash with cell size = radius (mirrors the Poisson-disk
     // grid below); a 3×3 neighbour scan is guaranteed to find any node within
     // the radius.  flattenZ() returns the nearest in-range rim z, or NaN.
-    const bool   doFlatten = in.nodesUseRim && in.nodeFlattenRadius > 0.0
-                             && !in.nodeRimXY.isEmpty();
-    const double flatR2  = in.nodeFlattenRadius * in.nodeFlattenRadius;
+    const bool doFlatten = in.nodesUseRim && in.nodeFlattenRadius > 0.0 && !in.nodeRimXY.isEmpty();
+    const double flatR2 = in.nodeFlattenRadius * in.nodeFlattenRadius;
     const double invFlat = doFlatten ? 1.0 / in.nodeFlattenRadius : 0.0;
-    QHash<QPair<qint32,qint32>, QVector<int>> flatGrid;
-    if (doFlatten)
-    {
+    QHash<QPair<qint32, qint32>, QVector<int>> flatGrid;
+    if (doFlatten) {
         flatGrid.reserve(in.nodeRimXY.size());
-        for (int n = 0; n < in.nodeRimXY.size(); ++n)
-        {
+        for (int n = 0; n < in.nodeRimXY.size(); ++n) {
             const qint32 cx = qint32(std::floor(in.nodeRimXY[n].x() * invFlat));
             const qint32 cy = qint32(std::floor(in.nodeRimXY[n].y() * invFlat));
             flatGrid[qMakePair(cx, cy)].append(n);
         }
     }
+    /**
+     * @brief Find the nearest rim seed within the active flatten radius. Arguments `px`, `py`:
+     * query in mesh XY units. Returns: model/mesh-unit rim elevation or NaN when disabled/outside
+     * all radii; equal-distance candidates may replace earlier values. Does not itself decide
+     * whether terrain should be lowered.
+     */
     auto flattenZ = [&](double px, double py) -> double {
-        if (!doFlatten) return std::numeric_limits<double>::quiet_NaN();
+        if (!doFlatten)
+            return std::numeric_limits<double>::quiet_NaN();
         const qint32 cx = qint32(std::floor(px * invFlat));
         const qint32 cy = qint32(std::floor(py * invFlat));
         double best2 = flatR2;
         double bestZ = std::numeric_limits<double>::quiet_NaN();
         for (qint32 dy = -1; dy <= 1; ++dy)
-            for (qint32 dx = -1; dx <= 1; ++dx)
-            {
+            for (qint32 dx = -1; dx <= 1; ++dx) {
                 auto it = flatGrid.constFind(qMakePair(cx + dx, cy + dy));
-                if (it == flatGrid.constEnd()) continue;
-                for (const int n : *it)
-                {
+                if (it == flatGrid.constEnd())
+                    continue;
+                for (const int n : *it) {
                     const double ex = in.nodeRimXY[n].x() - px;
                     const double ey = in.nodeRimXY[n].y() - py;
-                    const double d2 = ex*ex + ey*ey;
-                    if (d2 <= best2) { best2 = d2; bestZ = in.nodeRimZ[n]; }
+                    const double d2 = ex * ex + ey * ey;
+                    if (d2 <= best2) {
+                        best2 = d2;
+                        bestZ = in.nodeRimZ[n];
+                    }
                 }
             }
         return bestZ;
@@ -895,36 +1792,34 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // is already in mesh CRS; we transform to DTM CRS to sample, then
     // store back in mesh CRS.  When no DTM is selected we keep whatever
     // z the input already carries (junctions arrive with rim z set).
-    progress(25, useDTM
-                 ? QObject::tr("Interpolating feature elevations from DTM…")
-                 : QObject::tr("Reading junction rim elevations…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    progress(25, useDTM ? QObject::tr("Interpolating feature elevations from DTM…")
+                        : QObject::tr("Reading junction rim elevations…"));
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
 
     // Batch DTM sampling for the points that need a z: one CRS transform and
     // one banded read instead of a Transform(1,…) + 2×2 RasterIO per point.
     // The consuming loop below advances through featureZ under the exact same
     // predicate used to collect the batch, so pairing is positional.
     QVector<double> featureZ;
-    if (useDTM)
-    {
+    if (useDTM) {
         QVector<double> fxs, fys;
         for (const auto &sp0 : std::as_const(in.steinerPoints))
-            if (!sp0.hasZ)
-            {
+            if (!sp0.hasZ) {
                 fxs.append(sp0.xy.x());
                 fys.append(sp0.xy.y());
             }
-        if (!fxs.isEmpty())
-        {
+        if (!fxs.isEmpty()) {
             // A point PROJ cannot convert becomes NaN, which sampleMany()
-            // rejects (dtmthinner.cpp:450) and answers with a NaN z. That is
+            // rejects and answers with a NaN z. That is
             // already handled: the consumer below only accepts a finite z.
             // Log the count so a systematically bad CRS pairing is visible
             // rather than looking like a DEM with no coverage.
-            const qsizetype nFail = transformChecked(meshToDTM, fxs.size(),
-                                                     fxs.data(), fys.data());
+            const qsizetype nFail = transformChecked(meshToDTM, fxs.size(), fxs.data(), fys.data());
             if (nFail > 0)
-                qCWarning(lcMeshPerf)
+                reporter.line(meshkit::Severity::Warning)
                     << "[Mesh]" << nFail << "of" << fxs.size()
                     << "feature points failed mesh->DTM reprojection;"
                     << "they get no DTM elevation";
@@ -937,766 +1832,878 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
 
     qsizetype featureZPos = 0;
-    for (const auto &sp0 : std::as_const(in.steinerPoints))
-    {
+    for (const auto &sp0 : std::as_const(in.steinerPoints)) {
         mesh::SteinerPoint sp = sp0;
         // wasPreset: z arrived in model units (rim / feature Z); a value
         // sampled from the DTM below is in raster units instead.
         const bool wasPreset = sp.hasZ;
-        if (!sp.hasZ && useDTM)
-        {
+        if (!sp.hasZ && useDTM) {
             const double z = featureZ[featureZPos++];
-            if (std::isfinite(z)) { sp.z = z; sp.hasZ = true; }
+            if (std::isfinite(z)) {
+                sp.z = z;
+                sp.hasZ = true;
+            }
         }
-        if (sp.hasZ)
-        {
+        // A rim lowers the ground to the node; it never raises it: where the
+        // terrain is at or below the rim, the node keeps the terrain.
+        if (wasPreset && useDTM && rimPinnedMarkers.contains(sp.marker)) {
+            double gx = sp.xy.x(), gy = sp.xy.y();
+            if (!meshToDTM || meshToDTM->Transform(1, &gx, &gy)) {
+                const double terrain = thinner.sampleAt(gx, gy) * in.zConversionFactor;
+                if (std::isfinite(terrain) && terrain <= sp.z)
+                    sp.z = terrain;
+            }
+        }
+        if (sp.hasZ) {
             const auto k = keyOf(sp.xy.x(), sp.xy.y());
             elevCache.insert(k, sp.z);
-            if (wasPreset) modelUnitKeys.insert(k);
+            if (wasPreset)
+                modelUnitKeys.insert(k);
             seedXY.append(sp.xy);
-            seedZ .append(sp.z);
+            seedZ.append(sp.z);
         }
         g.addSteinerPoint(sp);
     }
 
-    // ── Step 2: DTM terrain points — thinning or full-grid sampling ──
-    // Domain bounding box in mesh CRS → transform corners to DTM CRS.
-    // Skipped entirely when no DTM is supplied; in that mode the only
-    // vertices added to the PSLG come from steiner features + Triangle's
-    // own refinement, and z is filled later via IDW from seedXY/seedZ.
-    double bx0 = std::numeric_limits<double>::max(),  by0 = bx0;
+    // ── Step 2: terrain fidelity as a size (overhaul Stage 2) ────────
+    // Domain bounding box in mesh CRS → transform corners to DTM CRS. No
+    // terrain vertices are generated: the DEM's roughness bounds the size
+    // field instead (mesh/terrainsizefield.h). Without a DTM, z is filled
+    // later via IDW from seedXY/seedZ.
+    double bx0 = std::numeric_limits<double>::max(), by0 = bx0;
     double bx1 = std::numeric_limits<double>::lowest(), by1 = bx1;
     for (const auto &dom : std::as_const(in.domains))
-        for (const auto &p : dom)
-        {
-            if (p.x() < bx0) bx0 = p.x(); if (p.x() > bx1) bx1 = p.x();
-            if (p.y() < by0) by0 = p.y(); if (p.y() > by1) by1 = p.y();
+        for (const auto &p : dom) {
+            if (p.x() < bx0)
+                bx0 = p.x();
+            if (p.x() > bx1)
+                bx1 = p.x();
+            if (p.y() < by0)
+                by0 = p.y();
+            if (p.y() > by1)
+                by1 = p.y();
         }
 
-    qCDebug(lcMeshPerf) << "[Mesh] domain bbox (mesh CRS):"
-             << bx0 << by0 << "--" << bx1 << by1;
+    // Size field inputs (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): the
+    // cell size at features, the slope from the neighbour ratio, the floor
+    // and the coarsening cap. Built after the DTM block so the terrain
+    // term can be sampled.
+    mesh::SizeFieldOptions sizeOptions;
+    sizeOptions.footprintBounds = in.genOpts.verifiedSizing;
+    sizeOptions.nearSize = in.cellSize;
+    sizeOptions.gradation = std::max(in.sizeRatio - 1.0, 0.0);
+    sizeOptions.areaFloor = areaFloor;
+    sizeOptions.maxSize = in.maximumCellSize;
+    for (const auto &region : quadRegions)
+        if (region.spacing > 0) {
+            if (in.resolution &&
+                (region.spacing < in.minCellSize ||
+                 (in.maximumCellSize > 0 && region.spacing > in.maximumCellSize))) {
+                fail(
+                    QObject::tr(
+                        "Region '%1' has a target size outside the requested minimum and maximum. Adjust its local target or the global range.")
+                        .arg(region.tag));
+                return;
+            }
+            sizeOptions.regions.append({region.ring, region.spacing});
+        }
+    for(const auto &region:quadRegions)if(region.directionalSpacing) {
+        const double fine=std::min(region.hAlong,region.hAcross);
+        if(!(fine>0) || !std::isfinite(fine)){fail(QObject::tr("Directional region spacing must be finite and positive."));return;}
+        sizeOptions.terrainRegions.append({region.ring,fine});
+    }
+    // Terrain-error size term (Stage 2). Lives here so the size field built
+    // after the DTM block can still sample it.
+    mesh::TerrainSizeField terrainField;
+    QSet<QPair<qint64, qint64>> missingTerrainVertices;
+    const bool useAdaptiveTerrain =
+        useDTM && in.terrainAdaptive && (in.terrainTolerance > 0.0 || in.terrainAutoTolerance);
+    if (useAdaptiveTerrain || (useDTM && (in.terrainAutoTolerance || in.terrainBreaklines))) {
+        stageClock.restart();
+        // Stage T: re-runs on the same DEM and bbox reload the summaries.
+        const QRectF referenceBox(bx0, by0, bx1 - bx0, by1 - by0);
+        const QString indexFile =
+            cache.isUsable() ? cache.terrainIndexPath(mesh::MeshStageCache::terrainIndexKey(
+                                   mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt,
+                                   referenceBox, in.zConversionFactor))
+                             : QString();
+        if (!terrainReference.open(
+                in.dtmPath, in.meshCRSWkt, referenceBox, in.zConversionFactor, in.terrainCacheMiB,
+                [&](double f) {
+                    progress(30 + int(5 * f),
+                             QObject::tr("Indexing terrain for elevation-error refinement…"));
+                    return !promise.isCanceled();
+                },
+                indexFile)) {
+            fail(QObject::tr("Terrain error index failed: %1").arg(terrainReference.errorMsg()));
+            return;
+        }
+        if (terrainReference.indexLoaded())
+            reporter.line(meshkit::Severity::Info) << "[Mesh][cache] terrain index HIT";
+        else if (terrainReference.indexSaved()) {
+            reporter.line(meshkit::Severity::Info) << "[Mesh][cache] terrain index stored";
+            cache.prune();
+        }
+        terrainReference.setCancellation([&] { return promise.isCanceled(); });
+        if (in.terrainAutoTolerance) {
+            // Quantized elevation data cannot justify sub-quantum precision.
+            // The 0.1 m baseline is converted to the mesh's vertical unit.
+            // Local relief influences breakline detection separately; it is
+            // not evidence that a larger elevation error is acceptable.
+            in.terrainTolerance =
+                std::max(.1 / in.verticalUnitToSI, 3.0 * terrainReference.verticalQuantum());
+            progress(
+                35,
+                QObject::tr(
+                    "Automatic elevation tolerance: %1 %2 (0.1 m baseline or three elevation increments)")
+                    .arg(in.terrainTolerance)
+                    .arg(in.verticalUnitToSI == 1 ? QStringLiteral("m") : QStringLiteral("ft")));
+        }
+        if (in.terrainBreaklines && !(in.breaklineTolerance > 0)) {
+            const double relief = terrainReference.leafResidualQuantile(.5);
+            in.breaklineTolerance =
+                std::max({.1 / in.verticalUnitToSI, 3.0 * terrainReference.verticalQuantum(),
+                          std::isfinite(relief) ? relief : 0.0});
+        }
+        reporter.line(meshkit::Severity::Info) << "[Mesh][terrain] leaf residual (16 px planes) P50"
+                                               << terrainReference.leafResidualQuantile(.5) << "P90"
+                                               << terrainReference.leafResidualQuantile(.9) << "P99"
+                                               << terrainReference.leafResidualQuantile(.99);
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][terrain] adaptive reference samples" << terrainReference.referenceSamples()
+            << "| summary bytes" << terrainReference.summaryBytes() << "| tolerance"
+            << in.terrainTolerance;
+        stageMark("terrain error index");
+    }
+    const bool useTerrainField = useDTM && (in.terrainTolerance > 0.0 || in.terrainBreaklines);
+    if (useDTM)
+        actualTerrainPixelSize = thinner.pixelSize();
+
+    qCDebug(lcMeshPerf) << "[Mesh] domain bbox (mesh CRS):" << bx0 << by0 << "--" << bx1 << by1;
     if (useDTM)
         qCDebug(lcMeshPerf) << "[Mesh] DTM pixelSize:" << thinner.pixelSize()
-                 << "| CRS wkt present:" << !thinner.crsWkt().isEmpty()
-                 << "| meshToDTM:" << (meshToDTM ? "YES" : "NO");
+                            << "| CRS wkt present:" << !thinner.crsWkt().isEmpty()
+                            << "| meshToDTM:" << (meshToDTM ? "YES" : "NO");
 
-    if (useDTM && bx0 < bx1 && by0 < by1)
-    {
+    if (useDTM && bx0 < bx1 && by0 < by1) {
         double dx0 = bx0, dy0 = by0, dx1 = bx1, dy1 = by1;
-        if (meshToDTM)
-        {
+        if (meshToDTM) {
             double xs[4] = {bx0, bx1, bx0, bx1};
             double ys[4] = {by0, by0, by1, by1};
-            if (transformChecked(meshToDTM, 4, xs, ys) > 0)
-            {
+            if (transformChecked(meshToDTM, 4, xs, ys) > 0) {
                 // Every DTM read below is windowed by this box. A corner left
                 // as HUGE_VAL used to widen it to the whole planet (or, with
                 // min/max over a NaN, leave it garbage), so the banded reader
                 // would scan far outside the raster.
                 OGRCoordinateTransformation::DestroyCT(meshToDTM);
-                if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-                fail(QObject::tr(
-                    "The meshing extent could not be reprojected into the "
-                    "DTM's CRS, so the area to sample cannot be determined.\n"
-                    "Check that the DTM and the model share an overlapping "
-                    "coordinate system."));
+                if (dtmToMesh)
+                    OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+                fail(QObject::tr("The meshing extent could not be reprojected into the "
+                                 "DTM's CRS, so the area to sample cannot be determined.\n"
+                                 "Check that the DTM and the model share an overlapping "
+                                 "coordinate system."));
                 return;
             }
-            dx0 = *std::min_element(xs, xs+4); dx1 = *std::max_element(xs, xs+4);
-            dy0 = *std::min_element(ys, ys+4); dy1 = *std::max_element(ys, ys+4);
+            dx0 = *std::min_element(xs, xs + 4);
+            dx1 = *std::max_element(xs, xs + 4);
+            dy0 = *std::min_element(ys, ys + 4);
+            dy1 = *std::max_element(ys, ys + 4);
         }
 
         qCDebug(lcMeshPerf) << "[Mesh] DTM bbox (DTM CRS):" << dx0 << dy0 << "--" << dx1 << dy1;
-
-        const double gStep = (in.thinnerOpts.gridSpacing > 0.0)
-                              ? in.thinnerOpts.gridSpacing
-                              : thinner.pixelSize();
-        if (gStep <= 0.0)
-        {
-            if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-            if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-            fail(QObject::tr("DTM pixel size is invalid (%1).").arg(gStep));
-            return;
+        if (dtmToMesh) {
+            const double cx = (dx0 + dx1) * .5, cy = (dy0 + dy1) * .5;
+            double x[2] = {cx, cx + thinner.pixelSize()}, y[2] = {cy, cy};
+            actualTerrainPixelSize = transformChecked(dtmToMesh, 2, x, y) == 0
+                                         ? std::hypot(x[1] - x[0], y[1] - y[0])
+                                         : 0;
         }
 
-        qCDebug(lcMeshPerf) << "[Mesh] gStep:" << gStep << "| doThinning:" << in.doThinning;
-
-        // 2026-07-19c — gStep is a DTM-CRS quantity (degrees for a geographic
-        // raster), but every consumer below — the Poisson filter and the
-        // boundary buffer — measures distances in MESH CRS units (metres for
-        // a projected mesh). Using gStep directly made bufferDist 0.14 mm for
-        // a 1-arc-second DTM, so the segment chunker below tried to cut the
-        // ~205 km of subcatchment boundary into ~1.5e9 chunks and generation
-        // hung. Convert one grid step at the domain centre into mesh units.
-        const double gStepMesh = [&]() -> double {
-            if (!dtmToMesh) return gStep;      // same CRS: already mesh units
-            const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
-            double xs[3] = {cx, cx + gStep, cx};
-            double ys[3] = {cy, cy,         cy + gStep};
-            if (!dtmToMesh->Transform(3, xs, ys)) return gStep;
-            const double ex = std::hypot(xs[1] - xs[0], ys[1] - ys[0]);
-            const double ey = std::hypot(xs[2] - xs[0], ys[2] - ys[0]);
-            // Mean of the two axis steps: a geographic pixel is anisotropic
-            // once projected (17.6 m E-W vs 30.9 m N-S at Bellinge's
-            // latitude), and the consumers want one scalar "spacing".
-            const double s = 0.5 * (ex + ey);
-            return (std::isfinite(s) && s > 0.0) ? s : gStep;
-        }();
-
-        // Effective terrain point spacing IN MESH CRS UNITS, shared by the
-        // boundary-buffer auto formula and the Poisson filter so both agree
-        // on "how far apart terrain points end up". minSpacing comes from the
-        // UI already in model units, so it is used as-is.
-        const double effSpacing = in.thinnerOpts.useMinSpacing
-            ? ((in.thinnerOpts.minSpacing > 0.0) ? in.thinnerOpts.minSpacing
-                                                 : gStepMesh * 2.0)
-            : gStepMesh;
-
-        qCDebug(lcMeshPerf) << "[Mesh] gStep (DTM CRS):" << gStep
-                 << "-> gStepMesh (mesh CRS):" << gStepMesh
-                 << "| effSpacing:" << effSpacing;
-
-        // Probe the DTM at the centre of the domain to verify sampleAt works.
-        {
-            const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
-            const double zc = thinner.sampleAt(cx, cy);
-            qCDebug(lcMeshPerf) << "[Mesh] centre probe at (" << cx << "," << cy
-                     << ") -> z =" << zc
-                     << (std::isfinite(zc) ? "(OK)" : "(NaN — DTM may not cover domain)");
-        }
-
-        QVector<QPointF> candidates;
-        QVector<double>  candidateZ;
-
-        // ── Stage-B cache: terrain candidates (DTM CRS, pre-filter) ────
-        // A hit skips the iterative thinning / bulk pixel read entirely.
-        // Reprojection, Poisson, and the boundary filter below rerun on
-        // both paths (cheap), so their parameters are not in the key.
-        QByteArray terrainCacheKey;
-        bool terrainHit = false;
-        if (cache.isUsable())
-        {
-            const QFileInfo dfi(in.dtmPath);
-            mesh::MeshStageCache::FileIdentity demId;
-            demId.absPath   = dfi.absoluteFilePath();
-            demId.mtimeMs   = dfi.lastModified().toMSecsSinceEpoch();
-            demId.sizeBytes = dfi.size();
-            terrainCacheKey = mesh::MeshStageCache::terrainKey(
-                demId, /*band*/ 1, in.thinnerOpts, in.doThinning,
-                QRectF(QPointF(dx0, dy0), QPointF(dx1, dy1)));
-
-            mesh::MeshStageCache::TerrainPoints tp;
-            QElapsedTimer cacheClock;
-            cacheClock.start();
-            if (cache.loadTerrain(terrainCacheKey, &tp))
-            {
-                candidates = std::move(tp.xyDtm);
-                candidateZ = std::move(tp.z);
-                terrainHit = true;
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points HIT"
-                                   << terrainCacheKey.left(12).constData()
-                                   << "-" << candidates.size() << "pts in"
-                                   << cacheClock.elapsed() << "ms";
-                progress(36, QObject::tr("Loaded %1 cached terrain points…")
-                             .arg(candidates.size()));
-            }
-            else
-            {
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points miss"
-                                   << terrainCacheKey.left(12).constData();
-            }
-        }
-
-        if (!terrainHit && in.doThinning)
-        {
-            progress(30, QObject::tr("Terrain-adaptive thinning…"));
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-            const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
-            stageClock.restart();
-            // Banded thinning streams huge DEMs; the callback maps its
-            // fraction into the 30→36% progress window and doubles as the
-            // cancellation poll (Stop was dead for the whole stage before).
-            candidates = thinner.generatePoints(
-                dtmBbox, in.thinnerOpts, &candidateZ,
-                [&promise](double f) -> bool {
-                    promise.setProgressValueAndText(
-                        30 + qBound(0, int(f * 6.0), 6),
-                        QObject::tr("Terrain-adaptive thinning… %1%")
-                            .arg(int(f * 100.0)));
-                    return !promise.isCanceled();
-                });
-            stageMark("thinning (generatePoints)");
-            // Cancel check FIRST: a cancelled run also lands here with an
-            // empty result + "cancelled" errorMsg, and should read as
-            // "Cancelled.", not as a thinning failure.
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-            // The thinner's safety guards (per-band working-set ceiling,
-            // retained-points ceiling, RasterIO failures) return an EMPTY
-            // result with the reason in errorMsg().  Silently meshing on with
-            // zero terrain points buries that message — fail loudly instead
-            // so the user can fix spacing/extent.
-            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
-            {
-                fail(QObject::tr("Terrain thinning failed: %1")
-                         .arg(thinner.errorMsg()));
+        if (useTerrainField && (!useAdaptiveTerrain || in.terrainBreaklines)) {
+            progress(30, QObject::tr("Measuring terrain roughness…"));
+            if (promise.isCanceled()) {
+                fail(QObject::tr("Cancelled."));
                 return;
             }
-            qCDebug(lcMeshPerf) << "[Mesh] thinning retained" << candidates.size() << "points";
-            progress(36, QObject::tr("Thinning retained %1 terrain points…")
-                         .arg(candidates.size()));
-        }
-        else if (!terrainHit)
-        {
-            // No thinning: read every raster pixel that overlaps the domain bbox
-            // in a single bulk RasterIO call.  Pixel centres are returned in
-            // DTM CRS; the common loop below transforms them to mesh CRS.
-            progress(30, QObject::tr("Sampling DTM terrain points…"));
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-
-            const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
-            stageClock.restart();
-            thinner.readPixels(dtmBbox, candidates, candidateZ);
-            stageMark("bulk readPixels");
-            // readPixels refuses pathologically large outputs (see its budget
-            // guard) and reports why via errorMsg() — surface it instead of
-            // meshing on with zero terrain points.
-            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
-            {
-                fail(QObject::tr("DTM sampling failed: %1")
-                         .arg(thinner.errorMsg()));
-                return;
-            }
-
-            qCDebug(lcMeshPerf) << "[Mesh] bulk readPixels returned" << candidates.size() << "points";
-            progress(36, QObject::tr("Sampled %1 DTM grid points…")
-                         .arg(candidates.size()));
-        }
-
-        if (!terrainHit && !terrainCacheKey.isEmpty())
-        {
-            // Skip pathological payloads (an uncapped readPixels over a huge
-            // bbox can reach GBs) so the sidecar stays reasonable.
-            constexpr qint64 kMaxTerrainCacheBytes = qint64(512) * 1024 * 1024;
-            const qint64 payloadBytes =
-                qint64(candidates.size()) * qint64(sizeof(QPointF) + sizeof(double));
-            if (payloadBytes <= kMaxTerrainCacheBytes)
-            {
-                QElapsedTimer storeClock;
-                storeClock.start();
-                if (cache.storeTerrain(terrainCacheKey, {candidates, candidateZ}))
-                    qCInfo(lcMeshPerf) << "[Mesh][cache] terrain points stored"
-                                       << terrainCacheKey.left(12).constData()
-                                       << "in" << storeClock.elapsed() << "ms";
-            }
-            else
-            {
-                qCInfo(lcMeshPerf) << "[Mesh][cache] terrain payload too large to cache:"
-                                   << payloadBytes << "bytes";
-            }
-        }
-
-        // Reproject all candidates from DTM CRS → mesh CRS.
-        progress(36, QObject::tr("Reprojecting %1 terrain points…")
-                     .arg(candidates.size()));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-        QVector<QPointF> candidatesMesh;
-        if (dtmToMesh && !candidates.isEmpty())
-        {
-            // One batched PROJ call; per-point results are identical to
-            // Transform(1,…) in a loop, without the per-call overhead.
-            candidatesMesh.reserve(candidates.size());
-            QVector<double> txs(candidates.size()), tys(candidates.size());
-            for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-            {
-                txs[ci] = candidates[ci].x();
-                tys[ci] = candidates[ci].y();
-            }
-            // This is the path that used to leak non-finite coordinates into
-            // the PSLG: a failed point kept OGR's HUGE_VAL, passed the
-            // in-domain bbox test by accident, and became a Steiner vertex.
-            // Terrain candidates are optional refinement points, so drop the
-            // failures — but keep candidateZ in step, since the two arrays are
-            // paired positionally by index further down.
-            const qsizetype nFail = transformChecked(dtmToMesh, txs.size(),
-                                                     txs.data(), tys.data());
-            if (nFail == 0)
-            {
-                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
-            }
-            else
-            {
-                // candidateZ is indexed by the candidatesMesh position from
-                // here on (the Poisson filter and the Steiner loop both do
-                // candidateZ[ci]), so it has to shrink in lockstep.
-                const bool zPaired = (candidateZ.size() == candidates.size());
-                QVector<double> keptZ;
-                keptZ.reserve(candidateZ.size());
-                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-                {
-                    if (!std::isfinite(txs[ci]) || !std::isfinite(tys[ci]))
-                        continue;
-                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
-                    if (zPaired) keptZ.append(candidateZ[ci]);
-                }
-                if (zPaired) candidateZ = std::move(keptZ);
-                qCWarning(lcMeshPerf)
-                    << "[Mesh]" << nFail << "of" << candidates.size()
-                    << "terrain points failed DTM->mesh reprojection and were"
-                    << "dropped;" << candidatesMesh.size() << "retained";
-            }
-        }
-        else
-        {
-            // Same CRS — implicit-sharing assignment, no per-point copy and
-            // no second 16 B/point buffer (matters at tens of millions of
-            // candidates from a large DEM).
-            candidatesMesh = candidates;
-        }
-        // The DTM-CRS array is not read past this point. Release it now: the
-        // reprojected path drops its duplicate immediately, and the shared
-        // same-CRS copy returns to refcount 1 so the non-const operator[]
-        // reads below never trigger a detach deep-copy.
-        candidates = QVector<QPointF>();
-        stageMark("reproject candidates DTM->mesh CRS");
-
-        // ── Option A: Poisson-disk minimum spacing filter (mesh CRS) ────────
-        // Iterates candidates in order; accepts a point only if no already-
-        // accepted point is within minSpacing.  Uses a spatial hash grid of
-        // cell size = minSpacing for O(N) average complexity.
-        if (in.thinnerOpts.useMinSpacing)
-        {
-            // 2026-07-19 — `spacing` hoisted to effSpacing above (shared
-            // with the boundary-buffer auto formula); value is identical.
-            const double spacing   = effSpacing;
-            const double spacing2  = spacing * spacing;
-            const double invCell   = 1.0 / spacing;
-
-            progress(36, QObject::tr("Poisson-disk filter over %1 points…")
-                         .arg(candidatesMesh.size()));
-            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-            stageClock.restart();
-
-            // Flat chained-index grid: cellHead maps a cell to its most
-            // recently accepted candidate, nextInCell links the rest of that
-            // cell's accepted candidates intrusively.  Replaces the previous
-            // QHash<CellKey, QVector<int>> (one heap-allocated QVector per
-            // occupied cell, ~50–100 B/point) with one flat 4 B/point array
-            // plus an int-valued hash — an order of magnitude less overhead
-            // at tens of millions of candidates.  Accept/reject decisions are
-            // identical: chain order differs from append order, but tooClose
-            // is an OR over the same neighbour set.
-            using CellKey = QPair<qint32, qint32>;
-            QHash<CellKey, int> cellHead;
-            QVector<qint32> nextInCell(candidatesMesh.size(), -1);
-
-            QVector<bool> kept(candidatesMesh.size(), false);
-            qsizetype nKept = 0;
-            for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-            {
-                const double px = candidatesMesh[ci].x();
-                const double py = candidatesMesh[ci].y();
-                const qint32 cx = qint32(std::floor(px * invCell));
-                const qint32 cy = qint32(std::floor(py * invCell));
-
-                bool tooClose = false;
-                for (qint32 dy = -1; dy <= 1 && !tooClose; ++dy)
-                    for (qint32 dx = -1; dx <= 1 && !tooClose; ++dx)
-                    {
-                        auto it = cellHead.constFind(qMakePair(cx+dx, cy+dy));
-                        if (it == cellHead.constEnd()) continue;
-                        for (int j = it.value(); j != -1; j = nextInCell[j])
-                        {
-                            const double ddx = candidatesMesh[j].x() - px;
-                            const double ddy = candidatesMesh[j].y() - py;
-                            if (ddx*ddx + ddy*ddy < spacing2) { tooClose = true; break; }
-                        }
-                    }
-
-                if (!tooClose)
-                {
-                    kept[ci] = true;
-                    ++nKept;
-                    auto it = cellHead.find(qMakePair(cx, cy));
-                    if (it == cellHead.end())
-                        cellHead.insert(qMakePair(cx, cy), ci);
-                    else { nextInCell[ci] = it.value(); it.value() = ci; }
+            // DEM linear unit → mesh unit, from the transform's local scale
+            // at the domain centre (1 when the CRSs match).
+            double unitScale = 1.0;
+            if (dtmToMesh) {
+                const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
+                const double step = thinner.pixelSize();
+                double xs[2] = {cx, cx + step}, ys[2] = {cy, cy};
+                if (dtmToMesh->Transform(2, xs, ys) && step > 0.0) {
+                    const double d = std::hypot(xs[1] - xs[0], ys[1] - ys[0]);
+                    if (std::isfinite(d) && d > 0.0)
+                        unitScale = d / step;
                 }
             }
-
-            // Compact: remove rejected candidates.  Reserve the exact
-            // survivor count — a full-N reserve here doubled the peak for
-            // no benefit when the filter rejects most points.
-            QVector<QPointF> filtMesh;
-            QVector<double>  filtZ;
-            filtMesh.reserve(nKept);
-            filtZ.reserve(nKept);
-            for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-                if (kept[ci]) { filtMesh.append(candidatesMesh[ci]); filtZ.append(candidateZ[ci]); }
-
-            stageMark("Poisson-disk filter");
-            qCDebug(lcMeshPerf) << "[Mesh] Poisson-disk:" << candidatesMesh.size()
-                     << "->" << filtMesh.size() << "points (spacing" << spacing
-                     << "| cells" << cellHead.size() << ")";
-            progress(37, QObject::tr("Poisson-disk filter: %1 → %2 points…")
-                         .arg(candidatesMesh.size()).arg(filtMesh.size()));
-
-            candidatesMesh = std::move(filtMesh);
-            candidateZ     = std::move(filtZ);
-        }
-
-        // ── 2026-07-19 — boundary-aware terrain filter ──────────────────────
-        // Terrain candidates were sampled over the domain BOUNDING BOX with
-        // no awareness of the PSLG: a pixel centre landing millimetres from
-        // a constrained boundary/hole/conduit segment (or a mandatory SWMM
-        // node vertex) forces a sliver triangle, which the -q quality pass
-        // then splits into clusters of tiny cells hugging the boundary.
-        // Reject candidates that are (a) outside the domain rings, (b)
-        // inside a hole ring (unmeshed interior), (c) closer than bufferDist
-        // to any constrained segment, or (d) closer than bufferDist to any
-        // mandatory Steiner vertex. Triangle fills the resulting buffer band
-        // with properly-sized boundary triangles on its own.
-        const double bufferDist = (in.terrainBoundaryBuffer > 0.0)
-                                  ? in.terrainBoundaryBuffer
-                                  : 0.5 * effSpacing;
-        // Auto = 0.5 × effective terrain spacing: keeps terrain points
-        // outside the diametral circles of comparable-length boundary
-        // segments and never closer to the boundary than to their nearest
-        // terrain neighbour, so boundary-adjacent triangles land in the same
-        // size class as interior ones. maxArea is deliberately not factored
-        // in — when it implies smaller edges than the terrain spacing the
-        // refinement is globally fine-grained anyway, and a max() would
-        // carve an oversized terrain-free band on coarse-area runs.
-        const double bufferDist2 = bufferDist * bufferDist;
-        const double invBufCell  = 1.0 / bufferDist;
-        using CellKey = QPair<qint32, qint32>;
-
-        // Inside-domain test — semantics identical to collectInputs'
-        // inDomain: inside any domain ring AND not inside any hole ring.
-        //
-        // 2026-07-19b — STALL FIX (part 2): the first cut looped
-        // QPolygonF::containsPoint over every ring per candidate, i.e.
-        // O(total ring vertices) × O(candidates) — a second slow path on
-        // dense dissolved subcatchment boundaries. Replaced with one
-        // odd-even crossing count over ALL rings (domains + holes share
-        // the parity, so "in domain minus holes" falls out directly for
-        // the disjoint rings UnaryUnion produces), with edges bucketed by
-        // y-band so each query only visits edges near its scanline.
-        progress(37, QObject::tr("Boundary filter: indexing domain rings…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-
-        mesh::pslg::PointInRingsIndex pipIdx;
-        pipIdx.build(in.domains, in.holeRings);
-        stageMark("boundary filter: point-in-polygon band index");
-        auto insideDomain = [&pipIdx](const QPointF &p) -> bool {
-            return pipIdx.contains(p);
-        };
-
-        // Constrained-segment spatial hash (same idiom as the Poisson grid
-        // above / flatGrid in Step 1): every edge of every domain ring, hole
-        // ring, and constraint-segment path, binned into every cell its
-        // bufferDist-inflated bbox overlaps.
-        //
-        // 2026-07-19b — STALL FIX: segments are chunked to <= bufferDist
-        // length BEFORE binning. Binning a whole segment rasterised its
-        // inflated bounding box at cell size = bufferDist, which is
-        // O((len/buffer)²) cells for a diagonal segment — a few hundred
-        // metres of subcatchment boundary against a half-pixel buffer
-        // exploded into millions of hash insertions per segment and the
-        // generation appeared to hang at ~37%. The union of chunks equals
-        // the segment (min distance over chunks == distance to segment),
-        // each chunk touches a handful of cells, and the total insertion
-        // count becomes O(len/buffer). The 3×3 query below is unchanged.
-        progress(37, QObject::tr("Boundary filter: indexing constraint segments…"));
-        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-        stageClock.restart();
-
-        // 2026-07-19c — hard ceiling on total chunks. The chunk count is
-        // O(totalBoundaryLength / bufferDist), so any future unit slip in
-        // bufferDist (see the gStepMesh conversion above — a DTM-CRS value
-        // leaking in made this 1.5e9) silently turns into an unbounded loop.
-        // Bail loudly instead of hanging: the filter is a quality refinement,
-        // and skipping it costs sliver triangles, not a wrong mesh.
-        constexpr qint64 kMaxSegChunks = 20'000'000;
-        qint64 nChunkTotal = 0;
-        bool   chunkOverflow = false;
-
-        QVector<QPair<QPointF, QPointF>> csegs;
-        QHash<CellKey, QVector<int>>     segGrid;
-        auto addSegPath = [&](const QVector<QPointF> &path, bool closeRing) {
-            if (chunkOverflow) return;
-            const int n = path.size();
-            if (n < 2) return;
-            const bool alreadyClosed = (path.first() == path.last());
-            const int  segCount = (closeRing && !alreadyClosed) ? n : n - 1;
-            for (int i = 0; i < segCount; ++i)
-            {
-                const QPointF &a = path[i];
-                const QPointF &b = path[(i + 1) % n];
-                if (a == b) continue;
-                const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
-                if (!std::isfinite(segLen)) continue;   // garbage coords guard
-
-                // Count in double/qint64: segLen/bufferDist overflows int
-                // outright once bufferDist is wrong by a few orders.
-                const double chunkReal = std::ceil(segLen / bufferDist);
-                if (!std::isfinite(chunkReal)
-                    || nChunkTotal + qint64(std::min(chunkReal, 1e18))
-                           > kMaxSegChunks)
-                {
-                    chunkOverflow = true;
+            mesh::TerrainSizeOptions tso;
+            // The DEM's vertical unit: the z factor maps DEM z → mesh z.
+            tso.tolerance = in.zConversionFactor > 0.0 ? in.terrainTolerance / in.zConversionFactor
+                                                       : in.terrainTolerance;
+            // Output cells near the size-field pitch (>= nearSize/2).
+            const double pitchDem = sizeOptions.nearSize > 0.0 && unitScale > 0.0
+                                        ? 0.5 * sizeOptions.nearSize / unitScale
+                                        : 0.0;
+            tso.outLevel =
+                (pitchDem > 0.0 && thinner.pixelSize() > 0.0)
+                    ? int(std::clamp(std::floor(std::log2(pitchDem / thinner.pixelSize())), 1.0,
+                                     6.0))
+                    : 1;
+            // Adaptive mode only needs the streaming geometry here; it does
+            // not compute or impose the conservative block-size hierarchy.
+            if (useAdaptiveTerrain || !(in.terrainTolerance > 0)) {
+                tso.rowsOnly = true;
+                tso.maxBandBytes = qint64(in.terrainCacheMiB) * 1024 * 1024;
+                // Breaklines are detected on a grid about one minimum cell
+                // wide (block-averaged, from overviews when present): major
+                // features only, and far less DEM to read (D-R4).
+                if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
+                    tso.decimation = int(
+                        std::clamp(std::floor(in.minCellSize / (unitScale * thinner.pixelSize())),
+                                   1.0, double(std::numeric_limits<int>::max() / 2)));
+            }
+            // Terrain break lines ride the same row pass but use their own
+            // detection tolerance, independent of elevation-error refinement.
+            mesh::TerrainBreaklineExtractor breaklines;
+            mesh::TerrainBreaklineOptions blo;
+            blo.tolerance = in.zConversionFactor > 0 ? in.breaklineTolerance / in.zConversionFactor
+                                                     : in.breaklineTolerance;
+            blo.cacheMiB = in.terrainCacheMiB;
+            // Major features only (MESH_REGIONAL_TRIQUAD_PLAN D-R4): the
+            // generator keeps no line shorter than 4 x the minimum cell, so do
+            // not trace them. On fine lidar this drops millions of chains. A
+            // chain point advances at most sqrt(2) pixels, so this count never
+            // drops a line the generator would keep.
+            if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
+                blo.minPixels =
+                    std::max(blo.minPixels,
+                             int(std::clamp(std::floor((in.genOpts.terrainMinLineLength > 0
+                                                            ? in.genOpts.terrainMinLineLength
+                                                            : 4.0 * in.minCellSize) /
+                                                       (std::sqrt(2.0) * unitScale *
+                                                        thinner.pixelSize() * tso.decimation)),
+                                            0.0, double(std::numeric_limits<int>::max()))));
+            /**
+             * @brief Allow the breakline extractor to observe the worker promise cancellation flag.
+             * Takes no arguments. Returns: true to request cancellation; no widgets or shared model
+             * access.
+             */
+            blo.cancelled = [&promise] { return promise.isCanceled(); };
+            if (in.terrainBreaklines)
+                /**
+                 * @brief Stream terrain rows into the worker-local breakline extractor. Argument
+                 * `row`: borrowed readable float row of cols values, consumed synchronously.
+                 * Argument `r`: zero-based row index; zero initializes the extractor with cols/rows
+                 * and copied options. Arguments `cols`, `rows`: grid dimensions. Returns: no value;
+                 * does not retain the row buffer.
+                 */
+                tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
+                    if (r == 0)
+                        breaklines.begin(cols, rows, blo);
+                    breaklines.pushRow(row);
+                };
+            // Stage L: adaptive mode streams the DEM only for break lines, so a
+            // cached result for the same DEM window and parameters skips it.
+            const bool cacheBreaklines = tso.rowsOnly && in.terrainBreaklines && cache.isUsable();
+            const QByteArray breaklineKey =
+                cacheBreaklines ? mesh::MeshStageCache::breaklineKey(
+                                      mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt,
+                                      QRectF(QPointF(dx0, dy0), QPointF(dx1, dy1)), blo.tolerance,
+                                      blo.lowRatio, blo.minPixels, blo.maxPixels, tso.decimation)
+                                : QByteArray();
+            mesh::MeshStageCache::Breaklines cachedLines;
+            // Keep the most significant lines only, ranked on the terrain
+            // reference after the cache (so the cap can change cheaply).
+            /**
+             * @brief Select significant terrain breaklines after cache loading/extraction. Argument
+             * `all`: borrowed mesh-CRS line collection. Returns: copied full set when cap/floor
+             * disabled, otherwise terrain-step-ranked subset with prefetch and diagnostic logging;
+             * input remains intact.
+             */
+            auto rankLines = [&](const QVector<QVector<QPointF>> &all) {
+                if (in.maxTerrainBreaklines <= 0 || !(in.minCellSize > 0.0))
+                    return all;
+                double stats[3] = {};
+                QElapsedTimer rankClock;
+                rankClock.start();
+                auto kept = mesh::rankBreaklinesByStep(
+                    all, [&](double x, double y) { return terrainReference.sampleAt(x, y); },
+                    in.minCellSize, in.maxTerrainBreaklines, stats,
+                    [&](const QVector<QRectF> &boxes) { terrainReference.prefetch(boxes); });
+                reporter.line(meshkit::Severity::Info).noquote()
+                    << QStringLiteral(
+                           "[Mesh][terrain] break lines ranked: kept %1 of %2 (smallest integrated step %3) in %4 ms")
+                           .arg(stats[1])
+                           .arg(stats[0])
+                           .arg(stats[2])
+                           .arg(rankClock.elapsed());
+                return kept;
+            };
+            const bool breaklinesCached =
+                cacheBreaklines && cache.loadBreaklines(breaklineKey, &cachedLines);
+            if (breaklinesCached) {
+                g.setTerrainBreaklines(rankLines(cachedLines.lines));
+                sizeOptions.steps = g.previewTerrainBreaklines();
+                reporter.line(meshkit::Severity::Info)
+                    << "[Mesh][cache] terrain break lines HIT:" << cachedLines.lines.size()
+                    << "| median length (px)" << cachedLines.medianLength
+                    << "| dropped (reprojection)" << cachedLines.dropped
+                    << (cachedLines.skipped ? "| SKIPPED: DEM window over the pixel cap" : "");
+                stageMark("terrain size field");
+            } else {
+                stageClock.restart();
+                const bool built = terrainField.buildFromFile(
+                    in.dtmPath, 1, dx0, dy0, dx1, dy1, tso, [&](double f) -> bool {
+                        progress(
+                            30 + qBound(0, int(f * 6.0), 6),
+                            QObject::tr("Measuring terrain roughness… %1%").arg(int(f * 100.0)));
+                        return !promise.isCanceled();
+                    });
+                stageMark("terrain size field");
+                if (promise.isCanceled()) {
+                    fail(QObject::tr("Cancelled."));
                     return;
                 }
-                const int nChunks = std::max(1, static_cast<int>(chunkReal));
-                nChunkTotal += nChunks;
-                for (int c = 0; c < nChunks; ++c)
+                if (!built) {
+                    fail(QObject::tr("Terrain size field failed: %1").arg(terrainField.errorMsg()));
+                    return;
+                }
+                reporter.line(meshkit::Severity::Info)
+                    << "[Mesh][terrain] size field" << terrainField.outCols() << "x"
+                    << terrainField.outRows() << "| levels" << terrainField.levelsUsed()
+                    << "| tolerance (DEM units)" << tso.tolerance << "| unit scale" << unitScale;
                 {
-                    const double t0 = static_cast<double>(c)     / nChunks;
-                    const double t1 = static_cast<double>(c + 1) / nChunks;
-                    const QPointF ca(a.x() + t0 * (b.x() - a.x()),
-                                     a.y() + t0 * (b.y() - a.y()));
-                    const QPointF cb(a.x() + t1 * (b.x() - a.x()),
-                                     a.y() + t1 * (b.y() - a.y()));
-                    const int segIdx = csegs.size();
-                    csegs.append(qMakePair(ca, cb));
-                    const qint32 cx0 = qint32(std::floor((std::min(ca.x(), cb.x()) - bufferDist) * invBufCell));
-                    const qint32 cx1 = qint32(std::floor((std::max(ca.x(), cb.x()) + bufferDist) * invBufCell));
-                    const qint32 cy0 = qint32(std::floor((std::min(ca.y(), cb.y()) - bufferDist) * invBufCell));
-                    const qint32 cy1 = qint32(std::floor((std::max(ca.y(), cb.y()) + bufferDist) * invBufCell));
-                    for (qint32 gy = cy0; gy <= cy1; ++gy)
-                        for (qint32 gx = cx0; gx <= cx1; ++gx)
-                            segGrid[qMakePair(gx, gy)].append(segIdx);
+                    // Window pixels → DEM CRS → mesh CRS. A chain with any point
+                    // that fails reprojection is dropped whole (a gap would be
+                    // bridged by a straight segment).
+                    const QVector<QVector<QPointF>> chains = breaklines.finish();
+                    if (!breaklines.errorMsg().isEmpty()) {
+                        fail(breaklines.errorMsg());
+                        return;
+                    }
+                    QVector<QVector<QPointF>> lines;
+                    lines.reserve(chains.size());
+                    qsizetype dropped = 0;
+                    for (const QVector<QPointF> &chain : chains) {
+                        QVector<double> xs(chain.size()), ys(chain.size());
+                        for (int k = 0; k < chain.size(); ++k) {
+                            const QPointF geo =
+                                terrainField.windowPixelToGeo(chain[k].x(), chain[k].y());
+                            xs[k] = geo.x();
+                            ys[k] = geo.y();
+                        }
+                        if (transformChecked(dtmToMesh, xs.size(), xs.data(), ys.data()) > 0) {
+                            ++dropped;
+                            continue;
+                        }
+                        QVector<QPointF> line(chain.size());
+                        for (int k = 0; k < chain.size(); ++k)
+                            line[k] = QPointF(xs[k], ys[k]);
+                        lines.append(std::move(line));
+                    }
+                    g.setTerrainBreaklines(rankLines(lines));
+                    // The lines the generator will keep become mesh edges: the size
+                    // field must not refine around their steps
+                    // (MESH_TRIANGLE_ENGINE_PLAN D13). Lines it drops keep theirs.
+                    sizeOptions.steps = g.previewTerrainBreaklines();
+                    QVector<int> lengths;
+                    lengths.reserve(chains.size());
+                    for (const auto &c : chains)
+                        lengths.append(int(c.size()));
+                    std::sort(lengths.begin(), lengths.end());
+                    const int medianLength = lengths.isEmpty() ? 0 : lengths[lengths.size() / 2];
+                    reporter.line(meshkit::Severity::Info)
+                        << "[Mesh][terrain] break lines extracted" << lines.size()
+                        << "| median length (px)" << medianLength << "| dropped (reprojection)"
+                        << dropped
+                        << (breaklines.skipped() ? "| SKIPPED: DEM window over the pixel cap" : "");
+                    if (cacheBreaklines && !promise.isCanceled() &&
+                        cache.storeBreaklines(breaklineKey,
+                                              {lines, medianLength, dropped, breaklines.skipped()}))
+                        reporter.line(meshkit::Severity::Info)
+                            << "[Mesh][cache] terrain break lines stored";
+                    // Many short chains = the tolerance is inside the DEM's noise
+                    // (SRTM stores whole metres: anything under ~3 m traces noise).
+                    if (lines.size() > 500 && medianLength < 10)
+                        reporter.line(meshkit::Severity::Warning)
+                            << "[Mesh][terrain]" << lines.size() << "short break lines (median"
+                            << medianLength << "px): the terrain tolerance" << in.terrainTolerance
+                            << "looks smaller than the DEM's noise — the mesh will follow noise.";
                 }
             }
-        };
-        for (const auto &dom : std::as_const(in.domains))
-            addSegPath(dom, /*closeRing=*/true);
-        for (const auto &hr : std::as_const(in.holeRings))
-            addSegPath(hr, /*closeRing=*/true);
-        for (const auto &cs : std::as_const(in.constraintSegs))
-            addSegPath(cs.path, /*closeRing=*/false);
-        stageMark("boundary filter: constraint-segment hash");
-        if (chunkOverflow)
-        {
-            // Abandon the segment index rather than grind: keep the cheap
-            // inside-domain and mandatory-vertex rejections, drop only the
-            // near-segment one.
-            csegs.clear();
-            segGrid.clear();
-            qWarning() << "[Mesh] boundary filter: segment index exceeded"
-                       << kMaxSegChunks
-                       << "chunks at bufferDist" << bufferDist
-                       << "— skipping the near-segment rejection. Set an "
-                          "explicit Boundary buffer if slivers appear.";
+            if (!useAdaptiveTerrain && in.terrainTolerance > 0)
+                /**
+                 * @brief Sample a conservative local terrain size in mesh XY units. Arguments `x`,
+                 * `y`: query coordinates in mesh CRS. Returns: DEM size times local CRS unitScale,
+                 * or zero when the optional transform reports failure. Captured terrain
+                 * field/transform remain worker-local and must outlive generator callbacks.
+                 */
+                sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x,
+                                                                                  double y) {
+                    double gx = x, gy = y;
+                    if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy))
+                        return 0.0;
+                    return terrainField.sizeAtGeo(gx, gy) * unitScale;
+                };
         }
-        {
-            qint64 nIns = 0;
-            for (auto it = segGrid.constBegin(); it != segGrid.constEnd(); ++it)
-                nIns += it.value().size();
-            qCDebug(lcMeshPerf) << "[Mesh] seg hash: bufferDist" << bufferDist
-                     << "| chunks" << csegs.size()
-                     << "| cells" << segGrid.size()
-                     << "| insertions" << nIns
-                     << "| overflow" << chunkOverflow;
-        }
-
-        auto nearConstraint = [&](double px, double py) -> bool {
-            const QPointF p(px, py);
-            const qint32 cx = qint32(std::floor(px * invBufCell));
-            const qint32 cy = qint32(std::floor(py * invBufCell));
-            for (qint32 dy = -1; dy <= 1; ++dy)
-                for (qint32 dx = -1; dx <= 1; ++dx)
-                {
-                    auto it = segGrid.constFind(qMakePair(cx + dx, cy + dy));
-                    if (it == segGrid.constEnd()) continue;
-                    for (const int si : *it)
-                        if (distSqToSegment(p, csegs[si].first, csegs[si].second)
-                                < bufferDist2)
-                            return true;
-                }
-            return false;
-        };
-
-        // Mandatory-vertex hash: ALL Step-1 Steiner points (SWMM nodes, 3D
-        // feature vertices, …) are vertices Triangle must keep — a terrain
-        // point centimetres from a junction makes the same sliver at exactly
-        // the coupling locations. Rim-flatten only conditions z, not xy.
-        QHash<CellKey, QVector<QPointF>> vertGrid;
-        stageClock.restart();
-        for (const auto &sp0 : std::as_const(in.steinerPoints))
-        {
-            const qint32 gx = qint32(std::floor(sp0.xy.x() * invBufCell));
-            const qint32 gy = qint32(std::floor(sp0.xy.y() * invBufCell));
-            vertGrid[qMakePair(gx, gy)].append(sp0.xy);
-        }
-        auto nearMandatoryVertex = [&](double px, double py) -> bool {
-            const qint32 cx = qint32(std::floor(px * invBufCell));
-            const qint32 cy = qint32(std::floor(py * invBufCell));
-            for (qint32 dy = -1; dy <= 1; ++dy)
-                for (qint32 dx = -1; dx <= 1; ++dx)
-                {
-                    auto it = vertGrid.constFind(qMakePair(cx + dx, cy + dy));
-                    if (it == vertGrid.constEnd()) continue;
-                    for (const QPointF &v : *it)
-                    {
-                        const double ddx = v.x() - px, ddy = v.y() - py;
-                        if (ddx * ddx + ddy * ddy < bufferDist2) return true;
-                    }
-                }
-            return false;
-        };
-
-        // Add surviving terrain candidates as PSLG Steiner vertices.
-        // Candidates within a rim node's flatten radius are forced to that
-        // node's rim z (model units); the rest keep their raster-unit DTM z.
-        stageMark("boundary filter: mandatory-vertex hash");
-
-        int nOutside = 0, nNearSeg = 0, nNearNode = 0, nAdded = 0;
-        progress(37, QObject::tr("Boundary filter: testing %1 terrain points…")
-                     .arg(candidatesMesh.size()));
-        stageClock.restart();
-        // No up-front hash reserve: sizing elevCache for every PRE-filter
-        // candidate commits multi-GB before a single point survives the
-        // boundary filter.  Geometric growth tracks the actual survivor count
-        // instead.  The Steiner VECTOR gets a capped reserve — a plain array,
-        // bounded to ~192 MB, most candidates survive the filter — which
-        // avoids the transient ~2x growth peak without the unbounded-commit
-        // hazard the hash reserve had.
-        g.reserveSteinerPoints(std::min<qsizetype>(candidatesMesh.size(),
-                                                   qsizetype(4) * 1024 * 1024));
-        for (int ci = 0; ci < candidatesMesh.size(); ++ci)
-        {
-            // Cancel check every 64k candidates: this loop is the longest
-            // uninterruptible stretch in the band and "Stop" was dead here.
-            if ((ci & 0xFFFF) == 0 && promise.isCanceled())
-            { fail(QObject::tr("Cancelled.")); return; }
-
-            const double cx = candidatesMesh[ci].x(), cy = candidatesMesh[ci].y();
-
-            // 2026-07-19 — boundary-aware rejection (see block comment above).
-            if (!insideDomain(QPointF(cx, cy))) { ++nOutside;  continue; }
-            if (nearConstraint(cx, cy))         { ++nNearSeg;  continue; }
-            if (nearMandatoryVertex(cx, cy))    { ++nNearNode; continue; }
-
-            double z = candidateZ[ci];
-            const double fz = flattenZ(cx, cy);
-            const bool flattened = std::isfinite(fz);
-            if (flattened) z = fz;
-
-            mesh::SteinerPoint sp;
-            sp.xy   = QPointF(cx, cy);
-            sp.z    = z;
-            sp.hasZ = true;
-            g.addSteinerPoint(sp);
-            ++nAdded;
-
-            const auto k = keyOf(cx, cy);
-            elevCache.insert(k, z);
-            if (flattened) modelUnitKeys.insert(k);
-        }
-
-        stageMark("boundary filter: candidate rejection loop");
-        qCDebug(lcMeshPerf) << "[Mesh] boundary filter:" << candidatesMesh.size()
-                 << "->" << nAdded
-                 << "(outside" << nOutside
-                 << "| near-segment" << nNearSeg
-                 << "| near-node" << nNearNode
-                 << "| buffer" << bufferDist << ")";
-        progress(38, QObject::tr("%1 DTM Steiner points added to PSLG "
-                                 "(%2 dropped by boundary filter)")
-                     .arg(nAdded)
-                     .arg(candidatesMesh.size() - nAdded));
-    }
-    else if (useDTM)
-    {
-        qCDebug(lcMeshPerf) << "[Mesh] domain bbox invalid — skipping DTM sampling";
+    } else if (useDTM) {
+        qCDebug(lcMeshPerf) << "[Mesh] domain bbox invalid — skipping the terrain size field";
     }
 
-    // ── Run Triangle ────────────────────────────────────────────────
-    progress(40, QObject::tr("Running Triangle…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    // ── Generate ────────────────────────────────────────────────────
+    progress(40, QObject::tr("Generating mesh…"));
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
 
-    // Triangle's refinement pass is otherwise uninterruptible — the Stop button
-    // is dead for its entire duration, which on a large PSLG can be minutes.
-    // The `-u` user-test hook is the only place Triangle calls back into us
-    // during refinement, so cancellation and progress both ride on it.
+    // Graded size field (V2 plan Track B).  Keeps the uniform cap AT the
+    // constrained features and lets the permitted area grow with distance at
+    // the user's Lipschitz slope — strictly fewer cells than the uniform cap,
+    // with the slope itself the smooth-transition guarantee.  Built from the
+    // CONDITIONED geometry so the field grades away from what the mesher will
+    // actually see.  Must outlive generate(): the hook samples it per
+    // candidate triangle.
+    mesh::SizeField sizeField;
+    bool useGrading = false;
+    if (sizeOptions.nearSize > 0.0 && sizeOptions.gradation > 0.0) {
+        QRectF bbox;
+        for (const QPolygonF &d : std::as_const(in.domains))
+            bbox = bbox.isValid() ? bbox.united(d.boundingRect()) : d.boundingRect();
+
+        // Seeds: constraint segments, valid hole rings, tagged (SWMM node)
+        // Steiner points.  The outer domain ring is deliberately not a seed
+        // (see sizefield.h).
+        QVector<QVector<QPointF>> ringSeeds;
+        ringSeeds.reserve(bprep.holeRings.size());
+        for (int k = 0; k < bprep.holeRings.size(); ++k)
+            if (k < bprep.holeValid.size() && bprep.holeValid[k])
+                ringSeeds.append(bprep.holeRings[k]);
+        // Structured patch boundaries seed too (TRI_QUAD_MESHING_PLAN §3.2):
+        // the stitch keeps the near-feature cap instead of grading up to
+        // whatever the surrounding features permit, which is what fans
+        // slivers against the patch's boundary nodes.
+        for (const mesh::PatchMesh &pm : std::as_const(in.patches))
+            for (const auto &seg : pm.boundarySegments)
+                if (seg.first >= 0 && seg.first < pm.xy.size() && seg.second >= 0 &&
+                    seg.second < pm.xy.size())
+                    ringSeeds.append({pm.xy[seg.first], pm.xy[seg.second]});
+        // Quad region rings seed for the same reason (QUAD_MESHING_REDESIGN
+        // §6.1): the triangles outside a region grade away from the region's
+        // spacing instead of jumping.  Per edge, wrap edge included — the
+        // size field treats a ring as an open path.
+        for (const mesh::QuadRegion &qr : std::as_const(quadRegions)) {
+            const int n = qr.ring.size();
+            for (int i = 0; i < n; ++i) {
+                const QPointF &a = qr.ring[i], &b = qr.ring[(i + 1) % n];
+                if (a != b)
+                    ringSeeds.append({a, b});
+            }
+        }
+
+        useGrading = sizeField.build(
+            bbox, in.refineAtFeatures ? in.constraintSegs : QVector<mesh::ConstraintSegment>{},
+            in.refineAtFeatures ? ringSeeds : QVector<QVector<QPointF>>{},
+            in.refineAtFeatures ? in.steinerPoints : QVector<mesh::SteinerPoint>{}, sizeOptions);
+        if (useGrading) {
+            reporter.line(meshkit::Severity::Info)
+                << "[Mesh][grading] size field" << sizeField.cols() << "x" << sizeField.rows()
+                << "at pitch" << sizeField.pitch() << "| near size" << sizeOptions.nearSize
+                << "| gradation" << sizeOptions.gradation << "| max size" << sizeOptions.maxSize
+                << "| terrain" << (useTerrainField ? "on" : "off");
+        } else {
+            fail(QObject::tr("Could not construct the requested size field."));
+            return;
+        }
+    }
+    int generationPass = 1;
+    // Cancellation and progress ride on the hook; the graded field is the
+    // size function (it folds in the floor and the coarsening cap).
+    const bool scaledTerrainTolerance=in.terrainTolerancePolicy.mode==mesh::TerrainToleranceMode::TargetSize;
+    if(!in.terrainTolerancePolicy.valid() || (scaledTerrainTolerance && (!useAdaptiveTerrain || !in.genOpts.verifiedSizing))) {
+        fail(QObject::tr("Size-weighted terrain tolerance requires adaptive terrain, a selected DEM and verified sizing."));return;
+    }
+    auto toleranceForBox=[&](const QRectF &box) {
+        if(!scaledTerrainTolerance)return in.terrainTolerance;
+        const double target=useGrading?sizeField.minimumTerrainSizeInBox(box):in.maximumCellSize;
+        return in.terrainTolerancePolicy.tolerance(in.terrainTolerance,target);
+    };
+    if(scaledTerrainTolerance && !std::isfinite(toleranceForBox(QRectF(QPointF(bx0,by0),QPointF(bx1,by1))))) {
+        fail(QObject::tr("The resolved terrain tolerance floor/cap or prescribed target field is invalid."));return;
+    }
+    if(scaledTerrainTolerance)reporter.line(meshkit::Severity::Info)<<"[Mesh][terrain] linear target-size tolerance; reference size"<<in.terrainTolerancePolicy.referenceSize
+        <<"reference tolerance"<<in.terrainTolerance<<"floor"<<in.terrainTolerancePolicy.minimumTolerance
+        <<"cap"<<(in.terrainTolerancePolicy.maximumTolerance>0?in.terrainTolerancePolicy.maximumTolerance:in.terrainTolerance);
+    auto footprintBox=[](const QPointF *xy,int count) {
+        double x0=xy[0].x(),x1=x0,y0=xy[0].y(),y1=y0;
+        for(int k=1;k<count;++k){x0=std::min(x0,xy[k].x());x1=std::max(x1,xy[k].x());y0=std::min(y0,xy[k].y());y1=std::max(y1,xy[k].y());}
+        return QRectF(QPointF(x0,y0),QPointF(x1,y1));
+    };
     {
         mesh::RefineHook hook;
+        /**
+         * @brief Expose promise cancellation to refinement. Takes no arguments. Returns: current
+         * cancellation flag; generator decides safe stopping checkpoints.
+         */
         hook.isCancelled = [&promise] { return promise.isCanceled(); };
-        hook.onProgress  = [&progress](qint64 tests) {
-            progress(45, QObject::tr("Refining mesh… (%1 M triangle tests)")
-                             .arg(tests / 1000000));
+        hook.onDiagnostic = [&](const QString &message) {
+            reporter.diagnostic(meshkit::Severity::Info, message, "geometry");
         };
+        /**
+         * @brief Publish refinement cell-count status. Argument `cells`: current generated/refined
+         * count printed at the fixed 45-percent stage. Returns: no value; does not change
+         * generation bounds.
+         */
+        hook.onDetailedProgress = [&](const mesh::GenerationProgress &state) {
+            QString stage;
+            using Stage = mesh::GenerationProgress::Stage;
+            switch (state.stage) {
+            case Stage::Refining:
+                stage = QObject::tr("Size and shape refinement");
+                break;
+            case Stage::Smoothing:
+                stage = QObject::tr("Smoothing");
+                break;
+            case Stage::Terrain:
+                stage = QObject::tr("Terrain refinement");
+                break;
+            case Stage::Coarsening:
+                stage = QObject::tr("Coarsening");
+                break;
+            case Stage::Verifying:
+                stage = QObject::tr("Terrain verification");
+                break;
+            }
+            stage = QObject::tr("Pass %1: %2").arg(generationPass).arg(stage);
+            meshkit::Counts counts;
+            counts.workingVertices = state.workingVertices;
+            counts.triangles = state.triangles;
+            counts.quads = state.quads;
+            counts.inserted = state.inserted;
+            counts.removed = state.removed;
+            const QString message =
+                QObject::tr(
+                    "%1 — %2 cells (%3 triangles, %4 quads); %5 working vertices; %6 inserted, %7 removed")
+                    .arg(stage)
+                    .arg(counts.cells())
+                    .arg(counts.triangles)
+                    .arg(counts.quads)
+                    .arg(counts.workingVertices)
+                    .arg(counts.inserted)
+                    .arg(counts.removed);
+            overallProgress = std::max(overallProgress, generationPass == 1 ? 45 : 65);
+            promise.setProgressValueAndText(overallProgress, message);
+            reporter.progress(overallProgress, message, stage, counts);
+        };
+        if (useGrading && sizeField.hasSizeBound()) {
+            /**
+             * @brief Resolve graded area cap. Arguments `x`, `y`: mesh-CRS location. Returns:
+             * worker-local size-field target area in squared mesh units; bound field must outlive
+             * generation.
+             */
+            hook.targetAreaAt = [&sizeField](double x, double y) {
+                return sizeField.targetAreaAt(x, y);
+            };
+        }
+        // Ground elevation for the street / ditch trough test (DEM units —
+        // only compared with itself).
+        if (useDTM)
+            /**
+             * @brief Sample terrain for street/ditch shape checks. Arguments `x`, `y`: mesh XY
+             * coordinates, optionally transformed to DEM CRS. Returns: raw DEM vertical-unit
+             * elevation, or NaN when transformation fails; no zConversionFactor is applied here.
+             */
+            hook.elevationAt = [&thinner, meshToDTM](double x, double y) {
+                double gx = x, gy = y;
+                if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy))
+                    return std::numeric_limits<double>::quiet_NaN();
+                return thinner.sampleAt(gx, gy);
+            };
+        if (useAdaptiveTerrain) {
+            hook.terrainTolerance = in.terrainTolerance;
+            if(scaledTerrainTolerance)hook.terrainToleranceForFootprint=toleranceForBox;
+            // Adaptive terrain spends the cell budget worst error first.
+            hook.terrainWorstFirst = useAdaptiveTerrain;
+            // The final terrain verification below measures every cell of the
+            // assembled mesh; a second exact pass inside refinement read the
+            // whole DEM again for statistics it then overwrites.
+            hook.terrainFinalCheck = !useAdaptiveTerrain;
+            /**
+             * @brief Resolve adaptive refinement elevation with prescribed/flatten overrides.
+             * Arguments `x`, `y`: finite mesh XY coordinates. Returns: output vertical-unit
+             * terrain/cached/model rim elevation; missing reference coverage is recorded by
+             * quantized key even when an override provides a value. Flattening lowers higher
+             * terrain to a nearby rim but does not raise finite terrain.
+             */
+            hook.terrainElevationAt = [&](double x, double y) {
+                const auto key = keyOf(x, y);
+                const double terrainZ = terrainReference.sampleAt(x, y);
+                // Keep source coverage even when a rim value or the later
+                // coverage fill supplies a finite model elevation here.
+                if (!std::isfinite(terrainZ))
+                    missingTerrainVertices.insert(key);
+                const auto it = elevCache.constFind(key);
+                if (it != elevCache.constEnd())
+                    return modelUnitKeys.contains(key) ? *it : *it * in.zConversionFactor;
+                // The flatten radius lowers terrain to a nearby rim, never raises it.
+                const double flat = flattenZ(x, y);
+                return std::isfinite(flat) && (!std::isfinite(terrainZ) || terrainZ > flat)
+                           ? flat
+                           : terrainZ;
+            };
+            /**
+             * @brief Bound candidate triangle terrain error. Argument `xy`: required array of three
+             * mesh XY vertices. Argument `z`: matching three output-unit elevations. Returns:
+             * certified reference upper error bound or NaN when coverage is missing/invalid;
+             * borrowed arrays are consumed synchronously.
+             */
+            hook.terrainErrorBound = [&](const QPointF *xy, const double *z) {
+                for (int k = 0; k < 3; ++k)
+                    if (missingTerrainVertices.contains(keyOf(xy[k].x(), xy[k].y())))
+                        return std::numeric_limits<double>::quiet_NaN();
+                const auto q = terrainReference.queryTriangle(xy, z, toleranceForBox(footprintBox(xy,3)));
+                return q.valid && q.noDataSamples == 0 ? q.upperBound
+                                                       : std::numeric_limits<double>::quiet_NaN();
+            };
+            /**
+             * @brief Locate worst adaptive terrain discrepancy. Argument `xy`: required three mesh
+             * XY vertices. Argument `z`: matching elevations in output units. Argument `out`:
+             * required writable worst-point destination. Returns: measured maximum error for a
+             * valid query, otherwise zero; writes query point even for an invalid result. Captures
+             * remain valid only through generation.
+             */
+            hook.terrainError = [&](const QPointF *xy, const double *z, QPointF *out) {
+                auto q = useAdaptiveTerrain
+                             ? terrainReference.queryWorst(xy, z, toleranceForBox(footprintBox(xy,3)))
+                             : mesh::TerrainErrorField::Query{};
+                double error = q.valid ? q.maxError : 0;
+                *out = q.point;
+                return error;
+            };
+        }
+        if(in.genOpts.verifiedSizing)
+            hook.footprintMaximumSize=[&](const QRectF &box) {
+                double bound=useGrading ? sizeField.minimumSizeInBox(box) : 0;
+                if(in.maximumCellSize>0) bound=bound>0?std::min(bound,in.maximumCellSize):in.maximumCellSize;
+                return bound;
+            };
         g.setRefineHook(hook);
     }
 
+    int plannedOpenCandidates=0;
+    if(in.genOpts.unifiedCellPlanning && in.quadMode==2 && useGrading && sizeField.hasSizeBound()) {
+        progress(40,QObject::tr("Planning open-area patches from requested sizes…"));
+        QRectF bounds;QVector<QVector<QPointF>> blockers;
+        for(const auto &ring:in.domains){bounds=bounds.isValid()?bounds.united(ring.boundingRect()):ring.boundingRect();auto path=QVector<QPointF>(ring);if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &ring:bprep.holeRings){auto path=ring;if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &line:in.constraintSegs)blockers.append(line.path);
+        for(const auto &region:quadRegions){auto path=QVector<QPointF>(region.ring);if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &patch:in.patches){auto path=QVector<QPointF>(mesh::orderedPatchBoundary(patch));if(!path.isEmpty())path.append(path.first());blockers.append(path);}
+        for(const auto &point:in.steinerPoints)blockers.append({point.xy,point.xy});
+        for(const auto &line:g.previewTerrainBreaklines())blockers.append(line);
+        const double pitch=std::max(4*in.minCellSize,std::max(bounds.width(),bounds.height())/512);
+        const auto grid=mesh::quadBlockGridFromField(bounds,pitch,[&](const QRectF &box){return sizeField.minimumSizeInBox(box);},blockers,[&]{return promise.isCanceled();});
+        if(promise.isCanceled()){fail(QObject::tr("Cancelled."));return;}
+        if(!grid.isValid()){fail(QObject::tr("The requested automatic patch planning grid could not be built within its limits."));return;}
+        mesh::QuadBlockOptions blocks;blocks.minSpacing=.5*in.minCellSize;blocks.maxBlocks=4096;
+        const auto candidates=mesh::placeQuadBlocks(grid,blocks);
+        for(auto candidate:candidates){candidate.automaticCandidate=true;candidate.isBackground=true;g.addQuadRegion(candidate);}
+        plannedOpenCandidates=candidates.size();
+        reporter.line(meshkit::Severity::Info)<<"[Mesh][planning]"<<plannedOpenCandidates<<"automatic candidate blocks from the size field; no triangle pilot pass";
+    }
     stageClock.restart();
     mesh::MeshResult result = g.generate();
-    stageMark("Triangle generate()");
-    if (promise.isCanceled())
-    {
-        if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-        if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-        fail(QObject::tr("Cancelled.")); return;
+    mesh::GenerationStats generationStats = g.stats();
+    double coarseningSeconds = generationStats.coarsenSeconds;
+    stageMark("generate()");
+    // Open-area quad blocks (MESH_REGIONAL_TRIQUAD_PLAN phases 2-3): placed
+    // where the cells just generated are nearly uniform and no feature runs,
+    // then embedded as mapped quad regions in a second pass. The generator
+    // checks every block; one that does not fit stays triangles, and a failed
+    // second pass keeps the triangle mesh.
+    int openBlocks = 0, openBlockQuads = 0;
+    if (result.ok && in.quadMode == 2 && !in.genOpts.unifiedCellPlanning && !promise.isCanceled()) {
+        progress(65, QObject::tr("Placing open-area quad blocks…"));
+        QVector<QVector<QPointF>> blockers;
+        for (const auto &ring : std::as_const(in.domains)) {
+            QVector<QPointF> r(ring.begin(), ring.end());
+            if (!r.isEmpty())
+                r.append(r.first());
+            blockers.append(r);
+        }
+        for (const auto &ring : std::as_const(bprep.holeRings)) {
+            QVector<QPointF> r(ring);
+            if (!r.isEmpty())
+                r.append(r.first());
+            blockers.append(r);
+        }
+        for (const auto &cs : std::as_const(in.constraintSegs))
+            blockers.append(cs.path);
+        for (const auto &line : g.acceptedTerrainBreaklines())
+            blockers.append(line);
+        for (const auto &sp : std::as_const(in.steinerPoints))
+            blockers.append({sp.xy, sp.xy});
+        QRectF extent;
+        for (const auto &ring : std::as_const(in.domains))
+            extent = extent.united(ring.boundingRect());
+        const double minCell = in.minCellSize > 0.0 ? in.minCellSize : 0.25 * in.cellSize;
+        const double pitch =
+            std::max(4.0 * minCell, std::max(extent.width(), extent.height()) / 3000.0);
+        const mesh::QuadBlockGrid grid = mesh::quadBlockGridFromMesh(result, pitch, blockers);
+        mesh::QuadBlockOptions blockOptions;
+        blockOptions.minSpacing = 2.0 * minCell;
+        const auto blocks = mesh::placeQuadBlocks(grid, blockOptions);
+        stageMark("open quad block placement");
+        if (!blocks.isEmpty()) {
+            const int quadsBefore = result.quadCount();
+            for (const auto &b : blocks)
+                g.addQuadRegion(b);
+            generationPass = 2;
+            mesh::MeshResult withBlocks = g.generate();
+            coarseningSeconds += g.stats().coarsenSeconds;
+            stageMark("generate() with open blocks");
+            if (withBlocks.ok && !promise.isCanceled()) {
+                result = std::move(withBlocks);
+                generationStats = g.stats();
+                openBlockQuads = result.quadCount() - quadsBefore;
+                for (int i = quadRegions.size(); i < g.quadRegionReports().size(); ++i)
+                    openBlocks += g.quadRegionReports()[i].resolved == mesh::QuadRegionMode::Mapped;
+            } else if (!withBlocks.ok) {
+                reporter.line(meshkit::Severity::Warning).noquote()
+                    << "[Mesh][quad] open blocks dropped:" << withBlocks.errorMsg;
+            }
+        }
+        reporter.line(meshkit::Severity::Info).noquote()
+            << QStringLiteral(
+                   "[Mesh][quad] open blocks: %1 placed, %2 embedded, %3 quads (grid %4 x %5 at %6)")
+                   .arg(blocks.size())
+                   .arg(openBlocks)
+                   .arg(openBlockQuads)
+                   .arg(grid.cols)
+                   .arg(grid.rows)
+                   .arg(pitch);
     }
-    if (!result.ok)
+    generationStats.coarsenSeconds = coarseningSeconds;
+    if(in.genOpts.unifiedCellPlanning){
+        for(int i=quadRegions.size();i<g.quadRegionReports().size();++i)openBlocks+=g.quadRegionReports()[i].resolved==mesh::QuadRegionMode::Mapped;
+        int shown=0;
+        for(const auto &decision:g.cellPlanDecisions()) {
+            if(shown++>=100)break;
+            const auto outcome=decision.disposition==mesh::PatchDisposition::Accepted?"quads accepted":
+                decision.disposition==mesh::PatchDisposition::Repaired?"quads repaired":
+                decision.disposition==mesh::PatchDisposition::RequiredFailure?"required quads refused":"triangles";
+            reporter.line(meshkit::Severity::Info)<<"[Mesh][planning]"<<decision.source<<"required"<<decision.required
+                <<outcome<<"cells"<<decision.cells<<"repair rounds"<<decision.repairRounds<<decision.reason;
+        }
+        if(g.cellPlanDecisions().size()>100)reporter.line(meshkit::Severity::Info)<<"[Mesh][planning] additional region decisions omitted from log:"<<g.cellPlanDecisions().size()-100;
+        reporter.line(meshkit::Severity::Info)<<"[Mesh][planning] accepted region patches"<<generationStats.plannedPatches
+            <<"repaired"<<generationStats.repairedPatches<<"triangle fallbacks"<<generationStats.triangleFallbacks
+            <<"triangulation passes"<<generationStats.triangulationPasses;
+    }
+    if (!g.acceptedTerrainBreaklines().isEmpty())
+        reporter.line(meshkit::Severity::Info) << "[Mesh][terrain] break lines kept as mesh edges"
+                                               << g.acceptedTerrainBreaklines().size();
     {
-        if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-        if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-        fail(QObject::tr("Triangle: %1").arg(result.errorMsg)); return;
+        const mesh::GenerationStats &st = generationStats;
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh] quad strips: regions" << st.regionPatches << "| conduits" << st.conduitStrips
+            << "| streets/ditches" << st.breaklineStrips << "| dropped" << st.stripsDropped
+            << "| refinement added" << st.refineInserted << "vertices"
+            << "| triangles under the angle bound (strip edges, close inputs)"
+            << st.trianglesBelowAngle;
+        if (st.refineCapped)
+            reporter.line(meshkit::Severity::Warning)
+                << "[Mesh] refinement hit its safety cap — some triangles miss the size or angle bound.";
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][refinement] size" << st.sizeInserted << "| quality" << st.qualityInserted
+            << "| terrain" << st.terrainInserted << "| segment splits" << st.segmentSplits;
+    }
+    if (promise.isCanceled()) {
+        if (meshToDTM)
+            OGRCoordinateTransformation::DestroyCT(meshToDTM);
+        if (dtmToMesh)
+            OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
+    if (!result.ok) {
+        if (meshToDTM)
+            OGRCoordinateTransformation::DestroyCT(meshToDTM);
+        if (dtmToMesh)
+            OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+        fail(QObject::tr("Mesh generation: %1").arg(result.errorMsg));
+        return;
+    }
+
+    // ── Quad region reports ──────────────────────────────────────────
+    QStringList alignmentWarnings;
+    for (const mesh::QuadRegionReport &rep : g.quadRegionReports()) {
+        if(in.genOpts.unifiedCellPlanning)break; // Bounded decisions and complete totals above.
+        if (rep.index >= quadRegions.size())
+            break; // open blocks are summarised above
+        reporter.line(meshkit::Severity::Info).nospace()
+            << "[Mesh][quad] region " << rep.index << (rep.accepted ? " accepted" : " skipped")
+            << (rep.resolved == mesh::QuadRegionMode::Mapped ? " | quads" : " | triangles")
+            << " | h " << rep.spacing
+            << (rep.message.isEmpty() ? QString() : QStringLiteral(" | ") + rep.message);
+        if (!rep.accepted)
+            reporter.line(meshkit::Severity::Warning)
+                << "[Mesh] Skipped quad region" << rep.index << "—" << rep.message;
     }
 
     // ── Hilbert renumbering — locality for the engine's explicit marcher ──
-    // Pure permutation applied before any index-keyed consumer (elevation
-    // fill, node mapping, and coupling are all coordinate-keyed).  The
-    // engine's cell/vertex index is the file line order, so a well-ordered
-    // file benefits the marcher with zero engine changes (meshreorder.h).
+    // Pure permutation applied before any index-keyed consumer.  Elevation
+    // fill and node mapping are coordinate-keyed; the coupling map is
+    // marker-keyed (both permutation-safe).  The engine's cell/vertex index is
+    // the file line order, so a well-ordered file benefits the marcher with
+    // zero engine changes (meshreorder.h).
     stageClock.restart();
     const double spreadBefore = mesh::meanVertexIndexSpread(result);
     mesh::reorderMeshHilbert(&result);
     const double spreadAfter = mesh::meanVertexIndexSpread(result);
     stageMark("Hilbert reorder");
-    qCInfo(lcMeshPerf).nospace()
-        << "[Mesh] Hilbert reorder: mean vertex-index spread "
-        << spreadBefore << " -> " << spreadAfter
-        << " (" << result.triangles.size() << " tris)";
+    reporter.line(meshkit::Severity::Info).nospace()
+        << "[Mesh] Hilbert reorder: mean vertex-index spread " << spreadBefore << " -> "
+        << spreadAfter << " (" << result.triangles.size() << " tris)";
 
     // ── Elevation fill for all mesh vertices ─────────────────────────
     // Vertices that were PSLG Steiner points (features + terrain) already
-    // have their exact z in elevCache.  Only Triangle-inserted refinement
+    // have their exact z in elevCache.  Only mesher-inserted refinement
     // vertices need a fresh value — either by DTM sample (preferred) or
     // by inverse-distance interpolation from the seed points.
     //
     // zInModelUnits marks vertices whose z is already in model/mesh units
     // (rim, feature Z, flattened terrain, or IDW from rim seeds) so they are
     // excluded from the raster-unit zConversionFactor multiply below.
-    progress(70, useDTM
-                 ? QObject::tr("Sampling DTM elevations…")
-                 : QObject::tr("Interpolating elevations from junction rims…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    //
+    // Quad regions (plan D7): Free-region smoothing already ran inside
+    // generate(), so every vertex xy here is final and the z sampled below
+    // is the one the mesh keeps — nothing to re-sample after this step.
+    progress(70, useDTM ? QObject::tr("Sampling DTM elevations…")
+                        : QObject::tr("Interpolating elevations from junction rims…"));
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
 
-    QVector<bool> zInModelUnits(result.vertices.size(), false);
+    QVector<bool> zInModelUnits(result.vertices.size(), useAdaptiveTerrain);
 
-    if (useDTM)
-    {
+    if (useDTM && !useAdaptiveTerrain) {
         const int nv = result.vertices.size();
 
         // Pass 1 — resolve elevCache hits (PSLG Steiner vertices); collect
-        // the misses (Triangle-inserted refinement vertices) for batching.
-        QVector<int>    missIdx;
+        // the misses (mesher-inserted refinement vertices) for batching.
+        QVector<int> missIdx;
         QVector<double> missX, missY;
-        for (int i = 0; i < nv; ++i)
-        {
+        for (int i = 0; i < nv; ++i) {
             const double vx = result.vertices[i].xy.x();
             const double vy = result.vertices[i].xy.y();
 
             const auto key = keyOf(vx, vy);
-            const auto it  = elevCache.constFind(key);
-            if (it != elevCache.constEnd())
-            {
+            const auto it = elevCache.constFind(key);
+            if (it != elevCache.constEnd()) {
                 result.vertices[i].z = it.value();
                 zInModelUnits[i] = modelUnitKeys.contains(key);
                 continue;
@@ -1711,13 +2718,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // cancellation responsive on multi-million-vertex meshes.
         stageClock.restart();
         constexpr qsizetype kElevChunk = 2'000'000;
-        for (qsizetype base = 0; base < missIdx.size(); base += kElevChunk)
-        {
-            if (promise.isCanceled())
-            {
-                if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-                if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-                fail(QObject::tr("Cancelled.")); return;
+        for (qsizetype base = 0; base < missIdx.size(); base += kElevChunk) {
+            if (promise.isCanceled()) {
+                if (meshToDTM)
+                    OGRCoordinateTransformation::DestroyCT(meshToDTM);
+                if (dtmToMesh)
+                    OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+                fail(QObject::tr("Cancelled."));
+                return;
             }
             const qsizetype cn = std::min(kElevChunk, missIdx.size() - base);
             // A vertex PROJ cannot convert becomes NaN, sampleMany() answers
@@ -1725,11 +2733,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // neighbours — same treatment as a NoData hole, which is the right
             // outcome. Logged so a wholesale CRS failure is distinguishable
             // from genuine DEM gaps.
-            const qsizetype nFail = transformChecked(meshToDTM, cn,
-                                                     missX.data() + base,
-                                                     missY.data() + base);
+            const qsizetype nFail =
+                transformChecked(meshToDTM, cn, missX.data() + base, missY.data() + base);
             if (nFail > 0)
-                qCWarning(lcMeshPerf)
+                reporter.line(meshkit::Severity::Warning)
                     << "[Mesh]" << nFail << "of" << cn
                     << "mesh vertices failed mesh->DTM reprojection;"
                     << "their elevations come from the coverage fill";
@@ -1740,27 +2747,24 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             QVector<double> zs;
             thinner.sampleMany(q, &zs);
 
-            for (qsizetype k = 0; k < cn; ++k)
-            {
+            for (qsizetype k = 0; k < cn; ++k) {
                 const int i = missIdx[base + k];
-                result.vertices[i].z = zs[k];  // raster units
+                result.vertices[i].z = zs[k]; // raster units
 
                 // Refinement vertices near a rim node flatten to its rim z.
-                const double fz = flattenZ(result.vertices[i].xy.x(),
-                                           result.vertices[i].xy.y());
-                if (std::isfinite(fz))
-                {
+                const double fz = flattenZ(result.vertices[i].xy.x(), result.vertices[i].xy.y());
+                // Only where the terrain stands above the rim (model units).
+                if (std::isfinite(fz) &&
+                    (!std::isfinite(zs[k]) || zs[k] * in.zConversionFactor > fz)) {
                     result.vertices[i].z = fz;
                     zInModelUnits[i] = true;
                 }
             }
         }
         stageMark("elevation fill (batched DTM sampling)");
-        qCDebug(lcMeshPerf) << "[Mesh] elevation fill:" << nv << "vertices,"
-                            << missIdx.size() << "DTM-sampled misses";
-    }
-    else
-    {
+        qCDebug(lcMeshPerf) << "[Mesh] elevation fill:" << nv << "vertices," << missIdx.size()
+                            << "DTM-sampled misses";
+    } else if (!useDTM) {
         // No DTM: interpolate vertex z from the scattered seeds (junction rims
         // + 3D feature Z).  Two methods, user-selectable:
         //   IDW              — Shepard's method with configurable power p
@@ -1768,24 +2772,21 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         //   Natural neighbour — Sibson / Laplace; smoother, no bullseyes.
         //                      Defined only inside the seed convex hull, so it
         //                      falls back to IDW outside the hull / on failure.
-        if (seedXY.isEmpty())
-        {
-            fail(QObject::tr(
-                "No DTM and no junctions with rim elevations inside the "
-                "meshing domain — cannot interpolate vertex elevations.\n"
-                "Either add a DTM or include at least one junction in "
-                "the domain."));
+        if (seedXY.isEmpty()) {
+            fail(QObject::tr("No DTM and no junctions with rim elevations inside the "
+                             "meshing domain — cannot interpolate vertex elevations.\n"
+                             "Either add a DTM or include at least one junction in "
+                             "the domain."));
             return;
         }
 
-        const double pw = in.idwPower;   // configurable Shepard exponent
+        const double pw = in.idwPower; // configurable Shepard exponent
 
         // Build the natural-neighbour interpolator once (fewer than 3 unique
         // seeds or collinear seeds → nnReady stays false → IDW for everything).
         mesh::NaturalNeighbourInterpolator nn;
         bool nnReady = false;
-        if (in.elevInterpMethod == MeshGenerationDialog::ElevInterpMethod::NaturalNeighbour)
-        {
+        if (in.elevInterpMethod == MeshGenerationDialog::ElevInterpMethod::NaturalNeighbour) {
             nn.setVariant(in.nnVariant == MeshGenerationDialog::NNVariant::Sibson
                               ? mesh::NaturalNeighbourInterpolator::Variant::Sibson
                               : mesh::NaturalNeighbourInterpolator::Variant::Laplace);
@@ -1797,41 +2798,38 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         const int nv = result.vertices.size();
         const int ns = seedXY.size();
-        for (int i = 0; i < nv; ++i)
-        {
+        for (int i = 0; i < nv; ++i) {
             const double vx = result.vertices[i].xy.x();
             const double vy = result.vertices[i].xy.y();
 
             const auto key = keyOf(vx, vy);
-            const auto it  = elevCache.constFind(key);
-            if (it != elevCache.constEnd())
-            {
+            const auto it = elevCache.constFind(key);
+            if (it != elevCache.constEnd()) {
                 result.vertices[i].z = it.value();
                 zInModelUnits[i] = modelUnitKeys.contains(key);
                 continue;
             }
 
             double zval = 0.0;
-            bool   haveZ = false;
+            bool haveZ = false;
 
             // Natural neighbour (inside hull); NaN → fall through to IDW.
-            if (nnReady)
-            {
+            if (nnReady) {
                 const double zn = nn.interpolate(vx, vy);
-                if (std::isfinite(zn)) { zval = zn; haveZ = true; }
+                if (std::isfinite(zn)) {
+                    zval = zn;
+                    haveZ = true;
+                }
             }
 
-            if (!haveZ)
-            {
+            if (!haveZ) {
                 double wsum = 0.0, zsum = 0.0;
                 bool exact = false;
-                for (int s = 0; s < ns; ++s)
-                {
+                for (int s = 0; s < ns; ++s) {
                     const double dx = seedXY[s].x() - vx;
                     const double dy = seedXY[s].y() - vy;
-                    const double d2 = dx*dx + dy*dy;
-                    if (d2 < 1e-18)
-                    {
+                    const double d2 = dx * dx + dy * dy;
+                    if (d2 < 1e-18) {
                         zval = seedZ[s];
                         exact = true;
                         break;
@@ -1851,17 +2849,20 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
             // Flatten override (in case a node is in range here too).
             const double fz = flattenZ(vx, vy);
-            if (std::isfinite(fz)) result.vertices[i].z = fz;
+            if (std::isfinite(fz))
+                result.vertices[i].z = fz;
 
-            if ((i & 0x3FFF) == 0 && promise.isCanceled())
-            {
-                fail(QObject::tr("Cancelled.")); return;
+            if ((i & 0x3FFF) == 0 && promise.isCanceled()) {
+                fail(QObject::tr("Cancelled."));
+                return;
             }
         }
     }
 
-    if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
-    if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+    if (meshToDTM)
+        OGRCoordinateTransformation::DestroyCT(meshToDTM);
+    if (dtmToMesh)
+        OGRCoordinateTransformation::DestroyCT(dtmToMesh);
 
     // ── Vertical unit conversion ─────────────────────────────────────
     // Convert DTM-sampled Z values from the raster's native vertical unit to
@@ -1876,7 +2877,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
 
     // ── Fill vertices with no DEM coverage ───────────────────────────────
-    // Triangle-inserted refinement vertices are re-sampled from the raster in
+    // Mesher-inserted refinement vertices are re-sampled from the raster in
     // Pass 2 above, and sampleMany() returns NaN by contract for NoData, for
     // points outside the DEM footprint, and on a RasterIO failure. That NaN
     // used to be written straight into MeshVertex::z, from where it reached
@@ -1899,10 +2900,10 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         const int nv = result.vertices.size();
         QVector<int> pending;
         for (int i = 0; i < nv; ++i)
-            if (!std::isfinite(result.vertices[i].z)) pending.append(i);
+            if (!std::isfinite(result.vertices[i].z))
+                pending.append(i);
 
-        if (!pending.isEmpty())
-        {
+        if (!pending.isEmpty()) {
             const qsizetype nUncovered = pending.size();
             progress(80, QObject::tr("Filling vertices with no DEM coverage…"));
 
@@ -1912,27 +2913,43 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // centre — an umbrella weighting, and cheaper than deduping.
             // Offsets are qsizetype: 6 x nTriangles overflows int at ~358 M
             // triangles. Vertex indices come pre-validated by MeshGenerator
-            // (checked against Triangle's own point count at copy-out), but
+            // (checked against the generated vertex count at copy-out), but
             // this is a heap WRITE on the nodata-only path, so guard anyway.
-            auto triOk = [nv](const mesh::MeshTriangle &t) {
-                return t.v0 >= 0 && t.v0 < nv && t.v1 >= 0 && t.v1 < nv
-                    && t.v2 >= 0 && t.v2 < nv;
+            // A quad (patch cell) contributes its four ring edges, not a
+            // diagonal — the same neighbourhood the engine's median dual uses.
+            /**
+             * @brief Check cell ring vertex indices before constructing adjacency. Argument `t`:
+             * borrowed triangle/quad. Returns: true only when each declared ring index is in
+             * [0,nv); no geometric validity/orientation test.
+             */
+            auto cellOk = [nv](const mesh::MeshTriangle &t) {
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                    if (t.vertex(k) < 0 || t.vertex(k) >= nv)
+                        return false;
+                return true;
             };
             QVector<qsizetype> off(nv + 1, 0);
-            for (const mesh::MeshTriangle &t : result.triangles)
-            {
-                if (!triOk(t)) continue;
-                off[t.v0 + 1] += 2; off[t.v1 + 1] += 2; off[t.v2 + 1] += 2;
+            for (const mesh::MeshTriangle &t : result.triangles) {
+                if (!cellOk(t))
+                    continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k)
+                    off[t.vertex(k) + 1] += 2;
             }
-            for (int i = 0; i < nv; ++i) off[i + 1] += off[i];
+            for (int i = 0; i < nv; ++i)
+                off[i + 1] += off[i];
             QVector<int> adj(off[nv]);
             QVector<qsizetype> cur = off;
-            for (const mesh::MeshTriangle &t : result.triangles)
-            {
-                if (!triOk(t)) continue;
-                adj[cur[t.v0]++] = t.v1; adj[cur[t.v0]++] = t.v2;
-                adj[cur[t.v1]++] = t.v0; adj[cur[t.v1]++] = t.v2;
-                adj[cur[t.v2]++] = t.v0; adj[cur[t.v2]++] = t.v1;
+            for (const mesh::MeshTriangle &t : result.triangles) {
+                if (!cellOk(t))
+                    continue;
+                const int n = t.vertexCount();
+                for (int k = 0; k < n; ++k) {
+                    const int a = t.vertex(k), b = t.vertex((k + 1) % n);
+                    adj[cur[a]++] = b;
+                    adj[cur[b]++] = a;
+                }
             }
 
             // Pass A — seed. Jacobi sweeps: collect every fill first, then
@@ -1942,26 +2959,33 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             QVector<int> allFilled;
             allFilled.reserve(pending.size());
             int sweeps = 0;
-            while (!pending.isEmpty())
-            {
-                if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
-                QVector<int>    filledIdx, stillPending;
+            while (!pending.isEmpty()) {
+                if (promise.isCanceled()) {
+                    fail(QObject::tr("Cancelled."));
+                    return;
+                }
+                QVector<int> filledIdx, stillPending;
                 QVector<double> filledZ;
                 filledIdx.reserve(pending.size());
                 filledZ.reserve(pending.size());
-                for (const int i : pending)
-                {
+                for (const int i : pending) {
                     double sum = 0.0;
-                    int    n   = 0;
-                    for (qsizetype k = off[i]; k < off[i + 1]; ++k)
-                    {
+                    int n = 0;
+                    for (qsizetype k = off[i]; k < off[i + 1]; ++k) {
                         const double zn = result.vertices[adj[k]].z;
-                        if (std::isfinite(zn)) { sum += zn; ++n; }
+                        if (std::isfinite(zn)) {
+                            sum += zn;
+                            ++n;
+                        }
                     }
-                    if (n > 0) { filledIdx.append(i); filledZ.append(sum / n); }
-                    else         stillPending.append(i);
+                    if (n > 0) {
+                        filledIdx.append(i);
+                        filledZ.append(sum / n);
+                    } else
+                        stillPending.append(i);
                 }
-                if (filledIdx.isEmpty()) break;   // front cannot advance
+                if (filledIdx.isEmpty())
+                    break; // front cannot advance
                 for (int k = 0; k < filledIdx.size(); ++k)
                     result.vertices[filledIdx[k]].z = filledZ[k];
                 allFilled += filledIdx;
@@ -1978,59 +3002,59 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // across the hole instead of collapsing it to the boundary mean
             // (same case: 0.0013). Cost is bounded by the hole size, not the
             // mesh — only previously-unresolved vertices are touched.
-            constexpr int    kMaxRelax = 512;
-            constexpr double kRelaxTol = 1e-4;   // elevation units
+            constexpr int kMaxRelax = 512;
+            constexpr double kRelaxTol = 1e-4; // elevation units
             int relax = 0;
-            if (!allFilled.isEmpty())
-            {
+            if (!allFilled.isEmpty()) {
                 QVector<double> next(allFilled.size());
-                for (; relax < kMaxRelax; ++relax)
-                {
-                    if ((relax & 0x3F) == 0 && promise.isCanceled())
-                    { fail(QObject::tr("Cancelled.")); return; }
-                    for (int k = 0; k < allFilled.size(); ++k)
-                    {
+                for (; relax < kMaxRelax; ++relax) {
+                    if ((relax & 0x3F) == 0 && promise.isCanceled()) {
+                        fail(QObject::tr("Cancelled."));
+                        return;
+                    }
+                    for (int k = 0; k < allFilled.size(); ++k) {
                         const int i = allFilled[k];
                         double sum = 0.0;
-                        int    n   = 0;
-                        for (qsizetype e = off[i]; e < off[i + 1]; ++e)
-                        {
+                        int n = 0;
+                        for (qsizetype e = off[i]; e < off[i + 1]; ++e) {
                             const double zn = result.vertices[adj[e]].z;
-                            if (std::isfinite(zn)) { sum += zn; ++n; }
+                            if (std::isfinite(zn)) {
+                                sum += zn;
+                                ++n;
+                            }
                         }
                         next[k] = (n > 0) ? sum / n : result.vertices[i].z;
                     }
                     double maxDelta = 0.0;
-                    for (int k = 0; k < allFilled.size(); ++k)
-                    {
+                    for (int k = 0; k < allFilled.size(); ++k) {
                         double &zi = result.vertices[allFilled[k]].z;
                         maxDelta = std::max(maxDelta, std::fabs(next[k] - zi));
                         zi = next[k];
                     }
-                    if (maxDelta < kRelaxTol) break;
+                    if (maxDelta < kRelaxTol)
+                        break;
                 }
             }
 
-            if (!pending.isEmpty())
-            {
+            if (!pending.isEmpty()) {
                 // A whole connected component sampled no finite elevation —
                 // there is nothing to interpolate from, so fabricating a
                 // value here would be inventing terrain.
-                fail(QObject::tr(
-                    "%1 mesh vertices lie outside the DEM footprint (or on "
-                    "NoData) with no elevation-bearing neighbour to "
-                    "interpolate from — an entire region of the mesh has no "
-                    "terrain coverage.\n"
-                    "Extend the DEM to cover the meshing domain, or shrink "
-                    "the domain to the DEM extent.").arg(pending.size()));
+                fail(QObject::tr("%1 mesh vertices lie outside the DEM footprint (or on "
+                                 "NoData) with no elevation-bearing neighbour to "
+                                 "interpolate from — an entire region of the mesh has no "
+                                 "terrain coverage.\n"
+                                 "Extend the DEM to cover the meshing domain, or shrink "
+                                 "the domain to the DEM extent.")
+                         .arg(pending.size()));
                 return;
             }
 
-            qCInfo(lcMeshPerf) << "[Mesh] DEM coverage fill:" << nUncovered
-                               << "vertices with no DEM sample interpolated"
-                               << "from neighbours —" << sweeps
-                               << "seed sweep(s)," << relax
-                               << "relaxation iteration(s)";
+            reporter.line(meshkit::Severity::Info)
+                << "[Mesh] DEM coverage fill:" << nUncovered
+                << "vertices with no DEM sample interpolated"
+                << "from neighbours —" << sweeps << "seed sweep(s)," << relax
+                << "relaxation iteration(s)";
         }
     }
 
@@ -2044,19 +3068,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // by construction). The decoupled path (Plan Part B) runs the node
     // mapper below instead/in addition.
     mesh::CouplingMap coupling;
-    for (int i = 0; i < result.vertices.size(); ++i)
-    {
+    for (int i = 0; i < result.vertices.size(); ++i) {
         const QString tag = in.nodeMarkerToTag.value(result.vertices[i].marker);
-        if (!tag.isEmpty())
-        {
+        if (!tag.isEmpty()) {
             coupling.vertexToNode.insert(i, tag);
             // Mirror onto the vertex now so the mapper's preserve-existing
             // check sees marker-coupled vertices.
             result.vertices[i].coupledNode = tag;
         }
     }
-    for (int i = 0; i < result.triangles.size(); ++i)
-    {
+    for (int i = 0; i < result.triangles.size(); ++i) {
         const QString &tag = result.triangles[i].tag;
         if (!tag.isEmpty() && tag.startsWith(QStringLiteral("subcatch_")))
             coupling.triangleToNode.insert(i, tag.mid(int(qstrlen("subcatch_"))));
@@ -2066,24 +3087,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // Coincident nodes → vertex coupling; interior nodes → containing cell
     // (several nodes may share one cell); outside nodes are skipped here —
     // the toolbar's Remap action reports them interactively.
-    if (in.mapNodesAfterGen && !in.couplingNodes.isEmpty())
-    {
+    if (in.mapNodesAfterGen && !in.couplingNodes.isEmpty()) {
         progress(82, QObject::tr("Mapping 1D nodes to the mesh…"));
         const mesh::NodeMapResult nm = mesh::mapNodesToMesh(
-            result, in.couplingNodes, -1.0, /*preserveExisting=*/true);
-        for (auto it = nm.vertexMatches.cbegin();
-             it != nm.vertexMatches.cend(); ++it)
-        {
+            result, in.couplingNodes, -1.0, /*preserveExisting=*/true, in.authorCouplingCdArea);
+        for (auto it = nm.vertexMatches.cbegin(); it != nm.vertexMatches.cend(); ++it) {
             coupling.vertexToNode.insert(it.key(), it.value());
             result.vertices[it.key()].coupledNode = it.value();
+            result.vertices[it.key()].couplingCdSet = nm.authorCdArea;
+            result.vertices[it.key()].couplingAreaSet = nm.authorCdArea;
         }
         result.cellCouplings += nm.cellMatches;
-        qCInfo(lcMeshPerf) << "[Mesh] node mapping:"
-                           << nm.vertexMatches.size() << "vertex-coupled,"
-                           << nm.cellMatches.size() << "cell-coupled,"
-                           << nm.skippedExisting.size() << "already coupled,"
-                           << nm.unmatched.size() << "outside mesh,"
-                           << nm.sharedCells << "shared cell(s)";
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh] node mapping:" << nm.vertexMatches.size() << "vertex-coupled,"
+            << nm.cellMatches.size() << "cell-coupled," << nm.skippedExisting.size()
+            << "already coupled," << nm.unmatched.size() << "outside mesh," << nm.sharedCells
+            << "shared cell(s)";
     }
 
     // ── Seed per-cell hydraulic attributes ───────────────────────────
@@ -2092,37 +3111,578 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // the toolbar / properties panel read and what a later save patches, so
     // leaving them unset (NaN) makes a generated mesh report defaults it never
     // agreed to and drops the file's values on the next attribute rewrite.
-    for (mesh::MeshTriangle &t : result.triangles)
-    {
-        t.mannings  = in.manningsN;
+    // GG0d — a region row that was given its own roughness / depth overrides
+    // the '*' values on that region's cells. regionHydraulics is empty unless
+    // the user edited one, in which case this loop is exactly the loop it has
+    // always been.
+    for (mesh::MeshTriangle &t : result.triangles) {
+        t.mannings = in.manningsN;
         t.initDepth = in.initDepth;
+
+        if (in.regionHydraulics.isEmpty() || t.tag.isEmpty())
+            continue;
+        const auto rh = in.regionHydraulics.constFind(t.tag);
+        if (rh == in.regionHydraulics.constEnd())
+            continue;
+        t.mannings = rh->manningsN;
+        t.initDepth = rh->initDepth;
     }
 
-    // ── Write ────────────────────────────────────────────────────────
-    progress(85, QObject::tr("Writing mesh file…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    // ── Region infiltration defaults (GG0d, GUI plan §3.3) ───────────
+    // Copied across as ROWS, not stamped per cell: engine decision D-I3 has
+    // the engine resolve `override > tag row > '*' row > none` itself, and
+    // materialising a per-cell row for every triangle here would flatten that
+    // inheritance and freeze the assignment. result.infilOverrides stays
+    // untouched — mesh generation authors no per-cell infiltration at all.
+    result.infilDefaults = in.infilDefaults;
 
-    mesh::InpMeshWriter::UnitInfo units;
-    units.linearUnitName = in.meshLinearUnitName;  // ;; UNITS:
-    units.sourceCrsTag   = in.meshCRSTag;          // ;; SOURCE_CRS:
+    // One bit per output cell avoids a multi-million-entry hash table. Keep
+    // total counts exact while bounding the eventual GUI selection payload.
+    QBitArray exceptionCells(result.triangles.size());
+    qint64 exceptionCount = 0;
+    auto markException = [&](int cell) {
+        if (!exceptionCells.testBit(cell)) {
+            exceptionCells.setBit(cell);
+            ++exceptionCount;
+        }
+    };
+    int elevationOffsetOnly = 0;
+    double smallestTerrainTolerance=std::numeric_limits<double>::infinity(),largestTerrainTolerance=0,largestTerrainRatio=0;
 
-    QString writeErr;
-    if (!mesh::InpMeshWriter::write(in.outputMode, in.inpPath, in.meshOutputPath,
-                                     result, coupling, in.manningsN, &writeErr,
-                                     units))
-    {
-        fail(QObject::tr("Write failed: %1").arg(writeErr)); return;
+    if (useAdaptiveTerrain) {
+        stageClock.restart();
+        generationStats.terrainUnresolved = 0;
+        generationStats.terrainUnknown = 0;
+        generationStats.maxTerrainError = 0;
+        QStringList exceptions;
+        // Cells are in Hilbert order: read each chunk's DEM tiles in parallel
+        // first, so the exact checks below hit the cache instead of reading
+        // the raster tile by tile (USB-attached DEMs were I/O bound).
+        constexpr int kVerifyChunk = 8192;
+        for (int i = 0; i < result.triangles.size(); ++i) {
+            if ((i % kVerifyChunk) == 0) {
+                if (promise.isCanceled()) {
+                    fail(QObject::tr("Cancelled."));
+                    return;
+                }
+                progress(85, QObject::tr("Checking final terrain accuracy…"));
+                QVector<QRectF> boxes;
+                boxes.reserve(kVerifyChunk);
+                for (int j = i; j < std::min<qsizetype>(i + kVerifyChunk, result.triangles.size());
+                     ++j) {
+                    const auto &c = result.triangles[j];
+                    QRectF b(result.vertices[c.v0].xy, QSizeF(0, 0));
+                    for (int k = 1; k < c.vertexCount(); ++k) {
+                        const QPointF &q = result.vertices[c.vertex(k)].xy;
+                        b.setLeft(std::min(b.left(), q.x()));
+                        b.setRight(std::max(b.right(), q.x()));
+                        b.setTop(std::min(b.top(), q.y()));
+                        b.setBottom(std::max(b.bottom(), q.y()));
+                    }
+                    boxes.append(b);
+                }
+                terrainReference.prefetch(boxes);
+            }
+            const auto &cell = result.triangles[i];
+            QPointF fullFootprint[4];
+            for(int k=0;k<cell.vertexCount();++k)fullFootprint[k]=result.vertices[cell.vertex(k)].xy;
+            const double cellTolerance=toleranceForBox(footprintBox(fullFootprint,cell.vertexCount()));
+            if(!(cellTolerance>0) || !std::isfinite(cellTolerance)){fail(QObject::tr("The delivered terrain tolerance is invalid."));return;}
+            smallestTerrainTolerance=std::min(smallestTerrainTolerance,cellTolerance);largestTerrainTolerance=std::max(largestTerrainTolerance,cellTolerance);
+            // Same 0-2 diagonal used by mesh profile interpolation for quads.
+            bool bad = false, unknown = false;
+            bool referenceFails = false;
+            double cellError = 0;
+            QPointF worstXY;
+            for (int half = 0; half < (cell.isQuad() ? 2 : 1); ++half) {
+                const int ids[3] = {cell.v0, half ? cell.v2 : cell.v1, half ? cell.v3 : cell.v2};
+                QPointF xy[3];
+                double z[3];
+                for (int k = 0; k < 3; ++k) {
+                    xy[k] = result.vertices[ids[k]].xy;
+                    z[k] = result.vertices[ids[k]].z;
+                    if (!missingTerrainVertices.isEmpty() &&
+                        missingTerrainVertices.contains(keyOf(xy[k].x(), xy[k].y())))
+                        unknown = true;
+                }
+                const auto q = terrainReference.queryTriangle(xy, z, cellTolerance);
+                unknown = unknown || !q.valid || q.noDataSamples > 0;
+                bad = bad || q.maxError > cellTolerance;
+                if (q.maxError > cellError) {
+                    cellError = q.maxError;
+                    worstXY = q.point;
+                }
+                if (q.maxError > cellTolerance) {
+                    double sourceZ[3];
+                    for (int k = 0; k < 3; ++k)
+                        sourceZ[k] = terrainReference.sampleAt(xy[k].x(), xy[k].y());
+                    const auto source =
+                        terrainReference.queryTriangle(xy, sourceZ, cellTolerance);
+                    referenceFails =
+                        referenceFails || !source.valid || source.maxError > cellTolerance;
+                }
+                largestTerrainRatio=std::max(largestTerrainRatio,q.upperBound/cellTolerance);
+                generationStats.maxTerrainError =
+                    std::max(generationStats.maxTerrainError, q.upperBound);
+            }
+            if (bad || unknown)
+                markException(i);
+            if (bad)
+                ++generationStats.terrainUnresolved;
+            if (bad && !referenceFails && !unknown)
+                ++elevationOffsetOnly;
+            if (unknown)
+                ++generationStats.terrainUnknown;
+            if ((bad || unknown) && exceptions.size() < 20) {
+                if (!bad)
+                    worstXY = (result.vertices[cell.v0].xy + result.vertices[cell.v1].xy +
+                               result.vertices[cell.v2].xy) /
+                              3;
+                exceptions
+                    << QObject::tr("Cell %1 near (%2, %3): %4; measured error %5, allowed %6.")
+                           .arg(i + 1)
+                           .arg(worstXY.x(), 0, 'g', 12)
+                           .arg(worstXY.y(), 0, 'g', 12)
+                           .arg(unknown ? QObject::tr("missing terrain coverage")
+                                : !referenceFails
+                                    ? QObject::tr(
+                                          "model elevation offset; source-only triangle passes")
+                                    : QObject::tr("terrain resolution conflict"))
+                           .arg(cellError, 0, 'g', 6).arg(cellTolerance,0,'g',6);
+            }
+        }
+        if (!terrainReference.errorMsg().isEmpty()) {
+            fail(terrainReference.errorMsg());
+            return;
+        }
+        if (generationStats.terrainUnresolved || generationStats.terrainUnknown)
+            alignmentWarnings
+                << QObject::tr(
+                       "Terrain tolerance %1: %2 cells exceed their allowed value and %3 could not be verified. "
+                       "Prescribed elevations, fixed strips or minimum spacing can prevent further refinement. "
+                       "%5 exceedances disappear when model elevation overrides are removed from the check. "
+                       "The maximum checked error bound is %4. This mesh does not certify the requested terrain tolerance.")
+                       .arg(scaledTerrainTolerance?QObject::tr("%1–%2 by prescribed target size").arg(smallestTerrainTolerance).arg(largestTerrainTolerance):QString::number(in.terrainTolerance))
+                       .arg(generationStats.terrainUnresolved)
+                       .arg(generationStats.terrainUnknown)
+                       .arg(generationStats.maxTerrainError)
+                       .arg(elevationOffsetOnly);
+        if (!exceptions.isEmpty())
+            alignmentWarnings << QObject::tr("First terrain exceptions (mesh coordinates):\n%1")
+                                     .arg(exceptions.join('\n'));
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][terrain] final tolerance" << in.terrainTolerance << "| error upper bound"
+            << generationStats.maxTerrainError << "| unresolved cells"
+            << generationStats.terrainUnresolved << "| unknown cells"
+            << generationStats.terrainUnknown<<"| allowed tolerance range"<<smallestTerrainTolerance<<largestTerrainTolerance<<"| largest error/tolerance"<<largestTerrainRatio;
+        stageMark("final terrain verification");
+    }
+    if (generationStats.refineCapped)
+        alignmentWarnings << QObject::tr(
+            "Refinement reached its resource limit. The mesh may not meet the requested size, angle or terrain tolerance. Increase the cell budget or relax the resolution.");
+
+    reporter.line(meshkit::Severity::Info).nospace()
+        << "[Mesh] cells: " << (result.triangles.size() - result.quadCount()) << " triangles + "
+        << result.quadCount() << " quads";
+
+    // Keep generation in memory. Project Save owns all final INP/2DM writes;
+    // closing or discarding the project must leave its saved files unchanged.
+    progress(85, QObject::tr("Preparing generated mesh for review…"));
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
+    if (in.geometryMode != 0) {
+        mesh::ConstraintAuditOptions options;
+        options.cancelled = [&promise] { return promise.isCanceled(); };
+        const auto audit = mesh::auditMeshConstraints(acceptedConstraints, result, options);
+        geometryMetrics["deliveredAuditPassed"] = audit.ok;
+        geometryMetrics["deliveredSegmentsChecked"] = qint64(audit.segmentsChecked);
+        geometryMetrics["deliveredCellsChecked"] = qint64(audit.cellsChecked);
+        geometryMetrics["coordinateRoundoff"] = audit.coordinateRoundoff;
+        if (!audit.ok) {
+            for (const auto &example : audit.examples)
+                reporter.line(meshkit::Severity::Error)
+                    << "[Mesh][constraint audit]" << example.featureId << "segment"
+                    << example.segment << example.message;
+            fail(QObject::tr("The delivered mesh failed its independent constraint audit: %1").arg(audit.error));
+            return;
+        }
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][constraints] delivered constraint audit passed; segments" << audit.segmentsChecked
+            << "; cells" << audit.cellsChecked << "; coordinate roundoff bound" << audit.coordinateRoundoff;
     }
 
-    progress(95, QObject::tr("Done — adding layer…"));
+    // Transient writer coupling maps must live on the pending layer too.
+    // The mapper may already have produced the same cell/node row.
+    QSet<QPair<int, QString>> cellNodes;
+    for (const auto &row : std::as_const(result.cellCouplings))
+        cellNodes.insert({row.tri, row.nodeId});
+    for (auto it = coupling.triangleToNode.cbegin(); it != coupling.triangleToNode.cend(); ++it) {
+        if (it.key() < 0 || it.key() >= result.triangles.size() || it.value().isEmpty())
+            continue;
+        const auto key = qMakePair(it.key(), it.value());
+        if (cellNodes.contains(key))
+            continue;
+        result.cellCouplings.append({it.key(), it.value()});
+        cellNodes.insert(key);
+    }
+    coupling.triangleToNode.clear();
+    for (int i = 0; i < result.triangles.size(); ++i) {
+        auto &cell = result.triangles[i];
+        if (!std::isfinite(cell.mannings))
+            cell.mannings = coupling.triangleMannings.value(i, in.manningsN);
+        if (!std::isfinite(cell.initDepth))
+            cell.initDepth = in.initDepth;
+    }
 
+    QString intendedMeshPath;
+    if (in.outputMode == mesh::MeshOutputMode::External) {
+        const QFileInfo model(in.inpPath);
+        intendedMeshPath =
+            in.meshOutputPath.isEmpty()
+                ? model.absoluteDir().filePath(model.completeBaseName() + QStringLiteral(".2dm"))
+                : QFileInfo(in.meshOutputPath).absoluteFilePath();
+    }
+
+    if (promise.isCanceled()) {
+        fail(QObject::tr("Cancelled."));
+        return;
+    }
+    QString corridorError;
+    if (!mesh::corridorSourceFilesUnchanged(corridors.sourceStamps, &corridorError)) {
+        fail(corridorError);
+        return;
+    }
+    progress(95, QObject::tr("Measuring final cell quality…"));
+    mesh::SizingAuditReport sizingAudit;
+    if(in.genOpts.verifiedSizing) {
+        mesh::SizingAuditOptions options;
+        options.minimumTarget=in.minCellSize;
+        options.maximumSize=in.maximumCellSize;
+        options.minimumEdge=in.resolution->minimumEdgeM.value_or(0)/in.meshLinearUnitToSI;
+        options.adjacentRatio=in.sizeRatio;
+        options.cancelled=[&]{return promise.isCanceled();};
+        if(useGrading) options.footprintMaximum=[&](const QRectF &box){return sizeField.minimumSizeInBox(box);};
+        sizingAudit=mesh::auditMeshSizing(result,options);
+        if(!sizingAudit.complete || !sizingAudit.valid) {
+            fail(QObject::tr("Delivered sizing audit failed: %1").arg(sizingAudit.error)); return;
+        }
+        for(int i=0;i<sizingAudit.cellFlags.size();++i)
+            if(sizingAudit.cellFlags[i] & ~mesh::TouchesConstraint) markException(i);
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][sizing] nominal triangle/square size; checked" << sizingAudit.cellsChecked
+            << "cells and" << sizingAudit.facesChecked << "shared faces; global/local maximum exceedances"
+            << sizingAudit.aboveMaximum << sizingAudit.aboveLocalMaximum << "; edge-floor conflicts"
+            << sizingAudit.belowEdgeFloor << "; transition faces" << sizingAudit.transitionFaces
+            << "; largest adjacent ratio" << sizingAudit.largestAdjacentRatio;
+        for(const auto &example:sizingAudit.examples)
+            reporter.line(meshkit::Severity::Warning)
+                << "[Mesh][sizing] cell" << example.cell+1 << "near" << example.location
+                << example.message << "measured/requested" << example.measured << example.requested;
+        reporter.line(meshkit::Severity::Info)
+            << "[Mesh][sizing] local repair inserted" << generationStats.sizingRepairInserted
+            << "vertices in" << generationStats.sizingRepairPasses << "passes; repair limit reached"
+            << generationStats.sizingRepairLimited;
+        if(!sizingAudit.limitsSatisfied()) {
+            const QString conflicts=QObject::tr("%1 global maximum, %2 footprint maximum, %3 minimum-edge cells; %4 transition faces. Fixed quads and constraint/terrain/shape gates can prevent repair. Review cell examples in the run log.")
+                .arg(sizingAudit.aboveMaximum).arg(sizingAudit.aboveLocalMaximum)
+                .arg(sizingAudit.belowEdgeFloor).arg(sizingAudit.transitionFaces);
+            if(in.resolution->sizing==mesh::ResolutionSettings::Sizing::Strict) {
+                fail(QObject::tr("Strict sizing refused the candidate: %1").arg(conflicts)); return;
+            }
+            alignmentWarnings << QObject::tr("Verified sizing completed with unresolved limits: %1").arg(conflicts);
+        }
+    }
+
+    // Bounded deterministic samples for distributions; extrema and exception
+    // counts cover every cell. No multi-million-edge sorting on the worker.
+    QVector<double> sampledEdges, sampledAngles;
+    const int stride = std::max(1, int(result.triangles.size() / 25000));
+    double smallest = std::numeric_limits<double>::infinity(), largest = 0, minAngle = 180;
+    int belowMinimum = 0;
+    for (int i = 0; i < result.triangles.size(); ++i) {
+        if ((i & 8191) == 0 && promise.isCanceled()) {
+            fail(QObject::tr("Cancelled."));
+            return;
+        }
+        const auto &cell = result.triangles[i];
+        bool hasUndersizedEdge = false;
+        double angle = 180;
+        for (int k = 0; k < cell.vertexCount(); ++k) {
+            const auto &a = result.vertices[cell.vertex(k)].xy;
+            const auto &b = result.vertices[cell.vertex((k + 1) % cell.vertexCount())].xy;
+            const auto &c =
+                result.vertices[cell.vertex((k + cell.vertexCount() - 1) % cell.vertexCount())].xy;
+            const double edge = std::hypot(a.x() - b.x(), a.y() - b.y());
+            smallest = std::min(smallest, edge);
+            largest = std::max(largest, edge);
+            hasUndersizedEdge = hasUndersizedEdge || edge < in.minCellSize * (1 - 1e-9);
+            if (i % stride == 0)
+                sampledEdges.append(edge);
+            const QPointF u = b - a, v = c - a;
+            const double denom = std::hypot(u.x(), u.y()) * std::hypot(v.x(), v.y());
+            if (denom > 0)
+                angle = std::min(
+                    angle, std::acos(std::clamp(QPointF::dotProduct(u, v) / denom, -1.0, 1.0)) *
+                               180 / M_PI);
+        }
+        minAngle = std::min(minAngle, angle);
+        if (i % stride == 0)
+            sampledAngles.append(angle);
+        if (hasUndersizedEdge) {
+            ++belowMinimum;
+            markException(i);
+        }
+        if (angle < in.genOpts.minAngleDeg - 1e-6)
+            markException(i);
+    }
+    /**
+     * @brief Select a bounded deterministic sample order statistic in place. Argument `values`:
+     * mutable sample array permuted by nth_element. Argument `q`: fraction in [0,1], required by
+     * unchecked index calculation. Returns: element at int(q*(n-1)), or zero for empty; no
+     * interpolation.
+     */
+    auto quantile = [](QVector<double> &values, double q) {
+        if (values.isEmpty())
+            return 0.0;
+        const int k = int(q * (values.size() - 1));
+        std::nth_element(values.begin(), values.begin() + k, values.end());
+        return values[k];
+    };
+    const double edgeP5 = quantile(sampledEdges, .05), edgeP50 = quantile(sampledEdges, .5),
+                 edgeP95 = quantile(sampledEdges, .95);
+    const double angleP5 = quantile(sampledAngles, .05), angleP50 = quantile(sampledAngles, .5);
+    if (!std::isfinite(smallest))
+        smallest = 0;
+    const QString horizontalUnit =
+        in.meshLinearUnitName.isEmpty() ? QStringLiteral("map units") : in.meshLinearUnitName;
+    const QString verticalUnit =
+        in.verticalUnitToSI == 1 ? QStringLiteral("m") : QStringLiteral("ft");
+    QString summary =
+        QObject::tr(
+            "Requested and achieved\n%1 cells in %2 s.\nTarget size: minimum %3 %4; maximum %5.\nActual cell edges: %6 to %7 %4; sampled P5 / median / P95: %8 / %9 / %10.\n%11 cells have an edge below the minimum target (constraints, local targets or shape repair).\nMinimum angle: %12°; sampled P5 / median: %13° / %14°.")
+            .arg(result.triangles.size())
+            .arg(totalClock.elapsed() / 1000.0, 0, 'f', 1)
+            .arg(in.minCellSize)
+            .arg(horizontalUnit)
+            .arg(in.maximumCellSize > 0 ? QString::number(in.maximumCellSize) + " " + horizontalUnit
+                                        : QObject::tr("No limit"))
+            .arg(smallest)
+            .arg(largest)
+            .arg(edgeP5)
+            .arg(edgeP50)
+            .arg(edgeP95)
+            .arg(belowMinimum)
+            .arg(minAngle)
+            .arg(angleP5)
+            .arg(angleP50);
+    if (useDTM) {
+        summary +=
+            QObject::tr(
+                "\nTerrain reference: %1; %2 × %2 source pixels per reference pixel (approximate horizontal spacing %3 %4).")
+                .arg(in.terrainReference == 0 ? QObject::tr("Averaged DEM")
+                                              : QObject::tr("Full DEM"))
+                .arg(terrainDecimation)
+                .arg(actualTerrainPixelSize)
+                .arg(horizontalUnit);
+        summary += in.terrainBreaklines
+                       ? QObject::tr("\nBreakline detection tolerance: %1 %2; %3 retained lines.")
+                             .arg(in.breaklineTolerance)
+                             .arg(verticalUnit)
+                             .arg(g.acceptedTerrainBreaklines().size())
+                       : QObject::tr("\nAutomatic terrain alignment was off.");
+    }
+    if (useAdaptiveTerrain)
+        summary +=
+            QObject::tr(
+                "\nElevation tolerance: %1 %2; maximum checked error bound: %3 %2.\n%4 cells exceed the tolerance; %5 have unknown coverage; %6 exceedances are elevation overrides. Checks apply to samples of the selected reference.")
+                .arg(in.terrainTolerance)
+                .arg(verticalUnit)
+                .arg(generationStats.maxTerrainError)
+                .arg(generationStats.terrainUnresolved)
+                .arg(generationStats.terrainUnknown)
+                .arg(elevationOffsetOnly);
+    else
+        summary += QObject::tr("\nAdaptive terrain accuracy checking was off.");
+    summary +=
+        QObject::tr(
+            "\nInserted for size / shape / terrain: %1 / %2 / %3; constraint splits: %4.\nRefinement limit reached: %5.")
+            .arg(generationStats.sizeInserted)
+            .arg(generationStats.qualityInserted)
+            .arg(generationStats.terrainInserted)
+            .arg(generationStats.segmentSplits)
+            .arg(generationStats.refineCapped ? QObject::tr("Yes") : QObject::tr("No"));
+
+    if(useAdaptiveTerrain && scaledTerrainTolerance)
+        summary+=QObject::tr("\nSize-weighted terrain tolerance: %1–%2 %3 over full cell footprints; reference target size %4 %5. Largest error/tolerance ratio: %6.")
+            .arg(smallestTerrainTolerance).arg(largestTerrainTolerance).arg(verticalUnit).arg(in.terrainTolerancePolicy.referenceSize).arg(horizontalUnit).arg(largestTerrainRatio);
+    if (in.genOpts.coarsenPasses > 0) {
+        summary += QObject::tr("\nCoarsening enabled: up to %1 attempts per free vertex; %2 removal attempts made.")
+                       .arg(in.genOpts.coarsenPasses)
+                       .arg(generationStats.coarsenAttempts);
+        summary +=
+            QObject::tr(
+                "\nRemoved by coarsening: %1 vertices (%2 triangles); rejection attempts for angle / size / terrain / short edge: %3 / %4 / %5 / %6. Coarsening time: %7 s.")
+                .arg(generationStats.coarsenRemoved)
+                .arg(2 * generationStats.coarsenRemoved)
+                .arg(generationStats.coarsenRejectedAngle)
+                .arg(generationStats.coarsenRejectedSize)
+                .arg(generationStats.coarsenRejectedTerrain)
+                .arg(generationStats.coarsenRejectedEdge)
+                .arg(generationStats.coarsenSeconds, 0, 'f', 2);
+        if(in.genOpts.coarseningOrder==mesh::CoarseningOrder::ResolutionAware)
+            summary+=QObject::tr("\nResolution/flatness removal order; peak queued vertices %1; prescribed-size priority queries %2.")
+                .arg(generationStats.coarsenQueuePeak).arg(generationStats.coarsenPriorityQueries);
+        if (generationStats.coarsenSkippedTerrain)
+            summary +=
+                QObject::tr("\nCoarsening skipped: certified terrain coverage was unavailable.");
+        else if (generationStats.coarsenAttempts == 0)
+            summary += QObject::tr(
+                "\nNo eligible free vertices were found. Authored points, constrained edges and fixed quad patches are retained.");
+        else if (generationStats.coarsenRemoved == 0)
+            summary += QObject::tr(
+                "\nCoarsening ran, but topology, shape, size or terrain checks rejected every attempted removal.");
+    }
+    if(in.genOpts.verifiedSizing)
+        summary+=QObject::tr("\nVerified nominal sizes: %1 to %2 %3. Below minimum target: %4 cells (advisory). Global / footprint maximum exceedances: %5 / %6 cells. Minimum-edge conflicts: %7 cells. Transition failures: %8 shared faces; largest adjacent size ratio %9. Local repair inserted %10 vertices in %11 passes; repair budget reached: %12.")
+            .arg(sizingAudit.smallestNominal).arg(sizingAudit.largestNominal).arg(horizontalUnit)
+            .arg(sizingAudit.belowTarget).arg(sizingAudit.aboveMaximum).arg(sizingAudit.aboveLocalMaximum)
+            .arg(sizingAudit.belowEdgeFloor).arg(sizingAudit.transitionFaces).arg(sizingAudit.largestAdjacentRatio)
+            .arg(generationStats.sizingRepairInserted).arg(generationStats.sizingRepairPasses)
+            .arg(generationStats.sizingRepairLimited ? QObject::tr("Yes") : QObject::tr("No"));
+    const auto outputQuads = result.quadCount();
     PResult out;
-    out.ok         = true;
+    out.ok = true;
+    out.status = generationStats.refineCapped ? meshkit::RunStatus::ResourceLimit
+                 : exceptionCount > 0 || !alignmentWarnings.isEmpty() || reporter.hasWarnings()
+                     ? meshkit::RunStatus::CompleteWithExceptions
+                     : meshkit::RunStatus::Complete;
+    const QString outcome =
+        out.status == meshkit::RunStatus::ResourceLimit
+            ? QObject::tr(
+                  "Resource limit reached — the candidate mesh is incomplete and will not be applied.")
+        : out.status == meshkit::RunStatus::CompleteWithExceptions
+            ? QObject::tr("Completed with exceptions. Review the diagnostics below.")
+            : QObject::tr("Completed.");
+    summary.prepend(outcome + QStringLiteral("\n\n"));
+    out.summary = summary;
+    QByteArray breaklineGeometry;
+    {
+        QDataStream stream(&breaklineGeometry, QIODevice::WriteOnly);
+        stream.setVersion(QDataStream::Qt_6_0);
+        stream << g.acceptedTerrainBreaklines();
+    }
+    constexpr int maxHighlightedExceptions = 10000;
+    out.exceptionCells.reserve(int(std::min<qint64>(exceptionCount, maxHighlightedExceptions)));
+    for (int i = 0;
+         i < exceptionCells.size() && out.exceptionCells.size() < maxHighlightedExceptions; ++i)
+        if (exceptionCells.testBit(i))
+            out.exceptionCells.append(i);
+    if (exceptionCount > maxHighlightedExceptions) {
+        summary += QObject::tr("\nException highlighting shows the first %1 of %2 affected cells.")
+                       .arg(maxHighlightedExceptions)
+                       .arg(exceptionCount);
+        out.summary = summary;
+    }
+    out.metrics = {
+        {"summary", summary},
+        {"minTargetM", in.minCellSize * in.meshLinearUnitToSI},
+        {"maxTargetM", in.maximumCellSize > 0
+                           ? QJsonValue(in.maximumCellSize * in.meshLinearUnitToSI)
+                           : QJsonValue(QJsonValue::Null)},
+        {"edgeMinM", smallest * in.meshLinearUnitToSI},
+        {"edgeMaxM", largest * in.meshLinearUnitToSI},
+        {"cellsBelowMinimum", belowMinimum},
+        {"angleMin", minAngle},
+        {"angleP5", angleP5},
+        {"angleMedian", angleP50},
+        {"breaklineToleranceM", in.breaklineTolerance * in.verticalUnitToSI},
+        {"breaklineCount", g.acceptedTerrainBreaklines().size()},
+        {"breaklineSignature",
+         QString::fromLatin1(
+             QCryptographicHash::hash(breaklineGeometry, QCryptographicHash::Sha256).toHex())},
+        {"terrainDecimation", terrainDecimation},
+        {"referencePixelSpacingM", actualTerrainPixelSize * in.meshLinearUnitToSI},
+        {"elapsedSeconds", totalClock.elapsed() / 1000.0},
+        {"refinementCapped", generationStats.refineCapped}};
+    double totalArea=0,quadArea=0;quint64 deliveredQuads=0;
+    for(const auto &cell:result.triangles) {
+        const auto origin=result.vertices[cell.v0].xy;long double twice=0;
+        for(int k=0;k<cell.vertexCount();++k){auto a=result.vertices[cell.vertex(k)].xy-origin,b=result.vertices[cell.vertex((k+1)%cell.vertexCount())].xy-origin;
+            twice+=static_cast<long double>(a.x())*b.y()-static_cast<long double>(a.y())*b.x();}
+        const double area=double(std::abs(twice)*.5);totalArea+=area;
+        if(cell.isQuad()){quadArea+=area;++deliveredQuads;}
+    }
+    const double quadCountFraction=result.triangles.isEmpty()?0:double(deliveredQuads)/result.triangles.size();
+    const double quadAreaFraction=totalArea>0?quadArea/totalArea:0;
+    out.summary+=QObject::tr("\nQuads: %1% of cells, %2% of area.").arg(100*quadCountFraction,0,'f',1).arg(100*quadAreaFraction,0,'f',1);
+    out.metrics["summary"]=out.summary;
+    out.metrics["coarsenRequestedPasses"] = in.genOpts.coarsenPasses;
+    out.metrics["coarseningPolicy"]=QJsonObject{{"version",1},{"order",int(in.genOpts.coarseningOrder)},
+        {"queuePeak",qint64(generationStats.coarsenQueuePeak)},{"priorityQueries",qint64(generationStats.coarsenPriorityQueries)}};
+    out.metrics["terrainTolerancePolicy"]=QJsonObject{{"version",1},{"mode",int(in.terrainTolerancePolicy.mode)},
+        {"referenceSizeM",in.terrainTolerancePolicy.referenceSize*in.meshLinearUnitToSI},
+        {"referenceToleranceM",in.terrainTolerance*in.verticalUnitToSI},
+        {"floorM",in.terrainTolerancePolicy.minimumTolerance*in.verticalUnitToSI},
+        {"capM",(in.terrainTolerancePolicy.maximumTolerance>0?in.terrainTolerancePolicy.maximumTolerance:in.terrainTolerance)*in.verticalUnitToSI},
+        {"minimumAppliedM",useAdaptiveTerrain?QJsonValue(smallestTerrainTolerance*in.verticalUnitToSI):QJsonValue()},
+        {"maximumAppliedM",useAdaptiveTerrain?QJsonValue(largestTerrainTolerance*in.verticalUnitToSI):QJsonValue()},
+        {"largestErrorRatio",largestTerrainRatio}};
+
+    out.metrics["cellPlanning"]=QJsonObject{{"unified",in.genOpts.unifiedCellPlanning},{"triangulationPasses",generationStats.triangulationPasses},
+        {"quadCountFraction",quadCountFraction},{"quadAreaFraction",quadAreaFraction},{"automaticCandidates",plannedOpenCandidates},{"automaticAccepted",openBlocks},{"plannedPatches",generationStats.plannedPatches},
+        {"repairedPatches",generationStats.repairedPatches},{"triangleFallbacks",generationStats.triangleFallbacks}};
+    if(in.genOpts.verifiedSizing) out.metrics["sizingAudit"] = QJsonObject{
+        {"version",1},{"mode",in.resolution?int(in.resolution->sizing):int(mesh::ResolutionSettings::Sizing::Verified)},{"complete",sizingAudit.complete},
+        {"limitsSatisfied",sizingAudit.limitsSatisfied()},{"cellsChecked",qint64(sizingAudit.cellsChecked)},
+        {"sharedFacesChecked",qint64(sizingAudit.facesChecked)},{"belowTarget",qint64(sizingAudit.belowTarget)},
+        {"belowEdgeFloor",qint64(sizingAudit.belowEdgeFloor)},{"aboveMaximum",qint64(sizingAudit.aboveMaximum)},
+        {"aboveFootprintMaximum",qint64(sizingAudit.aboveLocalMaximum)},{"transitionFaces",qint64(sizingAudit.transitionFaces)},
+        {"largestAdjacentRatio",sizingAudit.largestAdjacentRatio},{"smallestNominalM",sizingAudit.smallestNominal*in.meshLinearUnitToSI},
+        {"largestNominalM",sizingAudit.largestNominal*in.meshLinearUnitToSI},
+        {"repairInserted",generationStats.sizingRepairInserted},{"repairPasses",generationStats.sizingRepairPasses},
+        {"repairLimited",generationStats.sizingRepairLimited}};
+    out.metrics["coarsenRemoved"] = generationStats.coarsenRemoved;
+    out.metrics["coarsenRejectedAngle"] = generationStats.coarsenRejectedAngle;
+    out.metrics["coarsenRejectedSize"] = generationStats.coarsenRejectedSize;
+    out.metrics["coarsenRejectedTerrain"] = generationStats.coarsenRejectedTerrain;
+    out.metrics["coarsenRejectedEdge"] = generationStats.coarsenRejectedEdge;
+    out.metrics["coarsenAttempts"] = generationStats.coarsenAttempts;
+    out.metrics["coarsenHeightRejects"] = generationStats.coarsenHeightRejects;
+    out.metrics["coarsenBoundAccepts"] = generationStats.coarsenBoundAccepts;
+    out.metrics["coarsenExactQueries"] = generationStats.coarsenExactQueries;
+    out.metrics["coarsenSkippedTerrain"] = generationStats.coarsenSkippedTerrain;
+    out.metrics["coarsenSeconds"] = generationStats.coarsenSeconds;
+    out.metrics["constraintSimplification"] = geometryMetrics;
+    out.constraintPreview = std::move(constraintPreview);
+    out.metrics["cells"] = result.triangles.size();
+    out.metrics["status"] = QString::fromLatin1(meshkit::statusName(out.status));
+    out.metrics["exceptionCellCount"] = exceptionCount;
+    out.metrics["highlightedExceptionCells"] = out.exceptionCells.size();
+    out.metrics["vertices"] = result.vertices.size();
+    out.metrics["quads"] = outputQuads;
+    out.metrics["triangles"] = result.triangles.size() - outputQuads;
+    if (!generationStats.provenance.isEmpty())
+        out.metrics["provenance"] = generationStats.provenance;
     out.meshResult = std::move(result);
-    out.coupling   = std::move(coupling);
-    out.meshPath   = (in.outputMode == mesh::MeshOutputMode::External)
-                         ? in.meshOutputPath : QString();
+    out.generationStats = generationStats;
+    out.terrainToleranceUsed = useAdaptiveTerrain ? in.terrainTolerance : 0.0;
+    out.verticalUnitToSI = in.verticalUnitToSI;
+    out.coupling = std::move(coupling);
+    out.meshPath = intendedMeshPath;
     out.outputMode = in.outputMode;
+    out.corridorSources = std::move(corridors.resolvedSources);
+    out.corridorSourceStamps = std::move(corridors.sourceStamps);
+    out.meshUnitsSI = mesh::unitsHeaderIsSI(in.meshLinearUnitName);
+    out.alignmentWarnings = std::move(alignmentWarnings);
+    meshkit::Counts finalCounts;
+    finalCounts.vertices = out.meshResult.vertices.size();
+    finalCounts.quads = outputQuads;
+    finalCounts.triangles = out.meshResult.triangles.size() - finalCounts.quads;
+    finalCounts.inserted = generationStats.refineInserted;
+    finalCounts.removed = generationStats.coarsenRemoved;
+    reporter.complete(out.status, summary, finalCounts);
     promise.addResult(std::move(out));
 }
 
@@ -2133,27 +3693,35 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 // was killing the app "without warning" mid-thinning. Convert every exception
 // into an ordinary failed PipelineResult; the dialog's progress label still
 // names the stage that was running.
-static void
-runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
-                MeshGenerationDialog::PipelineInputs            in)
+void MeshGenerationDialog::runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
+                                           MeshGenerationDialog::PipelineInputs in)
 {
     using PResult = MeshGenerationDialog::PipelineResult;
+    mesh::PipelineReporter reporter(in.events);
+    /**
+     * @brief Append a failed PipelineResult after a caught worker exception. Argument `msg`: copied
+     * diagnostic. Returns: no value; framework manages promise completion and adding the result can
+     * itself allocate.
+     */
     auto failWith = [&](const QString &msg) {
-        PResult r; r.ok = false; r.errorMsg = msg;
+        PResult r;
+        r.ok = false;
+        r.errorMsg = msg;
+        r.status =
+            promise.isCanceled() ? meshkit::RunStatus::Cancelled : meshkit::RunStatus::Failed;
+        reporter.complete(r.status, msg);
         promise.addResult(r);
     };
     try {
         runMeshPipelineImpl(promise, std::move(in));
     } catch (const std::bad_alloc &) {
-        failWith(QObject::tr(
-            "Out of memory: the mesh pipeline exceeded available memory "
-            "(on Windows this is the commit limit, which can trip while "
-            "physical memory still shows headroom). Increase the grid "
-            "spacing, enable terrain thinning, or reduce the domain "
-            "extent, then try again."));
+        failWith(QObject::tr("Out of memory: the mesh pipeline exceeded available memory "
+                             "(on Windows this is the commit limit, which can trip while "
+                             "physical memory still shows headroom). Increase the grid "
+                             "spacing, increase the terrain tolerance, or reduce the domain "
+                             "extent, then try again."));
     } catch (const std::exception &e) {
-        failWith(QObject::tr("Mesh pipeline failed: %1")
-                     .arg(QString::fromUtf8(e.what())));
+        failWith(QObject::tr("Mesh pipeline failed: %1").arg(QString::fromUtf8(e.what())));
     } catch (...) {
         failWith(QObject::tr("Mesh pipeline failed with an unknown error."));
     }
@@ -2163,31 +3731,195 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 // Construction
 // ---------------------------------------------------------------------------
 
-MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
-                                           QWidget *parent)
-    : QDialog(parent),
-      m_pw(pw)
+void MeshGenerationDialog::updateCoupleableReadout()
+{
+    if (!m_coupleableReadout)
+        return;
+    SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
+    if (!layer || !layer->engine()) {
+        m_coupleableReadout->clear();
+        return;
+    }
+    int total = 0, coupleable = 0;
+    for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c) {
+        const auto cat = static_cast<SWMMModelLayer::Category>(c);
+        for (int row = 0; row < layer->categoryCount(cat); ++row) {
+            nodecoupling2d::State s;
+            if (!layer->nodeCoupling2D(layer->objectNameAt(cat, row), &s))
+                continue;
+            ++total;
+            coupleable += s.type != nodecoupling2d::None;
+        }
+    }
+    m_coupleableReadout->setText(tr("%1 of %2 nodes coupleable").arg(coupleable).arg(total));
+}
+
+MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw, QWidget *parent)
+    : QDialog(parent), m_pw(pw)
 {
     setWindowTitle(tr("Generate 2D Mesh"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("MeshGenerationDialog"));
     // Compact default — the tab pages scroll (see buildUi), so the window no
     // longer has to be tall enough to show the tallest page in full.
-    resize(540, 560);
+    resize(940, 700);
     setMinimumHeight(420);
     buildUi();
+    m_dtmCombo->setObjectName(QStringLiteral("meshDtmCombo"));
+    m_meshVertCRSCombo->setObjectName(QStringLiteral("meshVerticalUnitsCombo"));
+    m_zFactorSpin->setObjectName(QStringLiteral("meshZFactorSpin"));
+    m_includeConduits->setObjectName(QStringLiteral("meshConduitsBox"));
+    m_includeSubcatch->setObjectName(QStringLiteral("meshSubcatchBox"));
+    m_mapNodesAfterGen->setObjectName(QStringLiteral("meshMapNodesBox"));
+    m_nodeFlattenSpin->setObjectName(QStringLiteral("meshFlattenSpin"));
+    m_elevMethodCombo->setObjectName(QStringLiteral("meshElevationMethodCombo"));
+    m_nnVariantCombo->setObjectName(QStringLiteral("meshNNVariantCombo"));
+    m_idwPowerSpin->setObjectName(QStringLiteral("meshIdwPowerSpin"));
+    m_minCellSizeSpin->setObjectName(QStringLiteral("meshMinCellSizeSpin"));
+    m_quadRegionSubcatchEdit->setObjectName(QStringLiteral("meshRegionNamesEdit"));
+    m_trimTurnSpin->setObjectName(QStringLiteral("meshTrimTurnSpin"));
+    m_trimDeviationSpin->setObjectName(QStringLiteral("meshTrimDeviationSpin"));
+    m_manningsValueSpin->setObjectName(QStringLiteral("meshManningsSpin"));
+    m_initDepthSpin->setObjectName(QStringLiteral("meshInitialDepthSpin"));
+    m_outputExternal->setObjectName(QStringLiteral("meshExternalBox"));
+    m_outputInline->setObjectName(QStringLiteral("meshInlineBox"));
+    m_meshPathEdit->setObjectName(QStringLiteral("meshOutputPathEdit"));
+    m_cellSizeSpin->setProperty("meshDistance", true);
+    m_minCellSizeSpin->setProperty("meshDistance", true);
+    m_terrainTolSpin->setProperty("meshDistance", true);
+    m_conduitStripSpin->setProperty("meshDistance", true);
+    m_nodeFlattenSpin->setProperty("meshDistance", true);
+    m_nodeMinSepSpin->setProperty("meshDistance", true);
+    m_trimDeviationSpin->setProperty("meshDistance", true);
+    m_initDepthSpin->setProperty("meshDistance", true);
+    m_dtmCombo->setProperty("meshLayerPicker", true);
+    m_boundaryLayerCombo->setProperty("meshLayerPicker", true);
+    m_quadRegionLayerCombo->setProperty("meshLayerPicker", true);
     seedDefaults();
+    restoreOptions();
+    m_resolutionWidget->setTerrainAvailable(m_dtmCombo->currentData().value<void *>() != nullptr);
 
     // Keep suffix labels and defaults in sync if the user somehow changes
     // flow units while the dialog is open.
-    connect(UnitSystem::instance(), &UnitSystem::unitsChanged,
-            this, [this]() { updateUnitDisplay(); });
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this,
+            [this]() { updateUnitDisplay(); });
+    const auto stale = [this] { m_constraintPreview->markStale(); };
+    connect(m_constraintSources, &MeshConstraintSourcesWidget::policiesChanged, this, stale);
+    for (QWidget *widget : findChildren<QWidget *>()) {
+        if (m_constraintSources->isAncestorOf(widget) || m_constraintPreview->isAncestorOf(widget) ||
+            m_runLog->isAncestorOf(widget)) continue;
+        if (auto *spin = qobject_cast<QDoubleSpinBox *>(widget))
+            connect(spin, &QDoubleSpinBox::valueChanged, this, stale);
+        else if (auto *spin = qobject_cast<QSpinBox *>(widget))
+            connect(spin, &QSpinBox::valueChanged, this, stale);
+        else if (auto *combo = qobject_cast<QComboBox *>(widget))
+            connect(combo, &QComboBox::currentIndexChanged, this, stale);
+        else if (auto *button = qobject_cast<QAbstractButton *>(widget); button && button->isCheckable())
+            connect(button, &QAbstractButton::toggled, this, stale);
+        else if (auto *edit = qobject_cast<QLineEdit *>(widget))
+            connect(edit, &QLineEdit::textChanged, this, stale);
+    }
 }
 
 MeshGenerationDialog::~MeshGenerationDialog()
 {
     if (m_watcher && m_watcher->isRunning())
         m_watcher->cancel();
+    clearGenerationGuard();
+}
+
+void MeshGenerationDialog::clearGenerationGuard()
+{
+    for (const auto &connection : std::as_const(m_generationConnections))
+        disconnect(connection);
+    m_generationConnections.clear();
+    m_generationModel.clear();
+    m_generationEngine = nullptr;
+    m_generationModelPath.clear();
+}
+
+void MeshGenerationDialog::beginGenerationGuard()
+{
+    clearGenerationGuard();
+    m_generationInvalidated = false;
+    if (!m_pw || !m_pw->modelLayer())
+        return;
+    m_generationModel = m_pw->modelLayer();
+    m_generationEngine = m_generationModel->engine();
+    m_generationModelPath = m_generationModel->modelFilePath();
+    m_generationRevision = m_generationModel->editRevision();
+    /**
+     * @brief Mark the pending result stale after any observed input mutation. Takes no arguments
+     * and returns no value; worker computation is not automatically canceled by this flag alone.
+     */
+    const auto invalidate = [this]() { m_generationInvalidated = true; };
+    m_generationConnections << connect(m_pw.data(), &SWMMVisProjectWindow::aboutToClose, this,
+                                       [this]() {
+                                           m_generationInvalidated = true;
+                                           if (m_watcher)
+                                               m_watcher->cancel();
+                                       });
+    auto *model = m_generationModel.data();
+    m_generationConnections << connect(model, &SWMMModelLayer::modelEdited, this, invalidate)
+                            << connect(model, &SWMMModelLayer::attributeChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::geometryChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::optionsChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::dataObjectsChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::hydrographChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::controlRulesChanged, this,
+                                       invalidate)
+                            << connect(model, &SWMMModelLayer::transectChanged, this, invalidate)
+                            << connect(model, &SWMMModelLayer::modelFilePathChanged, this,
+                                       invalidate);
+    if (auto *canvas = m_pw->canvas()) {
+        m_generationConnections << connect(canvas, &MapCanvas::layerAdded, this, invalidate)
+                                << connect(canvas, &MapCanvas::layerRemoved, this, invalidate);
+        for (auto *layer : canvas->layers()) {
+            m_generationConnections
+                << connect(layer, &OpenSWMMVisLayer::srsChanged, this, invalidate)
+                << connect(layer, &OpenSWMMVisLayer::extentChanged, this, invalidate);
+            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
+                m_generationConnections
+                    << connect(mesh, &SWMM2DMeshLayer::attributeChanged, this, invalidate)
+                    << connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, this, invalidate)
+                    << connect(mesh, &SWMM2DMeshLayer::activeMeshChanged, this, invalidate);
+            if (auto *features = qobject_cast<FeatureLayer *>(layer))
+                m_generationConnections
+                    << connect(features, &FeatureLayer::featuresChanged, this, invalidate)
+                    << connect(features, &FeatureLayer::schemaChanged, this, invalidate);
+            if (auto *vector = qobject_cast<GISVectorLayer *>(layer))
+                m_generationConnections
+                    << connect(vector, &GISVectorLayer::filePathChanged, this, invalidate)
+                    << connect(vector, &GISVectorLayer::layerNameChanged, this, invalidate);
+        }
+    }
+}
+
+bool MeshGenerationDialog::generationOwnerIsCurrent() const
+{
+    return !m_generationInvalidated && m_pw && !m_pw->isClosing() && m_generationModel &&
+           m_pw->modelLayer() == m_generationModel &&
+           m_generationModel->engine() == m_generationEngine && m_generationEngine &&
+           m_generationModel->modelFilePath() == m_generationModelPath &&
+           m_generationModel->editRevision() == m_generationRevision;
+}
+
+void MeshGenerationDialog::reject()
+{
+    saveOptions();
+    m_generationInvalidated = true;
+    if (m_watcher)
+        m_watcher->cancel();
+    QDialog::done(m_meshApplied ? QDialog::Accepted : QDialog::Rejected);
+}
+
+void MeshGenerationDialog::closeEvent(QCloseEvent *event)
+{
+    saveOptions();
+    m_generationInvalidated = true;
+    if (m_watcher)
+        m_watcher->cancel();
+    QDialog::closeEvent(event);
 }
 
 // ---------------------------------------------------------------------------
@@ -2201,7 +3933,7 @@ void MeshGenerationDialog::buildUi()
     outer->setSpacing(6);
 
     // ── Tab widget ──────────────────────────────────────────────────
-    auto *tabs = new QTabWidget(this);
+    auto *tabs = m_tabs = new QTabWidget(this);
 
     // ================================================================
     // Tab 1 — Sources
@@ -2218,30 +3950,30 @@ void MeshGenerationDialog::buildUi()
         f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
         m_dtmCombo = new QComboBox(g);
-        m_dtmCombo->setToolTip(tr(
-            "DTM raster used to sample vertex elevations and drive\n"
-            "terrain-adaptive thinning. Optional — when set to (none)\n"
-            "the mesh is generated without terrain Steiner points and\n"
-            "vertex z is interpolated (IDW) from SWMM junction rim\n"
-            "elevations (invert + maxDepth)."));
+        m_dtmCombo->setToolTip(tr("DTM raster used to sample vertex elevations and drive\n"
+                                  "terrain-adaptive thinning. Optional — when set to (none)\n"
+                                  "the mesh is generated without terrain Steiner points and\n"
+                                  "vertex z is interpolated (IDW) from SWMM junction rim\n"
+                                  "elevations (invert + maxDepth)."));
         f->addRow(tr("&DTM raster:"), m_dtmCombo);
 
         // Auto-detected DTM vertical unit (informational)
         m_dtmVertUnitLabel = new QLabel(tr("—"), g);
         m_dtmVertUnitLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-        m_dtmVertUnitLabel->setToolTip(tr("Vertical unit detected from the DTM raster's embedded CRS metadata."));
+        m_dtmVertUnitLabel->setToolTip(
+            tr("Vertical unit detected from the DTM raster's embedded CRS metadata."));
         f->addRow(tr("DTM vertical unit:"), m_dtmVertUnitLabel);
 
         // Output mesh vertical CRS
         m_meshVertCRSCombo = new QComboBox(g);
-        m_meshVertCRSCombo->setToolTip(tr(
-            "Vertical unit for Z values written to the output mesh.\n"
-            "Choose to match the SWMM model's unit system so that node invert\n"
-            "elevations, crown elevations, and mesh Z values are consistent.\n"
-            "'Match flow units' converts automatically from the DTM vertical unit."));
+        m_meshVertCRSCombo->setToolTip(
+            tr("Vertical unit for Z values written to the output mesh.\n"
+               "Choose to match the SWMM model's unit system so that node invert\n"
+               "elevations, crown elevations, and mesh Z values are consistent.\n"
+               "'Match flow units' converts automatically from the DTM vertical unit."));
         m_meshVertCRSCombo->addItem(tr("Match flow units (auto-convert)"), QStringLiteral("auto"));
-        m_meshVertCRSCombo->addItem(tr("Metres (m)"),                      QStringLiteral("m"));
-        m_meshVertCRSCombo->addItem(tr("Feet (ft)"),                       QStringLiteral("ft"));
+        m_meshVertCRSCombo->addItem(tr("Metres (m)"), QStringLiteral("m"));
+        m_meshVertCRSCombo->addItem(tr("Feet (ft)"), QStringLiteral("ft"));
         f->addRow(tr("Mesh vertical unit:"), m_meshVertCRSCombo);
 
         // Z conversion factor — auto-populated, user-editable override.
@@ -2259,25 +3991,26 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("Z conversion (\xc3\x97):"), m_zFactorSpin);
 
         // Update detected label, auto-select mesh unit, and recompute factor when DTM changes.
-        connect(m_dtmCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this]() {
-                    auto *raster = qobject_cast<GISRasterLayer *>(
-                        static_cast<QObject *>(m_dtmCombo->currentData().value<void *>()));
-                    if (raster) {
-                        const QString unit = raster->detectVerticalUnit();
-                        m_dtmVertUnitLabel->setText(
-                            unit == QLatin1String("ft") ? tr("ft (feet)") : tr("m (metres)"));
-                    } else {
-                        m_dtmVertUnitLabel->setText(tr("—"));
-                    }
-                    // Elevation-interpolation options only apply with no DTM.
-                    if (m_elevInterpGroup)
-                        m_elevInterpGroup->setEnabled(raster == nullptr);
-                    updateZFactor();
-                });
+        connect(m_dtmCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+            auto *raster = qobject_cast<GISRasterLayer *>(
+                static_cast<QObject *>(m_dtmCombo->currentData().value<void *>()));
+            if (raster) {
+                const QString unit = raster->detectVerticalUnit();
+                m_dtmVertUnitLabel->setText(unit == QLatin1String("ft") ? tr("ft (feet)")
+                                                                        : tr("m (metres)"));
+            } else {
+                m_dtmVertUnitLabel->setText(tr("—"));
+            }
+            // Elevation-interpolation options only apply with no DTM.
+            if (m_elevInterpGroup)
+                m_elevInterpGroup->setEnabled(raster == nullptr);
+            if (m_resolutionWidget)
+                m_resolutionWidget->setTerrainAvailable(raster != nullptr);
+            updateZFactor();
+        });
 
-        connect(m_meshVertCRSCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this](int) { updateZFactor(); });
+        connect(m_meshVertCRSCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int) { updateZFactor(); });
 
         m_domainLabel = new QLabel(g);
         m_domainLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
@@ -2288,30 +4021,45 @@ void MeshGenerationDialog::buildUi()
 
     // Auxiliary feature layers group
     {
-        auto *g   = new QGroupBox(tr("Auxiliary feature layers (optional)"), sourcesPage);
+        auto *g = new QGroupBox(tr("Auxiliary feature layers (optional)"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
 
         auto *boundaryRow = new QHBoxLayout;
-        boundaryRow->addWidget(new QLabel(tr("&Boundary polygon:"), g));
+        boundaryRow->addWidget(new QLabel(tr("Boundary polygon:"), g));
         m_boundaryLayerCombo = new QComboBox(g);
-        m_boundaryLayerCombo->setToolTip(tr(
-            "Polygon layer whose features define the meshing boundary.  "
-            "Interior rings (holes) in those polygons are respected — "
-            "Triangle leaves those regions unmeshed.  When (none), the mesh "
-            "domain falls back to the SWMM model bounding rectangle + 5%."));
+        m_boundaryLayerCombo->setObjectName(QStringLiteral("meshBoundaryLayerCombo"));
+        m_boundaryLayerCombo->setToolTip(
+            tr("Polygon layer whose features define the meshing boundary.  "
+               "Interior rings (holes) in those polygons are respected — "
+               "The mesher leaves those regions unmeshed.  When (none), the mesh "
+               "domain falls back to the SWMM model bounding rectangle + 5%."));
         boundaryRow->addWidget(m_boundaryLayerCombo, 1);
         lay->addLayout(boundaryRow);
+        m_conditionBoundaryBox =
+            new QCheckBox(tr("Simplify footprints to the minimum cell size"), g);
+        m_conditionBoundaryBox->setObjectName(QStringLiteral("meshConditionBoundaryBox"));
+        m_conditionBoundaryBox->setChecked(true);
+        m_conditionBoundaryBox->setToolTip(tr(
+            "Before meshing, fill holes narrower than the minimum cell size, cut back building "
+            "detail thinner than it, close gaps narrower than it between buildings or the boundary, "
+            "and drop vertices that add no shape. Corners stay square. Prevents tiny cells that "
+            "slow the simulation; the log reports what changed."));
+        lay->addWidget(m_conditionBoundaryBox);
 
-        lay->addWidget(new QLabel(tr("Constraining &points (check to include):"), g));
+        lay->addWidget(new QLabel(tr("Constraining points (check to include):"), g));
         m_pointLayersList = new QListWidget(g);
-        m_pointLayersList->setToolTip(tr("Every feature in each checked layer is added as a Steiner point."));
+        m_pointLayersList->setObjectName(QStringLiteral("meshPointLayersList"));
+        m_pointLayersList->setToolTip(
+            tr("Every feature in each checked layer is added as a Steiner point."));
         m_pointLayersList->setMaximumHeight(100);
         m_pointLayersList->setSelectionMode(QAbstractItemView::NoSelection);
         lay->addWidget(m_pointLayersList);
 
-        lay->addWidget(new QLabel(tr("Constraining &lines (check to include):"), g));
+        lay->addWidget(new QLabel(tr("Constraining lines (check to include):"), g));
         m_lineLayersList = new QListWidget(g);
-        m_lineLayersList->setToolTip(tr("Every feature in each checked layer becomes a constraint segment."));
+        m_lineLayersList->setObjectName(QStringLiteral("meshLineLayersList"));
+        m_lineLayersList->setToolTip(
+            tr("Every feature in each checked layer becomes a constraint segment."));
         m_lineLayersList->setMaximumHeight(100);
         m_lineLayersList->setSelectionMode(QAbstractItemView::NoSelection);
         lay->addWidget(m_lineLayersList);
@@ -2323,34 +4071,45 @@ void MeshGenerationDialog::buildUi()
     // these checkboxes only shape the PSLG; the 1D↔2D coupling itself is
     // authored by the post-generation mapper / the toolbar's Remap action).
     {
-        auto *g   = new QGroupBox(tr("1D geometry influence (optional)"), sourcesPage);
+        auto *g = new QGroupBox(tr("1D geometry influence (optional)"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
 
-        m_includeJunctions = new QCheckBox(tr("Junctions / outfalls / storage  →  Steiner vertices  (tag = node id)"), g);
-        m_includeJunctions->setToolTip(tr(
-            "Force a mesh vertex at every node location. Node clusters that\n"
-            "are close only for non-physical reasons (weir / orifice / pump\n"
-            "endpoints) then force very small cells around them.\n\n"
-            "Leave unchecked (default) to let mesh quality drive the cell\n"
-            "sizes; nodes are coupled to the mesh afterwards (coincident →\n"
-            "vertex, otherwise → containing cell)."));
-        m_includeConduits  = new QCheckBox(tr("Conduits  →  constraint segments  (marker = conduit id)"), g);
-        m_includeSubcatch  = new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
+        m_includeJunctions = new QCheckBox(
+            tr("Nodes (junctions, inlets, outfalls, storage, dividers)  →  Steiner vertices  (tag = node id)"),
+            g);
+        m_includeJunctions->setObjectName(QStringLiteral("meshNodesAsVerticesBox"));
+        m_includeJunctions->setToolTip(
+            tr("Checked (default): force a mesh vertex at every node location —\n"
+               "every node type except virtual junctions, which are split points\n"
+               "on a conduit with no rim of their own. Node clusters that are\n"
+               "close only for non-physical reasons (weir / orifice / pump\n"
+               "endpoints) would force very small cells around them; the\n"
+               "minimum node separation below demotes those to cell coupling.\n\n"
+               "Uncheck to let mesh quality drive the cell sizes; nodes are\n"
+               "coupled to the mesh afterwards (coincident → vertex, otherwise →\n"
+               "containing cell)."));
+        m_includeConduits =
+            new QCheckBox(tr("Conduits  →  constraint segments  (marker = conduit id)"), g);
+        m_includeSubcatch =
+            new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
 
         lay->addWidget(m_includeJunctions);
 
         // Node elevation source: interpolate to terrain (default) vs rim.
-        m_nodesUseRim = new QCheckBox(
-            tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
-        m_nodesUseRim->setToolTip(tr(
-            "Unchecked (default): node vertices are interpolated from the DTM,\n"
-            "like every other vertex.\n"
-            "Checked: node vertices are pinned to the rim elevation\n"
-            "(invert + maximum depth) read from the SWMM model.\n\n"
-            "When no DTM is selected, nodes always use rim elevation and\n"
-            "the rest of the mesh is interpolated (IDW) from those rims."));
+        m_nodesUseRim =
+            new QCheckBox(tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
+        m_nodesUseRim->setObjectName(QStringLiteral("meshNodesUseRimBox"));
+        m_nodesUseRim->setToolTip(
+            tr("Checked (default): where the terrain is higher than a node's rim\n"
+               "(invert + maximum depth from the SWMM model), the node vertex is\n"
+               "lowered to the rim; where the terrain is at or below the rim, the\n"
+               "terrain is kept. The rim never raises the ground.\n"
+               "Unchecked: node vertices are interpolated from the DTM, like\n"
+               "every other vertex.\n\n"
+               "When no DTM is selected, nodes always use rim elevation and\n"
+               "the rest of the mesh is interpolated (IDW) from those rims."));
         auto *rimRow = new QHBoxLayout;
-        rimRow->setContentsMargins(20, 0, 0, 0);  // indent under junctions row
+        rimRow->setContentsMargins(20, 0, 0, 0); // indent under junctions row
         rimRow->addWidget(m_nodesUseRim);
         lay->addLayout(rimRow);
 
@@ -2366,11 +4125,11 @@ void MeshGenerationDialog::buildUi()
         m_nodeFlattenSpin->setSingleStep(1.0);
         m_nodeFlattenSpin->setSpecialValueText(tr("(off)"));
         // suffix set by updateUnitDisplay()
-        m_nodeFlattenSpin->setToolTip(tr(
-            "Radius around each rim node within which all DTM terrain points\n"
-            "are forced to that node's rim elevation.  Prevents unnecessarily\n"
-            "small triangles where the terrain and rim elevations disagree.\n"
-            "0 = off.  Applies only when nodes use rim elevation."));
+        m_nodeFlattenSpin->setToolTip(
+            tr("Radius around each rim node within which terrain higher than the\n"
+               "node's rim is lowered to the rim (lower terrain is kept).  Prevents\n"
+               "unnecessarily small triangles where the terrain and rim elevations\n"
+               "disagree.  0 = off.  Applies only when nodes use rim elevation."));
         flatRow->addWidget(m_nodeFlattenSpin);
         flatRow->addStretch();
         lay->addLayout(flatRow);
@@ -2383,17 +4142,19 @@ void MeshGenerationDialog::buildUi()
         auto *sepRow = new QHBoxLayout;
         sepRow->setContentsMargins(20, 0, 0, 0);
         m_nodeMinSepBox = new QCheckBox(tr("Enforce minimum node separation:"), g);
-        m_nodeMinSepBox->setToolTip(tr(
-            "When two nodes are closer than this distance, only the first\n"
-            "(junctions → outfalls → storage → dividers, model order) keeps a\n"
-            "pinned mesh vertex; the others are coupled to their containing\n"
-            "CELL instead ([2D_TRIANGLE_NODE_MAP]).  Prevents clusters of tiny\n"
-            "triangles where manholes sit centimetres apart.\n\n"
-            "Requires \"Map model nodes to the mesh after generation\" so the\n"
-            "demoted nodes still get coupled.  Note: if conduits are included\n"
-            "as constraints, their endpoints can still pin vertices at node\n"
-            "locations regardless of this setting."));
+        m_nodeMinSepBox->setObjectName(QStringLiteral("meshMinNodeSepBox"));
+        m_nodeMinSepBox->setToolTip(
+            tr("When two nodes are closer than this distance, only the first\n"
+               "(junctions → outfalls → storage → dividers, model order) keeps a\n"
+               "pinned mesh vertex; the others are coupled to their containing\n"
+               "CELL instead ([2D_TRIANGLE_NODE_MAP]).  Prevents clusters of tiny\n"
+               "triangles where manholes sit centimetres apart.\n\n"
+               "Requires \"Map model nodes to the mesh after generation\" so the\n"
+               "demoted nodes still get coupled.  Note: if conduits are included\n"
+               "as constraints, their endpoints can still pin vertices at node\n"
+               "locations regardless of this setting."));
         m_nodeMinSepSpin = new QDoubleSpinBox(g);
+        m_nodeMinSepSpin->setObjectName(QStringLiteral("meshMinNodeSepSpin"));
         m_nodeMinSepSpin->setRange(0.0, 1e9);
         m_nodeMinSepSpin->setDecimals(3);
         m_nodeMinSepSpin->setSingleStep(1.0);
@@ -2406,7 +4167,12 @@ void MeshGenerationDialog::buildUi()
         lay->addWidget(m_includeConduits);
         lay->addWidget(m_includeSubcatch);
 
-        auto syncCoupling = [this]{
+        /**
+         * @brief Gate rim/flatten/minimum-separation controls from the node-influence draft
+         * checkboxes. Takes no arguments and returns no value; disabled values are retained, no
+         * engine coupling writes occur.
+         */
+        auto syncCoupling = [this] {
             const bool jc = m_includeJunctions->isChecked();
             m_nodesUseRim->setEnabled(jc);
             m_nodeFlattenSpin->setEnabled(jc && m_nodesUseRim->isChecked());
@@ -2414,8 +4180,8 @@ void MeshGenerationDialog::buildUi()
             m_nodeMinSepSpin->setEnabled(jc && m_nodeMinSepBox->isChecked());
         };
         connect(m_includeJunctions, &QCheckBox::toggled, this, syncCoupling);
-        connect(m_nodesUseRim,      &QCheckBox::toggled, this, syncCoupling);
-        connect(m_nodeMinSepBox,    &QCheckBox::toggled, this, syncCoupling);
+        connect(m_nodesUseRim, &QCheckBox::toggled, this, syncCoupling);
+        connect(m_nodeMinSepBox, &QCheckBox::toggled, this, syncCoupling);
         syncCoupling();
 
         sourcesVBox->addWidget(g);
@@ -2424,28 +4190,59 @@ void MeshGenerationDialog::buildUi()
     // 1D↔2D coupling group (Plan Part B) — the mapping itself, decoupled
     // from generation. Re-runnable anytime via the mesh toolbar.
     {
-        auto *g   = new QGroupBox(tr("1D ↔ 2D coupling"), sourcesPage);
+        auto *g = new QGroupBox(tr("1D ↔ 2D coupling"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
-        m_mapNodesAfterGen = new QCheckBox(
-            tr("Map model nodes to the mesh after generation "
-               "(re-runnable from the Mesh toolbar)"), g);
-        m_mapNodesAfterGen->setToolTip(tr(
-            "After the mesh is built, couple every SWMM node to it:\n"
-            "nodes coincident with a mesh vertex use vertex coupling;\n"
-            "other nodes inside the mesh couple to their containing cell\n"
-            "(several nodes may share one cell — e.g. weir endpoints).\n"
-            "Nodes outside the mesh are reported."));
+        m_mapNodesAfterGen = new QCheckBox(tr("Map model nodes to the mesh after generation "
+                                              "(re-runnable from the Mesh toolbar)"),
+                                           g);
+        m_mapNodesAfterGen->setToolTip(
+            tr("After the mesh is built, couple every SWMM node to it:\n"
+               "nodes coincident with a mesh vertex use vertex coupling;\n"
+               "other nodes inside the mesh couple to their containing cell\n"
+               "(several nodes may share one cell — e.g. weir endpoints).\n"
+               "Nodes outside the mesh are reported."));
         lay->addWidget(m_mapNodesAfterGen);
+
+        m_mapOnlyCoupleable = new QCheckBox(tr("Map only coupleable nodes"), g);
+        m_mapOnlyCoupleable->setChecked(true);
+        m_mapOnlyCoupleable->setToolTip(
+            tr("Skip nodes whose 2D coupling is \"Not coupleable\" (set per node, or the\n"
+               "default for inlet and virtual junctions). Off maps every node."));
+        auto *row = new QHBoxLayout;
+        row->addWidget(m_mapOnlyCoupleable);
+        auto *setBtn = new QPushButton(tr("Set coupleable…"), g);
+        setBtn->setToolTip(tr("Choose which nodes may couple to the 2D surface, and "
+                              "through what structure."));
+        row->addWidget(setBtn);
+        row->addStretch();
+        lay->addLayout(row);
+        m_coupleableReadout = new QLabel(g);
+        lay->addWidget(m_coupleableReadout);
+        connect(m_mapNodesAfterGen, &QCheckBox::toggled, m_mapOnlyCoupleable, &QWidget::setEnabled);
+        connect(setBtn, &QPushButton::clicked, this, [this] {
+            SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
+            if (!layer)
+                return;
+            QStringList selected;
+            if (m_pw->selectionManager())
+                for (const SWMMObjectRef &r : m_pw->selectionManager()->selection())
+                    if (r.objectType == SWMMObjectRef::Node)
+                        selected.append(r.name);
+            NodeCouplingSelectorDialog dlg(layer, selected, this);
+            dlg.exec();
+            updateCoupleableReadout();
+        });
+        updateCoupleableReadout();
         sourcesVBox->addWidget(g);
     }
 
     // Elevation interpolation (no-DTM fallback) group
     {
         m_elevInterpGroup = new QGroupBox(tr("Elevation interpolation (no DTM)"), sourcesPage);
-        m_elevInterpGroup->setToolTip(tr(
-            "How mesh-vertex elevations are interpolated from the seed points\n"
-            "(junction rims and 3D feature Z) when no DTM raster is selected.\n"
-            "Ignored when a DTM is set."));
+        m_elevInterpGroup->setToolTip(
+            tr("How mesh-vertex elevations are interpolated from the seed points\n"
+               "(junction rims and 3D feature Z) when no DTM raster is selected.\n"
+               "Ignored when a DTM is set."));
         auto *f = new QFormLayout(m_elevInterpGroup);
 
         m_elevMethodCombo = new QComboBox(m_elevInterpGroup);
@@ -2456,250 +4253,337 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("Method:"), m_elevMethodCombo);
 
         m_nnVariantCombo = new QComboBox(m_elevInterpGroup);
-        m_nnVariantCombo->addItem(tr("Sibson (area-stealing)"),
-                                  int(NNVariant::Sibson));
-        m_nnVariantCombo->addItem(tr("Laplace (edge-ratio)"),
-                                  int(NNVariant::Laplace));
-        m_nnVariantCombo->setToolTip(tr(
-            "Sibson: smooth area-based natural-neighbour coordinates.\n"
-            "Laplace: faster non-Sibsonian edge/distance ratio.\n"
-            "Both fall back to IDW outside the seed convex hull."));
+        m_nnVariantCombo->addItem(tr("Sibson (area-stealing)"), int(NNVariant::Sibson));
+        m_nnVariantCombo->addItem(tr("Laplace (edge-ratio)"), int(NNVariant::Laplace));
+        m_nnVariantCombo->setToolTip(tr("Sibson: smooth area-based natural-neighbour coordinates.\n"
+                                        "Laplace: faster non-Sibsonian edge/distance ratio.\n"
+                                        "Both fall back to IDW outside the seed convex hull."));
         f->addRow(tr("NN variant:"), m_nnVariantCombo);
 
         m_idwPowerSpin = new QDoubleSpinBox(m_elevInterpGroup);
         m_idwPowerSpin->setRange(0.1, 10.0);
         m_idwPowerSpin->setDecimals(2);
         m_idwPowerSpin->setSingleStep(0.5);
-        m_idwPowerSpin->setToolTip(tr(
-            "Shepard exponent p for IDW: weight = 1 / distance^p.\n"
-            "Higher p → sharper, more local influence. Default 2.\n"
-            "Also used as the natural-neighbour fallback outside the hull."));
+        m_idwPowerSpin->setToolTip(
+            tr("Shepard exponent p for IDW: weight = 1 / distance^p.\n"
+               "Higher p → sharper, more local influence. Default 2.\n"
+               "Also used as the natural-neighbour fallback outside the hull."));
         f->addRow(tr("IDW power:"), m_idwPowerSpin);
 
-        auto syncElevInterp = [this]{
-            const bool nn = m_elevMethodCombo->currentData().toInt()
-                            == int(ElevInterpMethod::NaturalNeighbour);
+        /**
+         * @brief Show the NN weighting choice only as enabled for natural-neighbour mode. Takes no
+         * arguments and returns no value; IDW exponent remains available for fallback.
+         */
+        auto syncElevInterp = [this] {
+            const bool nn =
+                m_elevMethodCombo->currentData().toInt() == int(ElevInterpMethod::NaturalNeighbour);
             m_nnVariantCombo->setEnabled(nn);
         };
-        connect(m_elevMethodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [syncElevInterp](int){ syncElevInterp(); });
+        connect(m_elevMethodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [syncElevInterp](int) { syncElevInterp(); });
         syncElevInterp();
 
         sourcesVBox->addWidget(m_elevInterpGroup);
     }
 
     sourcesVBox->addStretch();
-    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sourcesPage, tabs),
-                 tr("S&ources"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sourcesPage, tabs), tr("S&ources"));
 
     // ================================================================
-    // Tab 2 — Quality
-    // "How to triangulate": Triangle knobs, PSLG opts, terrain thinning
+    // Tab 2 — Quality: persistent category navigation and one settings page
+    // at a time. The resolution pages are also shared with Preferences.
     // ================================================================
     auto *qualityPage = new QWidget;
     auto *qualityVBox = new QVBoxLayout(qualityPage);
     qualityVBox->setContentsMargins(8, 8, 8, 8);
 
-    // Triangle quality group
+    m_resolutionWidget = new MeshResolutionWidget(qualityPage);
+    qualityVBox->addWidget(m_resolutionWidget);
+    m_cellSizeSpin = m_resolutionWidget->feature;
+    m_sizeRatioSpin = m_resolutionWidget->transition;
+    m_minCellSizeSpin = m_resolutionWidget->minimum;
+    m_terrainTolSpin = m_resolutionWidget->tolerance;
+    m_terrainModeCombo = m_resolutionWidget->terrainMode;
+    m_terrainReferenceCombo = m_resolutionWidget->reference;
+    m_terrainBreaklinesBox = m_resolutionWidget->alignTerrain;
+    m_refineFeaturesBox = m_resolutionWidget->refineFeatures;
+    m_maxBreaklinesSpin = m_resolutionWidget->maxBreaklines;
+    m_terrainReportLabel = m_resolutionWidget->report;
+    auto *localTargets = m_resolutionWidget->findChild<QLabel *>("meshLocalTargetsLink");
+    localTargets->setText(tr(
+        "Local targets: <a href=\"regions\">region settings</a> and <a href=\"corridors\">corridor settings</a>."));
+    localTargets->show();
+    connect(localTargets, &QLabel::linkActivated, this, [this](const QString &link) {
+        QWidget *target = link == "regions" ? static_cast<QWidget *>(m_quadRegionLayerCombo)
+                                            : static_cast<QWidget *>(m_corridorSources);
+        m_resolutionWidget->showSettingsPage(target);
+    });
+    connect(m_terrainReportLabel, &QLabel::linkActivated, this, [this] {
+        if (!m_pw)
+            return;
+        const auto last = m_pw->meshGenerationOptions().value("lastRun").toObject();
+        auto *box = new QMessageBox(QMessageBox::Information, tr("Previous mesh results"),
+                                    last.value("summary").toString(), QMessageBox::Ok, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->show();
+    });
+
+    // Shape
     {
-        auto *g = new QGroupBox(tr("Triangle quality"), qualityPage);
+        auto *g = new QGroupBox(tr("Shape"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_maxAreaSpin = new QDoubleSpinBox(g);
-        m_maxAreaSpin->setRange(0.0, 1e12);
-        m_maxAreaSpin->setDecimals(2);
-        m_maxAreaSpin->setSpecialValueText(tr("(no cap)"));
-        // tooltip updated by updateUnitDisplay()
-        f->addRow(tr("Max trian&gle area:"), m_maxAreaSpin);
-
+        // Triangles everywhere, quads only in aligned strips
+        // (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10–D12).
         m_minAngleSpin = new QDoubleSpinBox(g);
-        m_minAngleSpin->setRange(0.0, 33.0);
+        m_minAngleSpin->setObjectName(QStringLiteral("meshMinAngleSpin"));
+        m_minAngleSpin->setRange(20.0, 33.0);
         m_minAngleSpin->setDecimals(1);
-        m_minAngleSpin->setSuffix(QStringLiteral(" °"));
-        m_minAngleSpin->setToolTip(tr("Minimum triangle angle (0–33° reliable; above 33° may not terminate)."));
-        f->addRow(tr("Min angle:"), m_minAngleSpin);
+        m_minAngleSpin->setSuffix(QStringLiteral("°"));
+        m_minAngleSpin->setToolTip(tr(
+            "Requested minimum triangle angle. Higher values, especially near 33 degrees, "
+            "can greatly increase the cell count and spend the budget before terrain refinement. "
+            "Small input angles, fixed strip edges, the cascade floor and the cell budget "
+            "can prevent the target from being reached."));
+        f->addRow(tr("Minimum &angle:"), m_minAngleSpin);
+        m_qualityOrderBox = new QCheckBox(tr("Prioritize worst triangle angles"), g);
+        m_qualityOrderBox->setObjectName(QStringLiteral("meshQualityOrderBox"));
+        m_qualityOrderBox->setChecked(true);
+        m_qualityOrderBox->setToolTip(tr(
+            "Process poor angles first to reduce unnecessary refinement. Uncheck to compare the previous insertion order."));
+        f->addRow(m_qualityOrderBox);
+        m_latticeSeedingBox =
+            new QCheckBox(tr("Seed near-equilateral points before refinement"), g);
+        m_latticeSeedingBox->setObjectName(QStringLiteral("meshLatticeSeedingBox"));
+        m_latticeSeedingBox->setChecked(true);
+        m_latticeSeedingBox->setToolTip(tr(
+            "Fill open areas with hexagonal point lattices graded by the size field, so triangles "
+            "start near equilateral instead of being shaped only by refinement."));
+        f->addRow(m_latticeSeedingBox);
+        m_smoothingSpin = new QSpinBox(g);
+        m_smoothingSpin->setObjectName(QStringLiteral("meshSmoothingSpin"));
+        m_smoothingSpin->setRange(0, 10);
+        m_smoothingSpin->setValue(4);
+        m_smoothingSpin->setSpecialValueText(tr("off"));
+        m_smoothingSpin->setToolTip(
+            tr("Passes that move free vertices toward the centre of their neighbours when that "
+               "improves the worst angle around them. Vertices on constraints never move."));
+        f->addRow(tr("&Smoothing passes:"), m_smoothingSpin);
 
-        m_maxSteinerSpin = new QSpinBox(g);
-        m_maxSteinerSpin->setRange(-1, 10'000'000);
-        m_maxSteinerSpin->setSpecialValueText(tr("(unlimited)"));
-        f->addRow(tr("Max Steiner points:"), m_maxSteinerSpin);
-
-        m_allowSteiner = new QCheckBox(tr("Allow Steiner refinement on boundary"), g);
-        f->addRow(QString(), m_allowSteiner);
-
-        qualityVBox->addWidget(g);
+        m_resolutionWidget->addSettingsPage(tr("Cell shape"), g);
     }
 
-    // PSLG optimisation group
     {
-        auto *g = new QGroupBox(tr("PSLG Optimisation"), qualityPage);
+        auto *g = new QGroupBox(tr("Quad regions and strips"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_simplifyEpsSpin = new QDoubleSpinBox(g);
-        m_simplifyEpsSpin->setRange(0.0, 1000.0);
-        m_simplifyEpsSpin->setDecimals(3);
-        m_simplifyEpsSpin->setSingleStep(0.1);
-        // suffix set by updateUnitDisplay()
-        m_simplifyEpsSpin->setSpecialValueText(tr("(off)"));
-        m_simplifyEpsSpin->setToolTip(tr(
-            "Ramer-Douglas-Peucker tolerance applied to every polygon ring and "
-            "polyline path before it enters Triangle.\n\n"
-            "Points that deviate less than this distance from a straight line "
-            "between their neighbours are removed.  0 = disabled.\n"
-            "Typical: 0.1 m (tight) – 1.0 m (coarse).\n\n"
-            "Increase ε when the boundary's vertices are much denser than the "
-            "terrain point spacing — short constrained boundary segments seed "
-            "small cells along the perimeter."));
-        f->addRow(tr("Geometry simplification &ε:"), m_simplifyEpsSpin);
+        m_quadModeCombo = new QComboBox(g);
+        m_quadModeCombo->setObjectName(QStringLiteral("meshQuadModeCombo"));
+        m_quadModeCombo->addItems({tr("Off (triangles only)"), tr("Corridors and strips"),
+                                   tr("Corridors, strips and open blocks")});
+        m_quadModeCombo->setCurrentIndex(2);
+        m_quadModeCombo->setToolTip(tr(
+            "Where the mesh uses quads; triangles fill everywhere else and every join is exact. "
+            "Corridors and strips: selected corridors and streets or ditches between facing break "
+            "lines (each with its own option). Unified planning places open blocks from the size field "
+            "before triangulating the remaining area. Legacy routing uses a triangle pilot pass. "
+            "Preferred blocks fall back to triangles when they conflict with constraints or limits. "
+            "Off disables every generated quad source; region outlines, tags and local sizes "
+            "still apply. A prebuilt quad patch must be removed or quads enabled. "
+            "No mode promises a fixed percentage of quads."));
+        f->addRow(tr("&Quads:"), m_quadModeCombo);
+        m_requireMappedRegions=new QCheckBox(tr("Require mapped quads in selected regions"),g);
+        m_requireMappedRegions->setObjectName("meshRequireMappedRegions");
+        m_requireMappedRegions->setToolTip(tr("Requires unified planning. Every selected region must produce a conforming mapped patch within the requested size, shape and terrain limits. A feature with cells=triangles overrides this default; cells=required_quads sets an individual hard requirement. Global triangles-only conflicts with required mapped quads."));
+        connect(m_requireMappedRegions,&QCheckBox::toggled,this,[this](bool required){
+            if(required)m_resolutionWidget->cellPlanning->setCurrentIndex(int(mesh::ResolutionSettings::CellPlanning::Unified));
+        });
+        f->addRow(m_requireMappedRegions);
 
-        m_snapEpsSpin = new QDoubleSpinBox(g);
-        m_snapEpsSpin->setRange(0.0, 100.0);
-        m_snapEpsSpin->setDecimals(4);
-        m_snapEpsSpin->setSingleStep(0.01);
-        // suffix set by updateUnitDisplay()
-        m_snapEpsSpin->setSpecialValueText(tr("(off)"));
-        m_snapEpsSpin->setToolTip(tr(
-            "Radius within which near-coincident untagged Steiner points are "
-            "merged into one.  SWMM-tagged points are never merged.\n"
-            "0 = disabled.  Typical: 0.01–0.5 m."));
-        f->addRow(tr("Steiner snap radius:"), m_snapEpsSpin);
+        m_streetQuadsBox =
+            new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), g);
+        m_streetQuadsBox->setObjectName(QStringLiteral("meshStreetQuadsBox"));
+        m_streetQuadsBox->setToolTip(
+            tr("Where two terrain break lines run side by side with lower ground "
+               "between them — the curbs of a street, the banks of a ditch — the "
+               "cells between them are rows of quads along the feature. Needs a "
+               "DTM and a terrain tolerance; everywhere else the mesh is "
+               "triangles."));
+        f->addRow(m_streetQuadsBox);
 
-        // 2026-07-19 — optional boundary densification. Splits domain/hole
-        // ring edges longer than this into equal parts AFTER RDP
-        // simplification (pure vertex insertion, geometry unchanged) so the
-        // perimeter cell size can match the interior terrain spacing instead
-        // of Triangle spanning long constrained edges with oversized fans.
-        m_maxBoundaryEdgeBox = new QCheckBox(tr("Max boundary edge length:"), g);
-        m_maxBoundaryEdgeBox->setToolTip(tr(
-            "When checked, boundary and hole ring edges longer than this are "
-            "split into equal parts after RDP simplification.\n\n"
-            "Pure vertex insertion — the boundary geometry is unchanged.  "
-            "Use to make perimeter cell size follow the interior target "
-            "spacing on coarse boundaries."));
-        m_maxBoundaryEdgeSpin = new QDoubleSpinBox(g);
-        m_maxBoundaryEdgeSpin->setRange(0.0, 1e9);
-        m_maxBoundaryEdgeSpin->setDecimals(2);
-        m_maxBoundaryEdgeSpin->setSingleStep(5.0);
-        // suffix set by updateUnitDisplay()
-        m_maxBoundaryEdgeSpin->setSpecialValueText(tr("(off)"));
-        f->addRow(m_maxBoundaryEdgeBox, m_maxBoundaryEdgeSpin);
-        connect(m_maxBoundaryEdgeBox, &QCheckBox::toggled,
-                m_maxBoundaryEdgeSpin, &QWidget::setEnabled);
+        m_conduitStripSpin = new QDoubleSpinBox(g);
+        m_conduitStripSpin->setObjectName(QStringLiteral("meshConduitStripSpin"));
+        m_conduitStripSpin->setRange(0.0, 1e6);
+        m_conduitStripSpin->setDecimals(3);
+        m_conduitStripSpin->setSpecialValueText(tr("(off)"));
+        m_conduitStripSpin->setToolTip(
+            tr("Width of a strip of quads laid along every conduit, the conduit "
+               "on its middle row. Each strip stops one to four widths short of "
+               "the conduit's ends so strips never meet at a junction; a strip "
+               "that would cross or crowd another feature is left out and the "
+               "conduit stays a line of triangle edges. Narrow strips force small cells even "
+               "when the minimum target is larger. Set the width to off to retain plain "
+               "constrained edges without strip rows."));
+        f->addRow(tr("Conduit &quad strip width:"), m_conduitStripSpin);
 
-        qualityVBox->addWidget(g);
+        m_quadRegionLayerCombo = new QComboBox(g);
+        m_quadRegionLayerCombo->setObjectName(QStringLiteral("meshQuadRegionLayerCombo"));
+        m_quadRegionLayerCombo->setToolTip(
+            tr("Polygon layer of quad regions (exterior rings only; read in the "
+               "worker and reprojected to the mesh CRS). A four-sided polygon is "
+               "filled with quads aligned to its sides; any other shape keeps "
+               "its outline as cell edges with triangles inside.\n\n"
+               "Optional per-feature attributes:\n"
+               "  h / quad_spacing   cell size inside the polygon (map units)\n"
+               "  tag                cell tag"));
+        f->addRow(tr("Region &layer:"), m_quadRegionLayerCombo);
+
+        m_quadRegionSubcatchEdit = new QLineEdit(g);
+        m_quadRegionSubcatchEdit->setPlaceholderText(tr("comma-separated subcatchment IDs"));
+        m_quadRegionSubcatchEdit->setToolTip(
+            tr("Subcatchment polygons whose rings become cell boundaries, tagged "
+               "subcatch_<ID>; four-sided ones are filled with aligned quads. An "
+               "unknown ID stops generation with an error."));
+        f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
+
+        m_resolutionWidget->addSettingsPage(tr("Quads and regions"), g);
     }
 
-    // Terrain-adaptive thinning group
+    auto *corridorGroup = new QGroupBox(tr("Corridors"), qualityPage);
+    auto *corridorLayout = new QVBoxLayout(corridorGroup);
+    if (m_pw && !m_pw->corridorRecipeLoadError().isEmpty()) {
+        auto *warning = new QLabel(
+            tr("The saved corridor recipe could not be loaded: %1\n"
+               "Review the source settings. Generating a new mesh can replace this recipe; cancelling preserves it.")
+                .arg(m_pw->corridorRecipeLoadError()),
+            corridorGroup);
+        warning->setWordWrap(true);
+        warning->setAccessibleName(tr("Saved corridor recipe needs review"));
+        corridorLayout->addWidget(warning);
+    }
+    m_corridorSources = new CorridorSourcesWidget(corridorGroup);
+    corridorLayout->addWidget(m_corridorSources);
+    m_resolutionWidget->addSettingsPage(tr("Corridors"), corridorGroup);
+
+    // Boundaries
     {
-        auto *g = new QGroupBox(tr("Terrain-Adaptive Thinning"), qualityPage);
+        auto *g = new QGroupBox(tr("Boundaries"), qualityPage);
         auto *f = new QFormLayout(g);
         f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
 
-        m_thinningBox = new QCheckBox(tr("Enable normal-deviation terrain simplification"), g);
-        m_thinningBox->setToolTip(tr(
-            "When checked: uses the normal-deviation algorithm to SELECT which "
-            "DTM pixels to keep — only terrain-significant points (ridges, "
-            "valleys, slope breaks) become Steiner vertices, flat areas are "
-            "thinned away.\n\n"
-            "When unchecked: every DTM pixel in the domain at the configured "
-            "grid spacing becomes a Steiner vertex (no filtering).\n\n"
-            "Either way, the selected DTM points are always added to the PSLG "
-            "when a DTM raster is configured.  Each point carries its exact DEM "
-            "elevation and is not re-sampled after triangulation.\n\n"
-            "Very large DEMs are processed in memory-bounded row bands, so any "
-            "raster size works at any spacing."));
-        f->addRow(QString(), m_thinningBox);
+        m_geometryModeCombo = new QComboBox(g);
+        m_geometryModeCombo->setObjectName("meshGeometryPolicy");
+        m_geometryModeCombo->addItems({tr("Use existing trimming settings"),
+                                       tr("Preserve authored geometry"),
+                                       tr("Bounded simplification")});
+        m_geometryModeCombo->setToolTip(tr(
+            "This is the default for sources without overrides. Preserve keeps authored vertices and holes; bounded simplification removes redundant vertices within the limits below. Source settings and feature attributes can override the default. Legacy retains saved trimming and footprint generalization."));
+        f->addRow(tr("Default geometry policy:"), m_geometryModeCombo);
+        m_geometryZSpin = new QDoubleSpinBox(g);
+        m_geometryZSpin->setObjectName("meshGeometryZTolerance");
+        m_geometryZSpin->setProperty("meshDistance", true);
+        m_geometryZSpin->setRange(0, 1e9);
+        m_geometryZSpin->setDecimals(6);
+        m_geometryZSpin->setToolTip(tr(
+            "Maximum change from authored line elevations; zero preserves exact elevations. Uses the displayed model length unit."));
+        f->addRow(tr("Maximum elevation deviation:"), m_geometryZSpin);
+        m_geometryAreaSpin = new QDoubleSpinBox(g);
+        m_geometryAreaSpin->setObjectName("meshGeometryAreaPercent");
+        m_geometryAreaSpin->setRange(0, 100);
+        m_geometryAreaSpin->setDecimals(4);
+        m_geometryAreaSpin->setValue(.1);
+        m_geometryAreaSpin->setSuffix(" %");
+        f->addRow(tr("Maximum ring area change:"), m_geometryAreaSpin);
+        auto syncGeometry = [this] {
+            const bool legacy = m_geometryModeCombo->currentIndex() == 0;
+            const bool bounded = m_geometryModeCombo->currentIndex() == 2;
+            m_conditionBoundaryBox->setEnabled(legacy);
+            m_geometryZSpin->setEnabled(bounded);
+            m_geometryAreaSpin->setEnabled(bounded);
+            if (m_trimTurnSpin) {
+                m_trimTurnSpin->setEnabled(legacy || bounded);
+                m_trimTurnSpin->setSpecialValueText(legacy ? tr("(off)") : tr("(collinear only)"));
+            }
+            if (m_trimDeviationSpin)
+                m_trimDeviationSpin->setEnabled(legacy || bounded);
+            if (m_constraintSources) {
+                m_constraintSources->setEnabled(!legacy);
+                mesh::ConstraintSimplificationPolicy defaults;
+                defaults.mode = bounded ? mesh::ConstraintSimplificationPolicy::Mode::Simplify
+                                         : mesh::ConstraintSimplificationPolicy::Mode::Preserve;
+                const double toSI = UnitSystem::instance()->isSI() ? 1. : .3048;
+                defaults.maxDeviation = (m_trimDeviationSpin && m_trimDeviationSpin->value() > 0
+                    ? m_trimDeviationSpin->value() : .1 * m_minCellSizeSpin->value()) * toSI;
+                defaults.maxZDeviation = m_geometryZSpin->value() * toSI;
+                defaults.maxTurnDegrees = m_trimTurnSpin ? m_trimTurnSpin->value() : 0;
+                defaults.maxAreaChangeFraction = m_geometryAreaSpin->value() / 100;
+                m_constraintSources->setDefaults(defaults);
+            }
+            if (m_previewBtn) m_previewBtn->setEnabled(!legacy && !m_watcher);
+        };
+        connect(m_geometryModeCombo, &QComboBox::currentIndexChanged, this,
+                [syncGeometry] { syncGeometry(); });
+        syncGeometry();
+        m_trimTurnSpin = new QDoubleSpinBox(g);
+        m_trimTurnSpin->setRange(0.0, 45.0);
+        m_trimTurnSpin->setDecimals(1);
+        m_trimTurnSpin->setSuffix(QStringLiteral("°"));
+        m_trimTurnSpin->setSpecialValueText(tr("(off)"));
+        m_trimTurnSpin->setToolTip(
+            tr("Drop a boundary, hole or auxiliary-line vertex where the line "
+               "turns by less than this. Conduit alignments and junctions are "
+               "never trimmed."));
+        f->addRow(tr("Trim boundary &vertices: max turn:"), m_trimTurnSpin);
 
-        m_thinningToleranceSpin = new QDoubleSpinBox(g);
-        m_thinningToleranceSpin->setRange(-1.0, 1.0);
-        m_thinningToleranceSpin->setDecimals(8);
-        m_thinningToleranceSpin->setSingleStep(0.001);
-        m_thinningToleranceSpin->setToolTip(tr(
-            "Removal threshold: a vertex is removed when the minimum dot "
-            "product of its vertex-normal with every surrounding face-normal "
-            "is ≥ this value (smooth surface).\n\n"
-            "score < threshold → terrain feature (ridge/valley/slope break) "
-            "→ vertex is KEPT.\n"
-            "score ≥ threshold → flat or uniform-slope area → vertex is "
-            "REMOVED.\n\n"
-            "0.99 → keep bends > ~8° (fine detail)\n"
-            "0.95 → keep bends > ~18° (default — channels, levees, ridges)\n"
-            "0.90 → keep bends > ~26° (coarse — prominent breaks only)"));
-        f->addRow(tr("Normal dot threshold:"), m_thinningToleranceSpin);
+        m_trimDeviationSpin = new QDoubleSpinBox(g);
+        m_trimDeviationSpin->setRange(0.0, 1e9);
+        m_trimDeviationSpin->setDecimals(3);
+        m_trimDeviationSpin->setSpecialValueText(tr("(cell size / 10)"));
+        m_trimDeviationSpin->setToolTip(
+            tr("Trimming may never move a line further than this from its "
+               "original vertices."));
+        f->addRow(tr("Trim boundary vertices: max &deviation:"), m_trimDeviationSpin);
 
-        m_thinningIterationsSpin = new QSpinBox(g);
-        m_thinningIterationsSpin->setRange(0, std::numeric_limits<int>::max());
-        m_thinningIterationsSpin->setSpecialValueText(tr("(unlimited)"));
-        m_thinningIterationsSpin->setToolTip(tr(
-            "Number of normal-deviation thinning passes.  "
-            "0 (unlimited) runs until no further vertices qualify for removal.\n\n"
-            "Very large DEMs are processed in memory-bounded bands; results are "
-            "identical to a whole-grid run for pass counts up to 64.  "
-            "\"(unlimited)\" is capped at 64 passes per band in that mode."));
-        f->addRow(tr("Thinning passes:"), m_thinningIterationsSpin);
+        auto *sources = new QGroupBox(tr("Source-specific limits"), g);
+        auto *sourceLayout = new QVBoxLayout(sources);
+        m_constraintSources = new MeshConstraintSourcesWidget(sources);
+        m_constraintSources->setObjectName("meshConstraintSources");
+        sourceLayout->addWidget(m_constraintSources);
+        f->addRow(sources);
+        for (auto *spin : {m_trimTurnSpin, m_trimDeviationSpin, m_geometryZSpin,
+                           m_geometryAreaSpin, m_minCellSizeSpin})
+            connect(spin, &QDoubleSpinBox::valueChanged, this, [syncGeometry] { syncGeometry(); });
+        syncGeometry();
 
-        m_thinningMaxPointsSpin = new QSpinBox(g);
-        m_thinningMaxPointsSpin->setRange(0, 500000);
-        m_thinningMaxPointsSpin->setSpecialValueText(tr("(unlimited)"));
-        m_thinningMaxPointsSpin->setSingleStep(5000);
-        f->addRow(tr("Max thinning points:"), m_thinningMaxPointsSpin);
-
-        // ── Option A: Poisson-disk minimum spacing ─────────────────────────
-        m_minSpacingBox = new QCheckBox(tr("Min point spacing (Poisson-disk):"), g);
-        m_minSpacingBox->setToolTip(tr(
-            "Post-thinning pass: enforces a minimum Euclidean distance between "
-            "any two surviving DTM Steiner points.\n\n"
-            "Points are accepted greedily in raster order; any candidate closer "
-            "than this distance to an already-accepted point is dropped.\n\n"
-            "Use to prevent micro-clusters from dominating the mesh even after "
-            "normal-deviation thinning.  0 = auto (2 × pixel size)."));
-        m_minSpacingSpin = new QDoubleSpinBox(g);
-        m_minSpacingSpin->setRange(0.0, 1e9);
-        m_minSpacingSpin->setDecimals(3);
-        m_minSpacingSpin->setSingleStep(1.0);
-        // suffix set by updateUnitDisplay()
-        m_minSpacingSpin->setSpecialValueText(tr("(auto)"));
-        f->addRow(m_minSpacingBox, m_minSpacingSpin);
-
-        // 2026-07-19 — boundary buffer for the boundary-aware terrain
-        // filter. Applies to BOTH the thinned and full-grid DTM paths (both
-        // feed the same Steiner add loop), so it is deliberately NOT gated
-        // by syncThinning below.
-        m_boundaryBufferSpin = new QDoubleSpinBox(g);
-        m_boundaryBufferSpin->setRange(0.0, 1e6);
-        m_boundaryBufferSpin->setDecimals(3);
-        m_boundaryBufferSpin->setSingleStep(0.5);
-        // suffix set by updateUnitDisplay()
-        m_boundaryBufferSpin->setSpecialValueText(tr("(auto)"));
-        m_boundaryBufferSpin->setToolTip(tr(
-            "DTM terrain points closer than this to the domain boundary, a "
-            "hole ring, a constraint segment (conduits), or a mandatory "
-            "vertex (SWMM nodes) are dropped, as are points outside the "
-            "domain.  Prevents slivers and clusters of tiny cells along the "
-            "boundary.\n\n"
-            "(auto) = half the effective terrain point spacing."));
-        f->addRow(tr("Boundary buffer:"), m_boundaryBufferSpin);
-
-        qualityVBox->addWidget(g);
+        m_resolutionWidget->addSettingsPage(tr("Boundaries"), g);
+    }
+    {
+        auto *g = new QGroupBox(tr("Large meshes"), qualityPage);
+        auto *f = new QFormLayout(g);
+        m_maxCellsSpin = new QSpinBox(g);
+        m_maxCellsSpin->setObjectName(QStringLiteral("meshMaxCellsSpin"));
+        m_maxCellsSpin->setRange(1000, 100'000'000);
+        m_maxCellsSpin->setSingleStep(1'000'000);
+        m_maxCellsSpin->setValue(20'000'000);
+        m_maxCellsSpin->setGroupSeparatorShown(true);
+        m_maxCellsSpin->setToolTip(tr(
+            "Stop with a reported limit if refinement reaches this cell budget. A capped mesh may not meet terrain or quality requirements."));
+        f->addRow(tr("Cell budget:"), m_maxCellsSpin);
+        m_terrainCacheSpin = new QSpinBox(g);
+        m_terrainCacheSpin->setObjectName(QStringLiteral("meshTerrainCacheSpin"));
+        m_terrainCacheSpin->setRange(0, 65536);
+        m_terrainCacheSpin->setValue(0);
+        m_terrainCacheSpin->setSpecialValueText(tr("Automatic"));
+        m_terrainCacheSpin->setSuffix(tr(" MiB"));
+        m_terrainCacheSpin->setToolTip(tr(
+            "Memory per terrain cache (DEM tiles and feature mask). Automatic uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache is faster on large DEMs and does not change the mesh. Large feature masks spill to disk. The mesh, feature chains and terrain summaries use additional memory."));
+        f->addRow(tr("Terrain cache:"), m_terrainCacheSpin);
+        m_resolutionWidget->addSettingsPage(tr("Limits"), g);
     }
 
-    auto syncThinning = [this]() {
-        const bool on = m_thinningBox->isChecked();
-        m_thinningToleranceSpin->setEnabled(on);
-        m_thinningIterationsSpin->setEnabled(on);
-        m_thinningMaxPointsSpin->setEnabled(on);
-        m_minSpacingBox->setEnabled(on);
-        m_minSpacingSpin->setEnabled(on && m_minSpacingBox->isChecked());
-    };
-    connect(m_thinningBox,   &QCheckBox::toggled, this, syncThinning);
-    connect(m_minSpacingBox, &QCheckBox::toggled, m_minSpacingSpin, &QWidget::setEnabled);
-    syncThinning();
-
-    qualityVBox->addStretch();
-    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
-                 tr("Quality"));
+    tabs->addTab(qualityPage, tr("Quality"));
 
     // ================================================================
     // Tab 3 — Hydraulics
@@ -2712,47 +4596,67 @@ void MeshGenerationDialog::buildUi()
     hydraulicsVBox->setContentsMargins(8, 8, 8, 8);
 
     {
-        auto *g   = new QGroupBox(tr("Initial cell values"), hydraulicsPage);
-        g->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-        auto *form = new QFormLayout(g);
+        auto *g = new QGroupBox(tr("Initial cell values"), hydraulicsPage);
+        auto *groupVBox = new QVBoxLayout(g);
+        auto *form = new QFormLayout;
+        groupVBox->addLayout(form);
 
         m_manningsValueSpin = new QDoubleSpinBox(g);
         m_manningsValueSpin->setRange(0.001, 1.0);
         m_manningsValueSpin->setDecimals(4);
         m_manningsValueSpin->setSingleStep(0.005);
-        m_manningsValueSpin->setToolTip(
-            tr("Manning's roughness written to every generated cell "
-               "([2D_TRIANGLES] MANNINGS_N)."));
+        m_manningsValueSpin->setToolTip(tr("Manning's roughness written to every generated cell "
+                                           "([2D_TRIANGLES] MANNINGS_N)."));
         form->addRow(tr("Roughness (Manning's n):"), m_manningsValueSpin);
 
-        const QString dLbl = m_pw && m_pw->unitSystem()
-                                 ? m_pw->unitSystem()->depthLabel()
-                                 : QStringLiteral("m");
+        const QString dLbl =
+            m_pw && m_pw->unitSystem() ? m_pw->unitSystem()->depthLabel() : QStringLiteral("m");
         m_initDepthSpin = new QDoubleSpinBox(g);
         m_initDepthSpin->setRange(0.0, 1000.0);
         m_initDepthSpin->setDecimals(4);
         m_initDepthSpin->setSingleStep(0.05);
         m_initDepthSpin->setSuffix(QStringLiteral(" ") + dLbl);
-        m_initDepthSpin->setToolTip(
-            tr("Standing water depth written to every generated cell "
-               "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
+        m_initDepthSpin->setToolTip(tr("Standing water depth written to every generated cell "
+                                       "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
         form->addRow(tr("Initial depth:"), m_initDepthSpin);
 
-        auto *hint = new QLabel(
-            tr("Assign spatially varying values after generation from the "
-               "Mesh 2D tab: select cells and edit them directly, or use "
-               "Cell Data to sample a raster or shapefile field."),
-            g);
+        // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────
+        // The two spin boxes above remain the '*' row's editors — the table
+        // mirrors them read-only — so a user who never touches the table
+        // produces exactly the mesh and the file this dialog produced before
+        // the table existed.
+        m_regionDefaults = new MeshRegionDefaultsWidget(g);
+        m_regionDefaults->setDepthUnit(dLbl);
+        m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(), m_initDepthSpin->value());
+        connect(m_manningsValueSpin, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+            m_regionDefaults->setStarHydraulics(v, m_initDepthSpin->value());
+        });
+        connect(m_initDepthSpin, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+            m_regionDefaults->setStarHydraulics(m_manningsValueSpin->value(), v);
+        });
+        // Subcatchments are the only source of mesh::RegionMarker today, so
+        // that one checkbox decides whether the table has region rows at all.
+        connect(m_includeSubcatch, &QCheckBox::toggled, this,
+                &MeshGenerationDialog::refreshRegionRows);
+        groupVBox->addWidget(m_regionDefaults, 1);
+
+        auto *hint = new QLabel(tr("Assign spatially varying values after generation from the "
+                                   "Mesh 2D tab: select cells and edit them directly, or use "
+                                   "Cell Data to sample a raster or shapefile field."),
+                                g);
         hint->setWordWrap(true);
         hint->setEnabled(false);
-        form->addRow(hint);
+        groupVBox->addWidget(hint);
 
-        hydraulicsVBox->addWidget(g);
+        hydraulicsVBox->addWidget(g, 1);
     }
 
-    hydraulicsVBox->addStretch();
-    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(hydraulicsPage, tabs),
-                 tr("Hydraulics"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(hydraulicsPage, tabs), tr("Hydraulics"));
+    m_runLog = new MeshRunLogWidget(tabs);
+    tabs->addTab(m_runLog, tr("Run log"));
+    m_constraintPreview = new MeshConstraintPreviewWidget(tabs);
+    m_constraintPreview->setObjectName("meshConstraintPreview");
+    tabs->addTab(m_constraintPreview, tr("Constraint preview"));
 
     outer->addWidget(tabs, 1);
 
@@ -2768,11 +4672,12 @@ void MeshGenerationDialog::buildUi()
     outputForm->setContentsMargins(0, 4, 0, 4);
     outputForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
-    auto *modeRow  = new QHBoxLayout;
+    auto *modeRow = new QHBoxLayout;
     auto *outGroup = new QButtonGroup(this);
     m_outputExternal = new QRadioButton(tr("External .2dm"), this);
-    m_outputExternal->setToolTip(tr("Write a standalone .2dm file referenced via [2D_MESH_FILE] in the .inp."));
-    m_outputInline   = new QRadioButton(tr("Inline in .inp"), this);
+    m_outputExternal->setToolTip(
+        tr("Write a standalone .2dm file referenced via [2D_MESH_FILE] in the .inp."));
+    m_outputInline = new QRadioButton(tr("Inline in .inp"), this);
     m_outputInline->setToolTip(tr("Embed the mesh directly inside the SWMM .inp file."));
     outGroup->addButton(m_outputExternal);
     outGroup->addButton(m_outputInline);
@@ -2782,7 +4687,7 @@ void MeshGenerationDialog::buildUi()
     outputForm->addRow(tr("Output:"), modeRow);
 
     auto *pathRow = new QHBoxLayout;
-    m_meshPathEdit  = new QLineEdit(this);
+    m_meshPathEdit = new QLineEdit(this);
     m_meshPathEdit->setPlaceholderText(tr("(default: <project>.2dm)"));
     m_browseMeshBtn = new QPushButton(tr("Browse…"), this);
     pathRow->addWidget(m_meshPathEdit, 1);
@@ -2804,22 +4709,37 @@ void MeshGenerationDialog::buildUi()
     outer->addWidget(m_progressBar);
 
     // ── Buttons ─────────────────────────────────────────────────────
-    auto *bb = new QDialogButtonBox(this);
-    m_generateBtn = bb->addButton(tr("Generate"), QDialogButtonBox::AcceptRole);
-    m_cancelBtn   = bb->addButton(tr("Close"),    QDialogButtonBox::RejectRole);
-    outer->addWidget(bb);
+    // Keep the requested action order independent of platform button-box rules.
+    auto *buttons = new QHBoxLayout;
+    m_previewBtn = new QPushButton(tr("Preview constraints…"), this);
+    m_previewBtn->setObjectName("meshPreviewConstraintsButton");
+    m_previewBtn->setEnabled(m_geometryModeCombo->currentIndex() != 0);
+    m_previewBtn->setToolTip(tr("Compare prepared source geometry before and after simplification without generating a mesh. Choose a preserve or bounded default policy on Quality → Boundaries."));
+    m_generateBtn = new QPushButton(tr("Generate"), this);
+    m_generateBtn->setDefault(true);
+    m_cancelBtn = new QPushButton(tr("Close"), this);
+    buttons->addWidget(m_previewBtn);
+    buttons->addStretch();
+    buttons->addWidget(m_generateBtn);
+    buttons->addWidget(m_cancelBtn);
+    outer->addLayout(buttons);
 
     connect(m_browseMeshBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onBrowseMeshPath);
-    connect(m_generateBtn,   &QPushButton::clicked, this, &MeshGenerationDialog::onAccept);
-    connect(m_cancelBtn,     &QPushButton::clicked, this, &MeshGenerationDialog::onCancelOrReject);
+    connect(m_generateBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onAccept);
+    connect(m_previewBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onPreviewConstraints);
+    connect(m_cancelBtn, &QPushButton::clicked, this, &MeshGenerationDialog::onCancelOrReject);
 
+    /**
+     * @brief Enable output path/browse only for external output. Takes no arguments and returns no
+     * value; intended path remains stored while inline mode disables it.
+     */
     auto refreshPath = [this]() {
         const bool ext = m_outputExternal->isChecked();
         m_meshPathEdit->setEnabled(ext);
         m_browseMeshBtn->setEnabled(ext);
     };
     connect(m_outputExternal, &QRadioButton::toggled, this, refreshPath);
-    connect(m_outputInline,   &QRadioButton::toggled, this, refreshPath);
+    connect(m_outputInline, &QRadioButton::toggled, this, refreshPath);
     refreshPath();
 }
 
@@ -2829,17 +4749,18 @@ void MeshGenerationDialog::buildUi()
 
 void MeshGenerationDialog::updateZFactor()
 {
-    if (!m_zFactorSpin) return;
+    if (!m_zFactorSpin)
+        return;
 
     // Determine DTM vertical unit from the selected raster.
     auto *raster = qobject_cast<GISRasterLayer *>(
         static_cast<QObject *>(m_dtmCombo ? m_dtmCombo->currentData().value<void *>() : nullptr));
     const QString dtmUnit = raster ? raster->detectVerticalUnit() : QStringLiteral("m");
-    const double  dtmToSI = (dtmUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
+    const double dtmToSI = (dtmUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
 
     // Determine desired output vertical unit.
-    const QString outSel = m_meshVertCRSCombo ? m_meshVertCRSCombo->currentData().toString()
-                                              : QStringLiteral("auto");
+    const QString outSel =
+        m_meshVertCRSCombo ? m_meshVertCRSCombo->currentData().toString() : QStringLiteral("auto");
     double outToSI = 1.0;
     if (outSel == QLatin1String("auto")) {
         outToSI = (m_pw && m_pw->unitSystem() && !m_pw->unitSystem()->isSI()) ? 0.3048 : 1.0;
@@ -2853,84 +4774,92 @@ void MeshGenerationDialog::updateZFactor()
 
 void MeshGenerationDialog::updateUnitDisplay()
 {
-    const UnitSystem *us  = UnitSystem::instance();
-    const QString     len = us->lengthLabel();       // "ft" or "m"
-    const QString     len2 = len + QStringLiteral("²"); // "ft²" or "m²"
-    const QString     suf  = QStringLiteral(" ") + len;
+    const UnitSystem *us = UnitSystem::instance();
+    const QString len = us->lengthLabel(); // "ft" or "m"
+    const QString suf = QStringLiteral(" ") + len;
 
-    if (m_simplifyEpsSpin) m_simplifyEpsSpin->setSuffix(suf);
-    if (m_snapEpsSpin)     m_snapEpsSpin->setSuffix(suf);
-    if (m_minSpacingSpin)  m_minSpacingSpin->setSuffix(suf);
-    if (m_nodeFlattenSpin) m_nodeFlattenSpin->setSuffix(suf);
-    if (m_nodeMinSepSpin)  m_nodeMinSepSpin->setSuffix(suf);
-    // 2026-07-19 — boundary-aware terrain filter + boundary densification.
-    if (m_boundaryBufferSpin)  m_boundaryBufferSpin->setSuffix(suf);
-    if (m_maxBoundaryEdgeSpin) m_maxBoundaryEdgeSpin->setSuffix(suf);
-
-    if (m_maxAreaSpin)
-        m_maxAreaSpin->setToolTip(
-            tr("Upper bound on triangle area (%1). 0 = no cap.").arg(len2));
+    if (m_nodeFlattenSpin)
+        m_nodeFlattenSpin->setSuffix(suf);
+    if (m_nodeMinSepSpin)
+        m_nodeMinSepSpin->setSuffix(suf);
+    if (m_resolutionWidget)
+        m_resolutionWidget->setUnits(us->isSI() ? 1.0 : .3048, len);
+    if (m_conduitStripSpin)
+        m_conduitStripSpin->setSuffix(suf);
+    if (m_trimDeviationSpin)
+        m_trimDeviationSpin->setSuffix(suf);
+    if (m_geometryZSpin)
+        m_geometryZSpin->setSuffix(suf);
+    if (m_constraintSources)
+        m_constraintSources->setUnits(us->isSI() ? 1. : .3048, len);
 }
 
 void MeshGenerationDialog::seedDefaults()
 {
-    // Junctions default OFF (Plan Part B, decision 2026-07-28): forcing a
-    // vertex at every node distorts the mesh around close node clusters
-    // (weir/orifice endpoints). Coupling is authored post-generation instead.
-    m_includeJunctions->setChecked(false);
+    // Iteration 4 — seed values come from the user-editable 2D Defaults
+    // preference page (Preferences → 2D Defaults). The compiled-in struct
+    // defaults carry the seeds (33° min angle per the 2026-07-31 decision,
+    // SI-canonical distances, thinning on 0.75/1, …).
+    const auto t = PreferencesManager::instance()->twoDDefaults();
+    // Nodes as Steiner vertices default ON (2026-09-11, reversing the
+    // 2026-07-28 Plan Part B decision): with rim elevations and the minimum
+    // node separation on as well, close clusters (weir / orifice endpoints)
+    // are demoted to cell coupling instead of forcing tiny cells. Virtual
+    // junctions are never pinned (collectInputs).
+    m_includeJunctions->setChecked(t.meshNodesAsVertices);
     m_includeConduits->setChecked(true);
     m_includeSubcatch->setChecked(true);
     m_mapNodesAfterGen->setChecked(true);
-    m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
-    m_elevMethodCombo->setCurrentIndex(0);  // IDW
-    m_nnVariantCombo->setCurrentIndex(0);   // Sibson
-    // Iteration 4 — seed values come from the user-editable 2D Defaults
-    // preference page (Preferences → 2D Defaults). The compiled-in struct
-    // defaults preserve the historical seeds (33° min angle per the
-    // 2026-07-31 decision, SI-canonical distances, thinning on 0.6/3, …).
-    const auto t = PreferencesManager::instance()->twoDDefaults();
+    m_nodesUseRim->setChecked(t.meshNodesUseRim);
+    m_elevMethodCombo->setCurrentIndex(0); // IDW
+    m_nnVariantCombo->setCurrentIndex(0);  // Sibson
     m_idwPowerSpin->setValue(t.meshIdwPower);
-    m_maxAreaSpin->setValue(t.meshMaxArea);
-    m_minAngleSpin->setValue(t.meshMinAngleDeg);
-    m_maxSteinerSpin->setValue(t.meshMaxSteiner);
-    m_allowSteiner->setChecked(true);
+
     // Scale distance defaults (stored SI-canonical) to the project's
     // length unit.
     const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
-    m_simplifyEpsSpin->setValue(t.meshSimplifyEpsM * toUnit);
-    m_snapEpsSpin->setValue(    t.meshSnapEpsM     * toUnit);
     m_nodeFlattenSpin->setValue(t.meshNodeFlattenRadM * toUnit);
     m_nodeMinSepBox->setChecked(t.meshMinNodeSepOn);
     m_nodeMinSepSpin->setValue(t.meshMinNodeSepM * toUnit);
-    m_thinningBox->setChecked(t.meshThinningOn);
-    m_thinningToleranceSpin->setValue(t.meshThinningTol);
-    m_thinningIterationsSpin->setValue(t.meshThinningPasses);
-    m_thinningMaxPointsSpin->setValue(0);
-    m_minSpacingBox->setChecked(false);
-    m_minSpacingSpin->setValue(0.0);
-    m_boundaryBufferSpin->setValue(t.meshBoundaryBufferM * toUnit); // 0 = (auto)
-    m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
-    m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
-    m_maxBoundaryEdgeSpin->setEnabled(t.meshMaxBoundaryEdgeOn);
+    // Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3),
+    // seeded from the 2D Defaults preference page (SI-canonical lengths).
+    m_resolutionWidget->setSettings(t.resolutionSettings());
+    m_minAngleSpin->setValue(t.meshMinAngleDeg);
+    m_streetQuadsBox->setChecked(t.meshQuadsBetweenBreaklines);
+    m_conduitStripSpin->setValue(3.048 * toUnit); // 10 ft
+    m_trimTurnSpin->setValue(t.meshTrimTurnDeg);
+    m_trimDeviationSpin->setValue(t.meshTrimDeviationM * toUnit);
+    if (m_corridorSources && m_pw)
+        m_corridorSources->setSources(m_pw->corridorSources());
+    if(m_requireMappedRegions)m_requireMappedRegions->setChecked(false);
+    if (m_quadRegionLayerCombo)
+        m_quadRegionLayerCombo->setCurrentIndex(0);
+    if (m_quadRegionSubcatchEdit)
+        m_quadRegionSubcatchEdit->clear();
     m_manningsValueSpin->setValue(t.meshManningsN);
     m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
-    updateUnitDisplay();   // set suffixes and tooltip after values are seeded
+    updateUnitDisplay(); // set suffixes and tooltip after values are seeded
     populateLayerCombos();
-    updateZFactor();       // seed factor from current DTM + mesh vertical unit
+    if (m_pw && m_pw->activeTerrain()) {
+        for (int i = 0; i < m_dtmCombo->count(); ++i)
+            if (m_dtmCombo->itemData(i).value<void *>() == m_pw->activeTerrain())
+                m_dtmCombo->setCurrentIndex(i);
+    }
+    updateZFactor();     // seed factor from current DTM + mesh vertical unit
+    refreshRegionRows(); // GG0d — region rows follow m_includeSubcatch
 
-    if (m_pw && m_pw->modelLayer())
-    {
+    if (m_pw && m_pw->modelLayer()) {
         const MapExtent ext = m_pw->modelLayer()->extent();
-        m_domainLabel->setText(ext.isValid()
-            ? tr("model extent [%1, %2 → %3, %4]")
-                  .arg(ext.xMin(),0,'f',2).arg(ext.yMin(),0,'f',2)
-                  .arg(ext.xMax(),0,'f',2).arg(ext.yMax(),0,'f',2)
-            : tr("(model extent not available)"));
+        m_domainLabel->setText(ext.isValid() ? tr("model extent [%1, %2 → %3, %4]")
+                                                   .arg(ext.xMin(), 0, 'f', 2)
+                                                   .arg(ext.yMin(), 0, 'f', 2)
+                                                   .arg(ext.xMax(), 0, 'f', 2)
+                                                   .arg(ext.yMax(), 0, 'f', 2)
+                                             : tr("(model extent not available)"));
 
         const QString inp = m_pw->modelLayer()->modelFilePath();
-        if (!inp.isEmpty())
-        {
+        if (!inp.isEmpty()) {
             const QFileInfo fi(inp);
             m_meshPathEdit->setText(
                 fi.absoluteDir().filePath(fi.completeBaseName() + QStringLiteral(".2dm")));
@@ -2938,16 +4867,351 @@ void MeshGenerationDialog::seedDefaults()
     }
 }
 
+namespace
+{
+/**
+ * @brief Read a stable saved identity from the dialog layer-picker payload convention.
+ * @param[in] combo Required borrowed initialized combo.
+ * @param[in] index Row whose void-pointer data is null, sentinel 0x1 or a live OpenSWMMVisLayer.
+ * @return none, subcatchments or borrowed layerId copied into a string; no pointer ownership
+ * transfer.
+ */
+QString meshPickerIdentity(QComboBox *combo, int index)
+{
+    void *p = combo->itemData(index).value<void *>();
+    if (!p)
+        return QStringLiteral("none");
+    if (p == reinterpret_cast<void *>(0x1))
+        return QStringLiteral("subcatchments");
+    return static_cast<OpenSWMMVisLayer *>(p)->layerId();
+}
+}
+
+void MeshGenerationDialog::saveOptions()
+{
+    if (!m_pw || m_pw->isClosing())
+        return;
+    QJsonObject controls;
+    const double toSI = UnitSystem::instance()->isSI() ? 1.0 : .3048;
+    for (QWidget *w : findChildren<QWidget *>()) {
+        const QString key = w->objectName();
+        if (!key.startsWith(QStringLiteral("mesh")))
+            continue;
+        if (auto *spin = qobject_cast<QDoubleSpinBox *>(w))
+            controls[key] = spin->value() * (w->property("meshDistance").toBool() ? toSI : 1.0);
+        else if (auto *spin = qobject_cast<QSpinBox *>(w))
+            controls[key] = spin->value();
+        else if (auto *combo = qobject_cast<QComboBox *>(w))
+            controls[key] = w->property("meshLayerPicker").toBool()
+                                ? QJsonValue(meshPickerIdentity(combo, combo->currentIndex()))
+                                : QJsonValue(combo->currentIndex());
+        else if (auto *button = qobject_cast<QAbstractButton *>(w); button && button->isCheckable())
+            controls[key] = button->isChecked();
+        else if (auto *edit = qobject_cast<QLineEdit *>(w))
+            controls[key] = edit->text();
+    }
+    QJsonArray sources;
+    /**
+     * @brief Append auxiliary selection drafts to option JSON. Argument `rows`: borrowed row
+     * metadata with live layer/include/useZ pointers. Returns: no value; stores stable layer IDs
+     * and check states, skips null layer entries.
+     */
+    auto addSources = [&](const QVector<AuxLayerRow> &rows) {
+        for (const auto &row : rows)
+            if (row.layer)
+                sources.append(QJsonObject{{QStringLiteral("id"), row.layer->layerId()},
+                                           {QStringLiteral("include"), row.include->isChecked()},
+                                           {QStringLiteral("useZ"), row.useZ->isChecked()}});
+    };
+    addSources(m_pointLayerRows);
+    addSources(m_lineLayerRows);
+    QJsonObject options = m_pw->meshGenerationOptions();
+    if (options.value("version").toInt() == 1) {
+        const auto previous = options.value("controls").toObject();
+        options["migration"] =
+            QJsonObject{{"fromVersion", 1},
+                        {"featureFromExtent", previous.value("meshCellSizeSpin").toDouble() <= 0},
+                        {"previousControls", previous}};
+    }
+    options[QStringLiteral("version")] = 2;
+    options[QStringLiteral("resolution")] = m_resolutionWidget->settings().toJson();
+    options[QStringLiteral("controls")] = controls;
+    options[QStringLiteral("sources")] = sources;
+    if (m_constraintSources)
+        options[QStringLiteral("constraintSourcePolicies")] = m_constraintSources->toJson();
+    QJsonArray regions;
+    /**
+     * @brief Encode a numeric optional value. Argument `v`: input double. Returns: JSON number for
+     * finite input or null for NaN/infinity, preserving inheritance/missing-value representation.
+     */
+    const auto finiteJson = [](double v) {
+        return std::isfinite(v) ? QJsonValue(v) : QJsonValue(QJsonValue::Null);
+    };
+    if (m_regionDefaults)
+        for (const auto &row : m_regionDefaults->rows()) {
+            QJsonArray params;
+            for (double p : row.infil.p)
+                params.append(finiteJson(p));
+            regions.append(QJsonObject{{QStringLiteral("tag"), row.tag},
+                                       {QStringLiteral("manningsN"), finiteJson(row.manningsN)},
+                                       {QStringLiteral("depthM"), finiteJson(row.initDepth * toSI)},
+                                       {QStringLiteral("method"), int(row.infil.method)},
+                                       {QStringLiteral("params"), params},
+                                       {QStringLiteral("destination"), int(row.infil.dest)}});
+        }
+    options[QStringLiteral("regions")] = regions;
+    if (m_corridorSources && m_pw->modelLayer()) {
+        QVector<mesh::CorridorSource> corridors;
+        QJsonObject recipe;
+        const QString sidecar =
+            ProjectSerializer::sidecarPathFor(m_pw->modelLayer()->modelFilePath());
+        if (m_corridorSources->sources(&corridors, nullptr) &&
+            MeshCorridorRecipe::encode(corridors, sidecar, &recipe, nullptr))
+            options[QStringLiteral("corridorDraft")] = recipe;
+    }
+    if (options != m_pw->meshGenerationOptions()) {
+        m_pw->setMeshGenerationOptions(options);
+        m_pw->setHasChanges(true);
+    }
+}
+
+void MeshGenerationDialog::restoreOptions()
+{
+    if (!m_pw)
+        return;
+    const auto options = m_pw->meshGenerationOptions();
+    const int version = options.value(QStringLiteral("version")).toInt();
+    if (version != 1 && version != 2)
+        return;
+    const auto controls = options.value(QStringLiteral("controls")).toObject();
+    const double fromSI = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / .3048;
+    // Source/unit combos emit dependent updates. Restore those first, then
+    // exact saved scalar values such as a manually overridden Z conversion.
+    for (QComboBox *combo : findChildren<QComboBox *>()) {
+        const auto it = controls.constFind(combo->objectName());
+        if (it == controls.constEnd())
+            continue;
+        if (combo->property("meshLayerPicker").toBool()) {
+            for (int i = 0; i < combo->count(); ++i)
+                if (meshPickerIdentity(combo, i) == it->toString()) {
+                    combo->setCurrentIndex(i);
+                    break;
+                }
+        } else if (it->isDouble() && it->toInt() >= 0 && it->toInt() < combo->count())
+            combo->setCurrentIndex(it->toInt());
+    }
+    for (QWidget *w : findChildren<QWidget *>()) {
+        const auto it = controls.constFind(w->objectName());
+        if (it == controls.constEnd())
+            continue;
+        if (auto *spin = qobject_cast<QDoubleSpinBox *>(w); spin && it->isDouble())
+            spin->setValue(it->toDouble() * (w->property("meshDistance").toBool() ? fromSI : 1.0));
+        else if (auto *spin = qobject_cast<QSpinBox *>(w); spin && it->isDouble())
+            spin->setValue(it->toInt());
+        else if (auto *button = qobject_cast<QAbstractButton *>(w);
+                 button && button->isCheckable() && it->isBool())
+            button->setChecked(it->toBool());
+        else if (auto *edit = qobject_cast<QLineEdit *>(w); edit && it->isString())
+            edit->setText(it->toString());
+    }
+    double extentM = 0;
+    if (m_pw->modelLayer()) {
+        const auto e = m_pw->modelLayer()->extent();
+        const auto *crs = m_pw->modelLayer()->srs();
+        extentM =
+            std::max(e.width(), e.height()) * (crs ? crs->planarLinearUnit().metresPerUnit : 1.0);
+    }
+    const auto resolution =
+        version == 2
+            ? mesh::ResolutionSettings::fromJson(options.value("resolution").toObject())
+            : mesh::ResolutionSettings::migrate(
+                  controls, PreferencesManager::instance()->twoDDefaults().resolutionSettings(),
+                  extentM);
+    m_resolutionWidget->setSettings(resolution);
+    const QString migration =
+        version == 1
+            ? tr("Previous sizes were migrated: feature target %1 %3; maximum target %2 %3. Terrain refinement now respects the minimum target; regenerated meshes may differ.")
+                  .arg(resolution.featureM.value_or(resolution.minimumM) * fromSI)
+                  .arg(resolution.maximumM.value_or(0) * fromSI)
+                  .arg(UnitSystem::instance()->lengthLabel())
+            : QString();
+    /**
+     * @brief Restore auxiliary checkbox drafts by stable layer ID. Argument `rows`: borrowed
+     * metadata with live controls/layers. Returns: no value; applies include and useZ only if the
+     * row geometry supports it, leaving unmatched rows unchanged.
+     */
+    auto restoreSources = [&](const QVector<AuxLayerRow> &rows) {
+        for (const auto &value : options.value(QStringLiteral("sources")).toArray()) {
+            const auto entry = value.toObject();
+            for (const auto &row : rows)
+                if (row.layer &&
+                    row.layer->layerId() == entry.value(QStringLiteral("id")).toString()) {
+                    row.include->setChecked(entry.value(QStringLiteral("include")).toBool());
+                    row.useZ->setChecked(row.is3D && entry.value(QStringLiteral("useZ")).toBool());
+                }
+        }
+    };
+    restoreSources(m_pointLayerRows);
+    restoreSources(m_lineLayerRows);
+    if (m_constraintSources)
+        m_constraintSources->fromJson(options.value(QStringLiteral("constraintSourcePolicies")).toArray());
+    if (m_corridorSources && m_pw->modelLayer() &&
+        options.contains(QStringLiteral("corridorDraft"))) {
+        QVector<mesh::CorridorSource> corridors;
+        const QString sidecar =
+            ProjectSerializer::sidecarPathFor(m_pw->modelLayer()->modelFilePath());
+        if (MeshCorridorRecipe::decode(options.value(QStringLiteral("corridorDraft")), sidecar,
+                                       &corridors, nullptr))
+            m_corridorSources->setSources(corridors);
+    }
+    const auto last = options.value(QStringLiteral("lastRun")).toObject();
+    if (!last.isEmpty() && last.value(QStringLiteral("toleranceM")).toDouble() > 0)
+        m_terrainReportLabel->setText(
+            tr("Last run: %1 cells; terrain tolerance %2 %4; %3 cells exceeded it, %5 could not be verified.")
+                .arg(last.value(QStringLiteral("cells")).toInt())
+                .arg(last.value(QStringLiteral("toleranceM")).toDouble() * fromSI)
+                .arg(last.value(QStringLiteral("unresolved")).toInt())
+                .arg(UnitSystem::instance()->lengthLabel())
+                .arg(last.value(QStringLiteral("unknown")).toInt()));
+    else if (!last.isEmpty())
+        m_terrainReportLabel->setText(tr("Last run: %1 cells; adaptive terrain checking was off.")
+                                          .arg(last.value(QStringLiteral("cells")).toInt()));
+    if (last.value("summary").isString())
+        m_terrainReportLabel->setText(m_terrainReportLabel->text().toHtmlEscaped() +
+                                      tr(" <a href=\"results\">View full report</a>"));
+    if (!migration.isEmpty())
+        m_terrainReportLabel->setText(migration.toHtmlEscaped() + "<br>" +
+                                      m_terrainReportLabel->text());
+    refreshRegionRows();
+    if (m_regionDefaults) {
+        QVector<MeshRegionDefaultsWidget::RegionRow> rows;
+        for (const auto &value : options.value(QStringLiteral("regions")).toArray()) {
+            const auto obj = value.toObject();
+            MeshRegionDefaultsWidget::RegionRow row;
+            row.tag = obj.value(QStringLiteral("tag")).toString();
+            row.manningsN = obj.value(QStringLiteral("manningsN")).toDouble(qQNaN());
+            row.initDepth = obj.value(QStringLiteral("depthM")).toDouble(qQNaN()) * fromSI;
+            row.infil.method =
+                mesh::InfilMethod(qBound(-1, obj.value(QStringLiteral("method")).toInt(-1), 5));
+            row.infil.dest =
+                mesh::InfilDest(qBound(0, obj.value(QStringLiteral("destination")).toInt(), 2));
+            const auto params = obj.value(QStringLiteral("params")).toArray();
+            for (int i = 0; i < std::min(int(params.size()), mesh::kInfilMaxParams); ++i)
+                row.infil.p[i] = params[i].toDouble(qQNaN());
+            rows.append(row);
+        }
+        m_regionDefaults->restoreRows(rows);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GG0d — region tags for the region-defaults table (GUI plan §3.3)
+// ---------------------------------------------------------------------------
+
+/*! Same enumeration collectInputs() runs for PipelineInputs::subcatchSeeds,
+ *  carrying the "subcatch_%1" spelling the worker gives mesh::RegionMarker::tag
+ *  (and therefore MeshTriangle::tag). The table has to key on the FINAL tag or
+ *  its rows would never match a triangle. */
+QStringList MeshGenerationDialog::regionTags() const
+{
+    QStringList tags;
+    if (!m_includeSubcatch || !m_includeSubcatch->isChecked())
+        return tags;
+    if (!m_pw || !m_pw->modelLayer())
+        return tags;
+
+    SWMMModelLayer *layer = m_pw->modelLayer();
+    const auto cat = SWMMModelLayer::CatSubcatchments;
+    for (int row = 0; row < layer->categoryCount(cat); ++row) {
+        const QString name = layer->objectNameAt(cat, row);
+        if (name.isEmpty())
+            continue;
+        // A subcatchment with no extent gets no region marker, so it would
+        // never tag a triangle — leaving it out keeps the table honest.
+        if (!layer->objectExtent(name).isValid())
+            continue;
+        tags << QStringLiteral("subcatch_%1").arg(name);
+    }
+    return tags;
+}
+
+void MeshGenerationDialog::refreshRegionRows()
+{
+    if (m_regionDefaults)
+        m_regionDefaults->setRegionTags(regionTags());
+}
+
 void MeshGenerationDialog::populateLayerCombos()
 {
-    if (!m_pw || !m_pw->canvas()) return;
+    if (!m_pw || !m_pw->canvas())
+        return;
     const auto &layers = m_pw->canvas()->layers();
+
+    // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §6 (P6, F4): each picker offers only
+    // the layers whose geometry it can read, lists the layers of the matching
+    // role first, and labels a feature layer with its role. A layer whose
+    // geometry type is not declared (a mixed GeoJSON, a layer still opening)
+    // is offered everywhere, as before.
+    enum class GeomClass { Unknown, Point, Line, Polygon };
+    /**
+     * @brief Classify declared OGR layer geometry for source pickers. Argument `v`: nullable
+     * borrowed vector layer. Returns: Point, Line, Polygon or Unknown for absent/unsupported
+     * declarations; does not scan features.
+     */
+    const auto geomClass = [](GISVectorLayer *v) {
+        OGRLayer *ol = v ? v->ogrLayer() : nullptr;
+        if (!ol)
+            return GeomClass::Unknown;
+        switch (wkbFlatten(ol->GetGeomType())) {
+        case wkbPoint:
+        case wkbMultiPoint:
+            return GeomClass::Point;
+        case wkbLineString:
+        case wkbMultiLineString:
+            return GeomClass::Line;
+        case wkbPolygon:
+        case wkbMultiPolygon:
+            return GeomClass::Polygon;
+        default:
+            return GeomClass::Unknown;
+        }
+    };
+    /**
+     * @brief Collect compatible vector layers with preferred roles first. Argument `want`: required
+     * geometry class. Argument `preferred`: feature role priority. Returns: borrowed layer pointer
+     * list preserving canvas order inside groups; Unknown declarations remain eligible.
+     */
+    const auto pickable = [&](GeomClass want, FeatureLayerRole preferred) {
+        QList<GISVectorLayer *> first, rest;
+        for (auto *L : layers)
+            if (auto *v = qobject_cast<GISVectorLayer *>(L)) {
+                const GeomClass g = geomClass(v);
+                if (g != GeomClass::Unknown && g != want)
+                    continue;
+                auto *fl = qobject_cast<FeatureLayer *>(v);
+                (fl && fl->role() == preferred ? first : rest).append(v);
+            }
+        return first + rest;
+    };
+    /**
+     * @brief Format a picker caption from a live vector layer. Argument `v`: required borrowed
+     * layer. Returns: feature role-marked caption or ordinary name; no persistence/ownership
+     * change.
+     */
+    const auto labelFor = [](GISVectorLayer *v) {
+        if (auto *fl = qobject_cast<FeatureLayer *>(v))
+            return QStringLiteral("◆ %1  —  %2").arg(fl->name(), featureLayerRoleLabel(fl->role()));
+        return v->name();
+    };
+
+    if (m_corridorSources)
+        m_corridorSources->setLayers(pickable(GeomClass::Line, FeatureLayerRole::Corridor));
 
     m_dtmCombo->clear();
     // Allow generation without a DTM — elevations fall back to IDW from
     // junction rim elevations (invert + maxDepth on each SWMM node).
     m_dtmCombo->addItem(tr("(none — use junction rim elevations)"),
-                         QVariant::fromValue<void *>(nullptr));
+                        QVariant::fromValue<void *>(nullptr));
     for (auto *L : layers)
         if (auto *r = qobject_cast<GISRasterLayer *>(L))
             m_dtmCombo->addItem(r->name(), QVariant::fromValue<void *>(r));
@@ -2956,26 +5220,38 @@ void MeshGenerationDialog::populateLayerCombos()
     emit m_dtmCombo->currentIndexChanged(m_dtmCombo->currentIndex());
 
     m_boundaryLayerCombo->clear();
-    m_boundaryLayerCombo->addItem(tr("(none)"),
-                                   QVariant::fromValue<void *>(nullptr));
+    m_boundaryLayerCombo->addItem(tr("(none)"), QVariant::fromValue<void *>(nullptr));
     m_boundaryLayerCombo->addItem(tr("Use SWMM subcatchment polygons"),
-                                   QVariant::fromValue<void *>(reinterpret_cast<void *>(0x1)));
-    for (auto *L : layers)
-        if (auto *v = qobject_cast<GISVectorLayer *>(L))
-            m_boundaryLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
+                                  QVariant::fromValue<void *>(reinterpret_cast<void *>(0x1)));
+    for (auto *v : pickable(GeomClass::Polygon, FeatureLayerRole::DomainBoundary))
+        m_boundaryLayerCombo->addItem(labelFor(v), QVariant::fromValue<void *>(v));
+
+    // Quad region layer: same payload as the boundary combo (no subcatchment
+    // pseudo-entry — subcatchments are named in the edit).
+    if (m_quadRegionLayerCombo) {
+        m_quadRegionLayerCombo->clear();
+        m_quadRegionLayerCombo->addItem(tr("(none)"), QVariant::fromValue<void *>(nullptr));
+        for (auto *v : pickable(GeomClass::Polygon, FeatureLayerRole::Region))
+            m_quadRegionLayerCombo->addItem(labelFor(v), QVariant::fromValue<void *>(v));
+    }
 
     // Decide whether a vector layer carries 3D geometry — uses the declared
     // layer type when known, otherwise probes the first feature.
+    /**
+     * @brief Probe whether a vector layer supports feature Z. Argument `v`: nullable borrowed
+     * vector layer. Returns: declared geometry Z flag or first-feature probe for unknown type,
+     * false without OGR layer. Resets its feature cursor before/after probing.
+     */
     auto detect3D = [](GISVectorLayer *v) -> bool {
         OGRLayer *ol = v ? v->ogrLayer() : nullptr;
-        if (!ol) return false;
+        if (!ol)
+            return false;
         const OGRwkbGeometryType gt = ol->GetGeomType();
         if (gt != wkbUnknown && gt != wkbNone)
             return OGR_GT_HasZ(gt);
         ol->ResetReading();
         bool is3d = false;
-        if (OGRFeature *f = ol->GetNextFeature())
-        {
+        if (OGRFeature *f = ol->GetNextFeature()) {
             if (auto *geom = f->GetGeometryRef())
                 is3d = geom->Is3D();
             OGRFeature::DestroyFeature(f);
@@ -2987,52 +5263,73 @@ void MeshGenerationDialog::populateLayerCombos()
     // Each row gets an "include" checkbox and a "use Z" checkbox; the latter
     // is enabled only when the layer's geometry is 3D.  Rows are stashed so
     // collectInputs() can read both checkbox states directly.
-    auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows) {
+    /**
+     * @brief Replace auxiliary source row controls. Argument `list`: required borrowed Qt list
+     * owning item widgets. Argument `rows`: output metadata vector cleared/replaced, borrowing
+     * listed layers and row controls. Argument `want`: Point or Line class. Returns: no value;
+     * use-Z enabled only for detected 3D, empty lists get an informational item.
+     */
+    auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows, GeomClass want) {
         list->clear();
         rows.clear();
-        for (auto *L : layers)
-            if (auto *v = qobject_cast<GISVectorLayer *>(L))
-            {
-                const bool is3D = detect3D(v);
+        for (auto *v : pickable(want, FeatureLayerRole::Breakline)) {
+            const bool is3D = detect3D(v);
 
-                auto *item = new QListWidgetItem(list);
-                auto *row  = new QWidget(list);
-                auto *h    = new QHBoxLayout(row);
-                h->setContentsMargins(4, 1, 4, 1);
-                h->setSpacing(8);
+            auto *item = new QListWidgetItem(list);
+            auto *row = new QWidget(list);
+            auto *h = new QHBoxLayout(row);
+            h->setContentsMargins(4, 1, 4, 1);
+            h->setSpacing(8);
 
-                auto *inc = new QCheckBox(v->name(), row);
-                auto *uz  = new QCheckBox(tr("use Z"), row);
-                uz->setEnabled(is3D);
-                uz->setToolTip(is3D
-                    ? tr("Use the feature's Z coordinate as the vertex elevation\n"
-                         "(taken as-is in mesh vertical units; not reprojected).\n"
-                         "2D features in this layer fall back to the DTM.")
-                    : tr("Layer has no Z values — elevation comes from the DTM."));
+            auto *inc = new QCheckBox(labelFor(v), row);
+            auto *uz = new QCheckBox(tr("use Z"), row);
+            uz->setEnabled(is3D);
+            uz->setToolTip(is3D ? tr("Use the feature's Z coordinate as the vertex elevation\n"
+                                     "(taken as-is in mesh vertical units; not reprojected).\n"
+                                     "2D features in this layer fall back to the DTM.")
+                                : tr("Layer has no Z values — elevation comes from the DTM."));
 
-                h->addWidget(inc, 1);
-                h->addWidget(uz);
+            h->addWidget(inc, 1);
+            h->addWidget(uz);
 
-                item->setSizeHint(row->sizeHint());
-                list->setItemWidget(item, row);
+            item->setSizeHint(row->sizeHint());
+            list->setItemWidget(item, row);
 
-                rows.append({v, inc, uz, is3D});
-            }
+            rows.append({v, inc, uz, is3D});
+        }
         if (list->count() == 0)
-            list->addItem(tr("(no vector layers)"));
+            list->addItem(want == GeomClass::Point ? tr("(no point layers)")
+                                                   : tr("(no line layers)"));
     };
-    fillList(m_pointLayersList, m_pointLayerRows);
-    fillList(m_lineLayersList,  m_lineLayerRows);
+    fillList(m_pointLayersList, m_pointLayerRows, GeomClass::Point);
+    fillList(m_lineLayersList, m_lineLayerRows, GeomClass::Line);
+    if (m_constraintSources) {
+        QVector<MeshConstraintSourcesWidget::Source> sources;
+        for (int i = 0; i < m_boundaryLayerCombo->count(); ++i)
+            sources.append({"boundary:" + meshPickerIdentity(m_boundaryLayerCombo, i),
+                tr("Boundary — %1").arg(m_boundaryLayerCombo->itemText(i)), false, false});
+        sources.append({"model:conduits", tr("Model conduit alignments"), false, true});
+        for (const auto &row : m_lineLayerRows)
+            if (row.layer) sources.append({"line:" + row.layer->layerId(),
+                tr("Line layer — %1").arg(row.layer->name()), row.is3D, false});
+        m_constraintSources->setSources(sources);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Input collection (main thread — reads widgets + SWMMModelLayer)
 // ---------------------------------------------------------------------------
 
-bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) const
+bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, bool previewOnly) const
 {
+    /**
+     * @brief Record a collection validation diagnostic. Argument `m`: copied error text when
+     * optional errOut exists. Returns: false for direct early-return use; leaves already populated
+     * out fields intact.
+     */
     auto fail = [&](const QString &m) {
-        if (errOut) *errOut = m;
+        if (errOut)
+            *errOut = m;
         return false;
     };
 
@@ -3040,6 +5337,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         return fail(tr("No active SWMM project."));
 
     SWMMModelLayer *layer = m_pw->modelLayer();
+    out->constraintPreviewOnly = previewOnly;
     out->inpPath = layer->modelFilePath();
     if (out->inpPath.isEmpty())
         return fail(tr("Save the project to a .inp file first (File → Save As)."));
@@ -3051,10 +5349,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // ── DTM path (optional) ──────────────────────────────────────────
     // When no DTM is selected, vertex elevations are filled by IDW
     // interpolation from SWMM junction rim elevations (invert + maxDepth).
-    auto *dtmLayer = static_cast<GISRasterLayer *>(
-        m_dtmCombo->currentData().value<void *>());
+    auto *dtmLayer = static_cast<GISRasterLayer *>(m_dtmCombo->currentData().value<void *>());
     out->dtmPath = dtmLayer ? dtmLayer->filePath() : QString();
-    const bool haveDTM = !out->dtmPath.isEmpty();
+    const bool haveDTM = previewOnly || !out->dtmPath.isEmpty();
 
     // Aux point/line layers that can supply no elevation (no DTM and no usable
     // feature Z) are collected here and reported as a hard-block error below.
@@ -3063,22 +5360,70 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Aux geometry PROJ could not reproject into the mesh CRS. Dropped rather
     // than carried as OGR's HUGE_VAL; counted so the user is told instead of
     // silently getting fewer constraints than the layer contains.
-    qsizetype nAuxPointsUnprojectable    = 0;
+    qsizetype nAuxPointsUnprojectable = 0;
     qsizetype nAuxLineVertsUnprojectable = 0;
 
-    // ── PSLG optimisation parameters ─────────────────────────────────
-    out->pslgSimplifyEps = m_simplifyEpsSpin->value();
-    out->pslgSnapEps     = m_snapEpsSpin->value();
-    // 2026-07-19 — must be set BEFORE the domain polygons are collected
-    // below: pushOgrPolygon reads maxBoundaryEdgeLen when densifying rings.
-    out->maxBoundaryEdgeLen =
-        (m_maxBoundaryEdgeBox->isChecked() && m_maxBoundaryEdgeSpin->value() > 0.0)
-            ? m_maxBoundaryEdgeSpin->value()
-            : 0.0;
+    // ── Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──
+    // Capture display values before collecting geometry. Shared resolution
+    // and the remaining lengths are converted once the CRS units are known.
+    out->cellSize = m_cellSizeSpin->value();
+    out->resolution = m_resolutionWidget->settings();
+    if (const QString error = out->resolution->validate(); !error.isEmpty())
+        return fail(error);
+    out->sizeRatio = m_sizeRatioSpin->value();
+    out->minCellSize = m_minCellSizeSpin->value();
+    out->conditionBoundary = m_conditionBoundaryBox && m_conditionBoundaryBox->isChecked();
+    // Major features only (D-R4): about one break line per 200 budgeted cells.
+    out->maxTerrainBreaklines = m_maxBreaklinesSpin && m_maxBreaklinesSpin->value() > 0
+                                    ? m_maxBreaklinesSpin->value()
+                                    : std::max(1, m_maxCellsSpin->value() / 200);
+    if (out->cellSize <= 0.0) {
+        // Derive from the model extent: about 100 cells across the longer side.
+        const MapExtent ext = layer->extent();
+        const double span =
+            ext.isValid() ? std::max(ext.xMax() - ext.xMin(), ext.yMax() - ext.yMin()) : 0.0;
+        out->cellSize = span > 0.0 ? span / 100.0 : 1.0;
+    }
+    if (out->minCellSize <= 0.0)
+        out->minCellSize = 0.25 * out->cellSize;
+    out->terrainTolerance = m_terrainTolSpin->value();
+    out->terrainAdaptive = m_terrainModeCombo->currentIndex() == 0;
+    out->terrainAutoTolerance = out->terrainAdaptive && out->terrainTolerance == 0;
+    if (m_terrainModeCombo->currentIndex() == 2)
+        out->terrainTolerance = 0;
+    out->terrainBreaklines = m_terrainBreaklinesBox->isChecked();
+    out->refineAtFeatures = m_refineFeaturesBox->isChecked();
+    out->terrainCacheMiB = resolvedTerrainCacheMiB(m_terrainCacheSpin->value());
+    out->geometryMode = m_geometryModeCombo->currentIndex();
+    out->boundarySourceId = "boundary:" + meshPickerIdentity(m_boundaryLayerCombo, m_boundaryLayerCombo->currentIndex());
+    out->boundarySourceLabel = m_boundaryLayerCombo->currentText();
+    if (m_constraintSources) {
+        out->boundaryPolicy = m_constraintSources->policy(out->boundarySourceId);
+        out->conduitPolicy = m_constraintSources->policy("model:conduits");
+    }
+    out->geometryPolicy.maxAreaChangeFraction = m_geometryAreaSpin->value() / 100;
+    out->geometryPolicy.maxZDeviation = m_geometryZSpin->value();
+    out->trimTurnDeg = m_trimTurnSpin->value();
+    out->trimDeviation =
+        m_trimDeviationSpin->value() > 0.0 ? m_trimDeviationSpin->value() : 0.1 * out->minCellSize;
+    out->genOpts.maxArea = 0.4330127018922193 * out->cellSize * out->cellSize;
+    out->genOpts.minCellSize = out->minCellSize;
+    // Near-equilateral triangles (MESH_REGIONAL_TRIQUAD_PLAN D-R6): graded
+    // lattice seeding plus non-degrading smoothing.
+    out->genOpts.latticeSeeding = m_latticeSeedingBox ? m_latticeSeedingBox->isChecked() : true;
+    out->genOpts.smoothingPasses = m_smoothingSpin ? m_smoothingSpin->value() : 4;
+    out->terrainReference = m_terrainReferenceCombo ? m_terrainReferenceCombo->currentIndex() : 0;
+    out->quadMode = m_quadModeCombo ? m_quadModeCombo->currentIndex() : 2;
+    out->requireMappedRegions=m_requireMappedRegions->isChecked();
+    out->genOpts.minAngleDeg = m_minAngleSpin->value();
+    out->genOpts.prioritizeQuality = m_qualityOrderBox->isChecked();
+    out->genOpts.maxCells = m_maxCellsSpin->value();
+    out->genOpts.quadsBetweenBreaklines = m_streetQuadsBox->isChecked() && out->quadMode != 0;
+    out->conduitStripWidth = m_conduitStripSpin->value();
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,
-    // Steiner points) must be in the same CRS before Triangle runs.
+    // Steiner points) must be in the same CRS before triangulation runs.
     // The SWMM model's native CRS is the authoritative mesh CRS; everything
     // else is transformed to it.  The WKT is also forwarded to the worker
     // so it can reproject mesh vertices to the DTM's CRS before sampling.
@@ -3086,11 +5431,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     meshOGRSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     bool meshHasSRS = false;
     if (auto *srs = layer->srs())
-        if (auto *ogrSRS = srs->ogrSpatialReference())
-        {
+        if (auto *ogrSRS = srs->ogrSpatialReference()) {
             char *wkt = nullptr;
-            if (ogrSRS->exportToWkt(&wkt) == OGRERR_NONE)
-            {
+            if (ogrSRS->exportToWkt(&wkt) == OGRERR_NONE) {
                 out->meshCRSWkt = QString::fromUtf8(wkt);
                 meshHasSRS = (meshOGRSRS.importFromWkt(wkt) == OGRERR_NONE);
                 if (meshHasSRS)
@@ -3103,49 +5446,57 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Engine consumes vertex XY as SI metres. Capture the conversion factor
     // here and refuse to mesh when the project CRS cannot be expressed in
     // metres (geographic CRS, undefined units, non-finite scale).
-    if (auto *srs = layer->srs())
-    {
+    if (auto *srs = layer->srs()) {
         const auto lui = srs->planarLinearUnit();
-        if (!lui.usable)
-        {
-            return fail(tr(
-                "The project CRS (%1) has no usable planar linear unit.\n"
-                "2D mesh generation requires a projected or local CRS in "
-                "metres or feet. Geographic (lat/lon) CRSes are not "
-                "supported.\n\n"
-                "Fix: open Project → Change CRS… and pick a projected CRS, "
-                "or use the 'Local projected' option when the source units "
-                "are unknown.")
-                .arg(srs->description().isEmpty()
-                         ? srs->toAuthority() : srs->description()));
+        if (!lui.usable) {
+            return fail(
+                tr("The project CRS (%1) has no usable planar linear unit.\n"
+                   "2D mesh generation requires a projected or local CRS in "
+                   "metres or feet. Geographic (lat/lon) CRSes are not "
+                   "supported.\n\n"
+                   "Fix: open Project → Change CRS… and pick a projected CRS, "
+                   "or use the 'Local projected' option when the source units "
+                   "are unknown.")
+                    .arg(srs->description().isEmpty() ? srs->toAuthority() : srs->description()));
         }
-        out->meshCRSTag = srs->toAuthority();   // "EPSG:32634" or "Local"
+        out->meshCRSTag = srs->toAuthority(); // "EPSG:32634" or "Local"
         if (out->meshCRSTag.isEmpty())
             out->meshCRSTag = srs->description();
         out->meshLinearUnitName = lui.name;
-    }
-    else
-    {
+        out->meshLinearUnitToSI = lui.metresPerUnit;
+    } else {
         return fail(tr("No CRS is set for the model."));
     }
 
     // Build an OGRCoordinateTransformation from layerSRS → meshSRS.
     // Returns nullptr when no transform is needed (same CRS or one unknown).
     // Caller owns the returned object and must call DestroyCT().
-    auto makeTransform = [&](const OpenSWMMVisLayer *srcLayer)
-        -> OGRCoordinateTransformation *
-    {
-        if (!meshHasSRS || !srcLayer || !srcLayer->srs()) return nullptr;
+    /**
+     * @brief Create a source-layer-to-mesh OGR transform. Argument `srcLayer`: nullable borrowed
+     * layer/SRS; sets its OGR axis mapping to traditional GIS order. Returns: caller-owned
+     * transform requiring DestroyCT, or null for same/missing CRS or creation failure (null does
+     * not distinguish these cases).
+     */
+    auto makeTransform = [&](const OpenSWMMVisLayer *srcLayer) -> OGRCoordinateTransformation * {
+        if (!meshHasSRS || !srcLayer || !srcLayer->srs())
+            return nullptr;
         OGRSpatialReference *layerOGRSRS = srcLayer->srs()->ogrSpatialReference();
-        if (!layerOGRSRS) return nullptr;
+        if (!layerOGRSRS)
+            return nullptr;
         layerOGRSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-        if (meshOGRSRS.IsSame(layerOGRSRS)) return nullptr;
+        if (meshOGRSRS.IsSame(layerOGRSRS))
+            return nullptr;
         return OGRCreateCoordinateTransformation(layerOGRSRS, &meshOGRSRS);
     };
 
     // Transform a mutable (x,y) pair using ct (if non-null). Returns false and
     // leaves x/y NaN when PROJ could not convert the point, so callers can
     // drop it instead of forwarding OGR's HUGE_VAL as a real coordinate.
+    /**
+     * @brief Transform one auxiliary coordinate through checked point logic. Argument `ct`:
+     * nullable borrowed transform. Arguments `x`, `y`: input/output coordinates, NaN on reported
+     * failure. Returns: true for success or null transform; no ownership transfer.
+     */
     auto xformPt = [](OGRCoordinateTransformation *ct, double &x, double &y) {
         return transformCheckedPt(ct, x, y);
     };
@@ -3159,23 +5510,21 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->modelExtent = modelExt;
 
     void *boundaryPtr = m_boundaryLayerCombo->currentData().value<void *>();
-    void * const kSubcatch = reinterpret_cast<void *>(0x1);
+    void *const kSubcatch = reinterpret_cast<void *>(0x1);
 
     // Conservative aux-layer prefilter rect (mesh CRS).  The exact in-domain
     // test moved to the worker, so this rect only bounds how much the aux
     // OGR reads below scan — too large reads more, it is never wrong.
     QRectF auxBBox;
 
-    if (boundaryPtr == kSubcatch)
-    {
+    if (boundaryPtr == kSubcatch) {
         // Subcatchment polygons are in the model's native CRS (= mesh CRS).
         out->boundaryKind = PipelineInputs::BoundaryKind::Subcatchments;
-        for (int i = 0; i < layer->cachedSubcatchCount(); ++i)
-        {
+        for (int i = 0; i < layer->cachedSubcatchCount(); ++i) {
             auto verts = layer->cachedSubcatchVertices(i);
-            if (verts.size() < 3) continue;
-            for (const QPointF &p : verts)
-            {
+            if (verts.size() < 3)
+                continue;
+            for (const QPointF &p : verts) {
                 if (auxBBox.isNull())
                     auxBBox = QRectF(p, QSizeF(0, 0));
                 else
@@ -3185,19 +5534,16 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         }
         if (out->subcatchPolys.isEmpty())
             return fail(tr("No subcatchment polygons found in the model."));
-    }
-    else if (auto *bLayer = static_cast<GISVectorLayer *>(boundaryPtr))
-    {
-        out->boundaryKind      = PipelineInputs::BoundaryKind::VectorFile;
-        out->boundaryPath      = bLayer->filePath();
+    } else if (auto *bLayer = static_cast<GISVectorLayer *>(boundaryPtr)) {
+        out->boundaryKind = PipelineInputs::BoundaryKind::VectorFile;
+        out->boundaryPath = bLayer->filePath();
         out->boundaryLayerName = bLayer->ogrLayerName();
         // Snapshot the layer's SRS as WKT: the user may have overridden the
         // file's self-declared CRS on the layer, so the layer object — not
         // the file — is authoritative.  The worker rebuilds the transform
         // from this WKT (OGR SRS/CT objects must not cross threads).
         if (bLayer->srs())
-            if (auto *bSRS = bLayer->srs()->ogrSpatialReference())
-            {
+            if (auto *bSRS = bLayer->srs()->ogrSpatialReference()) {
                 char *wkt = nullptr;
                 if (bSRS->exportToWkt(&wkt) == OGRERR_NONE)
                     out->boundaryCRSWkt = QString::fromUtf8(wkt);
@@ -3205,13 +5551,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             }
         // Prefilter rect from the layer extent (its own CRS → mesh CRS).
         const MapExtent be = bLayer->extent();
-        if (be.isValid())
-        {
+        if (be.isValid()) {
             double xs[4] = {be.xMin(), be.xMax(), be.xMin(), be.xMax()};
             double ys[4] = {be.yMin(), be.yMin(), be.yMax(), be.yMax()};
             bool bboxOk = true;
-            if (OGRCoordinateTransformation *ct = makeTransform(bLayer))
-            {
+            if (OGRCoordinateTransformation *ct = makeTransform(bLayer)) {
                 bboxOk = (transformChecked(ct, 4, xs, ys) == 0);
                 OGRCoordinateTransformation::DestroyCT(ct);
             }
@@ -3221,16 +5565,14 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             // feature. Leaving it unset reads the layer unfiltered, which is
             // slower but cannot lose data.
             if (bboxOk)
-                auxBBox = QRectF(QPointF(*std::min_element(xs, xs + 4),
-                                         *std::min_element(ys, ys + 4)),
-                                 QPointF(*std::max_element(xs, xs + 4),
-                                         *std::max_element(ys, ys + 4)));
+                auxBBox =
+                    QRectF(QPointF(*std::min_element(xs, xs + 4), *std::min_element(ys, ys + 4)),
+                           QPointF(*std::max_element(xs, xs + 4), *std::max_element(ys, ys + 4)));
         }
     }
     // else: AutoBBox (default) — the worker builds the 5 %-margin box.
 
-    if (auxBBox.isNull())
-    {
+    if (auxBBox.isNull()) {
         const double m = 0.05;
         const double dx = modelExt.width() * m, dy = modelExt.height() * m;
         auxBBox = QRectF(QPointF(modelExt.xMin() - dx, modelExt.yMin() - dy),
@@ -3244,82 +5586,89 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     SWMM_Engine engineForRim = layer->engine();
     const bool useRim = m_nodesUseRim->isChecked();
     out->includeJunctions = m_includeJunctions->isChecked();
-    if (out->includeJunctions)
-    {
-        for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c)
-        {
+    if (out->includeJunctions) {
+        for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c) {
             const auto cat = static_cast<SWMMModelLayer::Category>(c);
-            for (int row = 0; row < layer->categoryCount(cat); ++row)
-            {
+            for (int row = 0; row < layer->categoryCount(cat); ++row) {
                 const QString name = layer->objectNameAt(cat, row);
-                if (name.isEmpty()) continue;
+                if (name.isEmpty())
+                    continue;
                 const int idx = layer->nodeIndex(name);
-                if (idx < 0) continue;
+                if (idx < 0)
+                    continue;
+                // Every node type is a candidate (junctions, inlet junctions,
+                // outfalls, storage, dividers) EXCEPT virtual junctions: they
+                // are zero-storage split points on a conduit with no rim of
+                // their own. They stay in couplingNodes below.
+                if (layer->nodeIsVirtual(idx))
+                    continue;
                 double x = 0, y = 0;
-                if (!layer->cachedNodeCoord(idx, &x, &y)) continue;
+                if (!layer->cachedNodeCoord(idx, &x, &y))
+                    continue;
 
                 PipelineInputs::CandidateNode cand;
                 cand.name = name;
-                cand.xy   = QPointF(x, y);
+                cand.xy = QPointF(x, y);
 
                 // Read the rim elevation (invert + maxDepth) once.  The
                 // worker decides how it is used (rim pin vs DTM sample vs
                 // IDW seed) based on nodesUseRim + DTM availability.
                 double invert = 0.0, maxDepth = 0.0;
-                cand.hasRim = engineForRim
-                    && swmm_node_get_invert_elev(engineForRim, idx, &invert) == SWMM_OK
-                    && swmm_node_get_max_depth   (engineForRim, idx, &maxDepth) == SWMM_OK;
+                cand.hasRim = engineForRim &&
+                              swmm_node_get_invert_elev(engineForRim, idx, &invert) == SWMM_OK &&
+                              swmm_node_get_max_depth(engineForRim, idx, &maxDepth) == SWMM_OK;
                 cand.rimZ = invert + maxDepth;
 
                 out->candidateNodes.append(cand);
             }
         }
     }
-    out->nodesUseRim       = useRim;
+    out->nodesUseRim = useRim;
     out->nodeFlattenRadius = useRim ? m_nodeFlattenSpin->value() : 0.0;
-    out->nodeMinSeparation =
-        (m_nodeMinSepBox->isChecked() && m_nodeMinSepSpin->value() > 0.0)
-            ? m_nodeMinSepSpin->value()
-            : 0.0;
+    out->nodeMinSeparation = (m_nodeMinSepBox->isChecked() && m_nodeMinSepSpin->value() > 0.0)
+                                 ? m_nodeMinSepSpin->value()
+                                 : 0.0;
 
     // ── Coupling node list (Plan Part B) ─────────────────────────────
     // Every node with coordinates, independent of the junctions-as-Steiner
     // checkbox — the post-generation mapper decides vertex vs cell coupling.
     // No inDomain filter: the mapper classifies outside nodes itself.
     out->mapNodesAfterGen = m_mapNodesAfterGen->isChecked();
-    if (out->mapNodesAfterGen)
-    {
-        for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c)
-        {
+    if (out->mapNodesAfterGen) {
+        for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c) {
             const auto cat = static_cast<SWMMModelLayer::Category>(c);
-            for (int row = 0; row < layer->categoryCount(cat); ++row)
-            {
+            for (int row = 0; row < layer->categoryCount(cat); ++row) {
                 const QString name = layer->objectNameAt(cat, row);
-                if (name.isEmpty()) continue;
+                if (name.isEmpty())
+                    continue;
                 const int idx = layer->nodeIndex(name);
-                if (idx < 0) continue;
+                if (idx < 0)
+                    continue;
                 double x = 0, y = 0;
-                if (!layer->cachedNodeCoord(idx, &x, &y)) continue;
-                out->couplingNodes.append({ name, QPointF(x, y) });
+                if (!layer->cachedNodeCoord(idx, &x, &y))
+                    continue;
+                out->couplingNodes.append({name, QPointF(x, y)});
             }
         }
+        if (m_mapOnlyCoupleable && m_mapOnlyCoupleable->isChecked())
+            out->couplingNodes = mesh::coupleableNodes(layer->engine(), out->couplingNodes);
+        out->authorCouplingCdArea = mesh::couplingAuthorsCdArea(layer->engine());
     }
 
     // ── Link candidates (SWMM links — already in mesh CRS) ───────────
     // Raw polylines only; dedupe → clip → simplify → endpoint filter and
     // marker assignment run on the worker.
     out->includeConduits = m_includeConduits->isChecked();
-    if (out->includeConduits)
-    {
-        for (int c = SWMMModelLayer::CatConduits; c <= SWMMModelLayer::CatOutlets; ++c)
-        {
+    if (out->includeConduits) {
+        for (int c = SWMMModelLayer::CatConduits; c <= SWMMModelLayer::CatOutlets; ++c) {
             const auto cat = static_cast<SWMMModelLayer::Category>(c);
-            for (int row = 0; row < layer->categoryCount(cat); ++row)
-            {
+            for (int row = 0; row < layer->categoryCount(cat); ++row) {
                 const QString name = layer->objectNameAt(cat, row);
-                if (name.isEmpty()) continue;
+                if (name.isEmpty())
+                    continue;
                 const int idx = layer->linkIndex(name);
-                if (idx < 0) continue;
+                if (idx < 0)
+                    continue;
                 out->candidateLinks.append({name, layer->cachedLinkPolyline(idx)});
             }
         }
@@ -3329,28 +5678,26 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Apply a spatial filter to the OGR layer so only features within the
     // domain bbox are returned — avoids full-file scans of large shapefiles.
     // Reproject coordinates to mesh CRS when the layer CRS differs.
-    for (const AuxLayerRow &rowP : std::as_const(m_pointLayerRows))
-    {
-        if (!rowP.include || !rowP.include->isChecked()) continue;
+    for (const AuxLayerRow &rowP : std::as_const(m_pointLayerRows)) {
+        if (!rowP.include || !rowP.include->isChecked())
+            continue;
         auto *vp = rowP.layer;
-        if (!vp || !vp->ogrLayer()) continue;
+        if (!vp || !vp->ogrLayer())
+            continue;
 
         // useFZ: read feature Z as elevation (only honoured for 3D layers).
         // When no DTM is selected and the layer cannot supply Z, the points
         // have no elevation source → hard-block.
         const bool useFZ = rowP.useZ && rowP.useZ->isChecked() && rowP.is3D;
-        if (!haveDTM && !useFZ)
-        {
+        if (!haveDTM && !useFZ) {
             blockedLayers.append(vp->name());
             continue;
         }
 
         OGRLayer *ol = vp->ogrLayer();
 
-        ol->SetSpatialFilterRect(auxBBox.left(),
-                                  std::min(auxBBox.top(), auxBBox.bottom()),
-                                  auxBBox.right(),
-                                  std::max(auxBBox.top(), auxBBox.bottom()));
+        ol->SetSpatialFilterRect(auxBBox.left(), std::min(auxBBox.top(), auxBBox.bottom()),
+                                 auxBBox.right(), std::max(auxBBox.top(), auxBBox.bottom()));
         ol->ResetReading();
 
         OGRCoordinateTransformation *ct = makeTransform(vp);
@@ -3358,26 +5705,31 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         // Record one candidate point: carry its Z when 3D + requested, else
         // fall back to the DTM (hasZ=false).  The exact in-domain filter is
         // applied by the worker once the domains exist.
+        /**
+         * @brief Append one usable transformed auxiliary point. Argument `p`: nullable borrowed OGR
+         * point; failed XY transformation is counted/skipped. Returns: no value; uses finite
+         * feature Z only when requested, otherwise needs DTM; records missing elevation source as a
+         * collection error.
+         */
         auto pushPoint = [&](const OGRPoint *p) {
-            if (!p) return;
+            if (!p)
+                return;
             double x = p->getX(), y = p->getY();
             // Z is vertical — not reprojected by a 2D transform.
             // Drop the point outright if PROJ could not place it: an aux point
             // is an optional refinement seed, and forwarding a non-finite one
             // would abort the whole run at the generator's finiteness screen.
-            if (!xformPt(ct, x, y)) { ++nAuxPointsUnprojectable; return; }
+            if (!xformPt(ct, x, y)) {
+                ++nAuxPointsUnprojectable;
+                return;
+            }
             double z = 0.0;
             const bool fz = useFZ && p->Is3D() && std::isfinite(z = p->getZ());
-            if (fz)
-            {
+            if (fz) {
                 out->auxPoints.append({QPointF(x, y), z, true});
-            }
-            else if (haveDTM)
-            {
+            } else if (haveDTM) {
                 out->auxPoints.append({QPointF(x, y), 0.0, false});
-            }
-            else
-            {
+            } else {
                 // 2D feature inside a 3D layer with no DTM — no elevation source.
                 if (!blockedLayers.contains(vp->name()))
                     blockedLayers.append(vp->name());
@@ -3385,17 +5737,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         };
 
         OGRFeature *f = nullptr;
-        while ((f = ol->GetNextFeature()) != nullptr)
-        {
-            if (auto *geom = f->GetGeometryRef())
-            {
+        while ((f = ol->GetNextFeature()) != nullptr) {
+            if (auto *geom = f->GetGeometryRef()) {
                 const auto gt = wkbFlatten(geom->getGeometryType());
-                if (gt == wkbPoint)
-                {
+                if (gt == wkbPoint) {
                     pushPoint(geom->toPoint());
-                }
-                else if (gt == wkbMultiPoint)
-                {
+                } else if (gt == wkbMultiPoint) {
                     const auto *mp = geom->toMultiPoint();
                     for (int j = 0; j < mp->getNumGeometries(); ++j)
                         pushPoint(mp->getGeometryRef(j)->toPoint());
@@ -3403,43 +5750,48 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             }
             OGRFeature::DestroyFeature(f);
         }
-        if (ct) OGRCoordinateTransformation::DestroyCT(ct);
-        ol->SetSpatialFilter(nullptr);  // clear filter for other callers
+        if (ct)
+            OGRCoordinateTransformation::DestroyCT(ct);
+        ol->SetSpatialFilter(nullptr); // clear filter for other callers
     }
 
     // ── Aux line layers (may be in a different CRS) ───────────────────
-    for (const AuxLayerRow &rowL : std::as_const(m_lineLayerRows))
-    {
-        if (!rowL.include || !rowL.include->isChecked()) continue;
+    for (const AuxLayerRow &rowL : std::as_const(m_lineLayerRows)) {
+        if (!rowL.include || !rowL.include->isChecked())
+            continue;
         auto *vl = rowL.layer;
-        if (!vl || !vl->ogrLayer()) continue;
+        if (!vl || !vl->ogrLayer())
+            continue;
 
         const bool useFZ = rowL.useZ && rowL.useZ->isChecked() && rowL.is3D;
-        if (!haveDTM && !useFZ)
-        {
+        if (!haveDTM && !useFZ) {
             blockedLayers.append(vl->name());
             continue;
         }
 
         OGRLayer *ol = vl->ogrLayer();
 
-        ol->SetSpatialFilterRect(auxBBox.left(),
-                                  std::min(auxBBox.top(), auxBBox.bottom()),
-                                  auxBBox.right(),
-                                  std::max(auxBBox.top(), auxBBox.bottom()));
+        ol->SetSpatialFilterRect(auxBBox.left(), std::min(auxBBox.top(), auxBBox.bottom()),
+                                 auxBBox.right(), std::max(auxBBox.top(), auxBBox.bottom()));
         ol->ResetReading();
 
         OGRCoordinateTransformation *ct = makeTransform(vl);
         OGRFeature *f = nullptr;
-        while ((f = ol->GetNextFeature()) != nullptr)
-        {
+        while ((f = ol->GetNextFeature()) != nullptr) {
+            /**
+             * @brief Append one transformed auxiliary line candidate. Argument `ls`: nullable
+             * borrowed OGR line with at least two points. Returns: no value; absent elevation
+             * source blocks collection, failed XY vertices are counted/dropped (bridging their
+             * span), and fewer than two survivors are skipped. Requested feature Z is copied
+             * without vertical reprojection.
+             */
             auto pushLS = [&](const OGRLineString *ls) {
-                if (!ls || ls->getNumPoints() < 2) return;
+                if (!ls || ls->getNumPoints() < 2)
+                    return;
                 // A 2D feature with no DTM has no elevation source for its
                 // vertices — block rather than silently IDW from distant seeds.
                 const bool fz = useFZ && ls->Is3D();
-                if (!haveDTM && !fz)
-                {
+                if (!haveDTM && !fz) {
                     if (!blockedLayers.contains(vl->name()))
                         blockedLayers.append(vl->name());
                     return;
@@ -3449,29 +5801,57 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 // domain rule are applied by the worker.
                 PipelineInputs::AuxLine al;
                 al.hasZ = fz;
+                al.sourceId = vl->layerId() + ":" + QString::number(f->GetFID());
+                al.sourceLabel = tr("%1 — feature %2").arg(vl->name()).arg(f->GetFID());
+                if (m_constraintSources)
+                    al.sourcePolicy = m_constraintSources->policy("line:" + vl->layerId());
+                const int simplifyField = f->GetFieldIndex("mesh_simplify");
+                if (simplifyField >= 0 && f->IsFieldSetAndNotNull(simplifyField)) {
+                    const auto value =
+                        QString::fromUtf8(f->GetFieldAsString(simplifyField)).trimmed().toLower();
+                    if (value == "preserve")
+                        al.simplificationMode = 0;
+                    else if (value == "simplify")
+                        al.simplificationMode = 1;
+                    else if (value != "inherit" && !value.isEmpty())
+                        al.simplificationMode = 2;
+                }
+                for (auto field : {std::pair<const char *, std::optional<double> *>(
+                                       "mesh_xy_tol", &al.xyTolerance),
+                                   {"mesh_z_tol", &al.zTolerance}}) {
+                    const int index = f->GetFieldIndex(field.first);
+                    if (index >= 0 && f->IsFieldSetAndNotNull(index)) {
+                        bool numeric = false;
+                        const double value = QString::fromUtf8(f->GetFieldAsString(index)).toDouble(&numeric);
+                        *field.second = numeric ? value : std::numeric_limits<double>::quiet_NaN();
+                    }
+                }
                 al.path.reserve(ls->getNumPoints());
-                if (fz) al.z.reserve(ls->getNumPoints());
-                for (int j = 0; j < ls->getNumPoints(); ++j)
-                {
+                if (fz)
+                    al.z.reserve(ls->getNumPoints());
+                for (int j = 0; j < ls->getNumPoints(); ++j) {
                     double x = ls->getX(j), y = ls->getY(j);
                     // Z vertical — not reprojected. A vertex PROJ cannot place
                     // is dropped rather than carried as HUGE_VAL; the path is
                     // a constraint polyline, so a missing interior vertex just
                     // straightens that span.
-                    if (!xformPt(ct, x, y)) { ++nAuxLineVertsUnprojectable; continue; }
+                    if (!xformPt(ct, x, y)) {
+                        ++nAuxLineVertsUnprojectable;
+                        continue;
+                    }
                     al.path.append(QPointF(x, y));
-                    if (fz) al.z.append(ls->getZ(j));
+                    if (fz)
+                        al.z.append(ls->getZ(j));
                 }
-                if (al.path.size() < 2) return;   // nothing usable survived
+                if (al.path.size() < 2)
+                    return; // nothing usable survived
                 out->auxLines.append(std::move(al));
             };
-            if (auto *gg = f->GetGeometryRef())
-            {
+            if (auto *gg = f->GetGeometryRef()) {
                 const auto gt = wkbFlatten(gg->getGeometryType());
                 if (gt == wkbLineString)
                     pushLS(gg->toLineString());
-                else if (gt == wkbMultiLineString)
-                {
+                else if (gt == wkbMultiLineString) {
                     const auto *ml = gg->toMultiLineString();
                     for (int j = 0; j < ml->getNumGeometries(); ++j)
                         pushLS(ml->getGeometryRef(j)->toLineString());
@@ -3479,32 +5859,32 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             }
             OGRFeature::DestroyFeature(f);
         }
-        if (ct) OGRCoordinateTransformation::DestroyCT(ct);
+        if (ct)
+            OGRCoordinateTransformation::DestroyCT(ct);
         ol->SetSpatialFilter(nullptr);
     }
 
     // ── Hard-block: aux features with no elevation source ────────────
     // A constraining point/line layer that is included with neither a DTM nor
     // a usable feature Z has no way to be elevated — refuse to generate.
-    if (!blockedLayers.isEmpty())
-    {
+    if (!blockedLayers.isEmpty()) {
         blockedLayers.removeDuplicates();
-        return fail(tr(
-            "These constraining layers have no elevation source — they carry "
-            "no Z coordinate and no DTM raster is selected:\n\n  • %1\n\n"
-            "Select a DTM raster, enable \"use Z\" on a 3D layer, or uncheck "
-            "the layer.")
-            .arg(blockedLayers.join(QStringLiteral("\n  • "))));
+        return fail(tr("These constraining layers have no elevation source — they carry "
+                       "no Z coordinate and no DTM raster is selected:\n\n  • %1\n\n"
+                       "Select a DTM raster, enable \"use Z\" on a 3D layer, or uncheck "
+                       "the layer.")
+                        .arg(blockedLayers.join(QStringLiteral("\n  • "))));
     }
 
-    if (nAuxPointsUnprojectable > 0 || nAuxLineVertsUnprojectable > 0)
-    {
+    if (nAuxPointsUnprojectable > 0 || nAuxLineVertsUnprojectable > 0) {
+        if (out->geometryMode != 0)
+            return fail(tr("Included constraint coordinates could not be transformed to the mesh CRS (%1 points, %2 line vertices). Repair their CRS or geometry before using preserve/bounded policies.")
+                .arg(nAuxPointsUnprojectable).arg(nAuxLineVertsUnprojectable));
         // Not fatal — these are optional constraints, and the mesh is valid
         // without them. But dropping input silently is not acceptable either.
-        qCWarning(lcMeshPerf)
-            << "[Mesh] aux geometry dropped, could not reproject to the mesh"
-            << "CRS:" << nAuxPointsUnprojectable << "point(s),"
-            << nAuxLineVertsUnprojectable << "line vertex/vertices";
+        qCWarning(lcMeshPerf) << "[Mesh] aux geometry dropped, could not reproject to the mesh"
+                              << "CRS:" << nAuxPointsUnprojectable << "point(s),"
+                              << nAuxLineVertsUnprojectable << "line vertex/vertices";
     }
 
     // ── Region marker seeds (subcatchments) ──────────────────────────
@@ -3512,66 +5892,163 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // consistent, and avoids any index-mapping assumption between
     // categoryCount(CatSubcatchments) and cachedSubcatchVertices(i).
     // The bounding-box centroid is a reliable interior point for all
-    // but highly concave subcatchments; Triangle propagates the region
-    // attribute to every triangle whose circumcenter is reachable from
-    // the seed, so a small positional error is acceptable.  The region
+    // but highly concave subcatchments; the mesher propagates the region
+    // attribute by flood fill from the seed, bounded by constraints. The region
     // attribute (marker) is assigned by the worker, after node/link
     // markers, preserving the original numbering.
     out->includeSubcatch = m_includeSubcatch->isChecked();
-    if (out->includeSubcatch)
-    {
+    if (out->includeSubcatch) {
         const auto cat = SWMMModelLayer::CatSubcatchments;
-        for (int row = 0; row < layer->categoryCount(cat); ++row)
-        {
+        for (int row = 0; row < layer->categoryCount(cat); ++row) {
             const QString name = layer->objectNameAt(cat, row);
-            if (name.isEmpty()) continue;
+            if (name.isEmpty())
+                continue;
             const MapExtent ce = layer->objectExtent(name);
-            if (!ce.isValid()) continue;
-            out->subcatchSeeds.append({name,
-                QPointF((ce.xMin()+ce.xMax())*0.5, (ce.yMin()+ce.yMax())*0.5)});
+            if (!ce.isValid())
+                continue;
+            out->subcatchSeeds.append(
+                {name, QPointF((ce.xMin() + ce.xMax()) * 0.5, (ce.yMin() + ce.yMax()) * 0.5)});
         }
     }
 
     // Steiner snap-and-dedupe runs on the worker, after it has assembled
     // steinerPoints from the filtered candidates.
 
-    // ── Quality options ──────────────────────────────────────────────
-    out->genOpts.maxArea          = m_maxAreaSpin->value();
-    out->genOpts.minAngle         = m_minAngleSpin->value();
-    out->genOpts.maxSteinerPoints = m_maxSteinerSpin->value();
-    out->genOpts.allowSteiner     = m_allowSteiner->isChecked();
-    out->genOpts.quiet            = true;
+    // ── Quad regions: layer identity (read on the worker) and named
+    // subcatchments (rings already cached in the mesh CRS) ─────────────
+    if (m_quadRegionLayerCombo)
+        if (auto *qLayer = static_cast<GISVectorLayer *>(
+                m_quadRegionLayerCombo->currentData().value<void *>())) {
+            PipelineInputs::QuadRegionLayerSpec spec;
+            spec.path = qLayer->filePath();
+            spec.layerName = qLayer->ogrLayerName();
+            // Layer object, not file, is authoritative for the CRS (the user
+            // may have overridden it) — same as boundaryCRSWkt above.
+            if (qLayer->srs())
+                if (auto *qSRS = qLayer->srs()->ogrSpatialReference()) {
+                    char *wkt = nullptr;
+                    if (qSRS->exportToWkt(&wkt) == OGRERR_NONE)
+                        spec.crsWkt = QString::fromUtf8(wkt);
+                    CPLFree(wkt);
+                }
+            out->quadRegionLayers.append(std::move(spec));
+        }
+    if (m_quadRegionSubcatchEdit) {
+        const QStringList ids =
+            m_quadRegionSubcatchEdit->text().split(QLatin1Char(','), Qt::SkipEmptyParts);
+        const auto cat = SWMMModelLayer::CatSubcatchments;
+        for (const QString &rawId : ids) {
+            const QString id = rawId.trimmed();
+            if (id.isEmpty())
+                continue;
+            // objectNameAt(CatSubcatchments, row) and cachedSubcatchVertices(row)
+            // index the same cache, so the row found by name is the ring's.
+            QVector<QPointF> ring;
+            bool found = false;
+            for (int row = 0; row < layer->categoryCount(cat); ++row) {
+                if (layer->objectNameAt(cat, row) != id)
+                    continue;
+                found = true;
+                ring = layer->cachedSubcatchVertices(row);
+                break;
+            }
+            if (!found)
+                return fail(tr("Quad region: subcatchment '%1' not found").arg(id));
+            if (ring.size() < 3)
+                return fail(tr("Quad region: subcatchment '%1' has no polygon").arg(id));
+            mesh::QuadRegion r;
+            r.ring = QPolygonF(ring);
+            // Same spelling the worker gives RegionMarker tags, so the cells
+            // inside match the region-defaults table rows.
+            r.tag = QStringLiteral("subcatch_%1").arg(id);
+            out->quadRegions.append(std::move(r));
+        }
+    }
+    // Patch boundary vertices are matched to the generator output by a
+    // hundredth of the floor size.
+    out->genOpts.patchSnapEps = 0.01 * out->minCellSize;
 
-    // ── Thinning ─────────────────────────────────────────────────────
-    out->doThinning                      = m_thinningBox->isChecked();
-    out->thinnerOpts.normalDotThreshold  = m_thinningToleranceSpin->value();
-    out->thinnerOpts.maxIterations       = m_thinningIterationsSpin->value();
-    out->thinnerOpts.maxPoints           = m_thinningMaxPointsSpin->value();
-    out->thinnerOpts.gridSpacing         = 0.0;
-    out->thinnerOpts.useMinSpacing       = m_minSpacingBox->isChecked();
-    out->thinnerOpts.minSpacing          = m_minSpacingSpin->value();
-    // 2026-07-19 — boundary-aware terrain filter buffer; <= 0 → auto
-    // (0.5 × effective terrain spacing, resolved in the worker).
-    out->terrainBoundaryBuffer           = (m_boundaryBufferSpin->value() > 0.0)
-                                               ? m_boundaryBufferSpin->value()
-                                               : -1.0;
+    if (m_corridorSources) {
+        QString error;
+        if (!m_corridorSources->sources(&out->corridorSources, &error))
+            return fail(error);
+        for (auto &source : out->corridorSources)
+            if (source.meshCRSWkt.isEmpty())
+                source.meshCRSWkt = out->meshCRSWkt;
+    }
 
     // ── Output ───────────────────────────────────────────────────────
-    out->outputMode    = m_outputExternal->isChecked()
-                             ? mesh::MeshOutputMode::External
-                             : mesh::MeshOutputMode::Inline;
+    out->outputMode = m_outputExternal->isChecked() ? mesh::MeshOutputMode::External
+                                                    : mesh::MeshOutputMode::Inline;
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
-    out->manningsN      = m_manningsValueSpin->value();
-    out->initDepth      = m_initDepthSpin->value();
+    out->manningsN = m_manningsValueSpin->value();
+    out->initDepth = m_initDepthSpin->value();
+
+    // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
+    // Read on the GUI thread and copied BY VALUE — the worker never touches
+    // the widget. Both containers stay empty for a dialog whose table was
+    // never edited, so the pipeline below behaves exactly as it did before
+    // the table existed.
+    if (m_regionDefaults) {
+        QString regionErr;
+        if (!m_regionDefaults->validate(&regionErr))
+            return fail(regionErr);
+
+        out->infilDefaults = m_regionDefaults->infilDefaults();
+
+        const auto rows = m_regionDefaults->rows();
+        for (const auto &r : rows) {
+            // Row 0 is '*', whose values are already in manningsN/initDepth
+            // above; a region row with both cells blank is still inheriting
+            // and must not be materialised.
+            if (r.tag == QLatin1String("*"))
+                continue;
+            const bool hasN = !std::isnan(r.manningsN);
+            const bool hasD = !std::isnan(r.initDepth);
+            if (!hasN && !hasD)
+                continue;
+
+            PipelineInputs::RegionHydraulics rh;
+            rh.manningsN = hasN ? r.manningsN : out->manningsN;
+            rh.initDepth = hasD ? r.initDepth : out->initDepth;
+            out->regionHydraulics.insert(r.tag, rh);
+        }
+    }
 
     // ── Vertical Z conversion factor ─────────────────────────────────
     out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;
+    const QString verticalUnit = m_meshVertCRSCombo->currentData().toString();
+    out->verticalUnitToSI =
+        verticalUnit == QLatin1String("ft") ||
+                (verticalUnit == QLatin1String("auto") && !UnitSystem::instance()->isSI())
+            ? .3048
+            : 1.0;
+    // The tolerance control is labelled in the model's length unit. Compare
+    // it in the same output vertical unit as the generated vertex heights.
+    out->terrainTolerance *= (UnitSystem::instance()->isSI() ? 1.0 : .3048) / out->verticalUnitToSI;
+
+    applyResolution(*out);
+    const double horizontalFactor =
+        (UnitSystem::instance()->isSI() ? 1.0 : .3048) / out->meshLinearUnitToSI;
+    out->geometryPolicy.maxZDeviation *=
+        (UnitSystem::instance()->isSI() ? 1. : .3048) / out->verticalUnitToSI;
+    auto sourceUnits = [&](mesh::ConstraintPolicyOverride &policy) {
+        if (policy.maxDeviation) *policy.maxDeviation /= out->meshLinearUnitToSI;
+        if (policy.minimumClearance) *policy.minimumClearance /= out->meshLinearUnitToSI;
+        if (policy.maxZDeviation) *policy.maxZDeviation /= out->verticalUnitToSI;
+    };
+    sourceUnits(out->boundaryPolicy);
+    sourceUnits(out->conduitPolicy);
+    for (auto &line : out->auxLines) sourceUnits(line.sourcePolicy);
+    out->trimDeviation *= horizontalFactor;
+    out->conduitStripWidth *= horizontalFactor;
+    out->nodeMinSeparation *= horizontalFactor;
+    out->nodeFlattenRadius *= horizontalFactor;
+    out->genOpts.patchSnapEps = .01 * out->minCellSize;
 
     // ── Elevation interpolation (no-DTM fallback) ────────────────────
-    out->elevInterpMethod = ElevInterpMethod(
-        m_elevMethodCombo->currentData().toInt());
-    out->nnVariant = NNVariant(
-        m_nnVariantCombo->currentData().toInt());
+    out->elevInterpMethod = ElevInterpMethod(m_elevMethodCombo->currentData().toInt());
+    out->nnVariant = NNVariant(m_nnVariantCombo->currentData().toInt());
     out->idwPower = m_idwPowerSpin->value();
 
     return true;
@@ -3583,69 +6060,119 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
 
 void MeshGenerationDialog::onAccept()
 {
+    startPipeline(false);
+}
+
+void MeshGenerationDialog::onPreviewConstraints()
+{
+    startPipeline(true);
+}
+
+void MeshGenerationDialog::startPipeline(bool previewOnly)
+{
+    if (m_watcher)
+        return;
+    if (previewOnly && m_geometryModeCombo->currentIndex() == 0)
+        return;
+    if (!previewOnly)
+        saveOptions();
     PipelineInputs inputs;
     QString err;
-    if (!collectInputs(&inputs, &err))
-    {
-        QMessageBox::critical(this, tr("Cannot generate mesh"), err);
+    if (!collectInputs(&inputs, &err, previewOnly)) {
+        QMessageBox::critical(this, previewOnly ? tr("Cannot preview constraints") : tr("Cannot generate mesh"), err);
+        return;
+    }
+    beginGenerationGuard();
+
+    if (!previewOnly && !m_pw->corridorRecipeLoadError().isEmpty()) {
+        const auto choice = QMessageBox::warning(
+            this, tr("Replace unreadable corridor recipe?"),
+            tr("The saved corridor recipe could not be loaded:\n\n%1\n\n"
+               "Successful generation will replace it with the corridor settings in this dialog. "
+               "The saved project changes only on Save. Continue?")
+                .arg(m_pw->corridorRecipeLoadError()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (choice != QMessageBox::Yes) {
+            clearGenerationGuard();
+            return;
+        }
+    }
+
+    // Confirm replacement of the working copy at an existing mesh path.
+    // Publication of its saved file remains deferred until project Save.
+    if (!previewOnly && inputs.outputMode == mesh::MeshOutputMode::External && !inputs.meshOutputPath.isEmpty() &&
+        QFileInfo::exists(inputs.meshOutputPath)) {
+        const auto ovBtn =
+            QMessageBox::warning(this, tr("Replace mesh in this project?"),
+                                 tr("A mesh file already exists at:\n\n%1\n\nGenerating will "
+                                    "replace the working mesh in this project. The saved file "
+                                    "will change only when you save the project. Continue?")
+                                     .arg(QDir::toNativeSeparators(inputs.meshOutputPath)),
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ovBtn != QMessageBox::Yes) {
+            clearGenerationGuard();
+            return;
+        }
+    }
+    if (!generationOwnerIsCurrent()) {
+        clearGenerationGuard();
+        QMessageBox::warning(
+            this, tr("Project changed"),
+            tr("The project changed while generation was being prepared. Review the inputs and generate again."));
         return;
     }
 
-    // Warn before overwriting an existing mesh at the same output path so a
-    // regeneration replaces the old mesh rather than silently clobbering it.
-    if (inputs.outputMode == mesh::MeshOutputMode::External
-        && !inputs.meshOutputPath.isEmpty()
-        && QFileInfo::exists(inputs.meshOutputPath))
-    {
-        const auto ovBtn = QMessageBox::warning(
-            this, tr("Overwrite existing mesh?"),
-            tr("A mesh file already exists at:\n\n%1\n\nGenerating will "
-               "overwrite it and replace the existing mesh. Continue?")
-                .arg(QDir::toNativeSeparators(inputs.meshOutputPath)),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (ovBtn != QMessageBox::Yes)
-            return;
-    }
-
     // Show embedded progress bar and switch Generate→disabled, Cancel→"Stop".
+    inputs.events = std::make_shared<meshkit::EventChannel>();
+    m_runLog->beginRun(inputs.events);
+    m_tabs->setCurrentWidget(m_runLog);
     m_progressBar->setValue(0);
     m_progressLabel->setText(tr("Starting…"));
     m_progressBar->setVisible(true);
     m_progressLabel->setVisible(true);
     m_generateBtn->setEnabled(false);
-    m_cancelBtn->setText(tr("Cancel Generation"));
+    m_previewBtn->setEnabled(false);
+    m_runningPreview = previewOnly;
+    m_cancelBtn->setText(previewOnly ? tr("Stop preview") : tr("Cancel Generation"));
+    for (int i = 0; i < m_tabs->count(); ++i)
+        if (m_tabs->widget(i) != m_runLog && m_tabs->widget(i) != m_constraintPreview)
+            m_tabs->widget(i)->setEnabled(false);
 
     // Watcher forwards progress + completion to the main thread.
     m_watcher = new QFutureWatcher<PipelineResult>(this);
-    connect(m_watcher, &QFutureWatcher<PipelineResult>::progressValueChanged,
-            m_progressBar, &QProgressBar::setValue);
-    connect(m_watcher, &QFutureWatcher<PipelineResult>::progressTextChanged,
-            m_progressLabel, &QLabel::setText);
-    connect(m_watcher, &QFutureWatcher<PipelineResult>::finished,
-            this, &MeshGenerationDialog::onMeshFinished);
+    connect(m_watcher, &QFutureWatcher<PipelineResult>::progressValueChanged, m_progressBar,
+            &QProgressBar::setValue);
+    connect(m_watcher, &QFutureWatcher<PipelineResult>::progressTextChanged, m_progressLabel,
+            &QLabel::setText);
+    connect(m_watcher, &QFutureWatcher<PipelineResult>::finished, this,
+            &MeshGenerationDialog::onMeshFinished);
 
-    m_watcher->setFuture(
-        QtConcurrent::run(runMeshPipeline, std::move(inputs)));
+    m_watcher->setFuture(QtConcurrent::run(runMeshPipeline, std::move(inputs)));
 }
-
-// ---------------------------------------------------------------------------
-// Completion handler (called on main thread via queued signal)
-// ---------------------------------------------------------------------------
 
 void MeshGenerationDialog::onMeshFinished()
 {
+    const bool wasPreview = m_runningPreview;
+    m_runningPreview = false;
+    m_runLog->finish();
     // Restore UI state regardless of outcome.
     m_progressBar->setVisible(false);
-    m_progressLabel->setVisible(false);
+    m_progressLabel->setVisible(true);
     m_generateBtn->setEnabled(true);
-    m_cancelBtn->setText(tr("Cancel"));
+    m_previewBtn->setEnabled(m_geometryModeCombo->currentIndex() != 0);
+    for (int i = 0; i < m_tabs->count(); ++i) m_tabs->widget(i)->setEnabled(true);
+    m_cancelBtn->setText(tr("Close"));
 
-    m_cancelBtn->setEnabled(true);  // re-enable in all paths
+    m_cancelBtn->setEnabled(true); // re-enable in all paths
 
-    if (m_watcher->isCanceled())
-    {
+    if (m_watcher->isCanceled()) {
+        m_progressLabel->setText(wasPreview ? tr("Constraint preview cancelled.") : tr("Generation cancelled."));
+        m_runLog->addNote(meshkit::Severity::Warning,
+                          wasPreview ? tr("Constraint preview cancelled.") :
+                                       tr("Generation cancelled; the previous mesh is unchanged."));
         m_watcher->deleteLater();
         m_watcher = nullptr;
+        clearGenerationGuard();
         return;
     }
 
@@ -3658,8 +6185,7 @@ void MeshGenerationDialog::onMeshFinished()
         result = m_watcher->result();
     } catch (const std::exception &e) {
         result.ok = false;
-        result.errorMsg = tr("Mesh pipeline failed: %1")
-                              .arg(QString::fromUtf8(e.what()));
+        result.errorMsg = tr("Mesh pipeline failed: %1").arg(QString::fromUtf8(e.what()));
     } catch (...) {
         result.ok = false;
         result.errorMsg = tr("Mesh pipeline failed with an unknown error.");
@@ -3667,45 +6193,64 @@ void MeshGenerationDialog::onMeshFinished()
     m_watcher->deleteLater();
     m_watcher = nullptr;
 
-    if (!result.ok)
-    {
-        QMessageBox::critical(this, tr("Mesh generation failed"),
-            result.errorMsg.isEmpty() ? tr("Unknown error.") : result.errorMsg);
+    if (!result.ok) {
+        m_progressLabel->setText(wasPreview ? tr("Constraint preview failed.") : tr("Generation failed."));
+        m_runLog->addNote(meshkit::Severity::Error, result.errorMsg);
+        clearGenerationGuard();
+        QMessageBox::critical(this, wasPreview ? tr("Constraint preview failed") : tr("Mesh generation failed"),
+                              result.errorMsg.isEmpty() ? tr("Unknown error.") : result.errorMsg);
+        return;
+    }
+
+    if (result.constraintPreviewOnly) {
+        if (!generationOwnerIsCurrent()) {
+            clearGenerationGuard();
+            m_progressLabel->setText(tr("Project inputs changed; run the constraint preview again."));
+            return;
+        }
+        clearGenerationGuard();
+        m_constraintPreview->setPreview(std::move(result.constraintPreview), tr("Independent preparation audit passed."));
+        m_tabs->setCurrentWidget(m_constraintPreview);
+        m_progressLabel->setText(tr("Constraint preview ready. No mesh was generated or replaced."));
+        return;
+    }
+
+    if (result.status == meshkit::RunStatus::ResourceLimit || result.generationStats.refineCapped) {
+        clearGenerationGuard();
+        m_progressLabel->setText(tr("Resource limit reached — mesh not applied."));
+        m_runLog->addNote(meshkit::Severity::Warning, result.summary);
+        QMessageBox::warning(this, tr("Meshing resource limit reached"), result.summary);
+        return;
+    }
+
+    // Compare ownership before any layer removal or engine mutation.
+    if (!generationOwnerIsCurrent() || !m_pw->canvas()) {
+        m_runLog->addNote(meshkit::Severity::Warning,
+                          tr("Project inputs changed; generated mesh was not applied."));
+        m_progressLabel->setText(tr("Generated mesh was not applied."));
+        clearGenerationGuard();
+        QMessageBox::warning(
+            this, tr("Generated mesh was not applied"),
+            tr("The project or its inputs changed while generation was running. "
+               "The saved model and mesh were not changed. Review the inputs and generate again."));
+        return;
+    }
+    const QString generatedModelPath = m_generationModelPath;
+    if (result.constraintPreview.featuresTotal)
+        m_constraintPreview->setPreview(std::move(result.constraintPreview), tr("Independent constraint audits passed."));
+    QPointer<SWMM2DMeshLayer> generatedLayer;
+    const int generatedCellCount = result.meshResult.triangles.size();
+    clearGenerationGuard();
+    QString corridorError;
+    if (!mesh::corridorSourceFilesUnchanged(result.corridorSourceStamps, &corridorError)) {
+        m_runLog->addNote(meshkit::Severity::Error, corridorError);
+        m_progressLabel->setText(tr("Generated mesh was not applied."));
+        QMessageBox::warning(this, tr("Generated mesh was not applied"), corridorError);
         return;
     }
 
     // Add the generated mesh layer to the canvas (main thread — safe).
-    if (auto *canvas = m_pw->canvas())
-    {
-        // Deactivate any existing meshes, and REMOVE any mesh layer that
-        // already references the same output path — regenerating a mesh at an
-        // existing path must REPLACE it, not stack a second (stale) layer on
-        // the canvas. A lingering duplicate is not just visually wrong: on save
-        // the write path (SWMMVisProjectWindow) pushes *every* mesh layer into
-        // the engine, so the old mesh can win and reappear on reopen.
-        const QString newMeshCanonical =
-            result.meshPath.isEmpty()
-                ? QString()
-                : QFileInfo(result.meshPath).absoluteFilePath();
-        QList<SWMM2DMeshLayer *> staleMeshes;
-        for (auto *L : canvas->layers()) {
-            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
-            if (!m) continue;
-            m->setActiveMesh(false);
-            if (!newMeshCanonical.isEmpty()
-                && !m->sourcePath().isEmpty()
-                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical)
-                staleMeshes.append(m);
-        }
-        for (SWMM2DMeshLayer *stale : staleMeshes) {
-            const int idx = canvas->layers().indexOf(stale);
-            if (idx >= 0) {
-                if (OpenSWMMVisLayer *taken =
-                        canvas->takeLayer(idx, /*pushUndo=*/false))
-                    taken->deleteLater();
-            }
-        }
-
+    if (auto *canvas = m_pw->canvas()) {
         // Carry the generated 1D<->2D coupling onto the mesh vertices'
         // coupledNode field so the layer (and any later engine-sync save)
         // reflects it without a reload. The descriptive tag stays separate.
@@ -3723,49 +6268,114 @@ void MeshGenerationDialog::onMeshFinished()
         // progressive-load path as the file-open flow (swmmvis.cpp). The
         // synchronous build both froze the UI on a large generated mesh and
         // could throw bad_alloc inside a slot (std::terminate).
-        auto *meshLayer  = new SWMM2DMeshLayer(std::move(result.meshResult),
-                                               result.meshPath,
-                                               /*parent=*/nullptr,
-                                               /*deferHeavyGeometry=*/true);
-        meshLayer->setExternalMesh(isExt);
-        meshLayer->setActiveMesh(isExt);
-        meshLayer->setName(result.meshPath.isEmpty()
-                               ? QStringLiteral("Mesh (inline)")
-                               : QFileInfo(result.meshPath).fileName());
+        std::unique_ptr<SWMM2DMeshLayer> pendingLayer;
+        try {
+            pendingLayer = std::make_unique<SWMM2DMeshLayer>(
+                std::move(result.meshResult), isExt ? result.meshPath : generatedModelPath,
+                /*parent=*/nullptr,
+                /*deferHeavyGeometry=*/true);
+            auto *meshLayer = pendingLayer.get();
+            meshLayer->setExternalMesh(isExt);
+            meshLayer->setOwnsGeneratedTopology(true);
+            meshLayer->setMeshUnitsSI(result.meshUnitsSI);
+            meshLayer->setActiveMesh(true);
+            meshLayer->setName(result.meshPath.isEmpty() ? QStringLiteral("Mesh (inline)")
+                                                         : QFileInfo(result.meshPath).fileName());
 
-        // Propagate the SWMM model's CRS to the mesh layer so
-        // rebuildSceneGeometry() can reproject from model CRS → canvas CRS.
-        // Without this the mesh renders at raw local coordinates and never
-        // appears on the map.
-        if (m_pw->modelLayer() && m_pw->modelLayer()->srs())
-            meshLayer->setSRS(
-                new SpatialReferenceSystem(*m_pw->modelLayer()->srs(), meshLayer),
-                /*ownsSRS=*/true);
+            // Propagate the SWMM model's CRS to the mesh layer so
+            // rebuildSceneGeometry() can reproject from model CRS → canvas CRS.
+            // Without this the mesh renders at raw local coordinates and never
+            // appears on the map.
+            if (m_pw->modelLayer() && m_pw->modelLayer()->srs())
+                meshLayer->setSRS(new SpatialReferenceSystem(*m_pw->modelLayer()->srs(), meshLayer),
+                                  /*ownsSRS=*/true);
 
-        canvas->addLayer(meshLayer, /*pushUndo=*/true);
+        } catch (const std::exception &e) {
+            m_progressLabel->setText(tr("Generated mesh was not applied."));
+            m_runLog->addNote(meshkit::Severity::Error, QString::fromUtf8(e.what()));
+            QMessageBox::critical(
+                this, tr("Generated mesh was not applied"),
+                tr("Could not prepare the generated layer: %1. The previous mesh remains available.")
+                    .arg(QString::fromUtf8(e.what())));
+            return;
+        } catch (...) {
+            m_progressLabel->setText(tr("Generated mesh was not applied."));
+            m_runLog->addNote(meshkit::Severity::Error,
+                              tr("Could not prepare the generated layer."));
+            QMessageBox::critical(
+                this, tr("Generated mesh was not applied"),
+                tr("Could not prepare the generated layer. The previous mesh remains available."));
+            return;
+        }
+        auto *meshLayer = pendingLayer.get();
+
+        QString adoptionError;
+        std::unique_ptr<ChannelMeshAdoptionCommand> adoption;
+        bool prepared = false;
+        try {
+            adoption = std::make_unique<ChannelMeshAdoptionCommand>(m_pw, meshLayer,
+                                                                    result.corridorSources);
+            adoption->setText(tr("Generate mesh"));
+            prepared = adoption->prepare({}, &adoptionError);
+        } catch (const std::exception &e) {
+            adoptionError =
+                tr("Could not adopt the generated mesh: %1").arg(QString::fromUtf8(e.what()));
+        } catch (...) {
+            adoptionError = tr("Could not adopt the generated mesh.");
+        }
+        if (!prepared) {
+            m_progressLabel->setText(tr("Generated mesh was not applied."));
+            m_runLog->addNote(meshkit::Severity::Error, adoptionError);
+            // Once constructed, the command owns detached mesh layers.
+            if (adoption)
+                pendingLayer.release();
+            QMessageBox::critical(this, tr("Generated mesh was not applied"), adoptionError);
+            return;
+        }
+        pendingLayer.release();
+        canvas->undoStack()->push(adoption.release());
         m_pw->attachMeshLayer(meshLayer);
+        generatedLayer = meshLayer;
         // Kick the deferred heavy build now that the layer is adopted —
         // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
         meshLayer->finishSceneGeometryAsync();
     }
 
-    // Mirror the mesh linkage into the engine's in-memory model so the next
-    // save emits (or drops) [2D_MESH_FILE] correctly. External mode points the
-    // reference at the freshly-written .2dm; inline mode clears it. Without
-    // this the engine re-serialises the .inp on save with mesh_file empty and
-    // the just-written linkage is lost — the model silently runs 1D-only.
-    if (m_pw->modelLayer() && m_pw->modelLayer()->engine())
-    {
-        SWMM_Engine eng = m_pw->modelLayer()->engine();
-        if (result.outputMode == mesh::MeshOutputMode::External)
-            swmm_options_set_ext(eng, "MESH_FILE",
-                                 result.meshPath.toUtf8().constData());
-        else
-            swmm_options_set_ext(eng, "MESH_FILE", "");
+    // Keep the completed report in the dialog, with the same map action.
+    for (const auto &warning : result.alignmentWarnings)
+        m_runLog->addNote(meshkit::Severity::Warning, warning);
+    if (!result.exceptionCells.isEmpty()) {
+        const QSet<int> indices(result.exceptionCells.begin(), result.exceptionCells.end());
+        const QPointer<SWMM2DMeshLayer> layer = generatedLayer;
+        m_runLog->setHighlightAction([layer, indices] {
+            if (layer)
+                layer->setHighlightedTriangles(indices);
+        });
     }
 
+    m_pw->setCorridorSources(result.corridorSources);
+    m_pw->setCorridorRecipeLoadError({});
     m_pw->setHasChanges(true);
-    accept();
+    auto options = m_pw->meshGenerationOptions();
+    const double toSI = result.verticalUnitToSI;
+    QJsonObject lastRun = result.metrics;
+    const QJsonObject terrainStats{
+        {QStringLiteral("cells"), generatedCellCount},
+        {QStringLiteral("toleranceM"), result.terrainToleranceUsed * toSI},
+        {QStringLiteral("unresolved"), result.generationStats.terrainUnresolved},
+        {QStringLiteral("unknown"), result.generationStats.terrainUnknown},
+        {QStringLiteral("maxErrorBoundM"), result.generationStats.maxTerrainError * toSI}};
+    for (auto it = terrainStats.begin(); it != terrainStats.end(); ++it)
+        lastRun.insert(it.key(), it.value());
+    options[QStringLiteral("lastRun")] = lastRun;
+    m_pw->setMeshGenerationOptions(options);
+    m_meshApplied = true;
+    m_progressLabel->setText(result.status == meshkit::RunStatus::CompleteWithExceptions
+                                 ? tr("Mesh applied with exceptions. Review the run log.")
+                                 : tr("Mesh applied."));
+    m_runLog->addNote(meshkit::Severity::Info,
+                      tr("Mesh applied to the project. Files will be written on Save."));
+    m_generateBtn->setText(tr("Generate again"));
 }
 
 // ---------------------------------------------------------------------------
@@ -3774,16 +6384,13 @@ void MeshGenerationDialog::onMeshFinished()
 
 void MeshGenerationDialog::onCancelOrReject()
 {
-    if (m_watcher && m_watcher->isRunning())
-    {
+    if (m_watcher && m_watcher->isRunning()) {
         // Worker is active — request cancellation; onMeshFinished will
         // restore the UI and clean up the watcher.
         m_watcher->cancel();
-        m_cancelBtn->setEnabled(false);  // prevent double-cancel
+        m_cancelBtn->setEnabled(false); // prevent double-cancel
         m_progressLabel->setText(tr("Cancelling…"));
-    }
-    else
-    {
+    } else {
         reject();
     }
 }
@@ -3794,9 +6401,9 @@ void MeshGenerationDialog::onCancelOrReject()
 
 void MeshGenerationDialog::onBrowseMeshPath()
 {
-    const QString picked = QFileDialog::getSaveFileName(
-        this, tr("Choose Mesh File"), m_meshPathEdit->text(),
-        tr("SWMMVis 2D Mesh (*.2dm);;All files (*)"));
+    const QString picked =
+        QFileDialog::getSaveFileName(this, tr("Choose Mesh File"), m_meshPathEdit->text(),
+                                     tr("SWMMVis 2D Mesh (*.2dm);;All files (*)"));
     if (!picked.isEmpty())
         m_meshPathEdit->setText(picked);
 }

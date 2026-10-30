@@ -1,9 +1,9 @@
-/*!
- * \file   ifeaturerenderer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The single seam every layer paint path goes through.
+/**
+ * @file      ifeaturerenderer.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The single seam every layer paint path goes through.
  *
  *         IFeatureRenderer is the load-bearing abstraction introduced by
  *         GUI_IMPLEMENTATION_PLAN.md §J.2. Every vector / point / line /
@@ -31,6 +31,7 @@
  *         Sub-phase 8.13.6.1 — interface + types only. No concrete
  *         renderers, no Layer integration, no paint-loop refactor. Those
  *         arrive in subsequent sub-phases under the same Phase 8.13.6.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_IFEATURERENDERER_H
@@ -62,10 +63,10 @@ namespace OpenSWMM::Render
  *        returns false for a kind also no-ops the matching setter.
  */
 enum class ClassEditKind {
-    Color,   /*!< Per-class swatch / fill colour. */
-    Size,    /*!< Per-class marker size (points / squares / triangles…). */
-    Width,   /*!< Per-class line width (polylines / strokes). */
-    Symbol   /*!< Wholesale per-class SymbolStyle replacement. */
+    Color, /*!< Per-class swatch / fill colour. */
+    Size,  /*!< Per-class marker size (points / squares / triangles…). */
+    Width, /*!< Per-class line width (polylines / strokes). */
+    Symbol /*!< Wholesale per-class SymbolStyle replacement. */
 };
 
 /*!
@@ -84,11 +85,13 @@ enum class ClassEditKind {
 class IFeatureRenderer
 {
 public:
+    /** @brief Destroy the renderer and its implementation-owned resources polymorphically. */
     virtual ~IFeatureRenderer() = default;
 
     /*!
      * \brief Stable string id ("single", "graduated", "categorized", "rule").
      *        Used as the discriminator in JSON round-trip.
+     * @return Stable serialization key for the concrete implementation.
      */
     [[nodiscard]] virtual QString rendererId() const = 0;
 
@@ -98,6 +101,8 @@ public:
      * \param attrs  Attribute key/value pairs the renderer may classify on.
      *               Renderers must tolerate missing keys gracefully (return
      *               a default symbol rather than crashing).
+     * @return Owned symbol value; an empty symbol can represent no visible contribution
+     * according to the concrete renderer's missing-data and rule semantics.
      */
     [[nodiscard]] virtual SymbolStyle symbolFor(const FeatureRef &f,
                                                 const QVariantMap &attrs) const = 0;
@@ -106,6 +111,7 @@ public:
      * \brief Returns one LegendSymbolItem per visible legend row.
      *        Drives the legend dock, the on-canvas legend overlay, and the
      *        map composer's legend frame (legend-from-renderer rule, §J.5).
+     * @return Owned rows with implementation-specific class keys for subsequent editing.
      */
     [[nodiscard]] virtual QList<LegendSymbolItem> legendSymbolItems() const = 0;
 
@@ -113,6 +119,7 @@ public:
      * \brief Serialises this renderer to a JSON object.
      *        The "id" field equals rendererId(); remaining keys are
      *        renderer-specific.
+     * @return Owned JSON snapshot of the renderer's persistent configuration.
      */
     [[nodiscard]] virtual QJsonObject toJson() const = 0;
 
@@ -120,12 +127,15 @@ public:
      * \brief Restores this renderer from a JSON object previously produced
      *        by toJson(). Implementations should tolerate missing/unknown
      *        keys by falling back to default values rather than throwing.
+     * @param j Configuration for this renderer type; see the concrete loader for
+     * validation and defaults. Loading changes this instance and may emit its notifications.
      */
     virtual void fromJson(const QJsonObject &j) = 0;
 
     /*!
      * \brief Deep copy. Owning layers / map presets / undo stack call this
      *        when they need a renderer snapshot decoupled from the live one.
+     * @return Sole ownership of an independently editable renderer configuration.
      */
     [[nodiscard]] virtual std::unique_ptr<IFeatureRenderer> clone() const = 0;
 
@@ -155,16 +165,14 @@ public:
      *
      *         Used by undo-command constructors to snapshot the "before"
      *         state so undo can restore it via setColorForClass. */
-    [[nodiscard]] virtual QColor colorForClass(const QString & /*classKey*/) const
-    { return {}; }
+    [[nodiscard]] virtual QColor colorForClass(const QString & /*classKey*/) const { return {}; }
 
     /*! \brief Read the current marker / line size for \p classKey. Returns
      *         a negative value when the renderer has no explicit per-class
      *         size (e.g. GraduatedRenderer's globally-mapped sizeForBin,
      *         or a class that doesn't carry a size prop). Used by
      *         SetRendererClassSizeCommand to snapshot the "before" state. */
-    [[nodiscard]] virtual qreal sizeForClass(const QString & /*classKey*/) const
-    { return -1.0; }
+    [[nodiscard]] virtual qreal sizeForClass(const QString & /*classKey*/) const { return -1.0; }
 
     /*! \brief Override the colour for the class identified by \p classKey.
      *         Has no effect when supportsClassEdit(Color) is false. */
@@ -180,8 +188,7 @@ public:
 
     /*! \brief Wholesale-replace the SymbolStyle for \p classKey. No-op
      *         when supportsClassEdit(Symbol) is false. */
-    virtual void setSymbolForClass(const QString & /*classKey*/,
-                                   const SymbolStyle & /*style*/) {}
+    virtual void setSymbolForClass(const QString & /*classKey*/, const SymbolStyle & /*style*/) {}
 
     /*! \brief Drop every per-class override applied via the setters above.
      *         The renderer falls back to its ramp / categories / base
@@ -189,10 +196,17 @@ public:
     virtual void clearClassEditOverrides() {}
 
 protected:
+    /** @brief Construct the stateless base for a concrete renderer. */
     IFeatureRenderer() = default;
+    /** @brief Copy the stateless interface base; concrete types copy their own configuration. */
     IFeatureRenderer(const IFeatureRenderer &) = default;
+    /** @brief Copy-assign the stateless interface base.
+     * @return This interface base, supporting chained assignment. */
     IFeatureRenderer &operator=(const IFeatureRenderer &) = default;
+    /** @brief Move the stateless interface base without transferring consumer ownership. */
     IFeatureRenderer(IFeatureRenderer &&) = default;
+    /** @brief Move-assign the stateless interface base.
+     * @return This interface base, supporting chained assignment. */
     IFeatureRenderer &operator=(IFeatureRenderer &&) = default;
 };
 

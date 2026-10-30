@@ -1,10 +1,15 @@
-/*!
- * \file   featurelayerimporter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurelayerimporter.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — controller between the import dialog (view) and the
+ *            model side (GISVectorLayer source, SWMMModelLayer target).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/import/featurelayerimporter.h"
+#include "ui/heatpropertyedit.h"
 
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
@@ -26,21 +31,17 @@
 
 #include <memory>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 // ===========================================================================
 // Construction
 // ===========================================================================
 
-FeatureLayerImporter::FeatureLayerImporter(GISVectorLayer *source,
-                                           SWMMModelLayer *target,
-                                           MapCanvas      *canvas,
-                                           ImportMapping   mapping,
-                                           QObject        *parent)
-    : QObject(parent),
-      m_source(source),
-      m_target(target),
-      m_canvas(canvas),
+FeatureLayerImporter::FeatureLayerImporter(GISVectorLayer *source, SWMMModelLayer *target,
+                                           MapCanvas *canvas, ImportMapping mapping,
+                                           QObject *parent)
+    : QObject(parent), m_source(source), m_target(target), m_canvas(canvas),
       m_mapping(std::move(mapping))
 {
 }
@@ -52,11 +53,12 @@ FeatureLayerImporter::FeatureLayerImporter(GISVectorLayer *source,
 SourceSpec FeatureLayerImporter::sourceSpec() const
 {
     SourceSpec spec;
-    if (!m_source) return spec;
+    if (!m_source)
+        return spec;
 
-    spec.filePath     = m_source->filePath();
-    spec.layerName    = m_source->ogrLayerName();
-    spec.filterExpr   = m_source->filterExpression();
+    spec.filePath = m_source->filePath();
+    spec.layerName = m_source->ogrLayerName();
+    spec.filterExpr = m_source->filterExpression();
     spec.selectedOnly = m_mapping.selectedFeaturesOnly;
     if (spec.selectedOnly)
         spec.selectedFids = m_source->selectedFeatureIds();
@@ -72,14 +74,17 @@ SourceSpec FeatureLayerImporter::sourceSpec() const
 ModelSnapshot FeatureLayerImporter::captureModelSnapshot() const
 {
     ModelSnapshot snap;
-    if (!m_target) return snap;
+    if (!m_target)
+        return snap;
     SWMM_Engine eng = m_target->engine();
-    if (!eng) return snap;
+    if (!eng)
+        return snap;
 
     const int nNodes = swmm_node_count(eng);
     for (int i = 0; i < nNodes; ++i) {
         const char *id = swmm_node_id(eng, i);
-        if (!id) continue;
+        if (!id)
+            continue;
         const QString name = QString::fromUtf8(id);
         double x = 0.0, y = 0.0;
         swmm_spatial_get_node_coord(eng, i, &x, &y);
@@ -92,7 +97,8 @@ ModelSnapshot FeatureLayerImporter::captureModelSnapshot() const
     const int nGages = swmm_gage_count(eng);
     for (int i = 0; i < nGages; ++i) {
         const char *id = swmm_gage_id(eng, i);
-        if (!id) continue;
+        if (!id)
+            continue;
         double x = 0.0, y = 0.0;
         swmm_spatial_get_gage_coord(eng, i, &x, &y);
         snap.gages.insert(QString::fromUtf8(id), QPointF(x, y));
@@ -101,7 +107,8 @@ ModelSnapshot FeatureLayerImporter::captureModelSnapshot() const
     const int nLinks = swmm_link_count(eng);
     for (int i = 0; i < nLinks; ++i) {
         const char *id = swmm_link_id(eng, i);
-        if (!id) continue;
+        if (!id)
+            continue;
         const QString name = QString::fromUtf8(id);
         int type = 0;
         swmm_link_get_type(eng, i, &type);
@@ -130,8 +137,16 @@ ModelSnapshot FeatureLayerImporter::captureModelSnapshot() const
 // Phase 2 — worker-safe feature read
 // ===========================================================================
 
-namespace {
+namespace
+{
 
+/**
+ * @param[in] feat Required borrowed live OGRFeature, not retained/owned.
+ * @param[in] fieldIdx Required valid field index with definition, no bounds/null guard.
+ * @return Invalid for unset/null; Boolean subtype bool, Int int, Int64 qlonglong, Real double, all
+ *   other OGR types UTF-8 field string. No geometry/units conversion, source mutation or ownership
+ *   transfer.
+ */
 QVariant ogrFieldToVariant(OGRFeature *feat, int fieldIdx)
 {
     if (!feat->IsFieldSetAndNotNull(fieldIdx))
@@ -143,43 +158,37 @@ QVariant ogrFieldToVariant(OGRFeature *feat, int fieldIdx)
             return QVariant(feat->GetFieldAsInteger(fieldIdx) != 0);
         return QVariant(feat->GetFieldAsInteger(fieldIdx));
     case OFTInteger64:
-        return QVariant(static_cast<qlonglong>(
-            feat->GetFieldAsInteger64(fieldIdx)));
+        return QVariant(static_cast<qlonglong>(feat->GetFieldAsInteger64(fieldIdx)));
     case OFTReal:
         return QVariant(feat->GetFieldAsDouble(fieldIdx));
     default:
-        return QVariant(QString::fromUtf8(
-            feat->GetFieldAsString(fieldIdx)));
+        return QVariant(QString::fromUtf8(feat->GetFieldAsString(fieldIdx)));
     }
 }
 
 } // namespace
 
-QVector<SourceFeature>
-FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
-                                         QString *errorOut)
+QVector<SourceFeature> FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
+                                                                QString *errorOut)
 {
     QVector<SourceFeature> out;
 
-    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
-        spec.filePath.toUtf8().constData(),
-        GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(spec.filePath.toUtf8().constData(),
+                                                            GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                                            nullptr, nullptr, nullptr));
     if (!ds) {
         if (errorOut)
-            *errorOut = tr("Could not open \"%1\" as a vector datasource.")
-                            .arg(spec.filePath);
+            *errorOut = tr("Could not open \"%1\" as a vector datasource.").arg(spec.filePath);
         return out;
     }
     const std::unique_ptr<GDALDataset> closer(ds);
 
     OGRLayer *layer = spec.layerName.isEmpty()
                           ? ds->GetLayer(0)
-                          : ds->GetLayerByName(
-                                spec.layerName.toUtf8().constData());
+                          : ds->GetLayerByName(spec.layerName.toUtf8().constData());
     if (!layer) {
         if (errorOut)
-            *errorOut = tr("Layer \"%1\" not found in \"%2\".")
-                            .arg(spec.layerName, spec.filePath);
+            *errorOut = tr("Layer \"%1\" not found in \"%2\".").arg(spec.layerName, spec.filePath);
         return out;
     }
 
@@ -193,8 +202,8 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
     if (!spec.sourceWkt.isEmpty() && !spec.targetWkt.isEmpty()) {
         const QByteArray src8 = spec.sourceWkt.toUtf8();
         const QByteArray dst8 = spec.targetWkt.toUtf8();
-        if (srcSRS.importFromWkt(src8.constData()) == OGRERR_NONE
-            && dstSRS.importFromWkt(dst8.constData()) == OGRERR_NONE) {
+        if (srcSRS.importFromWkt(src8.constData()) == OGRERR_NONE &&
+            dstSRS.importFromWkt(dst8.constData()) == OGRERR_NONE) {
             srcSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             dstSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             if (!srcSRS.IsSame(&dstSRS))
@@ -208,8 +217,8 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
     layer->ResetReading();
     OGRFeature *feat = nullptr;
     while ((feat = layer->GetNextFeature()) != nullptr) {
-        const std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)>
-            featCloser(feat, &OGRFeature::DestroyFeature);
+        const std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)> featCloser(
+            feat, &OGRFeature::DestroyFeature);
 
         const long long fid = static_cast<long long>(feat->GetFID());
         if (spec.selectedOnly && !spec.selectedFids.contains(fid))
@@ -220,8 +229,7 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
 
         for (int i = 0; i < fieldCount; ++i) {
             const OGRFieldDefn *fd = feat->GetFieldDefnRef(i);
-            sf.attrs.insert(QString::fromUtf8(fd->GetNameRef()),
-                            ogrFieldToVariant(feat, i));
+            sf.attrs.insert(QString::fromUtf8(fd->GetNameRef()), ogrFieldToVariant(feat, i));
         }
 
         OGRGeometry *g = feat->GetGeometryRef();
@@ -234,7 +242,7 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
 
         const OGRwkbGeometryType flat = wkbFlatten(g->getGeometryType());
         const OGRLineString *line = nullptr;
-        const OGRPoint      *pt   = nullptr;
+        const OGRPoint *pt = nullptr;
 
         switch (flat) {
         case wkbPoint:
@@ -247,8 +255,7 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
             else {
                 sf.geometryOk = false;
                 sf.geometryError =
-                    tr("multi-point with %1 parts is not importable")
-                        .arg(mp->getNumGeometries());
+                    tr("multi-point with %1 parts is not importable").arg(mp->getNumGeometries());
             }
             break;
         }
@@ -261,30 +268,30 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
                 line = ml->getGeometryRef(0)->toLineString();
             else {
                 sf.geometryOk = false;
-                sf.geometryError =
-                    tr("multi-part polyline with %1 parts is not importable")
-                        .arg(ml->getNumGeometries());
+                sf.geometryError = tr("multi-part polyline with %1 parts is not importable")
+                                       .arg(ml->getNumGeometries());
             }
             break;
         }
         default:
             sf.geometryOk = false;
             sf.geometryError = tr("unsupported geometry type \"%1\"")
-                                   .arg(QString::fromUtf8(
-                                       OGRGeometryTypeToName(flat)));
+                                   .arg(QString::fromUtf8(OGRGeometryTypeToName(flat)));
             break;
         }
 
         if (pt) {
             double x = pt->getX(), y = pt->getY();
-            if (ct) ct->Transform(1, &x, &y);
+            if (ct)
+                ct->Transform(1, &x, &y);
             sf.points.append(QPointF(x, y));
         } else if (line) {
             const int n = line->getNumPoints();
             sf.points.reserve(n);
             for (int i = 0; i < n; ++i) {
                 double x = line->getX(i), y = line->getY(i);
-                if (ct) ct->Transform(1, &x, &y);
+                if (ct)
+                    ct->Transform(1, &x, &y);
                 sf.points.append(QPointF(x, y));
             }
         }
@@ -301,17 +308,22 @@ FeatureLayerImporter::readSourceFeatures(const SourceSpec &spec,
 // Phase 3 — main-thread execute (one undo macro)
 // ===========================================================================
 
-namespace {
+namespace
+{
 
-/*! Translate targetKey → adapter-property map for one item. */
+/*! Translate targetKey → adapter-property map for one item.
+ * @param[in] kind Target metadata context, no live engine required.
+ * @param[in] byTargetKey Borrowed coerced target-key/value map, not modified.
+ * @return New map keyed by nonempty adapterProperty, excluding heat.* and unknown/ctor keys.
+ *   QVariantMap iteration gives key order, later duplicate adapter property overwrites earlier. No
+ *   setter invoked, source/engine write or unit conversion.
+ */
 QVariantMap adapterValues(TargetKind kind, const QVariantMap &byTargetKey)
 {
     QVariantMap byProperty;
-    for (auto it = byTargetKey.constBegin();
-         it != byTargetKey.constEnd(); ++it) {
-        const TargetAttribute ta =
-            ImportTargetRegistry::attribute(kind, it.key());
-        if (!ta.adapterProperty.isEmpty())
+    for (auto it = byTargetKey.constBegin(); it != byTargetKey.constEnd(); ++it) {
+        const TargetAttribute ta = ImportTargetRegistry::attribute(kind, it.key());
+        if (!ta.adapterProperty.isEmpty() && !ta.key.startsWith(QLatin1String("heat.")))
             byProperty.insert(ta.adapterProperty, it.value());
     }
     return byProperty;
@@ -319,152 +331,146 @@ QVariantMap adapterValues(TargetKind kind, const QVariantMap &byTargetKey)
 
 /*! Read the current values of \p keys through a fresh adapter (used to
  *  capture undo state — engine defaults after a create, prior values
- *  before an update). */
-QVariantMap readAdapterValues(SWMMModelLayer *layer, quint8 kind,
-                              const QString &name, const QVariantMap &keys)
+ *  before an update).
+ * @param[in] layer Borrowed current SWMM source used by command factory.
+ * @param[in] kind Layer kind BIT mask Node/Link/Gage, not TargetKind enum.
+ * @param[in] name Exact existing object name, passed to adapter factory.
+ * @param[in] keys Property-name map, VALUES ignored; keys determine QObject property reads.
+ * @return Property snapshot map, invalid values for missing properties; empty if adapter factory
+ *   fails (or keys empty). Fresh unparented adapter deleted before return; no source ownership or
+ *   explicit engine mutation, getters may query current engine. Caller handles lifecycle/state
+ *   failures.
+ */
+QVariantMap readAdapterValues(SWMMModelLayer *layer, quint8 kind, const QString &name,
+                              const QVariantMap &keys)
 {
     QVariantMap old;
-    QObject *adapter =
-        SetAdapterPropertiesCommand::createAdapter(layer, kind, name);
-    if (!adapter) return old;
+    QObject *adapter = SetAdapterPropertiesCommand::createAdapter(layer, kind, name);
+    if (!adapter)
+        return old;
     for (auto it = keys.constBegin(); it != keys.constEnd(); ++it)
-        old.insert(it.key(),
-                   adapter->property(it.key().toUtf8().constData()));
+        old.insert(it.key(), adapter->property(it.key().toUtf8().constData()));
     delete adapter;
     return old;
 }
 
 } // namespace
 
-ImportPlan FeatureLayerImporter::execute(
-        const ImportPlan &plan,
-        const std::function<bool(int, int)> &progress)
+ImportPlan FeatureLayerImporter::execute(const ImportPlan &plan,
+                                         const std::function<bool(int, int)> &progress)
 {
     ImportPlan result = plan;
     if (!m_target || !m_canvas || !m_canvas->undoStack())
         return result;
 
-    const TargetKind kind     = m_mapping.kind;
-    const bool       linkKind = ImportTargetRegistry::isLinkKind(kind);
-    const bool       gageKind = (kind == TargetKind::RainGage);
-    const quint8 kindBit = linkKind ? SWMMModelLayer::kKindLink
-                         : gageKind ? SWMMModelLayer::kKindGage
-                                    : SWMMModelLayer::kKindNode;
+    const TargetKind kind = m_mapping.kind;
+    const bool linkKind = ImportTargetRegistry::isLinkKind(kind);
+    const bool gageKind = (kind == TargetKind::RainGage);
+    const quint8 kindBit = linkKind   ? SWMMModelLayer::kKindLink
+                           : gageKind ? SWMMModelLayer::kKindGage
+                                      : SWMMModelLayer::kKindNode;
 
     QUndoStack *stack = m_canvas->undoStack();
     const int total = result.items.size();
 
-    stack->beginMacro(
-        tr("Import %1 %2 object(s)")
-            .arg(result.createCount + result.updateCount)
-            .arg(ImportTargetRegistry::kindLabel(kind)));
+    stack->beginMacro(tr("Import %1 %2 object(s)")
+                          .arg(result.createCount + result.updateCount)
+                          .arg(ImportTargetRegistry::kindLabel(kind)));
 
     int done = 0;
     for (PlannedItem &item : result.items) {
         ++done;
         const bool keepGoing = !progress || progress(done, total);
 
-        if (item.action == PlannedItem::Action::Skip
-            || item.action == PlannedItem::Action::Error) {
-            if (!keepGoing) break;
+        if (item.action == PlannedItem::Action::Skip || item.action == PlannedItem::Action::Error) {
+            if (!keepGoing)
+                break;
             continue;
         }
 
         if (item.action == PlannedItem::Action::Create) {
             // Auto-created endpoint junctions first (links only).
             for (int i = 0; i < item.autoNodeNames.size(); ++i) {
-                stack->push(new AddNodeCommand(
-                    m_target, item.autoNodeNames.at(i), /*Junction*/ 0,
-                    item.autoNodePos.at(i).x(), item.autoNodePos.at(i).y(),
-                    m_canvas));
+                stack->push(new AddNodeCommand(m_target, item.autoNodeNames.at(i), /*Junction*/ 0,
+                                               item.autoNodePos.at(i).x(),
+                                               item.autoNodePos.at(i).y(), m_canvas));
                 if (m_target->nodeIndex(item.autoNodeNames.at(i)) < 0) {
                     item.action = PlannedItem::Action::Error;
-                    item.messages << tr("engine rejected junction \"%1\"")
-                                         .arg(item.autoNodeNames.at(i));
+                    item.messages
+                        << tr("engine rejected junction \"%1\"").arg(item.autoNodeNames.at(i));
                     break;
                 }
             }
             if (item.action == PlannedItem::Action::Error) {
-                if (!keepGoing) break;
+                if (!keepGoing)
+                    break;
                 continue;
             }
 
             bool created = false;
             if (linkKind) {
                 stack->push(new AddLinkCommand(
-                    m_target, item.name,
-                    ImportTargetRegistry::swmmLinkType(kind),
-                    item.fromNode, item.toNode,
-                    item.interiorVertices, m_canvas));
+                    m_target, item.name, ImportTargetRegistry::swmmLinkType(kind), item.fromNode,
+                    item.toNode, item.interiorVertices, m_canvas));
                 created = m_target->linkIndex(item.name) >= 0;
             } else if (gageKind) {
-                stack->push(new AddGageCommand(
-                    m_target, item.name, item.x, item.y, m_canvas));
-                created = SetAdapterPropertiesCommand::createAdapter(
-                              m_target, kindBit, item.name) != nullptr;
+                stack->push(new AddGageCommand(m_target, item.name, item.x, item.y, m_canvas));
+                created = SetAdapterPropertiesCommand::createAdapter(m_target, kindBit,
+                                                                     item.name) != nullptr;
             } else {
-                stack->push(new AddNodeCommand(
-                    m_target, item.name,
-                    ImportTargetRegistry::swmmNodeType(kind),
-                    item.x, item.y, m_canvas));
+                stack->push(new AddNodeCommand(m_target, item.name,
+                                               ImportTargetRegistry::swmmNodeType(kind), item.x,
+                                               item.y, m_canvas));
                 created = m_target->nodeIndex(item.name) >= 0;
             }
 
             if (!created) {
                 item.action = PlannedItem::Action::Error;
                 item.messages << tr("engine rejected \"%1\"").arg(item.name);
-                if (!keepGoing) break;
+                if (!keepGoing)
+                    break;
                 continue;
             }
 
-            const QVariantMap newVals = adapterValues(kind,
-                                                      item.attributeValues);
+            const QVariantMap newVals = adapterValues(kind, item.attributeValues);
             if (!newVals.isEmpty()) {
                 const QVariantMap oldVals =
                     readAdapterValues(m_target, kindBit, item.name, newVals);
-                stack->push(new SetAdapterPropertiesCommand(
-                    m_target, kindBit, item.name, newVals, oldVals,
-                    m_canvas));
+                stack->push(new SetAdapterPropertiesCommand(m_target, kindBit, item.name, newVals,
+                                                            oldVals, m_canvas));
             }
-        } else {   // Update
-            const QVariantMap newVals = adapterValues(kind,
-                                                      item.attributeValues);
+        } else { // Update
+            const QVariantMap newVals = adapterValues(kind, item.attributeValues);
             if (!newVals.isEmpty()) {
                 const QVariantMap oldVals =
                     readAdapterValues(m_target, kindBit, item.name, newVals);
                 if (oldVals.isEmpty()) {
                     item.action = PlannedItem::Action::Error;
-                    item.messages << tr("\"%1\" no longer exists")
-                                         .arg(item.name);
-                    if (!keepGoing) break;
+                    item.messages << tr("\"%1\" no longer exists").arg(item.name);
+                    if (!keepGoing)
+                        break;
                     continue;
                 }
-                stack->push(new SetAdapterPropertiesCommand(
-                    m_target, kindBit, item.name, newVals, oldVals,
-                    m_canvas));
+                stack->push(new SetAdapterPropertiesCommand(m_target, kindBit, item.name, newVals,
+                                                            oldVals, m_canvas));
             }
 
             if (item.geometryDiffers && m_mapping.updateGeometry) {
                 if (linkKind) {
                     const int idx = m_target->linkIndex(item.name);
                     if (idx >= 0) {
-                        const QVector<QPointF> poly =
-                            m_target->cachedLinkPolyline(idx);
+                        const QVector<QPointF> poly = m_target->cachedLinkPolyline(idx);
                         const QVector<QPointF> oldInterior =
-                            poly.size() > 2 ? poly.mid(1, poly.size() - 2)
-                                            : QVector<QPointF>();
-                        stack->push(new SetLinkVerticesCommand(
-                            m_target, item.name, oldInterior,
-                            item.interiorVertices, m_canvas));
+                            poly.size() > 2 ? poly.mid(1, poly.size() - 2) : QVector<QPointF>();
+                        stack->push(new SetLinkVerticesCommand(m_target, item.name, oldInterior,
+                                                               item.interiorVertices, m_canvas));
                     }
                 } else if (!gageKind) {
                     const int idx = m_target->nodeIndex(item.name);
                     double oldX = 0.0, oldY = 0.0;
-                    if (idx >= 0
-                        && m_target->cachedNodeCoord(idx, &oldX, &oldY)) {
-                        stack->push(new MoveNodeCommand(
-                            m_target, idx, oldX, oldY, item.x, item.y,
-                            {}, m_canvas));
+                    if (idx >= 0 && m_target->cachedNodeCoord(idx, &oldX, &oldY)) {
+                        stack->push(new MoveNodeCommand(m_target, idx, oldX, oldY, item.x, item.y,
+                                                        {}, m_canvas));
                     }
                 }
                 // Rain-gage geometry updates are deferred (no
@@ -473,13 +479,32 @@ ImportPlan FeatureLayerImporter::execute(
             }
         }
 
-        if (!keepGoing) break;
+        if (item.action != PlannedItem::Action::Error) {
+            QVector<OpenSWMMVis::HeatPropertyEdit> edits;
+            for (auto it = item.attributeValues.cbegin(); it != item.attributeValues.cend(); ++it) {
+                const int attr = OpenSWMMVis::heatPropertyIndex(it.key());
+                if (attr >= 0)
+                    edits.append({attr, linkKind ? SWMM_HEAT_SCOPE_LINK : SWMM_HEAT_SCOPE_NODE,
+                                  item.name, it.value()});
+            }
+            QString error;
+            if (!edits.isEmpty() &&
+                !OpenSWMMVis::applyHeatPropertyEdits(
+                    m_target, edits, stack,
+                    tr("Assign heat properties from %1 to %2")
+                        .arg(m_source ? m_source->name() : tr("feature layer"), item.name),
+                    &error)) {
+                item.action = PlannedItem::Action::Error;
+                item.messages.append(error);
+            }
+        }
+        if (!keepGoing)
+            break;
     }
 
     stack->endMacro();
 
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                         QStringLiteral("feature-import"));
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QStringLiteral("feature-import"));
 
     result.recount();
     return result;

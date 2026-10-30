@@ -1,10 +1,12 @@
-/*!
- * \file   statusreportdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice GUI-2026-05-30 §6 — two-panel Report Viewer implementation.
+/**
+ * @file      statusreportdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice GUI-2026-05-30 §6 — two-panel Report Viewer implementation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/statusreportdialog.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/theme/iconfactory.h"
@@ -38,9 +40,11 @@
 #include <QTextEdit>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 // Section header lines in a SWMM .rpt are surrounded by runs of '*' or '-'.
 // Continuity-error fail line we want to mark in red:
@@ -54,26 +58,38 @@ constexpr double kContinuityErrorThresholdPct = 10.0;
 class RptSyntaxHighlighter final : public QSyntaxHighlighter
 {
 public:
-    explicit RptSyntaxHighlighter(QTextDocument *doc)
-        : QSyntaxHighlighter(doc)
+    /**
+     * @param[in] doc Document passed to Qt highlighter parent/binding; dialog supplies persistent
+     *   viewer document.
+     * @brief Initialize fixed header/divider/unit/error colors; document owns highlighter through
+     *   Qt. No theme-following connection.
+     */
+    explicit RptSyntaxHighlighter(QTextDocument *doc) : QSyntaxHighlighter(doc)
     {
         m_headerFmt.setForeground(QColor(0x1f, 0x4e, 0x79)); // muted accent blue
         m_headerFmt.setFontWeight(QFont::Bold);
 
         m_dividerFmt.setForeground(QColor(0x88, 0x88, 0x88));
 
-        m_unitsFmt.setForeground(QColor(0x4a, 0x7a, 0x4a));  // muted green
+        m_unitsFmt.setForeground(QColor(0x4a, 0x7a, 0x4a)); // muted green
 
         m_errorFmt.setForeground(QColor(0xb0, 0x1c, 0x00));
         m_errorFmt.setFontWeight(QFont::Bold);
     }
 
 protected:
+    /**
+     * @param[in] text Borrowed current document block, without line terminator.
+     * @brief Apply first matching divider/title/continuity format, otherwise mark supported
+     *   lowercase unit tokens.
+     * @note Title heuristic (nonspace start, less than 80 chars, no equals/double dot) precedes
+     *   continuity check. Signed continuity magnitude above 10 percent is red only if it reaches
+     *   that branch; no content changes.
+     */
     void highlightBlock(const QString &text) override
     {
         // Asterisk dividers and dash dividers — section delimiters.
-        static const QRegularExpression dividerRx(
-            QStringLiteral("^[\\*\\-]{3,}\\s*$"));
+        static const QRegularExpression dividerRx(QStringLiteral("^[\\*\\-]{3,}\\s*$"));
         if (dividerRx.match(text).hasMatch()) {
             setFormat(0, text.length(), m_dividerFmt);
             return;
@@ -83,11 +99,8 @@ protected:
         // starts at column 0 (no leading whitespace) and is shorter than
         // 80 chars as a candidate title.  Conservative heuristic that
         // catches the centred-title pattern in SWMM .rpt output.
-        if (!text.isEmpty()
-            && !text.startsWith(QLatin1Char(' '))
-            && text.length() < 80
-            && !text.trimmed().contains(QLatin1Char('=')))
-        {
+        if (!text.isEmpty() && !text.startsWith(QLatin1Char(' ')) && text.length() < 80 &&
+            !text.trimmed().contains(QLatin1Char('='))) {
             // Bias against pure tabular rows: titles rarely contain '...'.
             if (!text.contains(QStringLiteral(".."))) {
                 setFormat(0, text.length(), m_headerFmt);
@@ -114,8 +127,7 @@ protected:
         auto it = unitsRx.globalMatch(text);
         while (it.hasNext()) {
             const auto mu = it.next();
-            setFormat(int(mu.capturedStart()), int(mu.capturedLength()),
-                      m_unitsFmt);
+            setFormat(int(mu.capturedStart()), int(mu.capturedLength()), m_unitsFmt);
         }
     }
 
@@ -126,11 +138,19 @@ private:
     QTextCharFormat m_errorFmt;
 };
 
+/**
+ * @param[in] path File path used directly for read-only access.
+ * @param[in] errorOut Optional borrowed output assigned open error only; not cleared on success.
+ * @return Whole UTF-8 decoded file, CRLF/CR normalized to LF and trailing LF added when nonempty.
+ *   Empty on open failure or empty file; errorOut distinguishes only failed open. No size limit or
+ *   file writes.
+ */
 QString readReportText(const QString &path, QString *errorOut = nullptr)
 {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        if (errorOut) *errorOut = f.errorString();
+        if (errorOut)
+            *errorOut = f.errorString();
         return {};
     }
 
@@ -142,6 +162,10 @@ QString readReportText(const QString &path, QString *errorOut = nullptr)
     return text;
 }
 
+/**
+ * @param[in] sections Borrowed sections in desired order.
+ * @return Concatenated bodies verbatim with no extra separator/title/line-ending normalization.
+ */
 QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections)
 {
     QString text;
@@ -160,23 +184,31 @@ QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections
 class RptViewer : public QPlainTextEdit
 {
 public:
+    /**
+     * @param[in] parent Optional Qt owner; viewer owns its gutter.
+     * @brief Create live line-number gutter and connect block-count/update notifications to
+     *   viewport margins and gutter repaint/scroll. Caller configures read-only/no-wrap/font.
+     */
     explicit RptViewer(QWidget *parent = nullptr) : QPlainTextEdit(parent)
     {
         m_gutter = new Gutter(this);
-        connect(this, &QPlainTextEdit::blockCountChanged,
-                this, [this](int) { applyGutterWidth(); });
-        connect(this, &QPlainTextEdit::updateRequest,
-                this, [this](const QRect &r, int dy) {
-                    if (dy != 0)
-                        m_gutter->scroll(0, dy);
-                    else
-                        m_gutter->update(0, r.y(), m_gutter->width(), r.height());
-                    if (r.contains(viewport()->rect()))
-                        applyGutterWidth();
-                });
+        connect(this, &QPlainTextEdit::blockCountChanged, this,
+                [this](int) { applyGutterWidth(); });
+        connect(this, &QPlainTextEdit::updateRequest, this, [this](const QRect &r, int dy) {
+            if (dy != 0)
+                m_gutter->scroll(0, dy);
+            else
+                m_gutter->update(0, r.y(), m_gutter->width(), r.height());
+            if (r.contains(viewport()->rect()))
+                applyGutterWidth();
+        });
         applyGutterWidth();
     }
 
+    /**
+     * @return Logical-pixel width: 12 plus current digit-9 advance times decimal digits in max(1,
+     *   blockCount). No font or margin changes.
+     */
     [[nodiscard]] int gutterWidth() const
     {
         int digits = 1;
@@ -186,6 +218,11 @@ public:
     }
 
 protected:
+    /**
+     * @param[in] e Borrowed Qt resize event forwarded to base; do not retain.
+     * @brief Let plain-text editor resize, then place gutter across full contents height using
+     *   current width.
+     */
     void resizeEvent(QResizeEvent *e) override
     {
         QPlainTextEdit::resizeEvent(e);
@@ -197,17 +234,41 @@ private:
     class Gutter : public QWidget
     {
     public:
+        /**
+         * @param[in] v Required live parent viewer, retained raw; ownership is via QWidget parent.
+         * @brief Bind gutter paint and size calculations to its owning viewer.
+         */
         explicit Gutter(RptViewer *v) : QWidget(v), m_v(v) {}
-        [[nodiscard]] QSize sizeHint() const override
-        { return QSize(m_v->gutterWidth(), 0); }
+        /**
+         * @return Current viewer gutter width and zero preferred height; viewer controls actual
+         *   rectangle.
+         */
+        [[nodiscard]] QSize sizeHint() const override { return QSize(m_v->gutterWidth(), 0); }
+
     protected:
+        /**
+         * @param[in] e Borrowed repaint region forwarded to owning viewer for immediate drawing.
+         * @brief Paint line numbers through viewer; event is not retained or forwarded to QWidget
+         *   base.
+         */
         void paintEvent(QPaintEvent *e) override { m_v->paintGutter(e); }
+
     private:
         RptViewer *m_v;
     };
 
+    /**
+     * @brief Reserve current gutter width on left viewport margin; other margins set to zero. Does
+     *   not reposition gutter by itself.
+     */
     void applyGutterWidth() { setViewportMargins(gutterWidth(), 0, 0, 0); }
 
+    /**
+     * @param[in] e Borrowed update region in gutter coordinates; limits fill and visible block
+     *   iteration.
+     * @brief Draw right-aligned one-based document block numbers for intersecting visible lines
+     *   with current palette/font. No text mutations.
+     */
     void paintGutter(QPaintEvent *e)
     {
         QPainter p(m_gutter);
@@ -215,19 +276,16 @@ private:
         p.setPen(palette().color(QPalette::PlaceholderText));
 
         QTextBlock block = firstVisibleBlock();
-        int num    = block.blockNumber() + 1;
-        int top    = qRound(blockBoundingGeometry(block)
-                                .translated(contentOffset()).top());
+        int num = block.blockNumber() + 1;
+        int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
         int bottom = top + qRound(blockBoundingRect(block).height());
         const int w = m_gutter->width() - 6;
 
-        while (block.isValid() && top <= e->rect().bottom())
-        {
+        while (block.isValid() && top <= e->rect().bottom()) {
             if (block.isVisible() && bottom >= e->rect().top())
-                p.drawText(0, top, w, fontMetrics().height(),
-                           Qt::AlignRight, QString::number(num));
-            block  = block.next();
-            top    = bottom;
+                p.drawText(0, top, w, fontMetrics().height(), Qt::AlignRight, QString::number(num));
+            block = block.next();
+            top = bottom;
             bottom = top + qRound(blockBoundingRect(block).height());
             ++num;
         }
@@ -244,13 +302,12 @@ private:
 // ---------------------------------------------------------------------------
 
 StatusReportDialog::StatusReportDialog(const QString &rptPath, QWidget *parent)
-    : StatusReportDialog(QVector<ReportSource>{
-          { QFileInfo(rptPath).fileName(), rptPath } }, 0, parent)
+    : StatusReportDialog(QVector<ReportSource>{{QFileInfo(rptPath).fileName(), rptPath}}, 0, parent)
 {
 }
 
-StatusReportDialog::StatusReportDialog(const QVector<ReportSource> &sources,
-                                       int initialIndex, QWidget *parent)
+StatusReportDialog::StatusReportDialog(const QVector<ReportSource> &sources, int initialIndex,
+                                       QWidget *parent)
     : QDialog(parent), m_sources(sources)
 {
     // Iteration 2 (D3) — naming wires the app-wide layout persistence
@@ -285,20 +342,19 @@ void StatusReportDialog::buildUi()
         m_runCombo = new QComboBox(this);
         for (const auto &src : m_sources) {
             m_runCombo->addItem(src.label);
-            m_runCombo->setItemData(m_runCombo->count() - 1, src.path,
-                                    Qt::ToolTipRole);
+            m_runCombo->setItemData(m_runCombo->count() - 1, src.path, Qt::ToolTipRole);
         }
         runRow->addWidget(m_runCombo, 1);
         root->addLayout(runRow);
-        connect(m_runCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                this, [this](int idx) { loadReport(idx); });
+        connect(m_runCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [this](int idx) { loadReport(idx); });
     }
 
     // Continuity-error banner (text + visibility set per report in loadReport).
     m_continuityBanner = new QLabel(this);
     m_continuityBanner->setStyleSheet(
-        openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error)
-        + QStringLiteral(" padding: 6px; border-radius: 3px; font-weight: bold;"));
+        openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error) +
+        QStringLiteral(" padding: 6px; border-radius: 3px; font-weight: bold;"));
     m_continuityBanner->setWordWrap(true);
     m_continuityBanner->hide();
     root->addWidget(m_continuityBanner);
@@ -310,7 +366,7 @@ void StatusReportDialog::buildUi()
 
     // Left pane: filter + section list.
     auto *leftWrap = new QWidget(m_splitter);
-    auto *leftLay  = new QVBoxLayout(leftWrap);
+    auto *leftLay = new QVBoxLayout(leftWrap);
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->setSpacing(2);
 
@@ -334,7 +390,7 @@ void StatusReportDialog::buildUi()
 
     // Right pane: search row + text viewer.
     auto *rightWrap = new QWidget(m_splitter);
-    auto *rightLay  = new QVBoxLayout(rightWrap);
+    auto *rightLay = new QVBoxLayout(rightWrap);
     rightLay->setContentsMargins(0, 0, 0, 0);
     rightLay->setSpacing(2);
 
@@ -385,28 +441,22 @@ void StatusReportDialog::buildUi()
     root->addWidget(bb);
 
     // Wire signals.
-    connect(m_sectionFilter, &QLineEdit::textChanged,
-            this, &StatusReportDialog::onSectionFilterChanged);
-    connect(m_sectionList, &QListView::clicked,
-            this, &StatusReportDialog::onSectionActivated);
-    connect(m_sectionList, &QListView::activated,
-            this, &StatusReportDialog::onSectionActivated);
+    connect(m_sectionFilter, &QLineEdit::textChanged, this,
+            &StatusReportDialog::onSectionFilterChanged);
+    connect(m_sectionList, &QListView::clicked, this, &StatusReportDialog::onSectionActivated);
+    connect(m_sectionList, &QListView::activated, this, &StatusReportDialog::onSectionActivated);
 
-    connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &StatusReportDialog::onSearchChanged);
-    connect(m_searchEdit, &QLineEdit::returnPressed,
-            this, &StatusReportDialog::onSearchNext);
-    connect(btnNext, &QPushButton::clicked,
-            this, &StatusReportDialog::onSearchNext);
-    connect(btnPrev, &QPushButton::clicked,
-            this, &StatusReportDialog::onSearchPrev);
-    connect(m_regexToggle, &QCheckBox::toggled,
-            this, [this](bool){ updateMatchCounter(); });
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &StatusReportDialog::onSearchChanged);
+    connect(m_searchEdit, &QLineEdit::returnPressed, this, &StatusReportDialog::onSearchNext);
+    connect(btnNext, &QPushButton::clicked, this, &StatusReportDialog::onSearchNext);
+    connect(btnPrev, &QPushButton::clicked, this, &StatusReportDialog::onSearchPrev);
+    connect(m_regexToggle, &QCheckBox::toggled, this, [this](bool) { updateMatchCounter(); });
 }
 
 void StatusReportDialog::loadReport(int sourceIndex)
 {
-    if (sourceIndex < 0 || sourceIndex >= m_sources.size()) return;
+    if (sourceIndex < 0 || sourceIndex >= m_sources.size())
+        return;
     m_path = m_sources[sourceIndex].path;
     setWindowTitle(tr("Report Viewer — %1").arg(m_path));
 
@@ -427,29 +477,29 @@ void StatusReportDialog::loadReport(int sourceIndex)
         qint64 bytes = f.size();
         int fileLines = 0;
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            while (!f.atEnd()) { f.readLine(); ++fileLines; }
+            while (!f.atEnd()) {
+                f.readLine();
+                ++fileLines;
+            }
             f.close();
         }
-        qDebug().noquote()
-            << "[ReportViewer] load" << m_path
-            << "bytes=" << bytes << "fileLines=" << fileLines
-            << "rawChars=" << reportText.length()
-            << "sectionsParsed=" << sections.size()
-            << (err.isEmpty() ? QString() : QStringLiteral("parseErr=") + err)
-            << (rawErr.isEmpty() ? QString() : QStringLiteral("rawErr=") + rawErr);
+        qDebug().noquote() << "[ReportViewer] load" << m_path << "bytes=" << bytes
+                           << "fileLines=" << fileLines << "rawChars=" << reportText.length()
+                           << "sectionsParsed=" << sections.size()
+                           << (err.isEmpty() ? QString() : QStringLiteral("parseErr=") + err)
+                           << (rawErr.isEmpty() ? QString() : QStringLiteral("rawErr=") + rawErr);
     }
 
     if (sections.isEmpty() && reportText.isEmpty()) {
-        QMessageBox::warning(this, tr("Couldn't parse .rpt"),
-            tr("Could not read %1:\n%2").arg(
-                m_path, err.isEmpty() ? rawErr : err));
+        QMessageBox::warning(
+            this, tr("Couldn't parse .rpt"),
+            tr("Could not read %1:\n%2").arg(m_path, err.isEmpty() ? rawErr : err));
     }
 
     if (openswmmvis::io::RptParser::hasHighContinuityError(sections)) {
-        m_continuityBanner->setText(
-            tr("⚠ Continuity error above %1 % detected. "
-               "Check the Runoff / Routing Continuity sections.")
-                .arg(kContinuityErrorThresholdPct, 0, 'f', 0));
+        m_continuityBanner->setText(tr("⚠ Continuity error above %1 % detected. "
+                                       "Check the Runoff / Routing Continuity sections.")
+                                        .arg(kContinuityErrorThresholdPct, 0, 'f', 0));
         m_continuityBanner->show();
     } else {
         m_continuityBanner->hide();
@@ -458,9 +508,8 @@ void StatusReportDialog::loadReport(int sourceIndex)
     populateText(sections, reportText);
 }
 
-void StatusReportDialog::populateText(
-    const QVector<openswmmvis::io::RptSection> &sections,
-    const QString &reportText)
+void StatusReportDialog::populateText(const QVector<openswmmvis::io::RptSection> &sections,
+                                      const QString &reportText)
 {
     m_sectionsModel->removeRows(0, m_sectionsModel->rowCount());
 
@@ -501,14 +550,14 @@ void StatusReportDialog::populateText(
 
         // [ \t]*, not \s* — Qt's \s matches '\n', which would let a match start
         // on a blank line several lines above the warning it anchors on.
-        static const QRegularExpression noticeRx(
-            QStringLiteral("^[ \\t]*(?:WARNING|ERROR)\\b"),
-            QRegularExpression::MultilineOption);
+        static const QRegularExpression noticeRx(QStringLiteral("^[ \\t]*(?:WARNING|ERROR)\\b"),
+                                                 QRegularExpression::MultilineOption);
         int first = -1, count = 0;
         auto it = noticeRx.globalMatch(s.body);
         while (it.hasNext()) {
             const QRegularExpressionMatch m = it.next();
-            if (first < 0) first = int(m.capturedStart());
+            if (first < 0)
+                first = int(m.capturedStart());
             ++count;
         }
         if (first >= 0)
@@ -520,11 +569,10 @@ void StatusReportDialog::populateText(
 
     m_viewer->setPlainText(reportText);
 
-    qDebug().noquote()
-        << "[ReportViewer] populated chars=" << reportText.length()
-        << "sections=" << sections.size()
-        << "viewerBlocks=" << m_viewer->document()->blockCount()
-        << "viewerChars=" << m_viewer->document()->characterCount();
+    qDebug().noquote() << "[ReportViewer] populated chars=" << reportText.length()
+                       << "sections=" << sections.size()
+                       << "viewerBlocks=" << m_viewer->document()->blockCount()
+                       << "viewerChars=" << m_viewer->document()->characterCount();
 
     // Highlighter installed after text so the initial highlight applies.
     // Created once — it stays attached to the (persistent) document across
@@ -544,8 +592,7 @@ void StatusReportDialog::onSectionFilterChanged(const QString &text)
         return;
 
     const QStringList tokens =
-        text.split(QRegularExpression(QStringLiteral("[\\s\\-]+")),
-                   Qt::SkipEmptyParts);
+        text.split(QRegularExpression(QStringLiteral("[\\s\\-]+")), Qt::SkipEmptyParts);
     if (tokens.isEmpty()) {
         m_sectionsProxy->setFilterRegularExpression(QRegularExpression());
         return;
@@ -564,10 +611,12 @@ void StatusReportDialog::onSectionFilterChanged(const QString &text)
 
 void StatusReportDialog::onSectionActivated(const QModelIndex &proxyIdx)
 {
-    if (!proxyIdx.isValid() || !m_sectionsProxy) return;
+    if (!proxyIdx.isValid() || !m_sectionsProxy)
+        return;
     const QModelIndex src = m_sectionsProxy->mapToSource(proxyIdx);
     const int row = src.row();
-    if (row < 0 || row >= m_sectionAnchors.size()) return;
+    if (row < 0 || row >= m_sectionAnchors.size())
+        return;
     const int pos = m_sectionAnchors[row];
     QTextCursor c = m_viewer->textCursor();
     c.setPosition(pos);
@@ -597,8 +646,14 @@ void StatusReportDialog::onSearchChanged()
     updateMatchCounter();
 }
 
-void StatusReportDialog::onSearchNext() { runFind(false); }
-void StatusReportDialog::onSearchPrev() { runFind(true); }
+void StatusReportDialog::onSearchNext()
+{
+    runFind(false);
+}
+void StatusReportDialog::onSearchPrev()
+{
+    runFind(true);
+}
 
 void StatusReportDialog::runFind(bool backwards)
 {
@@ -609,7 +664,8 @@ void StatusReportDialog::runFind(bool backwards)
     }
 
     QTextDocument::FindFlags flags;
-    if (backwards) flags |= QTextDocument::FindBackward;
+    if (backwards)
+        flags |= QTextDocument::FindBackward;
 
     bool found = false;
     if (m_regexToggle->isChecked()) {
@@ -664,7 +720,10 @@ void StatusReportDialog::updateMatchCounter()
             return;
         }
         auto it = rx.globalMatch(body);
-        while (it.hasNext()) { it.next(); ++count; }
+        while (it.hasNext()) {
+            it.next();
+            ++count;
+        }
     } else {
         int from = 0;
         while ((from = body.indexOf(needle, from, Qt::CaseInsensitive)) >= 0) {

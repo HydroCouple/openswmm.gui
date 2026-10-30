@@ -1,13 +1,17 @@
-/*!
- * \file   plotvariablepickerdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      plotvariablepickerdialog.cpp
+ * @brief     Series toolbar action's dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/plotvariablepickerdialog.h"
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -15,41 +19,55 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using namespace openswmmvis::plot;
 
-namespace {
+namespace
+{
 
 // Leaf payload roles (mirrors the seriestree convention: enums as ints).
-constexpr int kRoleAttr = Qt::UserRole;      ///< int(PlotAttribute)
-constexpr int kRoleKind = Qt::UserRole + 1;  ///< int(ObjectRef::Kind)
-constexpr int kRoleName = Qt::UserRole + 2;  ///< object name (unused for System)
+constexpr int kRoleAttr = Qt::UserRole;        ///< int(PlotAttribute)
+constexpr int kRoleKind = Qt::UserRole + 1;    ///< int(ObjectRef::Kind)
+constexpr int kRoleName = Qt::UserRole + 2;    ///< object name (unused for System)
+constexpr int kRoleSpecies = Qt::UserRole + 3; ///< species NAME (Y2b-2); empty for fixed attrs
 
+/**
+ * @param[in] ref Read-only identity; kind and name inspected, no source resolution.
+ * @return Translated Node/Link/Subcatchment prefix with raw name, otherwise raw name alone. No
+ *   species/unit formatting or mutation.
+ */
 QString groupLabelFor(const ObjectRef &ref)
 {
     switch (ref.kind) {
-    case ObjectRef::Kind::Node:     return QObject::tr("Node %1").arg(ref.name);
-    case ObjectRef::Kind::Link:     return QObject::tr("Link %1").arg(ref.name);
-    case ObjectRef::Kind::Subcatch: return QObject::tr("Subcatchment %1").arg(ref.name);
-    default:                        return ref.name;
+    case ObjectRef::Kind::Node:
+        return QObject::tr("Node %1").arg(ref.name);
+    case ObjectRef::Kind::Link:
+        return QObject::tr("Link %1").arg(ref.name);
+    case ObjectRef::Kind::Subcatch:
+        return QObject::tr("Subcatchment %1").arg(ref.name);
+    default:
+        return ref.name;
     }
 }
 
+/**
+ * @param[in] item Required borrowed tree item, no null guard.
+ * @return True only if zero children and both ItemIsUserCheckable/ItemIsEnabled flags. Visibility
+ *   and current check state deliberately ignored; caller filters hidden separately.
+ */
 bool isCheckableLeaf(const QTreeWidgetItem *item)
 {
-    return item->childCount() == 0 &&
-           (item->flags() & Qt::ItemIsUserCheckable) &&
+    return item->childCount() == 0 && (item->flags() & Qt::ItemIsUserCheckable) &&
            (item->flags() & Qt::ItemIsEnabled);
 }
 
 } // namespace
 
-PlotVariablePickerDialog::PlotVariablePickerDialog(
-    const QVector<ObjectRef> &features,
-    const IRunLayer *availability,
-    UnitSystem units,
-    QWidget *parent)
+PlotVariablePickerDialog::PlotVariablePickerDialog(const QVector<ObjectRef> &features,
+                                                   const IRunLayer *availability, UnitSystem units,
+                                                   QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Plot Variables"));
@@ -68,33 +86,34 @@ PlotVariablePickerDialog::PlotVariablePickerDialog(
     m_tree = new QTreeWidget(this);
     m_tree->setObjectName(QStringLiteral("variableTree"));
     m_tree->setHeaderHidden(true);
+    // Bind the label column to the panel's available width in both directions.
+    m_tree->header()->setStretchLastSection(false);
+    m_tree->header()->setSectionResizeMode(QHeaderView::Stretch);
     m_tree->setSelectionMode(QAbstractItemView::NoSelection);
     m_tree->setUniformRowHeights(true);
     root->addWidget(m_tree, 1);
 
     auto *btnRow = new QHBoxLayout();
-    auto *allBtn    = new QPushButton(tr("Select &All"),  this);
-    auto *noneBtn   = new QPushButton(tr("Select &None"), this);
-    auto *invertBtn = new QPushButton(tr("&Invert"),      this);
+    auto *allBtn = new QPushButton(tr("Select &All"), this);
+    auto *noneBtn = new QPushButton(tr("Select &None"), this);
+    auto *invertBtn = new QPushButton(tr("&Invert"), this);
     btnRow->addWidget(allBtn);
     btnRow->addWidget(noneBtn);
     btnRow->addWidget(invertBtn);
     btnRow->addStretch();
     root->addLayout(btnRow);
 
-    m_buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     root->addWidget(m_buttons);
 
     buildTree(features, availability, units);
 
-    connect(allBtn,    &QPushButton::clicked, this, [this]{ setAllChecked(true);  });
-    connect(noneBtn,   &QPushButton::clicked, this, [this]{ setAllChecked(false); });
-    connect(invertBtn, &QPushButton::clicked, this, [this]{ invertChecked();      });
-    connect(m_filter,  &QLineEdit::textChanged,
-            this, &PlotVariablePickerDialog::applyFilter);
-    connect(m_tree, &QTreeWidget::itemChanged,
-            this, [this](QTreeWidgetItem *, int){ updateOkEnabled(); });
+    connect(allBtn, &QPushButton::clicked, this, [this] { setAllChecked(true); });
+    connect(noneBtn, &QPushButton::clicked, this, [this] { setAllChecked(false); });
+    connect(invertBtn, &QPushButton::clicked, this, [this] { invertChecked(); });
+    connect(m_filter, &QLineEdit::textChanged, this, &PlotVariablePickerDialog::applyFilter);
+    connect(m_tree, &QTreeWidget::itemChanged, this,
+            [this](QTreeWidgetItem *, int) { updateOkEnabled(); });
     connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -102,10 +121,8 @@ PlotVariablePickerDialog::PlotVariablePickerDialog(
     updateOkEnabled();
 }
 
-void PlotVariablePickerDialog::addAttributeLeaf(QTreeWidgetItem *group,
-                                                const ObjectRef &ref,
-                                                PlotAttribute attr,
-                                                const IRunLayer *availability,
+void PlotVariablePickerDialog::addAttributeLeaf(QTreeWidgetItem *group, const ObjectRef &ref,
+                                                PlotAttribute attr, const IRunLayer *availability,
                                                 UnitSystem units)
 {
     auto *leaf = new QTreeWidgetItem(group);
@@ -121,48 +138,69 @@ void PlotVariablePickerDialog::addAttributeLeaf(QTreeWidgetItem *group,
     }
 }
 
+void PlotVariablePickerDialog::addDescriptorLeaf(QTreeWidgetItem *group, const ObjectRef &ref,
+                                                 const ResultDescriptor &d,
+                                                 const IRunLayer *availability, UnitSystem units)
+{
+    if (!d.isSpecies()) {
+        addAttributeLeaf(group, ref, d.attr, availability, units);
+        return;
+    }
+    // A species leaf (Y2b-2): labelled and united by the Y2a authorities
+    // (age reads hours, never mg/L) and keyed by NAME (D-G1).
+    auto *leaf = new QTreeWidgetItem(group);
+    leaf->setText(0, QStringLiteral("%1 (%2)").arg(d.label(), d.unitLabel(units)));
+    leaf->setData(0, kRoleAttr, static_cast<int>(PlotAttribute::Unknown));
+    leaf->setData(0, kRoleKind, static_cast<int>(ref.kind));
+    leaf->setData(0, kRoleName, ref.name);
+    leaf->setData(0, kRoleSpecies, d.species);
+    leaf->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+    leaf->setCheckState(0, Qt::Unchecked);
+}
+
 void PlotVariablePickerDialog::buildTree(const QVector<ObjectRef> &features,
-                                         const IRunLayer *availability,
-                                         UnitSystem units)
+                                         const IRunLayer *availability, UnitSystem units)
 {
     const QSignalBlocker blocker(m_tree);
 
     auto *sysGroup = new QTreeWidgetItem(m_tree);
     sysGroup->setText(0, tr("System Variables"));
-    sysGroup->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable |
-                       Qt::ItemIsAutoTristate);
+    sysGroup->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
     sysGroup->setCheckState(0, Qt::Unchecked);
     for (PlotAttribute a : systemPlotAttributes())
-        addAttributeLeaf(sysGroup, ObjectRef::forSystem(), a,
-                         availability, units);
+        addAttributeLeaf(sysGroup, ObjectRef::forSystem(), a, availability, units);
 
     for (const ObjectRef &ref : features) {
-        const QVector<PlotAttribute> &attrs = attributesForKind(ref.kind);
-        if (attrs.isEmpty()) continue;
+        // Y2b-2: the run decides what is plottable — the fixed set plus
+        // any species the open .out carries. With no availability layer
+        // the fixed set alone appears (a legacy run's behaviour).
+        const QVector<ResultDescriptor> descriptors =
+            availability ? availability->resultDescriptorsForKind(ref.kind)
+                         : resultDescriptorsForKind(ref.kind, QStringList());
+        if (descriptors.isEmpty())
+            continue;
         auto *group = new QTreeWidgetItem(m_tree);
         group->setText(0, groupLabelFor(ref));
-        group->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable |
-                        Qt::ItemIsAutoTristate);
+        group->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
         group->setCheckState(0, Qt::Unchecked);
-        for (PlotAttribute a : attrs)
-            addAttributeLeaf(group, ref, a, availability, units);
+        for (const ResultDescriptor &d : descriptors)
+            addDescriptorLeaf(group, ref, d, availability, units);
     }
 }
 
-QVector<PlotVariablePickerDialog::Entry>
-PlotVariablePickerDialog::checkedEntries() const
+QVector<PlotVariablePickerDialog::Entry> PlotVariablePickerDialog::checkedEntries() const
 {
     QVector<Entry> out;
     for (int g = 0; g < m_tree->topLevelItemCount(); ++g) {
         const QTreeWidgetItem *group = m_tree->topLevelItem(g);
         for (int i = 0; i < group->childCount(); ++i) {
             const QTreeWidgetItem *leaf = group->child(i);
-            if (leaf->checkState(0) != Qt::Checked) continue;
+            if (leaf->checkState(0) != Qt::Checked)
+                continue;
             Entry e;
-            e.attribute = static_cast<PlotAttribute>(
-                leaf->data(0, kRoleAttr).toInt());
-            const auto kind = static_cast<ObjectRef::Kind>(
-                leaf->data(0, kRoleKind).toInt());
+            e.attribute = static_cast<PlotAttribute>(leaf->data(0, kRoleAttr).toInt());
+            e.species = leaf->data(0, kRoleSpecies).toString();
+            const auto kind = static_cast<ObjectRef::Kind>(leaf->data(0, kRoleKind).toInt());
             e.ref = (kind == ObjectRef::Kind::System)
                         ? ObjectRef::forSystem()
                         : ObjectRef(kind, leaf->data(0, kRoleName).toString());
@@ -194,8 +232,8 @@ void PlotVariablePickerDialog::invertChecked()
         for (int i = 0; i < group->childCount(); ++i) {
             QTreeWidgetItem *leaf = group->child(i);
             if (isCheckableLeaf(leaf) && !leaf->isHidden())
-                leaf->setCheckState(0, leaf->checkState(0) == Qt::Checked
-                                           ? Qt::Unchecked : Qt::Checked);
+                leaf->setCheckState(0, leaf->checkState(0) == Qt::Checked ? Qt::Unchecked
+                                                                          : Qt::Checked);
         }
     }
     updateOkEnabled();
@@ -207,13 +245,12 @@ void PlotVariablePickerDialog::applyFilter(const QString &text)
     for (int g = 0; g < m_tree->topLevelItemCount(); ++g) {
         QTreeWidgetItem *group = m_tree->topLevelItem(g);
         // A group whose title matches shows all of its children.
-        const bool groupHit = needle.isEmpty() ||
-            group->text(0).contains(needle, Qt::CaseInsensitive);
+        const bool groupHit =
+            needle.isEmpty() || group->text(0).contains(needle, Qt::CaseInsensitive);
         bool anyChildVisible = false;
         for (int i = 0; i < group->childCount(); ++i) {
             QTreeWidgetItem *leaf = group->child(i);
-            const bool hit = groupHit ||
-                leaf->text(0).contains(needle, Qt::CaseInsensitive);
+            const bool hit = groupHit || leaf->text(0).contains(needle, Qt::CaseInsensitive);
             leaf->setHidden(!hit);
             anyChildVisible = anyChildVisible || hit;
         }
@@ -224,7 +261,8 @@ void PlotVariablePickerDialog::applyFilter(const QString &text)
 void PlotVariablePickerDialog::updateOkEnabled()
 {
     QPushButton *ok = m_buttons->button(QDialogButtonBox::Ok);
-    if (!ok) return;
+    if (!ok)
+        return;
     bool anyChecked = false;
     for (int g = 0; g < m_tree->topLevelItemCount() && !anyChecked; ++g) {
         const QTreeWidgetItem *group = m_tree->topLevelItem(g);

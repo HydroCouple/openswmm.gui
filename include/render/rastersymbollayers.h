@@ -1,9 +1,9 @@
-/*!
- * \file   rastersymbollayers.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Typed accessors for Raster + TIN Symbol Layers (Slice Z.6).
+/**
+ * @file      rastersymbollayers.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Typed accessors for Raster + TIN Symbol Layers (Slice Z.6).
  *
  *         The Rule Model packages raster + TIN paint passes as Symbol
  *         Layers — see RENDERING_RULE_MODEL_PLAN.md §6.4. Five typed
@@ -25,6 +25,7 @@
  *         contour generator, AZ.3 mesh edges) is the named Z.6a
  *         follow-up — those existing code paths consume the specs
  *         unchanged once a Rule-aware paint host calls them.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_RASTERSYMBOLLAYERS_H
@@ -62,17 +63,25 @@ namespace OpenSWMM::Render
  *          - "noDataColor" → QColor
  *          - "opacity"     → qreal in [0,1]
  */
-struct RasterColorRampSymbolLayerSpec
-{
+struct RasterColorRampSymbolLayerSpec {
     RasterColorRamp ramp;
-    IntervalBinner  binner;
-    qreal           clampMin    = 0.0;
-    qreal           clampMax    = 1.0;
-    QColor          noDataColor = QColor(0, 0, 0, 0);
-    qreal           opacity     = 1.0;
+    IntervalBinner binner;
+    qreal clampMin = 0.0;
+    qreal clampMax = 1.0;
+    QColor noDataColor = QColor(0, 0, 0, 0);
+    qreal opacity = 1.0;
 
+    /** @brief Build a fresh RasterColorRamp symbol layer from this specification.
+     * Ramp and binner are stored as compact JSON strings. Clamp endpoints remain raw; opacity is clamped to [0,1].
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Missing properties retain fresh-spec defaults. Nonempty JSON objects are delegated to the ramp/binner readers; malformed, empty or nonobject JSON uses defaults. Present clamp endpoints use unchecked QVariant::toDouble(); opacity is clamped to [0,1]. Colors accept QColor or legacy strings through SymbolProps::readColor(). */
     [[nodiscard]] static RasterColorRampSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to RasterColorRamp and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Ramp and binner are stored as compact JSON strings. Clamp endpoints remain raw; opacity is clamped to [0,1]. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 
@@ -95,23 +104,31 @@ struct RasterColorRampSymbolLayerSpec
  *        (azimuth 315° NW, altitude 45°) so a fresh Rule equals what
  *        the legacy Mesh tab currently paints.
  */
-struct HillshadeSymbolLayerSpec
-{
-    qreal   azimuthDeg     = 315.0;
-    qreal   altitudeDeg    = 45.0;
-    qreal   zExaggeration  = 1.0;
-    qreal   shadowFloor    = 0.2;
-    QString blendMode      = QStringLiteral("Multiply");
+struct HillshadeSymbolLayerSpec {
+    qreal azimuthDeg = 315.0;
+    qreal altitudeDeg = 45.0;
+    qreal zExaggeration = 1.0;
+    qreal shadowFloor = 0.2;
+    QString blendMode = QStringLiteral("Multiply");
 
     /*! Slice Z.6a — multiplier on shading intensity in [0, 1]. Distinct
      *  from shadowFloor: 0.0 disables shading entirely (everything fully
      *  lit); 1.0 applies the full normal-dot-light effect. Mirrors the
      *  legacy MeshFillStyle::hillshadeStrength field 1:1 so the paint
      *  integration preserves the existing default look. */
-    qreal   strength       = 0.5;
+    qreal strength = 0.5;
 
+    /** @brief Build a fresh Hillshade symbol layer from this specification.
+     * Angles in degrees and vertical exaggeration are stored without normalization; shadowFloor and strength are clamped to [0,1]. The blend token is stored verbatim.
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Missing properties retain fresh-spec defaults. Present numbers use unchecked QVariant::toDouble(); only shadowFloor and strength are clamped to [0,1]. A nonempty blend token is accepted verbatim. Azimuth/altitude ranges and nonnegative exaggeration are not enforced. */
     [[nodiscard]] static HillshadeSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to Hillshade and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Angles in degrees and vertical exaggeration are stored without normalization; shadowFloor and strength are clamped to [0,1]. The blend token is stored verbatim. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 
@@ -124,12 +141,18 @@ struct HillshadeSymbolLayerSpec
  * \brief What a contour Symbol Layer paints.
  */
 enum class ContourMode : int {
-    Lines  = 0,   /*!< Iso-lines only. */
-    Filled = 1,   /*!< Filled isobands only (no lines). */
-    Both   = 2    /*!< Lines stacked on top of filled bands. */
+    Lines = 0,  /*!< Iso-lines only. */
+    Filled = 1, /*!< Filled isobands only (no lines). */
+    Both = 2    /*!< Lines stacked on top of filled bands. */
 };
 
+/** @brief Encode the contour mode as a stable lowercase token.
+ * @param m Mode to encode; an unrecognized integer produces "lines".
+ * @return "lines", "filled" or "both". */
 [[nodiscard]] QString contourModeToString(ContourMode m);
+/** @brief Decode an exact lowercase contour token.
+ * @param s Case-sensitive token; whitespace is not trimmed.
+ * @return Matching enum, or Lines for any unknown token. */
 [[nodiscard]] ContourMode contourModeFromString(const QString &s);
 
 /*!
@@ -151,15 +174,14 @@ enum class ContourMode : int {
  *        engine. The format string above is the minimum needed for
  *        per-iso-value text; richer styling lands in a follow-up.
  */
-struct ContourSymbolLayerSpec
-{
-    ContourMode      mode         = ContourMode::Lines;
-    IntervalBinner   binner;
-    RasterColorRamp  ramp;
-    QColor           lineColor    = QColor(40, 40, 40);
-    qreal            lineWidthPx  = 0.75;
-    int              labelEveryN  = 0;
-    QString          labelFormat  = QStringLiteral("%.1f");
+struct ContourSymbolLayerSpec {
+    ContourMode mode = ContourMode::Lines;
+    IntervalBinner binner;
+    RasterColorRamp ramp;
+    QColor lineColor = QColor(40, 40, 40);
+    qreal lineWidthPx = 0.75;
+    int labelEveryN = 0;
+    QString labelFormat = QStringLiteral("%.1f");
 
     /*! Slice Z.6a — when true (default), filled isobands sample the
      *  ramp continuously between low and high (smooth gradient). When
@@ -167,10 +189,19 @@ struct ContourSymbolLayerSpec
      *  centroid (categorical look). Mirrors the legacy
      *  ContourBandStyle::smoothBands toggle so the paint integration
      *  preserves both visual modes. */
-    bool             smoothBands  = true;
+    bool smoothBands = true;
 
+    /** @brief Build a fresh Contour symbol layer from this specification.
+     * Mode is stored as its integer, ramp/binner as compact JSON strings, and remaining fields verbatim, including pixel width and label frequency/format.
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Missing properties retain fresh-spec defaults. Present numbers and booleans use unchecked QVariant conversions; the mode integer is not validated. Empty labelFormat retains the default; nonempty strings are not checked as printf formats. Ramp/binner use defaults for absent, malformed, empty or nonobject JSON; colors use the tolerant SymbolProps reader. Width, frequency and break ranges are not validated. */
     [[nodiscard]] static ContourSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to Contour and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Mode is stored as its integer, ramp/binner as compact JSON strings, and remaining fields verbatim, including pixel width and label frequency/format. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 
@@ -191,26 +222,37 @@ struct ContourSymbolLayerSpec
  *                              keep fps stable on million-triangle
  *                              meshes; 0 disables decimation)
  */
-struct MeshEdgeSymbolLayerSpec
-{
-    QColor       color      = QColor(80, 80, 80);
-    qreal        width      = 0.5;
-    Qt::PenStyle penStyle   = Qt::SolidLine;
-    int          lodMinZoom = 0;
+struct MeshEdgeSymbolLayerSpec {
+    QColor color = QColor(80, 80, 80);
+    qreal width = 0.5;
+    Qt::PenStyle penStyle = Qt::SolidLine;
+    int lodMinZoom = 0;
 
     /*! Slice Z.6a — slope-driven width emphasis. When `useSlopeDrivenWidth`
      *  is true, edges whose normalised slope exceeds `slopeBreak` paint
      *  at `wideWidthPx` with `wideColor` instead of the base width/color.
      *  Mirrors the legacy MeshEdgeStyle slope fields so the paint
      *  integration preserves the existing wireframe look. */
-    bool         useSlopeDrivenWidth = false;
-    qreal        slopeBreak          = 0.5;
-    qreal        wideWidthPx         = 1.5;
-    QColor       wideColor           = QColor(40, 40, 40);
+    bool useSlopeDrivenWidth = false;
+    qreal slopeBreak = 0.5;
+    qreal wideWidthPx = 1.5;
+    QColor wideColor = QColor(40, 40, 40);
 
+    /** @brief Build the base wireframe pen from color, width and penStyle.
+     * @return Noncosmetic QPen; width is passed directly to Qt. LOD and slope
+     * emphasis fields are not applied, and invalid values follow Qt behavior. */
     [[nodiscard]] QPen toQPen() const;
+    /** @brief Build a fresh MeshEdge symbol layer from this specification.
+     * Colors, pixel widths, pen-style integer, LOD threshold and slope-emphasis fields are copied without clamping or enum validation.
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Missing properties retain fresh-spec defaults. Colors use the tolerant SymbolProps reader; other present values use unchecked QVariant conversions. Widths, LOD threshold, pen-style integer and normalized slope break are not validated. */
     [[nodiscard]] static MeshEdgeSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to MeshEdge and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Colors, pixel widths, pen-style integer, LOD threshold and slope-emphasis fields are copied without clamping or enum validation. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 
@@ -231,12 +273,20 @@ struct MeshEdgeSymbolLayerSpec
  *        (`shape`, `size`, `fillColor`, `outlineColor`, `outlineWidth`,
  *         `outlinePenStyle`, `rotationDeg`, `offsetX`, `offsetY`).
  */
-struct MeshNodeSymbolLayerSpec
-{
+struct MeshNodeSymbolLayerSpec {
     MarkerSymbolLayerSpec marker;
 
+    /** @brief Build a fresh MeshNode symbol layer from this specification.
+     * Delegates all marker properties to MarkerSymbolLayerSpec::writeToSymbolLayer(), then changes the kind to MeshNode.
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Delegates all properties to MarkerSymbolLayerSpec::fromSymbolLayer(), including its defaults, conversion and clamping rules. Does not require the input kind to be MeshNode. */
     [[nodiscard]] static MeshNodeSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to MeshNode and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Delegates all marker properties to MarkerSymbolLayerSpec::writeToSymbolLayer(), then changes the kind to MeshNode. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 
@@ -265,18 +315,26 @@ struct MeshNodeSymbolLayerSpec
  *          - "dryDepthCutoff"           → qreal (m; below this depth
  *                                          no arrow is drawn)
  */
-struct VelocityVectorSymbolLayerSpec
-{
-    qreal  glyphLengthScalePxPerMps = 20.0;
-    qreal  glyphLengthMinPx         = 4.0;
-    qreal  glyphLengthMaxPx         = 40.0;
-    qreal  glyphSpacingPx           = 30.0;
-    qreal  headSizePx               = 5.0;
-    QColor color                    = QColor(20, 20, 20, 220);
-    qreal  dryDepthCutoff           = 0.01;
+struct VelocityVectorSymbolLayerSpec {
+    qreal glyphLengthScalePxPerMps = 20.0;
+    qreal glyphLengthMinPx = 4.0;
+    qreal glyphLengthMaxPx = 40.0;
+    qreal glyphSpacingPx = 30.0;
+    qreal headSizePx = 5.0;
+    QColor color = QColor(20, 20, 20, 220);
+    qreal dryDepthCutoff = 0.01;
 
+    /** @brief Build a fresh VectorGlyph symbol layer from this specification.
+     * Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (metres) and color verbatim; no clamping is applied.
+     * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
+    /** @brief Read this paint specification from a property map.
+     * @param layer Borrowed layer; its kind and unrelated properties are ignored.
+     * @return Independent specification. Missing properties retain fresh-spec defaults. Present numeric properties use unchecked QVariant::toDouble(); color uses the tolerant SymbolProps reader. Lengths, spacing and depth cutoff are not validated or reordered. */
     [[nodiscard]] static VelocityVectorSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
+    /** @brief Set the layer kind to VectorGlyph and write this spec's canonical properties.
+     * @param[in,out] layer Destination; unrelated property keys and other layer metadata
+     * are retained. Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (metres) and color verbatim; no clamping is applied. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 

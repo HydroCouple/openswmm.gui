@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_rangeslider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_rangeslider.cpp
+ * @brief     Tests for comparisonplot rangeslider.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.3 — pins RangeSliderWidget's public API + invariants:
  *   - setRange clamps to [0..1] and reorders so lo ≤ hi
@@ -11,7 +12,9 @@
  *   - mouse-drag of either thumb cannot cross the other thumb
  *
  * Self-contained: only links rangeslider.cpp + Qt6 Widgets.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/rangeslider.h"
 
 #include <QObject>
@@ -24,10 +27,40 @@ class TestComparisonPlotRangeSlider : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Pin the initial normalized interval to [0,1].
+     *
+     */
     void defaultRangeIsFull();
+    /**
+     *
+     * @brief Require endpoint clamping to [0,1] and sorting of reversed valid bounds.
+     *
+     */
     void setRangeClampsAndOrders();
+    /**
+     *
+     * @brief Require one signal for each distinct range, silence on a repeat and exact final
+     * lower/upper payloads.
+     *
+     */
     void rangeChangedFiresOnlyOnChange();
+    /**
+     *
+     * @brief Require keyboard shifts to preserve ordering, Shift-right to move by more than 0.04
+     * and at least three range signals.
+     * Ordinary right checks allow the original bounds within tolerance; exact one-percent
+     * step and mouse-thumb crossing are not asserted by this case.
+     *
+     */
     void arrowKeyNudgePreservesOrder();
+    /**
+     *
+     * @brief Require Home/End to shift the fixed-width interval against zero/one without resizing
+     * it.
+     *
+     */
     void homeAndEndShiftWindow();
 };
 
@@ -85,8 +118,8 @@ void TestComparisonPlotRangeSlider::arrowKeyNudgePreservesOrder()
 
     QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
     QCoreApplication::sendEvent(&s, &right);
-    QVERIFY(s.lo() < s.hi());                 // ordering preserved
-    QVERIFY(s.lo() > 0.4 - 1e-9);             // shifted right by ~1%
+    QVERIFY(s.lo() < s.hi());     // ordering preserved
+    QVERIFY(s.lo() > 0.4 - 1e-9); // shifted right by ~1%
     QVERIFY(s.hi() > 0.6 - 1e-9);
 
     QKeyEvent left(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier);
@@ -97,7 +130,7 @@ void TestComparisonPlotRangeSlider::arrowKeyNudgePreservesOrder()
     const qreal preShiftLo = s.lo();
     QKeyEvent shiftRight(QEvent::KeyPress, Qt::Key_Right, Qt::ShiftModifier);
     QCoreApplication::sendEvent(&s, &shiftRight);
-    QVERIFY(s.lo() - preShiftLo > 0.04);      // moved by ≥4% (5% requested)
+    QVERIFY(s.lo() - preShiftLo > 0.04); // moved by ≥4% (5% requested)
 
     QVERIFY(spy.count() >= 3);
 }

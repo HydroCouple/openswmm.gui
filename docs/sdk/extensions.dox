@@ -1,0 +1,1537 @@
+/**
+ * @file extensions.dox
+ * @brief Author guide for the OpenSWMM GUI extension SDK.
+ * @author Caleb Buahin <caleb.buahin@gmail.com>
+ * @date 2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license GPL-3.0-or-later
+ *
+ * @page gui_extension_sdk GUI Extensions
+ *
+ * @section sdk_overview Purpose and module boundaries
+ *
+ * The SDK, native loader and host adapters are part of the openswmm.gui
+ * repository and its GUI documentation. Individual plugins may live in
+ * separate repositories and consume the installed SDK; the infrastructure
+ * does not require a separate repository. See @ref manual_extensions for
+ * installing and using plugins in the application.
+ *
+ * Native Qt plugins extend the running GUI through the header-only
+ * OpenSWMM::Sdk interfaces. Plugins link Qt and OpenSWMMVis::Sdk; they do not
+ * link the GUI executable or include SWMMVis, SWMMModelLayer, MapCanvas, or
+ * other private GUI headers. Engine access uses the host's existing engine
+ * image through a scoped lease. Never load a second engine image and pass
+ * handles between those images.
+ *
+ * Public files live in include/sdk/. Private discovery, host services and
+ * model adapters live under include/plugins/ and src/plugins/.
+ * src/swmmvisextensions.cpp supplies the application-specific action/ribbon
+ * bridges. ProjectSerializer stores extension state alongside ordinary
+ * project settings. The independently configured example is in
+ * examples/extensions/template/.
+ * The public API is in OpenSWMM::Sdk. The private implementation includes
+ * openswmmvis::ExtensionManager, openswmmvis::GuiExtensionHost and
+ * openswmmvis::ExtensionNetwork; their class and file references are included
+ * in the same GUI documentation build.
+ *
+ * @section sdk_file_map Source file map
+ *
+ * File | Responsibility
+ * --- | ---
+ * sdk/Version.hpp | Version constants and owning compatibility manifest serialization.
+ * sdk/IGuiExtension.hpp | Qt plugin root interface, metadata and lifecycle contract.
+ * sdk/ExtensionHost.hpp | Scoped service access, notifications, console and jobs.
+ * sdk/IModelEvents.hpp | Frozen synchronous typed observations, filters and scoped connection ownership.
+ * sdk/qt/EventSignalAdapter.hpp | Optional consumer-local Qt signals for the IModelEvents observations.
+ * sdk/ISessionEvents.hpp | Authoritative session identities, readiness, revision snapshots and save lifecycle.
+ * sdk/IViewEvents.hpp | Copied model/layer/results view metadata and deferred domain invalidations.
+ * sdk/IViewControls.hpp | Validated layer/result commands and paged vector selection queries.
+ * sdk/qt/ViewSignalAdapter.hpp | Optional consumer-local Qt signals for IViewEvents observations.
+ * sdk/IActivityEvents.hpp | Unique process attempts, retained activity snapshots and scoped UI invalidations.
+ * sdk/IActivityControls.hpp | Identity-checked run start/cancellation and document/dock/command controls.
+ * sdk/ITimeSeriesLayers.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
+ * sdk/IProgress.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
+ * sdk/IPreviewLayers.hpp | SDK 1.8 native preview-layer attachment and feature-order FIDs for selection sync.
+ * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for IActivityEvents process and UI observations.
+ * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
+ * sdk/ISettings.hpp | Extension-specific persistent preferences.
+ * sdk/IModelInstance.hpp | Model identity, selection, attributes, results and edit entry points.
+ * sdk/IProject.hpp | Project state, recovery saves, CRS, loaded layers and spatial previews.
+ * sdk/IEngineLease.hpp | Shared/exclusive borrowed engine access.
+ * sdk/INativeEditScope.hpp | Native snapshot transaction and rollback contract.
+ * sdk/IEditScope.hpp | Mediated authored edits and forcing imports.
+ * sdk/IApplicationServices.hpp | Normal simulation, plot and built-in dialog adapters.
+ * sdk/INetworkPolicy.hpp | Policy-enforcing shared HTTP client contract.
+ * sdk/IAttributeProvider.hpp | Existing provider interface, preserved IID and SDK alias.
+ * sdk/IComputedAttributeProvider.hpp | Guarded, read-only derived model fields supplied by an extension.
+ * sdk/SwmmCategory.hpp | Stable model category enumeration without private layer dependencies.
+ * plugins/extensionmanager.* | Discovery, compatibility checks, startup recovery and native lifecycle.
+ * plugins/guiextensionhost.* | Scoped UI ownership, jobs, output, settings and application bridges.
+ * plugins/extensionmodelaccess.* | Guarded model/project facades, snapshots, undo and spatial geometry.
+ * plugins/extensionnetwork.* | Request policy checks and asynchronous refusal replies.
+ * plugins/extensionpreferences.h | Guarded registration of Preferences factories.
+ * plugins/extensionattributes.* | Validated field registration, lifetime cleanup and shared derived-value evaluation.
+ * plugins/extensionstateregistry.* | Shared authoritative session state, deferred dispatch and native save scopes.
+ * plugins/extensionviewaccess.* | One native coordinator per window for IViewEvents snapshots and commands.
+ * plugins/extensionactivityui.* | Shared native MDI attachment tracking and per-host UI metadata/controls.
+ * plugins/extensionmodelevents.cpp | Canonical model geometry/options/rename/schema/selection/unit observations.
+ * plugins/extensionlayerevents.cpp | Runtime canvas attachment identities, layer watchers and native commands.
+ * plugins/extensionresultsevents.cpp | Attached reader/source epochs, semantic variables and displayed cursor observations.
+ * src/sdk/EventSignalAdapter.cpp | Installed optional adapter source compiled inside each consumer module.
+ * src/sdk/ViewSignalAdapter.cpp | Installed optional IViewEvents adapter source, also compiled per consumer.
+ * src/sdk/ActivitySignalAdapter.cpp | Installed optional IActivityEvents adapter source, also compiled per consumer.
+ * examples/extensions/activity/ | Independently built SDK 1.5 process/document consumer.
+ * examples/extensions/values/ValueEventAdapter.* | Consumer-local example projecting session/view/activity metadata into primitive owning Qt values.
+ * examples/extensions/values/ | Installed SDK 1.5 diagnostic module; optional explicit JSONL representation capture, without a scripting runtime.
+ * swmmvisextensions.cpp | Application-specific ribbon, action, run, plot and dialog bridge setup.
+ * tests/extensions/ | Real loadable fixtures, core host tests and isolated application conformance runner.
+ *
+ * @section sdk_install Building against an installed SDK
+ *
+ * Install the SDK component from the same build as the application:
+ * @code{.sh}
+ * cmake --install build --component GuiSdk --prefix /path/to/sdk
+ * cmake -S examples/extensions/template -B /path/to/example-build \
+ *   -DCMAKE_PREFIX_PATH="/path/to/sdk;/path/to/matching/Qt"
+ * cmake --build /path/to/example-build
+ * @endcode
+ *
+ * A consumer CMake project needs only:
+ * @code{.cmake}
+ * find_package(OpenSWMMVisSdk 1.1 CONFIG REQUIRED)
+ * openswmmvis_add_extension(my_extension
+ *     ID org.example.tools CAPTION "Example tools" VERSION 1.0.0
+ *     VENDOR "Example" LICENSE "Author supplied"
+ *     SOURCES extension.cpp)
+ * @endcode
+ *
+ * The helper generates plugin.json from sdk-manifest.json and rejects a
+ * mismatched Qt major/minor or compiler ABI at configure time. Qt embeds
+ * that JSON through Q_PLUGIN_METADATA. The generated metadata directory
+ * belongs to the plugin target, so independently built plugins require no
+ * source-tree path or GUI executable symbols.
+ *
+ * @section sdk_lifecycle Discovery and lifecycle
+ *
+ * The manager scans applicationDir/plugins/gui, the user application's
+ * data directory/plugins, and additional directories configured in
+ * Tools → Plugins. Directory order determines priority when identities
+ * collide; canonical paths prevent duplicate loading through symlinks.
+ *
+ * Metadata inspection does not execute plugin code. Before instance(), the
+ * host checks the root IID, SDK version, Qt major/minor, compiler ABI and
+ * architecture. With an ABI-aware engine, the installed SDK records the
+ * engine-owned tag, and the GUI reads swmm_engine_abi_tag() from the loaded
+ * image before initializing plugins. An engine-ABI mismatch is a warning
+ * unless requiresEngineAbi is true, in which case loading is refused.
+ * Older engine packages use a headers-sha256 fingerprint as a conservative
+ * fallback; that fallback cannot verify the loaded binary. SDK-only builds
+ * have no engine identity. Native handle sharing also requires a single
+ * engine image; matching text tags alone do not prove image reuse.
+ *
+ * Initialization occurs after the main window and ribbon controller exist,
+ * before startup projects restore. The plugin's runtime identity must match
+ * its embedded identity. Return false with a useful error to refuse startup.
+ * The manager removes any partially created host contributions and leaves
+ * the failure visible in Tools → Plugins, including after a metadata rescan.
+ *
+ * Enable/disable and newly discovered plugins take effect on restart.
+ * --no-extensions and holding Shift at launch skip all native initialization.
+ * A surviving initialization/job marker disables the affected extension on
+ * the next launch. Native plugins are trusted code inside the GUI process;
+ * no process isolation or recovery from a fatal native fault is provided.
+ *
+ * Shutdown order is: request job cancellation, join jobs, call
+ * IGuiExtension::shutdown(), remove host-owned contributions, and release
+ * host facades. Libraries remain pinned until process exit because Qt
+ * callbacks and meta-types can retain native code addresses.
+ *
+ * @section sdk_ui UI contributions and ownership
+ *
+ * Register commands before a RibbonTabSpec refers to them. The host prefixes
+ * local identities with ext.&lt;pluginId&gt;. Commands appear in the command
+ * palette; ribbon contributions can be added and removed after application startup.
+ * Each RibbonTabSpec creates its own tab using its title and ordered groups. A plugin
+ * may register multiple tabs with distinct local IDs; different plugins may reuse
+ * local IDs because the host qualifies them with the plugin ID. Each tab has its own
+ * visibility, activation and removal lifecycle. Contextual tabs start hidden; hiding
+ * or removing one tab leaves the other tabs available.
+ * QAction pointers are borrowed. Parent a newly allocated action to
+ * ExtensionHost::lifetime() to give the host ownership.
+ *
+ * Command icons use the existing QAction API; no separate SDK icon service is needed:
+ * @code{.cpp}
+ * auto *action = new QAction(tr("Monitoring sites…"), host->lifetime());
+ * action->setIcon(QIcon(QStringLiteral(":/example/icons/gage.svg")));
+ * action->setIconVisibleInMenu(true);
+ * host->ui()->registerAction(QStringLiteral("sites"), action);
+ * @endcode
+ * Include @c QIcon and bundle the referenced asset in a plugin-owned @c .qrc resource
+ * namespace. Add that @c .qrc to openswmmvis_add_extension() @c SOURCES; the helper enables
+ * Qt resource compilation. Older installed helpers can use target property @c AUTORCC
+ * explicitly. Registered QAction icons reach ribbon buttons and collapsed command menus;
+ * native menu policy determines menu presentation. Provide disabled/selected variants or
+ * palette-aware rendering and refresh QAction::setIcon() when the application palette
+ * changes. Keep icon resources available for the lifetime of all action/icon copies.
+ *
+ * A dock factory returns a newly allocated QWidget that becomes owned by
+ * the host QDockWidget. Document factories remain borrowed while registered;
+ * their returned widgets become MDI-owned. Preferences factories remain
+ * borrowed until unregistered, while each page widget belongs to its dialog.
+ * Never delete a returned host-owned widget without coordinating with its
+ * owning container. Use the unregister methods to remove contributions.
+ *
+ * Document saveState() returns JSON stored under session views[]. Unknown
+ * extension kinds remain pending, allowing a project to save and reopen
+ * when an extension is unavailable. Runtime registration materializes a
+ * pending kind once its factory becomes available. Model-owned document
+ * widgets close with their model.
+ *
+ * @section sdk_computed Derived model attributes
+ *
+ * SDK 1.1 adds IComputedAttributeProvider and per-model registration through
+ * IModelInstance::registerAttributeProvider(). Supply a local provider ID, a
+ * borrowed provider and a GUI-thread QObject that guards its lifetime. The
+ * host validates every descriptor before publishing fields, and prefixes
+ * keys as ext.pluginId.providerId.fieldName. Metadata becomes available in
+ * symbology pickers; values share the normal identify map and read-only
+ * attribute-table columns. Existing authored fields cannot be overwritten.
+ *
+ * Providers receive the object's base attribute snapshot, so calculations
+ * need not re-read the model. Recursive attribute reads omit derived fields
+ * to prevent dependency cycles. Keep calculations short and prepare expensive
+ * inputs in a job. A throwing provider's values are disabled until an explicit
+ * refresh; other providers and base attributes remain available.
+ *
+ * Call refreshAttributeProvider() after changing calculation inputs. It
+ * invalidates table values and extension-based classification ranges without
+ * writing engine data, adding undo commands or marking the model dirty.
+ * Observe modelEdited/attributesChanged when calculations depend on authored
+ * changes in other objects. Metadata is fixed at registration; unregister and
+ * register again to replace descriptors. This revision supports static fields
+ * on authored model categories, with isDynamic=false.
+ *
+ * Destroying the provider guard, closing its model, unregistering the provider
+ * or shutting down its extension removes the contribution. The host removes
+ * registered callbacks before plugin shutdown releases their resources.
+ *
+ * @section sdk_events Events, signals and commands
+ *
+ * SDK 1.2 provides typed host observations through the optional IModelEvents
+ * interface, together with a consumer-local EventSignalAdapter for ordinary Qt
+ * signals. SDK 1.3 adds the separate ISessionEvents capability for authoritative
+ * session readiness, revision snapshots and save outcomes. SDK 1.4 adds
+ * IViewEvents and IViewControls for detailed map/model/results observations
+ * and validated view commands. SDK 1.5 adds IActivityEvents and
+ * IActivityControls for unique run/job attempts and scoped UI activity.
+ * ExtensionHost::observe()
+ * remains available for existing consumers. These interfaces have different
+ * delivery/identity contracts; choose the one needed by the integration.
+ * ExtensionHost remains a pure C++ interface, and a plugin's own QActions,
+ * widgets and controllers can use ordinary typed QObject::connect() calls.
+ *
+ * Communication in the other direction uses the public services: select() and
+ * edit() on a model, layer import and preview operations on a project, start()
+ * and cancel() on the run registry, and UI/plot/dialog operations. These routes
+ * preserve shared selection and the supported ownership/run rules. Model edits
+ * use the existing edit/lease and undo paths; layer import does not promise undo.
+ * An event reports a change; it is not a command or permission to modify a private
+ * object. ExtensionHost::lifetime() permits discovery of public SDK capabilities
+ * such as IModelEvents, ISessionEvents, IViewEvents, IViewControls,
+ * IActivityEvents and IActivityControls,
+ * while private host classes remain
+ * implementation details.
+ *
+ * | Observation interface | Minimum SDK | Delivery and identity |
+ * | --- | --- | --- |
+ * | ExtensionHost::observe() | 1.0 | Synchronous string/map notifications with persistent model UUIDs. |
+ * | IModelEvents | 1.2 | Synchronous typed observations and host-local publication identities; optional Qt signal adapter. |
+ * | ISessionEvents | 1.3 | Deferred session/state transitions with a shared application watermark, plus a distinct synchronous pre-save collector. |
+ * | IViewEvents | 1.4 | Deferred model/layer/results invalidations and copied view metadata at the shared session/view watermark. |
+ * | IActivityEvents | 1.5 | Deferred unique process transitions and scoped UI invalidations, with retained activity snapshots at the shared session/view/activity watermark. |
+ *
+ * @subsection sdk_typed_events Typed notifications and the Qt signal adapter
+ *
+ * Include sdk/IModelEvents.hpp, require OpenSWMMVisSdk 1.9 (the capability dates
+ * from SDK 1.2 under its former name), and discover the
+ * capability with qobject_cast<IModelEvents *>(host->lifetime()). Check for a
+ * null result and fail initialization clearly if this capability is required.
+ * The loader refuses a plugin requiring SDK 1.2 on an SDK 1.1 host before its
+ * code is instantiated. The existing ExtensionHost vtable and root plugin IID
+ * are unchanged. The optional interface has its own frozen IID and payloads;
+ * incompatible evolution requires another interface version.
+ *
+ * Event contains an EventKind, a host-local publication sequence and an owning
+ * EventPayload variant. Use std::get_if to read the expected domain value.
+ * EventFilter selects kinds and optionally a persistent model UUID. Empty kinds
+ * accept all IModelEvents kinds; a null UUID includes all model and global observations.
+ * A specific UUID excludes global events and no-active-model activation. IModelEvents has
+ * no layer-ID filter because broad layer-membership events have no layer identity.
+ *
+ * | Payload alternative | Contents and scope |
+ * | --- | --- |
+ * | ModelEvent | instanceId and objectName, for discovery/closing/activation, shared selection, authored edits and attributes. objectName is the native object identifier for AttributesChanged, possibly empty for broad invalidation; it is not an attribute-field key. |
+ * | SpatialEvent | instanceId and optional layerId, for viewport/layer membership/boundary changes. layerId is populated only for BoundaryChanged. |
+ * | ResultsEvent | instanceId whose active 1D/2D result source changed. |
+ * | RunsEvent | Simulation Status invalidation; query the current run registry. |
+ * | SettingsEvent | Owning extension's key/group invalidation. |
+ * | ThemeEvent | Palette invalidation; query current theme tokens. |
+ * | JobProgressEvent | Owning extension's title, progress and stage text. |
+ * | JobFinishedEvent | Owning extension's title, success flag and error; false covers failure or cancellation. |
+ *
+ * Typed InstanceDiscovered corresponds to legacy instanceOpened, and typed
+ * InstanceClosing to instanceClosed. These names describe actual native timing;
+ * neither event promises a ready engine or completed destruction. Typed
+ * ActiveResultsChanged corresponds to resultsChanged. Other EventKind names
+ * follow the legacy catalogue below with their initial letter capitalized.
+ *
+ * @code{.cpp}
+ * auto *events = qobject_cast<OpenSWMM::Sdk::IModelEvents *>(host->lifetime());
+ * OpenSWMM::Sdk::EventFilter filter;
+ * filter.kinds = {OpenSWMM::Sdk::EventKind::ViewportChanged};
+ * filter.instanceId = modelId; // A persistent UUID previously read from the SDK.
+ * auto connection = events->subscribe(controller, filter,
+ *     [](const OpenSWMM::Sdk::Event &event) {
+ *         const auto &area = std::get<OpenSWMM::Sdk::SpatialEvent>(event.payload);
+ *         // Invalidate this controller's cached review for area.instanceId.
+ *         Q_UNUSED(area);
+ *     });
+ * @endcode
+ *
+ * The returned connection supports QObject::disconnect(). ScopedEventSubscription
+ * optionally provides move-only scope ownership of that disconnect action.
+ * Receiver and host destruction also disconnect it. Delivery is synchronous,
+ * GUI-only and suppressed at shutdown; invalid registration is refused. The
+ * subscription copies its filter, and each observer's exceptions are isolated.
+ * A publication sequence is not a state revision or snapshot boundary. A nested
+ * publication can reach a later observer before the outer publication does;
+ * sequence numbers do not promise monotonically ordered callback delivery.
+ *
+ * To use native Qt signals, include sdk/qt/EventSignalAdapter.hpp and call
+ * openswmmvis_add_event_adapter(your_target) after openswmmvis_add_extension().
+ * The helper compiles the installed adapter source and its moc code into the
+ * plugin with hidden symbols. No additional SDK shared runtime is required.
+ * Create an EventSignalAdapter with the discovered source, filter and GUI-thread
+ * parent, then connect modelChanged(), spatialChanged(), settingsChanged() or
+ * another typed domain signal to your controller. The installed events example
+ * demonstrates both subscription styles and an explicit user command.
+ *
+ * The adapter emits occurred() before its domain signal. Disconnecting/destroying
+ * it, or stopping its source, during occurred() suppresses that domain projection.
+ * Value metatypes are registered for queued Qt connections. Such downstream
+ * connections follow ordinary Qt rules: slots must not throw, and disconnect
+ * does not necessarily cancel deliveries already queued. The host's managed
+ * subscription guards do not replace the lifetime rules for arbitrary plugin
+ * Qt connections. Model/settings/job ownership scopes remain unchanged.
+ *
+ * Known host observations have one canonical typed value, from which the legacy
+ * name and map are projected. Unknown private diagnostic/test event names remain
+ * legacy-only. Plugins cannot publish host events through IModelEvents.
+ *
+ * @subsection sdk_state_events SDK 1.3 session readiness and revision snapshots
+ *
+ * Include sdk/ISessionEvents.hpp, require OpenSWMMVisSdk 1.9 (the capability
+ * dates from SDK 1.3) and discover the
+ * optional interface with qobject_cast<ISessionEvents *>(host->lifetime()).
+ * Check the result and report a missing required capability during initialize().
+ * The loader refuses a 1.3 consumer on an older SDK host before initializing it.
+ * IModelEvents and ISessionEvents remain separately discoverable frozen interfaces; ISessionEvents adds no methods
+ * or fields to IModelEvents or the existing ExtensionHost vtable. EventSignalAdapter wraps
+ * IModelEvents; the installed examples/extensions/lifecycle consumer demonstrates ISessionEvents'
+ * callbacks and ordinary plugin-owned Qt views.
+ *
+ * Every native model-window lifetime has a unique sessionId. Its instanceId is
+ * the persistent model identity restored from project state; two open sessions
+ * can share that persistent identity. Closing and reopening never reuses a
+ * sessionId. Each accepted load attempt increments loadGeneration, so a result
+ * from an older attempt cannot make a newer attempt ready. Use sessionId when
+ * resolving an actionable model, rather than searching for a persistent UUID.
+ *
+ * ModelSessionState contains copied title/input/project paths, dirty/saving
+ * indications, readiness status and failure detail. stateRevision is monotonic
+ * for that open lifetime; modelRevision is the native authored-model revision
+ * scoped by session and load generation. The shared registry's sequence orders
+ * state publications across plugin hosts and is the StateSnapshot watermark.
+ * It is separate from IModelEvents' host-local sequence. Revisions and watermarks cover
+ * observed metadata/invalidation; they are not atomic copies of arbitrary engine,
+ * geometry, selection or result arrays. Continue using leases and copied queries
+ * for those payloads.
+ *
+ * The readiness states are Created, Loading, Ready, Failed and Closing.
+ * ModelReady follows the accepted native load and the controller's synchronous
+ * restoration barrier: model/CRS setup, project-sidecar restoration and ordinary
+ * synchronous host activation are complete. Optional asynchronous GIS, mesh and
+ * results resources can still finish later. A raw modelLoaded or the legacy
+ * instanceOpened notification does not establish this readiness guarantee.
+ * Failed sessions may retry. Closing makes resolution unavailable immediately;
+ * SessionClosed is published only after removal from the live snapshot, and its
+ * copied state retains the final Closing status.
+ *
+ * stateSnapshot() copies current metadata without creating facades or publishing
+ * events. resolveSession(sessionId) returns a borrowed current Ready model or
+ * null for unknown, loading, failed or closing sessions. Recheck availability
+ * after deferred work, and compare the current load generation before acting on
+ * an older transition. No engine lease or model ownership is transferred.
+ *
+ * observeState() copies a kind/session filter and delivers on the GUI thread
+ * after native state transitions commit. Empty kinds/null session select all.
+ * Subscribe before taking the initial snapshot, without a nested event loop
+ * between those calls. Registration excludes older publications, including
+ * ones still waiting in the queue. A current-state view can also discard events
+ * at or below that initial snapshot watermark. The snapshot contains current
+ * live metadata, not a replay of historical save/failure outcomes; consumers
+ * retaining future terminal history should not advance their initial cutoff
+ * merely because they refresh their display snapshot.
+ *
+ * @code{.cpp}
+ * // In initialize(), these are persistent members of a GUI-thread QObject controller.
+ * mStateSource = qobject_cast<OpenSWMM::Sdk::ISessionEvents *>(host->lifetime());
+ * if (!mStateSource)
+ *     return false; // Report the missing required capability through initialize()'s error output.
+ * mStateConnection = mStateSource->observeState(this, {},
+ *     [this](const OpenSWMM::Sdk::StateEvent &event) {
+ *         if (event.sequence <= mInitialStateWatermark)
+ *             return;
+ *         const auto current = mStateSource->stateSnapshot();
+ *         // Refresh this controller's view from current live state.
+ *         // Preserve wanted terminal records separately using session/operation IDs.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mStateSource->stateSnapshot();
+ * mInitialStateWatermark = initial.sequence;
+ * @endcode
+ *
+ * The ordered dispatcher prevents recursive drains during reentrant callbacks.
+ * StateChanged notifications can coalesce per session/generation, merge their
+ * broad StateChange categories and retain the latest metadata. Sequence gaps
+ * are therefore expected. Intermediate state-change observations during Loading
+ * are suppressed; the settled outcome contains current metadata. Before each
+ * receiver is called, the host rechecks its lifetime/thread, shutdown state and
+ * session generation. Obsolete opened/started/ready/change observations can be
+ * suppressed, including when an earlier receiver closes the model. LoadFailed,
+ * save and close records retain their historical session/generation identity;
+ * they do not make a retired model resolvable. There is no event-history replay.
+ *
+ * | StateEventKind | Meaning |
+ * | --- | --- |
+ * | SessionOpened | A native open lifetime was registered; the model need not be ready. |
+ * | LoadStarted | A new accepted load generation began. |
+ * | ModelReady | That generation completed its native readiness/restoration barrier. |
+ * | LoadFailed | A load generation failed; error carries its copied diagnostic. |
+ * | StateChanged | Query current state after broad metadata/model/selection/viewport/layer/results/project-state invalidation. |
+ * | SaveStarted | Informational save-start record, delivered after the affected save scope ends. |
+ * | SaveFinished | Correlated save success/failure at the intended transaction boundary. |
+ * | SessionClosing | Close committed; resolveSession() is unavailable. |
+ * | SessionClosed | Live state was retired; this is a historical cleanup record. |
+ *
+ * @subsection sdk_save_events Synchronous state collection and deferred save outcomes
+ *
+ * observeBeforeSave() is a separate short, synchronous, non-vetoing collection
+ * hook. SaveRequest identifies the operation, session, persistent model, load
+ * generation, save kind and intended final path. Update only this extension's
+ * state using supported services. Avoid model mutations, nested event loops and
+ * reentrant saves; a new competing save is refused. The host revalidates each
+ * request before each collector. A callback that closes, reloads or changes the
+ * affected identity invalidates the save; observer exceptions are reported and
+ * isolated. Disconnect collectors and reset borrowed services during shutdown.
+ *
+ * SaveKind distinguishes a normal Project save, a standalone Sidecar write and
+ * an independent Recovery write. Standalone sidecar creation can occur while a
+ * session is Loading, so a collector must tolerate resolveSession() returning
+ * null. A recovery destination may initially be empty while its independent
+ * snapshot location is selected. Recovery preserves the current project's path
+ * and dirty indication; collectors should avoid changing ordinary authored data.
+ * The installed lifecycle example collects namespaced project data for a ready
+ * normal save and leaves recovery state alone.
+ *
+ * SaveStarted and SaveFinished are deferred observations, not state-collection
+ * opportunities. Each has a SaveState with a unique operationId, kind, target
+ * path and outcome. Nested physical staging/sidecar writes join the outer scope
+ * and do not report an extra successful project save. Multi-session saves use
+ * the same operationId for every affected session. Outcomes distinguish Started,
+ * Succeeded and Failed, with copied error detail on failure. A successful engine
+ * write or intermediate JSON serialization alone is not the final transaction
+ * outcome. Invalid targets, preparation/lease failures and final write failures
+ * produce Failed once an operation has begun.
+ *
+ * Queued records for an affected session are held while its save scope is active,
+ * including during nested event-loop attempts in a collector. When the scope
+ * ends, records drain in shared sequence order. SaveStarted remains an immutable
+ * historical copy: its saving indication can be true and its recovery path can
+ * be empty even though a fresh snapshot already shows the completed operation
+ * and SaveFinished carries the resolved final destination. Terminal outcomes
+ * survive model retirement using captured identities, without reviving the model.
+ *
+ * @subsection sdk_view_events SDK 1.4 model, map and attached-results observations
+ *
+ * Include sdk/IViewEvents.hpp and require OpenSWMMVisSdk 1.9 (the capability
+ * dates from SDK 1.4). Discover
+ * IViewEvents on host->lifetime() with qobject_cast and check availability
+ * during initialization. IModelEvents and ISessionEvents remain separately frozen interfaces; IViewEvents
+ * does not extend their value layouts or existing service vtables. The installed
+ * examples/extensions/views consumer demonstrates its own Qt panel and commands.
+ * openswmmvis_add_view_adapter(target) compiles ViewSignalAdapter into the
+ * consumer with AUTOMOC and private symbols. Its typed signals cover model,
+ * layer and results observations; managed subscriptions retain GUI-thread,
+ * disconnect, destruction and shutdown guards. Ordinary downstream Qt queued
+ * slots keep Qt's usual delivery rules and must not throw.
+ *
+ * viewSnapshot(sessionId) returns copied metadata for one registered open
+ * lifetime. Its session field carries the ISessionEvents load generation and revisions;
+ * sequence uses the same application registry watermark as ISessionEvents. Public queries
+ * never create facades or trackers, start a source open, discover result arrays
+ * or publish observations. No payload contains native window/layer/renderer,
+ * reader or engine pointers. Use existing leases and data queries for actual
+ * geometry and result values.
+ *
+ * LayerViewState carries a runtime layerSessionId distinct from its native
+ * layerId. Native IDs can be restored, changed or repeated across layers. Every
+ * detach ends the runtime attachment; undo/reinsertion receives a fresh runtime
+ * UUID even when it reuses the same native object. All IViewEvents attachment filters and
+ * view commands use layerSessionId. LayerRemoved is a copied historical detach
+ * record, and never permits resolving or acting on that retired attachment.
+ * Snapshot layers are in native bottom-to-top order, with title/type/CRS,
+ * visibility/opacity and available vector filter/count/selection metadata.
+ *
+ * observeViews() copies reason/session/attachment filters. Active-choice
+ * invalidations are session-wide and have a null attachment identity.
+ * Use a session/reason filter for these; a specific attachment filter excludes
+ * session-wide observations, including a choice cleared by layer detachment.
+ * The managed subscription delivers future queued GUI-thread invalidations.
+ * Subscribe before taking the initial
+ * viewSnapshot on the same call stack, retain that initial sequence cutoff and
+ * ignore earlier observations when adopting a current-state view. Refresh from
+ * a new snapshot when notified; refreshing does not advance a terminal-history
+ * consumer's initial cutoff. There is no replay or geometry/results history.
+ * Shared FIFO dispatch prevents recursive drains, suppresses obsolete live work
+ * after close/reload/detachment, and coalesces repeatable reason/attachment
+ * invalidations. Exact renames and detach records retain captured identity.
+ * Sequence gaps and broad invalidations are normal.
+ *
+ * @code{.cpp}
+ * // Members of a GUI-thread plugin controller; check both services at initialization.
+ * mViews = qobject_cast<OpenSWMM::Sdk::IViewEvents *>(host->lifetime());
+ * mControls = qobject_cast<OpenSWMM::Sdk::IViewControls *>(host->lifetime());
+ * mViewConnection = mViews->observeViews(this, {{}, mSessionId, {}},
+ *     [this](const OpenSWMM::Sdk::ViewEvent &event) {
+ *         if (event.sequence <= mInitialViewWatermark)
+ *             return;
+ *         const auto current = mViews->viewSnapshot(mSessionId);
+ *         // Update this panel from current metadata; revalidate before deferred commands.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mViews->viewSnapshot(mSessionId);
+ * mInitialViewWatermark = initial.sequence;
+ * @endcode
+ *
+ * ViewEvent carries the copied session/load generation/revisions, optional
+ * runtime attachment/native layer ID, result source generation, bounded keys,
+ * precise native rename identity when available and an optional origin token.
+ * Empty object/key details mean broad invalidation, including native-edit
+ * completion and snapshot undo. Attribute values and field schema are distinct
+ * reasons. No authored field-by-field delta is implied by geometry or options
+ * events. Layer feature/selection/filter/style signals report native state;
+ * they do not authorize a second write or imply a durable source-file commit.
+ *
+ * | ViewEventKind | Meaning |
+ * | --- | --- |
+ * | ModelGeometryChanged | Model geometry/topology changed or needs broad refresh. |
+ * | ModelOptionsChanged | Accepted native option keys, or a broad invalidation when keys are empty. |
+ * | ObjectRenamed | Native node/link/subcatchment/gage namespace and old/new name when the operation supplies them. |
+ * | AttributeValuesChanged | Query native/computed field values again. |
+ * | AttributeSchemaChanged | Query native/computed field descriptors again. |
+ * | ModelSelectionChanged | Canonical authored-model selection changed. |
+ * | LayerAdded | A new runtime attachment is present. |
+ * | LayerRemoved | A runtime attachment was retired; copied identity is historical. |
+ * | LayerMetadataChanged | Display name, visibility, opacity or layer discriminator changed. |
+ * | LayerOrderChanged | Top-level or sublayer order changed. |
+ * | LayerStyleChanged | Authored renderer/style configuration changed. |
+ * | LayerSchemaChanged | Feature field descriptors changed. |
+ * | LayerFeaturesChanged | Feature content/geometry changed; query the source again. |
+ * | LayerSelectionChanged | Selected vector feature identities changed. |
+ * | LayerFilterChanged | Applied vector attribute filter changed. |
+ * | LayerCrsChanged | Layer coordinate-reference metadata changed. |
+ * | LayerSourceChanged | Layer source/loading metadata changed. |
+ * | ResultsSourceChanged | Attached reader/source generation, availability, diagnostic, live state or count changed. |
+ * | ResultsActiveChanged | Session-wide active 1D/2D choice changed, including detachment; query the current snapshot. |
+ * | ResultsVariableChanged | Semantic rendering-channel selection/native unit metadata changed. |
+ * | ResultsTimeChanged | A displayed frame/cursor was published; this is not merely a seek request. |
+ * | ProjectUnitsChanged | Project display units changed, independently of result-native units. |
+ *
+ * ResultsViewState describes attached result layers, including Empty, Loading,
+ * Ready and Failed sources. sourceGeneration advances for accepted opens,
+ * replacement and close, independently of the model load generation. Ready
+ * means reader/source metadata was adopted: zero periods and currentIndex -1
+ * are valid. It does not promise scene rendering, run completion or optional
+ * data availability. A failed attempt can preserve a usable old reader; inspect
+ * error separately from availability. live reports the source's streaming mode,
+ * without claiming a unique run-attempt identity or complete retained history.
+ *
+ * The 2D currentIndex/currentDateTime describe the coherently published frame,
+ * not a newer worker request. variables contains native rendering channel IDs,
+ * stable selected keys and source/descriptor units where established. The 1D
+ * layer-level channel has an empty ID; 2D channels use semantic sublayer IDs.
+ * Unresolved saved scalar keys remain queryable, while command selection must
+ * match an available supported variable. Unknown units stay empty. projectUnits
+ * is separate display metadata and never relabels or converts source arrays.
+ * Open/close generation checks prevent a superseded 1D asynchronous completion
+ * from adopting a stale reader. Failed file-opening attempts before a layer
+ * becomes attached are outside this attached-source observation contract.
+ *
+ * @subsection sdk_view_commands Validated map and results commands
+ *
+ * Include sdk/IViewControls.hpp and discover IViewControls on the host lifetime.
+ * executeViewCommand accepts a Ready session and its current runtime attachment.
+ * Every request supplies loadGeneration copied from the current view snapshot;
+ * an exact generation check refuses work prepared before a reload in the same
+ * open window. Use sessionId and layerSessionId from that same snapshot;
+ * unknown, retired or unsupported targets return false with a diagnostic.
+ * Successful no-ops return true without repeating the native write. Commands
+ * use fixed native controller routes, with no public arbitrary slot invocation.
+ * Recheck the session/load generation and attachment before deferred actions.
+ *
+ * | ViewCommandKind | Interpreted request fields and native behavior |
+ * | --- | --- |
+ * | RenameLayer | text is a nonblank display name. |
+ * | SetLayerVisible | enabled is the desired local visibility. |
+ * | SetLayerOpacity | number must be finite and within [0,1]. |
+ * | MoveLayer | index is a valid bottom-to-top stack index within the layer's existing category group; uses native undo. |
+ * | RemoveLayer | Detaches through native undo; the editable model and active authoring mesh are protected. |
+ * | SetLayerFilter | text is a validated vector attribute filter; empty clears it. |
+ * | SelectLayerFeatures | featureIds replaces an open vector source's selection; at most 5000 nonnegative IDs, with duplicates removed. |
+ * | ActivateResults | Makes this attached source active in its own 1D/2D dimension. |
+ * | SetResultsTime | index must be within the available source period range; 2D acceptance can precede publication. |
+ * | SetResultsVariable | text is a supported native key; channelId is empty for 1D or a current 2D rendering-channel ID. |
+ *
+ * @code{.cpp}
+ * const auto current = mViews->viewSnapshot(mSessionId);
+ * if (current.session.status == OpenSWMM::Sdk::SessionStatus::Ready &&
+ *     !current.layers.isEmpty()) {
+ *     OpenSWMM::Sdk::ViewCommand command;
+ *     command.kind = OpenSWMM::Sdk::ViewCommandKind::SetLayerVisible;
+ *     command.sessionId = current.session.sessionId;
+ *     command.loadGeneration = current.session.loadGeneration;
+ *     command.layerSessionId = current.layers.first().layerSessionId;
+ *     command.origin = QUuid::createUuid();
+ *     command.enabled = !current.layers.first().visible;
+ *     QString error;
+ *     const bool accepted = mControls->executeViewCommand(command, &error);
+ *     Q_UNUSED(accepted);
+ * }
+ * @endcode
+ *
+ * selectedLayerFeatures() returns sorted copied FID pages with a maximum of 5000
+ * IDs per call. Snapshot selectionCount is a count, never a large selection
+ * payload. Authored model selection continues through IModelInstance::select()
+ * and the shared native selection bus.
+ *
+ * A caller can supply origin to suppress synchronous feedback in its own
+ * controller. Matching effects carry that copied token; native actions and
+ * asynchronous frame/source publications have null origin. Origin is correlation,
+ * not an access right or a durable transaction ID. Observers should update their
+ * displays and issue deliberate commands separately to avoid write loops.
+ * Move/remove share existing undo behavior; other view setters follow their
+ * native direct-setter rules. No universal undo, native data transaction or
+ * source-file write is implied. For 2D seeks, observe ResultsTimeChanged and read
+ * the displayed cursor before treating the requested frame as visible.
+ *
+ * @subsection sdk_activity_events SDK 1.5 process attempts and scoped UI activity
+ *
+ * Include sdk/IActivityEvents.hpp and sdk/IActivityControls.hpp, require
+ * OpenSWMMVisSdk 1.9 (the capabilities date from SDK 1.5), and discover both
+ * optional capabilities on
+ * host->lifetime() using qobject_cast. Check required capabilities during
+ * initialize(). IActivityEvents is a separate frozen interface: IModelEvents, ISessionEvents and IViewEvents
+ * retain their earlier layouts, delivery rules and discovery identities.
+ * Their headers contain no IActivityEvents payload additions. Existing ExtensionHost,
+ * IRunRegistry, IJob, IJobContext and IUiHost vtables remain unchanged.
+ *
+ * activitySnapshot() copies current retained process and UI metadata. It does
+ * not create trackers or facades, inspect workers, resolve engine handles or
+ * publish observations. ProcessState contains an operationId, kind, phase,
+ * captured owner/window/model identities, presentation metadata, finite progress,
+ * timestamps, cancellation indication, bounded diagnostic and per-operation
+ * revision. No event or snapshot exposes a runner, job, widget or engine pointer.
+ * A process UUID identifies one accepted attempt. A Simulation Status rowId can
+ * be reused, and job titles can repeat; neither is an actionable identity.
+ *
+ * A snapshot includes shared native runs belonging to this main window and
+ * only the calling host's private jobs. A job's ownerId identifies one host
+ * lifetime; ownerPluginId is its plugin identity label. Another host,
+ * including a later lifetime with the same plugin ID, cannot observe or cancel
+ * that private work. Native runs have a null ownerId and a runtime windowId.
+ * Their sessionId, instanceId and loadGeneration are captured at acceptance,
+ * independently of the later active model or reuse of their status row.
+ *
+ * observeActivity() registers future deferred GUI-thread observations with
+ * copied kind/operation/session filters. Empty kinds and null selectors accept
+ * all activity visible to this host. A specific operationId or sessionId
+ * excludes UI observations, which have no process identity. Register with a
+ * nonnull GUI-thread QObject guard, subscribe before taking the initial
+ * snapshot on the same call stack, and retain its initial sequence cutoff.
+ * Session, view and activity events share the registry watermark and ordered dispatcher; sequence
+ * gaps are expected after coalescing. A refreshed snapshot is retained current
+ * state, not event-history replay. Do not advance the initial cutoff whenever
+ * refreshing if the consumer also retains future terminal/removal history.
+ *
+ * @code{.cpp}
+ * // Persistent members of a GUI-thread controller; validate both capabilities.
+ * mActivity = qobject_cast<OpenSWMM::Sdk::IActivityEvents *>(host->lifetime());
+ * mActivityControls = qobject_cast<OpenSWMM::Sdk::IActivityControls *>(host->lifetime());
+ * if (!mActivity || !mActivityControls)
+ *     return false; // Set initialize()'s error output to identify the required SDK.
+ * mActivityConnection = mActivity->observeActivity(this, {},
+ *     [this](const OpenSWMM::Sdk::ActivityEvent &event) {
+ *         if (event.sequence <= mInitialActivityWatermark)
+ *             return;
+ *         if (event.kind == OpenSWMM::Sdk::ActivityEventKind::OperationFinished) {
+ *             // Retain the copied terminal by operationId if this panel needs history.
+ *         }
+ *         const auto current = mActivity->activitySnapshot();
+ *         // Refresh the display; keep mInitialActivityWatermark unchanged.
+ *         Q_UNUSED(current);
+ *     });
+ * const auto initial = mActivity->activitySnapshot();
+ * mInitialActivityWatermark = initial.sequence;
+ * @endcode
+ *
+ * Managed delivery rechecks receiver lifetime/thread, host shutdown and target
+ * availability, isolates observer exceptions and prevents recursive queue drains.
+ * Disconnection or receiver destruction suppresses future managed calls. Compile
+ * sdk/qt/ActivitySignalAdapter.hpp through
+ * openswmmvis_add_activity_adapter(target) for ordinary Qt signals. The helper
+ * compiles the installed source and moc code into each consumer with private
+ * symbols. ActivitySignalAdapter emits occurred() first, then processChanged()
+ * or uiChanged(); disconnecting or destroying it during occurred() suppresses
+ * the domain projection. Copied-value metatypes support queued downstream
+ * connections, whose slots retain ordinary Qt disconnect/lifetime rules and
+ * must not throw. examples/extensions/activity demonstrates independently built
+ * consumers, explicit private work and a model-independent document.
+ *
+ * | ActivityEventKind | Meaning |
+ * | --- | --- |
+ * | OperationAccepted | A unique run preparation or private job scheduling attempt was accepted. |
+ * | OperationStarted | The native runner or private worker entered its execution path. |
+ * | OperationProgress | Latest finite normalized progress/stage; intermediate updates can coalesce. |
+ * | CancellationRequested | Cancellation was requested before settlement; this does not establish the outcome. |
+ * | OperationFinished | One immutable Succeeded, Failed or Cancelled terminal copy for the accepted attempt. |
+ * | OperationRemoved | Retained process metadata was retired; its UUID is never reassigned. |
+ * | ActiveDocumentChanged | Actual MDI focus changed, including utility documents or no active document. |
+ * | DocumentChanged | Mounted document metadata changed; query current UI state. |
+ * | DocumentRemoved | A runtime document attachment was retired. |
+ * | DockChanged | An own dock's logical open, exposure or other native metadata changed. |
+ * | DockRemoved | An own dock registration was retired. |
+ * | CommandChanged | An own action or approved built-in dialog command's metadata changed. |
+ * | CommandRemoved | An own/approved command registration was retired. |
+ *
+ * @subsection sdk_process_controls Process start, cancellation and terminal retention
+ *
+ * startRunAttempt(sessionId, loadGeneration) validates an exact current Ready
+ * model generation and enters the existing native run controller. Normal save,
+ * lease, preflight, overwrite and user-interaction rules apply. Refusal before
+ * acceptance returns a null UUID without inventing a process. Accepted
+ * preparation can settle Failed before a runner exists; Queued does not claim
+ * engine execution. Reusing a Simulation Status row creates a new operationId.
+ * runJob() remains the private worker entry point; jobOperationId(job) maps a
+ * borrowed handle returned by this host to its unique attempt without
+ * dereferencing foreign pointers. Use current identities before deferred work.
+ *
+ * cancelOperation(operationId) addresses this host's own active job or an
+ * active shared run in this window. Repeated active requests are idempotent;
+ * unknown, retired, settled and foreign private-job targets are refused with
+ * an optional diagnostic. cancelRequested is separate from ProcessPhase.
+ * Cancellation is cooperative and implies no rollback of files or other output.
+ * A native run can settle Succeeded after cancellation was requested, because
+ * its actual runner outcome remains authoritative. Failed native preparation
+ * and runner errors retain their diagnostic/code rather than becoming success.
+ *
+ * Private void-returning jobs latch start, progress, cancellation and settlement
+ * under their worker-state lock. Workers never touch widgets or the shared
+ * registry: a guarded GUI-thread flush publishes copied latched state. A
+ * cancellation winning while a job is queued skips its user worker and produces
+ * no OperationStarted. At settlement, an exception produces Failed even if
+ * cancellation was requested; otherwise a winning request produces Cancelled,
+ * and normal return produces Succeeded. A later cancel cannot change that
+ * outcome. IJob::isFinished() can be true before the pending GUI publication;
+ * it is not a substitute for observing the terminal. Terminal metadata commits
+ * before the legacy notification or plugin completion callback runs.
+ *
+ * Progress accepts finite fractions clamped to [0,1], retains the latest stage,
+ * and coalesces bursts before GUI delivery. It need not increase monotonically.
+ * Pending latest job progress precedes its terminal publication; a successful
+ * job retains the last fraction actually reported, which may be less than 1.
+ * A successful native run reaches 1. Failure and cancellation preserve their
+ * last reported value. The host does not rewrite a terminal outcome on later
+ * progress, cancellation or duplicate completion.
+ *
+ * Terminal and removal events retain captured attempt/model identities after
+ * model closure, row removal or row reuse. They do not make a closed session
+ * resolvable or authorize acting on another attempt. Active operations remain
+ * retained; superseded/removed terminal run rows can retire. Each host retains
+ * at most 128 terminal job metadata records, retiring the oldest with
+ * OperationRemoved; this is not a durable history store. Borrowed IJob handles
+ * remain valid until host destruction even after metadata retirement, and
+ * jobOperationId() still identifies those known handles. Shutdown cancels and
+ * joins workers before plugin resources are released and suppresses user
+ * callbacks while settling and removing the host's private records.
+ *
+ * @subsection sdk_activity_ui Runtime document, dock and command state
+ *
+ * UiActivityState describes the actual main-window MDI attachments and active
+ * document. The GUI intentionally keeps model context when focus moves to a
+ * utility view or dock; activeInstance() therefore need not identify the active
+ * MDI document. DocumentKind distinguishes native Model, mounted Extension
+ * and other Utility documents. sessionId is present only where an association
+ * is explicitly known; extension documents may be model-independent. Metadata
+ * copies titles and ownership, never private persisted document JSON.
+ *
+ * Runtime windowId and documentId identify native lifetimes/attachments, rather
+ * than saved names or QObject addresses. All hosts in one window share the
+ * canonical document UUIDs. Each observer receives the document metadata through
+ * its own owner-scoped UI projection, once per change; ownerId on a UI event
+ * identifies that projection. Own docks and actions receive fresh dockId and
+ * commandId values on unregister/recreation. Reattaching a document also gets a
+ * new UUID. A stale identity cannot target a replacement with the same title,
+ * local key or native pointer.
+ *
+ * Docks are restricted to the caller's registered contributions. open is logical
+ * open state; exposed is the last native visibility indication. A tabified dock
+ * can remain open while another dock is exposed. Floating state and native dock
+ * area are copied separately. Commands contain enabled/visible/checkable/checked
+ * state and portable shortcuts for own actions plus the existing approved
+ * built-in dialog commands. This does not enumerate or expose arbitrary host
+ * actions or another plugin's contributions. Repeatable UI invalidations
+ * coalesce; semantic no-ops do not publish changes. Removal records remain
+ * historical, while stale live invalidations can be suppressed before delivery.
+ *
+ * executeActivityUiCommand() accepts a UiActivityCommand with the exact current
+ * windowId and entityId from a fresh snapshot:
+ *
+ * | UiActivityCommandKind | Validated native route |
+ * | --- | --- |
+ * | ActivateDocument | Focus a current mounted document in this window; a known model association must remain available and not Closing. |
+ * | SetDockOpen | Show/raise or hide one of the calling host's own docks using open. |
+ * | TriggerCommand | Trigger an enabled, visible own action or approved existing built-in dialog command. |
+ *
+ * Controls return true for an accepted action or valid no-op and false with an
+ * optional error for stale, unavailable, disabled or foreign targets. They use
+ * the existing native controllers, never arbitrary private Qt slot invocation.
+ * Run start revalidates the session/load generation; cancellation revalidates
+ * the operation UUID; UI controls revalidate runtime membership and ownership.
+ * Re-query after asynchronous work instead of retaining authority from an old
+ * event. origin is an optional correlation token only for synchronous UI effects
+ * of the requested command. Native input, deferred work and nested event-loop
+ * effects do not inherit it. It is neither an access right nor a transaction ID.
+ * Observers should refresh their own state and defer deliberate mutations to
+ * avoid feedback loops.
+ *
+ * @subsection sdk_value_events Binding-friendly copied values example
+ *
+ * examples/extensions/values builds against the installed SDK 1.5 and Qt alone.
+ * Its OpenSWMM::Examples::ValueEventAdapter is compiled privately inside each
+ * consumer, rather than exported by the GUI or a shared SDK library. It is an
+ * example representation, not a new frozen host IID, vtable or SDK version.
+ * The module registers a read-only diagnostic dock and a command to show it.
+ * It introduces no interpreter, engine dependency, command gateway or network IO.
+ *
+ * Construct the adapter in C++ with the borrowed ExtensionHost::lifetime()
+ * QObject. It discovers session/view/activity and uses managed subscriptions with its own
+ * GUI-thread receiver context. Connect stateOccurred, viewOccurred and
+ * activityOccurred before initial stateSnapshot(), viewSnapshot(sessionId)
+ * and activitySnapshot() queries. isSubscribed() requires all three live
+ * subscriptions. An individual snapshot from a missing, stopped, destroyed,
+ * wrong-thread or invalid-target source is explicitly unavailable. An available
+ * state snapshot can legitimately contain zero sessions. disconnect() ends the
+ * managed subscriptions; ordinary downstream queued Qt calls retain Qt's usual
+ * disconnect semantics. Directly connected slots must not throw.
+ *
+ * Every signal and snapshot uses this primitive QVariantMap envelope:
+ * @code{.json}
+ * {
+ *   "schemaVersion": 1,
+ *   "schema": "org.openswmm.gui.value-events",
+ *   "domain": "state",
+ *   "type": "snapshot",
+ *   "available": true,
+ *   "data": {"sequence": "18446744073709551615", "sessions": []}
+ * }
+ * @endcode
+ *
+ * domain is state, view or activity; type is event or snapshot. data preserves
+ * every field of the corresponding frozen StateEvent/StateSnapshot,
+ * ViewEvent/ViewSnapshot or ActivityEvent/ActivitySnapshot, including nested
+ * session, save, layer, channel, results, process, document, dock, command and UI
+ * descriptors. Unavailable envelopes use available=false and an empty data map.
+ * The explicit conversion functions in ValueEventAdapter.cpp define the mapping;
+ * they do not introspect arbitrary QObject properties or expose native references.
+ *
+ * Values are maps/lists, strings, booleans, small enum/flag/integer numbers,
+ * finite real numbers or null. All 64-bit integers are decimal strings:
+ * sequence; loadGeneration/stateRevision/modelRevision/sourceGeneration/revision;
+ * and selectedObjects/featureCount/selectionCount/periodCount/currentIndex.
+ * Consumers must parse those strings as integers before comparing them.
+ * This retains unsigned 64-bit precision, values above 2^53 and negative cursor
+ * sentinels through JSON and language conversion. UUIDs are lowercase braceless
+ * strings or null; valid timestamps are ISO UTC strings with milliseconds.
+ * Invalid timestamps and nonfinite real inputs become explicit null. A null
+ * field is present and distinct from an omitted schema field. Qt documents the
+ * unsigned-64-bit conversion limits in
+ * [QJsonValue](https://doc.qt.io/qt-6.8/qjsonvalue.html#fromVariant).
+ *
+ * Snapshot lists retain complete current source metadata, rather than adding
+ * geometry, selected feature IDs, result arrays, readers, engine addresses or
+ * widgets. The adapter adds no history/replay store or second event backlog.
+ * Existing source scopes, retention, coalescing and the shared session/view/activity sequence
+ * still apply. IModelEvents' separate host-local sequence is deliberately excluded.
+ * Keep the initial shared cutoff immutable; later queries refresh display state
+ * without changing the event-counter cutoff. A historical event or copied map
+ * grants no authority to mutate a retired target. Use current typed controller
+ * methods and their normal identity/generation validation for deliberate actions.
+ *
+ * SDK_VALUE_CAPTURE_PATH opts into append-only JSONL diagnostic capture at an
+ * absolute file path in an existing reviewable verification directory.
+ * The optional {pluginId} placeholder gives separately built modules distinct
+ * files. No capture file or directory is created by default. The example records
+ * initial snapshots and future accepted events; its explicit refresh button
+ * captures fresh snapshots without moving the initial watermark.
+ *
+ * Qt for Python describes conversion of
+ * [QVariant to native Python values](https://doc.qt.io/qtforpython-6.8/considerations.html#qvariant).
+ * Primitive records avoid requiring language bindings for the SDK event structs.
+ * A standalone Python standard-library decoder establishes representation
+ * evidence only. It does not establish live Python/Qt signal delivery, wrapper
+ * ownership, GIL behavior, interpreter lifetime, borrowed engine handles or a
+ * single loaded engine image. The separate private Python product still requires
+ * matched Qt/PySide/shiboken builds, engine E2/E5 and its complete runtime and
+ * binding acceptance matrix. No Python runtime or Python product code is embedded
+ * in the GUI by this example. Cross-platform, ASan and release gates require their
+ * own recorded execution; a representation test does not close them.
+ *
+ * @subsection sdk_event_delivery Legacy/IModelEvents synchronous subscription and delivery
+ *
+ * Register on the GUI thread with a nonnull GUI-thread QObject context and a
+ * nonempty callback. The returned QMetaObject::Connection supports explicit
+ * QObject::disconnect(); destroying the context or host disconnects it too.
+ * Delivery is synchronous on the GUI thread. The context must remain there;
+ * callbacks are suppressed while it is on another thread and after host shutdown
+ * begins. Invalid registrations return an invalid connection. A throwing
+ * observer is reported without preventing other observers from receiving the
+ * event; handlers should nevertheless avoid throwing.
+ *
+ * The callback arguments are borrowed references to value data during the call;
+ * copy them if retaining them. No raw engine, runner or layer pointer is an
+ * event payload. There is no initial replay: subscribe first, then enumerate
+ * current state. Native lifecycle registration attaches facades; enumeration
+ * itself does not create or announce a new model. Use ISessionEvents' session snapshot and
+ * resolution methods when readiness or a specific open lifetime matters.
+ *
+ * Notifications currently follow native signal timing and may occur inside
+ * an edit, load or close operation. Keep callbacks short; defer state-changing
+ * commands through IUiHost::postToMainThread(), use guarded receivers, and
+ * re-resolve the target by identity and check isOpen() before acting. Do not
+ * start nested event loops or assume every event represents a completed
+ * transaction. Native plugins remain trusted code; callback exception handling
+ * cannot isolate a native memory fault.
+ *
+ * @code{.cpp}
+ * // controller is a GUI-thread QObject owned by the plugin.
+ * auto connection = host->observe(controller,
+ *     [host](const QString &event, const QVariantMap &data) {
+ *         if (event != "selectionChanged")
+ *             return;
+ *         const QUuid id = data.value("id").toUuid();
+ *         for (auto *model : host->instances()) {
+ *             if (model->id() == id && model->isOpen()) {
+ *                 const auto selected = model->selection();
+ *                 // Refresh this plugin's view from the copied selection.
+ *                 Q_UNUSED(selected);
+ *                 break;
+ *             }
+ *         }
+ *     });
+ * // QObject::disconnect(connection); // Optional early unsubscribe.
+ * @endcode
+ *
+ * @subsection sdk_event_catalogue Legacy observe() event catalogue
+ *
+ * All names are case-sensitive strings. Fields below are the current contract;
+ * consumers must tolerate unknown additional fields and event names. Model
+ * `id` values are QUuid, while `layerId` is a QString. Events contain no
+ * revision/sequence number. Broad change events require a fresh state query.
+ *
+ * | Event | Payload | Actual scope |
+ * | --- | --- | --- |
+ * | instanceOpened | id | First discovery of a model facade; not a model-load-success or readiness guarantee. Check isOpen(). |
+ * | instanceClosed | id | Model close has begun. Treat the model as unavailable; no close veto is supported. |
+ * | instanceActivated | id | Active model resolved after MDI activation; a null UUID means no active model. |
+ * | selectionChanged | id | Shared SWMM object selection used by map, tables and property views. |
+ * | modelEdited | id | Native modelEdited notification; not every geometry/options/attribute signal is implied. |
+ * | attributesChanged | id, name | Native model attributeChanged name; not a complete changed-field list or computed-provider schema event. |
+ * | viewportChanged | id | Visible map extent or canvas CRS changed, including resize-driven extent changes. Requery viewportBoundary(). |
+ * | layersChanged | id | Canvas layer added or removed; no specific layer ID/reason, rename/order/style/visibility coverage. |
+ * | boundaryChanged | id, layerId | Watched vector source selection, filter, feature count, CRS or editable features changed. |
+ * | resultsChanged | id | Active 1D/2D result source changed; not every playback frame, result variable or reader-readiness change. |
+ * | runsChanged | none | Simulation Status data, rows or reset changed. Requery runRegistry()->runs(). |
+ * | settingsChanged | key (QString) | This extension's setValue()/remove() call; not external settings-file or global network-policy changes. |
+ * | themeChanged | none | Main-window palette changed; requery theme tokens. |
+ * | jobProgress | title (QString), progress (double), text (QString) | This extension's worker progress, normalized to [0,1]. |
+ * | jobFinished | title (QString), ok (bool), error (QString) | This extension's worker completion; cancellation makes ok false and may leave error empty. |
+ *
+ * Job titles are display text, not unique operation identities. Simulation
+ * run notifications and extension jobs are different scopes. No public
+ * general-purpose plugin-to-plugin publish/subscribe service exists.
+ *
+ * @subsection sdk_event_limits Coverage boundaries
+ *
+ * ISessionEvents provides authoritative session readiness, revision snapshots, close and
+ * project-save lifecycle. IModelEvents retains its earlier synchronous observation scope.
+ * IViewEvents adds detailed model/layer/result invalidations, copied view metadata and
+ * validated commands; it does not extend the earlier interfaces' semantics.
+ * IActivityEvents adds unique run/job attempts and the scoped document/dock/command metadata
+ * and controls described above. StateChanged categories remain broad
+ * invalidations. There is no general event-history replay or plugin-to-plugin
+ * publishing service. UI metadata does not expose private widget state, and
+ * attached results metadata remains distinct from run-attempt telemetry.
+ * Avoid querying private objects to work around remaining gaps; future
+ * capabilities need explicit public contracts and conformance coverage.
+ *
+ * @section sdk_models Models, edits and undo
+ *
+ * projects(), instances() and activeInstance() return borrowed facades.
+ * Each facade guards its concrete model with QPointer and becomes inert
+ * after closure. Query isOpen() before deferred work. Signals exposed by
+ * observe() carry owning value metadata, including the persistent model id.
+ *
+ * Read model metadata through attributes() and selection(); select() shares
+ * the same selection bus as the map, attribute tables and property panels.
+ * For raw C API reads, acquire a read lease and release it on the GUI thread.
+ * Write leases exclude other leases and normal simulation runs.
+ *
+ * Prefer edit() for normal authored changes. It uses existing GUI property
+ * adapters and model apply paths. Native integrations may use nativeEdit()
+ * and its borrowed void* SWMM_Engine with the matching engine public headers.
+ * Never close, destroy or retain that handle outside the scope.
+ *
+ * Both edit paths write before/after snapshots under the model directory's
+ * .swmmvis/edits/. Unsaved models use the application's reviewable user-data
+ * directory under unsaved/&lt;instance UUID&gt;/. Snapshots and their companion
+ * assets remain available for review and undo. A successful commit rebuilds
+ * GUI geometry/attributes and creates one undo command. Scope destruction
+ * without commit restores the before snapshot. A failed mediated operation
+ * makes the complete transaction uncommittable.
+ *
+ * Rollback and undo reopen a snapshot into a fresh editable engine before
+ * replacing the live engine. Consequently, no raw engine handle survives
+ * rollback, undo, redo, or model closure. Snapshot replay failures are logged
+ * with their reviewable path; callers must retain the snapshot assets.
+ * Do not run nested event loops or show modal dialogs while holding an edit
+ * scope. Do expensive preparation in a worker, then apply the resulting
+ * values in a short main-thread transaction.
+ *
+ * @section sdk_preview Spatial preview and download areas
+ *
+ * A download UI must first preview metadata as selectable site points or
+ * coverage footprints. Its area chooser supports the current viewport or
+ * a boundary polygon from a loaded feature layer. The SDK supplies:
+ * - IProject::viewportBoundary(): sampled visible-area polygon.
+ * - IProject::polygonLayers(): loaded GIS and editable polygon sources.
+ * - IProject::boundaryFeatures(): paged feature identities and selection flags.
+ * - IProject::boundaryPolygon(): exact chosen polygon/multipolygon geometry.
+ * - IProject::showPreview()/clearPreview(): disposable map overlays.
+ *
+ * These geometry methods use RFC 7946 longitude/latitude with explicit
+ * traditional GIS axis order. Polygon holes and multipart structure are
+ * preserved. Preview geometry is reprojected to the map's canvas CRS.
+ * Missing or untransformable CRS information is an error; do not assume
+ * that unknown coordinates are longitude/latitude.
+ *
+ * A preview FeatureCollection may opt into point labels with the foreign member
+ * `"previewStyle": {"pointLabelProperty": "catalogue_title"}`. Each Point or
+ * MultiPoint marker then uses that feature's string-valued
+ * `properties.catalogue_title`; choose any property name appropriate to the
+ * catalogue. Missing, empty and non-string values produce no label. The host
+ * treats labels as plain text, normalizes whitespace and limits each label to
+ * 256 characters. Text begins six pixels right and sixteen pixels above the marker
+ * center; its size and offset stay fixed when the map is scaled.
+ * Polygon previews are unaffected, and a collection
+ * without this hint keeps the geometry-only presentation. The hint controls
+ * transient rendering; it does not configure a saved feature layer's style.
+ *
+ * To use normal native GIS tools, also set `"asFeatureLayer": true` and optionally
+ * `"title": "USGS sites (preview)"` inside previewStyle. This creates a host-owned
+ * temporary GIS vector layer backed by GDAL virtual memory. The layer appears in
+ * Layers and supports the ordinary Attribute Table, identify, query, feature
+ * selection, filter, visibility and style controls. It is never serialized into
+ * the project or its layer order, and is not offered as a download boundary.
+ * Native attachment and revision events still describe its lifecycle; creating
+ * a preview layer does not authorize a consumer to accept arbitrary later revisions.
+ *
+ * Identical FeatureCollections are no-ops while the native layer remains attached,
+ * preserving its identity and any native filter, selection or custom style. A
+ * changed collection is fully validated before replacing the previous layer.
+ * Manual removal from Layers suppresses further refreshes until the consumer calls
+ * clearPreview(), normally when starting another explicit preview. Clearing, model
+ * closure or extension-facade destruction removes the layer and releases its
+ * virtual datasource. Presentation changes are session-only. The consumer must
+ * separately save original catalogue records when the user requests a persistent layer.
+ *
+ * Native previews are bounded to 5000 features, 256 distinct source attributes,
+ * nonempty field names of at most 256 characters, and 20 MiB of normalized GeoJSON.
+ * GDAL infers scalar column types. Nested object/array properties become compact
+ * JSON strings so each original property remains one inspectable/queryable column.
+ * When pointLabelProperty is requested, the native copy adds a uniquely named
+ * `__openswmm_preview_label` column containing bounded plain display text. It is
+ * distinct from the original full attribute and any original consumer export.
+ *
+ * @subsection sdk_preview_selection SDK 1.8 preview-layer selection
+ *
+ * IPreviewLayers lets a consumer keep its own list in step with the native
+ * preview layer's selection. Query `qobject_cast<IPreviewLayers *>(host->lifetime())`,
+ * then call previewLayer(sessionId, &featureIds) after a successful showPreview().
+ * It returns the layer's runtime attachment and its native FIDs in the feature
+ * order of the accepted collection. GDAL assigns those FIDs for string-identified
+ * GeoJSON features, so never assume they equal feature positions.
+ *
+ * - Map → consumer: observe IViewEvents LayerSelectionChanged for that
+ *   attachment. The select tool, rubber band, Attribute Table and typed commands
+ *   all change the same native selection. Read it with
+ *   IViewControls::selectedLayerFeatures().
+ * - Consumer → map: send ViewCommandKind::SelectLayerFeatures with the mapped FIDs.
+ *   The Attribute Table and map highlight follow immediately.
+ *
+ * Compare before writing so the two directions do not echo. A selection write
+ * is a normal source revision; it confers no review authority. A changed
+ * collection creates a new attachment with new FIDs and an empty selection, and
+ * a scene-only preview, manual removal or clearPreview() returns a null attachment.
+ *
+ * The host retains an overlay until another successful showPreview(), an explicit
+ * clearPreview(), or destruction of its project facade. Display is separate from
+ * download/export authority: retaining dots for orientation after a viewport
+ * change does not make the old reviewed area current. The consumer owns that
+ * validity decision, must reproject retained geometry after a canvas CRS change,
+ * and must clear its overlay when its model/source is no longer appropriate.
+ *
+ * A remote catalogue may accept only a bounding box. Query with the chosen
+ * area's envelope, then filter returned sites/footprints against its exact
+ * polygon before presenting the preview. Keep that reviewed area with the
+ * result identities selected for download. Changes to source, filters,
+ * polygon or relevant viewport invalidate the preview; do not download
+ * using a silently recomputed area. Legacy/IModelEvents viewportChanged, layersChanged,
+ * selectionChanged and boundaryChanged remain available to old consumers.
+ * The current openswmm.gui.data consumer requires SDK 1.9 and uses authoritative
+ * session/view/activity metadata instead; legacy name translation alone does not establish
+ * session readiness, an unambiguous attachment identity or a source revision.
+ *
+ * @subsection sdk_data_invalidation Typed Data catalogue review contract
+ *
+ * The Data UI subscribes before an immutable initial shared cutoff and adopts
+ * each explicit review with a separate cutoff. A review captures the exact Ready
+ * per-open sessionId/loadGeneration and chosen runtime layerSessionId/FID, rather
+ * than treating a persistent model UUID, display title or row number as identity.
+ * IActivityEvents' actual active model document selects the intended open lifetime; moving
+ * focus to a utility document retains the existing model context. Duplicate
+ * persistent UUIDs in two open model windows remain independent sessions.
+ *
+ * Source/change | Current catalogue-review behavior
+ * --- | ---
+ * Bound session closes, reloads, fails or ceases to be Ready; another model document becomes active | Cancel pending work, clear review authority/overlay and bind only an exact current Ready lifetime.
+ * Viewport-mode ISessionEvents Viewport change, including extent, resize or canvas CRS | Invalidate the frozen viewport review; a new explicit preview is required.
+ * Polygon-mode viewport change | Preserve a matching chosen boundary; a map pan does not change the frozen polygon.
+ * Chosen polygon's IViewEvents feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
+ * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
+ * Another attachment changes, including the layer added by an own export | Preserve an unchanged chosen boundary after guarded revision reconciliation.
+ * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalogue rows or native layer; downloads wait for the write's detailed IViewEvents evidence, then the unchanged review continues.
+ * Result playback, layer style/order or utility document/dock/command activity | Preserve an unchanged review; these are not source geometry changes.
+ * Source/dataset/area/boundary choice changes in the Data panel | Cancel/discard the old review and require an explicit new preview.
+ *
+ * Before publishing parsed results, writing cache data, updating an overlay,
+ * exporting selected features or retrying a request, Data rechecks the exact
+ * session/load, attachment/FID eligibility, geometry with holes/multiparts,
+ * CRS/filter/metadata and full selected-ID fingerprint. The fingerprint reads
+ * selected IDs in bounded-memory pages. An asynchronous completion carries the
+ * plugin work generation; cancellation, a source change or host/model closure
+ * prevents an old completion from acquiring authority over the new review.
+ * Network reply cancellation and worker settlement remain separate lifecycles.
+ *
+ * Frozen IViewEvents snapshots do not expose historical per-layer revisions or a source
+ * path. Exact current content alone cannot distinguish a source replacement or
+ * an A-to-B-to-A change before deferred notifications arrive. Therefore publication
+ * also requires the captured source-authoritative session stateRevision. A newer
+ * pending revision conservatively refuses the raced action, clears that review
+ * and overlay, and requires a fresh explicit preview, even if geometry has already
+ * returned to the same value. Delivered irrelevant changes can preserve a review
+ * through deferred reconciliation only when exact content still matches and the
+ * current revision is proved by detailed IViewEvents or unambiguous ISessionEvents observations.
+ * A queued callback alone is not a shared-drain barrier: another observer can
+ * enter a nested event loop before the pending detailed reason arrives. Broad ISessionEvents
+ * Layers or Model observations therefore cannot advance the proof revision.
+ * Unobserved newer revisions are never silently adopted. Coalesced broad changes
+ * can conservatively leave the review awaiting detail; an action attempted while
+ * that mismatch remains invalidates it and requires a new preview.
+ *
+ * Metadata preview is separate from downloading time series or raster
+ * payloads. This SDK provides the geometry and overlay infrastructure;
+ * NOAA/USGS service clients and the final download product are separate
+ * extension implementations.
+ *
+ * @section sdk_timeseries_layers SDK 1.6 native observation layers
+ *
+ * Include sdk/ITimeSeriesLayers.hpp and discover ITimeSeriesLayers on
+ * host->lifetime(). This independently versioned capability leaves IProject,
+ * ExtensionHost, IPlotService and the model, session, view and activity event interfaces unchanged. Native
+ * observations are persistent GUI data, independent of the plugin and engine.
+ * Creating a layer does not create model time series or assign forcing.
+ *
+ * Submit a TimeSeriesImportRequest with the original Ready sessionId and exact
+ * loadGeneration, a fresh importId, a completed local JSON descriptor and a new
+ * durable packagePath. The host imports on a cancellable worker, then rechecks
+ * the same target before GUI publication. Retain the borrowed IJob to cancel;
+ * use a GUI-thread QObject context for the result callback. Receiver destruction
+ * and host shutdown suppress publication/callbacks. No source samples or plugin
+ * callback pointers are retained by an attached layer. A deliberate subsequent
+ * download uses a new identity; repeating a published import is idempotent while
+ * its original attachment remains available. timeSeriesLayers() returns at most
+ * 1000 metadata records without reading observations.
+ *
+ * A source-neutral descriptor uses schema openswmm.timeseries-import/1:
+ * @code{.json}
+ * {
+ *   "schema": "openswmm.timeseries-import/1",
+ *   "datasetId": "83694fd0-0eae-4269-9924-4f49eb70dafe",
+ *   "title": "Station observations",
+ *   "sources": [{
+ *     "path": "observations.csv",
+ *     "columns": {"time":"timestamp", "value":"value", "sourceSeriesId":"series"},
+ *     "defaults": {"provider":"example", "collection":"continuous",
+ *                  "timeBasis":"instant", "unit":"m3/s"}
+ *   }]
+ * }
+ * @endcode
+ *
+ * Source paths resolve relative to the descriptor. Map semantic fields to CSV
+ * header strings with columns, or provide constant strings in defaults. Supported
+ * fields include siteId, parameter, sourceSeriesId, statistic, time, timeBasis,
+ * value, unit, observationId, approval, qualifier, properties and geometry.
+ * provider, collection, title and locationId can also be defaults. properties
+ * and geometry contain quoted JSON in CSV; ordinary CSV quote escaping applies.
+ * Empty values are null observations. Instants require an explicit UTC offset;
+ * calendar-date records require yyyy-MM-dd. Do not fabricate midnight instants
+ * for daily statistics. Distinct source series/statistics retain independent
+ * identities. Conflicting same-series timestamps or unit changes refuse import;
+ * identical duplicates may collapse. Detect conflicts before a plugin's own
+ * reduction step so they remain visible to native validation.
+ *
+ * Optional locations contain id, title, attributes and an RFC7946 Point geometry.
+ * Preserve reviewed catalogue coordinates even if observation geometry is absent.
+ * A native layer can be entirely nonspatial. Its own monitoring locations stay
+ * independent of optional project feature links; never persist a temporary
+ * preview's FID as a permanent association. Native feature links are explicit,
+ * and unresolved sources do not remove observations or their owned locations.
+ *
+ * The host writes a schema-versioned, indexed GeoPackage and keeps samples out
+ * of the project JSON. Tables use bounded readers; the existing Comparison plot
+ * uses cancellable window reads and separate full-resolution exports. Units,
+ * statistics, source clocks and nulls remain part of the observation semantics.
+ * Any comparison with model time must explicitly map the source clock to SWMM's
+ * wall-clock interpretation. Unsupported fit/metric pairing remains disabled.
+ *
+ * The Data consumer submits only completed nonempty downloads. Partial/cancelled
+ * downloads keep reviewable files without automatically publishing an incomplete
+ * collection. A closed/reloaded target reports saved assets separately from map
+ * success, never redirects to the active model, and does not grant a new catalogue
+ * review revision. DEM downloads continue using addRasterLayer() for the validated
+ * exact-area derived raster. The host's native Use in model action separately
+ * prepares a copy, validates units/time/gaps/targets and records provenance with
+ * its engine transaction; layer removal and later downloads do not alter that copy.
+ *
+ * @section sdk_services Settings, output, jobs and networking
+ *
+ * settings() is scoped to extensions/&lt;pluginId&gt;/ and refuses traversal keys.
+ * It is normal QSettings storage, not a secret store. extensionData() is
+ * separately scoped project JSON, persisted under extensions.&lt;pluginId&gt;.
+ * Output is plain text in a shared Output dock with one tab per extension.
+ * Its bounded history avoids unlimited growth from long-running tools.
+ * console()->append() also forwards the same message to the application's
+ * native Logs panel, with the extension identity and severity. This uses the
+ * existing console interface; authors do not need a private window pointer or
+ * a second logger. A plugin's Output tab remains its own focused message view.
+ * appendLocation() attaches a source path and one-based line to literal
+ * output. Double-clicking a located line calls setLocationHandler()'s guarded
+ * GUI-thread receiver; it never executes text or opens a path automatically.
+ * The receiver is disabled when its QObject context is destroyed or host
+ * shutdown begins. Location metadata is pruned with the bounded output history.
+ *
+ * All SDK calls require the GUI thread except console append(), job
+ * cancellation/completion queries, IJobContext calls and postToMainThread().
+ * Workers receive copied data, not model/widget pointers. Check cancellation
+ * frequently, return normally, and use a GUI continuation for publication.
+ * Worker exceptions become completion errors. The host shows progress and
+ * cancellation and joins outstanding work before plugin shutdown.
+ * runJob() automatically contributes to the shared status bar and logs its
+ * start, stage changes and terminal outcome. Repeated numerical progress in
+ * the same stage does not need a separate console line. Do not register a
+ * second manual progress scope for the same job.
+ * SDK 1.5 adds unique private-job metadata and identity-based cancellation
+ * through IActivityEvents and IActivityControls; see @ref sdk_process_controls.
+ *
+ * network()->shared() enforces HTTPS, rejects URL credentials, observes
+ * extensions/network/offline and an optional extensions/network/allowedHosts
+ * QStringList, and retains normal Qt TLS validation. Allowlist entries are
+ * exact DNS names or explicit *.domain suffixes. Redirect handling is manual:
+ * follow through the same manager so each destination is checked. A refused
+ * request completes asynchronously with ContentAccessDenied and performs no
+ * network IO. Native plugins remain capable of bypassing this service; this
+ * is a cooperative user policy, not a native-code sandbox.
+ * QNetworkReply lifetimes and completion are independent of runJob() and its
+ * process outcome. Cancelling a job does not automatically abort a reply or
+ * establish that an HTTP transfer has finished. Coordinate reply cancellation
+ * and publication on the GUI thread using guarded native Qt lifetimes.
+ *
+ * @subsection sdk_shared_progress SDK 1.7 shared status progress
+ *
+ * IProgress is a separately discoverable capability for work that does not
+ * run inside runJob(), including asynchronous QNetworkReply transfers. Query
+ * `qobject_cast<IProgress *>(host->lifetime())`; a consumer supporting older
+ * SDKs must handle a null result. A consumer that requires this service declares
+ * SDK 1.7 as its minimum and checks it during initialize(). ExtensionHost,
+ * IUiHost and IConsole keep their existing vtables and interface identities.
+ *
+ * Method | Contract
+ * --- | ---
+ * beginProgress(title, context) | Supply a nonempty title and live GUI-thread QObject context. Begin an indeterminate operation owned by this extension/context and retain its QUuid; a null UUID means it was refused.
+ * updateProgress(id, fraction, stage) | Publish the latest fraction and stage for an active owned operation. Finite negative values mean indeterminate; nonnegative values are clamped to [0,1]. Nonfinite values are refused.
+ * finishProgress(id, outcome, detail) | Finish once with ProgressOutcome::Succeeded, Failed or Cancelled and optional terminal detail. Only this operation is removed from shared progress.
+ *
+ * These calls require the GUI thread. Do not call updateProgress() from a
+ * parsing worker; post a guarded continuation or use runJob() and its
+ * IJobContext. Updates and finishes refuse invalid, foreign or finished IDs,
+ * off-thread calls, a stopping host or a context moved off the GUI thread.
+ * An invalid ProgressOutcome value is also refused.
+ * A false result means the change was not accepted; never substitute another
+ * operation ID. Finishing a display scope
+ * is not cancellation of a reply, job or import: its owner must cancel the
+ * underlying work and report the actual terminal outcome separately.
+ *
+ * The context is borrowed and must outlive its operation. Destroying it or
+ * shutting down the extension removes that extension's unfinished scopes.
+ * Context destruction records cancellation and releases only its operations.
+ * Host shutdown releases the native UI IDs while suppressing further logs,
+ * updates and public callbacks.
+ * Context destruction must also disconnect or guard the operation's network
+ * callbacks so late delivery cannot recreate progress or publish stale data.
+ * No scope may change another extension's status or hide native progress.
+ * The service logs one start, each distinct nonempty stage transition and
+ * one terminal outcome, already identified by extension. Do not duplicate those
+ * messages with console()->append(); use the console for additional domain
+ * details such as retained asset paths or import diagnostics.
+ * Keep stage wording stable while bytes or counts change; use the fraction for
+ * numerical progress. Identical updates are coalesced. Native publication is
+ * synchronous and can reenter application code, so rediscover the service through
+ * a guarded host lifetime after a call that could release its owner.
+ *
+ * @code{.cpp}
+ * #include <sdk/IProgress.hpp>
+ * #include <QPointer>
+ * using namespace OpenSWMM::Sdk;
+ *
+ * // GUI thread; context is the operation's QObject, not a worker object.
+ * QPointer<QObject> lifetime(host->lifetime());
+ * auto *progress = qobject_cast<IProgress *>(lifetime.data());
+ * const QUuid id = progress ? progress->beginProgress("Retrieve observations", context)
+ *                           : QUuid{};
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()); current && !id.isNull())
+ *     current->updateProgress(id, -1.0, "Requesting source metadata");
+ *
+ * // In later GUI-thread callbacks, rediscover through the guarded lifetime.
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()))
+ *     current->updateProgress(id, 0.5, "Downloading observations");
+ *
+ * // Call only after validation/publication has reached its real terminal state.
+ * if (auto *current = qobject_cast<IProgress *>(lifetime.data()))
+ *     current->finishProgress(id, ProgressOutcome::Succeeded, "Collection added");
+ * @endcode
+ *
+ * The native status bar chooses simulation progress before project opening,
+ * then extension progress, then a generic busy indication. A lower-priority
+ * operation remains tracked and can become visible when higher-priority work
+ * finishes. Concurrent extension operations show the slowest known fraction;
+ * if any has an unknown amount of work, their combined indication is busy.
+ * Finishing or destroying one operation recomputes the display from survivors.
+ * The status bar is a shared summary; use native Logs for stage and outcome
+ * details and the extension's own controls for cancellation.
+ *
+ * @section sdk_application_services Runs, results, plots and built-in dialogs
+ *
+ * runRegistry() returns copied Simulation Status rows and starts/cancels runs
+ * through the normal application controller. Native and legacy engine runs
+ * share this route. Starting a run saves pending authored changes, observes
+ * model lease exclusion, and retains the existing preflight/output rules.
+ * Normal preflight dialogs can still require user interaction. Observe
+ * runsChanged and read a fresh metadata snapshot rather than retaining
+ * references into a mutable status model. SDK 1.5 consumers can use
+ * startRunAttempt() and the captured IActivityEvents operation UUID for attempt-specific
+ * progress, outcome and cancellation; row IDs remain presentation data.
+ *
+ * IModelInstance::results() describes loaded 1D/2D result layers and their
+ * actual file paths without exposing private readers. 1D metadata includes
+ * report path and period range; 2D metadata includes retained frame count.
+ * Read payloads using the matching engine's public file readers.
+ *
+ * plots()->variables() enumerates the active 1D result source's supported
+ * descriptors for a node, link, subcatchment or system. Pass a returned key
+ * to timeSeries(); do not depend on private plot enum declarations or parse
+ * translated labels. Units can be empty where the service cannot advertise
+ * them reliably. profile() accepts an ordered connected node path and opens
+ * the existing profile panel. With parallel links, it selects the first
+ * connecting engine link for each adjacent node pair.
+ *
+ * dialogs()->ids() lists registered built-in commands advertising a dialog;
+ * open() triggers one in the active application context. Disabled, unknown
+ * and extension-owned action IDs are refused. This interface deliberately
+ * uses the existing argument-free commands instead of inventing constructor
+ * arguments for private dialog types.
+ *
+ * IProject::autosave() writes a recovery .oswp referencing its independent
+ * model snapshot and preserving extension state. It keeps the original
+ * project path and dirty state; external forcing files remain referenced
+ * assets rather than an implicit backup of arbitrary user files.
+ *
+ * @section sdk_current_scope Current contract and remaining qualification
+ *
+ * This reference describes the interfaces implemented in this source tree.
+ * The engine now supplies a runtime ABI tag and installed manifest. The
+ * broader program still calls for borrowed Python handles, external-image
+ * bindings and the separate Python product. The independent openswmm.gui.data
+ * consumer implements catalogue previews, dated observation downloads and native
+ * collection import, and terrain payload retrieval with exact-area raster import.
+ * Precipitation design storms remain a subsequent data package.
+ * SDK 1.1 adds derived model attributes and console source
+ * navigation; the root IGuiExtension IID remains at 1.0 because its interface
+ * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
+ * the new services must declare a minimum SDK version of 1.1.
+ * SDK 1.2 adds IModelEvents and the optional consumer-local Qt signal adapter.
+ * Plugins using these require SDK 1.2; SDK 1.0/1.1 consumers keep their existing
+ * interfaces and observation names. SDK 1.3 adds separately discoverable
+ * ISessionEvents for session identities, load generations, readiness/revision
+ * snapshots and normal/sidecar/recovery save outcomes. A ISessionEvents consumer requires
+ * SDK 1.3; its capabilities do not change the frozen IModelEvents delivery contract.
+ * SDK 1.4 adds IViewEvents, IViewControls and the consumer-local
+ * ViewSignalAdapter, without changing the model or session event interfaces or existing public vtables. View
+ * clients require SDK 1.4. SDK 1.5 adds IActivityEvents, IActivityControls and
+ * ActivitySignalAdapter for unique process attempts and scoped UI activity,
+ * without adding IActivityEvents types to frozen model, session and view event header layouts. Activity clients
+ * require SDK 1.5. Existing SDK 1.1 Data, 1.2 event and 1.3 lifecycle consumers
+ * retain their separately versioned contracts.
+ * SDK 1.6 adds ITimeSeriesLayers for native observation datasets; see
+ * @ref sdk_timeseries_layers. SDK 1.7 adds IProgress for scoped asynchronous
+ * operation progress in the shared status bar; see @ref sdk_shared_progress.
+ * It does not revise the frozen host, UI, console or earlier capability interfaces.
+ * SDK 1.8 adds IPreviewLayers for native preview-layer selection sync; see
+ * @ref sdk_preview_selection. SDK 1.9 renames the interfaces to descriptive names
+ * without changing their IID strings, vtables or value layouts, so plugins built
+ * against earlier SDKs still load: IEventSourceV1–V4 became IModelEvents,
+ * ISessionEvents, IViewEvents and IActivityEvents, and IViewControls,
+ * IActivityControls, ITimeSeriesLayers, IProgress and IPreviewLayers dropped
+ * their V1 suffix, as did the header and IID macro names. Source using the old
+ * names must be updated. An interface's version is carried only by its IID string.
+ * The updated Data consumer requires SDK 1.9,
+ * including native observation import, shared progress and preview selection.
+ *
+ * The current openswmm.gui.data consumer requires the newer typed capabilities;
+ * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.
+ * The installed values example supplies a consumer-local primitive projection
+ * without changing SDK 1.5 or claiming live language bindings. Borrowed
+ * Python-handle/binding acceptance and the separate Python
+ * product remain outstanding. Local tests are not evidence of remote CI runs,
+ * address-sanitizer qualification or qualification on every supported platform
+ * and toolchain; those require their own recorded results. Attached result
+ * source metadata is not a substitute for run-attempt telemetry.
+ *
+ * Snapshot-backed editing is exercised with a real 1D model. A release still
+ * requires strict writer/reopen qualification of every authored section, 2D mesh
+ * cases, multiple instances, and the supported platform/toolchain combinations.
+ * Header fingerprints cannot substitute for engine-owned runtime ABI verification.
+ *
+ * @section sdk_verification Verification
+ *
+ * tests/extensions builds real successful/failing Qt plugins and tests metadata
+ * discovery, compatibility gates, lifecycle cleanup, safe mode/crash recovery,
+ * settings isolation, cancellable jobs and refused network requests. The test
+ * can load an independently built installed-SDK plugin when
+ * SDK_EXTERNAL_PLUGIN_DIR names its output directory. Verification files and
+ * test settings are retained under tests/verification/extension_sdk_2026-10/.
+ * The application conformance fixture also exercises snapshot undo/abort,
+ * normal simulation startup and completion, results/plot services, recovery
+ * project saves, loaded polygon holes/multiparts and transient site/footprint
+ * overlays. Its report.json records each individual assertion.
+ * test_gui_extension_events checks typed payloads, filtering, source discovery,
+ * publication identity, subscription lifetime, shutdown and adapter behavior.
+ * Set SDK_TYPED_PLUGIN_DIRS to two separately built events-example directories
+ * separated by the platform path separator to test installed-SDK discovery,
+ * independently compiled adapters and rejection by an older host manifest.
+ * test_gui_extension_stateevents checks shared state snapshots, session/load
+ * generations, deferred ordering, stale-delivery guards, save scopes and both
+ * public host observer paths. SDK_LIFECYCLE_PLUGIN_DIR enables the independently
+ * built SDK 1.3 lifecycle example, including rejection by an older 1.2 host,
+ * snapshot/ready/save/close display updates and shutdown cleanup. The main GUI
+ * conformance runner also exercises the native load/save paths; synthetic core
+ * tests alone do not establish those controller completion barriers.
+ * test_gui_extension_viewevents checks IViewEvents filters, shared metadata watermarks,
+ * runtime attachment/source generations, stale delivery, managed subscriptions
+ * and the consumer-local signal adapter. test_extensionviewevents exercises
+ * real native model/layer/results signals and commands; source-open failure,
+ * close/reopen and asynchronous adoption require these native acceptance cases.
+ * View evidence and retained artifacts belong under
+ * tests/verification/extension_events_2026-10/ev3/.
+ * test_gui_extension_activityevents checks IActivityEvents filters, shared watermarks,
+ * immutable terminal/removal copies, bounded/coalesced metadata and the
+ * consumer-local ActivitySignalAdapter. test_gui_extension_activity_jobs
+ * checks same-title ownership, worker/GUI publication, queued cancellation,
+ * cancellation/completion races, exception precedence, progress bursts,
+ * retention and shutdown. test_gui_extension_activity_ui exercises real
+ * generic host actions/docks/MDI documents, utility focus, runtime identity
+ * recreation, no-ops, private ownership and reentrant factory cleanup.
+ * test_extensionactivity exercises the native application controller for run
+ * preparation failures, row reuse, cancellation and model closure;
+ * synthetic registry cases alone cannot establish those outcomes. Two
+ * independently configured examples/extensions/activity modules exercise
+ * installed SDK-only discovery and private jobs alongside shared native runs.
+ * EV4 evidence and retained settings/artifacts belong under
+ * tests/verification/extension_events_2026-10/ev4/. Test definitions describe
+ * coverage; passing claims require the corresponding recorded run results.
+ * test_gui_extension_values checks the complete value schemas, 64-bit extremes,
+ * pure snapshots, managed lifetime/thread/stop guards, ordinary queued Qt delivery
+ * and two independently compiled installed values-example modules. Set
+ * SDK_VALUE_PLUGIN_DIRS to those module directories, separated by the platform
+ * path separator, to enable installed-consumer acceptance. Captured JSON extrema
+ * and example JSONL records are decoded with Python's standard library to verify
+ * representation only; no PySide/runtime acceptance is implied. The Data repository
+ * separately tests public-only panel fakes, held notifications, late work, duplicate
+ * persistent UUIDs, same-count selection changes and source/revision races. Native
+ * application conformance is still needed to establish actual GUI forwarding.
+ * EV5 evidence belongs under tests/verification/extension_events_2026-10/ev5/.
+ * Catalogue acceptance does not qualify future observation/raster/storm payload
+ * invalidation, live-network policy/retry/cancellation, or all platform/toolchains.
+ *
+ * Generate the complete GUI documentation from the repository root with:
+ * @code{.sh}
+ * cd docs
+ * doxygen Doxyfile
+ * @endcode
+ * Open docs/html/index.html from the repository root, then choose
+ * GUI Extensions in the navigation. This build includes the user manual,
+ * this author guide, public SDK headers, private implementation files and
+ * the standalone plugin example. The documentation workflow publishes this
+ * single GUI documentation site.
+ *
+ * Contributors can also run focused documentation checks from the repository root:
+ * @code{.sh}
+ * doxygen docs/sdk/Doxyfile
+ * doxygen docs/sdk/Doxyfile.internal
+ * @endcode
+ * These optional configurations check the same documentation sources. The first
+ * covers the public SDK and standalone example; the second adds private host
+ * adapters. Both treat missing/incomplete documentation as errors. They are
+ * validation builds rather than separately published documentation sites.
+ * HTML is written under build/docs/sdk/ and build/docs/sdk-internal/ respectively.
+ */

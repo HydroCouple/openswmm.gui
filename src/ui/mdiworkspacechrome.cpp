@@ -1,15 +1,46 @@
+/**
+ * @file      mdiworkspacechrome.cpp
+ * @brief     Correct QMdiArea's stale initial backdrop, and make the welcome tab paint one of its
+ *            own.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/mdiworkspacechrome.h"
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
 
 #include <QMdiArea>
+#include <QTabBar>
 #include <QMdiSubWindow>
+#include <QDir>
 #include <QObject>
+#include <QWidget>
 
-namespace openswmmvis::ui {
-
-void installMdiWorkspaceChrome(QMdiArea *area)
+namespace openswmmvis::ui
 {
+
+void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome)
+{
+    // DO NOT REMOVE. This looks like dead styling — it is not, and it has
+    // been reverted once already. The welcome tab must paint its own
+    // background: what it lets show through is not just the backdrop but
+    // every sub-window Qt left restored in the viewport below it (TabbedView
+    // never hides the outgoing one, qmdiarea.cpp:685). Drop this and a model
+    // tab reappears as a detached 200x150 framed window over the welcome
+    // screen after welcome -> model -> welcome. QPalette::Window is already
+    // surfaceWindow, so this changes what is *covered*, not how the welcome
+    // looks — which is exactly why deleting it looks safe and is not.
+    //
+    // Guarded by test_mdi_tab_maximize's restoredModelCannotShowThroughTheWelcome.
+    // Note visibleStrays() there CANNOT catch this: it measures z-order only,
+    // and the model is correctly z-ordered underneath a cover that does not
+    // paint. See mdiworkspacechrome.h for the full mechanism.
+    if (welcome)
+        welcome->setAutoFillBackground(true);
+
     if (!area)
         return;
 
@@ -27,20 +58,26 @@ void installMdiWorkspaceChrome(QMdiArea *area)
         area->setBackground(ThemeManager::instance()->colors().surfaceWindow);
     };
     syncBackdrop();
-    QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged,
-                     area, syncBackdrop);
-
-    // Re-assert the maximized state Qt only propagates from a visible,
-    // maximized predecessor. isHidden() (not isVisible()) is the test: it
-    // is false for a sub-window that is merely waiting on its ancestors to
-    // be shown, and true only for one hide()n in its own right.
-    QObject::connect(area, &QMdiArea::subWindowActivated, area,
-                     [area](QMdiSubWindow *sub) {
-                         if (sub && !sub->isHidden()
-                             && area->viewMode() == QMdiArea::TabbedView
-                             && !sub->isMaximized())
-                             sub->showMaximized();
-                     });
+    QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged, area, syncBackdrop);
 }
 
-}   // namespace openswmmvis::ui
+void refreshSubWindowTabToolTips(QMdiArea *area,
+                                 const std::function<QString(QMdiSubWindow *)> &pathFor)
+{
+    if (!area)
+        return;
+    auto *tabBar = area->findChild<QTabBar *>();
+    if (!tabBar)
+        return;
+
+    const QList<QMdiSubWindow *> subs = area->subWindowList();
+    for (int i = 0; i < subs.size() && i < tabBar->count(); ++i) {
+        QMdiSubWindow *sub = subs.at(i);
+        QString tip = pathFor ? QDir::toNativeSeparators(pathFor(sub)) : QString();
+        if (tip.isEmpty())
+            tip = sub->windowTitle();
+        tabBar->setTabToolTip(i, tip);
+    }
+}
+
+} // namespace openswmmvis::ui

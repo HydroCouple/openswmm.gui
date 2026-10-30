@@ -1,8 +1,10 @@
-/*!
- * \file   rastergeoref.h
- * \author OpenSWMM GUI
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rastergeoref.h
+ * @brief     World-file parsing and GDAL PAM georeferencing helpers for local raster basemaps
+ *            (LOCAL_RASTER_BASEMAP plan, Phase 2).
+ * @author    SWMMVis
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * World-file parsing and GDAL PAM georeferencing helpers for local raster
  * basemaps (LOCAL_RASTER_BASEMAP plan, Phase 2).
@@ -16,27 +18,31 @@
  * changes to GISRasterLayer's open paths. Persistence goes through the
  * driver's native update path when it supports one (GTiff), or the standard
  * PAM sidecar "<image>.aux.xml" otherwise (PNG/JPEG refuse update opens).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_IO_RASTERGEOREF_H
 #define OPENSWMMVIS_IO_RASTERGEOREF_H
 
 #include <QString>
 #include <QStringList>
 
-namespace openswmmvis::io::rastergeoref {
+namespace openswmmvis::io::rastergeoref
+{
 
 /*! \brief The six lines of an ESRI world file, in file order.
  *
  *  C/F reference the CENTER of the top-left pixel — not its corner (see
  *  worldFileToGeoTransform() for the conversion). */
-struct WorldFileParams
-{
-    double a;  //!< Line 1 — x pixel size.
-    double d;  //!< Line 2 — y-axis rotation.
-    double b;  //!< Line 3 — x-axis rotation.
-    double e;  //!< Line 4 — y pixel size (usually negative).
-    double c;  //!< Line 5 — x of the CENTER of the top-left pixel.
-    double f;  //!< Line 6 — y of the CENTER of the top-left pixel.
+struct WorldFileParams {
+    double a; //!< Line 1 — x pixel size.
+    double d; //!< Line 2 — y-axis rotation.
+    double b; //!< Line 3 — x-axis rotation.
+    double e; //!< Line 4 — y pixel size (usually negative).
+    double c; //!< Line 5 — x of the CENTER of the top-left pixel.
+    double f; //!< Line 6 — y of the CENTER of the top-left pixel.
 };
 
 /*!
@@ -49,6 +55,7 @@ struct WorldFileParams
  * \param err   Optional; receives a message on failure (unreadable file,
  *              fewer than six values, or a non-numeric value).
  * \return true on success.
+ * @details out must be non-null and is unchanged on failure. Only the first six values are consumed; additional values are ignored. Values are parsed without checking finiteness or transform invertibility. err is left unchanged on success.
  */
 bool parseWorldFile(const QString &path, WorldFileParams *out, QString *err);
 
@@ -63,6 +70,8 @@ bool parseWorldFile(const QString &path, WorldFileParams *out, QString *err);
  *
  * Pure path arithmetic — ALL candidates are returned whether or not they
  * exist on disk; the caller checks existence.
+ * @param[in] imagePath Image path used for directory/stem/extension derivation.
+ * @return Candidate paths in priority order with duplicates removed; no existence checks.
  */
 [[nodiscard]] QStringList worldFileCandidates(const QString &imagePath);
 
@@ -73,6 +82,8 @@ bool parseWorldFile(const QString &path, WorldFileParams *out, QString *err);
  * GeoTransform anchors gt[0]/gt[3] at its top-left CORNER:
  * gt[0] = C − A/2 − B/2 and gt[3] = F − D/2 − E/2, with
  * gt[1]=A, gt[2]=B, gt[4]=D, gt[5]=E.
+ * @param[in] wf Pixel-center world-file coefficients in output coordinate units.
+ * @param[out] gt Non-null writable six-element GDAL transform array.
  */
 void worldFileToGeoTransform(const WorldFileParams &wf, double gt[6]);
 
@@ -93,21 +104,24 @@ void worldFileToGeoTransform(const WorldFileParams &wf, double gt[6]);
  * \param crsWkt     CRS as WKT (see authCodeToWkt()); empty = don't set.
  * \param err        Optional; receives a message on failure.
  * \return true when the georeferencing is written AND visible on reopen.
+ * @details May modify native metadata or a PAM sidecar before a later verification failure; no rollback is provided. Close other dataset handles before use so reopened readers observe the new metadata. err is not cleared on success.
  */
-bool applyPamGeoref(const QString &imagePath, const double *gt6,
-                    const QString &crsWkt, QString *err);
+bool applyPamGeoref(const QString &imagePath, const double *gt6, const QString &crsWkt,
+                    QString *err);
 
 /*! \brief What a cheap read-only open reveals about a raster's
  *         georeferencing — for dialog prefill/validation. */
-struct GeorefProbe
-{
-    bool    hasGeoTransform = false;  //!< GetGeoTransform() returned CE_None.
-    QString crsDescription;           //!< Human name of the CRS ("NAD83 / Maryland"); empty if none.
-    QString crsAuthCode;              //!< "EPSG:26985"-style code when the CRS carries one; else empty.
+struct GeorefProbe {
+    bool hasGeoTransform = false; //!< GetGeoTransform() returned CE_None.
+    QString crsDescription;       //!< Human name of the CRS ("NAD83 / Maryland"); empty if none.
+    QString crsAuthCode;          //!< "EPSG:26985"-style code when the CRS carries one; else empty.
 };
 
 /*! \brief Probes \a imagePath read-only; never fails (an unopenable file
- *         simply yields a default-constructed probe). */
+ *         simply yields a default-constructed probe).
+ * @param[in] imagePath Raster path opened independently read-only.
+ * @return Available transform/CRS metadata, or default flags/empty strings when no dataset can be opened.
+ */
 [[nodiscard]] GeorefProbe probeGeoref(const QString &imagePath);
 
 /*!

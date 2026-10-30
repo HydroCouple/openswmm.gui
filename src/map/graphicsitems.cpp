@@ -1,13 +1,15 @@
-/*!
- * \file   graphicsitems.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Implementations for custom QGraphicsItem subclasses.
+/**
+ * @file      graphicsitems.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Implementations for custom QGraphicsItem subclasses.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/graphicsitems.h"
 
-#include "render/markershape.h"   // G-1 — canonical marker shapes for VectorPointItem
+#include "render/markershape.h" // G-1 — canonical marker shapes for VectorPointItem
 
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
@@ -18,15 +20,9 @@
 // NodeGraphicsItem
 // ============================================================================
 
-NodeGraphicsItem::NodeGraphicsItem(const QString &name,
-                                   double sceneX, double sceneY,
-                                   double radius,
-                                   NodeShape shape,
-                                   QGraphicsItem *parent)
-    : QGraphicsEllipseItem(parent),
-      m_name(name),
-      m_shape(shape),
-      m_radius(radius)
+NodeGraphicsItem::NodeGraphicsItem(const QString &name, double sceneX, double sceneY, double radius,
+                                   NodeShape shape, QGraphicsItem *parent)
+    : QGraphicsEllipseItem(parent), m_name(name), m_shape(shape), m_radius(radius)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setFlag(QGraphicsItem::ItemIgnoresTransformations); // always rendered at fixed pixel size
@@ -63,23 +59,21 @@ void NodeGraphicsItem::setHighlighted(bool on)
     update();
 }
 
-void NodeGraphicsItem::paint(QPainter *painter,
-                             const QStyleOptionGraphicsItem *option,
+void NodeGraphicsItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                              QWidget * /*widget*/)
 {
     painter->setRenderHint(QPainter::Antialiasing);
 
-    QColor fill    = m_highlighted ? Qt::yellow : brush().color();
+    QColor fill = m_highlighted ? Qt::yellow : brush().color();
     QColor outline = pen().color();
-    double w       = pen().widthF();
+    double w = pen().widthF();
 
     painter->setPen(QPen(outline, w));
     painter->setBrush(fill);
 
     QRectF rc = rect();
 
-    switch (m_shape)
-    {
+    switch (m_shape) {
     case Circle:
         painter->drawEllipse(rc);
         break;
@@ -88,31 +82,24 @@ void NodeGraphicsItem::paint(QPainter *painter,
         painter->drawRect(rc);
         break;
 
-    case Triangle:
-    {
+    case Triangle: {
         QPolygonF tri;
-        tri << QPointF(rc.center().x(), rc.top())
-            << rc.bottomLeft()
-            << rc.bottomRight();
+        tri << QPointF(rc.center().x(), rc.top()) << rc.bottomLeft() << rc.bottomRight();
         painter->drawPolygon(tri);
         break;
     }
 
-    case Diamond:
-    {
+    case Diamond: {
         QPolygonF dia;
-        dia << QPointF(rc.center().x(), rc.top())
-            << QPointF(rc.right(), rc.center().y())
-            << QPointF(rc.center().x(), rc.bottom())
-            << QPointF(rc.left(), rc.center().y());
+        dia << QPointF(rc.center().x(), rc.top()) << QPointF(rc.right(), rc.center().y())
+            << QPointF(rc.center().x(), rc.bottom()) << QPointF(rc.left(), rc.center().y());
         painter->drawPolygon(dia);
         break;
     }
     }
 
     // Draw selection highlight ring
-    if (option->state & QStyle::State_Selected)
-    {
+    if (option->state & QStyle::State_Selected) {
         painter->setPen(QPen(QColor(0, 120, 255), 2.0, Qt::DashLine));
         painter->setBrush(Qt::NoBrush);
         painter->drawEllipse(rc.adjusted(-2, -2, 2, 2));
@@ -130,11 +117,9 @@ QPainterPath NodeGraphicsItem::shape() const
 // LinkGraphicsItem
 // ============================================================================
 
-LinkGraphicsItem::LinkGraphicsItem(const QString &name,
-                                   const QVector<QPointF> &vertices,
+LinkGraphicsItem::LinkGraphicsItem(const QString &name, const QVector<QPointF> &vertices,
                                    QGraphicsItem *parent)
-    : QGraphicsPathItem(parent),
-      m_name(name)
+    : QGraphicsPathItem(parent), m_name(name)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -163,7 +148,7 @@ void LinkGraphicsItem::setHighlighted(bool on)
     if (on)
         setPen(QPen(Qt::yellow, pen().widthF() + 2.0));
     else
-        setPen(pen());   // reset
+        setPen(pen()); // reset
     update();
 }
 
@@ -183,11 +168,9 @@ void LinkGraphicsItem::setVertices(const QVector<QPointF> &vertices)
 // CatchmentGraphicsItem
 // ============================================================================
 
-CatchmentGraphicsItem::CatchmentGraphicsItem(const QString &name,
-                                             const QPolygonF &polygon,
+CatchmentGraphicsItem::CatchmentGraphicsItem(const QString &name, const QPolygonF &polygon,
                                              QGraphicsItem *parent)
-    : QGraphicsPolygonItem(polygon, parent),
-      m_name(name)
+    : QGraphicsPolygonItem(polygon, parent), m_name(name)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -217,16 +200,18 @@ void CatchmentGraphicsItem::setHighlighted(bool on)
 // VectorPointItem
 // ============================================================================
 
-VectorPointItem::VectorPointItem(qint64 fid,
-                                 double sceneX, double sceneY,
-                                 double radius,
+VectorPointItem::VectorPointItem(qint64 fid, double sceneX, double sceneY, double radius,
                                  QGraphicsItem *parent)
-    : QGraphicsEllipseItem(parent),
-      m_fid(fid)
+    : QGraphicsEllipseItem(parent), m_fid(fid)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
+    setFlag(QGraphicsItem::ItemIgnoresTransformations);
     setAcceptHoverEvents(true);
-    setRect(sceneX - radius, sceneY - radius, radius * 2.0, radius * 2.0);
+    // The anchor follows map coordinates; marker geometry stays in logical
+    // screen pixels. Keeping a world-space center inside rect() scales both
+    // size and hit area with the CRS, making ordinary GIS points subpixel.
+    setPos(sceneX, sceneY);
+    setRect(-radius, -radius, radius * 2.0, radius * 2.0);
 }
 
 void VectorPointItem::setHighlighted(bool on)
@@ -244,8 +229,7 @@ void VectorPointItem::setElementRadius(double r)
     setRect(cx - r, cy - r, r * 2.0, r * 2.0);
 }
 
-void VectorPointItem::paint(QPainter *painter,
-                            const QStyleOptionGraphicsItem *option,
+void VectorPointItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                             QWidget * /*widget*/)
 {
     // G-1 — render the chosen canonical marker shape rather than the base
@@ -254,9 +238,8 @@ void VectorPointItem::paint(QPainter *painter,
     const QRectF rc = rect();
     const QPointF center = rc.center();
     const qreal sizePx = qMin(rc.width(), rc.height());
-    OpenSWMM::Render::drawMarkerShape(
-        painter, static_cast<OpenSWMM::Render::MarkerShape>(m_shape),
-        center, sizePx, brush(), pen());
+    OpenSWMM::Render::drawMarkerShape(painter, static_cast<OpenSWMM::Render::MarkerShape>(m_shape),
+                                      center, sizePx, brush(), pen());
 
     if (option->state & QStyle::State_Selected) {
         painter->setPen(QPen(QColor(0, 120, 255), 2.0, Qt::DashLine));
@@ -269,11 +252,8 @@ void VectorPointItem::paint(QPainter *painter,
 // VectorLineItem
 // ============================================================================
 
-VectorLineItem::VectorLineItem(qint64 fid,
-                                const QVector<QPointF> &vertices,
-                                QGraphicsItem *parent)
-    : QGraphicsPathItem(parent),
-      m_fid(fid)
+VectorLineItem::VectorLineItem(qint64 fid, const QVector<QPointF> &vertices, QGraphicsItem *parent)
+    : QGraphicsPathItem(parent), m_fid(fid)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -304,11 +284,8 @@ void VectorLineItem::setVertices(const QVector<QPointF> &vertices)
 // VectorPolygonItem
 // ============================================================================
 
-VectorPolygonItem::VectorPolygonItem(qint64 fid,
-                                     const QPolygonF &polygon,
-                                     QGraphicsItem *parent)
-    : QGraphicsPolygonItem(polygon, parent),
-      m_fid(fid)
+VectorPolygonItem::VectorPolygonItem(qint64 fid, const QPolygonF &polygon, QGraphicsItem *parent)
+    : QGraphicsPolygonItem(polygon, parent), m_fid(fid)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -328,6 +305,12 @@ void VectorPolygonItem::setHighlighted(bool on)
 
 namespace
 {
+/**
+ * @param[in] exterior Prepared local ring;>=3points closed, shorter ignored.
+ * @param[in] interiors Prepared hole rings, each>=3closed; nested/crossing topology unchecked.
+ * @return New OddEvenFill path containing all accepted rings. No orientation normalization, source
+ *   mutation or CRS conversion; invalid/exterior-empty still allows accepted interior subpaths.
+ */
 QPainterPath buildRingPolygonPath(const QVector<QPointF> &exterior,
                                   const QVector<QVector<QPointF>> &interiors)
 {
@@ -350,12 +333,10 @@ QPainterPath buildRingPolygonPath(const QVector<QPointF> &exterior,
 }
 } // namespace
 
-VectorPolygonPathItem::VectorPolygonPathItem(qint64 fid,
-                                             const QVector<QPointF> &exterior,
+VectorPolygonPathItem::VectorPolygonPathItem(qint64 fid, const QVector<QPointF> &exterior,
                                              const QVector<QVector<QPointF>> &interiors,
                                              QGraphicsItem *parent)
-    : QGraphicsPathItem(buildRingPolygonPath(exterior, interiors), parent),
-      m_fid(fid)
+    : QGraphicsPathItem(buildRingPolygonPath(exterior, interiors), parent), m_fid(fid)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -373,16 +354,14 @@ void VectorPolygonPathItem::setHighlighted(bool on)
 // RasterTileItem
 // ============================================================================
 
-RasterTileItem::RasterTileItem(const QPixmap &pixmap,
-                               const QRectF &sceneRect,
+RasterTileItem::RasterTileItem(const QPixmap &pixmap, const QRectF &sceneRect,
                                QGraphicsItem *parent)
     : QGraphicsPixmapItem(pixmap, parent)
 {
     // Scale and position the pixmap to cover seceRect in scene coordinates
     setPos(sceneRect.topLeft());
-    if (pixmap.width() > 0 && pixmap.height() > 0)
-    {
-        double sx = sceneRect.width()  / pixmap.width();
+    if (pixmap.width() > 0 && pixmap.height() > 0) {
+        double sx = sceneRect.width() / pixmap.width();
         double sy = sceneRect.height() / pixmap.height();
         setTransform(QTransform::fromScale(sx, sy));
     }
@@ -392,9 +371,8 @@ void RasterTileItem::updateTile(const QPixmap &pixmap, const QRectF &sceneRect)
 {
     setPixmap(pixmap);
     setPos(sceneRect.topLeft());
-    if (pixmap.width() > 0 && pixmap.height() > 0)
-    {
-        double sx = sceneRect.width()  / pixmap.width();
+    if (pixmap.width() > 0 && pixmap.height() > 0) {
+        double sx = sceneRect.width() / pixmap.width();
         double sy = sceneRect.height() / pixmap.height();
         setTransform(QTransform::fromScale(sx, sy));
     }
@@ -404,18 +382,14 @@ void RasterTileItem::updateTile(const QPixmap &pixmap, const QRectF &sceneRect)
 // ScaleBarItem
 // ============================================================================
 
-ScaleBarItem::ScaleBarItem(QGraphicsItem *parent)
-    : QGraphicsItem(parent)
-{
-}
+ScaleBarItem::ScaleBarItem(QGraphicsItem *parent) : QGraphicsItem(parent) {}
 
 QRectF ScaleBarItem::boundingRect() const
 {
     return QRectF(0, 0, 200, 30);
 }
 
-void ScaleBarItem::paint(QPainter *painter,
-                         const QStyleOptionGraphicsItem * /*option*/,
+void ScaleBarItem::paint(QPainter *painter, const QStyleOptionGraphicsItem * /*option*/,
                          QWidget * /*widget*/)
 {
     if (m_metresPerPixel <= 0.0)
@@ -426,10 +400,13 @@ void ScaleBarItem::paint(QPainter *painter,
     // Round to a "nice" bar length in metres
     double barMetres = maxLen * m_metresPerPixel;
     double magnitude = std::pow(10.0, std::floor(std::log10(barMetres)));
-    double nice      = barMetres / magnitude;
-    if      (nice < 2.0) nice = 1.0;
-    else if (nice < 5.0) nice = 2.0;
-    else                 nice = 5.0;
+    double nice = barMetres / magnitude;
+    if (nice < 2.0)
+        nice = 1.0;
+    else if (nice < 5.0)
+        nice = 2.0;
+    else
+        nice = 5.0;
     barMetres = nice * magnitude;
 
     // Snap bar length to the same rounded value the label will display so bar ↔ label stay in sync.
@@ -437,7 +414,8 @@ void ScaleBarItem::paint(QPainter *painter,
         barMetres = m_settings->roundedMetres(barMetres);
 
     int barPixels = static_cast<int>(std::round(barMetres / m_metresPerPixel));
-    if (barPixels < 2) barPixels = 2;
+    if (barPixels < 2)
+        barPixels = 2;
 
     painter->setPen(m_settings ? m_settings->pen() : QPen(Qt::black, 2));
     painter->drawLine(0, 20, barPixels, 20);
@@ -445,11 +423,10 @@ void ScaleBarItem::paint(QPainter *painter,
     painter->drawLine(barPixels, 16, barPixels, 24);
 
     painter->setFont(m_settings ? m_settings->font() : QFont(QStringLiteral("sans-serif"), 8));
-    QString label = m_settings
-                        ? m_settings->formatLabel(barMetres, m_rawCRS)
-                        : ((barMetres >= 1000.0)
-                               ? QStringLiteral("%1 km").arg(barMetres / 1000.0, 0, 'g', 3)
-                               : QStringLiteral("%1 m").arg(barMetres, 0, 'g', 3));
+    QString label = m_settings ? m_settings->formatLabel(barMetres, m_rawCRS)
+                               : ((barMetres >= 1000.0)
+                                      ? QStringLiteral("%1 km").arg(barMetres / 1000.0, 0, 'g', 3)
+                                      : QStringLiteral("%1 m").arg(barMetres, 0, 'g', 3));
     painter->drawText(0, 12, label);
 }
 
@@ -457,31 +434,24 @@ void ScaleBarItem::paint(QPainter *painter,
 // CoordDisplayItem
 // ============================================================================
 
-CoordDisplayItem::CoordDisplayItem(QGraphicsItem *parent)
-    : QGraphicsItem(parent)
-{
-}
+CoordDisplayItem::CoordDisplayItem(QGraphicsItem *parent) : QGraphicsItem(parent) {}
 
 QRectF CoordDisplayItem::boundingRect() const
 {
     return QRectF(0, 0, 250, 20);
 }
 
-void CoordDisplayItem::paint(QPainter *painter,
-                             const QStyleOptionGraphicsItem * /*option*/,
+void CoordDisplayItem::paint(QPainter *painter, const QStyleOptionGraphicsItem * /*option*/,
                              QWidget * /*widget*/)
 {
-    QString text = QStringLiteral("X: %1  Y: %2")
-                       .arg(m_x, 0, 'f', 5)
-                       .arg(m_y, 0, 'f', 5);
+    QString text = QStringLiteral("X: %1  Y: %2").arg(m_x, 0, 'f', 5).arg(m_y, 0, 'f', 5);
 
     painter->setFont(QFont(QStringLiteral("sans-serif"), 9));
     QFontMetrics fm(painter->font());
     int textW = fm.horizontalAdvance(text);
     int textH = fm.height();
 
-    painter->fillRect(-3, -textH, textW + 6, textH + 4,
-                      QColor(255, 255, 255, 180));
+    painter->fillRect(-3, -textH, textW + 6, textH + 4, QColor(255, 255, 255, 180));
     painter->setPen(Qt::black);
     painter->drawText(0, 0, text);
 }

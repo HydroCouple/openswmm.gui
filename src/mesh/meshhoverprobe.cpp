@@ -1,9 +1,13 @@
-/*!
- * \file   meshhoverprobe.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshhoverprobe.cpp
+ * @brief     Slice §V.VA — watches the active map canvas's cursor signal and emits the barycentric
+ *            Z under the cursor for the active 2D mesh layer.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/meshhoverprobe.h"
 
 #include "layers/swmm2dmeshlayer.h"
@@ -11,10 +15,10 @@
 
 #include <cmath>
 
-namespace mesh {
+namespace mesh
+{
 
-MeshHoverProbe::MeshHoverProbe(QObject *parent)
-    : QObject(parent)
+MeshHoverProbe::MeshHoverProbe(QObject *parent) : QObject(parent)
 {
     m_throttle.start();
 }
@@ -23,21 +27,21 @@ MeshHoverProbe::~MeshHoverProbe() = default;
 
 void MeshHoverProbe::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    if (m_canvas == canvas)
+        return;
     if (m_canvas) {
-        disconnect(m_canvas, &MapCanvas::cursorPositionChanged,
-                   this, &MeshHoverProbe::onCursor);
+        disconnect(m_canvas, &MapCanvas::cursorPositionChanged, this, &MeshHoverProbe::onCursor);
     }
     m_canvas = canvas;
     if (m_canvas) {
-        connect(m_canvas, &MapCanvas::cursorPositionChanged,
-                this, &MeshHoverProbe::onCursor);
+        connect(m_canvas, &MapCanvas::cursorPositionChanged, this, &MeshHoverProbe::onCursor);
     }
 }
 
 void MeshHoverProbe::setActiveMesh(SWMM2DMeshLayer *layer)
 {
-    if (m_mesh == layer) return;
+    if (m_mesh == layer)
+        return;
     m_mesh = layer;
     m_lastValid = false;
     m_lastZ = 0.0;
@@ -48,7 +52,8 @@ void MeshHoverProbe::onCursor(double mapX, double mapY)
 {
     // 16 ms throttle: matches the typical 60 fps cursor cadence and keeps
     // GUI-thread sampling cost bounded (R-V7).
-    if (m_throttle.isValid() && m_throttle.elapsed() < 16) return;
+    if (m_throttle.isValid() && m_throttle.elapsed() < 16)
+        return;
     m_throttle.restart();
 
     if (!m_mesh) {
@@ -71,14 +76,15 @@ void MeshHoverProbe::onCursor(double mapX, double mapY)
     // in the canvas CRS which matches what the mesh scene was built
     // against (the layer reprojects vertices into the canvas CRS during
     // populateScene; pre-populate hover returns NaN by design).
-    const double sx =  mapX;
+    const double sx = mapX;
     const double sy = -mapY;
 
     const double z = m_mesh->sampleZAt(sx, sy);
     const bool finite = std::isfinite(z);
-    if (finite == m_lastValid && (!finite || z == m_lastZ)) return;
+    if (finite == m_lastValid && (!finite || z == m_lastZ))
+        return;
     m_lastValid = finite;
-    m_lastZ     = finite ? z : 0.0;
+    m_lastZ = finite ? z : 0.0;
     emit elevationChanged(z, finite);
 }
 

@@ -1,9 +1,9 @@
-/*!
- * \file   test_dirtytracking_run.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The pre-run auto-save gate: engine mutations must mark the project
+/**
+ * @file      test_dirtytracking_run.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The pre-run auto-save gate: engine mutations must mark the project
  *         dirty, and view-only actions must not.
  *
  *         SWMMVis::onRunSimulation only saves the project when
@@ -21,7 +21,9 @@
  *
  *         Uses QTEST_MAIN because the last slot constructs a real
  *         SWMMVisProjectWindow (a QWidget).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -40,13 +42,19 @@
 #include <QTest>
 #include <QVector>
 
-namespace {
+namespace
+{
 
+/** @brief Read the configured GUI fixture root.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value, or literal dot when absent; no
+ * directory creation, normalization or cwd change. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Form the typed-selection model fixture path.
+ * @return Owned dataDir()/typed_selection_fixture.inp path without opening it. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
@@ -78,17 +86,25 @@ private:
     SWMMModelLayer *mLayer = nullptr;
 };
 
+/** @brief Reset the fixture's standalone layer owner before each case.
+ * Assigns null only; requires previous cleanup to have released any prior layer. */
 void TestDirtyTrackingRun::init()
 {
     mLayer = nullptr;
 }
 
+/** @brief Delete the standalone fixture layer after each case and clear its owner pointer.
+ * Releases the model/registries owned by that layer; null deletion is harmless. */
 void TestDirtyTrackingRun::cleanup()
 {
     delete mLayer;
     mLayer = nullptr;
 }
 
+/** @brief Load the typed-selection fixture into an unparented standalone layer.
+ * @return Caller-owned loaded layer, or null after load refusal and deletion.
+ * Discards collected warnings/errors and does not assign mLayer itself; caller
+ * installs ownership for cleanup. No project window or simulation is started. */
 SWMMModelLayer *TestDirtyTrackingRun::loadLayer()
 {
     auto *layer = new SWMMModelLayer(fixturePath(), nullptr);
@@ -105,6 +121,8 @@ SWMMModelLayer *TestDirtyTrackingRun::loadLayer()
 // modelEdited() channel they never reached the dirty flag.
 // ---------------------------------------------------------------------------
 
+/** @brief Require moving node zero to authored coordinates (123,456) to emit modelEdited.
+ * Loads a fresh layer and observes at least one signal, without persisting the edit. */
 void TestDirtyTrackingRun::nodeMoveMarksEdited()
 {
     mLayer = loadLayer();
@@ -112,30 +130,31 @@ void TestDirtyTrackingRun::nodeMoveMarksEdited()
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
     QVERIFY(mLayer->applyNodeMove(0, 123.0, 456.0));
-    QVERIFY2(spy.count() >= 1,
-             "moving a node writes [COORDINATES]; the project must be dirty");
+    QVERIFY2(spy.count() >= 1, "moving a node writes [COORDINATES]; the project must be dirty");
 }
 
+/** @brief Require replacing link-zero interior vertices to emit modelEdited for persisted VERTICES data. */
 void TestDirtyTrackingRun::linkInteriorVerticesMarkEdited()
 {
     mLayer = loadLayer();
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    const QVector<QPointF> interior{ QPointF(500.0, 75.0) };
+    const QVector<QPointF> interior{QPointF(500.0, 75.0)};
     QVERIFY(mLayer->applyLinkInteriorVertices(0, interior));
     QVERIFY2(spy.count() >= 1,
              "link interior vertices are [VERTICES] data; the project must be dirty");
 }
 
+/** @brief Require replacing subcatchment-zero polygon with a four-point ring to emit modelEdited. */
 void TestDirtyTrackingRun::subcatchVerticesMarkEdited()
 {
     mLayer = loadLayer();
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    const QVector<QPointF> ring{ QPointF(-2100.0, 1900.0), QPointF(-1800.0, 1900.0),
-                                 QPointF(-1800.0, 2200.0), QPointF(-2100.0, 2200.0) };
+    const QVector<QPointF> ring{QPointF(-2100.0, 1900.0), QPointF(-1800.0, 1900.0),
+                                QPointF(-1800.0, 2200.0), QPointF(-2100.0, 2200.0)};
     QVERIFY(mLayer->applySubcatchVertices(0, ring));
     QVERIFY2(spy.count() >= 1,
              "subcatchment polygons are [Polygons] data; the project must be dirty");
@@ -146,6 +165,9 @@ void TestDirtyTrackingRun::subcatchVerticesMarkEdited()
 // registry, so the registry's add/remove/rename signals do not cover them.
 // ---------------------------------------------------------------------------
 
+/** @brief Require changing an existing storage-curve point to emit modelEdited.
+ * Creates/seeds the provider before installing the spy, isolating the content edit
+ * from provider-add signals; layer/registry own the provider. */
 void TestDirtyTrackingRun::curvePointEditMarksEdited()
 {
     using openswmmvis::curve::CurveProvider;
@@ -159,17 +181,18 @@ void TestDirtyTrackingRun::curvePointEditMarksEdited()
 
     // Creating the provider is itself a mutation (providerAdded); take the spy
     // afterwards so the assertion is about the POINT edit alone.
-    CurveProvider *p = reg->create(QStringLiteral("dirty_probe_curve"),
-                                   openswmmvis::curve::CurveType::Storage);
+    CurveProvider *p =
+        reg->create(QStringLiteral("dirty_probe_curve"), openswmmvis::curve::CurveType::Storage);
     QVERIFY2(p, "could not create probe curve");
     QVERIFY(p->insertPoint(0.0, 1.0) >= 0);
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
     QVERIFY(p->setPointAt(0, 0.0, 2.0));
-    QVERIFY2(spy.count() >= 1,
-             "editing a curve point changes [CURVES]; the project must be dirty");
+    QVERIFY2(spy.count() >= 1, "editing a curve point changes [CURVES]; the project must be dirty");
 }
 
+/** @brief Require an hourly pattern-factor edit to emit modelEdited after provider creation.
+ * Uses a dimensionless factor 1.25 at index zero, isolating content from add signals. */
 void TestDirtyTrackingRun::patternFactorEditMarksEdited()
 {
     using openswmmvis::pattern::PatternProvider;
@@ -196,6 +219,7 @@ void TestDirtyTrackingRun::patternFactorEditMarksEdited()
 // neither the registry's add/remove/rename signals nor any layer signal.
 // ---------------------------------------------------------------------------
 
+/** @brief Require changing a created aquifer's porosity to 0.42 to emit modelEdited. */
 void TestDirtyTrackingRun::aquiferParamEditMarksEdited()
 {
     using openswmmvis::aquifer::AquiferProvider;
@@ -221,17 +245,22 @@ void TestDirtyTrackingRun::aquiferParamEditMarksEdited()
 // large model pays a needless .inp rewrite before every run.
 // ---------------------------------------------------------------------------
 
+/** @brief Require selecting and then clearing J1 to emit no modelEdited signals.
+ * Checks the view-only selection path on a loaded standalone layer. */
 void TestDirtyTrackingRun::selectionDoesNotMarkEdited()
 {
     mLayer = loadLayer();
     QVERIFY2(mLayer, "fixture failed to load");
 
     QSignalSpy spy(mLayer, &SWMMModelLayer::modelEdited);
-    mLayer->setSelectedElements({ { QStringLiteral("J1"), SWMMModelLayer::kKindNode } });
+    mLayer->setSelectedElements({{QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
     mLayer->setSelectedElements({});
     QCOMPARE(spy.count(), 0);
 }
 
+/** @brief Require saving an already created aquifer registry to the engine to emit no new modelEdited signal.
+ * Installs the spy after provider creation; it tests an unchanged flush rather than
+ * opening or canceling an actual editor dialog. */
 void TestDirtyTrackingRun::registryFlushWithoutEditDoesNotMarkEdited()
 {
     using openswmmvis::aquifer::AquiferRegistry;
@@ -254,24 +283,25 @@ void TestDirtyTrackingRun::registryFlushWithoutEditDoesNotMarkEdited()
     QCOMPARE(spy.count(), 0);
 }
 
+/** @brief Require a real project window to load clean and become dirty after its layer emits markEdited.
+ * Creates workspace/window from the fixture, checks the propagation path and deletes
+ * the window on success. Fatal assertions before the explicit delete can retain
+ * raw allocated UI objects; no simulation run or auto-save is invoked. */
 void TestDirtyTrackingRun::projectIsCleanAfterLoad()
 {
     auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
     QVERIFY(workspace != nullptr);
     auto *window = new SWMMVisProjectWindow(workspace, fixturePath(), nullptr);
     QList<QString> warnings, errors;
-    QVERIFY2(window->loadModel(warnings, errors),
-             "fixture failed to load into the project window");
+    QVERIFY2(window->loadModel(warnings, errors), "fixture failed to load into the project window");
 
     // Opening a project must not arm the pre-run auto-save. This is the
     // regression that would make every run of a large model rewrite the .inp.
-    QVERIFY2(!window->hasChanges(),
-             "a freshly loaded project must be clean");
+    QVERIFY2(!window->hasChanges(), "a freshly loaded project must be clean");
 
     QVERIFY2(window->modelLayer(), "project window has no model layer");
     window->modelLayer()->markEdited();
-    QVERIFY2(window->hasChanges(),
-             "modelEdited() must reach SWMMVisProjectWindow::setHasChanges");
+    QVERIFY2(window->hasChanges(), "modelEdited() must reach SWMMVisProjectWindow::setHasChanges");
 
     delete window;
 }

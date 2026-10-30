@@ -8,7 +8,18 @@
 
 # Helper — compile test + listed sources into one executable, register with CTest
 function(add_swmmvis_unit_test TEST_NAME)
-    add_executable(${TEST_NAME} ${ARGN})
+    set(test_sources ${ARGN})
+    set(uses_meshkit FALSE)
+    foreach(source IN LISTS ARGN)
+        if(source MATCHES "/libraries/meshkit/")
+            list(REMOVE_ITEM test_sources "${source}")
+            set(uses_meshkit TRUE)
+        endif()
+    endforeach()
+    add_executable(${TEST_NAME} ${test_sources})
+    if(uses_meshkit)
+        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
+    endif()
     target_include_directories(${TEST_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(${TEST_NAME}
         PRIVATE
@@ -109,6 +120,10 @@ add_swmmvis_unit_test(test_runpathresolver
     test_runpathresolver.cpp
     ${PROJECT_SOURCE_DIR}/src/simulation/runpathresolver.cpp
 )
+# moveProjectSettings writes QSettings; the test points them at a reviewable
+# INI sandbox in the build tree instead of the user's real preferences.
+target_compile_definitions(test_runpathresolver PRIVATE
+    SWMMVIS_TEST_SETTINGS_DIR="${CMAKE_BINARY_DIR}/tests/unit/output/settings_sandbox")
 
 # Slice BE — section-aware .rpt parser for the Report Viewer. Exercised
 # against a real engine-written report (data/weir_culvert.rpt) so the
@@ -165,8 +180,8 @@ add_swmmvis_unit_test(test_meshobjectref
 
 add_swmmvis_unit_test(test_meshbctype
     test_meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
 )
 
 # CSR-backed spatial index used by SWMM2DMeshLayer to cull triangles /
@@ -186,16 +201,134 @@ add_swmmvis_unit_test(test_meshspatialgrid
 # meshedgepropertyadapter.cpp (Q_PROPERTY / MOC validity).
 
 # Slice §V.VD.1 — [2D_BOUNDARY_CONDITIONS] writer / reader round-trip.
+# [2D_MESH_FILE] reference tokens are relative to the .inp, including `../`
+# forms for a mesh kept outside the model folder.
+add_swmmvis_unit_test(test_inpmeshwriter_relpath
+    test_inpmeshwriter_relpath.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
+    # The writer emits the GG0a [2D_INFILTRATION*] family, so it needs the
+    # mesh::infil* token/mask helpers.
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+)
+
 add_swmmvis_unit_test(test_meshinpbcroundtrip
     test_meshinpbcroundtrip.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
-    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
-    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
+    # inpmeshreader/inpmeshwriter parse and emit the per-cell
+    # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
 )
+
+# Channel burn-in, phase P0: section reconstruction, thalweg anchoring,
+# longitudinal bed interpolation and inter-section blending. Pure geometry —
+# no GDAL, no engine, no widgets (CHANNEL_BURN_IN_PLAN_2026-09-21.md §8 V1).
+add_swmmvis_unit_test(test_channelburnprofile
+    test_channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnprofile.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+
+# Channel burn-in, phase P1: corridor projection and the per-pixel rule.
+# Gates V2 (invariants) and V3 (units / frames) on a synthetic grid — the
+# invariants are properties of the rule, not of GDAL.
+add_swmmvis_unit_test(test_channelburn_rule
+    test_channelburn_rule.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburn.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+
+# Channel burn-in, phase P1: the burned-DEM round trip on a real GeoTIFF.
+# Artifacts (synthetic DEM, burned copy, report CSV) land in the repo so a
+# failure leaves something openable in a GIS (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_burnedrasterwriter
+    test_burnedrasterwriter.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/burnedrasterwriter.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/burnedrasterwriter.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+)
+target_link_libraries(test_burnedrasterwriter PRIVATE GDAL::GDAL)
+target_compile_definitions(test_burnedrasterwriter
+    PRIVATE CHANNELBURN_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/channelburn_artifacts")
+
+# Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): close/open/
+# simplify the meshing region at the minimum cell size.
+add_swmmvis_unit_test(test_boundaryconditioning
+    test_boundaryconditioning.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/boundaryconditioning.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/boundaryconditioning.cpp
+)
+target_link_libraries(test_boundaryconditioning PRIVATE GDAL::GDAL Qt6::Concurrent)
+
+# Channel burn-in, phases P2/P3: the corridor lattice and its mesh products.
+# Gates V5 (conformal lattice, exact z), V6 (all-quad corridor) and V7 (the
+# densification guard). Needs Qt6::Gui for QPolygonF, and meshpatch/
+# meshquadregion for validate() / ringIsSimple().
+add_swmmvis_unit_test(test_channelburnlattice
+    test_channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnlattice.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
+
+# Channel burn-in end to end: a real engine-parsed deck plus a real raster,
+# through resolve → profile → burn → lattice → patch. The deck is US-units and
+# the DEM is metres, so the zConversionFactor path is exercised in anger.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburn_endtoend
+        test_channelburn_endtoend.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/burnedrasterwriter.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    )
+    target_link_libraries(test_channelburn_endtoend
+        PRIVATE Qt6::Gui GDAL::GDAL openswmm_engine)
+    target_compile_definitions(test_channelburn_endtoend PRIVATE
+        SWMMVIS_BURNE2E_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data"
+        SWMMVIS_BURNE2E_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
+# Channel burn-in D-H: the .oswp round trip for the tab's settings. Header-only
+# converters, so this links neither the serializer .cpp nor the layer stack.
+add_swmmvis_unit_test(test_channelburn_persist
+    test_channelburn_persist.cpp
+    ${PROJECT_SOURCE_DIR}/include/project/projectserializer.h
+)
+
+# Channel burn-in, phases P4/P5: what happens to the 1D network, and where a
+# channel meets the domain edge. Both are the PURE half — applying the plan
+# needs SWMMModelLayer + MapUndoStack and lives in the GUI suite.
+add_swmmvis_unit_test(test_channelburnnetwork
+    test_channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnnetwork.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/channelburnboundary.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_channelburnnetwork PRIVATE Qt6::Gui)
 
 # Coincident-node matching behind the mesh toolbar's Auto-couple action.
 # Pure functions over MeshResult — no layer / widget / engine deps.
@@ -215,8 +348,8 @@ add_swmmvis_unit_test(test_meshboundarygraph
 # Cell-area statistics for the mesh Metadata tab (Plan Part A).
 add_swmmvis_unit_test(test_meshcellstats
     test_meshcellstats.cpp
-    ${PROJECT_SOURCE_DIR}/include/mesh/meshcellstats.h
-    ${PROJECT_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellstats.h
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
 )
 
 # Node→mesh remapping (Plan Part C.1): coincident → vertex coupling,
@@ -231,21 +364,55 @@ add_swmmvis_unit_test(test_meshnodemapper
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
 )
 
+# Remap's read-only 2D-aquifer preview: node / seeping-conduit / subcatchment
+# shares inside the mesh (INFILTRATION_TO_2D_AQUIFER_AND_REMAP_PLAN Step 2).
+add_swmmvis_unit_test(test_meshgwpreview
+    test_meshgwpreview.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshgwpreview.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshgwpreview.cpp
+    ${PROJECT_SOURCE_DIR}/include/layers/meshspatialgrid.h
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+
 # Mesh-edit persistence — layer edits pushed into the engine survive the
 # .inp write (vertex Z / conveyance / BC), with Manning's n + coupling kept.
 # Needs the real engine, so it is only built when the engine target exists.
 if(TARGET openswmm_engine)
     add_swmmvis_unit_test(test_meshenginesync
         test_meshenginesync.cpp
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
-        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
-        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
-        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
+
+    # Save-path perf harness — times mesh read / engine open / mesh push /
+    # model write against a large synthetic mesh, in the OPENED-not-INITIALIZED
+    # engine state the GUI's saveAs actually runs in. Skips unless
+    # SWMM_PROFILE_SAVE_INP names a fixture, so CI is unaffected.
+    add_swmmvis_unit_test(test_savepathperf
+        test_savepathperf.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
+    )
+    target_link_libraries(test_savepathperf PRIVATE Qt6::Gui openswmm_engine)
 endif()
 
 # Slice BB Phase 8.6.16 — shared model for legend overlay chrome.
@@ -310,6 +477,21 @@ if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_parse PRIVATE openswmm_engine)
 endif()
 
+# Multi-column series files (spec §4 task 1) — shared CSV/TSV/.tsf column
+# enumeration + single-column reader, plus the pure "path:col" token core
+# used by TimeseriesRegistry persistence. Fixtures: data/extcol_*.
+# QtCore-only apart from the engine datetime C API (same note as above).
+add_swmmvis_unit_test(test_externalcolumnfile
+    test_externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfilecore.h
+    ${PROJECT_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_externalcolumnfile PRIVATE openswmm_engine)
+endif()
+
 # ── SWMM DateTime consolidation (GH #1, #2) ─────────────────────────────────
 # Canonical QDateTime<->SWMM converter (include/core/swmmdatetime.h) parity
 # against the engine's native encode/decode. Header-only under test; links the
@@ -346,6 +528,17 @@ add_swmmvis_unit_test(test_timeseries_registry
 # TimeseriesRegistry::loadFromEngine pulls in openswmm engine headers + symbols.
 if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_registry PRIVATE openswmm_engine)
+endif()
+
+# Rainfall Visualization data model: pure series/stats math + an
+# engine-backed gage assembly case (needs the engine like the registry test).
+add_swmmvis_unit_test(test_rainfallseriesmodel
+    test_rainfallseriesmodel.cpp
+    ${PROJECT_SOURCE_DIR}/include/plot/rainfallseriesmodel.h
+    ${PROJECT_SOURCE_DIR}/src/plot/rainfallseriesmodel.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_rainfallseriesmodel PRIVATE openswmm_engine)
 endif()
 
 add_swmmvis_unit_test(test_timeseries_table_model
@@ -393,6 +586,85 @@ target_link_libraries(test_rastergeoref PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_rastergeoref
     PRIVATE RASTERGEOREF_OUT_DIR="${PROJECT_SOURCE_DIR}/test_artifacts/localraster")
 
+# ---- Editable feature layers: geometry value type + OGR bridge ----
+# MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN 2026-09-07 §3.1. featuregeometry.cpp
+# is a leaf: Qt, OGR geometry, and the ring predicates in meshquadregion.cpp
+# (which it delegates to rather than reimplementing). Qt6::Gui supplies
+# QPolygonF, which both use.
+add_swmmvis_unit_test(test_featuregeometry
+    test_featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_featuregeometry PRIVATE Qt6::Gui GDAL::GDAL)
+
+# ---- Editable feature layers: the GeoPackage read/write store ----
+# The repository's first OGR WRITE path, so these tests exercise the driver:
+# FID reuse on insert (the stable-id contract behind AddFeatureCommand) and a
+# concurrent read-only open seeing flushed writes (what a mesh worker does).
+# Artifacts land beside the fixtures — reviewable, not a temp dir (CLAUDE.md §4.1).
+# FEATURE_LAYER_ROLES_AND_FIELDS_PLAN 2026-09-30 R2 extends it with column
+# defaults, descriptions and value lists, read against the role registry.
+add_swmmvis_unit_test(test_featurestore
+    test_featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featurestore.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+)
+target_link_libraries(test_featurestore PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_featurestore
+    PRIVATE FEATURESTORE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data/featurestore_artifacts")
+
+# ---- Feature-layer role registry (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN R1) ----
+# Pure data: persisted role tokens, the §4 field tables, the readers' aliases
+# and the "Update fields to role…" plan. meshbctype supplies the BC tokens
+# (header listed so AUTOMOC sees its Q_OBJECT).
+add_swmmvis_unit_test(test_featureroles
+    test_featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+)
+target_link_libraries(test_featureroles PRIVATE Qt6::Gui GDAL::GDAL)
+
+# ---- Right-click Export: the widget-free writer and the mesh collector ----
+# (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN R8, R10). Headless GDAL round trips;
+# outputs in tests/output/feature_layer_roles_2026-09-30/ (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_vectorexport
+    test_vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+)
+target_link_libraries(test_vectorexport PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_vectorexport PRIVATE
+    VECTOREXPORT_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/vectorexport")
+
+add_swmmvis_unit_test(test_meshexport
+    test_meshexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/meshexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/vectorexport.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+)
+target_link_libraries(test_meshexport PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_meshexport PRIVATE
+    MESHEXPORT_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/meshexport")
+
 # ---- Bundled-example seeder / discovery + curated Bellinge payload guard ----
 # QTemporaryDir fixtures for sync/copy/discovery; BELLINGE_EXAMPLE_DIR points
 # at the committed payload so curation regressions (result-layer refs creeping
@@ -402,7 +674,8 @@ add_swmmvis_unit_test(test_examplesseeder
     ${PROJECT_SOURCE_DIR}/src/project/examplesseeder.cpp
 )
 target_compile_definitions(test_examplesseeder
-    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d")
+    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d"
+            EXAMPLES_SOURCE_DIR="${PROJECT_SOURCE_DIR}/examples")
 
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
@@ -424,6 +697,17 @@ add_swmmvis_unit_test(test_qsg2d_dirtystate
 add_swmmvis_unit_test(test_qsgpremultiply
     test_qsgpremultiply.cpp
 )
+
+# Portable SWMM link geometry plus optional native QSG base/selection checks.
+add_executable(test_linkstroke test_linkstroke.cpp)
+target_include_directories(test_linkstroke PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_linkstroke PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+add_test(NAME test_linkstroke COMMAND test_linkstroke)
+set_tests_properties(test_linkstroke PROPERTIES LABELS "unit" ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(SWMMVIS_TEST_ENV)
+    set_tests_properties(test_linkstroke PROPERTIES
+        ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
+endif()
 
 # Phase 3 — deterministic LOD policy.
 add_swmmvis_unit_test(test_qsg2d_lodpolicy
@@ -466,3 +750,119 @@ add_swmmvis_unit_test(test_importplanning
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importmapping.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importplanning.cpp
 )
+
+# INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN phase G5 — the engine contract the
+# GUI's inlet-junction commands stand on (split/fuse inverse, usage-row
+# round-trip, capture-node rule). Engine-only by necessity: SWMMModelLayer
+# cannot be linked headlessly. Fixture and artefacts live in reviewable
+# directories rather than a temp dir (CLAUDE.md §4.1).
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_inlet_junction_layer
+        test_inlet_junction_layer.cpp
+    )
+    target_link_libraries(test_inlet_junction_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_inlet_junction_layer PRIVATE
+        SWMMVIS_INLET_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_INLET_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/inlets")
+endif()
+
+# Channel burn-in: which conduits get burned and with what geometry. Needs the
+# engine (xsect + transect tables) and Qt6::Gui (xsectsampler's transitive
+# includes); the fixture deck covers accept and reject in one pass.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburnselector
+        test_channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/include/mesh/channelburnselector.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnselector.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    )
+    target_link_libraries(test_channelburnselector PRIVATE Qt6::Gui openswmm_engine)
+    target_compile_definitions(test_channelburnselector PRIVATE
+        SWMMVIS_BURNSEL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/unit/data"
+        SWMMVIS_BURNSEL_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
+# The engine contract behind ConvertNodeTypeCommand — the channel burn's
+# junction-to-coupled-outfall conversion (CHANNEL_BURN_IN_PLAN §6). Engine-only
+# for the same reason as the two tests below: SWMMModelLayer does not link
+# headlessly, so the test drives the calls the command makes.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_channelburn_convert
+        test_channelburn_convert.cpp
+    )
+    target_link_libraries(test_channelburn_convert PRIVATE openswmm_engine)
+    target_compile_definitions(test_channelburn_convert PRIVATE
+        SWMMVIS_BURNCONV_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_BURNCONV_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/channel_burn")
+endif()
+
+# The engine contract behind the plain-junction split tool: make_virtual = 0
+# really yields an ordinary junction, the halves conserve length, and the GUI's
+# undo (flag virtual, then fuse) is an exact inverse. Engine-only for the same
+# reason as the inlet test above.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_junction_split_layer
+        test_junction_split_layer.cpp
+    )
+    target_link_libraries(test_junction_split_layer PRIVATE openswmm_engine)
+    target_compile_definitions(test_junction_split_layer PRIVATE
+        SWMMVIS_JSPLIT_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
+        SWMMVIS_JSPLIT_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/junction_split")
+endif()
+
+add_swmmvis_unit_test(test_channelburnmesh
+    test_channelburnmesh.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnmesh.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshcavity.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshedgebcremap.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshnodemapper.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+target_link_libraries(test_channelburnmesh PRIVATE Qt6::Gui predicates_lib)
+
+add_swmmvis_unit_test(test_flowparticles
+    test_flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlecontroller.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/flowparticlecontroller.h
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlefields.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticleribbons.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlemesh.cpp
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
+set_target_properties(test_flowparticles PROPERTIES AUTOMOC ON)
+target_link_libraries(test_flowparticles PRIVATE Qt6::Gui Qt6::Concurrent)
+target_compile_definitions(test_flowparticles PRIVATE
+    FLOW_PARTICLE_TEST_OUTPUT="${PROJECT_SOURCE_DIR}/tests/verification/flow_particles")
+
+add_swmmvis_unit_test(test_flowparticle_rendering
+    test_flowparticle_rendering.cpp
+    ${PROJECT_SOURCE_DIR}/src/map/flowparticlenode.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticleribbons.cpp)
+set_target_properties(test_flowparticle_rendering PROPERTIES AUTOMOC ON)
+target_link_libraries(test_flowparticle_rendering PRIVATE Qt6::Widgets Qt6::Quick)
+target_compile_definitions(test_flowparticle_rendering PRIVATE
+    FLOW_PARTICLE_TEST_OUTPUT="${PROJECT_SOURCE_DIR}/tests/verification/flow_particles")
+qt_add_shaders(test_flowparticle_rendering "flow_particle_rendering_shaders"
+    BATCHABLE PREFIX "/" BASE "${PROJECT_SOURCE_DIR}"
+    FILES ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.vert ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.frag)
+
+# Attribute Table scalar ordering and NULL/query behavior, independent of the engine.
+add_executable(test_attributevalues test_attributevalues.cpp ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp)
+target_include_directories(test_attributevalues PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_attributevalues PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME test_attributevalues COMMAND test_attributevalues)
+set_tests_properties(test_attributevalues PROPERTIES LABELS "unit" ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(SWMMVIS_TEST_ENV)
+    set_tests_properties(test_attributevalues PROPERTIES ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
+endif()

@@ -1,9 +1,12 @@
-/*!
- * \file   kindrendererpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      kindrendererpanel.cpp
+ * @brief     Embedded in each FeatureStyleEditor below the basic single-symbol controls.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/kindrendererpanel.h"
 
 #include "layers/swmmmodellayer.h"
@@ -21,6 +24,9 @@
 // Slice US.1 — shared classification editor + binding.
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/widgets/classificationeditor.h"
+#include "ui/dialogs/editors/flowarroweditor.h"
+#include "render/sublayers/feature/featuresublayer.h"
+#include "render/sublayers/feature/featuresublayerstyle.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -34,39 +40,58 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
-constexpr int kModeNone        = 0;
-constexpr int kModeGraduated   = 1;
+constexpr int kModeNone = 0;
+constexpr int kModeGraduated = 1;
 constexpr int kModeCategorized = 2;
 
-/*! Install a fresh renderer through whichever target the panel is bound to
- *  (Rule, model layer kind, or results layer kind). Slice B.6a. */
-void installRenderer(OpenSWMM::Render::Rule *rule,
-                     SWMMModelLayer *modelLayer,
-                     SWMMResultsLayer *resultsLayer,
-                     OpenSWMMVis::SwmmCategory category,
+/**
+ * @brief Transfer a replacement renderer to the first available rule/model/results target.
+ * @param rule Optional borrowed highest-priority rule.
+ * @param modelLayer Optional borrowed model fallback.
+ * @param resultsLayer Optional borrowed results fallback.
+ * @param category Kind used only for layer fallback slots.
+ * @param next Owning renderer unique_ptr moved into the selected setter; null is forwarded.
+ * With no target, destroys the renderer on return. Setters supply notifications; caller
+ * keeps target live. No type/applicability check, clone, undo, rollback or status.
+ */
+void installRenderer(OpenSWMM::Render::Rule *rule, SWMMModelLayer *modelLayer,
+                     SWMMResultsLayer *resultsLayer, OpenSWMMVis::SwmmCategory category,
                      std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> next)
 {
-    if (rule)              rule->setRenderer(std::move(next));
-    else if (modelLayer)   modelLayer->setKindRenderer(category, std::move(next));
-    else if (resultsLayer) resultsLayer->setKindRenderer(category, std::move(next));
+    if (rule)
+        rule->setRenderer(std::move(next));
+    else if (modelLayer)
+        modelLayer->setKindRenderer(category, std::move(next));
+    else if (resultsLayer)
+        resultsLayer->setKindRenderer(category, std::move(next));
 }
 
-/*! Reset to defaults — Rule has no "default" notion, so it falls back to a
- *  fresh SingleSymbolRenderer. Layer paths use their existing
- *  resetKindRendererToDefaults which picks per-kind glyph defaults. */
-void resetToDefaults(OpenSWMM::Render::Rule *rule,
-                     SWMMModelLayer *modelLayer,
-                     SWMMResultsLayer *resultsLayer,
-                     OpenSWMMVis::SwmmCategory category)
+/**
+ * @brief Reset a rule or per-kind host renderer through the first available target.
+ * @param rule Optional borrowed highest-priority rule, receiving a new default unseeded
+ * SingleSymbolRenderer rather than preserving its previous base symbol.
+ * @param modelLayer Optional borrowed model fallback using resetKindRendererToDefaults.
+ * @param resultsLayer Optional borrowed results fallback using its normal per-kind reset.
+ * @param category Kind used for layer paths only.
+ * No-op without target. Host/rule setters notify normally; no ownership of targets,
+ * undo command, confirmation or returned success.
+ */
+void resetToDefaults(OpenSWMM::Render::Rule *rule, SWMMModelLayer *modelLayer,
+                     SWMMResultsLayer *resultsLayer, OpenSWMMVis::SwmmCategory category)
 {
     using OpenSWMM::Render::SingleSymbolRenderer;
-    if (rule)              rule->setRenderer(std::make_unique<SingleSymbolRenderer>());
-    else if (modelLayer)   modelLayer->resetKindRendererToDefaults(category);
-    else if (resultsLayer) resultsLayer->resetKindRendererToDefaults(category);
+    if (rule)
+        rule->setRenderer(std::make_unique<SingleSymbolRenderer>());
+    else if (modelLayer)
+        modelLayer->resetKindRendererToDefaults(category);
+    else if (resultsLayer)
+        resultsLayer->resetKindRendererToDefaults(category);
 }
 
 } // namespace
@@ -74,11 +99,10 @@ void resetToDefaults(OpenSWMM::Render::Rule *rule,
 // ---------------------------------------------------------------------------
 
 KindRendererPanel::KindRendererPanel(OpenSWMMVisLayer *hostLayer,
-                                      OpenSWMMVis::SwmmCategory category,
-                                      QWidget *parent)
+                                     OpenSWMMVis::SwmmCategory category, QWidget *parent)
     : QWidget(parent), m_hostLayer(hostLayer), m_category(category)
 {
-    m_modelLayer   = qobject_cast<SWMMModelLayer *>(hostLayer);
+    m_modelLayer = qobject_cast<SWMMModelLayer *>(hostLayer);
     m_resultsLayer = qobject_cast<SWMMResultsLayer *>(hostLayer);
     buildUi();
     refreshFromModel();
@@ -88,8 +112,21 @@ KindRendererPanel::KindRendererPanel(OpenSWMMVisLayer *hostLayer,
 // by passing nullptr+CatJunctions sentinels, then overwrites m_rule and
 // re-runs refreshFromModel against the Rule's owned renderer.
 KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule, QWidget *parent)
-    : KindRendererPanel(static_cast<OpenSWMMVisLayer *>(nullptr),
-                        OpenSWMMVis::CatJunctions, parent)
+    : KindRendererPanel(static_cast<OpenSWMMVisLayer *>(nullptr), OpenSWMMVis::CatJunctions, parent)
+{
+    m_rule = rule;
+    refreshFromModel();
+}
+
+// Rule + kind context. Delegates to the layer ctor so m_hostLayer /
+// m_modelLayer / m_resultsLayer / m_category are all resolved, then installs
+// the Rule — which takes priority in currentRenderer(), installRenderer() and
+// resetToDefaults(), so the renderer path behaves exactly as the rule-only
+// ctor did. The layer context is what lets the flow-arrow group find the
+// per-kind flow-arrow channel (see the header note).
+KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule, OpenSWMMVisLayer *hostLayer,
+                                     OpenSWMMVis::SwmmCategory category, QWidget *parent)
+    : KindRendererPanel(hostLayer, category, parent)
 {
     m_rule = rule;
     refreshFromModel();
@@ -121,7 +158,7 @@ void KindRendererPanel::buildUi()
     {
         auto *rowLay = new QHBoxLayout(m_attrRow);
         rowLay->setContentsMargins(0, 0, 0, 0);
-        rowLay->addWidget(new QLabel(tr("Attribute:"), m_attrRow));
+        rowLay->addWidget(new QLabel(tr("Color by:"), m_attrRow));
         rowLay->addWidget(m_attrCombo, 1);
     }
     modeForm->addRow(m_attrRow);
@@ -143,8 +180,7 @@ void KindRendererPanel::buildUi()
         },
         // installRenderer
         [this](std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> next) {
-            installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
-                            std::move(next));
+            installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(next));
         },
         // attributeList — empty; this panel owns the attribute picker.
         []() { return QVector<QPair<QString, QString>>{}; },
@@ -152,22 +188,25 @@ void KindRendererPanel::buildUi()
         [this]() -> bool {
             auto *host = attributeProviderHost();
             const bool isAnimated = qobject_cast<SWMMResultsLayer *>(host) != nullptr;
-            if (!isAnimated) return false;
+            if (!isAnimated)
+                return false;
             auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
-            if (!g) return false;
-            auto *provider = host
-                ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(host)
-                : nullptr;
-            if (!provider) return true;     // animated, no provider → allow
+            if (!g)
+                return false;
+            auto *provider =
+                host ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(host) : nullptr;
+            if (!provider)
+                return true; // animated, no provider → allow
             const QString attr = g->classifyAttribute();
-            if (attr.isEmpty()) return true;
+            if (attr.isEmpty())
+                return true;
             for (const auto &f : provider->availableAttributes(m_category))
-                if (f.name == attr) return f.isDynamic;
+                if (f.name == attr)
+                    return f.isDynamic;
             return true;
         });
 
-    m_classEditor = new ClassificationEditor(m_binding.get(), /*ownBinding=*/false,
-                                             m_graduatedBox);
+    m_classEditor = new ClassificationEditor(m_binding.get(), /*ownBinding=*/false, m_graduatedBox);
     gLay->addWidget(m_classEditor);
 
     // Gap A4.5 — output axis, archetype-gated: Point kinds scale marker SIZE,
@@ -198,18 +237,45 @@ void KindRendererPanel::buildUi()
     gLay->addWidget(m_axisRow);
     m_axisRow->setVisible(false);
 
+    // "Size by:" — independent attribute for the size/width axis. The
+    // "(same as color)" entry (empty data) keeps the historical bin-mapped
+    // behaviour; picking a field scales sizes over that field's own range.
+    m_sizeAttrRow = new QWidget(m_graduatedBox);
+    {
+        auto *rowLay = new QHBoxLayout(m_sizeAttrRow);
+        rowLay->setContentsMargins(0, 0, 0, 0);
+        m_sizeAttrCombo = new QComboBox(m_sizeAttrRow);
+        m_sizeAttrCombo->setMinimumContentsLength(20);
+        m_sizeAttrCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        rowLay->addWidget(new QLabel(tr("Size by:"), m_sizeAttrRow));
+        rowLay->addWidget(m_sizeAttrCombo, 1);
+    }
+    gLay->addWidget(m_sizeAttrRow);
+    m_sizeAttrRow->setVisible(false);
+
     vlay->addWidget(m_graduatedBox);
 
-    connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &KindRendererPanel::onModeChanged);
-    connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &KindRendererPanel::onAttributeChanged);
-    connect(m_axisCheck, &QCheckBox::toggled,
-            this, &KindRendererPanel::onOutputAxisChanged);
-    connect(m_axisMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, &KindRendererPanel::onOutputAxisChanged);
-    connect(m_axisMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, &KindRendererPanel::onOutputAxisChanged);
+    // ── Flow-direction arrows (link kinds) ─────────────────────────────
+    // Outside m_graduatedBox on purpose: arrows belong to the kind, so they
+    // stay put across every renderer mode rather than disappearing with the
+    // classification block. Results layers mount them on the kind page's
+    // Arrows tab instead, so the group gets no host (and hides) there.
+    m_arrowBox = new FlowArrowEditor(
+        qobject_cast<SWMMResultsLayer *>(attributeProviderHost()) ? nullptr : m_hostLayer,
+        m_category, this);
+    vlay->addWidget(m_arrowBox);
+
+    connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &KindRendererPanel::onModeChanged);
+    connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &KindRendererPanel::onAttributeChanged);
+    connect(m_axisCheck, &QCheckBox::toggled, this, &KindRendererPanel::onOutputAxisChanged);
+    connect(m_axisMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            &KindRendererPanel::onOutputAxisChanged);
+    connect(m_axisMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            &KindRendererPanel::onOutputAxisChanged);
+    connect(m_sizeAttrCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &KindRendererPanel::onSizeAttributeChanged);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,15 +283,25 @@ void KindRendererPanel::buildUi()
 OpenSWMM::Render::IFeatureRenderer *KindRendererPanel::currentRenderer() const
 {
     // Slice B.6a — Rule path takes priority.
-    if (m_rule)         return m_rule->renderer();
-    if (m_modelLayer)   return m_modelLayer  ->kindRenderer(m_category);
-    if (m_resultsLayer) return m_resultsLayer->kindRenderer(m_category);
+    if (m_rule)
+        return m_rule->renderer();
+    if (m_modelLayer)
+        return m_modelLayer->kindRenderer(m_category);
+    if (m_resultsLayer)
+        return m_resultsLayer->kindRenderer(m_category);
     return nullptr;
+}
+
+bool KindRendererPanel::sizeByValueEnabled() const
+{
+    return m_axisRow && m_axisRow->isVisibleTo(m_axisRow->parentWidget()) && m_axisCheck &&
+           m_axisCheck->isChecked();
 }
 
 OpenSWMMVisLayer *KindRendererPanel::attributeProviderHost() const
 {
-    if (m_hostLayer) return m_hostLayer;
+    if (m_hostLayer)
+        return m_hostLayer;
     if (m_rule) {
         // A Rule's QObject parent is its RuleList; the RuleList's parent is
         // the owning layer. Walk two parents up to find the host.
@@ -256,11 +332,17 @@ void KindRendererPanel::refreshFromModel()
     // Categorized (the Categorized panel owns its own attribute combo).
     OpenSWMMVisLayer *layerForProvider = attributeProviderHost();
     auto *provider = layerForProvider
-        ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(layerForProvider)
-        : nullptr;
+                         ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(layerForProvider)
+                         : nullptr;
     const bool showAttrRow = provider && modeRow == kModeGraduated;
     m_attrRow->setVisible(showAttrRow);
     m_attrCombo->clear();
+    // Feedback C3 — when the renderer carries no attribute, the combo
+    // auto-selects row 0 and the user sees "flow (m³/s)" while the renderer
+    // (and every export of it) still says "". Remember to store the shown
+    // row; the write happens at the very end, after every use of `r`,
+    // because installing a renderer replaces the object `r` points at.
+    bool storeShownAttribute = false;
     if (provider) {
         const auto fields = provider->availableAttributes(m_category);
         for (const auto &f : fields) {
@@ -273,7 +355,8 @@ void KindRendererPanel::refreshFromModel()
         int idx = -1;
         for (int i = 0; i < m_attrCombo->count(); ++i) {
             if (m_attrCombo->itemData(i).toString() == currentAttribute) {
-                idx = i; break;
+                idx = i;
+                break;
             }
         }
         if (idx < 0 && !currentAttribute.isEmpty()) {
@@ -282,6 +365,10 @@ void KindRendererPanel::refreshFromModel()
         }
         if (idx >= 0)
             m_attrCombo->setCurrentIndex(idx);
+        else if (modeRow == kModeGraduated && m_attrCombo->count() > 0) {
+            m_attrCombo->setCurrentIndex(0);
+            storeShownAttribute = true;
+        }
     }
 
     m_graduatedBox->setVisible(modeRow == kModeGraduated);
@@ -291,9 +378,11 @@ void KindRendererPanel::refreshFromModel()
     {
         using OpenSWMM::Render::FeatureSublayer;
         const auto archetype = FeatureSublayer::archetypeFor(m_category);
-        const bool axisApplies =
-            modeRow == kModeGraduated
-            && archetype != FeatureSublayer::Archetype::Polygon;
+        // Results layers size through the sublayer style's size channel
+        // (the kind page's Size tab) instead of these renderer axes.
+        const bool axisApplies = modeRow == kModeGraduated &&
+                                 archetype != FeatureSublayer::Archetype::Polygon &&
+                                 !qobject_cast<SWMMResultsLayer *>(layerForProvider);
         m_axisRow->setVisible(axisApplies);
         if (axisApplies) {
             m_axisCheck->setText(archetype == FeatureSublayer::Archetype::Point
@@ -315,30 +404,76 @@ void KindRendererPanel::refreshFromModel()
                 m_axisMaxSpin->setEnabled(m_axisCheck->isChecked());
             }
         }
+
+        // "Size by:" — same visibility gate as the axis row; populated with
+        // the numeric fields plus a "(same as color)" default (empty data).
+        QSignalBlocker bs(m_sizeAttrCombo);
+        m_sizeAttrRow->setVisible(axisApplies && provider);
+        m_sizeAttrCombo->clear();
+        if (axisApplies && provider) {
+            m_sizeAttrCombo->addItem(tr("(same as color)"), QString());
+            const auto fields = provider->availableAttributes(m_category);
+            for (const auto &f : fields) {
+                if (f.type == QMetaType::QString)
+                    continue;
+                m_sizeAttrCombo->addItem(f.displayName, f.name);
+            }
+            QString currentSizeAttr;
+            if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
+                currentSizeAttr = g->sizeAttribute();
+            int sidx = m_sizeAttrCombo->findData(currentSizeAttr);
+            if (sidx < 0 && !currentSizeAttr.isEmpty()) {
+                m_sizeAttrCombo->addItem(currentSizeAttr, currentSizeAttr);
+                sidx = m_sizeAttrCombo->count() - 1;
+            }
+            m_sizeAttrCombo->setCurrentIndex(sidx < 0 ? 0 : sidx);
+            m_sizeAttrCombo->setEnabled(m_axisCheck->isChecked());
+        }
     }
 
     // Slice US.1 — re-seed the shared editor from the live renderer.
-    if (m_binding) m_binding->resync();
-    if (m_classEditor) m_classEditor->refresh();
+    if (m_binding)
+        m_binding->resync();
+    if (m_classEditor)
+        m_classEditor->refresh();
+
+    // Arrows live on the kind, not the renderer, so they re-seed here too —
+    // this is also the path the dialog calls after a Cancel rollback.
+    m_arrowBox->refreshFromModel();
+
+    emit outputAxisToggled(sizeByValueEnabled()); // feedback C2
+
+    // Feedback C3 — last, so nothing above touches the renderer `r` that
+    // this replaces. onAttributeChanged no-ops when the stored attribute
+    // already equals the shown one, so a re-entrant refresh stops here.
+    if (storeShownAttribute)
+        onAttributeChanged(0);
 }
 
 void KindRendererPanel::onOutputAxisChanged()
 {
     // Gap A4.5 — push the axis toggle + pixel range onto the renderer.
-    if (m_suppressEdits) return;
+    if (m_suppressEdits)
+        return;
     auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
-    if (!g) return;
+    if (!g)
+        return;
 
     using OpenSWMM::Render::FeatureSublayer;
     const auto archetype = FeatureSublayer::archetypeFor(m_category);
-    if (archetype == FeatureSublayer::Archetype::Polygon) return;
+    if (archetype == FeatureSublayer::Archetype::Polygon)
+        return;
 
     double mn = m_axisMinSpin->value();
     double mx = m_axisMaxSpin->value();
-    if (mn > mx) std::swap(mn, mx);
+    if (mn > mx)
+        std::swap(mn, mx);
     const bool on = m_axisCheck->isChecked();
     m_axisMinSpin->setEnabled(on);
     m_axisMaxSpin->setEnabled(on);
+    if (m_sizeAttrCombo)
+        m_sizeAttrCombo->setEnabled(on);
+    emit outputAxisToggled(on); // feedback C2
 
     auto fresh = g->clone();
     if (auto *gf = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
@@ -350,20 +485,41 @@ void KindRendererPanel::onOutputAxisChanged()
             gf->setOutputWidthRange(mn, mx);
         }
     }
-    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
-                    std::move(fresh));
-    if (m_binding) m_binding->resync();
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(fresh));
+    if (m_binding)
+        m_binding->resync();
+}
+
+void KindRendererPanel::onSizeAttributeChanged(int comboRow)
+{
+    // Push the independent size attribute onto the current GraduatedRenderer.
+    // Empty data ("(same as color)") restores the bin-mapped behaviour.
+    if (m_suppressEdits)
+        return;
+    auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
+    if (!g)
+        return;
+    const QString name = m_sizeAttrCombo->itemData(comboRow).toString();
+    if (name == g->sizeAttribute())
+        return;
+    auto fresh = g->clone();
+    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get()))
+        gfresh->setSizeAttribute(name); // invalidates the sampled value range
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(fresh));
 }
 
 void KindRendererPanel::onAttributeChanged(int comboRow)
 {
     // Slice DM.2 — push the picked attribute back onto the current
     // GraduatedRenderer. No-op when the current renderer isn't Graduated.
-    if (m_suppressEdits) return;
+    if (m_suppressEdits)
+        return;
     auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
-    if (!g) return;
+    if (!g)
+        return;
     const QString name = m_attrCombo->itemData(comboRow).toString();
-    if (name == g->classifyAttribute()) return;
+    if (name == g->classifyAttribute())
+        return;
     auto fresh = g->clone();
     if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
         gfresh->setClassifyAttribute(name);
@@ -371,11 +527,12 @@ void KindRendererPanel::onAttributeChanged(int comboRow)
         // rebuild re-samples this attribute's values.
         gfresh->clearBreaks();
     }
-    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
-                    std::move(fresh));
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(fresh));
     // The attribute's dynamism may flip the range-mode row; re-seed + refresh.
-    if (m_binding) m_binding->resync();
-    if (m_classEditor) m_classEditor->refresh();
+    if (m_binding)
+        m_binding->resync();
+    if (m_classEditor)
+        m_classEditor->refresh();
 }
 
 void KindRendererPanel::onModeChanged(int comboRow)
@@ -403,18 +560,17 @@ void KindRendererPanel::onModeChanged(int comboRow)
 
     std::unique_ptr<IFeatureRenderer> next;
     if (mode == kModeGraduated) {
-        next = RendererFactory::makeRenderer(
-            QStringLiteral("graduated"), archetype, currentRenderer(),
-            fields.isEmpty() ? nullptr : &fields);
+        next =
+            RendererFactory::makeRenderer(QStringLiteral("graduated"), archetype, currentRenderer(),
+                                          fields.isEmpty() ? nullptr : &fields);
     } else if (mode == kModeCategorized) {
-        next = RendererFactory::makeRenderer(
-            QStringLiteral("categorized"), archetype, currentRenderer(),
-            fields.isEmpty() ? nullptr : &fields);
+        next =
+            RendererFactory::makeRenderer(QStringLiteral("categorized"), archetype,
+                                          currentRenderer(), fields.isEmpty() ? nullptr : &fields);
     }
 
     if (next)
-        installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
-                        std::move(next));
+        installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(next));
     refreshFromModel();
 }
 

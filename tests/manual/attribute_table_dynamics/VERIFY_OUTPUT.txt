@@ -1,0 +1,25 @@
+periods=360 flow_units=0 report_step=300s
+
+LINKS   (compare: Link Flow Summary)
+link        maxFlow   maxVeloc    maxFill   volFlow(ft3)    surchHr
+C1            15.34       1.65       0.32          31791       0.00
+C2            13.45       2.74       0.63          35243       0.00
+C3            11.19       8.71       0.36          21313       0.00
+C4            10.65       1.16       0.32          21354       0.00
+C5            20.60       1.47       0.42          52989       0.00
+C6            22.19       2.00       0.36          43960       0.00
+C7            37.86      11.97       0.36          96786       0.00
+C8            37.24       2.31       0.48          96844       0.00
+C9            35.93       1.62       0.56          96351       0.00
+C10           53.01       2.01       0.62         147093       0.00
+C11           71.15      10.14       0.42         201723       0.00
+
+SUBCATCHMENTS   (compare: Subcatchment Runoff Summary)
+sub            area    precip(ft3)    runoff(ft3) peakRunoff
+S1            4.550          46805          31701      15.90    [precip=2.83 in, runoff=0.237 10^6gal]
+S2            4.740          48760          35223      17.70    [precip=2.83 in, runoff=0.263 10^6gal]
+S3            3.740          38473          21319      11.33    [precip=2.83 in, runoff=0.159 10^6gal]
+S4            6.790          69848          43897      22.78    [precip=2.83 in, runoff=0.328 10^6gal]
+S5            4.790          49274          44320      21.51    [precip=2.83 in, runoff=0.332 10^6gal]
+S6            1.980          20368          19362       9.05    [precip=2.83 in, runoff=0.145 10^6gal]
+S7            2.330          23968           6337       4.23    [precip=2.83 in, runoff=0.047 10^6gal]

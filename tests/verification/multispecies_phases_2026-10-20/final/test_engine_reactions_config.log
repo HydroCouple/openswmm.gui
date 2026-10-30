@@ -1,0 +1,95 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 37 tests from 5 test suites.
+[----------] Global test environment set-up.
+[----------] 27 tests from ReactionsConfigTest
+[ RUN      ] ReactionsConfigTest.FullConfigParsesAndPopulates
+[       OK ] ReactionsConfigTest.FullConfigParsesAndPopulates (7 ms)
+[ RUN      ] ReactionsConfigTest.UndeclaredSpeciesReferenceFailsOpen
+[       OK ] ReactionsConfigTest.UndeclaredSpeciesReferenceFailsOpen (4 ms)
+[ RUN      ] ReactionsConfigTest.PollutantNameCollisionFailsOpen
+[       OK ] ReactionsConfigTest.PollutantNameCollisionFailsOpen (3 ms)
+[ RUN      ] ReactionsConfigTest.SubcatchmentScopeParsesAndRoundTrips
+[       OK ] ReactionsConfigTest.SubcatchmentScopeParsesAndRoundTrips (3 ms)
+[ RUN      ] ReactionsConfigTest.DuplicateProcessComponentIdFailsOpen
+[       OK ] ReactionsConfigTest.DuplicateProcessComponentIdFailsOpen (5 ms)
+[ RUN      ] ReactionsConfigTest.EmbeddedFallbackAppliesAndExternalWins
+[       OK ] ReactionsConfigTest.EmbeddedFallbackAppliesAndExternalWins (6 ms)
+[ RUN      ] ReactionsConfigTest.EmbeddedSectionsLostOnSaveAreReported
+[       OK ] ReactionsConfigTest.EmbeddedSectionsLostOnSaveAreReported (3 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityRowsParse
+[       OK ] ReactionsConfigTest.NodeLinkQualityRowsParse (3 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityErrorsAreLoudAndTransactional
+[       OK ] ReactionsConfigTest.NodeLinkQualityErrorsAreLoudAndTransactional (24 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityRowsConsumed
+[       OK ] ReactionsConfigTest.NodeLinkQualityRowsConsumed (13 ms)
+[ RUN      ] ReactionsConfigTest.UnquotedCommaExpressionsParse
+[       OK ] ReactionsConfigTest.UnquotedCommaExpressionsParse (4 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityWorksEmbedded
+[       OK ] ReactionsConfigTest.NodeLinkQualityWorksEmbedded (2 ms)
+[ RUN      ] ReactionsConfigTest.UnpopulatedHydraulicVariablesAreRefused
+[       OK ] ReactionsConfigTest.UnpopulatedHydraulicVariablesAreRefused (28 ms)
+[ RUN      ] ReactionsConfigTest.PopulatedHydraulicVariablesStayAccepted
+[       OK ] ReactionsConfigTest.PopulatedHydraulicVariablesStayAccepted (3 ms)
+[ RUN      ] ReactionsConfigTest.UnusedTimestepAndAreaUnitsAreReported
+[       OK ] ReactionsConfigTest.UnusedTimestepAndAreaUnitsAreReported (7 ms)
+[ RUN      ] ReactionsConfigTest.RainfallConcentrationParsesRoundTripsAndValidates
+[       OK ] ReactionsConfigTest.RainfallConcentrationParsesRoundTripsAndValidates (13 ms)
+[ RUN      ] ReactionsConfigTest.SourcePatternsParametersAndReportRoundTrip
+[       OK ] ReactionsConfigTest.SourcePatternsParametersAndReportRoundTrip (3 ms)
+[ RUN      ] ReactionsConfigTest.ExtendedSectionsValidateTransactionally
+[       OK ] ReactionsConfigTest.ExtendedSectionsValidateTransactionally (3 ms)
+[ RUN      ] ReactionsConfigTest.SourceMassUnitsAndPatternClockDoNotAccumulateAcrossSteps
+[       OK ] ReactionsConfigTest.SourceMassUnitsAndPatternClockDoNotAccumulateAcrossSteps (3 ms)
+[ RUN      ] ReactionsConfigTest.PerElementParameterFeedsTermsRatesEquilibriaAndFormula
+[       OK ] ReactionsConfigTest.PerElementParameterFeedsTermsRatesEquilibriaAndFormula (2 ms)
+[ RUN      ] ReactionsConfigTest.DryStorageDoesNotExecuteTankFormula
+[       OK ] ReactionsConfigTest.DryStorageDoesNotExecuteTankFormula (3 ms)
+[ RUN      ] ReactionsConfigTest.WallStateStaysAttachedWhileBulkAdvects
+[       OK ] ReactionsConfigTest.WallStateStaysAttachedWhileBulkAdvects (3 ms)
+[ RUN      ] ReactionsConfigTest.ConcentrationSourceUsesExternalWaterAndDryWeatherFlow
+[       OK ] ReactionsConfigTest.ConcentrationSourceUsesExternalWaterAndDryWeatherFlow (2 ms)
+[ RUN      ] ReactionsConfigTest.PatternTimestepOptionUsesSecondsAndRejectsNonfiniteValues
+[       OK ] ReactionsConfigTest.PatternTimestepOptionUsesSecondsAndRejectsNonfiniteValues (3 ms)
+[ RUN      ] ReactionsConfigTest.DeletingGeometryDropsOwnedRowsAndPreservesSurvivingIdentities
+[       OK ] ReactionsConfigTest.DeletingGeometryDropsOwnedRowsAndPreservesSurvivingIdentities (3 ms)
+[ RUN      ] ReactionsConfigTest.SubcatchmentExpressionsRejectUnavailableContextTransactionally
+[       OK ] ReactionsConfigTest.SubcatchmentExpressionsRejectUnavailableContextTransactionally (3 ms)
+[ RUN      ] ReactionsConfigTest.WallGeometryExchangeConservesMassAcrossAreaUnitsWetDryAndBarrels
+[       OK ] ReactionsConfigTest.WallGeometryExchangeConservesMassAcrossAreaUnitsWetDryAndBarrels (25 ms)
+[----------] 27 tests from ReactionsConfigTest (194 ms total)
+
+[----------] 4 tests from ReactionContinuation
+[ RUN      ] ReactionContinuation.NetworkAndWetPoolsRestoreClockInventoryLedgerAndBinaryOutput
+[       OK ] ReactionContinuation.NetworkAndWetPoolsRestoreClockInventoryLedgerAndBinaryOutput (4041 ms)
+[ RUN      ] ReactionContinuation.ChangedChemistryAndTruncationRefuseWithoutChangingTheFreshSession
+[       OK ] ReactionContinuation.ChangedChemistryAndTruncationRefuseWithoutChangingTheFreshSession (18 ms)
+[ RUN      ] ReactionContinuation.SelectedWetAndDryLanduseInventoriesContinueTogether
+[       OK ] ReactionContinuation.SelectedWetAndDryLanduseInventoriesContinueTogether (39 ms)
+[ RUN      ] ReactionContinuation.ExternalReactionComponentFileUsesTheSameRestartProfile
+[       OK ] ReactionContinuation.ExternalReactionComponentFileUsesTheSameRestartProfile (30 ms)
+[----------] 4 tests from ReactionContinuation (4129 ms total)
+
+[----------] 1 test from ReactionLidNodes
+[ RUN      ] ReactionLidNodes.BulkLayerConversionAndRestartPreserveRetainedAndMobileInventories
+[       OK ] ReactionLidNodes.BulkLayerConversionAndRestartPreserveRetainedAndMobileInventories (182 ms)
+[----------] 1 test from ReactionLidNodes (182 ms total)
+
+[----------] 3 tests from ReactionLidUnits
+[ RUN      ] ReactionLidUnits.FullCoverageLayerMassReceiptsAndRestartAcrossNetworkSolvers
+[       OK ] ReactionLidUnits.FullCoverageLayerMassReceiptsAndRestartAcrossNetworkSolvers (499 ms)
+[ RUN      ] ReactionLidUnits.PartialCoverageRefusesAndDryLayerDoesNotInventOrLoseInventory
+[       OK ] ReactionLidUnits.PartialCoverageRefusesAndDryLayerDoesNotInventOrLoseInventory (5 ms)
+[ RUN      ] ReactionLidUnits.PavementAndStorageKeepSeparateConservativeReactors
+[       OK ] ReactionLidUnits.PavementAndStorageKeepSeparateConservativeReactors (64 ms)
+[----------] 3 tests from ReactionLidUnits (569 ms total)
+
+[----------] 2 tests from ReactionSources
+[ RUN      ] ReactionSources.BoostersDoseMixedWaterWithoutRemovingMassOrDosingStagnantStorage
+[       OK ] ReactionSources.BoostersDoseMixedWaterWithoutRemovingMassOrDosingStagnantStorage (0 ms)
+[ RUN      ] ReactionSources.BothBoostersReachAllSolversAndContinueExactlyWithPatterns
+[       OK ] ReactionSources.BothBoostersReachAllSolversAndContinueExactlyWithPatterns (938 ms)
+[----------] 2 tests from ReactionSources (938 ms total)
+
+[----------] Global test environment tear-down
+[==========] 37 tests from 5 test suites ran. (6014 ms total)
+[  PASSED  ] 37 tests.

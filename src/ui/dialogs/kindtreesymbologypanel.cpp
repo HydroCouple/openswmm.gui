@@ -1,52 +1,72 @@
-/*!
- * \file   kindtreesymbologypanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      kindtreesymbologypanel.cpp
+ * @brief     multi-kind layers (Slice X.5).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/kindtreesymbologypanel.h"
-#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmelementsymboladapter.h" // virtual-junctions subject row
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
-#include "render/iattributeprovider.h"   // L-1 — label field hints
+#include "render/iattributeprovider.h" // L-1 — label field hints
 #include "render/ifeaturerenderer.h"
 #include "render/rulelist.h"
-#include "render/sublayers/feature/featuresublayer.h"        // L-1 — per-sublayer labels
-#include "render/sublayers/feature/featuresublayerstyle.h"   // L-1
+#include "render/sublayers/feature/featuresublayer.h"      // L-1 — per-sublayer labels
+#include "render/sublayers/feature/featuresublayerstyle.h" // L-1
 #include "ui/dialogs/irendererpanel.h"
+#include "ui/dialogs/istyleeditorwidget.h" // StyleEditorRegistry
+#include "ui/dialogs/editors/flowarroweditor.h"
+#include "ui/dialogs/editors/sizechanneleditor.h"
 #include "ui/dialogs/symbologytab.h"
-#include "ui/widgets/colorbutton.h"
+#include "ui/uiscrollhelpers.h"
+#include "ui/widgets/labelconfigeditor.h"
 
-#include <QCheckBox>
-#include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
-#include <QLineEdit>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QTabWidget>
 #include <QTreeView>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+#include <algorithm>
 
-namespace {
+namespace openswmmvis::ui
+{
+
+namespace
+{
 
 constexpr int kCategoryRole = Qt::UserRole + 1;
-constexpr int kRoutingRole  = Qt::UserRole + 2;
+constexpr int kRoutingRole = Qt::UserRole + 2;
 
+/**
+ * @brief Map exact built-in renderer IDs to one-letter tree badges.
+ * @param[in] id Case-sensitive single, graduated, categorized or rulebased identifier.
+ * @return S, G, C or R respectively; empty for any other ID.
+ */
 QString badgeForRendererId(const QString &id)
 {
-    if (id == QLatin1String("single"))     return QStringLiteral("S");
-    if (id == QLatin1String("graduated"))  return QStringLiteral("G");
-    if (id == QLatin1String("categorized")) return QStringLiteral("C");
-    if (id == QLatin1String("rulebased"))  return QStringLiteral("R");
+    if (id == QLatin1String("single"))
+        return QStringLiteral("S");
+    if (id == QLatin1String("graduated"))
+        return QStringLiteral("G");
+    if (id == QLatin1String("categorized"))
+        return QStringLiteral("C");
+    if (id == QLatin1String("rulebased"))
+        return QStringLiteral("R");
     return QString();
 }
 
@@ -55,54 +75,36 @@ QString badgeForRendererId(const QString &id)
 // the element name / its current value for that result field. Edits write
 // the style's LabelConfig (which fires the sublayer's invalidate → repaint →
 // refreshLabels). `host` supplies the available field tokens for the hint.
-QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style,
-                              OpenSWMMVisLayer *host,
-                              OpenSWMMVis::SwmmCategory cat,
-                              QWidget *parent)
+//
+// LAYER_STYLING_LABELING_PLAN_2026-08-16 — now hosts the full-fidelity
+// LabelConfigEditor (font / halo / placement / scale window / background /
+// priority) instead of the old 3-field subset.
+/**
+ * @brief Create a live label-configuration group with optional host attribute hints.
+ * @param[in,out] style Required borrowed style, dereferenced immediately and captured by callbacks;
+ * must outlive the group.
+ * @param[in] host Nullable borrowed attribute provider, queried only during construction.
+ * @param[in] cat Category for available-field hints.
+ * @param[in] parent Optional Qt owner for the new group.
+ * @return Newly allocated parent-owned group; edits call setLabelConfig directly and follow normal
+ * style notifications.
+ */
+QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style, OpenSWMMVisLayer *host,
+                              OpenSWMMVis::SwmmCategory cat, QWidget *parent)
 {
-    using OpenSWMM::Render::LabelConfig;
-    auto *box  = new QGroupBox(QObject::tr("Labels"), parent);
-    auto *form = new QFormLayout(box);
+    auto *box = new QGroupBox(QObject::tr("Labels"), parent);
+    auto *lay = new QVBoxLayout(box);
 
-    auto *enable = new QCheckBox(QObject::tr("Show labels"), box);
-    form->addRow(QString(), enable);
+    auto *editor = new openswmmvis::ui::LabelConfigEditor(box);
+    editor->setConfig(style->labelConfig());
 
-    auto *expr = new QLineEdit(box);
-    expr->setPlaceholderText(QObject::tr("e.g. {name}: {depth} m"));
-    expr->setToolTip(QObject::tr("Template — {token} placeholders are replaced "
-                                 "with the feature's values; literal text is kept."));
-    form->addRow(QObject::tr("Expression:"), expr);
-
-    auto *colorBtn = new ColorButton(box);
-    form->addRow(QObject::tr("Colour:"), colorBtn);
-
-    auto *hint = new QLabel(box);
-    hint->setWordWrap(true);
-    hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-    form->addRow(QObject::tr("Fields:"), hint);
-
-    const LabelConfig &lc = style->labelConfig();
-    enable->setChecked(lc.enabled);
-    expr->setText(lc.expression);
-    colorBtn->setColor(lc.color);
-
-    QStringList tokens{ QStringLiteral("{name}") };
     if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
-        for (const auto &f : prov->availableAttributes(cat))
-            tokens << QStringLiteral("{%1}").arg(f.name);
-    hint->setText(tokens.join(QStringLiteral("  ")));
+        editor->setAvailableFields(prov->availableAttributes(cat));
 
-    auto push = [style, enable, expr, colorBtn]() {
-        LabelConfig c = style->labelConfig();
-        c.enabled    = enable->isChecked();
-        c.expression = expr->text();
-        c.color      = colorBtn->color();
-        style->setLabelConfig(c);
-    };
-    QObject::connect(enable,   &QCheckBox::toggled,          box, [push](bool)            { push(); });
-    QObject::connect(expr,     &QLineEdit::editingFinished,  box, [push]()                { push(); });
-    QObject::connect(colorBtn, &ColorButton::colorChanged,   box, [push](const QColor &)  { push(); });
-
+    lay->addWidget(editor);
+    QObject::connect(
+        editor, &openswmmvis::ui::LabelConfigEditor::configChanged, box,
+        [style](const OpenSWMM::Render::LabelConfig &cfg) { style->setLabelConfig(cfg); });
     return box;
 }
 
@@ -110,8 +112,7 @@ QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style,
 
 // ---------------------------------------------------------------------------
 
-KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
-                                                 QWidget *parent)
+KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer, QWidget *parent)
     : QWidget(parent), m_layer(hostLayer)
 {
     if (qobject_cast<SWMMResultsLayer *>(hostLayer))
@@ -129,7 +130,7 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
     splitter->setChildrenCollapsible(false);
 
     // ── Left — kind tree ───────────────────────────────────────────────
-    m_tree  = new QTreeView(splitter);
+    m_tree = new QTreeView(splitter);
     m_model = new QStandardItemModel(this);
     m_model->setHorizontalHeaderLabels({tr("Kind"), tr("Renderer")});
     m_tree->setModel(m_model);
@@ -143,7 +144,9 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
     m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_tree->header()->setStretchLastSection(false);
     m_tree->header()->resizeSection(0, 180);
-    m_tree->header()->resizeSection(1, 40);
+    // Wide enough for the header word itself: seeded at 40 the column opened
+    // showing "Rende" for every user, every time.
+    m_tree->header()->resizeSection(1, 80);
     splitter->addWidget(m_tree);
 
     // ── Right — per-kind editor stack ──────────────────────────────────
@@ -155,14 +158,18 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
     splitter->setSizes({220, 560});
     root->addWidget(splitter);
 
-    buildTree();
-
-    connect(m_tree->selectionModel(),
-            &QItemSelectionModel::currentRowChanged,
-            this,
+    // Connect BEFORE building: buildTree() pre-selects the first kind, and
+    // with the connect after it that selection reached no one — the panel
+    // opened with Junctions highlighted and the editor pane empty until you
+    // clicked a kind yourself. Population itself is safe to hear: buildTree()
+    // holds m_suppressEdits for its whole run, which is what onTreeItemChanged
+    // checks.
+    connect(m_tree->selectionModel(), &QItemSelectionModel::currentRowChanged, this,
             [this](const QModelIndex &, const QModelIndex &) { onTreeSelectionChanged(); });
-    connect(m_model, &QStandardItemModel::itemChanged,
-            this, &KindTreeSymbologyPanel::onTreeItemChanged);
+    connect(m_model, &QStandardItemModel::itemChanged, this,
+            &KindTreeSymbologyPanel::onTreeItemChanged);
+
+    buildTree();
 }
 
 // ---------------------------------------------------------------------------
@@ -170,18 +177,30 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
 QString KindTreeSymbologyPanel::suffixFor(OpenSWMMVis::SwmmCategory cat)
 {
     switch (cat) {
-        case OpenSWMMVis::CatJunctions:     return QStringLiteral("junctions");
-        case OpenSWMMVis::CatOutfalls:      return QStringLiteral("outfalls");
-        case OpenSWMMVis::CatStorage:       return QStringLiteral("storage");
-        case OpenSWMMVis::CatDividers:      return QStringLiteral("dividers");
-        case OpenSWMMVis::CatConduits:      return QStringLiteral("conduits");
-        case OpenSWMMVis::CatPumps:         return QStringLiteral("pumps");
-        case OpenSWMMVis::CatOrifices:      return QStringLiteral("orifices");
-        case OpenSWMMVis::CatWeirs:         return QStringLiteral("weirs");
-        case OpenSWMMVis::CatOutlets:       return QStringLiteral("outlets");
-        case OpenSWMMVis::CatSubcatchments: return QStringLiteral("subcatchments");
-        case OpenSWMMVis::CatRainGages:     return QStringLiteral("raingages");
-        default:                            return QString();
+    case OpenSWMMVis::CatJunctions:
+        return QStringLiteral("junctions");
+    case OpenSWMMVis::CatOutfalls:
+        return QStringLiteral("outfalls");
+    case OpenSWMMVis::CatStorage:
+        return QStringLiteral("storage");
+    case OpenSWMMVis::CatDividers:
+        return QStringLiteral("dividers");
+    case OpenSWMMVis::CatConduits:
+        return QStringLiteral("conduits");
+    case OpenSWMMVis::CatPumps:
+        return QStringLiteral("pumps");
+    case OpenSWMMVis::CatOrifices:
+        return QStringLiteral("orifices");
+    case OpenSWMMVis::CatWeirs:
+        return QStringLiteral("weirs");
+    case OpenSWMMVis::CatOutlets:
+        return QStringLiteral("outlets");
+    case OpenSWMMVis::CatSubcatchments:
+        return QStringLiteral("subcatchments");
+    case OpenSWMMVis::CatRainGages:
+        return QStringLiteral("raingages");
+    default:
+        return QString();
     }
 }
 
@@ -209,15 +228,25 @@ void KindTreeSymbologyPanel::buildTree()
     m_suppressEdits = true;
     m_model->setRowCount(0);
 
+    /**
+     * @brief Read the initial kind checkbox. Argument `cat`: model category. Returns: model check
+     * state is not Unchecked, or true for non-model/null layers (results are initially shown
+     * checked).
+     */
     auto kindVisible = [this](OpenSWMMVis::SwmmCategory cat) -> bool {
         if (auto *m = qobject_cast<SWMMModelLayer *>(m_layer.data()))
             return m->categoryCheckState(cat) != Qt::Unchecked;
-        return true;  // result-layer kinds default visible
+        return true; // result-layer kinds default visible
     };
 
+    /**
+     * @brief Append a kind and renderer badge to the tree. Argument `parent`: required model-owned
+     * item receiving new row ownership. Argument `cat`: supported category stored with its routing
+     * ID. Argument `label`: noneditable display caption. Returns: no value; writes only model rows
+     * under surrounding suppression.
+     */
     auto addKindRow = [&](QStandardItem *parent, OpenSWMMVis::SwmmCategory cat,
-                          const QString &label)
-    {
+                          const QString &label) {
         auto *nameItem = new QStandardItem(label);
         nameItem->setData(int(cat), kCategoryRole);
         nameItem->setData(routingIdFor(cat), kRoutingRole);
@@ -232,12 +261,19 @@ void KindTreeSymbologyPanel::buildTree()
         parent->appendRow({nameItem, badgeItem});
     };
 
+    /**
+     * @brief Append an unselectable bold group with kind children. Argument `label`: group caption.
+     * Argument `cats`: supported categories in display order. Argument `labels`: corresponding
+     * captions, with at least as many entries as cats (iterators are unchecked). Returns: no value;
+     * the model owns all allocated items.
+     */
     auto addGroup = [&](const QString &label,
                         const std::initializer_list<OpenSWMMVis::SwmmCategory> &cats,
-                        const std::initializer_list<QString> &labels)
-    {
+                        const std::initializer_list<QString> &labels) {
         auto *group = new QStandardItem(label);
-        QFont f = group->font(); f.setBold(true); group->setFont(f);
+        QFont f = group->font();
+        f.setBold(true);
+        group->setFont(f);
         group->setEditable(false);
         group->setSelectable(false);
         auto *spacer = new QStandardItem;
@@ -253,22 +289,48 @@ void KindTreeSymbologyPanel::buildTree()
     };
 
     addGroup(tr("Nodes"),
-             { OpenSWMMVis::CatJunctions, OpenSWMMVis::CatOutfalls,
-               OpenSWMMVis::CatStorage,   OpenSWMMVis::CatDividers },
-             { tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers") });
+             {OpenSWMMVis::CatJunctions, OpenSWMMVis::CatOutfalls, OpenSWMMVis::CatStorage,
+              OpenSWMMVis::CatDividers},
+             {tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers")});
+
+    // Virtual junctions — model layers only. They share CatJunctions (D-G1:
+    // no persisted 5th category) but carry their own SWMMElementSymbol, so
+    // the row has NO category role — just the subject routing id, which
+    // mounts the SwmmElementSymbolEditor for the layer's persistent adapter.
+    // Inlet junctions and the dashed inlet-connector overlay ride the same
+    // category-less pattern: their own SWMMElementSymbol, no SwmmCategory.
+    if (qobject_cast<SWMMModelLayer *>(m_layer.data())) {
+        // Append under the "Nodes" group added just above (row 0).
+        if (QStandardItem *nodesGroup = m_model->item(0, 0)) {
+            const struct {
+                const char *label;
+                const char *routing;
+            } kSubjectRows[] = {
+                {QT_TR_NOOP("Virtual junctions"), "model.virtualjunctions"},
+                {QT_TR_NOOP("Inlet junctions"), "model.inletjunctions"},
+                {QT_TR_NOOP("Inlet connectors"), "model.inletconnectors"},
+            };
+            for (const auto &r : kSubjectRows) {
+                auto *nameItem = new QStandardItem(tr(r.label));
+                nameItem->setData(QString::fromLatin1(r.routing), kRoutingRole);
+                nameItem->setEditable(false);
+                // Not checkable — these follow the Junctions kind's
+                // visibility (same category bucket).
+                auto *badgeItem = new QStandardItem(QString());
+                badgeItem->setEditable(false);
+                nodesGroup->appendRow({nameItem, badgeItem});
+            }
+        }
+    }
 
     addGroup(tr("Links"),
-             { OpenSWMMVis::CatConduits, OpenSWMMVis::CatPumps,
-               OpenSWMMVis::CatOrifices, OpenSWMMVis::CatWeirs,
-               OpenSWMMVis::CatOutlets },
-             { tr("Conduits"), tr("Pumps"), tr("Orifices"),
-               tr("Weirs"), tr("Outlets") });
+             {OpenSWMMVis::CatConduits, OpenSWMMVis::CatPumps, OpenSWMMVis::CatOrifices,
+              OpenSWMMVis::CatWeirs, OpenSWMMVis::CatOutlets},
+             {tr("Conduits"), tr("Pumps"), tr("Orifices"), tr("Weirs"), tr("Outlets")});
 
     // Subcatchments + Rain gages — top-level rows (no group bold).
-    addKindRow(m_model->invisibleRootItem(),
-               OpenSWMMVis::CatSubcatchments, tr("Subcatchments"));
-    addKindRow(m_model->invisibleRootItem(),
-               OpenSWMMVis::CatRainGages, tr("Rain gages"));
+    addKindRow(m_model->invisibleRootItem(), OpenSWMMVis::CatSubcatchments, tr("Subcatchments"));
+    addKindRow(m_model->invisibleRootItem(), OpenSWMMVis::CatRainGages, tr("Rain gages"));
 
     m_tree->expandAll();
     m_suppressEdits = false;
@@ -285,20 +347,62 @@ void KindTreeSymbologyPanel::buildTree()
 void KindTreeSymbologyPanel::onTreeSelectionChanged()
 {
     const QModelIndex idx = m_tree->currentIndex();
-    if (!idx.isValid()) return;
-    const QVariant catVar = m_model->data(idx, kCategoryRole);
-    if (!catVar.isValid()) return;
-    mountEditorForCategory(
-        static_cast<OpenSWMMVis::SwmmCategory>(catVar.toInt()));
+    if (!idx.isValid())
+        return;
+    // Roles live on column 0 only — normalise so clicking the badge column
+    // still resolves the row's category/routing id.
+    const QModelIndex idx0 = idx.sibling(idx.row(), 0);
+    const QVariant catVar = m_model->data(idx0, kCategoryRole);
+    if (!catVar.isValid()) {
+        // Category-less subject row (virtual junctions / inlet junctions /
+        // inlet connectors) — mount its symbol editor directly.
+        const QString routing = m_model->data(idx0, kRoutingRole).toString();
+        if (routing == QLatin1String("model.virtualjunctions") ||
+            routing == QLatin1String("model.inletjunctions") ||
+            routing == QLatin1String("model.inletconnectors"))
+            mountSubjectEditor(routing);
+        return;
+    }
+    mountEditorForCategory(static_cast<OpenSWMMVis::SwmmCategory>(catVar.toInt()));
+}
+
+void KindTreeSymbologyPanel::mountSubjectEditor(const QString &routingId)
+{
+    auto *swmm = qobject_cast<SWMMModelLayer *>(m_layer.data());
+    if (!swmm)
+        return;
+    auto *adapter = swmm->elementSymbolAdapter(routingId);
+    if (!adapter)
+        return;
+
+    // Tear down previous editor (same policy as mountEditorForCategory).
+    while (m_stack->count() > 0) {
+        QWidget *w = m_stack->widget(0);
+        m_stack->removeWidget(w);
+        w->deleteLater();
+    }
+
+    QWidget *editor = StyleEditorRegistry::instance().createEditorFor(adapter, m_stack);
+    if (!editor)
+        editor = new QLabel(tr("No editor registered for \"%1\".").arg(routingId), m_stack);
+    auto *scroll = new QScrollArea(m_stack);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(editor);
+    m_stack->addWidget(scroll);
+    m_stack->setCurrentWidget(scroll);
 }
 
 void KindTreeSymbologyPanel::onTreeItemChanged(QStandardItem *item)
 {
-    if (m_suppressEdits || !item) return;
+    if (m_suppressEdits || !item)
+        return;
     const QVariant catVar = item->data(kCategoryRole);
-    if (!catVar.isValid()) return;
+    if (!catVar.isValid())
+        return;
     // Only the name column carries the check.
-    if (item->column() != 0) return;
+    if (item->column() != 0)
+        return;
 
     const auto cat = static_cast<OpenSWMMVis::SwmmCategory>(catVar.toInt());
     const bool visible = item->checkState() == Qt::Checked;
@@ -325,7 +429,7 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
 
     RendererPanelContext ctx;
     ctx.hostLayer = m_layer.data();
-    ctx.category  = cat;
+    ctx.category = cat;
 
     // Feed the kind's Rule so the Symbology panel mounts the renderer-based
     // archetype editors (PointSymbolStyleEditor et al., bound to the
@@ -354,7 +458,7 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
 
     auto *tab = new SymbologyTab(ctx, m_stack);
 
-    // L-1 — for results layers, add a per-sublayer Labels editor below the
+    // L-1 — for results layers, add a per-sublayer Labels editor beside the
     // renderer editor so each kind can be labelled independently with its own
     // expression. 1D model layers don't carry the per-feature result values
     // an expression references, so labels there stay on the layer Labels tab.
@@ -364,13 +468,57 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
             fstyle = sub->featureStyle();
 
     if (fstyle) {
-        auto *container = new QWidget(m_stack);
-        auto *vlay = new QVBoxLayout(container);
-        vlay->setContentsMargins(0, 0, 0, 0);
-        vlay->addWidget(tab, 1);
-        vlay->addWidget(makeSublayerLabelBox(fstyle, m_layer.data(), cat, container));
-        m_stack->addWidget(container);
-        m_stack->setCurrentWidget(container);
+        // Results kinds — one tab per concern so the page stops being one
+        // long scroll. A tab exists only when it has content for the kind
+        // (subcatchments: Color + Labels; junctions: Color + Size + Labels).
+        auto *tabs = new QTabWidget(m_stack);
+        tabs->setObjectName(QStringLiteral("kindStyleTabs"));
+        tabs->setDocumentMode(true);
+        tabs->addTab(tab, tr("Color")); // SymbologyTab scrolls its own panel
+
+        /**
+         * @brief Wrap a required content widget in a top-aligned page and scroll area. Argument
+         * `content`: widget reparented into the page, transferring Qt ownership. Returns: new
+         * tabs-owned scroll area; captured tabs must be alive.
+         */
+        auto topAligned = [tabs](QWidget *content) {
+            auto *page = new QWidget(tabs);
+            auto *lay = new QVBoxLayout(page);
+            content->setParent(page);
+            lay->addWidget(content);
+            lay->addStretch();
+            return OpenSWMM::Ui::wrapInScrollArea(page, tabs);
+        };
+
+        QVector<OpenSWMM::Render::AttributeField> fields;
+        if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(m_layer.data()))
+            fields = prov->availableAttributes(cat);
+        const bool sizeable =
+            (qobject_cast<OpenSWMM::Render::PointFeatureSublayerStyle *>(fstyle) ||
+             qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(fstyle)) &&
+            std::any_of(fields.cbegin(), fields.cend(),
+                        [](const auto &f) { return f.isDynamic && f.type != QMetaType::QString; });
+        if (sizeable)
+            tabs->addTab(topAligned(new SizeChannelEditor(fstyle, fields)), tr("Size"));
+
+        auto *arrows = new FlowArrowEditor(m_layer.data(), cat);
+        if (arrows->hasChannel())
+            tabs->addTab(topAligned(arrows), tr("Arrows"));
+        else
+            delete arrows;
+
+        tabs->addTab(topAligned(makeSublayerLabelBox(fstyle, m_layer.data(), cat, nullptr)),
+                     tr("Labels"));
+
+        // Keep the user on the same tab when flipping between kinds.
+        for (int i = 0; i < tabs->count(); ++i)
+            if (tabs->tabText(i) == m_lastKindTab)
+                tabs->setCurrentIndex(i);
+        connect(tabs, &QTabWidget::currentChanged, this,
+                [this, tabs](int i) { m_lastKindTab = tabs->tabText(i); });
+
+        m_stack->addWidget(tabs);
+        m_stack->setCurrentWidget(tabs);
     } else {
         m_stack->addWidget(tab);
         m_stack->setCurrentWidget(tab);
@@ -379,21 +527,29 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
 
 void KindTreeSymbologyPanel::focusKind(const QString &routingId)
 {
-    if (routingId.isEmpty() || !m_model) return;
+    if (routingId.isEmpty() || !m_model)
+        return;
     // Walk every row at every depth looking for a matching routing id.
-    std::function<bool(QStandardItem *)> walk =
-        [&](QStandardItem *parent) -> bool {
-            for (int r = 0; r < parent->rowCount(); ++r) {
-                auto *child = parent->child(r, 0);
-                if (!child) continue;
-                if (child->data(kRoutingRole).toString() == routingId) {
-                    m_tree->setCurrentIndex(m_model->indexFromItem(child));
-                    return true;
-                }
-                if (walk(child)) return true;
+    /**
+     * @brief Find the first exact routing ID by depth-first row traversal. Argument `parent`:
+     * required borrowed model item, starting with invisible root. Returns: true after selecting a
+     * match, false after exhausting descendants. Selection triggers normal editor mounting; null
+     * children are skipped.
+     */
+    std::function<bool(QStandardItem *)> walk = [&](QStandardItem *parent) -> bool {
+        for (int r = 0; r < parent->rowCount(); ++r) {
+            auto *child = parent->child(r, 0);
+            if (!child)
+                continue;
+            if (child->data(kRoutingRole).toString() == routingId) {
+                m_tree->setCurrentIndex(m_model->indexFromItem(child));
+                return true;
             }
-            return false;
-        };
+            if (walk(child))
+                return true;
+        }
+        return false;
+    };
     walk(m_model->invisibleRootItem());
 }
 

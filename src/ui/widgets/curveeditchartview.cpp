@@ -1,9 +1,14 @@
-/*!
- * \file   curveeditchartview.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      curveeditchartview.cpp
+ * @brief     Mirrors `TimeseriesEditChartView` (Slice BQ Phase 6.7.3.5): a thin subclass of
+ *            `InteractiveChartView` that adds an orthogonal `EditMode` axis on top of the base
+ *            Select/Pan/Zoom modes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/curveeditchartview.h"
 
 #include "curve/curveprovider.h"
@@ -26,22 +31,21 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::curve::BulkSetCurvePointsCommand;
 using openswmmvis::curve::CurvePoint;
 using openswmmvis::curve::CurveProvider;
 
-namespace {
-constexpr int  kHitRadiusPx      = 8;
-constexpr int  kSelectedMarker   = 12;
+namespace
+{
+constexpr int kHitRadiusPx = 8;
+constexpr int kSelectedMarker = 12;
 } // namespace
 
-CurveEditChartView::CurveEditChartView(QChart *chart,
-                                       QLineSeries *referenceSeries,
-                                       QWidget *parent)
-    : InteractiveChartView(chart, parent)
-    , m_referenceSeries(referenceSeries)
+CurveEditChartView::CurveEditChartView(QChart *chart, QLineSeries *referenceSeries, QWidget *parent)
+    : InteractiveChartView(chart, parent), m_referenceSeries(referenceSeries)
 {
     // Selection-highlight overlay. Attached to the same axes as the
     // reference series so it lives in the same value space.
@@ -50,7 +54,8 @@ CurveEditChartView::CurveEditChartView(QChart *chart,
     chart->addSeries(m_selectedScatter);
     if (m_referenceSeries) {
         const auto axes = m_referenceSeries->attachedAxes();
-        for (auto *ax : axes) m_selectedScatter->attachAxis(ax);
+        for (auto *ax : axes)
+            m_selectedScatter->attachAxis(ax);
     }
 }
 
@@ -63,40 +68,48 @@ CurveProvider *CurveEditChartView::provider() const noexcept
 
 void CurveEditChartView::setProvider(CurveProvider *p)
 {
-    if (m_provider.data() == p) return;
-    if (m_provider) m_provider->disconnect(this);
+    if (m_provider.data() == p)
+        return;
+    if (m_provider)
+        m_provider->disconnect(this);
     m_provider = QPointer<CurveProvider>(p);
     if (m_provider) {
-        connect(m_provider, &CurveProvider::pointsChanged,
-                this, &CurveEditChartView::onProviderPointsChanged_);
-        connect(m_provider, &CurveProvider::pointsInserted,
-                this, &CurveEditChartView::onProviderPointsChanged_);
-        connect(m_provider, &CurveProvider::pointsRemoved,
-                this, &CurveEditChartView::onProviderPointsChanged_);
+        connect(m_provider, &CurveProvider::pointsChanged, this,
+                &CurveEditChartView::onProviderPointsChanged_);
+        connect(m_provider, &CurveProvider::pointsInserted, this,
+                &CurveEditChartView::onProviderPointsChanged_);
+        connect(m_provider, &CurveProvider::pointsRemoved, this,
+                &CurveEditChartView::onProviderPointsChanged_);
     }
     clearSelection();
     refreshSelectionOverlay_();
 }
 
-void CurveEditChartView::setUndoStack(QUndoStack *stack) { m_undoStack = stack; }
+void CurveEditChartView::setUndoStack(QUndoStack *stack)
+{
+    m_undoStack = stack;
+}
 
 void CurveEditChartView::setEditMode(EditMode m)
 {
-    if (m == m_editMode) return;
+    if (m == m_editMode)
+        return;
     m_editMode = m;
     emit editModeChanged(m);
 }
 
 void CurveEditChartView::setLockX(bool on)
 {
-    if (on == m_lockX) return;
+    if (on == m_lockX)
+        return;
     m_lockX = on;
     emit lockXChanged(on);
 }
 
 void CurveEditChartView::setLockY(bool on)
 {
-    if (on == m_lockY) return;
+    if (on == m_lockY)
+        return;
     m_lockY = on;
     emit lockYChanged(on);
 }
@@ -111,7 +124,8 @@ void CurveEditChartView::onProviderPointsChanged_()
     }
     QVector<int> kept;
     for (int idx : std::as_const(m_selection)) {
-        if (idx >= 0 && idx < m_provider->pointCount()) kept.push_back(idx);
+        if (idx >= 0 && idx < m_provider->pointCount())
+            kept.push_back(idx);
     }
     if (kept.size() != m_selection.size()) {
         m_selection = std::move(kept);
@@ -122,12 +136,17 @@ void CurveEditChartView::onProviderPointsChanged_()
 
 void CurveEditChartView::refreshSelectionOverlay_()
 {
-    if (!m_selectedScatter) return;
-    if (!m_provider) { m_selectedScatter->clear(); return; }
+    if (!m_selectedScatter)
+        return;
+    if (!m_provider) {
+        m_selectedScatter->clear();
+        return;
+    }
     QList<QPointF> sel;
     sel.reserve(m_selection.size());
     for (int idx : std::as_const(m_selection)) {
-        if (idx < 0 || idx >= m_provider->pointCount()) continue;
+        if (idx < 0 || idx >= m_provider->pointCount())
+            continue;
         const auto &p = m_provider->pointAt(idx);
         sel.append({p.x, p.y});
     }
@@ -136,7 +155,8 @@ void CurveEditChartView::refreshSelectionOverlay_()
 
 void CurveEditChartView::clearSelection()
 {
-    if (m_selection.isEmpty()) return;
+    if (m_selection.isEmpty())
+        return;
     m_selection.clear();
     refreshSelectionOverlay_();
     emit selectionChanged(m_selection);
@@ -146,7 +166,8 @@ void CurveEditChartView::setSelection(QVector<int> indices)
 {
     std::sort(indices.begin(), indices.end());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
-    if (indices == m_selection) return;
+    if (indices == m_selection)
+        return;
     m_selection = std::move(indices);
     refreshSelectionOverlay_();
     emit selectionChanged(m_selection);
@@ -159,18 +180,21 @@ QPointF CurveEditChartView::viewportToValue_(const QPoint &px) const
 
 int CurveEditChartView::hitTestPoint(const QPoint &viewportPx, int hitRadiusPx) const
 {
-    if (!m_provider || !m_referenceSeries) return -1;
+    if (!m_provider || !m_referenceSeries)
+        return -1;
     const int n = m_provider->pointCount();
     int bestIdx = -1;
     qreal bestDistSq = static_cast<qreal>(hitRadiusPx) * hitRadiusPx;
     for (int i = 0; i < n; ++i) {
         const auto &p = m_provider->pointAt(i);
-        const QPointF screen = chart()->mapToPosition(QPointF(p.x, p.y),
-                                                       m_referenceSeries);
+        const QPointF screen = chart()->mapToPosition(QPointF(p.x, p.y), m_referenceSeries);
         const qreal dx = screen.x() - viewportPx.x();
         const qreal dy = screen.y() - viewportPx.y();
         const qreal d2 = dx * dx + dy * dy;
-        if (d2 <= bestDistSq) { bestDistSq = d2; bestIdx = i; }
+        if (d2 <= bestDistSq) {
+            bestDistSq = d2;
+            bestIdx = i;
+        }
     }
     return bestIdx;
 }
@@ -181,9 +205,7 @@ int CurveEditChartView::hitTestPoint(const QPoint &viewportPx, int hitRadiusPx) 
 
 void CurveEditChartView::mousePressEvent(QMouseEvent *e)
 {
-    if (m_editMode != EditMode::EditPoints
-        || !m_provider
-        || e->button() != Qt::LeftButton) {
+    if (m_editMode != EditMode::EditPoints || !m_provider || e->button() != Qt::LeftButton) {
         InteractiveChartView::mousePressEvent(e);
         return;
     }
@@ -191,7 +213,8 @@ void CurveEditChartView::mousePressEvent(QMouseEvent *e)
     m_pressPos = e->pos();
 
     if (e->modifiers() & Qt::ShiftModifier) {
-        if (!m_selectionBand) m_selectionBand = new QRubberBand(QRubberBand::Rectangle, this);
+        if (!m_selectionBand)
+            m_selectionBand = new QRubberBand(QRubberBand::Rectangle, this);
         m_selectionBand->setGeometry(QRect(m_pressPos, QSize()));
         m_selectionBand->show();
         m_rubberSelecting = true;
@@ -251,15 +274,16 @@ void CurveEditChartView::mouseReleaseEvent(QMouseEvent *e)
 {
     if (m_rubberSelecting) {
         m_rubberSelecting = false;
-        if (m_selectionBand) m_selectionBand->hide();
+        if (m_selectionBand)
+            m_selectionBand->hide();
         const QRect band = QRect(m_pressPos, e->pos()).normalized();
         QVector<int> hits;
         if (m_provider && m_referenceSeries) {
             for (int i = 0; i < m_provider->pointCount(); ++i) {
                 const auto &p = m_provider->pointAt(i);
-                const QPointF screen = chart()->mapToPosition(QPointF(p.x, p.y),
-                                                               m_referenceSeries);
-                if (band.contains(screen.toPoint())) hits.push_back(i);
+                const QPointF screen = chart()->mapToPosition(QPointF(p.x, p.y), m_referenceSeries);
+                if (band.contains(screen.toPoint()))
+                    hits.push_back(i);
             }
         }
         setSelection(std::move(hits));
@@ -284,21 +308,24 @@ void CurveEditChartView::mouseReleaseEvent(QMouseEvent *e)
         // Was there any net change?
         bool moved = false;
         for (int k = 0; k < m_dragIndices.size(); ++k) {
-            if (newPts.at(k).x != m_dragInitial.at(k).x
-                || newPts.at(k).y != m_dragInitial.at(k).y) { moved = true; break; }
+            if (newPts.at(k).x != m_dragInitial.at(k).x ||
+                newPts.at(k).y != m_dragInitial.at(k).y) {
+                moved = true;
+                break;
+            }
         }
         if (moved) {
             if (m_undoStack) {
                 // Rewind so the undo command's redo() reaches the post-drag state.
                 for (int k = 0; k < m_dragIndices.size(); ++k) {
                     const int idx = m_dragIndices.at(k);
-                    if (idx < 0 || idx >= m_provider->pointCount()) continue;
+                    if (idx < 0 || idx >= m_provider->pointCount())
+                        continue;
                     const auto &init = m_dragInitial.at(k);
                     m_provider->setPointAt(idx, init.x, init.y, nullptr);
                 }
                 m_undoStack->push(new BulkSetCurvePointsCommand(
-                    m_provider, m_dragIndices, m_dragInitial, newPts,
-                    tr("Drag curve point(s)")));
+                    m_provider, m_dragIndices, m_dragInitial, newPts, tr("Drag curve point(s)")));
             }
         }
         m_dragIndices.clear();
@@ -349,7 +376,8 @@ void CurveEditChartView::contextMenuEvent(QContextMenuEvent *e)
     }
 
     QAction *chosen = menu.exec(e->globalPos());
-    if (!chosen) return;
+    if (!chosen)
+        return;
 
     if (chosen == insertAct) {
         m_provider->insertPoint(v.x(), v.y(), nullptr);

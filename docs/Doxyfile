@@ -42,19 +42,19 @@ DOXYFILE_ENCODING      = UTF-8
 # title of most generated pages and in a few other places.
 # The default value is: My Project.
 
-PROJECT_NAME           = "OpenSWMM GUI"
+PROJECT_NAME           = "SWMMVis"
 
 # The PROJECT_NUMBER tag can be used to enter a project or revision number. This
 # could be handy for archiving the generated documentation or if some version
 # control system is used.
 
-PROJECT_NUMBER         = 6.0.0-alpha.3
+PROJECT_NUMBER         = 6.0.0-alpha.4
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewers a
 # quick idea about the purpose of the project. Keep the description short.
 
-PROJECT_BRIEF          = "Qt6/C++ GIS-based graphical user interface for the OpenSWMM engine (6.0.0-alpha.3)"
+PROJECT_BRIEF          = "Qt6/C++ GIS-based graphical user interface for the SWMMVis engine (6.0.0-alpha.4)"
 
 # With the PROJECT_LOGO tag one can specify a logo or an icon that is included
 # in the documentation. The maximum height of the logo should not exceed 55
@@ -290,10 +290,14 @@ TAB_SIZE               = 4
 # with the commands \{ and \} for these it is advised to use the version @{ and
 # @} or use a double escape (\\{ and \\})
 
-ALIASES                = "license=\par License\n" \
+ALIASES                = "license=\par License^^" \
                          "description=\par Discription\n" \
                          "mod=\par Modified\n" \
-                         "moditem{3}=\b \date\1 \author\2 \3\n"
+                         "moditem{3}=\b \date\1 \author\2 \3\n" \
+                         "fig{2}=\htmlonly<figure class=\"manual-figure\">\endhtmlonly \image html \1 width=100% \htmlonly<figcaption>\2</figcaption></figure>\endhtmlonly^^" \
+                         "figtodo{2}=\htmlonly<figure class=\"manual-figure manual-figure-todo\"><div class=\"manual-figure-placeholder\"><span class=\"manual-figure-tag\">FIGURE PLACEHOLDER</span><span class=\"manual-figure-file\">docs/manual/images/\1</span></div><figcaption>\2</figcaption></figure>\endhtmlonly^^" \
+                         "video{2}=\htmlonly<figure class=\"manual-video\"><div class=\"manual-video-frame\"><iframe src=\"https://www.youtube.com/embed/\1\" title=\"\2\" loading=\"lazy\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe></div><figcaption>\2</figcaption></figure>\endhtmlonly^^" \
+                         "videotodo{1}=\htmlonly<figure class=\"manual-video manual-video-todo\"><div class=\"manual-figure-placeholder\"><span class=\"manual-figure-tag\">VIDEO PLACEHOLDER</span><span class=\"manual-figure-file\">swap videotodo for video{YOUTUBE_ID, caption}</span></div><figcaption>\1</figcaption></figure>\endhtmlonly^^"
 
 # Set the OPTIMIZE_OUTPUT_FOR_C tag to YES if your project consists of C sources
 # only. Doxygen will then generate output that is more tailored for C. For
@@ -998,7 +1002,18 @@ INPUT                  = ../README.md \
                          ../AUTHORS.md \
                          ../include \
                          ../src \
-                         ./manual
+                         ../libraries/meshkit/include \
+                         ../libraries/meshkit/src \
+                         ./manual \
+                         ./sdk \
+                         ../examples/extensions/template/extension.cpp \
+                         ../examples/extensions/events/extension.cpp \
+                         ../examples/extensions/lifecycle/extension.cpp \
+                         ../examples/extensions/views/extension.cpp \
+                         ../examples/extensions/activity/extension.cpp \
+                         ../examples/extensions/values/extension.cpp \
+                         ../examples/extensions/values/ValueEventAdapter.hpp \
+                         ../examples/extensions/values/ValueEventAdapter.cpp
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses
@@ -1115,11 +1130,13 @@ EXCLUDE_SYMLINKS       = NO
 # exclude all test directories for example use the pattern */test/*
 
 EXCLUDE_PATTERNS       = */build/* \
+                         */manual/README.md \
+                         */manual/images/TODO.md \
                          */moc_* \
                          */ui_*.h \
                          */qrc_* \
                          */manual/images/* \
-                         */manual/tutorials/*
+                         */manual/tutorials/models/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -1133,21 +1150,22 @@ EXCLUDE_SYMBOLS        =
 # that contain example code fragments that are included (see the \include
 # command).
 
-EXAMPLE_PATH           =
+EXAMPLE_PATH           = ../examples \
+                         ./manual/tutorials/models
 
 # If the value of the EXAMPLE_PATH tag contains directories, you can use the
 # EXAMPLE_PATTERNS tag to specify one or more wildcard pattern (like *.cpp and
 # *.h) to filter out the source-files in the directories. If left blank all
 # files are included.
 
-EXAMPLE_PATTERNS       = 
+EXAMPLE_PATTERNS       = *.inp
 
 # If the EXAMPLE_RECURSIVE tag is set to YES then subdirectories will be
 # searched for input files to be used with the \include or \dontinclude commands
 # irrespective of the value of the RECURSIVE tag.
 # The default value is: NO.
 
-EXAMPLE_RECURSIVE      = NO
+EXAMPLE_RECURSIVE      = YES
 
 # The IMAGE_PATH tag can be used to specify one or more files or directories
 # that contain images that are to be included in the documentation (see the
@@ -1465,7 +1483,8 @@ HTML_STYLESHEET        =
 # documentation.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_EXTRA_STYLESHEET  = ./custom/css/doxygen-awesome.css
+HTML_EXTRA_STYLESHEET  = ./custom/css/doxygen-awesome.css \
+                         ./custom/css/manual.css
 
 # The HTML_EXTRA_FILES tag can be used to specify one or more extra images or
 # other source files which should be copied to the HTML output directory. Note
@@ -1479,7 +1498,38 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          custom/js/doxygen-awesome-fragment-copy-button.js \
                          custom/js/doxygen-awesome-interactive-toc.js \
                          custom/js/doxygen-awesome-paragraph-link.js \
-                         custom/js/doxygen-awesome-tabs.js
+                         custom/js/doxygen-awesome-tabs.js \
+                         manual/tutorials/models/terrain_bowl.inp \
+                         manual/tutorials/models/terrain_bowl.asc \
+                         manual/tutorials/models/terrain_bowl.prj \
+                         manual/tutorials/models/terrain_bowl_domain.geojson \
+                         manual/tutorials/models/coupled_plaza.inp \
+                         manual/tutorials/models/rubinato2017_examples.zip \
+                         manual/tutorials/models/rubinato2017_results.html \
+                         manual/tutorials/models/rubinato2017_visual_supplement.pdf \
+                         manual/tutorials/models/rubinato2017_visuals.zip \
+                         manual/tutorials/models/rubinato2017_momentum.zip \
+                         manual/tutorials/models/rubinato2017_momentum_comparison.csv \
+                         manual/tutorials/models/rubinato2017_momentum_data.json \
+                         manual/tutorials/models/vfr_slope.inp \
+                         manual/tutorials/models/lid_active_chain/01_passive_free.inp \
+                         manual/tutorials/models/lid_active_chain/02_passive_backwater.inp \
+                         manual/tutorials/models/lid_active_chain/03_timed_hold.inp \
+                         manual/tutorials/models/lid_active_chain/04_head_guard.inp \
+                         manual/tutorials/models/lid_active_chain/05_repeat_storm.inp \
+                         manual/tutorials/models/lid_active_chain/06_stuck_closed.inp \
+                         manual/tutorials/models/lid_resaturation.inp \
+                         manual/tutorials/models/richards_01_passive_free.inp \
+                         manual/tutorials/models/richards_02_passive_backwater.inp \
+                         manual/tutorials/models/richards_03_timed_hold.inp \
+                         manual/tutorials/models/richards_04_head_guard.inp \
+                         manual/tutorials/models/richards_05_repeat_storm.inp \
+                         manual/tutorials/models/richards_06_stuck_closed.inp \
+                         manual/tutorials/models/lid_richards_resaturation.inp \
+                         manual/images/t10_resaturation.gif \
+                         manual/images/t10_network.gif \
+                         manual/images/t10_hydraulic-control.gif \
+                         manual/images/t10_pollutant-fate.gif
 
 # The HTML_COLORSTYLE tag can be used to specify if the generated HTML output
 # should be rendered with a dark or light theme.
@@ -2580,7 +2630,7 @@ TAGFILES               =
 # tag file that is based on the input files it reads. See section "Linking to
 # external documentation" for more information about the usage of tag files.
 
-GENERATE_TAGFILE       =
+GENERATE_TAGFILE       = html/openswmm.gui.tag
 
 # If the ALLEXTERNALS tag is set to YES, all external classes and namespaces
 # will be listed in the class and namespace index. If set to NO, only the

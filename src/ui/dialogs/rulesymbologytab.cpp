@@ -1,13 +1,16 @@
-/*!
- * \file   rulesymbologytab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  RuleSymbologyTab implementation (Slice Z.3).
+/**
+ * @file      rulesymbologytab.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     RuleSymbologyTab implementation (Slice Z.3).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/rulesymbologytab.h"
 
+#include "layers/openswmmvislayer.h" // ctx.hostLayer downcast target
+#include "layers/swmm_category.h"    // SwmmCategory ordinals (enum only)
 #include "render/ifeaturerenderer.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
@@ -29,7 +32,8 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::CategorizedRenderer;
 using OpenSWMM::Render::GraduatedRenderer;
@@ -39,7 +43,8 @@ using OpenSWMM::Render::RuleBasedRenderer;
 using OpenSWMM::Render::RuleList;
 using OpenSWMM::Render::SingleSymbolRenderer;
 
-namespace {
+namespace
+{
 
 /*!
  * \brief Built-in renderer-class roster the Active Rule body picker
@@ -60,19 +65,23 @@ struct RendererClassChoice {
 };
 
 const RendererClassChoice kRendererChoices[] = {
-    {"single",      "Single Symbol",
-        [] { return std::unique_ptr<IFeatureRenderer>(new SingleSymbolRenderer); }},
-    {"graduated",   "Graduated",
-        [] { return std::unique_ptr<IFeatureRenderer>(new GraduatedRenderer); }},
+    {"single", "Single Symbol",
+     [] { return std::unique_ptr<IFeatureRenderer>(new SingleSymbolRenderer); }},
+    {"graduated", "Graduated",
+     [] { return std::unique_ptr<IFeatureRenderer>(new GraduatedRenderer); }},
     {"categorized", "Categorized",
-        [] { return std::unique_ptr<IFeatureRenderer>(new CategorizedRenderer); }},
-    {"rule",        "Rule-based",
-        [] { return std::unique_ptr<IFeatureRenderer>(new RuleBasedRenderer); }},
+     [] { return std::unique_ptr<IFeatureRenderer>(new CategorizedRenderer); }},
+    {"rule", "Rule-based", [] { return std::unique_ptr<IFeatureRenderer>(new RuleBasedRenderer); }},
 };
 
 constexpr int kRendererChoicesCount =
     static_cast<int>(sizeof(kRendererChoices) / sizeof(kRendererChoices[0]));
 
+/**
+ * @brief Find the exact built-in renderer identifier in the static picker roster.
+ * @param[in] id Case-sensitive renderer ID.
+ * @return Zero-based roster index or -1; does not consult plugin registry entries.
+ */
 int findChoiceById(const QString &id)
 {
     for (int i = 0; i < kRendererChoicesCount; ++i)
@@ -101,21 +110,20 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     m_activeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     topLay->addWidget(m_activeCombo, 1);
 
-    m_btnAdd       = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
-                                     QString(), topRow);
+    m_btnAdd = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), QString(),
+                               topRow);
     m_btnAdd->setToolTip(tr("Add rule"));
-    m_btnDuplicate = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Duplicate")),
-                                     tr("Duplicate"), topRow);
-    m_btnDelete    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
-                                     tr("Delete"), topRow);
-    m_btnUp        = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")),
-                                     QString(), topRow);
+    m_btnDuplicate = new QPushButton(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Duplicate")), tr("Duplicate"), topRow);
+    m_btnDelete = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                                  tr("Delete"), topRow);
+    m_btnUp = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")),
+                              QString(), topRow);
     m_btnUp->setToolTip(tr("Move rule up"));
-    m_btnDown      = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")),
-                                     QString(), topRow);
+    m_btnDown = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")),
+                                QString(), topRow);
     m_btnDown->setToolTip(tr("Move rule down"));
-    for (QPushButton *b : { m_btnAdd, m_btnDuplicate, m_btnDelete,
-                            m_btnUp, m_btnDown }) {
+    for (QPushButton *b : {m_btnAdd, m_btnDuplicate, m_btnDelete, m_btnUp, m_btnDown}) {
         b->setAutoDefault(false);
         topLay->addWidget(b);
     }
@@ -131,7 +139,7 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
 
     // ── Body — Renderer-class picker (Z.3a) + placeholder editor ──────
     auto *bodyHost = new QWidget(this);
-    auto *bodyLay  = new QVBoxLayout(bodyHost);
+    auto *bodyLay = new QVBoxLayout(bodyHost);
     bodyLay->setContentsMargins(0, 0, 0, 0);
 
     auto *classRow = new QWidget(bodyHost);
@@ -140,8 +148,7 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     classLay->addWidget(new QLabel(tr("Renderer:"), classRow));
     m_rendererCombo = new QComboBox(classRow);
     for (const auto &c : kRendererChoices)
-        m_rendererCombo->addItem(QString::fromLatin1(c.displayName),
-                                 QString::fromLatin1(c.id));
+        m_rendererCombo->addItem(QString::fromLatin1(c.displayName), QString::fromLatin1(c.id));
     classLay->addWidget(m_rendererCombo, 1);
     bodyLay->addWidget(classRow);
 
@@ -149,32 +156,30 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     bodyLay->addWidget(m_body, 1);
     root->addWidget(bodyHost, 1);
 
-    connect(m_rendererCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &RuleSymbologyTab::onRendererClassPicked);
+    connect(m_rendererCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &RuleSymbologyTab::onRendererClassPicked);
 
     // ── Connections — UI → model ──────────────────────────────────────
-    connect(m_activeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &RuleSymbologyTab::onComboIndexChanged);
-    connect(m_ruleListView, &QListWidget::currentRowChanged,
-            this, &RuleSymbologyTab::onListRowChanged);
-    connect(m_ruleListView, &QListWidget::itemChanged,
-            this, &RuleSymbologyTab::onItemChanged);
-    connect(m_ruleListView->model(), &QAbstractItemModel::rowsMoved,
-            this, &RuleSymbologyTab::onListReordered);
+    connect(m_activeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &RuleSymbologyTab::onComboIndexChanged);
+    connect(m_ruleListView, &QListWidget::currentRowChanged, this,
+            &RuleSymbologyTab::onListRowChanged);
+    connect(m_ruleListView, &QListWidget::itemChanged, this, &RuleSymbologyTab::onItemChanged);
+    connect(m_ruleListView->model(), &QAbstractItemModel::rowsMoved, this,
+            &RuleSymbologyTab::onListReordered);
 
-    connect(m_btnAdd,       &QPushButton::clicked, this, &RuleSymbologyTab::onAddClicked);
+    connect(m_btnAdd, &QPushButton::clicked, this, &RuleSymbologyTab::onAddClicked);
     connect(m_btnDuplicate, &QPushButton::clicked, this, &RuleSymbologyTab::onDuplicateClicked);
-    connect(m_btnDelete,    &QPushButton::clicked, this, &RuleSymbologyTab::onDeleteClicked);
-    connect(m_btnUp,        &QPushButton::clicked, this, &RuleSymbologyTab::onMoveUpClicked);
-    connect(m_btnDown,      &QPushButton::clicked, this, &RuleSymbologyTab::onMoveDownClicked);
+    connect(m_btnDelete, &QPushButton::clicked, this, &RuleSymbologyTab::onDeleteClicked);
+    connect(m_btnUp, &QPushButton::clicked, this, &RuleSymbologyTab::onMoveUpClicked);
+    connect(m_btnDown, &QPushButton::clicked, this, &RuleSymbologyTab::onMoveDownClicked);
 
     // ── Connections — model → UI ──────────────────────────────────────
-    connect(m_ruleList, &RuleList::ruleListChanged,
-            this, &RuleSymbologyTab::onModelRuleListChanged);
-    connect(m_ruleList, &RuleList::activeIndexChanged,
-            this, &RuleSymbologyTab::onModelActiveIndexChanged);
-    connect(m_ruleList, &RuleList::ruleChanged,
-            this, &RuleSymbologyTab::onModelRuleChanged);
+    connect(m_ruleList, &RuleList::ruleListChanged, this,
+            &RuleSymbologyTab::onModelRuleListChanged);
+    connect(m_ruleList, &RuleList::activeIndexChanged, this,
+            &RuleSymbologyTab::onModelActiveIndexChanged);
+    connect(m_ruleList, &RuleList::ruleChanged, this, &RuleSymbologyTab::onModelRuleChanged);
 
     rebuildFromModel();
 }
@@ -226,8 +231,7 @@ void RuleSymbologyTab::onListReordered()
     newOrder.reserve(m_ruleListView->count());
     for (int i = 0; i < m_ruleListView->count(); ++i) {
         QListWidgetItem *it = m_ruleListView->item(i);
-        auto *r = reinterpret_cast<Rule *>(
-            it->data(Qt::UserRole).value<quintptr>());
+        auto *r = reinterpret_cast<Rule *>(it->data(Qt::UserRole).value<quintptr>());
         newOrder.append(r);
     }
     // Replay as a sequence of move() calls. m_suppressUiSignals stays on
@@ -249,8 +253,7 @@ void RuleSymbologyTab::onAddClicked()
 {
     if (!m_ruleList)
         return;
-    auto rule = std::make_unique<Rule>(
-        tr("New rule (%1)").arg(m_ruleList->count() + 1), nullptr);
+    auto rule = std::make_unique<Rule>(tr("New rule (%1)").arg(m_ruleList->count() + 1), nullptr);
     m_ruleList->append(std::move(rule));
     m_ruleList->setActiveIndex(m_ruleList->count() - 1);
 }
@@ -345,14 +348,12 @@ void RuleSymbologyTab::rebuildFromModel()
             const QString name = r ? r->name() : QString();
             m_activeCombo->addItem(name);
             auto *item = new QListWidgetItem(name, m_ruleListView);
-            item->setFlags(item->flags()
-                           | Qt::ItemIsUserCheckable
-                           | Qt::ItemIsDragEnabled);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled);
             item->setCheckState(r && r->isVisible() ? Qt::Checked : Qt::Unchecked);
             // Stash the raw pointer so onListReordered can compute the
             // new permutation without consulting QListWidget visual rows.
-            item->setData(Qt::UserRole, QVariant::fromValue<quintptr>(
-                reinterpret_cast<quintptr>(r)));
+            item->setData(Qt::UserRole,
+                          QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(r)));
         }
         setListAndComboToIndex(m_ruleList->activeIndex());
     }
@@ -399,8 +400,7 @@ void RuleSymbologyTab::mountBodyForActive()
     Rule *r = activeRule();
     if (!r) {
         m_rendererCombo->setEnabled(false);
-        m_body->addWidget(new QLabel(
-            tr("No Rule selected. Click [+] to add one."), this));
+        m_body->addWidget(new QLabel(tr("No Rule selected. Click [+] to add one."), this));
         return;
     }
     m_rendererCombo->setEnabled(true);
@@ -414,15 +414,44 @@ void RuleSymbologyTab::mountBodyForActive()
     // When the registry is empty (e.g. test targets that don't link the
     // editor .cpp files), fall back to the Z.3a-style placeholder so
     // the dialog stays legible.
-    const QString rendererId = r->renderer() ? r->renderer()->rendererId()
-                                              : QString();
-    const auto *entry = rendererId.isEmpty()
-        ? nullptr
-        : RendererPanelRegistry::instance().find(rendererId);
+    const QString rendererId = r->renderer() ? r->renderer()->rendererId() : QString();
+    const auto *entry =
+        rendererId.isEmpty() ? nullptr : RendererPanelRegistry::instance().find(rendererId);
 
     if (entry && entry->factory) {
         RendererPanelContext ctx;
         ctx.rule = r;
+        // Hand the panel the kind context as well, when this Rule IS a SWMM
+        // kind. Some controls are not renderer state and so have no Rule
+        // mirror to read: the per-kind flow-arrow channel, and the choice of
+        // size-vs-width output axis (which follows the kind's geometry
+        // archetype). Without a category, KindRendererPanel falls back to its
+        // CatJunctions sentinel — a Point archetype — so a conduit offered
+        // "Size by value" (writing a "size" prop no line symbol has, hence no
+        // visible thickness change) and hid the flow-arrow box entirely.
+        //
+        // Only SWMM model / results layers build a kind-indexed rule list —
+        // one Rule per Category, in ordinal order. GIS-vector and 2D-mesh
+        // lists hold arbitrary user rules, where position carries no kind
+        // meaning, so they keep the category unset (layer-level behaviour).
+        //
+        // Layer-type checks use QObject::inherits (string-based) rather than
+        // qobject_cast, and the downcast is a plain static_cast, so this TU
+        // keeps its self-contained link footprint — the same technique, and
+        // the same reason, as RendererPanelContext::resolve.
+        if (m_ruleList) {
+            QObject *owner = m_ruleList->parent();
+            const bool kindIndexed =
+                owner &&
+                (owner->inherits("SWMMModelLayer") || owner->inherits("SWMMResultsLayer")) &&
+                m_ruleList->count() == int(OpenSWMMVis::NumCategories);
+            if (kindIndexed) {
+                ctx.hostLayer = static_cast<OpenSWMMVisLayer *>(owner);
+                const int idx = m_ruleList->indexOf(r);
+                if (idx >= 0 && idx < int(OpenSWMMVis::NumCategories))
+                    ctx.category = static_cast<OpenSWMMVis::SwmmCategory>(idx);
+            }
+        }
         if (auto *panel = entry->factory(ctx, m_body)) {
             m_body->addWidget(panel);
             m_body->setCurrentWidget(panel);
@@ -431,14 +460,14 @@ void RuleSymbologyTab::mountBodyForActive()
         }
     }
     // Fallback — registry didn't supply a panel.
-    auto *placeholder = new QLabel(
-        tr("Active Rule: %1\nRenderer class: %2\n\n"
-           "(No editor panel registered for this renderer class in this "
-           "build target — the live editor mounts in the running app via "
-           "REGISTER_RENDERER_PANEL.)")
-            .arg(r->name())
-            .arg(rendererId.isEmpty() ? QStringLiteral("<none>") : rendererId),
-        this);
+    auto *placeholder =
+        new QLabel(tr("Active Rule: %1\nRenderer class: %2\n\n"
+                      "(No editor panel registered for this renderer class in this "
+                      "build target — the live editor mounts in the running app via "
+                      "REGISTER_RENDERER_PANEL.)")
+                       .arg(r->name())
+                       .arg(rendererId.isEmpty() ? QStringLiteral("<none>") : rendererId),
+                   this);
     placeholder->setAlignment(Qt::AlignCenter);
     m_body->addWidget(placeholder);
 }
@@ -453,9 +482,8 @@ void RuleSymbologyTab::onRendererClassPicked(int idx)
     if (!r || idx < 0 || idx >= kRendererChoicesCount)
         return;
     const RendererClassChoice &choice = kRendererChoices[idx];
-    if (r->renderer() && r->renderer()->rendererId()
-        == QLatin1String(choice.id))
-        return;  // already this class
+    if (r->renderer() && r->renderer()->rendererId() == QLatin1String(choice.id))
+        return; // already this class
     r->setRenderer(choice.construct());
     // rendererReplaced signal will resync via onActiveRuleRendererReplaced.
 }
@@ -485,9 +513,8 @@ void RuleSymbologyTab::connectActiveRuleRendererSignal()
     Rule *r = activeRule();
     if (!r)
         return;
-    QObject::connect(r, &Rule::rendererReplaced,
-                     this, &RuleSymbologyTab::onActiveRuleRendererReplaced,
-                     Qt::UniqueConnection);
+    QObject::connect(r, &Rule::rendererReplaced, this,
+                     &RuleSymbologyTab::onActiveRuleRendererReplaced, Qt::UniqueConnection);
     m_subscribedRule = r;
 }
 
@@ -495,16 +522,16 @@ void RuleSymbologyTab::disconnectActiveRuleRendererSignal()
 {
     if (!m_subscribedRule)
         return;
-    QObject::disconnect(m_subscribedRule.data(), &Rule::rendererReplaced,
-                        this, &RuleSymbologyTab::onActiveRuleRendererReplaced);
+    QObject::disconnect(m_subscribedRule.data(), &Rule::rendererReplaced, this,
+                        &RuleSymbologyTab::onActiveRuleRendererReplaced);
     m_subscribedRule.clear();
 }
 
 void RuleSymbologyTab::updateButtonsEnabled()
 {
-    const bool any  = m_ruleList && m_ruleList->count() > 0;
-    const int idx   = m_ruleList ? m_ruleList->activeIndex() : -1;
-    const int last  = m_ruleList ? m_ruleList->count() - 1 : -1;
+    const bool any = m_ruleList && m_ruleList->count() > 0;
+    const int idx = m_ruleList ? m_ruleList->activeIndex() : -1;
+    const int last = m_ruleList ? m_ruleList->count() - 1 : -1;
     m_btnDuplicate->setEnabled(any && idx >= 0);
     m_btnDelete->setEnabled(any && idx >= 0);
     m_btnUp->setEnabled(any && idx > 0);

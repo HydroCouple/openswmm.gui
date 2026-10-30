@@ -1,0 +1,403 @@
+/**
+ * @file      test_mesheditingtoolbar_bc.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The mesh-editing toolbar's BC editor: hydration, mixed-selection
+ *         placeholders, and — above all — that DISPLAYING a selection never
+ *         WRITES to it.
+ *
+ * First test to instantiate MeshEditingToolbar. Pins the fixes for the
+ * bulk-assign-then-reselect defect family: the single-edge branch never
+ * hydrated the BC widgets (stale timeseries shown); multi-edge hydration read
+ * an arbitrary hash-ordered edge; and the unblocked stage-TS combo turned a
+ * display refresh into a bulk overwrite of every selected edge.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ */
+
+#include "layers/swmm2dmeshlayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "map/meshcommands.h"
+#include "mesh/meshobjectref.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshresult.h"
+#include "mesh/inpmeshwriter.h"
+#include "mesh/inpmeshreader.h"
+#include <QDir>
+#include <QFile>
+#include "mesh/meshedgebcremap.h"
+#include "selection/selectionmanager.h"
+#include "ui/panels/meshattributetablemodel.h"
+#include "ui/toolbars/mesheditingtoolbar.h"
+
+#include <QAction>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QTest>
+
+using Kind = MeshAttributeTableModel::Kind;
+using mesh::MeshBCTypes;
+
+namespace
+{
+
+/*! `wide` × 1 strip of unit quads, two triangles each (the
+ *  test_meshcommands_vertex_edge fixture). */
+/**
+ * @brief Build a horizontal unit-height strip with two CCW triangles per square.
+ * @param[in] wide Nonnegative fixture square count; produces 2*(wide+1)vertices and 2*wide
+ * triangles.
+ * @return Owned ok mesh with column/row index 2*x+y, unit planar spacing and default metadata.
+ * No validation or model registration; local value construction may allocate.
+ */
+mesh::MeshResult makeStrip(int wide)
+{
+    mesh::MeshResult m;
+    for (int x = 0; x <= wide; ++x) {
+        mesh::MeshVertex b;
+        b.xy = QPointF(double(x), 0.0);
+        m.vertices.append(b);
+        mesh::MeshVertex t;
+        t.xy = QPointF(double(x), 1.0);
+        m.vertices.append(t);
+    }
+    for (int x = 0; x < wide; ++x) {
+        const int b0 = x * 2, t0 = x * 2 + 1, b1 = (x + 1) * 2, t1 = (x + 1) * 2 + 1;
+        mesh::MeshTriangle a;
+        a.v0 = b0;
+        a.v1 = b1;
+        a.v2 = t1;
+        m.triangles.append(a);
+        mesh::MeshTriangle c;
+        c.v0 = b0;
+        c.v1 = t1;
+        c.v2 = t0;
+        m.triangles.append(c);
+    }
+    m.ok = true;
+    return m;
+}
+
+/*! First \p n boundary slots on \p layer, in (tri, e) scan order. */
+/**
+ * @brief Collect at most the requested exterior triangle edge slots in deterministic scan order.
+ * @param[in] layer Stable triangle-only mesh layer, preserved; only local edge 0..2 considered.
+ * @param[in] n Maximum desired count; nonpositive yields empty vector.
+ * @return Owned(cell,localEdge)pairs, possibly fewer than n; no selection or layer mutation.
+ */
+QVector<QPair<int, int>> boundarySlots(const SWMM2DMeshLayer &layer, int n)
+{
+    QVector<QPair<int, int>> out;
+    for (int t = 0; t < layer.triangleCount() && out.size() < n; ++t)
+        for (int k = 0; k < 3 && out.size() < n; ++k)
+            if (layer.isBoundaryEdge(t, k))
+                out.append({t, k});
+    return out;
+}
+
+/**
+ * @brief Construct a specified-stage-time-series boundary-condition value.
+ * @param[in] ts Series identifier copied into the result; may be empty, not resolved or
+ * validated.
+ * @return Owned BC with SpecifiedStageTS type and copied series, other fields default; no
+ * project IO.
+ */
+mesh::MeshEdgeBC stageTsBC(const QString &ts)
+{
+    mesh::MeshEdgeBC bc;
+    bc.type = MeshBCTypes::Type::SpecifiedStageTS;
+    bc.tseries = ts;
+    return bc;
+}
+
+/*! Everything one test needs, wired the way SWMMVis wires it. */
+struct Rig {
+    MapCanvas canvas;
+    SWMM2DMeshLayer *layer; // owned by the canvas
+    SelectionManager sel;
+    MeshEditingToolbar tb{QStringLiteral("t")};
+
+    QComboBox *typeCombo;
+    QComboBox *stageTs;
+
+    /**
+     * @brief Wire an owned canvas/selection/toolbar fixture as the application does for boundary
+     * editing.
+     * @param[in] wide Nonnegative strip width in unit squares, default 4; borrowed control
+     * pointers are resolved after canvas takes ownership of the newly allocated layer.
+     * @note Supplies local TS_A/B/C names, binds toolbar to canvas/selection, requires GUI
+     * thread. Member destruction releases widgets/canvas-owned layer; no external ownership
+     * transfer or file IO.
+     */
+    explicit Rig(int wide = 4) : layer(new SWMM2DMeshLayer(makeStrip(wide), QString()))
+    {
+        tb.setTimeseriesLister([] {
+            return QStringList{QStringLiteral("TS_A"), QStringLiteral("TS_B"),
+                               QStringLiteral("TS_C")};
+        });
+        canvas.addLayer(layer, /*pushUndo=*/false);
+        tb.rebindCanvas(&canvas);
+        tb.rebindSelectionManager(&sel);
+        typeCombo = tb.findChild<QComboBox *>(QStringLiteral("meshBcTypeCombo"));
+        stageTs = tb.findChild<QComboBox *>(QStringLiteral("meshBcStageTSCombo"));
+    }
+
+    /**
+     * @brief Replace fixture selection with references to the supplied edge slots.
+     * @param[in] edgeSlots Stable zero-based(cell,localEdge)pairs for the fixture mesh; caller
+     * ensures valid.
+     * @note Constructs refs with empty layer ID then selection Replace, synchronously refreshes
+     * toolbar; no ownership transfer or mesh-attribute write intended, GUI-thread only.
+     */
+    void select(const QVector<QPair<int, int>> &edgeSlots)
+    {
+        QSet<SWMMObjectRef> refs;
+        for (const auto &pr : edgeSlots)
+            refs.insert(mesh::MeshObjectRef::edge(QString(), pr.first, pr.second));
+        sel.select(refs, SelectionManager::Mode::Replace);
+    }
+};
+
+} // namespace
+
+class TestMeshEditingToolbarBc : public QObject
+{
+    Q_OBJECT
+private slots:
+    void selectiveWallDragBulkUndoAndRemap()
+    {
+        Rig rig;
+        auto* action=rig.tb.findChild<QAction *>("actionMeshSelectEdge");
+        QVERIFY(action); action->setChecked(true);
+        const auto bs=boundarySlots(*rig.layer,3);
+        QCOMPARE(bs.size(),3);
+        auto* spin=rig.tb.findChild<QDoubleSpinBox *>("meshBcWallDragSpin");
+        QVERIFY(spin);
+        rig.select({bs[0],bs[1]});
+        QVERIFY(spin->isEnabled());
+        spin->setValue(.02);
+        const int a=mesh::edgeSlot(bs[0].first,bs[0].second);
+        const int b=mesh::edgeSlot(bs[1].first,bs[1].second);
+        const int c=mesh::edgeSlot(bs[2].first,bs[2].second);
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,.02);
+        QCOMPARE(rig.layer->edgeBCs()[b].wallDrag,.02);
+        QCOMPARE(rig.layer->edgeBCs()[c].wallDrag,0.);
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,0.);
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.layer->edgeBCs()[a].wallDrag,.02);
+        rig.select({bs[2]}); QCOMPARE(spin->value(),0.);
+        rig.select({bs[0]}); QCOMPARE(spin->value(),.02);
+        QVERIFY(mesh::InpMeshWriter::buildBCSectionText(rig.layer->edgeBCs()).contains("WALL_DRAG"));
+        MeshAttributeTableModel table;
+        table.setSource(rig.layer,Kind::Edge);
+        int column=-1;
+        for(int i=0;i<table.columnSpecs().size();++i)
+            if(table.columnSpecs()[i].key=="wallDrag") column=i;
+        QVERIFY(column>=0);
+        const int row=table.rowForRef(mesh::MeshObjectRef::edge(QString(),bs[0].first,bs[0].second));
+        QVERIFY(row>=0);
+        QCOMPARE(table.data(table.index(row,column)).toDouble(),.02);
+        auto refined=makeStrip(8);
+        for(auto& v:refined.vertices) v.xy.setX(v.xy.x()*.5);
+        const auto remap=mesh::remapEdgeBCs(rig.layer->mesh(),rig.layer->edgeBCs(),refined);
+        int retained=0;
+        for(const auto& bc:remap.bcs) if(bc.wallDrag==.02) ++retained;
+        QCOMPARE(retained,4); QCOMPARE(remap.droppedAssignments,0);
+        const auto dir=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
+            .absoluteFilePath("../../verification/wall_friction_2026-10-24/gui-results");
+        QDir().mkpath(dir);
+        spin->parentWidget()->resize(440,60); spin->parentWidget()->show();
+        QTest::qWait(20);
+        spin->parentWidget()->grab().save(QDir(dir).filePath("wall-editor.png"));
+        QFile file(QDir(dir).filePath("gui-wall.inp"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QByteArray text="[2D_VERTICES]\n";
+        for(const auto& v:rig.layer->mesh().vertices)
+            text+=QString("%1 %2 0\n").arg(v.xy.x()).arg(v.xy.y()).toUtf8();
+        text+="[2D_TRIANGLES]\n";
+        for(const auto& t:rig.layer->mesh().triangles)
+            text+=QString("%1 %2 %3 .01 .5\n").arg(t.v0).arg(t.v1).arg(t.v2).toUtf8();
+        text+=mesh::InpMeshWriter::buildBCSectionText(rig.layer->edgeBCs()).toUtf8();
+        file.write(text); file.close();
+        const auto reopened=mesh::InpMeshReader::read(file.fileName());
+        QVERIFY2(reopened.errorMsg.isEmpty(),qPrintable(reopened.errorMsg));
+        QCOMPARE(reopened.edgeBCs[a].wallDrag,.02);
+    }
+
+
+    /*! The reported bug: after a bulk assignment, selecting one edge must
+     *  show THAT edge's timeseries, not the last multi-selection's. */
+    void singleEdge_rehydratesOwnTimeseries()
+    {
+        Rig rig;
+        QVERIFY(rig.tb.activeMesh() == rig.layer);
+        QVERIFY(rig.typeCombo && rig.stageTs);
+        const auto bs = boundarySlots(*rig.layer, 2);
+        QCOMPARE(bs.size(), 2);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC(QStringLiteral("TS_A")),
+                                     nullptr) > 0);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC(QStringLiteral("TS_B")),
+                                     nullptr) > 0);
+
+        rig.select({bs[0]});
+        QCOMPARE(rig.stageTs->currentText(), QStringLiteral("TS_A"));
+        QCOMPARE(static_cast<MeshBCTypes::Type>(rig.typeCombo->currentData().toInt()),
+                 MeshBCTypes::Type::SpecifiedStageTS);
+
+        rig.select({bs[1]});
+        QCOMPARE(rig.stageTs->currentText(), QStringLiteral("TS_B"));
+    }
+
+    /*! Selection changes are display-only: no undo entries, no BC bytes
+     *  change — pre-fix, the unblocked TS combo bulk-overwrote the
+     *  selection with an arbitrary edge's value on mere selection. */
+    void selectionChange_neverWrites()
+    {
+        Rig rig;
+        const auto bs = boundarySlots(*rig.layer, 3);
+        QCOMPARE(bs.size(), 3);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC(QStringLiteral("TS_A")),
+                                     nullptr) > 0);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC(QStringLiteral("TS_B")),
+                                     nullptr) > 0);
+        // bs[2] stays at the default Wall.
+
+        const int undoBefore = rig.canvas.undoStack()->count();
+        const QVector<mesh::MeshEdgeBC> bcBefore = rig.layer->edgeBCs();
+
+        rig.select({bs[0], bs[1]});
+        rig.select({bs[0], bs[1], bs[2]});
+        rig.select({bs[1]});
+        rig.select({bs[0]});
+
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore);
+        const QVector<mesh::MeshEdgeBC> bcAfter = rig.layer->edgeBCs();
+        QCOMPARE(bcAfter.size(), bcBefore.size());
+        for (int i = 0; i < bcBefore.size(); ++i) {
+            QCOMPARE(bcAfter[i].type, bcBefore[i].type);
+            QCOMPARE(bcAfter[i].tseries, bcBefore[i].tseries);
+            QCOMPARE(bcAfter[i].head, bcBefore[i].head);
+        }
+    }
+
+    /*! Mixed selections state their mixedness instead of impersonating an
+     *  arbitrary member. */
+    void mixedSelection_showsPlaceholders()
+    {
+        Rig rig;
+        const auto bs = boundarySlots(*rig.layer, 3);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC(QStringLiteral("TS_A")),
+                                     nullptr) > 0);
+        // bs[1] stays Wall → mixed TYPE.
+        rig.select({bs[0], bs[1]});
+        QCOMPARE(rig.typeCombo->currentIndex(), -1);
+
+        // Same type, different TS → placeholder, empty text.
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC(QStringLiteral("TS_B")),
+                                     nullptr) > 0);
+        rig.select({bs[0], bs[1]});
+        QVERIFY(rig.typeCombo->currentIndex() >= 0);
+        QCOMPARE(rig.stageTs->currentText(), QString());
+        QVERIFY(rig.stageTs->lineEdit());
+        QCOMPARE(rig.stageTs->lineEdit()->placeholderText(), QStringLiteral("<multiple>"));
+    }
+
+    /*! A real bulk edit is exactly ONE undoable command, every selected
+     *  edge takes the new value, and undo restores every original — the
+     *  re-entrancy falsifier: pre-fix, the per-slot attributeChanged fired
+     *  a refresh whose unblocked combo pushed a NESTED command that
+     *  rewrote already-updated edges with the old value. */
+    void bulkAssign_isOneCommand_allEdgesGetNewValue()
+    {
+        Rig rig;
+        const auto bs = boundarySlots(*rig.layer, 3);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC(QStringLiteral("TS_A")),
+                                     nullptr) > 0);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC(QStringLiteral("TS_B")),
+                                     nullptr) > 0);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[2]}, stageTsBC(QStringLiteral("TS_C")),
+                                     nullptr) > 0);
+
+        rig.select({bs[0], bs[1], bs[2]});
+        const int undoBefore = rig.canvas.undoStack()->count();
+
+        // The user's gesture: pick TS_B in the (visible, unblocked) combo.
+        rig.stageTs->setCurrentText(QStringLiteral("TS_B"));
+
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 1);
+        const auto &bcs = rig.layer->edgeBCs();
+        for (const auto &pr : bs)
+            QCOMPARE(bcs[mesh::edgeSlot(pr.first, pr.second)].tseries, QStringLiteral("TS_B"));
+
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[0].first, bs[0].second)].tseries,
+                 QStringLiteral("TS_A"));
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[1].first, bs[1].second)].tseries,
+                 QStringLiteral("TS_B"));
+        QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[2].first, bs[2].second)].tseries,
+                 QStringLiteral("TS_C"));
+    }
+
+    /*! CLAUDE.md §5.1: the toolbar and the Attribute Table read one model
+     *  and must agree per edge. */
+    void toolbarAndAttributeTable_agree()
+    {
+        Rig rig;
+        const auto bs = boundarySlots(*rig.layer, 3);
+        // Type first (a Wall-typed selection would correctly commit Walls
+        // and ignore the TS text), then the user's TS pick.
+        for (const auto &pr : bs)
+            QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {pr}, stageTsBC(QStringLiteral("TS_A")),
+                                         nullptr) > 0);
+        rig.select({bs[0], bs[1], bs[2]});
+        rig.stageTs->setCurrentText(QStringLiteral("TS_B"));
+
+        MeshAttributeTableModel model;
+        model.setSource(rig.layer, Kind::Edge);
+        int tsCol = -1; // Edges tab: key "tseries", header "Time Series"
+        for (int c = 0; c < model.columnCount(); ++c)
+            if (model.headerData(c, Qt::Horizontal)
+                    .toString()
+                    .compare(QStringLiteral("Time Series"), Qt::CaseInsensitive) == 0) {
+                tsCol = c;
+                break;
+            }
+        QVERIFY2(tsCol >= 0, "no timeseries column in the Edges tab");
+
+        for (const auto &pr : bs) {
+            const int row =
+                model.rowForRef(mesh::MeshObjectRef::edge(QString(), pr.first, pr.second));
+            QVERIFY(row >= 0);
+            QCOMPARE(model.data(model.index(row, tsCol)).toString(), QStringLiteral("TS_B"));
+            rig.select({pr});
+            QCOMPARE(rig.stageTs->currentText(), QStringLiteral("TS_B"));
+        }
+    }
+
+    /*! With a mixed-type display (combo index -1), a param edit must not
+     *  commit — currentData() would decode as Wall and silently wall off
+     *  the whole selection. */
+    void typeFlip_withInvalidCombo_isNoop()
+    {
+        Rig rig;
+        const auto bs = boundarySlots(*rig.layer, 2);
+        QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC(QStringLiteral("TS_A")),
+                                     nullptr) > 0);
+        rig.select({bs[0], bs[1]}); // StageTS + Wall → mixed
+        QCOMPARE(rig.typeCombo->currentIndex(), -1);
+
+        const int undoBefore = rig.canvas.undoStack()->count();
+        const QVector<mesh::MeshEdgeBC> bcBefore = rig.layer->edgeBCs();
+        rig.stageTs->setCurrentText(QStringLiteral("TS_C")); // unblocked
+
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore);
+        for (int i = 0; i < bcBefore.size(); ++i)
+            QCOMPARE(rig.layer->edgeBCs()[i].type, bcBefore[i].type);
+    }
+};
+
+QTEST_MAIN(TestMeshEditingToolbarBc)
+#include "test_mesheditingtoolbar_bc.moc"

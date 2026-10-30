@@ -1,6 +1,6 @@
-/*!
- * \file   test_layerreprojection.cpp
- * \brief  Smoke test: on-the-fly coordinate reprojection primitive.
+/**
+ * @file      test_layerreprojection.cpp
+ * @brief     Smoke test: on-the-fly coordinate reprojection primitive.
  *
  * Every layer that renders data in a CRS different from the canvas CRS
  * relies on SpatialReferenceSystem::createTransformationTo() to build an
@@ -10,6 +10,10 @@
  * This test verifies the round trip for a known point and confirms the
  * axis ordering used across the codebase (traditional GIS: lon/lat,
  * x/y — not GDAL 3's default of lat/lon).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/spatialreferencesystem.h"
@@ -25,19 +29,44 @@ class TestLayerReprojection : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require traditional longitude/latitude order to project the known NYC coordinate
+     * within one metre of the reference.
+     *
+     */
     void wgs84ToWebMercatorMatchesReference();
+    /**
+     *
+     * @brief Require forward/reverse San Francisco projection to recover longitude/latitude
+     * within 1e-6 degree.
+     *
+     */
     void webMercatorToWgs84RoundTripWithinTolerance();
+    /**
+     *
+     * @brief Require same-CRS transformation to succeed and preserve the test coordinate exactly.
+     *
+     */
     void selfTransformIsIdentity();
 };
 
-namespace {
+namespace
+{
 
 // Deleter so unique_ptr can own an OGRCoordinateTransformation.
-struct OgrCtDeleter
-{
+struct OgrCtDeleter {
+    /**
+     *
+     * @brief Destroy an owned OGR coordinate transformation if present.
+     * @param ct Nullable owned transformation pointer; releases it through DestroyCT,
+     * with no ownership retained or coordinate mutation. Used by the fixture unique_ptr.
+     *
+     */
     void operator()(OGRCoordinateTransformation *ct) const
     {
-        if (ct) OGRCoordinateTransformation::DestroyCT(ct);
+        if (ct)
+            OGRCoordinateTransformation::DestroyCT(ct);
     }
 };
 using OgrCtPtr = std::unique_ptr<OGRCoordinateTransformation, OgrCtDeleter>;
@@ -49,8 +78,8 @@ using OgrCtPtr = std::unique_ptr<OGRCoordinateTransformation, OgrCtDeleter>;
 // formula; tolerance accounts for PROJ grid-shift refinements.
 void TestLayerReprojection::wgs84ToWebMercatorMatchesReference()
 {
-    SpatialReferenceSystem wgs84 (QStringLiteral("EPSG"), 4326);
-    SpatialReferenceSystem web   (QStringLiteral("EPSG"), 3857);
+    SpatialReferenceSystem wgs84(QStringLiteral("EPSG"), 4326);
+    SpatialReferenceSystem web(QStringLiteral("EPSG"), 3857);
 
     OgrCtPtr ct(wgs84.createTransformationTo(web));
     QVERIFY2(ct, "createTransformationTo returned nullptr");
@@ -59,19 +88,19 @@ void TestLayerReprojection::wgs84ToWebMercatorMatchesReference()
     QVERIFY(ct->Transform(1, &x, &y));
 
     QVERIFY2(qAbs(x - (-8238310.24)) < 1.0, qPrintable(QStringLiteral("x=%1").arg(x)));
-    QVERIFY2(qAbs(y - ( 4970071.58)) < 1.0, qPrintable(QStringLiteral("y=%1").arg(y)));
+    QVERIFY2(qAbs(y - (4970071.58)) < 1.0, qPrintable(QStringLiteral("y=%1").arg(y)));
 }
 
 void TestLayerReprojection::webMercatorToWgs84RoundTripWithinTolerance()
 {
-    SpatialReferenceSystem wgs84 (QStringLiteral("EPSG"), 4326);
-    SpatialReferenceSystem web   (QStringLiteral("EPSG"), 3857);
+    SpatialReferenceSystem wgs84(QStringLiteral("EPSG"), 4326);
+    SpatialReferenceSystem web(QStringLiteral("EPSG"), 3857);
 
     OgrCtPtr fwd(wgs84.createTransformationTo(web));
     OgrCtPtr rev(web.createTransformationTo(wgs84));
     QVERIFY(fwd && rev);
 
-    const double lon0 = -122.4194, lat0 = 37.7749;  // SF
+    const double lon0 = -122.4194, lat0 = 37.7749; // SF
     double x = lon0, y = lat0;
     QVERIFY(fwd->Transform(1, &x, &y));
     QVERIFY(rev->Transform(1, &x, &y));

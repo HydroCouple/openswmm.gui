@@ -1,9 +1,12 @@
-/*!
- * \file   timeseriesprovider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      timeseriesprovider.cpp
+ * @brief     One TimeseriesProvider per `[TIMESERIES]` object in the project.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesprovider.h"
 
 #include <QElapsedTimer>
@@ -16,11 +19,11 @@
 // Enable at runtime with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
 Q_LOGGING_CATEGORY(lcTsLoadProvider, "openswmm.ts-load.provider")
 
-namespace openswmmvis::timeseries {
+namespace openswmmvis::timeseries
+{
 
 TimeseriesProvider::TimeseriesProvider(QString name, QObject *parent)
-    : QObject(parent)
-    , m_name(std::move(name))
+    : QObject(parent), m_name(std::move(name))
 {
 }
 
@@ -34,15 +37,18 @@ bool TimeseriesProvider::isPointCacheLoaded() const noexcept
     // cache is always "loaded" from the perspective of consumers — there's
     // nothing to lazily fetch. Only ExternalFile distinguishes loaded vs
     // disposed.
-    if (m_sourceMode != SourceMode::ExternalFile) return true;
+    if (m_sourceMode != SourceMode::ExternalFile)
+        return true;
     return !m_points.isEmpty();
 }
 
 void TimeseriesProvider::disposePointCache()
 {
     // Authoritative caches stay put — disposing them would lose user data.
-    if (m_sourceMode != SourceMode::ExternalFile) return;
-    if (m_points.isEmpty()) return;
+    if (m_sourceMode != SourceMode::ExternalFile)
+        return;
+    if (m_points.isEmpty())
+        return;
 
     const int prevCount = m_points.size();
     m_points.clear();
@@ -51,7 +57,70 @@ void TimeseriesProvider::disposePointCache()
     emit pointCacheDisposed();
 }
 
-bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint>& pts)
+// ── Time mode (relative / absolute authoring form) ──────────────────────────
+
+TimeseriesProvider::TimeMode TimeseriesProvider::timeMode() const noexcept
+{
+    if (m_points.isEmpty())
+        return m_allRelative ? TimeMode::Relative : TimeMode::Absolute;
+    if (m_relativeCount <= 0)
+        return TimeMode::Absolute;
+    if (m_relativeCount >= m_points.size())
+        return TimeMode::Relative;
+    return TimeMode::Mixed;
+}
+
+void TimeseriesProvider::setRelativeInfo(int count, QDateTime anchor, int allRelativeIntent)
+{
+    const TimeMode prevMode = timeMode();
+    const QDateTime prevAnchor = m_relativeAnchor;
+
+    // Derive the sticky intent BEFORE clamping so an empty series can carry
+    // "author as relative" forward to its first inserted point.
+    m_allRelative = (allRelativeIntent >= 0)
+                        ? (allRelativeIntent != 0)
+                        : (count > 0 && (m_points.isEmpty() || count >= m_points.size()));
+    m_relativeCount = qBound(0, count, static_cast<int>(m_points.size()));
+    m_relativeAnchor = std::move(anchor);
+
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+        emit timeModeChanged();
+}
+
+void TimeseriesProvider::setTimeMode(TimeMode mode, QDateTime anchorForRelative)
+{
+    if (mode == TimeMode::Mixed)
+        return; // loaded state, not a target
+    const TimeMode prevMode = timeMode();
+    const QDateTime prevAnchor = m_relativeAnchor;
+
+    if (mode == TimeMode::Relative) {
+        m_allRelative = true;
+        m_relativeCount = m_points.size();
+        if (anchorForRelative.isValid())
+            m_relativeAnchor = std::move(anchorForRelative);
+    } else {
+        m_allRelative = false;
+        m_relativeCount = 0;
+        // The anchor is kept: undo restores it via setRelativeInfo and the
+        // badge has no use for it while Absolute.
+    }
+
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+        emit timeModeChanged();
+}
+
+void TimeseriesProvider::reconcileRelativeAfterMutation_(TimeMode prevMode)
+{
+    if (m_allRelative)
+        m_relativeCount = m_points.size();
+    else
+        m_relativeCount = qBound(0, m_relativeCount, static_cast<int>(m_points.size()));
+    if (timeMode() != prevMode)
+        emit timeModeChanged();
+}
+
+bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint> &pts)
 {
     for (int i = 1; i < pts.size(); ++i) {
         if (!(pts.at(i - 1).time < pts.at(i).time))
@@ -62,29 +131,31 @@ bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint>& pts)
 
 bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QString *reasonOut)
 {
-    QElapsedTimer t; t.start();
-    const int newCount  = newPoints.size();
+    QElapsedTimer t;
+    t.start();
+    const int newCount = newPoints.size();
     const int prevCount = m_points.size();
-    qCDebug(lcTsLoadProvider) << "setAllPoints ENTER name=" << m_name
-                              << "newCount=" << newCount
+    qCDebug(lcTsLoadProvider) << "setAllPoints ENTER name=" << m_name << "newCount=" << newCount
                               << "prevCount=" << prevCount;
 
     const qint64 tMono0 = t.nsecsElapsed();
     const bool mono = isStrictMonotone_(newPoints);
     const qint64 tMonoMs = (t.nsecsElapsed() - tMono0) / 1'000'000;
-    qCDebug(lcTsLoadProvider) << "  isStrictMonotone_ =" << mono
-                              << "took" << tMonoMs << "ms";
+    qCDebug(lcTsLoadProvider) << "  isStrictMonotone_ =" << mono << "took" << tMonoMs << "ms";
 
     if (!mono) {
         const QString reason = tr("Time values must be strictly ascending.");
-        if (reasonOut) *reasonOut = reason;
-        qCWarning(lcTsLoadProvider) << "  REJECT — non-monotone times; first 3 timestamps:"
-                                    << (newCount > 0 ? newPoints.at(0).time.toString(Qt::ISODate) : QString())
-                                    << (newCount > 1 ? newPoints.at(1).time.toString(Qt::ISODate) : QString())
-                                    << (newCount > 2 ? newPoints.at(2).time.toString(Qt::ISODate) : QString());
+        if (reasonOut)
+            *reasonOut = reason;
+        qCWarning(lcTsLoadProvider)
+            << "  REJECT — non-monotone times; first 3 timestamps:"
+            << (newCount > 0 ? newPoints.at(0).time.toString(Qt::ISODate) : QString())
+            << (newCount > 1 ? newPoints.at(1).time.toString(Qt::ISODate) : QString())
+            << (newCount > 2 ? newPoints.at(2).time.toString(Qt::ISODate) : QString());
         emit mutationRejected(reason);
         return false;
     }
+    const TimeMode prevMode = timeMode();
     m_points = std::move(newPoints);
     if (prevCount > 0) {
         qCDebug(lcTsLoadProvider) << "  emit pointsRemoved(0," << prevCount << ")";
@@ -94,6 +165,7 @@ bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QStrin
         qCDebug(lcTsLoadProvider) << "  emit pointsInserted(0," << m_points.size() << ")";
         emit pointsInserted(0, m_points.size());
     }
+    reconcileRelativeAfterMutation_(prevMode);
     qCDebug(lcTsLoadProvider) << "setAllPoints EXIT  took" << t.elapsed() << "ms";
     return true;
 }
@@ -102,7 +174,8 @@ bool TimeseriesProvider::setValueAt(int i, double newValue, QString *reasonOut)
 {
     if (i < 0 || i >= m_points.size()) {
         const QString reason = tr("Index %1 out of range [0, %2).").arg(i).arg(m_points.size());
-        if (reasonOut) *reasonOut = reason;
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
@@ -115,8 +188,10 @@ bool TimeseriesProvider::setValueAt(int i, double newValue, QString *reasonOut)
 
 bool TimeseriesProvider::setValueLive(int i, double newValue)
 {
-    if (i < 0 || i >= m_points.size()) return false;
-    if (m_points[i].value == newValue) return true;
+    if (i < 0 || i >= m_points.size())
+        return false;
+    if (m_points[i].value == newValue)
+        return true;
     m_points[i].value = newValue;
     emit pointsChanged(i, 1);
     return true;
@@ -126,19 +201,24 @@ bool TimeseriesProvider::setPointAt(int i, QDateTime newTime, double newValue, Q
 {
     if (i < 0 || i >= m_points.size()) {
         const QString reason = tr("Index %1 out of range [0, %2).").arg(i).arg(m_points.size());
-        if (reasonOut) *reasonOut = reason;
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
     if (i > 0 && !(m_points.at(i - 1).time < newTime)) {
-        const QString reason = tr("New time at index %1 must be strictly after the previous point.").arg(i);
-        if (reasonOut) *reasonOut = reason;
+        const QString reason =
+            tr("New time at index %1 must be strictly after the previous point.").arg(i);
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
     if (i + 1 < m_points.size() && !(newTime < m_points.at(i + 1).time)) {
-        const QString reason = tr("New time at index %1 must be strictly before the next point.").arg(i);
-        if (reasonOut) *reasonOut = reason;
+        const QString reason =
+            tr("New time at index %1 must be strictly before the next point.").arg(i);
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return false;
     }
@@ -151,38 +231,54 @@ bool TimeseriesProvider::setPointAt(int i, QDateTime newTime, double newValue, Q
 int TimeseriesProvider::insertPoint(QDateTime time, double value, QString *reasonOut)
 {
     // Find insertion position via std::lower_bound on time.
-    auto it = std::lower_bound(m_points.begin(), m_points.end(), time,
-        [](const TimeseriesPoint& p, const QDateTime& t) { return p.time < t; });
+    auto it =
+        std::lower_bound(m_points.begin(), m_points.end(), time,
+                         [](const TimeseriesPoint &p, const QDateTime &t) { return p.time < t; });
 
     const int at = static_cast<int>(it - m_points.begin());
     // Reject duplicate times outright — strict monotonicity is non-negotiable.
     if (it != m_points.end() && it->time == time) {
-        const QString reason = tr("A point already exists at time %1.").arg(time.toString(Qt::ISODate));
-        if (reasonOut) *reasonOut = reason;
+        const QString reason =
+            tr("A point already exists at time %1.").arg(time.toString(Qt::ISODate));
+        if (reasonOut)
+            *reasonOut = reason;
         emit mutationRejected(reason);
         return -1;
     }
+    const TimeMode prevMode = timeMode();
     m_points.insert(it, TimeseriesPoint{std::move(time), value});
+    // An insert INSIDE the relative prefix extends it; the sticky
+    // all-relative intent is handled by the reconcile below.
+    if (!m_allRelative && at < m_relativeCount)
+        ++m_relativeCount;
     emit pointsInserted(at, 1);
+    reconcileRelativeAfterMutation_(prevMode);
     return at;
 }
 
 void TimeseriesProvider::removePointsAt(QVector<int> indices)
 {
-    if (indices.isEmpty()) return;
+    if (indices.isEmpty())
+        return;
     // Dedup + sort descending so erases don't invalidate later indices.
     std::sort(indices.begin(), indices.end(), std::greater<int>());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    const TimeMode prevMode = timeMode();
     for (int idx : indices) {
-        if (idx < 0 || idx >= m_points.size()) continue;
+        if (idx < 0 || idx >= m_points.size())
+            continue;
         m_points.remove(idx);
+        if (idx < m_relativeCount)
+            --m_relativeCount;
         emit pointsRemoved(idx, 1);
     }
+    reconcileRelativeAfterMutation_(prevMode);
 }
 
 void TimeseriesProvider::setName(QString newName)
 {
-    if (newName == m_name) return;
+    if (newName == m_name)
+        return;
     const QString prev = m_name;
     m_name = std::move(newName);
     emit nameChanged(prev, m_name);
@@ -191,21 +287,24 @@ void TimeseriesProvider::setName(QString newName)
 
 void TimeseriesProvider::setUnitsLabel(QString units)
 {
-    if (units == m_unitsLabel) return;
+    if (units == m_unitsLabel)
+        return;
     m_unitsLabel = std::move(units);
     emit metadataChanged();
 }
 
 void TimeseriesProvider::setDescription(QString d)
 {
-    if (d == m_description) return;
+    if (d == m_description)
+        return;
     m_description = std::move(d);
     emit metadataChanged();
 }
 
 void TimeseriesProvider::setSourceMode(SourceMode mode)
 {
-    if (mode == m_sourceMode) return;
+    if (mode == m_sourceMode)
+        return;
     const SourceMode prev = m_sourceMode;
     m_sourceMode = mode;
     emit sourceModeChanged(prev, m_sourceMode);
@@ -213,9 +312,8 @@ void TimeseriesProvider::setSourceMode(SourceMode mode)
 
 void TimeseriesProvider::setFileSource(QString path, QString columnSelector, QDateTime mtime)
 {
-    const bool changed = (path != m_filePath)
-                      || (columnSelector != m_columnSelector)
-                      || (mtime != m_fileMTime);
+    const bool changed =
+        (path != m_filePath) || (columnSelector != m_columnSelector) || (mtime != m_fileMTime);
     m_filePath = std::move(path);
     m_columnSelector = std::move(columnSelector);
     m_fileMTime = std::move(mtime);

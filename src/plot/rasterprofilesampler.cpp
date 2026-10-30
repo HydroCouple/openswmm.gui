@@ -1,7 +1,11 @@
-/*!
- * \file   rasterprofilesampler.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      rasterprofilesampler.cpp
+ * @brief     raster into a longitudinal cross-section: cumulative chainage + ground elevation at
+ *            evenly-spaced samples along the path.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/rasterprofilesampler.h"
@@ -18,23 +22,27 @@
 namespace RasterProfileSampler
 {
 
-namespace {
+namespace
+{
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
 /*! Scene → map: the scene is a pure Y-flip of the canvas CRS (the convention
- *  MapToolMeshProfile emits and SWMM2DMeshLayer::sampleZAt consumes). */
-inline QPointF sceneToMap(const QPointF &sp) { return QPointF(sp.x(), -sp.y()); }
+ *  MapToolMeshProfile emits and SWMM2DMeshLayer::sampleZAt consumes).
+ * @param[in] sp Canvas-scene coordinate with inverted map Y.
+ * @return Map-space (x,-y) without reprojection or scaling.
+ */
+inline QPointF sceneToMap(const QPointF &sp)
+{
+    return QPointF(sp.x(), -sp.y());
+}
 
 } // namespace
 
-ProfileSection::Section
-buildRasterProfile(const QString &rasterPath,
-                   int band,
-                   const SpatialReferenceSystem *canvasSRS,
-                   const QVector<QPointF> &scenePolyline,
-                   double vertFactor,
-                   double stepHint)
+ProfileSection::Section buildRasterProfile(const QString &rasterPath, int band,
+                                           const SpatialReferenceSystem *canvasSRS,
+                                           const QVector<QPointF> &scenePolyline, double vertFactor,
+                                           double stepHint)
 {
     ProfileSection::Section out;
     if (rasterPath.isEmpty() || scenePolyline.size() < 2)
@@ -76,10 +84,12 @@ buildRasterProfile(const QString &rasterPath,
     }
 
     auto mapToRaster = [canvasToRaster](const QPointF &mp) {
-        if (!canvasToRaster) return mp;
+        if (!canvasToRaster)
+            return mp;
         double x = mp.x(), y = mp.y();
-        if (canvasToRaster->Transform(1, &x, &y)) return QPointF(x, y);
-        return QPointF(kNaN, kNaN);   // off-domain — DTMSampler returns NaN
+        if (canvasToRaster->Transform(1, &x, &y))
+            return QPointF(x, y);
+        return QPointF(kNaN, kNaN); // off-domain — DTMSampler returns NaN
     };
 
     // Resample step, in SCENE units. Half a DEM pixel reads the terrain without
@@ -98,32 +108,33 @@ buildRasterProfile(const QString &rasterPath,
             for (int i = 1; i < scenePolyline.size(); ++i) {
                 const QPointF cur = mapToRaster(sceneToMap(scenePolyline[i]));
                 const double d = std::hypot(cur.x() - prev.x(), cur.y() - prev.y());
-                if (std::isfinite(d)) lenRaster += d;
+                if (std::isfinite(d))
+                    lenRaster += d;
                 prev = cur;
             }
             if (lenRaster > 0.0)
-                sceneToRasterScale = lenRaster / totalLen;   // totalLen > 0 above
+                sceneToRasterScale = lenRaster / totalLen; // totalLen > 0 above
         }
         // px in scene units = px in raster units / (raster units per scene unit).
-        const double pxScene = (pxRaster > 0.0 && sceneToRasterScale > 0.0)
-                                   ? pxRaster / sceneToRasterScale
-                                   : 0.0;
+        const double pxScene =
+            (pxRaster > 0.0 && sceneToRasterScale > 0.0) ? pxRaster / sceneToRasterScale : 0.0;
         step = (pxScene > 0.0) ? pxScene * 0.5 : totalLen / 200.0;
     }
-    if (step <= 0.0) step = totalLen / 200.0;
+    if (step <= 0.0)
+        step = totalLen / 200.0;
     if (totalLen / step > ProfileSection::kMaxSamples)
         step = totalLen / ProfileSection::kMaxSamples;
 
     // Walk each segment emitting a sample every `step` units, plus an exact
     // sample at every vertex so corners aren't skipped (mirrors
     // MeshProfileSampler::buildMeshProfile).
-    QVector<QPointF> rasterPts;   // parallel to out.samples — bulk-sampled below
+    QVector<QPointF> rasterPts; // parallel to out.samples — bulk-sampled below
 
     auto emitSample = [&](const QPointF &sp, double chain) {
         ProfileSection::Sample s;
-        s.scenePt  = sp;
+        s.scenePt = sp;
         s.chainage = chain;
-        s.ground   = kNaN;        // filled from the bulk sample below
+        s.ground = kNaN; // filled from the bulk sample below
         out.samples.push_back(s);
         rasterPts.push_back(mapToRaster(sceneToMap(sp)));
     };
@@ -135,29 +146,29 @@ buildRasterProfile(const QString &rasterPath,
         const QPointF a = scenePolyline[i - 1];
         const QPointF b = scenePolyline[i];
         const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
-        if (segLen <= 0.0) continue;
+        if (segLen <= 0.0)
+            continue;
         const QPointF dir((b.x() - a.x()) / segLen, (b.y() - a.y()) / segLen);
 
         double d = step;
         while (d < segLen - 1e-9) {
-            emitSample(QPointF(a.x() + dir.x() * d, a.y() + dir.y() * d),
-                       chainAtVertex + d);
+            emitSample(QPointF(a.x() + dir.x() * d, a.y() + dir.y() * d), chainAtVertex + d);
             d += step;
         }
         chainAtVertex += segLen;
-        emitSample(b, chainAtVertex);   // exact vertex sample
+        emitSample(b, chainAtVertex); // exact vertex sample
     }
 
     // One bulk pass over the DEM (bilinear). Off-raster / NoData come back NaN,
     // which the chart renders as a gap in the ground line.
     const QVector<double> z = dtm.sampleBulk(rasterPts);
     for (int i = 0; i < out.samples.size() && i < z.size(); ++i)
-        out.samples[i].ground = z[i] * vertFactor;   // NaN * f == NaN
+        out.samples[i].ground = z[i] * vertFactor; // NaN * f == NaN
 
     if (canvasToRaster)
         OGRCoordinateTransformation::DestroyCT(canvasToRaster);
 
-    return out;   // hasResults = false, crossings empty — ground-only section.
+    return out; // hasResults = false, crossings empty — ground-only section.
 }
 
 } // namespace RasterProfileSampler

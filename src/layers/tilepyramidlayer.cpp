@@ -1,28 +1,30 @@
-/*!
- * \file   tilepyramidlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      tilepyramidlayer.cpp
+ * @brief     (GISRasterLayer, WMTSLayer): a thread-safe tile cache that stores each tile with its
+ *            geographic extent, plus a grid-agnostic coarser-tile fallback so a missing tile
+ *            paints as a blurry stand-in cut from a cached coarser tile instead of a blank hole.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/tilepyramidlayer.h"
 
 #include <limits>
 
-TilePyramidLayer::TilePyramidLayer(OpenSWMMVisWorkspace *parent)
-    : OpenSWMMVisLayer(parent)
-{
-}
+TilePyramidLayer::TilePyramidLayer(OpenSWMMVisWorkspace *parent) : OpenSWMMVisLayer(parent) {}
 
 TilePyramidLayer::~TilePyramidLayer() = default;
 
-void TilePyramidLayer::cacheTile(const QString &key, const QImage &img,
-                                 const MapExtent &extent, int level)
+void TilePyramidLayer::cacheTile(const QString &key, const QImage &img, const MapExtent &extent,
+                                 int level)
 {
     if (img.isNull())
         return;
     QMutexLocker lock(&m_tileMutex);
-    m_tileCache.insert(key, new CachedTile{ img, extent, level });
-    m_tileIndex.insert(key, { extent, level });
+    m_tileCache.insert(key, new CachedTile{img, extent, level});
+    m_tileIndex.insert(key, {extent, level});
     if (m_tileIndex.size() > m_tileCache.maxCost() + 32)
         pruneIndexLocked();
 }
@@ -63,8 +65,7 @@ int TilePyramidLayer::tileCacheCapacity() const
 // m_tileMutex.
 void TilePyramidLayer::pruneIndexLocked()
 {
-    for (auto it = m_tileIndex.begin(); it != m_tileIndex.end();)
-    {
+    for (auto it = m_tileIndex.begin(); it != m_tileIndex.end();) {
         if (m_tileCache.contains(it.key()))
             ++it;
         else
@@ -72,19 +73,16 @@ void TilePyramidLayer::pruneIndexLocked()
     }
 }
 
-bool TilePyramidLayer::resolveTileForDraw(const QString &key,
-                                          const MapExtent &tileExtent,
-                                          double maxSpanRatio,
-                                          TileDraw &out) const
+bool TilePyramidLayer::resolveTileForDraw(const QString &key, const MapExtent &tileExtent,
+                                          double maxSpanRatio, TileDraw &out) const
 {
     QMutexLocker lock(&m_tileMutex);
 
     // Exact hit — QCache::object() promotes the entry to most-recently-used,
     // which also protects actively-used tiles from eviction.
-    if (const CachedTile *t = m_tileCache.object(key); t && !t->img.isNull())
-    {
-        out.img   = t->img;
-        out.src   = QRectF(t->img.rect());
+    if (const CachedTile *t = m_tileCache.object(key); t && !t->img.isNull()) {
+        out.img = t->img;
+        out.src = QRectF(t->img.rect());
         out.exact = true;
         return true;
     }
@@ -95,32 +93,27 @@ bool TilePyramidLayer::resolveTileForDraw(const QString &key,
     // Fallback: the smallest cached tile whose extent contains this tile.
     // Tiles at one level are disjoint, so any container is coarser (or a
     // same-footprint tile from another level — an equally good stand-in).
-    const double epsX = tileExtent.width()  * 1e-6;
+    const double epsX = tileExtent.width() * 1e-6;
     const double epsY = tileExtent.height() * 1e-6;
     const double maxSpan = tileExtent.width() * maxSpanRatio + epsX;
 
     QString bestKey;
-    double  bestSpan = std::numeric_limits<double>::max();
-    for (auto it = m_tileIndex.cbegin(); it != m_tileIndex.cend(); ++it)
-    {
+    double bestSpan = std::numeric_limits<double>::max();
+    for (auto it = m_tileIndex.cbegin(); it != m_tileIndex.cend(); ++it) {
         const MapExtent &ce = it.value().first;
         const double span = ce.width();
         if (span >= bestSpan || span > maxSpan)
             continue;
-        if (ce.xMin() > tileExtent.xMin() + epsX ||
-            ce.xMax() < tileExtent.xMax() - epsX ||
-            ce.yMin() > tileExtent.yMin() + epsY ||
-            ce.yMax() < tileExtent.yMax() - epsY)
+        if (ce.xMin() > tileExtent.xMin() + epsX || ce.xMax() < tileExtent.xMax() - epsX ||
+            ce.yMin() > tileExtent.yMin() + epsY || ce.yMax() < tileExtent.yMax() - epsY)
             continue;
-        bestKey  = it.key();
+        bestKey = it.key();
         bestSpan = span;
     }
 
-    while (!bestKey.isEmpty())
-    {
+    while (!bestKey.isEmpty()) {
         const CachedTile *anc = m_tileCache.object(bestKey);
-        if (!anc || anc->img.isNull())
-        {
+        if (!anc || anc->img.isNull()) {
             // Evicted since it was indexed — prune and give up (a second
             // full search is not worth it; the tile stays blank this frame).
             m_tileIndex.remove(bestKey);
@@ -134,11 +127,10 @@ bool TilePyramidLayer::resolveTileForDraw(const QString &key,
         if (ae.width() <= 0.0 || ae.height() <= 0.0)
             break;
         out.img = anc->img;
-        out.src = QRectF(
-            (tileExtent.xMin() - ae.xMin()) / ae.width()  * w,
-            (ae.yMax() - tileExtent.yMax()) / ae.height() * h,
-            tileExtent.width()  / ae.width()  * w,
-            tileExtent.height() / ae.height() * h);
+        out.src =
+            QRectF((tileExtent.xMin() - ae.xMin()) / ae.width() * w,
+                   (ae.yMax() - tileExtent.yMax()) / ae.height() * h,
+                   tileExtent.width() / ae.width() * w, tileExtent.height() / ae.height() * h);
         out.exact = false;
         return true;
     }

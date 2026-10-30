@@ -1,44 +1,93 @@
 #ifndef MDIWORKSPACECHROME_H
 #define MDIWORKSPACECHROME_H
 
-/*!
- * \file mdiworkspacechrome.h
+/**
+ * @file      mdiworkspacechrome.h
+ * @brief     Correct QMdiArea's stale initial backdrop, and make the welcome tab paint one of its
+ *            own.
  *
- * Two corrections to QMdiArea's out-of-the-box behaviour that the app's
- * TabbedView + hide-in-place welcome tab both depend on. Extracted from
- * SWMMVis so tests/gui/test_mdi_tab_maximize.cpp can drive the real code
- * against a bare QMdiArea instead of restating the logic.
+ * Correct QMdiArea's stale initial backdrop, and make the welcome tab paint
+ * one of its own. Extracted from SWMMVis so
+ * tests/gui/test_mdi_tab_maximize.cpp can drive the real code against a
+ * bare QMdiArea instead of restating the logic.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
-class QMdiArea;
+#include <QString>
 
-namespace openswmmvis::ui {
+#include <functional>
+
+class QMdiArea;
+class QMdiSubWindow;
+class QWidget;
+
+namespace openswmmvis::ui
+{
 
 /*!
- * \brief Make \a area's backdrop track the theme and keep its activated
- *        sub-window maximized in TabbedView.
+ * \brief Make \a area's backdrop track the theme and give \a welcome an
+ *        opaque background of its own.
  *
  * Backdrop: QMdiArea snapshots palette(QPalette::Dark) once in its
  * constructor and has no PaletteChange handling, so a theme installed
  * after construction — as ThemeManager is, SWMMVis being built first —
- * leaves the workspace painted in the pre-theme brush. welcomeWidget is a
- * plain QWidget with no autoFillBackground, so that stale brush is what
- * fills the whole welcome tab.
+ * leaves the workspace painted in the pre-theme brush.
  *
- * Maximize: in TabbedView QMdiArea never *hides* an inactive sub-window;
- * it relies on the active one being maximized to cover the viewport. That
- * state is handed over in QMdiAreaPrivate::_q_deactivateAllWindows only
- * when an outgoing window is BOTH maximized and visible, so hiding a
- * sub-window in place (the welcome tab's close path) breaks the chain and
- * the next activation lands in Normal state — a small framed child, Qt
- * default window icon and all, painted over the tab the user selected.
+ * Welcome: uic emits welcomeWidget as a bare QWidget, so it has no
+ * autoFillBackground and paints nothing behind its own children. That is
+ * why the backdrop showed through the whole welcome tab — and the backdrop
+ * is not the only thing below it. In TabbedView QMdiArea never *hides* the
+ * outgoing sub-window; _q_deactivateAllWindows merely showNormal()s it
+ * (qmdiarea.cpp:685) and relies on the incoming maximized window to cover
+ * the viewport. So after welcome → model → welcome the model sub-window is
+ * still sitting in the viewport as a 200x150 framed child, and a
+ * transparent welcome on top of it is not a cover: the user sees a
+ * detached, undocked model window painted over the welcome screen.
  *
- * Explicitly hidden sub-windows are left alone so re-asserting the
- * maximized state cannot resurrect a welcome tab the user closed.
- * Safe to call once per area; a null \a area is a no-op.
+ * setAutoFillBackground() fills with QPalette::Window, which ThemeManager
+ * sets to surfaceWindow (thememanager.cpp:87) — the same token the backdrop
+ * uses, so the welcome looks unchanged — and it is re-read at every paint,
+ * so the Appearance switch needs no extra hook here.
+ *
+ * Safe to call once per area; a null \a area skips backdrop setup; a null \a welcome skips its background setup.
+ * @param[in,out] area Optional MDI area whose backdrop is set from the current theme and subscribed for later theme changes.
+ * @param[in,out] welcome Optional widget whose autoFillBackground is enabled independently of area.
+ * @note Does not transfer ownership. Repeated calls add repeated theme connections; intended once per area on the GUI thread.
  */
-void installMdiWorkspaceChrome(QMdiArea *area);
+void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome = nullptr);
 
-}   // namespace openswmmvis::ui
+/*!
+ * \brief Give every tab in \a area a tooltip naming its document in full.
+ *
+ * A tab is labelled with the model's BASE NAME, so two models of the same
+ * name opened from different folders are indistinguishable on the tab bar.
+ * \a pathFor supplies the full path for a sub-window; an empty return (an
+ * untitled project, the welcome tab) falls back to the tab's own title, so
+ * the tooltip is never present-but-blank.
+ *
+ * Two QMdiArea facts this relies on, both pinned by
+ * tests/gui/test_mdi_tab_tooltips.cpp:
+ *
+ *   * QMdiArea never sets a tab tooltip itself. Its event filter handles
+ *     WindowTitleChange and ModifiedChange by calling setTabText, and
+ *     WindowIconChange by calling setTabIcon (qmdiarea.cpp:2646-2654) —
+ *     nothing touches the tooltip, so what we set here is not overwritten
+ *     when a title changes or a document goes dirty.
+ *   * Tab index == position in subWindowList(), the same rule
+ *     setSubWindowTabVisible() depends on. Closing a tab shifts every later
+ *     index, so callers must re-run this after a sub-window is removed.
+ *
+ * A null \a area, or an area with no tab bar, is a no-op.
+ * @param[in,out] area Optional tabbed MDI area; null/no QTabBar is ignored.
+ * @param[in] pathFor Optional callback receiving each borrowed subwindow and returning its document path. Empty/missing callback result falls back to windowTitle().
+ * @note Uses native path separators and parallel subWindowList/tab order up to the shorter count. Reinvoke after insertion/removal; no subscriptions are installed.
+ */
+void refreshSubWindowTabToolTips(QMdiArea *area,
+                                 const std::function<QString(QMdiSubWindow *)> &pathFor);
+
+} // namespace openswmmvis::ui
 
 #endif // MDIWORKSPACECHROME_H

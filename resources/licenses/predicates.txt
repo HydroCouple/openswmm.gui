@@ -1,0 +1,9 @@
+Routines for Arbitrary Precision Floating-point Arithmetic and Fast Robust
+Geometric Predicates (predicates.c), May 18, 1996.
+
+Placed in the public domain by Jonathan Richard Shewchuk, School of Computer
+Science, Carnegie Mellon University.
+
+Vendored at vendor/predicates/predicates.c (mirror: libigl-predicates,
+https://github.com/libigl/libigl-predicates). Only exactinit(), orient2d()
+and incircle() are used, by src/mesh/meshcdt.cpp.

@@ -2,7 +2,11 @@ name: Documentation
 
 on:
   push:
-    branches: ["main", "master", "dev"]
+    branches: ["main", "master", "dev", "swmm6_gui"]
+  pull_request:
+    branches:
+      - main
+      - dev
 
 # Required for GitHub Pages deployment
 permissions:
@@ -22,9 +26,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the crosswalk audit below resolves the retired
+          # legacy manuals with `git show <crosswalk-source-ref>:<path>`, and
+          # the default shallow clone (depth 1) has no such commit — the
+          # check then reports the files as missing AT the ref, which reads
+          # like a stale pin rather than a truncated clone.
+          fetch-depth: 0
 
       - name: Install Doxygen and Graphviz
         run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      - name: Audit the manual
+        # All three read only in-repo sources, so this job never needs the
+        # engine checkout. The error-catalogue check, which does, runs in
+        # build_and_test.yml where the engine is already cloned.
+        run: |
+          python3 scripts/manual_docs_audit.py crosswalk --strict
+          python3 scripts/manual_docs_audit.py property-labels
+          python3 scripts/manual_docs_audit.py culvert-codes
+          python3 scripts/manual_figures.py audit
+          python3 scripts/manual_docs_audit.py links
 
       - name: Generate API documentation
         # Doxyfile paths are relative to the config's own dir (OUTPUT_DIRECTORY=.,
@@ -32,7 +54,14 @@ jobs:
         # from docs/ — else INPUT resolves above the repo and HTML lands in ./html
         # instead of docs/html, leaving the Pages upload (path: docs/html) empty.
         working-directory: docs
-        run: doxygen Doxyfile
+        # docs/CNAME pins the Pages custom domain and must sit at the root of
+        # the published site, which is docs/html.
+        run: |
+          doxygen Doxyfile
+          test -n "$(find html -name gui_extension_sdk.html -print -quit)"
+          test -n "$(find html -name _extension_host_8hpp.html -print -quit)"
+          test -n "$(find html -name extensionmodelaccess_8h.html -print -quit)"
+          cp CNAME html/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -41,6 +70,9 @@ jobs:
 
   deploy-docs:
     needs: build-docs
+    # build-docs also runs on pull_request so PRs get a build check; without this
+    # guard a PR would publish to the live Pages site.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

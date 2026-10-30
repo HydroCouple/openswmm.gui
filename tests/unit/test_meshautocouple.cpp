@@ -1,11 +1,16 @@
-/*!
- * \file   test_meshautocouple.cpp
- * \brief  Coincident-node matching behind the mesh toolbar's Auto-couple.
+/**
+ * @file      test_meshautocouple.cpp
+ * @brief     Coincident-node matching behind the mesh toolbar's Auto-couple.
  *
  * Exercises mesh::findCoincidentNodes: exact hits, near-misses outside the
  * tolerance, already-coupled skips, selection-subset vs whole-mesh scans,
  * and nearest-wins disambiguation with an explicit tolerance.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QList>
@@ -15,9 +20,17 @@
 #include "mesh/meshautocouple.h"
 #include "mesh/meshresult.h"
 
-namespace {
+namespace
+{
 
 /*! 3×1 strip of unit squares: vertices at x = 0,1,2,3 × y = 0,1. */
+/**
+ *
+ * @brief Build the vertex-only three-by-one strip fixture.
+ * @return Owned successful mesh with eight zero-elevation vertices at x=0..3,y=0..1,
+ * uncoupled and without triangle cells. Allocation exceptions propagate; no global state.
+ *
+ */
 mesh::MeshResult makeStripMesh()
 {
     mesh::MeshResult m;
@@ -31,11 +44,17 @@ mesh::MeshResult makeStripMesh()
 
 } // namespace
 
+/**
+ *
+ * @brief Require an exact node/vertex coincidence to yield one match without skipped/unmatched
+ * counts.
+ *
+ */
 TEST(MeshAutoCouple, ExactHitCouplesUncoupledVertex)
 {
     const auto m = makeStripMesh();
     const QVector<QPair<QString, QPointF>> nodes = {
-        { QStringLiteral("J1"), QPointF(1.0, 0.0) },   // vertex 2
+        {QStringLiteral("J1"), QPointF(1.0, 0.0)}, // vertex 2
     };
     const auto r = mesh::findCoincidentNodes(m, nodes);
     ASSERT_EQ(r.matches.size(), 1);
@@ -44,25 +63,35 @@ TEST(MeshAutoCouple, ExactHitCouplesUncoupledVertex)
     EXPECT_EQ(r.unmatchedNodes, 0);
 }
 
+/**
+ *
+ * @brief Require a 0.01-coordinate-unit offset to miss the default strip-scale tolerance.
+ *
+ */
 TEST(MeshAutoCouple, NearMissOutsideTolIsUnmatched)
 {
     const auto m = makeStripMesh();
     // Default tol ≈ 1e-6 × bbox diagonal (~3.16e-6) — 0.01 is a clear miss.
     const QVector<QPair<QString, QPointF>> nodes = {
-        { QStringLiteral("J1"), QPointF(1.01, 0.0) },
+        {QStringLiteral("J1"), QPointF(1.01, 0.0)},
     };
     const auto r = mesh::findCoincidentNodes(m, nodes);
     EXPECT_TRUE(r.matches.isEmpty());
     EXPECT_EQ(r.unmatchedNodes, 1);
 }
 
+/**
+ *
+ * @brief Preserve an existing vertex coupling while matching a separate free coincident vertex.
+ *
+ */
 TEST(MeshAutoCouple, AlreadyCoupledVertexIsSkipped)
 {
     auto m = makeStripMesh();
     m.vertices[2].coupledNode = QStringLiteral("EXISTING");
     const QVector<QPair<QString, QPointF>> nodes = {
-        { QStringLiteral("J1"), QPointF(1.0, 0.0) },   // vertex 2 — coupled
-        { QStringLiteral("J2"), QPointF(2.0, 0.0) },   // vertex 4 — free
+        {QStringLiteral("J1"), QPointF(1.0, 0.0)}, // vertex 2 — coupled
+        {QStringLiteral("J2"), QPointF(2.0, 0.0)}, // vertex 4 — free
     };
     const auto r = mesh::findCoincidentNodes(m, nodes);
     ASSERT_EQ(r.matches.size(), 1);
@@ -71,37 +100,54 @@ TEST(MeshAutoCouple, AlreadyCoupledVertexIsSkipped)
     EXPECT_EQ(r.unmatchedNodes, 0);
 }
 
+/**
+ *
+ * @brief Require an explicit target-vertex subset to exclude otherwise coincident unselected
+ * vertices.
+ *
+ */
 TEST(MeshAutoCouple, SelectionSubsetRestrictsCandidates)
 {
     const auto m = makeStripMesh();
     const QVector<QPair<QString, QPointF>> nodes = {
-        { QStringLiteral("J1"), QPointF(1.0, 0.0) },   // vertex 2 — selected
-        { QStringLiteral("J2"), QPointF(2.0, 0.0) },   // vertex 4 — NOT selected
+        {QStringLiteral("J1"), QPointF(1.0, 0.0)}, // vertex 2 — selected
+        {QStringLiteral("J2"), QPointF(2.0, 0.0)}, // vertex 4 — NOT selected
     };
-    const auto r = mesh::findCoincidentNodes(m, nodes, /*targets=*/{ 2 });
+    const auto r = mesh::findCoincidentNodes(m, nodes, /*targets=*/{2});
     ASSERT_EQ(r.matches.size(), 1);
     EXPECT_EQ(r.matches.value(2), QStringLiteral("J1"));
     EXPECT_EQ(r.unmatchedNodes, 1) << "node outside the selection must not match";
 }
 
+/**
+ *
+ * @brief Require an empty target subset to scan all vertices and match four upper-edge nodes.
+ *
+ */
 TEST(MeshAutoCouple, WholeMeshWhenTargetsEmpty)
 {
     const auto m = makeStripMesh();
     QVector<QPair<QString, QPointF>> nodes;
     for (int x = 0; x <= 3; ++x)
-        nodes.append({ QStringLiteral("N%1").arg(x), QPointF(double(x), 1.0) });
+        nodes.append({QStringLiteral("N%1").arg(x), QPointF(double(x), 1.0)});
     const auto r = mesh::findCoincidentNodes(m, nodes);
     EXPECT_EQ(r.matches.size(), 4);
     EXPECT_EQ(r.unmatchedNodes, 0);
 }
 
+/**
+ *
+ * @brief Require the nearest eligible vertex to win when two vertices lie within explicit
+ * tolerance 0.6.
+ *
+ */
 TEST(MeshAutoCouple, NearestVertexWinsWithinExplicitTol)
 {
     const auto m = makeStripMesh();
     // With tol = 0.6 both vertex 2 (1,0) and vertex 4 (2,0) are candidates
     // for a node at (1.4, 0) — vertex 2 is nearer (0.4 vs 0.6).
     const QVector<QPair<QString, QPointF>> nodes = {
-        { QStringLiteral("J1"), QPointF(1.4, 0.0) },
+        {QStringLiteral("J1"), QPointF(1.4, 0.0)},
     };
     const auto r = mesh::findCoincidentNodes(m, nodes, {}, /*tol=*/0.6);
     ASSERT_EQ(r.matches.size(), 1);

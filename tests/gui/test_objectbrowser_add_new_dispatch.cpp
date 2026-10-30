@@ -1,9 +1,9 @@
-/*!
- * \file   test_objectbrowser_add_new_dispatch.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BM.0-Add-New (2026-05-24) — pin the TimeseriesEditorDialog
+/**
+ * @file      test_objectbrowser_add_new_dispatch.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BM.0-Add-New (2026-05-24) — pin the TimeseriesEditorDialog
  *         createNew factory contract that ObjectBrowserPanel's Add-New
  *         dispatch relies on after NewDataObjectDialog removal.
  *
@@ -26,7 +26,8 @@
  *   7. submitCreateNew is a safe no-op after the dialog leaves CreateNew.
  *   8. submitCreateNew applies the selected source mode to the new provider.
  *   9. chartView()->setProvider rebinds cleanly (and accepts nullptr).
- *  10. Edit-mode ctor path is unaffected (regression guard).
+ *   10. Edit-mode ctor path is unaffected (regression guard).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "timeseries/timeseriesprovider.h"
@@ -48,32 +49,41 @@ using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::ui::TimeseriesEditorDialog;
 
-namespace {
+namespace
+{
 
+/** @brief Find the create-card name editor.
+ * @param[in] dlg Required borrowed dialog searched recursively.
+ * @return Borrowed first line edit whose direct parent is createCard, or nullptr when absent. */
 QLineEdit *findCreateNameEdit(TimeseriesEditorDialog *dlg)
 {
     const auto edits = dlg->findChildren<QLineEdit *>();
     for (QLineEdit *e : edits)
-        if (e->parentWidget() && e->parentWidget()->objectName()
-            == QStringLiteral("createCard"))
+        if (e->parentWidget() && e->parentWidget()->objectName() == QStringLiteral("createCard"))
             return e;
     return nullptr;
 }
 
+/** @brief Find the exact-text Create button.
+ * @param[in] dlg Required borrowed dialog searched recursively.
+ * @return Borrowed first button labeled Create, or nullptr when absent. */
 QPushButton *findCreateBtn(TimeseriesEditorDialog *dlg)
 {
     const auto btns = dlg->findChildren<QPushButton *>();
     for (QPushButton *b : btns)
-        if (b->text() == QStringLiteral("Create")) return b;
+        if (b->text() == QStringLiteral("Create"))
+            return b;
     return nullptr;
 }
 
+/** @brief Find the create-card source-mode selector.
+ * @param[in] dlg Required borrowed dialog searched recursively.
+ * @return Borrowed first combo whose direct parent is createCard, or nullptr when absent. */
 QComboBox *findSourceModeCombo(TimeseriesEditorDialog *dlg)
 {
     const auto combos = dlg->findChildren<QComboBox *>();
     for (QComboBox *c : combos)
-        if (c->parentWidget() && c->parentWidget()->objectName()
-            == QStringLiteral("createCard"))
+        if (c->parentWidget() && c->parentWidget()->objectName() == QStringLiteral("createCard"))
             return c;
     return nullptr;
 }
@@ -86,6 +96,7 @@ class TestObjectBrowserAddNewDispatch : public QObject
 
 private slots:
 
+    /** @brief Verify the factory starts in CreateNew mode with name/button controls and creation disabled. */
     void createNew_StartsInCreateNewMode()
     {
         TimeseriesRegistry reg;
@@ -99,6 +110,7 @@ private slots:
         delete dlg;
     }
 
+    /** @brief Verify a whitespace-only draft name cannot enable creation. */
     void createNew_CreateDisabledForEmptyName()
     {
         TimeseriesRegistry reg;
@@ -107,11 +119,12 @@ private slots:
         QVERIFY(dlg);
         auto *edit = findCreateNameEdit(dlg);
         QVERIFY(edit);
-        edit->setText(QStringLiteral("   "));   // whitespace = empty
+        edit->setText(QStringLiteral("   ")); // whitespace = empty
         QVERIFY(!dlg->isCreateEnabled());
         delete dlg;
     }
 
+    /** @brief Verify a unique nonempty draft name enables creation and updates pendingName. */
     void createNew_CreateEnabledForUniqueName()
     {
         TimeseriesRegistry reg;
@@ -126,6 +139,7 @@ private slots:
         delete dlg;
     }
 
+    /** @brief Verify both exact and case-insensitive registry name collisions disable creation. */
     void createNew_CreateDisabledOnNameCollision()
     {
         TimeseriesRegistry reg;
@@ -143,6 +157,7 @@ private slots:
         delete dlg;
     }
 
+    /** @brief Verify submit changes to Edit mode and adds exactly one named provider with one registry signal. */
     void submitCreateNew_TransitionsToEditAndAddsProvider()
     {
         TimeseriesRegistry reg;
@@ -166,6 +181,7 @@ private slots:
         delete dlg;
     }
 
+    /** @brief Verify deleting a dialog containing an unsubmitted name leaves registry count and added signals unchanged. */
     void closeWithoutSubmit_AddsNothingToRegistry()
     {
         TimeseriesRegistry reg;
@@ -179,13 +195,14 @@ private slots:
         QVERIFY(edit);
         edit->setText(QStringLiteral("RAIN_C"));
 
-        delete dlg;   // simulates close
+        delete dlg; // simulates close
 
         QCOMPARE(addedSpy.size(), 0);
         QCOMPARE(reg.providerCount(), 0);
         QVERIFY(reg.findByName(QStringLiteral("RAIN_C")) == nullptr);
     }
 
+    /** @brief Verify submitting again after entering Edit mode does not create a duplicate provider. */
     void submitCreateNew_IsNoopAfterTransition()
     {
         TimeseriesRegistry reg;
@@ -205,6 +222,7 @@ private slots:
         delete dlg;
     }
 
+    /** @brief Verify the selected GeopackageObserved source mode reaches the newly created provider. */
     void submitCreateNew_AppliesSourceMode()
     {
         TimeseriesRegistry reg;
@@ -212,7 +230,7 @@ private slots:
         auto *dlg = TimeseriesEditorDialog::createNew(&reg, &stack);
         QVERIFY(dlg);
 
-        auto *edit  = findCreateNameEdit(dlg);
+        auto *edit = findCreateNameEdit(dlg);
         auto *combo = findSourceModeCombo(dlg);
         QVERIFY(edit && combo);
         edit->setText(QStringLiteral("RAIN_E"));
@@ -223,12 +241,12 @@ private slots:
 
         auto *p = reg.findByName(QStringLiteral("RAIN_E"));
         QVERIFY(p);
-        QCOMPARE(int(p->sourceMode()),
-                 int(TimeseriesProvider::SourceMode::GeopackageObserved));
+        QCOMPARE(int(p->sourceMode()), int(TimeseriesProvider::SourceMode::GeopackageObserved));
 
         delete dlg;
     }
 
+    /** @brief Verify the chart can switch between registry-owned providers and clear its borrowed provider with nullptr. */
     void setProvider_OnChartView_RebindsCleanly()
     {
         TimeseriesRegistry reg;
@@ -257,6 +275,7 @@ private slots:
         QCOMPARE(dlg.chartView()->provider(), nullptr);
     }
 
+    /** @brief Verify constructing for an existing provider starts in Edit mode with bound table/chart and no create-card controls. */
     void editModeCtor_StillWorks_RegressionGuard()
     {
         TimeseriesRegistry reg;
@@ -269,7 +288,7 @@ private slots:
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
         QCOMPARE(int(dlg.mode()), int(TimeseriesEditorDialog::Mode::Edit));
         QVERIFY(dlg.tableModel() != nullptr);
-        QVERIFY(dlg.chartView()  != nullptr);
+        QVERIFY(dlg.chartView() != nullptr);
         QCOMPARE(dlg.chartView()->provider(), &p);
         // No create-card in Edit mode.
         QVERIFY(findCreateNameEdit(&dlg) == nullptr);

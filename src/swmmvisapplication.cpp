@@ -1,15 +1,11 @@
-/*!
- * \file   swmmapplication.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      swmmvisapplication.cpp
+ * @brief     Qt resources, and the main window during application startup.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QStyleFactory>
@@ -18,6 +14,15 @@
 #include <QTimer>
 #include <QDialog>
 #include <QEvent>
+#include <QElapsedTimer>
+#include <QMessageBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSettings>
+#include <exception>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
 // #endif
@@ -31,17 +36,17 @@
 #include "core/preferencesmanager.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
+#include "ui/dialogs/dialogregistry.h"
 #include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
-
-/*! \class SWMMVisCoreApplication
+/* \class SWMMVisCoreApplication
  * \brief The SWMMVisCoreApplication class is a subclass of QCoreApplication.
  *
  * The SWMMVisCoreApplication class is a subclass of QCoreApplication.
  * It is used to handle the core functionality of the SWMM application.
  */
-SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
+SWMMVisCoreApplication::SWMMVisCoreApplication(int &argc, char *argv[])
     : QCoreApplication(argc, argv)
 {
     setupBundledGisDataPaths();
@@ -51,27 +56,56 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
 }
 
-/*!
+/*
  * \brief SWMMVisCoreApplication::~SWMMVisCoreApplication
  * The destructor for the SWMMVisCoreApplication class.
  */
-SWMMVisCoreApplication::~SWMMVisCoreApplication()
-{
+SWMMVisCoreApplication::~SWMMVisCoreApplication() {}
 
+bool SWMMVisApplication::notify(QObject *receiver, QEvent *event)
+{
+    try {
+        return QApplication::notify(receiver, event);
+    } catch (const std::exception &e) {
+        reportHandlerException(receiver, QString::fromUtf8(e.what()));
+    } catch (...) {
+        reportHandlerException(receiver, QStringLiteral("non-standard exception"));
+    }
+    return false;
 }
 
-/*!
+void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString &what)
+{
+    const QString where =
+        receiver ? QString::fromLatin1(receiver->metaObject()->className()) : QStringLiteral("?");
+    qCritical("SWMMVis: exception escaped an event handler (%s): %s", qPrintable(where),
+              qPrintable(what));
+    // One dialog per burst — a handler that throws on every paint or timer
+    // tick would otherwise bury the user in message boxes. Deferred so the
+    // box is not raised from inside notify().
+    static QElapsedTimer sinceLast;
+    if (sinceLast.isValid() && sinceLast.elapsed() < 10000)
+        return;
+    sinceLast.start();
+    QTimer::singleShot(0, this, [where, what]() {
+        QMessageBox::critical(nullptr, tr("Internal error"),
+                              tr("An error escaped an event handler in %1:\n%2\n\n"
+                                 "The application kept running; the message is in the log. "
+                                 "Save your work and consider restarting.")
+                                  .arg(where, what));
+    });
+}
+
+/*
  * \brief SWMMVisApplication::SWMMVisApplication
  * \param argc The number of arguments passed to the application.
  * \param argv The arguments passed to the application.
  */
 SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
-    : QApplication(argc, argv),
-    mSWMMVisGUI(nullptr),
-    mSWMMVisSplashScreen(nullptr)
+    : QApplication(argc, argv), mSWMMVisGUI(nullptr), mSWMMVisSplashScreen(nullptr)
 {
     // MUST run before the main window is built. PROJ caches its data search
     // paths when a PJ_CONTEXT is first created, so GDAL_DATA/PROJ_DATA have to
@@ -94,15 +128,51 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("OpenSWMM Stormwater Management Model");
+    setApplicationName("SWMMVis Stormwater Management Model");
     setApplicationDisplayName("SWMM");
+
+    // A manual-figure capture run gets its own QSettings scope. The app
+    // persists UI state as you use it — the ribbon remembers its last tab, the
+    // dialogs their last page and geometry — so without this a figure would
+    // depend on whatever the developer last clicked, and the run would write
+    // its own navigation back over their preferences. An empty scope also
+    // means every figure shows the shipped defaults, which is what the manual
+    // is documenting. Must precede `new SWMMVis()` for the same reason the
+    // names above do.
+    // Isolate by redirecting the settings FILE, never by renaming the
+    // application: the name reaches the screen. Suffixing it put
+    // "SWMMVis Stormwater Management Model (figure capture)" in the Style
+    // Manager's library path, in a figure bound for the published manual.
+    if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST")) {
+        // Beside run.json, so everything one capture run produces — figures,
+        // report, the settings it navigated with — is in one reviewable place.
+        const QString manifest = qEnvironmentVariable("SWMMVIS_CAPTURE_MANIFEST");
+        QString scope;
+        if (QFile f(manifest); f.open(QIODevice::ReadOnly)) {
+            scope = QJsonDocument::fromJson(f.readAll())
+                        .object()
+                        .value(QStringLiteral("defaults"))
+                        .toObject()
+                        .value(QStringLiteral("outDir"))
+                        .toString();
+        }
+        if (scope.isEmpty())
+            scope = QFileInfo(manifest).absolutePath();
+        QDir().mkpath(scope);
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, scope);
+
+        // Wipe the scope too: it survives between capture runs, so without
+        // this a figure still inherits the ribbon tab or dialog page the
+        // PREVIOUS run left behind.
+        QSettings().clear();
+    }
 
     // Seed bundled examples into the per-user data dir before the Welcome
     // screen (built inside the SWMMVis ctor) scans for them.
     openswmmvis::project::examples::preferredExamplesDir(version);
 
     mSWMMVisGUI = new SWMMVis();
-
 
     this->setStyle(QStyleFactory::create("Fusion"));
 
@@ -113,6 +183,17 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         auto *theme = openswmmvis::ui::ThemeManager::instance();
         theme->setMode(openswmmvis::ui::ThemeManager::modeFromString(
             PreferencesManager::instance()->appearanceMode()));
+
+        // A figure-capture run overrides the restored mode: the manual is
+        // captured on light (docs/manual/README.md), and the restored
+        // preference in a freshly cleared scope is "System", which on a
+        // dark-mode Mac produced dark figures. This has to sit AFTER the
+        // restore above — setting it earlier just gets overwritten here — and
+        // before the window is built, since apply() cannot restyle chrome that
+        // already exists.
+        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
+            theme->setMode(openswmmvis::ui::ThemeManager::Mode::Light);
+
         theme->apply();
     }
 
@@ -127,28 +208,37 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // stacking logic above stays untangled from persistence.
     installEventFilter(new openswmmvis::ui::DialogLayoutWatcher(this));
 
+    // Register of open modeless dialogs in most-recently-used order. Feeds
+    // the Window menu (so a dialog dragged onto a since-disconnected monitor
+    // is still reachable) and, when the Qt stacking mode is selected, the
+    // raise-on-activate pass that replaces the AppKit child-window
+    // attachment. Mode is resolved once here — see dialogregistry.h.
+    {
+        auto *registry = openswmmvis::ui::DialogRegistry::instance();
+        registry->setStackingMode(openswmmvis::ui::DialogRegistry::configuredStackingMode());
+        installEventFilter(registry);
+    }
+
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
 
-    if (QScreen* screen = QGuiApplication::primaryScreen())
-    {
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
         pixmap.setDevicePixelRatio(screen->devicePixelRatio());
     }
 
     int w = 600 * pixmap.devicePixelRatioF();
     int h = 400 * pixmap.devicePixelRatioF();
 
-    mSWMMVisSplashScreen = new SWMMVisSplashScreen(pixmap.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    mSWMMVisSplashScreen =
+        new SWMMVisSplashScreen(pixmap.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
     // Force splash screen to start on primary screen
-    if (QScreen* screen = QGuiApplication::primaryScreen())
-    {
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
         const QPoint currentDesktopsCenter = screen->availableGeometry().center();
         mSWMMVisSplashScreen->move(currentDesktopsCenter - mSWMMVisSplashScreen->rect().center());
     }
 
     mSWMMVisSplashScreen->show();
-
 
     //!Read settings
     mSWMMVisSplashScreen->onShowMessage("Reading Application Settings");
@@ -158,15 +248,15 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     mSWMMVisSplashScreen->onShowMessage("Loading Component Libraries");
     printf("Loading Component Libraries\n");
 
-//     int ms = 5000;
+    //     int ms = 5000;
 
-// #ifdef Q_OS_WIN
-//     Sleep(uint(ms));
-// #else
+    // #ifdef Q_OS_WIN
+    //     Sleep(uint(ms));
+    // #else
 
-//     struct timespec ts = { ms / 1000, (ms % 1000) * 1000 * 1000 };
-//     nanosleep(&ts, NULL);
-// #endif
+    //     struct timespec ts = { ms / 1000, (ms % 1000) * 1000 * 1000 };
+    //     nanosleep(&ts, NULL);
+    // #endif
 
     mSWMMVisSplashScreen->finish(mSWMMVisGUI);
     mSWMMVisGUI->show();
@@ -174,8 +264,15 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // Defer license check until after the event loop starts so macOS has
     // activated the app and the dialog reliably appears in the foreground.
     QTimer::singleShot(0, this, [this]() {
-        if (LicenseAgreementDialog::shouldShowOnStartup())
-        {
+        // A figure-capture run runs in its own, empty settings scope, so this
+        // prompt would fire on every run — and declining it quits the app, so
+        // the capture would take itself down before reaching its second
+        // figure. The licence figures are captured from an explicit manifest
+        // row instead.
+        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
+            return;
+
+        if (LicenseAgreementDialog::shouldShowOnStartup()) {
             LicenseAgreementDialog dlg(mSWMMVisGUI);
             if (dlg.exec() != QDialog::Accepted)
                 quit();
@@ -183,14 +280,11 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     });
 }
 
-/*!
+/*
  * \brief SWMMVisApplication::~SWMMVisApplication
  * The destructor for the SWMMVisApplication class.
  */
-SWMMVisApplication::~SWMMVisApplication()
-{
-
-}
+SWMMVisApplication::~SWMMVisApplication() {}
 
 bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
 {
@@ -201,23 +295,18 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
     // detach); Hide is the fallback for dialogs hidden without a Close event
     // (QDialog::done() paths) — detachFromParentWindow re-orders-out in that
     // case so the window can't linger glued above the main window.
-    if (event->type() == QEvent::Close || event->type() == QEvent::Hide)
-    {
-        if (auto *dlg = qobject_cast<QDialog *>(watched))
-        {
+    if (event->type() == QEvent::Close || event->type() == QEvent::Hide) {
+        if (auto *dlg = qobject_cast<QDialog *>(watched)) {
             if (dlg->isWindow())
                 openswmmvis::platform::detachFromParentWindow(dlg);
         }
     }
 #endif
-    if (event->type() == QEvent::Show)
-    {
-        if (auto *dlg = qobject_cast<QDialog *>(watched))
-        {
+    if (event->type() == QEvent::Show) {
+        if (auto *dlg = qobject_cast<QDialog *>(watched)) {
             // Only act on top-level dialogs — embedded QDialog widgets in a
             // layout are not what we're trying to keep on top.
-            if (dlg->isWindow())
-            {
+            if (dlg->isWindow()) {
                 // Defer until after the Show is processed so we operate on the
                 // realised platform window. raise()+activateWindow() brings the
                 // dialog above the main window without the always-on-top hint
@@ -235,9 +324,22 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                     // separately by firing pickers on mouse RELEASE (ddca63d).
                     // If a freeze reappears, first look for a dialog shown from
                     // inside a mousePressEvent before suspecting this.
-                    if (dlg->windowModality() == Qt::NonModal)
+                    //
+                    // Skipped entirely in QtRaiseOnActivate mode, where
+                    // DialogRegistry re-raises dialogs on activation instead —
+                    // no native gluing, so a dialog can never be dragged
+                    // off-screen by the window it happens to be attached to.
+                    using openswmmvis::ui::DialogRegistry;
+                    const bool nativeStacking = DialogRegistry::instance()->stackingMode() ==
+                                                DialogRegistry::StackingMode::NativeChildWindow;
+                    if (nativeStacking && dlg->windowModality() == Qt::NonModal)
                         openswmmvis::platform::attachAsChildWindow(dlg);
 #endif
+                    // Restore the whole plot stack after the new window has
+                    // been raised and (on macOS) attached to its native host.
+                    auto *registry = openswmmvis::ui::DialogRegistry::instance();
+                    if (registry->openDialogs().contains(dlg))
+                        registry->raiseAllInOrder();
                 });
             }
         }

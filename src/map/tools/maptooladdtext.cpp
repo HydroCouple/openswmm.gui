@@ -1,97 +1,121 @@
-/*!
- * \file   maptooladdtext.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptooladdtext.cpp
+ * @brief     Click on empty map → opens AnnotationStyleDialog with defaults; on accept, pushes an
+ *            AddAnnotationCommand to the canvas undo stack.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
-#include "map/tools/maptooladdtext.h"
 
+#include "map/tools/maptooladdtext.h"
 #include "layers/annotationlayer.h"
 #include "layers/annotationtextitem.h"
+#include "layers/annotationfeatures.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "map/textlayercommands.h"
 #include "ui/dialogs/annotationstyledialog.h"
-
 #include <QApplication>
 #include <QMouseEvent>
-#include <QPointF>
-
-namespace {
-
-/*! Convert a map (x, y) to scene coords using the canvas Y-flip convention
- *  (see annotationlayer.cpp). Kept private so the picker can hit-test in
- *  scene space without leaking the convention into the public tool API. */
-QPointF mapToScenePoint(double mapX, double mapY) noexcept
-{
-    return { mapX, -mapY };
-}
-
-} // anonymous
+#include <QKeyEvent>
 
 OpenSWMMVisMapToolAddText::OpenSWMMVisMapToolAddText(MapCanvas *canvas,
                                                      OpenSWMMVisAnnotationLayer *layer,
                                                      QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("Add Text"), canvas, parent)
-    , m_layer(layer)
+    : OpenSWMMVisMapTool(QStringLiteral("Edit Text"), canvas, parent), m_layer(layer)
 {
 }
-
+void OpenSWMMVisMapToolAddText::setLayer(OpenSWMMVisAnnotationLayer *layer)
+{
+    m_layer = layer;
+}
 QCursor OpenSWMMVisMapToolAddText::cursor() const
 {
     return Qt::CrossCursor;
 }
-
 void OpenSWMMVisMapToolAddText::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas || !m_layer) return;
-    if (event->button() != Qt::LeftButton) return;
-
-    double mx = 0.0, my = 0.0;
-    toMapCoords(event->pos().x(), event->pos().y(), mx, my);
-
-    // First, check whether the click hit an existing annotation — if so,
-    // open the editor for that one instead of creating a new item. This is
-    // the in-place edit affordance promised by the dialog-on-place / edit-
-    // on-reclick UX.
-    if (auto *existing = m_layer->annotationAtScenePos(mapToScenePoint(mx, my))) {
-        AnnotationStyleDialog dlg(existing, m_canvas->parentWidget()
-                                              ? m_canvas->parentWidget()
-                                              : qobject_cast<QWidget *>(parent()));
-        dlg.setEditMode(true);
-        dlg.exec();
-        // The dialog edits the live AnnotationTextItem directly via
-        // QPropertyModel, so accept-or-cancel state is already reflected.
-        // (A "Cancel must restore" path would need a snapshot — left to a
-        // follow-up; right now the editor commits as it goes.)
+    if (!m_canvas || !m_layer || !m_canvas->layers().contains(m_layer) || !m_layer->isVisible() ||
+        event->button() != Qt::LeftButton)
         return;
-    }
-
-    // Fresh placement: build a default-styled item, show the dialog seeded
-    // with it. On accept, push an AddAnnotationCommand so the placement is
-    // undoable; on cancel, the temporary item is discarded.
-    auto *item = new AnnotationTextItem();
-    item->setPosition(mx, my);
-
-    AnnotationStyleDialog dlg(item, m_canvas->parentWidget()
-                                          ? m_canvas->parentWidget()
-                                          : qobject_cast<QWidget *>(parent()));
-    dlg.setEditMode(false);
-    const int rc = dlg.exec();
-    if (rc != QDialog::Accepted) {
-        delete item;
+    m_pressPixel = event->position();
+    m_dragged = false;
+    m_before = m_layer->layerJson();
+    if (auto *item = m_layer->annotationAtPixel(m_pressPixel)) {
+        m_pressedId = item->id();
+        m_startOffset = m_layer->renderedOffset(item->id());
+    } else
+        m_pressedId.clear();
+}
+void OpenSWMMVisMapToolAddText::mouseMoveEvent(QMouseEvent *event)
+{
+    if (!m_layer || m_pressedId.isEmpty() || !(event->buttons() & Qt::LeftButton))
         return;
+    const auto delta = event->position() - m_pressPixel;
+    if (!m_dragged && delta.manhattanLength() < QApplication::startDragDistance())
+        return;
+    if (auto *item = m_layer->annotation(m_pressedId)) {
+        m_dragged = true;
+        item->setPinned(true);
+        item->setOffset(m_startOffset + delta);
+        m_canvas->update();
     }
-
-    // Hand ownership to an undo command. The command takes the item, adopts
-    // it into the layer on redo, and detaches (via takeAnnotation) on undo.
-    auto *cmd = new AddAnnotationCommand(m_layer, item, m_canvas);
-    if (m_canvas->undoStack())
-        m_canvas->undoStack()->push(cmd);
-    else
-        delete cmd;  // command would orphan the item; safer to clean up
-
-    emit annotationAdded(item->id());
-
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                         QStringLiteral("addtext-commit"));
+}
+void OpenSWMMVisMapToolAddText::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (!m_canvas || !m_layer || !m_canvas->layers().contains(m_layer) || !m_layer->isVisible() ||
+        event->button() != Qt::LeftButton || m_before.isEmpty())
+        return;
+    if (m_dragged) {
+        const auto after = m_layer->layerJson();
+        m_canvas->undoStack()->push(
+            new EditTextLayerCommand(m_layer, m_before, after, tr("Move text")));
+    } else if (!m_pressedId.isEmpty()) {
+        if (auto *item = m_layer->annotation(m_pressedId)) {
+            AnnotationStyleDialog dlg(item, m_canvas, m_canvas);
+            dlg.setEditMode(true);
+            if (dlg.exec() == QDialog::Accepted) {
+                const auto after = m_layer->layerJson();
+                if (after != m_before)
+                    m_canvas->undoStack()->push(
+                        new EditTextLayerCommand(m_layer, m_before, after, tr("Edit text")));
+            }
+        }
+    } else {
+        double x = 0, y = 0;
+        toMapCoords(event->pos().x(), event->pos().y(), x, y);
+        QPointF position(x, y);
+        if (!AnnotationFeatures::transform(position, m_canvas->canvasSRS(), m_layer->srs()))
+            return;
+        auto *item = new AnnotationTextItem(m_layer);
+        item->setPosition(position.x(), position.y());
+        AnnotationStyleDialog dlg(item, m_canvas, m_canvas);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString id = item->id();
+            m_layer->addAnnotation(item);
+            const auto after = m_layer->layerJson();
+            m_canvas->undoStack()->push(
+                new EditTextLayerCommand(m_layer, m_before, after, tr("Add text")));
+            emit annotationAdded(id);
+        } else
+            delete item;
+    }
+    m_pressedId.clear();
+    m_before = {};
+    m_dragged = false;
+    m_canvas->update();
+}
+void OpenSWMMVisMapToolAddText::deactivate()
+{
+    if (m_layer && m_dragged && !m_before.isEmpty())
+        m_layer->restoreLayer(m_before);
+    m_pressedId.clear();
+    m_before = {};
+    m_dragged = false;
+    OpenSWMMVisMapTool::deactivate();
+}
+void OpenSWMMVisMapToolAddText::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape)
+        m_canvas->setActiveTool(nullptr);
 }

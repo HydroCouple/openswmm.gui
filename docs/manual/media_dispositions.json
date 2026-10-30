@@ -1,0 +1,260 @@
+{
+  "scope": "The documentation milestone uses real application screenshots and written procedures. Videos are optional. Missing still figures remain tracked separately.",
+  "videos": [
+    {
+      "page": "01_introduction.md",
+      "caption": "First launch \u2014 accepting the licence; touring the Welcome page and opening a bundled example into a working folder",
+      "disposition": "written-procedure",
+      "section": "Bundled examples and what happens when you open one",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "02_interface.md",
+      "caption": "A tour of the window \u2014 switching ribbon tabs; revealing the contextual Mesh 2D tab; rearranging docks and finding a command with the Command Palette",
+      "disposition": "written-procedure",
+      "section": "Command Palette",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "03_projects.md",
+      "caption": "Saving a project \u2014 Save As to a new folder; reading the portability pre-flight warnings and confirming the sidecar and 2D mesh travelled with it",
+      "disposition": "written-procedure",
+      "section": "Common moves and their effects",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "04_preferences.md",
+      "caption": "Setting up Preferences before starting a project \u2014 simulation and 2D defaults; object defaults for both unit systems and a couple of shortcut rebinds",
+      "disposition": "written-procedure",
+      "section": "Keyboard",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "05_map_navigation.md",
+      "caption": "Navigating a model \u2014 wheel zoom; middle-drag pan; Zoom Extent and a distance measurement",
+      "disposition": "written-procedure",
+      "section": "Measure",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "06_crs.md",
+      "caption": "Assigning a CRS to a model with none; adding a basemap and re-rendering into Web Mercator",
+      "disposition": "written-procedure",
+      "section": "2D meshes and 2D results",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "07_layers.md",
+      "caption": "Adding an XYZ basemap and a WMS service; then a georeferenced local raster",
+      "disposition": "written-procedure",
+      "section": "Local File",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "08_styling.md",
+      "caption": "Styling a model \u2014 graduated conduits by diameter; labelling junctions and colouring a 2D flood map",
+      "disposition": "written-procedure",
+      "section": "The 2D results style panel",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "09_selection.md",
+      "caption": "Selecting a whole 2D boundary run with Ctrl-click path picking",
+      "disposition": "written-procedure",
+      "section": "Boundary path selection",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "10_object_browser.md",
+      "caption": "Editing a conduit's cross-section and watching the map; Section View and Attribute Table update together",
+      "disposition": "written-procedure",
+      "section": "How edits propagate",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "11_attribute_tables.md",
+      "caption": "Querying conduits by slope; selecting the matches and bulk-applying a roughness value",
+      "disposition": "written-procedure",
+      "section": "Delimited-text (tabular) layers",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "12_map_editing.md",
+      "caption": "Importing a manhole shapefile as junctions and a pipe shapefile as conduits with endpoint snapping",
+      "disposition": "written-procedure",
+      "section": "Import Feature Layer",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "13_hydrology.md",
+      "caption": "Assigning rain gages by Thiessen majority and then by natural-neighbour interpolation",
+      "disposition": "written-procedure",
+      "section": "Assign Rain Gages",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "13_hydrology.md",
+      "caption": "Defining an aquifer and wiring a subcatchment's groundwater exchange with a custom GWF expression",
+      "disposition": "written-procedure",
+      "section": "Groundwater Exchange editor",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "14_hydraulics.md",
+      "caption": "Adding a time-series inflow and a dry-weather-flow pattern to a junction",
+      "disposition": "written-procedure",
+      "section": "Node compound editors \u2014 Inflows; DWF; RDII; Treatment",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "14_hydraulics.md",
+      "caption": "Splitting a street conduit into an inlet junction and wiring its capture node",
+      "disposition": "written-procedure",
+      "section": "Inlet usage on a conduit",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "15_climate.md",
+      "caption": "Setting up temperature from a climate file and adding monthly evaporation adjustments",
+      "disposition": "written-procedure",
+      "section": "Adjustments tab \u2014 `[ADJUSTMENTS]`",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "16_water_quality.md",
+      "caption": "Adding a pollutant with a land use and build-up/wash-off then running and theming the result",
+      "disposition": "written-procedure",
+      "section": "Where to find it",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "17_data_objects.md",
+      "caption": "Creating a rainfall time series from a CSV file then referencing it from a rain gage",
+      "disposition": "written-procedure",
+      "section": "Where to find it",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "18_simulation_options.md",
+      "caption": "Setting up a dynamic-wave run \u2014 dates; time steps; solver tolerances and threads",
+      "disposition": "written-procedure",
+      "section": "Where to find it",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "19_2d_mesh.md",
+      "caption": "From a DTM raster to a generated coupled mesh with boundary conditions",
+      "disposition": "written-procedure",
+      "section": "Where to find it",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "20_running.md",
+      "caption": "Running a model \u2014 Execute; watching progress; pausing and stopping with partial results",
+      "disposition": "written-procedure",
+      "section": "Pause and Cancel",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "21_results.md",
+      "caption": "Loading a run and animating it \u2014 choosing the active results layer; colouring by flow and scrubbing the timeline",
+      "disposition": "written-procedure",
+      "section": "Playback \u2014 the Results ribbon tab",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "22_time_series_plots.md",
+      "caption": "Comparing a simulated hydrograph with an observed record \u2014 loading a CSV; reading the fit metrics and exporting the data",
+      "disposition": "written-procedure",
+      "section": "Baseline vs comparison \u2014 the 1v1 scatter column",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "23_profile_plots.md",
+      "caption": "Tracing a profile between two manholes \u2014 picking a route; animating the HGL and adding attribute tracks",
+      "disposition": "written-procedure",
+      "section": "Display Options",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "24_tabular_results.md",
+      "caption": "From a finished run to a spreadsheet \u2014 filtering the attribute table; summarising the run and exporting CSV",
+      "disposition": "written-procedure",
+      "section": "Report \u2014 the engine's text report",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "25_analysis_tools.md",
+      "caption": "Comparing rain gages \u2014 switching to cumulative depth and spotting a gage with a broken rain file",
+      "disposition": "written-procedure",
+      "section": "Rainfall Visualization",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t01_site_drainage.md",
+      "caption": "Opening the site drainage model \u2014 checking local coordinates \u2014 running it and animating the result",
+      "disposition": "written-procedure",
+      "section": "Goal",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t02_street_inlets.md",
+      "caption": "Editing a street cross-section \u2014 designing a curb-opening inlet \u2014 inserting an inlet junction on a street conduit",
+      "disposition": "written-procedure",
+      "section": "Goal",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t03_2d_inundation.md",
+      "caption": "Opening the Snoopy Lagoon project \u2014 styling the mesh \u2014 animating 2D depth across the bowl",
+      "disposition": "written-procedure",
+      "section": "Goal",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t04_1d2d_coupling.md",
+      "caption": "Finding the vertex-node map \u2014 running the coupled model \u2014 watching J1 spill onto the plaza and drain back",
+      "disposition": "written-procedure",
+      "section": "Goal",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t05_2d_boundaries.md",
+      "caption": "Animating the road-culvert storm \u2014 ponding; culvert engagement and road overtopping",
+      "disposition": "written-procedure",
+      "section": "6. Load the results and animate the overtopping",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t06_pure_2d.md",
+      "caption": "Running the stand-alone 2D slope model and animating depth and velocity",
+      "disposition": "written-procedure",
+      "section": "4. Run it",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t07_transport.md",
+      "caption": "Building the transport model \u2014 pollutants; reaction system; water age; heat; and comparing the three quality solvers",
+      "disposition": "written-procedure",
+      "section": "11. Colour the map by species",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    },
+    {
+      "page": "tutorials/t08_bellinge.md",
+      "caption": "Adding an XYZ basemap and the SRTM DEM to the Bellinge project and checking the CRS",
+      "disposition": "written-procedure",
+      "section": "3. Add the DEM and a basemap, and sort out the CRS",
+      "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
+    }
+  ],
+  "consolidatedFigures": [
+    {
+      "name": "t04_retired_key_warnings.png",
+      "reason": "Portable plaza uses current option keys; retired-key troubleshooting remains in the simulation-options/reference chapters."
+    },
+    {
+      "name": "t04_outfall_tailwater.png",
+      "reason": "The portable plaza outfall is uncoupled. Boundary/tailwater workflows remain in T5 and the mesh chapter."
+    }
+  ]
+}

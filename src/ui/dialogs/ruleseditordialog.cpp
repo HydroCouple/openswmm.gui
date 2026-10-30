@@ -1,10 +1,14 @@
-/*!
- * \file   ruleseditordialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      ruleseditordialog.cpp
+ * @brief     SWMM control rules.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/ruleseditordialog.h"
+#include "core/swmmidentifier.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -17,6 +21,7 @@
 #include "ui/theme/iconfactory.h"
 
 #include <QCloseEvent>
+#include <QDialogButtonBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -31,21 +36,27 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::controls::ControlRuleProvider;
 using openswmmvis::controls::ControlRuleRegistry;
 using openswmmvis::controls::RuleValidator;
 using openswmmvis::controls::ValidationState;
 
-namespace {
-
+namespace
+{
 
 // Default skeleton for the "+ Add" path. Matches DA.3's "Empty" skeleton.
+/**
+ * @param[in] name Raw token inserted after RULE, not escaped/validated here.
+ * @return Owned three-line sample using literal J1 depth>5 and P1 ON; numeric depth follows
+ *   rule/engine project units, no model existence or syntax validation. Pure formatting, no
+ *   registry/engine writes.
+ */
 QString defaultRuleSkeleton(const QString &name)
 {
-    return QStringLiteral("RULE %1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON")
-        .arg(name);
+    return QStringLiteral("RULE %1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON").arg(name);
 }
 
 } // namespace
@@ -54,12 +65,8 @@ QString defaultRuleSkeleton(const QString &name)
 // Construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer,
-                                      QUndoStack *undoStack,
-                                      QWidget *parent)
-    : QDialog(parent, openswmmvis::ui::floatingPanelFlags()),
-      m_layer(layer),
-      m_undoStack(undoStack)
+RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer, QUndoStack *undoStack, QWidget *parent)
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags()), m_layer(layer), m_undoStack(undoStack)
 {
     setWindowTitle(tr("Control Rules Editor"));
     resize(1000, 600);
@@ -68,11 +75,12 @@ RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer,
 
     buildUi_();
     buildCreateCard_();
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
 
     if (auto *reg = registry_()) {
-        connect(reg, &ControlRuleRegistry::providerRenamed,
-                this, &RulesEditorDialog::onProviderRenamed_);
+        connect(reg, &ControlRuleRegistry::providerRenamed, this,
+                &RulesEditorDialog::onProviderRenamed_);
     }
 
     // Seed list selection on the first provider so the editor pane has
@@ -85,14 +93,14 @@ RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer,
     // Iteration 2 (D2) — persistence via the app-wide DialogLayoutWatcher:
     // naming is the wiring.
     setObjectName(QStringLiteral("RulesEditorDialog"));
-    if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
+    if (m_splitter)
+        m_splitter->setObjectName(QStringLiteral("main"));
 }
 
 RulesEditorDialog::~RulesEditorDialog() = default;
 
-RulesEditorDialog *RulesEditorDialog::createNew(SWMMModelLayer *layer,
-                                                  QUndoStack *undoStack,
-                                                  QWidget *parent)
+RulesEditorDialog *RulesEditorDialog::createNew(SWMMModelLayer *layer, QUndoStack *undoStack,
+                                                QWidget *parent)
 {
     auto *dlg = new RulesEditorDialog(layer, undoStack, parent);
     dlg->m_mode = Mode::CreateNew;
@@ -100,12 +108,11 @@ RulesEditorDialog *RulesEditorDialog::createNew(SWMMModelLayer *layer,
     return dlg;
 }
 
-QString RulesEditorDialog::pickControlRule(SWMMModelLayer *layer,
-                                            QUndoStack    *undoStack,
-                                            const QString &initialName,
-                                            QWidget       *parent)
+QString RulesEditorDialog::pickControlRule(SWMMModelLayer *layer, QUndoStack *undoStack,
+                                           const QString &initialName, QWidget *parent)
 {
-    if (!layer) return {};
+    if (!layer)
+        return {};
 
     RulesEditorDialog dlg(layer, undoStack, parent);
     dlg.setModal(true);
@@ -125,7 +132,8 @@ QString RulesEditorDialog::pickControlRule(SWMMModelLayer *layer,
 
 ControlRuleRegistry *RulesEditorDialog::registry_() const
 {
-    if (!m_layer) return nullptr;
+    if (!m_layer)
+        return nullptr;
     return qobject_cast<ControlRuleRegistry *>(m_layer->ensureControlRuleRegistry());
 }
 
@@ -154,7 +162,7 @@ void RulesEditorDialog::buildUi_()
 
     // ── Pane 1: rule list ───────────────────────────────────────────────
     auto *paneL = new QWidget(m_splitter);
-    auto *layL  = new QVBoxLayout(paneL);
+    auto *layL = new QVBoxLayout(paneL);
     layL->setContentsMargins(0, 0, 0, 0);
     layL->setSpacing(4);
 
@@ -171,29 +179,29 @@ void RulesEditorDialog::buildUi_()
     m_listView = new QListView(paneL);
     m_listView->setModel(m_listProxy);
     m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_listView->setEditTriggers(QAbstractItemView::EditKeyPressed
-                                 | QAbstractItemView::SelectedClicked);
+    m_listView->setEditTriggers(QAbstractItemView::EditKeyPressed |
+                                QAbstractItemView::SelectedClicked);
     layL->addWidget(m_listView, /*stretch=*/1);
 
     auto *btnRow = new QHBoxLayout();
     btnRow->setContentsMargins(0, 0, 0, 0);
     btnRow->setSpacing(4);
-    m_addBtn    = new QToolButton(paneL);
-    m_delBtn    = new QToolButton(paneL);
+    m_addBtn = new QToolButton(paneL);
+    m_delBtn = new QToolButton(paneL);
     m_renameBtn = new QToolButton(paneL);
-    m_addBtn   ->setText(tr("Add"));
-    m_addBtn   ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
-    m_delBtn   ->setText(tr("Delete"));
-    m_delBtn   ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
+    m_addBtn->setText(tr("Add"));
+    m_addBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
+    m_delBtn->setText(tr("Delete"));
+    m_delBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
     m_renameBtn->setText(tr("Rename…"));
     m_renameBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")));
-    for (QToolButton *b : { m_addBtn, m_delBtn, m_renameBtn })
+    for (QToolButton *b : {m_addBtn, m_delBtn, m_renameBtn})
         b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_addBtn   ->setToolTip(tr("Create a new control rule"));
-    m_delBtn   ->setToolTip(tr("Delete the selected rule"));
+    m_addBtn->setToolTip(tr("Create a new control rule"));
+    m_delBtn->setToolTip(tr("Delete the selected rule"));
     m_renameBtn->setToolTip(tr("Rename the selected rule"));
-    m_addBtn   ->setAutoRaise(true);
-    m_delBtn   ->setAutoRaise(true);
+    m_addBtn->setAutoRaise(true);
+    m_delBtn->setAutoRaise(true);
     m_renameBtn->setAutoRaise(true);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
@@ -203,7 +211,7 @@ void RulesEditorDialog::buildUi_()
 
     // ── Pane 2: code editor ─────────────────────────────────────────────
     auto *paneR = new QWidget(m_splitter);
-    auto *layR  = new QVBoxLayout(paneR);
+    auto *layR = new QVBoxLayout(paneR);
     layR->setContentsMargins(0, 0, 0, 0);
     layR->setSpacing(4);
 
@@ -230,6 +238,16 @@ void RulesEditorDialog::buildUi_()
     bannerLay->addStretch(1);
     layR->addWidget(m_validationBanner);
 
+    auto *rainHelp = new QLabel(tr("Rain gages: INTENSITY or n-HR_DEPTH (1–48 hours). "
+                                   "Use 24-HR_DEPTH for one day or 48-HR_DEPTH for two days."),
+                                paneR);
+    rainHelp->setObjectName(QStringLiteral("rainGageRuleHelp"));
+    rainHelp->setWordWrap(true);
+    rainHelp->setToolTip(
+        tr("Depth sums completed hourly rainfall totals in inches or millimeters, "
+           "excluding the current partial hour. The gage must be used by hydrology."));
+    layR->addWidget(rainHelp);
+
     m_codeEditor = new RuleCodeEditor(paneR);
     m_codeEditor->setModelLayer(m_layer.data());
     layR->addWidget(m_codeEditor, /*stretch=*/1);
@@ -249,18 +267,15 @@ void RulesEditorDialog::buildUi_()
     m_splitter->setStretchFactor(1, 5);
 
     // ── Wiring ──────────────────────────────────────────────────────────
-    connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &RulesEditorDialog::onSearchTextChanged_);
-    connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, [this](const QModelIndex &, const QModelIndex &){
-                onListSelectionChanged_();
-            });
-    connect(m_addBtn,    &QToolButton::clicked, this, &RulesEditorDialog::onAddClicked_);
-    connect(m_delBtn,    &QToolButton::clicked, this, &RulesEditorDialog::onDeleteClicked_);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &RulesEditorDialog::onSearchTextChanged_);
+    connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex &, const QModelIndex &) { onListSelectionChanged_(); });
+    connect(m_addBtn, &QToolButton::clicked, this, &RulesEditorDialog::onAddClicked_);
+    connect(m_delBtn, &QToolButton::clicked, this, &RulesEditorDialog::onDeleteClicked_);
     connect(m_renameBtn, &QToolButton::clicked, this, &RulesEditorDialog::onRenameClicked_);
     connect(m_renameBodyBtn, &QToolButton::clicked, this, &RulesEditorDialog::onRenameClicked_);
-    connect(m_codeEditor, &QTextEdit::textChanged,
-            this, &RulesEditorDialog::onCodeEditorTextChanged_);
+    connect(m_codeEditor, &QTextEdit::textChanged, this,
+            &RulesEditorDialog::onCodeEditorTextChanged_);
     connect(m_validateNowBtn, &QToolButton::clicked, this, [this]() {
         // Force a synchronous validation right now (skip the debounce).
         if (m_current) {
@@ -275,6 +290,20 @@ void RulesEditorDialog::buildUi_()
     // which together cover the user-visible paths. (Live in-place commit
     // happens on every text change via the debounce timer in the
     // validator's flushed handler — see onCodeEditorTextChanged_.)
+
+    // ── Close row ───────────────────────────────────────────────────────
+    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
+    // bypasses closeEvent(), which is where flushPendingEdit() commits the
+    // rule text. Not the default button — Enter in the rule editor must
+    // never dismiss the dialog.
+    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    closeBox->setObjectName(QStringLiteral("rules_closeBox"));
+    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
+    closeBtn->setObjectName(QStringLiteral("rules_closeBtn"));
+    closeBtn->setAutoDefault(false);
+    closeBtn->setDefault(false);
+    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
+    outer->addWidget(closeBox);
 }
 
 void RulesEditorDialog::buildCreateCard_()
@@ -300,14 +329,14 @@ void RulesEditorDialog::buildCreateCard_()
     lay->addWidget(m_cancelCreateBtn);
 
     auto *outer = qobject_cast<QVBoxLayout *>(layout());
-    if (outer) outer->insertWidget(0, m_createCard);
+    if (outer)
+        outer->insertWidget(0, m_createCard);
 
-    connect(m_createNameEdit, &QLineEdit::textChanged,
-            this, &RulesEditorDialog::onCreateNewNameChanged_);
-    connect(m_createBtn,    &QPushButton::clicked,
-            this, &RulesEditorDialog::onCreateNewSubmit_);
-    connect(m_cancelCreateBtn, &QPushButton::clicked,
-            this, &RulesEditorDialog::onCancelCreateClicked_);
+    connect(m_createNameEdit, &QLineEdit::textChanged, this,
+            &RulesEditorDialog::onCreateNewNameChanged_);
+    connect(m_createBtn, &QPushButton::clicked, this, &RulesEditorDialog::onCreateNewSubmit_);
+    connect(m_cancelCreateBtn, &QPushButton::clicked, this,
+            &RulesEditorDialog::onCancelCreateClicked_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,9 +349,15 @@ void RulesEditorDialog::onListSelectionChanged_()
     flushPendingEdit();
 
     auto *reg = registry_();
-    if (!reg) { bindProvider_(nullptr); return; }
+    if (!reg) {
+        bindProvider_(nullptr);
+        return;
+    }
     const QModelIndex proxyIdx = m_listView->currentIndex();
-    if (!proxyIdx.isValid()) { bindProvider_(nullptr); return; }
+    if (!proxyIdx.isValid()) {
+        bindProvider_(nullptr);
+        return;
+    }
     const QModelIndex srcIdx = m_listProxy->mapToSource(proxyIdx);
     const QString name = m_listModel->nameAt(srcIdx.row());
     bindProvider_(reg->findByName(name));
@@ -340,8 +375,8 @@ void RulesEditorDialog::bindProvider_(ControlRuleProvider *p)
     if (p) {
         m_nameLabel->setText(p->name());
         m_codeEditor->setPlainText(p->body());
-        connect(p, &ControlRuleProvider::validationChanged,
-                this, &RulesEditorDialog::onProviderValidationChanged_);
+        connect(p, &ControlRuleProvider::validationChanged, this,
+                &RulesEditorDialog::onProviderValidationChanged_);
         // Kick off a fresh validation so the banner reflects the current
         // body even if the cached verdict is stale.
         m_validator->validateDebounced(p, p->body());
@@ -352,10 +387,10 @@ void RulesEditorDialog::bindProvider_(ControlRuleProvider *p)
     m_suppressTextSignal = false;
     m_dirty = false;
 
-    m_delBtn      ->setEnabled(p != nullptr);
-    m_renameBtn   ->setEnabled(p != nullptr);
+    m_delBtn->setEnabled(p != nullptr);
+    m_renameBtn->setEnabled(p != nullptr);
     m_renameBodyBtn->setEnabled(p != nullptr);
-    m_codeEditor   ->setEnabled(p != nullptr);
+    m_codeEditor->setEnabled(p != nullptr);
     m_validateNowBtn->setEnabled(p != nullptr);
 
     updateValidationBanner_();
@@ -376,7 +411,8 @@ void RulesEditorDialog::updateValidationBanner_()
     switch (m_current->validationState()) {
     case ValidationState::Valid:
         m_validationLabel->setText(tr("● Valid"));
-        m_validationBanner->setStyleSheet(openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Success));
+        m_validationBanner->setStyleSheet(
+            openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Success));
         break;
     case ValidationState::Invalid: {
         const int line = m_current->lastErrorLine();
@@ -384,7 +420,8 @@ void RulesEditorDialog::updateValidationBanner_()
             m_validationLabel->setText(tr("⚠ Line %1: %2").arg(line).arg(m_current->lastError()));
         else
             m_validationLabel->setText(tr("⚠ %1").arg(m_current->lastError()));
-        m_validationBanner->setStyleSheet(openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error));
+        m_validationBanner->setStyleSheet(
+            openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error));
         break;
     }
     case ValidationState::Pending:
@@ -401,8 +438,10 @@ void RulesEditorDialog::updateValidationBanner_()
 
 void RulesEditorDialog::onCodeEditorTextChanged_()
 {
-    if (m_suppressTextSignal) return;
-    if (!m_current) return;
+    if (m_suppressTextSignal)
+        return;
+    if (!m_current)
+        return;
     m_dirty = true;
     // Schedule a validation pass; the dialog leaves committing the
     // engine round-trip to flushPendingEdit() on selection change /
@@ -417,9 +456,13 @@ void RulesEditorDialog::onCodeEditorFocusOut_()
 
 void RulesEditorDialog::flushPendingEdit()
 {
-    if (!m_dirty || !m_current || !m_layer) return;
+    if (!m_dirty || !m_current || !m_layer)
+        return;
     const QString newBody = m_codeEditor->toPlainText();
-    if (newBody == m_current->body()) { m_dirty = false; return; }
+    if (newBody == m_current->body()) {
+        m_dirty = false;
+        return;
+    }
     QString err;
     if (!m_layer->applyControlRuleReplace(m_current->name(), newBody, &err)) {
         QMessageBox::warning(this, tr("Save Failed"),
@@ -435,7 +478,8 @@ void RulesEditorDialog::flushPendingEdit()
 
 void RulesEditorDialog::invokeNew()
 {
-    if (m_createCard) m_createCard->show();
+    if (m_createCard)
+        m_createCard->show();
     if (m_createNameEdit) {
         m_createNameEdit->setFocus();
         m_createNameEdit->selectAll();
@@ -449,7 +493,8 @@ void RulesEditorDialog::onAddClicked_()
 
 void RulesEditorDialog::onCancelCreateClicked_()
 {
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
     m_createNameEdit->clear();
     m_createValidationLbl->clear();
     m_createBtn->setEnabled(false);
@@ -470,6 +515,11 @@ void RulesEditorDialog::onCreateNewNameChanged_(const QString &text)
     }
     if (reg && reg->hasName(name)) {
         m_createValidationLbl->setText(tr("Name already in use."));
+        m_createBtn->setEnabled(false);
+        return;
+    }
+    if (const QString why = openswmmvis::swmmIdentifierProblem(name); !why.isEmpty()) {
+        m_createValidationLbl->setText(why); // feedback C10
         m_createBtn->setEnabled(false);
         return;
     }
@@ -495,7 +545,8 @@ void RulesEditorDialog::submitCreateNew()
 void RulesEditorDialog::onCreateNewSubmit_()
 {
     const QString name = pendingName();
-    if (name.isEmpty() || !m_layer) return;
+    if (name.isEmpty() || !m_layer)
+        return;
     QString err;
     if (!m_layer->applyControlRuleAdd(name, defaultRuleSkeleton(name), &err)) {
         QMessageBox::warning(this, tr("Create Failed"),
@@ -503,7 +554,8 @@ void RulesEditorDialog::onCreateNewSubmit_()
         return;
     }
     // Transition to edit mode + select the newly-created rule.
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
     m_createNameEdit->clear();
     m_createValidationLbl->clear();
     m_createBtn->setEnabled(false);
@@ -523,33 +575,38 @@ void RulesEditorDialog::onDeleteClicked_()
 
 void RulesEditorDialog::invokeDelete()
 {
-    if (!m_current) return;
+    if (!m_current)
+        return;
     const QString name = m_current->name();
     const auto rc = QMessageBox::question(
-        this, tr("Delete rule"),
-        tr("Delete control rule \"%1\"? This cannot be undone.").arg(name),
+        this, tr("Delete rule"), tr("Delete control rule \"%1\"? This cannot be undone.").arg(name),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (rc != QMessageBox::Yes) return;
+    if (rc != QMessageBox::Yes)
+        return;
     QString err;
-    if (m_layer) m_layer->applyControlRuleRemove(name, &err);
+    if (m_layer)
+        m_layer->applyControlRuleRemove(name, &err);
 }
 
 void RulesEditorDialog::onRenameClicked_()
 {
-    if (!m_current) return;
+    if (!m_current)
+        return;
     bool ok = false;
     const QString cur = m_current->name();
-    const QString next = QInputDialog::getText(
-        this, tr("Rename rule"),
-        tr("New name for \"%1\":").arg(cur),
-        QLineEdit::Normal, cur, &ok).trimmed();
-    if (!ok || next.isEmpty() || next == cur) return;
+    const QString next =
+        QInputDialog::getText(this, tr("Rename rule"), tr("New name for \"%1\":").arg(cur),
+                              QLineEdit::Normal, cur, &ok)
+            .trimmed();
+    if (!ok || next.isEmpty() || next == cur)
+        return;
     renameCurrent(next);
 }
 
 bool RulesEditorDialog::renameCurrent(const QString &newName)
 {
-    if (!m_current || !m_layer) return false;
+    if (!m_current || !m_layer)
+        return false;
     // Flush any pending text edits BEFORE the rename so the rewrite of
     // the RULE <name> header sees the user's current body, not a stale
     // snapshot.
@@ -558,8 +615,8 @@ bool RulesEditorDialog::renameCurrent(const QString &newName)
     return m_layer->applyControlRuleRename(m_current->name(), newName, &err);
 }
 
-void RulesEditorDialog::onProviderRenamed_(ControlRuleProvider *p,
-                                             const QString &, const QString &now)
+void RulesEditorDialog::onProviderRenamed_(ControlRuleProvider *p, const QString &,
+                                           const QString &now)
 {
     if (m_current == p) {
         m_nameLabel->setText(now);
@@ -582,7 +639,8 @@ void RulesEditorDialog::openForRule(const QString &name)
     activateWindow();
     flushPendingEdit();
     const int row = m_listModel->indexOf(name);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     m_listView->setCurrentIndex(m_listProxy->mapFromSource(m_listModel->index(row, 0)));
 }
 

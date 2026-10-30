@@ -1,9 +1,10 @@
-/*!
- * \file   auxiliarystoragespec.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  AuxiliaryStorageSpec impl + JSON round-trip (Slice Z.15-data).
+/**
+ * @file      auxiliarystoragespec.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     AuxiliaryStorageSpec impl + JSON round-trip (Slice Z.15-data).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/auxiliarystoragespec.h"
@@ -25,7 +26,7 @@ AuxiliaryStorageSpec AuxiliaryStorageSpec::fromJson(const QJsonObject &j)
 {
     AuxiliaryStorageSpec s;
     s.enabled = j.value(QStringLiteral("enabled")).toBool(false);
-    s.dbPath  = j.value(QStringLiteral("dbPath")).toString();
+    s.dbPath = j.value(QStringLiteral("dbPath")).toString();
     return s;
 }
 

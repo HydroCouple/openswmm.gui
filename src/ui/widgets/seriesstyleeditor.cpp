@@ -1,9 +1,13 @@
-/*!
- * \file   seriesstyleeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      seriesstyleeditor.cpp
+ * @brief     Replaces the original hand-rolled form widget with a `QTreeView` driven by
+ *            `QPropertyModel` over a `SeriesStyleObject`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/seriesstyleeditor.h"
 
 #include "plot/seriesstyleobject.h"
@@ -15,25 +19,24 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::plot::SeriesStyle;
 using openswmmvis::plot::SeriesStyleObject;
 
-SeriesStyleEditor::SeriesStyleEditor(QWidget *parent)
-    : QWidget(parent)
+SeriesStyleEditor::SeriesStyleEditor(QWidget *parent) : QWidget(parent)
 {
     m_obj = new SeriesStyleObject(this);
     buildUi();
 
     // Forward every aggregate style change as our own styleChanged() so
     // hosts can subscribe in a single place.
-    connect(m_obj, &SeriesStyleObject::styleChanged,
-            this, &SeriesStyleEditor::styleChanged);
+    connect(m_obj, &SeriesStyleObject::styleChanged, this, &SeriesStyleEditor::styleChanged);
     // Spec-level legendOverride is distinct from the style — forward it as
     // its own signal so the dialog can write it back to SeriesSpec.
-    connect(m_obj, &SeriesStyleObject::legendOverrideChanged,
-            this, &SeriesStyleEditor::legendOverrideChanged);
+    connect(m_obj, &SeriesStyleObject::legendOverrideChanged, this,
+            &SeriesStyleEditor::legendOverrideChanged);
 }
 
 SeriesStyleEditor::~SeriesStyleEditor() = default;
@@ -60,11 +63,13 @@ void SeriesStyleEditor::buildUi()
     root->addWidget(m_tree, 1);
 }
 
-void SeriesStyleEditor::setStyle(const SeriesStyle& style)
+void SeriesStyleEditor::setStyle(const SeriesStyle &style)
 {
-    if (!m_obj) return;
+    if (!m_obj)
+        return;
     m_obj->setStyle(style);
-    if (m_model) m_model->refreshValues();
+    if (m_model)
+        m_model->refreshValues();
 }
 
 SeriesStyle SeriesStyleEditor::style() const
@@ -72,11 +77,13 @@ SeriesStyle SeriesStyleEditor::style() const
     return m_obj ? m_obj->style() : SeriesStyle{};
 }
 
-void SeriesStyleEditor::setLegendOverride(const QString& override)
+void SeriesStyleEditor::setLegendOverride(const QString &override)
 {
-    if (!m_obj) return;
+    if (!m_obj)
+        return;
     m_obj->setLegendOverride(override);
-    if (m_model) m_model->refreshValues();
+    if (m_model)
+        m_model->refreshValues();
 }
 
 QString SeriesStyleEditor::legendOverride() const

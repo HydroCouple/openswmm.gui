@@ -100,3 +100,13 @@ message(STATUS "Test runtime env modifications: ${SWMMVIS_TEST_ENV}")
 add_subdirectory(unit)
 add_subdirectory(gui)
 add_subdirectory(tools)
+add_subdirectory(extensions)
+
+add_test(NAME test_build_timestamp
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSWMMVIS_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DTEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/build_timestamp"
+        "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+        "-DTEST_COMPILER=${CMAKE_CXX_COMPILER}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/test_build_timestamp.cmake")
+set_tests_properties(test_build_timestamp PROPERTIES LABELS "unit" TIMEOUT 60)

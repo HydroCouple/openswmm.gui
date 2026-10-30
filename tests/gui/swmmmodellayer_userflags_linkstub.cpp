@@ -8,9 +8,33 @@
 // swmmmodellayer.cpp and its transitive layer/render/engine graph — keeping
 // this a lean, self-contained leaf test. The real implementation lives in
 // src/layers/swmmmodellayer.cpp and is covered by the app build.
+
+/**
+ * @file      swmmmodellayer_userflags_linkstub.cpp
+ * @brief     Tests for swmmmodellayer userflags linkstub.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "layers/swmmmodellayer.h"
 
 openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel()
 {
     return nullptr;
+}
+
+// Same story for swmmlinkpropertyadapter.cpp's inletUsageRef() row, which
+// asks the layer for the conduit's inlet-usage row: no layer here, so no row.
+bool SWMMModelLayer::inletUsageFor(int, int, SWMM_InletUsage *) const
+{
+    return false;
+}
+
+// Leaf adapter tests use bare engines; layer-mediated endpoint editing is
+// exercised by test_attributetableschema with the real model layer.
+bool SWMMModelLayer::pushLinkEndpointEdit(int, bool, int)
+{
+    return false;
 }

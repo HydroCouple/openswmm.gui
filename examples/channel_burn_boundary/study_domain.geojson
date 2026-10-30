@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "name": "study_domain",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3857"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "32 m study domain"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              0,
+              0
+            ],
+            [
+              32,
+              0
+            ],
+            [
+              32,
+              32
+            ],
+            [
+              0,
+              32
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

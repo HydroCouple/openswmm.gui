@@ -1,20 +1,22 @@
-/*!
- * \file   streetregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      streetregistry.cpp
+ * @brief     Mirrors TransectRegistry.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "street/streetregistry.h"
 
+#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 
-namespace openswmmvis::street {
-
-StreetRegistry::StreetRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::street
 {
-}
+
+StreetRegistry::StreetRegistry(QObject *parent) : QObject(parent) {}
 
 StreetRegistry::~StreetRegistry() = default;
 
@@ -25,7 +27,8 @@ StreetProvider *StreetRegistry::findByName(const QString &name) const
 
 void StreetRegistry::wireProviderSignals_(StreetProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     connect(p, &StreetProvider::nameChanged, this,
             [this, p](const QString &prev, const QString &now) {
                 m_byLowerName.remove(prev.toLower());
@@ -38,19 +41,42 @@ void StreetRegistry::wireProviderSignals_(StreetProvider *p)
 
 StreetProvider *StreetRegistry::create(const QString &name)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
     auto *p = new StreetProvider(name, this);
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
     wireProviderSignals_(p);
+    // Reach the engine at creation so the object can be selected where it
+    // is referenced (pickers list engine names, setters resolve them there)
+    // while its editor is still open. Parameters follow through
+    // saveToEngine. Skipped when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray id = name.toUtf8();
+        if (swmm_street_index(eng, id.constData()) < 0)
+            swmm_street_add(eng, id.constData());
+    }
+
     emit providerAdded(p);
     return p;
 }
 
 void StreetRegistry::remove(StreetProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
     emit providerAboutToBeRemoved(p);
+
+    // The engine copy exists from creation, so it goes too; otherwise the
+    // object survived in the saved .inp and came back on the next load.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_street_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0)
+            swmm_street_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -58,10 +84,11 @@ void StreetRegistry::remove(StreetProvider *p)
 
 bool StreetRegistry::rename(StreetProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
-    const bool caseOnly =
-        p->name().compare(newName, Qt::CaseInsensitive) == 0;
-    if (!caseOnly && hasName(newName)) return false;
+    if (!p || newName.isEmpty())
+        return false;
+    const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName))
+        return false;
 
     // Rename in the engine too. Without this, saveToEngine saw an unknown
     // name and ADDED a second street, orphaning the original with its
@@ -69,9 +96,7 @@ bool StreetRegistry::rename(StreetProvider *p, const QString &newName)
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const int idx = swmm_street_index(eng, p->name().toUtf8().constData());
-        if (idx >= 0 &&
-            swmm_street_rename(eng, idx, newName.toUtf8().constData())
-                != SWMM_OK)
+        if (idx >= 0 && swmm_street_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
             return false;
     }
 
@@ -81,30 +106,34 @@ bool StreetRegistry::rename(StreetProvider *p, const QString &newName)
 
 int StreetRegistry::loadFromEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
     const int n = swmm_street_count(eng);
-    if (n <= 0) return 0;
+    if (n <= 0)
+        return 0;
 
     int added = 0;
     for (int i = 0; i < n; ++i) {
         const char *cid = swmm_street_id(eng, i);
-        if (!cid || !*cid) continue;
+        if (!cid || !*cid)
+            continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id)) continue;
+        if (hasName(id))
+            continue;
 
         StreetProvider *p = create(id);
-        if (!p) continue;
+        if (!p)
+            continue;
 
         double tCrown = 0.0, hCurb = 0.0, sx = 0.0, nRoad = 0.0;
         double gutterDep = 0.0, gutterW = 0.0;
-        int    sides = 2;
+        int sides = 2;
         double backW = 0.0, backSlope = 0.0, backN = 0.0;
-        if (swmm_street_get_params(eng, i, &tCrown, &hCurb, &sx, &nRoad,
-                                   &gutterDep, &gutterW, &sides,
-                                   &backW, &backSlope, &backN) == SWMM_OK) {
+        if (swmm_street_get_params(eng, i, &tCrown, &hCurb, &sx, &nRoad, &gutterDep, &gutterW,
+                                   &sides, &backW, &backSlope, &backN) == SWMM_OK) {
             p->setCrownWidth(tCrown);
             p->setCurbHeight(hCurb);
             p->setCrossSlope(sx);
@@ -128,7 +157,8 @@ int StreetRegistry::saveToEngine()
 
 int StreetRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
@@ -137,14 +167,16 @@ int StreetRegistry::saveToEngine(void *engineHandle)
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_street_index(eng, idUtf8.constData());
         if (idx < 0) {
-            if (swmm_street_add(eng, idUtf8.constData()) != SWMM_OK) continue;
+            if (swmm_street_add(eng, idUtf8.constData()) != SWMM_OK)
+                continue;
             idx = swmm_street_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
         }
-        swmm_street_set_params(eng, idx,
-            p->crownWidth(), p->curbHeight(), p->crossSlope(), p->roadRoughness(),
-            p->gutterDepression(), p->gutterWidth(), p->sides(),
-            p->backingWidth(), p->backingSlope(), p->backingRoughness());
+        swmm_street_set_params(eng, idx, p->crownWidth(), p->curbHeight(), p->crossSlope(),
+                               p->roadRoughness(), p->gutterDepression(), p->gutterWidth(),
+                               p->sides(), p->backingWidth(), p->backingSlope(),
+                               p->backingRoughness());
         ++written;
     }
     return written;

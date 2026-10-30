@@ -1,21 +1,35 @@
-/*!
- * \file   qualityfunctiontablemodels.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      qualityfunctiontablemodels.cpp
+ * @brief     Washoff tabs (iteration 4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/models/qualityfunctiontablemodels.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_reactions.h>
 
 #include <QComboBox>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
-inline SWMM_Engine eng(void *h) { return static_cast<SWMM_Engine>(h); }
+namespace
+{
+/**
+ * @brief Cast a borrowed opaque model handle to the engine API handle type.
+ * @param[in] h Handle, including null.
+ * @return The same handle without validation or ownership transfer.
+ */
+inline SWMM_Engine eng(void *h)
+{
+    return static_cast<SWMM_Engine>(h);
+}
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,11 +39,26 @@ inline SWMM_Engine eng(void *h) { return static_cast<SWMM_Engine>(h); }
 void QualityFunctionTableModel::bind(void *engineHandle, int luIndex)
 {
     beginResetModel();
-    m_engine  = engineHandle;
+    m_engine = engineHandle;
     m_luIndex = luIndex;
-    m_rows = (m_engine && m_luIndex >= 0)
-                 ? qMax(0, swmm_pollutant_count(eng(m_engine)))
-                 : 0;
+    m_species.clear();
+    m_npollut = 0;
+    if (m_engine && m_luIndex >= 0) {
+        m_npollut = qMax(0, swmm_pollutant_count(eng(m_engine)));
+        // Multispecies Phase 2: bulk reaction species build up and wash off
+        // like pollutants; wall species cannot and are not listed.
+        const int nm = swmm_reaction_species_count(eng(m_engine));
+        for (int m = 0; m < nm; ++m) {
+            char name[128], units[32];
+            int is_wall = 0;
+            double atol = 0, rtol = 0;
+            if (swmm_reaction_species_get(eng(m_engine), m, name, int(sizeof name), &is_wall, units,
+                                          int(sizeof units), &atol, &rtol) == SWMM_OK &&
+                !is_wall)
+                m_species.push_back(m);
+        }
+    }
+    m_rows = m_npollut + int(m_species.size());
     endResetModel();
 }
 
@@ -45,9 +74,30 @@ int QualityFunctionTableModel::rowCount(const QModelIndex &parent) const
 
 QString QualityFunctionTableModel::pollutantName(int row) const
 {
-    if (!m_engine) return {};
+    if (!m_engine)
+        return {};
+    if (row >= m_npollut) {
+        const int k = row - m_npollut;
+        if (k < 0 || k >= m_species.size())
+            return {};
+        char name[128], units[32];
+        int is_wall = 0;
+        double atol = 0, rtol = 0;
+        if (swmm_reaction_species_get(eng(m_engine), m_species[k], name, int(sizeof name), &is_wall,
+                                      units, int(sizeof units), &atol, &rtol) != SWMM_OK)
+            return {};
+        return QString::fromUtf8(name);
+    }
     const char *raw = swmm_pollutant_id(eng(m_engine), row);
     return raw ? QString::fromUtf8(raw) : QString();
+}
+
+int QualityFunctionTableModel::constituentIndex(int row) const
+{
+    if (row < m_npollut)
+        return row;
+    const int k = row - m_npollut;
+    return (k >= 0 && k < m_species.size()) ? m_npollut + m_species[k] : -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,14 +106,13 @@ QString QualityFunctionTableModel::pollutantName(int row) const
 
 QStringList BuildupTableModel::functionNames()
 {
-    return { QStringLiteral("NONE"), QStringLiteral("POW"),
-             QStringLiteral("EXP"), QStringLiteral("SAT"),
-             QStringLiteral("EXT") };
+    return {QStringLiteral("NONE"), QStringLiteral("POW"), QStringLiteral("EXP"),
+            QStringLiteral("SAT"), QStringLiteral("EXT")};
 }
 
 QStringList BuildupTableModel::normalizerNames()
 {
-    return { QStringLiteral("AREA"), QStringLiteral("CURB") };
+    return {QStringLiteral("AREA"), QStringLiteral("CURB")};
 }
 
 int BuildupTableModel::columnCount(const QModelIndex &parent) const
@@ -71,90 +120,110 @@ int BuildupTableModel::columnCount(const QModelIndex &parent) const
     return parent.isValid() ? 0 : ColCount;
 }
 
-QVariant BuildupTableModel::headerData(int section, Qt::Orientation orientation,
-                                       int role) const
+QVariant BuildupTableModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
         return QAbstractTableModel::headerData(section, orientation, role);
     switch (section) {
-        case ColPollutant:  return tr("Pollutant");
-        case ColFunction:   return tr("Function");
-        case ColC1:         return tr("Max/C1");
-        case ColC2:         return tr("Rate/C2");
-        case ColC3:         return tr("Power/Sat/C3");
-        case ColNormalizer: return tr("Per Unit");
+    case ColPollutant:
+        return tr("Pollutant");
+    case ColFunction:
+        return tr("Function");
+    case ColC1:
+        return tr("Max/C1");
+    case ColC2:
+        return tr("Rate/C2");
+    case ColC3:
+        return tr("Power/Sat/C3");
+    case ColNormalizer:
+        return tr("Per Unit");
     }
     return {};
 }
 
 QVariant BuildupTableModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || !m_engine || m_luIndex < 0) return {};
+    if (!index.isValid() || !m_engine || m_luIndex < 0)
+        return {};
 
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
-                     &ft, &c1, &c2, &c3, &norm);
+    swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()), &ft, &c1, &c2, &c3,
+                     &norm);
 
     if (role == EnumComboDelegate::OptionsRole) {
-        if (index.column() == ColFunction)   return functionNames();
-        if (index.column() == ColNormalizer) return normalizerNames();
+        if (index.column() == ColFunction)
+            return functionNames();
+        if (index.column() == ColNormalizer)
+            return normalizerNames();
         return {};
     }
     if (role == Qt::ToolTipRole && index.column() == ColC3 && ft == 4)
         return tr("EXT buildup: C3 references a time series (stored as a "
                   "table index) — edit it in the .inp, not as a number.");
-    if (role != Qt::DisplayRole && role != Qt::EditRole) return {};
+    if (role != Qt::DisplayRole && role != Qt::EditRole)
+        return {};
 
     switch (index.column()) {
-        case ColPollutant:  return pollutantName(index.row());
-        case ColFunction:   return functionNames().value(ft);
-        case ColC1:         return c1;
-        case ColC2:         return c2;
-        case ColC3:
-            return (ft == 4 && role == Qt::DisplayRole)
-                       ? QVariant(tr("(series #%1)").arg(int(c3)))
-                       : QVariant(c3);
-        case ColNormalizer: return normalizerNames().value(norm);
+    case ColPollutant:
+        return pollutantName(index.row());
+    case ColFunction:
+        return functionNames().value(ft);
+    case ColC1:
+        return c1;
+    case ColC2:
+        return c2;
+    case ColC3:
+        return (ft == 4 && role == Qt::DisplayRole) ? QVariant(tr("(series #%1)").arg(int(c3)))
+                                                    : QVariant(c3);
+    case ColNormalizer:
+        return normalizerNames().value(norm);
     }
     return {};
 }
 
-bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value,
-                                int role)
+bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (!index.isValid() || role != Qt::EditRole || !m_engine || m_luIndex < 0)
         return false;
 
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
-                     &ft, &c1, &c2, &c3, &norm);
+    swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()), &ft, &c1, &c2, &c3,
+                     &norm);
 
     switch (index.column()) {
-        case ColFunction: {
-            const int nf = int(functionNames().indexOf(value.toString()));
-            if (nf < 0) return false;
-            ft = nf;
-            break;
-        }
-        case ColC1: c1 = value.toDouble(); break;
-        case ColC2: c2 = value.toDouble(); break;
-        case ColC3:
-            if (ft == 4) return false;   // EXT: table index, never a number
-            c3 = value.toDouble();
-            break;
-        case ColNormalizer: {
-            const int nn = int(normalizerNames().indexOf(value.toString()));
-            if (nn < 0) return false;
-            norm = nn;
-            break;
-        }
-        default: return false;
+    case ColFunction: {
+        const int nf = int(functionNames().indexOf(value.toString()));
+        if (nf < 0)
+            return false;
+        ft = nf;
+        break;
+    }
+    case ColC1:
+        c1 = value.toDouble();
+        break;
+    case ColC2:
+        c2 = value.toDouble();
+        break;
+    case ColC3:
+        if (ft == 4)
+            return false; // EXT: table index, never a number
+        c3 = value.toDouble();
+        break;
+    case ColNormalizer: {
+        const int nn = int(normalizerNames().indexOf(value.toString()));
+        if (nn < 0)
+            return false;
+        norm = nn;
+        break;
+    }
+    default:
+        return false;
     }
 
-    if (swmm_buildup_set(eng(m_engine), m_luIndex, index.row(),
-                         ft, c1, c2, c3, norm) != SWMM_OK)
+    if (swmm_buildup_set(eng(m_engine), m_luIndex, constituentIndex(index.row()), ft, c1, c2, c3,
+                         norm) != SWMM_OK)
         return false;
     emit dataChanged(this->index(index.row(), ColFunction),
                      this->index(index.row(), ColNormalizer));
@@ -164,14 +233,17 @@ bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value,
 Qt::ItemFlags BuildupTableModel::flags(const QModelIndex &index) const
 {
     Qt::ItemFlags f = QAbstractTableModel::flags(index);
-    if (!index.isValid()) return f;
-    if (index.column() == ColPollutant) return f;   // identity column
+    if (!index.isValid())
+        return f;
+    if (index.column() == ColPollutant)
+        return f; // identity column
     if (index.column() == ColC3 && m_engine && m_luIndex >= 0) {
         int ft = 0, norm = 0;
         double c1 = 0, c2 = 0, c3 = 0;
-        swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
-                         &ft, &c1, &c2, &c3, &norm);
-        if (ft == 4) return f;                       // EXT guard: read-only
+        swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()), &ft, &c1, &c2,
+                         &c3, &norm);
+        if (ft == 4)
+            return f; // EXT guard: read-only
     }
     return f | Qt::ItemIsEditable;
 }
@@ -182,8 +254,8 @@ Qt::ItemFlags BuildupTableModel::flags(const QModelIndex &index) const
 
 QStringList WashoffTableModel::functionNames()
 {
-    return { QStringLiteral("NONE"), QStringLiteral("EXP"),
-             QStringLiteral("RC"), QStringLiteral("EMC") };
+    return {QStringLiteral("NONE"), QStringLiteral("EXP"), QStringLiteral("RC"),
+            QStringLiteral("EMC")};
 }
 
 int WashoffTableModel::columnCount(const QModelIndex &parent) const
@@ -191,76 +263,96 @@ int WashoffTableModel::columnCount(const QModelIndex &parent) const
     return parent.isValid() ? 0 : ColCount;
 }
 
-QVariant WashoffTableModel::headerData(int section, Qt::Orientation orientation,
-                                       int role) const
+QVariant WashoffTableModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
         return QAbstractTableModel::headerData(section, orientation, role);
     switch (section) {
-        case ColPollutant:  return tr("Pollutant");
-        case ColFunction:   return tr("Function");
-        case ColCoeff:      return tr("Coefficient");
-        case ColExponent:   return tr("Exponent");
-        case ColSweepEffic: return tr("Sweep Effic (%)");
-        case ColBmpEffic:   return tr("BMP Effic (%)");
+    case ColPollutant:
+        return tr("Pollutant");
+    case ColFunction:
+        return tr("Function");
+    case ColCoeff:
+        return tr("Coefficient");
+    case ColExponent:
+        return tr("Exponent");
+    case ColSweepEffic:
+        return tr("Sweep Effic (%)");
+    case ColBmpEffic:
+        return tr("BMP Effic (%)");
     }
     return {};
 }
 
 QVariant WashoffTableModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || !m_engine || m_luIndex < 0) return {};
+    if (!index.isValid() || !m_engine || m_luIndex < 0)
+        return {};
 
     if (role == EnumComboDelegate::OptionsRole)
-        return index.column() == ColFunction ? QVariant(functionNames())
-                                             : QVariant();
-    if (role != Qt::DisplayRole && role != Qt::EditRole) return {};
+        return index.column() == ColFunction ? QVariant(functionNames()) : QVariant();
+    if (role != Qt::DisplayRole && role != Qt::EditRole)
+        return {};
 
     int ft = 0;
     double coeff = 0, expon = 0, sweep = 0, bmp = 0;
-    swmm_washoff_get(eng(m_engine), m_luIndex, index.row(),
-                     &ft, &coeff, &expon, &sweep, &bmp);
+    swmm_washoff_get(eng(m_engine), m_luIndex, constituentIndex(index.row()), &ft, &coeff, &expon,
+                     &sweep, &bmp);
     switch (index.column()) {
-        case ColPollutant:  return pollutantName(index.row());
-        case ColFunction:   return functionNames().value(ft);
-        case ColCoeff:      return coeff;
-        case ColExponent:   return expon;
-        case ColSweepEffic: return sweep;
-        case ColBmpEffic:   return bmp;
+    case ColPollutant:
+        return pollutantName(index.row());
+    case ColFunction:
+        return functionNames().value(ft);
+    case ColCoeff:
+        return coeff;
+    case ColExponent:
+        return expon;
+    case ColSweepEffic:
+        return sweep;
+    case ColBmpEffic:
+        return bmp;
     }
     return {};
 }
 
-bool WashoffTableModel::setData(const QModelIndex &index, const QVariant &value,
-                                int role)
+bool WashoffTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (!index.isValid() || role != Qt::EditRole || !m_engine || m_luIndex < 0)
         return false;
 
     int ft = 0;
     double coeff = 0, expon = 0, sweep = 0, bmp = 0;
-    swmm_washoff_get(eng(m_engine), m_luIndex, index.row(),
-                     &ft, &coeff, &expon, &sweep, &bmp);
+    swmm_washoff_get(eng(m_engine), m_luIndex, constituentIndex(index.row()), &ft, &coeff, &expon,
+                     &sweep, &bmp);
 
     switch (index.column()) {
-        case ColFunction: {
-            const int nf = int(functionNames().indexOf(value.toString()));
-            if (nf < 0) return false;
-            ft = nf;
-            break;
-        }
-        case ColCoeff:      coeff = value.toDouble(); break;
-        case ColExponent:   expon = value.toDouble(); break;
-        case ColSweepEffic: sweep = value.toDouble(); break;
-        case ColBmpEffic:   bmp   = value.toDouble(); break;
-        default: return false;
+    case ColFunction: {
+        const int nf = int(functionNames().indexOf(value.toString()));
+        if (nf < 0)
+            return false;
+        ft = nf;
+        break;
+    }
+    case ColCoeff:
+        coeff = value.toDouble();
+        break;
+    case ColExponent:
+        expon = value.toDouble();
+        break;
+    case ColSweepEffic:
+        sweep = value.toDouble();
+        break;
+    case ColBmpEffic:
+        bmp = value.toDouble();
+        break;
+    default:
+        return false;
     }
 
-    if (swmm_washoff_set(eng(m_engine), m_luIndex, index.row(),
-                         ft, coeff, expon, sweep, bmp) != SWMM_OK)
+    if (swmm_washoff_set(eng(m_engine), m_luIndex, constituentIndex(index.row()), ft, coeff, expon,
+                         sweep, bmp) != SWMM_OK)
         return false;
-    emit dataChanged(this->index(index.row(), ColFunction),
-                     this->index(index.row(), ColBmpEffic));
+    emit dataChanged(this->index(index.row(), ColFunction), this->index(index.row(), ColBmpEffic));
     return true;
 }
 
@@ -276,8 +368,7 @@ Qt::ItemFlags WashoffTableModel::flags(const QModelIndex &index) const
 // Enum combo delegate
 // ─────────────────────────────────────────────────────────────────────────────
 
-QWidget *EnumComboDelegate::createEditor(QWidget *parent,
-                                         const QStyleOptionViewItem &option,
+QWidget *EnumComboDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                                          const QModelIndex &index) const
 {
     const QStringList options = index.data(OptionsRole).toStringList();
@@ -288,8 +379,7 @@ QWidget *EnumComboDelegate::createEditor(QWidget *parent,
     return combo;
 }
 
-void EnumComboDelegate::setEditorData(QWidget *editor,
-                                      const QModelIndex &index) const
+void EnumComboDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     if (auto *combo = qobject_cast<QComboBox *>(editor)) {
         combo->setCurrentText(index.data(Qt::EditRole).toString());

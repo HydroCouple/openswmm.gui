@@ -1,9 +1,9 @@
-/*!
- * \file   sectiondiagram.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Renderer-agnostic section/profile diagram model + QPainter painter.
+/**
+ * @file      sectiondiagram.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Renderer-agnostic section/profile diagram model + QPainter painter.
  *
  * Slice SP.2 (workplans/SECTION_PREVIEW_WORKPLAN.md).
  *
@@ -19,12 +19,14 @@
  *
  * All colours come from the supplied QPalette, so the diagrams follow the
  * app theme (including dark mode) with no per-widget stylesheet.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_SECTIONVIEW_SECTIONDIAGRAM_H
 #define OPENSWMMVIS_SECTIONVIEW_SECTIONDIAGRAM_H
 
 #include <QPalette>
+#include <QtGlobal>
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
@@ -33,52 +35,81 @@
 
 class QPainter;
 
-namespace openswmmvis::sectionview {
+namespace openswmmvis::sectionview
+{
 
 /*! Semantic fill/stroke roles. Resolved against the palette at paint time so
  *  the same model renders correctly in light and dark themes. */
 enum class DiagramRole {
-    Conduit,     //!< Pipe / channel interior.
-    Structure,   //!< Manhole, chamber, vault walls.
-    Soil,        //!< Native soil below / around a structure.
-    Media,       //!< Engineered media (LID soil layer).
-    Gravel,      //!< Void storage (LID storage layer, gravel bed).
-    Vegetation,  //!< Planting / turf.
-    Water,       //!< Ponded or flowing water.
-    Muted,       //!< De-emphasised (unknown / not-yet-entered values).
-    Accent       //!< Highlighted item (e.g. the geom being edited).
+    Conduit,    //!< Pipe / channel interior.
+    Structure,  //!< Manhole, chamber, vault walls.
+    Storage,    //!< Storage-unit shell — brown, and stroked heavier than a
+                //!< manhole so a tank never reads as a junction.
+    Soil,       //!< Native soil below / around a structure.
+    Media,      //!< Engineered media (LID soil layer).
+    Gravel,     //!< Void storage (LID storage layer, gravel bed).
+    Vegetation, //!< Planting / turf.
+    Water,      //!< Ponded or flowing water.
+    Muted,      //!< De-emphasised (unknown / not-yet-entered values).
+    Accent      //!< Highlighted item (e.g. the geom being edited).
+};
+
+/*!
+ * Material pattern drawn INSIDE a filled polygon, on top of its flat colour.
+ *
+ * This is what makes a LID layer stack read as engineered materials rather than
+ * as coloured bands: a soil layer that is stippled and a storage layer full of
+ * gravel outlines are distinguishable at a glance and in greyscale, which flat
+ * fills separated only by hue are not.
+ *
+ * Patterns are generated procedurally from a fixed seed, so a given layer looks
+ * identical on every repaint — a texture that reshuffles as the panel resizes
+ * reads as noise, not as material.
+ */
+enum class DiagramTexture {
+    None,
+    Stipple,   //!< Fine speckle — engineered soil / planting media.
+    Gravel,    //!< Loose rounded outlines — void storage, drainage stone.
+    Aggregate, //!< Angular chips — porous pavement, base course.
+    Sand,      //!< Dense fine dots — sand / choking layer.
+    Hatch,     //!< 45° lines — native soil, and unknown-value layers.
+    Lattice,   //!< Cross-hatched grid — drainage mat / geocomposite.
+    Brick      //!< Staggered joints — paver blocks.
 };
 
 /*! A filled + stroked polygon in model coordinates (y increases UPWARD). */
-struct DiagramPoly
-{
-    QPolygonF   pts;
+struct DiagramPoly {
+    QPolygonF pts;
     DiagramRole role = DiagramRole::Conduit;
+    /*! Material pattern drawn over the fill; clipped to the polygon. */
+    DiagramTexture texture = DiagramTexture::None;
     /*! Open channels leave the top edge unstroked so they don't read as a
      *  closed conduit. Applies only when `pts` came from a section outline. */
-    bool        openTop = false;
+    bool openTop = false;
     /*! Draw with a dashed outline and a hatch fill — used for LID layers whose
      *  values the engine cannot read back. */
-    bool        unknown = false;
+    bool unknown = false;
     /*! Optional text drawn centred inside the polygon. */
-    QString     insetLabel;
+    QString insetLabel;
 };
 
 /*! A polyline (no fill), e.g. a centreline or a water surface. */
-struct DiagramPolyline
-{
-    QPolygonF   pts;
-    DiagramRole role   = DiagramRole::Muted;
-    bool        dashed = false;
-    QString     label;      //!< Drawn at the polyline's right end when set.
+struct DiagramPolyline {
+    QPolygonF pts;
+    DiagramRole role = DiagramRole::Muted;
+    bool dashed = false;
+    QString label; //!< Drawn at the polyline's right end when set.
+    /*! Draw as a wave train instead of a straight line — the conventional cue
+     *  for a free water surface. It is what stops an outfall's tailwater
+     *  reading as another pipe soffit. */
+    bool wavy = false;
 };
 
 /*! Ground surface with the conventional hatch below it. */
-struct DiagramGround
-{
+struct DiagramGround {
     double x0 = 0.0;
     double x1 = 0.0;
-    double y  = 0.0;
+    double y = 0.0;
 };
 
 /*!
@@ -88,42 +119,154 @@ struct DiagramGround
  * text is drawn along it — so one struct covers vertical depths, horizontal
  * widths and the slope-parallel length of a pipe.
  */
-struct DiagramDim
-{
+struct DiagramDim {
     QPointF from;
     QPointF to;
     QString text;
-    double  pixelOffset = 28.0;
-    bool    accent      = false;   //!< Highlight (e.g. the geom being edited).
+    double pixelOffset = 28.0;
+    bool accent = false; //!< Highlight (e.g. the geom being edited).
 };
 
 /*! A leader line from a feature point out to a text label placed
  *  `pixelOffset` pixels away, with the conventional horizontal landing. */
-struct DiagramLeader
-{
+struct DiagramLeader {
     QPointF anchor;
     QString text;
-    QPointF pixelOffset { 60.0, -28.0 };
+    QPointF pixelOffset{60.0, -28.0};
+};
+
+/*!
+ * A run of vegetation drawn standing on the segment `x0`→`x1` at height `y`.
+ *
+ * Planting is the fastest visual cue for which LID type is on screen — a
+ * bioretention cell and an infiltration trench have near-identical layer
+ * stacks and completely different surfaces.
+ */
+struct DiagramVegetation {
+    double x0 = 0.0;
+    double x1 = 0.0;
+    double y = 0.0;
+    /*! Plant height in MODEL units, so it scales with the drawing. */
+    double height = 0.0;
+    /*! Roughly how many plants to draw across the run; the painter spaces them
+     *  evenly and jitters them deterministically. */
+    int count = 8;
+    /*! Grass tufts (swales, turf) instead of shrubs (bioretention, gardens). */
+    bool grass = false;
+};
+
+/*!
+ * A circle in model coordinates — an underdrain pipe in section, a barrel
+ * fitting, a cleanout. Drawn filled + stroked like a poly.
+ */
+struct DiagramCircle {
+    QPointF centre;
+    double radius = 0.0;
+    DiagramRole role = DiagramRole::Conduit;
+    /*! Draw the conventional perforated-pipe ticks around the circumference. */
+    bool perforated = false;
+};
+
+/*!
+ * A standalone annotated arrow in model coordinates — inflow, overflow,
+ * infiltration into the native soil, evapotranspiration.
+ */
+struct DiagramArrow {
+    QPointF from;
+    QPointF to;
+    QString label;
+    DiagramRole role = DiagramRole::Accent;
+};
+
+/*!
+ * A schematic device glyph — the P&ID convention, where a pump is a symbol
+ * rather than a scaled machine.
+ *
+ * These exist because the things they stand for have no drawable geometry in
+ * the model: a SWMM pump carries a curve and two depths, not a casing size, so
+ * anything drawn to scale would be invented. A fixed-size glyph says "pump
+ * here" without claiming a dimension.
+ */
+enum class DiagramSymbolKind {
+    Pump,         //!< Casing circle + impeller, with a discharge nozzle.
+    FlapGate,     //!< Hinged flap hanging on a pipe end / outfall face.
+    ManholeCover, //!< Frame and cover, sat on a junction rim.
+    RatingBox     //!< Flow-vs-head outlet: a box holding a rating curve.
+};
+
+/*! One glyph, anchored at a model point and sized in screen pixels. */
+struct DiagramSymbol {
+    QPointF anchor;
+    DiagramSymbolKind kind = DiagramSymbolKind::Pump;
+    /*! Glyph size in SCREEN pixels. Symbols keep their size under zoom for the
+     *  same reason text does — a legible symbol is the point of drawing one. */
+    double pixelSize = 20.0;
+    /*! Mirror horizontally, so a glyph on an inbound connection faces the way
+     *  its flow runs. */
+    bool mirrored = false;
+    DiagramRole role = DiagramRole::Accent;
 };
 
 /*! One spoke of the plan-view inset: a link leaving/entering the node at
  *  `angleDeg` (math convention — 0° = +x / east, CCW positive). */
-struct PlanSpoke
-{
-    double  angleDeg = 0.0;
+struct PlanSpoke {
+    double angleDeg = 0.0;
     QString label;
-    bool    inbound  = true;
+    bool inbound = true;
+};
+
+/*! One plan-view compass inset.
+ *
+ *  A node section needs a single inset; a LINK section needs two — one per end
+ *  node — so the reader can see what arrives at each end and from which
+ *  direction. The `title` names the node the spokes belong to, which is what
+ *  makes a pair of insets readable at all. */
+struct PlanInset {
+    /*! Which margin the dial is anchored in. A link section puts its inlet
+     *  dial on the left and its outlet dial on the right, so the pair reads
+     *  in the same left-to-right order as the profile between them —
+     *  stacking both in one margin makes the reader guess which end is
+     *  which, and takes all of the width out of one side. */
+    enum class Side { Left, Right };
+
+    QVector<PlanSpoke> spokes;
+    QString title;
+    Side side = Side::Right;
+};
+
+/*!
+ * \struct DiagramViewport
+ * \brief User zoom / pan applied on top of the automatic fit.
+ *
+ * The painter always fits the model to the widget first; this is layered over
+ * that result, so "zoom to extents" is simply a default-constructed viewport
+ * and no state has to be recomputed when the model changes.
+ *
+ * Only the GEOMETRY is scaled — text keeps its point size, and dimension /
+ * leader offsets keep their pixel lengths. That is the engineering-drawing
+ * convention, and it is what makes zooming useful for legibility: the drawing
+ * spreads out underneath labels that stay readable, instead of everything
+ * growing together and staying equally cramped.
+ */
+struct DiagramViewport {
+    double zoom = 1.0; //!< 1.0 = fitted to the widget.
+    QPointF panPx;     //!< Additional translation, in screen pixels.
+
+    /**
+     * @return Zoom fuzzy-equal 1 and pan exactly null. No clamp/finite check or painter state
+     *   lookup; nonfinite zoom generally nonidentity. Pure value predicate.
+     */
+    [[nodiscard]] bool isIdentity() const { return qFuzzyCompare(zoom, 1.0) && panPx.isNull(); }
 };
 
 /*!
  * \struct SectionDiagramModel
  * \brief Everything one preview pane draws, in model units.
  */
-struct SectionDiagramModel
-{
-    QString title;      //!< Bold header, e.g. "C-12 — Cross-Section".
-    QString subtitle;   //!< Secondary header, e.g. "CIRCULAR".
-    QString footer;     //!< Single-line readout under the drawing.
+struct SectionDiagramModel {
+    QString title;    //!< Bold header, e.g. "C-12 — Cross-Section".
+    QString subtitle; //!< Secondary header, e.g. "CIRCULAR".
+    QString footer;   //!< Single-line readout under the drawing.
     /*! Shown centred instead of the drawing when there is nothing to render
      *  (no selection, DUMMY section, geometry not resolvable). */
     QString emptyText;
@@ -132,23 +275,83 @@ struct SectionDiagramModel
     QRectF bounds;
 
     /*! true  → equal px-per-unit on both axes (true-shape cross-sections).
-     *  false → independent axis scaling (profiles, where a 120 m run and a
-     *          3 m depth must both stay legible). */
+     *  false → the vertical scale is exaggerated relative to the horizontal,
+     *          by the ratio the two fields below resolve to. */
     bool uniformScale = true;
 
-    QVector<DiagramPoly>     polys;
-    QVector<DiagramPolyline> polylines;
-    QVector<DiagramGround>   grounds;
-    QVector<DiagramDim>      dims;
-    QVector<DiagramLeader>   leaders;
-    QVector<PlanSpoke>       plan;      //!< Non-empty → draw the compass inset.
+    /*!
+     * Vertical exaggeration (V:H) to draw at, when `uniformScale` is false.
+     *
+     * 0 → choose automatically, capped by `maxVerticalExaggeration`.
+     * >0 → use exactly this ratio; 1.0 is true scale.
+     *
+     * This exists because "stretch each axis to fill the box" — the obvious
+     * way to fit a 120 m reach with 4 m of depth into a wide pane — silently
+     * picks an exaggeration of 15 or more and makes a 0.25 % pipe look like a
+     * 4 % one. A profile has to state its exaggeration, or it misinforms.
+     */
+    double verticalExaggeration = 0.0;
 
+    /*! Cap on the automatic exaggeration. 0 → uncapped. */
+    double maxVerticalExaggeration = 0.0;
+
+    /*!
+     * Width:height the DRAWN content should aim for, when choosing the
+     * automatic exaggeration. 0 → fill the pane (the legacy behaviour, kept
+     * for models whose x axis is not a real length).
+     *
+     * Deriving the ratio from the model's own proportions rather than from the
+     * pane is what makes the automatic choice honest: a 120 m reach with 4.5 m
+     * of depth is naturally 27:1, so a target of 6:1 asks for 4.4x and snaps
+     * to 4x — the same answer at every dock size. Sizing to the pane instead
+     * (whether by filling it or by chasing a pixel height) makes the apparent
+     * gradient change as the user resizes, which is precisely the defect this
+     * field exists to remove.
+     */
+    double targetDrawnAspect = 0.0;
+
+    /*! Draw the achieved V:H ratio on the drawing.
+     *
+     *  Only meaningful when BOTH axes are real lengths. Node profiles put
+     *  connecting pipes on a normalised x axis, where a ratio would be
+     *  arithmetic on an arbitrary unit, so they leave this false. */
+    bool annotateExaggeration = false;
+
+    QVector<DiagramPoly> polys;
+    QVector<DiagramPolyline> polylines;
+    QVector<DiagramGround> grounds;
+    QVector<DiagramVegetation> vegetation;
+    QVector<DiagramCircle> circles;
+    QVector<DiagramArrow> arrows;
+    QVector<DiagramSymbol> symbols;
+    QVector<DiagramDim> dims;
+    QVector<DiagramLeader> leaders;
+    /*! Non-empty → draw one compass inset per entry, each anchored in the
+     *  margin its `side` names. One entry for a node section, two for a link
+     *  section. The painter places them in space the drawing is not using and
+     *  drops them when there is none — they never shrink the profile. */
+    QVector<PlanInset> planInsets;
+
+    /**
+     * @return True only when polys, polylines and grounds containers ALL empty, regardless of empty
+     *   vertices. Dimensions/leaders/vegetation/circles/arrows/symbols/insets alone do not count,
+     *   even though some contribute bounds. Pure predicate, no engine lookup.
+     */
     [[nodiscard]] bool isEmpty() const
     {
+        // Vegetation, circles, arrows and symbols are ornaments on something
+        // else, so they deliberately do not count as content on their own.
         return polys.isEmpty() && polylines.isEmpty() && grounds.isEmpty();
     }
 
-    /*! Union of every drawable's extent; used when `bounds` is left null. */
+    /*! Union of every drawable's extent; used when `bounds` is left null.
+     * @return Bounds of polygon/polyline points, ground endpoints, dimension endpoints and leader
+     *   anchors ONLY. Empty when none; zero/nonpositive axis expanded by 0.5 each side. Does not
+     *   include explicit bounds field, vegetation, circles, arrows, symbols, label pixel offsets or
+     *   plan insets despite broad original summary.
+     * @note No finite-value filtering; callers provide coherent model units/Y-up geometry. No
+     *   cached mutation or layout/painter access.
+     */
     [[nodiscard]] QRectF computeBounds() const;
 };
 
@@ -162,15 +365,66 @@ struct SectionDiagramModel
  * overlapping text.
  *
  * The painter's state is saved and restored; no transform leaks out.
+ *
+ * \param fitRectOut  Optionally receives the pixel rect the model bounds were
+ *        fitted into, BEFORE zoom/pan. A zooming host needs it to keep the
+ *        point under the cursor stationary; reporting it beats recomputing it,
+ *        because the fit reserves adaptive margins for leader and dimension
+ *        text and a second copy of that logic would silently drift.
+ *        Left untouched when the model is empty or too small to draw.
+ * \param achievedExaggerationOut  Optionally receives the V:H ratio actually
+ *        used (1.0 for a true-scale or uniform-scale drawing). Reporting it
+ *        beats inferring it from rendered pixels — which is what tests would
+ *        otherwise have to do, and what a zoom readout would need.
+ * @param[in,out] painter Required active painter; outer state saved/restored on EVERY return.
+ *   Geometry expressed in logical pixel coordinates of its current device/transform.
+ * @param[in] target Finite positive logical-pixel target rectangle expected, tiny/invalid drawing
+ *   budget returns after possible header.
+ * @param[in] model Borrowed coherent Y-up model with finite coordinates, common units; not mutated
+ *   or validated against engine.
+ * @param[in] palette Borrowed semantic colour source resolved at paint time.
+ * @param[in] viewport Relative geometry zoom/pixel pan, finite expected; zoom clamped [0.05,200],
+ *   text/glyph sizes and annotation offsets remain pixel-sized.
+ * @note Optional fitRectOut assigned once fit computed, BEFORE final <= 2 pixel-fit rejection;
+ *   empty/invalid-bounds/early budget returns leave untouched. Optional achievedExaggerationOut
+ *   written only after valid fit. Caller initializes outputs when stale values matter; no
+ *   failure/status return.
+ * @note Layout drops leaders below 300 pixel width, dimensions below 220, footer below 150 pixel
+ *   height; title/subtitle/VE note budget separate. Automatic bounds excludes ornaments as
+ *   computeBounds documents. Explicit uniformScale uses equal axes; explicit VE otherwise clamped
+ *   [0.01,1000]. Automatic targetDrawnAspect path derives model ratio, snaps to conventional 1..100
+ *   values with optional max; legacy no-target path fills independently without that cap/snap.
+ * @note Two-pass leader/dimension margins and all-or-none plan inset layout may reserve/re-fit
+ *   space; insets can shrink drawing when using margins, or disappear when insufficient. Geometry
+ *   clipped to drawing area; headings/footer/insets in screen space. Open-top polygons require
+ *   sampled right-bottom→top then left-top→bottom ordering; unknown polygons use dashed/hatch,
+ *   material patterns deterministic. Leader decluttering finite-budget heuristic can still overlap
+ *   in dense/tiny views.
+ * @note No engine lookup, model mutation, file write or event processing. Cost depends on
+ *   vertices/pattern bounding-box area, not merely target pixel area; caller avoids pathological
+ *   unbounded geometry. Qt font/painter context must be valid and serialized, QWidget hosts call
+ *   GUI thread.
  */
-void paintSectionDiagram(QPainter &painter, const QRectF &target,
-                         const SectionDiagramModel &model,
-                         const QPalette &palette);
+void paintSectionDiagram(QPainter &painter, const QRectF &target, const SectionDiagramModel &model,
+                         const QPalette &palette, const DiagramViewport &viewport = {},
+                         QRectF *fitRectOut = nullptr, double *achievedExaggerationOut = nullptr);
 
-/*! Resolve a role to its fill colour (exposed for tests + the icon renderer). */
+/*! Resolve a role to its fill colour (exposed for tests + the icon renderer).
+ * @param[in] role Semantic role, unknown enum handled by documented fallback.
+ * @param[in] palette Borrowed theme palette.
+ * @return Role-specific opaque RGB blend from palette Base/Highlight/WindowText and material
+ *   accents; unknown role returns palette Base. Blend helper ignores input alpha. No mutation or
+ *   cache.
+ */
 [[nodiscard]] QColor diagramFillColor(DiagramRole role, const QPalette &palette);
 
-/*! Resolve a role to its stroke colour. */
+/*! Resolve a role to its stroke colour.
+ * @param[in] role Semantic role, unknown enum handled by documented fallback.
+ * @param[in] palette Borrowed theme palette.
+ * @return Muted uses palette Mid, Accent darkened Highlight, Storage brown/text blend, every other
+ *   role WindowText. Unknown role follows WindowText. Storage blend opaque, direct palette values
+ *   retain alpha. No mutation or cache.
+ */
 [[nodiscard]] QColor diagramStrokeColor(DiagramRole role, const QPalette &palette);
 
 } // namespace openswmmvis::sectionview

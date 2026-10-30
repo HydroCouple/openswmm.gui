@@ -4,8 +4,8 @@
   <!-- Navigation index tabs for HTML output -->
   <navindex>
     <tab type="mainpage" visible="yes" title="OpenSWMM GUI"/>
-    <tab type="user" title="User Manual" visible="yes" url="@ref user_manual"/>
-    <tab type="user" title="Authors" visible="yes" url="@ref authors"/>
+    <!-- The pages index supplies Authors, User Manual and GUI Extensions with
+         their expandable contents. Custom user tabs for them duplicate the sidebar. -->
     <tab type="pages" visible="yes" title="" intro=""/>
     <tab type="topics" visible="yes" title="" intro=""/>
     <tab type="modules" visible="yes" title="" intro="">

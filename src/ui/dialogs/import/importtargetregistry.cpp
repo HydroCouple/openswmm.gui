@@ -1,152 +1,273 @@
-/*!
- * \file   importtargetregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importtargetregistry.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — static schema registry for the "Import Feature Layer →
+ *            SWMM Objects" dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/import/importtargetregistry.h"
+#include "ui/heatproperties.h"
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
-namespace {
+namespace
+{
 
 // Shorthand builders --------------------------------------------------------
 
+/**
+ * @return Required QString name descriptor consumed by constructor, empty adapterProperty/enum
+ *   list. Metadata only, no identity validation/source read.
+ */
 TargetAttribute nameAttr()
 {
-    return { QStringLiteral("name"),
-             ImportTargetRegistry::tr("Name (unique ID)"),
-             QMetaType::QString, /*required*/ true, QString(), {} };
+    return {QStringLiteral("name"),
+            ImportTargetRegistry::tr("Name (unique ID)"),
+            QMetaType::QString,
+            /*required*/ true,
+            QString(),
+            {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 endpoint key, copied.
+ * @param[in] label Display label copied.
+ * @return Optional QString endpoint descriptor, empty adapter property; planner strategy resolves
+ *   required-ness and defaults are not endpoint column lookup. No source access.
+ */
 TargetAttribute endpointAttr(const char *key, const QString &label)
 {
     // Consumed by applyLinkAdd, not by an adapter property. Marked
     // optional here; the planner enforces required-ness only when the
     // "use attribute columns" endpoint strategy is enabled alone.
-    return { QLatin1String(key), label, QMetaType::QString,
-             /*required*/ false, QString(), {} };
+    return {QLatin1String(key), label,     QMetaType::QString,
+            /*required*/ false, QString(), {}};
 }
 
-TargetAttribute dbl(const char *key, const QString &label,
-                    const char *prop, bool required = false)
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @param[in] required Copied required-mapping flag, default false.
+ * @return New Double descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
+TargetAttribute dbl(const char *key, const QString &label, const char *prop, bool required = false)
 {
-    return { QLatin1String(key), label, QMetaType::Double, required,
-             QLatin1String(prop), {} };
+    return {QLatin1String(key), label, QMetaType::Double, required, QLatin1String(prop), {}};
 }
 
-TargetAttribute intAttr(const char *key, const QString &label,
-                        const char *prop)
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @return New Int descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
+TargetAttribute intAttr(const char *key, const QString &label, const char *prop)
 {
-    return { QLatin1String(key), label, QMetaType::Int, false,
-             QLatin1String(prop), {} };
+    return {QLatin1String(key), label, QMetaType::Int, false, QLatin1String(prop), {}};
 }
 
-TargetAttribute str(const char *key, const QString &label,
-                    const char *prop)
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @return New QString descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
+TargetAttribute str(const char *key, const QString &label, const char *prop)
 {
-    return { QLatin1String(key), label, QMetaType::QString, false,
-             QLatin1String(prop), {} };
+    return {QLatin1String(key), label, QMetaType::QString, false, QLatin1String(prop), {}};
 }
 
-TargetAttribute enm(const char *key, const QString &label,
-                    const char *prop, QVector<EnumChoice> choices)
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @param[in] choices Moved ordered enum labels/codes, no validation/deduplication.
+ * @return New optional Int with enum choices descriptor; defaults optional except explicit dbl
+ *   flag. No min/max/unit conversion, provider access or source mutation.
+ */
+TargetAttribute enm(const char *key, const QString &label, const char *prop,
+                    QVector<EnumChoice> choices)
 {
-    return { QLatin1String(key), label, QMetaType::Int, false,
-             QLatin1String(prop), std::move(choices) };
+    return {QLatin1String(key), label, QMetaType::Int, false, QLatin1String(prop),
+            std::move(choices)};
 }
 
 // Enum choice tables — codes mirror the adapter Q_ENUMs
 // (SWMMNodePropertyAdapter / SWMMLinkPropertyAdapter /
 // SWMMRainGagePropertyAdapter), which mirror the engine.
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: NO=0/YES=1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> flapGateChoices()
-{ return { {QStringLiteral("NO"), 0}, {QStringLiteral("YES"), 1} }; }
+{
+    return {{QStringLiteral("NO"), 0}, {QStringLiteral("YES"), 1}};
+}
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   FREE0,NORMAL1,FIXED2,TIDAL3,TIMESERIES4. Labels matched case-insensitively by coercer,
+ *   static/not translated here. No source lookup/write or enum membership enforcement at creation.
+ */
 QVector<EnumChoice> outfallTypeChoices()
 {
-    return { {QStringLiteral("FREE"), 0}, {QStringLiteral("NORMAL"), 1},
-             {QStringLiteral("FIXED"), 2}, {QStringLiteral("TIDAL"), 3},
-             {QStringLiteral("TIMESERIES"), 4} };
+    return {{QStringLiteral("FREE"), 0},
+            {QStringLiteral("NORMAL"), 1},
+            {QStringLiteral("FIXED"), 2},
+            {QStringLiteral("TIDAL"), 3},
+            {QStringLiteral("TIMESERIES"), 4}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: CUTOFF0,OVERFLOW1,TABULAR2,WEIR3.
+ *   Labels matched case-insensitively by coercer, static/not translated here. No source
+ *   lookup/write or enum membership enforcement at creation.
+ */
 QVector<EnumChoice> dividerTypeChoices()
 {
-    return { {QStringLiteral("CUTOFF"), 0}, {QStringLiteral("OVERFLOW"), 1},
-             {QStringLiteral("TABULAR"), 2}, {QStringLiteral("WEIR"), 3} };
+    return {{QStringLiteral("CUTOFF"), 0},
+            {QStringLiteral("OVERFLOW"), 1},
+            {QStringLiteral("TABULAR"), 2},
+            {QStringLiteral("WEIR"), 3}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: INTENSITY0,VOLUME1,CUMULATIVE2. Labels
+ *   matched case-insensitively by coercer, static/not translated here. No source lookup/write or
+ *   enum membership enforcement at creation.
+ */
 QVector<EnumChoice> rainTypeChoices()
 {
-    return { {QStringLiteral("INTENSITY"), 0}, {QStringLiteral("VOLUME"), 1},
-             {QStringLiteral("CUMULATIVE"), 2} };
+    return {{QStringLiteral("INTENSITY"), 0},
+            {QStringLiteral("VOLUME"), 1},
+            {QStringLiteral("CUMULATIVE"), 2}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: TIMESERIES0/FILE1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> rainSourceChoices()
-{ return { {QStringLiteral("TIMESERIES"), 0}, {QStringLiteral("FILE"), 1} }; }
+{
+    return {{QStringLiteral("TIMESERIES"), 0}, {QStringLiteral("FILE"), 1}};
+}
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: IN0/MM1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> rainUnitChoices()
-{ return { {QStringLiteral("IN"), 0}, {QStringLiteral("MM"), 1} }; }
+{
+    return {{QStringLiteral("IN"), 0}, {QStringLiteral("MM"), 1}};
+}
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: OFF0/ON1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> pumpStateChoices()
-{ return { {QStringLiteral("OFF"), 0}, {QStringLiteral("ON"), 1} }; }
+{
+    return {{QStringLiteral("OFF"), 0}, {QStringLiteral("ON"), 1}};
+}
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: SIDE0/BOTTOM1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> orificeTypeChoices()
-{ return { {QStringLiteral("SIDE"), 0}, {QStringLiteral("BOTTOM"), 1} }; }
+{
+    return {{QStringLiteral("SIDE"), 0}, {QStringLiteral("BOTTOM"), 1}};
+}
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   TRANSVERSE0,SIDEFLOW1,V-NOTCH2,TRAPEZOIDAL3,ROADWAY4. Labels matched case-insensitively by
+ *   coercer, static/not translated here. No source lookup/write or enum membership enforcement at
+ *   creation.
+ */
 QVector<EnumChoice> weirTypeChoices()
 {
-    return { {QStringLiteral("TRANSVERSE"), 0}, {QStringLiteral("SIDEFLOW"), 1},
-             {QStringLiteral("V-NOTCH"), 2}, {QStringLiteral("TRAPEZOIDAL"), 3},
-             {QStringLiteral("ROADWAY"), 4} };
+    return {{QStringLiteral("TRANSVERSE"), 0},
+            {QStringLiteral("SIDEFLOW"), 1},
+            {QStringLiteral("V-NOTCH"), 2},
+            {QStringLiteral("TRAPEZOIDAL"), 3},
+            {QStringLiteral("ROADWAY"), 4}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   FUNCTIONAL/HEAD0,FUNCTIONAL/DEPTH1,TABULAR/HEAD2,TABULAR/DEPTH3. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> outletRatingChoices()
 {
-    return { {QStringLiteral("FUNCTIONAL/HEAD"), 0},
-             {QStringLiteral("FUNCTIONAL/DEPTH"), 1},
-             {QStringLiteral("TABULAR/HEAD"), 2},
-             {QStringLiteral("TABULAR/DEPTH"), 3} };
+    return {{QStringLiteral("FUNCTIONAL/HEAD"), 0},
+            {QStringLiteral("FUNCTIONAL/DEPTH"), 1},
+            {QStringLiteral("TABULAR/HEAD"), 2},
+            {QStringLiteral("TABULAR/DEPTH"), 3}};
 }
 
 } // namespace
 
 QVector<TargetKind> ImportTargetRegistry::allKinds()
 {
-    return { TargetKind::Junction, TargetKind::Outfall, TargetKind::Storage,
-             TargetKind::Divider,  TargetKind::RainGage,
-             TargetKind::Conduit,  TargetKind::Pump, TargetKind::Orifice,
-             TargetKind::Weir,     TargetKind::Outlet };
+    return {TargetKind::Junction, TargetKind::Outfall, TargetKind::Storage, TargetKind::Divider,
+            TargetKind::RainGage, TargetKind::Conduit, TargetKind::Pump,    TargetKind::Orifice,
+            TargetKind::Weir,     TargetKind::Outlet};
 }
 
 QString ImportTargetRegistry::kindLabel(TargetKind k)
 {
     switch (k) {
-    case TargetKind::Junction: return tr("Junction");
-    case TargetKind::Outfall:  return tr("Outfall");
-    case TargetKind::Storage:  return tr("Storage Unit");
-    case TargetKind::Divider:  return tr("Flow Divider");
-    case TargetKind::RainGage: return tr("Rain Gage");
-    case TargetKind::Conduit:  return tr("Conduit");
-    case TargetKind::Pump:     return tr("Pump");
-    case TargetKind::Orifice:  return tr("Orifice");
-    case TargetKind::Weir:     return tr("Weir");
-    case TargetKind::Outlet:   return tr("Outlet");
+    case TargetKind::Junction:
+        return tr("Junction");
+    case TargetKind::Outfall:
+        return tr("Outfall");
+    case TargetKind::Storage:
+        return tr("Storage Unit");
+    case TargetKind::Divider:
+        return tr("Flow Divider");
+    case TargetKind::RainGage:
+        return tr("Rain Gage");
+    case TargetKind::Conduit:
+        return tr("Conduit");
+    case TargetKind::Pump:
+        return tr("Pump");
+    case TargetKind::Orifice:
+        return tr("Orifice");
+    case TargetKind::Weir:
+        return tr("Weir");
+    case TargetKind::Outlet:
+        return tr("Outlet");
     }
     return {};
 }
 
 bool ImportTargetRegistry::isNodeKind(TargetKind k)
 {
-    return k == TargetKind::Junction || k == TargetKind::Outfall
-        || k == TargetKind::Storage  || k == TargetKind::Divider;
+    return k == TargetKind::Junction || k == TargetKind::Outfall || k == TargetKind::Storage ||
+           k == TargetKind::Divider;
 }
 
 bool ImportTargetRegistry::isLinkKind(TargetKind k)
 {
-    return k == TargetKind::Conduit || k == TargetKind::Pump
-        || k == TargetKind::Orifice || k == TargetKind::Weir
-        || k == TargetKind::Outlet;
+    return k == TargetKind::Conduit || k == TargetKind::Pump || k == TargetKind::Orifice ||
+           k == TargetKind::Weir || k == TargetKind::Outlet;
 }
 
 bool ImportTargetRegistry::isPointKind(TargetKind k)
@@ -157,23 +278,34 @@ bool ImportTargetRegistry::isPointKind(TargetKind k)
 int ImportTargetRegistry::swmmNodeType(TargetKind k)
 {
     switch (k) {
-    case TargetKind::Junction: return 0;
-    case TargetKind::Outfall:  return 1;
-    case TargetKind::Storage:  return 2;
-    case TargetKind::Divider:  return 3;
-    default:                   return -1;
+    case TargetKind::Junction:
+        return 0;
+    case TargetKind::Outfall:
+        return 1;
+    case TargetKind::Storage:
+        return 2;
+    case TargetKind::Divider:
+        return 3;
+    default:
+        return -1;
     }
 }
 
 int ImportTargetRegistry::swmmLinkType(TargetKind k)
 {
     switch (k) {
-    case TargetKind::Conduit: return 0;
-    case TargetKind::Pump:    return 1;
-    case TargetKind::Orifice: return 2;
-    case TargetKind::Weir:    return 3;
-    case TargetKind::Outlet:  return 4;
-    default:                  return -1;
+    case TargetKind::Conduit:
+        return 0;
+    case TargetKind::Pump:
+        return 1;
+    case TargetKind::Orifice:
+        return 2;
+    case TargetKind::Weir:
+        return 3;
+    case TargetKind::Outlet:
+        return 4;
+    default:
+        return -1;
     }
 }
 
@@ -184,142 +316,137 @@ QVector<TargetAttribute> ImportTargetRegistry::attributesFor(TargetKind kind)
 
     if (isLinkKind(kind)) {
         a << endpointAttr("fromNode", tr("From Node (column)"))
-          << endpointAttr("toNode",   tr("To Node (column)"));
+          << endpointAttr("toNode", tr("To Node (column)"));
     }
 
     switch (kind) {
     case TargetKind::Junction:
-        a << dbl("invertElev",     tr("Invert Elevation"), "invertElev")
-          << dbl("maxDepth",       tr("Max Depth"),        "maxDepth")
-          << dbl("initialDepth",   tr("Initial Depth"),    "initialDepth")
-          << dbl("surchargeDepth", tr("Surcharge Depth"),  "surchargeDepth")
-          << dbl("pondedArea",     tr("Ponded Area"),      "pondedArea")
-          << str("tag",            tr("Tag"),              "tag");
+        a << dbl("invertElev", tr("Invert Elevation"), "invertElev")
+          << dbl("maxDepth", tr("Max Depth"), "maxDepth")
+          << dbl("initialDepth", tr("Initial Depth"), "initialDepth")
+          << dbl("surchargeDepth", tr("Surcharge Depth"), "surchargeDepth")
+          << dbl("storageArea", tr("Storage Area"), "storageArea")
+          << dbl("pondedArea", tr("Ponded Area"), "pondedArea") << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Outfall:
-        a << dbl("invertElev",  tr("Invert Elevation"), "invertElev")
-          << enm("outfallType", tr("Outfall Type"), "outfallType",
-                 outfallTypeChoices())
+        a << dbl("invertElev", tr("Invert Elevation"), "invertElev")
+          << enm("outfallType", tr("Outfall Type"), "outfallType", outfallTypeChoices())
           // NOTE: writing outfallStage flips the outfall type to FIXED —
           // deliberate engine invariant (see swmmnodepropertyadapter.h,
           // Slice DA.4.3). The dialog tooltip carries this warning.
           << dbl("outfallStage", tr("Fixed Stage"), "outfallStage")
-          << enm("flapGate",     tr("Flap Gate"), "outfallFlapGate",
-                 flapGateChoices())
-          << str("tag",          tr("Tag"), "tag");
+          << enm("flapGate", tr("Flap Gate"), "outfallFlapGate", flapGateChoices())
+          << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Storage:
-        a << dbl("invertElev",     tr("Invert Elevation"), "invertElev")
-          << dbl("maxDepth",       tr("Max Depth"),        "maxDepth")
-          << dbl("initialDepth",   tr("Initial Depth"),    "initialDepth")
-          << dbl("surchargeDepth", tr("Surcharge Depth"),  "surchargeDepth")
-          << dbl("seepRate",       tr("Seepage Rate"),     "seepRate")
-          << str("tag",            tr("Tag"),              "tag");
+        a << dbl("invertElev", tr("Invert Elevation"), "invertElev")
+          << dbl("maxDepth", tr("Max Depth"), "maxDepth")
+          << dbl("initialDepth", tr("Initial Depth"), "initialDepth")
+          << dbl("surchargeDepth", tr("Surcharge Depth"), "surchargeDepth")
+          << dbl("seepRate", tr("Seepage Rate"), "seepRate") << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Divider:
-        a << dbl("invertElev",     tr("Invert Elevation"), "invertElev")
-          << dbl("maxDepth",       tr("Max Depth"),        "maxDepth")
-          << dbl("initialDepth",   tr("Initial Depth"),    "initialDepth")
-          << dbl("surchargeDepth", tr("Surcharge Depth"),  "surchargeDepth")
-          << dbl("pondedArea",     tr("Ponded Area"),      "pondedArea")
-          << enm("dividerType",    tr("Divider Type"), "dividerType",
-                 dividerTypeChoices())
-          << str("tag",            tr("Tag"),              "tag");
+        a << dbl("invertElev", tr("Invert Elevation"), "invertElev")
+          << dbl("maxDepth", tr("Max Depth"), "maxDepth")
+          << dbl("initialDepth", tr("Initial Depth"), "initialDepth")
+          << dbl("surchargeDepth", tr("Surcharge Depth"), "surchargeDepth")
+          << dbl("pondedArea", tr("Ponded Area"), "pondedArea")
+          << enm("dividerType", tr("Divider Type"), "dividerType", dividerTypeChoices())
+          << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::RainGage:
-        a << enm("rainType",    tr("Rain Format"), "rainType", rainTypeChoices())
-          << dbl("snowFactor",  tr("Snow Catch Factor"),   "snowFactor")
+        a << enm("rainType", tr("Rain Format"), "rainType", rainTypeChoices())
+          << dbl("snowFactor", tr("Snow Catch Factor"), "snowFactor")
           << dbl("scaleFactor", tr("Rainfall Scale Factor"), "scaleFactor")
-          << enm("dataSource",  tr("Data Source"), "dataSource",
-                 rainSourceChoices())
-          << str("filePath",    tr("Rain File Path"), "filePath")
-          << str("stationId",   tr("Station ID"),     "stationId")
-          << enm("rainUnits",   tr("Rain Units"), "rainUnits",
-                 rainUnitChoices());
+          << enm("dataSource", tr("Data Source"), "dataSource", rainSourceChoices())
+          << str("filePath", tr("Rain File Path"), "filePath")
+          << str("stationId", tr("Station ID"), "stationId")
+          << enm("rainUnits", tr("Rain Units"), "rainUnits", rainUnitChoices());
         break;
 
     case TargetKind::Conduit:
-        a << dbl("length",      tr("Length"),               "length")
-          << dbl("roughness",   tr("Roughness"),            "roughness")
-          << dbl("offsetUp",    tr("Inlet Offset"),         "offsetUp")
-          << dbl("offsetDn",    tr("Outlet Offset"),        "offsetDn")
-          << dbl("initialFlow", tr("Initial Flow"),         "initialFlow")
-          << dbl("maxFlow",     tr("Max Flow"),             "maxFlow")
-          << dbl("lossInlet",   tr("Entry Loss Coeff."),    "lossInlet")
-          << dbl("lossOutlet",  tr("Exit Loss Coeff."),     "lossOutlet")
-          << dbl("lossAvg",     tr("Avg. Loss Coeff."),     "lossAvg")
-          << dbl("seepRate",    tr("Seepage Rate"),         "seepRate")
-          << intAttr("barrels", tr("Barrels"),              "barrels")
-          << enm("flapGate",    tr("Flap Gate"), "flapGate", flapGateChoices())
-          << dbl("geom1",       tr("Geom1 (depth/diam.)"),  "geom1")
-          << dbl("geom2",       tr("Geom2"),                "geom2")
-          << dbl("geom3",       tr("Geom3"),                "geom3")
-          << dbl("geom4",       tr("Geom4"),                "geom4")
-          << str("tag",         tr("Tag"),                  "tag");
+        a << dbl("length", tr("Length"), "length") << dbl("roughness", tr("Roughness"), "roughness")
+          << dbl("offsetUp", tr("Inlet Offset"), "offsetUp")
+          << dbl("offsetDn", tr("Outlet Offset"), "offsetDn")
+          << dbl("initialFlow", tr("Initial Flow"), "initialFlow")
+          << dbl("maxFlow", tr("Max Flow"), "maxFlow")
+          << dbl("lossInlet", tr("Entry Loss Coeff."), "lossInlet")
+          << dbl("lossOutlet", tr("Exit Loss Coeff."), "lossOutlet")
+          << dbl("lossAvg", tr("Avg. Loss Coeff."), "lossAvg")
+          << dbl("seepRate", tr("Seepage Rate"), "seepRate")
+          << intAttr("barrels", tr("Barrels"), "barrels")
+          << enm("flapGate", tr("Flap Gate"), "flapGate", flapGateChoices())
+          << dbl("geom1", tr("Geom1 (depth/diam.)"), "geom1") << dbl("geom2", tr("Geom2"), "geom2")
+          << dbl("geom3", tr("Geom3"), "geom3") << dbl("geom4", tr("Geom4"), "geom4")
+          << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Pump:
-        a << enm("initState",     tr("Initial Status"), "initState",
-                 pumpStateChoices())
-          << dbl("startupDepth",  tr("Startup Depth"), "startupDepth")
-          << dbl("shutoffDepth",  tr("Shutoff Depth"), "shutoffDepth")
-          << str("tag",           tr("Tag"),           "tag");
+        a << enm("initState", tr("Initial Status"), "initState", pumpStateChoices())
+          << dbl("startupDepth", tr("Startup Depth"), "startupDepth")
+          << dbl("shutoffDepth", tr("Shutoff Depth"), "shutoffDepth")
+          << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Orifice:
-        a << enm("orificeType",    tr("Orifice Type"), "orificeType",
-                 orificeTypeChoices())
-          << dbl("offset",         tr("Inlet Offset"),        "offset")
-          << dbl("dischargeCoeff", tr("Discharge Coeff."),    "dischargeCoeff")
-          << enm("flapGate",       tr("Flap Gate"), "flapGate",
-                 flapGateChoices())
-          << dbl("openCloseRate",  tr("Open/Close Rate (1/s)"), "openCloseRate")
-          << dbl("geom1",          tr("Geom1 (depth/diam.)"), "geom1")
-          << dbl("geom2",          tr("Geom2 (width)"),       "geom2")
-          << str("tag",            tr("Tag"),                 "tag");
+        a << enm("orificeType", tr("Orifice Type"), "orificeType", orificeTypeChoices())
+          << dbl("offset", tr("Inlet Offset"), "offset")
+          << dbl("dischargeCoeff", tr("Discharge Coeff."), "dischargeCoeff")
+          << enm("flapGate", tr("Flap Gate"), "flapGate", flapGateChoices())
+          << dbl("openCloseRate", tr("Open/Close Rate (1/s)"), "openCloseRate")
+          << dbl("geom1", tr("Geom1 (depth/diam.)"), "geom1")
+          << dbl("geom2", tr("Geom2 (width)"), "geom2") << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Weir:
-        a << enm("weirType",        tr("Weir Type"), "weirType",
-                 weirTypeChoices())
-          << dbl("offsetUp",        tr("Inlet Offset"),       "offsetUp")
-          << dbl("offsetDn",        tr("Outlet Offset"),      "offsetDn")
-          << dbl("crestHeight",     tr("Crest Height"),       "crestHeight")
-          << dbl("dischargeCoeff",  tr("Discharge Coeff."),   "dischargeCoeff")
-          << dbl("endContractions", tr("End Contractions"),   "endContractions")
-          << enm("flapGate",        tr("Flap Gate"), "flapGate",
-                 flapGateChoices())
-          << dbl("geom1",           tr("Geom1 (height)"),     "geom1")
-          << dbl("geom2",           tr("Geom2 (length)"),     "geom2")
-          << dbl("geom3",           tr("Geom3 (side slope)"), "geom3")
-          << str("tag",             tr("Tag"),                "tag");
+        a << enm("weirType", tr("Weir Type"), "weirType", weirTypeChoices())
+          << dbl("offsetUp", tr("Inlet Offset"), "offsetUp")
+          << dbl("offsetDn", tr("Outlet Offset"), "offsetDn")
+          << dbl("crestHeight", tr("Crest Height"), "crestHeight")
+          << dbl("dischargeCoeff", tr("Discharge Coeff."), "dischargeCoeff")
+          << dbl("endContractions", tr("End Contractions"), "endContractions")
+          << enm("flapGate", tr("Flap Gate"), "flapGate", flapGateChoices())
+          << dbl("geom1", tr("Geom1 (height)"), "geom1")
+          << dbl("geom2", tr("Geom2 (length)"), "geom2")
+          << dbl("geom3", tr("Geom3 (side slope)"), "geom3") << str("tag", tr("Tag"), "tag");
         break;
 
     case TargetKind::Outlet:
-        a << enm("ratingType",   tr("Rating Curve Type"), "ratingType",
-                 outletRatingChoices())
-          << dbl("offset",       tr("Inlet Offset"),      "offset")
-          << dbl("coefficient",  tr("Coefficient"),       "coefficient")
-          << dbl("expon",        tr("Exponent"),          "expon")
-          << enm("flapGate",     tr("Flap Gate"), "flapGate",
-                 flapGateChoices())
-          << str("tag",          tr("Tag"),               "tag");
+        a << enm("ratingType", tr("Rating Curve Type"), "ratingType", outletRatingChoices())
+          << dbl("offset", tr("Inlet Offset"), "offset")
+          << dbl("coefficient", tr("Coefficient"), "coefficient")
+          << dbl("expon", tr("Exponent"), "expon")
+          << enm("flapGate", tr("Flap Gate"), "flapGate", flapGateChoices())
+          << str("tag", tr("Tag"), "tag");
         break;
     }
 
+    if (isNodeKind(kind) || kind == TargetKind::Conduit) {
+        const int count = kind == TargetKind::Conduit ? 14 : 6;
+        for (int i = 0; i < count; ++i) {
+            const QString key =
+                QStringLiteral("heat.") + QLatin1String(OpenSWMMVis::heatProperties()[i].key);
+            a.append({key,
+                      tr("Heat: %1").arg(OpenSWMMVis::heatPropertyLabel(i)),
+                      QMetaType::Double,
+                      false,
+                      key,
+                      {}});
+        }
+    }
     return a;
 }
 
-TargetAttribute ImportTargetRegistry::attribute(TargetKind kind,
-                                                const QString &key)
+TargetAttribute ImportTargetRegistry::attribute(TargetKind kind, const QString &key)
 {
     const QVector<TargetAttribute> all = attributesFor(kind);
     for (const TargetAttribute &t : all)
-        if (t.key == key) return t;
+        if (t.key == key)
+            return t;
     return {};
 }
 

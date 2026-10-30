@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.2, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/python
+configfile: pyproject.toml
+collected 56 items
+
+../openswmm.engine/python/tests/engine/test_reactions.py ............... [ 26%]
+.........................................                                [100%]
+
+============================== 56 passed in 0.56s ==============================

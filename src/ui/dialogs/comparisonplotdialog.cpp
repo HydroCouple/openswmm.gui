@@ -1,9 +1,12 @@
-/*!
- * \file   comparisonplotdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      comparisonplotdialog.cpp
+ * @brief     Replaces the single-series TimeSeriesPlotDialog with a comparison / analysis surface.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/comparisonplotdialog.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
@@ -13,16 +16,21 @@
 #include "plot/swmmoutrunlayer.h"
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
+#include "plot/timeseriesrunlayer.h"
 #include "plot/fitmetrics.h"
+#include "plot/seriesdataexport.h"
 #include "plot/seriespairing.h"
 #include "plot/chartproperties.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
 #include "ui/dialogs/comparisonpairsdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/rangeslider.h"
 #include "ui/widgets/seriesstyleeditor.h"
 #include "ui/widgets/statssummarypanel.h"
 #include "layers/swmmresultslayer.h"
+#include "swmmvisprojectwindow.h"
+#include "map/mapcanvas.h"
 #include "layers/swmm2dresultslayer.h"
 
 #include <QAction>
@@ -31,10 +39,12 @@
 #include <QChartView>
 #include <QCursor>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QPainter>
 #include <QColorDialog>
 #include <QComboBox>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -49,23 +59,69 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QProgressBar>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QScatterSeries>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QSplitter>
+#include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QValueAxis>
 #include <QVBoxLayout>
 
+#include <QEvent>
+#include <QPointer>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <limits>
 
-namespace openswmmvis::ui {
+namespace
+{
+
+/*! Refits a row's time-axis tick count whenever its chart view is resized.
+ *  Owned by (parented to) the view it watches. */
+class TimeAxisWidthFitter : public QObject
+{
+public:
+    /**
+     * @brief Attach axis-width observation lifetime to a view.
+     * @param[in,out] axis Nullable borrowed UTC axis, QPointer-guarded.
+     * @param[in] view Optional QObject parent owning this filter; caller installs it on the desired
+     * view.
+     */
+    TimeAxisWidthFitter(openswmmvis::plot::UtcTimeAxis *axis, QObject *view)
+        : QObject(view), m_axis(axis)
+    {
+    }
+    /**
+     * @brief Fit a surviving UTC axis tick count when its watched QWidget resizes.
+     * @param[in] watched Borrowed event target, dynamically checked for QWidget on resize.
+     * @param[in] event Required borrowed Qt event; never retained.
+     * @return QObject base-filter result, allowing normal event delivery.
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::Resize && m_axis)
+            if (auto *w = qobject_cast<QWidget *>(watched))
+                m_axis->fitTickCountToWidth(w->width());
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QPointer<openswmmvis::plot::UtcTimeAxis> m_axis;
+};
+
+} // namespace
+
+namespace openswmmvis::ui
+{
 
 using namespace openswmmvis::plot;
 
@@ -74,8 +130,7 @@ using namespace openswmmvis::plot;
 // ---------------------------------------------------------------------------
 
 ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
-    : QDialog(parent),
-      m_model(std::make_unique<ComparisonPlotModel>())
+    : PlotPanelView(parent), m_model(std::make_unique<ComparisonPlotModel>())
 {
     setWindowTitle(tr("Comparison Plot"));
     // Iteration 2 (D2) — naming wires the app-wide layout persistence
@@ -84,26 +139,68 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
     resize(1100, 720);
     buildUi();
 
-    connect(m_model.get(), &ComparisonPlotModel::runSourceAdded,
-            this, &ComparisonPlotDialog::onRunSourceAdded);
-    connect(m_model.get(), &ComparisonPlotModel::runSourceRemoved,
-            this, &ComparisonPlotDialog::onRunSourceRemoved);
-    connect(m_model.get(), &ComparisonPlotModel::seriesAdded,
-            this, &ComparisonPlotDialog::onSeriesAdded);
-    connect(m_model.get(), &ComparisonPlotModel::seriesRemoved,
-            this, &ComparisonPlotDialog::onSeriesRemoved);
-    connect(m_model.get(), &ComparisonPlotModel::styleChanged,
-            this, &ComparisonPlotDialog::onStyleChanged);
-    connect(m_model.get(), &ComparisonPlotModel::rowsChanged,
-            this, &ComparisonPlotDialog::onRowsChanged);
-    connect(m_model.get(), &ComparisonPlotModel::animationTimeChanged,
-            this, &ComparisonPlotDialog::onAnimationTimeChanged);
+    m_observationTimer = new QTimer(this);
+    m_observationTimer->setSingleShot(true);
+    m_observationTimer->setInterval(200);
+    connect(m_observationTimer, &QTimer::timeout, this, &ComparisonPlotDialog::requestObservationWindows);
+
+    connect(m_model.get(), &ComparisonPlotModel::runSourceAdded, this,
+            &ComparisonPlotDialog::onRunSourceAdded);
+    connect(m_model.get(), &ComparisonPlotModel::runSourceRemoved, this,
+            &ComparisonPlotDialog::onRunSourceRemoved);
+    connect(m_model.get(), &ComparisonPlotModel::seriesAdded, this,
+            &ComparisonPlotDialog::onSeriesAdded);
+    connect(m_model.get(), &ComparisonPlotModel::seriesBatchAdded, this, [this]() {
+        rebuildSeriesTree();
+        rebuildCharts();
+    });
+    connect(m_model.get(), &ComparisonPlotModel::seriesRemoved, this,
+            &ComparisonPlotDialog::onSeriesRemoved);
+    connect(m_model.get(), &ComparisonPlotModel::styleChanged, this,
+            &ComparisonPlotDialog::onStyleChanged);
+    connect(m_model.get(), &ComparisonPlotModel::rowsChanged, this,
+            &ComparisonPlotDialog::onRowsChanged);
+    connect(m_model.get(), &ComparisonPlotModel::animationTimeChanged, this,
+            &ComparisonPlotDialog::onAnimationTimeChanged);
     // Phase 5 — 1v1 pair list edits rebuild the scatter column.
-    connect(m_model.get(), &ComparisonPlotModel::pairsChanged,
-            this, [this]() { rebuildCharts(); });
+    connect(m_model.get(), &ComparisonPlotModel::pairsChanged, this, [this]() { rebuildCharts(); });
 }
 
-ComparisonPlotDialog::~ComparisonPlotDialog() = default;
+// State shared with the worker thread. The worker writes `results` and `ok`
+// and then publishes `done`; the GUI thread reads them only after `done`.
+struct ComparisonPlotDialog::ResultLoad {
+    std::weak_ptr<IRunLayer> layer; ///< expired when the run source is removed
+    Mesh2DExtractionJob job;
+    QVector<SeriesData> results;
+    bool ok = false;
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> done{false};
+    std::atomic<int> frames{0};
+};
+
+ComparisonPlotDialog::~ComparisonPlotDialog()
+{
+    // The job checks `cancel` before each frame, so this waits for at most
+    // one frame read. Nothing in the job refers to this dialog.
+    if (m_load)
+        m_load->cancel.store(true);
+    if (m_loadThread.joinable())
+        m_loadThread.join();
+}
+
+void ComparisonPlotDialog::plotActivationChanged(bool active)
+{
+    if (!active)
+        setAddFromMapChecked(false);
+}
+
+void ComparisonPlotDialog::showEvent(QShowEvent *event)
+{
+    PlotPanelView::showEvent(event);
+    // Layout restoration makes tree headers non-stretching by default.
+    // This single-column tree should always fill its resizable pane.
+    fitSeriesPanelToContents();
+}
 
 void ComparisonPlotDialog::buildUi()
 {
@@ -114,8 +211,30 @@ void ComparisonPlotDialog::buildUi()
     buildToolBar();
     root->addWidget(m_toolBar);
 
+    // ----- Saved 2D results loading strip (hidden unless a worker runs) ---
+    m_loadStrip = new QWidget(this);
+    m_loadStrip->setObjectName(QStringLiteral("loadStrip"));
+    auto *loadRow = new QHBoxLayout(m_loadStrip);
+    loadRow->setContentsMargins(8, 2, 8, 2);
+    m_loadLabel = new QLabel(m_loadStrip);
+    m_loadProgress = new QProgressBar(m_loadStrip);
+    m_loadProgress->setTextVisible(false);
+    m_loadProgress->setMaximumHeight(12);
+    m_loadButton = new QPushButton(m_loadStrip);
+    m_loadButton->setObjectName(QStringLiteral("loadButton"));
+    loadRow->addWidget(m_loadLabel);
+    loadRow->addWidget(m_loadProgress, 1);
+    loadRow->addWidget(m_loadButton);
+    m_loadStrip->hide();
+    root->addWidget(m_loadStrip);
+    connect(m_loadButton, &QPushButton::clicked, this, &ComparisonPlotDialog::onLoadButtonClicked_);
+    m_loadTimer = new QTimer(this);
+    m_loadTimer->setInterval(100);
+    connect(m_loadTimer, &QTimer::timeout, this, &ComparisonPlotDialog::pollResultLoading_);
+
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setObjectName(QStringLiteral("main"));
+    connect(m_splitter, &QSplitter::splitterMoved, this, [this] { m_seriesPanelResized = true; });
 
     // ----- Left pane: series tree + add/remove ------------------------------
     m_leftHost = new QWidget(this);
@@ -123,17 +242,20 @@ void ComparisonPlotDialog::buildUi()
     leftCol->setContentsMargins(0, 0, 0, 0);
 
     m_seriesTree = new QTreeWidget(m_leftHost);
+    m_seriesTree->setObjectName(QStringLiteral("seriesTree"));
     m_seriesTree->setHeaderLabels({tr("Series")});
+    m_seriesTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_seriesTree->header()->setStretchLastSection(true);
+    m_seriesTree->setTextElideMode(Qt::ElideNone);
     m_seriesTree->setRootIsDecorated(true);
     // Slice AT.3 — right-click context menu on tree items.
     m_seriesTree->setContextMenuPolicy(Qt::CustomContextMenu);
     leftCol->addWidget(m_seriesTree, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn     = new QPushButton(tr("Add Series…"), m_leftHost);
+    m_addBtn = new QPushButton(tr("Add Series…"), m_leftHost);
     m_loadObsBtn = new QPushButton(tr("Load Observed…"), m_leftHost);
-    m_removeBtn  = new QPushButton(tr("Remove"), m_leftHost);
+    m_removeBtn = new QPushButton(tr("Remove"), m_leftHost);
     m_removeBtn->setEnabled(false);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_loadObsBtn);
@@ -173,16 +295,16 @@ void ComparisonPlotDialog::buildUi()
 
     // Slice AT.3 — X-range slider + datetime label, wrapped in a thin row.
     m_sliderHost = new QWidget(m_chartsOuter);
-    auto *sliderRow  = new QHBoxLayout(m_sliderHost);
+    auto *sliderRow = new QHBoxLayout(m_sliderHost);
     sliderRow->setContentsMargins(2, 0, 2, 0);
     sliderRow->setSpacing(8);
     m_rangeSlider = new RangeSliderWidget(m_sliderHost);
     m_rangeSlider->setMinimumHeight(20);
-    m_rangeLabel  = new QLabel(m_sliderHost);
+    m_rangeLabel = new QLabel(m_sliderHost);
     m_rangeLabel->setMinimumWidth(220);
     m_rangeLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     sliderRow->addWidget(m_rangeSlider, 1);
-    sliderRow->addWidget(m_rangeLabel,  0);
+    sliderRow->addWidget(m_rangeLabel, 0);
     m_sliderHost->setMinimumHeight(24);
     m_chartsOuter->addWidget(m_sliderHost);
 
@@ -197,55 +319,51 @@ void ComparisonPlotDialog::buildUi()
 
     // Charts dominate; slider is fixed at 20 px; stats panel resizable
     // around its 160 px minimum.
-    m_chartsOuter->setStretchFactor(0, 4);  // charts
-    m_chartsOuter->setStretchFactor(1, 0);  // slider — fixed-height
-    m_chartsOuter->setStretchFactor(2, 1);  // stats
+    m_chartsOuter->setStretchFactor(0, 4); // charts
+    m_chartsOuter->setStretchFactor(1, 0); // slider — fixed-height
+    m_chartsOuter->setStretchFactor(2, 1); // stats
 
     // Wire range-slider → row 0's xAxis + update the datetime label.
-    connect(m_rangeSlider, &RangeSliderWidget::rangeChanged,
-            this, [this](qreal lo, qreal hi) {
-                if (m_syncingSlider) return;
-                if (m_rowWidgets.isEmpty() || !m_xFullMin.isValid()) return;
-                const qint64 fullMs = m_xFullMax.toMSecsSinceEpoch()
-                                       - m_xFullMin.toMSecsSinceEpoch();
-                if (fullMs <= 0) return;
-                const QDateTime loDt = m_xFullMin.addMSecs(qint64(lo * fullMs));
-                const QDateTime hiDt = m_xFullMin.addMSecs(qint64(hi * fullMs));
-                if (auto *xAxis = m_rowWidgets[0].xAxis)
-                    xAxis->setRange(loDt, hiDt);
-                if (m_rangeLabel) {
-                    m_rangeLabel->setText(
-                        QStringLiteral("%1  →  %2")
-                            .arg(loDt.toString(QStringLiteral("yyyy-MM-dd hh:mm")),
-                                 hiDt.toString(QStringLiteral("yyyy-MM-dd hh:mm"))));
-                }
-            });
+    connect(m_rangeSlider, &RangeSliderWidget::rangeChanged, this, [this](qreal lo, qreal hi) {
+        if (m_syncingSlider)
+            return;
+        if (m_rowWidgets.isEmpty() || !m_xFullMin.isValid())
+            return;
+        const qint64 fullMs = m_xFullMax.toMSecsSinceEpoch() - m_xFullMin.toMSecsSinceEpoch();
+        if (fullMs <= 0)
+            return;
+        const QDateTime loDt = m_xFullMin.addMSecs(qint64(lo * fullMs));
+        const QDateTime hiDt = m_xFullMin.addMSecs(qint64(hi * fullMs));
+        if (auto *xAxis = m_rowWidgets[0].xAxis)
+            xAxis->setRange(loDt, hiDt);
+        if (m_rangeLabel) {
+            m_rangeLabel->setText(QStringLiteral("%1  →  %2")
+                                      .arg(loDt.toString(QStringLiteral("yyyy-MM-dd hh:mm")),
+                                           hiDt.toString(QStringLiteral("yyyy-MM-dd hh:mm"))));
+        }
+    });
 
     m_splitter->addWidget(m_chartsOuter);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
     m_splitter->setSizes({280, 820});
     root->addWidget(m_splitter, 1);
 
-    // ----- Bottom: close button ---------------------------------------------
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    root->addWidget(bb);
-
     // Wiring
-    connect(m_addBtn,     &QPushButton::clicked,
-            this,         &ComparisonPlotDialog::onAddSeriesClicked);
-    connect(m_loadObsBtn, &QPushButton::clicked,
-            this,         &ComparisonPlotDialog::onLoadObservedClicked);
-    connect(m_removeBtn,  &QPushButton::clicked,
-            this,         &ComparisonPlotDialog::onRemoveSelectedClicked);
-    connect(m_seriesTree, &QTreeWidget::itemSelectionChanged,
-            this,         &ComparisonPlotDialog::onSeriesItemSelectionChanged);
-    connect(m_seriesTree, &QTreeWidget::itemDoubleClicked,
-            this,         &ComparisonPlotDialog::onSeriesItemDoubleClicked);
+    connect(m_addBtn, &QPushButton::clicked, this, &ComparisonPlotDialog::onAddSeriesClicked);
+    connect(m_loadObsBtn, &QPushButton::clicked, this,
+            &ComparisonPlotDialog::onLoadObservedClicked);
+    connect(m_removeBtn, &QPushButton::clicked, this,
+            &ComparisonPlotDialog::onRemoveSelectedClicked);
+    connect(m_seriesTree, &QTreeWidget::itemSelectionChanged, this,
+            &ComparisonPlotDialog::onSeriesItemSelectionChanged);
+    connect(m_seriesTree, &QTreeWidget::itemDoubleClicked, this,
+            &ComparisonPlotDialog::onSeriesItemDoubleClicked);
     // Slice AT.3 — checkbox toggle + context menu.
-    connect(m_seriesTree, &QTreeWidget::itemChanged,
-            this,         &ComparisonPlotDialog::onSeriesItemChanged);
-    connect(m_seriesTree, &QTreeWidget::customContextMenuRequested,
-            this,         &ComparisonPlotDialog::onSeriesTreeContextMenu);
+    connect(m_seriesTree, &QTreeWidget::itemChanged, this,
+            &ComparisonPlotDialog::onSeriesItemChanged);
+    connect(m_seriesTree, &QTreeWidget::customContextMenuRequested, this,
+            &ComparisonPlotDialog::onSeriesTreeContextMenu);
 }
 
 // ---------------------------------------------------------------------------
@@ -262,77 +380,86 @@ void ComparisonPlotDialog::buildToolBar()
     m_modeActions = new QActionGroup(this);
     m_modeActions->setExclusive(true);
 
-    auto makeModeAction = [this](const QString& text, const QString& tip)
-    {
+    /**
+     * @brief Create a dialog-owned checkable navigation action. Argument `text`: caption. Argument
+     * `tip`: copied tool/status hint. Returns: borrowed new action installed in exclusive
+     * group/toolbar and connected to mode propagation.
+     */
+    auto makeModeAction = [this](const QString &text, const QString &tip) {
         auto *a = new QAction(text, this);
         a->setCheckable(true);
         a->setStatusTip(tip);
         a->setToolTip(tip);
         m_modeActions->addAction(a);
         m_toolBar->addAction(a);
-        connect(a, &QAction::triggered,
-                this, &ComparisonPlotDialog::onModeActionTriggered);
+        connect(a, &QAction::triggered, this, &ComparisonPlotDialog::onModeActionTriggered);
         return a;
     };
-    m_actSelect  = makeModeAction(tr("Select"),   tr("Identify values under cursor"));
-    m_actPan     = makeModeAction(tr("Pan"),      tr("Drag to pan the view"));
-    m_actZoomIn  = makeModeAction(tr("Zoom In"),  tr("Click or drag a rectangle to zoom in"));
+    m_actSelect = makeModeAction(tr("Select"), tr("Identify values under cursor"));
+    m_actPan = makeModeAction(tr("Pan"), tr("Drag to pan the view"));
+    m_actZoomIn = makeModeAction(tr("Zoom In"), tr("Click or drag a rectangle to zoom in"));
     m_actZoomOut = makeModeAction(tr("Zoom Out"), tr("Click or drag a rectangle to zoom out"));
     // Slice AT.3 — SVG icons sourced from the existing :/swmmvis/ resource set.
-    m_actSelect ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")));
-    m_actPan    ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")));
-    m_actZoomIn ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")));
+    m_actSelect->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")));
+    m_actPan->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")));
+    m_actZoomIn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")));
     m_actZoomOut->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")));
     m_actSelect->setChecked(true);
 
     m_toolBar->addSeparator();
 
-    m_actFit = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
-                            tr("Fit"), this);
+    m_actFit =
+        new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")), tr("Fit"), this);
     m_actFit->setStatusTip(tr("Reset axes to data extents on all chart rows"));
     m_actFit->setToolTip(m_actFit->statusTip());
-    connect(m_actFit, &QAction::triggered,
-            this, &ComparisonPlotDialog::onFitClicked);
+    connect(m_actFit, &QAction::triggered, this, &ComparisonPlotDialog::onFitClicked);
     m_toolBar->addAction(m_actFit);
 
     m_actExport = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
-                               tr("Export PNG…"), this);
+                              tr("Export PNG…"), this);
     m_actExport->setStatusTip(tr("Save the chart pane as a PNG image"));
     m_actExport->setToolTip(m_actExport->statusTip());
-    connect(m_actExport, &QAction::triggered,
-            this, &ComparisonPlotDialog::onExportPngClicked);
+    connect(m_actExport, &QAction::triggered, this, &ComparisonPlotDialog::onExportPngClicked);
     m_toolBar->addAction(m_actExport);
+
+    m_actExportData = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                  tr("Export Data…"), this);
+    m_actExportData->setStatusTip(tr("Save the plotted time series to a CSV or SWMM .dat file"));
+    m_actExportData->setToolTip(m_actExportData->statusTip());
+    connect(m_actExportData, &QAction::triggered, this, &ComparisonPlotDialog::onExportDataClicked);
+    m_toolBar->addAction(m_actExportData);
 
     m_toolBar->addSeparator();
 
     m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("TimeCursor")),
-                                    tr("Show Animation Cursor"), this);
+                                  tr("Show Animation Cursor"), this);
     m_actAnimCursor->setObjectName(QStringLiteral("showAnimCursor"));
     m_actAnimCursor->setCheckable(true);
     m_actAnimCursor->setChecked(true);
     m_actAnimCursor->setShortcut(QKeySequence(tr("Ctrl+Shift+C")));
+    m_actAnimCursor->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actAnimCursor->setStatusTip(tr("Toggle the vertical line at the current animation time"));
     m_actAnimCursor->setToolTip(m_actAnimCursor->statusTip());
-    connect(m_actAnimCursor, &QAction::toggled,
-            this, &ComparisonPlotDialog::onAnimationCursorToggled);
+    connect(m_actAnimCursor, &QAction::toggled, this,
+            &ComparisonPlotDialog::onAnimationCursorToggled);
     m_toolBar->addAction(m_actAnimCursor);
 
     m_actAddSystem = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SystemSeries")),
-                                   tr("Add System Series…"), this);
+                                 tr("Add System Series…"), this);
     m_actAddSystem->setStatusTip(tr("Plot a system-wide variable (rainfall, runoff, flooding, …)"));
     m_actAddSystem->setToolTip(m_actAddSystem->statusTip());
-    connect(m_actAddSystem, &QAction::triggered,
-            this, &ComparisonPlotDialog::onAddSystemSeriesClicked);
+    connect(m_actAddSystem, &QAction::triggered, this,
+            &ComparisonPlotDialog::onAddSystemSeriesClicked);
     m_toolBar->addAction(m_actAddSystem);
 
     m_actAddFromMap = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PickFromMap")),
-                                    tr("Add from Map…"), this);
+                                  tr("Add from Map…"), this);
     m_actAddFromMap->setObjectName(QStringLiteral("addFromMap"));
+    m_actAddFromMap->setProperty("noLayoutPersistence", true);
     m_actAddFromMap->setCheckable(true);
     m_actAddFromMap->setStatusTip(tr("Click objects on the map to add them as series"));
     m_actAddFromMap->setToolTip(m_actAddFromMap->statusTip());
-    connect(m_actAddFromMap, &QAction::toggled,
-            this, &ComparisonPlotDialog::addFromMapToggled);
+    connect(m_actAddFromMap, &QAction::toggled, this, &ComparisonPlotDialog::addFromMapToggled);
     m_toolBar->addAction(m_actAddFromMap);
 
     // ----- CP.1 — View toggles ---------------------------------------------
@@ -344,69 +471,67 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addSeparator();
 
     m_actShowSeries = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelLeft")),
-                                tr("Series Panel"), this);
+                                  tr("Series Panel"), this);
     m_actShowSeries->setObjectName(QStringLiteral("showSeriesPanel"));
     m_actShowSeries->setCheckable(true);
     m_actShowSeries->setChecked(true);
     m_actShowSeries->setStatusTip(tr("Show/hide the series tree on the left"));
     m_actShowSeries->setToolTip(m_actShowSeries->statusTip());
-    connect(m_actShowSeries, &QAction::toggled,
-            this, &ComparisonPlotDialog::onShowSeriesToggled);
+    connect(m_actShowSeries, &QAction::toggled, this, &ComparisonPlotDialog::onShowSeriesToggled);
     m_toolBar->addAction(m_actShowSeries);
 
-    m_actShowSlider = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelBottomSlider")),
-                                tr("Range Slider"), this);
+    m_actShowSlider =
+        new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelBottomSlider")),
+                    tr("Range Slider"), this);
     m_actShowSlider->setObjectName(QStringLiteral("showRangeSlider"));
     m_actShowSlider->setCheckable(true);
     m_actShowSlider->setChecked(true);
     m_actShowSlider->setStatusTip(tr("Show/hide the X-range slider under the charts"));
     m_actShowSlider->setToolTip(m_actShowSlider->statusTip());
-    connect(m_actShowSlider, &QAction::toggled,
-            this, &ComparisonPlotDialog::onShowSliderToggled);
+    connect(m_actShowSlider, &QAction::toggled, this, &ComparisonPlotDialog::onShowSliderToggled);
     m_toolBar->addAction(m_actShowSlider);
 
     m_actShowStats = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelStats")),
-                               tr("Stats Panel"), this);
+                                 tr("Stats Panel"), this);
     m_actShowStats->setObjectName(QStringLiteral("showStatsPanel"));
     m_actShowStats->setCheckable(true);
     m_actShowStats->setChecked(true);
     m_actShowStats->setStatusTip(tr("Show/hide the statistics summary at the bottom"));
     m_actShowStats->setToolTip(m_actShowStats->statusTip());
-    connect(m_actShowStats, &QAction::toggled,
-            this, &ComparisonPlotDialog::onShowStatsToggled);
+    connect(m_actShowStats, &QAction::toggled, this, &ComparisonPlotDialog::onShowStatsToggled);
     m_toolBar->addAction(m_actShowStats);
 
     // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — optional 1v1 column.
     m_actShow1v1 = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Plot1v1")),
-                             tr("1v1 Plots"), this);
+                               tr("1v1 Plots"), this);
     m_actShow1v1->setObjectName(QStringLiteral("show1v1Plots"));
     m_actShow1v1->setCheckable(true);
     m_actShow1v1->setChecked(true);
     m_actShow1v1->setStatusTip(tr("Show/hide the 1v1 comparison scatter column"));
     m_actShow1v1->setToolTip(m_actShow1v1->statusTip());
-    connect(m_actShow1v1, &QAction::toggled,
-            this, &ComparisonPlotDialog::onShow1v1Toggled);
+    connect(m_actShow1v1, &QAction::toggled, this, &ComparisonPlotDialog::onShow1v1Toggled);
     m_toolBar->addAction(m_actShow1v1);
 
     // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — configure the pairs.
     m_actConfig1v1 = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Configure1v1")),
-                               tr("Configure 1v1…"), this);
+                                 tr("Configure 1v1…"), this);
     m_actConfig1v1->setStatusTip(tr("Choose which series pair up in the 1v1 "
                                     "comparison plots"));
     m_actConfig1v1->setToolTip(m_actConfig1v1->statusTip());
-    connect(m_actConfig1v1, &QAction::triggered,
-            this, &ComparisonPlotDialog::onConfigure1v1Clicked);
+    connect(m_actConfig1v1, &QAction::triggered, this,
+            &ComparisonPlotDialog::onConfigure1v1Clicked);
     m_toolBar->addAction(m_actConfig1v1);
 
     m_actChartsOnly = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartsOnly")),
-                                tr("Charts Only"), this);
+                                  tr("Charts Only"), this);
     m_actChartsOnly->setObjectName(QStringLiteral("chartsOnly"));
     m_actChartsOnly->setCheckable(true);
-    m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));
+    m_actChartsOnly->setStatusTip(
+        tr("Hide series, slider, and stats panels to show only the charts"));
     m_actChartsOnly->setToolTip(m_actChartsOnly->statusTip());
     m_actChartsOnly->setShortcut(QKeySequence(tr("Ctrl+Shift+F")));
-    connect(m_actChartsOnly, &QAction::toggled,
-            this, &ComparisonPlotDialog::onChartsOnlyToggled);
+    m_actChartsOnly->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    connect(m_actChartsOnly, &QAction::toggled, this, &ComparisonPlotDialog::onChartsOnlyToggled);
     m_toolBar->addAction(m_actChartsOnly);
 }
 
@@ -425,14 +550,19 @@ void ComparisonPlotDialog::propagateModeToRows()
 {
     using Mode = InteractiveChartView::Mode;
     Mode m = Mode::Select;
-    if      (m_actPan     && m_actPan->isChecked())     m = Mode::Pan;
-    else if (m_actZoomIn  && m_actZoomIn->isChecked())  m = Mode::ZoomIn;
-    else if (m_actZoomOut && m_actZoomOut->isChecked()) m = Mode::ZoomOut;
+    if (m_actPan && m_actPan->isChecked())
+        m = Mode::Pan;
+    else if (m_actZoomIn && m_actZoomIn->isChecked())
+        m = Mode::ZoomIn;
+    else if (m_actZoomOut && m_actZoomOut->isChecked())
+        m = Mode::ZoomOut;
     for (RowWidgets &rw : m_rowWidgets) {
-        if (rw.view)        rw.view->setMode(m);
+        if (rw.view)
+            rw.view->setMode(m);
         // COMPARISON_PLOT_1V1_AND_TREE_PLAN — 1v1 scatter views follow
         // the same toolbar mode (Select/Pan/ZoomIn/ZoomOut).
-        if (rw.scatterView) rw.scatterView->setMode(m);
+        if (rw.scatterView)
+            rw.scatterView->setMode(m);
     }
 }
 
@@ -441,10 +571,16 @@ void ComparisonPlotDialog::onFitClicked()
     // AT.3 polish — when a Shift-drag X selection is active, refit Y to
     // the windowed samples per row instead of rebuilding to full extent.
     // Otherwise fall back to the canonical rebuildCharts.
-    if (!m_xSelLo.isValid() || !m_xSelHi.isValid()
-        || m_xSelLo >= m_xSelHi
-        || m_rowWidgets.isEmpty())
-    {
+    if (!m_xSelLo.isValid() || !m_xSelHi.isValid() || m_xSelLo >= m_xSelHi ||
+        m_rowWidgets.isEmpty()) {
+        m_observationRangeChosen = false;
+        for (int run=0; run<m_model->runSourceCount(); ++run) {
+            auto source=std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+            if (!source) continue;
+            QStringList ids;
+            for (int i=0;i<m_model->seriesCount();++i) if (m_model->spec(i).runIndex==run) ids.append(m_model->spec(i).objectRef.name);
+            source->requestWindow(ids);
+        }
         rebuildCharts();
         return;
     }
@@ -452,52 +588,62 @@ void ComparisonPlotDialog::onFitClicked()
     const QVector<plot::AttributeRow> &rows = m_model->rows();
     for (int r = 0; r < m_rowWidgets.size() && r < rows.size(); ++r) {
         const auto &row = rows.at(r);
-        RowWidgets &rw  = m_rowWidgets[r];
-        if (!rw.yAxis || !rw.xAxis) continue;
+        RowWidgets &rw = m_rowWidgets[r];
+        if (!rw.yAxis || !rw.xAxis)
+            continue;
 
         double yMin = std::numeric_limits<double>::infinity();
         double yMax = -std::numeric_limits<double>::infinity();
         for (int sIdx : row.seriesIndices) {
             plot::SeriesData data;
             m_model->resolveSeries(sIdx, data);
-            if (!data.ok) continue;
+            if (!data.ok)
+                continue;
             for (std::size_t i = 0; i < data.values.size(); ++i) {
                 const QDateTime t = core::swmmDateTimeToQDateTime(data.timesJulian[i]);
-                if (t < m_xSelLo || t > m_xSelHi) continue;
+                if (t < m_xSelLo || t > m_xSelHi)
+                    continue;
                 const double v = data.values[i];
-                if (!std::isfinite(v)) continue;
-                if (v < yMin) yMin = v;
-                if (v > yMax) yMax = v;
+                if (!std::isfinite(v))
+                    continue;
+                if (v < yMin)
+                    yMin = v;
+                if (v > yMax)
+                    yMax = v;
             }
         }
         if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
             const double pad = 0.05 * (yMax - yMin);
             rw.yAxis->setRange(yMin - pad, yMax + pad);
         }
-        rw.xAxis->setRange(m_xSelLo, m_xSelHi);   // X follows the selection too
+        rw.xAxis->setRange(m_xSelLo, m_xSelHi); // X follows the selection too
     }
 }
 
 void ComparisonPlotDialog::onExportPngClicked()
 {
-    if (m_rowWidgets.isEmpty()) return;
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Export PNG"), QString(), tr("PNG image (*.png)"));
-    if (path.isEmpty()) return;
+    if (m_rowWidgets.isEmpty())
+        return;
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Export PNG"), QString(), tr("PNG image (*.png)"));
+    if (path.isEmpty())
+        return;
 
     // Vertically stitch all row frames into one image.
     int totalH = 0;
-    int maxW   = 0;
+    int maxW = 0;
     QVector<QPixmap> pieces;
     pieces.reserve(m_rowWidgets.size());
     for (RowWidgets &rw : m_rowWidgets) {
-        if (!rw.rowFrame) continue;
+        if (!rw.rowFrame)
+            continue;
         QPixmap pm = rw.rowFrame->grab();
         pieces.push_back(pm);
         totalH += pm.height();
-        maxW    = std::max(maxW, pm.width());
+        maxW = std::max(maxW, pm.width());
     }
-    if (totalH == 0) return;
+    if (totalH == 0)
+        return;
     QPixmap combined(maxW, totalH);
     combined.fill(Qt::white);
     QPainter p(&combined);
@@ -509,7 +655,111 @@ void ComparisonPlotDialog::onExportPngClicked()
     p.end();
     if (!combined.save(path, "PNG")) {
         QMessageBox::warning(this, tr("Export failed"),
-                              tr("Could not save the image to %1").arg(path));
+                             tr("Could not save the image to %1").arg(path));
+    }
+}
+
+void ComparisonPlotDialog::onExportDataClicked()
+{
+    QVector<int> all;
+    all.reserve(m_model->seriesCount());
+    for (int i = 0; i < m_model->seriesCount(); ++i)
+        all.push_back(i);
+    exportSeriesData(all);
+}
+
+void ComparisonPlotDialog::exportSeriesData(const QVector<int> &seriesIndices)
+{
+    QVector<QPair<std::shared_ptr<const OpenSWMM::TimeSeries::TimeSeriesDataset>, QString>> nativeSources;
+    bool hasOther = false;
+    for (const int i : seriesIndices) {
+        if (i < 0 || i >= m_model->seriesCount()) continue;
+        const auto &spec = m_model->spec(i);
+        const auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(spec.runIndex).layer);
+        if (source) nativeSources.append({source->dataset(),spec.objectRef.name}); else hasOther = true;
+    }
+    if (!nativeSources.isEmpty()) {
+        if (hasOther) {
+            QMessageBox::information(this,tr("Export Data"),tr("Export native observations and model results separately: observations preserve their source timestamps, units and quality fields."));
+            return;
+        }
+        const QPointer<ComparisonPlotDialog> owner(this);
+        const QString path = QFileDialog::getSaveFileName(this,tr("Export original observations"),QStringLiteral("observations.csv"),tr("CSV file (*.csv)"));
+        if (!owner || path.isEmpty()) return;
+        struct State { std::atomic_bool cancel{false}, done{false}; bool ok=false; QString error; };
+        const auto state = std::make_shared<State>();
+        std::thread worker([state,nativeSources,path] { state->ok = TimeSeriesRunLayer::exportCsv(nativeSources,path,&state->error,&state->cancel); state->done.store(true,std::memory_order_release); });
+        // A nested event loop may close the owning project. Keep this stack widget parentless
+        // so QObject parent destruction cannot delete it before its automatic destructor runs.
+        QProgressDialog progress(tr("Exporting full-resolution observations…"),tr("Cancel"),0,0,nullptr);
+        progress.setWindowModality(Qt::ApplicationModal); progress.setMinimumDuration(0);
+        connect(&progress,&QProgressDialog::canceled,&progress,[state] { state->cancel=true; });
+        connect(this,&QObject::destroyed,&progress,[state,&progress] { state->cancel=true; progress.reject(); });
+        QTimer timer;
+        connect(&timer,&QTimer::timeout,&progress,[&progress,state] { if (state->done.load(std::memory_order_acquire)) progress.accept(); });
+        timer.start(40); progress.exec();
+        if (!state->done.load(std::memory_order_acquire)) state->cancel=true;
+        worker.join();
+        if (owner && !state->ok && !state->cancel) QMessageBox::warning(owner,tr("Export failed"),state->error);
+        return;
+    }
+
+    // Resolve each requested series up front so an empty plot fails fast
+    // instead of after the file dialog.
+    // An export needs every value now, so it reads saved files directly.
+    setMeshFileDeferral_(false);
+    QVector<plot::ExportSeries> exportable;
+    for (int sIdx : seriesIndices) {
+        if (sIdx < 0 || sIdx >= m_model->seriesCount())
+            continue;
+        plot::SeriesData data;
+        m_model->resolveSeries(sIdx, data);
+        if (!data.ok || data.timesJulian.empty())
+            continue;
+        exportable.push_back({legendNameFor(m_model->spec(sIdx)), std::move(data.timesJulian),
+                              std::move(data.values)});
+    }
+    setMeshFileDeferral_(true);
+    if (exportable.isEmpty()) {
+        QMessageBox::information(this, tr("Export Data"), tr("There is no series data to export."));
+        return;
+    }
+
+    QString selectedFilter;
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Data"), QStringLiteral("timeseries.csv"),
+        tr("CSV file (*.csv);;SWMM time series (*.dat)"), &selectedFilter);
+    if (path.isEmpty())
+        return;
+
+    // The native dialog doesn't always swap the suffix when the user
+    // changes filters — honour the filter over a stale default suffix.
+    const bool wantDat = selectedFilter.contains(QStringLiteral("*.dat"));
+    if (wantDat && !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        if (path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+            path.chop(4);
+        path += QStringLiteral(".dat");
+    } else if (!wantDat && !path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive) &&
+               !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".csv");
+    }
+
+    QString err;
+    if (wantDat || path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        const QStringList written = plot::writeSeriesDat(path, exportable, &err);
+        if (written.isEmpty()) {
+            QMessageBox::warning(this, tr("Export failed"), err);
+        } else if (written.size() > 1) {
+            // .dat holds one series per file — tell the user about the fan-out.
+            QMessageBox::information(
+                this, tr("Export Data"),
+                tr("A SWMM .dat file holds one series, so %1 files were written:\n%2")
+                    .arg(written.size())
+                    .arg(written.join(QLatin1Char('\n'))));
+        }
+    } else {
+        if (!plot::writeSeriesCsv(path, exportable, &err))
+            QMessageBox::warning(this, tr("Export failed"), err);
     }
 }
 
@@ -517,15 +767,17 @@ void ComparisonPlotDialog::onAnimationCursorToggled(bool checked)
 {
     m_showCursor = checked;
     for (RowWidgets &rw : m_rowWidgets) {
-        if (!rw.cursorLine) continue;
+        if (!rw.cursorLine)
+            continue;
         rw.cursorLine->setVisible(checked);
         // CP.1 — keep the cursor's entry IN the legend so the user can
         // see which dashed line is the animation cursor (previously
         // hidden). Marker tracks the line's visibility.
-        const auto markers = rw.chart ? rw.chart->legend()->markers(rw.cursorLine)
-                                      : QList<QLegendMarker*>{};
+        const auto markers =
+            rw.chart ? rw.chart->legend()->markers(rw.cursorLine) : QList<QLegendMarker *>{};
         for (auto *m : markers)
-            if (m) m->setVisible(checked);
+            if (m)
+                m->setVisible(checked);
     }
 }
 
@@ -542,7 +794,8 @@ void ComparisonPlotDialog::onAnimationCursorToggled(bool checked)
 
 void ComparisonPlotDialog::onShowSeriesToggled(bool show)
 {
-    if (!m_splitter || !m_leftHost) return;
+    if (!m_splitter || !m_leftHost)
+        return;
     if (!show) {
         // Snapshot sizes before hiding so we can restore them.
         m_savedSplitterSizes = m_splitter->sizes();
@@ -551,8 +804,7 @@ void ComparisonPlotDialog::onShowSeriesToggled(bool show)
         m_leftHost->show();
         // If we have a snapshot, restore it. Otherwise fall back to a
         // sensible default (~280px series pane, charts taking the rest).
-        if (m_savedSplitterSizes.size() == m_splitter->count() &&
-            m_savedSplitterSizes[0] > 0) {
+        if (m_savedSplitterSizes.size() == m_splitter->count() && m_savedSplitterSizes[0] > 0) {
             m_splitter->setSizes(m_savedSplitterSizes);
         } else {
             const int total = m_splitter->width();
@@ -563,12 +815,14 @@ void ComparisonPlotDialog::onShowSeriesToggled(bool show)
 
 void ComparisonPlotDialog::onShowSliderToggled(bool show)
 {
-    if (m_sliderHost) m_sliderHost->setVisible(show);
+    if (m_sliderHost)
+        m_sliderHost->setVisible(show);
 }
 
 void ComparisonPlotDialog::onShowStatsToggled(bool show)
 {
-    if (!m_chartsOuter || !m_statsPanel) return;
+    if (!m_chartsOuter || !m_statsPanel)
+        return;
     if (!show) {
         m_savedChartsOuterSizes = m_chartsOuter->sizes();
         m_statsPanel->hide();
@@ -591,9 +845,12 @@ void ComparisonPlotDialog::onChartsOnlyToggled(bool chartsOnly)
     // Drive the three independent toggles. Block their signals so the
     // master doesn't fight with three change events and we get one clean
     // layout pass at the end.
-    if (m_actShowSeries) m_actShowSeries->setChecked(!chartsOnly);
-    if (m_actShowSlider) m_actShowSlider->setChecked(!chartsOnly);
-    if (m_actShowStats)  m_actShowStats ->setChecked(!chartsOnly);
+    if (m_actShowSeries)
+        m_actShowSeries->setChecked(!chartsOnly);
+    if (m_actShowSlider)
+        m_actShowSlider->setChecked(!chartsOnly);
+    if (m_actShowStats)
+        m_actShowStats->setChecked(!chartsOnly);
 }
 
 void ComparisonPlotDialog::onShow1v1Toggled(bool /*show*/)
@@ -618,7 +875,8 @@ void ComparisonPlotDialog::onAddSystemSeriesClicked()
     int runIdx = -1;
     for (int i = 0; i < m_model->runSourceCount(); ++i) {
         const auto &rs = m_model->runSource(i);
-        if (!rs.layer) continue;
+        if (!rs.layer)
+            continue;
         // Skip mesh-only runs; system series come from 1D .out.
         if (rs.layer->supportsAttribute(PlotAttribute::SystemRunoff)) {
             runIdx = i;
@@ -626,7 +884,8 @@ void ComparisonPlotDialog::onAddSystemSeriesClicked()
         }
     }
     if (runIdx < 0) {
-        QMessageBox::information(this, tr("No 1D run loaded"),
+        QMessageBox::information(
+            this, tr("No 1D run loaded"),
             tr("Load a SWMM .out result first — system-wide series come from "
                "the 1D engine output, not from observed CSVs or 2D mesh runs."));
         return;
@@ -634,14 +893,15 @@ void ComparisonPlotDialog::onAddSystemSeriesClicked()
 
     // Single-pick QMenu of all 14 system attributes (shared canonical order).
     QMenu menu(this);
-    QHash<QAction*, PlotAttribute> bind;
+    QHash<QAction *, PlotAttribute> bind;
     for (PlotAttribute attr : systemPlotAttributes()) {
         const auto unit = m_model->runSource(runIdx).layer->unitSystem();
         auto *a = menu.addAction(labelWithUnits(attr, unit));
         bind.insert(a, attr);
     }
     QAction *picked = menu.exec(QCursor::pos());
-    if (!picked) return;
+    if (!picked)
+        return;
     addSeries(runIdx, ObjectRef::forSystem(), bind.value(picked));
 }
 
@@ -651,31 +911,43 @@ void ComparisonPlotDialog::onAddSystemSeriesClicked()
 
 void ComparisonPlotDialog::equaliseChartSplitterSizes()
 {
-    if (!m_chartsSplitter) return;
+    if (!m_chartsSplitter)
+        return;
     const int n = m_chartsSplitter->count();
-    if (n == 0) return;
+    if (n == 0)
+        return;
     const int total = std::max(m_chartsSplitter->height(),
-                                n * 220);   // honour per-row min height
-    const int per   = total / n;
+                               n * 220); // honour per-row min height
+    const int per = total / n;
     QList<int> sizes;
     sizes.reserve(n);
-    for (int i = 0; i < n; ++i) sizes.push_back(per);
+    for (int i = 0; i < n; ++i)
+        sizes.push_back(per);
     m_chartsSplitter->setSizes(sizes);
 }
 
 void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
 {
-    if (rowIndex < 0 || rowIndex >= m_rowWidgets.size()) return;
+    if (rowIndex >= 0 && rowIndex < m_rowWidgets.size() && m_rowWidgets[rowIndex].xAxis)
+        connect(m_rowWidgets[rowIndex].xAxis, &UtcTimeAxis::rangeChangedUtc, this,
+                [this] { if (!m_restoringObservationRange && m_observationTimer) { m_observationRangeChosen=true; m_observationTimer->start(); } });
+
+    if (rowIndex < 0 || rowIndex >= m_rowWidgets.size())
+        return;
     RowWidgets &rw = m_rowWidgets[rowIndex];
-    if (!rw.xAxis) return;
-    connect(rw.xAxis, &QDateTimeAxis::rangeChanged,
-            this, [this, rowIndex](QDateTime lo, QDateTime hi) {
-                if (m_syncingX) return;
+    if (!rw.xAxis)
+        return;
+    connect(rw.xAxis, &openswmmvis::plot::UtcTimeAxis::rangeChangedUtc, this,
+            [this, rowIndex](QDateTime lo, QDateTime hi) {
+                if (m_syncingX)
+                    return;
                 m_syncingX = true;
                 for (int r = 0; r < m_rowWidgets.size(); ++r) {
-                    if (r == rowIndex) continue;
-                    QDateTimeAxis *ax = m_rowWidgets[r].xAxis;
-                    if (!ax) continue;
+                    if (r == rowIndex)
+                        continue;
+                    openswmmvis::plot::UtcTimeAxis *ax = m_rowWidgets[r].xAxis;
+                    if (!ax)
+                        continue;
                     QSignalBlocker block(ax);
                     ax->setRange(lo, hi);
                 }
@@ -687,11 +959,76 @@ void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
 // Convenience: add 1D run from a SWMMResultsLayer + add a series
 // ---------------------------------------------------------------------------
 
-int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
-                                                  bool makeBaseline)
+void ComparisonPlotDialog::removeProjectSources(SWMMVisProjectWindow *project)
+{
+    if (!project || !project->canvas())
+        return;
+    const auto layers = project->canvas()->layers();
+    bool changed = false;
+    {
+        QSignalBlocker block(m_model.get());
+        for (int i = m_model->runSourceCount() - 1; i >= 0; --i) {
+            const auto source = m_model->runSource(i).layer;
+            const auto one = std::dynamic_pointer_cast<SwmmOutRunLayer>(source);
+            const auto two = std::dynamic_pointer_cast<Mesh2DRunLayer>(source);
+            if ((one && one->layer() &&
+                 (layers.contains(one->layer()) ||
+                  (project->modelLayer() &&
+                   one->layer()->modelLayer() == project->modelLayer()))) ||
+                (two && layers.contains(two->layer()))) {
+                if (m_load && m_load->layer.lock() == source)
+                    m_load->cancel.store(true);
+                m_model->removeRunSource(i);
+                changed = true;
+            }
+        }
+    }
+    if (changed)
+        onRunSourceRemoved(-1);
+}
+
+void ComparisonPlotDialog::observeSourceLifetime(QObject *layer,
+                                                 const std::shared_ptr<IRunLayer> &source)
+{
+    const std::weak_ptr<IRunLayer> weak = source;
+    /**
+     * @brief Remove a surviving observed adapter run after source/project teardown. Takes no
+     * arguments and returns no value; locks only a weak reference, cancels matching extraction,
+     * blocks intermediate model signals and refreshes once after removal.
+     */
+    auto remove = [this, weak] {
+        const auto source = weak.lock();
+        if (!source)
+            return;
+        const int index = m_model->findRunByLayer(source.get());
+        if (index < 0)
+            return;
+        if (m_load && m_load->layer.lock() == source)
+            m_load->cancel.store(true);
+        // removeRunSource emits intermediate series signals before rebuilding
+        // its rows. Rebuild the view only after the whole removal is complete.
+        {
+            QSignalBlocker block(m_model.get());
+            m_model->removeRunSource(index);
+        }
+        onRunSourceRemoved(index);
+    };
+    connect(layer, &QObject::destroyed, this, remove);
+    for (QObject *owner = layer->parent(); owner; owner = owner->parent()) {
+        if (auto *project = qobject_cast<SWMMVisProjectWindow *>(owner)) {
+            connect(project, &SWMMVisProjectWindow::aboutToClose, this, remove);
+            break;
+        }
+    }
+}
+
+int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer, bool makeBaseline)
 {
     if (!layer)
         return -1;
+    const QPointer<SWMMResultsLayer> survivingLayer(layer);
+    if (!confirmObservationClockMappings()) return -1;
+    if (!survivingLayer) return -1;
 
     // De-dup: scan existing RunSources for a SwmmOutRunLayer wrapping the
     // same on-canvas layer (same persistenceKey() == resultsFilePath()).
@@ -705,25 +1042,77 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
     RunSource rs;
     rs.layer = std::make_shared<SwmmOutRunLayer>(layer);
     rs.isBaseline = makeBaseline;
+    observeSourceLifetime(layer, rs.layer);
     const int idx = m_model->addRunSource(std::move(rs));
+    // A new plot starts at its own output's current frame, even if the
+    // shared animation controller was previously displaying another run.
+    if (idx == 0)
+        m_model->setAnimationTime(layer->currentDateTime());
     if (makeBaseline)
         m_model->setBaseline(idx);
+    // Live 1D results: the layer grows while its run writes the .out;
+    // append the new points instead of rebuilding every chart.
+    connect(
+        layer, &SWMMResultsLayer::periodsAppended, this, [this](int, int) { appendChartTails(); },
+        Qt::UniqueConnection);
     return idx;
 }
 
-int ComparisonPlotDialog::addSeries(int runIndex,
-                                    const ObjectRef& ref,
-                                    PlotAttribute attr)
+
+bool ComparisonPlotDialog::confirmObservationClockMappings()
+{
+    QVector<std::shared_ptr<TimeSeriesRunLayer>> unmapped;
+    for (int run=0; run<m_model->runSourceCount(); ++run) {
+        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+        if (source && !source->hasModelClockMapping()) unmapped.append(source);
+    }
+    if (unmapped.isEmpty()) return true;
+    bool accepted = false;
+    const QPointer<ComparisonPlotDialog> owner(this);
+    const double hours = QInputDialog::getDouble(this,tr("Align observations with the model clock"),
+        tr("SWMM model times have no time zone. Choose the fixed UTC offset of this model clock.\n"
+           "Continuous observations will be shifted by this offset; daily statistics retain their calendar date.\n"
+           "No source samples or model inputs are changed. UTC offset (hours):"),0,-14,14,2,&accepted);
+    if (!owner || !accepted) return false;
+    for (const auto &source : unmapped) source->setModelClockOffset(qRound(hours*3600));
+    for (int i=0; i<m_model->seriesCount(); ++i) {
+        auto &spec = m_model->spec(i);
+        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(spec.runIndex).layer);
+        if (source) spec.setDescriptor(source->descriptorFor(spec.objectRef.name));
+    }
+    m_model->rebuildRows();
+    return true;
+}
+void ComparisonPlotDialog::requestObservationWindows()
+{
+    if (m_restoringObservationRange || m_rowWidgets.isEmpty() || !m_rowWidgets.first().xAxis) return;
+    const auto from = m_rowWidgets.first().xAxis->min(), to = m_rowWidgets.first().xAxis->max();
+    for (int run=0; run<m_model->runSourceCount(); ++run) {
+        const auto native = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+        if (!native) continue;
+        QStringList ids;
+        for (int i=0; i<m_model->seriesCount(); ++i) if (m_model->spec(i).runIndex == run) ids.append(m_model->spec(i).objectRef.name);
+        native->requestWindow(ids,from,to);
+    }
+}
+
+int ComparisonPlotDialog::addSeries(int runIndex, const ObjectRef &ref, PlotAttribute attr)
+{
+    return addSeries(runIndex, ref, ResultDescriptor::forAttribute(attr));
+}
+
+int ComparisonPlotDialog::addSeries(int runIndex, const ObjectRef &ref,
+                                    const ResultDescriptor &descriptor)
 {
     if (runIndex < 0 || runIndex >= m_model->runSourceCount())
         return -1;
-    if (attr == PlotAttribute::Unknown || !ref.isValid())
+    if (!descriptor.isValid() || !ref.isValid())
         return -1;
 
     SeriesSpec spec;
-    spec.runIndex  = runIndex;
+    spec.runIndex = runIndex;
     spec.objectRef = ref;
-    spec.attribute = attr;
+    spec.setDescriptor(descriptor);
     return m_model->addSeries(std::move(spec));
 }
 
@@ -731,51 +1120,111 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
 {
     if (!layer)
         return -1;
+    const QPointer<SWMM2DResultsLayer> survivingLayer(layer);
+    if (!confirmObservationClockMappings()) return -1;
+    if (!survivingLayer) return -1;
 
-    const QString key = QStringLiteral("mesh2d://") + layer->name();
     for (int i = 0; i < m_model->runSourceCount(); ++i) {
-        const RunSource &rs = m_model->runSource(i);
-        if (rs.layer && rs.layer->persistenceKey() == key)
+        const auto source = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(i).layer);
+        if (source && source->layer() == layer)
             return i;
     }
 
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(layer);
-    return m_model->addRunSource(std::move(rs));
+    observeSourceLifetime(layer, rs.layer);
+    // Live 2D: frames stream in during the run; the run layer re-polls the
+    // source, so appending the tail is all that is needed.
+    connect(
+        layer, &SWMM2DResultsLayer::timeRangeChanged, this,
+        [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
+    const int idx = m_model->addRunSource(std::move(rs));
+    if (idx == 0 && layer->source())
+        m_model->setAnimationTime(layer->source()->simTimeAt(layer->currentTimeIndex()));
+    return idx;
 }
 
-int ComparisonPlotDialog::addCellSeries(int runIndex,
-                                         const QVector<int>& triIdxList,
-                                         const QVector<PlotAttribute>& attributes)
+int ComparisonPlotDialog::addCellSeries(int runIndex, const QVector<int> &triIdxList,
+                                        const QVector<PlotAttribute> &attributes)
 {
     if (runIndex < 0 || runIndex >= m_model->runSourceCount())
         return 0;
     if (triIdxList.isEmpty() || attributes.isEmpty())
         return 0;
 
-    int added = 0;
-    for (int triIdx : triIdxList) {
-        const ObjectRef ref = ObjectRef::forMesh2DCell(triIdx);
-        for (PlotAttribute a : attributes) {
-            if (a == PlotAttribute::Unknown) continue;
-            if (addSeries(runIndex, ref, a) >= 0) ++added;
-        }
+    QVector<QPair<ObjectRef, ResultDescriptor>> items;
+    for (int triIdx : triIdxList)
+        for (PlotAttribute a : attributes)
+            items.append({ObjectRef::forMesh2DCell(triIdx), ResultDescriptor::forAttribute(a)});
+    return addSeriesBatch(runIndex, items);
+}
+
+int ComparisonPlotDialog::addCellDescriptorSeries(int runIndex, const QVector<int> &triIdxList,
+                                                  const QVector<ResultDescriptor> &descriptors)
+{
+    QVector<QPair<ObjectRef, ResultDescriptor>> items;
+    for (int triIdx : triIdxList)
+        for (const ResultDescriptor &d : descriptors)
+            items.append({ObjectRef::forMesh2DCell(triIdx), d});
+    return addSeriesBatch(runIndex, items);
+}
+
+int ComparisonPlotDialog::addSeriesBatch(int runIndex,
+                                         const QVector<QPair<ObjectRef, ResultDescriptor>> &items)
+{
+    if (runIndex < 0 || runIndex >= m_model->runSourceCount())
+        return 0;
+
+    QVector<SeriesSpec> specs;
+    specs.reserve(items.size());
+    for (const auto &[ref, descriptor] : items) {
+        if (!descriptor.isValid() || !ref.isValid())
+            continue;
+        SeriesSpec spec;
+        spec.runIndex = runIndex;
+        spec.objectRef = ref;
+        spec.setDescriptor(descriptor);
+        specs.append(std::move(spec));
     }
-    return added;
+    return m_model->addSeriesBatch(std::move(specs));
 }
 
 // ---------------------------------------------------------------------------
 // Model signal handlers
 // ---------------------------------------------------------------------------
 
-void ComparisonPlotDialog::onRunSourceAdded(int /*runIndex*/) { rebuildSeriesTree(); }
-void ComparisonPlotDialog::onRunSourceRemoved(int /*runIndex*/) { rebuildSeriesTree(); rebuildCharts(); }
-void ComparisonPlotDialog::onSeriesAdded(int /*seriesIndex*/)   { rebuildSeriesTree(); rebuildCharts(); }
-void ComparisonPlotDialog::onSeriesRemoved(int /*seriesIndex*/) { rebuildSeriesTree(); rebuildCharts(); }
-void ComparisonPlotDialog::onRowsChanged() { /* charts rebuilt by series/runSource handlers */ }
+void ComparisonPlotDialog::onRunSourceAdded(int runIndex)
+{
+    // A saved-results mesh run reads its files on a worker thread.
+    if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(runIndex).layer))
+        mesh->setDeferFileReads(true);
+    rebuildSeriesTree();
+}
+void ComparisonPlotDialog::onRunSourceRemoved(int /*runIndex*/)
+{
+    rebuildSeriesTree();
+    rebuildCharts();
+}
+void ComparisonPlotDialog::onSeriesAdded(int /*seriesIndex*/)
+{
+    rebuildSeriesTree();
+    rebuildCharts();
+}
+void ComparisonPlotDialog::onSeriesRemoved(int /*seriesIndex*/)
+{
+    rebuildSeriesTree();
+    rebuildCharts();
+}
+void ComparisonPlotDialog::onRowsChanged()
+{ /* charts rebuilt by series/runSource handlers */
+}
 
 void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
 {
+    // Rebuild segmented/point-only sources so style changes retain their temporal semantics.
+    for (const auto &row : m_rowWidgets)
+        for (const auto &segments : row.segments)
+            if (segments.size() > 1 || (!segments.isEmpty() && segments.first()->property("sourcePointsOnly").toBool())) { rebuildCharts(); return; }
     // Find which row + which child series corresponds to this spec, and
     // restyle without a full chart rebuild. Delegates to the shared
     // applySeriesStyle() helper so every visual field (pen cap/join,
@@ -785,9 +1234,11 @@ void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
     for (int r = 0; r < m_rowWidgets.size(); ++r) {
         const AttributeRow &row = m_model->rows().at(r);
         for (int i = 0; i < row.seriesIndices.size(); ++i) {
-            if (row.seriesIndices[i] != seriesIndex) continue;
+            if (row.seriesIndices[i] != seriesIndex)
+                continue;
             QLineSeries *line = m_rowWidgets[r].series.value(i, nullptr);
-            if (!line) return;
+            if (!line)
+                return;
             const SeriesSpec &spec = m_model->spec(seriesIndex);
             // Reapply the legend name first; applySeriesStyle overrides it
             // only when style.legendName is non-empty.
@@ -795,22 +1246,39 @@ void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
             openswmmvis::plot::applySeriesStyle(spec.style, line);
             // Repaint the swatch row in the series tree so the legend label
             // there matches when legendOverride changed.
-            rebuildSeriesTree();
+            QSignalBlocker block(m_seriesTree);
+            for (int run = 0; run < m_seriesTree->topLevelItemCount(); ++run) {
+                auto *parent = m_seriesTree->topLevelItem(run);
+                for (int child = 0; child < parent->childCount(); ++child) {
+                    auto *item = parent->child(child);
+                    if (item->data(0, Qt::UserRole + 1).toInt() != seriesIndex)
+                        continue;
+                    item->setText(0, legendNameFor(spec));
+                    item->setToolTip(0, legendNameFor(spec));
+                    item->setCheckState(0, spec.style.showLine ? Qt::Checked : Qt::Unchecked);
+                    QPixmap swatch(12, 12);
+                    swatch.fill(spec.style.color);
+                    item->setData(0, Qt::DecorationRole, swatch);
+                }
+            }
+            fitSeriesPanelToContents();
             return;
         }
     }
 }
 
-QString ComparisonPlotDialog::legendNameFor(const SeriesSpec& spec) const
+QString ComparisonPlotDialog::legendNameFor(const SeriesSpec &spec) const
 {
     if (!spec.legendOverride.isEmpty())
         return spec.legendOverride;
     return QStringLiteral("%1 — %2 (%3)")
         .arg(m_model->runSource(spec.runIndex).label,
              spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
-                ? tr("Cell %1").arg(spec.objectRef.triIdx)
-                : spec.objectRef.name,
-             labelFor(spec.attribute));
+                 ? tr("Cell %1").arg(spec.objectRef.triIdx)
+                 : spec.objectRef.name,
+             // Y2b-2: a species series is named by the species label
+             // (the descriptor's authority), a fixed one as before.
+             spec.descriptor().label());
 }
 
 void ComparisonPlotDialog::onAnimationTimeChanged(QDateTime t)
@@ -833,7 +1301,7 @@ void ComparisonPlotDialog::rebuildSeriesTree()
     m_seriesTree->clear();
 
     // Group by RunSource. Each top-level item is a run; children are series.
-    QVector<QTreeWidgetItem*> runItems(m_model->runSourceCount(), nullptr);
+    QVector<QTreeWidgetItem *> runItems(m_model->runSourceCount(), nullptr);
     for (int r = 0; r < m_model->runSourceCount(); ++r) {
         const RunSource &rs = m_model->runSource(r);
         QString label = rs.label;
@@ -842,7 +1310,8 @@ void ComparisonPlotDialog::rebuildSeriesTree()
         else
             label = QStringLiteral("● ") + label;
         auto *it = new QTreeWidgetItem({label});
-        it->setData(0, Qt::UserRole, QVariant(r));   // run index
+        it->setToolTip(0, label);
+        it->setData(0, Qt::UserRole, QVariant(r));      // run index
         it->setData(0, Qt::UserRole + 1, QVariant(-1)); // -1 = run row, not series
         m_seriesTree->addTopLevelItem(it);
         runItems[r] = it;
@@ -850,7 +1319,8 @@ void ComparisonPlotDialog::rebuildSeriesTree()
 
     for (int s = 0; s < m_model->seriesCount(); ++s) {
         const SeriesSpec &spec = m_model->spec(s);
-        if (spec.runIndex < 0 || spec.runIndex >= runItems.size()) continue;
+        if (spec.runIndex < 0 || spec.runIndex >= runItems.size())
+            continue;
 
         QString objLabel;
         switch (spec.objectRef.kind) {
@@ -864,9 +1334,11 @@ void ComparisonPlotDialog::rebuildSeriesTree()
             objLabel = spec.objectRef.name;
             break;
         }
-        const QString itemLabel = tr("%1 — %2")
-                                     .arg(objLabel, labelFor(spec.attribute));
+        const QString itemLabel = spec.legendOverride.isEmpty()
+                                      ? tr("%1 — %2").arg(objLabel, spec.descriptor().label())
+                                      : spec.legendOverride;
         auto *child = new QTreeWidgetItem({itemLabel});
+        child->setToolTip(0, itemLabel);
         child->setData(0, Qt::UserRole, QVariant(spec.runIndex));
         child->setData(0, Qt::UserRole + 1, QVariant(s));
         // Show series color swatch via Qt::DecorationRole.
@@ -880,17 +1352,36 @@ void ComparisonPlotDialog::rebuildSeriesTree()
     }
 
     m_seriesTree->expandAll();
+    fitSeriesPanelToContents();
+}
+
+void ComparisonPlotDialog::fitSeriesPanelToContents()
+{
+    m_seriesTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_seriesTree->header()->setStretchLastSection(true);
+    m_seriesTree->resizeColumnToContents(0);
+    // Grow the initial pane to its labels, leaving space for the charts.
+    // A manual splitter adjustment remains authoritative on later additions.
+    if (!m_seriesPanelResized && m_splitter->width() > 0) {
+        const int available = m_splitter->width() - m_splitter->handleWidth();
+        const int desired = m_seriesTree->columnWidth(0) + 2 * m_seriesTree->frameWidth() + 24;
+        const int width = std::clamp(desired, 60, std::max(60, available * 3 / 5));
+        m_splitter->setSizes({width, std::max(0, available - width)});
+    }
 }
 
 // Slice AT.3 — checkbox toggle slot.
 void ComparisonPlotDialog::onSeriesItemChanged(QTreeWidgetItem *item, int column)
 {
-    if (!item || column != 0) return;
+    if (!item || column != 0)
+        return;
     const int seriesIdx = item->data(0, Qt::UserRole + 1).toInt();
-    if (seriesIdx < 0 || seriesIdx >= m_model->seriesCount()) return;
+    if (seriesIdx < 0 || seriesIdx >= m_model->seriesCount())
+        return;
     SeriesStyle style = m_model->spec(seriesIdx).style;
     const bool shouldShow = (item->checkState(0) == Qt::Checked);
-    if (style.showLine == shouldShow) return;   // no change
+    if (style.showLine == shouldShow)
+        return; // no change
     style.showLine = shouldShow;
     m_model->updateStyle(seriesIdx, style);
 }
@@ -898,10 +1389,12 @@ void ComparisonPlotDialog::onSeriesItemChanged(QTreeWidgetItem *item, int column
 // Slice AT.3 — right-click context menu.
 void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
 {
-    if (!m_seriesTree) return;
+    if (!m_seriesTree)
+        return;
     QTreeWidgetItem *item = m_seriesTree->itemAt(pos);
-    if (!item) return;
-    const int runIdx    = item->data(0, Qt::UserRole).toInt();
+    if (!item)
+        return;
+    const int runIdx = item->data(0, Qt::UserRole).toInt();
     const int seriesIdx = item->data(0, Qt::UserRole + 1).toInt();
     const bool isSeries = (seriesIdx >= 0);
 
@@ -912,7 +1405,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         const auto &targetSpec = m_model->spec(seriesIdx);
         int rowSiblingCount = 0;
         for (const auto &row : m_model->rows()) {
-            if (row.attribute == targetSpec.attribute) {
+            if (row.descriptor() == targetSpec.descriptor()) {
                 rowSiblingCount = row.seriesIndices.size();
                 break;
             }
@@ -922,16 +1415,19 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         if (rowSiblingCount <= 1)
             plotOnly->setToolTip(tr("Only one series on this chart row"));
         QAction *editStyle = menu.addAction(tr("Edit Properties…"));
+        QAction *exportData = menu.addAction(tr("Export Series Data…"));
         menu.addSeparator();
         QAction *removeSeries = menu.addAction(tr("Remove Series"));
         QAction *chosen = menu.exec(m_seriesTree->viewport()->mapToGlobal(pos));
-        if (!chosen) return;
+        if (!chosen)
+            return;
         if (chosen == plotOnly) {
             // Hide every other series sharing this attribute row.
             const auto &rows = m_model->rows();
             const auto &targetSpec = m_model->spec(seriesIdx);
             for (const auto &row : rows) {
-                if (row.attribute != targetSpec.attribute) continue;
+                if (row.descriptor() != targetSpec.descriptor())
+                    continue;
                 for (int sIdx : row.seriesIndices) {
                     auto style = m_model->spec(sIdx).style;
                     const bool show = (sIdx == seriesIdx);
@@ -943,16 +1439,21 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
             }
         } else if (chosen == editStyle) {
             onSeriesItemDoubleClicked(item, 0);
+        } else if (chosen == exportData) {
+            exportSeriesData({seriesIdx});
         } else if (chosen == removeSeries) {
             m_model->removeSeries(seriesIdx);
         }
     } else if (runIdx >= 0) {
-        QAction *addSeries  = menu.addAction(tr("Add Series…"));
-        QAction *removeRun  = menu.addAction(tr("Remove Run"));
+        QAction *addSeries = menu.addAction(tr("Add Series…"));
+        QAction *removeRun = menu.addAction(tr("Remove Run"));
         QAction *chosen = menu.exec(m_seriesTree->viewport()->mapToGlobal(pos));
-        if (!chosen) return;
-        if (chosen == addSeries) onAddSeriesClicked();
-        else if (chosen == removeRun) m_model->removeRunSource(runIdx);
+        if (!chosen)
+            return;
+        if (chosen == addSeries)
+            onAddSeriesClicked();
+        else if (chosen == removeRun)
+            m_model->removeRunSource(runIdx);
     }
 }
 
@@ -962,21 +1463,26 @@ void ComparisonPlotDialog::onSeriesItemSelectionChanged()
     bool removable = false;
     for (auto *it : items) {
         const int seriesIdx = it->data(0, Qt::UserRole + 1).toInt();
-        if (seriesIdx >= 0) { removable = true; break; }
+        if (seriesIdx >= 0) {
+            removable = true;
+            break;
+        }
     }
     m_removeBtn->setEnabled(removable);
 }
 
 void ComparisonPlotDialog::onSeriesItemDoubleClicked(QTreeWidgetItem *item, int /*column*/)
 {
-    if (!item) return;
+    if (!item)
+        return;
     const int seriesIdx = item->data(0, Qt::UserRole + 1).toInt();
-    if (seriesIdx < 0 || seriesIdx >= m_model->seriesCount()) return;
+    if (seriesIdx < 0 || seriesIdx >= m_model->seriesCount())
+        return;
 
     // Full series-property editor in a small modal dialog. Live-updates the
     // model on every change so the user sees feedback as they edit.
-    SeriesStyle original           = m_model->spec(seriesIdx).style;
-    QString     originalLegendOver = m_model->spec(seriesIdx).legendOverride;
+    SeriesStyle original = m_model->spec(seriesIdx).style;
+    QString originalLegendOver = m_model->spec(seriesIdx).legendOverride;
 
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Edit series properties"));
@@ -994,14 +1500,12 @@ void ComparisonPlotDialog::onSeriesItemDoubleClicked(QTreeWidgetItem *item, int 
     // Live preview: any control change pushes through the model so the
     // chart restyles immediately (onStyleChanged() updates the QLineSeries
     // pen incrementally).
-    QObject::connect(editor, &openswmmvis::ui::SeriesStyleEditor::styleChanged,
-                     this, [this, seriesIdx](const SeriesStyle& s) {
-                         m_model->updateStyle(seriesIdx, s);
-                     });
-    QObject::connect(editor, &openswmmvis::ui::SeriesStyleEditor::legendOverrideChanged,
-                     this, [this, seriesIdx](const QString& s) {
-                         m_model->updateLegendOverride(seriesIdx, s);
-                     });
+    QObject::connect(
+        editor, &openswmmvis::ui::SeriesStyleEditor::styleChanged, this,
+        [this, seriesIdx](const SeriesStyle &s) { m_model->updateStyle(seriesIdx, s); });
+    QObject::connect(
+        editor, &openswmmvis::ui::SeriesStyleEditor::legendOverrideChanged, this,
+        [this, seriesIdx](const QString &s) { m_model->updateLegendOverride(seriesIdx, s); });
 
     if (dlg.exec() != QDialog::Accepted) {
         // Revert to the pre-edit state on cancel.
@@ -1022,7 +1526,8 @@ void ComparisonPlotDialog::onRemoveSelectedClicked()
     QVector<int> toRemove;
     for (auto *it : items) {
         const int s = it->data(0, Qt::UserRole + 1).toInt();
-        if (s >= 0) toRemove.push_back(s);
+        if (s >= 0)
+            toRemove.push_back(s);
     }
     // Remove from highest index to lowest so earlier removals don't shift later ones.
     std::sort(toRemove.begin(), toRemove.end(), std::greater<int>());
@@ -1033,79 +1538,84 @@ void ComparisonPlotDialog::onRemoveSelectedClicked()
 void ComparisonPlotDialog::onLoadObservedClicked()
 {
     // 1) File picker.
-    const QString path = QFileDialog::getOpenFileName(this,
-        tr("Load observed time series"),
-        QString(),
-        tr("CSV / TSV / DAT (*.csv *.tsv *.dat);;All files (*)"));
-    if (path.isEmpty()) return;
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("timeseries"), this, tr("Load observed time series"), QString(),
+        tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
+    if (path.isEmpty())
+        return;
 
     // 2) Pick the chart attribute this CSV's columns plot against.
     static const QPair<PlotAttribute, QString> kAttrs[] = {
-        { PlotAttribute::NodeDepth,         tr("Depth (node)") },
-        { PlotAttribute::NodeHead,          tr("Head") },
-        { PlotAttribute::NodeTotalInflow,   tr("Total inflow") },
-        { PlotAttribute::NodeOverflow,      tr("Overflow") },
-        { PlotAttribute::LinkFlow,          tr("Flow") },
-        { PlotAttribute::LinkDepth,         tr("Depth (link)") },
-        { PlotAttribute::LinkVelocity,      tr("Velocity (link)") },
-        { PlotAttribute::SubcatchRainfall,  tr("Rainfall") },
-        { PlotAttribute::SubcatchRunoff,    tr("Runoff") },
+        {PlotAttribute::NodeDepth, tr("Depth (node)")},
+        {PlotAttribute::NodeHead, tr("Head")},
+        {PlotAttribute::NodeTotalInflow, tr("Total inflow")},
+        {PlotAttribute::NodeOverflow, tr("Overflow")},
+        {PlotAttribute::LinkFlow, tr("Flow")},
+        {PlotAttribute::LinkDepth, tr("Depth (link)")},
+        {PlotAttribute::LinkVelocity, tr("Velocity (link)")},
+        {PlotAttribute::SubcatchRainfall, tr("Rainfall")},
+        {PlotAttribute::SubcatchRunoff, tr("Runoff")},
+        {PlotAttribute::SubcatchGwFlow, tr("Groundwater flow")},
+        {PlotAttribute::SubcatchGwElev, tr("Groundwater elevation")},
     };
     QStringList items;
-    for (const auto &p : kAttrs) items << p.second;
+    for (const auto &p : kAttrs)
+        items << p.second;
 
     bool ok = false;
-    const QString picked = QInputDialog::getItem(this,
-        tr("Observed attribute"),
-        tr("Which attribute do this file's value columns represent?"),
-        items, /*current=*/0, /*editable=*/false, &ok);
-    if (!ok) return;
+    const QString picked =
+        QInputDialog::getItem(this, tr("Observed attribute"),
+                              tr("Which attribute do this file's value columns represent?"), items,
+                              /*current=*/0, /*editable=*/false, &ok);
+    if (!ok)
+        return;
 
     PlotAttribute chosenAttr = PlotAttribute::Unknown;
     for (const auto &p : kAttrs) {
-        if (p.second == picked) { chosenAttr = p.first; break; }
+        if (p.second == picked) {
+            chosenAttr = p.first;
+            break;
+        }
     }
-    if (chosenAttr == PlotAttribute::Unknown) return;
+    if (chosenAttr == PlotAttribute::Unknown)
+        return;
 
     // 3) Parse the file.
     QString err;
     auto layer = openswmmvis::plot::ObservedCsvRunLayer::load(
         path, chosenAttr, openswmmvis::plot::UnitSystem::SI, &err);
     if (!layer) {
-        QMessageBox::warning(this,
-            tr("Couldn't load observed series"),
-            tr("Failed to load %1:\n%2").arg(path, err));
+        QMessageBox::warning(this, tr("Couldn't load observed series"),
+                             tr("Failed to load %1:\n%2").arg(path, err));
         return;
     }
 
     // 4) Register as a RunSource and add one series per CSV column.
     QStringList labels = layer->columnLabels();
     if (labels.isEmpty()) {
-        QMessageBox::warning(this,
-            tr("Empty file"),
-            tr("No data columns found in %1.").arg(path));
+        QMessageBox::warning(this, tr("Empty file"), tr("No data columns found in %1.").arg(path));
         return;
     }
 
     RunSource rs;
-    rs.layer = std::shared_ptr<openswmmvis::plot::ObservedCsvRunLayer>(
-        layer.release());
+    rs.layer = std::shared_ptr<openswmmvis::plot::ObservedCsvRunLayer>(layer.release());
     const int runIdx = m_model->addRunSource(std::move(rs));
 
-    int added = 0;
-    for (const QString& colLabel : labels) {
+    QVector<SeriesSpec> specs;
+    for (const QString &colLabel : labels) {
         ObjectRef ref = ObjectRef::forObserved(colLabel);
         SeriesSpec spec;
-        spec.runIndex  = runIdx;
+        spec.runIndex = runIdx;
         spec.objectRef = ref;
         spec.attribute = chosenAttr;
-        if (m_model->addSeries(std::move(spec)) >= 0) ++added;
+        specs.append(std::move(spec));
     }
 
+    const int added = m_model->addSeriesBatch(std::move(specs));
+
     if (added == 0) {
-        QMessageBox::warning(this,
-            tr("Nothing added"),
-            tr("Couldn't add any series from %1.").arg(path));
+        QMessageBox::warning(this, tr("Nothing added"),
+                             tr("Couldn't add any series from %1.").arg(path));
     }
 }
 
@@ -1113,7 +1623,7 @@ void ComparisonPlotDialog::onAddSeriesClicked()
 {
     if (m_model->runSourceCount() == 0) {
         QMessageBox::information(this, tr("No runs loaded"),
-            tr("Open a project with results before adding series."));
+                                 tr("Open a project with results before adding series."));
         return;
     }
 
@@ -1128,26 +1638,30 @@ void ComparisonPlotDialog::onAddSeriesClicked()
         const RunSource &rs = m_model->runSource(r);
         QMenu *runMenu = menu.addMenu(rs.label);
         const auto *layer = rs.layer.get();
-        if (!layer) continue;
+        if (!layer)
+            continue;
 
         // Per-object attributes — only attributes the layer supports.
         // Deliberately a curated subset of the canonical lists in
         // plot/plotattribute.h (this menu is a quick-add, not the full
         // picker); keep any additions consistent with those lists.
         const PlotAttribute attrs[] = {
-            PlotAttribute::NodeDepth, PlotAttribute::NodeHead, PlotAttribute::NodeTotalInflow,
-            PlotAttribute::NodeOverflow,
-            PlotAttribute::LinkFlow, PlotAttribute::LinkDepth, PlotAttribute::LinkVelocity,
-            PlotAttribute::SubcatchRainfall, PlotAttribute::SubcatchRunoff,
+            PlotAttribute::NodeDepth,       PlotAttribute::NodeHead,
+            PlotAttribute::NodeTotalInflow, PlotAttribute::NodeOverflow,
+            PlotAttribute::LinkFlow,        PlotAttribute::LinkDepth,
+            PlotAttribute::LinkVelocity,    PlotAttribute::SubcatchRainfall,
+            PlotAttribute::SubcatchRunoff,  PlotAttribute::SubcatchGwFlow,
+            PlotAttribute::SubcatchGwElev,
         };
         for (PlotAttribute a : attrs) {
-            if (!layer->supportsAttribute(a)) continue;
+            if (!layer->supportsAttribute(a))
+                continue;
             QString text = labelFor(a);
             QAction *act = runMenu->addAction(text);
-            act->setData(QVariantList{ r, static_cast<int>(a) });
+            act->setData(QVariantList{r, static_cast<int>(a)});
         }
 
-        // Slice AT.2 — (System) pseudo-object submenu listing all 14 system
+        // Slice AT.2 — (System) pseudo-object submenu listing all 15 system
         // attrs, in the shared canonical order.
         if (layer->supportsAttribute(PlotAttribute::SystemRunoff)) {
             runMenu->addSeparator();
@@ -1156,16 +1670,18 @@ void ComparisonPlotDialog::onAddSeriesClicked()
                 QAction *act = sysSub->addAction(labelWithUnits(a, layer->unitSystem()));
                 // Encode (runIdx, attr, isSystem=true) by reusing the same
                 // QVariantList shape with a 3rd flag.
-                act->setData(QVariantList{ r, static_cast<int>(a), true });
+                act->setData(QVariantList{r, static_cast<int>(a), true});
             }
         }
     }
 
     QAction *chosen = menu.exec(QCursor::pos());
-    if (!chosen) return;
+    if (!chosen)
+        return;
 
     const QVariantList payload = chosen->data().toList();
-    if (payload.size() < 2) return;
+    if (payload.size() < 2)
+        return;
     const int r = payload[0].toInt();
     const PlotAttribute a = static_cast<PlotAttribute>(payload[1].toInt());
     const bool isSystem = (payload.size() >= 3 && payload[2].toBool());
@@ -1179,11 +1695,12 @@ void ComparisonPlotDialog::onAddSeriesClicked()
     // Prompt for the SWMM object ID. The user can paste any name; if the
     // .out doesn't have it, getSeriesAt will report an error in the chart.
     bool ok = false;
-    const QString objName = QInputDialog::getText(this,
-        tr("Add series"),
+    const QString objName = QInputDialog::getText(
+        this, tr("Add series"),
         tr("Enter SWMM object ID (node / link / subcatchment) for %1:").arg(labelFor(a)),
         QLineEdit::Normal, QString(), &ok);
-    if (!ok || objName.isEmpty()) return;
+    if (!ok || objName.isEmpty())
+        return;
 
     // Infer the ObjectRef::Kind from the attribute's prefix.
     ObjectRef::Kind kind = ObjectRef::Kind::Node;
@@ -1195,11 +1712,23 @@ void ComparisonPlotDialog::onAddSeriesClicked()
     case PlotAttribute::LinkCapacity:
         kind = ObjectRef::Kind::Link;
         break;
+    case PlotAttribute::SubcatchSnowSWE:
+    case PlotAttribute::SubcatchSnowEnergy:
+    case PlotAttribute::SubcatchSnowSurfaceTemp:
+    case PlotAttribute::SubcatchSnowBulkTemp:
+    case PlotAttribute::SubcatchSnowAlbedo:
+    case PlotAttribute::SubcatchSnowCover:
+    case PlotAttribute::SubcatchSnowMelt:
+    case PlotAttribute::SubcatchSnowInput:
+    case PlotAttribute::SubcatchSnowSublimation:
     case PlotAttribute::SubcatchRainfall:
     case PlotAttribute::SubcatchSnowDepth:
     case PlotAttribute::SubcatchEvap:
     case PlotAttribute::SubcatchInfil:
     case PlotAttribute::SubcatchRunoff:
+    case PlotAttribute::SubcatchGwFlow:
+    case PlotAttribute::SubcatchGwElev:
+    case PlotAttribute::SubcatchSoilMoisture:
         kind = ObjectRef::Kind::Subcatch;
         break;
     default:
@@ -1215,8 +1744,134 @@ void ComparisonPlotDialog::onAddSeriesClicked()
 // Charts area
 // ---------------------------------------------------------------------------
 
+void ComparisonPlotDialog::appendChartTails()
+{
+    for (const auto &row : m_rowWidgets)
+        for (const auto &segments : row.segments)
+            if (segments.size() > 1) { rebuildCharts(); return; }
+    // Incremental refresh for a growing run source (live 1D tail, live 2D
+    // stream). Every QChart / axis / QLineSeries stays alive; each series
+    // gets only the points newer than its last one, and axes are extended
+    // outward — never shrunk — so the plot does not jump under the user.
+    // If the row set changed shape since the last build, fall back to a
+    // full rebuild.
+    const QVector<AttributeRow> &rows = m_model->rows();
+    if (rows.size() != m_rowWidgets.size()) {
+        rebuildCharts();
+        return;
+    }
+
+    // Resolve every tail in one batch so a mesh source reads each new frame
+    // once for all selected cells, not once per series.
+    QVector<int> firstPeriods(m_model->seriesCount(), 0);
+    for (int r = 0; r < rows.size(); ++r) {
+        const RowWidgets &rw = m_rowWidgets[r];
+        if (rw.consumed.size() != rows[r].seriesIndices.size())
+            continue; // rebuilt below
+        for (int k = 0; k < rows[r].seriesIndices.size(); ++k)
+            firstPeriods[rows[r].seriesIndices[k]] = rw.consumed[k];
+    }
+    const QVector<SeriesData> tails = m_model->resolveAllSeries(firstPeriods);
+
+    for (int r = 0; r < rows.size(); ++r) {
+        const AttributeRow &row = rows.at(r);
+        RowWidgets &rw = m_rowWidgets[r];
+        if (!rw.chart || !rw.xAxis || !rw.yAxis || rw.series.size() != row.seriesIndices.size() ||
+            rw.consumed.size() != rw.series.size()) {
+            rebuildCharts();
+            return;
+        }
+
+        // A row built with no data carries the [0,1] placeholder range;
+        // the first real points replace it instead of merging with it.
+        const bool hadPoints = std::any_of(rw.series.cbegin(), rw.series.cend(),
+                                           [](QLineSeries *s) { return s && s->count() > 0; });
+        double yMin = hadPoints ? rw.yAxis->min() : std::numeric_limits<double>::infinity();
+        double yMax = hadPoints ? rw.yAxis->max() : -std::numeric_limits<double>::infinity();
+        qint64 xMinMs =
+            hadPoints ? rw.xAxis->min().toMSecsSinceEpoch() : std::numeric_limits<qint64>::max();
+        qint64 xMaxMs =
+            hadPoints ? rw.xAxis->max().toMSecsSinceEpoch() : std::numeric_limits<qint64>::min();
+        bool grew = false;
+
+        for (int k = 0; k < row.seriesIndices.size(); ++k) {
+            QLineSeries *line = rw.series[k];
+            if (!line)
+                continue;
+            const int sIdx = row.seriesIndices[k];
+
+            // Ask for the tail only: periods [consumed, n). This used to
+            // re-resolve the WHOLE series on every live tick — O(run length)
+            // per tick per series, and for 2D velocity / rainfall a full-mesh
+            // copy per frame — which is what turned a slowdown into an
+            // ever-growing event-queue backlog on long runs.
+            SeriesData data = tails.value(sIdx);
+            if (data.ok && data.periodCount > 0 && data.periodCount < rw.consumed[k]) {
+                // The live 2D source thinned its history (frame indices
+                // shifted down): re-read from the start once; the time filter
+                // below drops everything already plotted.
+                data = SeriesData{};
+                m_model->resolveSeries(sIdx, data);
+            }
+            if (!data.ok)
+                continue;
+            if (data.periodCount > 0)
+                rw.consumed[k] = data.periodCount;
+
+            // Newest point already on the chart; append strictly after it.
+            const qint64 lastMs = line->count() > 0
+                                      ? static_cast<qint64>(line->at(line->count() - 1).x())
+                                      : std::numeric_limits<qint64>::min();
+            QList<QPointF> tail;
+            for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
+                const QDateTime dt =
+                    openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
+                const double v = data.values[i];
+                if (!dt.isValid() || !std::isfinite(v))
+                    continue;
+                const qint64 ms = dt.toMSecsSinceEpoch();
+                if (ms <= lastMs)
+                    continue;
+                tail.append(QPointF(static_cast<double>(ms), v));
+                if (v < yMin)
+                    yMin = v;
+                if (v > yMax)
+                    yMax = v;
+                if (ms < xMinMs)
+                    xMinMs = ms;
+                if (ms > xMaxMs)
+                    xMaxMs = ms;
+            }
+            if (!tail.isEmpty()) {
+                line->append(tail);
+                grew = true;
+            }
+        }
+        if (!grew)
+            continue;
+
+        // Extend outward only (yMin/yMax already include the old range when
+        // the row had points).
+        if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
+            const double pad = 0.05 * (yMax - yMin);
+            rw.yAxis->setRange(std::min(yMin - pad, hadPoints ? rw.yAxis->min() : yMin - pad),
+                               std::max(yMax + pad, hadPoints ? rw.yAxis->max() : yMax + pad));
+        }
+        if (xMinMs < xMaxMs)
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                               QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
+    }
+    applyAnimationCursorToCharts();
+}
+
 void ComparisonPlotDialog::rebuildCharts()
 {
+    QScopedValueRollback<bool> observationRangeGuard(m_restoringObservationRange,true);
+    const auto resolved = m_model->resolveAllSeries();
+    QVector<QPair<ResultDescriptor, Qt::Alignment>> legendAlignments;
+    for (const auto &rw : m_rowWidgets)
+        if (rw.chart)
+            legendAlignments.append({rw.descriptor, rw.chart->legend()->alignment()});
     // Tear down existing row frames (splitter children — deleting frame
     // also deletes its child views, charts, and series via Qt parenting).
     for (RowWidgets &rw : m_rowWidgets) {
@@ -1229,10 +1884,10 @@ void ComparisonPlotDialog::rebuildCharts()
     // is on (Phase 4) AND there's something to pair: ≥2 runs for auto
     // mode, or user-configured pairs (Phase 5 — these may pair two
     // series of a single run, e.g. two objects).
-    const bool show1v1     = !m_actShow1v1 || m_actShow1v1->isChecked();
-    const bool haveScatter = show1v1 &&
-        (m_model->runSourceCount() >= 2 || !m_model->pairs().isEmpty());
-    const int baselineIdx  = m_model->baselineRunIndex();
+    const bool show1v1 = !m_actShow1v1 || m_actShow1v1->isChecked();
+    const bool haveScatter =
+        show1v1 && (m_model->runSourceCount() >= 2 || !m_model->pairs().isEmpty());
+    const int baselineIdx = m_model->baselineRunIndex();
 
     // Build one chart per row.
     const QVector<AttributeRow> &rows = m_model->rows();
@@ -1241,10 +1896,20 @@ void ComparisonPlotDialog::rebuildCharts()
 
         RowWidgets rw;
         rw.chart = new QChart;
-        rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem));
+        const ResultDescriptor rowDesc = row.descriptor();
+        rw.descriptor = rowDesc;
+        const QString rowUnits = rowDesc.unitLabel(row.unitSystem);
+        const QString rowTitle = rowUnits.isEmpty()
+                                     ? rowDesc.label()
+                                     : QStringLiteral("%1 (%2)").arg(rowDesc.label(), rowUnits);
+        rw.chart->setTitle(rowTitle);
         rw.chart->legend()->setVisible(true);
+        rw.chart->legend()->setAlignment(Qt::AlignTop);
+        for (const auto &saved : legendAlignments)
+            if (saved.first == rowDesc)
+                rw.chart->legend()->setAlignment(saved.second);
 
-        rw.xAxis = new QDateTimeAxis;
+        rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
         rw.xAxis->setTitleText(tr("Time"));
         rw.xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
         rw.chart->addAxis(rw.xAxis, Qt::AlignBottom);
@@ -1264,30 +1929,62 @@ void ComparisonPlotDialog::rebuildCharts()
         for (int sIdx : row.seriesIndices) {
             const SeriesSpec &spec = m_model->spec(sIdx);
             auto *line = new QLineSeries;
+            QVector<QLineSeries *> segments{line};
 
             line->setName(legendNameFor(spec));
             openswmmvis::plot::applySeriesStyle(spec.style, line);
 
-            SeriesData data;
-            m_model->resolveSeries(sIdx, data);
+            const SeriesData &data = resolved[sIdx];
+            // Y2b-3 (D-G1 warn-on-miss): a series that cannot resolve —
+            // e.g. a saved species the reopened run does not carry —
+            // stays in the legend WITH its reason instead of silently
+            // drawing nothing the user has to puzzle over.
+            if (!data.ok && !data.errorMessage.isEmpty())
+                line->setName(
+                    QStringLiteral("%1 — %2").arg(legendNameFor(spec), data.errorMessage));
+            if (!data.displayNote.isEmpty()) line->setName(line->name() + QStringLiteral(" — ") + data.displayNote);
+            if (data.pointsOnly) { line->setPen(QPen(Qt::NoPen)); line->setPointsVisible(true); line->setProperty("sourcePointsOnly",true); }
             if (data.ok) {
-                for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
-                    const QDateTime dt = openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
+                QList<QPointF> points;
+                points.reserve(data.values.size());
+                bool gap = false;
+                for (std::size_t i = 0; i < std::min(data.timesJulian.size(),data.values.size()); ++i) {
+                    const QDateTime dt =
+                        openswmmvis::core::swmmDateTimeToMilliseconds(data.timesJulian[i]);
                     const double v = data.values[i];
-                    if (!dt.isValid() || !std::isfinite(v)) continue;
+                    if (!dt.isValid() || !std::isfinite(v)) { gap = !points.isEmpty(); continue; }
+                    if (gap && !data.pointsOnly) {
+                        line->replace(points);
+                        points.clear();
+                        line = new QLineSeries;
+                        applySeriesStyle(spec.style,line);
+                        segments.append(line);
+                    }
+                    gap = false;
                     const qint64 ms = dt.toMSecsSinceEpoch();
-                    line->append(ms, v);
-                    if (v < yMin) yMin = v;
-                    if (v > yMax) yMax = v;
-                    if (ms < xMinMs) xMinMs = ms;
-                    if (ms > xMaxMs) xMaxMs = ms;
+                    points.append(QPointF(ms, v));
+                    if (v < yMin)
+                        yMin = v;
+                    if (v > yMax)
+                        yMax = v;
+                    if (ms < xMinMs)
+                        xMinMs = ms;
+                    if (ms > xMaxMs)
+                        xMaxMs = ms;
                 }
+                line->replace(points);
             }
 
-            rw.chart->addSeries(line);
-            line->attachAxis(rw.xAxis);
-            line->attachAxis(rw.yAxis);
+            for (int segment=0; segment<segments.size(); ++segment) {
+                auto *part = segments[segment];
+                rw.chart->addSeries(part);
+                part->attachAxis(rw.xAxis); part->attachAxis(rw.yAxis);
+                if (segment) for (auto *marker : rw.chart->legend()->markers(part)) marker->setVisible(false);
+            }
+            rw.segments.push_back(segments);
+            line = segments.first();
             rw.series.push_back(line);
+            rw.consumed.push_back(data.ok ? data.periodCount : 0);
         }
 
         // CP.1 — Animation-cursor vertical line: dashed black, named so
@@ -1308,7 +2005,8 @@ void ComparisonPlotDialog::rebuildCharts()
         // dashed line is the cursor instead of guessing.
         const auto cursorMarkers = rw.chart->legend()->markers(rw.cursorLine);
         for (auto *m : cursorMarkers)
-            if (m) m->setVisible(m_showCursor);
+            if (m)
+                m->setVisible(m_showCursor);
 
         // Axis ranges
         if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
@@ -1318,8 +2016,8 @@ void ComparisonPlotDialog::rebuildCharts()
             rw.yAxis->setRange(0, 1);
         }
         if (xMinMs < xMaxMs) {
-            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs),
-                                QDateTime::fromMSecsSinceEpoch(xMaxMs));
+            rw.xAxis->setRange(QDateTime::fromMSecsSinceEpoch(xMinMs, Qt::UTC),
+                               QDateTime::fromMSecsSinceEpoch(xMaxMs, Qt::UTC));
         }
 
         // Slice AT.2 — InteractiveChartView replaces plain QChartView so the
@@ -1327,56 +2025,68 @@ void ComparisonPlotDialog::rebuildCharts()
         rw.view = new InteractiveChartView(rw.chart);
         rw.view->setRenderHint(QPainter::Antialiasing);
         rw.view->setMinimumHeight(220);
-        connect(rw.view, &InteractiveChartView::chartContextMenuRequested,
-                this, [this, r](const QPoint &globalPos) {
-                    // AT.3 — adds Chart Properties… to the row context menu.
-                    QMenu menu(this);
-                    QAction *reset    = menu.addAction(tr("Reset Zoom"));
-                    QAction *fit      = menu.addAction(tr("Fit All Rows"));
-                    menu.addSeparator();
-                    QAction *props    = menu.addAction(tr("Chart Properties…"));
-                    QAction *chosen = menu.exec(globalPos);
-                    if (!chosen) return;
-                    if (chosen == reset && r < m_rowWidgets.size()
-                        && m_rowWidgets[r].view) {
-                        m_rowWidgets[r].view->resetZoom();
-                    } else if (chosen == fit) {
-                        rebuildCharts();
-                    } else if (chosen == props && r < m_rowWidgets.size()
-                               && m_rowWidgets[r].chart) {
-                        auto *cp = new openswmmvis::plot::ChartProperties(
-                            m_rowWidgets[r].chart);
+        // Keep the time labels readable at any width (see fitTickCountToWidth).
+        rw.view->installEventFilter(new TimeAxisWidthFitter(rw.xAxis, rw.view));
+        rw.xAxis->fitTickCountToWidth(rw.view->width());
+        connect(
+            rw.view, &InteractiveChartView::chartContextMenuRequested, this,
+            [this, r](const QPoint &globalPos) {
+                // AT.3 — adds Chart Properties… to the row context menu.
+                QMenu menu(this);
+                QAction *reset = menu.addAction(tr("Reset Zoom"));
+                QAction *fit = menu.addAction(tr("Fit All Rows"));
+                menu.addSeparator();
+                QAction *exportData = menu.addAction(tr("Export Row Data…"));
+                menu.addSeparator();
+                QAction *props = menu.addAction(tr("Chart Properties…"));
+                QAction *chosen = menu.exec(globalPos);
+                if (!chosen)
+                    return;
+                if (chosen == reset && r < m_rowWidgets.size() && m_rowWidgets[r].view) {
+                    m_rowWidgets[r].view->resetZoom();
+                } else if (chosen == fit) {
+                    rebuildCharts();
+                } else if (chosen == exportData) {
+                    if (r < m_model->rows().size())
+                        exportSeriesData(m_model->rows().at(r).seriesIndices);
+                } else if (chosen == props && r < m_rowWidgets.size() && m_rowWidgets[r].chart) {
+                    auto *cp = new openswmmvis::plot::ChartProperties(m_rowWidgets[r].chart);
+                    if (m_statsPanel)
+                        cp->setStatisticsNumberFormat(m_statsPanel->statisticNumberFormat());
+                    /**
+                     * @brief Copy the current ChartProperties statistics format to the surviving
+                     * panel. Takes no arguments and returns no value; borrowed properties object
+                     * must survive its signal callback.
+                     */
+                    auto applyStatisticsFormat = [this, cp]() {
                         if (m_statsPanel)
-                            cp->setStatisticsNumberFormat(
-                                m_statsPanel->statisticNumberFormat());
-                        auto applyStatisticsFormat = [this, cp]() {
-                            if (m_statsPanel)
-                                m_statsPanel->setStatisticNumberFormat(
-                                    cp->statisticsNumberFormat());
-                        };
-                        connect(cp,
-                                &openswmmvis::plot::ChartProperties::statisticsFormatModeChanged,
-                                this,
-                                applyStatisticsFormat);
-                        connect(cp,
-                                &openswmmvis::plot::ChartProperties::statisticsPrecisionChanged,
-                                this,
-                                applyStatisticsFormat);
-                        connect(cp,
-                                &openswmmvis::plot::ChartProperties::statisticsFormatChanged,
-                                this,
-                                applyStatisticsFormat);
-                        auto *dlg = new ChartPropertiesDialog(cp, this);
-                        dlg->show();
-                    }
-                });
+                            m_statsPanel->setStatisticNumberFormat(cp->statisticsNumberFormat());
+                    };
+                    connect(cp, &openswmmvis::plot::ChartProperties::statisticsFormatModeChanged,
+                            this, applyStatisticsFormat);
+                    connect(cp, &openswmmvis::plot::ChartProperties::statisticsPrecisionChanged,
+                            this, applyStatisticsFormat);
+                    connect(cp, &openswmmvis::plot::ChartProperties::statisticsFormatChanged, this,
+                            applyStatisticsFormat);
+                    auto *dlg = new ChartPropertiesDialog(cp, this);
+                    dlg->show();
+                }
+            });
         // Slice AT.3 — Shift-drag X-range selection feeds the StatsSummaryPanel
         // and is cached so Fit can refit Y to the windowed data.
-        connect(rw.view, &InteractiveChartView::xRangeSelectionChanged,
-                this, [this](QDateTime lo, QDateTime hi) {
+        connect(rw.view, &InteractiveChartView::xRangeSelectionChanged, this,
+                [this](QDateTime lo, QDateTime hi) {
                     m_xSelLo = lo;
                     m_xSelHi = hi;
-                    if (m_statsPanel) m_statsPanel->setSelectionRange(lo, hi);
+                    if (m_statsPanel)
+                        m_statsPanel->setSelectionRange(lo, hi);
+                    for (int run=0; run<m_model->runSourceCount(); ++run) {
+                        auto source = std::dynamic_pointer_cast<TimeSeriesRunLayer>(m_model->runSource(run).layer);
+                        if (!source) continue;
+                        QStringList ids;
+                        for (int i=0; i<m_model->seriesCount(); ++i) if (m_model->spec(i).runIndex == run) ids.append(m_model->spec(i).objectRef.name);
+                        source->requestWindow(ids,lo,hi);
+                    }
                 });
 
         // ----- Column 1: 1v1 scatter (FitMetrics in title) ----------------
@@ -1391,8 +2101,8 @@ void ComparisonPlotDialog::rebuildCharts()
             // first; the chart only exists when at least one pairing
             // produced points.
             struct PendingScatter {
-                int           xSpecIdx;   ///< -1 in auto mode (baseline column).
-                int           ySpecIdx;   ///< Styles the scatter points.
+                int xSpecIdx; ///< -1 in auto mode (baseline column).
+                int ySpecIdx; ///< Styles the scatter points.
                 PairedSamples samples;
             };
             std::vector<PendingScatter> pending;
@@ -1405,20 +2115,19 @@ void ComparisonPlotDialog::rebuildCharts()
                     if (cp.xSeriesIndex < 0 || cp.xSeriesIndex >= m_model->seriesCount() ||
                         cp.ySeriesIndex < 0 || cp.ySeriesIndex >= m_model->seriesCount())
                         continue;
-                    if (m_model->spec(cp.xSeriesIndex).attribute != row.attribute)
-                        continue;   // belongs to another row
+                    if (m_model->spec(cp.xSeriesIndex).descriptor() != rowDesc)
+                        continue; // belongs to another row
 
-                    SeriesData xData, yData;
-                    m_model->resolveSeries(cp.xSeriesIndex, xData);
-                    m_model->resolveSeries(cp.ySeriesIndex, yData);
-                    if (!xData.ok || !yData.ok) continue;
+                    const SeriesData &xData = resolved[cp.xSeriesIndex];
+                    const SeriesData &yData = resolved[cp.ySeriesIndex];
+                    if (!xData.ok || !yData.ok || !xData.allowPairing || !yData.allowPairing || xData.displayOnly || yData.displayOnly)
+                        continue;
 
-                    PairedSamples ps = pairSamplesNearest(
-                        xData.timesJulian, xData.values,
-                        yData.timesJulian, yData.values);
-                    if (ps.x.empty()) continue;
-                    pending.push_back({cp.xSeriesIndex, cp.ySeriesIndex,
-                                       std::move(ps)});
+                    PairedSamples ps = pairSamplesNearest(xData.timesJulian, xData.values,
+                                                          yData.timesJulian, yData.values);
+                    if (ps.x.empty())
+                        continue;
+                    pending.push_back({cp.xSeriesIndex, cp.ySeriesIndex, std::move(ps)});
                 }
             } else if (baselineIdx >= 0) {
                 // Auto mode — baseline vs every other run, matched by
@@ -1427,23 +2136,31 @@ void ComparisonPlotDialog::rebuildCharts()
                 struct BaselineCol {
                     std::vector<double> t, v;
                 };
-                QMap<QString, BaselineCol> baseByObj;   // key = obj name|kind|triIdx
+                QMap<QString, BaselineCol> baseByObj; // key = obj name|kind|triIdx
 
+                /**
+                 * @brief Create an auto-pair object identity key. Argument `r`: borrowed object
+                 * reference. Returns: kind, name and triangle ID joined by vertical bars; no
+                 * escaping or source lookup.
+                 */
                 auto refKey = [](const ObjectRef &r) -> QString {
                     return QStringLiteral("%1|%2|%3")
-                        .arg(static_cast<int>(r.kind)).arg(r.name).arg(r.triIdx);
+                        .arg(static_cast<int>(r.kind))
+                        .arg(r.name)
+                        .arg(r.triIdx);
                 };
 
                 // First pass: collect baseline samples for this row.
                 for (int sIdx : row.seriesIndices) {
                     const SeriesSpec &spec = m_model->spec(sIdx);
-                    if (spec.runIndex != baselineIdx) continue;
-                    SeriesData data;
-                    m_model->resolveSeries(sIdx, data);
-                    if (!data.ok) continue;
+                    if (spec.runIndex != baselineIdx)
+                        continue;
+                    const SeriesData &data = resolved[sIdx];
+                    if (!data.ok || !data.allowPairing || data.displayOnly)
+                        continue;
                     BaselineCol bc;
                     bc.t.assign(data.timesJulian.begin(), data.timesJulian.end());
-                    bc.v.assign(data.values.begin(),       data.values.end());
+                    bc.v.assign(data.values.begin(), data.values.end());
                     baseByObj[refKey(spec.objectRef)] = std::move(bc);
                 }
 
@@ -1452,149 +2169,154 @@ void ComparisonPlotDialog::rebuildCharts()
                 // plot/seriespairing.h).
                 for (int sIdx : row.seriesIndices) {
                     const SeriesSpec &spec = m_model->spec(sIdx);
-                    if (spec.runIndex == baselineIdx) continue;
+                    if (spec.runIndex == baselineIdx)
+                        continue;
 
                     auto baseIt = baseByObj.find(refKey(spec.objectRef));
-                    if (baseIt == baseByObj.end()) continue;   // no baseline for this object on this row
+                    if (baseIt == baseByObj.end())
+                        continue; // no baseline for this object on this row
 
-                    SeriesData data;
-                    m_model->resolveSeries(sIdx, data);
-                    if (!data.ok) continue;
+                    const SeriesData &data = resolved[sIdx];
+                    if (!data.ok || !data.allowPairing || data.displayOnly)
+                        continue;
 
-                    PairedSamples ps = pairSamplesNearest(
-                        baseIt.value().t, baseIt.value().v,
-                        data.timesJulian, data.values);
-                    if (ps.x.empty()) continue;
+                    PairedSamples ps = pairSamplesNearest(baseIt.value().t, baseIt.value().v,
+                                                          data.timesJulian, data.values);
+                    if (ps.x.empty())
+                        continue;
                     pending.push_back({-1, sIdx, std::move(ps)});
                 }
             }
 
             if (!pending.empty()) {
-            // Axis titles: auto mode keeps Baseline/Comparison; a single
-            // configured pair names the actual series; multiple pairs on
-            // one row stay generic.
-            QString xTitle = tr("Baseline");
-            QString yTitle = tr("Comparison");
-            if (!userPairs.isEmpty()) {
-                if (pending.size() == 1 && pending.front().xSpecIdx >= 0) {
-                    xTitle = legendNameFor(m_model->spec(pending.front().xSpecIdx));
-                    yTitle = legendNameFor(m_model->spec(pending.front().ySpecIdx));
+                // Axis titles: auto mode keeps Baseline/Comparison; a single
+                // configured pair names the actual series; multiple pairs on
+                // one row stay generic.
+                QString xTitle = tr("Baseline");
+                QString yTitle = tr("Comparison");
+                if (!userPairs.isEmpty()) {
+                    if (pending.size() == 1 && pending.front().xSpecIdx >= 0) {
+                        xTitle = legendNameFor(m_model->spec(pending.front().xSpecIdx));
+                        yTitle = legendNameFor(m_model->spec(pending.front().ySpecIdx));
+                    } else {
+                        xTitle = tr("X series");
+                        yTitle = tr("Y series");
+                    }
+                }
+
+                rw.scatterChart = new QChart;
+                rw.scatterChart->legend()->setVisible(false);
+
+                rw.scatterXAxis = new QValueAxis;
+                rw.scatterXAxis->setTitleText(xTitle);
+                rw.scatterXAxis->setLabelFormat(
+                    PreferencesManager::instance()->plotXAxisFormat().printfSpec());
+                rw.scatterChart->addAxis(rw.scatterXAxis, Qt::AlignBottom);
+
+                rw.scatterYAxis = new QValueAxis;
+                rw.scatterYAxis->setTitleText(yTitle);
+                rw.scatterYAxis->setLabelFormat(
+                    PreferencesManager::instance()->plotYAxisFormat().printfSpec());
+                rw.scatterChart->addAxis(rw.scatterYAxis, Qt::AlignLeft);
+
+                double scMin = std::numeric_limits<double>::infinity();
+                double scMax = -std::numeric_limits<double>::infinity();
+
+                // Aggregate fit metrics across all (baseline-paired) comparison
+                // series in this row — best-of so the title carries the
+                // closest-fitting run.
+                FitMetrics bestFit;
+                bool haveAnyFit = false;
+
+                for (const PendingScatter &p : pending) {
+                    const SeriesSpec &spec = m_model->spec(p.ySpecIdx);
+                    const auto &xs = p.samples.x;
+                    const auto &ys = p.samples.y;
+
+                    auto *scatter = new QScatterSeries;
+                    scatter->setMarkerSize(5.0);
+                    scatter->setColor(spec.style.color);
+                    scatter->setBorderColor(spec.style.color);
+
+                    for (std::size_t k = 0; k < xs.size(); ++k) {
+                        scatter->append(xs[k], ys[k]);
+                        const double mn = std::min(xs[k], ys[k]);
+                        const double mx = std::max(xs[k], ys[k]);
+                        if (mn < scMin)
+                            scMin = mn;
+                        if (mx > scMax)
+                            scMax = mx;
+                    }
+
+                    rw.scatterChart->addSeries(scatter);
+                    scatter->attachAxis(rw.scatterXAxis);
+                    scatter->attachAxis(rw.scatterYAxis);
+                    rw.scatterSeries.push_back(scatter);
+
+                    // FitMetrics on this baseline↔comparison pair. Keep the
+                    // best NSE — that wins the title slot.
+                    FitMetrics fm = FitMetrics::compute(xs, ys);
+                    if (std::isfinite(fm.nse) && (!haveAnyFit || fm.nse > bestFit.nse)) {
+                        bestFit = fm;
+                        haveAnyFit = true;
+                    }
+                }
+
+                // Identity line.
+                rw.identityLine = new QLineSeries;
+                QPen idPen(Qt::black);
+                idPen.setStyle(Qt::DashLine);
+                rw.identityLine->setPen(idPen);
+                rw.scatterChart->addSeries(rw.identityLine);
+                rw.identityLine->attachAxis(rw.scatterXAxis);
+                rw.identityLine->attachAxis(rw.scatterYAxis);
+
+                if (std::isfinite(scMin) && std::isfinite(scMax) && scMax > scMin) {
+                    const double pad = 0.05 * (scMax - scMin);
+                    rw.scatterXAxis->setRange(scMin - pad, scMax + pad);
+                    rw.scatterYAxis->setRange(scMin - pad, scMax + pad);
+                    rw.identityLine->append(scMin, scMin);
+                    rw.identityLine->append(scMax, scMax);
                 } else {
-                    xTitle = tr("X series");
-                    yTitle = tr("Y series");
-                }
-            }
-
-            rw.scatterChart = new QChart;
-            rw.scatterChart->legend()->setVisible(false);
-
-            rw.scatterXAxis = new QValueAxis;
-            rw.scatterXAxis->setTitleText(xTitle);
-            rw.scatterXAxis->setLabelFormat(PreferencesManager::instance()->plotXAxisFormat().printfSpec());
-            rw.scatterChart->addAxis(rw.scatterXAxis, Qt::AlignBottom);
-
-            rw.scatterYAxis = new QValueAxis;
-            rw.scatterYAxis->setTitleText(yTitle);
-            rw.scatterYAxis->setLabelFormat(PreferencesManager::instance()->plotYAxisFormat().printfSpec());
-            rw.scatterChart->addAxis(rw.scatterYAxis, Qt::AlignLeft);
-
-            double scMin = std::numeric_limits<double>::infinity();
-            double scMax = -std::numeric_limits<double>::infinity();
-
-            // Aggregate fit metrics across all (baseline-paired) comparison
-            // series in this row — best-of so the title carries the
-            // closest-fitting run.
-            FitMetrics bestFit;
-            bool       haveAnyFit = false;
-
-            for (const PendingScatter &p : pending) {
-                const SeriesSpec &spec = m_model->spec(p.ySpecIdx);
-                const auto &xs = p.samples.x;
-                const auto &ys = p.samples.y;
-
-                auto *scatter = new QScatterSeries;
-                scatter->setMarkerSize(5.0);
-                scatter->setColor(spec.style.color);
-                scatter->setBorderColor(spec.style.color);
-
-                for (std::size_t k = 0; k < xs.size(); ++k) {
-                    scatter->append(xs[k], ys[k]);
-                    const double mn = std::min(xs[k], ys[k]);
-                    const double mx = std::max(xs[k], ys[k]);
-                    if (mn < scMin) scMin = mn;
-                    if (mx > scMax) scMax = mx;
+                    rw.scatterXAxis->setRange(0, 1);
+                    rw.scatterYAxis->setRange(0, 1);
                 }
 
-                rw.scatterChart->addSeries(scatter);
-                scatter->attachAxis(rw.scatterXAxis);
-                scatter->attachAxis(rw.scatterYAxis);
-                rw.scatterSeries.push_back(scatter);
-
-                // FitMetrics on this baseline↔comparison pair. Keep the
-                // best NSE — that wins the title slot.
-                FitMetrics fm = FitMetrics::compute(xs, ys);
-                if (std::isfinite(fm.nse) && (!haveAnyFit || fm.nse > bestFit.nse)) {
-                    bestFit = fm;
-                    haveAnyFit = true;
+                // Title: include fit metrics if we have any.
+                QString scatterTitle = rowDesc.label();
+                if (haveAnyFit) {
+                    scatterTitle += QStringLiteral("  (NSE=%1  R²=%2  RMSE=%3  PBIAS=%4%)")
+                                        .arg(bestFit.nse, 0, 'f', 2)
+                                        .arg(bestFit.r2, 0, 'f', 2)
+                                        .arg(bestFit.rmse, 0, 'f', 3)
+                                        .arg(bestFit.pbias, 0, 'f', 1);
                 }
-            }
+                rw.scatterChart->setTitle(scatterTitle);
 
-            // Identity line.
-            rw.identityLine = new QLineSeries;
-            QPen idPen(Qt::black);
-            idPen.setStyle(Qt::DashLine);
-            rw.identityLine->setPen(idPen);
-            rw.scatterChart->addSeries(rw.identityLine);
-            rw.identityLine->attachAxis(rw.scatterXAxis);
-            rw.identityLine->attachAxis(rw.scatterYAxis);
+                // Also include fit metrics in the time-series chart title.
+                if (haveAnyFit) {
+                    rw.chart->setTitle(rowTitle +
+                                       QStringLiteral("  (NSE=%1)").arg(bestFit.nse, 0, 'f', 2));
+                }
 
-            if (std::isfinite(scMin) && std::isfinite(scMax) && scMax > scMin) {
-                const double pad = 0.05 * (scMax - scMin);
-                rw.scatterXAxis->setRange(scMin - pad, scMax + pad);
-                rw.scatterYAxis->setRange(scMin - pad, scMax + pad);
-                rw.identityLine->append(scMin, scMin);
-                rw.identityLine->append(scMax, scMax);
-            } else {
-                rw.scatterXAxis->setRange(0, 1);
-                rw.scatterYAxis->setRange(0, 1);
-            }
-
-            // Title: include fit metrics if we have any.
-            QString scatterTitle = labelFor(row.attribute);
-            if (haveAnyFit) {
-                scatterTitle += QStringLiteral("  (NSE=%1  R²=%2  RMSE=%3  PBIAS=%4%)")
-                    .arg(bestFit.nse,   0, 'f', 2)
-                    .arg(bestFit.r2,    0, 'f', 2)
-                    .arg(bestFit.rmse,  0, 'f', 3)
-                    .arg(bestFit.pbias, 0, 'f', 1);
-            }
-            rw.scatterChart->setTitle(scatterTitle);
-
-            // Also include fit metrics in the time-series chart title.
-            if (haveAnyFit) {
-                rw.chart->setTitle(labelWithUnits(row.attribute, row.unitSystem) +
-                    QStringLiteral("  (NSE=%1)").arg(bestFit.nse, 0, 'f', 2));
-            }
-
-            // COMPARISON_PLOT_1V1_AND_TREE_PLAN — InteractiveChartView
-            // (not plain QChartView) so the toolbar Mode actions and
-            // wheel-zoom work on the 1v1 plots too. The Shift-drag
-            // X-selection signal is NOT connected here: it carries
-            // QDateTime bounds, which don't apply to value-value axes.
-            rw.scatterView = new InteractiveChartView(rw.scatterChart);
-            rw.scatterView->setRenderHint(QPainter::Antialiasing);
-            rw.scatterView->setMinimumHeight(220);
-            connect(rw.scatterView,
-                    &InteractiveChartView::chartContextMenuRequested,
-                    this, [this, r](const QPoint &globalPos) {
-                        QMenu menu(this);
-                        QAction *reset  = menu.addAction(tr("Reset Zoom"));
-                        QAction *chosen = menu.exec(globalPos);
-                        if (chosen == reset && r < m_rowWidgets.size()
-                            && m_rowWidgets[r].scatterView) {
-                            m_rowWidgets[r].scatterView->resetZoom();
-                        }
-                    });
+                // COMPARISON_PLOT_1V1_AND_TREE_PLAN — InteractiveChartView
+                // (not plain QChartView) so the toolbar Mode actions and
+                // wheel-zoom work on the 1v1 plots too. The Shift-drag
+                // X-selection signal is NOT connected here: it carries
+                // QDateTime bounds, which don't apply to value-value axes.
+                rw.scatterView = new InteractiveChartView(rw.scatterChart);
+                rw.scatterView->setRenderHint(QPainter::Antialiasing);
+                rw.scatterView->setMinimumHeight(220);
+                connect(rw.scatterView, &InteractiveChartView::chartContextMenuRequested, this,
+                        [this, r](const QPoint &globalPos) {
+                            QMenu menu(this);
+                            QAction *reset = menu.addAction(tr("Reset Zoom"));
+                            QAction *chosen = menu.exec(globalPos);
+                            if (chosen == reset && r < m_rowWidgets.size() &&
+                                m_rowWidgets[r].scatterView) {
+                                m_rowWidgets[r].scatterView->resetZoom();
+                            }
+                        });
             } // if (!pending.empty()) — no pairs → no scatter pane
         }
 
@@ -1602,13 +2324,14 @@ void ComparisonPlotDialog::rebuildCharts()
         // per-row frame and push that into the vertical splitter. The
         // frame sits at index `r` in m_chartsSplitter; user-draggable
         // handles between frames let users resize rows arbitrarily.
-        rw.rowFrame = new QWidget;       // QWidget is enough; we don't paint a frame
+        rw.rowFrame = new QWidget; // QWidget is enough; we don't paint a frame
         rw.rowFrame->setMinimumHeight(220);
         auto *hLay = new QHBoxLayout(rw.rowFrame);
         hLay->setContentsMargins(0, 0, 0, 0);
         hLay->setSpacing(8);
-        hLay->addWidget(rw.view, 2);     // time-series wider
-        if (rw.scatterView) hLay->addWidget(rw.scatterView, 1);
+        hLay->addWidget(rw.view, 2); // time-series wider
+        if (rw.scatterView)
+            hLay->addWidget(rw.scatterView, 1);
 
         m_chartsSplitter->addWidget(rw.rowFrame);
         m_rowWidgets.push_back(rw);
@@ -1638,17 +2361,20 @@ void ComparisonPlotDialog::rebuildCharts()
     m_xFullMin = QDateTime();
     m_xFullMax = QDateTime();
     for (const RowWidgets &rw : m_rowWidgets) {
-        if (!rw.xAxis) continue;
+        if (!rw.xAxis)
+            continue;
         const QDateTime lo = rw.xAxis->min();
         const QDateTime hi = rw.xAxis->max();
-        if (!m_xFullMin.isValid() || lo < m_xFullMin) m_xFullMin = lo;
-        if (!m_xFullMax.isValid() || hi > m_xFullMax) m_xFullMax = hi;
+        if (!m_xFullMin.isValid() || lo < m_xFullMin)
+            m_xFullMin = lo;
+        if (!m_xFullMax.isValid() || hi > m_xFullMax)
+            m_xFullMax = hi;
     }
     if (m_rangeSlider) {
         QSignalBlocker block(m_rangeSlider);
         m_rangeSlider->setRange(0.0, 1.0);
-        m_rangeSlider->setEnabled(m_xFullMin.isValid() && m_xFullMax.isValid()
-                                   && m_xFullMin < m_xFullMax);
+        m_rangeSlider->setEnabled(m_xFullMin.isValid() && m_xFullMax.isValid() &&
+                                  m_xFullMin < m_xFullMax);
     }
     if (m_rangeLabel) {
         if (m_xFullMin.isValid() && m_xFullMax.isValid()) {
@@ -1662,27 +2388,151 @@ void ComparisonPlotDialog::rebuildCharts()
     }
 
     applyAnimationCursorToCharts();
+    // Series a saved-results adapter queued during this rebuild load next.
+    scheduleResultLoading_();
+}
+
+void ComparisonPlotDialog::setMeshFileDeferral_(bool on)
+{
+    for (int r = 0; r < m_model->runSourceCount(); ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            mesh->setDeferFileReads(on);
+}
+
+void ComparisonPlotDialog::scheduleResultLoading_()
+{
+    // Coalesce: the charts and the statistics panel both queue series during
+    // one addition; start once after both have run.
+    if (m_loadScheduled)
+        return;
+    m_loadScheduled = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_loadScheduled = false;
+        startResultLoading_();
+    });
+}
+
+void ComparisonPlotDialog::startResultLoading_()
+{
+    if (m_load)
+        return; // one job at a time; its completion starts the next
+    for (int r = 0; r < m_model->runSourceCount(); ++r) {
+        auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer);
+        if (!mesh)
+            continue;
+        Mesh2DExtractionJob job = mesh->takeExtractionJob();
+        if (job.isEmpty())
+            continue;
+        auto state = std::make_shared<ResultLoad>();
+        state->layer = mesh;
+        state->job = std::move(job);
+        m_load = state;
+        // The lambda holds only the shared state: never the dialog or adapter.
+        m_loadThread = std::thread([state]() {
+            state->ok = state->job.run(state->results, state->cancel, state->frames);
+            state->done.store(true, std::memory_order_release);
+        });
+        m_loadTimer->start();
+        updateLoadStrip_();
+        return;
+    }
+    updateLoadStrip_();
+}
+
+void ComparisonPlotDialog::pollResultLoading_()
+{
+    if (!m_load) {
+        m_loadTimer->stop();
+        return;
+    }
+    m_loadProgress->setValue(m_load->frames.load(std::memory_order_relaxed));
+    if (!m_load->done.load(std::memory_order_acquire))
+        return;
+
+    m_loadThread.join();
+    m_loadTimer->stop();
+    const std::shared_ptr<ResultLoad> state = std::move(m_load);
+    m_load.reset();
+    auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(state->layer.lock());
+    if (mesh) {
+        // A stale job (source replaced meanwhile) is rejected; the rebuild
+        // below queues those series again against the new source. A cancel
+        // or an unreadable file leaves them "Loading cancelled" until Retry.
+        // A pressed Cancel wins even if the last frame finished meanwhile.
+        if (state->ok && !state->cancel.load())
+            mesh->acceptExtraction(state->job, state->results);
+        else
+            mesh->cancelExtraction(state->job);
+    }
+    rebuildCharts();
+    if (m_statsPanel)
+        m_statsPanel->refresh();
+    updateLoadStrip_();
+}
+
+void ComparisonPlotDialog::onLoadButtonClicked_()
+{
+    if (m_load) {
+        m_load->cancel.store(true);
+        m_loadButton->setEnabled(false); // honoured within one frame read
+        return;
+    }
+    for (int r = 0; r < m_model->runSourceCount(); ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            mesh->retryCancelled();
+    rebuildCharts();
+    if (m_statsPanel)
+        m_statsPanel->refresh();
+}
+
+void ComparisonPlotDialog::updateLoadStrip_()
+{
+    if (m_load) {
+        m_loadLabel->setText(
+            tr("Loading %n saved 2D series…", nullptr, int(m_load->job.requests.size())));
+        m_loadProgress->setRange(0, std::max(1, m_load->job.frames));
+        m_loadProgress->setValue(m_load->frames.load(std::memory_order_relaxed));
+        m_loadProgress->show();
+        m_loadButton->setText(tr("Cancel"));
+        m_loadButton->setEnabled(true);
+        m_loadStrip->show();
+        return;
+    }
+    bool cancelled = false;
+    for (int r = 0; r < m_model->runSourceCount() && !cancelled; ++r)
+        if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
+            cancelled = mesh->hasCancelled();
+    if (cancelled) {
+        m_loadLabel->setText(tr("Loading saved 2D results was cancelled."));
+        m_loadProgress->hide();
+        m_loadButton->setText(tr("Retry"));
+        m_loadButton->setEnabled(true);
+        m_loadStrip->show();
+    } else {
+        m_loadStrip->hide();
+    }
 }
 
 void ComparisonPlotDialog::updateChartForRow(int rowIndex)
 {
-    if (rowIndex < 0 || rowIndex >= m_rowWidgets.size()) return;
+    if (rowIndex < 0 || rowIndex >= m_rowWidgets.size())
+        return;
     // Coarse approach: rebuild all. A future polish can incrementally update.
     rebuildCharts();
 }
 
 void ComparisonPlotDialog::applyAnimationCursorToCharts()
 {
-    if (!m_curAnimTime.isValid()) {
-        for (RowWidgets &rw : m_rowWidgets) {
-            if (rw.cursorLine) rw.cursorLine->clear();
-        }
-        return;
-    }
-    const qint64 ms = m_curAnimTime.toMSecsSinceEpoch();
     for (RowWidgets &rw : m_rowWidgets) {
-        if (!rw.cursorLine || !rw.yAxis) continue;
+        if (!rw.cursorLine || !rw.yAxis)
+            continue;
         rw.cursorLine->clear();
+        const QDateTime time = m_curAnimTime.isValid() ? m_curAnimTime
+                               : rw.xAxis              ? rw.xAxis->min()
+                                                       : QDateTime();
+        if (!time.isValid())
+            continue;
+        const qint64 ms = time.toMSecsSinceEpoch();
         rw.cursorLine->append(ms, rw.yAxis->min());
         rw.cursorLine->append(ms, rw.yAxis->max());
     }

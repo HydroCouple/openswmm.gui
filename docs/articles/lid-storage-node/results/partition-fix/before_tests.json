@@ -1,0 +1,58 @@
+{
+  "tests": 2,
+  "failures": 2,
+  "disabled": 0,
+  "errors": 0,
+  "timestamp": "2026-10-05T23:35:22Z",
+  "time": "0.005s",
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "LidNodes",
+      "tests": 2,
+      "failures": 2,
+      "disabled": 0,
+      "errors": 0,
+      "timestamp": "2026-10-05T23:35:22Z",
+      "time": "0.005s",
+      "testsuite": [
+        {
+          "name": "PartlySubmergedAggregateStillDrainsRetainedWater",
+          "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_lid_nodes.cpp",
+          "line": 254,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:35:22Z",
+          "time": "0.001s",
+          "classname": "LidNodes",
+          "failures": [
+            {
+              "failure": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_lid_nodes.cpp:266\nThe difference between gravel.theta and .30 - expected / gravel.geometric_volume is 0.00046296296296294281, which exceeds 1.e-12, where\ngravel.theta evaluates to 0.29999999999999999,\n.30 - expected / gravel.geometric_volume evaluates to 0.29953703703703705, and\n1.e-12 evaluates to 9.9999999999999998e-13.\n",
+              "type": ""
+            }
+          ]
+        },
+        {
+          "name": "ElevatedInletInConnectedCellCannotFillRetainedStoreToPorosity",
+          "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_lid_nodes.cpp",
+          "line": 270,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:35:22Z",
+          "time": "0.004s",
+          "classname": "LidNodes",
+          "failures": [
+            {
+              "failure": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_lid_nodes.cpp:293\nExpected equality of these values:\n  state.port_delta[gravel_index]\n    Which is: 0.10000000000000001\n  0\n",
+              "type": ""
+            },
+            {
+              "failure": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_lid_nodes.cpp:293\nExpected equality of these values:\n  state.port_delta[gravel_index]\n    Which is: 0.10000000000000001\n  0\n",
+              "type": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

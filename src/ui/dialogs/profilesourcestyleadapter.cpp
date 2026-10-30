@@ -1,30 +1,33 @@
-/*!
- * \file   profilesourcestyleadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      profilesourcestyleadapter.cpp
+ * @brief     SWMMResultsLayer in isolation, so a QPropertyModel-backed editor can edit them
+ *            without surfacing the layer's unrelated properties.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/profilesourcestyleadapter.h"
 
 #include "layers/swmmresultslayer.h"
 
-ProfileSourceStyleAdapter::ProfileSourceStyleAdapter(QObject *parent)
-    : QObject(parent)
-{}
+ProfileSourceStyleAdapter::ProfileSourceStyleAdapter(QObject *parent) : QObject(parent) {}
 
 void ProfileSourceStyleAdapter::setLayer(SWMMResultsLayer *layer)
 {
-    if (m_layer.data() == layer) return;
+    if (m_layer.data() == layer)
+        return;
     if (m_layer)
         disconnect(m_layer.data(), nullptr, this, nullptr);
     m_layer = layer;
     if (m_layer) {
         // Forward both signals as a single `changed()` so QPropertyModel can
         // refresh in one pass.  No payload — the model re-reads all rows.
-        connect(m_layer.data(), &SWMMResultsLayer::profileStyleChanged,
-                this, &ProfileSourceStyleAdapter::changed);
-        connect(m_layer.data(), &SWMMResultsLayer::profileLineColorChanged,
-                this, &ProfileSourceStyleAdapter::changed);
+        connect(m_layer.data(), &SWMMResultsLayer::profileStyleChanged, this,
+                &ProfileSourceStyleAdapter::changed);
+        connect(m_layer.data(), &SWMMResultsLayer::profileLineColorChanged, this,
+                &ProfileSourceStyleAdapter::changed);
     }
     emit changed();
 }
@@ -64,29 +67,36 @@ QPen ProfileSourceStyleAdapter::maxEglLinePen() const
 
 void ProfileSourceStyleAdapter::setLineColor(const QColor &v)
 {
-    if (m_layer) m_layer->setProfileLineColor(v);
+    if (m_layer)
+        m_layer->setProfileLineColor(v);
 }
 void ProfileSourceStyleAdapter::setHglLinePen(const QPen &v)
 {
-    if (m_layer) m_layer->setProfileHglLinePen(v);
+    if (m_layer)
+        m_layer->setProfileHglLinePen(v);
 }
 void ProfileSourceStyleAdapter::setHglFillBrush(const QBrush &v)
 {
-    if (m_layer) m_layer->setProfileHglFillBrush(v);
+    if (m_layer)
+        m_layer->setProfileHglFillBrush(v);
 }
 void ProfileSourceStyleAdapter::setEglLinePen(const QPen &v)
 {
-    if (m_layer) m_layer->setProfileEglLinePen(v);
+    if (m_layer)
+        m_layer->setProfileEglLinePen(v);
 }
 void ProfileSourceStyleAdapter::setMaxHglLinePen(const QPen &v)
 {
-    if (m_layer) m_layer->setProfileMaxHglLinePen(v);
+    if (m_layer)
+        m_layer->setProfileMaxHglLinePen(v);
 }
 void ProfileSourceStyleAdapter::setMaxHglFillBrush(const QBrush &v)
 {
-    if (m_layer) m_layer->setProfileMaxHglFillBrush(v);
+    if (m_layer)
+        m_layer->setProfileMaxHglFillBrush(v);
 }
 void ProfileSourceStyleAdapter::setMaxEglLinePen(const QPen &v)
 {
-    if (m_layer) m_layer->setProfileMaxEglLinePen(v);
+    if (m_layer)
+        m_layer->setProfileMaxEglLinePen(v);
 }

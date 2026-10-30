@@ -1,8 +1,10 @@
-/*!
- * \file   userflagseditref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      userflagseditref.h
+ * @brief     Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — compound-attribute cell value for
+ *            the per-object "User Flags" row in the Property Browser.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — compound-attribute
  * cell value for the per-object "User Flags" row in the Property
@@ -12,6 +14,7 @@
  *
  * Registered as a Qt metatype with a QString converter so the read-only
  * DisplayRole path renders `summary`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef USERFLAGSEDITREF_H
@@ -20,39 +23,50 @@
 #include <QMetaType>
 #include <QString>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 class UserFlagsModel;
 }
 
 /*! Identifies the user-flag assignments of a single model object. */
-struct UserFlagsEditRef
-{
+struct UserFlagsEditRef {
     /*! Shared per-project store (borrow, not owned — lifetime is bound
      *  to the SWMMModelLayer). May be null when the engine is closed or
      *  in test contexts; the button disables gracefully. */
     openswmmvis::ui::UserFlagsModel *model = nullptr;
 
-    QString objectType;   ///< [USER_FLAG_VALUES] token: NODE / LINK / SUBCATCHMENT / GAGE
-    QString objectName;   ///< Owning object id (case-preserved)
-    QString summary;      ///< Short text shown in the cell
+    QString objectType; ///< [USER_FLAG_VALUES] token: NODE / LINK / SUBCATCHMENT / GAGE
+    QString objectName; ///< Owning object id (case-preserved)
+    QString summary;    ///< Short text shown in the cell
 
+    /**
+     * @brief Compare reference identity and every cached display/value field.
+     * @param[in] other Reference to compare without dereferencing borrowed engine/model pointers.
+     * @return True only when all stored fields match; equality does not verify current engine state.
+     */
     bool operator==(const UserFlagsEditRef &other) const noexcept
     {
-        return model == other.model && objectType == other.objectType
-               && objectName == other.objectName && summary == other.summary;
+        return model == other.model && objectType == other.objectType &&
+               objectName == other.objectName && summary == other.summary;
     }
 };
 
 Q_DECLARE_METATYPE(UserFlagsEditRef)
 
 /*! Compute the cell summary for one object: "(no flags defined)",
- *  "(none set)", or "n of m set". Null model reads as no flags. */
-QString userFlagsSummaryFor(openswmmvis::ui::UserFlagsModel *model,
-                            const QString &objectType,
+ *  "(none set)", or "n of m set". Null model reads as no flags.
+ * @param[in] model Borrowed shared flag store; nullptr returns the no-flags-defined label.
+ * @param[in] objectType Store object category token.
+ * @param[in] objectName Case-preserved object ID.
+ * @return Number of set flags relative to defined flags, or the appropriate none-defined/none-set label.
+ */
+QString userFlagsSummaryFor(openswmmvis::ui::UserFlagsModel *model, const QString &objectType,
                             const QString &objectName);
 
 /*! Install the `UserFlagsEditRef → QString` metatype converter so the
- *  read-only DisplayRole path renders `summary`. Idempotent. */
+ *  read-only DisplayRole path renders `summary`. Idempotent.
+ * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
+ */
 void registerUserFlagsEditRefConverter();
 
 #endif // USERFLAGSEDITREF_H

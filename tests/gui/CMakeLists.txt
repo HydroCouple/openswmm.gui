@@ -16,7 +16,47 @@ set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 # test sources include the .cpp files they exercise directly when small enough,
 # or link against compiled .o files via the SWMMVis_obj target if extracted later).
 function(add_swmmvis_gui_test TEST_NAME)
-    add_executable(${TEST_NAME} ${ARGN})
+    # Extracted meshing sources are linked from the standalone project once.
+    # Retain source entries at call sites to document each test's dependency.
+    set(test_sources ${ARGN})
+    set(uses_meshkit FALSE)
+    foreach(source IN LISTS ARGN)
+        if(source MATCHES "/libraries/meshkit/(src|include)/")
+            list(REMOVE_ITEM test_sources "${source}")
+            set(uses_meshkit TRUE)
+        endif()
+    endforeach()
+    add_executable(${TEST_NAME} ${test_sources})
+    if(uses_meshkit)
+        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
+    endif()
+    # Native observation layers participate in every canvas, while samples stay
+    # in a bounded disk-backed store independent of the optional Data plugin.
+    if("${CMAKE_SOURCE_DIR}/src/map/mapcanvas.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/include/layers/timeserieslayer.h
+            ${CMAKE_SOURCE_DIR}/include/ui/panels/timeserieslayerbrowser.h
+            ${CMAKE_SOURCE_DIR}/src/layers/timeserieslayer.cpp
+            ${CMAKE_SOURCE_DIR}/src/ui/panels/timeserieslayerbrowser.cpp
+            ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
+        target_link_libraries(${TEST_NAME} PRIVATE GDAL::GDAL Qt6::Concurrent)
+    endif()
+    if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionviewaccess.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelevents.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionlayerevents.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionresultsevents.cpp)
+    endif()
+    if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
+            ${CMAKE_SOURCE_DIR}/src/swmmvistimeseries.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensiontimeseriesaccess.cpp)
+        target_link_libraries(${TEST_NAME} PRIVATE openswmmvis_extensions)
+    endif()
     set_target_properties(${TEST_NAME} PROPERTIES
         AUTOMOC ON
         AUTORCC ON)
@@ -25,10 +65,15 @@ function(add_swmmvis_gui_test TEST_NAME)
         ${CMAKE_SOURCE_DIR}/forms
     )
     target_link_libraries(${TEST_NAME} PRIVATE
+        meshkit::runtime
+        openswmmvis_extensions
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
+    if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)
+        target_link_libraries(${TEST_NAME} PRIVATE swmmvis_build_info)
+    endif()
     # Engine is brought in via add_subdirectory at the root; link target is
-    # `openswmm_engine`. HAVE_OPENSWMMCORE is set globally there too.
+    # `openswmm_engine`. HAVE_OPENSWMMENGINE is set globally there too.
     if(TARGET openswmm_engine)
         target_link_libraries(${TEST_NAME} PRIVATE openswmm_engine)
     endif()
@@ -54,10 +99,69 @@ function(add_swmmvis_gui_test TEST_NAME)
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────
+add_swmmvis_gui_test(test_subcatchmentgeometry test_subcatchmentgeometry.cpp)
+target_compile_definitions(test_subcatchmentgeometry PRIVATE
+    SUBCATCHMENT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/subcatchment_multipart")
+
+add_swmmvis_gui_test(test_meshconstraintwidgets
+    test_meshconstraintwidgets.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshconstraintsourceswidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshconstraintpreviewwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/meshconstraintsourceswidget.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/meshconstraintpreviewwidget.h)
+target_link_libraries(test_meshconstraintwidgets PRIVATE meshkit::core_qt)
+target_compile_definitions(test_meshconstraintwidgets PRIVATE
+    MESH_CONSTRAINT_WIDGET_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/constraint-review-2026-10-29")
+add_swmmvis_gui_test(test_meshsettingsdock
+    test_meshsettingsdock.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshresolutionwidget.cpp)
+target_compile_definitions(test_meshsettingsdock PRIVATE
+    MESH_SETTINGS_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/meshing_policies_2026-10-29")
+add_swmmvis_gui_test(test_meshrunlogwidget
+    test_meshrunlogwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshrunlogwidget.cpp)
+target_compile_definitions(test_meshrunlogwidget PRIVATE
+    MESH_RUN_LOG_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/meshing_library_2026-10-29")
+add_swmmvis_gui_test(test_lidstates test_lidstates.cpp ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp)
+add_swmmvis_gui_test(test_traceanalysisstore
+    test_traceanalysisstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/output/tracedata.cpp
+    ${CMAKE_SOURCE_DIR}/src/output/traceanalysisstore.cpp)
+target_link_libraries(test_traceanalysisstore PRIVATE GDAL::GDAL)
+target_compile_definitions(test_traceanalysisstore PRIVATE
+    SWMMVIS_TRACE_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/flow_trace_2026-10-01/store")
+
+add_swmmvis_gui_test(test_timeseriesstore
+    test_timeseriesstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
+target_link_libraries(test_timeseriesstore PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_timeseries_observation_workflow
+    test_timeseries_observation_workflow.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/timeseriesrunlayer.h
+    ${CMAKE_SOURCE_DIR}/src/plot/timeseriesrunlayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstatistics.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp)
+target_link_libraries(test_timeseries_observation_workflow PRIVATE GDAL::GDAL)
+
 # These exercise headers/sources that are simple enough to include directly.
 
 add_swmmvis_gui_test(test_dirtytrackingbasic
     test_dirtytrackingbasic.cpp
+)
+
+# Results size channel (header-only) + its point/line sublayer-style owners.
+add_swmmvis_gui_test(test_sizechannel
+    test_sizechannel.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sizechannel.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/feature/featuresublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
 )
 
 # Slice LTR-2026-05-30 — layer-tree category bucketing. Headless: links
@@ -171,6 +275,33 @@ add_swmmvis_gui_test(test_rule
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/rulestylesubject.h
 )
 
+# ILayerStyleSubject snapshot/restore — the contract LayerStyleDialog's
+# Cancel rollback and undo/redo ride on. Pins the QFont round trip that the
+# generic QVariant->JSON walk used to drop (LAYER_STYLING_LABELING_PLAN F5).
+# SwmmElementSymbolAdapter is header-only, so only the subject .cpp links.
+add_swmmvis_gui_test(test_layerstylesubject
+    test_layerstylesubject.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/ilayerstylesubject.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/ilayerstylesubject.h
+    ${CMAKE_SOURCE_DIR}/include/layers/swmmelementsymboladapter.h
+    # SublayerStyle is a QObject — header listed so AUTOMOC emits its
+    # staticMetaObject for the qobject_cast in ilayerstylesubject.cpp.
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    # The adapter's markerShape Q_PROPERTY is a Q_ENUM_NS, so the namespace's
+    # staticMetaObject has to be emitted (header) and its helpers linked.
+    ${CMAKE_SOURCE_DIR}/include/render/markershape.h
+    ${CMAKE_SOURCE_DIR}/src/render/markershape.cpp
+)
+
+# Selection locator overlay — the screen-space contract (beacon size must not
+# track zoom) and the zoom-dependent aggregation. Self-contained: paints into
+# a QImage, no canvas or layer stack.
+add_swmmvis_gui_test(test_selectionbeacon
+    test_selectionbeacon.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/selectionbeaconoverlay.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/selectionbeaconoverlay.h
+)
+
 # Slice Z.4 — MarkerShape + MarkerSymbolLayerSpec tests.
 # Self-contained: pulls in the render symbol primitives and the new Z.4
 # files. Uses Qt Widgets (QImage / QPainter / QPen / QBrush).
@@ -268,6 +399,28 @@ add_swmmvis_gui_test(test_meshprofileinterp
     ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
 )
 
+# 2D profile shoreline intercept — the PAINTER half of the premature-truncation
+# fix (the helper itself is header-only and pinned by test_meshprofileinterp).
+# Needs the widget, so it carries the same link closure as
+# test_profileplot_axis_edges below.
+add_swmmvis_gui_test(test_meshprofile_shoreline_render
+    test_meshprofile_shoreline_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+)
+
 # 2D profile WSE extrapolation — constant-η fill of no-data corners + vertex-
 # scoped dryness (CellSurfaceInterp, shared with SWMM2DResultsLayer). Header-
 # only, so the layer's link closure stays out of the test.
@@ -281,6 +434,11 @@ add_swmmvis_gui_test(test_profile_wse_extrapolation
 add_swmmvis_gui_test(test_vertexdepthreconstruct
     test_vertexdepthreconstruct.cpp
     ${CMAKE_SOURCE_DIR}/include/layers/vertexdepthreconstruct.h
+)
+
+add_swmmvis_gui_test(test_cellwatergeometry
+    test_cellwatergeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/cellwatergeometry.h
 )
 
 # 2D map pooling extrapolation — dry corners of a partially-wet cell carry the
@@ -317,10 +475,39 @@ add_swmmvis_gui_test(test_profileplot_axis_edges
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Profile plots — crown line must stay visible when it coincides with (or
+# rises above) the ground rim: conduit crowns bound the y-extent and the
+# vertical padding keeps top-edge features off the clip edge / axis frame.
+add_swmmvis_gui_test(test_profileplot_crown_visibility
+    test_profileplot_crown_visibility.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilebuilder.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+target_compile_definitions(test_profileplot_crown_visibility PRIVATE
+    SWMMVIS_PCROWN_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/gui/data/profile_crown_out")
+
 # Layer-metadata plan — mesh edge-count identity (2·E = 3·T + B). Value types.
 add_swmmvis_gui_test(test_meshedgecount
     test_meshedgecount.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 # Slice Z.17-files — RuleList .swmm-rule.json I/O tests.
@@ -536,6 +723,31 @@ add_swmmvis_gui_test(test_irasterrenderer
     ${CMAKE_SOURCE_DIR}/include/render/renderers/singlebandpseudocolorrenderer.h
 )
 
+# Raster symbology — GraduatedRasterRenderer (ClassificationScheme-driven
+# continuous / classified single-band colouring), MultiBandColorRenderer and
+# the id→class factory. Self-contained: the same lean scheme + binner + ramp +
+# legend/symbol dependency set as test_2d_sublayers, plus the sibling raster
+# renderers the factory constructs.
+add_swmmvis_gui_test(test_graduatedrasterrenderer
+    test_graduatedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/graduatedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/multibandcolorrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/palettedrasterrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/singlebandpseudocolorrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/rasterrendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/renderers/graduatedrasterrenderer.h
+    ${CMAKE_SOURCE_DIR}/include/render/renderers/multibandcolorrenderer.h
+    ${CMAKE_SOURCE_DIR}/include/render/rasterrendererfactory.h
+)
+
 # Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — sublayer foundation:
 # ISublayer interface, SublayerStyle property-bag base, SizeUnit enum, and
 # screen-pixel helpers (screenpixels.h). Self-contained: links only
@@ -618,6 +830,21 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
     # VelocityVectorStyle::colorForSpeed samples a named RasterColorRamp.
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    # MeshEdgeSublayer labels its BC legend rows with MeshBCTypes::label(),
+    # and MeshFillSublayer labels its ramp with cellParamLabel(). Both are
+    # leaf translation units (QObject / QCoreApplication only), so the lean
+    # link stays lean.
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellparams.h
+    # GG0f — MeshFillSublayer colours cells by infil.* : categorically through
+    # CategoricalPalette::byName + mesh::infilMethodLabels(), and per-cell
+    # through mesh::resolveInfil / infilSlotForKey.
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/categoricalpalette.h
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
@@ -635,16 +862,36 @@ add_swmmvis_gui_test(test_2d_sublayers
 target_link_libraries(test_2d_sublayers PRIVATE
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
-# NOTE — test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
-# is intentionally NOT registered. It drives the real SWMM2DResultsLayer, whose
-# link closure transitively pulls the QObject base (OpenSWMMVisLayer →
-# OpenSWMMVisWorkspace → SWMMModelLayer), the mask-clip resolver → GISVectorLayer
-# → GDAL/OGR, the HDF5 mesh reader, and the full symbol/renderer/sublayer graph —
-# i.e. a large fraction of the app, disproportionate for a leaf test. The four
-# behaviours it would pin are already covered by registered tests:
-#   Issue 1 → test_cursorwindowslider ; Issue 3 → test_meshedgecount ;
-#   Issue 4 → test_meshprofileinterp.  Re-enabling it cleanly needs an extracted
-# SWMMVis object library to link against (see PLAN_2D_VIZ_REFINEMENT §3).
+# Mesh styling restructure — the two sublayers carved out of the mesh
+# edge/vertex style bags (BC indicators + coupled-node markers) plus the
+# ClassificationScheme embedded-custom-ramp contract. Same lean leaf-test
+# dependency pattern as test_2d_sublayers.
+add_swmmvis_gui_test(test_meshbc_couplednode_sublayers
+    test_meshbc_couplednode_sublayers.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/meshbcsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/meshbcsublayer.h
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/couplednodesublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/couplednodesublayer.h
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/classificationscheme.h
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
+)
+
+# test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
+# drives the real SWMM2DResultsLayer, whose link closure is most of the app, so
+# it was left unregistered until the full-app test pattern existed. It is now
+# registered below alongside the other full-app tests (see
+# swmmvis_link_full_app_deps): issue #155 added the coordinate-scale cases
+# (declared /crs factor, metric no-op, caller fallback, no-guess default) and
+# those pin the layer's placement — nothing else covers them.
 
 # Slice U-0 — the old test_sublayer_persistence test relied on the
 # deleted NodeMarkerSublayer; FeatureSublayer JSON round-trip is now
@@ -684,6 +931,15 @@ add_swmmvis_gui_test(test_comparisonplot_system_attrs
     ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
 )
 
+# Comparison Plot data export — pins the CSV / SWMM .dat text formats and
+# the multi-series .dat filename fan-out (plot/seriesdataexport). Engine
+# target supplies the swmm_datetime_* symbols used for timestamps.
+add_swmmvis_gui_test(test_comparisonplot_export
+    test_comparisonplot_export.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesdataexport.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/seriesdataexport.h
+)
+
 # Plot Time Series toolbar dialog — pins the shared canonical attribute
 # lists (the regression fence for the 4-site enumeration refactor) and the
 # PlotVariablePickerDialog's tree/gating/select-all/filter behaviour with a
@@ -692,6 +948,9 @@ add_swmmvis_gui_test(test_plotvariablepickerdialog
     test_plotvariablepickerdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/plotvariablepickerdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    # Y2b-2: species leaves label/unit through the descriptor authorities.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/plotvariablepickerdialog.h
     ${CMAKE_SOURCE_DIR}/include/plot/plotattribute.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
@@ -734,6 +993,10 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_toolbar PRIVATE Qt6::Charts)
@@ -767,6 +1030,10 @@ add_swmmvis_gui_test(test_timeseries_edit_chart_view
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts
@@ -788,6 +1055,7 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
     ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
@@ -801,6 +1069,9 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Shared external-column-file util (CSV/TSV/TSF headers + column read).
+    ${CMAKE_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
     # Axis labels: PreferencesManager + NumberFormat; geometry persistence:
     # DialogLayoutPersistence (applyAlwaysOnTopPolicy / save+restoreDialogLayout).
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
@@ -817,6 +1088,10 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
@@ -843,6 +1118,7 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
     ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
@@ -856,6 +1132,9 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Shared external-column-file util (CSV/TSV/TSF headers + column read).
+    ${CMAKE_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
     # Same TimeseriesEditorDialog transitive deps as test_timeseries_editor_dialog.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
@@ -871,6 +1150,10 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
@@ -890,6 +1173,37 @@ add_swmmvis_gui_test(test_treatment_expression_editor
     test_treatment_expression_editor.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/treatmentexpressionedit.h
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/treatmentexpressionedit.cpp
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G4 — [GWF] expression editor (engine vocabulary,
+# completer, engine-backed validation).
+add_swmmvis_gui_test(test_gwfexpressionedit
+    test_gwfexpressionedit.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/gwfexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/gwfexpressionedit.cpp
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G4 — GroundwaterExchangeDialog round-trip
+# against tests/gui/data/gw_exchange_fixture.inp. The dialog reaches the
+# layer only via QMetaObject::invokeMethod, so no SWMMModelLayer link.
+add_swmmvis_gui_test(test_groundwaterexchangedialog
+    test_groundwaterexchangedialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/groundwaterexchangedialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/groundwaterexchangedialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/gwfexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/gwfexpressionedit.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/groundwatersummary.h
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/groundwatersummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G5 — node-side groundwater source list, a pure
+# engine query (peer of test_vjsourcesummary).
+add_swmmvis_gui_test(test_gwsourcesummary
+    test_gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
 )
 
 # Iteration 4 — SubcatchCompoundEditDialog: editable coverage matrix +
@@ -916,6 +1230,7 @@ add_swmmvis_gui_test(test_landuse_unified_editor
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/landuseeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/landuselistmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/qualityfunctiontablemodels.cpp
     # Dialog buttons go through IconFactory (themed SVG icons).
@@ -925,6 +1240,46 @@ add_swmmvis_gui_test(test_landuse_unified_editor
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 target_link_libraries(test_landuse_unified_editor PRIVATE Qt6::Svg)
+
+# AQUIFER_GROUNDWATER_EXCHANGE G2 — the rebuilt Aquifer editor (grouped form,
+# evap-pattern combo, soft validation, live two-zone diagram, impact-aware
+# delete).
+add_swmmvis_gui_test(test_aquifer_editor_dialog
+    test_aquifer_editor_dialog.cpp
+    # Link stubs for the layer-backed "…" pattern picker path (never taken
+    # without a layer): SWMMModelLayer::ensurePatternRegistry,
+    # PatternEditorDialog::pickPattern.
+    test_aquifer_editor_dialog_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/include/aquifer/aquiferprovider.h
+    ${CMAKE_SOURCE_DIR}/include/aquifer/aquiferregistry.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aquifereditordialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/models/aquiferlistmodel.h
+    ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aquifereditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/aquiferlistmodel.cpp
+    # qobject_cast<PatternRegistry*> needs the pattern metaobjects.
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternprovider.h
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternregistry.h
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
+    # Third pane: the two-zone diagram.
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/aquiferdiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectionpreviewwidget.h
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectionpreviewwidget.cpp
+    # Unit suffixes.
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    # Dialog buttons go through IconFactory (themed SVG icons).
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+target_link_libraries(test_aquifer_editor_dialog PRIVATE Qt6::Svg)
 
 add_swmmvis_gui_test(test_pattern_editor_dialog
     test_pattern_editor_dialog.cpp
@@ -937,6 +1292,7 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
@@ -963,6 +1319,10 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
@@ -982,6 +1342,7 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
@@ -1007,7 +1368,13 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
     # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
@@ -1035,6 +1402,7 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/transectchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transectpropertybag.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transecteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
@@ -1055,6 +1423,30 @@ target_link_libraries(test_transect_editor_dialog PRIVATE Qt6::Svg
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
 )
 
+# Inlets plan Phase G2 (workplans/
+# INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md) — InletProvider +
+# InletRegistry (engine round-trip for every type) + the undo commands +
+# InletPropertyBag's group-visibility table + InletSceneBuilder's callout
+# counts. Deliberately excludes InletEditorDialog: that TU reaches into
+# SWMMModelLayer / CurveEditorDialog and would pull the whole app in.
+add_swmmvis_gui_test(test_inlet_editor
+    test_inlet_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletprovider.h
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletregistry.h
+    ${CMAKE_SOURCE_DIR}/include/inlet/inletundocommands.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/inletpropertybag.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/inletdrawingview.h
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/inlet/inletundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/inletpropertybag.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/inletdrawingview.cpp
+    # The bag's labels and the drawing's callouts carry the project's unit
+    # suffixes, which come from the UnitSystem facade.
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+)
+
 # Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine round-trips a
 # BUILDING-state engine with two Tseries (point values + times). Links the
 # engine target (via add_swmmvis_gui_test helper) to drive swmm_engine_new
@@ -1065,6 +1457,22 @@ add_swmmvis_gui_test(test_timeseries_registry_engine
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+)
+
+# Perf-plan Phase A3 — the transect/curve registries' remove() deletes the
+# ENGINE copy too (the timeseries twin rides test_timeseries_registry_engine).
+add_swmmvis_gui_test(test_dataobject_engine_delete
+    test_dataobject_engine_delete.cpp
+    ${CMAKE_SOURCE_DIR}/include/transect/transectprovider.h
+    ${CMAKE_SOURCE_DIR}/include/transect/transectregistry.h
+    ${CMAKE_SOURCE_DIR}/src/transect/transectprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/transect/transectregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/curve/curveprovider.h
+    ${CMAKE_SOURCE_DIR}/include/curve/curveregistry.h
+    ${CMAKE_SOURCE_DIR}/src/curve/curveprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 
 # SWMM DateTime Consolidation Phase 1 (workplans/
@@ -1127,11 +1535,36 @@ add_swmmvis_gui_test(test_userflags_roundtrip
 # Slice AT.2 — pins the recursion-guarded X-axis linking idiom used in
 # ComparisonPlotDialog::wireXAxisSync. Self-contained: in-test XAxisSyncBus
 # mirrors the dialog's pattern; no dialog code needed. Needs Qt6::Charts
-# for QDateTimeAxis.
+# for the UtcTimeAxis (issue #11) the dialog rows use.
 add_swmmvis_gui_test(test_comparisonplot_xaxis_link
     test_comparisonplot_xaxis_link.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
 )
 target_link_libraries(test_comparisonplot_xaxis_link PRIVATE Qt6::Charts)
+
+# Issue #11 — UtcTimeAxis renders tick labels in UTC whatever the process
+# zone. Runs under a non-UTC, DST-observing TZ so the "labels equal the UTC
+# run's" assertion is not vacuous on a UTC machine (Qt honours $TZ on Unix).
+add_swmmvis_gui_test(test_utctimeaxis
+    test_utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
+)
+target_link_libraries(test_utctimeaxis PRIVATE Qt6::Charts)
+set_property(TEST test_utctimeaxis APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "TZ=set:America/Denver")
+
+# Tutorial bug report (2026-10-17) / issue #11 — the Simulation Status panel's
+# date editor must not convert UTC-labelled simulation times to local time.
+# Runs at UTC+9, the reporter's offset.
+add_swmmvis_gui_test(test_simtime_display
+    test_simtime_display.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
+)
+set_property(TEST test_simtime_display APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "TZ=set:Asia/Tokyo")
 
 # Slice AT.3 — pins RangeSliderWidget invariants.
 add_swmmvis_gui_test(test_comparisonplot_rangeslider
@@ -1162,6 +1595,10 @@ add_swmmvis_gui_test(test_comparisonplot_chartproperties
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    # Issue #11 — UtcTimeAxis: referenced by ChartProperties, ChartAxisFormatController,
+    # InteractiveChartView and TimeseriesEditChartView.
+    ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_chartproperties PRIVATE
@@ -1202,6 +1639,10 @@ add_swmmvis_gui_test(test_comparisonplot_scatter
     test_comparisonplot_scatter.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriespairing.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
@@ -1220,6 +1661,10 @@ target_link_libraries(test_comparisonplot_scatter PRIVATE Qt6::Charts)
 add_swmmvis_gui_test(test_comparisonplot_pairs
     test_comparisonplot_pairs.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
@@ -1228,6 +1673,31 @@ add_swmmvis_gui_test(test_comparisonplot_pairs
     ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
 )
+
+# Y2b-2 (amendment D-Y4) — species series: name-keyed code resolution
+# (swmmoutrunlayer_codes statics, reorder-proof), per-species chart rows,
+# descriptor dispatch in resolveSeries, and same-descriptor 1v1 pairs.
+add_swmmvis_gui_test(test_speciesplotting
+    test_speciesplotting.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/swmmoutrunlayer_codes.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
+    ${CMAKE_SOURCE_DIR}/include/plot/resultdescriptor.h
+    ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
+    ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+    # Y2b-3: the .oswp token round-trip gate drives the (header-only)
+    # style through toJson/fromJson. The base class header rides along so
+    # AUTOMOC anchors its metaobject/typeinfo.
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/feature/featuresublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
+)
+target_link_libraries(test_speciesplotting PRIVATE Qt6::Charts)
 # seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
 target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 
@@ -1236,6 +1706,10 @@ target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 add_swmmvis_gui_test(test_comparisonplot_seriestree
     test_comparisonplot_seriestree.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
@@ -1260,6 +1734,111 @@ add_swmmvis_gui_test(test_options_hydration_contract
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
     ${CMAKE_SOURCE_DIR}/include/ui/swmmvis_hydration_audit.h
+)
+
+# Y2a — dynamic water-quality species as themeable attributes (GUI plan
+# D-G1). The helpers live in their own TU so this test can link them:
+# SWMMResultsLayer itself cannot be linked into a test (the same closure
+# problem recorded at the test_simulationoptionsdialog block below), so the
+# logic that can carry a defect was placed where a test can reach it.
+add_swmmvis_gui_test(test_species_attributes
+    test_species_attributes.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/speciesattributes.h
+)
+
+# Y2b-1 (amendment D-Y4) — ResultDescriptor + the kind-keyed descriptor
+# list. The list builder is a free function in its own TU (the Y2a
+# extraction precedent) so this test reaches it without SWMMResultsLayer;
+# plotattribute.cpp and speciesattributes.cpp supply the label/unit
+# authorities it delegates to.
+add_swmmvis_gui_test(test_resultdescriptor
+    test_resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/resultdescriptor.h
+)
+
+# Y3 — the Water Age Sources editor. Instantiated against a synthetic
+# BUILDING engine, exactly like test_climatologydialog: the dialog is
+# dependency-light (Qt Widgets + the swmm_water_age_* engine ABI only), so
+# its WIRING has an automated observer — the hole Y1's options page could
+# not close.
+add_swmmvis_gui_test(test_wateragesourcesdialog
+    test_wateragesourcesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/wateragesourcesdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/wateragesourcesdialog.cpp
+)
+
+# G4g — the Heat Configuration editor. Same dependency-light contract:
+# Qt Widgets + the swmm_heat_* engine ABI, driven against a synthetic
+# BUILDING engine, so the dialog's wiring has an automated observer.
+add_swmmvis_gui_test(test_heatconfigdialog
+    test_heatconfigdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/heatconfigdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/heatconfigdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialbedqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialbedqualitydialog.cpp
+)
+
+# G-A1 — the per-element Initial Quality editor. Same dependency-light
+# contract as the water-age dialog above: Qt Widgets + the
+# swmm_init_quality_* engine ABI, driven against a synthetic BUILDING
+# engine, so the dialog's wiring has an automated observer.
+add_swmmvis_gui_test(test_initialqualitydialog
+    test_initialqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditbutton.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+)
+
+add_swmmvis_gui_test(test_initialbedqualitydialog
+    test_initialbedqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialbedqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialbedqualitydialog.cpp
+)
+
+# Phase 33 — pollutant editor precision and owner-lifetime contract.
+add_swmmvis_gui_test(test_pollutanteditordialog
+    test_pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pollutanteditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/pollutantlistmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/pollutantlistmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+)
+target_link_libraries(test_pollutanteditordialog PRIVATE Qt6::Svg)
+
+# G-B2/G-C1 — the Reaction System editor (structured tabs + raw text tab),
+# driven against a synthetic BUILDING engine through the swmm_reaction_* /
+# swmm_process_component_* ABI.
+add_swmmvis_gui_test(test_reactionsystemeditor
+    test_reactionsystemeditor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/reactionsystemeditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/reactionsystemeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/reactionexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/reactionexpressionedit.cpp
+)
+
+# The reaction-expression editing stack itself (completer vocabulary, the
+# drift guard against the engine grammar, the validation signal). The plan
+# asked for this alongside test_treatment_expression_editor and it was never
+# written, so the widget shipped unobserved.
+add_swmmvis_gui_test(test_reaction_expression_editor
+    test_reaction_expression_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/reactionexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/reactionexpressionedit.cpp
 )
 
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
@@ -1302,6 +1881,12 @@ add_swmmvis_gui_test(test_dataobjectnaming
 # add_swmmvis_gui_test(test_control_rule_models test_control_rule_models.cpp …)
 # add_swmmvis_gui_test(test_rules_editor_dialog test_rules_editor_dialog.cpp …)
 
+add_swmmvis_gui_test(test_rule_rain_syntax
+    test_rule_rain_syntax.cpp
+    ${CMAKE_SOURCE_DIR}/src/controls/rulesyntaxhighlighter.cpp
+    ${CMAKE_SOURCE_DIR}/include/controls/rulesyntaxhighlighter.h
+)
+
 # Slice DA.2 — non-spatial property-adapter round-trip tests
 # Exercises the rich-coverage adapters (Pollutant, LandUse, RainGage)
 # against a real engine handle. The thin adapters (Aquifer, Snowpack,
@@ -1321,6 +1906,15 @@ add_swmmvis_gui_test(test_nonspatial_adapters
     ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmraingagepropertyadapter.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmtransectpropertyadapter.cpp
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    # The rain-gage adapter reconciles a gage's column when its path changes
+    # (review R3), so it now needs the shared column reader — and that needs
+    # the timeseries timestamp parser it is built on.
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # The rain-gage adapter reconciles its stored column against the file on
+    # disk via ui/util/externalcolumnfile.
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
     # Headers listed explicitly so AUTOMOC picks up their Q_OBJECT macros.
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmdataobjectpropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmpollutantpropertyadapter.h
@@ -1345,6 +1939,24 @@ add_swmmvis_gui_test(test_nodepropertyadapter
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmnodepropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # The adapter's initialQualityRef() row references
+    # initialQualitySummaryFor (engine-only helper, no further deps).
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+    # G5 — groundwaterSourcesRef() row (pure engine query).
+    ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
+    # 1D↔2D coupling rows (engine read/write of [2D_NODE_COUPLING]).
+    ${CMAKE_SOURCE_DIR}/src/layers/nodecoupling2d.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/nodecoupling2d.h
+)
+
+# Virtual-junction delete / re-fuse prompt text for a fed node — a pure
+# engine query (VJ_LATERAL_INFLOW_GUI_PLAN_2026-09-04), no layer dependencies.
+add_swmmvis_gui_test(test_vjsourcesummary
+    test_vjsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/vjsourcesummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/vjsourcesummary.h
 )
 
 # TODO(Slice Z follow-up) — disabled. linkcompoundeditdialog.cpp now
@@ -1378,6 +1990,9 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmsubcatchpropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # G3/G4 — groundwaterRef() summary text.
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/groundwatersummary.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/groundwatersummary.h
     # The adapter's row builder references the USER_FLAGS surface
     # (userFlagsSummaryFor + SWMMModelLayer::ensureUserFlagsModel). Pull in the
     # two small real helpers; resolve the heavy layer method with a link stub
@@ -1387,6 +2002,10 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
     swmmmodellayer_userflags_linkstub.cpp
+    # The adapter's post-run stat* rows reference SWMMResultsLayer getters +
+    # OutputStatsRegistry::identityFor — unreachable here (no stats source
+    # is ever set), so link the trivial stubs instead of the results chain.
+    test_propertyadapter_stats_stubs.cpp
 )
 
 # ── Slice SP — section / profile preview panels ─────────────────────────────
@@ -1395,6 +2014,17 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
 # surfaced shape build, does the sampled outline match swmm_xsect_full_properties)
 # so this is the test that fails first if an engine update changes the xsect
 # API or renumbers SWMM_XSectShape.
+# Channel burn-in, phase P0 — gate V1 engine half: the reconstructed bed must
+# agree with the engine's own xsect tables (CHANNEL_BURN_IN_PLAN_2026-09-21.md
+# §8). Needs openswmm_engine, which tests/unit does not link.
+add_swmmvis_gui_test(test_channelburn
+    test_channelburn.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/channelburnprofile.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+)
+
 add_swmmvis_gui_test(test_xsectsampler
     test_xsectsampler.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
@@ -1404,6 +2034,19 @@ add_swmmvis_gui_test(test_xsectsampler
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsecticonrenderer.h
     ${CMAKE_SOURCE_DIR}/include/ui/properties/xsectshapegeom.h
 )
+
+# The depth / open-top resolution the PROFILE PLOT uses. geom1 is a table index
+# for STREET and IRREGULAR, so reading it as a depth drew a street conduit as a
+# zero-height tube; nothing asserted the depth before, which is why that
+# shipped. Engine-facing, so it fails first if geom1's meaning changes again.
+add_swmmvis_gui_test(test_profile_street_xsect
+    test_profile_street_xsect.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+)
+target_compile_definitions(test_profile_street_xsect PRIVATE
+    SWMMVIS_PSTREET_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/data/inlets"
+    SWMMVIS_PSTREET_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/profile_street")
 
 # SP.2 / SP.6: diagram model, painter and the LID layer stacks. No engine
 # calls — the model is a plain value, which is the point of the builder/painter
@@ -1432,6 +2075,17 @@ add_swmmvis_gui_test(test_sectionmodelbuilders
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
 )
 
+# AQUIFER_GROUNDWATER_EXCHANGE G2 — the two-zone aquifer illustration
+# builder. Pure value → value: no engine, no widget, links the diagram model
+# alone.
+add_swmmvis_gui_test(test_aquiferdiagram
+    test_aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/aquiferdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/aquiferdiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+)
+
 # Inline cross-section geom1..geom4 — direct-edit fields surfaced next to
 # the compound XSection dialog (both Property Browser + Attribute Table).
 # Covers the shared shape/geom applicability helper and the link adapter's
@@ -1454,6 +2108,12 @@ add_swmmvis_gui_test(test_xsectgeominline
     ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
     swmmmodellayer_userflags_linkstub.cpp
+    # Likewise initialQualityRef() → initialQualitySummaryFor.
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+    # Post-run stat* rows → SWMMResultsLayer getters + identityFor stubs
+    # (unreachable here — no stats source is ever set).
+    test_propertyadapter_stats_stubs.cpp
 )
 
 # Slice BC, Phase 8.7.2 — pins the engine-ABI contract that
@@ -1490,9 +2150,34 @@ add_swmmvis_gui_test(test_aboutdialog
     test_aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aboutdialog.h
+    ${CMAKE_SOURCE_DIR}/resources/about.qrc
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutwatcher.h
 )
 
 # Slice IO-10 — relative-path picker widget unit test.
+add_swmmvis_gui_test(test_fileopendialog
+    test_fileopendialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/util/fileopendialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/relativepathpicker.h
+)
+set_property(TEST test_fileopendialog APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FILE_OPEN_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/file_open_directories_2026-10-04/tests")
+
+# Tutorial bug report (2026-10-17): the built-in .inp writer must be a Save As
+# target, or the dialog never offers *.inp and the path normalizer turns the
+# native dialog's "model.inp.oswp" into "model.inp.inp". Drives the LIVE
+# FileFilterRegistry (engine plugin discovery), unlike the unit normalizer test.
+add_swmmvis_gui_test(test_filefilterregistry
+    test_filefilterregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugins/filefilterregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/plugins/filefilterregistry.h
+    ${CMAKE_SOURCE_DIR}/src/project/saveaspathnormalizer.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/saveaspathnormalizer.h
+)
+
 add_swmmvis_gui_test(test_relativepathpicker
     test_relativepathpicker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
@@ -1514,9 +2199,28 @@ add_swmmvis_gui_test(test_selectionmanager
 
 add_swmmvis_gui_test(test_editgeometry
     test_editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/core/editgeometry.h
 )
+
+# Volume-conserving weighted blend of rain-gage series. Reproduces the engine's
+# boxcar reading of a rainfall table (Gage.cpp::updateAllGages).
+add_swmmvis_gui_test(test_gageblend
+    test_gageblend.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/gageblend.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/gageblend.h
+)
+
+# Thiessen area shares, interior sampling, IDW fallback, weight clustering.
+add_swmmvis_gui_test(test_gageassignment
+    test_gageassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/gageassignment.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/gageassignment.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/core/editgeometry.h
+)
+target_link_libraries(test_gageassignment PRIVATE predicates_lib)
 
 # Smoke test for the reprojection primitive every layer uses when rendering
 # in a canvas CRS different from the layer's own CRS. Links GDAL directly.
@@ -1528,24 +2232,126 @@ add_swmmvis_gui_test(test_layerreprojection
 target_include_directories(test_layerreprojection PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 
-# Slice AU — Mesh generation + DTM sampling. Both link triangle_lib (Shewchuk
-# vendored at vendor/triangle/) and GDAL respectively.
+# Mesh generation (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): constrained
+# Delaunay refinement with aligned quad strips, linking the public-domain
+# predicates.
 add_swmmvis_gui_test(test_meshgenerator
     test_meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
-target_link_libraries(test_meshgenerator PRIVATE triangle_lib)
+target_link_libraries(test_meshgenerator PRIVATE Qt6::Concurrent predicates_lib)
+
+# End-to-end generator gates: conformity, holes, junctions, region tags,
+# the angle bound, grading, coarseness, four-sided regions, determinism, timing.
+add_swmmvis_gui_test(test_meshgenerator_v2
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/tests/test_meshgenerator_v2.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/quadblocks.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
+)
+target_link_libraries(test_meshgenerator_v2 PRIVATE Qt6::Concurrent predicates_lib)
+
+# Constrained Delaunay kernel: Delaunay property by brute force, constraint
+# recovery, vertices on constraints, regions, cocircular input, and quality
+# refinement (angle and size bounds, small input angles, fixed segments).
+add_swmmvis_gui_test(test_meshcdt
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/tests/test_meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcdt.h
+)
+target_link_libraries(test_meshcdt PRIVATE predicates_lib)
+
+add_swmmvis_gui_test(test_meshpatch
+    test_meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshpatch.h
+)
+target_link_libraries(test_meshpatch PRIVATE Qt6::Concurrent predicates_lib)
+
+# ── Quad modules kept by the overhaul (quality metrics, region geometry,
+# pairing, cleanup). One executable per module so a regression names it.
+
+# Header-only quad quality metrics (SJ, rectangularity, aspect,
+# skew, convexity, default bounds, combined score).
+add_swmmvis_gui_test(test_meshquadquality
+    test_meshquadquality.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadquality.h
+)
+
+# Region geometry: normalisation, turning angles, classification,
+# validation against domains / holes, overlap, resampling.
+add_swmmvis_gui_test(test_meshquadregion
+    test_meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadregion.h
+)
+
+# Template pairing, blossom gap pairing (vs brute force), unionQuad.
+add_swmmvis_gui_test(test_meshquadmatch
+    test_meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadmatch.h
+)
+
+# Doublet removal, diagonal swap, guarded smoothing, reorder.
+add_swmmvis_gui_test(test_meshquadcleanup
+    test_meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshquadcleanup.h
+)
 
 add_swmmvis_gui_test(test_nninterpdegenerate
     test_nninterpdegenerate.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/naturalnbinterpolator.h
 )
-target_link_libraries(test_nninterpdegenerate PRIVATE triangle_lib)
+target_link_libraries(test_nninterpdegenerate PRIVATE predicates_lib)
+
+# Characterization of the interpolator's NUMERIC output. test_nninterpdegenerate
+# above asserts only on degenerate inputs, so it cannot catch a weight
+# regression — which would silently change the mesh generator's no-DTM
+# elevation fallback.
+add_swmmvis_gui_test(test_nninterpvalues
+    test_nninterpvalues.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/naturalnbinterpolator.h
+)
+target_link_libraries(test_nninterpvalues PRIVATE predicates_lib)
 
 add_swmmvis_gui_test(test_dtmsampler
     test_dtmsampler.cpp
@@ -1560,24 +2366,118 @@ target_link_libraries(test_dtmsampler PRIVATE GDAL::GDAL)
 find_package(Qt6 REQUIRED COMPONENTS Concurrent)
 add_swmmvis_gui_test(test_pslgprep
     test_pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/pslgprep.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/pslgprep.h
 )
 target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
+
+# Boundary preparation (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 1):
+# straightness trimming, size resampling, coincidence flags.
+add_swmmvis_gui_test(test_pslgtrim
+    test_pslgtrim.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/pslgprep.h
+)
+target_link_libraries(test_pslgtrim PRIVATE Qt6::Concurrent)
+
+# Size field v2 (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): terrain-error
+# blocks, combined sources, clamps and gradation limiting. Built in the
+# container harness during Phases 0-6; registered here in Phase 7.
+add_swmmvis_gui_test(test_sizefield_v2
+    test_sizefield_v2.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sizefield.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/terrainsizefield.h
+)
+target_include_directories(test_sizefield_v2 PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_sizefield_v2 PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_terrainerrorfield
+    test_terrainerrorfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainerrorfield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainlocalcopy.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+)
+target_include_directories(test_terrainerrorfield PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_terrainerrorfield PRIVATE GDAL::GDAL Qt6::Concurrent predicates_lib)
+
+# Graded size field: near-feature cap parity, Lipschitz growth bound, floor
+# rule, determinism, budget coarsening.
+add_swmmvis_gui_test(test_meshsizefield
+    test_meshsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sizefield.h
+)
+
+# Terrain break-line extraction (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE §2.1):
+# steps, creases, building loops, a synthetic street, nodata, noise.
+add_swmmvis_gui_test(test_terrainbreaklines
+    test_terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/terrainbreaklines.h
+)
+
+# Phase 6b + 8 end to end: street and city DEMs through extraction, the
+# terrain size field and the generator (lines as mesh edges, streets as quad
+# strips, the angle bound, grading). Writes review CSVs under
+# tests/output/mesh_triangle_engine_2026-09-30.
+add_swmmvis_gui_test(test_meshfeaturecapture
+    test_meshfeaturecapture.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainsizefield.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/terrainbreaklines.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshgenerator.h
+)
+target_link_libraries(test_meshfeaturecapture PRIVATE Qt6::Concurrent predicates_lib GDAL::GDAL)
+target_compile_definitions(test_meshfeaturecapture PRIVATE
+    SWMMVIS_MESH_FEATURE_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_triangle_engine_2026-09-30/feature_capture")
+# The 1 km² city case takes a few seconds: lift the 30 s per-function guard.
+set_tests_properties(test_meshfeaturecapture PROPERTIES
+    TIMEOUT 600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=300000")
+
+# Aligned quad strips (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D12): facing
+# break-line pairs, streets between curbs, conduit strips, crowded strips.
+add_swmmvis_gui_test(test_meshstrips
+    test_meshstrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellstats.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/breaklinestrips.h
+)
+target_link_libraries(test_meshstrips PRIVATE Qt6::Concurrent predicates_lib)
 
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
     test_meshreorder.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshreorder.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshreorder.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshreorder.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshreorder.h
 )
 
 # Mesh stage cache: payload round-trips, key sensitivity, pruning.
 add_swmmvis_gui_test(test_meshstagecache
     test_meshstagecache.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshstagecache.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
     ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshstagecache.h
 )
@@ -1585,27 +2485,14 @@ target_include_directories(test_meshstagecache PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_meshstagecache PRIVATE GDAL::GDAL)
 
 # Batch sampler parity: sampleMany must be bit-identical to per-point
-# sampleAt across NoData, edge clamps, and strip-boundary windows.
-add_swmmvis_gui_test(test_dtmthinner_samplemany
-    test_dtmthinner_samplemany.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
-    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+# DTMRaster::sampleMany must be bit-identical to per-point sampleAt().
+add_swmmvis_gui_test(test_dtmraster_samplemany
+    test_dtmraster_samplemany.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmraster.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmraster.h
 )
-target_include_directories(test_dtmthinner_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_dtmthinner_samplemany PRIVATE GDAL::GDAL)
-
-# Banded (tiled) thinning: forced tiny per-band budgets must be bit-identical
-# to the untiled run (halo/ghost-zone exactness, global lattice, NoData across
-# seams, row-major ordering), plus progress/cancel and guard-rail coverage.
-add_swmmvis_gui_test(test_dtmthinner_banded
-    test_dtmthinner_banded.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
-    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
-)
-target_include_directories(test_dtmthinner_banded PRIVATE ${GDAL_INCLUDE_DIRS})
-target_link_libraries(test_dtmthinner_banded PRIVATE GDAL::GDAL)
+target_include_directories(test_dtmraster_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmraster_samplemany PRIVATE GDAL::GDAL)
 
 # DEM-raster longitudinal profile sampler — the terrain peer of
 # MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
@@ -1631,6 +2518,12 @@ add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
     test_mesh2dgroundwaterdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgroundwaterdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dgroundwaterdialog.h
+    # GG1: the dialog now drives the [2D_AQUIFER_NODE] bed table through this
+    # model, and labels its fields in the project's units, so both link here.
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2daquifermodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2daquifermodel.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 
 # Per-cell 2D parameter registry — the single table the mesh toolbar, the
@@ -1638,23 +2531,56 @@ add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
 # design (writes live in map/meshcommands.cpp), so this links nothing heavy.
 add_swmmvis_gui_test(test_meshcellparams
     test_meshcellparams.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellparams.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    # mesh::infil* resolver, masks and tokens for the infil.* columns.
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+
+)
+
+# LOAD_PERF Phase 2 — InpMeshReader tokenizer + coupling-map tag resolution.
+# Same lean link set as test_inpmeshwriter (no app objects).
+add_swmmvis_gui_test(test_inpmeshreader
+    test_inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 add_swmmvis_gui_test(test_inpmeshwriter
     test_inpmeshwriter.cpp
-    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
     # patchAttributeSections coverage round-trips through the reader.
-    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshreader.cpp
     # inpmeshwriter.cpp now uses mesh::MeshBCTypes::inpToken for the BC
     # section serialiser.
-    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
-    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshwriter.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshwriter.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    # mesh::infil* resolver, masks and tokens for the infil.* columns.
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+
+)
+
+# TRI_QUAD_MESHING_PLAN phase G5 — SMS 2DM (ND / E3T / E4Q) import. Header-only
+# mesh helpers (meshcellgeom.h) plus the reader; same lean link set.
+add_swmmvis_gui_test(test_sms2dmreader
+    test_sms2dmreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/sms2dmreader.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/sms2dmreader.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshcellgeom.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshresult.h
 )
 
 # Slice BJ.2-lite — marching-triangles contour line extraction. Header-only
@@ -1670,6 +2596,14 @@ add_swmmvis_gui_test(test_colorramp
     test_colorramp.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
+# LOAD_PERF Phase 1 — OpenProgressModel weighting / monotonicity contract.
+# Self-contained: pulls in loadprogress.cpp only.
+add_swmmvis_gui_test(test_openprogress
+    test_openprogress.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/loadprogress.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/loadprogress.h
 )
 
 # Slice BB-α — IntervalBinner (equal-interval / quantile / manual).
@@ -1823,12 +2757,35 @@ add_swmmvis_gui_test(test_simulationoptionsdialog
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Scheduled hot-start saves table: the Format column ([FILES] SAVE HOTSTART
+# ... LEGACY|NATIVE) and its combo delegate. The model header is listed so
+# AUTOMOC sees its Q_OBJECT classes; the date delegate's OA-date helpers are
+# static SimulationOptionsDialog members in simulationoptionshelpers.cpp (the
+# same surgical arrangement as test_simulationoptionsdialog above).
+add_swmmvis_gui_test(test_hotstartsavesmodel
+    test_hotstartsavesmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartsavesmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartsavesmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/simulationoptionshelpers.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
 # Climatology dialog — instantiated against a synthetic BUILDING engine; the
 # dialog is dependency-light (Qt Widgets + the swmm_climate_* engine ABI only).
+add_swmmvis_gui_test(test_meshsnowmodel
+    test_meshsnowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/meshsnowmodel.cpp
+)
+
 add_swmmvis_gui_test(test_climatologydialog
     test_climatologydialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/climatologydialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/climatologydialog.cpp
+    # The climate-file row is a RelativePathPicker, so the project's relative
+    # path convention applies to it like every other secondary file reference.
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/relativepathpicker.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
 )
 
 # Phase B.1 of docs/RENDERING_5M_PLAN.md — interactive spike that
@@ -1868,7 +2825,9 @@ find_package(Qt6 REQUIRED COMPONENTS Concurrent)
 # the .cpp), so AUTOMOC would otherwise skip their Q_OBJECT moc output.
 add_swmmvis_gui_test(test_simstatus_2derr
     test_simstatus_2derr.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
@@ -1877,6 +2836,59 @@ add_swmmvis_gui_test(test_simstatus_2derr
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
 )
 target_link_libraries(test_simstatus_2derr PRIVATE Qt6::Concurrent)
+
+# Last-point-of-capture contract for runs: open failure, a throwing worker
+# (SWMMVIS_TEST_FAULT=step:bad_alloc) and a numerical abort each end in
+# finished(false, code, message) + an "ERROR [code]" child row + a
+# <stem>.runlog.txt — never in std::terminate. Same lean link set.
+add_swmmvis_gui_test(test_simrunner_failures
+    test_simrunner_failures.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+)
+target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
+
+# Worker-owned native checkpoint sessions; value results and path protection.
+add_swmmvis_gui_test(test_checkpointworker
+    test_checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointworker.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+)
+target_link_libraries(test_checkpointworker PRIVATE Qt6::Concurrent)
+
+# SimulationRunner on EPA SWMM 5.2.4 through the bundled versioned worker
+# (cmake/EngineVersions.cmake): protocol, engine identity in the .out, the
+# skip+warn backports, and a loud failure when no worker exists for a version.
+if(TARGET openswmm_legacy_worker_524)
+    add_swmmvis_gui_test(test_simrunner_legacy_524
+        test_simrunner_legacy_524.cpp
+        ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+        ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
+        ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+        ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+        ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+        ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+        ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+        ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    )
+    target_link_libraries(test_simrunner_legacy_524 PRIVATE Qt6::Concurrent)
+    add_dependencies(test_simrunner_legacy_524 openswmm_legacy_worker_524)
+endif()
 
 # LayerTreeModel test (test_layertreemodel.cpp) is parked until the
 # `swmmvis_core` static-library extraction lands. Compiling layertreepanel.cpp
@@ -1948,6 +2960,7 @@ find_package(Qt6 REQUIRED COMPONENTS OpenGL OpenGLWidgets Network Concurrent
 find_package(HDF5 REQUIRED COMPONENTS C)
 
 function(swmmvis_link_full_app_deps TEST_NAME)
+    target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
     # CMAKE_AUTOUIC_SEARCH_PATHS is set to the RELATIVE path "forms" at root
     # scope, resolved against each target's own CMAKE_CURRENT_SOURCE_DIR —
     # "forms" under the root source dir for SWMMVis, but under tests/gui/
@@ -1965,14 +2978,35 @@ function(swmmvis_link_full_app_deps TEST_NAME)
     target_link_libraries(${TEST_NAME} PRIVATE
         Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Network Qt6::Concurrent
         Qt6::Svg Qt6::Charts Qt6::Qml Qt6::Quick Qt6::QuickWidgets Qt6::PrintSupport
-        GDAL::GDAL OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
+        GDAL::GDAL HydroCoupleOgc::HydroCoupleOgc
+        OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
-        openswmm_engine triangle_lib ${HDF5_C_LIBRARIES}
+        openswmm_engine predicates_lib ${HDF5_C_LIBRARIES}
     )
     if(APPLE)
         target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
     endif()
 endfunction()
+
+add_swmmvis_gui_test(test_user_feedback
+    test_user_feedback.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_user_feedback)
+set_property(TEST test_user_feedback APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")
+
+# Phase 7 — the WFS service dialog and its layer. The first tests this
+# program has for any of its OGC services: WMS, WMTS and WCS have none.
+# Needs the full app sources because WFSLayer derives from GISVectorLayer,
+# which reaches the whole render/rule/attribute stack.
+add_swmmvis_gui_test(test_wfsservice
+    test_wfsservice.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_wfsservice)
 
 # a35798e — typed per-kind selection/visibility on SWMMModelLayer.
 add_swmmvis_gui_test(test_typedselection
@@ -1981,6 +3015,15 @@ add_swmmvis_gui_test(test_typedselection
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_typedselection)
+
+# W0: actual rectangular/polygonal cell-tool gestures on a mesh-only canvas.
+add_swmmvis_gui_test(test_meshselectionjourney
+    test_meshselectionjourney.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_meshselectionjourney)
 
 # Object Browser refresh on data-object mutations — dataObjectsChanged →
 # coalesced tree reload, registry-preferred counts (staged adds visible
@@ -2001,8 +3044,70 @@ add_swmmvis_gui_test(test_asyncload
     test_asyncload.cpp
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES}
+    # The app's resource bundle carries qrc:/openswmm/qml/swmmlayer.qml, which
+    # MapCanvas loads into its QQuickWidget. It is attached to the SWMMVis
+    # executable only, so every other gui test runs with NO QSG renderers and
+    # can never exercise the GPU overlay. blankProjectAddedObjectsRender's
+    # qsg-overlay row needs the real thing.
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
 )
 swmmvis_link_full_app_deps(test_asyncload)
+
+# EV2 native load/save boundaries and stable extension session identities.
+add_swmmvis_gui_test(test_extensionlifecycle
+    test_extensionlifecycle.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_compile_definitions(test_extensionlifecycle PRIVATE
+    SDK_NATIVE_STATE_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev2/native"
+    SDK_NATIVE_STATE_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
+swmmvis_link_full_app_deps(test_extensionlifecycle)
+
+# EV3 canonical layer/model/results observations and native view-controller commands.
+add_swmmvis_gui_test(test_extensionviewevents
+    test_extensionviewevents.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_compile_definitions(test_extensionviewevents PRIVATE
+    SDK_NATIVE_VIEW_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev3/native"
+    SDK_NATIVE_VIEW_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
+swmmvis_link_full_app_deps(test_extensionviewevents)
+
+add_swmmvis_gui_test(test_timeserieslayer
+    test_timeserieslayer.cpp
+    test_timeseriesassignment_transaction.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_timeserieslayer)
+
+# EV4 accepted attempts, reused rows, cancellation and terminal history in the native controller.
+add_swmmvis_gui_test(test_extensionactivity
+    test_extensionactivity.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_compile_definitions(test_extensionactivity PRIVATE
+    SDK_NATIVE_ACTIVITY_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/extension_events_2026-10/ev4/native"
+    SDK_NATIVE_ACTIVITY_FIXTURE_PATH="${PROJECT_SOURCE_DIR}/tests/extensions/data/model.inp")
+swmmvis_link_full_app_deps(test_extensionactivity)
+
+# Double-click must FINISH a drawing including the point clicked. Qt sends only
+# one press per double-click pair, so the tools' removeLast() was deleting the
+# user's closing vertex — and for a 3-gesture polygon that dropped the shape
+# below commit()'s vertex floor, creating nothing at all, silently. Drives the
+# real subcatchment tool on a real MapCanvas, like test_asyncload above.
+add_swmmvis_gui_test(test_drawtool_doubleclick
+    test_drawtool_doubleclick.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_drawtool_doubleclick)
 
 # Registry rename must not duplicate the object in the engine, and snow-pack
 # parameters must survive save/reload. Both were live data-corruption bugs:
@@ -2025,6 +3130,172 @@ add_swmmvis_gui_test(test_dirtytracking_run
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_dirtytracking_run)
+
+# Control-rule identity (tutorial bug report, 2026-10-17): a body without its
+# RULE header, or a name with spaces, must be refused with the engine untouched
+# instead of desynchronising the registry from the engine; a retyped header is
+# a rename on both sides. Drives the real layer over the typed-selection fixture.
+add_swmmvis_gui_test(test_control_rule_apply
+    test_control_rule_apply.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_control_rule_apply)
+
+# Tutorial bug report (2026-10-17), Phase 2: terrain link offsets are depths,
+# the saved map extent survives reopen resizes, and restoring a sidecar with
+# text layers leaves the project clean.
+add_swmmvis_gui_test(test_tutorial_phase2
+    test_tutorial_phase2.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_tutorial_phase2)
+
+# Save must skip the (O(nVerts x nTris)) mesh re-push when nothing edited the
+# mesh, without dropping mesh data — and must still push once anything does.
+add_swmmvis_gui_test(test_meshsavedirty
+    test_meshsavedirty.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshsavedirty)
+
+# Browse-and-load of an existing .2dm (SWMMVisProjectWindow::importMeshFileAsync).
+# A mesh could previously only reach a model by already sitting next to its
+# .inp. Guards the staging copy, the active-external-mesh adoption the save
+# path retargets [2D_MESH_FILE] at, the engine MESH_FILE mirror, cleanup of
+# the copy after a rejected file, and the no-clobber name-collision path.
+add_swmmvis_gui_test(test_meshimport
+    test_meshimport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshimport)
+
+# 2D results layer placement (issue #155) plus the earlier viz-refinement pins:
+# edge dedup, live scrub vs follow-live, peak-frame depth == max envelope,
+# velocity false without flux. Drives the real SWMM2DResultsLayer (QTEST_MAIN,
+# offscreen QPA like every other gui test).
+add_swmmvis_gui_test(test_2dresults_vizfixes
+    test_2dresults_vizfixes.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2dresults_vizfixes)
+
+# Live 2D ticks must cost O(1) each: one timeRangeChanged + one frame load per
+# tick (coalesced), an incremental max-depth envelope, a history cap that thins
+# 2:1, and a per-cell depth read — the fixes for the live profile plots
+# hanging the UI (plan WP2). Drives the real SWMM2DResultsLayer + EngineMesh2DSource.
+add_swmmvis_gui_test(test_live2d_coalesce
+    test_live2d_coalesce.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_live2d_coalesce)
+
+# Multi-series plots resolve each series once per rebuild / live tick, and the
+# 2D adapter reads each frame once for all selected cells, matching the
+# per-series path (workplans/RAINFALL_2D_AND_PLOTTING_PLAN_2026-09-25.md §3–4).
+# Drives the real ComparisonPlotDialog + SWMM2DResultsLayer + Mesh2DRunLayer.
+add_swmmvis_gui_test(test_plot_batch_counts
+    test_plot_batch_counts.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_plot_batch_counts)
+
+# 2D catalog variables (groundwater terms, infiltration, 2D species) as cell
+# time series (PLOTTABLE_RESULT_SERIES_PLAN_2026-10-02.md, Phase C).
+add_swmmvis_gui_test(test_mesh2d_variable_series
+    test_mesh2d_variable_series.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh2d_variable_series)
+
+# The mesh-generation dialog's Quality tab (MESH_OVERHAUL_PLAN_2026-09-29.md
+# §3): three groups, eleven controls, seeded from the 2D Defaults page. Needs
+# the full app: the dialog takes a live SWMMVisProjectWindow.
+add_swmmvis_gui_test(test_meshqualitydialog
+    test_meshqualitydialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshqualitydialog)
+
+# Mesh-generation dialog seeds (2026-09-11 defaults): nodes as vertices at
+# rim elevation with the minimum separation on, thinning 0.75 / 1 pass, and
+# the Poisson-disk spacing on at 15 m rounded to whole model units (49 ft).
+# Needs the full app: the dialog takes a live SWMMVisProjectWindow.
+add_swmmvis_gui_test(test_meshdialog_seeds
+    test_meshdialog_seeds.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshdialog_seeds)
+
+# Feature layers are REACHABLE from the real main window (§6.2). Catalog and
+# ribbon tests run against synthetic rigs, so only a real SWMMVis catches the
+# case where the whole stack compiles but nothing constructs it.
+add_swmmvis_gui_test(test_featurelayer_hostwiring
+    test_featurelayer_hostwiring.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_featurelayer_hostwiring)
+
+# Spatial rain-gage assignment against a real engine-loaded model. Guards the
+# un-located-gage trap (engine says (0,0); the display cache invents a position)
+# and the mediated write that lets a bulk assignment refresh the views.
+add_swmmvis_gui_test(test_gageassignintegration
+    test_gageassignintegration.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignintegration)
+
+# Assign Rain Gages performance harness
+# (workplans/RAINGAGE_ASSIGNMENT_PERF_AND_RDII_PLAN_2026-10-02.md). Drives the
+# real dialog on a synthetic deck; small cases by default, the 10k cases with
+# SWMMVIS_GAGE_PERF_SCALE=full. Timings append to tests/output/gageassign_perf.
+add_swmmvis_gui_test(test_gageassignperf
+    test_gageassignperf.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignperf)
+set_tests_properties(test_gageassignperf PROPERTIES
+    TIMEOUT 7200
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_GAGE_PERF_OUT=${CMAKE_SOURCE_DIR}/tests/output/gageassign_perf;QTEST_FUNCTION_TIMEOUT=7200000")
+
+# Assign Rain Gages apply path — one undo step / one refresh, generated series
+# keep source timestamps, undo leaves no orphan gages or tables.
+add_swmmvis_gui_test(test_gageassignapply
+    test_gageassignapply.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignapply)
+
+# RDII rain-gage assignment — unit-hydrograph group splits, idempotent re-run,
+# exact undo/redo, partial runs never move out-of-scope nodes.
+add_swmmvis_gui_test(test_gageassignrdii
+    test_gageassignrdii.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignrdii)
+
+# A canvas CRS change (render-only, reproject, undo/redo) re-frames the view in
+# the new CRS as part of the same undo step.
+add_swmmvis_gui_test(test_crschangeview
+    test_crschangeview.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_crschangeview)
 
 # identifyByName / nodeIndex / linkIndex became hash lookups instead of linear
 # scans (a 13 KB .oswp restore cost 22 s on a 122k-link model). The hashes must
@@ -2074,6 +3345,21 @@ set_tests_properties(test_meshperf_baseline PROPERTIES
     TIMEOUT 3600
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_MESH_PERF_DIR=${CMAKE_SOURCE_DIR}/tests/perf-data/mesh;QTEST_FUNCTION_TIMEOUT=1800000")
 
+# Attribute Table performance harness. Deliberately does NOT set
+# SWMMVIS_ATTR_PERF_INP — the all-pipes fixtures live outside the repo, so
+# the developer names one per run and the test self-skips otherwise (a fast
+# no-op on CI). Same raised timeouts as the mesh harness: a 500k-object
+# category legitimately takes minutes on the pre-fix code.
+add_swmmvis_gui_test(test_attrtableperf_baseline
+    test_attrtableperf_baseline.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_attrtableperf_baseline)
+set_tests_properties(test_attrtableperf_baseline PROPERTIES
+    TIMEOUT 3600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_ATTR_PERF_OUT=${CMAKE_SOURCE_DIR}/tests/output/attrtable_perf;QTEST_FUNCTION_TIMEOUT=1800000")
+
 # Mesh Tiled LOD plan Phase 1 — QsgMeshEnabled preference, the mesh layer's
 # qsgOwnsRendering CPU-paint gate, async worker-build equivalence, and
 # QPainter-vs-QSG parity screenshots (written to tests/output/mesh_qsg_parity).
@@ -2105,6 +3391,184 @@ add_swmmvis_gui_test(test_meshcommands_vertex_edge
 )
 swmmvis_link_full_app_deps(test_meshcommands_vertex_edge)
 
+# The mesh-editing toolbar's BC editor — single-edge hydration after a bulk
+# assign, mixed-selection placeholders, and the display-refresh-never-writes
+# contract (unblocked combos used to bulk-overwrite the selection on mere
+# selection change). First test to instantiate MeshEditingToolbar.
+add_swmmvis_gui_test(test_mesheditingtoolbar_bc
+    test_mesheditingtoolbar_bc.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesheditingtoolbar_bc)
+
+# The Layers dock and the Terrain toolbar outlive the project window whose
+# canvas they are bound to. Both held it as a raw pointer and disconnected
+# from it on the next rebind — a use-after-free that segfaulted in
+# QObject::disconnect (crash reports 2026-09-04 / 2026-09-05). Deletes the
+# bound canvas and rebinds; dies on the unfixed tree.
+add_swmmvis_gui_test(test_layertree_canvas_rebind
+    test_layertree_canvas_rebind.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layertree_canvas_rebind)
+
+# Layer-tree reordering (Slice LTR-2026-09-19): category / layer / sublayer
+# drag-drop through the model's mime contract, the context-menu move paths,
+# the grouped-stack invariant kept by MapCanvas::addLayer, the saved-order
+# restore, and undo/redo for all of them. Real MapCanvas + real layers,
+# hence the full-app link (same as the rebind test above).
+add_swmmvis_gui_test(test_layertree_reorder
+    test_layertree_reorder.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layertree_reorder)
+
+# GIS vector layers populate the FULL feature set (the scene culls per
+# frame) — the partially-visible-polygons-vanish regression fence — plus
+# the OpenSWMMVisScene removal branch for VectorPolygonPathItem. Needs
+# GDAL to synthesize its GPKG fixture, hence the full-app link.
+add_swmmvis_gui_test(test_gisvectorpopulate
+    test_gisvectorpopulate.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gisvectorpopulate)
+
+# GIS raster layers adopt the CRS their file declares and reproject onto a
+# canvas in a different CRS. The raster warp path was never affected by the
+# vector transform-lifecycle defect, but nothing covered raster CRS at all.
+# Needs GDAL to synthesize its GeoTIFF fixture, hence the full-app link.
+add_swmmvis_gui_test(test_gisrastercrs
+    test_gisrastercrs.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gisrastercrs)
+
+# Raster symbology end-to-end: default renderer per dataset (colour table →
+# Paletted, ≥3 Byte bands → RGB, else Graduated), per-band stats / sampling,
+# classified tile rendering + cache invalidation, RGB ↔ single-band switch,
+# StyleFileIO / .oswp style-block round-trips (dialog Cancel), and the
+# Symbology-tab RasterSymbologyPanel. Synthesises its GeoTIFF fixtures with
+# GDAL under tests/output/raster_style, hence the full-app link.
+add_swmmvis_gui_test(test_rasterstyle_roundtrip
+    test_rasterstyle_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_rasterstyle_roundtrip)
+
+# GIS feature layers ↔ SelectionManager ↔ Attribute Table, both directions
+# (SVBC round B): the GisObjectRef codec, the GisSelectionBridge, the
+# panel's gis branch pair with its FID display column, precise rubber-band
+# hits, and the no-bounce guarantee.
+add_swmmvis_gui_test(test_gisselectionsync
+    test_gisselectionsync.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gisselectionsync)
+
+# Project publication/restart tests are QtCore-only and run real child processes.
+add_executable(test_projectsaveoutputs test_projectsaveoutputs.cpp)
+set_target_properties(test_projectsaveoutputs PROPERTIES AUTOMOC ON)
+target_include_directories(test_projectsaveoutputs PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_projectsaveoutputs PRIVATE Qt6::Core Qt6::Test)
+target_compile_definitions(test_projectsaveoutputs PRIVATE
+    SAVE_RECOVERY_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/save_recovery_out")
+add_test(NAME test_projectsaveoutputs COMMAND test_projectsaveoutputs)
+set_tests_properties(test_projectsaveoutputs PROPERTIES LABELS "gui")
+
+# W1: disposable read-only parse of the complete prepared built-in save.
+add_swmmvis_gui_test(test_projectsavevalidation
+    test_projectsavevalidation.cpp
+)
+
+# Save-time engine warnings reach the GUI (engine 7d43a1ff's other half).
+# The writer's "embedded [REACTION_*] sections are lost from this save"
+# notice now lands in ctx.warnings; these gates pin that saveAs() captures
+# the delta across the write and emits saveCompletedWithEngineWarnings, that
+# a clean save stays silent, and that consecutive saves report per-save
+# deltas rather than the cumulative history.
+add_swmmvis_gui_test(test_savewarnings
+    test_savewarnings.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_savewarnings)
+
+# Actual terrain worker: fresh/cached DEM samples must reach quad sizing.
+add_swmmvis_gui_test(test_meshterrainpipeline
+    test_meshterrainpipeline.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshterrainpipeline)
+# The container harness exported SWMMVIS_TERRAIN_PIPELINE_OUTPUT; several
+# cases use it without a fallback, so the Mac registration must set it too
+# (CLAUDE.md §4.1 — a reviewable location, not a temp dir).
+set_tests_properties(test_meshterrainpipeline PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=30000;SWMMVIS_TERRAIN_PIPELINE_OUTPUT=${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09/terrain_pipeline")
+
+# Mesh overhaul Phase 7 — the Bellinge acceptance harness
+# (MESH_OVERHAUL_PLAN_2026-09-29.md §6). Self-skips unless
+# SWMMVIS_MESH_OVERHAUL_BELLINGE=1: a full pass generates the ~1M-cell run
+# four times for the thread-count determinism gate.
+add_swmmvis_gui_test(test_mesh_overhaul_bellinge
+    test_mesh_overhaul_bellinge.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh_overhaul_bellinge)
+target_compile_definitions(test_mesh_overhaul_bellinge PRIVATE
+    SWMMVIS_MESH_OVERHAUL_REPO_DIR="${CMAKE_SOURCE_DIR}"
+    SWMMVIS_MESH_OVERHAUL_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09/bellinge")
+set_tests_properties(test_mesh_overhaul_bellinge PROPERTIES
+    TIMEOUT 3600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=3500000")
+
+# Mesh overhaul Phase 7 step 4 — engine round trip on new-generator meshes
+# (lake at rest exact + Bellinge storm continuity). Self-skips unless
+# SWMMVIS_MESH_OVERHAUL_ENGINE=1; the storm case needs the Bellinge
+# harness's mesh_B.2dm first.
+add_swmmvis_gui_test(test_mesh_overhaul_engine
+    test_mesh_overhaul_engine.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_mesh_overhaul_engine)
+target_compile_definitions(test_mesh_overhaul_engine PRIVATE
+    SWMMVIS_MESH_OVERHAUL_REPO_DIR="${CMAKE_SOURCE_DIR}"
+    SWMMVIS_MESH_OVERHAUL_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/mesh_overhaul_2026-09")
+set_tests_properties(test_mesh_overhaul_engine PROPERTIES
+    TIMEOUT 25200
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=25000000")
+
+# [OPTIONS] CRS is the coordinate system of record: the .inp's CRS beats the
+# .oswp sidecar's on open, and the layer's assigned CRS is written on save
+# (a canvas reprojection used to leave the OLD CRS over the NEW coordinates).
+add_swmmvis_gui_test(test_crs_inp_roundtrip
+    test_crs_inp_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_crs_inp_roundtrip)
+
+# Phase GG0 — per-cell 2D infiltration. The two gates that discriminate:
+# undo of an assignment over an INHERITING cell must restore inheritance (not a
+# materialized copy that silently stops tracking its region), and every
+# [2D_INFILTRATION*] section must survive repeated saves through the strip-list
+# + patchAttributeSections() path that discards anything it does not re-emit.
+add_swmmvis_gui_test(test_meshinfil
+    test_meshinfil.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshinfil)
+
 # Attribute Table's 2D mesh source — row identity (interior edges collapse to
 # one row), read-only derived columns, edit → layer → single-row dataChanged,
 # and the deferred-geometry gate on the Edges view.
@@ -2115,6 +3579,23 @@ add_swmmvis_gui_test(test_meshattributetable
 )
 swmmvis_link_full_app_deps(test_meshattributetable)
 
+add_swmmvis_gui_test(test_attributenulls
+    test_attributenulls.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_attributenulls)
+
+add_swmmvis_gui_test(test_profile_lid_model
+    test_profile_lid_model.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_profile_lid_model)
+# The live simulation case permits 120 seconds for the run itself.
+set_property(TEST test_profile_lid_model APPEND PROPERTY ENVIRONMENT_MODIFICATION
+    "QTEST_FUNCTION_TIMEOUT=set:180000")
+
+
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's
 # geomRevision-keyed shading caches, and layer changes must advance the
 # renderer content revision MapCanvas polls to regrab its framebuffer.
@@ -2124,6 +3605,136 @@ add_swmmvis_gui_test(test_render_invalidation
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_render_invalidation)
+
+# Attribute Table column schema — the per-category ColumnSpec contract.
+# Guards the conduit cross-section block (XSection compound cell, inline
+# Geom 1-4, Barrels) against dropping out of the schema or re-acquiring the
+# per-shape edit lock, that the post-run dynamics columns stay a contiguous
+# read-only suffix, and that the engine-backed attribute coverage
+# (conduit Slope, subcatchment Tag, storage exfiltration, outfall RouteTo)
+# is actually surfaced.
+add_swmmvis_gui_test(test_attributetableschema
+    test_attributetableschema.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_attributetableschema)
+
+# Data objects (pollutants / land uses / aquifers / streets / inlets) as
+# Attribute Table sources, and the registry's open-for-object dispatch behind
+# Object Browser "Edit…" / double-click
+# (workplans/DATA_OBJECT_EDIT_AND_ATTRIBUTE_TABLE_PLAN_2026-10-02.md).
+add_swmmvis_gui_test(test_dataobjectattributetable
+    test_dataobjectattributetable.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dataobjectattributetable)
+
+# Rain-gage file / column / format coupling — review follow-ups R3 (a path edit
+# reconciles the column and undoes as one step) and A-2 (the file format is
+# explicitly settable, which is the only way back out of USER_CSV).
+add_swmmvis_gui_test(test_raingagefilecolumn
+    test_raingagefilecolumn.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_raingagefilecolumn)
+
+# Simulation Options no-edit round trip — Apply with no edits must write
+# nothing (dirty count false AND the dialog-owned .inp sections unchanged) on
+# a DYNWAVE, a 2D and an FV deck. Safety net for the dialog restructure
+# (EXECUTION_PLAN_OPTIONS_TRANSPORT_OUTPUT_2026-09-04.md P0/P3).
+add_swmmvis_gui_test(test_simulationoptions_roundtrip
+    test_simulationoptions_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
+
+# Structural contract for the Simulation Options tabbed restructure
+# (OPTIONS_DIALOG_TABBED_RESTRUCTURE_PLAN_2026-09-07.md §6). Landed against the
+# untabbed layout so the object names, the option-editor reachability set and
+# the sidebar order are pinned BEFORE any widget moves between pages; the tab
+# gate and no-scroll slots join it as each page is tabbed.
+add_swmmvis_gui_test(test_simulationoptions_gates
+    test_simulationoptions_gates.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_simulationoptions_gates)
+
+# T7 (2026-09-10) — PreferencesDialog had no automated test at all before the
+# tabbed restructure folded two of its fifteen sidebar rows into a third.
+# Redirects QSettings to tests/gui/data/prefs_roundtrip_artifacts/ in
+# initTestCase(), BEFORE anything can call PreferencesManager::instance() (its
+# QSettings binds once, in a function-local static, and never reloads).
+add_swmmvis_gui_test(test_preferencesdialog_roundtrip
+    test_preferencesdialog_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_preferencesdialog_roundtrip)
+
+# E1 (2026-09-07) — Simulation Options 2D page Output group: OUTPUT_PRECISION
+# / OUTPUT_COMPRESSION / REPORT_2D_STEP / REPORT_2D_VARIABLES /
+# REPORT_2D_SPECIES seed their defaults, write their engine spellings, and
+# re-open + Apply is the identity (seconds vs HH:MM:SS, preset vs token list).
+add_swmmvis_gui_test(test_2d_output_options_page
+    test_2d_output_options_page.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2d_output_options_page)
+
+add_swmmvis_gui_test(test_2d_momentum_options
+    test_2d_momentum_options.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2d_momentum_options)
+
+
+# U1 (2026-09-07) — Processes & Modules hub: the engine-computed transport
+# matrix on the Models page mirrors the 2D page's TRANSPORT_* boxes, the 2D
+# Processes group seeds/writes the E2 keys, and the [PROCESS_COMPONENTS]
+# table stages registrations/removals that land on Apply.
+add_swmmvis_gui_test(test_processes_hub
+    test_processes_hub.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_processes_hub)
+
+# U5 (2026-09-07) — the 2D page Groundwater group: [2D_OPTIONS] GROUNDWATER /
+# GW_ET round-trip, the infiltration-destination lock the engine's D-I4
+# exclusion implies, and the [GW_*] authored-row summary.
+add_swmmvis_gui_test(test_gw_page_keys
+    test_gw_page_keys.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gw_page_keys)
+
+# Rain-gage map position ([SYMBOLS] X/Y) — the Property Browser exposes it and
+# the Attribute Table columns are editable, both routed through
+# SWMMModelLayer::applyGageMove so the cached scene point tracks the engine.
+add_swmmvis_gui_test(test_raingagecoords
+    test_raingagecoords.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_raingagecoords)
+
+# Rainfall Visualization dialog — engine-resolved gage series across all three
+# source kinds (inline [TIMESERIES], standard .dat rain file, multi-column
+# CSV), failed-file surfacing, basis switching, shared per-gage time axis.
+add_swmmvis_gui_test(test_rainfallvisualizationdialog
+    test_rainfallvisualizationdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_rainfallvisualizationdialog)
 
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
@@ -2136,6 +3747,109 @@ add_swmmvis_gui_test(test_selectionops
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_selectionops)
+
+# LOAD_PERF Phase 3 — batched OGR/PROJ transform equivalence + timing.
+# Needs GDAL/OGR for a real OGRCoordinateTransformation, so it links the
+# full app deps rather than a lean source list.
+add_swmmvis_gui_test(test_batchtransform
+    test_batchtransform.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/crsreproject.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/crsreproject.h
+    # reprojectModel() in the same TU reaches SpatialReferenceSystem.
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+)
+swmmvis_link_full_app_deps(test_batchtransform)
+
+
+# Bulk delete — SWMMModelLayer::BulkEdit + BulkEditCommand. Deleting a
+# selection must run the derived-cache rebuild ONCE for the whole batch, in
+# both directions, and must resync link endpoint indices from the engine
+# afterwards or every link past a deleted node draws to the wrong nodes with
+# no error. Constructs DeleteObjectCommand directly (nothing else does).
+add_swmmvis_gui_test(test_bulkdelete
+    test_bulkdelete.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_bulkdelete)
+
+# Link direction flip — swapping node1/node2 is the easy half. Interior
+# vertices are stored upstream -> downstream, so a flip that does not reverse
+# them draws a zig-zag with no error anywhere; a conduit's offsets and
+# entry/exit losses are attached to an end, so leaving them on their slots
+# silently moves the invert profile. Also pins that FlipLinkCommand's
+# one-call-for-both-directions undo really is self-inverse.
+add_swmmvis_gui_test(test_linkflip
+    test_linkflip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_linkflip)
+
+# Conduit split (insert junction on conduit) keeps the render-facing SoA in
+# step with m_links across redo / undo / redo, for a straight conduit and one
+# with an interior vertex (HANDOFF_SPLIT_LINK_DISAPPEARS_2026-09-10.md). The
+# engine-only tests/unit/test_junction_split_layer.cpp cannot see this path.
+add_swmmvis_gui_test(test_conduit_split_caches
+    test_conduit_split_caches.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_conduit_split_caches)
+
+# The generic add-node tools split a conduit when the click lands on one
+# (ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10.md): junction / storage / divider
+# insert by splitting, outfall is refused, empty canvas places freely — driven
+# through the real MapCanvas press/release path in a project window.
+add_swmmvis_gui_test(test_addnode_split_tool
+    test_addnode_split_tool.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_addnode_split_tool)
+
+# Capture-node pick on the map — NodePickSession + pick tool, the non-modal
+# InletJunctionSetupDialog, the inlet-junction tool's accepted() insert, and
+# the Properties-panel DataObjectPickerEditor writing through the layer.
+add_swmmvis_gui_test(test_capture_node_pick
+    test_capture_node_pick.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_capture_node_pick)
+
+# 1D↔2D node coupling (fine-scale coupling plan §7.1–7.2): the coupling
+# selector's staged bulk edits applied as one undoable step through
+# SWMMModelLayer, illegal types refused before any write.
+add_swmmvis_gui_test(test_nodecoupling2d_edits
+    test_nodecoupling2d_edits.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_nodecoupling2d_edits)
+target_compile_definitions(test_nodecoupling2d_edits PRIVATE
+    SWMMVIS_NODECOUPLING_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/nodecoupling2d_edits")
+
+# A plain click on a link selects only that link (not its end nodes or a
+# same-named node). Click log: tests/output/link_click_selection/.
+add_swmmvis_gui_test(test_link_click_selection
+    test_link_click_selection.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_link_click_selection)
+
+# Offset mode / link direction round-trip — Open -> Save must keep the
+# authored LINK_OFFSETS convention (elevations stay elevations) and the
+# authored From/To of adverse-slope conduits, which the engine normalises at
+# open (see workplans/OFFSET_MODE_AND_LINK_DIRECTION_FIX_PLAN_2026-09-02.md).
+add_swmmvis_gui_test(test_offsetmode_roundtrip
+    test_offsetmode_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_offsetmode_roundtrip)
 
 # Object-creation defaults — drawn objects must land with the configured
 # ObjectDefaults for the active unit system; geometry-derived overrides win;
@@ -2199,6 +3913,17 @@ add_swmmvis_gui_test(test_theme_contrast
 # helper depends only on QtWidgets + ThemeManager, so no app linkage.
 add_swmmvis_gui_test(test_mdi_tab_maximize
     test_mdi_tab_maximize.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/mdiworkspacechrome.h
+    ${CMAKE_SOURCE_DIR}/src/ui/mdiworkspacechrome.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
+# Tab tooltips carry the model's full path, because the tab label is only the
+# base name. Pins the two QMdiArea facts that makes rest on: no tab tooltip of
+# its own, and tab index == subWindowList() position.
+add_swmmvis_gui_test(test_mdi_tab_tooltips
+    test_mdi_tab_tooltips.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/mdiworkspacechrome.h
     ${CMAKE_SOURCE_DIR}/src/ui/mdiworkspacechrome.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
@@ -2269,6 +3994,41 @@ add_swmmvis_gui_test(test_dialog_layout_persistence
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutwatcher.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/plotvariablepickerdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/plotvariablepickerdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshresolutionwidget.cpp
+)
+target_compile_definitions(test_dialog_layout_persistence PRIVATE
+    DIALOG_LAYOUT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/dialog-labels-2026-10-29")
+
+# Profile attribute tracks — the synced attribute-chart pane below the
+# profile plot: options round-trip / signal discipline, the pixel↔virtual-x
+# alignment contract, and sampler attribute classification (inline header
+# fns — the sampler .cpp itself needs the engine + results layer and is
+# exercised in-app per PROFILE_ATTRIBUTE_TRACKS_VERIFICATION.md).
+add_swmmvis_gui_test(test_profile_attribute_tracks
+    test_profile_attribute_tracks.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileattributetrackoptions.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileattributetrackoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileattributetrackswidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileattributetrackswidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
+# Dialog window management — the MRU register of open modeless dialogs that
+# backs the Window menu's recovery entries and the pure-Qt stacking mode.
+# Bookkeeping only (offscreen QPA); real multi-monitor z-order behaviour is
+# covered by the manual checklist in
+# workplans/DIALOG_WINDOW_MANAGEMENT_VERIFICATION.md.
+add_swmmvis_gui_test(test_dialog_registry
+    test_dialog_registry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialogregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialogregistry.cpp
 )
 
 # UI redesign iteration 2 (D4) — dialog accessibility audit over the
@@ -2277,6 +4037,8 @@ add_swmmvis_gui_test(test_dialog_layout_persistence
 # dialog_a11y_checks.h assertions.
 add_swmmvis_gui_test(test_dialog_a11y_standalone
     test_dialog_a11y_standalone.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/colorbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/colorbutton.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aboutdialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pluginsdialog.h
@@ -2302,3 +4064,476 @@ add_swmmvis_gui_test(test_ribbongroup
     ${CMAKE_SOURCE_DIR}/include/ui/toolbars/ribboncompactor.h
     ${CMAKE_SOURCE_DIR}/src/ui/toolbars/ribboncompactor.cpp
 )
+
+# 2D results export (workplans/MESH2D_RESULTS_EXPORT_PLAN_2026-09-09.md) —
+# the widget-free exporter: the new rank-1 envelope read, the Shapefile /
+# GeoPackage writers, the GeoTIFF writer with per-step bands and a separate
+# _max file, the three interpolators, the dry mask and cancel cleanup.
+# Deliberately lean: the test supplies its own IMesh2DSource implementations
+# (one over Mesh2DH5Reader, one synthetic) so it links the reader and the
+# exporter rather than the whole layer / render stack.
+add_swmmvis_gui_test(test_mesh2dresultsexport
+    test_mesh2dresultsexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dresultsexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dresultsexport.h
+)
+target_include_directories(test_mesh2dresultsexport PRIVATE
+    ${HDF5_INCLUDE_DIRS} ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_mesh2dresultsexport PRIVATE
+    ${HDF5_C_LIBRARIES} GDAL::GDAL predicates_lib nanoflann::nanoflann)
+
+# The "Export 2D Results…" option collector (same plan). Lean: the dialog is
+# widget-only, so this links the dialog and the GDAL driver probe it uses to
+# hide formats the build cannot write — not the results layer.
+add_swmmvis_gui_test(test_mesh2dresultsexportdialog
+    test_mesh2dresultsexportdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dresultsexportdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dresultsexportdialog.h
+)
+target_include_directories(test_mesh2dresultsexportdialog PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_mesh2dresultsexportdialog PRIVATE GDAL::GDAL)
+
+# Shared painted style controls: real accessibility interfaces, keyboard colour
+# picking, dialog/panel names and live theme rendering (phase 05).
+add_swmmvis_gui_test(test_stylecontrols
+    test_stylecontrols.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_stylecontrols)
+
+# Pending mesh-import snapshots: disk ownership and transactional publication,
+# independent of widgets, mesh generation and the engine runtime.
+add_executable(test_meshimportartifacts test_meshimportartifacts.cpp)
+set_target_properties(test_meshimportartifacts PROPERTIES AUTOMOC ON)
+target_include_directories(test_meshimportartifacts PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_meshimportartifacts PRIVATE Qt6::Core Qt6::Test)
+target_compile_definitions(test_meshimportartifacts PRIVATE
+    MESH_IMPORT_ARTIFACT_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mesh_import_artifacts_out")
+add_test(NAME test_meshimportartifacts COMMAND test_meshimportartifacts)
+set_tests_properties(test_meshimportartifacts PROPERTIES LABELS "gui")
+
+
+# Phase25: corridor placement and structured patch authoring.
+add_swmmvis_gui_test(test_meshpatchplacement
+    test_meshpatchplacement.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshcdt.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/breaklinestrips.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadmatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadcleanup.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshpatch.h
+)
+target_link_libraries(test_meshpatchplacement PRIVATE Qt6::Concurrent predicates_lib)
+
+# Selected GIS centrelines to independent rectangular corridor patches.
+add_swmmvis_gui_test(test_corridorsource
+    test_corridorsource.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/corridorsource.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshpatch.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+)
+target_link_libraries(test_corridorsource PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_meshcorridorrecipe test_meshcorridorrecipe.cpp)
+add_swmmvis_gui_test(test_corridorsourceswidget
+    test_corridorsourceswidget.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_corridorsourceswidget)
+
+# Phase34 — preview-session rollback and one undo transaction across Apply.
+add_swmmvis_gui_test(test_layerstyledialog_transactions
+    test_layerstyledialog_transactions.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_layerstyledialog_transactions)
+
+add_swmmvis_gui_test(test_resultvariables
+    test_resultvariables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_resultvariables)
+
+add_swmmvis_gui_test(test_livegroundwatervariables
+    test_livegroundwatervariables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_livegroundwatervariables)
+
+add_swmmvis_gui_test(test_resultscalargeometry
+    test_resultscalargeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/resultscalargeometry.cpp)
+add_swmmvis_gui_test(test_resultvariableexportdialog
+    test_resultvariableexportdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_resultvariableexportdialog)
+
+add_swmmvis_gui_test(test_mesh2dvariablegisexport
+    test_mesh2dvariablegisexport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_mesh2dvariablegisexport)
+
+add_swmmvis_gui_test(test_resultscalarsublayer
+    test_resultscalarsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/resultscalarsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/isolinesublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/isolinesublayer.h
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/resultscalarsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/scalarfillsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
+)
+
+add_swmmvis_gui_test(test_mesh2dvariableexport
+    test_mesh2dvariableexport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dvariableexport.cpp
+)
+target_link_libraries(test_mesh2dvariableexport PRIVATE GDAL::GDAL Qt6::Quick)
+
+# ── Feature-layer roles, attribute tables and export ─────────────────────────
+# workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R3–R10. Outputs
+# land in tests/output/feature_layer_roles_2026-09-30/ (reviewable — CLAUDE.md
+# §4.1).
+
+# R3 — the one cell editor for feature columns, against a plain item model.
+# Leaf: the delegate, the role registry and the BC-type tokens it lists.
+add_swmmvis_gui_test(test_featurefielddelegate
+    test_featurefielddelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/featurefielddelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featureroles.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featuretypes.cpp
+    ${CMAKE_SOURCE_DIR}/src/feature/featuregeometry.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshquadregion.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/featurefielddelegate.h
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/include/mesh/meshbctype.h
+)
+target_link_libraries(test_featurefielddelegate PRIVATE GDAL::GDAL)
+
+# R4 — the role-first New Feature Layer dialog and the custom-field editor;
+# a custom Choice field is carried into a GeoPackage and read back.
+add_swmmvis_gui_test(test_newfeaturelayerdialog
+    test_newfeaturelayerdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_newfeaturelayerdialog)
+target_compile_definitions(test_newfeaturelayerdialog PRIVATE
+    FEATURE_ROLES_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30")
+
+# R7 — what "Open Attribute Table" and "Export…" act on for every kind of
+# layer-tree row. Headless: the predicates take layer-type ordinals.
+add_swmmvis_gui_test(test_layertree_attributetable
+    test_layertree_attributetable.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/layertreetargets.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/layertreecategories.cpp
+)
+
+# R3/R5/R6/R7 inside the real panels: delegate edits push one undo command in
+# the Attribute Table and the Features dock; "Update fields to role…" on an old
+# Region layer; the mesh dialog's pickers filter by geometry and show the role;
+# the Attribute Table switches to an object type and a mesh table.
+add_swmmvis_gui_test(test_featurelayer_editors
+    test_featurelayer_editors.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_featurelayer_editors)
+target_compile_definitions(test_featurelayer_editors PRIVATE
+    FEATURE_EDITORS_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/editors")
+
+# R8 — the export dialog (format, destination, CRS, options). Full link: the
+# CRS picker it opens is part of the app.
+add_swmmvis_gui_test(test_exportlayerdialog
+    test_exportlayerdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_exportlayerdialog)
+
+# R9 — SWMM objects from engine-loaded models: 11 layers with the right counts,
+# vertices and polygons intact, and the Import Feature Layer round trip.
+add_swmmvis_gui_test(test_swmmexport
+    test_swmmexport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_swmmexport)
+target_compile_definitions(test_swmmexport PRIVATE
+    SWMMEXPORT_OUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/feature_layer_roles_2026-09-30/swmmexport")
+
+# Phase 35 combined surface/groundwater sections and atomic assignment.
+add_swmmvis_gui_test(test_profilesectionseries
+    test_profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp)
+add_swmmvis_gui_test(test_profilesectionstore
+    test_profilesectionstore.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/profilesectionstore.h
+    ${CMAKE_SOURCE_DIR}/src/project/profilesectionstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp)
+add_swmmvis_gui_test(test_groundwaterassignment
+    ../unit/test_groundwaterassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+add_swmmvis_gui_test(test_rasterfluxintegration
+    ../unit/test_rasterfluxintegration.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/rasterfluxintegration.cpp)
+target_link_libraries(test_rasterfluxintegration PRIVATE GDAL::GDAL)
+set_property(TEST test_rasterfluxintegration APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_RASTER_FLUX_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_36_followthrough/raster_flux")
+
+add_swmmvis_gui_test(test_groundwaterassignmentsampling
+    ../unit/test_groundwaterassignmentsampling.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/meshassignmentsampling.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp)
+target_link_libraries(test_groundwaterassignmentsampling PRIVATE meshkit::core_qt)
+target_link_libraries(test_groundwaterassignmentsampling PRIVATE GDAL::GDAL predicates_lib)
+
+add_swmmvis_gui_test(test_meshprofile_combined
+    test_meshprofile_combined.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofiletrackswidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofiletrackswidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileserieseditor.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileserieseditor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilesectionseries.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/profilesectionio.cpp
+)
+
+add_swmmvis_gui_test(test_groundwaterrecipestore
+    test_groundwaterrecipestore.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/groundwaterrecipestore.h
+    ${CMAKE_SOURCE_DIR}/src/project/groundwaterrecipestore.cpp)
+add_swmmvis_gui_test(test_surfaceownershipdialog
+    test_surfaceownershipdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_surfaceownershipdialog)
+set_property(TEST test_surfaceownershipdialog APPEND PROPERTY ENVIRONMENT "SWMMVIS_R4_OUT=${CMAKE_SOURCE_DIR}/tests/verification/surface_r4_2026-10-05/qt")
+
+add_swmmvis_gui_test(test_groundwaterassigndialog
+    test_groundwaterassigndialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_groundwaterassigndialog)
+
+add_swmmvis_gui_test(test_phase35_projectpersistence
+    test_phase35_projectpersistence.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_phase35_projectpersistence)
+target_compile_definitions(test_phase35_projectpersistence PRIVATE
+    PHASE35_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/project")
+
+# Valid connected large meshes; default is a small regression. Larger runs are opt-in.
+add_swmmvis_gui_test(test_groundwater_large_model
+    test_groundwater_large_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+set_property(TEST test_groundwater_large_model APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_LARGE_GW_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_36_followthrough/large_model")
+
+add_swmmvis_gui_test(test_groundwatertransportassignment
+    test_groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+target_compile_definitions(test_groundwatertransportassignment PRIVATE
+    SWMMVIS_GW_TRANSPORT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/transport")
+
+set_property(TEST test_groundwaterassigndialog APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FORCING_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/ui_tests")
+set_property(TEST test_groundwatertransportassignment APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_GW_TRANSPORT_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/transport")
+
+# The result-source interface exposes its coordinate transform type.
+foreach(profile_target test_profilesectionseries test_profilesectionstore test_meshprofile_combined)
+    target_link_libraries(${profile_target} PRIVATE GDAL::GDAL)
+endforeach()
+
+foreach(journey sectionjourney forcingjourney)
+    add_swmmvis_gui_test(test_phase35_${journey}
+        test_phase35_${journey}.cpp
+        ${SWMMVIS_TEST_SOURCES}
+        ${SWMMVIS_TEST_EXTRA_SOURCES})
+    swmmvis_link_full_app_deps(test_phase35_${journey})
+endforeach()
+set_property(TEST test_phase35_sectionjourney APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_SECTION_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/review/section-journey")
+set_property(TEST test_phase35_forcingjourney APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FORCING_JOURNEY_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/forcing_journey")
+
+add_swmmvis_gui_test(test_traceanalysisjourney
+    test_traceanalysisjourney.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_traceanalysisjourney)
+target_compile_definitions(test_traceanalysisjourney PRIVATE
+    TRACE_JOURNEY_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/flow_trace_2026-10-01/journey")
+
+# Keep the full-app acceptance harness quick to compile; production retains its configured optimization.
+target_compile_options(test_traceanalysisjourney PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
+add_swmmvis_gui_test(test_resultssizechannel
+    test_resultssizechannel.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_resultssizechannel)
+target_compile_definitions(test_resultssizechannel PRIVATE
+    RESULTS_SIZE_CHANNEL_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/results_size_channel_2026-10-17"
+    RESULTS_SIZE_CHANNEL_FIXTURE="${CMAKE_SOURCE_DIR}/tests/data/styles/graduated_width_axis_legacy.json")
+target_compile_options(test_resultssizechannel PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
+add_swmmvis_gui_test(test_lid_node_layers
+    test_lid_node_layers.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/lidnodelayermodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/lidlayerdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+)
+
+add_swmmvis_gui_test(test_lid_treatment_editor
+    test_lid_treatment_editor.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_lid_treatment_editor)
+
+# Multiple-file Add actions exercise the actual main-window file dialogs.
+add_swmmvis_gui_test(test_datasetmultiselect
+    test_datasetmultiselect.cpp ${SWMMVIS_TEST_SOURCES} ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_datasetmultiselect)
+set_tests_properties(test_datasetmultiselect PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;SWMMVIS_DATASET_MULTISELECT_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/dataset_multiselect_2026-10-04/fixtures")
+
+add_swmmvis_gui_test(test_channelburndialog
+    test_channelburndialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_channelburndialog)
+target_compile_definitions(test_channelburndialog PRIVATE
+    CHANNEL_BURN_FIXTURE="${CMAKE_SOURCE_DIR}/examples/channel_burn_boundary/channel_burn_boundary.inp")
+
+# Text layer persistence, typed feature references, screen-space collision
+# placement, cancel/undo, and the layer manager/map tool.
+add_swmmvis_gui_test(test_textlayers
+    test_textlayers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_textlayers)
+
+add_swmmvis_gui_test(test_flowstreaks
+    test_flowstreaks.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_flowstreaks)
+qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
+    BATCHABLE
+    PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+    FILES
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/mapmask.frag)
+
+# Shared checkpoint catalog, worker activation and actual Qt views.
+add_swmmvis_gui_test(test_checkpointmodel
+    test_checkpointmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/checkpointsdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointmodel.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointworker.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/checkpointsdialog.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+)
+target_link_libraries(test_checkpointmodel PRIVATE Qt6::Concurrent)
+
+# Real project capture and status integration, using the same app sources.
+add_swmmvis_gui_test(test_checkpointapplication
+    test_checkpointapplication.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_checkpointapplication)
+set_property(TEST test_checkpointapplication APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")
+
+add_swmmvis_gui_test(test_simulationstatus_snow
+    test_simulationstatus_snow.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+)
+
+# Hydrothermal GIS routes share the production sampler and exact heat row store.
+add_swmmvis_gui_test(test_hydrothermalgis
+    test_hydrothermalgis.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_hydrothermalgis)
+
+add_swmmvis_gui_test(test_twodbackendpolicy test_twodbackendpolicy.cpp)
+
+# Docked plot content: lifecycle, tab isolation, activation and layout persistence.
+add_swmmvis_gui_test(test_plotdock
+    test_plotdock.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/plotdock.h
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/plotdock.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/plotpanelview.h
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/plotpanelview.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp)
+
+add_swmmvis_gui_test(test_plotpanels_integration
+    test_plotpanels_integration.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_plotpanels_integration)
+set_property(TEST test_plotpanels_integration APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")

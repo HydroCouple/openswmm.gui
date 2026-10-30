@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_lid_treatment_editor.cpp
+ * @brief     Tests for lid treatment editor.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
+#include "ui/dialogs/lidcontroleditordialog.h"
+#include "ui/widgets/treatmentexpressionedit.h"
+#include "lid/lidcontrolregistry.h"
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <QApplication>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QTableView>
+#include <QTabWidget>
+#include <QPushButton>
+#include <QStyleOptionViewItem>
+#include <QDir>
+#include <cmath>
+
+/**
+ *
+ * @brief Abort the standalone GUI harness when a required condition fails.
+ * @param ok Condition; true returns normally, false calls qFatal.
+ * @param message Borrowed nonnull null-terminated diagnostic for the fatal log.
+ * No recovery/cleanup return is available after failure.
+ *
+ */
+static void check(bool ok, const char *message)
+{
+    if (!ok)
+        qFatal("%s", message);
+}
+/**
+ *
+ * @brief Run the standalone LID layer/treatment/Richards editor integration and screenshot
+ * harness.
+ * @param argc Process argument count; exactly three selects explicit input/output paths.
+ * @param argv Borrowed argc-entry argument array; argv[1]/argv[2] are local-encoded
+ * paths when argc==3, otherwise paths derive from SWMMVIS_GUI_TEST_DATA. Qt may
+ * consume its own options during QApplication construction.
+ * @return Zero by implicit main return after all checks; qFatal terminates on failure.
+ * Requires a GUI platform, one-control fixture, expected translated button/tab text
+ * and writable artifact directory. Opens editor.rpt/editor.out and overwrites three
+ * PNG captures, edits layer counts/rates/expression/retention in memory and verifies
+ * engine/registry reload. Directory creation and engine close status are unchecked;
+ * no full application event loop is entered.
+ *
+ */
+int main(int argc, char **argv)
+{
+    QApplication app(argc, argv);
+    const QDir data(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"));
+    const QString input =
+        argc == 3 ? QString::fromLocal8Bit(argv[1]) : data.filePath("lid_treatment_editor.inp");
+    const QDir artifacts(argc == 3 ? QString::fromLocal8Bit(argv[2])
+                                   : data.filePath("lid_treatment_editor_out"));
+    QDir().mkpath(artifacts.absolutePath());
+    auto engine = swmm_engine_create();
+    check(engine, "Engine creation failed");
+    const int opened = swmm_engine_open(
+        engine, input.toUtf8().constData(), artifacts.filePath("editor.rpt").toUtf8().constData(),
+        artifacts.filePath("editor.out").toUtf8().constData(), nullptr);
+    if (opened != SWMM_OK)
+        qFatal("Open failed: %d %s", opened, swmm_get_last_error_msg(engine));
+    {
+        openswmmvis::lid::LidControlRegistry registry;
+        check(registry.loadFromEngine(engine) == 1, "Registry did not load the control");
+        openswmmvis::ui::LidControlEditorDialog dialog(&registry, nullptr);
+        dialog.show();
+        app.processEvents();
+        auto *count = dialog.findChild<QSpinBox *>("lidMediaLayerCount");
+        auto *layers = dialog.findChild<QTableView *>("lidNodeLayers");
+        auto *treatment = dialog.findChild<QTableView *>("lidLayerTreatment");
+        check(count && layers && treatment, "Layer controls missing");
+        layers->selectRow(1);
+        app.processEvents();
+        check(dialog.grab().save(artifacts.filePath("layer-physical-editor.png")),
+              "Physical screenshot failed");
+        count->setValue(7);
+        app.processEvents();
+        check(layers->model()->rowCount() == 8, "Layer count did not update");
+        layers->selectRow(1);
+        app.processEvents();
+        check(treatment->model()->rowCount() == 1, "Selected layer treatment missing");
+        for (auto *tabs : dialog.findChildren<QTabWidget *>())
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->tabText(i) == "Pollutant treatment")
+                    tabs->setCurrentIndex(i);
+        const auto rate = treatment->model()->index(0, 2);
+        auto *rateEditor = treatment->itemDelegateForColumn(2)->createEditor(
+            treatment, QStyleOptionViewItem{}, rate);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(rateEditor);
+        check(spin, "Rate does not use a numeric editor");
+        spin->setValue(1.25);
+        treatment->itemDelegateForColumn(2)->setModelData(spin, treatment->model(), rate);
+        delete rateEditor;
+        const auto expression = treatment->model()->index(0, 3);
+        auto *expressionEditor = treatment->itemDelegateForColumn(3)->createEditor(
+            treatment, QStyleOptionViewItem{}, expression);
+        auto *edit = qobject_cast<openswmmvis::ui::TreatmentExpressionEdit *>(expressionEditor);
+        check(edit, "Expression does not use the existing editor");
+        bool validated = false;
+        QObject::connect(edit, &openswmmvis::ui::TreatmentExpressionEdit::validationChanged,
+                         [&](bool ok, const QString &, int) { validated = ok; });
+        edit->setExpression("R = 0.35");
+        edit->validateNow();
+        check(validated, "Expression validation failed");
+        treatment->itemDelegateForColumn(3)->setModelData(edit, treatment->model(), expression);
+        delete expressionEditor;
+        for (auto *button : dialog.findChildren<QPushButton *>())
+            if (button->text() == "Apply layers and treatment")
+                button->click();
+        app.processEvents();
+        SWMM_LidLayerTreatment rule{};
+        check(swmm_lid_node_treatment_get(engine, 0, 1, &rule) == SWMM_OK,
+              "Treatment was not applied");
+        check(rule.layer == 2 && std::abs(rule.decay_per_day - 1.25) < 1.e-12 &&
+                  QString::fromUtf8(rule.expression) == "R = 0.35",
+              "Rates or expression did not reach engine");
+        check(dialog.grab().save(artifacts.filePath("layer-treatment-editor.png")),
+              "Screenshot failed");
+        auto *flow = dialog.findChild<QComboBox *>("lidFlowModel");
+        auto *cells = dialog.findChild<QSpinBox *>("lidRichardsCells");
+        check(flow && cells, "Richards controls missing");
+        check(flow->currentIndex() == 0, "Existing projects changed flow method");
+        flow->setCurrentIndex(1);
+        cells->setValue(4);
+        const double values[] = {.03, 2, 1.6, .5, 1.e-4};
+        for (int row = 1; row < layers->model()->rowCount(); ++row)
+            for (int col = 10; col < 15; ++col)
+                check(layers->model()->setData(layers->model()->index(row, col), values[col - 10]),
+                      "Retention edit failed");
+        for (auto *tabs : dialog.findChildren<QTabWidget *>())
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->tabText(i) == "Retention and conductivity")
+                    tabs->setCurrentIndex(i);
+        dialog.resize(1180, 920);
+        layers->selectRow(1);
+        app.processEvents();
+        check(dialog.grab().save(artifacts.filePath("richards-editor.png")),
+              "Richards screenshot failed");
+        for (auto *button : dialog.findChildren<QPushButton *>())
+            if (button->text() == "Apply layers and treatment")
+                button->click();
+        app.processEvents();
+        SWMM_LidRichardsOptions options{};
+        check(swmm_lid_richards_options_get(engine, 0, &options) == SWMM_OK && options.model == 1 &&
+                  options.cells_per_layer == 4,
+              "Richards mode did not reach engine");
+        SWMM_LidRichardsMaterial material{};
+        check(swmm_lid_richards_material_get(engine, 0, 1, &material) == SWMM_OK &&
+                  material.alpha == 2 && material.specific_storage == 1.e-4,
+              "Retention did not reach engine");
+        dialog.close();
+        openswmmvis::lid::LidControlRegistry reloaded;
+        reloaded.loadFromEngine(engine);
+        check(reloaded.providers().front()->flowOptions.model == 1 &&
+                  reloaded.providers().front()->retention[1].alpha == 2,
+              "Richards did not reload");
+        check(reloaded.providers().front()->nodeLayers().size() == 8,
+              "Applied count did not persist");
+        check(reloaded.providers().front()->treatments[1].expression == "R = 0.35",
+              "Applied expression did not persist");
+    }
+    swmm_engine_close(engine);
+    swmm_engine_destroy(engine);
+    qInfo(
+        "Layer treatment editor: count, numeric delegate, expression validation, Apply and reload passed");
+}

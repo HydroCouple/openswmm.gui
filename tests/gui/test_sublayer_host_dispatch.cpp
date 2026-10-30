@@ -1,9 +1,9 @@
-/*!
- * \file   test_sublayer_host_dispatch.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice S2.1 — verification for the ISublayerHost interface and its
+/**
+ * @file      test_sublayer_host_dispatch.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice S2.1 — verification for the ISublayerHost interface and its
  *         animation-tick dispatch contract.
  *
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 3
@@ -20,6 +20,7 @@
  *              because a sublayer may choose to update internal caches
  *              even when not currently painting. Visibility filtering
  *              belongs to the renderer, not the dispatcher.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QSignalSpy>
@@ -35,36 +36,131 @@ class FakeSublayer : public ISublayer
 {
     Q_OBJECT
 public:
+    /**
+     *
+     * @brief Construct a minimal borrowed-host fixture sublayer.
+     * @param dynamic_ Time-varying flag returned verbatim by isDynamic.
+     * @param id_ Owned identifier moved into the fixture, also used as display name.
+     * @param parent Optional QObject owner; null leaves destruction to the caller.
+     * No style, geometry, GPU resource or signal connection is allocated.
+     *
+     */
     FakeSublayer(bool dynamic_, QString id_, QObject *parent = nullptr)
-        : ISublayer(parent), m_dynamic(dynamic_), m_id(std::move(id_)) {}
+        : ISublayer(parent), m_dynamic(dynamic_), m_id(std::move(id_))
+    {
+    }
 
-    Kind    kind() const override        { return LineKind; }
-    QString id() const override          { return m_id; }
+    /**
+     *
+     * @brief Return the fake line category.
+     * @return Always LineKind.
+     *
+     */
+    Kind kind() const override { return LineKind; }
+    /**
+     *
+     * @brief Read the stored fixture identifier.
+     * @return By-value QString sharing Qt storage; no host lookup.
+     *
+     */
+    QString id() const override { return m_id; }
+    /**
+     *
+     * @brief Use the fixture identifier as its label.
+     * @return By-value stored identifier, without localization.
+     *
+     */
     QString displayName() const override { return m_id; }
 
-    bool  isVisible() const override     { return m_visible; }
-    void  setVisible(bool v) override    { m_visible = v; }
-    qreal opacity() const override       { return 1.0; }
-    void  setOpacity(qreal) override     {}
+    /**
+     *
+     * @brief Read fixture visibility.
+     * @return Stored flag, initially true.
+     *
+     */
+    bool isVisible() const override { return m_visible; }
+    /**
+     *
+     * @brief Store fake visibility without emitting invalidation.
+     * @param v New visibility flag, used only for host-dispatch assertions.
+     *
+     */
+    void setVisible(bool v) override { m_visible = v; }
+    /**
+     *
+     * @brief Return fixed full opacity.
+     * @return Always one; the matching fake setter deliberately does nothing.
+     *
+     */
+    qreal opacity() const override { return 1.0; }
+    /**
+     *
+     * @brief Ignore opacity edits in the dispatch-only fixture.
+     * @param opacity Unused proposed alpha; no validation, state mutation or signals.
+     *
+     */
+    void setOpacity(qreal opacity) override {}
 
-    bool isDynamic() const override      { return m_dynamic; }
+    /**
+     *
+     * @brief Read the constructor-supplied dynamic flag.
+     * @return True only for fixture entries intended to receive animation invalidation.
+     *
+     */
+    bool isDynamic() const override { return m_dynamic; }
 
-    SublayerStyle *style() override      { return nullptr; }
+    /**
+     *
+     * @brief Report no style for the dispatch-only fixture.
+     * @return nullptr; no object ownership is transferred.
+     *
+     */
+    SublayerStyle *style() override { return nullptr; }
 
+    /**
+     *
+     * @brief Report no legend entries for the dispatch-only fixture.
+     * @return Empty owned list.
+     *
+     */
     QList<LegendSymbolItem> legendSymbolItems() const override { return {}; }
-    QSGNode *buildOrUpdateNode(QSGNode *, const SublayerContext &) override { return nullptr; }
+    /**
+     *
+     * @brief Perform no scene-graph work in the dispatch-only fixture.
+     * @param node Unused borrowed old node, never deleted or updated here.
+     * @param context Unused borrowed rendering context.
+     * @return nullptr; tests supply no old resource needing disposal.
+     *
+     */
+    QSGNode *buildOrUpdateNode(QSGNode *node, const SublayerContext &context) override
+    {
+        return nullptr;
+    }
 
 private:
-    bool    m_dynamic;
+    bool m_dynamic;
     QString m_id;
-    bool    m_visible = true;
+    bool m_visible = true;
 };
 
 // ── Minimal host owning a flat list ──────────────────────────────────────
 class FakeHost : public ISublayerHost
 {
 public:
+    /**
+     *
+     * @brief Append a borrowed fixture entry without taking ownership or connecting signals.
+     * @param s Nonnull sublayer for dispatch use; must outlive host dispatch/list access.
+     * Duplicates/nulls are not rejected here. Does not reparent or delete the entry.
+     *
+     */
     void addSublayer(ISublayer *s) { m_list.append(s); }
+    /**
+     *
+     * @brief Return the host entries in insertion order.
+     * @return Owned list of borrowed pointers; copying does not extend object lifetimes.
+     *
+     */
     QList<ISublayer *> sublayers() const override { return m_list; }
 
 private:
@@ -77,10 +173,38 @@ class TestSublayerHostDispatch : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require dispatch on an empty host to complete and leave its entry list empty.
+     *
+     */
     void empty_host_dispatch_is_a_noop();
+    /**
+     *
+     * @brief Require three borrowed fixture entries to be returned in insertion order.
+     *
+     */
     void sublayers_listed_in_insertion_order();
+    /**
+     *
+     * @brief Require one invalidation per dynamic entry per tick and none for the static entry.
+     *
+     */
     void dispatchTick_invalidates_only_dynamic_sublayers();
+    /**
+     *
+     * @brief Require a hidden dynamic entry still to receive host animation invalidation.
+     *
+     */
     void dispatchTick_invalidates_hidden_dynamic_sublayers();
+    /**
+     *
+     * @brief Require negative, zero and large period identifiers to each invalidate a dynamic
+     * entry.
+     * The default dispatch ignores period; this checks legal invocation and signal count,
+     * not consumption of the identifier by a renderer.
+     *
+     */
     void dispatchTick_passes_period_but_doesnt_require_consumption();
 };
 
@@ -95,9 +219,9 @@ void TestSublayerHostDispatch::empty_host_dispatch_is_a_noop()
 void TestSublayerHostDispatch::sublayers_listed_in_insertion_order()
 {
     FakeHost host;
-    FakeSublayer a(true,  QStringLiteral("a"));
+    FakeSublayer a(true, QStringLiteral("a"));
     FakeSublayer b(false, QStringLiteral("b"));
-    FakeSublayer c(true,  QStringLiteral("c"));
+    FakeSublayer c(true, QStringLiteral("c"));
     host.addSublayer(&a);
     host.addSublayer(&b);
     host.addSublayer(&c);
@@ -112,7 +236,7 @@ void TestSublayerHostDispatch::sublayers_listed_in_insertion_order()
 void TestSublayerHostDispatch::dispatchTick_invalidates_only_dynamic_sublayers()
 {
     FakeHost host;
-    FakeSublayer dyn(true,  QStringLiteral("dynamic"));
+    FakeSublayer dyn(true, QStringLiteral("dynamic"));
     FakeSublayer sta(false, QStringLiteral("static"));
     host.addSublayer(&dyn);
     host.addSublayer(&sta);

@@ -1,6 +1,6 @@
-/*!
- * \file   test_basemapconnectionstore.cpp
- * \brief  Unit tests for BasemapConnectionStore — QSettings round-trips for
+/**
+ * @file      test_basemapconnectionstore.cpp
+ * @brief     Unit tests for BasemapConnectionStore — QSettings round-trips for
  *         XYZ, WMS, and ArcGIS REST connections, including HTTP headers and
  *         encrypted credentials.
  *
@@ -8,6 +8,10 @@
  * organisation/application names.  The fixture redirects both to
  * test-specific strings and removes the test group in TearDown so real
  * user settings are never touched.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -26,19 +30,34 @@
 class BasemapStoreTest : public ::testing::Test
 {
 protected:
+    /**
+     *
+     * @brief Ensure a core application and select the dedicated basemap settings identity.
+     * Creates/retains the application when absent, then globally selects OpenSWMMUnitTest/
+     * BasemapStoreTest. Earlier application names are not restored; tests must run in an
+     * isolated binary with serialized settings access. No live connection network requests.
+     *
+     */
     static void SetUpTestSuite()
     {
         // Create a QCoreApplication once for the whole suite so QSettings works.
         if (!QCoreApplication::instance()) {
-            static int    argc = 1;
-            static char   name[] = "test_basemapconnectionstore";
-            static char  *argv[] = {name};
-            new QCoreApplication(argc, argv);   // intentionally kept alive
+            static int argc = 1;
+            static char name[] = "test_basemapconnectionstore";
+            static char *argv[] = {name};
+            new QCoreApplication(argc, argv); // intentionally kept alive
         }
         QCoreApplication::setOrganizationName(QStringLiteral("OpenSWMMUnitTest"));
         QCoreApplication::setApplicationName(QStringLiteral("BasemapStoreTest"));
     }
 
+    /**
+     *
+     * @brief Remove/sync the dedicated BasemapConnections test settings group.
+     * Uses the global identity selected by suite setup and runs after each case. Does
+     * not clear unrelated groups or restore earlier app names; sync status is unchecked.
+     *
+     */
     void TearDown() override
     {
         // Remove the entire BasemapConnections group written by this test.
@@ -55,30 +74,30 @@ protected:
 TEST_F(BasemapStoreTest, XYZRoundTrip)
 {
     XYZConnection c;
-    c.name           = QStringLiteral("TestOSM");
-    c.urlTemplate    = QStringLiteral("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
-    c.zMin           = 2;
-    c.zMax           = 18;
+    c.name = QStringLiteral("TestOSM");
+    c.urlTemplate = QStringLiteral("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
+    c.zMin = 2;
+    c.zMax = 18;
     c.tilePixelRatio = 1;
-    c.axisOrder      = TileAxisOrder::ZXY;
+    c.axisOrder = TileAxisOrder::ZXY;
 
     BasemapConnectionStore::instance()->saveXYZ(c, {});
 
     const XYZConnection loaded = BasemapConnectionStore::instance()->loadXYZ(c.name);
-    EXPECT_EQ(loaded.name,           c.name);
-    EXPECT_EQ(loaded.urlTemplate,    c.urlTemplate);
-    EXPECT_EQ(loaded.zMin,           c.zMin);
-    EXPECT_EQ(loaded.zMax,           c.zMax);
+    EXPECT_EQ(loaded.name, c.name);
+    EXPECT_EQ(loaded.urlTemplate, c.urlTemplate);
+    EXPECT_EQ(loaded.zMin, c.zMin);
+    EXPECT_EQ(loaded.zMax, c.zMax);
     EXPECT_EQ(loaded.tilePixelRatio, c.tilePixelRatio);
-    EXPECT_EQ(loaded.axisOrder,      c.axisOrder);
+    EXPECT_EQ(loaded.axisOrder, c.axisOrder);
 }
 
 TEST_F(BasemapStoreTest, XYZAxisOrderZYXRoundTrip)
 {
     XYZConnection c;
-    c.name        = QStringLiteral("ArcGISXYZ");
+    c.name = QStringLiteral("ArcGISXYZ");
     c.urlTemplate = QStringLiteral("https://example.com/tile/{z}/{y}/{x}");
-    c.axisOrder   = TileAxisOrder::ZYX;
+    c.axisOrder = TileAxisOrder::ZYX;
 
     BasemapConnectionStore::instance()->saveXYZ(c, {});
 
@@ -93,19 +112,22 @@ TEST_F(BasemapStoreTest, XYZAxisOrderZYXRoundTrip)
 TEST_F(BasemapStoreTest, XYZHttpHeadersRoundTrip)
 {
     XYZConnection c;
-    c.name        = QStringLiteral("HeaderTest");
+    c.name = QStringLiteral("HeaderTest");
     c.urlTemplate = QStringLiteral("https://tiles.example.com/{z}/{x}/{y}.png");
-    c.httpHeaders.insert(QStringLiteral("referer"),    QStringLiteral("https://myapp.example.com"));
-    c.httpHeaders.insert(QStringLiteral("X-Api-Key"),  QStringLiteral("secret-key-42"));
+    c.httpHeaders.insert(QStringLiteral("referer"), QStringLiteral("https://myapp.example.com"));
+    c.httpHeaders.insert(QStringLiteral("X-Api-Key"), QStringLiteral("secret-key-42"));
     c.httpHeaders.insert(QStringLiteral("User-Agent"), QStringLiteral("OpenSWMMVis/1.0"));
 
     BasemapConnectionStore::instance()->saveXYZ(c, {});
 
     const XYZConnection loaded = BasemapConnectionStore::instance()->loadXYZ(c.name);
-    EXPECT_EQ(loaded.httpHeaders.size(),                               3);
-    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("referer")),    QStringLiteral("https://myapp.example.com"));
-    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("X-Api-Key")), QStringLiteral("secret-key-42"));
-    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("User-Agent")),QStringLiteral("OpenSWMMVis/1.0"));
+    EXPECT_EQ(loaded.httpHeaders.size(), 3);
+    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("referer")),
+              QStringLiteral("https://myapp.example.com"));
+    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("X-Api-Key")),
+              QStringLiteral("secret-key-42"));
+    EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("User-Agent")),
+              QStringLiteral("OpenSWMMVis/1.0"));
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +137,7 @@ TEST_F(BasemapStoreTest, XYZHttpHeadersRoundTrip)
 TEST_F(BasemapStoreTest, XYZAuthRoundTrip)
 {
     XYZConnection c;
-    c.name        = QStringLiteral("SecuredTiles");
+    c.name = QStringLiteral("SecuredTiles");
     c.urlTemplate = QStringLiteral("https://secure.tiles.example.com/{z}/{x}/{y}.png");
 
     BasemapAuth authIn;
@@ -132,7 +154,7 @@ TEST_F(BasemapStoreTest, XYZAuthRoundTrip)
 TEST_F(BasemapStoreTest, XYZEmptyAuthRoundTrip)
 {
     XYZConnection c;
-    c.name        = QStringLiteral("PublicTiles");
+    c.name = QStringLiteral("PublicTiles");
     c.urlTemplate = QStringLiteral("https://public.tiles.example.com/{z}/{x}/{y}.png");
 
     BasemapConnectionStore::instance()->saveXYZ(c, {});
@@ -147,8 +169,12 @@ TEST_F(BasemapStoreTest, XYZEmptyAuthRoundTrip)
 
 TEST_F(BasemapStoreTest, XYZNamesAndRemove)
 {
-    XYZConnection c1; c1.name = QStringLiteral("Alpha"); c1.urlTemplate = QStringLiteral("https://a.example.com/{z}/{x}/{y}.png");
-    XYZConnection c2; c2.name = QStringLiteral("Beta");  c2.urlTemplate = QStringLiteral("https://b.example.com/{z}/{x}/{y}.png");
+    XYZConnection c1;
+    c1.name = QStringLiteral("Alpha");
+    c1.urlTemplate = QStringLiteral("https://a.example.com/{z}/{x}/{y}.png");
+    XYZConnection c2;
+    c2.name = QStringLiteral("Beta");
+    c2.urlTemplate = QStringLiteral("https://b.example.com/{z}/{x}/{y}.png");
 
     BasemapConnectionStore::instance()->saveXYZ(c1, {});
     BasemapConnectionStore::instance()->saveXYZ(c2, {});
@@ -171,15 +197,15 @@ TEST_F(BasemapStoreTest, XYZNamesAndRemove)
 TEST_F(BasemapStoreTest, WMSRoundTrip)
 {
     WMSConnection c;
-    c.name                  = QStringLiteral("TestWMS");
-    c.url                   = QStringLiteral("https://wms.example.com/ows?SERVICE=WMS");
-    c.layerName             = QStringLiteral("world_boundaries");
-    c.style                 = QStringLiteral("default");
-    c.imageFormat           = QStringLiteral("image/jpeg");
-    c.crs                   = QStringLiteral("EPSG:4326");
-    c.dpiMode               = 4;
-    c.tilePixelRatio        = 2;
-    c.ignoreGetMapURI       = true;
+    c.name = QStringLiteral("TestWMS");
+    c.url = QStringLiteral("https://wms.example.com/ows?SERVICE=WMS");
+    c.layerName = QStringLiteral("world_boundaries");
+    c.style = QStringLiteral("default");
+    c.imageFormat = QStringLiteral("image/jpeg");
+    c.crs = QStringLiteral("EPSG:4326");
+    c.dpiMode = 4;
+    c.tilePixelRatio = 2;
+    c.ignoreGetMapURI = true;
     c.ignoreAxisOrientation = false;
     c.invertAxisOrientation = true;
     c.smoothPixmapTransform = false;
@@ -187,15 +213,15 @@ TEST_F(BasemapStoreTest, WMSRoundTrip)
     BasemapConnectionStore::instance()->saveWMS(c, {});
 
     const WMSConnection loaded = BasemapConnectionStore::instance()->loadWMS(c.name);
-    EXPECT_EQ(loaded.name,                  c.name);
-    EXPECT_EQ(loaded.url,                   c.url);
-    EXPECT_EQ(loaded.layerName,             c.layerName);
-    EXPECT_EQ(loaded.style,                 c.style);
-    EXPECT_EQ(loaded.imageFormat,           c.imageFormat);
-    EXPECT_EQ(loaded.crs,                   c.crs);
-    EXPECT_EQ(loaded.dpiMode,               c.dpiMode);
-    EXPECT_EQ(loaded.tilePixelRatio,        c.tilePixelRatio);
-    EXPECT_EQ(loaded.ignoreGetMapURI,       c.ignoreGetMapURI);
+    EXPECT_EQ(loaded.name, c.name);
+    EXPECT_EQ(loaded.url, c.url);
+    EXPECT_EQ(loaded.layerName, c.layerName);
+    EXPECT_EQ(loaded.style, c.style);
+    EXPECT_EQ(loaded.imageFormat, c.imageFormat);
+    EXPECT_EQ(loaded.crs, c.crs);
+    EXPECT_EQ(loaded.dpiMode, c.dpiMode);
+    EXPECT_EQ(loaded.tilePixelRatio, c.tilePixelRatio);
+    EXPECT_EQ(loaded.ignoreGetMapURI, c.ignoreGetMapURI);
     EXPECT_EQ(loaded.ignoreAxisOrientation, c.ignoreAxisOrientation);
     EXPECT_EQ(loaded.invertAxisOrientation, c.invertAxisOrientation);
     EXPECT_EQ(loaded.smoothPixmapTransform, c.smoothPixmapTransform);
@@ -205,7 +231,7 @@ TEST_F(BasemapStoreTest, WMSAuthRoundTrip)
 {
     WMSConnection c;
     c.name = QStringLiteral("SecuredWMS");
-    c.url  = QStringLiteral("https://secure.wms.example.com/ows");
+    c.url = QStringLiteral("https://secure.wms.example.com/ows");
 
     BasemapAuth authIn;
     authIn.username = QStringLiteral("wmsuser");
@@ -225,20 +251,21 @@ TEST_F(BasemapStoreTest, WMSAuthRoundTrip)
 TEST_F(BasemapStoreTest, ArcGISRoundTrip)
 {
     ArcGISRestConnection c;
-    c.name              = QStringLiteral("TestArcGIS");
-    c.url               = QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery");
-    c.urlPrefix         = QStringLiteral("https://proxy.example.com/");
-    c.contentEndpoint   = QStringLiteral("https://portal.example.com/arcgis/sharing/rest/content");
-    c.communityEndpoint = QStringLiteral("https://portal.example.com/arcgis/sharing/rest/community");
+    c.name = QStringLiteral("TestArcGIS");
+    c.url = QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery");
+    c.urlPrefix = QStringLiteral("https://proxy.example.com/");
+    c.contentEndpoint = QStringLiteral("https://portal.example.com/arcgis/sharing/rest/content");
+    c.communityEndpoint =
+        QStringLiteral("https://portal.example.com/arcgis/sharing/rest/community");
     c.httpHeaders.insert(QStringLiteral("referer"), QStringLiteral("https://myapp.example.com"));
 
     BasemapConnectionStore::instance()->saveArcGIS(c, {});
 
     const ArcGISRestConnection loaded = BasemapConnectionStore::instance()->loadArcGIS(c.name);
-    EXPECT_EQ(loaded.name,              c.name);
-    EXPECT_EQ(loaded.url,               c.url);
-    EXPECT_EQ(loaded.urlPrefix,         c.urlPrefix);
-    EXPECT_EQ(loaded.contentEndpoint,   c.contentEndpoint);
+    EXPECT_EQ(loaded.name, c.name);
+    EXPECT_EQ(loaded.url, c.url);
+    EXPECT_EQ(loaded.urlPrefix, c.urlPrefix);
+    EXPECT_EQ(loaded.contentEndpoint, c.contentEndpoint);
     EXPECT_EQ(loaded.communityEndpoint, c.communityEndpoint);
     EXPECT_EQ(loaded.httpHeaders.value(QStringLiteral("referer")),
               QStringLiteral("https://myapp.example.com"));
@@ -248,7 +275,7 @@ TEST_F(BasemapStoreTest, ArcGISNamesAndRemove)
 {
     ArcGISRestConnection c;
     c.name = QStringLiteral("ToRemove");
-    c.url  = QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map");
+    c.url = QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map");
 
     BasemapConnectionStore::instance()->saveArcGIS(c, {});
     EXPECT_TRUE(BasemapConnectionStore::instance()->arcGISConnectionNames().contains(c.name));

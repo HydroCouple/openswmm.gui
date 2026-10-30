@@ -1,30 +1,68 @@
-/*!
- * \file   swmmlinkpropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+#include <openswmm/engine/openswmm_infrastructure.h>
+/**
+ * @file      swmmlinkpropertyadapter.cpp
+ * @brief     Property-tree adapter for SWMM links.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/swmmlinkpropertyadapter.h"
 
 #include "core/unitsystem.h"
-#include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
-#include "ui/properties/xsectshapegeom.h"  // xsectGeomApplies (inline geom edits)
+#include "layers/swmmmodellayer.h"        // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+#include "layers/swmmresultslayer.h"      // stats dispatch (QA.2 mirror)
+#include "output/outputstatsregistry.h"   // stats dispatch (QA.2 mirror)
+#include "ui/properties/xsectshapegeom.h" // xsectGeomApplies (inline geom edits)
 
 #include <openswmm/engine/openswmm_links.h>
+#include "ui/linkoffsetdisplay.h"                    // offsets shown in the LINK_OFFSETS convention
+#include <openswmm/engine/openswmm_infrastructure.h> // inlet usage summary
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
-
-SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter(SWMM_Engine engine,
-                                                   QString name,
-                                                   QObject *parent)
+SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter(SWMM_Engine engine, QString name, QObject *parent)
     : QObject(parent), m_engine(engine), m_name(std::move(name))
 {
-    if (auto *u = UnitSystem::instance())
-    {
-        connect(u, &UnitSystem::unitsChanged,
-                this, [this]{ emit displayLabelsChanged(); });
+    registerLinkEndpointRefConverter();
+    if (auto *u = UnitSystem::instance()) {
+        connect(u, &UnitSystem::unitsChanged, this, [this] { emit displayLabelsChanged(); });
     }
+}
+
+void SWMMLinkPropertyAdapter::setFromNodeRef(const LinkEndpointRef &ref)
+{
+    if (ref.engine != m_engine || ref.linkName != m_name || !ref.upstream)
+        return;
+    const int link = swmm_link_index(m_engine, m_name.toUtf8().constData());
+    const int node = swmm_node_index(m_engine, ref.nodeName.trimmed().toUtf8().constData());
+    if (!linkendpoint::allowed(m_engine, link, true, node) || fromNode() == ref.nodeName)
+        return;
+    int opposite = -1;
+    if (swmm_link_get_to_node(m_engine, link, &opposite) != SWMM_OK)
+        return;
+    const bool applied = m_layer ? m_layer->pushLinkEndpointEdit(link, true, node)
+                                 : swmm_link_set_nodes(m_engine, link, node, opposite) == SWMM_OK;
+    if (applied)
+        emit changed();
+}
+
+void SWMMLinkPropertyAdapter::setToNodeRef(const LinkEndpointRef &ref)
+{
+    if (ref.engine != m_engine || ref.linkName != m_name || ref.upstream)
+        return;
+    const int link = swmm_link_index(m_engine, m_name.toUtf8().constData());
+    const int node = swmm_node_index(m_engine, ref.nodeName.trimmed().toUtf8().constData());
+    if (!linkendpoint::allowed(m_engine, link, false, node) || toNode() == ref.nodeName)
+        return;
+    int opposite = -1;
+    if (swmm_link_get_from_node(m_engine, link, &opposite) != SWMM_OK)
+        return;
+    const bool applied = m_layer ? m_layer->pushLinkEndpointEdit(link, false, node)
+                                 : swmm_link_set_nodes(m_engine, link, opposite, node) == SWMM_OK;
+    if (applied)
+        emit changed();
 }
 
 QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
@@ -32,87 +70,161 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     auto *u = UnitSystem::instance();
     const QString L = u ? u->lengthLabel() : QStringLiteral("ft");
 
-    if (property == QLatin1String("name"))            return tr("Name");
-    if (property == QLatin1String("linkKind"))        return tr("Link Type");
-    if (property == QLatin1String("fromNode"))        return tr("From Node");
-    if (property == QLatin1String("toNode"))          return tr("To Node");
-    if (property == QLatin1String("tag"))             return tr("Tag");
+    if (property == QLatin1String("name"))
+        return tr("Name");
+    if (property == QLatin1String("linkKind"))
+        return tr("Link Type");
+    if (property == QLatin1String("fromNode"))
+        return tr("From Node");
+    if (property == QLatin1String("toNode"))
+        return tr("To Node");
+    if (property == QLatin1String("tag"))
+        return tr("Tag");
 
-    if (property == QLatin1String("length"))          return tr("Length (%1)").arg(L);
-    if (property == QLatin1String("roughness"))       return tr("Manning's n");
-    if (property == QLatin1String("offsetUp"))        return tr("Inlet Offset (%1)").arg(L);
-    if (property == QLatin1String("offsetDn"))        return tr("Outlet Offset (%1)").arg(L);
-    if (property == QLatin1String("offset"))          return tr("Offset (%1)").arg(L);
-    if (property == QLatin1String("crestHeight"))     return tr("Crest Height (%1)").arg(L);
-    if (property == QLatin1String("dischargeCoeff"))  return tr("Discharge Coeff.");
-    if (property == QLatin1String("endContractions")) return tr("End Contractions");
-    if (property == QLatin1String("flapGate"))        return tr("Flap Gate");
+    if (property == QLatin1String("length"))
+        return tr("Length (%1)").arg(L);
+    if (property == QLatin1String("roughness"))
+        return tr("Manning's n");
+    // LINK_OFFSETS = ELEVATION: the value shown IS an elevation (the mode-
+    // aware accessors add the end-node invert), so say so in the label.
+    const bool elev = linkoffsetdisplay::elevationMode(m_engine);
+    if (property == QLatin1String("offsetUp"))
+        return (elev ? tr("Inlet Elevation (%1)") : tr("Inlet Offset (%1)")).arg(L);
+    if (property == QLatin1String("offsetDn"))
+        return (elev ? tr("Outlet Elevation (%1)") : tr("Outlet Offset (%1)")).arg(L);
+    // Orifices / outlets carry a single offset, measured from the upstream
+    // node — "Elevation" without a side qualifier in elevation mode.
+    if (property == QLatin1String("offset"))
+        return (elev ? tr("Elevation (%1)") : tr("Offset (%1)")).arg(L);
+    if (property == QLatin1String("crestHeight"))
+        return tr("Crest Height (%1)").arg(L);
+    if (property == QLatin1String("dischargeCoeff"))
+        return tr("Discharge Coeff.");
+    if (property == QLatin1String("endContractions"))
+        return tr("End Contractions");
+    if (property == QLatin1String("flapGate"))
+        return tr("Flap Gate");
 
-    if (property == QLatin1String("pumpCurve"))       return tr("Pump Curve");
-    if (property == QLatin1String("initState"))       return tr("Initial Status");
-    if (property == QLatin1String("orificeType"))     return tr("Type");
-    if (property == QLatin1String("weirType"))        return tr("Type");
-    if (property == QLatin1String("ratingType"))      return tr("Rating Curve");
-    if (property == QLatin1String("coefficient"))     return tr("Coefficient");
-    if (property == QLatin1String("expon"))           return tr("Exponent");
-    if (property == QLatin1String("outletCurve"))     return tr("Rating Curve");
-    if (property == QLatin1String("startupDepth"))    return tr("Startup Depth (%1)").arg(L);
-    if (property == QLatin1String("shutoffDepth"))    return tr("Shutoff Depth (%1)").arg(L);
-    if (property == QLatin1String("openCloseRate"))   return tr("Open/Close Rate (1/s)");
+    if (property == QLatin1String("pumpCurve"))
+        return tr("Pump Curve");
+    if (property == QLatin1String("initState"))
+        return tr("Initial Status");
+    if (property == QLatin1String("orificeType"))
+        return tr("Type");
+    if (property == QLatin1String("weirType"))
+        return tr("Type");
+    if (property == QLatin1String("ratingType"))
+        return tr("Rating Curve");
+    if (property == QLatin1String("coefficient"))
+        return tr("Coefficient");
+    if (property == QLatin1String("expon"))
+        return tr("Exponent");
+    if (property == QLatin1String("outletCurve"))
+        return tr("Rating Curve");
+    if (property == QLatin1String("startupDepth"))
+        return tr("Startup Depth (%1)").arg(L);
+    if (property == QLatin1String("shutoffDepth"))
+        return tr("Shutoff Depth (%1)").arg(L);
+    if (property == QLatin1String("openCloseRate"))
+        return tr("Open/Close Rate (1/s)");
 
     // Slice SB — scalar parity labels. `UnitSystem::flowUnitLabel()`
     // returns "CFS"/"CMS"/etc.; lowercase it for visual parity with the
     // length-unit suffix style ("(ft)") used elsewhere in the labels.
     {
-        const QString F = (u ? u->flowUnitLabel()
-                             : QStringLiteral("CFS")).toLower();
-        if (property == QLatin1String("initialFlow"))   return tr("Initial Flow (%1)").arg(F);
-        if (property == QLatin1String("maxFlow"))       return tr("Maximum Flow (%1)").arg(F);
+        const QString F = (u ? u->flowUnitLabel() : QStringLiteral("CFS")).toLower();
+        if (property == QLatin1String("initialFlow"))
+            return tr("Initial Flow (%1)").arg(F);
+        if (property == QLatin1String("maxFlow"))
+            return tr("Maximum Flow (%1)").arg(F);
     }
-    if (property == QLatin1String("lossInlet"))       return tr("Entry Loss Coeff.");
-    if (property == QLatin1String("lossOutlet"))      return tr("Exit Loss Coeff.");
-    if (property == QLatin1String("lossAvg"))         return tr("Avg. Loss Coeff.");
-    if (property == QLatin1String("seepRate"))        return tr("Seepage Rate (%1/hr)").arg(L);
-    if (property == QLatin1String("barrels"))         return tr("Barrels");
+    if (property == QLatin1String("lossInlet"))
+        return tr("Entry Loss Coeff.");
+    if (property == QLatin1String("lossOutlet"))
+        return tr("Exit Loss Coeff.");
+    if (property == QLatin1String("lossAvg"))
+        return tr("Avg. Loss Coeff.");
+    if (property == QLatin1String("seepRate"))
+        return tr("Seepage Rate (%1/hr)").arg(L);
+    if (property == QLatin1String("barrels"))
+        return tr("Barrels");
+    // Read-only post-run summary block (Attribute Table dynamics parity).
+    {
+        const QString F = (u ? u->flowUnitLabel() : QStringLiteral("CFS")).toLower();
+        const QString V = u ? u->velocityLabel() : QStringLiteral("ft/s");
+        if (property == QLatin1String("statMaxFlow"))
+            return tr("Max Flow, Sim. (%1)").arg(F);
+        if (property == QLatin1String("statMaxVelocity"))
+            return tr("Max Velocity (%1)").arg(V);
+        if (property == QLatin1String("statMaxFilling"))
+            return tr("Max/Full Depth");
+        if (property == QLatin1String("statVolFlow"))
+            return tr("Total Flow Volume (%1³)").arg(L);
+        if (property == QLatin1String("statSurchargeTime"))
+            return tr("Time Surcharged (hr)");
+        if (property == QLatin1String("statPumpCycles"))
+            return tr("Pump Cycles");
+        if (property == QLatin1String("statPumpOnTime"))
+            return tr("Pump On Time (hr)");
+        if (property == QLatin1String("statPumpVolume"))
+            return tr("Volume Pumped (%1³)").arg(L);
+    }
     // Generic inline cross-section geom labels. The shape-specific meaning
     // (Diameter / Max Depth / …) is surfaced as a per-row tooltip by
     // PropertiesPanel via openswmmvis::xsectGeomLabel().
-    if (property == QLatin1String("geom1"))           return tr("Geom 1 (%1)").arg(L);
-    if (property == QLatin1String("geom2"))           return tr("Geom 2 (%1)").arg(L);
-    if (property == QLatin1String("geom3"))           return tr("Geom 3 (%1)").arg(L);
-    if (property == QLatin1String("geom4"))           return tr("Geom 4 (%1)").arg(L);
+    if (property == QLatin1String("geom1"))
+        return tr("Geom 1 (%1)").arg(L);
+    if (property == QLatin1String("geom2"))
+        return tr("Geom 2 (%1)").arg(L);
+    if (property == QLatin1String("geom3"))
+        return tr("Geom 3 (%1)").arg(L);
+    if (property == QLatin1String("geom4"))
+        return tr("Geom 4 (%1)").arg(L);
     // Slice SC.1 — compound-edit row labels.
-    if (property == QLatin1String("xsection"))        return tr("Cross Section");
-    if (property == QLatin1String("culvertCode"))     return tr("Culvert Code");
-    if (property == QLatin1String("inletUsage"))      return tr("Inlets");
+    if (property == QLatin1String("xsection"))
+        return tr("Cross Section");
+    if (property == QLatin1String("culvertCode"))
+        return tr("Culvert Code");
+    if (property == QLatin1String("inletUsage"))
+        return tr("Inlets");
     // USER_FLAGS Phase 4.
-    if (property == QLatin1String("userFlags"))       return tr("User Flags");
+    if (property == QLatin1String("userFlags"))
+        return tr("User Flags");
+    // Initial-quality UI round.
+    if (property == QLatin1String("initialQuality"))
+        return tr("Initial Quality");
 
     return {};
 }
 
 int SWMMLinkPropertyAdapter::linkIdx() const
 {
-    if (!m_engine || m_name.isEmpty()) return -1;
+    if (!m_engine || m_name.isEmpty())
+        return -1;
     return swmm_link_index(m_engine, m_name.toUtf8().constData());
 }
 
 SWMMLinkPropertyAdapter::LinkKind SWMMLinkPropertyAdapter::linkKind() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return Conduit;
+    if (idx < 0)
+        return Conduit;
     int t = 0;
-    if (swmm_link_get_type(m_engine, idx, &t) != SWMM_OK) return Conduit;
+    if (swmm_link_get_type(m_engine, idx, &t) != SWMM_OK)
+        return Conduit;
     return static_cast<LinkKind>(t);
 }
 
 QString SWMMLinkPropertyAdapter::fromNode() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     int nodeIdx = -1;
-    if (swmm_link_get_from_node(m_engine, idx, &nodeIdx) != SWMM_OK) return {};
-    if (nodeIdx < 0) return {};
+    if (swmm_link_get_from_node(m_engine, idx, &nodeIdx) != SWMM_OK)
+        return {};
+    if (nodeIdx < 0)
+        return {};
     const char *n = swmm_node_id(m_engine, nodeIdx);
     return n ? QString::fromUtf8(n) : QString();
 }
@@ -120,34 +232,132 @@ QString SWMMLinkPropertyAdapter::fromNode() const
 QString SWMMLinkPropertyAdapter::toNode() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     int nodeIdx = -1;
-    if (swmm_link_get_to_node(m_engine, idx, &nodeIdx) != SWMM_OK) return {};
-    if (nodeIdx < 0) return {};
+    if (swmm_link_get_to_node(m_engine, idx, &nodeIdx) != SWMM_OK)
+        return {};
+    if (nodeIdx < 0)
+        return {};
     const char *n = swmm_node_id(m_engine, nodeIdx);
     return n ? QString::fromUtf8(n) : QString();
 }
 
-#define GETTER_D(method, engineGet)                                 \
-double SWMMLinkPropertyAdapter::method() const {                    \
-    const int idx = linkIdx();                                      \
-    if (idx < 0) return 0.0;                                        \
-    double v = 0.0;                                                 \
-    engineGet(m_engine, idx, &v);                                   \
-    return v;                                                       \
-}
-GETTER_D(length,           swmm_link_get_length)
-GETTER_D(roughness,        swmm_link_get_roughness)
-GETTER_D(offsetUp,         swmm_link_get_offset_up)
-GETTER_D(offsetDn,         swmm_link_get_offset_dn)
-GETTER_D(crestHeight,      swmm_link_get_crest_height)
-GETTER_D(dischargeCoeff,   swmm_link_get_discharge_coeff)
-GETTER_D(endContractions,  swmm_link_get_end_contractions)
+#define GETTER_D(method, engineGet)                                                                \
+    double SWMMLinkPropertyAdapter::method() const                                                 \
+    {                                                                                              \
+        const int idx = linkIdx();                                                                 \
+        if (idx < 0)                                                                               \
+            return 0.0;                                                                            \
+        double v = 0.0;                                                                            \
+        engineGet(m_engine, idx, &v);                                                              \
+        return v;                                                                                  \
+    }
+GETTER_D(length, swmm_link_get_length)
+GETTER_D(roughness, swmm_link_get_roughness)
+GETTER_D(offsetUp, linkoffsetdisplay::getOffsetUp)
+GETTER_D(offsetDn, linkoffsetdisplay::getOffsetDn)
+GETTER_D(crestHeight, linkoffsetdisplay::getCrestHeight)
+GETTER_D(dischargeCoeff, swmm_link_get_discharge_coeff)
+GETTER_D(endContractions, swmm_link_get_end_contractions)
 // Slice SB — scalar parity getters. initialFlow / maxFlow rely on the
 // new BN-LINK-01a/b engine getters; the others have always existed.
-GETTER_D(initialFlow,      swmm_link_get_initial_flow)
-GETTER_D(maxFlow,          swmm_link_get_max_flow)
-GETTER_D(seepRate,         swmm_link_get_seep_rate)
+GETTER_D(initialFlow, swmm_link_get_initial_flow)
+GETTER_D(maxFlow, swmm_link_get_max_flow)
+GETTER_D(seepRate, swmm_link_get_seep_rate)
+
+// Post-run statistics — dispatch on m_statsSourceId (see the node adapter's
+// Slice QA.2 STAT_GETTER for the contract). Null id → the editing engine's
+// ambient stats; non-null → the registry-resolved SWMMResultsLayer, which
+// reads the bound run's .out file (the source the Attribute Table uses).
+#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                                                 \
+    double SWMMLinkPropertyAdapter::METHOD() const                                                 \
+    {                                                                                              \
+        if (m_statsSourceId.isNull() || !m_statsRegistry) {                                        \
+            const int idx = linkIdx();                                                             \
+            if (idx < 0)                                                                           \
+                return 0.0;                                                                        \
+            double v = 0.0;                                                                        \
+            ENGINE_GET(m_engine, idx, &v);                                                         \
+            return v;                                                                              \
+        }                                                                                          \
+        const auto id = m_statsRegistry->identityFor(m_statsSourceId);                             \
+        if (!id.layer)                                                                             \
+            return 0.0; /* layer destroyed since combo set */                                      \
+        return id.layer->LAYER_GET(m_name);                                                        \
+    }
+
+STAT_GETTER(statMaxFlow, swmm_link_get_stat_max_flow, linkStatMaxFlow)
+STAT_GETTER(statMaxVelocity, swmm_link_get_stat_max_velocity, linkStatMaxVelocity)
+STAT_GETTER(statMaxFilling, swmm_link_get_stat_max_filling, linkStatMaxFilling)
+STAT_GETTER(statVolFlow, swmm_link_get_stat_vol_flow, linkStatVolFlow)
+
+// The engine accumulates the time stats in SECONDS (+= dt_routing) while
+// the labels and SWMMResultsLayer accessors are in hours — convert on the
+// engine path only.
+/**
+ * @brief Adapt ambient surcharged time to the property's double-valued unit.
+ * @param[in] e Borrowed engine.
+ * @param[in] idx Zero-based link index.
+ * @param[out] v Non-null destination; durations convert seconds to hours and cycle counts convert integer to double. Failed reads yield zero.
+ * @return Original engine getter status.
+ */
+static int linkSurchargeHoursGet(SWMM_Engine e, int idx, double *v)
+{
+    double seconds = 0.0;
+    const int rc = swmm_link_get_stat_surcharge_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+/**
+ * @brief Adapt ambient pump operating time to the property's double-valued unit.
+ * @param[in] e Borrowed engine.
+ * @param[in] idx Zero-based link index.
+ * @param[out] v Non-null destination; durations convert seconds to hours and cycle counts convert integer to double. Failed reads yield zero.
+ * @return Original engine getter status.
+ */
+static int pumpOnTimeHoursGet(SWMM_Engine e, int idx, double *v)
+{
+    double seconds = 0.0;
+    const int rc = swmm_link_get_stat_pump_on_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+/**
+ * @brief Adapt ambient pump start cycles to the property's double-valued unit.
+ * @param[in] e Borrowed engine.
+ * @param[in] idx Zero-based link index.
+ * @param[out] v Non-null destination; durations convert seconds to hours and cycle counts convert integer to double. Failed reads yield zero.
+ * @return Original engine getter status.
+ */
+static int pumpCyclesGet(SWMM_Engine e, int idx, double *v)
+{
+    int cycles = 0;
+    const int rc = swmm_link_get_stat_pump_cycles(e, idx, &cycles);
+    *v = cycles;
+    return rc;
+}
+
+STAT_GETTER(statSurchargeTime, linkSurchargeHoursGet, linkStatSurchargeTime)
+STAT_GETTER(statPumpCycles, pumpCyclesGet, linkStatPumpCycles)
+STAT_GETTER(statPumpOnTime, pumpOnTimeHoursGet, linkStatPumpOnTime)
+STAT_GETTER(statPumpVolume, swmm_link_get_stat_pump_volume, linkStatPumpVolume)
+
+#undef STAT_GETTER
+
+void SWMMLinkPropertyAdapter::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry)
+{
+    m_statsRegistry = registry;
+    // No emit changed() — see SWMMNodePropertyAdapter::setStatsRegistry.
+}
+
+void SWMMLinkPropertyAdapter::setStatsSource(const QUuid &id)
+{
+    if (m_statsSourceId == id)
+        return;
+    m_statsSourceId = id;
+    emit changed();
+}
 
 // Loss coefficients share one engine call (`swmm_link_get_loss_coeff`
 // returns the triple by reference). Each per-coefficient accessor pulls
@@ -155,33 +365,42 @@ GETTER_D(seepRate,         swmm_link_get_seep_rate)
 // per cell read, but the engine call is O(1) and the alternative would
 // require caching state on the adapter (which §S.3 / CLAUDE.md §2 say
 // to avoid: every getter round-trips to the engine).
-double SWMMLinkPropertyAdapter::lossInlet() const {
+double SWMMLinkPropertyAdapter::lossInlet() const
+{
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     return inlet;
 }
-double SWMMLinkPropertyAdapter::lossOutlet() const {
+double SWMMLinkPropertyAdapter::lossOutlet() const
+{
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     return outlet;
 }
-double SWMMLinkPropertyAdapter::lossAvg() const {
+double SWMMLinkPropertyAdapter::lossAvg() const
+{
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     return avg;
 }
 
-int SWMMLinkPropertyAdapter::barrels() const {
+int SWMMLinkPropertyAdapter::barrels() const
+{
     const int idx = linkIdx();
-    if (idx < 0) return 1;
+    if (idx < 0)
+        return 1;
     int n = 1;
-    if (swmm_link_get_barrels(m_engine, idx, &n) != SWMM_OK) return 1;
+    if (swmm_link_get_barrels(m_engine, idx, &n) != SWMM_OK)
+        return 1;
     return n;
 }
 
@@ -189,18 +408,30 @@ int SWMMLinkPropertyAdapter::barrels() const {
 // tuple and returns the requested slot (cheap O(1) engine call; same
 // no-cache contract as the loss-coeff getters). `xsectShapeId` is the
 // shape used by PropertiesPanel / the table to grey out inapplicable geoms.
-int SWMMLinkPropertyAdapter::xsectShapeId() const {
+int SWMMLinkPropertyAdapter::xsectShapeId() const
+{
     const int idx = linkIdx();
-    if (idx < 0) return 0;
+    if (idx < 0)
+        return 0;
     int shape = 0;
     double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
     if (swmm_link_get_xsect(m_engine, idx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
         return 0;
     return shape;
 }
-namespace {
-double xsectGeomSlot(SWMM_Engine e, int idx, int ordinal) {
-    if (idx < 0) return 0.0;
+namespace
+{
+/**
+ * @brief Read one raw scalar from the complete cross-section tuple.
+ * @param[in] e Borrowed engine.
+ * @param[in] idx Zero-based link index; negative is unavailable.
+ * @param[in] ordinal Geometry slot in [1,4].
+ * @return Shape-dependent stored value, or zero for invalid ordinal/missing/read failure.
+ */
+double xsectGeomSlot(SWMM_Engine e, int idx, int ordinal)
+{
+    if (idx < 0)
+        return 0.0;
     int shape = 0;
     double g[4] = {0, 0, 0, 0};
     if (swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
@@ -208,26 +439,42 @@ double xsectGeomSlot(SWMM_Engine e, int idx, int ordinal) {
     return (ordinal >= 1 && ordinal <= 4) ? g[ordinal - 1] : 0.0;
 }
 } // namespace
-double SWMMLinkPropertyAdapter::xsectGeom1() const { return xsectGeomSlot(m_engine, linkIdx(), 1); }
-double SWMMLinkPropertyAdapter::xsectGeom2() const { return xsectGeomSlot(m_engine, linkIdx(), 2); }
-double SWMMLinkPropertyAdapter::xsectGeom3() const { return xsectGeomSlot(m_engine, linkIdx(), 3); }
-double SWMMLinkPropertyAdapter::xsectGeom4() const { return xsectGeomSlot(m_engine, linkIdx(), 4); }
+double SWMMLinkPropertyAdapter::xsectGeom1() const
+{
+    return xsectGeomSlot(m_engine, linkIdx(), 1);
+}
+double SWMMLinkPropertyAdapter::xsectGeom2() const
+{
+    return xsectGeomSlot(m_engine, linkIdx(), 2);
+}
+double SWMMLinkPropertyAdapter::xsectGeom3() const
+{
+    return xsectGeomSlot(m_engine, linkIdx(), 3);
+}
+double SWMMLinkPropertyAdapter::xsectGeom4() const
+{
+    return xsectGeomSlot(m_engine, linkIdx(), 4);
+}
 
 SWMMLinkPropertyAdapter::FlapGate SWMMLinkPropertyAdapter::flapGate() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return NO;
+    if (idx < 0)
+        return NO;
     int v = 0;
-    if (swmm_link_get_flap_gate(m_engine, idx, &v) != SWMM_OK) return NO;
+    if (swmm_link_get_flap_gate(m_engine, idx, &v) != SWMM_OK)
+        return NO;
     return v ? YES : NO;
 }
 
 SWMMLinkPropertyAdapter::PumpInitState SWMMLinkPropertyAdapter::pumpInitState() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return OFF;
+    if (idx < 0)
+        return OFF;
     int v = 0;
-    if (swmm_link_get_pump_init_state(m_engine, idx, &v) != SWMM_OK) return OFF;
+    if (swmm_link_get_pump_init_state(m_engine, idx, &v) != SWMM_OK)
+        return OFF;
     return v ? ON : OFF;
 }
 
@@ -237,9 +484,11 @@ SWMMLinkPropertyAdapter::PumpInitState SWMMLinkPropertyAdapter::pumpInitState() 
 SWMMLinkPropertyAdapter::OrificeType SWMMLinkPropertyAdapter::orificeType() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return SIDE;
+    if (idx < 0)
+        return SIDE;
     int v = 0;
-    if (swmm_link_get_orifice_type(m_engine, idx, &v) != SWMM_OK) return SIDE;
+    if (swmm_link_get_orifice_type(m_engine, idx, &v) != SWMM_OK)
+        return SIDE;
     return v ? BOTTOM : SIDE;
 }
 
@@ -247,32 +496,37 @@ SWMMLinkPropertyAdapter::OrificeType SWMMLinkPropertyAdapter::orificeType() cons
 SWMMLinkPropertyAdapter::WeirType SWMMLinkPropertyAdapter::weirType() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return TRANSVERSE;
+    if (idx < 0)
+        return TRANSVERSE;
     int v = 0;
-    if (swmm_link_get_weir_type(m_engine, idx, &v) != SWMM_OK) return TRANSVERSE;
-    if (v < TRANSVERSE || v > ROADWAY) return TRANSVERSE;
+    if (swmm_link_get_weir_type(m_engine, idx, &v) != SWMM_OK)
+        return TRANSVERSE;
+    if (v < TRANSVERSE || v > ROADWAY)
+        return TRANSVERSE;
     return static_cast<WeirType>(v);
 }
 
 // Slice SD partial — outlet rating type + exponent. Engine round-trip
 // via BN-LINK-04. Coefficient and tabular curve picker reuse existing
 // scalar accessors (dischargeCoeff + pumpCurveRef).
-SWMMLinkPropertyAdapter::OutletRatingType
-SWMMLinkPropertyAdapter::outletRatingType() const
+SWMMLinkPropertyAdapter::OutletRatingType SWMMLinkPropertyAdapter::outletRatingType() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return FUNCTIONAL_HEAD;
+    if (idx < 0)
+        return FUNCTIONAL_HEAD;
     int v = 0;
     if (swmm_link_get_outlet_rating_type(m_engine, idx, &v) != SWMM_OK)
         return FUNCTIONAL_HEAD;
-    if (v < FUNCTIONAL_HEAD || v > TABULAR_DEPTH) return FUNCTIONAL_HEAD;
+    if (v < FUNCTIONAL_HEAD || v > TABULAR_DEPTH)
+        return FUNCTIONAL_HEAD;
     return static_cast<OutletRatingType>(v);
 }
 
 double SWMMLinkPropertyAdapter::outletExpon() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double v = 0.0;
     swmm_link_get_outlet_expon(m_engine, idx, &v);
     return v;
@@ -286,7 +540,8 @@ double SWMMLinkPropertyAdapter::outletExpon() const
 double SWMMLinkPropertyAdapter::pumpStartupDepth() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double v = 0.0;
     swmm_link_get_pump_startup_depth(m_engine, idx, &v);
     return v;
@@ -295,7 +550,8 @@ double SWMMLinkPropertyAdapter::pumpStartupDepth() const
 double SWMMLinkPropertyAdapter::pumpShutoffDepth() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double v = 0.0;
     swmm_link_get_pump_shutoff_depth(m_engine, idx, &v);
     return v;
@@ -304,7 +560,8 @@ double SWMMLinkPropertyAdapter::pumpShutoffDepth() const
 double SWMMLinkPropertyAdapter::orificeOpenCloseRate() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return 0.0;
+    if (idx < 0)
+        return 0.0;
     double v = 0.0;
     swmm_link_get_orifice_open_close_rate(m_engine, idx, &v);
     return v;
@@ -313,10 +570,13 @@ double SWMMLinkPropertyAdapter::orificeOpenCloseRate() const
 QString SWMMLinkPropertyAdapter::pumpCurveName() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     int curveIdx = -1;
-    if (swmm_link_get_pump_curve(m_engine, idx, &curveIdx) != SWMM_OK) return {};
-    if (curveIdx < 0) return {};
+    if (swmm_link_get_pump_curve(m_engine, idx, &curveIdx) != SWMM_OK)
+        return {};
+    if (curveIdx < 0)
+        return {};
     const char *n = swmm_table_id(m_engine, curveIdx);
     return n ? QString::fromUtf8(n) : QString();
 }
@@ -325,9 +585,15 @@ QString SWMMLinkPropertyAdapter::pumpCurveName() const
 DataObjectRef SWMMLinkPropertyAdapter::pumpCurveRef() const
 {
     DataObjectRef r;
-    r.engine      = m_engine;
-    r.layer       = m_layer;
-    r.kind        = DataObjectRef::AnyCurve;
+    r.engine = m_engine;
+    r.layer = m_layer;
+    // Pumps take PUMP1..5 curves; tabular outlets (which share this slot)
+    // take RATING curves.
+    int linkType = -1;
+    const int linkIdx = m_engine ? swmm_link_index(m_engine, m_name.toUtf8().constData()) : -1;
+    if (linkIdx >= 0)
+        swmm_link_get_type(m_engine, linkIdx, &linkType);
+    r.kind = linkType == SWMM_LINK_OUTLET ? DataObjectRef::RatingCurve : DataObjectRef::PumpCurve;
     r.currentName = pumpCurveName();
     return r;
 }
@@ -335,11 +601,13 @@ DataObjectRef SWMMLinkPropertyAdapter::pumpCurveRef() const
 void SWMMLinkPropertyAdapter::setPumpCurveRef(const DataObjectRef &ref)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     int curveIdx = -1;
     if (!ref.currentName.isEmpty()) {
         curveIdx = swmm_table_index(m_engine, ref.currentName.toUtf8().constData());
-        if (curveIdx < 0) return;   // unknown curve — ignore the write
+        if (curveIdx < 0)
+            return; // unknown curve — ignore the write
     }
     if (swmm_link_set_pump_curve(m_engine, idx, curveIdx) == SWMM_OK)
         emit changed();
@@ -351,10 +619,10 @@ void SWMMLinkPropertyAdapter::setPumpCurveRef(const DataObjectRef &ref)
 LinkCompoundEditRef SWMMLinkPropertyAdapter::xsectionRef() const
 {
     LinkCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.linkName = m_name;
-    r.kind     = LinkCompoundEditRef::XSection;
-    r.layer    = m_layer;
+    r.kind = LinkCompoundEditRef::XSection;
+    r.layer = m_layer;
 
     const int idx = linkIdx();
     if (idx >= 0) {
@@ -362,15 +630,13 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::xsectionRef() const
         double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
         if (swmm_link_get_xsect(m_engine, idx, &shape, &g1, &g2, &g3, &g4) == SWMM_OK) {
             QString name = openswmmvis::xsectShapeName(shape);
-            if (name.isEmpty()) name = QStringLiteral("UNKNOWN");
+            if (name.isEmpty())
+                name = QStringLiteral("UNKNOWN");
             if (g2 > 0.0)
-                r.summary = QStringLiteral("%1 (%2 × %3)")
-                                .arg(name)
-                                .arg(g1, 0, 'g', 4).arg(g2, 0, 'g', 4);
+                r.summary =
+                    QStringLiteral("%1 (%2 × %3)").arg(name).arg(g1, 0, 'g', 4).arg(g2, 0, 'g', 4);
             else
-                r.summary = QStringLiteral("%1 (%2)")
-                                .arg(name)
-                                .arg(g1, 0, 'g', 4);
+                r.summary = QStringLiteral("%1 (%2)").arg(name).arg(g1, 0, 'g', 4);
         }
     }
     return r;
@@ -382,9 +648,9 @@ CulvertCodeRef SWMMLinkPropertyAdapter::culvertCodeRef() const
     // label comes from the CulvertCodeRef → QString converter, which
     // resolves the descriptive HDS-5 label via culvertCodeLabel()).
     CulvertCodeRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.linkName = m_name;
-    r.layer    = m_layer;
+    r.layer = m_layer;
 
     const int idx = linkIdx();
     if (idx >= 0) {
@@ -398,43 +664,68 @@ CulvertCodeRef SWMMLinkPropertyAdapter::culvertCodeRef() const
 LinkCompoundEditRef SWMMLinkPropertyAdapter::inletUsageRef() const
 {
     LinkCompoundEditRef r;
-    r.engine   = m_engine;
+    r.engine = m_engine;
     r.linkName = m_name;
-    r.kind     = LinkCompoundEditRef::InletUsage;
-    r.layer    = m_layer;
-    // No engine accessor for inlet-usage count today (BN-LINK-11 gap).
-    // Show a placeholder until Slice BO 6.5.8 wires the deep editor.
-    r.summary  = tr("(engine API pending — Slice BO 6.5.8)");
+    r.kind = LinkCompoundEditRef::InletUsage;
+    r.layer = m_layer;
+    // "<design> → <capture node>" when this conduit hosts an inlet, else
+    // "(none)". One row per conduit (swmm_inlet_usage_find_link).
+    r.summary = tr("(none)");
+    const int idx = linkIdx();
+    SWMM_InletUsage u{};
+    if (m_layer && idx >= 0 && m_layer->inletUsageFor(SWMM_INLET_HOST_LINK, idx, &u)) {
+        QString design, capture;
+        if (const char *d = swmm_inlet_id(m_engine, u.design_idx))
+            design = QString::fromUtf8(d);
+        if (const char *c = swmm_node_id(m_engine, u.capture_node_idx))
+            capture = QString::fromUtf8(c);
+        r.summary = tr("%1 → %2").arg(design.isEmpty() ? tr("(none)") : design,
+                                      capture.isEmpty() ? tr("(none)") : capture);
+    }
     return r;
 }
 
-UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const {
+UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const
+{
     UserFlagsEditRef r;
     r.objectType = QStringLiteral("LINK");
     r.objectName = m_name;
-    r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
-    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
+    r.model = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
+    r.summary = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
     return r;
 }
 
-#define SETTER_D(method, engineSet)                                 \
-void SWMMLinkPropertyAdapter::method(double v) {                    \
-    const int idx = linkIdx();                                      \
-    if (idx < 0) return;                                            \
-    if (engineSet(m_engine, idx, v) == SWMM_OK) emit changed();     \
+InitialQualityEditRef SWMMLinkPropertyAdapter::initialQualityRef() const
+{
+    InitialQualityEditRef r;
+    r.engine = m_engine;
+    r.isLink = 1;
+    r.elementName = m_name;
+    r.summary = initialQualitySummaryFor(m_engine, 1, m_name);
+    return r;
 }
-SETTER_D(setLength,           swmm_link_set_length)
-SETTER_D(setRoughness,        swmm_link_set_roughness)
-SETTER_D(setOffsetUp,         swmm_link_set_offset_up)
-SETTER_D(setOffsetDn,         swmm_link_set_offset_dn)
-SETTER_D(setCrestHeight,      swmm_link_set_crest_height)
-SETTER_D(setDischargeCoeff,   swmm_link_set_discharge_coeff)
-SETTER_D(setEndContractions,  swmm_link_set_end_contractions)
+
+#define SETTER_D(method, engineSet)                                                                \
+    void SWMMLinkPropertyAdapter::method(double v)                                                 \
+    {                                                                                              \
+        const int idx = linkIdx();                                                                 \
+        if (idx < 0)                                                                               \
+            return;                                                                                \
+        if (engineSet(m_engine, idx, v) == SWMM_OK)                                                \
+            emit changed();                                                                        \
+    }
+SETTER_D(setLength, swmm_link_set_length)
+SETTER_D(setRoughness, swmm_link_set_roughness)
+SETTER_D(setOffsetUp, linkoffsetdisplay::setOffsetUp)
+SETTER_D(setOffsetDn, linkoffsetdisplay::setOffsetDn)
+SETTER_D(setCrestHeight, linkoffsetdisplay::setCrestHeight)
+SETTER_D(setDischargeCoeff, swmm_link_set_discharge_coeff)
+SETTER_D(setEndContractions, swmm_link_set_end_contractions)
 // Slice SB — scalar setters. Init / max flow + seepage round-trip
 // through their dedicated single-double setters.
-SETTER_D(setInitialFlow,      swmm_link_set_initial_flow)
-SETTER_D(setMaxFlow,          swmm_link_set_max_flow)
-SETTER_D(setSeepRate,         swmm_link_set_seep_rate)
+SETTER_D(setInitialFlow, swmm_link_set_initial_flow)
+SETTER_D(setMaxFlow, swmm_link_set_max_flow)
+SETTER_D(setSeepRate, swmm_link_set_seep_rate)
 
 // Slice SB — loss-coefficient setters. The engine API only exposes a
 // single triple-write (`swmm_link_set_loss_coeff(inlet, outlet, avg)`),
@@ -444,65 +735,91 @@ SETTER_D(setSeepRate,         swmm_link_set_seep_rate)
 // The atomicity contract: each Q_PROPERTY assignment IS one engine
 // triple-write, so concurrent edits in batch group-edit (Slice BU)
 // can't interleave a half-applied triple.
-void SWMMLinkPropertyAdapter::setLossInlet(double v) {
+void SWMMLinkPropertyAdapter::setLossInlet(double v)
+{
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     if (swmm_link_set_loss_coeff(m_engine, idx, v, outlet, avg) == SWMM_OK)
         emit changed();
 }
-void SWMMLinkPropertyAdapter::setLossOutlet(double v) {
+void SWMMLinkPropertyAdapter::setLossOutlet(double v)
+{
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     if (swmm_link_set_loss_coeff(m_engine, idx, inlet, v, avg) == SWMM_OK)
         emit changed();
 }
-void SWMMLinkPropertyAdapter::setLossAvg(double v) {
+void SWMMLinkPropertyAdapter::setLossAvg(double v)
+{
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     if (swmm_link_set_loss_coeff(m_engine, idx, inlet, outlet, v) == SWMM_OK)
         emit changed();
 }
 
-void SWMMLinkPropertyAdapter::setBarrels(int v) {
+void SWMMLinkPropertyAdapter::setBarrels(int v)
+{
     const int idx = linkIdx();
-    if (idx < 0 || v < 1) return;   // engine contract: barrels >= 1
+    if (idx < 0 || v < 1)
+        return; // engine contract: barrels >= 1
     if (swmm_link_set_barrels(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
 
 // Inline geom setters — read-modify-write the xsect tuple so shape and the
 // other three geoms are preserved (the engine has no per-geom API). Mirror
-// of the loss-coeff slots. Reject the write when the geom doesn't apply to
-// the current shape (e.g. geom2 on a CIRCULAR conduit, or any geom on
-// IRREGULAR/STREET) — those slots are surfaced greyed in the UI, but a
-// scripted/stray write must not corrupt the section.
-void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v) {
+// of the loss-coeff slots. Every geom is writable whatever the shape —
+// the stored numbers survive a shape change, which is what users expect
+// when they set a width before switching CIRCULAR → RECT_CLOSED. Only the
+// picker-owned index slots (IRREGULAR / STREET geom1, CUSTOM geom2) are
+// refused: a raw number there re-points the section at another transect /
+// shape curve. Kept in lock-step with the Attribute Table's xsectGeomSet.
+void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v)
+{
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     int shape = 0;
     double g[4] = {0, 0, 0, 0};
     if (swmm_link_get_xsect(m_engine, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
         return;
-    if (!openswmmvis::xsectGeomApplies(shape, ordinal)) return;
+    if (openswmmvis::xsectGeomIsPickerIndex(shape, ordinal))
+        return;
     g[ordinal - 1] = v;
     if (swmm_link_set_xsect(m_engine, idx, shape, g[0], g[1], g[2], g[3]) == SWMM_OK)
         emit changed();
 }
-void SWMMLinkPropertyAdapter::setXsectGeom1(double v) { writeXsectGeom(1, v); }
-void SWMMLinkPropertyAdapter::setXsectGeom2(double v) { writeXsectGeom(2, v); }
-void SWMMLinkPropertyAdapter::setXsectGeom3(double v) { writeXsectGeom(3, v); }
-void SWMMLinkPropertyAdapter::setXsectGeom4(double v) { writeXsectGeom(4, v); }
+void SWMMLinkPropertyAdapter::setXsectGeom1(double v)
+{
+    writeXsectGeom(1, v);
+}
+void SWMMLinkPropertyAdapter::setXsectGeom2(double v)
+{
+    writeXsectGeom(2, v);
+}
+void SWMMLinkPropertyAdapter::setXsectGeom3(double v)
+{
+    writeXsectGeom(3, v);
+}
+void SWMMLinkPropertyAdapter::setXsectGeom4(double v)
+{
+    writeXsectGeom(4, v);
+}
 
 void SWMMLinkPropertyAdapter::setName(const QString &newName)
 {
     const QString trimmed = newName.trimmed();
-    if (trimmed.isEmpty() || trimmed == m_name) return;
+    if (trimmed.isEmpty() || trimmed == m_name)
+        return;
     emit renameRequested(m_name, trimmed);
 }
 
@@ -514,16 +831,19 @@ void SWMMLinkPropertyAdapter::setName(const QString &newName)
 QString SWMMLinkPropertyAdapter::tag() const
 {
     const int idx = linkIdx();
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     char buf[256] = {0};
-    if (swmm_link_get_tag(m_engine, idx, buf, sizeof(buf)) != SWMM_OK) return {};
+    if (swmm_link_get_tag(m_engine, idx, buf, sizeof(buf)) != SWMM_OK)
+        return {};
     return QString::fromUtf8(buf);
 }
 
 void SWMMLinkPropertyAdapter::setTag(const QString &t)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     const QByteArray bytes = t.toUtf8();
     if (swmm_link_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
         emit changed();
@@ -532,7 +852,8 @@ void SWMMLinkPropertyAdapter::setTag(const QString &t)
 void SWMMLinkPropertyAdapter::setFlapGate(FlapGate v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_flap_gate(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -540,7 +861,8 @@ void SWMMLinkPropertyAdapter::setFlapGate(FlapGate v)
 void SWMMLinkPropertyAdapter::setPumpInitState(PumpInitState v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_pump_init_state(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -551,7 +873,8 @@ void SWMMLinkPropertyAdapter::setPumpInitState(PumpInitState v)
 void SWMMLinkPropertyAdapter::setOrificeType(OrificeType v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_orifice_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -559,7 +882,8 @@ void SWMMLinkPropertyAdapter::setOrificeType(OrificeType v)
 void SWMMLinkPropertyAdapter::setWeirType(WeirType v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_weir_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -567,7 +891,8 @@ void SWMMLinkPropertyAdapter::setWeirType(WeirType v)
 void SWMMLinkPropertyAdapter::setOutletRatingType(OutletRatingType v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_outlet_rating_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -575,7 +900,8 @@ void SWMMLinkPropertyAdapter::setOutletRatingType(OutletRatingType v)
 void SWMMLinkPropertyAdapter::setOutletExpon(double v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_outlet_expon(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -583,7 +909,8 @@ void SWMMLinkPropertyAdapter::setOutletExpon(double v)
 void SWMMLinkPropertyAdapter::setPumpStartupDepth(double v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_pump_startup_depth(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -591,7 +918,8 @@ void SWMMLinkPropertyAdapter::setPumpStartupDepth(double v)
 void SWMMLinkPropertyAdapter::setPumpShutoffDepth(double v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_pump_shutoff_depth(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -599,7 +927,34 @@ void SWMMLinkPropertyAdapter::setPumpShutoffDepth(double v)
 void SWMMLinkPropertyAdapter::setOrificeOpenCloseRate(double v)
 {
     const int idx = linkIdx();
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     if (swmm_link_set_orifice_open_close_rate(m_engine, idx, v) == SWMM_OK)
+        emit changed();
+}
+
+int SWMMLinkPropertyAdapter::lidOutletLayer() const
+{
+    int layer = 0, top = 0;
+    swmm_lid_node_outlet_get(m_engine, linkIdx(), &layer, &top);
+    return layer;
+}
+SWMMLinkPropertyAdapter::LidAnchorPosition SWMMLinkPropertyAdapter::lidOutletPosition() const
+{
+    int layer = 0, top = 0;
+    swmm_lid_node_outlet_get(m_engine, linkIdx(), &layer, &top);
+    return layer > 0 ? (top ? LayerTop : LayerBottom) : NoLayerAnchor;
+}
+void SWMMLinkPropertyAdapter::setLidOutletLayer(int layer)
+{
+    if (swmm_lid_node_outlet_set(m_engine, linkIdx(), layer, lidOutletPosition() == LayerTop) ==
+        SWMM_OK)
+        emit changed();
+}
+void SWMMLinkPropertyAdapter::setLidOutletPosition(LidAnchorPosition position)
+{
+    if (swmm_lid_node_outlet_set(m_engine, linkIdx(),
+                                 position == NoLayerAnchor ? 0 : lidOutletLayer(),
+                                 position == LayerTop) == SWMM_OK)
         emit changed();
 }

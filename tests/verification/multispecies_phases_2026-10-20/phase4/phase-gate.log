@@ -1,0 +1,122 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 44 tests from 4 test suites.
+[----------] Global test environment set-up.
+[----------] 8 tests from MsxBuildupWashoff
+[ RUN      ] MsxBuildupWashoff.SameParametersSameSurfaceLoads
+[       OK ] MsxBuildupWashoff.SameParametersSameSurfaceLoads (8 ms)
+[ RUN      ] MsxBuildupWashoff.LoadReachesTheNetworkUnderBothSolvers
+[       OK ] MsxBuildupWashoff.LoadReachesTheNetworkUnderBothSolvers (6 ms)
+[ RUN      ] MsxBuildupWashoff.LedgerCloses
+[       OK ] MsxBuildupWashoff.LedgerCloses (3 ms)
+[ RUN      ] MsxBuildupWashoff.PollutantsAreBitIdenticalWithMsxRowsPresent
+[       OK ] MsxBuildupWashoff.PollutantsAreBitIdenticalWithMsxRowsPresent (5 ms)
+[ RUN      ] MsxBuildupWashoff.RoundTripThroughWriterAndCApi
+[       OK ] MsxBuildupWashoff.RoundTripThroughWriterAndCApi (3 ms)
+[ RUN      ] MsxBuildupWashoff.UnknownConstituentWarnsAndRuns
+[       OK ] MsxBuildupWashoff.UnknownConstituentWarnsAndRuns (2 ms)
+[ RUN      ] MsxBuildupWashoff.MsxOnlyDeckBuildsUpAndWashesOff
+[       OK ] MsxBuildupWashoff.MsxOnlyDeckBuildsUpAndWashesOff (3 ms)
+[ RUN      ] MsxBuildupWashoff.RunonCarriesSpeciesToTheReceivingSubcatchment
+[       OK ] MsxBuildupWashoff.RunonCarriesSpeciesToTheReceivingSubcatchment (2 ms)
+[----------] 8 tests from MsxBuildupWashoff (36 ms total)
+
+[----------] 24 tests from MsxSurfaceTwin
+[ RUN      ] MsxSurfaceTwin.R1_ExpOutletNoLid
+TWIN _tw_r1                   conc 0/4.41586 node 0/4.41586 load 0/0.628237 bu 0/9.93718 runoff 0/0.628237 bmp 0/0
+[       OK ] MsxSurfaceTwin.R1_ExpOutletNoLid (2 ms)
+[ RUN      ] MsxSurfaceTwin.R2_ExpPervious
+TWIN _tw_r2                   conc 0/4.41586 node 0/4.41586 load 0/0.314577 bu 0/9.96854 runoff 0/0.314577 bmp 0/0
+[       OK ] MsxSurfaceTwin.R2_ExpPervious (2 ms)
+[ RUN      ] MsxSurfaceTwin.R3_ExpImpervious
+TWIN _tw_r3                   conc 0/4.41586 node 0/4.41586 load 0/0.628237 bu 0/9.93718 runoff 0/0.628237 bmp 0/0
+[       OK ] MsxSurfaceTwin.R3_ExpImpervious (3 ms)
+[ RUN      ] MsxSurfaceTwin.R4_RatingCurveOutletAndPervious
+TWIN _tw_r4a                  conc 0/0.0753213 node 0/0.0753213 load 0/0.00844921 bu 0/9.99916 runoff 0/0.00844921 bmp 0/0
+TWIN _tw_r4b                  conc 0/0.0753213 node 0/0.0753213 load 0/0.0042246 bu 0/9.99958 runoff 0/0.0042246 bmp 0/0
+[       OK ] MsxSurfaceTwin.R4_RatingCurveOutletAndPervious (6 ms)
+[ RUN      ] MsxSurfaceTwin.R5_EmcWithBuildupFunction
+TWIN _tw_r5                   conc 0/20 node 0/20 load 0/1.42683 bu 0/9.85732 runoff 0/1.42683 bmp 0/0
+[       OK ] MsxSurfaceTwin.R5_EmcWithBuildupFunction (2 ms)
+[ RUN      ] MsxSurfaceTwin.R6_RatingCurveWithoutBuildup
+TWIN _tw_r6                   conc 0/0.0753213 node 0/0.0753213 load 0/0.00844921 bu 0/0 runoff 0/0.00844921 bmp 0/0
+[       OK ] MsxSurfaceTwin.R6_RatingCurveWithoutBuildup (2 ms)
+[ RUN      ] MsxSurfaceTwin.R7_BioRetentionDrainToNode
+TWIN _tw_r7                   conc 0/4.41497 node 0/4.41497 load 0/0.13281 bu 0/9.96984 runoff 0/0.13281 bmp 0/0.168782
+[       OK ] MsxSurfaceTwin.R7_BioRetentionDrainToNode (3 ms)
+[ RUN      ] MsxSurfaceTwin.R9_RainBarrelReturnToPervious
+TWIN _tw_r9                   conc 0/4.41407 node 0/4.41407 load 0/0.439595 bu 0/9.93718 runoff 0/0.439595 bmp 0/0.188581
+[       OK ] MsxSurfaceTwin.R9_RainBarrelReturnToPervious (3 ms)
+[ RUN      ] MsxSurfaceTwin.R10_RunonOntoFullyCoveredLid
+TWIN _tw_r10                  conc 0/4.41586 node 0/0 load 0/0.628237 bu 0/10.25 runoff 0/0 bmp 0/0.62631
+[       OK ] MsxSurfaceTwin.R10_RunonOntoFullyCoveredLid (2 ms)
+[ RUN      ] MsxSurfaceTwin.R11_RunonPondedMix
+TWIN _tw_r11                  conc 0/7.96389 node 0/7.96295 load 0/1.30683 bu 0/9.93718 runoff 0/1.30683 bmp 0/0
+[       OK ] MsxSurfaceTwin.R11_RunonPondedMix (2 ms)
+[ RUN      ] MsxSurfaceTwin.R15_SiTwinOfR2
+TWIN _tw_r15                  conc 0/99.9994 node 0/99.9994 load 0/3.08363 bu 0/9.22909 runoff 0/3.08363 bmp 0/0
+[       OK ] MsxSurfaceTwin.R15_SiTwinOfR2 (2 ms)
+[ RUN      ] MsxSurfaceTwin.R7b_FlowingUnderdrainWithRemoval
+TWIN _tw_r7b                  conc 0/4.41497 node 0/3.09048 load 0/1.05375 bu 0/9.9688 runoff 0/0.737624 bmp 0/0.348425
+[       OK ] MsxSurfaceTwin.R7b_FlowingUnderdrainWithRemoval (2 ms)
+[ RUN      ] MsxSurfaceTwin.LidRemovalsRoundTripThroughTheWriter
+[       OK ] MsxSurfaceTwin.LidRemovalsRoundTripThroughTheWriter (3 ms)
+[ RUN      ] MsxSurfaceTwin.PollutantLidRemovalDeclaredBeforePollutantsApplies
+[       OK ] MsxSurfaceTwin.PollutantLidRemovalDeclaredBeforePollutantsApplies (4 ms)
+[ RUN      ] MsxSurfaceTwin.R12_RainConcentration
+TWIN _tw_r12                  conc 0/6.41407 node 0/6.41407 load 0/1.93116 bu 0/9.93769 runoff 0/1.93116 bmp 0/0.205991
+[       OK ] MsxSurfaceTwin.R12_RainConcentration (2 ms)
+[ RUN      ] MsxSurfaceTwin.R12b_RainOnlyNoLandUseRows
+TWIN _tw_r12b                 conc 0/2 node 0/2 load 0/0.285367 bu 0/0 runoff 0/0.285367 bmp 0/0
+[       OK ] MsxSurfaceTwin.R12b_RainOnlyNoLandUseRows (2 ms)
+[ RUN      ] MsxSurfaceTwin.R8_UnderdrainToAnotherSubcatchment
+TWIN _tw_r8                   conc 0/7.08108 node 0/7.08075 load 0/2.19518 bu 0/9.93769 runoff 0/2.19518 bmp 0/0.537036
+[       OK ] MsxSurfaceTwin.R8_UnderdrainToAnotherSubcatchment (2 ms)
+[ RUN      ] MsxSurfaceTwin.UnderdrainRunonClosesTheRoutingLedger
+[       OK ] MsxSurfaceTwin.UnderdrainRunonClosesTheRoutingLedger (2 ms)
+[ RUN      ] MsxSurfaceTwin.StreetSweepingMatchesLegacyTiming
+[       OK ] MsxSurfaceTwin.StreetSweepingMatchesLegacyTiming (13 ms)
+[ RUN      ] MsxSurfaceTwin.ReportListsSpeciesBesidePollutants
+[       OK ] MsxSurfaceTwin.ReportListsSpeciesBesidePollutants (3 ms)
+[ RUN      ] MsxSurfaceTwin.RemainingBuildupCountsPondedMassLikeLegacy
+[       OK ] MsxSurfaceTwin.RemainingBuildupCountsPondedMassLikeLegacy (2 ms)
+[ RUN      ] MsxSurfaceTwin.LidRemovalApiCoversPollutantsAndSpecies
+[       OK ] MsxSurfaceTwin.LidRemovalApiCoversPollutantsAndSpecies (4 ms)
+[ RUN      ] MsxSurfaceTwin.HotstartCarriesSpeciesState
+[       OK ] MsxSurfaceTwin.HotstartCarriesSpeciesState (8 ms)
+[ RUN      ] MsxSurfaceTwin.HotstartCarriesSpeciesRunon
+[       OK ] MsxSurfaceTwin.HotstartCarriesSpeciesRunon (8 ms)
+[----------] 24 tests from MsxSurfaceTwin (99 ms total)
+
+[----------] 10 tests from WetSubcatchmentReactions
+[ RUN      ] WetSubcatchmentReactions.CoupledConversionConservesAnIsolatedWetPool
+[       OK ] WetSubcatchmentReactions.CoupledConversionConservesAnIsolatedWetPool (1 ms)
+[ RUN      ] WetSubcatchmentReactions.ReactedPoolFeedsInfiltrationRunoffAndEvaporativelyConcentratedStorage
+[       OK ] WetSubcatchmentReactions.ReactedPoolFeedsInfiltrationRunoffAndEvaporativelyConcentratedStorage (1 ms)
+[ RUN      ] WetSubcatchmentReactions.DryAndSubLitrePoolsDoNotExecuteFormulaOrInventMass
+[       OK ] WetSubcatchmentReactions.DryAndSubLitrePoolsDoNotExecuteFormulaOrInventMass (1 ms)
+[ RUN      ] WetSubcatchmentReactions.FailedAlgebraicStepLeavesTheMixedInventoryUnchanged
+[       OK ] WetSubcatchmentReactions.FailedAlgebraicStepLeavesTheMixedInventoryUnchanged (1 ms)
+[ RUN      ] WetSubcatchmentReactions.NumericalClampHasAnExplicitMassAdditionLedger
+[       OK ] WetSubcatchmentReactions.NumericalClampHasAnExplicitMassAdditionLedger (1 ms)
+[ RUN      ] WetSubcatchmentReactions.AlgebraicFormsAndBeginningOfStepTemperatureUseTheirOwnScope
+[       OK ] WetSubcatchmentReactions.AlgebraicFormsAndBeginningOfStepTemperatureUseTheirOwnScope (1 ms)
+[ RUN      ] WetSubcatchmentReactions.DeclaredMassBasisSurvivesProjectUnitChanges
+[       OK ] WetSubcatchmentReactions.DeclaredMassBasisSurvivesProjectUnitChanges (2 ms)
+[ RUN      ] WetSubcatchmentReactions.SelectedWetLawsOverrideGlobalsAndRoundTrip
+[       OK ] WetSubcatchmentReactions.SelectedWetLawsOverrideGlobalsAndRoundTrip (3 ms)
+[ RUN      ] WetSubcatchmentReactions.ContinuouslyFedPoolConvergesAtFirstOrderUnderStepHalving
+[       OK ] WetSubcatchmentReactions.ContinuouslyFedPoolConvergesAtFirstOrderUnderStepHalving (1 ms)
+[ RUN      ] WetSubcatchmentReactions.DryBuildupConversionRetainsProductAcrossAreaAndProjectUnits
+[       OK ] WetSubcatchmentReactions.DryBuildupConversionRetainsProductAcrossAreaAndProjectUnits (8 ms)
+[----------] 10 tests from WetSubcatchmentReactions (23 ms total)
+
+[----------] 2 tests from WetSubcatchmentReactorProfile
+[ RUN      ] WetSubcatchmentReactorProfile.LidCombinationIsRefusedAtInitialization
+[       OK ] WetSubcatchmentReactorProfile.LidCombinationIsRefusedAtInitialization (2 ms)
+[ RUN      ] WetSubcatchmentReactorProfile.ProductAndConservedSumReachNativeOutputAcrossNetworkSolvers
+[       OK ] WetSubcatchmentReactorProfile.ProductAndConservedSumReachNativeOutputAcrossNetworkSolvers (11 ms)
+[----------] 2 tests from WetSubcatchmentReactorProfile (13 ms total)
+
+[----------] Global test environment tear-down
+[==========] 44 tests from 4 test suites ran. (173 ms total)
+[  PASSED  ] 44 tests.

@@ -1,7 +1,11 @@
 /**
- * @file test_profilerouter.cpp
- * @brief Unit tests for ProfileRouter — Yen's k-shortest-simple-paths
+ * @file      test_profilerouter.cpp
+ * @brief     Unit tests for ProfileRouter — Yen's k-shortest-simple-paths
  *        and waypoint chaining.  Slice BC, Stage 1.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -14,21 +18,41 @@
 
 using namespace ProfileRouter;
 
-namespace {
+namespace
+{
 
 // Convenience: append an edge to a Graph and return its index.
+/**
+ *
+ * @brief Append one directed fixture edge and return its zero-based index.
+ * @param g Borrowed mutable graph; nodeCount is unchanged and endpoints not validated.
+ * @param from Source node index, intended in [0,g.nodeCount).
+ * @param to Destination node index in the same range.
+ * @param weight Edge cost in common graph units, normally finite positive.
+ * @param linkId Nonnegative engine-style ID, or negative to use the preappend edge count.
+ * @return New edge index. Mutates only edges; does not add a reverse edge or build
+ * adjacency. Allocation errors propagate.
+ *
+ */
 int addEdge(Graph &g, int from, int to, double weight, int linkId = -1)
 {
     Edge e;
     e.fromNode = from;
-    e.toNode   = to;
-    e.weight   = weight;
-    e.linkId   = (linkId >= 0) ? linkId : g.edges.size();
+    e.toNode = to;
+    e.weight = weight;
+    e.linkId = (linkId >= 0) ? linkId : g.edges.size();
     g.edges.push_back(e);
     return g.edges.size() - 1;
 }
 
 // Linear topology N0 → N1 → N2 → N3 → N4, each edge length 1.
+/**
+ *
+ * @brief Build a directed chain with one unit-cost edge between adjacent nodes.
+ * @param n Nonnegative node count, default 5; no local validation.
+ * @return Owned graph 0->1->...->n-1, with sequential link IDs and no reverse edges.
+ *
+ */
 Graph straightLine(int n = 5)
 {
     Graph g;
@@ -43,45 +67,72 @@ Graph straightLine(int n = 5)
 //   src ─┤        ├── dst
 //        └── B ──┘
 // Branch A is cheaper if topA + bottomA weights are chosen so.
+/**
+ *
+ * @brief Build two alternative two-edge routes from node 0 to node 3.
+ * @param topWeight Total desired cost through node 1, split equally between its edges.
+ * @param botWeight Total desired cost through node 2, split equally between its edges.
+ * @return Owned four-node directed graph. Intended finite positive costs are not
+ * validated; branch order and link IDs are deterministic.
+ *
+ */
 Graph diamond(double topWeight, double botWeight)
 {
     Graph g;
-    g.nodeCount = 4;  // src=0, A=1, B=2, dst=3
-    addEdge(g, 0, 1, topWeight / 2.0);      // src→A
-    addEdge(g, 1, 3, topWeight / 2.0);      // A→dst
-    addEdge(g, 0, 2, botWeight / 2.0);      // src→B
-    addEdge(g, 2, 3, botWeight / 2.0);      // B→dst
+    g.nodeCount = 4;                   // src=0, A=1, B=2, dst=3
+    addEdge(g, 0, 1, topWeight / 2.0); // src→A
+    addEdge(g, 1, 3, topWeight / 2.0); // A→dst
+    addEdge(g, 0, 2, botWeight / 2.0); // src→B
+    addEdge(g, 2, 3, botWeight / 2.0); // B→dst
     return g;
 }
 
 // Parallel-pipe diamond with N branches (each branch = one direct edge).
 // Branch i has weight 1 + i*0.1 so they sort deterministically.
+/**
+ *
+ * @brief Build distinct direct edges for deterministic parallel-route tests.
+ * @param branches Nonnegative edge count between source 0 and destination 1.
+ * @return Owned two-node graph with edge i cost 1+.1*i and ID i; no reverse edges
+ * or local allocation/index validation.
+ *
+ */
 Graph parallel(int branches)
 {
     Graph g;
-    g.nodeCount = 2;  // src=0, dst=1
+    g.nodeCount = 2; // src=0, dst=1
     for (int i = 0; i < branches; ++i)
         addEdge(g, 0, 1, 1.0 + 0.1 * i);
     return g;
 }
 
 // Helper to assert a path traverses a specific ordered list of nodes.
-::testing::AssertionResult pathMatchesNodes(const Path &p,
-                                            std::initializer_list<int> expected)
+/**
+ *
+ * @brief Compare exactly the node sequence of a router path.
+ * @param p Borrowed actual path; link IDs/cost/other fields are ignored.
+ * @param expected Borrowed ordered node IDs, copied for comparison.
+ * @return GoogleTest success on exact sequence equality, otherwise failure containing
+ * the actual node list. Does not itself emit an assertion or mutate the path.
+ *
+ */
+::testing::AssertionResult pathMatchesNodes(const Path &p, std::initializer_list<int> expected)
 {
     QVector<int> ex;
-    for (int n : expected) ex.push_back(n);
-    if (p.nodes == ex) return ::testing::AssertionSuccess();
-    return ::testing::AssertionFailure()
-        << "path.nodes does not match expected sequence; got [" <<
-        [&]() {
-            QString s;
-            for (int i = 0; i < p.nodes.size(); ++i) {
-                if (i) s += ',';
-                s += QString::number(p.nodes[i]);
-            }
-            return s.toStdString();
-        }() << "]";
+    for (int n : expected)
+        ex.push_back(n);
+    if (p.nodes == ex)
+        return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << "path.nodes does not match expected sequence; got [" <<
+           [&]() {
+               QString s;
+               for (int i = 0; i < p.nodes.size(); ++i) {
+                   if (i)
+                       s += ',';
+                   s += QString::number(p.nodes[i]);
+               }
+               return s.toStdString();
+           }() << "]";
 }
 
 } // namespace
@@ -91,7 +142,8 @@ Graph parallel(int branches)
 TEST(ProfileRouter, StraightLine_SinglePath)
 {
     Graph g = straightLine(5);
-    Options opts; opts.k = 5;
+    Options opts;
+    opts.k = 5;
     auto r = kShortestPaths(g, 0, 4, opts);
     ASSERT_TRUE(r.error.isEmpty());
     ASSERT_EQ(r.paths.size(), 1);
@@ -105,12 +157,13 @@ TEST(ProfileRouter, Diamond_TwoPaths)
 {
     // top weight 2.0, bottom weight 3.0
     Graph g = diamond(2.0, 3.0);
-    Options opts; opts.k = 5;
+    Options opts;
+    opts.k = 5;
     auto r = kShortestPaths(g, 0, 3, opts);
     ASSERT_TRUE(r.error.isEmpty());
     ASSERT_EQ(r.paths.size(), 2);
-    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 3}));   // top, cheaper
-    EXPECT_TRUE(pathMatchesNodes(r.paths[1], {0, 2, 3}));   // bottom
+    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 3})); // top, cheaper
+    EXPECT_TRUE(pathMatchesNodes(r.paths[1], {0, 2, 3})); // bottom
     EXPECT_LT(r.paths[0].weight, r.paths[1].weight);
 }
 
@@ -119,7 +172,8 @@ TEST(ProfileRouter, Diamond_TwoPaths)
 TEST(ProfileRouter, ParallelPipe_KFiveOrderedByLength)
 {
     Graph g = parallel(7);
-    Options opts; opts.k = 5;
+    Options opts;
+    opts.k = 5;
     auto r = kShortestPaths(g, 0, 1, opts);
     ASSERT_TRUE(r.error.isEmpty());
     ASSERT_EQ(r.paths.size(), 5);
@@ -136,9 +190,9 @@ TEST(ProfileRouter, DisconnectedComponent_NoPath)
     Graph g;
     g.nodeCount = 4;
     addEdge(g, 0, 1, 1.0);
-    addEdge(g, 2, 3, 1.0);  // disjoint from 0→1
+    addEdge(g, 2, 3, 1.0); // disjoint from 0→1
     auto r = kShortestPaths(g, 0, 3);
-    EXPECT_TRUE(r.error.isEmpty());   // not an error — just no path
+    EXPECT_TRUE(r.error.isEmpty()); // not an error — just no path
     EXPECT_TRUE(r.paths.isEmpty());
 }
 
@@ -149,14 +203,15 @@ TEST(ProfileRouter, DirectedVsUndirected_BehaviorDiffers)
     Graph g;
     g.nodeCount = 3;
     addEdge(g, 0, 1, 1.0);
-    addEdge(g, 2, 1, 1.0);  // points INTO 1, not out
+    addEdge(g, 2, 1, 1.0); // points INTO 1, not out
 
     // Directed: 0 → 2 has no path (would need to traverse 2→1 backward).
     auto rDir = kShortestPaths(g, 0, 2);
     EXPECT_TRUE(rDir.paths.isEmpty());
 
     // Undirected: 0 → 1 → 2 is reachable.
-    Options opts; opts.undirected = true;
+    Options opts;
+    opts.undirected = true;
     auto rUnd = kShortestPaths(g, 0, 2, opts);
     ASSERT_EQ(rUnd.paths.size(), 1);
     EXPECT_TRUE(pathMatchesNodes(rUnd.paths[0], {0, 1, 2}));
@@ -173,18 +228,22 @@ TEST(ProfileRouter, LinkToLinkEndpointSnap_FourCombinations)
 {
     Graph g;
     g.nodeCount = 4;
-    addEdge(g, 0, 1, 1.0);   // link L
-    addEdge(g, 1, 2, 1.0);   // spine
-    addEdge(g, 2, 3, 1.0);   // link M
-    Options opts; opts.undirected = true;
+    addEdge(g, 0, 1, 1.0); // link L
+    addEdge(g, 1, 2, 1.0); // spine
+    addEdge(g, 2, 3, 1.0); // link M
+    Options opts;
+    opts.undirected = true;
 
-    struct C { int s; int e; };
-    const C combos[] = {{0,2},{0,3},{1,2},{1,3}};
+    struct C {
+        int s;
+        int e;
+    };
+    const C combos[] = {{0, 2}, {0, 3}, {1, 2}, {1, 3}};
     for (const C &c : combos) {
         auto r = kShortestPaths(g, c.s, c.e, opts);
         ASSERT_FALSE(r.paths.isEmpty()) << "no path " << c.s << "→" << c.e;
         EXPECT_EQ(r.paths[0].nodes.first(), c.s);
-        EXPECT_EQ(r.paths[0].nodes.last(),  c.e);
+        EXPECT_EQ(r.paths[0].nodes.last(), c.e);
     }
 }
 
@@ -210,11 +269,11 @@ TEST(ProfileRouter, NonConduitSmallWeight_DoesNotDominate)
 {
     Graph g;
     g.nodeCount = 5;
-    addEdge(g, 0, 1, 10.0);  // long conduit A
-    addEdge(g, 1, 4, 10.0);  // long conduit A
-    addEdge(g, 0, 2, 0.1);   // pump (small fixed weight)
-    addEdge(g, 2, 3, 1.0);   // short conduit
-    addEdge(g, 3, 4, 1.0);   // short conduit
+    addEdge(g, 0, 1, 10.0); // long conduit A
+    addEdge(g, 1, 4, 10.0); // long conduit A
+    addEdge(g, 0, 2, 0.1);  // pump (small fixed weight)
+    addEdge(g, 2, 3, 1.0);  // short conduit
+    addEdge(g, 3, 4, 1.0);  // short conduit
     auto r = kShortestPaths(g, 0, 4);
     ASSERT_FALSE(r.paths.isEmpty());
     EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 2, 3, 4}));
@@ -229,10 +288,10 @@ TEST(ProfileRouter, SingleWaypoint_Chaining)
     Graph g;
     g.nodeCount = 5;
     addEdge(g, 0, 1, 1.0);
-    addEdge(g, 1, 4, 1.0);   // direct route 0→1→4 (weight 2)
+    addEdge(g, 1, 4, 1.0); // direct route 0→1→4 (weight 2)
     addEdge(g, 0, 2, 1.0);
     addEdge(g, 2, 3, 1.0);
-    addEdge(g, 3, 4, 1.0);   // detour 0→2→3→4 (weight 3)
+    addEdge(g, 3, 4, 1.0); // detour 0→2→3→4 (weight 3)
 
     QVector<int> wp{0, 2, 4};
     auto r = kShortestPathsThrough(g, wp);
@@ -250,12 +309,12 @@ TEST(ProfileRouter, MaxIterationCap_FiresTruncated)
     // maxIterations=1 forces truncation after the first inner-loop check.
     Graph g = parallel(20);
     Options opts;
-    opts.k             = 10;
-    opts.softCapMs     = 0;          // disable wall-clock cap
+    opts.k = 10;
+    opts.softCapMs = 0; // disable wall-clock cap
     opts.maxIterations = 1;
     auto r = kShortestPaths(g, 0, 1, opts);
     EXPECT_TRUE(r.truncated);
-    EXPECT_GE(r.paths.size(), 1);    // at least the first Dijkstra finishes
+    EXPECT_GE(r.paths.size(), 1); // at least the first Dijkstra finishes
 }
 
 // ---- 11. (Edit-in-place) insert waypoint matches direct via-query --------
@@ -287,8 +346,8 @@ TEST(ProfileRouter, RemoveInteriorNode_ReroutesViaAlternative)
     // on edges through the removed node — the router prefers the detour.
     Graph g;
     g.nodeCount = 4;
-    addEdge(g, 0, 1, 100.0);   // expensive (simulated removal)
-    addEdge(g, 1, 3, 100.0);   // expensive
+    addEdge(g, 0, 1, 100.0); // expensive (simulated removal)
+    addEdge(g, 1, 3, 100.0); // expensive
     addEdge(g, 0, 2, 1.0);
     addEdge(g, 2, 3, 1.0);
     auto r = kShortestPaths(g, 0, 3);
@@ -337,20 +396,23 @@ TEST(ProfileRouter, LockedLink_ForcesTraversalViaEndpoints)
     Graph g;
     g.nodeCount = 6;
     addEdge(g, 0, 1, 1.0);
-    addEdge(g, 1, 5, 1.0);     // direct: 0→1→5 (weight 2)
+    addEdge(g, 1, 5, 1.0); // direct: 0→1→5 (weight 2)
     addEdge(g, 0, 2, 1.0);
     int locked = addEdge(g, 2, 3, 1.0, /*linkId=*/99);
-    addEdge(g, 3, 5, 1.0);     // alt: 0→2→3→5 (weight 3)
+    addEdge(g, 3, 5, 1.0); // alt: 0→2→3→5 (weight 3)
     (void)locked;
 
-    QVector<int> wp{0, 2, 3, 5};   // force passage through locked endpoints
+    QVector<int> wp{0, 2, 3, 5}; // force passage through locked endpoints
     auto r = kShortestPathsThrough(g, wp);
     ASSERT_FALSE(r.paths.isEmpty());
     EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 2, 3, 5}));
     // And the locked edge id appears in the path's edges list.
     bool found = false;
     for (int linkId : r.paths[0].linkIds)
-        if (linkId == 99) { found = true; break; }
+        if (linkId == 99) {
+            found = true;
+            break;
+        }
     EXPECT_TRUE(found);
 }
 
@@ -395,7 +457,7 @@ TEST(ProfileRouter, Enumerate_Diamond_BothPathsSorted)
     auto r = enumerateSimplePaths(g, 0, 3);
     ASSERT_TRUE(r.error.isEmpty());
     ASSERT_EQ(r.paths.size(), 2);
-    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 3}));   // cheaper first
+    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 3})); // cheaper first
     EXPECT_TRUE(pathMatchesNodes(r.paths[1], {0, 2, 3}));
     EXPECT_LT(r.paths[0].weight, r.paths[1].weight);
 }
@@ -430,16 +492,17 @@ TEST(ProfileRouter, Enumerate_Cycle_BothLoopRoutesReturned)
     addEdge(g, 1, 2, 1.0);
     addEdge(g, 2, 3, 1.0);
     addEdge(g, 3, 0, 1.0);
-    Options opts; opts.undirected = true;
+    Options opts;
+    opts.undirected = true;
     auto r = enumerateSimplePaths(g, 0, 2, opts);
     ASSERT_TRUE(r.error.isEmpty());
     ASSERT_EQ(r.paths.size(), 2);
     // Both routes have the same weight (2.0); order between equal-weight
     // paths is undefined, so check membership rather than position.
-    bool forward  = pathMatchesNodes(r.paths[0], {0, 1, 2})
-                 || pathMatchesNodes(r.paths[1], {0, 1, 2});
-    bool backward = pathMatchesNodes(r.paths[0], {0, 3, 2})
-                 || pathMatchesNodes(r.paths[1], {0, 3, 2});
+    bool forward =
+        pathMatchesNodes(r.paths[0], {0, 1, 2}) || pathMatchesNodes(r.paths[1], {0, 1, 2});
+    bool backward =
+        pathMatchesNodes(r.paths[0], {0, 3, 2}) || pathMatchesNodes(r.paths[1], {0, 3, 2});
     EXPECT_TRUE(forward);
     EXPECT_TRUE(backward);
 }
@@ -460,7 +523,8 @@ TEST(ProfileRouter, Enumerate_K4Mesh_FivePathsFromZeroToThree)
     addEdge(g, 1, 2, 1.0);
     addEdge(g, 1, 3, 1.0);
     addEdge(g, 2, 3, 1.0);
-    Options opts; opts.undirected = true;
+    Options opts;
+    opts.undirected = true;
     auto r = enumerateSimplePaths(g, 0, 3, opts);
     ASSERT_TRUE(r.error.isEmpty());
     EXPECT_EQ(r.paths.size(), 5);
@@ -472,8 +536,8 @@ TEST(ProfileRouter, Enumerate_MaxPathsCap_FiresTruncated)
 {
     Graph g = parallel(20);
     Options opts;
-    opts.maxPaths  = 3;
-    opts.softCapMs = 0;          // disable wall-clock cap
+    opts.maxPaths = 3;
+    opts.softCapMs = 0; // disable wall-clock cap
     auto r = enumerateSimplePaths(g, 0, 1, opts);
     ASSERT_TRUE(r.error.isEmpty());
     EXPECT_TRUE(r.truncated);
@@ -514,10 +578,11 @@ TEST(ProfileRouter, Enumerate_DirectedVsUndirected_BehaviorDiffers)
     Graph g;
     g.nodeCount = 3;
     addEdge(g, 0, 1, 1.0);
-    addEdge(g, 2, 1, 1.0);   // points INTO 1
+    addEdge(g, 2, 1, 1.0); // points INTO 1
     auto rDir = enumerateSimplePaths(g, 0, 2);
     EXPECT_TRUE(rDir.paths.isEmpty());
-    Options opts; opts.undirected = true;
+    Options opts;
+    opts.undirected = true;
     auto rUnd = enumerateSimplePaths(g, 0, 2, opts);
     ASSERT_EQ(rUnd.paths.size(), 1);
     EXPECT_TRUE(pathMatchesNodes(rUnd.paths[0], {0, 1, 2}));

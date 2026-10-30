@@ -1,6 +1,6 @@
-/*!
- * \file   test_rptparser.cpp
- * \brief  Unit tests for openswmmvis::io::RptParser.
+/**
+ * @file      test_rptparser.cpp
+ * @brief     Unit tests for openswmmvis::io::RptParser.
  *
  * Real SWMM .rpt section headers are indented and often carry table
  * column headings to the right of the star rules and the title, e.g.:
@@ -12,6 +12,10 @@
  * These tests run the parser over a real engine-written report
  * (data/weir_culvert.rpt, copied from examples/demo_weir_culvert) and
  * assert that every starred section lands in the section list.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -25,7 +29,8 @@
 using openswmmvis::io::RptParser;
 using openswmmvis::io::RptSection;
 
-namespace {
+namespace
+{
 
 // CTest runs with WORKING_DIRECTORY tests/unit/data.
 // Both fixtures are bare filenames resolved against this test's
@@ -37,23 +42,50 @@ namespace {
 // only on machines that had run the model locally: the test passed for devs and
 // failed on every fresh clone (i.e. always, in CI). Fixture now lives next to
 // weir_culvert.rpt, tracked in git, addressed the same way.
-const QString kFixture     = QStringLiteral("weir_culvert.rpt");
+const QString kFixture = QStringLiteral("weir_culvert.rpt");
 const QString kTwoDFixture = QStringLiteral("mini_2d.rpt");
 
+/**
+ *
+ * @brief Collect parsed report section titles without normalization.
+ * @param sections Borrowed ordered parsed sections.
+ * @return Owned title copies in the same order, retaining empty/duplicate strings;
+ * no parser invocation or input mutation.
+ *
+ */
 QStringList titlesOf(const QVector<RptSection> &sections)
 {
     QStringList t;
-    for (const auto &s : sections) t << s.title;
+    for (const auto &s : sections)
+        t << s.title;
     return t;
 }
 
+/**
+ *
+ * @brief Concatenate parsed report bodies for source-preservation assertions.
+ * @param sections Borrowed ordered parsed sections.
+ * @return Owned concatenation without extra separators; relies on each body retaining
+ * its own line breaks. Titles are excluded and no parsing/normalization occurs.
+ *
+ */
 QString joinedBodies(const QVector<RptSection> &sections)
 {
     QString text;
-    for (const auto &s : sections) text += s.body;
+    for (const auto &s : sections)
+        text += s.body;
     return text;
 }
 
+/**
+ *
+ * @brief Read a reference report with canonical LF line endings.
+ * @param path Borrowed UTF-8 report filename opened read-only in binary mode.
+ * @return Owned decoded text with CRLF/lone CR converted to LF and a final LF added
+ * if absent. Failed open returns empty; an empty successfully opened file becomes
+ * one LF. Read errors are unchecked and the file is never changed.
+ *
+ */
 QString normalizedReportText(const QString &path)
 {
     QFile f(path);
@@ -195,8 +227,7 @@ TEST(RptParser, ContinuityErrorScanStillWorks)
 TEST(RptParser, MissingFileReturnsEmptyWithError)
 {
     QString err;
-    const auto sections =
-        RptParser::parse(QStringLiteral("does_not_exist.rpt"), &err);
+    const auto sections = RptParser::parse(QStringLiteral("does_not_exist.rpt"), &err);
     EXPECT_TRUE(sections.isEmpty());
     EXPECT_FALSE(err.isEmpty());
 }

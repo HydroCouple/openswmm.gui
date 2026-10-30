@@ -1,9 +1,12 @@
-/*!
- * \file   featuresublayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featuresublayer.cpp
+ * @brief     NodeMarker / ConduitLine / ConduitArrow / SubcatchmentFill mix.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/symbollayer.h"
 
@@ -13,33 +16,28 @@ namespace OpenSWMM::Render
 // archetypeFor moved inline into the header (gap A4.1) so header-only
 // consumers carry no link dependency on this TU.
 
-FeatureSublayer::FeatureSublayer(OpenSWMMVis::SwmmCategory category,
-                                  QString id_,
-                                  QString displayName_,
-                                  QObject *parent)
-    : ISublayer(parent)
-    , m_category(category)
-    , m_archetype(archetypeFor(category))
-    , m_id(std::move(id_))
-    , m_displayName(std::move(displayName_))
+FeatureSublayer::FeatureSublayer(OpenSWMMVis::SwmmCategory category, QString id_,
+                                 QString displayName_, QObject *parent)
+    : ISublayer(parent), m_category(category), m_archetype(archetypeFor(category)),
+      m_id(std::move(id_)), m_displayName(std::move(displayName_))
 {
     switch (m_archetype) {
-        case Archetype::Point:
-            m_style = new PointFeatureSublayerStyle(this);
-            break;
-        case Archetype::Line: {
-            auto *ls = new LineFeatureSublayerStyle(this);
-            // Conduits default to polyline rendering; point-like link kinds
-            // (Pumps/Orifices/Weirs/Outlets) default to midpoint-glyph mode
-            // so the dialog tab shows a sensible starting point.
-            if (m_category != OpenSWMMVis::CatConduits)
-                ls->setRenderAsLine(false);
-            m_style = ls;
-            break;
-        }
-        case Archetype::Polygon:
-            m_style = new PolygonFeatureSublayerStyle(this);
-            break;
+    case Archetype::Point:
+        m_style = new PointFeatureSublayerStyle(this);
+        break;
+    case Archetype::Line: {
+        auto *ls = new LineFeatureSublayerStyle(this);
+        // Conduits default to polyline rendering; point-like link kinds
+        // (Pumps/Orifices/Weirs/Outlets) default to midpoint-glyph mode
+        // so the dialog tab shows a sensible starting point.
+        if (m_category != OpenSWMMVis::CatConduits)
+            ls->setRenderAsLine(false);
+        m_style = ls;
+        break;
+    }
+    case Archetype::Polygon:
+        m_style = new PolygonFeatureSublayerStyle(this);
+        break;
     }
 
     // RainGages have no result attribute; force single-symbol mode and
@@ -51,8 +49,7 @@ FeatureSublayer::FeatureSublayer(OpenSWMMVis::SwmmCategory category,
 
     // Forward style edits to the sublayer's invalidated() signal so hosts
     // schedule a repaint.
-    connect(m_style, &SublayerStyle::styleChanged,
-            this,    &ISublayer::invalidated,
+    connect(m_style, &SublayerStyle::styleChanged, this, &ISublayer::invalidated,
             Qt::UniqueConnection);
 }
 
@@ -71,14 +68,16 @@ PolygonFeatureSublayerStyle *FeatureSublayer::polygonStyle() const
 
 void FeatureSublayer::setVisible(bool v)
 {
-    if (m_visible == v) return;
+    if (m_visible == v)
+        return;
     m_visible = v;
     emit invalidated();
 }
 
 void FeatureSublayer::setOpacity(qreal o)
 {
-    if (qFuzzyCompare(m_opacity, o)) return;
+    if (qFuzzyCompare(m_opacity, o))
+        return;
     m_opacity = o;
     emit invalidated();
 }
@@ -90,24 +89,29 @@ QList<LegendSymbolItem> FeatureSublayer::legendSymbolItems() const
     // single-row fallback covers the static-symbol case (raingages or
     // useColorRamp=false sublayers).
     LegendSymbolItem item;
-    item.label      = m_displayName;
+    item.label = m_displayName;
     item.sublayerId = m_id;
 
     SymbolLayer sl;
     switch (m_archetype) {
-        case Archetype::Point:   sl.kind = SymbolLayerKind::SimpleMarker; break;
-        case Archetype::Line:    sl.kind = SymbolLayerKind::SimpleLine;   break;
-        case Archetype::Polygon: sl.kind = SymbolLayerKind::SimpleFill;   break;
+    case Archetype::Point:
+        sl.kind = SymbolLayerKind::SimpleMarker;
+        break;
+    case Archetype::Line:
+        sl.kind = SymbolLayerKind::SimpleLine;
+        break;
+    case Archetype::Polygon:
+        sl.kind = SymbolLayerKind::SimpleFill;
+        break;
     }
     SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                            m_style ? m_style->color()
-                                    : QColor(0x60, 0x60, 0x60));
+                            m_style ? m_style->color() : QColor(0x60, 0x60, 0x60));
     if (auto *ps = pointStyle())
         sl.props.insert(QStringLiteral("size"), ps->markerSizePx());
     else if (auto *ls = lineStyle())
         sl.props.insert(QStringLiteral("width"), ls->lineWidthPx());
     item.symbol.layers.append(sl);
-    return { item };
+    return {item};
 }
 
 QSGNode *FeatureSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &)

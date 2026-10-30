@@ -1,8 +1,10 @@
-/*!
- * \file   dataobjectref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      dataobjectref.h
+ * @brief     Property-cell value carrying a reference to one named data object (curve / time
+ *            series / pattern / unit hydrograph).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice DA.4.3 — Property-cell value carrying a reference to one named
  * data object (curve / time series / pattern / unit hydrograph). The
@@ -17,6 +19,7 @@
  * which is what calls the engine. This keeps the MVC contract clean
  * ([[feedback_mvc_synchronized_uis]]): the engine is the single source
  * of truth; the ref is just a coordinate.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef DATAOBJECTREF_H
@@ -30,51 +33,82 @@
 class SWMMModelLayer;
 
 /*! Identifies one data object referenced from a property cell. */
-struct DataObjectRef
-{
+struct DataObjectRef {
     /*! Which family of data object this cell points at. Drives both the
      *  combo population filter and the editor dialog that "…" launches.
      *  Extend as new picker callsites land. */
     enum Kind {
-        TidalCurve     = 0,  ///< Curves filtered to type == TIDAL (engine code 6)
-        AnyCurve       = 1,  ///< Any non-timeseries table (engine table type 1..11)
-        TimeSeries     = 2,  ///< Tables of type TIMESERIES (engine code 0)
-        Pattern        = 3,  ///< Time patterns (filtered by `typeLock` when >= 0)
-        UnitHydrograph = 4,  ///< RDII unit-hydrograph groups
-        Pollutant      = 5,  ///< [POLLUTANTS] entries — for co-pollutant picker
-        RainGage       = 6,  ///< Rain gages — for hydrograph gage picker; no
-                             ///  comprehensive editor yet, so the "…" button
-                             ///  is a no-op (combo selection only).
-        StorageCurve   = 7,  ///< Curves filtered to type == STORAGE (engine table type 1)
-        SubcatchOutlet = 8,  ///< Subcatchment outlet target — a combined list of
-                             ///  node names + subcatchment names. The owning
-                             ///  adapter's WRITE slot resolves the picked name to
-                             ///  swmm_subcatch_set_outlet (node) or
-                             ///  set_outlet_subcatch (cascade). No "…" editor.
-        Node           = 9,  ///< Any SWMM node — the 1D↔2D coupling target for a
-                             ///  mesh vertex ([2D_VERTEX_NODE_MAP]). Selection
-                             ///  only; nodes are created on the map, so the "…"
-                             ///  button explains rather than offering a dialog.
+        TidalCurve = 0,     ///< Curves filtered to type == TIDAL (engine code 6)
+        AnyCurve = 1,       ///< Any non-timeseries table (engine table type 1..11)
+        TimeSeries = 2,     ///< Tables of type TIMESERIES (engine code 0)
+        Pattern = 3,        ///< Time patterns (filtered by `typeLock` when >= 0)
+        UnitHydrograph = 4, ///< RDII unit-hydrograph groups
+        Pollutant = 5,      ///< [POLLUTANTS] entries — for co-pollutant picker
+        RainGage = 6,       ///< Rain gages — for hydrograph gage picker; no
+                            ///  comprehensive editor yet, so the "…" button
+                            ///  is a no-op (combo selection only).
+        StorageCurve = 7,   ///< Curves filtered to type == STORAGE (engine table type 1)
+        SubcatchOutlet = 8, ///< Subcatchment outlet target — a combined list of
+                            ///  node names + subcatchment names. The owning
+                            ///  adapter's WRITE slot resolves the picked name to
+                            ///  swmm_subcatch_set_outlet (node) or
+                            ///  set_outlet_subcatch (cascade). No "…" editor.
+        Node = 9,           ///< Any SWMM node — the 1D↔2D coupling target for a
+                            ///  mesh vertex ([2D_VERTEX_NODE_MAP]). Selection
+                            ///  only; nodes are created on the map, so the "…"
+                            ///  button explains rather than offering a dialog.
+        Subcatchment = 10,  ///< Any subcatchment — the [OUTFALLS] RouteTo
+                            ///  target. Selection only (subcatchments are
+                            ///  drawn on the map); an empty pick clears the
+                            ///  routing.
+        Aquifer = 11,       ///< [AQUIFERS] entries — the subcatchment's
+                            ///  receiving aquifer ([GROUNDWATER]). "…"
+                            ///  opens AquiferEditorDialog::pickAquifer; an
+                            ///  empty pick clears the assignment.
+        Inlet = 12,         ///< [INLETS] designs — an inlet junction's or a
+                            ///  conduit's inlet design. "…" opens
+                            ///  InletEditorDialog::pickInlet, filtered by
+                            ///  the host's cross-section shape (`typeLock`
+                            ///  carries the SWMM_XSectShape id, -1 = any).
+        Snowpack = 15,      ///< [SNOWPACKS] assignment; empty clears it.
+        LidControl = 14,    ///< NODE, BC, RG, IT or PP controls for storage-node LIDs.
+        CaptureNode = 13,   ///< Receiving (underdrain) node of an inlet.
+                            ///  Every node EXCEPT virtual / inlet junctions
+                            ///  (engine rule 627). Selection only — nodes
+                            ///  are created on the map.
+        PumpCurve = 16,     ///< Curves of type PUMP1..PUMP5 (engine 7..11).
+        RatingCurve = 17,   ///< Curves of type RATING (engine 3) — tabular outlets.
     };
 
-    SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)
-    SWMMModelLayer *layer       = nullptr;  ///< For "…" → create-new flow
-    Kind            kind        = TimeSeries;
-    int             typeLock    = -1;       ///< Pattern: 0=MONTHLY 1=DAILY 2=HOURLY 3=WEEKEND; -1 = any
-    QString         currentName;             ///< Currently-assigned object id; empty = unassigned
+    SWMM_Engine engine = nullptr;    ///< Engine handle (borrow)
+    SWMMModelLayer *layer = nullptr; ///< For "…" → create-new flow
+    Kind kind = TimeSeries;
+    int typeLock = -1;   ///< Pattern: 0=MONTHLY 1=DAILY 2=HOURLY 3=WEEKEND; -1 = any
+    QString currentName; ///< Currently-assigned object id; empty = unassigned
+    /*! CaptureNode only: node index of the inlet junction whose capture node
+     *  is being chosen. Lets a map pick be written through the layer even
+     *  after the property grid has closed the cell editor (it does so the
+     *  moment the map takes focus). Not part of equality. */
+    int hostNodeIdx = -1;
 
+    /**
+     * @brief Compare reference identity and every cached display/value field.
+     * @param[in] other Reference to compare without dereferencing borrowed engine/model pointers.
+     * @return True only when all stored fields match; equality does not verify current engine state.
+     */
     bool operator==(const DataObjectRef &other) const noexcept
     {
-        return engine == other.engine && layer == other.layer
-               && kind == other.kind && typeLock == other.typeLock
-               && currentName == other.currentName;
+        return engine == other.engine && layer == other.layer && kind == other.kind &&
+               typeLock == other.typeLock && currentName == other.currentName;
     }
 };
 
 Q_DECLARE_METATYPE(DataObjectRef)
 
 /*! Install the `DataObjectRef → QString` converter so a non-edit cell
- *  renders `currentName` (or "(unassigned)" when empty). Idempotent. */
+ *  renders `currentName` (or "(unassigned)" when empty). Idempotent.
+ * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
+ */
 void registerDataObjectRefConverter();
 
 #endif // DATAOBJECTREF_H

@@ -1,9 +1,9 @@
-/*!
- * \file   test_rulelistio.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.17-files — RuleList .swmm-rule.json I/O.
+/**
+ * @file      test_rulelistio.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.17-files — RuleList .swmm-rule.json I/O.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.17):
  *           - save → load round-trip preserves every Rule field.
@@ -17,6 +17,7 @@
  *             warning, not abort.
  *           - Atomic semantics: failing load leaves destination
  *             RuleList unchanged.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QDir>
@@ -40,36 +41,147 @@ class TestRuleListIO : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require the fixture-owned temporary directory to be valid before each rule IO case;
+     * contents clear when the fixture is destroyed.
+     *
+     */
     void init();
 
     // Save
+    /**
+     *
+     * @brief Save one rule and require format swmm-rule-json, version 1 and rules envelope key.
+     * This case does not separately assert a symbolLevels envelope key.
+     *
+     */
     void save_writesEnvelopeKeys();
+    /**
+     *
+     * @brief Require a saved two-rule array to retain count and first rule name.
+     *
+     */
     void save_emitsRulesArray();
+    /**
+     *
+     * @brief Require saving a null RuleList to succeed with an empty rules array.
+     *
+     */
     void save_nullListWritesEmptyRules();
+    /**
+     *
+     * @brief Require empty destination save to fail with a nonempty diagnostic.
+     *
+     */
     void save_emptyPathReportsError();
 
     // Load
+    /**
+     *
+     * @brief Require three renderer families to load, retaining count/order, one hidden flag and
+     * categorized renderer identity.
+     *
+     */
     void load_roundTripsThreeRules();
+    /**
+     *
+     * @brief Require absent source file to fail with a not-found diagnostic.
+     *
+     */
     void load_missingFileReportsError();
+    /**
+     *
+     * @brief Require syntactically invalid JSON to fail with a malformed-JSON diagnostic.
+     *
+     */
     void load_malformedJsonReportsError();
+    /**
+     *
+     * @brief Require array-root JSON to fail with a nonobject-root diagnostic.
+     *
+     */
     void load_nonObjectRootReportsError();
+    /**
+     *
+     * @brief Require an envelope without rules to fail with a rules diagnostic.
+     *
+     */
     void load_missingRulesArrayReportsError();
+    /**
+     *
+     * @brief Require missing format metadata to warn while an empty rules list still loads.
+     *
+     */
     void load_missingFormatKeyWarnsButLoads();
+    /**
+     *
+     * @brief Require future version 999 to load permissively with a version-mismatch warning.
+     *
+     */
     void load_versionMismatchWarnsButLoads();
+    /**
+     *
+     * @brief Require an unknown envelope key to load permissively with a key-specific warning.
+     *
+     */
     void load_unknownEnvelopeKeysWarn();
+    /**
+     *
+     * @brief Require a mixed known/unknown renderer list to load only the valid rule and report
+     * one skip plus the unknown ID warning.
+     *
+     */
     void load_unknownRendererIdSkipsRuleWithWarning();
+    /**
+     *
+     * @brief Require null destination load to fail with a null-destination diagnostic.
+     *
+     */
     void load_nullDestReportsError();
+    /**
+     *
+     * @brief Require successful load to replace an existing list with the saved two rules.
+     *
+     */
     void load_clearsExistingDestOnSuccess();
 
     // Combined
+    /**
+     *
+     * @brief Round-trip the assigned name/visibility/filter/scale/blend/rebin/symbol-level fields
+     * and graduated renderer identity.
+     * Temporary files remain fixture-owned; this is not a comparison of every nested
+     * renderer setting or future Rule field.
+     *
+     */
     void roundTrip_preservesEveryFieldOnRule();
 
 private:
     QTemporaryDir m_tmpDir;
-    QString tempPath(const QString &name) const {
+    /**
+     *
+     * @brief Resolve a filename within the fixture-owned temporary directory.
+     * @param name Borrowed relative filename, including extension; no sanitization.
+     * @return Owned joined path; directory lifetime is m_tmpDir. Does not create/open
+     * or remove the named file and requires init to have checked validity.
+     *
+     */
+    QString tempPath(const QString &name) const
+    {
         return m_tmpDir.path() + QDir::separator() + name;
     }
 
+    /**
+     *
+     * @brief Write raw JSON fixture bytes without qualifying IO success.
+     * @param path Borrowed disposable destination with existing parent.
+     * @param bytes Borrowed bytes passed to Qt text-mode write.
+     * @return path unchanged even on open/short-write/close failure. Opening can truncate
+     * prior contents; partial output can remain until temporary-directory cleanup. No
+     * assertions, error output or source parsing occur in this helper.
+     *
+     */
     static QString writeFile(const QString &path, const QByteArray &bytes)
     {
         QFile f(path);
@@ -99,8 +211,7 @@ void TestRuleListIO::save_writesEnvelopeKeys()
     QFile f(path);
     QVERIFY(f.open(QIODevice::ReadOnly));
     const QJsonObject env = QJsonDocument::fromJson(f.readAll()).object();
-    QCOMPARE(env.value(QStringLiteral("format")).toString(),
-             QStringLiteral("swmm-rule-json"));
+    QCOMPARE(env.value(QStringLiteral("format")).toString(), QStringLiteral("swmm-rule-json"));
     QCOMPARE(env.value(QStringLiteral("version")).toInt(), 1);
     QVERIFY(env.contains(QStringLiteral("rules")));
 }
@@ -119,8 +230,7 @@ void TestRuleListIO::save_emitsRulesArray()
     const QJsonObject env = QJsonDocument::fromJson(f.readAll()).object();
     const QJsonArray rules = env.value(QStringLiteral("rules")).toArray();
     QCOMPARE(rules.size(), 2);
-    QCOMPARE(rules[0].toObject().value(QStringLiteral("name")).toString(),
-             QStringLiteral("first"));
+    QCOMPARE(rules[0].toObject().value(QStringLiteral("name")).toString(), QStringLiteral("first"));
 }
 
 void TestRuleListIO::save_nullListWritesEmptyRules()
@@ -148,12 +258,11 @@ void TestRuleListIO::save_emptyPathReportsError()
 void TestRuleListIO::load_roundTripsThreeRules()
 {
     RuleList src;
-    src.append(std::make_unique<Rule>(QStringLiteral("a"),
-                                      std::make_unique<SingleSymbolRenderer>()));
-    src.append(std::make_unique<Rule>(QStringLiteral("b"),
-                                      std::make_unique<GraduatedRenderer>()));
-    src.append(std::make_unique<Rule>(QStringLiteral("c"),
-                                      std::make_unique<CategorizedRenderer>()));
+    src.append(
+        std::make_unique<Rule>(QStringLiteral("a"), std::make_unique<SingleSymbolRenderer>()));
+    src.append(std::make_unique<Rule>(QStringLiteral("b"), std::make_unique<GraduatedRenderer>()));
+    src.append(
+        std::make_unique<Rule>(QStringLiteral("c"), std::make_unique<CategorizedRenderer>()));
     src.at(1)->setVisible(false);
 
     const QString path = tempPath(QStringLiteral("round.swmm-rule.json"));
@@ -182,9 +291,8 @@ void TestRuleListIO::load_missingFileReportsError()
 
 void TestRuleListIO::load_malformedJsonReportsError()
 {
-    const QString path = writeFile(
-        tempPath(QStringLiteral("garbage.json")),
-        QByteArrayLiteral("{ this is not json"));
+    const QString path = writeFile(tempPath(QStringLiteral("garbage.json")),
+                                   QByteArrayLiteral("{ this is not json"));
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
     QVERIFY(!res.ok);
@@ -193,9 +301,8 @@ void TestRuleListIO::load_malformedJsonReportsError()
 
 void TestRuleListIO::load_nonObjectRootReportsError()
 {
-    const QString path = writeFile(
-        tempPath(QStringLiteral("array-root.json")),
-        QByteArrayLiteral("[1, 2, 3]"));
+    const QString path =
+        writeFile(tempPath(QStringLiteral("array-root.json")), QByteArrayLiteral("[1, 2, 3]"));
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
     QVERIFY(!res.ok);
@@ -204,9 +311,9 @@ void TestRuleListIO::load_nonObjectRootReportsError()
 
 void TestRuleListIO::load_missingRulesArrayReportsError()
 {
-    const QString path = writeFile(
-        tempPath(QStringLiteral("no-rules.json")),
-        QByteArrayLiteral("{\"format\":\"swmm-rule-json\",\"version\":1}"));
+    const QString path =
+        writeFile(tempPath(QStringLiteral("no-rules.json")),
+                  QByteArrayLiteral("{\"format\":\"swmm-rule-json\",\"version\":1}"));
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
     QVERIFY(!res.ok);
@@ -215,9 +322,8 @@ void TestRuleListIO::load_missingRulesArrayReportsError()
 
 void TestRuleListIO::load_missingFormatKeyWarnsButLoads()
 {
-    const QString path = writeFile(
-        tempPath(QStringLiteral("no-format.json")),
-        QByteArrayLiteral("{\"version\":1,\"rules\":[]}"));
+    const QString path = writeFile(tempPath(QStringLiteral("no-format.json")),
+                                   QByteArrayLiteral("{\"version\":1,\"rules\":[]}"));
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
     QVERIFY2(res.ok, qPrintable(res.error));
@@ -234,22 +340,23 @@ void TestRuleListIO::load_versionMismatchWarnsButLoads()
     QVERIFY(res.ok);
     bool sawVersion = false;
     for (const auto &w : res.warnings)
-        if (w.contains(QStringLiteral("Version mismatch"))) sawVersion = true;
+        if (w.contains(QStringLiteral("Version mismatch")))
+            sawVersion = true;
     QVERIFY(sawVersion);
 }
 
 void TestRuleListIO::load_unknownEnvelopeKeysWarn()
 {
-    const QString path = writeFile(
-        tempPath(QStringLiteral("extra.json")),
-        QByteArrayLiteral("{\"format\":\"swmm-rule-json\",\"version\":1,"
-                          "\"rules\":[],\"futureFeature\":42}"));
+    const QString path = writeFile(tempPath(QStringLiteral("extra.json")),
+                                   QByteArrayLiteral("{\"format\":\"swmm-rule-json\",\"version\":1,"
+                                                     "\"rules\":[],\"futureFeature\":42}"));
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
     QVERIFY(res.ok);
     bool sawUnknown = false;
     for (const auto &w : res.warnings)
-        if (w.contains(QStringLiteral("futureFeature"))) sawUnknown = true;
+        if (w.contains(QStringLiteral("futureFeature")))
+            sawUnknown = true;
     QVERIFY(sawUnknown);
 }
 
@@ -271,11 +378,10 @@ void TestRuleListIO::load_unknownRendererIdSkipsRuleWithWarning()
     QJsonObject env;
     env[QStringLiteral("format")] = QStringLiteral("swmm-rule-json");
     env[QStringLiteral("version")] = 1;
-    env[QStringLiteral("rules")] = QJsonArray{ good, bad };
+    env[QStringLiteral("rules")] = QJsonArray{good, bad};
 
-    const QString path = writeFile(
-        tempPath(QStringLiteral("mixed.json")),
-        QJsonDocument(env).toJson());
+    const QString path =
+        writeFile(tempPath(QStringLiteral("mixed.json")), QJsonDocument(env).toJson());
 
     RuleList dst;
     auto res = RuleListIO::load(path, &dst);
@@ -287,7 +393,8 @@ void TestRuleListIO::load_unknownRendererIdSkipsRuleWithWarning()
 
     bool sawSkipNote = false;
     for (const auto &w : res.warnings)
-        if (w.contains(QStringLiteral("noSuchRenderer"))) sawSkipNote = true;
+        if (w.contains(QStringLiteral("noSuchRenderer")))
+            sawSkipNote = true;
     QVERIFY(sawSkipNote);
 }
 
@@ -324,8 +431,8 @@ void TestRuleListIO::roundTrip_preservesEveryFieldOnRule()
     // Build a "complete" Rule heap-side so we can append the owning
     // unique_ptr without copy/move of Rule itself (Rule is non-copyable
     // / non-movable by design).
-    auto rule = std::make_unique<Rule>(QStringLiteral("complete"),
-                                       std::make_unique<GraduatedRenderer>());
+    auto rule =
+        std::make_unique<Rule>(QStringLiteral("complete"), std::make_unique<GraduatedRenderer>());
     rule->setVisible(false);
     rule->setFilterExpression(QStringLiteral("flow > 0.5"));
     rule->setMinScale(100.0);
@@ -345,14 +452,14 @@ void TestRuleListIO::roundTrip_preservesEveryFieldOnRule()
 
     QCOMPARE(dst.count(), 1);
     auto *back = dst.at(0);
-    QCOMPARE(back->name(),                 QStringLiteral("complete"));
-    QCOMPARE(back->isVisible(),            false);
-    QCOMPARE(back->filterExpression(),     QStringLiteral("flow > 0.5"));
-    QCOMPARE(back->minScale(),             100.0);
-    QCOMPARE(back->maxScale(),             5000.0);
-    QCOMPARE(back->blendMode(),            QStringLiteral("Multiply"));
-    QCOMPARE(back->rebinPerFrame(),        true);
-    QCOMPARE(back->symbolLevelsEnabled(),  true);
+    QCOMPARE(back->name(), QStringLiteral("complete"));
+    QCOMPARE(back->isVisible(), false);
+    QCOMPARE(back->filterExpression(), QStringLiteral("flow > 0.5"));
+    QCOMPARE(back->minScale(), 100.0);
+    QCOMPARE(back->maxScale(), 5000.0);
+    QCOMPARE(back->blendMode(), QStringLiteral("Multiply"));
+    QCOMPARE(back->rebinPerFrame(), true);
+    QCOMPARE(back->symbolLevelsEnabled(), true);
     QCOMPARE(back->renderer()->rendererId(), QStringLiteral("graduated"));
 }
 

@@ -1,8 +1,9 @@
-/*!
- * \file   gisdatapaths.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      gisdatapaths.h
+ * @brief     Portable GDAL/PROJ data-directory resolution.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Portable GDAL/PROJ data-directory resolution.
  *
@@ -21,7 +22,9 @@
  *
  * Call `setupBundledGisDataPaths()` once, after QCoreApplication has been
  * constructed and before any GDAL/OGR/PROJ use.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef GISDATAPATHS_H
 #define GISDATAPATHS_H
 
@@ -31,6 +34,7 @@
  *
  * No-op when QCoreApplication has not been constructed yet, or when no
  * candidate folder contains the expected marker files.
+ * @details Call once on startup before GIS operations/workers. Existing environment and CPL values are overwritten when a matching bundle directory is found; unmatched data kinds keep their prior configuration.
  */
 void setupBundledGisDataPaths();
 

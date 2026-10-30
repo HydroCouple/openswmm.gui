@@ -1,9 +1,9 @@
-/*!
- * \file   test_registry_rename.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Renaming a data object must not duplicate it in the engine, and
+/**
+ * @file      test_registry_rename.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Renaming a data object must not duplicate it in the engine, and
  *         snow-pack parameters must survive a save/reload round trip.
  *
  *         Registry rename() used to update only the provider. The next
@@ -19,7 +19,9 @@
  *
  *         Uses QTEST_APPLESS_MAIN — no widgets, just registries over a bare
  *         engine handle.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "aquifer/aquiferprovider.h"
 #include "aquifer/aquiferregistry.h"
 #include "inlet/inletprovider.h"
@@ -67,6 +69,7 @@ private:
     SWMM_Engine m_engine = nullptr;
 };
 
+/** @brief Allocate a fresh BUILDING-state engine for each registry mutation test. */
 void TestRegistryRename::init()
 {
     // swmm_engine_new (not swmm_engine_create) starts the context in BUILDING,
@@ -75,6 +78,7 @@ void TestRegistryRename::init()
     QVERIFY(m_engine != nullptr);
 }
 
+/** @brief Destroy the owned engine if present and clear its pointer. */
 void TestRegistryRename::cleanup()
 {
     if (m_engine) {
@@ -87,6 +91,7 @@ void TestRegistryRename::cleanup()
 // The duplicate-on-rename regression, once per affected registry
 // ---------------------------------------------------------------------------
 
+/** @brief Verify snowpack rename/flush preserves one engine row under the new identity. */
 void TestRegistryRename::snowpackRenameDoesNotDuplicate()
 {
     SnowpackRegistry reg;
@@ -103,6 +108,7 @@ void TestRegistryRename::snowpackRenameDoesNotDuplicate()
     QVERIFY(swmm_snowpack_index(m_engine, "SP1") < 0);
 }
 
+/** @brief Verify aquifer rename/flush preserves one engine row under the new identity. */
 void TestRegistryRename::aquiferRenameDoesNotDuplicate()
 {
     AquiferRegistry reg;
@@ -119,6 +125,7 @@ void TestRegistryRename::aquiferRenameDoesNotDuplicate()
     QVERIFY(swmm_aquifer_index(m_engine, "AQ1") < 0);
 }
 
+/** @brief Verify LID rename/flush preserves one engine row under the new identity. */
 void TestRegistryRename::lidRenameDoesNotDuplicate()
 {
     LidControlRegistry reg;
@@ -135,6 +142,7 @@ void TestRegistryRename::lidRenameDoesNotDuplicate()
     QVERIFY(swmm_lid_index(m_engine, "LID1") < 0);
 }
 
+/** @brief Verify street rename/flush preserves one engine row under the new identity. */
 void TestRegistryRename::streetRenameDoesNotDuplicate()
 {
     StreetRegistry reg;
@@ -151,6 +159,7 @@ void TestRegistryRename::streetRenameDoesNotDuplicate()
     QVERIFY(swmm_street_index(m_engine, "ST1") < 0);
 }
 
+/** @brief Verify inlet rename/flush preserves one engine row under the new identity. */
 void TestRegistryRename::inletRenameDoesNotDuplicate()
 {
     InletRegistry reg;
@@ -171,6 +180,7 @@ void TestRegistryRename::inletRenameDoesNotDuplicate()
 // Rename still refuses a collision, and refusing leaves nothing half-applied
 // ---------------------------------------------------------------------------
 
+/** @brief Verify a duplicate snowpack rename leaves provider name, engine count and original row intact. */
 void TestRegistryRename::snowpackRenameRejectsDuplicateName()
 {
     SnowpackRegistry reg;
@@ -189,6 +199,7 @@ void TestRegistryRename::snowpackRenameRejectsDuplicateName()
 // Snow-pack parameters
 // ---------------------------------------------------------------------------
 
+/** @brief Verify editing an already-flushed snowpack writes melt, temperature, free-water, removal and subcatchment-reference fields on the next flush. */
 void TestRegistryRename::snowpackParametersReachTheEngine()
 {
     SnowpackRegistry reg;
@@ -208,30 +219,33 @@ void TestRegistryRename::snowpackParametersReachTheEngine()
     reg.saveToEngine(m_engine);
 
     double cmin = 0, cmax = 0, tbase = 0, fwfrac = 0, sd0 = 0, fw0 = 0, last = 0;
-    QCOMPARE(swmm_snowpack_get_plowable(m_engine, 0, &cmin, &cmax, &tbase,
-                                        &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_plowable(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(cmin, 0.05);
     QCOMPARE(cmax, 0.12);
 
-    QCOMPARE(swmm_snowpack_get_impervious(m_engine, 0, &cmin, &cmax, &tbase,
-                                          &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_impervious(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(tbase, 32.0);
 
-    QCOMPARE(swmm_snowpack_get_pervious(m_engine, 0, &cmin, &cmax, &tbase,
-                                        &fwfrac, &sd0, &fw0, &last), SWMM_OK);
+    QCOMPARE(
+        swmm_snowpack_get_pervious(m_engine, 0, &cmin, &cmax, &tbase, &fwfrac, &sd0, &fw0, &last),
+        SWMM_OK);
     QCOMPARE(fwfrac, 0.10);
 
     double dsnow = 0, fout = 0, fimp = 0, fperv = 0, fimelt = 0, fsub = 0;
-    QCOMPARE(swmm_snowpack_get_removal(m_engine, 0, &dsnow, &fout, &fimp,
-                                       &fperv, &fimelt, &fsub), SWMM_OK);
+    QCOMPARE(swmm_snowpack_get_removal(m_engine, 0, &dsnow, &fout, &fimp, &fperv, &fimelt, &fsub),
+             SWMM_OK);
     QCOMPARE(dsnow, 2.5);
 
     char buf[64] = {};
-    QCOMPARE(swmm_snowpack_get_removal_subcatch(m_engine, 0, buf, sizeof(buf)),
-             SWMM_OK);
+    QCOMPARE(swmm_snowpack_get_removal_subcatch(m_engine, 0, buf, sizeof(buf)), SWMM_OK);
     QCOMPARE(QString::fromUtf8(buf), QStringLiteral("S1"));
 }
 
+/** @brief Verify a second registry reads back the selected snowpack parameters authored by the first registry over the same engine. */
 void TestRegistryRename::snowpackParametersRoundTrip()
 {
     {

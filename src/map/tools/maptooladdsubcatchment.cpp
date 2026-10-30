@@ -1,7 +1,10 @@
-/*!
- * \file   maptooladdsubcatchment.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      maptooladdsubcatchment.cpp
+ * @brief     Click-to-place polygon vertices; double-click to close and commit.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooladdsubcatchment.h"
@@ -10,6 +13,7 @@
 #include "map/snapengine.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "core/preferencesmanager.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -17,8 +21,10 @@
 #include <QMouseEvent>
 #include <QPainter>
 
+#include <cstdlib>
+
 OpenSWMMVisMapToolAddSubcatchment::OpenSWMMVisMapToolAddSubcatchment(MapCanvas *canvas,
-                                                                      QObject   *parent)
+                                                                     QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Add Subcatchment"), canvas, parent)
 {
 }
@@ -42,26 +48,33 @@ void OpenSWMMVisMapToolAddSubcatchment::deactivate()
 
 SWMMModelLayer *OpenSWMMVisMapToolAddSubcatchment::activeModelLayer() const
 {
-    if (!m_canvas) return nullptr;
+    if (!m_canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : m_canvas->layers())
-        if (auto *ml = qobject_cast<SWMMModelLayer *>(l)) return ml;
+        if (auto *ml = qobject_cast<SWMMModelLayer *>(l))
+            return ml;
     return nullptr;
 }
 
 QString OpenSWMMVisMapToolAddSubcatchment::nextAvailableName(SWMMModelLayer *layer) const
 {
+    // Feedback C12 — honour Preferences → Naming like the node/link tools
+    // do (this used to hard-code "Sub").
+    const QString prefix =
+        PreferencesManager::instance()->elementNamePrefix(QStringLiteral("subcatchment"));
     for (int n = 1; n < 100000; ++n) {
-        const QString candidate = QStringLiteral("Sub") + QString::number(n);
+        const QString candidate = prefix + QString::number(n);
         const QByteArray utf8 = candidate.toUtf8();
         if (swmm_subcatch_index(layer->engine(), utf8.constData()) < 0)
             return candidate;
     }
-    return QStringLiteral("Sub_X");
+    return prefix + QStringLiteral("_X");
 }
 
 void OpenSWMMVisMapToolAddSubcatchment::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
@@ -75,7 +88,8 @@ void OpenSWMMVisMapToolAddSubcatchment::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     // Use the pre-computed snap result from the last mouse-move (or snap now
     // if this is the very first click before any move event has fired).
@@ -101,11 +115,12 @@ void OpenSWMMVisMapToolAddSubcatchment::mousePressEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddSubcatchment::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
     SWMMModelLayer *layer = activeModelLayer();
-    m_snap   = SnapEngine::snap(this, layer, mx, my);
+    m_snap = SnapEngine::snap(this, layer, mx, my);
     // Keep m_cursor in canvas CRS so the rubber-band paint, which uses
     // toPixelCoords (canvas→pixel), stays aligned with the mouse.
     if (m_snap.snapped && layer) {
@@ -120,11 +135,42 @@ void OpenSWMMVisMapToolAddSubcatchment::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddSubcatchment::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton) return;
-    // The single-click from the double-click already added a vertex — remove
-    // the duplicate before committing.
-    if (m_vertices.size() > 1)
-        m_vertices.removeLast();
+    if (event->button() != Qt::LeftButton || !m_canvas)
+        return;
+
+    // Qt's delivery for the second click of a pair is platform-dependent: some
+    // platforms send MouseButtonPress before MouseButtonDblClick, others send
+    // DblClick alone (what this canvas widget does — verified by
+    // tests/gui/test_drawtool_doubleclick.cpp). So neither "the press already
+    // added it" nor "the press never ran" holds universally.
+    //
+    // Normalise instead: put the double-clicked point in exactly ONCE, on
+    // either path. The tool used to strip the last vertex on the assumption
+    // that a press had duplicated it — which deleted the user's closing point
+    // whenever only DblClick fired, and for a three-gesture triangle dropped
+    // it below commit()'s 3-vertex floor, silently creating nothing.
+    //
+    // The point is snapped exactly as mousePressEvent() snaps it, so a
+    // double-click closes on the same target a click would have.
+    double mx = 0.0, my = 0.0;
+    toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+    SWMMModelLayer *layer = activeModelLayer();
+    m_snap = SnapEngine::snap(this, layer, mx, my);
+    double px = mx, py = my;
+    if (m_snap.snapped && layer)
+        layer->transformLayerToCanvas(m_snap.x, m_snap.y, px, py);
+
+    // Drop a trailing vertex that sits under the cursor already — the press
+    // leg of the double-click on platforms that send one, or a deliberate
+    // click immediately before the double-click. Compared in pixels because
+    // the two can differ in the last bits after the snap round-trip.
+    if (!m_vertices.isEmpty()) {
+        int lx = 0, ly = 0;
+        toPixelCoords(m_vertices.last().x(), m_vertices.last().y(), lx, ly);
+        if (std::abs(lx - event->pos().x()) <= 2 && std::abs(ly - event->pos().y()) <= 2)
+            m_vertices.removeLast();
+    }
+    m_vertices << QPointF(px, py);
     commit();
 }
 
@@ -137,11 +183,11 @@ void OpenSWMMVisMapToolAddSubcatchment::keyPressEvent(QKeyEvent *event)
     }
 }
 
-void OpenSWMMVisMapToolAddSubcatchment::paint(QPainter *painter,
-                                               const MapExtent &,
-                                               const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolAddSubcatchment::paint(QPainter *painter, const MapExtent &,
+                                              const SpatialReferenceSystem *)
 {
-    if (!m_drawing || m_vertices.isEmpty()) return;
+    if (!m_drawing || m_vertices.isEmpty())
+        return;
 
     painter->save();
 
@@ -153,7 +199,8 @@ void OpenSWMMVisMapToolAddSubcatchment::paint(QPainter *painter,
 
     // Build closed polygon preview (vertices + cursor).
     QVector<QPoint> pts;
-    for (const QPointF &v : m_vertices) pts << toPixel(v);
+    for (const QPointF &v : m_vertices)
+        pts << toPixel(v);
     pts << toPixel(m_cursor);
 
     // Fill.
@@ -165,7 +212,8 @@ void OpenSWMMVisMapToolAddSubcatchment::paint(QPainter *painter,
     // Vertex dots.
     painter->setBrush(QColor(0, 140, 0));
     painter->setPen(Qt::NoPen);
-    for (const QPoint &p : pts) painter->drawEllipse(p, 4, 4);
+    for (const QPoint &p : pts)
+        painter->drawEllipse(p, 4, 4);
 
     // Closing line back to first vertex (if ≥ 2 vertices placed).
     if (pts.size() >= 2) {
@@ -182,16 +230,22 @@ void OpenSWMMVisMapToolAddSubcatchment::cancel()
 {
     m_vertices.clear();
     m_drawing = false;
-    m_snap    = {};
+    m_snap = {};
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addsubcatch-cancel"));
 }
 
 void OpenSWMMVisMapToolAddSubcatchment::commit()
 {
-    if (m_vertices.size() < 3) { cancel(); return; }
+    if (m_vertices.size() < 3) {
+        cancel();
+        return;
+    }
     SWMMModelLayer *layer = activeModelLayer();
-    if (!layer) { cancel(); return; }
+    if (!layer) {
+        cancel();
+        return;
+    }
 
     // Vertices were accumulated in canvas CRS for rubber-band paint;
     // the engine + cached SoA expect layer CRS. Convert once here.

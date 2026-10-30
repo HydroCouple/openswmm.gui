@@ -1,6 +1,6 @@
-/*!
- * \file   test_meshspatialgrid.cpp
- * \brief  Unit tests for the CSR-backed MeshSpatialGrid spatial index.
+/**
+ * @file      test_meshspatialgrid.cpp
+ * @brief     Unit tests for the CSR-backed MeshSpatialGrid spatial index.
  *
  * MeshSpatialGrid is the hot-path index that the QSG renderer (Pass 1 /
  * Pass 2) and the QPainter fallback both use to cull mesh triangles and
@@ -28,6 +28,10 @@
  *   - The avgPerCell reserve estimate. Same reason: it's a perf hint,
  *     not a correctness invariant. We do check that query() doesn't crash
  *     when the estimate is zero (empty / single-cell cases).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -43,25 +47,44 @@
 #include <cmath>
 #include <limits>
 
-namespace {
+namespace
+{
 
 // Build N x N small boxes on a unit pitch. Box size is much smaller than
 // the pitch, so the cell-size heuristic (median diagonal × 16) lands well
 // below the extent — guaranteeing a multi-cell grid that exercises the
 // CSR sweep / dedup path rather than degenerating to a 1×1 grid.
-QVector<QRectF> makeGridOfSmallBoxes(int n, double pitch = 1.0,
-                                     double boxSize = 0.05)
+/**
+ *
+ * @brief Build row-major separated rectangles for CSR-grid completeness tests.
+ * @param n Nonnegative boxes per axis with n*n representable in int/container sizes.
+ * @param pitch Intended positive spacing in common fixture coordinate units, default 1.
+ * @param boxSize Positive side length in those units, default .05; small relative to
+ * pitch in the multi-cell cases.
+ * @return Owned n*n rectangles anchored at (column*pitch,row*pitch), no validation
+ * or production spatial-index mutation.
+ *
+ */
+QVector<QRectF> makeGridOfSmallBoxes(int n, double pitch = 1.0, double boxSize = 0.05)
 {
     QVector<QRectF> out;
     out.reserve(n * n);
     for (int r = 0; r < n; ++r)
         for (int c = 0; c < n; ++c)
-            out.append(QRectF(QPointF(c * pitch, r * pitch),
-                              QSizeF(boxSize, boxSize)));
+            out.append(QRectF(QPointF(c * pitch, r * pitch), QSizeF(boxSize, boxSize)));
     return out;
 }
 
 // Brute-force "true intersection" set — the floor that query() must meet.
+/**
+ *
+ * @brief Compute the exact Qt rectangle-intersection reference by linear scan.
+ * @param bboxes Borrowed input rectangles in source index order.
+ * @param q Borrowed query rectangle in matching coordinate units/frame.
+ * @return Owned ascending indices whose rectangles are valid and intersects(q).
+ * Ignores invalid entries; does not apply grid broadphase or modify inputs.
+ *
+ */
 QVector<int> trueIntersections(const QVector<QRectF> &bboxes, const QRectF &q)
 {
     QVector<int> out;
@@ -85,6 +108,25 @@ TEST(MeshSpatialGrid, EmptyRebuildLeavesGridEmpty)
     EXPECT_TRUE(g.query(QRectF(0, 0, 10, 10)).isEmpty());
 }
 
+TEST(MeshSpatialGrid, BoundedQueryReportsTruncationAndRecovers)
+{
+    MeshSpatialGrid grid;
+    grid.rebuild(makeGridOfSmallBoxes(100));
+    bool complete = true;
+    const auto truncated = grid.query({0, 0, 100, 100}, 37, &complete);
+    EXPECT_FALSE(complete);
+    EXPECT_EQ(truncated.size(), 37);
+    EXPECT_LE(truncated.capacity(), 37);
+    const auto all = grid.query({0, 0, 100, 100}, 10000, &complete);
+    EXPECT_TRUE(complete);
+    EXPECT_EQ(all.size(), 10000);
+    EXPECT_EQ(grid.query({0, 0, 100, 100}), all);
+    EXPECT_TRUE(grid.query({0, 0, 100, 100}, 0, &complete).isEmpty());
+    EXPECT_FALSE(complete);
+    EXPECT_TRUE(grid.query({200, 200, 1, 1}, 0, &complete).isEmpty());
+    EXPECT_TRUE(complete);
+}
+
 // ---------------------------------------------------------------------------
 // 2. Single-bbox grid — the bbox should be returned by queries that overlap
 //    it, and not by queries that don't.
@@ -92,10 +134,10 @@ TEST(MeshSpatialGrid, EmptyRebuildLeavesGridEmpty)
 TEST(MeshSpatialGrid, SingleBboxRoundTrip)
 {
     MeshSpatialGrid g;
-    g.rebuild({ QRectF(QPointF(5, 5), QSizeF(2.0, 2.0)) });
+    g.rebuild({QRectF(QPointF(5, 5), QSizeF(2.0, 2.0))});
 
     EXPECT_FALSE(g.isEmpty());
-    EXPECT_EQ(g.query(QRectF(0, 0, 10, 10)),     (QVector<int>{0}));
+    EXPECT_EQ(g.query(QRectF(0, 0, 10, 10)), (QVector<int>{0}));
     EXPECT_EQ(g.query(QRectF(5.5, 5.5, 0.1, 0.1)), (QVector<int>{0}));
 
     // A query rect outside the grid extent must not return anything.
@@ -110,17 +152,17 @@ TEST(MeshSpatialGrid, SingleBboxRoundTrip)
 // ---------------------------------------------------------------------------
 TEST(MeshSpatialGrid, ResultIsCompleteSupersetWithoutDuplicates)
 {
-    const QVector<QRectF> bboxes = makeGridOfSmallBoxes(20);  // 400 boxes
+    const QVector<QRectF> bboxes = makeGridOfSmallBoxes(20); // 400 boxes
     MeshSpatialGrid g;
     g.rebuild(bboxes);
 
     const QVector<QRectF> queries = {
-        QRectF(0.0,  0.0,  0.1, 0.1),    // tiny — picks up bbox 0 only
-        QRectF(4.5,  4.5,  1.0, 1.0),    // straddles a 2x2 chunk
-        QRectF(0.0,  0.0, 20.0, 20.0),   // entire extent
-        QRectF(2.5,  7.0,  3.0, 1.0),    // wide horizontal stripe
-        QRectF(-5.0, -5.0, 4.0, 4.0),    // entirely outside the extent
-        QRectF(19.9, 19.9, 0.2, 0.2),    // last-cell corner
+        QRectF(0.0, 0.0, 0.1, 0.1),   // tiny — picks up bbox 0 only
+        QRectF(4.5, 4.5, 1.0, 1.0),   // straddles a 2x2 chunk
+        QRectF(0.0, 0.0, 20.0, 20.0), // entire extent
+        QRectF(2.5, 7.0, 3.0, 1.0),   // wide horizontal stripe
+        QRectF(-5.0, -5.0, 4.0, 4.0), // entirely outside the extent
+        QRectF(19.9, 19.9, 0.2, 0.2), // last-cell corner
     };
 
     for (const QRectF &q : queries) {
@@ -130,16 +172,14 @@ TEST(MeshSpatialGrid, ResultIsCompleteSupersetWithoutDuplicates)
         // a) Every truly-intersecting bbox is present.
         for (int idx : mustContain) {
             EXPECT_NE(std::find(hits.begin(), hits.end(), idx), hits.end())
-                << "Missing intersecting bbox " << idx
-                << " for query (" << q.x() << ", " << q.y()
-                << ", "  << q.width() << " x " << q.height() << ")";
+                << "Missing intersecting bbox " << idx << " for query (" << q.x() << ", " << q.y()
+                << ", " << q.width() << " x " << q.height() << ")";
         }
 
         // b) No duplicates — dedup is part of the contract.
         QSet<int> uniqueHits;
         for (int idx : hits) {
-            EXPECT_FALSE(uniqueHits.contains(idx))
-                << "Duplicate index " << idx;
+            EXPECT_FALSE(uniqueHits.contains(idx)) << "Duplicate index " << idx;
             uniqueHits.insert(idx);
             // c) Indices are always valid bbox positions.
             ASSERT_GE(idx, 0);
@@ -169,7 +209,9 @@ TEST(MeshSpatialGrid, BboxSpanningManyCellsDedupedToOnce)
 
     const QVector<int> hits = g.query(QRectF(20.0, -5.0, 5.0, 10.0));
     int hugeCount = 0;
-    for (int idx : hits) if (idx == hugeIdx) ++hugeCount;
+    for (int idx : hits)
+        if (idx == hugeIdx)
+            ++hugeCount;
     EXPECT_EQ(hugeCount, 1) << "Multi-cell bbox must be deduped to one entry";
 
     // The huge bbox truly intersects the query, so it must be present.
@@ -184,11 +226,11 @@ TEST(MeshSpatialGrid, BboxSpanningManyCellsDedupedToOnce)
 TEST(MeshSpatialGrid, InvalidBboxesAreIgnoredButPreserveIndexing)
 {
     QVector<QRectF> bboxes;
-    bboxes.append(QRectF(QPointF(0, 0), QSizeF(1, 1)));      // 0 — valid
-    bboxes.append(QRectF(QPointF(1, 0), QSizeF(-1, -1)));    // 1 — negative size
-    bboxes.append(QRectF(QPointF(2, 0),                       // 2 — non-finite
+    bboxes.append(QRectF(QPointF(0, 0), QSizeF(1, 1)));   // 0 — valid
+    bboxes.append(QRectF(QPointF(1, 0), QSizeF(-1, -1))); // 1 — negative size
+    bboxes.append(QRectF(QPointF(2, 0),                   // 2 — non-finite
                          QSizeF(std::nan(""), 1)));
-    bboxes.append(QRectF(QPointF(3, 0), QSizeF(1, 1)));      // 3 — valid
+    bboxes.append(QRectF(QPointF(3, 0), QSizeF(1, 1))); // 3 — valid
 
     MeshSpatialGrid g;
     g.rebuild(bboxes);
@@ -207,9 +249,9 @@ TEST(MeshSpatialGrid, InvalidBboxesAreIgnoredButPreserveIndexing)
 TEST(MeshSpatialGrid, DegenerateAxisAlignedBboxesAreIndexed)
 {
     QVector<QRectF> bboxes;
-    bboxes.append(QRectF(QPointF(0, 0), QPointF(4, 0)));   // 0 — horizontal edge
-    bboxes.append(QRectF(QPointF(0, 0), QPointF(0, 4)));   // 1 — vertical edge
-    bboxes.append(QRectF(QPointF(1, 1), QSizeF(1, 1)));    // 2 — interior box
+    bboxes.append(QRectF(QPointF(0, 0), QPointF(4, 0))); // 0 — horizontal edge
+    bboxes.append(QRectF(QPointF(0, 0), QPointF(0, 4))); // 1 — vertical edge
+    bboxes.append(QRectF(QPointF(1, 1), QSizeF(1, 1)));  // 2 — interior box
 
     MeshSpatialGrid g;
     g.rebuild(bboxes);
@@ -237,10 +279,10 @@ TEST(MeshSpatialGrid, DegenerateAxisAlignedBboxesAreIndexed)
 TEST(MeshSpatialGrid, SecondRebuildReplacesFirstBuild)
 {
     MeshSpatialGrid g;
-    g.rebuild({ QRectF(0, 0, 1, 1), QRectF(2, 2, 1, 1) });
+    g.rebuild({QRectF(0, 0, 1, 1), QRectF(2, 2, 1, 1)});
     EXPECT_EQ(g.query(QRectF(-1, -1, 5, 5)).size(), 2);
 
-    g.rebuild({ QRectF(100, 100, 1, 1) });
+    g.rebuild({QRectF(100, 100, 1, 1)});
     EXPECT_EQ(g.query(QRectF(99, 99, 3, 3)), (QVector<int>{0}));
     EXPECT_TRUE(g.query(QRectF(-1, -1, 5, 5)).isEmpty());
 }
@@ -268,9 +310,8 @@ TEST(MeshSpatialGrid, RepeatedQueriesDoNotLeakSeenState)
 
     // baseA and baseB must not be identical — that would mean the index
     // returns the same set everywhere, which would defeat the test.
-    ASSERT_NE(baseA, baseB)
-        << "Test fixture is degenerate (single-cell grid?) — A and B "
-           "produced the same result";
+    ASSERT_NE(baseA, baseB) << "Test fixture is degenerate (single-cell grid?) — A and B "
+                               "produced the same result";
 
     for (int iter = 0; iter < 200; ++iter) {
         QVector<int> a = g.query(qA), b = g.query(qB);
@@ -292,8 +333,7 @@ TEST(MeshSpatialGrid, InvalidQueryReturnsEmpty)
     g.rebuild(makeGridOfSmallBoxes(4));
 
     EXPECT_TRUE(g.query(QRectF(0, 0, -1, -1)).isEmpty()); // negative-size
-    EXPECT_TRUE(g.query(QRectF(QPointF(0, 0),
-                               QSizeF(std::nan(""), 1))).isEmpty());
+    EXPECT_TRUE(g.query(QRectF(QPointF(0, 0), QSizeF(std::nan(""), 1))).isEmpty());
     // A point query inside an indexed box hits it.
     EXPECT_FALSE(g.query(QRectF(0.5, 0.5, 0, 0)).isEmpty());
 }
@@ -312,7 +352,7 @@ TEST(MeshSpatialGrid, ClearResetsGrid)
     EXPECT_TRUE(g.isEmpty());
     EXPECT_TRUE(g.query(QRectF(0, 0, 10, 10)).isEmpty());
 
-    g.rebuild({ QRectF(0, 0, 1, 1) });
+    g.rebuild({QRectF(0, 0, 1, 1)});
     EXPECT_EQ(g.query(QRectF(-1, -1, 3, 3)), (QVector<int>{0}));
 }
 
@@ -325,14 +365,26 @@ TEST(MeshSpatialGrid, ClearResetsGrid)
 // that contains the point. So a barycentric/containment test over the slice
 // never misses the true container.
 // ---------------------------------------------------------------------------
-namespace {
+namespace
+{
 // Materialise the candidate slice into a vector for easy assertions.
+/**
+ *
+ * @brief Copy the production point-query candidate slice for assertions.
+ * @param g Borrowed spatial index, whose returned slice is used synchronously.
+ * @param x Query x in the index's coordinate units/frame.
+ * @param y Query y in the same units/frame.
+ * @return Owned candidate IDs preserving slice order, possibly empty. Candidates
+ * still require exact containment tests; does not mutate/rebuild g or retain pointers.
+ *
+ */
 QVector<int> candidatesAt(const MeshSpatialGrid &g, double x, double y)
 {
     const int *b = nullptr, *e = nullptr;
     g.candidatesAtPoint(x, y, b, e);
     QVector<int> out;
-    for (const int *p = b; p < e; ++p) out.append(*p);
+    for (const int *p = b; p < e; ++p)
+        out.append(*p);
     return out;
 }
 } // namespace
@@ -371,7 +423,7 @@ TEST(MeshSpatialGrid, CandidatesSupersetOfTrueContainers)
 {
     QVector<QRectF> boxes;
     for (int i = 0; i < 50; ++i)
-        boxes.append(QRectF(i * 0.5, (i % 7) * 0.5, 1.3, 1.1));   // overlapping
+        boxes.append(QRectF(i * 0.5, (i % 7) * 0.5, 1.3, 1.1)); // overlapping
     MeshSpatialGrid g;
     g.rebuild(boxes);
 
@@ -400,7 +452,7 @@ TEST(MeshSpatialGrid, CandidatesOffExtentClampInBounds)
     g.rebuild(boxes);
 
     const int *b = nullptr, *e = nullptr;
-    g.candidatesAtPoint(-1000.0, -1000.0, b, e);   // far outside the extent
+    g.candidatesAtPoint(-1000.0, -1000.0, b, e); // far outside the extent
     ASSERT_LE(b, e);
     const int *base = g.cellIndices.constData();
     EXPECT_GE(b, base);
@@ -420,7 +472,8 @@ TEST(MeshSpatialGrid, CandidatesNonFinitePointYieldsEmptyRange)
     EXPECT_EQ(b, nullptr);
     EXPECT_EQ(e, nullptr);
 
-    b = &dummy; e = &dummy;
+    b = &dummy;
+    e = &dummy;
     g.candidatesAtPoint(0.5, std::numeric_limits<double>::infinity(), b, e);
     EXPECT_EQ(b, nullptr);
     EXPECT_EQ(e, nullptr);

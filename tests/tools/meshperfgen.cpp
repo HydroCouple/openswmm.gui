@@ -1,8 +1,9 @@
-/*!
- * \file   meshperfgen.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshperfgen.cpp
+ * @brief     Tests for meshperfgen.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Mesh Tiled LOD plan (workplans/MESH_TILED_LOD_RENDERING_PLAN_2026-07-13.md)
  * Phase 0 — synthetic terrain-mesh generator for rendering-performance
@@ -17,10 +18,19 @@
  * removable vertices on the flats.
  *
  * Usage:
- *   mesh_perf_generator <output-dir> [triCount ...]
+ *   mesh_perf_generator [--coupled=N] <output-dir> [triCount ...]
  * Default triangle counts: 500000 1000000 5000000.
  * Output (user-reviewable, per CLAUDE.md Transparent File IO):
- *   <output-dir>/mesh_<N>tri.2dm + mesh_<N>tri.inp
+ *   <output-dir>/mesh_&lt;N&gt;tri.2dm + mesh_&lt;N&gt;tri.inp
+ *
+ * `--coupled=N` additionally emits an N-row `[2D_VERTEX_NODE_MAP]` in TAG
+ * form, plus the vertex TAG column it resolves against and matching
+ * `[JUNCTIONS]` rows in the .inp wrapper. This reproduces the state a GUI
+ * SAVE leaves behind (InpMeshWriter PREFERS the tag form), which is the only
+ * way to exercise the reader's tag-resolution path — the LOAD_PERF Phase 2
+ * fixture. Without it the map section is absent entirely and that path is
+ * unreachable.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <cmath>
@@ -30,19 +40,27 @@
 #include <string>
 #include <vector>
 
-namespace {
+namespace
+{
 
 constexpr double kPi = 3.14159265358979323846;
 
-/*! Analytic terrain (metres). Regional slope + two ridge sets + a meandering
- *  main channel + a straight tributary + fine corrugation. */
+/**
+ *
+ * @brief Evaluate the deterministic analytical terrain used by mesh fixtures.
+ * @param x Finite planar x in metres.
+ * @param y Finite planar y in metres.
+ * @param domainW Positive domain width in metres, positioning the channel/tributary.
+ * @return Elevation in metres from regional slope, sinusoidal ridges/corrugation and
+ * Gaussian channel cuts. No random sampling, parameter validation or file writes.
+ *
+ */
 double terrainZ(double x, double y, double domainW)
 {
-    double z = 20.0
-             + 0.004 * x                                   // regional slope
-             + 3.0 * std::sin(2.0 * kPi * y / 250.0)       // parallel ridges
-             + 1.5 * std::sin(2.0 * kPi * (x + y) / 590.0) // diagonal ridges
-             + 0.15 * std::sin(x * 1.7) * std::cos(y * 2.3); // fine texture
+    double z = 20.0 + 0.004 * x                                // regional slope
+               + 3.0 * std::sin(2.0 * kPi * y / 250.0)         // parallel ridges
+               + 1.5 * std::sin(2.0 * kPi * (x + y) / 590.0)   // diagonal ridges
+               + 0.15 * std::sin(x * 1.7) * std::cos(y * 2.3); // fine texture
 
     // Meandering main channel carved along the x axis.
     const double yc = domainW * 0.5 + 120.0 * std::sin(2.0 * kPi * x / 900.0);
@@ -50,29 +68,55 @@ double terrainZ(double x, double y, double domainW)
     z -= 5.0 * std::exp(-dyc * dyc);
 
     // Straight tributary channel along y at one third of the domain length.
-    const double xc = (x - domainW * (2.0 / 3.0)) / 20.0;  // domainL = 2*domainW
+    const double xc = (x - domainW * (2.0 / 3.0)) / 20.0; // domainL = 2*domainW
     z -= 3.0 * std::exp(-xc * xc);
 
     return z;
 }
 
-bool generateOne(const std::string &outDir, std::int64_t targetTris)
+/**
+ *
+ * @brief Write one synthetic triangle mesh and minimal SI input wrapper.
+ * @param outDir Borrowed existing writable output directory; not created here.
+ * @param targetTris Desired triangle count used in filenames, intended at least 8;
+ * actual 2*rows*columns can exceed it because grid dimensions round upward.
+ * @param coupledCount Requested coupling nodes, clamped to [0,vertexCount].
+ * @return False if either file cannot open; true after both are written/closed.
+ * Does not check fprintf/fclose errors, validate the generated deck or remove partial
+ * outputs. Uses 2-metre XY spacing, analytical elevations, Manning .035 and optional
+ * tag-based vertex couplings (Cd .65, area 2 m2). Products/counts must fit int64 and
+ * resource limits. Existing same-name files are truncated; allocation failures propagate.
+ * The wrapper already declares J1, so multiple generated Jk names can duplicate an
+ * existing ID; this generator does not qualify engine-load success.
+ *
+ */
+bool generateOne(const std::string &outDir, std::int64_t targetTris, std::int64_t coupledCount)
 {
     // 2:1 domain, two triangles per grid cell, 2 m spacing.
     const std::int64_t cells = targetTris / 2;
-    std::int64_t cols = static_cast<std::int64_t>(
-        std::llround(std::sqrt(static_cast<double>(cells) * 2.0)));
-    if (cols < 2) cols = 2;
+    std::int64_t cols =
+        static_cast<std::int64_t>(std::llround(std::sqrt(static_cast<double>(cells) * 2.0)));
+    if (cols < 2)
+        cols = 2;
     std::int64_t rows = (cells + cols - 1) / cols;
-    if (rows < 2) rows = 2;
+    if (rows < 2)
+        rows = 2;
     const double dx = 2.0, dy = 2.0;
-    const double domainW = rows * dy;   // width (y)
+    const double domainW = rows * dy; // width (y)
     const std::int64_t nVerts = (rows + 1) * (cols + 1);
-    const std::int64_t nTris  = 2 * rows * cols;
+    const std::int64_t nTris = 2 * rows * cols;
+
+    // Coupled vertices are spread evenly over the mesh, the way real 1D<->2D
+    // coupling lands on scattered junctions. Only these carry a TAG: a GUI
+    // save tags generated junction vertices, not every vertex, and tagging all
+    // of them would inflate the file and change what the baseline measures.
+    const std::int64_t nCoupled =
+        (coupledCount > 0) ? (coupledCount < nVerts ? coupledCount : nVerts) : 0;
+    const std::int64_t coupleStride = (nCoupled > 0) ? (nVerts / nCoupled) : 0;
 
     const std::string base = outDir + "/mesh_" + std::to_string(targetTris) + "tri";
     const std::string meshPath = base + ".2dm";
-    const std::string inpPath  = base + ".inp";
+    const std::string inpPath = base + ".inp";
 
     std::FILE *mf = std::fopen(meshPath.c_str(), "w");
     if (!mf) {
@@ -83,18 +127,28 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
     std::fprintf(mf, ";; UNITS: SI\n");
     std::fprintf(mf, ";; Synthetic terrain mesh — %lld triangles, %lld vertices\n",
                  static_cast<long long>(nTris), static_cast<long long>(nVerts));
-    std::fprintf(mf, ";; Generated by tests/tools/meshperfgen.cpp (Mesh Tiled LOD plan, Phase 0)\n\n");
+    std::fprintf(mf,
+                 ";; Generated by tests/tools/meshperfgen.cpp (Mesh Tiled LOD plan, Phase 0)\n\n");
 
-    std::fprintf(mf, "[2D_VERTICES]\n;;X Y Z\n");
+    std::fprintf(mf, "[2D_VERTICES]\n;;X Y Z%s\n", nCoupled > 0 ? " TAG" : "");
     for (std::int64_t r = 0; r <= rows; ++r) {
         const double y = r * dy;
         for (std::int64_t c = 0; c <= cols; ++c) {
             const double x = c * dx;
-            std::fprintf(mf, "%.2f %.2f %.3f\n", x, y, terrainZ(x, y, domainW));
+            const std::int64_t vi = r * (cols + 1) + c;
+            const bool tagged =
+                coupleStride > 0 && (vi % coupleStride) == 0 && (vi / coupleStride) < nCoupled;
+            if (tagged)
+                std::fprintf(mf, "%.2f %.2f %.3f V%lld\n", x, y, terrainZ(x, y, domainW),
+                             static_cast<long long>(vi));
+            else
+                std::fprintf(mf, "%.2f %.2f %.3f\n", x, y, terrainZ(x, y, domainW));
         }
     }
 
-    std::fprintf(mf, "\n[2D_TRIANGLES]\n;;V1 V2 V3\n");
+    // MANNINGS_N is required by the [2D_TRIANGLES] parser — rows without it are
+    // rejected with "Expected V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]".
+    std::fprintf(mf, "\n[2D_TRIANGLES]\n;;V1 V2 V3 MANNINGS_N\n");
     const std::int64_t stride = cols + 1;
     for (std::int64_t r = 0; r < rows; ++r) {
         for (std::int64_t c = 0; c < cols; ++c) {
@@ -103,12 +157,21 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
             const std::int64_t v01 = v00 + stride;
             const std::int64_t v11 = v01 + 1;
             // CCW in a y-up plane.
-            std::fprintf(mf, "%lld %lld %lld\n",
-                         static_cast<long long>(v00), static_cast<long long>(v10),
-                         static_cast<long long>(v11));
-            std::fprintf(mf, "%lld %lld %lld\n",
-                         static_cast<long long>(v00), static_cast<long long>(v11),
-                         static_cast<long long>(v01));
+            std::fprintf(mf, "%lld %lld %lld 0.035\n", static_cast<long long>(v00),
+                         static_cast<long long>(v10), static_cast<long long>(v11));
+            std::fprintf(mf, "%lld %lld %lld 0.035\n", static_cast<long long>(v00),
+                         static_cast<long long>(v11), static_cast<long long>(v01));
+        }
+    }
+    // [2D_VERTEX_NODE_MAP] in TAG form — the shape InpMeshWriter emits after
+    // a save, and the one that used to cost nCoupled x nVertices string
+    // compares on re-read (LOAD_PERF Phase 2 / LARGE_MESH_RELOAD F1/F2).
+    if (nCoupled > 0) {
+        std::fprintf(mf, "\n[2D_VERTEX_NODE_MAP]\n;;VERTEX NODE CD AREA\n");
+        for (std::int64_t k = 0; k < nCoupled; ++k) {
+            const std::int64_t vi = k * coupleStride;
+            std::fprintf(mf, "V%lld J%lld 0.65 2.0\n", static_cast<long long>(vi),
+                         static_cast<long long>(k));
         }
     }
     std::fclose(mf);
@@ -122,7 +185,8 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
     }
     const double domainL = cols * dx;
     const std::string meshFile = "mesh_" + std::to_string(targetTris) + "tri.2dm";
-    std::fprintf(inf,
+    std::fprintf(
+        inf,
         "[TITLE]\n"
         "Mesh Tiled LOD perf fixture — %lld-triangle synthetic terrain\n"
         "Generated by tests/tools/meshperfgen.cpp\n\n"
@@ -161,40 +225,78 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
         "O1        %.1f       %.1f\n\n"
         "[2D_MESH_FILE]\n"
         "FILE %s\n",
-        static_cast<long long>(nTris),
-        domainL, domainW,
-        domainL * 0.25, domainW * 0.5,
-        domainL * 0.25 + 100.0, domainW * 0.5,
-        meshFile.c_str());
+        static_cast<long long>(nTris), domainL, domainW, domainL * 0.25, domainW * 0.5,
+        domainL * 0.25 + 100.0, domainW * 0.5, meshFile.c_str());
+
+    // Declare the nodes the coupling map references. Without these the map
+    // points at ids that exist nowhere, which the engine rejects — the .2dm
+    // would still parse but the fixture would not open end to end.
+    if (nCoupled > 0) {
+        std::fprintf(inf, "\n[JUNCTIONS]\n"
+                          ";;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded\n");
+        for (std::int64_t k = 0; k < nCoupled; ++k)
+            std::fprintf(inf, "J%lld  10.0  5.0  0  0  0\n", static_cast<long long>(k));
+
+        std::fprintf(inf, "\n[COORDINATES]\n;;Node  X-Coord  Y-Coord\n");
+        for (std::int64_t k = 0; k < nCoupled; ++k) {
+            const std::int64_t vi = k * coupleStride;
+            const std::int64_t r = vi / (cols + 1);
+            const std::int64_t c = vi % (cols + 1);
+            std::fprintf(inf, "J%lld  %.2f  %.2f\n", static_cast<long long>(k), c * dx, r * dy);
+        }
+    }
     std::fclose(inf);
 
-    std::printf("wrote %s (%lld tris, %lld verts, %.0f x %.0f m) + %s\n",
-                meshPath.c_str(), static_cast<long long>(nTris),
-                static_cast<long long>(nVerts), domainL, domainW,
+    std::printf("wrote %s (%lld tris, %lld verts, %.0f x %.0f m) + %s\n", meshPath.c_str(),
+                static_cast<long long>(nTris), static_cast<long long>(nVerts), domainL, domainW,
                 inpPath.c_str());
     return true;
 }
 
 } // namespace
 
+/**
+ *
+ * @brief Generate requested persistent terrain meshes from command-line counts.
+ * @param argc Argument count; requires at least an output directory among positional args.
+ * @param argv Borrowed process strings: --coupled=N may appear among arguments,
+ * then output directory and optional triangle counts. Values use unchecked atoll;
+ * default counts are 500000,1000000,5000000. Directory must already exist.
+ * @return 2 for absent output directory, 1 for count below 8 or failed generation,
+ * otherwise 0. Stops at first failure with previous/partial files retained. Does not
+ * verify numeric overflow, disk capacity, duplicate node IDs or final write status.
+ *
+ */
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
+    std::int64_t coupled = 0;
+    std::vector<std::string> positional;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a.rfind("--coupled=", 0) == 0) {
+            coupled = std::atoll(a.c_str() + 10);
+            continue;
+        }
+        positional.push_back(a);
+    }
+
+    if (positional.empty()) {
         std::fprintf(stderr,
-                     "usage: %s <output-dir> [triCount ...]\n"
-                     "default triCounts: 500000 1000000 5000000\n",
+                     "usage: %s [--coupled=N] <output-dir> [triCount ...]\n"
+                     "default triCounts: 500000 1000000 5000000\n"
+                     "--coupled=N emits an N-row tag-form [2D_VERTEX_NODE_MAP]\n",
                      argv[0]);
         return 2;
     }
-    const std::string outDir = argv[1];
+    const std::string outDir = positional[0];
     std::vector<std::int64_t> counts;
-    for (int i = 2; i < argc; ++i)
-        counts.push_back(std::atoll(argv[i]));
+    for (std::size_t i = 1; i < positional.size(); ++i)
+        counts.push_back(std::atoll(positional[i].c_str()));
     if (counts.empty())
         counts = {500000, 1000000, 5000000};
 
     for (const std::int64_t n : counts)
-        if (n < 8 || !generateOne(outDir, n))
+        if (n < 8 || !generateOne(outDir, n, coupled))
             return 1;
     return 0;
 }

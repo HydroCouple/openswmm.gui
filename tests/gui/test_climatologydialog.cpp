@@ -1,36 +1,57 @@
-/*!
- * \file   test_climatologydialog.cpp
- * \brief  QtTest: ClimatologyDialog reads from / writes to the engine via the
+/**
+ * @file      test_climatologydialog.cpp
+ * @brief     QtTest: ClimatologyDialog reads from / writes to the engine via the
  *         swmm_climate_* C API. Uses a synthetic BUILDING-state engine (no .inp
  *         needed), stamps climate values, and verifies the dialog hydrates its
  *         widgets and writes edits back on OK.
  *
- * \see ui/dialogs/climatologydialog.h
+ * @see ui/dialogs/climatologydialog.h
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/climatologydialog.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_climate.h>
+#include <openswmm/engine/openswmm_heat.h>
+#include <openswmm/engine/openswmm_snow.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QObject>
 #include <QPushButton>
+#include <QLabel>
+#include <QDialog>
+#include <QTableWidget>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
+#include <QMessageBox>
+#include <QStringList>
+#include <QTemporaryFile>
 
 #include "dialog_a11y_checks.h"
+#include "ui/widgets/relativepathpicker.h"
 
-namespace {
+namespace
+{
 
+/** @brief Allocate an editable BUILDING climate fixture with latitude 41.5 degrees, snow temperature 33 and monthly evaporation mode.
+ * @return Newly owned engine, which the caller destroys. Allocation is guarded by Q_ASSERT only; setter results are not checked. */
 SWMM_Engine makeClimateEngine()
 {
-    SWMM_Engine e = swmm_engine_new();   // BUILDING state — editable
+    SWMM_Engine e = swmm_engine_new(); // BUILDING state — editable
     Q_ASSERT(e != nullptr);
     swmm_climate_set_latitude(e, 41.5);
     swmm_climate_set_snow_temp(e, 33.0);
-    swmm_climate_set_evap_type(e, 1);    // MONTHLY
+    swmm_climate_set_evap_type(e, 1); // MONTHLY
     return e;
 }
 
@@ -40,14 +61,663 @@ class TestClimatologyDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void lateSetterFailureLeavesEngineUntouched();
+    void unrelatedEditsPreserveClimatePrecision();
+    void closedEngineCannotBeAccepted();
+    void constantSourcesRetainUnusedMonthlyValues();
     void a11yInvariantsHold();
     void constructsWithNullEngine();
     void hydratesFromEngine();
     void writesEditsBackOnOk();
     void noOpOkDoesNotMarkChanged();
     void setCurrentTabClamps();
+    void humidityTabRoundTrips();
+    void snowAndRadiationRoundTrip();
+    void evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat();
+    void evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate();
+    void evaporationPanFilePreviewShowsGapHoldAndAdjustment();
+    void evaporationTemperaturePreviewLabelsDailyEstimates();
+    void evaporationPreviewUsesModelDisplayUnits();
+    void meteorologyPreviewStatesRadiationPrecedence();
 };
 
+namespace
+{
+// Every value the failing commit below would have written before the refusal.
+/** @brief Serialize climate fields touched by the rollback test for exact state comparison.
+ * @param[in] e Required live engine readable through the climate, snow and heat APIs; getter return codes are not checked.
+ * @return Delimited latitude, source modes, five monthly arrays, snow temperature, impervious depletion curve, snow model, heat flags and radiation site values, with doubles formatted to seventeen significant digits. This is a selected-field snapshot, not a complete engine checkpoint. */
+QString climateState(SWMM_Engine e)
+{
+    QString s;
+    double v = 0;
+    int i = 0;
+    double m[12];
+    double a[10];
+    swmm_climate_get_latitude(e, &v);
+    s += QString::number(v, 'g', 17) + '|';
+    swmm_climate_get_evap_type(e, &i);
+    s += QString::number(i) + '|';
+    /** @brief Append one twelve-month climate array to the captured state fingerprint.
+     * Argument `get`: required engine getter accepting (engine, writable twelve-double array, count); its return code is ignored, so the fixture requires a readable live engine.
+     * Appends each value at seventeen significant digits and does not alter engine state. */
+    const auto months = [&](int (*get)(SWMM_Engine, double *, int)) {
+        get(e, m, 12);
+        for (double x : m)
+            s += QString::number(x, 'g', 17) + ',';
+    };
+    months(swmm_climate_get_evap_monthly);
+    months(swmm_climate_get_wind_monthly);
+    months(swmm_climate_get_humidity_monthly);
+    months(swmm_climate_get_adjust_temperature);
+    months(swmm_climate_get_adjust_evaporation);
+    swmm_climate_get_humidity_type(e, &i);
+    s += QString::number(i) + '|';
+    swmm_climate_get_snow_temp(e, &v);
+    s += QString::number(v, 'g', 17) + '|';
+    swmm_climate_get_adc_impervious(e, a, 10);
+    for (double x : a)
+        s += QString::number(x, 'g', 17) + ',';
+    swmm_snow_get_model(e, &i);
+    s += QString::number(i) + '|';
+    unsigned flags = 0;
+    swmm_heat_get_authoring_flags(e, &flags);
+    s += QString::number(flags) + '|';
+    SWMM_RadiationConfig radiation{};
+    swmm_climate_get_radiation(e, &radiation);
+    s += QString::number(radiation.explicit_site) + QString::number(radiation.latitude, 'g', 17);
+    return s;
+}
+} // namespace
+
+/** @brief Verify a rejected late impervious-depletion value rolls back all earlier climate writes.
+ * Captures/dismisses the warning every ten milliseconds, checks unchanged selected engine state and retained draft, then corrects the value and checks the complete draft commits. */
+void TestClimatologyDialog::lateSetterFailureLeavesEngineUntouched()
+{
+    // C1 (closure audit): the areal-depletion curve is written after the
+    // temperature, evaporation, wind, humidity, snow-melt and snow-model
+    // setters. An out-of-range curve value is refused by the engine itself,
+    // so every earlier accepted write must be rolled back.
+    auto e = makeClimateEngine();
+    const QString before = climateState(e);
+    ClimatologyDialog dialog(e);
+    dialog.findChild<QDoubleSpinBox *>("clim_latitude")->setValue(47.75);
+    dialog.findChild<QDoubleSpinBox *>("clim_snowTemp")->setValue(31.5);
+    auto *humidity = dialog.findChild<QComboBox *>("clim_humType");
+    humidity->setCurrentIndex(humidity->findData(int(SWMM_HUMIDITY_CONSTANT)));
+    dialog.findChild<QDoubleSpinBox *>("clim_humConstant")->setValue(61);
+    auto *model = dialog.findChild<QComboBox *>("clim_snowModel");
+    model->setCurrentIndex(model->findData(1));
+    auto *site = dialog.findChild<QCheckBox *>("clim_radiationSite");
+    site->setChecked(true);
+    dialog.findChild<QDoubleSpinBox *>("clim_site0")->setValue(12);
+    auto *adc = dialog.findChild<QTableWidget *>("clim_adc");
+    QVERIFY(adc);
+    adc->item(9, 0)->setText(QStringLiteral("1.5"));
+    QString warning;
+    int warnings = 0;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+            warning = box->text();
+            ++warnings;
+            box->accept();
+        }
+    });
+    closer.start();
+    dialog.show();
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    closer.stop();
+    QCOMPARE(warnings, 1);
+    QVERIFY2(warning.contains(QStringLiteral("adc impervious")) &&
+                 warning.contains(QStringLiteral("No changes were applied")),
+             qPrintable(warning));
+    QVERIFY(dialog.isVisible());
+    QCOMPARE(dialog.result(), int(QDialog::Rejected));
+    QVERIFY(!dialog.wroteAnyChanges());
+    QCOMPARE(climateState(e), before);
+    // The draft survives: correcting the one value commits every edit.
+    adc->item(9, 0)->setText(QStringLiteral("1"));
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QVERIFY(dialog.wroteAnyChanges());
+    double value = 0;
+    swmm_climate_get_latitude(e, &value);
+    QCOMPARE(value, 47.75);
+    int mode = -1;
+    swmm_snow_get_model(e, &mode);
+    QCOMPARE(mode, 1);
+    swmm_climate_get_humidity_type(e, &mode);
+    QCOMPARE(mode, int(SWMM_HUMIDITY_CONSTANT));
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify editing latitude preserves exact ATI weight and monthly evaporation values despite rounded widget display. */
+void TestClimatologyDialog::unrelatedEditsPreserveClimatePrecision()
+{
+    auto e = makeClimateEngine();
+    const double exact = .12345678912345;
+    QCOMPARE(swmm_climate_set_ati_weight(e, exact), SWMM_OK);
+    double values[12];
+    std::fill_n(values, 12, 1.2345678912345);
+    QCOMPARE(swmm_climate_set_evap_monthly(e, values, 12), SWMM_OK);
+    ClimatologyDialog dialog(e);
+    dialog.findChild<QDoubleSpinBox *>("clim_latitude")->setValue(50.25);
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    QVERIFY(dialog.wroteAnyChanges());
+    double value = 0;
+    swmm_climate_get_ati_weight(e, &value);
+    QCOMPARE(value, exact);
+    double read[12];
+    swmm_climate_get_evap_monthly(e, read, 12);
+    for (int i = 0; i < 12; ++i)
+        QCOMPARE(read[i], values[i]);
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify invalidating a dialog before destroying its engine makes a later direct acceptance signal harmless and rejected. */
+void TestClimatologyDialog::closedEngineCannotBeAccepted()
+{
+    auto e = makeClimateEngine();
+    ClimatologyDialog dialog(e);
+    dialog.invalidateEngine();
+    swmm_engine_destroy(e);
+    QVERIFY(QMetaObject::invokeMethod(&dialog, "onAccept", Qt::DirectConnection));
+    QCOMPARE(dialog.result(), int(QDialog::Rejected));
+    QVERIFY(!dialog.wroteAnyChanges());
+}
+
+/** @brief Verify an unrelated edit in constant-source modes preserves unused monthly evaporation and humidity arrays exactly. */
+void TestClimatologyDialog::constantSourcesRetainUnusedMonthlyValues()
+{
+    auto e = makeClimateEngine();
+    double evap[12], humidity[12];
+    for (int i = 0; i < 12; ++i) {
+        evap[i] = i + .123456789123;
+        humidity[i] = 35 + i;
+    }
+    swmm_climate_set_evap_monthly(e, evap, 12);
+    swmm_climate_set_evap_type(e, 0);
+    swmm_climate_set_humidity_monthly(e, humidity, 12);
+    swmm_climate_set_humidity_type(e, 0);
+    ClimatologyDialog dialog(e);
+    dialog.findChild<QDoubleSpinBox *>("clim_latitude")->setValue(51);
+    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    QVERIFY(dialog.wroteAnyChanges());
+    double values[12];
+    swmm_climate_get_evap_monthly(e, values, 12);
+    for (int i = 0; i < 12; ++i)
+        QCOMPARE(values[i], evap[i]);
+    swmm_climate_get_humidity_monthly(e, values, 12);
+    for (int i = 0; i < 12; ++i)
+        QCOMPARE(values[i], humidity[i]);
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify snow model, 1800-second step, explicit site degrees and cloud fraction survive acceptance.
+ * Checks the snow-step maximum is 3600 seconds and reopening/accepting unchanged settings reports no edits. */
+void TestClimatologyDialog::snowAndRadiationRoundTrip()
+{
+    SWMM_Engine e = makeClimateEngine();
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *model = dlg.findChild<QComboBox *>(QStringLiteral("clim_snowModel"));
+        auto *step = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_snowStep"));
+        auto *site = dlg.findChild<QCheckBox *>(QStringLiteral("clim_radiationSite"));
+        auto *latitude = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_site0"));
+        auto *longitude = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_site1"));
+        auto *shortwave = dlg.findChild<QComboBox *>(QStringLiteral("clim_radiationMode0"));
+        auto *cloud = dlg.findChild<QComboBox *>(QStringLiteral("clim_cloudMode"));
+        auto *fraction = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_cloud0"));
+        QVERIFY(model && step && site && latitude && longitude && shortwave && cloud && fraction);
+        QCOMPARE(step->maximum(), 3600.);
+        cloud->setCurrentIndex(cloud->findData(1));
+        fraction->setValue(.35);
+        model->setCurrentIndex(model->findData(1));
+        step->setValue(1800);
+        site->setChecked(true);
+        latitude->setValue(45);
+        longitude->setValue(-120);
+        shortwave->setCurrentIndex(shortwave->findData(0));
+        dlg.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(dlg.wroteAnyChanges());
+    }
+    int model = -1;
+    double step = 0;
+    SWMM_RadiationConfig radiation{};
+    QCOMPARE(swmm_snow_get_model(e, &model), SWMM_OK);
+    QCOMPARE(model, 1);
+    QCOMPARE(swmm_snow_get_step(e, &step), SWMM_OK);
+    QCOMPARE(step, 1800.);
+    QCOMPARE(swmm_climate_get_radiation(e, &radiation), SWMM_OK);
+    SWMM_ClimateCloudConfig cloud{};
+    char cloudName[256];
+    QCOMPARE(swmm_climate_get_cloud(e, &cloud, cloudName, sizeof(cloudName)), SWMM_OK);
+    QCOMPARE(cloud.mode, 1);
+    QCOMPARE(cloud.fraction, .35);
+    QCOMPARE(radiation.explicit_site, 1);
+    QCOMPARE(radiation.latitude, 45.);
+    QCOMPARE(radiation.longitude, -120.);
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        dlg.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(!dlg.wroteAnyChanges());
+    }
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify draft monthly and constant evaporation previews add the draft adjustment once and explain live-forcing limitations.
+ * Drives and closes each real preview modal with a ten-millisecond timer; checks rates 0.5+0.1=0.6 and 0.7+0.1=0.8 without committing the draft. */
+void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0; // 2020-01-01, OADate
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+    double monthly[12]{};
+    QCOMPARE(swmm_climate_set_evap_monthly(e, monthly, 12), SWMM_OK);
+    double adjustment[12]{};
+    adjustment[0] = 0.25;
+    QCOMPARE(swmm_climate_set_adjust_evaporation(e, adjustment, 12), SWMM_OK);
+
+    ClimatologyDialog dialog(e);
+    auto *help = dialog.findChild<QLabel *>(QStringLiteral("clim_adjustment_help"));
+    QVERIFY(help);
+    QVERIFY(help->text().contains(QStringLiteral("rate added to the source"), Qt::CaseInsensitive));
+    auto *monthlyGrid = dialog.findChild<QTableWidget *>(QStringLiteral("clim_evapMonthly"));
+    auto *adjustments = dialog.findChild<QTableWidget *>(QStringLiteral("clim_adjust"));
+    QVERIFY(monthlyGrid && adjustments);
+    monthlyGrid->item(0, 0)->setText(QStringLiteral("0.5"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.1"));
+    auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(preview && preview->isEnabled());
+
+    bool opened = false, tablePopulated = false, forcingExplained = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        tablePopulated = table && table->rowCount() == 1 && table->item(0, 1) &&
+                         table->item(0, 1)->text() == QStringLiteral("0.5") && table->item(0, 2) &&
+                         table->item(0, 2)->text() == QStringLiteral("0.1") && table->item(0, 3) &&
+                         table->item(0, 3)->text() == QStringLiteral("0.6");
+        forcingExplained =
+            summary && summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY(tablePopulated);
+    QVERIFY(forcingExplained);
+
+    auto *type = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapType"));
+    auto *constant = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("clim_evapConstant"));
+    QVERIFY(type && constant);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_CONSTANT));
+    constant->setValue(0.7);
+    bool constantOpened = false, constantRateShown = false, constantForcingExplained = false;
+    QTimer constantCloser;
+    constantCloser.setInterval(10);
+    QObject::connect(&constantCloser, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        constantOpened = true;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        constantRateShown = table && table->rowCount() == 1 && table->item(0, 1) &&
+                            table->item(0, 1)->text() == QStringLiteral("0.7") &&
+                            table->item(0, 3) && table->item(0, 3)->text() == QStringLiteral("0.8");
+        constantForcingExplained =
+            summary && summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    constantCloser.start();
+    preview->click();
+    constantCloser.stop();
+    QVERIFY(constantOpened);
+    QVERIFY(constantRateShown);
+    QVERIFY(constantForcingExplained);
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify time-series preview holds edge values at a non-midnight window and distinguishes an empty series.
+ * Checks zero-valued source plus adjustment, two held samples, missing-count summaries and the live-forcing caveat while timed callbacks close both previews. */
+void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.5; // 2020-01-01 12:00
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 2.0), SWMM_OK);
+    QCOMPARE(swmm_timeseries_add(e, "preview_evap"), SWMM_OK);
+    QCOMPARE(swmm_timeseries_add(e, "preview_empty"), SWMM_OK);
+    const int series = swmm_table_index(e, "preview_evap");
+    QVERIFY(series >= 0);
+    // The first daily sample precedes the first source value. The following
+    // sample is after the last source value. Both follow the engine's held-edge
+    // rule, while the January adjustment is shown once at each sample.
+    QCOMPARE(swmm_table_add_point(e, series, 43832.0, 0.0), SWMM_OK);
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapType"));
+    auto *seriesBox = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapTs"));
+    auto *adjustments = dialog.findChild<QTableWidget *>(QStringLiteral("clim_adjust"));
+    QVERIFY(type && seriesBox && adjustments);
+    QCOMPARE(seriesBox->accessibleName(), QStringLiteral("Evaporation time series"));
+    type->setCurrentIndex(type->findData(SWMM_EVAP_TIMESERIES));
+    seriesBox->setCurrentText(QStringLiteral("preview_evap"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.1"));
+
+    bool opened = false, correctSamples = false, coverageExplained = false;
+    QStringList previewRows;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        if (table)
+            for (int row = 0; row < table->rowCount(); ++row) {
+                QStringList values;
+                for (int column = 0; column < table->columnCount(); ++column)
+                    values << (table->item(row, column) ? table->item(row, column)->text()
+                                                        : QStringLiteral("<empty>"));
+                previewRows << values.join(QStringLiteral(" | "));
+            }
+        correctSamples = table && table->rowCount() == 2 && table->item(0, 0) &&
+                         table->item(0, 0)->text().endsWith(QStringLiteral("12:00")) &&
+                         table->item(0, 4) &&
+                         table->item(0, 4)->text() == QStringLiteral("Held from previous value") &&
+                         table->item(1, 1) && table->item(1, 1)->text() == QStringLiteral("0") &&
+                         table->item(1, 2) && table->item(1, 2)->text() == QStringLiteral("0.1") &&
+                         table->item(1, 3) && table->item(1, 3)->text() == QStringLiteral("0.1") &&
+                         table->item(1, 4) &&
+                         table->item(1, 4)->text() == QStringLiteral("Held from previous value");
+        coverageExplained = summary && summary->text().contains(QStringLiteral("held: 2")) &&
+                            summary->text().contains(QStringLiteral("missing: 0")) &&
+                            summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    closer.start();
+    dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"))->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY2(
+        correctSamples,
+        qPrintable(
+            QStringLiteral(
+                "Preview must expose held zero source and one adjustment at the non-midnight window. Rows: %1")
+                .arg(previewRows.join(QStringLiteral("; ")))));
+    QVERIFY(coverageExplained);
+
+    bool missingDataShown = false;
+    QTimer missingCloser;
+    missingCloser.setInterval(10);
+    QObject::connect(&missingCloser, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        missingDataShown = table && table->rowCount() == 2 && table->item(0, 4) &&
+                           table->item(0, 4)->text() == QStringLiteral("Missing source data") &&
+                           table->item(1, 4) &&
+                           table->item(1, 4)->text() == QStringLiteral("Missing source data") &&
+                           summary && summary->text().contains(QStringLiteral("missing: 2"));
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    seriesBox->setCurrentText(QStringLiteral("preview_empty"));
+    missingCloser.start();
+    dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"))->click();
+    missingCloser.stop();
+    QVERIFY(missingDataShown);
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify a temporary pan file preview reports available and gap-held daily rates with pan coefficients and adjustment.
+ * Checks three rows and held/missing summary counts; the missing day retains the previous effective rate without applying the adjustment a second time. */
+void TestClimatologyDialog::evaporationPanFilePreviewShowsGapHoldAndAdjustment()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0; // 2020-01-01
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 3.0), SWMM_OK);
+    QTemporaryFile climate;
+    QVERIFY(climate.open());
+    const QByteArray rows = "STA1 2020 01 01 20.0 10.0 0.10 2.0\n"
+                            "STA1 2020 01 03 20.0 10.0 0.30 2.0\n";
+    QCOMPARE(climate.write(rows), qint64(rows.size()));
+    climate.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapType"));
+    auto *tempSource = dialog.findChild<QComboBox *>(QStringLiteral("clim_tempSource"));
+    auto *file =
+        dialog.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("clim_tempFile"));
+    auto *pan = dialog.findChild<QTableWidget *>(QStringLiteral("clim_panCoeff"));
+    auto *adjustments = dialog.findChild<QTableWidget *>(QStringLiteral("clim_adjust"));
+    auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(type && tempSource && file && pan && adjustments && preview);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_FILE));
+    tempSource->setCurrentIndex(2);
+    file->setPath(climate.fileName());
+    pan->item(0, 0)->setText(QStringLiteral("2"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.05"));
+
+    QStringList rowsShown;
+    QString summaryText;
+    bool opened = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        if (table)
+            for (int row = 0; row < table->rowCount(); ++row) {
+                QStringList values;
+                for (int column = 0; column < table->columnCount(); ++column)
+                    values << (table->item(row, column) ? table->item(row, column)->text()
+                                                        : QStringLiteral("<empty>"));
+                rowsShown << values.join(QStringLiteral(" | "));
+            }
+        if (summary)
+            summaryText = summary->text();
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY2(rowsShown.size() == 3, qPrintable(rowsShown.join(QStringLiteral("; "))));
+    QVERIFY(rowsShown[0].contains(QStringLiteral(" | 0.2 | 0.05 | 0.25 | Available")));
+    QVERIFY(rowsShown[1].contains(QStringLiteral(" | 0.2 | 0 | 0.25 | Held from previous value")));
+    QVERIFY(rowsShown[2].contains(QStringLiteral(" | 0.6 | 0.05 | 0.65 | Available")));
+    QVERIFY(summaryText.contains(QStringLiteral("held: 1")));
+    QVERIFY(summaryText.contains(QStringLiteral("missing: 0")));
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify a temperature-file evaporation preview displays a positive rate labeled Daily estimate and counts one daily estimate. */
+void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+    QTemporaryFile climate;
+    QVERIFY(climate.open());
+    const QByteArray rows = "STA1 2020 01 01 20.0 10.0 0.10 2.0\n";
+    QCOMPARE(climate.write(rows), qint64(rows.size()));
+    climate.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapType"));
+    auto *tempSource = dialog.findChild<QComboBox *>(QStringLiteral("clim_tempSource"));
+    auto *file =
+        dialog.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("clim_tempFile"));
+    auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(type && tempSource && file && preview);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_TEMPERATURE));
+    tempSource->setCurrentIndex(2);
+    file->setPath(climate.fileName());
+
+    bool estimateShown = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+            return;
+        auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel *>(QStringLiteral("clim_evapPreviewSummary"));
+        estimateShown = table && table->rowCount() == 1 && table->item(0, 1) &&
+                        table->item(0, 1)->text().toDouble() > 0.0 && table->item(0, 4) &&
+                        table->item(0, 4)->text() == QStringLiteral("Daily estimate") && summary &&
+                        summary->text().contains(QStringLiteral("daily estimates: 1"));
+        if (auto *box = modal->findChild<QDialogButtonBox *>())
+            if (auto *close = box->button(QDialogButtonBox::Close))
+                close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(estimateShown);
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify preview headers and values use inches/day for CFS and millimetres/day for CMS.
+ * Checks engine unit-system selection and preserves equivalent constant-source values 1 and 25.4 in their respective display units. */
+void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+
+    /** @brief Probe one flow-unit selection through its modal evaporation preview.
+     * Argument `flowUnits`: Required C API flow-unit token applied to the captured engine.
+     * Argument `expectedSystem`: Expected engine unit-system integer.
+     * Argument `sourceRate`: Constant draft rate in the selected display units.
+     * Argument `rateUnit`: Required unit-label substring for source, adjustment and effective columns.
+     * Returns: True when widgets exist, unit selection succeeds and the preview shows the expected headers and unchanged rate; false otherwise. A ten-millisecond callback closes the expected modal. */
+    const auto previewMatchesUnits = [e](const char *flowUnits, int expectedSystem,
+                                         double sourceRate, const QString &rateUnit) {
+        if (swmm_options_set(e, "FLOW_UNITS", flowUnits) != SWMM_OK)
+            return false;
+        int unitSystem = -1;
+        if (swmm_get_unit_system(e, &unitSystem) != SWMM_OK || unitSystem != expectedSystem)
+            return false;
+        ClimatologyDialog dialog(e);
+        auto *type = dialog.findChild<QComboBox *>(QStringLiteral("clim_evapType"));
+        auto *constant = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("clim_evapConstant"));
+        auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("clim_evapPreview"));
+        if (!type || !constant || !preview)
+            return false;
+        type->setCurrentIndex(type->findData(SWMM_EVAP_CONSTANT));
+        constant->setValue(sourceRate);
+
+        bool matched = false;
+        QTimer closer;
+        closer.setInterval(10);
+        QObject::connect(&closer, &QTimer::timeout, [&] {
+            auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog"))
+                return;
+            auto *table = modal->findChild<QTableWidget *>(QStringLiteral("clim_evapPreviewTable"));
+            if (table && table->rowCount() == 1 && table->columnCount() == 5) {
+                matched =
+                    table->horizontalHeaderItem(1)->text().contains(rateUnit) &&
+                    table->horizontalHeaderItem(2)->text().contains(rateUnit) &&
+                    table->horizontalHeaderItem(3)->text().contains(rateUnit) &&
+                    table->item(0, 1) && table->item(0, 1)->text() == QString::number(sourceRate) &&
+                    table->item(0, 3) && table->item(0, 3)->text() == QString::number(sourceRate);
+            }
+            if (auto *box = modal->findChild<QDialogButtonBox *>())
+                if (auto *close = box->button(QDialogButtonBox::Close))
+                    close->click();
+        });
+        closer.start();
+        preview->click();
+        closer.stop();
+        return matched;
+    };
+
+    QVERIFY(previewMatchesUnits("CFS", 0, 1.0, QStringLiteral("in/day")));
+    QVERIFY(previewMatchesUnits("CMS", 1, 25.4, QStringLiteral("mm/day")));
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify the meteorology-file preview explains that file radiation overrides selected series and computed values.
+ * Creates a six-hour temporary forcing fixture and captures/dismisses the real preview message. */
+void TestClimatologyDialog::meteorologyPreviewStatesRadiationPrecedence()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 6.0 / 24.0), SWMM_OK);
+    QTemporaryFile met;
+    QVERIFY(met.open());
+    QByteArray rows;
+    for (int hour = 0; hour <= 6; ++hour) {
+        rows += "01/01/2020 ";
+        rows += QByteArray::number(hour).rightJustified(2, '0');
+        rows += ":00 2 70 1 100 200\n";
+    }
+    QCOMPARE(met.write(rows), qint64(rows.size()));
+    met.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *file =
+        dialog.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("clim_metFile"));
+    auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("clim_metPreview"));
+    QVERIFY(file && preview);
+    file->setPath(met.fileName());
+
+    QString previewText;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+            previewText = box->text();
+            box->accept();
+        }
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY2(previewText.contains(
+                 QStringLiteral("radiation overrides selected series and computed values"),
+                 Qt::CaseInsensitive),
+             qPrintable(previewText));
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify a null-engine dialog constructs safely and reports no written changes. */
 void TestClimatologyDialog::constructsWithNullEngine()
 {
     // Must not crash with no engine (read path early-returns).
@@ -55,6 +725,7 @@ void TestClimatologyDialog::constructsWithNullEngine()
     QCOMPARE(dlg.wroteAnyChanges(), false);
 }
 
+/** @brief Verify latitude, snow-temperature and monthly-evaporation mode widgets hydrate from the synthetic engine without marking changes. */
 void TestClimatologyDialog::hydratesFromEngine()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -66,12 +737,13 @@ void TestClimatologyDialog::hydratesFromEngine()
     QVERIFY(lat && snow && evap);
     QCOMPARE(lat->value(), 41.5);
     QCOMPARE(snow->value(), 33.0);
-    QCOMPARE(evap->currentData().toInt(), 1);   // MONTHLY
+    QCOMPARE(evap->currentData().toInt(), 1); // MONTHLY
     QCOMPARE(dlg.wroteAnyChanges(), false);
 
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accepting an edited latitude writes 50.25 degrees through to the engine and records a change. */
 void TestClimatologyDialog::writesEditsBackOnOk()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -83,7 +755,7 @@ void TestClimatologyDialog::writesEditsBackOnOk()
 
     auto *bb = dlg.findChild<QDialogButtonBox *>();
     QVERIFY(bb);
-    bb->button(QDialogButtonBox::Ok)->click();   // → onAccept → writeToEngine
+    bb->button(QDialogButtonBox::Ok)->click(); // → onAccept → writeToEngine
 
     QVERIFY(dlg.wroteAnyChanges());
     double v = 0.0;
@@ -93,6 +765,7 @@ void TestClimatologyDialog::writesEditsBackOnOk()
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify accepting an untouched climate dialog reports no changes. */
 void TestClimatologyDialog::noOpOkDoesNotMarkChanged()
 {
     SWMM_Engine e = makeClimateEngine();
@@ -100,22 +773,71 @@ void TestClimatologyDialog::noOpOkDoesNotMarkChanged()
 
     auto *bb = dlg.findChild<QDialogButtonBox *>();
     QVERIFY(bb);
-    bb->button(QDialogButtonBox::Ok)->click();   // no edits made
+    bb->button(QDialogButtonBox::Ok)->click(); // no edits made
 
     QCOMPARE(dlg.wroteAnyChanges(), false);
     swmm_engine_destroy(e);
 }
 
+/** @brief Exercise valid and oversized tab requests without crashing.
+ * This slot does not inspect the selected index or assert the exact out-of-range clamping policy. */
 void TestClimatologyDialog::setCurrentTabClamps()
 {
     SWMM_Engine e = makeClimateEngine();
     ClimatologyDialog dlg(e, nullptr);
-    dlg.setCurrentTab(ClimatologyDialog::TabAdjustments);  // last tab
-    dlg.setCurrentTab(999);                                // out of range: no crash
+    dlg.setCurrentTab(ClimatologyDialog::TabAdjustments); // last tab
+    dlg.setCurrentTab(999);                               // out of range: no crash
     dlg.setCurrentTab(ClimatologyDialog::TabTemperature);
     swmm_engine_destroy(e);
 }
 
+/** @brief Verify dew-point/time-series humidity hydrates and switching to constant relative humidity writes 72.5 percent to all months. */
+void TestClimatologyDialog::humidityTabRoundTrips()
+{
+    // Hydrate: a DEWPOINT / TIMESERIES engine shows up in the new tab.
+    SWMM_Engine e = makeClimateEngine();
+    QCOMPARE(swmm_climate_set_humidity_variable(e, SWMM_HUMIDITY_DEWPOINT), SWMM_OK);
+    QCOMPARE(swmm_climate_set_humidity_timeseries(e, "rh_ts"), SWMM_OK);
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *var = dlg.findChild<QComboBox *>(QStringLiteral("clim_humVar"));
+        auto *type = dlg.findChild<QComboBox *>(QStringLiteral("clim_humType"));
+        QVERIFY(var && type);
+        QCOMPARE(var->currentData().toInt(), int(SWMM_HUMIDITY_DEWPOINT));
+        QCOMPARE(type->currentData().toInt(), int(SWMM_HUMIDITY_TIMESERIES));
+        QCOMPARE(dlg.wroteAnyChanges(), false);
+    }
+
+    // Write back: switch to a constant RH and OK.
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *var = dlg.findChild<QComboBox *>(QStringLiteral("clim_humVar"));
+        auto *type = dlg.findChild<QComboBox *>(QStringLiteral("clim_humType"));
+        auto *val = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("clim_humConstant"));
+        QVERIFY(var && type && val);
+        var->setCurrentIndex(var->findData(int(SWMM_HUMIDITY_RELATIVE)));
+        type->setCurrentIndex(type->findData(int(SWMM_HUMIDITY_CONSTANT)));
+        val->setValue(72.5);
+
+        auto *bb = dlg.findChild<QDialogButtonBox *>();
+        QVERIFY(bb);
+        bb->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(dlg.wroteAnyChanges());
+    }
+    int i = -1;
+    QCOMPARE(swmm_climate_get_humidity_variable(e, &i), SWMM_OK);
+    QCOMPARE(i, int(SWMM_HUMIDITY_RELATIVE));
+    QCOMPARE(swmm_climate_get_humidity_type(e, &i), SWMM_OK);
+    QCOMPARE(i, int(SWMM_HUMIDITY_CONSTANT));
+    double h[12] = {};
+    QCOMPARE(swmm_climate_get_humidity_monthly(e, h, 12), SWMM_OK);
+    QCOMPARE(h[0], 72.5);
+    QCOMPARE(h[11], 72.5);
+
+    swmm_engine_destroy(e);
+}
+
+/** @brief Verify the null-engine dialog satisfies the shared accessible-label and buddy checks. */
 void TestClimatologyDialog::a11yInvariantsHold()
 {
     ClimatologyDialog dlg(nullptr, nullptr);

@@ -1,0 +1,1580 @@
+/**
+ * @file      inpmeshwriter.cpp
+ * @brief     emit `[2D_VERTICES]` / `[2D_TRIANGLES]` / `[2D_VERTEX_NODE_MAP]` /
+ *            `[2D_TRIANGLE_NODE_MAP]` (plus the GG0a `[2D_INFILTRATION*]` family) sections from a
+ *            MeshResult + a CouplingMap, and patch them into a SWMM `.inp` file (replacing
+ *            existing sections in place).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   Apache-2.0
+ *
+ * Slice AU — InpMeshWriter implementation. Section formats per
+ * openswmm.engine/docs/2dModelStrategy.md §1.4–1.7.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ */
+
+#include "mesh/inpmeshwriter.h"
+#include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshinfil.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QList>
+#include <QPair>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
+#include <QTextStream>
+
+#include <QtCore/QChar>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace mesh
+{
+
+// Out-of-line default ctor (declared in the header) — see UnitInfo's comment.
+InpMeshWriter::UnitInfo::UnitInfo() = default;
+
+namespace
+{
+
+// Mesh files are persistence, not a display table. max_digits10 guarantees
+// recovery of the original finite double through the decimal parser; fixed
+// decimal formatting can merge close vertices or turn positive values to zero.
+constexpr int kPersistencePrecision = std::numeric_limits<double>::max_digits10;
+
+constexpr const char *kSecVertices = "[2D_VERTICES]";
+constexpr const char *kSecTriangles = "[2D_TRIANGLES]";
+constexpr const char *kSecQuads = "[2D_QUADS]"; // engine 2026-09-06 mixed meshes
+constexpr const char *kSecVertexNodeMap = "[2D_VERTEX_NODE_MAP]";
+constexpr const char *kSecTriangleNodeMap = "[2D_TRIANGLE_NODE_MAP]";
+constexpr const char *kSecMeshFile = "[2D_MESH_FILE]";
+// GG0a — per-cell infiltration. These are per-cell mesh attributes, so they
+// follow the mesh: into the external .2dm when one is in use, inline
+// otherwise (engine SectionHandlers2D.cpp §5.5.5 parses them from both).
+constexpr const char *kSecInfilOptions = "[2D_INFILTRATION_OPTIONS]";
+constexpr const char *kSecInfilDefaults = "[2D_INFILTRATION_DEFAULTS]";
+constexpr const char *kSecInfil = "[2D_INFILTRATION]";
+
+/**
+ * @brief Serialize ordered raw xyz vertices and optional tags with finite-double round-trip
+ * precision.
+ * @param[in] mesh Borrowed vertex array, unchanged; coordinates/elevations retain authored
+ * length units.
+ * @return Owned vertices section, including header when empty. No finite/token validation,
+ * quoting, index conversion, metadata emission, file access or retained input references.
+ */
+QString formatVertices(const MeshResult &mesh)
+{
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+
+    s << kSecVertices << "\n";
+    s << ";; X            Y            Z            TAG\n";
+    // No XY conversion: the engine multiplies by 0.3048 in
+    // SurfaceRouter2D::initialize when SWMM FLOW_UNITS is US, so the file
+    // is expected to carry project-CRS values. The unit is described in
+    // the ;; UNITS: header, which the engine uses to recognize SI mesh values.
+    for (const MeshVertex &v : mesh.vertices) {
+        s << v.xy.x() << "  " << v.xy.y() << "  " << v.z;
+        if (!v.tag.isEmpty())
+            s << "  " << v.tag;
+        s << "\n";
+    }
+    s << "\n";
+    return out;
+}
+
+/**
+ * @brief Serialize one triangle or quad class while retaining global cell-index roughness
+ * lookups.
+ * @param[in] mesh Borrowed cells in engine order, unchanged; raw connectivity/depth/tag values
+ * emitted.
+ * @param[in] coupling Borrowed roughness map, keyed by global cell index; mesh.mannings is
+ * ignored.
+ * @param[in] defaultMannings Authored roughness fallback, unchecked.
+ * @param[in] quads True selects four-vertex cells, false three-vertex cells.
+ * @return Owned section including empty header. Any non-NaN nonzero depth or nonempty tag
+ * anywhere enables the depth column for every row; NaN depth writes zero. Nonfinite other values
+ * are not rejected. No geometry, token, physical range validation or conversion; no file writes
+ * or pointer retention.
+ *
+ * @details One cell section: `[2D_TRIANGLES]` (\p quads false — triangle cells only) or
+ * `[2D_QUADS]` (\p quads true — quad cells only, `V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`).
+ * MeshResult::triangles holds every cell in engine order (triangles first, then quads), so the
+ * cell index used for \p coupling lookups is the position in that vector.
+ */
+QString formatCellSection(const MeshResult &mesh, const CouplingMap &coupling,
+                          double defaultMannings, bool quads)
+{
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+
+    s << (quads ? kSecQuads : kSecTriangles) << "\n";
+    // INIT_DEPTH (m, engine default 0 = dry) sits between MANNINGS_N and
+    // TAG. Emit the column for every row whenever any cell carries a
+    // depth or a tag, so TAG's position stays unambiguous on re-read (the
+    // engine applies the same mesh-wide rule to both sections).
+    bool anyDepth = false, anyTag = false;
+    for (const MeshTriangle &t : mesh.triangles) {
+        if (!std::isnan(t.initDepth) && t.initDepth != 0.0)
+            anyDepth = true;
+        if (!t.tag.isEmpty())
+            anyTag = true;
+    }
+    const bool writeDepthCol = anyDepth || anyTag;
+    if (quads)
+        s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
+    else
+        s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                            : ";; V1   V2   V3   MANNINGS_N   TAG\n");
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const MeshTriangle &t = mesh.triangles[i];
+        if (t.isQuad() != quads)
+            continue;
+        const double n = coupling.triangleMannings.value(i, defaultMannings);
+        s << t.v0 << "  " << t.v1 << "  " << t.v2;
+        if (quads)
+            s << "  " << t.v3;
+        s << "  " << n;
+        if (writeDepthCol)
+            s << "  " << (std::isnan(t.initDepth) ? 0.0 : t.initDepth);
+        if (!t.tag.isEmpty())
+            s << "  " << t.tag;
+        s << "\n";
+    }
+    s << "\n";
+    return out;
+}
+
+/**
+ * @brief Concatenate triangle rows and a quad section only when the mesh contains quads.
+ * @param[in] mesh Borrowed mixed cells, unchanged; caller ensures triangles precede quads in
+ * engine order.
+ * @param[in] coupling Borrowed global-index roughness map, unchanged.
+ * @param[in] defaultMannings Authored roughness fallback, unchecked.
+ * @return Owned sections using formatCellSection precision/depth rules; triangle header always
+ * emitted. No validation, metadata conversion, external state mutation or retained references.
+ *
+ * @details `[2D_TRIANGLES]` followed by `[2D_QUADS]` — the latter ONLY when the mesh holds a
+ * quad, so all-triangle output is byte-identical to the pre-quad writer.
+ */
+QString formatTriangles(const MeshResult &mesh, const CouplingMap &coupling, double defaultMannings)
+{
+    QString out = formatCellSection(mesh, coupling, defaultMannings, /*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatCellSection(mesh, coupling, defaultMannings, /*quads=*/true);
+    return out;
+}
+
+/**
+ * @brief Serialize vertex-to-node map entries and authored discharge/area overrides.
+ * @param[in] mesh Borrowed vertices, unchanged; valid map keys index this storage.
+ * @param[in] coupling Borrowed hash map, unchanged; out-of-range keys skip, iteration order
+ * unspecified.
+ * @return Empty for empty map, otherwise owned section, possibly header-only. Nonempty vertex
+ * tags replace numeric references without uniqueness validation. CD emitted when CD or AREA is
+ * authored; AREA follows only when authored. Names/scalars are not validated or escaped; no
+ * conversion/IO.
+ */
+QString formatVertexNodeMap(const MeshResult &mesh, const CouplingMap &coupling)
+{
+    if (coupling.vertexToNode.isEmpty())
+        return {};
+
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+    s << kSecVertexNodeMap << "\n";
+    s << ";; VERTEX_INDEX_OR_TAG    SWMM_NODE_NAME    CD    AREA\n";
+    // QHash iteration order is unspecified. Prefer the vertex's TAG over the index
+    // when present — the engine accepts both, but tag form is more
+    // robust to edits that renumber vertices.
+    for (auto it = coupling.vertexToNode.cbegin(); it != coupling.vertexToNode.cend(); ++it) {
+        const int vIdx = it.key();
+        const QString &node = it.value();
+        if (vIdx < 0 || vIdx >= mesh.vertices.size())
+            continue;
+        const MeshVertex &mv = mesh.vertices[vIdx];
+        if (!mv.tag.isEmpty())
+            s << mv.tag;
+        else
+            s << vIdx;
+        s << "        " << node;
+        // Unauthored tokens are left out (the engine applies COUPLING_CD /
+        // the node's structure); an authored AREA needs the CD column too.
+        if (mv.couplingCdSet || mv.couplingAreaSet)
+            s << "  " << mv.couplingCd;
+        if (mv.couplingAreaSet)
+            s << "  " << mv.couplingArea;
+        s << "\n";
+    }
+    s << "\n";
+    return out;
+}
+
+/**
+ * @brief Serialize hash-based cell mappings followed by ordered explicit multi-node coupling
+ * rows.
+ * @param[in] mesh Borrowed cells/cellCouplings, unchanged; invalid cell keys and empty explicit
+ * node IDs skip.
+ * @param[in] coupling Borrowed hash map, unchanged; valid keys prefer cell tag over index,
+ * unordered iteration.
+ * @return Empty when both containers empty, otherwise owned section. Explicit cellCouplings use
+ * numeric indices and authored CD/AREA columns; duplicates across containers remain. Tags/node
+ * IDs and numeric parameters are not validated, escaped or converted; no file/engine state
+ * mutation or retained pointers.
+ */
+QString formatTriangleNodeMap(const MeshResult &mesh, const CouplingMap &coupling)
+{
+    if (coupling.triangleToNode.isEmpty() && mesh.cellCouplings.isEmpty())
+        return {};
+
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+    s << kSecTriangleNodeMap << "\n";
+    s << ";; TRIANGLE_INDEX_OR_TAG  SWMM_NODE_NAME    CD    AREA\n";
+    for (auto it = coupling.triangleToNode.cbegin(); it != coupling.triangleToNode.cend(); ++it) {
+        const int tIdx = it.key();
+        const QString &node = it.value();
+        if (tIdx < 0 || tIdx >= mesh.triangles.size())
+            continue;
+        const QString &tag = mesh.triangles[tIdx].tag;
+        if (!tag.isEmpty())
+            s << tag;
+        else
+            s << tIdx;
+        s << "      " << node << "\n";
+    }
+    // Node→cell coupling rows (Plan Part C) — repeated-row form: several
+    // nodes may couple to one triangle, one row each, CD + AREA when
+    // authored. Written by INDEX (not tag): coupling triangles usually carry
+    // a subcatchment tag that is not unique per triangle.
+    for (const CellCoupling &cc : mesh.cellCouplings) {
+        if (cc.tri < 0 || cc.tri >= mesh.triangles.size())
+            continue;
+        if (cc.nodeId.isEmpty())
+            continue;
+        s << cc.tri << "      " << cc.nodeId;
+        if (cc.cdSet || cc.areaSet)
+            s << "  " << cc.cd;
+        if (cc.areaSet)
+            s << "  " << cc.area;
+        s << "\n";
+    }
+    s << "\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// GG0a — [2D_INFILTRATION_OPTIONS] / _DEFAULTS / [2D_INFILTRATION]
+//
+// Grammar mirrors the engine's InpWriter.cpp emit2DInfilSections() /
+// SectionHandlers2D.cpp parseInfil2DRowTail() byte-for-byte:
+//
+//     [2D_INFILTRATION_DEFAULTS]
+//     ;;TAG   METHOD   P1 P2 P3 P4 P5   DEST
+//     *       NONE
+//     LAWN    HORTON   3  0.5  4.14  7  0   LOST
+//     [2D_INFILTRATION]
+//     ;;CELL  METHOD   P1 P2 P3 P4 P5   DEST
+//     1043    CURVE_NUMBER  85  -  0.5  LOST
+//
+// - CELL is 1-BASED in the file, 0-based in MeshResult::infilOverrides.
+// - `-` means "unset"; the parser leaves the slot at its default.
+// - Trailing columns the method does not use are trimmed to
+//   mesh::infilParamCount(); the one interior unused slot (Curve Number's
+//   middle column) is emitted as `-` so the columns after it keep position.
+// - DEST is recognised as the last token when it is neither numeric nor `-`.
+// - A NONE row carries neither parameters nor a destination.
+//
+// NOT appended to [2D_TRIANGLES]: its columns are positional
+// (V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]) and appending would break every
+// existing mesh.
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Render method-specific infiltration parameters and destination in positional native
+ * syntax.
+ * @param[in] row Borrowed authoring row, unchanged; only infilParamCount(method) slots emitted,
+ * unused/NaN slots '-'.
+ * @return Owned method tail; exact None returns only method token. Other methods append
+ * destination, including legacy tokens for round trip. No physical/range/finite validation, unit
+ * conversion or IO.
+ *
+ * @details `METHOD [P1..Pn] [DEST]` — the row tail shared by both sections.
+ */
+QString formatInfilRowTail(const InfilRow &row)
+{
+    QString out = infilMethodToken(row.method);
+    if (row.isNone())
+        return out; // no parameters, no destination
+    const int n = infilParamCount(row.method);
+    for (int k = 0; k < n && k < kInfilMaxParams; ++k) {
+        out += QChar(' ');
+        if (!infilUsesParam(row.method, k) || std::isnan(row.p[k]))
+            out += QStringLiteral("-");
+        else
+            out += QString::number(row.p[k], 'g', kPersistencePrecision);
+    }
+    out += QChar(' ');
+    out += infilDestToken(row.dest);
+    return out;
+}
+
+/**
+ * @brief Render the infiltration-step options section when a positive step is authored.
+ * @param[in] mesh Borrowed infiltration step in seconds, unchanged; <=0 or NaN omits section.
+ * @return Owned section or empty. Finite integer seconds below LONG_MAX become h:mm:ss; other
+ * positive values use round-trip decimal precision. Does not reject infinity, validate solver
+ * compatibility, convert units or modify caller/file state.
+ *
+ * @details `[2D_INFILTRATION_OPTIONS]`. Omitted entirely when the cadence is at the engine
+ * default (<= 0 = "use the project WET_STEP").
+ */
+QString formatInfilOptions(const MeshResult &mesh)
+{
+    const double s = mesh.infilOptions.infilStep;
+    if (!(s > 0.0))
+        return {};
+
+    // Same clock grammar the engine's fmt_step() emits and its
+    // parse_time_seconds() accepts: h:mm:ss for a whole number of seconds,
+    // plain seconds otherwise.
+    QString value;
+    if (std::isfinite(s) && s == std::floor(s) && s < double(std::numeric_limits<long>::max())) {
+        const long r = static_cast<long>(s);
+        value = QStringLiteral("%1:%2:%3")
+                    .arg(r / 3600)
+                    .arg((r / 60) % 60, 2, 10, QChar('0'))
+                    .arg(r % 60, 2, 10, QChar('0'));
+    } else {
+        value = QString::number(s, 'g', kPersistencePrecision);
+    }
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilOptions);
+    out += QChar('\n');
+    out += QStringLiteral(";;Parameter             Value\n");
+    out += QStringLiteral("INFIL_STEP             %1\n").arg(value);
+    return out;
+}
+
+/**
+ * @brief Serialize nonempty-tag infiltration defaults in their stored order.
+ * @param[in] mesh Borrowed defaults, unchanged; empty tags skip without validation of other
+ * fields.
+ * @return Empty for an empty defaults vector, otherwise owned section, possibly header-only.
+ * Delegates parameter/destination rendering, retains raw project units, performs no file access
+ * or token escaping.
+ *
+ * @details `[2D_INFILTRATION_DEFAULTS]` — the tag rows, `*` = mesh-wide fallback. Emitted in
+ * authoring order so a hand-edited file keeps its shape.
+ */
+QString formatInfilDefaults(const MeshResult &mesh)
+{
+    if (mesh.infilDefaults.isEmpty())
+        return {};
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilDefaults);
+    out += QChar('\n');
+    out += QStringLiteral(";;TAG           METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (const InfilDefaultRow &d : mesh.infilDefaults) {
+        if (d.tag.isEmpty())
+            continue; // a tagless default has no meaning
+        out += QStringLiteral("%1 %2\n").arg(d.tag, -15).arg(formatInfilRowTail(d.row));
+    }
+    return out;
+}
+
+/**
+ * @brief Serialize valid cell infiltration overrides in ascending stored cell-key order.
+ * @param[in] mesh Borrowed override hash/cell count, unchanged; negative/out-of-range keys skip.
+ * @return Empty for empty hash, otherwise owned section, possibly header-only. Emits native CELL
+ * key+1 and method tail with raw parameter units. Allocates sorted keys/text; no source mutation
+ * or retained references.
+ *
+ * @details `[2D_INFILTRATION]` — the sparse per-cell overrides. QHash iteration order is
+ * unspecified, so rows are emitted in ascending triangle order; without that a save with no
+ * edits still produces a different file every time.
+ */
+QString formatInfilOverrides(const MeshResult &mesh)
+{
+    if (mesh.infilOverrides.isEmpty())
+        return {};
+
+    QList<int> tris = mesh.infilOverrides.keys();
+    std::sort(tris.begin(), tris.end());
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfil);
+    out += QChar('\n');
+    out += QStringLiteral(";;CELL          METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (int t : tris) {
+        if (t < 0 || t >= mesh.triangles.size())
+            continue; // stale index
+        // CELL is 1-BASED in the file.
+        out += QStringLiteral("%1 %2\n")
+                   .arg(t + 1, -15)
+                   .arg(formatInfilRowTail(mesh.infilOverrides.value(t)));
+    }
+    return out;
+}
+
+/**
+ * @brief Concatenate optional infiltration options, tag defaults and explicit cell overrides.
+ * @param[in] mesh Borrowed authoring infiltration state, unchanged.
+ * @return Owned text using the component omission/precision/validation rules; empty when all
+ * omitted. No validation, conversion, file/engine effects or input ownership transfer.
+ *
+ * @details All three infiltration sections, in the engine's emission order. Empty when the mesh
+ * carries no infiltration data at all.
+ */
+QString formatInfilSections(const MeshResult &mesh)
+{
+    return formatInfilOptions(mesh) + formatInfilDefaults(mesh) + formatInfilOverrides(mesh);
+}
+
+/**
+ * @brief Remove selected bracketed sections and normalize surviving final newlines in owned
+ * text.
+ * @param[in] originalText Borrowed whole input, unchanged; first-semicolon tails stripped only
+ * for header recognition.
+ * @param[in] ours Borrowed case-insensitive complete bracketed section names to remove,
+ * unchanged.
+ * @return Owned retained lines, with selected header/body/comment rows omitted through the next
+ * section. Unknown sections and comments outside removed sections survive. No grammar, unit or
+ * topology validation, filesystem access or retained input views; allocates a full line
+ * list/output.
+ *
+ * @details Strip every section named in \p ours from \p originalText.
+ */
+QString stripSections(const QString &originalText, const QStringList &ours)
+{
+    const QStringList lines = originalText.split(QChar('\n'), Qt::KeepEmptyParts);
+    QString out;
+    out.reserve(originalText.size());
+    bool inStripped = false;
+    for (const QString &raw : lines) {
+        const QString trimmed = raw.section(QChar(';'), 0, 0).trimmed();
+        // Section headers can carry a trailing comment too. Keep raw text
+        // for surviving sections; parse only the header's uncommented part.
+        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']'))) {
+            inStripped = ours.contains(trimmed, Qt::CaseInsensitive);
+            if (inStripped)
+                continue;
+        }
+        if (inStripped)
+            continue;
+        out.append(raw);
+        out.append(QChar('\n'));
+    }
+    // split + join with KeepEmptyParts adds one trailing newline; trim it
+    // so we don't accumulate them across repeated rewrites.
+    while (out.endsWith(QStringLiteral("\n\n")))
+        out.chop(1);
+    return out;
+}
+
+/**
+ * @brief Remove the explicitly GUI-owned geometry, coupling, infiltration and edge sections.
+ * @param[in] originalText Borrowed whole input, unchanged.
+ * @param[in] alsoMeshFileRef Also remove [2D_MESH_FILE] when true; otherwise preserve its block.
+ * @return Owned stripped text. Other [2D_*] sections, including model options and unsupported
+ * indexed configuration, survive; this is not a topology safety check. Uses stripSections
+ * header/newline rules.
+ *
+ * @details Strip every `[2D_*]` mesh-data section we own from \p originalText. When \p
+ * alsoMeshFileRef is true the `[2D_MESH_FILE]` block is also stripped — used for the inline-mode
+ * write where we want to remove a stale external reference. The external-mode write keeps
+ * `[2D_MESH_FILE]` alive (and updates its FILE token if needed). `[2D_OPTIONS]` is always
+ * preserved (user-edited in the simulation-options dialog).
+ */
+QString stripExistingMeshSections(const QString &originalText, bool alsoMeshFileRef)
+{
+    QStringList ours = {
+        QStringLiteral("[2D_VERTICES]"),
+        QStringLiteral("[2D_TRIANGLES]"),
+        QStringLiteral("[2D_QUADS]"),
+        QStringLiteral("[2D_VERTEX_NODE_MAP]"),
+        QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
+        QStringLiteral("[2D_BOUNDARY_CONDITIONS]"), // §V.VD.1
+        QStringLiteral("[2D_EDGE_CONVEYANCE]"),     // Engine §11A
+        // GG0a — per-cell infiltration follows the mesh, so the .inp's copy
+        // must go whenever the mesh moves out to a .2dm. Leaving it behind
+        // would not lose data (the engine lets a sidecar section replace the
+        // inline one) but it would strand a stale copy that resurrects the
+        // moment the user deletes every override.
+        QStringLiteral("[2D_INFILTRATION_OPTIONS]"),
+        QStringLiteral("[2D_INFILTRATION_DEFAULTS]"),
+        QStringLiteral("[2D_INFILTRATION]"),
+    };
+    if (alsoMeshFileRef)
+        ours.append(QStringLiteral("[2D_MESH_FILE]"));
+    return stripSections(originalText, ours);
+}
+
+/**
+ * @brief Collect nonblank noncomment data rows from every matching section in source order.
+ * @param[in] text Borrowed whole input, unchanged; only trimmed bracket-ending headers
+ * recognized.
+ * @param[in] secName Borrowed complete section name, case-insensitive, unchanged.
+ * @return Owned rows with first-semicolon tails stripped. Repeated sections concatenate; header
+ * comments are not removed before header recognition. No token/numeric validation or file
+ * access.
+ *
+ * @details Collect the data rows (non-empty, non-comment, inline comments stripped) of section
+ * \p secName from \p text, in file order.
+ */
+QStringList sectionDataRows(const QString &text, const char *secName)
+{
+    QStringList rows;
+    bool inSec = false;
+    const QStringList lines = text.split(QChar('\n'));
+    for (const QString &raw : lines) {
+        QString trimmed = raw.trimmed();
+        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']'))) {
+            inSec = (trimmed.compare(QLatin1String(secName), Qt::CaseInsensitive) == 0);
+            continue;
+        }
+        if (!inSec)
+            continue;
+        const int semi = trimmed.indexOf(QChar(';'));
+        if (semi >= 0)
+            trimmed = trimmed.left(semi).trimmed();
+        if (trimmed.isEmpty())
+            continue;
+        rows.append(trimmed);
+    }
+    return rows;
+}
+
+/**
+ * @brief Rebuild cell geometry while retaining parseable original positional attribute tokens
+ * when unset.
+ * @param[in] mesh Borrowed mixed cells, unchanged; connectivity/tags always come from these
+ * cells.
+ * @param[in] origTriRows Borrowed original triangle rows, positionally corresponding within that
+ * cell class.
+ * @param[in] origQuadRows Borrowed original quad rows, corresponding within that class,
+ * unchanged.
+ * @param[in] defaultMannings Authored fallback when later columns require roughness but neither
+ * side supplies one.
+ * @return Owned triangle/optional quad sections. Positive finite mesh Manning wins, else old
+ * numeric roughness token survives verbatim; finite mesh depth wins, else old numeric depth
+ * survives or zero. Any finite nonzero mesh depth, old numeric depth token or mesh tag enables
+ * consistent depth columns. No identity/range/topology validation, conversion or file mutation;
+ * requires counts checked by caller.
+ *
+ * @details `[2D_TRIANGLES]` / `[2D_QUADS]` rebuild for patchAttributeSections: connectivity and
+ * TAG come from \p mesh; MANNINGS_N (and INIT_DEPTH) come from the mesh cell when set, else from
+ * the same row of the original section (\p origTriRows for triangle cells, \p origQuadRows for
+ * quad cells — the j-th quad row is cell n_triangles + j) so values authored at generation time
+ * (or by hand) survive the rewrite (both stay NaN until the user edits them). Columns are
+ * positional (`V1 V2 V3 [V4] MANNINGS_N [INIT_DEPTH] [TAG]`; a numeric token after MANNINGS_N
+ * means INIT_DEPTH), so a row that must carry a depth or a tag needs a MANNINGS_N token to hold
+ * its column — when neither the mesh nor the original row has one,
+ * \p defaultMannings is materialized rather than dropping the later columns. `[2D_QUADS]` is
+ * emitted only when the mesh holds a quad.
+ */
+QString formatTrianglesPreserving(const MeshResult &mesh, const QStringList &origTriRows,
+                                  const QStringList &origQuadRows, double defaultMannings)
+{
+    // Row of the original section backing cell i (triangle rows and quad
+    // rows are numbered independently within their sections).
+    QVector<int> sectionRow(mesh.triangles.size());
+    {
+        int nt = 0, nq = 0;
+        for (int i = 0; i < mesh.triangles.size(); ++i)
+            sectionRow[i] = mesh.triangles[i].isQuad() ? nq++ : nt++;
+    }
+    auto origRow = [&](int i) -> QString {
+        const QStringList &rows = mesh.triangles[i].isQuad() ? origQuadRows : origTriRows;
+        const int k = sectionRow[i];
+        return k < rows.size() ? rows[k] : QString();
+    };
+    // Original-row INIT_DEPTH (numeric token after MANNINGS_N) so
+    // hand-authored depths survive the rewrite even when
+    // MeshTriangle::initDepth is unset.
+    auto origDepthTok = [&](int i) -> QString {
+        const int nvert = mesh.triangles[i].vertexCount();
+        const QStringList tok = origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+        if (tok.size() < nvert + 2)
+            return {};
+        bool okd = false;
+        tok[nvert + 1].toDouble(&okd);
+        return okd ? tok[nvert + 1] : QString();
+    };
+
+    bool anyDepth = false, anyTag = false;
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const MeshTriangle &t = mesh.triangles[i];
+        if ((std::isfinite(t.initDepth) && t.initDepth != 0.0) || !origDepthTok(i).isEmpty())
+            anyDepth = true;
+        if (!t.tag.isEmpty())
+            anyTag = true;
+    }
+    const bool writeDepthCol = anyDepth || anyTag;
+
+    auto formatSection = [&](bool quads) -> QString {
+        QString out;
+        QTextStream s(&out);
+        s.setRealNumberNotation(QTextStream::SmartNotation);
+        s.setRealNumberPrecision(kPersistencePrecision);
+
+        s << (quads ? kSecQuads : kSecTriangles) << "\n";
+        if (quads)
+            s << (writeDepthCol ? ";; V1   V2   V3   V4   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   V4   MANNINGS_N   TAG\n");
+        else
+            s << (writeDepthCol ? ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n"
+                                : ";; V1   V2   V3   MANNINGS_N   TAG\n");
+        for (int i = 0; i < mesh.triangles.size(); ++i) {
+            const MeshTriangle &t = mesh.triangles[i];
+            if (t.isQuad() != quads)
+                continue;
+            const int nvert = t.vertexCount();
+            s << t.v0 << "  " << t.v1 << "  " << t.v2;
+            if (quads)
+                s << "  " << t.v3;
+            QString manningsTok;
+            if (std::isfinite(t.mannings) && t.mannings > 0.0) {
+                manningsTok = QString::number(t.mannings, 'g', kPersistencePrecision);
+            } else {
+                const QStringList tok =
+                    origRow(i).simplified().split(QChar(' '), Qt::SkipEmptyParts);
+                bool okn = false;
+                if (tok.size() >= nvert + 1)
+                    tok[nvert].toDouble(&okn);
+                if (okn)
+                    manningsTok = tok[nvert];
+            }
+            // A depth or tag can only be written behind a MANNINGS_N token
+            // (columns are positional). Materialize the default rather than
+            // silently dropping the edit.
+            const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
+            if (manningsTok.isEmpty() && needsLaterCols)
+                manningsTok = QString::number(defaultMannings, 'g', kPersistencePrecision);
+
+            if (!manningsTok.isEmpty())
+                s << "  " << manningsTok;
+            if (!manningsTok.isEmpty() && writeDepthCol) {
+                if (std::isfinite(t.initDepth))
+                    s << "  " << t.initDepth;
+                else {
+                    const QString od = origDepthTok(i);
+                    s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+                }
+            }
+            if (!manningsTok.isEmpty() && !t.tag.isEmpty())
+                s << "  " << t.tag;
+            s << "\n";
+        }
+        s << "\n";
+        return out;
+    };
+
+    QString out = formatSection(/*quads=*/false);
+    if (mesh.hasQuads())
+        out += formatSection(/*quads=*/true);
+    return out;
+}
+
+} // namespace
+
+QString InpMeshWriter::buildSectionText(const MeshResult &mesh, const CouplingMap &coupling,
+                                        double defaultMannings, const UnitInfo &units)
+{
+    QString out;
+    out.reserve(64 * mesh.vertices.size() + 64 * mesh.triangles.size());
+
+    // Descriptive header — values are emitted verbatim and not used by the
+    // writer itself.  An engine that recognises `;; UNITS: SI (m)` can
+    // skip its FLOW_UNITS-based mesh scaling; older engines can ignore both
+    // comment lines and treat the file as project-unit geometry.
+    if (!units.linearUnitName.isEmpty())
+        out += QStringLiteral(";; UNITS: %1\n").arg(units.linearUnitName);
+    if (!units.sourceCrsTag.isEmpty())
+        out += QStringLiteral(";; SOURCE_CRS: %1\n").arg(units.sourceCrsTag);
+    if (!units.linearUnitName.isEmpty() || !units.sourceCrsTag.isEmpty())
+        out += QChar('\n');
+
+    out += formatVertices(mesh);
+    out += formatTriangles(mesh, coupling, defaultMannings);
+    out += formatVertexNodeMap(mesh, coupling);
+    out += formatTriangleNodeMap(mesh, coupling);
+    // GG0a — [2D_INFILTRATION*] ride with the mesh, so they belong in
+    // whichever file this text lands in (the .2dm in external mode, the .inp
+    // inline). Omitted entirely when the mesh carries no infiltration data.
+    out += formatInfilSections(mesh);
+    return out;
+}
+
+namespace
+{
+
+// Read entire .inp text into a QString. Sets *err and returns nullopt-ish
+// (empty + ok=false) on failure.
+struct ReadResult {
+    QString text;
+    bool ok = false;
+    QString err;
+};
+/**
+ * @brief Read a complete input file with checked existence, open and final read-error state.
+ * @param[in] inpPath Borrowed pathname, unchanged; read-only text handle closes on return.
+ * @return Owned ReadResult containing UTF-8 text with ok true only after all checks pass;
+ * failure includes diagnostic and may hold partial text. No file-size budget, syntax validation
+ * or source writes.
+ */
+ReadResult readInp(const QString &inpPath)
+{
+    ReadResult r;
+    QFile in(inpPath);
+    if (!in.exists()) {
+        r.err = QStringLiteral("Input file does not exist: %1").arg(inpPath);
+        return r;
+    }
+    if (!in.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        r.err = QStringLiteral("Cannot open %1 for reading.").arg(inpPath);
+        return r;
+    }
+    r.text = QString::fromUtf8(in.readAll());
+    if (in.error() != QFileDevice::NoError) {
+        r.err = QStringLiteral("Cannot read %1: %2").arg(inpPath, in.errorString());
+        return r;
+    }
+    r.ok = true;
+    return r;
+}
+
+/**
+ * @brief Detect recognized unsupported cell/tag-indexed rows whose meaning topology replacement
+ * would lose.
+ * @param[in] text Borrowed whole native model text, unchanged; first semicolon starts comment
+ * before token parsing.
+ * @param[in] path Borrowed diagnostic label, unchanged; no file access.
+ * @return Empty when no guarded assignment is found, otherwise owned path/section/one-based-line
+ * diagnostic. Checks known indexed velocity/quality/groundwater/snow rows and specific
+ * CELL/TAG/non-AUTO scopes; global/XY/AUTO/wildcard settings survive where recognized. Unknown
+ * grammar is not certified. Allocates lines/tokens; no file/mesh/engine mutation or retained
+ * source references.
+ */
+QString topologyReplacementError(const QString &text, const QString &path)
+{
+    // Mirrors scoped authoring in SectionHandlers2D, SubsurfaceSections,
+    // GwTransportSections and SurfaceQuality2D. Global settings remain valid;
+    // CELL/EDGE indices and TAG membership require a remapping contract.
+    static const QSet<QString> scopedSections = {
+        QStringLiteral("[2D_INITIAL_QUALITY]"), QStringLiteral("[2D_COVERAGES]"),
+        QStringLiteral("[2D_LOADINGS]"),        QStringLiteral("[2D_CURB_LENGTH]"),
+        QStringLiteral("[2D_AQUIFER]"),         QStringLiteral("[GW_TRANSPORT_PARAMS]"),
+        QStringLiteral("[GW_SORPTION]"),        QStringLiteral("[GW_INITIAL_QUALITY]")};
+    static const QSet<QString> indexedSections = {
+        QStringLiteral("[2D_INITIAL_VELOCITY]"), QStringLiteral("[2D_BOUNDARY_QUALITY]"),
+        QStringLiteral("[GW_BOUNDARY_QUALITY]"), QStringLiteral("[2D_SNOW_CELLS]")};
+    static const QRegularExpression tokenPattern(
+        QStringLiteral(R"re("([^"]*)"|'([^']*)'|([^\s]+))re"));
+    QString section;
+    int lineNumber = 0;
+    for (const QString &raw : text.split(QChar('\n'))) {
+        ++lineNumber;
+        const QString line = raw.section(QChar(';'), 0, 0).trimmed();
+        if (line.isEmpty())
+            continue;
+        if (line.startsWith(QChar('[')) && line.endsWith(QChar(']'))) {
+            section = line.toUpper();
+            continue;
+        }
+        const bool scopeRelevant = scopedSections.contains(section);
+        const bool indexed = indexedSections.contains(section);
+        const bool node = section == QStringLiteral("[2D_AQUIFER_NODE]");
+        const bool source = section == QStringLiteral("[GW_SOURCES]");
+        const bool snowDefault = section == QStringLiteral("[2D_SNOW_DEFAULTS]");
+        if (!scopeRelevant && !indexed && !node && !source && !snowDefault)
+            continue;
+        QStringList tokens;
+        auto matches = tokenPattern.globalMatch(line);
+        while (matches.hasNext()) {
+            const auto match = matches.next();
+            tokens.append(!match.captured(1).isNull()   ? match.captured(1)
+                          : !match.captured(2).isNull() ? match.captured(2)
+                                                        : match.captured(3));
+        }
+        const QString first = tokens.value(0).toUpper();
+        const QString second = tokens.value(1).toUpper();
+        const bool externalQuality =
+            section == QStringLiteral("[GW_INITIAL_QUALITY]") && first == QStringLiteral("FILE");
+        const QString snowTag = first == QStringLiteral("TAG") ? tokens.value(1) : tokens.value(0);
+        if (indexed || externalQuality || (snowDefault && snowTag != QStringLiteral("*")) ||
+            (scopeRelevant &&
+             (first == QStringLiteral("CELL") || first == QStringLiteral("TAG"))) ||
+            (node && second != QStringLiteral("AUTO")) ||
+            (source && (second == QStringLiteral("CELL") || second == QStringLiteral("TAG")))) {
+            return QStringLiteral(
+                       "Cannot replace mesh topology in %1: %2 at line %3 requires cell, edge, "
+                       "tag or external-quality remapping. Remove or remap these assignments "
+                       "before saving the generated mesh; the existing file has not been changed.")
+                .arg(path, section)
+                .arg(lineNumber);
+        }
+    }
+    return {};
+}
+
+/**
+ * @brief Construct a native FILE path token relative to the model directory wherever
+ * representable.
+ * @param[in] inpPath Borrowed INP pathname providing the directory anchor, unchanged.
+ * @param[in] meshPath Borrowed mesh pathname, made clean absolute before relativization,
+ * unchanged.
+ * @return Owned relative token including ../ paths, or absolute on unrepresentable cross-volume
+ * paths. Whitespace/semicolon/comma triggers outer double quotes; embedded quotes/newlines are
+ * NOT escaped. Caller ensures valid path grammar. No existence checks, file access or retained
+ * references.
+ *
+ * @details The `[2D_MESH_FILE]` FILE token for \a meshPath as seen from \a inpPath.
+ *
+ * Uses the same idiom as every other relative-path site in the project
+ * (ProjectSerializer::toRelativePath, RelativePathPicker, PathBrowseDelegate):
+ * QDir::relativeFilePath, then QFileInfo::isRelative to detect the cross-volume case where Qt
+ * hands back the absolute path unchanged.
+ *
+ * This replaced a prefix match (`meshAbs.startsWith(inpDir + '/')`) that could only express a
+ * mesh living AT OR BELOW the .inp directory. A mesh kept in a sibling folder — a shared mesh
+ * directory, the common reason to keep it out of the model folder — got a machine-specific
+ * absolute path instead of `../mesh/x.2dm`, so the project stopped being movable.
+ */
+QString meshRefToken(const QString &inpPath, const QString &meshPath)
+{
+    const QDir inpDir = QFileInfo(inpPath).absoluteDir();
+    const QString meshAbs = QDir::cleanPath(QFileInfo(meshPath).absoluteFilePath());
+    const QString rel = inpDir.relativeFilePath(meshAbs);
+    // Cross-volume (different drive / UNC share): Qt returns the absolute path.
+    const QString token = QFileInfo(rel).isRelative() ? rel : meshAbs;
+    for (const QChar c : token)
+        if (c.isSpace() || c == QLatin1Char(';') || c == QLatin1Char(','))
+            return QLatin1Char('"') + token + QLatin1Char('"');
+    return token;
+}
+
+/**
+ * @brief Encode complete UTF-8 text and publish it with one checked QSaveFile commit.
+ * @param[in] path Borrowed target pathname; existing parent directory required, target may be
+ * replaced.
+ * @param[in] text Borrowed full Unicode payload, unchanged.
+ * @param[out] errorOut Optional borrowed diagnostic, set on checked failure; not cleared on
+ * success. No pointer retained.
+ * @return True only after open, full byte write and commit succeed. Short write cancels
+ * temporary output; direct-write fallback is disabled. Target remains unchanged on checked
+ * failure under QSaveFile's single-file guarantee. No multi-file rollback, directory creation or
+ * content validation; allocates UTF-8 bytes and temporary file, closes local resources on
+ * return.
+ */
+bool atomicWrite(const QString &path, const QString &text, QString *errorOut)
+{
+    QSaveFile out(path);
+    out.setDirectWriteFallback(false);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        if (errorOut)
+            *errorOut = QStringLiteral("Cannot open %1 for writing.").arg(path);
+        return false;
+    }
+    const QByteArray bytes = text.toUtf8();
+    const qint64 written = out.write(bytes);
+    if (written != bytes.size()) {
+        if (errorOut)
+            *errorOut = QStringLiteral("Cannot write all of %1: only %2 of %3 bytes written (%4)")
+                            .arg(path)
+                            .arg(qMax(qint64(0), written))
+                            .arg(bytes.size())
+                            .arg(out.errorString());
+        out.cancelWriting();
+        return false;
+    }
+    if (!out.commit()) {
+        if (errorOut)
+            *errorOut =
+                QStringLiteral("Atomic save failed for %1: %2").arg(path, out.errorString());
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool InpMeshWriter::writeInline(const QString &inpPath, const MeshResult &mesh,
+                                const CouplingMap &coupling, double defaultMannings,
+                                QString *errorOut, const UnitInfo &units)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+
+    if (!mesh.ok || mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return fail(QStringLiteral("Mesh is empty or invalid; nothing to write."));
+
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    // Inline mode: strip any existing [2D_*] AND [2D_MESH_FILE] block so
+    // a stale external reference doesn't shadow the freshly-inlined data.
+    QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(buildSectionText(mesh, coupling, defaultMannings, units));
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::writeExternal(const QString &inpPath, const QString &meshFilePath,
+                                  const MeshResult &mesh, const CouplingMap &coupling,
+                                  double defaultMannings, QString *errorOut, const UnitInfo &units)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+
+    if (!mesh.ok || mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return fail(QStringLiteral("Mesh is empty or invalid; nothing to write."));
+
+    // Default mesh path: <inpDir>/<basename>.2dm
+    const QFileInfo inpFi(inpPath);
+    QString meshPath = meshFilePath;
+    if (meshPath.isEmpty())
+        meshPath = inpFi.absoluteDir().filePath(inpFi.completeBaseName() + QStringLiteral(".2dm"));
+
+    // 1) Write the external .2dm — header + four sections.
+    {
+        QString meshText;
+        meshText += QStringLiteral(";; OpenSWMM 2D Mesh File\n"
+                                   ";; Source project: %1\n"
+                                   ";; Generated by openswmm.gui (Slice AU)\n\n")
+                        .arg(inpFi.fileName());
+        meshText += buildSectionText(mesh, coupling, defaultMannings, units);
+        if (!atomicWrite(meshPath, meshText, errorOut))
+            return false;
+    }
+
+    // 2) Patch the .inp: strip any inline 2D-data sections, then inject
+    //    a [2D_MESH_FILE] FILE <relpath> reference. `[2D_OPTIONS]` is
+    //    preserved in the .inp; the engine's external-file parser doesn't
+    //    re-read options unless the .2dm carries its own [2D_OPTIONS]
+    //    block (which we don't write — those live with the project).
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    // Strip existing 2D-data sections + any prior [2D_MESH_FILE] (we'll
+    // emit a fresh one).
+    QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
+
+    // Relative to the .inp directory, including `../` forms; absolute only
+    // when no relative form exists (different volume).
+    const QString refPath = meshRefToken(inpPath, meshPath);
+
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(
+        QStringLiteral(
+            "\n[2D_MESH_FILE]\n;; FILE  <path relative to this .inp, or absolute>\nFILE  %1\n\n")
+            .arg(refPath));
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::writeMeshFileRef(const QString &inpPath, const QString &meshFilePath,
+                                     QString *errorOut)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+
+    if (meshFilePath.isEmpty())
+        return fail(QStringLiteral("No mesh file specified."));
+    if (!QFileInfo::exists(meshFilePath))
+        return fail(QStringLiteral("Mesh file does not exist: %1").arg(meshFilePath));
+
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    // Retarget-only: strip any inline [2D_*] mesh data AND a prior
+    // [2D_MESH_FILE] block so the engine reads exactly the one external
+    // file we point at. No mesh geometry is written — the .2dm already
+    // exists on disk; we only repoint the reference.
+    QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
+
+    // Same token rule as writeExternal, so generation and retargeting produce
+    // identical reference forms.
+    const QString refPath = meshRefToken(inpPath, meshFilePath);
+
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(
+        QStringLiteral(
+            "\n[2D_MESH_FILE]\n;; FILE  <path relative to this .inp, or absolute>\nFILE  %1\n\n")
+            .arg(refPath));
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::clearMeshFileRef(const QString &inpPath, QString *errorOut)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    // Strip ONLY the [2D_MESH_FILE] block — inline [2D_*] mesh data is
+    // deliberately preserved so the engine reads the embedded mesh.
+    const QStringList lines = r.text.split(QChar('\n'), Qt::KeepEmptyParts);
+    QString patched;
+    patched.reserve(r.text.size());
+    bool inStripped = false;
+    for (const QString &raw : lines) {
+        const QString trimmed = raw.trimmed();
+        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']'))) {
+            inStripped =
+                (trimmed.compare(QStringLiteral("[2D_MESH_FILE]"), Qt::CaseInsensitive) == 0);
+            if (inStripped)
+                continue;
+        }
+        if (inStripped)
+            continue;
+        patched.append(raw);
+        patched.append(QChar('\n'));
+    }
+    while (patched.endsWith(QStringLiteral("\n\n")))
+        patched.chop(1);
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::writePreparedMeshFileRef(const QString &inpPath,
+                                             const QString &logicalFinalMeshPath,
+                                             const QString &physicalStagedMeshPath,
+                                             QString *errorOut)
+{
+    auto fail = [&](const QString &message) {
+        if (errorOut)
+            *errorOut = message;
+        return false;
+    };
+    if (logicalFinalMeshPath.isEmpty())
+        return fail(QStringLiteral("No final mesh file specified."));
+    const QFileInfo physical(physicalStagedMeshPath);
+    if (physicalStagedMeshPath.isEmpty() || !physical.exists() || !physical.isFile() ||
+        physical.size() <= 0)
+        return fail(QStringLiteral("Prepared mesh file must be a nonempty regular file: %1")
+                        .arg(physicalStagedMeshPath));
+    const ReadResult read = readInp(inpPath);
+    if (!read.ok)
+        return fail(read.err);
+    QString patched = stripExistingMeshSections(read.text, /*alsoMeshFileRef=*/true);
+    if (!patched.endsWith(QChar('\n')))
+        patched += QChar('\n');
+    patched +=
+        QStringLiteral(
+            "\n[2D_MESH_FILE]\n;; FILE  <path relative to this .inp, or absolute>\nFILE  %1\n\n")
+            .arg(meshRefToken(inpPath, logicalFinalMeshPath));
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::validateTopologyReplacement(const QString &filePath, QString *errorOut)
+{
+    const ReadResult read = readInp(filePath);
+    const QString error = read.ok ? topologyReplacementError(read.text, filePath) : read.err;
+    if (!error.isEmpty() && errorOut)
+        *errorOut = error;
+    return error.isEmpty();
+}
+
+bool InpMeshWriter::replaceMeshSections(const QString &filePath, const MeshResult &mesh,
+                                        const QVector<MeshEdgeBC> &bcs, QString *errorOut,
+                                        double defaultMannings, const UnitInfo *units)
+{
+    auto fail = [&](const QString &message) {
+        if (errorOut)
+            *errorOut = message;
+        return false;
+    };
+    if (!mesh.ok || mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return fail(QStringLiteral("Mesh is empty or invalid; nothing to replace."));
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size()))
+        return fail(QStringLiteral("boundary state does not match mesh edge slots"));
+    const ReadResult read = readInp(filePath);
+    if (!read.ok)
+        return fail(read.err);
+    const QString unsupported = topologyReplacementError(read.text, filePath);
+    if (!unsupported.isEmpty())
+        return fail(unsupported);
+
+    // Preserve source metadata unless the supplied mesh declares replacements.
+    // Strip all old declarations, including ones inside replaced sections, so
+    // the new geometry cannot inherit an old SI/project-unit conversion flag.
+    UnitInfo metadata;
+    QString withoutHeaders;
+    withoutHeaders.reserve(read.text.size());
+    for (const QString &line : read.text.split(QChar('\n'), Qt::KeepEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QStringLiteral(";;"))) {
+            const QString comment = trimmed.mid(2).trimmed();
+            if (comment.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive)) {
+                metadata.linearUnitName = comment.mid(6).trimmed();
+                continue;
+            }
+            if (comment.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive)) {
+                metadata.sourceCrsTag = comment.mid(11).trimmed();
+                continue;
+            }
+        }
+        withoutHeaders += line + QChar('\n');
+    }
+    if (units) {
+        metadata.linearUnitName = units->linearUnitName;
+        if (!units->sourceCrsTag.isEmpty())
+            metadata.sourceCrsTag = units->sourceCrsTag;
+    }
+
+    CouplingMap coupling;
+    for (int i = 0; i < mesh.vertices.size(); ++i)
+        if (!mesh.vertices[i].coupledNode.isEmpty())
+            coupling.vertexToNode.insert(i, mesh.vertices[i].coupledNode);
+    for (int i = 0; i < mesh.triangles.size(); ++i)
+        if (std::isfinite(mesh.triangles[i].mannings))
+            coupling.triangleMannings.insert(i, mesh.triangles[i].mannings);
+
+    QString patched = stripExistingMeshSections(withoutHeaders, /*alsoMeshFileRef=*/true);
+    QString header;
+    if (!metadata.linearUnitName.isEmpty())
+        header += QStringLiteral(";; UNITS: %1\n").arg(metadata.linearUnitName);
+    if (!metadata.sourceCrsTag.isEmpty())
+        header += QStringLiteral(";; SOURCE_CRS: %1\n").arg(metadata.sourceCrsTag);
+    patched.prepend(header);
+    if (!patched.endsWith(QChar('\n')))
+        patched += QChar('\n');
+    patched += buildSectionText(mesh, coupling, defaultMannings);
+    patched += buildBCSectionText(bcs);
+    patched += buildConveyanceSectionText(mesh, bcs);
+    return atomicWrite(filePath, patched, errorOut);
+}
+
+bool InpMeshWriter::write(MeshOutputMode mode, const QString &inpPath, const QString &meshFilePath,
+                          const MeshResult &mesh, const CouplingMap &coupling,
+                          double defaultMannings, QString *errorOut, const UnitInfo &units)
+{
+    switch (mode) {
+    case MeshOutputMode::External:
+        return writeExternal(inpPath, meshFilePath, mesh, coupling, defaultMannings, errorOut,
+                             units);
+    case MeshOutputMode::Inline:
+        return writeInline(inpPath, mesh, coupling, defaultMannings, errorOut, units);
+    }
+    return false;
+}
+
+// =============================================================================
+// Slice §V.VD.1 — [2D_BOUNDARY_CONDITIONS] section emission
+// =============================================================================
+
+QString InpMeshWriter::buildBCSectionText(const QVector<MeshEdgeBC> &bcs)
+{
+    // Skip the whole section if every entry is the default Wall + empty
+    // group + zero params. Keeps the .inp pristine for projects that
+    // never edit BCs.
+    bool anyNonDefault = false;
+    for (const auto &bc : bcs) {
+        if (bc.type != MeshBCTypes::Type::Wall || !bc.group.isEmpty() || bc.head != 0.0 ||
+            bc.slope != 0.0 || bc.flow != 0.0 || bc.wallDrag != 0.0 || !bc.tseries.isEmpty() || !bc.curve.isEmpty()) {
+            anyNonDefault = true;
+            break;
+        }
+    }
+    if (!anyNonDefault)
+        return QString();
+
+    QString out;
+    out.reserve(bcs.size() * 48);
+    out.append(
+        QStringLiteral("\n[2D_BOUNDARY_CONDITIONS]\n"
+                       ";; TRI    EDGE  TYPE             PARAM_1              PARAM_2  GROUP\n"));
+    for (int flat = 0; flat < bcs.size(); ++flat) {
+        const auto &bc = bcs[flat];
+        if (bc.type == MeshBCTypes::Type::Wall && bc.group.isEmpty() && bc.wallDrag == 0)
+            continue; // skip default-Wall rows to keep section compact
+        // Unified cell index + local edge (0..2 triangle, 0..3 quad); a
+        // triangle's padding slot 3 stays default-Wall and is skipped above.
+        const int tri = slotCell(flat);
+        const int e = slotLocal(flat);
+        QString param1 = QStringLiteral("*");
+        switch (bc.type) {
+        case MeshBCTypes::Type::Wall:
+            if (bc.wallDrag > 0) param1 = QString::number(bc.wallDrag, 'g', kPersistencePrecision);
+            break;
+        case MeshBCTypes::Type::NormalFlow:
+            param1 = QString::number(bc.slope, 'g', kPersistencePrecision);
+            break;
+        case MeshBCTypes::Type::SpecifiedStageConst:
+            param1 = QString::number(bc.head, 'g', kPersistencePrecision);
+            break;
+        case MeshBCTypes::Type::SpecifiedStageTS:
+        case MeshBCTypes::Type::SpecifiedFlowTS:
+            param1 = bc.tseries.isEmpty() ? QStringLiteral("*") : bc.tseries;
+            break;
+        case MeshBCTypes::Type::SpecifiedFlowConst:
+            param1 = QString::number(bc.flow, 'g', kPersistencePrecision);
+            break;
+        case MeshBCTypes::Type::RatingCurve:
+            param1 = bc.curve.isEmpty() ? QStringLiteral("*") : bc.curve;
+            break;
+        }
+        const QString group = bc.group.isEmpty() ? QStringLiteral("*") : bc.group;
+        out.append(QStringLiteral("%1 %2 %3 %4 %5 %6\n")
+                       .arg(tri, 6)
+                       .arg(e, 4)
+                       .arg(bc.type == MeshBCTypes::Type::Wall && bc.wallDrag > 0 ? QStringLiteral("WALL_DRAG") : MeshBCTypes::inpToken(bc.type), -16)
+                       .arg(param1, -20)
+                       .arg(QStringLiteral("*"), -7) // PARAM_2 reserved
+                       .arg(group));
+    }
+    return out;
+}
+
+// =============================================================================
+// Engine §11A — [2D_EDGE_CONVEYANCE] section emission
+// =============================================================================
+
+QString InpMeshWriter::buildConveyanceSectionText(const MeshResult &mesh,
+                                                  const QVector<MeshEdgeBC> &bcs)
+{
+    constexpr double kDefault = 1.0;
+    bool anyNonDefault = false;
+    for (const auto &bc : bcs) {
+        if (bc.conveyance != kDefault) {
+            anyNonDefault = true;
+            break;
+        }
+    }
+    if (!anyNonDefault)
+        return QString();
+
+    QString out;
+    out.reserve(bcs.size() * 24);
+    out.append(QStringLiteral("\n[2D_EDGE_CONVEYANCE]\n"
+                              ";; FROM_VERTEX  TO_VERTEX  CONVEYANCE\n"));
+
+    // Dedupe interior edges (which share a value across two slots) by
+    // emitting only the first encounter of each sorted vertex pair. The
+    // engine accepts either orientation, so we emit the pair as-found on
+    // the canonical slot.
+    QSet<QPair<int, int>> emitted;
+    emitted.reserve(bcs.size() / 2);
+    for (int t = 0; t < mesh.triangles.size(); ++t) {
+        const auto &tri = mesh.triangles[t];
+        const int ne = tri.vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            const int flat = edgeSlot(t, e);
+            if (flat >= bcs.size())
+                continue;
+            if (bcs[flat].conveyance == kDefault)
+                continue; // omit defaults
+            int va = 0, vb = 0;
+            edgeEndpoints(tri, e, va, vb);
+            const QPair<int, int> key = (va < vb) ? qMakePair(va, vb) : qMakePair(vb, va);
+            if (emitted.contains(key))
+                continue; // interior dupe
+            emitted.insert(key);
+            out.append(QStringLiteral("%1 %2 %3\n")
+                           .arg(va, 6)
+                           .arg(vb, 6)
+                           .arg(QString::number(bcs[flat].conveyance, 'g', kPersistencePrecision)));
+        }
+    }
+    return out;
+}
+
+bool InpMeshWriter::writeExternal(const QString &inpPath, const QString &meshFilePath,
+                                  const MeshResult &mesh, const CouplingMap &coupling,
+                                  const QVector<MeshEdgeBC> &bcs, double defaultMannings,
+                                  QString *errorOut, const UnitInfo &units)
+{
+    // Delegate the bulk of the work to the existing overload, then patch
+    // the BC section into the same .inp afterwards. Two passes keeps the
+    // BC-write path orthogonal to the four-section path; if the user
+    // disables BCs the original behaviour is preserved.
+    if (!writeExternal(inpPath, meshFilePath, mesh, coupling, defaultMannings, errorOut, units))
+        return false;
+
+    const QString bcText = buildBCSectionText(bcs);
+    const QString convText = buildConveyanceSectionText(mesh, bcs);
+    if (bcText.isEmpty() && convText.isEmpty())
+        return true; // nothing to add
+
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    QString patched = r.text;
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(bcText);
+    patched.append(convText);
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::writeInline(const QString &inpPath, const MeshResult &mesh,
+                                const CouplingMap &coupling, const QVector<MeshEdgeBC> &bcs,
+                                double defaultMannings, QString *errorOut, const UnitInfo &units)
+{
+    if (!writeInline(inpPath, mesh, coupling, defaultMannings, errorOut, units))
+        return false;
+
+    const QString bcText = buildBCSectionText(bcs);
+    const QString convText = buildConveyanceSectionText(mesh, bcs);
+    if (bcText.isEmpty() && convText.isEmpty())
+        return true;
+
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut)
+            *errorOut = msg;
+        return false;
+    };
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok)
+        return fail(r.err);
+
+    QString patched = r.text;
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(bcText);
+    patched.append(convText);
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
+namespace
+{
+/**
+ * @brief Replace boundary/conveyance sections in memory using supplied raw edge state.
+ * @param[in] text Borrowed whole file text, unchanged.
+ * @param[in] mesh Borrowed authoring mesh, unchanged. Coordinates/depths/parameters retain
+ * supplied units; caller validates finite geometry, indices, token-safe tags and
+ * triangle-before-quad engine order.
+ * @param[in] bcs Borrowed stride-four cell-edge vector, unchanged; caller supplies all slots,
+ * default triangle padding, consistent shared-edge factors and valid variant values/names.
+ * @return Owned stripped/rebuilt text, even for no rows. No size/value/topology validation, file
+ * access or retained references; missing/extra/padding slots follow the individual formatter
+ * rules.
+ */
+QString patchBoundaryText(const QString &text, const MeshResult &mesh,
+                          const QVector<MeshEdgeBC> &bcs)
+{
+    QString patched = stripSections(
+        text, {QStringLiteral("[2D_BOUNDARY_CONDITIONS]"), QStringLiteral("[2D_EDGE_CONVEYANCE]")});
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(InpMeshWriter::buildBCSectionText(bcs));
+    patched.append(InpMeshWriter::buildConveyanceSectionText(mesh, bcs));
+    return patched;
+}
+
+/**
+ * @brief Build an attribute rewrite only after exact old vertex/triangle/quad row-count checks.
+ * @param[in] text Borrowed whole file text, unchanged.
+ * @param[in] mesh Borrowed authoring mesh, unchanged. Coordinates/depths/parameters retain
+ * supplied units; caller validates finite geometry, indices, token-safe tags and
+ * triangle-before-quad engine order.
+ * @param[out] patchedOut Required nonnull borrowed string; assigned only after all count checks
+ * pass, unchanged on checked failure. No pointer retained.
+ * @param[out] errorOut Optional borrowed diagnostic, set on checked failure; not cleared on
+ * success. No pointer retained.
+ * @param[in] defaultMannings Positional roughness fallback used by formatTrianglesPreserving.
+ * @param[in] units Optional borrowed metadata. Null preserves last existing UNITS/SOURCE_CRS
+ * values; nonnull replaces UNITS even with empty text and replaces SOURCE_CRS only when
+ * nonempty. No numerical conversion.
+ * @return True with complete owned rewritten text, false on count mismatch. Does not certify
+ * topology identity or mesh.ok. Canonicalizes metadata, rebuilds vertex coupling from
+ * coupledNode and explicit cellCouplings, preserves BC/conveyance/external reference. Positive
+ * finite mesh roughness overrides old tokens; finite depth overrides old depth; raw coordinate
+ * units retained. Allocates whole text, rows and maps, performs no file/engine mutation and
+ * retains no caller pointers.
+ */
+bool patchAttributeText(const QString &text, const MeshResult &mesh, QString *patchedOut,
+                        QString *errorOut, double defaultMannings,
+                        const InpMeshWriter::UnitInfo *units)
+{
+    // Rows map to mesh entries by position — a count mismatch means the file
+    // holds a different mesh (e.g. regenerated with other parameters), and
+    // patching would scramble it. Leave the file untouched.
+    const QStringList vRows = sectionDataRows(text, kSecVertices);
+    const QStringList tRows = sectionDataRows(text, kSecTriangles);
+    const QStringList qRows = sectionDataRows(text, kSecQuads);
+    const int nQuad = mesh.quadCount();
+    const int nTri = mesh.triangles.size() - nQuad;
+    if (vRows.size() != mesh.vertices.size() || tRows.size() != nTri || qRows.size() != nQuad) {
+        if (errorOut)
+            *errorOut = QStringLiteral("mesh file has %1 vertices / %2 triangles / %3 quads; "
+                                       "layer has %4 / %5 / %6")
+                            .arg(vRows.size())
+                            .arg(tRows.size())
+                            .arg(qRows.size())
+                            .arg(mesh.vertices.size())
+                            .arg(nTri)
+                            .arg(nQuad);
+        return false;
+    }
+
+    // The engine emits its unit header INSIDE [2D_VERTICES]. Preserve it
+    // before stripping that section. When the caller supplies raw layer
+    // coordinates, replace any engine-derived units with the layer's units;
+    // otherwise an initialized US mesh could acquire a second conversion.
+    InpMeshWriter::UnitInfo metadata;
+    QString withoutHeaders;
+    withoutHeaders.reserve(text.size());
+    for (const QString &line : text.split(QChar('\n'), Qt::KeepEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QStringLiteral(";;"))) {
+            const QString comment = trimmed.mid(2).trimmed();
+            if (comment.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive)) {
+                metadata.linearUnitName = comment.mid(6).trimmed();
+                continue;
+            }
+            if (comment.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive)) {
+                metadata.sourceCrsTag = comment.mid(11).trimmed();
+                continue;
+            }
+        }
+        withoutHeaders += line + QChar('\n');
+    }
+    if (units) {
+        metadata.linearUnitName = units->linearUnitName;
+        if (!units->sourceCrsTag.isEmpty())
+            metadata.sourceCrsTag = units->sourceCrsTag;
+    }
+
+    // The layer's per-vertex coupledNode fields are the authoritative
+    // 1D↔2D vertex coupling (pushMeshEditsToEngine pushes exactly these);
+    // rebuild the writer's map form from them. Triangle couplings ride on
+    // MeshResult::cellCouplings, which formatTriangleNodeMap reads directly.
+    CouplingMap cm;
+    for (int i = 0; i < mesh.vertices.size(); ++i)
+        if (!mesh.vertices[i].coupledNode.isEmpty())
+            cm.vertexToNode.insert(i, mesh.vertices[i].coupledNode);
+
+    QString patched =
+        stripSections(withoutHeaders, {QLatin1String(kSecVertices), QLatin1String(kSecTriangles),
+                                       QLatin1String(kSecQuads), QLatin1String(kSecVertexNodeMap),
+                                       QLatin1String(kSecTriangleNodeMap),
+                                       // Infiltration follows the GUI-owned mesh attributes.
+                                       QLatin1String(kSecInfilOptions),
+                                       QLatin1String(kSecInfilDefaults), QLatin1String(kSecInfil)});
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    QString header;
+    if (!metadata.linearUnitName.isEmpty())
+        header += QStringLiteral(";; UNITS: %1\n").arg(metadata.linearUnitName);
+    if (!metadata.sourceCrsTag.isEmpty())
+        header += QStringLiteral(";; SOURCE_CRS: %1\n").arg(metadata.sourceCrsTag);
+    // Keep metadata outside every section so a later BC patch cannot
+    // accidentally remove it with the preceding boundary section.
+    patched.prepend(header);
+    patched.append(formatVertices(mesh));
+    patched.append(formatTrianglesPreserving(mesh, tRows, qRows, defaultMannings));
+    patched.append(formatVertexNodeMap(mesh, cm));
+    patched.append(formatTriangleNodeMap(mesh, cm));
+    patched.append(formatInfilSections(mesh));
+    *patchedOut = patched;
+    return true;
+}
+
+} // namespace
+
+bool InpMeshWriter::patchBCSections(const QString &filePath, const MeshResult &mesh,
+                                    const QVector<MeshEdgeBC> &bcs, QString *errorOut)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut)
+            *errorOut = r.err;
+        return false;
+    }
+    return atomicWrite(filePath, patchBoundaryText(r.text, mesh, bcs), errorOut);
+}
+
+bool InpMeshWriter::patchAttributeSections(const QString &filePath, const MeshResult &mesh,
+                                           QString *errorOut, double defaultMannings,
+                                           const UnitInfo *units)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut)
+            *errorOut = r.err;
+        return false;
+    }
+    QString patched;
+    if (!patchAttributeText(r.text, mesh, &patched, errorOut, defaultMannings, units))
+        return false;
+    return atomicWrite(filePath, patched, errorOut);
+}
+
+bool InpMeshWriter::patchMeshSections(const QString &filePath, const MeshResult &mesh,
+                                      const QVector<MeshEdgeBC> &bcs, QString *errorOut,
+                                      double defaultMannings, const UnitInfo *units)
+{
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size())) {
+        if (errorOut)
+            *errorOut = QStringLiteral("boundary state does not match mesh edge slots");
+        return false;
+    }
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut)
+            *errorOut = r.err;
+        return false;
+    }
+    QString patched;
+    if (!patchAttributeText(r.text, mesh, &patched, errorOut, defaultMannings, units))
+        return false;
+    // Build the complete payload before publishing any part of the mesh.
+    return atomicWrite(filePath, patchBoundaryText(patched, mesh, bcs), errorOut);
+}
+
+} // namespace mesh

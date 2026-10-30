@@ -1,0 +1,95 @@
+[TITLE]
+;;Fixture for the external-rain-file half of test_gageassignintegration.
+;;
+;;Kept separate from gage_assignment.inp on purpose: that fixture's Thiessen
+;;expectations are tuned to exactly two located gages, and adding more would
+;;invalidate them.
+;;
+;;Three gages, one per data source, all located and all carrying the SAME
+;;rainfall so a blend of them is trivially checkable:
+;;  TS_NORTH   TIMESERIES, VOLUME     0.20/0.40 in per 15 min
+;;  STD_EAST   FILE STAN_PRCP, VOLUME, station STA_N  — same numbers
+;;  CSV_SOUTH  FILE USER_CSV,  VOLUME, column SOUTH_GAGE — same numbers
+;;
+;;US flow units, so the standard-rain-file units factor is 1.0 and all three
+;;resolve to identical intensities. Any divergence between them is a bug in the
+;;resolved-series API, not in the data.
+
+[OPTIONS]
+FLOW_UNITS          	CFS
+INFILTRATION        	HORTON
+FLOW_ROUTING        	DYNWAVE
+START_DATE          	01/01/2020
+START_TIME          	00:00:00
+END_DATE            	01/01/2020
+END_TIME            	02:00:00
+REPORT_STEP         	00:15:00
+WET_STEP            	00:05:00
+DRY_STEP            	01:00:00
+ROUTING_STEP        	0:00:20
+
+[EVAPORATION]
+CONSTANT        	0.0
+DRY_ONLY        	NO
+
+[RAINGAGES]
+;;Name          	Format   	Interval	SCF     	Source
+TS_NORTH        	VOLUME   	0:15    	1.0     	TIMESERIES	TS_NORTH_RAIN
+STD_EAST        	VOLUME   	0:15    	1.0     	FILE      	"gage_files_rain.dat"	STA_N	IN
+CSV_SOUTH       	VOLUME   	0:15    	1.0     	FILE      	"gage_files_rain.csv:SOUTH_GAGE"
+
+[SUBCATCHMENTS]
+;;Name          	Rain Gage       	Outlet          	Area    	%Imperv 	Width   	%Slope  	CurbLen
+SUB_A           	TS_NORTH        	OUT1            	5       	25      	500     	0.5     	0
+SUB_B           	TS_NORTH        	OUT1            	5       	25      	500     	0.5     	0
+
+[SUBAREAS]
+;;Subcatchment  	N-Imperv  	N-Perv    	S-Imperv  	S-Perv    	PctZero   	RouteTo
+SUB_A           	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+SUB_B           	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+
+[INFILTRATION]
+SUB_A           	3.0       	0.5       	4         	7         	0
+SUB_B           	3.0       	0.5       	4         	7         	0
+
+[OUTFALLS]
+;;Name          	Elevation 	Type      	Stage Data      	Gated
+OUT1            	0         	FREE      	                	NO
+
+[TIMESERIES]
+;;Name          	Date      	Time      	Value
+TS_NORTH_RAIN   	01/01/2020	00:00     	0.0
+TS_NORTH_RAIN   	          	00:15     	0.20
+TS_NORTH_RAIN   	          	00:30     	0.40
+TS_NORTH_RAIN   	          	00:45     	0.0
+
+[REPORT]
+SUBCATCHMENTS	ALL
+NODES	ALL
+LINKS	ALL
+
+[MAP]
+DIMENSIONS	-100.000	-100.000	1100.000	1100.000
+Units     	None
+
+[COORDINATES]
+OUT1            	500.000           	0.000
+
+[VERTICES]
+
+[Polygons]
+;;Subcatchment  	X-Coord           	Y-Coord
+SUB_A           	0.000             	600.000
+SUB_A           	400.000           	600.000
+SUB_A           	400.000           	1000.000
+SUB_A           	0.000             	1000.000
+SUB_B           	600.000           	600.000
+SUB_B           	1000.000          	600.000
+SUB_B           	1000.000          	1000.000
+SUB_B           	600.000           	1000.000
+
+[SYMBOLS]
+;;Gage          	X-Coord           	Y-Coord
+TS_NORTH        	500.000           	1000.000
+STD_EAST        	1000.000          	500.000
+CSV_SOUTH       	500.000           	0.000

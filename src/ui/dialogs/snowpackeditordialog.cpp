@@ -1,18 +1,25 @@
-/*!
- * \file   snowpackeditordialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      snowpackeditordialog.cpp
+ * @brief     Mirrors AquiferEditorDialog (list pane + scalar field form).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
-#include "ui/dialogs/snowpackeditordialog.h"
 
-#include "layers/swmmmodellayer.h"   // complete type for QPointer<SWMMModelLayer>
+#include "ui/dialogs/snowpackeditordialog.h"
+#include "core/swmmidentifier.h"
+
+#include "layers/swmmmodellayer.h" // complete type for QPointer<SWMMModelLayer>
 #include "snowpack/snowpackprovider.h"
 #include "snowpack/snowpackregistry.h"
 #include "ui/models/snowpacklistmodel.h"
 #include "ui/theme/iconfactory.h"
+#include <openswmm/engine/openswmm_snow.h>
 
 #include <QDialogButtonBox>
+#include <QComboBox>
+#include <QLabel>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -26,71 +33,86 @@
 #include <QSplitter>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::snowpack::SnowpackProvider;
 using openswmmvis::snowpack::SnowpackRegistry;
 
-namespace {
+namespace
+{
 // Per-parameter form spec, ordered to match SnowpackProvider::Param.
-struct FieldSpec { const char *label; double min; double max; int decimals; double step; };
+struct FieldSpec {
+    const char *label;
+    double min;
+    double max;
+    int decimals;
+    double step;
+};
 const FieldSpec kFields[SnowpackProvider::ParamCount] = {
     // PLOWABLE
-    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
-    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Fraction of Impervious Area Plowable",    0.0,    1.0,   4, 0.01 },
+    {"Min. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Max. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Base Temperature (deg F or C)", -1.0e6, 1.0e6, 4, 1.0},
+    {"Free Water Capacity (fraction of depth)", 0.0, 1.0, 4, 0.01},
+    {"Initial Snow Water Equivalent (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Initial Free Water (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Fraction of Impervious Area Plowable", 0.0, 1.0, 4, 0.01},
     // IMPERVIOUS
-    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
-    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
+    {"Min. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Max. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Base Temperature (deg F or C)", -1.0e6, 1.0e6, 4, 1.0},
+    {"Free Water Capacity (fraction of depth)", 0.0, 1.0, 4, 0.01},
+    {"Initial Snow Water Equivalent (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Initial Free Water (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Depth at 100% Cover (in or mm)", 0.0, 1.0e6, 4, 0.1},
     // PERVIOUS
-    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
-    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
-    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
-    { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
+    {"Min. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Max. Melt Coefficient (in or mm/hr/deg)", 0.0, 1.0e6, 4, 0.01},
+    {"Base Temperature (deg F or C)", -1.0e6, 1.0e6, 4, 1.0},
+    {"Free Water Capacity (fraction of depth)", 0.0, 1.0, 4, 0.01},
+    {"Initial Snow Water Equivalent (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Initial Free Water (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Depth at 100% Cover (in or mm)", 0.0, 1.0e6, 4, 0.1},
     // REMOVAL
-    { "Depth at Which Removal Begins (in or mm)", 0.0,   1.0e6, 4, 0.1  },
-    { "Fraction Transferred Out of Watershed",    0.0,   1.0,   4, 0.01 },
-    { "Fraction Transferred to Impervious Area",  0.0,   1.0,   4, 0.01 },
-    { "Fraction Transferred to Pervious Area",    0.0,   1.0,   4, 0.01 },
-    { "Fraction Converted to Immediate Melt",     0.0,   1.0,   4, 0.01 },
-    { "Fraction Transferred to Subcatchment",     0.0,   1.0,   4, 0.01 },
+    {"Depth at Which Removal Begins (in or mm)", 0.0, 1.0e6, 4, 0.1},
+    {"Fraction Transferred Out of Watershed", 0.0, 1.0, 4, 0.01},
+    {"Fraction Transferred to Impervious Area", 0.0, 1.0, 4, 0.01},
+    {"Fraction Transferred to Pervious Area", 0.0, 1.0, 4, 0.01},
+    {"Fraction Converted to Immediate Melt", 0.0, 1.0, 4, 0.01},
+    {"Fraction Transferred to Subcatchment", 0.0, 1.0, 4, 0.01},
+    {"Forest fraction", 0, 1, 4, .05},
+    {"Snow drift factor", 0, 100, 4, .1},
+    {"Ground heat flux (W/m²)", -10000, 10000, 4, 1},
+    {"Albedo extinction depth (m)", .000001, 100, 6, .01},
+    {"Initial snow energy (kJ/m²)", -1e9, 1e9, 6, 100},
 };
 
-struct GroupSpec { const char *title; int first; int count; };
+struct GroupSpec {
+    const char *title;
+    int first;
+    int count;
+};
 const GroupSpec kGroups[] = {
-    { "Plowable Snow",   SnowpackProvider::PlowableCmin,   7 },
-    { "Impervious Area", SnowpackProvider::ImperviousCmin, 7 },
-    { "Pervious Area",   SnowpackProvider::PerviousCmin,   7 },
-    { "Snow Removal",    SnowpackProvider::RemovalDsnow,   6 },
+    {"Plowable Snow", SnowpackProvider::PlowableCmin, 7},
+    {"Impervious Area", SnowpackProvider::ImperviousCmin, 7},
+    {"Pervious Area", SnowpackProvider::PerviousCmin, 7},
+    {"Snow Removal", SnowpackProvider::RemovalDsnow, 6},
+    {"UEB site", SnowpackProvider::UebForest, 5},
 };
 } // namespace
 
-SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
-                                           SWMMModelLayer *layer,
+SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry, SWMMModelLayer *layer,
                                            QWidget *parent)
-    : QDialog(parent),
-      m_registry(registry),
-      m_layer(layer)
+    : QDialog(parent), m_registry(registry), m_layer(layer)
 {
     setWindowTitle(tr("Snow Packs"));
     resize(700, 620);
     buildUi_();
 
     if (m_registry) {
-        connect(m_registry, &SnowpackRegistry::providerRenamed,
-                this, &SnowpackEditorDialog::onProviderRenamed_);
+        connect(m_registry, &SnowpackRegistry::providerRenamed, this,
+                &SnowpackEditorDialog::onProviderRenamed_);
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -99,7 +121,43 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
     }
 }
 
+QString SnowpackEditorDialog::pickSnowpack(SnowpackRegistry *registry, SWMMModelLayer *layer,
+                                           const QString &currentName, QWidget *parent)
+{
+    if (!registry)
+        return {};
+    SnowpackEditorDialog dialog(registry, layer, parent);
+    dialog.setWindowTitle(tr("Select Snow Pack"));
+    if (auto *buttons = dialog.findChild<QDialogButtonBox *>())
+        buttons->button(QDialogButtonBox::Close)->setText(tr("Use Snow Pack"));
+    if (auto *provider = registry->findByName(currentName))
+        dialog.selectProviderInList_(provider);
+    if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider())
+        return {};
+    return dialog.currentProvider()->name();
+}
+
 SnowpackEditorDialog::~SnowpackEditorDialog() = default;
+
+void SnowpackEditorDialog::accept()
+{
+    if (m_registry && m_registry->saveToEngine() < 0) {
+        QMessageBox::warning(this, tr("Snowpack validation"), m_registry->lastSaveError());
+        return;
+    }
+    QDialog::accept();
+}
+
+void SnowpackEditorDialog::openForSnowpack(const QString &name)
+{
+    show();
+    raise();
+    activateWindow();
+    if (!m_registry || name.isEmpty())
+        return;
+    if (auto *p = m_registry->findByName(name))
+        selectProviderInList_(p);
+}
 
 SnowpackProvider *SnowpackEditorDialog::currentProvider() const noexcept
 {
@@ -117,18 +175,18 @@ void SnowpackEditorDialog::buildUi_()
     m_splitter->setHandleWidth(6);
 
     auto *leftPane = new QWidget(m_splitter);
-    auto *leftLay  = new QVBoxLayout(leftPane);
+    auto *leftLay = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
-    m_listView  = new QListView(leftPane);
+    m_listView = new QListView(leftPane);
     m_listModel = new SnowpackListModel(this);
     m_listView->setModel(m_listModel);
-    m_listView->setEditTriggers(QAbstractItemView::DoubleClicked
-                                | QAbstractItemView::EditKeyPressed);
+    m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
+                                QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
-                               tr("New"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("New"),
+                               leftPane);
     m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
                                tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
@@ -137,27 +195,40 @@ void SnowpackEditorDialog::buildUi_()
 
     // ── Right pane: scrollable field form, one group box per engine call ────
     auto *formPane = new QWidget;
-    auto *paneLay  = new QVBoxLayout(formPane);
+    auto *paneLay = new QVBoxLayout(formPane);
 
     auto *nameForm = new QFormLayout;
     m_nameEdit = new QLineEdit(formPane);
     nameForm->addRow(tr("N&ame"), m_nameEdit);
+    m_modelKind = new QComboBox(formPane);
+    m_modelKind->setObjectName(QStringLiteral("snowModelKind"));
+    m_modelKind->addItem(tr("Project default"), -1);
+    m_modelKind->addItem(tr("Degree day"), 0);
+    m_modelKind->addItem(tr("UEB energy balance"), 1);
+    nameForm->addRow(tr("Model"), m_modelKind);
+    connect(m_modelKind, &QComboBox::currentIndexChanged, this,
+            &SnowpackEditorDialog::onModelEdited_);
     paneLay->addLayout(nameForm);
+    auto *scope = new QLabel(
+        tr("Changes apply to every subcatchment and mesh cell assigned this named snowpack. Initial snow values are water equivalent. Shared UEB material and solver parameters are in Climatology."),
+        formPane);
+    scope->setWordWrap(true);
+    paneLay->addWidget(scope);
 
     m_spins.resize(SnowpackProvider::ParamCount);
     for (const GroupSpec &gs : kGroups) {
-        auto *box     = new QGroupBox(tr(gs.title), formPane);
+        auto *box = new QGroupBox(tr(gs.title), formPane);
         auto *boxForm = new QFormLayout(box);
         for (int k = gs.first; k < gs.first + gs.count; ++k) {
             const FieldSpec &fs = kFields[k];
             auto *s = new QDoubleSpinBox(box);
+            s->setObjectName(QStringLiteral("snowParameter%1").arg(k));
             s->setRange(fs.min, fs.max);
             s->setDecimals(fs.decimals);
             s->setSingleStep(fs.step);
             boxForm->addRow(tr(fs.label), s);
             m_spins[k] = s;
-            connect(s, &QDoubleSpinBox::valueChanged,
-                    this, &SnowpackEditorDialog::onFieldEdited_);
+            connect(s, &QDoubleSpinBox::valueChanged, this, &SnowpackEditorDialog::onFieldEdited_);
         }
         if (gs.first == SnowpackProvider::RemovalDsnow) {
             m_removalSubcatchEdit = new QLineEdit(box);
@@ -175,25 +246,22 @@ void SnowpackEditorDialog::buildUi_()
     m_splitter->addWidget(scroll);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 2);
-    m_splitter->setSizes({ 180, 480 });
+    m_splitter->setSizes({180, 480});
 
     outer->addWidget(m_splitter, 1);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, this, &SnowpackEditorDialog::accept);
+    connect(bb, &QDialogButtonBox::accepted, this, &SnowpackEditorDialog::accept);
     outer->addWidget(bb);
 
-    connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &SnowpackEditorDialog::onListSelectionChanged_);
-    connect(m_addBtn, &QPushButton::clicked,
-            this, &SnowpackEditorDialog::onAddClicked_);
-    connect(m_delBtn, &QPushButton::clicked,
-            this, &SnowpackEditorDialog::onDeleteClicked_);
-    connect(m_nameEdit, &QLineEdit::editingFinished,
-            this, &SnowpackEditorDialog::onNameEdited_);
-    connect(m_removalSubcatchEdit, &QLineEdit::editingFinished,
-            this, &SnowpackEditorDialog::onRemovalSubcatchEdited_);
+    connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            &SnowpackEditorDialog::onListSelectionChanged_);
+    connect(m_addBtn, &QPushButton::clicked, this, &SnowpackEditorDialog::onAddClicked_);
+    connect(m_delBtn, &QPushButton::clicked, this, &SnowpackEditorDialog::onDeleteClicked_);
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, &SnowpackEditorDialog::onNameEdited_);
+    connect(m_removalSubcatchEdit, &QLineEdit::editingFinished, this,
+            &SnowpackEditorDialog::onRemovalSubcatchEdited_);
 }
 
 void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
@@ -205,11 +273,20 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
 
     const bool enabled = (p != nullptr);
     m_nameEdit->setEnabled(enabled);
+    m_modelKind->setEnabled(enabled);
     m_removalSubcatchEdit->setEnabled(enabled);
-    for (QDoubleSpinBox *s : m_spins) s->setEnabled(enabled);
+    for (QDoubleSpinBox *s : m_spins)
+        s->setEnabled(enabled);
 
     if (p) {
+        if (m_registry && m_registry->engineHandle()) {
+            int model = 0;
+            if (swmm_snow_get_model(static_cast<SWMM_Engine>(m_registry->engineHandle()), &model) ==
+                SWMM_OK)
+                p->setDefaultModel(model);
+        }
         m_nameEdit->setText(p->name());
+        m_modelKind->setCurrentIndex(m_modelKind->findData(p->modelKind()));
         m_removalSubcatchEdit->setText(p->removalSubcatch());
         for (int k = 0; k < m_spins.size(); ++k)
             m_spins[k]->setValue(p->param(k));
@@ -219,18 +296,43 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
     }
 
     m_suppressFieldSync = prev;
+    updateModelFields_();
+}
+
+void SnowpackEditorDialog::updateModelFields_()
+{
+    const bool ueb = m_current && m_current->effectiveModel() == 1;
+    for (int k = 0; k < m_spins.size(); ++k) {
+        const bool degreeDay = k < SnowpackProvider::RemovalDsnow && k % 7 < 4;
+        const bool site = k >= SnowpackProvider::UebForest;
+        m_spins[k]->setEnabled(m_current && !(ueb && degreeDay) && (!site || ueb));
+        m_spins[k]->setToolTip(
+            ueb && degreeDay ? tr("Retained for degree-day snow; inactive under UEB.") : QString());
+    }
+}
+
+void SnowpackEditorDialog::onModelEdited_()
+{
+    if (m_suppressFieldSync || !m_current)
+        return;
+    m_current->setModelKind(m_modelKind->currentData().toInt());
+    updateModelFields_();
 }
 
 void SnowpackEditorDialog::selectProviderInList_(SnowpackProvider *p)
 {
-    if (!p || !m_listModel) { bindProvider_(p); return; }
-    const auto provs = m_registry ? m_registry->providers()
-                                   : QVector<SnowpackProvider*>{};
+    if (!p || !m_listModel) {
+        bindProvider_(p);
+        return;
+    }
+    const auto provs = m_registry ? m_registry->providers() : QVector<SnowpackProvider *>{};
     const int row = provs.indexOf(p);
-    if (row < 0) { bindProvider_(p); return; }
+    if (row < 0) {
+        bindProvider_(p);
+        return;
+    }
     const QModelIndex idx = m_listModel->index(row);
-    m_listView->selectionModel()->setCurrentIndex(
-        idx, QItemSelectionModel::ClearAndSelect);
+    m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
 }
 
 QString SnowpackEditorDialog::suggestUniqueName_() const
@@ -251,18 +353,21 @@ void SnowpackEditorDialog::onListSelectionChanged_()
 
 void SnowpackEditorDialog::onAddClicked_()
 {
-    if (!m_registry) return;
+    if (!m_registry)
+        return;
     SnowpackProvider *p = m_registry->create(suggestUniqueName_());
-    if (p) selectProviderInList_(p);
+    if (p)
+        selectProviderInList_(p);
 }
 
 void SnowpackEditorDialog::onDeleteClicked_()
 {
-    if (!m_registry || !m_current) return;
+    if (!m_registry || !m_current)
+        return;
     const auto answer = QMessageBox::question(
-        this, tr("Delete Snow Pack"),
-        tr("Delete snow pack \"%1\"?").arg(m_current->name()));
-    if (answer != QMessageBox::Yes) return;
+        this, tr("Delete Snow Pack"), tr("Delete snow pack \"%1\"?").arg(m_current->name()));
+    if (answer != QMessageBox::Yes)
+        return;
 
     SnowpackProvider *victim = m_current;
     m_current = nullptr;
@@ -275,31 +380,49 @@ void SnowpackEditorDialog::onDeleteClicked_()
 
 void SnowpackEditorDialog::onNameEdited_()
 {
-    if (m_suppressFieldSync || !m_registry || !m_current) return;
+    if (m_suppressFieldSync || !m_registry || !m_current)
+        return;
     const QString newName = m_nameEdit->text().trimmed();
-    if (newName.isEmpty() || newName == m_current->name()) return;
+    if (newName.isEmpty() || newName == m_current->name())
+        return;
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("Rename Snow Pack"), why); // feedback C10
+        m_nameEdit->setText(m_current->name());
+        return;
+    }
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Snow Pack"),
-            tr("A snow pack named \"%1\" already exists.").arg(newName));
+                             tr("A snow pack named \"%1\" already exists.").arg(newName));
         m_nameEdit->setText(m_current->name());
     }
 }
 
 void SnowpackEditorDialog::onFieldEdited_()
 {
-    if (m_suppressFieldSync || !m_current) return;
+    if (m_suppressFieldSync || !m_current)
+        return;
+    if (m_current->modelKind() < 0 && m_current->effectiveModel() == 1) {
+        for (int k = SnowpackProvider::UebForest; k < m_spins.size(); ++k) {
+            if (m_current->param(k) != m_spins[k]->value()) {
+                m_current->setModelKind(1);
+                m_modelKind->setCurrentIndex(m_modelKind->findData(1));
+                break;
+            }
+        }
+    }
     for (int k = 0; k < m_spins.size(); ++k)
         m_current->setParam(k, m_spins[k]->value());
 }
 
 void SnowpackEditorDialog::onRemovalSubcatchEdited_()
 {
-    if (m_suppressFieldSync || !m_current) return;
+    if (m_suppressFieldSync || !m_current)
+        return;
     m_current->setRemovalSubcatch(m_removalSubcatchEdit->text().trimmed());
 }
 
-void SnowpackEditorDialog::onProviderRenamed_(SnowpackProvider *p,
-                                              const QString &, const QString &now)
+void SnowpackEditorDialog::onProviderRenamed_(SnowpackProvider *p, const QString &,
+                                              const QString &now)
 {
     if (p == m_current && m_nameEdit->text() != now) {
         const bool prev = m_suppressFieldSync;
@@ -315,8 +438,7 @@ void SnowpackEditorDialog::invokeNew()
 }
 
 SnowpackEditorDialog *SnowpackEditorDialog::createNew(SnowpackRegistry *registry,
-                                                      SWMMModelLayer *layer,
-                                                      QWidget *parent)
+                                                      SWMMModelLayer *layer, QWidget *parent)
 {
     auto *dlg = new SnowpackEditorDialog(registry, layer, parent);
     dlg->m_mode = Mode::CreateNew;

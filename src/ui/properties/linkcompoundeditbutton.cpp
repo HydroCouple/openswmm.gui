@@ -1,7 +1,10 @@
-/*!
- * \file   linkcompoundeditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      linkcompoundeditbutton.cpp
+ * @brief     Custom cell editor widget for compound link attributes (XSection / InletUsage).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/linkcompoundeditbutton.h"
@@ -40,7 +43,8 @@ void LinkCompoundEditButton::refreshLabel()
 
 void LinkCompoundEditButton::onClicked()
 {
-    if (!m_ref.engine || m_ref.linkName.isEmpty()) return;
+    if (!m_ref.engine || m_ref.linkName.isEmpty())
+        return;
 
     LinkCompoundEditDialog dlg(m_ref, this);
     dlg.exec();

@@ -1,6 +1,6 @@
-/*!
- * \file   test_qsg2d_lodpolicy.cpp
- * \brief  Unit tests for Qsg2DLodPolicy (QSG-2D-1M Phase 3).
+/**
+ * @file      test_qsg2d_lodpolicy.cpp
+ * @brief     Unit tests for Qsg2DLodPolicy (QSG-2D-1M Phase 3).
  *
  * Phase 3 acceptance contract:
  *   - 1M cells at full extent  -> Far; edges / vertices / labels off.
@@ -8,6 +8,10 @@
  *   - selected cells at Far    -> selected overlay stays enabled.
  *   - LOD bucket is stable under tiny zoom jitter.
  *   - changing viewport size can change the bucket predictably.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -20,36 +24,52 @@ using OpenSWMM::Render::Qsg2DLodDecision;
 using OpenSWMM::Render::Qsg2DLodInputs;
 using OpenSWMM::Render::Qsg2DLodPolicy;
 
-namespace {
+namespace
+{
 
 /*! 1M-cell mesh whose bbox fills a 1600×900 viewport at full extent:
  *  10 km × 10 km domain, extent == domain. Mean cell area on screen is
  *  well below the Far threshold. */
+/**
+ *
+ * @brief Build dense one-million-cell full-view LOD policy inputs.
+ * @return Owned 1600x900 pixel viewport over a 10000 by 5625 scene-unit view, mesh
+ * bounding area 1e8 square scene units, full visible fraction and all principal
+ * passes requested. Pure fixture construction, no allocation of actual million-cell mesh.
+ *
+ */
 Qsg2DLodInputs millionCellFullExtent()
 {
     Qsg2DLodInputs in;
-    in.viewportWidthPx  = 1600.0;
+    in.viewportWidthPx = 1600.0;
     in.viewportHeightPx = 900.0;
-    in.extentWidth      = 10'000.0;
-    in.extentHeight     = 10'000.0 * (900.0 / 1600.0);
-    in.cellCount        = 1'000'000;
-    in.meshBBoxArea     = 10'000.0 * 10'000.0;
-    in.visibleFraction  = 1.0;
-    in.wantFill          = true;
-    in.wantEdges         = true;    // user wants them — LOD must veto
+    in.extentWidth = 10'000.0;
+    in.extentHeight = 10'000.0 * (900.0 / 1600.0);
+    in.cellCount = 1'000'000;
+    in.meshBBoxArea = 10'000.0 * 10'000.0;
+    in.visibleFraction = 1.0;
+    in.wantFill = true;
+    in.wantEdges = true; // user wants them — LOD must veto
     in.wantVertexMarkers = true;
-    in.wantContours      = true;
+    in.wantContours = true;
     in.wantContourLabels = true;
-    in.wantVelocity      = true;
+    in.wantVelocity = true;
     return in;
 }
 
 /*! Same mesh zoomed to a 40 m × 22.5 m window — cells are huge on screen. */
+/**
+ *
+ * @brief Build close-view inputs for the same conceptual million-cell mesh.
+ * @return Owned full-fixture copy with 40 by 22.5 scene-unit extent and visible
+ * fraction equal to that area/mesh bbox area. No geometry/render resources created.
+ *
+ */
 Qsg2DLodInputs millionCellNearZoom()
 {
     Qsg2DLodInputs in = millionCellFullExtent();
-    in.extentWidth     = 40.0;
-    in.extentHeight    = 22.5;
+    in.extentWidth = 40.0;
+    in.extentHeight = 22.5;
     in.visibleFraction = (40.0 * 22.5) / in.meshBBoxArea;
     return in;
 }
@@ -58,6 +78,12 @@ Qsg2DLodInputs millionCellNearZoom()
 
 // ── Bucket selection ───────────────────────────────────────────────────
 
+/**
+ *
+ * @brief Require Far aggregate fill with dense edges/markers/labels suppressed.
+ * Exact contours and bounded sampled velocity remain requested; dense velocity is refused.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, MillionCellsAtFullExtentIsFarWithDensePassesOff)
 {
     const auto d = Qsg2DLodPolicy::decide(millionCellFullExtent());
@@ -71,27 +97,41 @@ TEST(Qsg2DLodPolicyTest, MillionCellsAtFullExtentIsFarWithDensePassesOff)
     // so it survives Far — only the dense per-cell mode is banned.
     EXPECT_TRUE(d.drawVelocityVectors);
     EXPECT_FALSE(d.denseVelocityAllowed);
-    EXPECT_FALSE(d.exactContourBands);
+    // Contour bands/isolines follow the static classification range and
+    // must render identically at every zoom — Far no longer vetoes them.
+    EXPECT_TRUE(d.drawContours);
+    EXPECT_TRUE(d.exactContourBands);
     EXPECT_EQ(d.maxContourLabels, 0);
 }
 
+/**
+ *
+ * @brief Require Near exact fill/edges/contours and eligible dense velocity for the small visible
+ * view.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, MillionCellsNearZoomIsNearWithExactEdges)
 {
     const auto d = Qsg2DLodPolicy::decide(millionCellNearZoom());
     EXPECT_EQ(d.bucket, Qsg2DLodDecision::Near);
     EXPECT_TRUE(d.drawFill);
     EXPECT_FALSE(d.useAggregateFill);
-    EXPECT_TRUE(d.drawEdges);            // exact edges allowed at Near
+    EXPECT_TRUE(d.drawEdges); // exact edges allowed at Near
     EXPECT_TRUE(d.drawContours);
     EXPECT_TRUE(d.exactContourBands);
     EXPECT_TRUE(d.drawVelocityVectors);
     EXPECT_TRUE(d.denseVelocityAllowed); // few visible cells -> under cap
 }
 
+/**
+ *
+ * @brief Require Near LOD to preserve explicit edge/velocity visibility opt-outs.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, UserDisabledPassesStayOffAtNear)
 {
     Qsg2DLodInputs in = millionCellNearZoom();
-    in.wantEdges    = false;
+    in.wantEdges = false;
     in.wantVelocity = false;
     const auto d = Qsg2DLodPolicy::decide(in);
     EXPECT_EQ(d.bucket, Qsg2DLodDecision::Near);
@@ -99,6 +139,11 @@ TEST(Qsg2DLodPolicyTest, UserDisabledPassesStayOffAtNear)
     EXPECT_FALSE(d.drawVelocityVectors);
 }
 
+/**
+ *
+ * @brief Require Far selection overlay exactly when a selection exists.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, SelectedOverlayStaysEnabledAtFar)
 {
     Qsg2DLodInputs in = millionCellFullExtent();
@@ -111,28 +156,39 @@ TEST(Qsg2DLodPolicyTest, SelectedOverlayStaysEnabledAtFar)
     EXPECT_FALSE(Qsg2DLodPolicy::decide(in).drawSelectedOverlays);
 }
 
+/**
+ *
+ * @brief Require zero pixel-area thresholds to permit edges/markers at Far while fill remains
+ * aggregate.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, ZeroThresholdForcesEdgesAndVerticesEvenAtFar)
 {
     // "Show edges/vertices at 0 px/cell" means always show when the sublayer
     // is visible. This must hold at Far too — the Far bucket previously
     // hard-vetoed both passes and ignored the threshold entirely.
     Qsg2DLodInputs in = millionCellFullExtent();
-    in.edgeMinCellAreaPx   = 0.0;   // always draw edges when enabled
-    in.markerMinCellAreaPx = 0.0;   // always draw vertex markers when enabled
+    in.edgeMinCellAreaPx = 0.0;   // always draw edges when enabled
+    in.markerMinCellAreaPx = 0.0; // always draw vertex markers when enabled
 
     const auto d = Qsg2DLodPolicy::decide(in);
-    EXPECT_EQ(d.bucket, Qsg2DLodDecision::Far);   // still Far by density
-    EXPECT_TRUE(d.useAggregateFill);              // fill still uses overview
-    EXPECT_TRUE(d.drawEdges);                     // ...but edges draw through
-    EXPECT_TRUE(d.drawVertexMarkers);             // ...and so do vertices
+    EXPECT_EQ(d.bucket, Qsg2DLodDecision::Far); // still Far by density
+    EXPECT_TRUE(d.useAggregateFill);            // fill still uses overview
+    EXPECT_TRUE(d.drawEdges);                   // ...but edges draw through
+    EXPECT_TRUE(d.drawVertexMarkers);           // ...and so do vertices
 }
 
+/**
+ *
+ * @brief Require positive edge/marker thresholds to suppress those dense Far passes.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, DefaultThresholdsStillSuppressDensePassesAtFar)
 {
     // Regression guard: with a non-zero threshold above the Far ceiling the
     // dense passes stay suppressed at Far (default performance behaviour).
     Qsg2DLodInputs in = millionCellFullExtent();
-    in.edgeMinCellAreaPx   = 32.0;
+    in.edgeMinCellAreaPx = 32.0;
     in.markerMinCellAreaPx = 200.0;
 
     const auto d = Qsg2DLodPolicy::decide(in);
@@ -143,6 +199,12 @@ TEST(Qsg2DLodPolicyTest, DefaultThresholdsStillSuppressDensePassesAtFar)
 
 // ── Stability / hysteresis ─────────────────────────────────────────────
 
+/**
+ *
+ * @brief Feed back prior decision and require bucket, zoom step and content key stable under
+ * one-percent jitter.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, BucketStableUnderTinyZoomJitter)
 {
     // Park the view roughly AT the Far/Mid threshold, then jitter the
@@ -151,53 +213,64 @@ TEST(Qsg2DLodPolicyTest, BucketStableUnderTinyZoomJitter)
     Qsg2DLodInputs in = millionCellFullExtent();
     // avgCellAreaPx == kFarMaxCellAreaPx at this extent width:
     //   cellArea(scene)=100 m²; need ppu² == 8/100 → extent = 1600/ppu.
-    in.extentWidth  = 1600.0 / std::sqrt(Qsg2DLodPolicy::kFarMaxCellAreaPx / 100.0);
+    in.extentWidth = 1600.0 / std::sqrt(Qsg2DLodPolicy::kFarMaxCellAreaPx / 100.0);
     in.extentHeight = in.extentWidth * (900.0 / 1600.0);
 
     const auto base = Qsg2DLodPolicy::decide(in);
 
     Qsg2DLodInputs jitter = in;
-    jitter.previousBucket   = base.bucket;
+    jitter.previousBucket = base.bucket;
     jitter.previousZoomStep = base.zoomStep;
 
     for (double f : {1.01, 0.99, 1.005, 0.995, 1.0}) {
         Qsg2DLodInputs j = jitter;
-        j.extentWidth  = in.extentWidth * f;
+        j.extentWidth = in.extentWidth * f;
         j.extentHeight = in.extentHeight * f;
         const auto d = Qsg2DLodPolicy::decide(j);
-        EXPECT_EQ(d.bucket, base.bucket)  << "jitter factor " << f;
+        EXPECT_EQ(d.bucket, base.bucket) << "jitter factor " << f;
         EXPECT_EQ(d.zoomStep, base.zoomStep) << "jitter factor " << f;
         EXPECT_EQ(d.contentKey(), base.contentKey()) << "jitter factor " << f;
     }
 }
 
+/**
+ *
+ * @brief Require true full-to-close zoom to cross Far/Near and change content key despite
+ * hysteresis.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, LargeZoomChangeStillCrossesBuckets)
 {
     // Hysteresis must damp jitter, not real zooms: full extent (Far) to
     // near zoom (Near) flips even with the previous decision anchored.
     const auto far = Qsg2DLodPolicy::decide(millionCellFullExtent());
     Qsg2DLodInputs in = millionCellNearZoom();
-    in.previousBucket   = far.bucket;
+    in.previousBucket = far.bucket;
     in.previousZoomStep = far.zoomStep;
     const auto d = Qsg2DLodPolicy::decide(in);
     EXPECT_EQ(d.bucket, Qsg2DLodDecision::Near);
     EXPECT_NE(d.contentKey(), far.contentKey());
 }
 
+/**
+ *
+ * @brief Require fourfold linear viewport growth at fixed extent to change Mid density to Near.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, ViewportSizeChangesBucketPredictably)
 {
     // A mid-density view on a small viewport…
     Qsg2DLodInputs in = millionCellFullExtent();
-    in.viewportWidthPx  = 400.0;
+    in.viewportWidthPx = 400.0;
     in.viewportHeightPx = 225.0;
-    in.extentWidth      = 800.0;    // ppu = 0.5 → cellAreaPx = 25 → Mid
-    in.extentHeight     = 450.0;
+    in.extentWidth = 800.0; // ppu = 0.5 → cellAreaPx = 25 → Mid
+    in.extentHeight = 450.0;
     const auto small = Qsg2DLodPolicy::decide(in);
     EXPECT_EQ(small.bucket, Qsg2DLodDecision::Mid);
 
     // …becomes Near when the window grows 4× linearly (16× the pixels):
     // ppu = 2 → cellAreaPx = 400 ≥ kNearMinCellAreaPx.
-    in.viewportWidthPx  = 1600.0;
+    in.viewportWidthPx = 1600.0;
     in.viewportHeightPx = 900.0;
     const auto big = Qsg2DLodPolicy::decide(in);
     EXPECT_EQ(big.bucket, Qsg2DLodDecision::Near);
@@ -205,26 +278,37 @@ TEST(Qsg2DLodPolicyTest, ViewportSizeChangesBucketPredictably)
 
 // ── Mid-bucket caps ────────────────────────────────────────────────────
 
+/**
+ *
+ * @brief Verify Mid edge gate, marker suppression, exact contours, label cap and sampled-only
+ * velocity.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, MidBucketCapsLabelsAndForcesSampledVelocity)
 {
     Qsg2DLodInputs in = millionCellFullExtent();
     // ppu = 1600/2000 = 0.8 → cellAreaPx = 64: Mid, above the edge gate.
-    in.extentWidth  = 2000.0;
+    in.extentWidth = 2000.0;
     in.extentHeight = 1125.0;
     const auto d = Qsg2DLodPolicy::decide(in);
     ASSERT_EQ(d.bucket, Qsg2DLodDecision::Mid);
-    EXPECT_TRUE(d.drawEdges);                 // 64 px² ≥ 32 px² edge gate
-    EXPECT_FALSE(d.drawVertexMarkers);        // never at Mid
+    EXPECT_TRUE(d.drawEdges);          // 64 px² ≥ 32 px² edge gate
+    EXPECT_FALSE(d.drawVertexMarkers); // never at Mid
     EXPECT_TRUE(d.drawContours);
     EXPECT_TRUE(d.exactContourBands);
-    EXPECT_FALSE(d.denseVelocityAllowed);     // sampled glyphs only
+    EXPECT_FALSE(d.denseVelocityAllowed); // sampled glyphs only
     EXPECT_EQ(d.maxContourLabels, Qsg2DLodPolicy::kMidMaxContourLabels);
 }
 
+/**
+ *
+ * @brief Require Near bucket to refuse dense velocity when visible-cell estimate exceeds its cap.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, DenseVelocityGatedByVisibleCellCap)
 {
     Qsg2DLodInputs in = millionCellNearZoom();
-    in.visibleFraction = 0.5;   // ~500k visible cells — over the cap
+    in.visibleFraction = 0.5; // ~500k visible cells — over the cap
     const auto d = Qsg2DLodPolicy::decide(in);
     ASSERT_EQ(d.bucket, Qsg2DLodDecision::Near);
     EXPECT_FALSE(d.denseVelocityAllowed);
@@ -232,6 +316,12 @@ TEST(Qsg2DLodPolicyTest, DenseVelocityGatedByVisibleCellCap)
 
 // ── Degenerate inputs ──────────────────────────────────────────────────
 
+/**
+ *
+ * @brief Require degenerate viewport to select Far, disable edges and preserve selection overlay.
+ * The body does not assert every other pass despite the broader case name.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, DegenerateViewportDrawsAggregateAndSelectionOnly)
 {
     Qsg2DLodInputs in;
@@ -242,10 +332,15 @@ TEST(Qsg2DLodPolicyTest, DegenerateViewportDrawsAggregateAndSelectionOnly)
     EXPECT_TRUE(d.drawSelectedOverlays);
 }
 
+/**
+ *
+ * @brief Require absent cell-count/bbox-density metadata to use Near fallback.
+ *
+ */
 TEST(Qsg2DLodPolicyTest, UnknownDensityFallsBackToNear)
 {
     Qsg2DLodInputs in = millionCellFullExtent();
-    in.cellCount    = 0;
+    in.cellCount = 0;
     in.meshBBoxArea = 0.0;
     EXPECT_EQ(Qsg2DLodPolicy::decide(in).bucket, Qsg2DLodDecision::Near);
 }

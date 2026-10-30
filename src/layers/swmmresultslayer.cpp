@@ -1,20 +1,28 @@
-/*!
- * \file   swmmresultslayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+#include "layers/traceanalysislayer.h"
+/**
+ * @file      swmmresultslayer.cpp
+ * @brief     geometry for interactive time-stepped playback.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmresultslayer.h"
 #include "core/swmmdatetime.h"
+#include "core/preferencesmanager.h"
+#include "layers/speciesattributes.h" // Y2a — dynamic species attributes
 #include "layers/swmmmodellayer.h"
 #include "map/graphicsitems.h"
+#include "map/mapcanvas.h" // label scale-window gating
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
+#include "render/labelpainter.h" // LabelPainter::scaleVisible
 #include "layers/gisrasterlayer.h"
 #include "render/categoricalpalette.h"
-#include "render/fillsymbollayer.h"   // VS.2b — fill primitive for polygon brush
+#include "render/fillsymbollayer.h" // VS.2b — fill primitive for polygon brush
 #include "render/ifeaturerenderer.h"
-#include "render/intervalbinner.h"   // Slice OUT.1 — default kind binner
+#include "render/intervalbinner.h" // Slice OUT.1 — default kind binner
 // Gap A1.3 — archetype-seeded renderer construction.
 #include "render/rendererfactory.h"
 #include "render/renderers/graduatedrenderer.h"
@@ -27,6 +35,7 @@
 // Slice SS.5 — Rule → FeatureSublayerStyle back-propagation.
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "render/linesymbollayer.h"
+#include "render/linkstroke.h"
 #include "render/markersymbollayer.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
@@ -39,13 +48,23 @@
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QSet>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QVariant>
 
 #include <limits>
+#include <utility>
 
 #include <openswmm/engine/openswmm_output.h>
+// Subcatchment area — needed to turn the .out file's rainfall RATE series
+// into the precipitation VOLUME the engine's own statistic reports.
+#include <openswmm/engine/openswmm_subcatchments.h>
+// Link full depth (y_full) — the divisor behind the max-filling / surcharge
+// statistics, and not derivable from the .out file alone.
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_xsect.h>
 
 #include <QDateTime>
 #include <QGraphicsScene>
@@ -55,6 +74,7 @@
 #include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsSimpleTextItem>
+#include <QGraphicsView>
 #include <QPainterPath>
 #include <QPolygonF>
 
@@ -77,65 +97,171 @@
 // (QtConcurrent). Off by default.
 Q_LOGGING_CATEGORY(lcLoadResults, "openswmm.load.results")
 
-namespace {
+namespace
+{
+
+/**
+ * @param[in] layer Required stable owner supplying current order/base stacking value.
+ * @param[in] sub Borrowed part whose current order position is used; missing membership yields base-level offset.
+ * @param[in] label Whether to add a quarter subslot above that part's geometry.
+ * @return Z within the parent layer's unit stacking interval; may lazily seed sublayer order.
+ */
+double resultSublayerZ(const SWMMResultsLayer *layer, OpenSWMM::Render::ISublayer *sub,
+                       bool label = false)
+{
+    const auto order = layer->sublayers();
+    // Keep every child (including its labels) inside its parent's stack slot.
+    return layer->layerZValue() +
+           (order.indexOf(sub) + 1. + (label ? .25 : 0.)) / (order.size() + 1.);
+}
 
 // Forward declarations for TU-local helpers defined further down (their
 // definitions live next to the Slice OUT.1 / OUT.2 blocks they belong to).
+/**
+ * @param[in] c Category ordinal.
+ * @return Whether c is one of the junction/outfall/storage/divider result-bearing categories; false for unsupported ordinals.
+ */
 bool catIsNodeScope(SWMMModelLayer::Category c);
+/**
+ * @param[in] c Category ordinal.
+ * @return Whether c is one of the conduit/pump/orifice/weir/outlet result-bearing categories; false for unsupported ordinals.
+ */
 bool catIsLinkScope(SWMMModelLayer::Category c);
+/**
+ * @param[in] c Category ordinal.
+ * @return Whether c is one of the subcatchment result-bearing categories; false for unsupported ordinals.
+ */
 bool catIsSubcatchScope(SWMMModelLayer::Category c);
+/**
+ * @param[in] c Category supplying shared factory archetype/default output field.
+ * @return Caller-owned factory graduated renderer with dynamic FixedOverRun policy, viridis/five-interval defaults; no file reads or classification performed yet.
+ */
 std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
 makeDefaultKindRenderer(SWMMModelLayer::Category c);
 
 // Scene-space Y-flip — matches SWMMLayerItem convention.
-inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
+/**
+ * @param[in] mx,my Already transformed finite map XY.
+ * @return (mx,-my), reversing Y for scene coordinates without reprojecting.
+ */
+inline QPointF toScene(double mx, double my)
+{
+    return QPointF(mx, -my);
+}
+
+// The kind's size channel — marker size for point kinds, stroke width for
+// line kinds; null for polygons (and empty slots).
+/**
+ * @param[in] sub Optional borrowed stable category part.
+ * @return Borrowed point marker-size or line width channel inside its style, null for absent/polygon style. Lifetime follows part/style.
+ */
+const OpenSWMM::Render::SizeChannel *
+sublayerSizeChannel(const OpenSWMM::Render::FeatureSublayer *sub)
+{
+    if (!sub)
+        return nullptr;
+    if (auto *ps = sub->pointStyle())
+        return &ps->sizeChannel();
+    if (auto *ls = sub->lineStyle())
+        return &ls->widthChannel();
+    return nullptr;
+}
 
 // Map SWMMResultVariable to the SWMM_OutNodeVar / LinkVar / SubcatchVar enum.
+/**
+ * @param[in] v Layer-level variable enum.
+ * @return Corresponding node output code, or minus one for variables outside the explicit supported mapping. No output handle needed.
+ */
 int nodeVar(SWMMResultVariable v)
 {
     switch (v) {
-    case SWMMResultVariable::NodeDepth:        return SWMM_OUT_NODE_DEPTH;
-    case SWMMResultVariable::NodeHead:         return SWMM_OUT_NODE_HEAD;
-    case SWMMResultVariable::NodeVolume:       return SWMM_OUT_NODE_VOLUME;
-    case SWMMResultVariable::NodeInflow:       return SWMM_OUT_NODE_TOTAL_INFLOW;
-    case SWMMResultVariable::NodeOverflow:     return SWMM_OUT_NODE_OVERFLOW;
-    case SWMMResultVariable::NodeLateralInflow:return SWMM_OUT_NODE_LATERAL_INFLOW;
-    default:                                   return -1;
+    case SWMMResultVariable::NodeDepth:
+        return SWMM_OUT_NODE_DEPTH;
+    case SWMMResultVariable::NodeHead:
+        return SWMM_OUT_NODE_HEAD;
+    case SWMMResultVariable::NodeVolume:
+        return SWMM_OUT_NODE_VOLUME;
+    case SWMMResultVariable::NodeInflow:
+        return SWMM_OUT_NODE_TOTAL_INFLOW;
+    case SWMMResultVariable::NodeOverflow:
+        return SWMM_OUT_NODE_OVERFLOW;
+    case SWMMResultVariable::NodeLateralInflow:
+        return SWMM_OUT_NODE_LATERAL_INFLOW;
+    default:
+        return -1;
     }
 }
 
+/**
+ * @param[in] v Layer-level variable enum.
+ * @return Corresponding link output code, or minus one for variables outside the explicit supported mapping. No output handle needed.
+ */
 int linkVar(SWMMResultVariable v)
 {
     switch (v) {
-    case SWMMResultVariable::LinkFlow:     return SWMM_OUT_LINK_FLOW;
-    case SWMMResultVariable::LinkDepth:    return SWMM_OUT_LINK_DEPTH;
-    case SWMMResultVariable::LinkVelocity: return SWMM_OUT_LINK_VELOCITY;
-    case SWMMResultVariable::LinkCapacity: return SWMM_OUT_LINK_CAPACITY;
-    default:                               return -1;
+    case SWMMResultVariable::LinkFlow:
+        return SWMM_OUT_LINK_FLOW;
+    case SWMMResultVariable::LinkDepth:
+        return SWMM_OUT_LINK_DEPTH;
+    case SWMMResultVariable::LinkVelocity:
+        return SWMM_OUT_LINK_VELOCITY;
+    case SWMMResultVariable::LinkCapacity:
+        return SWMM_OUT_LINK_CAPACITY;
+    default:
+        return -1;
     }
 }
 
+/**
+ * @param[in] v Layer-level variable enum.
+ * @return Corresponding subcatchment output code, or minus one for variables outside the explicit supported mapping. No output handle needed.
+ */
 int subcatchVar(SWMMResultVariable v)
 {
     switch (v) {
-    case SWMMResultVariable::SubcatchRunoff:       return SWMM_OUT_SUBCATCH_RUNOFF;
-    case SWMMResultVariable::SubcatchInfiltration: return SWMM_OUT_SUBCATCH_INFIL;
-    case SWMMResultVariable::SubcatchEvaporation:  return SWMM_OUT_SUBCATCH_EVAP;
-    case SWMMResultVariable::SubcatchSnowDepth:    return SWMM_OUT_SUBCATCH_SNOW_DEPTH;
-    default:                                       return -1;
+    case SWMMResultVariable::SubcatchRunoff:
+        return SWMM_OUT_SUBCATCH_RUNOFF;
+    case SWMMResultVariable::SubcatchInfiltration:
+        return SWMM_OUT_SUBCATCH_INFIL;
+    case SWMMResultVariable::SubcatchEvaporation:
+        return SWMM_OUT_SUBCATCH_EVAP;
+    case SWMMResultVariable::SubcatchSnowDepth:
+        return SWMM_OUT_SUBCATCH_SNOW_DEPTH;
+    case SWMMResultVariable::SubcatchRainfall:
+        return SWMM_OUT_SUBCATCH_RAINFALL;
+    case SWMMResultVariable::SubcatchGwFlow:
+        return SWMM_OUT_SUBCATCH_GW_FLOW;
+    case SWMMResultVariable::SubcatchGwElevation:
+        return SWMM_OUT_SUBCATCH_GW_ELEV;
+    case SWMMResultVariable::SubcatchSoilMoisture:
+        return SWMM_OUT_SUBCATCH_SOIL_MOIST;
+    default:
+        return -1;
     }
 }
 
+/**
+ * @param[in] v Variable enum/raw cast ordinal.
+ * @return True for ordinals NodeDepth through NodeLateralInflow inclusive.
+ */
 bool isNodeVar(SWMMResultVariable v)
 {
     return (v >= SWMMResultVariable::NodeDepth && v <= SWMMResultVariable::NodeLateralInflow);
 }
 
+/**
+ * @param[in] v Variable enum/raw cast ordinal.
+ * @return True for ordinals LinkFlow through LinkCapacity inclusive.
+ */
 bool isLinkVar(SWMMResultVariable v)
 {
     return (v >= SWMMResultVariable::LinkFlow && v <= SWMMResultVariable::LinkCapacity);
 }
 
+/**
+ * @param[in] v Variable enum/raw cast ordinal.
+ * @return True for any ordinal at least SubcatchRunoff, including unsupported larger cast values.
+ */
 bool isSubcatchVar(SWMMResultVariable v)
 {
     return (v >= SWMMResultVariable::SubcatchRunoff);
@@ -155,21 +281,78 @@ bool isSubcatchVar(SWMMResultVariable v)
 // from the per-kind renderer (CamelCase) while the legacy paint path
 // pulls style.attribute() from FeatureSublayerStyle (lower-case). One
 // table, both spellings, no broken lookups.
+// Y2a — species attributes ("qual:<name>") resolve against the run's own
+// species list, so the code is transient and the persisted token is the
+// NAME (GUI plan D-G1). The species-aware overloads are what the layer
+// calls; the bare forms stay for hydraulic-only call sites. Forward
+// declarations because the hydraulic tables are defined below.
+/**
+ * @param[in] attr Exact case-sensitive short hydraulic key or matching stringified result enum; quality names require the species-aware overload.
+ * @return Node hydraulic code or minus one for an unknown token. Pure lookup.
+ */
+int nodeOutCodeForAttribute(const QString &attr);
+/**
+ * @param[in] attr Exact case-sensitive short hydraulic key or matching stringified result enum; quality names require the species-aware overload.
+ * @return Link hydraulic code or minus one for an unknown token. Pure lookup.
+ */
+int linkOutCodeForAttribute(const QString &attr);
+/**
+ * @param[in] attr Exact case-sensitive short hydraulic key or matching stringified result enum; quality names require the species-aware overload.
+ * @return Subcatchment hydraulic code or minus one for an unknown token. Pure lookup.
+ */
+int subcatchOutCodeForAttribute(const QString &attr);
+
+/**
+ * @param[in] attr Exact persisted hydraulic key or qual:name species token.
+ * @param[in] species Current output's ordered species identities; lookup resolves name rather than persisting a numeric slot.
+ * @return Scope-specific transient quality code for a resolvable species, hydraulic mapping otherwise, or minus one on miss. No warning or file read occurs here.
+ */
+int nodeOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(attr, species, SWMM_OUT_NODE_POLLUT_BASE);
+    return nodeOutCodeForAttribute(attr);
+}
+
+/**
+ * @param[in] attr Exact persisted hydraulic key or qual:name species token.
+ * @param[in] species Current output's ordered species identities; lookup resolves name rather than persisting a numeric slot.
+ * @return Scope-specific transient quality code for a resolvable species, hydraulic mapping otherwise, or minus one on miss. No warning or file read occurs here.
+ */
+int linkOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(attr, species, SWMM_OUT_LINK_POLLUT_BASE);
+    return linkOutCodeForAttribute(attr);
+}
+
+/**
+ * @param[in] attr Exact persisted hydraulic key or qual:name species token.
+ * @param[in] species Current output's ordered species identities; lookup resolves name rather than persisting a numeric slot.
+ * @return Scope-specific transient quality code for a resolvable species, hydraulic mapping otherwise, or minus one on miss. No warning or file read occurs here.
+ */
+int subcatchOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(attr, species, SWMM_OUT_SUBCATCH_POLLUT_BASE);
+    return subcatchOutCodeForAttribute(attr);
+}
+
 int nodeOutCodeForAttribute(const QString &attr)
 {
     static const QHash<QString, int> kMap = {
-        { QStringLiteral("depth"),             SWMM_OUT_NODE_DEPTH },
-        { QStringLiteral("head"),              SWMM_OUT_NODE_HEAD },
-        { QStringLiteral("volume"),            SWMM_OUT_NODE_VOLUME },
-        { QStringLiteral("inflow"),            SWMM_OUT_NODE_TOTAL_INFLOW },
-        { QStringLiteral("overflow"),          SWMM_OUT_NODE_OVERFLOW },
-        { QStringLiteral("lateralInflow"),     SWMM_OUT_NODE_LATERAL_INFLOW },
-        { QStringLiteral("NodeDepth"),         SWMM_OUT_NODE_DEPTH },
-        { QStringLiteral("NodeHead"),          SWMM_OUT_NODE_HEAD },
-        { QStringLiteral("NodeVolume"),        SWMM_OUT_NODE_VOLUME },
-        { QStringLiteral("NodeInflow"),        SWMM_OUT_NODE_TOTAL_INFLOW },
-        { QStringLiteral("NodeOverflow"),      SWMM_OUT_NODE_OVERFLOW },
-        { QStringLiteral("NodeLateralInflow"), SWMM_OUT_NODE_LATERAL_INFLOW },
+        {QStringLiteral("depth"), SWMM_OUT_NODE_DEPTH},
+        {QStringLiteral("head"), SWMM_OUT_NODE_HEAD},
+        {QStringLiteral("volume"), SWMM_OUT_NODE_VOLUME},
+        {QStringLiteral("inflow"), SWMM_OUT_NODE_TOTAL_INFLOW},
+        {QStringLiteral("overflow"), SWMM_OUT_NODE_OVERFLOW},
+        {QStringLiteral("lateralInflow"), SWMM_OUT_NODE_LATERAL_INFLOW},
+        {QStringLiteral("NodeDepth"), SWMM_OUT_NODE_DEPTH},
+        {QStringLiteral("NodeHead"), SWMM_OUT_NODE_HEAD},
+        {QStringLiteral("NodeVolume"), SWMM_OUT_NODE_VOLUME},
+        {QStringLiteral("NodeInflow"), SWMM_OUT_NODE_TOTAL_INFLOW},
+        {QStringLiteral("NodeOverflow"), SWMM_OUT_NODE_OVERFLOW},
+        {QStringLiteral("NodeLateralInflow"), SWMM_OUT_NODE_LATERAL_INFLOW},
     };
     return kMap.value(attr, -1);
 }
@@ -177,14 +360,14 @@ int nodeOutCodeForAttribute(const QString &attr)
 int linkOutCodeForAttribute(const QString &attr)
 {
     static const QHash<QString, int> kMap = {
-        { QStringLiteral("flow"),         SWMM_OUT_LINK_FLOW },
-        { QStringLiteral("depth"),        SWMM_OUT_LINK_DEPTH },
-        { QStringLiteral("velocity"),     SWMM_OUT_LINK_VELOCITY },
-        { QStringLiteral("capacity"),     SWMM_OUT_LINK_CAPACITY },
-        { QStringLiteral("LinkFlow"),     SWMM_OUT_LINK_FLOW },
-        { QStringLiteral("LinkDepth"),    SWMM_OUT_LINK_DEPTH },
-        { QStringLiteral("LinkVelocity"), SWMM_OUT_LINK_VELOCITY },
-        { QStringLiteral("LinkCapacity"), SWMM_OUT_LINK_CAPACITY },
+        {QStringLiteral("flow"), SWMM_OUT_LINK_FLOW},
+        {QStringLiteral("depth"), SWMM_OUT_LINK_DEPTH},
+        {QStringLiteral("velocity"), SWMM_OUT_LINK_VELOCITY},
+        {QStringLiteral("capacity"), SWMM_OUT_LINK_CAPACITY},
+        {QStringLiteral("LinkFlow"), SWMM_OUT_LINK_FLOW},
+        {QStringLiteral("LinkDepth"), SWMM_OUT_LINK_DEPTH},
+        {QStringLiteral("LinkVelocity"), SWMM_OUT_LINK_VELOCITY},
+        {QStringLiteral("LinkCapacity"), SWMM_OUT_LINK_CAPACITY},
     };
     return kMap.value(attr, -1);
 }
@@ -192,14 +375,22 @@ int linkOutCodeForAttribute(const QString &attr)
 int subcatchOutCodeForAttribute(const QString &attr)
 {
     static const QHash<QString, int> kMap = {
-        { QStringLiteral("runoff"),               SWMM_OUT_SUBCATCH_RUNOFF },
-        { QStringLiteral("infiltration"),         SWMM_OUT_SUBCATCH_INFIL },
-        { QStringLiteral("evaporation"),          SWMM_OUT_SUBCATCH_EVAP },
-        { QStringLiteral("snowDepth"),            SWMM_OUT_SUBCATCH_SNOW_DEPTH },
-        { QStringLiteral("SubcatchRunoff"),       SWMM_OUT_SUBCATCH_RUNOFF },
-        { QStringLiteral("SubcatchInfiltration"), SWMM_OUT_SUBCATCH_INFIL },
-        { QStringLiteral("SubcatchEvaporation"),  SWMM_OUT_SUBCATCH_EVAP },
-        { QStringLiteral("SubcatchSnowDepth"),    SWMM_OUT_SUBCATCH_SNOW_DEPTH },
+        {QStringLiteral("runoff"), SWMM_OUT_SUBCATCH_RUNOFF},
+        {QStringLiteral("infiltration"), SWMM_OUT_SUBCATCH_INFIL},
+        {QStringLiteral("evaporation"), SWMM_OUT_SUBCATCH_EVAP},
+        {QStringLiteral("snowDepth"), SWMM_OUT_SUBCATCH_SNOW_DEPTH},
+        {QStringLiteral("rainfall"), SWMM_OUT_SUBCATCH_RAINFALL},
+        {QStringLiteral("gwFlow"), SWMM_OUT_SUBCATCH_GW_FLOW},
+        {QStringLiteral("gwElevation"), SWMM_OUT_SUBCATCH_GW_ELEV},
+        {QStringLiteral("soilMoisture"), SWMM_OUT_SUBCATCH_SOIL_MOIST},
+        {QStringLiteral("SubcatchRunoff"), SWMM_OUT_SUBCATCH_RUNOFF},
+        {QStringLiteral("SubcatchInfiltration"), SWMM_OUT_SUBCATCH_INFIL},
+        {QStringLiteral("SubcatchEvaporation"), SWMM_OUT_SUBCATCH_EVAP},
+        {QStringLiteral("SubcatchSnowDepth"), SWMM_OUT_SUBCATCH_SNOW_DEPTH},
+        {QStringLiteral("SubcatchRainfall"), SWMM_OUT_SUBCATCH_RAINFALL},
+        {QStringLiteral("SubcatchGwFlow"), SWMM_OUT_SUBCATCH_GW_FLOW},
+        {QStringLiteral("SubcatchGwElevation"), SWMM_OUT_SUBCATCH_GW_ELEV},
+        {QStringLiteral("SubcatchSoilMoisture"), SWMM_OUT_SUBCATCH_SOIL_MOIST},
     };
     return kMap.value(attr, -1);
 }
@@ -210,12 +401,56 @@ int subcatchOutCodeForAttribute(const QString &attr)
 // Construction
 // ---------------------------------------------------------------------------
 
-SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
-                                   class SWMMModelLayer *modelLayer,
+SWMMModelLayer::PickResult SWMMResultsLayer::pickAt(double mapX, double mapY,
+                                                    double tolerance) const
+{
+    if (!isVisible() || opacity() <= 0 || !m_modelLayer || !outputHandle())
+        return {};
+    const auto visible = [this](SWMMModelLayer::Category cat, int index) {
+        auto *sub = featureSublayer(cat);
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0)
+            return false;
+        auto engine = m_modelLayer->engine();
+        if (cat >= SWMMModelLayer::CatJunctions && cat <= SWMMModelLayer::CatDividers)
+            return nodeOutputIndex(QString::fromUtf8(swmm_node_id(engine, index))) >= 0;
+        if (cat >= SWMMModelLayer::CatConduits && cat <= SWMMModelLayer::CatOutlets)
+            return linkOutputIndex(QString::fromUtf8(swmm_link_id(engine, index))) >= 0;
+        if (cat == SWMMModelLayer::CatSubcatchments)
+            return subcatchOutputIndex(QString::fromUtf8(swmm_subcatch_id(engine, index))) >= 0;
+        return false;
+    };
+    auto hit = m_modelLayer->pickAt(mapX, mapY, tolerance, visible);
+    // Geographic inverse projection can return -160 for a node authored
+    // at 200 degrees. Match the forward-projected marker on those misses,
+    // including when the underlying model layer is hidden.
+    if (!hit.valid && m_modelLayer->srs() && m_modelLayer->srs()->isGeographic()) {
+        double nearest = tolerance * tolerance;
+        auto engine = m_modelLayer->engine();
+        for (int index = 0; index < m_modelLayer->cachedNodeCount(); ++index) {
+            int type = 0;
+            if (swmm_node_get_type(engine, index, &type) != 0)
+                continue;
+            const auto cat = SWMMModelLayer::Category(int(SWMMModelLayer::CatJunctions) +
+                                                      (type >= 0 && type < 4 ? type : 0));
+            if (!visible(cat, index))
+                continue;
+            double x = 0, y = 0;
+            if (!m_modelLayer->cachedNodeCoord(index, &x, &y) ||
+                !m_modelLayer->transformLayerToCanvas(x, y, x, y))
+                continue;
+            const double distance = (x - mapX) * (x - mapX) + (y - mapY) * (y - mapY);
+            if (!std::isfinite(distance) || distance >= nearest)
+                continue;
+            nearest = distance;
+            hit = {true, cat, index, QString::fromUtf8(swmm_node_id(engine, index))};
+        }
+    }
+    return hit;
+}
+
+SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath, class SWMMModelLayer *modelLayer,
                                    OpenSWMMVisWorkspace *parent)
-    : OpenSWMMVisLayer(parent),
-      m_resultsFilePath(resultsFilePath),
-      m_modelLayer(modelLayer)
+    : OpenSWMMVisLayer(parent), m_resultsFilePath(resultsFilePath), m_modelLayer(modelLayer)
 {
     setLayerType(OpenSWMMVisLayer::SWMMResultsLayer);
     setName(QStringLiteral("SWMM Results"));
@@ -285,33 +520,31 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     // sublayer alive for the layer's lifetime.
     struct KindSpec {
         SWMMModelLayer::Category cat;
-        const char              *idSuffix;
-        const char              *displayName;
-        const char              *defaultAttribute;
+        const char *idSuffix;
+        const char *displayName;
+        const char *defaultAttribute;
     };
     static const KindSpec kKindSpecs[] = {
         // Point archetypes (node kinds) — default attribute = depth.
-        { SWMMModelLayer::CatJunctions,     "junctions",     QT_TR_NOOP("Junctions"),     "depth"  },
-        { SWMMModelLayer::CatOutfalls,      "outfalls",      QT_TR_NOOP("Outfalls"),      "depth"  },
-        { SWMMModelLayer::CatStorage,       "storage",       QT_TR_NOOP("Storage units"), "depth"  },
-        { SWMMModelLayer::CatDividers,      "dividers",      QT_TR_NOOP("Dividers"),      "depth"  },
+        {SWMMModelLayer::CatJunctions, "junctions", QT_TR_NOOP("Junctions"), "depth"},
+        {SWMMModelLayer::CatOutfalls, "outfalls", QT_TR_NOOP("Outfalls"), "depth"},
+        {SWMMModelLayer::CatStorage, "storage", QT_TR_NOOP("Storage units"), "depth"},
+        {SWMMModelLayer::CatDividers, "dividers", QT_TR_NOOP("Dividers"), "depth"},
         // Line archetypes (link kinds) — default attribute = flow.
-        { SWMMModelLayer::CatConduits,      "conduits",      QT_TR_NOOP("Conduits"),      "flow"   },
-        { SWMMModelLayer::CatPumps,         "pumps",         QT_TR_NOOP("Pumps"),         "flow"   },
-        { SWMMModelLayer::CatOrifices,      "orifices",      QT_TR_NOOP("Orifices"),      "flow"   },
-        { SWMMModelLayer::CatWeirs,         "weirs",         QT_TR_NOOP("Weirs"),         "flow"   },
-        { SWMMModelLayer::CatOutlets,       "outlets",       QT_TR_NOOP("Outlets"),       "flow"   },
+        {SWMMModelLayer::CatConduits, "conduits", QT_TR_NOOP("Conduits"), "flow"},
+        {SWMMModelLayer::CatPumps, "pumps", QT_TR_NOOP("Pumps"), "flow"},
+        {SWMMModelLayer::CatOrifices, "orifices", QT_TR_NOOP("Orifices"), "flow"},
+        {SWMMModelLayer::CatWeirs, "weirs", QT_TR_NOOP("Weirs"), "flow"},
+        {SWMMModelLayer::CatOutlets, "outlets", QT_TR_NOOP("Outlets"), "flow"},
         // Polygon archetype — default attribute = runoff.
-        { SWMMModelLayer::CatSubcatchments, "subcatchments", QT_TR_NOOP("Subcatchments"), "runoff" },
+        {SWMMModelLayer::CatSubcatchments, "subcatchments", QT_TR_NOOP("Subcatchments"), "runoff"},
         // Marker-only (no result feed) — empty attribute, static.
-        { SWMMModelLayer::CatRainGages,     "raingages",     QT_TR_NOOP("Rain gages"),    ""       },
+        {SWMMModelLayer::CatRainGages, "raingages", QT_TR_NOOP("Rain gages"), ""},
     };
     for (const KindSpec &spec : kKindSpecs) {
         auto *s = new OpenSWMM::Render::FeatureSublayer(
-            spec.cat,
-            QStringLiteral("results.") + QString::fromLatin1(spec.idSuffix),
-            tr(spec.displayName),
-            this);
+            spec.cat, QStringLiteral("results.") + QString::fromLatin1(spec.idSuffix),
+            tr(spec.displayName), this);
         if (s->featureStyle() && spec.defaultAttribute[0])
             s->featureStyle()->setAttribute(QString::fromLatin1(spec.defaultAttribute));
         m_featureSublayers[static_cast<int>(spec.cat)] = s;
@@ -323,29 +556,45 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     // the layer-tree checkbox + sublayer style edits actually show/hide
     // overlays AND swap colored attributes live.
     auto wireRefresh = [this](OpenSWMM::Render::ISublayer *s) {
-        if (!s) return;
-        connect(s, &OpenSWMM::Render::ISublayer::invalidated,
-                this, [this]() {
-                    if (m_handle && m_totalSteps > 0)
-                        fetchResultsForStep(m_currentStep);
-                    // Slice §Y.2 — sublayer invalidation covers visibility
-                    // toggles + style + attribute changes; any of those can
-                    // alter the set of items the next paint produces, so
-                    // the cached scene is no longer authoritative.
-                    escalateSceneDirty(SceneDirty::Structural);
-                    emit repaintRequested();
-                });
+        if (!s)
+            return;
+        connect(s, &OpenSWMM::Render::ISublayer::invalidated, this, [this]() {
+            if (m_handle && m_totalSteps > 0)
+                fetchResultsForStep(m_currentStep);
+            // Slice §Y.2 — sublayer invalidation covers visibility
+            // toggles + style + attribute changes; any of those can
+            // alter the set of items the next paint produces, so
+            // the cached scene is no longer authoritative.
+            escalateSceneDirty(SceneDirty::Structural);
+            emit repaintRequested();
+        });
     };
     for (auto *s : m_featureSublayers)
         wireRefresh(s);
+
+    // Output picks share the source model's typed selection. Refresh the
+    // output itself even when that model is hidden beneath the results.
+    auto refreshSelection = [this]() {
+        escalateSceneDirty(SceneDirty::Values);
+        emit repaintRequested();
+    };
+    if (m_modelLayer)
+        connect(m_modelLayer, &SWMMModelLayer::selectionChanged, this, refreshSelection);
+    connect(
+        PreferencesManager::instance(), &PreferencesManager::preferenceChanged, this,
+        [refreshSelection](const QString &group, const QString &key) {
+            if (group == QLatin1String("Selection") &&
+                (key.startsWith(QLatin1String("Pen/")) || key.startsWith(QLatin1String("Brush/"))))
+                refreshSelection();
+        });
 
     // Slice Z.7a / gap A1.1 — per-frame rebinning. Connected here (not in
     // buildRuleListLazy) so PerFrameAutoStretch works on projects restored
     // from .oswp even when the symbology dialog — and therefore the lazy
     // rule-list mirror — was never opened. rebinDynamicRulesIfNeeded()
     // drives off m_kindRenderers directly, so no rule list is required.
-    connect(this, &SWMMResultsLayer::currentTimeStepChanged,
-            this, [this](int) { rebinDynamicRulesIfNeeded(); });
+    connect(this, &SWMMResultsLayer::currentTimeStepChanged, this,
+            [this](int) { rebinDynamicRulesIfNeeded(); });
 }
 
 QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
@@ -355,18 +604,13 @@ QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
     // After Slice GUI-2026-05-30 §2 the user can reorder via the layer tree,
     // so the order is cached in m_sublayerOrder and seeded once with the
     // archetype default below.
-    if (m_sublayerOrder.isEmpty()) {
+    if (m_sublayerOrder.isEmpty() && property("traceStoredRunId").toString().isEmpty()) {
         static const SWMMModelLayer::Category kOrder[] = {
-            SWMMModelLayer::CatSubcatchments,
-            SWMMModelLayer::CatConduits,
-            SWMMModelLayer::CatPumps,
-            SWMMModelLayer::CatOrifices,
-            SWMMModelLayer::CatWeirs,
-            SWMMModelLayer::CatOutlets,
-            SWMMModelLayer::CatJunctions,
-            SWMMModelLayer::CatOutfalls,
-            SWMMModelLayer::CatStorage,
-            SWMMModelLayer::CatDividers,
+            SWMMModelLayer::CatSubcatchments, SWMMModelLayer::CatConduits,
+            SWMMModelLayer::CatPumps,         SWMMModelLayer::CatOrifices,
+            SWMMModelLayer::CatWeirs,         SWMMModelLayer::CatOutlets,
+            SWMMModelLayer::CatJunctions,     SWMMModelLayer::CatOutfalls,
+            SWMMModelLayer::CatStorage,       SWMMModelLayer::CatDividers,
             SWMMModelLayer::CatRainGages,
         };
         for (auto c : kOrder)
@@ -376,28 +620,73 @@ QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
     return m_sublayerOrder;
 }
 
+void SWMMResultsLayer::addAnalysisSublayer(OpenSWMM::Render::ISublayer *sub)
+{
+    (void)sublayers();
+    if (!sub || m_sublayerOrder.contains(sub))
+        return;
+    sub->setParent(this);
+    m_sublayerOrder.append(sub);
+    connect(this, &OpenSWMMVisLayer::visibilityChanged, sub, [this] {
+        m_sceneDirty = SceneDirty::Structural;
+        emit repaintRequested();
+    });
+    connect(sub, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
+        m_sceneDirty = SceneDirty::Structural;
+        emit repaintRequested();
+    });
+    m_sceneDirty = SceneDirty::Structural;
+    emit childrenChanged();
+    emit repaintRequested();
+}
+void SWMMResultsLayer::takeAnalysisSublayer(OpenSWMM::Render::ISublayer *sub)
+{
+    if (!m_sublayerOrder.removeOne(sub))
+        return;
+    disconnect(sub, nullptr, this, nullptr);
+    disconnect(this, nullptr, sub, nullptr);
+    m_sceneDirty = SceneDirty::Structural;
+    emit childrenChanged();
+    emit repaintRequested();
+}
+
 bool SWMMResultsLayer::moveSublayer(int from, int to)
 {
-    (void) sublayers();      // force lazy seed
-    if (from < 0 || from >= m_sublayerOrder.size()
-        || to   < 0 || to   >= m_sublayerOrder.size()
-        || from == to)
+    (void)sublayers(); // force lazy seed
+    if (from < 0 || from >= m_sublayerOrder.size() || to < 0 || to >= m_sublayerOrder.size() ||
+        from == to)
         return false;
     m_sublayerOrder.move(from, to);
     emit repaintRequested();
     return true;
 }
 
-OpenSWMM::Render::FeatureSublayer *SWMMResultsLayer::featureSublayer(
-    SWMMModelLayer::Category c) const
+OpenSWMM::Render::FeatureSublayer *
+SWMMResultsLayer::featureSublayer(SWMMModelLayer::Category c) const
 {
     const int idx = static_cast<int>(c);
-    if (idx < 0 || idx >= SWMMModelLayer::NumCategories) return nullptr;
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories)
+        return nullptr;
     return m_featureSublayers[idx];
 }
 
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-SWMMResultsLayer::styleSubjects()
+double SWMMResultsLayer::featureSizeOverride(SWMMModelLayer::Category c, int row) const
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories)
+        return -1.0;
+    return m_kindFeatureSizes[idx].value(row, -1.0);
+}
+
+double SWMMResultsLayer::featureWidthOverride(SWMMModelLayer::Category c, int row) const
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories)
+        return -1.0;
+    return m_kindFeatureWidths[idx].value(row, -1.0);
+}
+
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMMResultsLayer::styleSubjects()
 {
     std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> out;
     // One subject per Category — grouped into archetype sections so the
@@ -406,35 +695,38 @@ SWMMResultsLayer::styleSubjects()
     // "Areas" → Subcatchments, "Other" → RainGages).
     auto archetypeSection = [](SWMMModelLayer::Category c) -> QString {
         switch (c) {
-            case SWMMModelLayer::CatJunctions:
-            case SWMMModelLayer::CatOutfalls:
-            case SWMMModelLayer::CatStorage:
-            case SWMMModelLayer::CatDividers:
-                return QStringLiteral("Nodes");
-            case SWMMModelLayer::CatConduits:
-            case SWMMModelLayer::CatPumps:
-            case SWMMModelLayer::CatOrifices:
-            case SWMMModelLayer::CatWeirs:
-            case SWMMModelLayer::CatOutlets:
-                return QStringLiteral("Links");
-            case SWMMModelLayer::CatSubcatchments:
-                return QStringLiteral("Areas");
-            case SWMMModelLayer::CatRainGages:
-                return QStringLiteral("Other");
-            default:
-                return QStringLiteral("Other");
+        case SWMMModelLayer::CatJunctions:
+        case SWMMModelLayer::CatOutfalls:
+        case SWMMModelLayer::CatStorage:
+        case SWMMModelLayer::CatDividers:
+            return QStringLiteral("Nodes");
+        case SWMMModelLayer::CatConduits:
+        case SWMMModelLayer::CatPumps:
+        case SWMMModelLayer::CatOrifices:
+        case SWMMModelLayer::CatWeirs:
+        case SWMMModelLayer::CatOutlets:
+            return QStringLiteral("Links");
+        case SWMMModelLayer::CatSubcatchments:
+            return QStringLiteral("Areas");
+        case SWMMModelLayer::CatRainGages:
+            return QStringLiteral("Other");
+        default:
+            return QStringLiteral("Other");
         }
     };
 
     for (int i = 0; i < SWMMModelLayer::NumCategories; ++i) {
         auto *sub = m_featureSublayers[i];
-        if (!sub || !sub->style()) continue;
+        if (!sub || !sub->style())
+            continue;
         out.push_back(std::make_unique<openswmmvis::ui::LayerStyleSubject>(
-            sub->displayName(),
-            sub->style(),
-            sub->id(),
+            sub->displayName(), sub->style(), sub->id(),
             archetypeSection(static_cast<SWMMModelLayer::Category>(i))));
     }
+    for (auto *sub : sublayers())
+        if (dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub))
+            out.push_back(std::make_unique<openswmmvis::ui::LayerStyleSubject>(
+                sub->displayName(), sub->style(), sub->id(), tr("Analyses")));
     return out;
 }
 
@@ -442,8 +734,7 @@ SWMMResultsLayer::~SWMMResultsLayer()
 {
     closeResults();
 
-    if (m_transform)
-    {
+    if (m_transform) {
         OCTDestroyCoordinateTransformation(
             reinterpret_cast<OGRCoordinateTransformationH>(m_transform));
         m_transform = nullptr;
@@ -458,16 +749,14 @@ QString SWMMResultsLayer::resultsFilePath() const
 {
     // Absolute path so the Properties window shows the full on-disk
     // location of the .out file.
-    return m_resultsFilePath.isEmpty()
-               ? m_resultsFilePath
-               : QFileInfo(m_resultsFilePath).absoluteFilePath();
+    return m_resultsFilePath.isEmpty() ? m_resultsFilePath
+                                       : QFileInfo(m_resultsFilePath).absoluteFilePath();
 }
 
 QString SWMMResultsLayer::reportFilePath() const
 {
-    return m_reportFilePath.isEmpty()
-               ? m_reportFilePath
-               : QFileInfo(m_reportFilePath).absoluteFilePath();
+    return m_reportFilePath.isEmpty() ? m_reportFilePath
+                                      : QFileInfo(m_reportFilePath).absoluteFilePath();
 }
 
 QString SWMMResultsLayer::sourceDescription() const
@@ -482,18 +771,17 @@ QVector<QPair<QString, QString>> SWMMResultsLayer::extendedMetadata() const
 
     const QString rpt = reportFilePath();
     if (!rpt.isEmpty())
-        md.append({ tr("Report file"), rpt });
+        md.append({tr("Report file"), rpt});
 
     const QDateTime start = startDateTime();
-    const QDateTime end   = endDateTime();
+    const QDateTime end = endDateTime();
     if (start.isValid() && end.isValid())
-        md.append({ tr("Time range"),
-                    QStringLiteral("%1 → %2")
-                        .arg(start.toString(Qt::ISODate), end.toString(Qt::ISODate)) });
+        md.append({tr("Time range"), QStringLiteral("%1 → %2").arg(start.toString(Qt::ISODate),
+                                                                   end.toString(Qt::ISODate))});
 
     const int step = reportStepSeconds();
     if (step > 0)
-        md.append({ tr("Report step"), QStringLiteral("%1 s").arg(step) });
+        md.append({tr("Report step"), QStringLiteral("%1 s").arg(step)});
 
     return md;
 }
@@ -510,7 +798,8 @@ QString SWMMResultsLayer::scenarioName() const
 
 void SWMMResultsLayer::setScenarioName(const QString &name)
 {
-    if (m_scenarioName == name) return;
+    if (m_scenarioName == name)
+        return;
     m_scenarioName = name;
     emit scenarioNameChanged(name);
 }
@@ -522,7 +811,8 @@ QColor SWMMResultsLayer::profileLineColor() const
 
 void SWMMResultsLayer::setProfileLineColor(const QColor &color)
 {
-    if (m_profileLineColor == color) return;
+    if (m_profileLineColor == color)
+        return;
     m_profileLineColor = color;
     emit profileLineColorChanged(color);
 }
@@ -537,46 +827,70 @@ void SWMMResultsLayer::setProfileLineColor(const QColor &color)
 // also reset each pen explicitly.
 // ---------------------------------------------------------------------------
 
-QPen   SWMMResultsLayer::profileHglLinePen()      const { return m_profileHglLinePen; }
-QBrush SWMMResultsLayer::profileHglFillBrush()    const { return m_profileHglFillBrush; }
-QPen   SWMMResultsLayer::profileEglLinePen()      const { return m_profileEglLinePen; }
-QPen   SWMMResultsLayer::profileMaxHglLinePen()   const { return m_profileMaxHglLinePen; }
-QBrush SWMMResultsLayer::profileMaxHglFillBrush() const { return m_profileMaxHglFillBrush; }
-QPen   SWMMResultsLayer::profileMaxEglLinePen()   const { return m_profileMaxEglLinePen; }
+QPen SWMMResultsLayer::profileHglLinePen() const
+{
+    return m_profileHglLinePen;
+}
+QBrush SWMMResultsLayer::profileHglFillBrush() const
+{
+    return m_profileHglFillBrush;
+}
+QPen SWMMResultsLayer::profileEglLinePen() const
+{
+    return m_profileEglLinePen;
+}
+QPen SWMMResultsLayer::profileMaxHglLinePen() const
+{
+    return m_profileMaxHglLinePen;
+}
+QBrush SWMMResultsLayer::profileMaxHglFillBrush() const
+{
+    return m_profileMaxHglFillBrush;
+}
+QPen SWMMResultsLayer::profileMaxEglLinePen() const
+{
+    return m_profileMaxEglLinePen;
+}
 
 void SWMMResultsLayer::setProfileHglLinePen(const QPen &pen)
 {
-    if (m_profileHglLinePen == pen) return;
+    if (m_profileHglLinePen == pen)
+        return;
     m_profileHglLinePen = pen;
     emit profileStyleChanged();
 }
 void SWMMResultsLayer::setProfileHglFillBrush(const QBrush &brush)
 {
-    if (m_profileHglFillBrush == brush) return;
+    if (m_profileHglFillBrush == brush)
+        return;
     m_profileHglFillBrush = brush;
     emit profileStyleChanged();
 }
 void SWMMResultsLayer::setProfileEglLinePen(const QPen &pen)
 {
-    if (m_profileEglLinePen == pen) return;
+    if (m_profileEglLinePen == pen)
+        return;
     m_profileEglLinePen = pen;
     emit profileStyleChanged();
 }
 void SWMMResultsLayer::setProfileMaxHglLinePen(const QPen &pen)
 {
-    if (m_profileMaxHglLinePen == pen) return;
+    if (m_profileMaxHglLinePen == pen)
+        return;
     m_profileMaxHglLinePen = pen;
     emit profileStyleChanged();
 }
 void SWMMResultsLayer::setProfileMaxHglFillBrush(const QBrush &brush)
 {
-    if (m_profileMaxHglFillBrush == brush) return;
+    if (m_profileMaxHglFillBrush == brush)
+        return;
     m_profileMaxHglFillBrush = brush;
     emit profileStyleChanged();
 }
 void SWMMResultsLayer::setProfileMaxEglLinePen(const QPen &pen)
 {
-    if (m_profileMaxEglLinePen == pen) return;
+    if (m_profileMaxEglLinePen == pen)
+        return;
     m_profileMaxEglLinePen = pen;
     emit profileStyleChanged();
 }
@@ -610,23 +924,65 @@ void SWMMResultsLayer::writeProfileStyle(QSettings &settings) const
 void SWMMResultsLayer::readProfileStyle(QSettings &settings)
 {
     auto applyPen = [&](const QString &key, void (SWMMResultsLayer::*setter)(const QPen &)) {
-        if (!settings.contains(key)) return;
+        if (!settings.contains(key))
+            return;
         const QVariant v = settings.value(key);
-        if (!v.canConvert<QPen>()) return;
+        if (!v.canConvert<QPen>())
+            return;
         (this->*setter)(v.value<QPen>());
     };
     auto applyBrush = [&](const QString &key, void (SWMMResultsLayer::*setter)(const QBrush &)) {
-        if (!settings.contains(key)) return;
+        if (!settings.contains(key))
+            return;
         const QVariant v = settings.value(key);
-        if (!v.canConvert<QBrush>()) return;
+        if (!v.canConvert<QBrush>())
+            return;
         (this->*setter)(v.value<QBrush>());
     };
-    applyPen  (QStringLiteral("profileHglLinePen"),      &SWMMResultsLayer::setProfileHglLinePen);
-    applyBrush(QStringLiteral("profileHglFillBrush"),    &SWMMResultsLayer::setProfileHglFillBrush);
-    applyPen  (QStringLiteral("profileEglLinePen"),      &SWMMResultsLayer::setProfileEglLinePen);
-    applyPen  (QStringLiteral("profileMaxHglLinePen"),   &SWMMResultsLayer::setProfileMaxHglLinePen);
-    applyBrush(QStringLiteral("profileMaxHglFillBrush"), &SWMMResultsLayer::setProfileMaxHglFillBrush);
-    applyPen  (QStringLiteral("profileMaxEglLinePen"),   &SWMMResultsLayer::setProfileMaxEglLinePen);
+    applyPen(QStringLiteral("profileHglLinePen"), &SWMMResultsLayer::setProfileHglLinePen);
+    applyBrush(QStringLiteral("profileHglFillBrush"), &SWMMResultsLayer::setProfileHglFillBrush);
+    applyPen(QStringLiteral("profileEglLinePen"), &SWMMResultsLayer::setProfileEglLinePen);
+    applyPen(QStringLiteral("profileMaxHglLinePen"), &SWMMResultsLayer::setProfileMaxHglLinePen);
+    applyBrush(QStringLiteral("profileMaxHglFillBrush"),
+               &SWMMResultsLayer::setProfileMaxHglFillBrush);
+    applyPen(QStringLiteral("profileMaxEglLinePen"), &SWMMResultsLayer::setProfileMaxEglLinePen);
+}
+
+namespace
+{
+// Legacy output headers store the report interval as an integer number of
+// seconds. For fractional intervals the recorded period timestamps retain the
+// actual clock, even though the header interval is zero.
+int recordedPeriodForTime(SWMM_Output handle, int count, const QDateTime &time, bool asOf)
+{
+    if (!handle || count <= 0 || !time.isValid())
+        return 0;
+    const auto at = [handle](int period) {
+        double value = 0;
+        if (swmm_output_get_period_time(handle, period, &value) != 0)
+            return QDateTime{};
+        return openswmmvis::core::swmmDateTimeToMilliseconds(value);
+    };
+    int lo = 0, hi = count;
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const auto stamp = at(mid);
+        if (!stamp.isValid())
+            return 0;
+        if (stamp <= time)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (asOf || lo == count)
+        return std::max(0, lo - 1);
+    if (lo == 0)
+        return 0;
+    const auto before = at(lo - 1), after = at(lo);
+    if (!before.isValid() || !after.isValid())
+        return 0;
+    return before.msecsTo(time) < time.msecsTo(after) ? lo - 1 : lo;
+}
 }
 
 int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
@@ -642,14 +998,18 @@ int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
     // exact time to index 1 (off-by-one) whenever the first frame sits a
     // report step (or a whole REPORT_START offset) after START_DATE.
     const QDateTime origin = reportedStartDateTime();
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
+    if (m_reportStepSec <= 0)
+        return recordedPeriodForTime(m_handle, m_totalSteps, dt, false);
+    if (m_totalSteps <= 0 || !origin.isValid())
         return 0;
     const qint64 offsetMs = origin.msecsTo(dt);
-    const double periodF  = static_cast<double>(offsetMs)
-                              / (static_cast<double>(m_reportStepSec) * 1000.0);
+    const double periodF =
+        static_cast<double>(offsetMs) / (static_cast<double>(m_reportStepSec) * 1000.0);
     int period = static_cast<int>(std::lround(periodF));
-    if (period < 0)              period = 0;
-    if (period >= m_totalSteps)  period = m_totalSteps - 1;
+    if (period < 0)
+        period = 0;
+    if (period >= m_totalSteps)
+        period = m_totalSteps - 1;
     return period;
 }
 
@@ -662,14 +1022,18 @@ int SWMMResultsLayer::periodIndexForDateTimeAsOf(const QDateTime &dt) const
     // 2026-07-19 — same reported-start origin as periodIndexForDateTime();
     // see the comment there.
     const QDateTime origin = reportedStartDateTime();
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
+    if (m_reportStepSec <= 0)
+        return recordedPeriodForTime(m_handle, m_totalSteps, dt, true);
+    if (m_totalSteps <= 0 || !origin.isValid())
         return 0;
     const qint64 offsetMs = origin.msecsTo(dt);
-    const double periodF  = static_cast<double>(offsetMs)
-                              / (static_cast<double>(m_reportStepSec) * 1000.0);
+    const double periodF =
+        static_cast<double>(offsetMs) / (static_cast<double>(m_reportStepSec) * 1000.0);
     int period = static_cast<int>(std::floor(periodF + 1e-6));
-    if (period < 0)              period = 0;
-    if (period >= m_totalSteps)  period = m_totalSteps - 1;
+    if (period < 0)
+        period = 0;
+    if (period >= m_totalSteps)
+        period = m_totalSteps - 1;
     return period;
 }
 
@@ -706,29 +1070,129 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     QElapsedTimer openTimer;
     openTimer.start();
 
-    closeResults();
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen();
+    if (!self || generation != m_sourceGeneration)
+        return false;
 
-    if (!QFile::exists(m_resultsFilePath))
-    {
+    if (!QFile::exists(m_resultsFilePath)) {
         errors.append(QStringLiteral("Results file not found: ") + m_resultsFilePath);
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
         return false;
     }
 
     m_handle = swmm_output_open(m_resultsFilePath.toUtf8().constData());
-    if (!m_handle)
-    {
+    if (!m_handle) {
         errors.append(QStringLiteral("Failed to open results file: ") + m_resultsFilePath);
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
         return false;
     }
+    m_adoptedSourcePath = resultsFilePath();
 
     return finishOpen(openTimer.elapsed(), warnings, errors);
 }
 
-bool SWMMResultsLayer::finishOpen(qint64 msOpen,
-                                  QList<QString> &warnings, QList<QString> &errors)
+bool SWMMResultsLayer::openResultsLive(QList<QString> &errors)
 {
+    // Tail a .out the engine is still writing (LIVE_1D_RESULTS_PLAN_V2 §4.1).
+    // swmm_output_open_live parses the header forward and counts whole
+    // periods from the file size; refreshLive() re-counts on demand. Fails
+    // quietly (return false, no resultsError) while the header is not yet
+    // on disk so the caller can simply retry on the next progress tick.
+    QElapsedTimer openTimer;
+    openTimer.start();
+
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen();
+    if (!self || generation != m_sourceGeneration)
+        return false;
+
+    if (!QFile::exists(m_resultsFilePath)) {
+        completeResultsOpen();
+        return false;
+    }
+
+    m_handle = swmm_output_open_live(m_resultsFilePath.toUtf8().constData());
+    if (!m_handle) {
+        completeResultsOpen();
+        return false;
+    }
+    m_adoptedSourcePath = resultsFilePath();
+
+    m_live = true;
+    QList<QString> warnings;
+    return finishOpen(openTimer.elapsed(), warnings, errors);
+}
+
+int SWMMResultsLayer::refreshLive()
+{
+    if (!m_handle || !m_live)
+        return m_totalSteps;
+
+    int periods = 0;
+    if (swmm_output_refresh(m_handle, &periods) != 0)
+        return m_totalSteps;
+    const bool finalized = (swmm_output_is_live(m_handle) == 0);
+
+    const int oldSteps = m_totalSteps;
+    if (periods > oldSteps) {
+        m_totalSteps = periods;
+
+        // The reported origin is only knowable once period 0 exists.
+        if (oldSteps == 0) {
+            double reportedStartJulian = 0.0;
+            swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
+            m_reportedStartDateTime =
+                openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
+        }
+        double endJulian = 0.0;
+        swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
+        m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
+
+        // Whole-file aggregates are stale the moment a period is appended.
+        // Per-step result buffers are keyed by step and stay valid.
+        m_nodeAttributeRange.clear();
+        m_linkAttributeRange.clear();
+        m_subcatchAttributeRange.clear();
+        m_linkStats.clear();
+        m_subcatchStats.clear();
+        m_nodeStats.clear();
+
+        if (oldSteps == 0) {
+            // First data: the open-time prefetch had nothing to fetch.
+            m_currentStep = 0;
+            fetchResultsForStep(0);
+            escalateSceneDirty(SceneDirty::Structural);
+        }
+
+        emit totalTimeStepsChanged(m_totalSteps);
+        emit periodsAppended(oldSteps, m_totalSteps - oldSteps);
+        if (oldSteps == 0) {
+            emit currentTimeStepChanged(m_currentStep);
+            emit currentDateTimeChanged(currentDateTime());
+        }
+    }
+
+    if (finalized) {
+        m_live = false;
+        emit resultsFinalized();
+    }
+    return m_totalSteps;
+}
+
+bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList<QString> &errors)
+{
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = m_sourceGeneration;
+    // Y2b-3: a new run may carry species the old one missed (or vice
+    // versa) — the warn-once ledger starts fresh.
+    m_speciesMissWarner.reset();
     Q_UNUSED(warnings)
 
     // Everything after swmm_output_open — runs on the GUI thread (touches
@@ -737,14 +1201,18 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     QElapsedTimer loadTimer;
     loadTimer.start();
 
-    m_totalSteps    = swmm_output_get_period_count(m_handle);
+    m_totalSteps = swmm_output_get_period_count(m_handle);
     m_reportStepSec = swmm_output_get_report_step(m_handle);
 
-    if (m_totalSteps <= 0)
-    {
+    // A live open may legitimately see zero periods (header on disk, first
+    // report step not yet flushed); refreshLive() fills the time range in.
+    if (m_totalSteps <= 0 && !m_live) {
         errors.append(QStringLiteral("Results file contains no output periods."));
+        clearResults();
+        completeResultsOpen(errors.last());
+        if (!self || generation != m_sourceGeneration)
+            return false;
         emit resultsError(errors.last());
-        closeResults();
         return false;
     }
 
@@ -752,7 +1220,7 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     // period 0's report time; the old comment here was misleading).
     double startJulian = 0.0;
     swmm_output_get_start_date(m_handle, &startJulian);
-    m_startDateTime = openswmmvis::core::swmmDateTimeToQDateTime(startJulian);
+    m_startDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(startJulian);
 
     // 2026-07-19 — reported data origin: period 0's report time. This is
     // where the data frames actually begin (reportStart + reportStep),
@@ -760,17 +1228,18 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     // Feeds reportedStartDateTime(), which anchors the animation slider
     // span and the period-index grid so the slider's left edge is frame 0
     // instead of a dead zone.
-    double reportedStartJulian = 0.0;
-    swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
-    m_reportedStartDateTime =
-        openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
+    double reportedStartJulian = startJulian;
+    if (m_totalSteps > 0)
+        swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
+    m_reportedStartDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
 
     // End datetime from last period time.
-    double endJulian = 0.0;
-    swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-    m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
+    double endJulian = reportedStartJulian;
+    if (m_totalSteps > 0)
+        swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
+    m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
 
-    const qint64 msMeta = loadTimer.elapsed();  // header scalars read
+    const qint64 msMeta = loadTimer.elapsed(); // header scalars read
 
     // Build name → output-index maps for fast lookup during rendering.
     buildOutputIdMaps();
@@ -795,7 +1264,8 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     // install so the fetch collects each renderer's classify attribute and
     // the trailing rebuildAllActiveKindFeatureOverrides sees real data.)
     m_currentStep = 0;
-    fetchResultsForStep(0);
+    if (m_totalSteps > 0)
+        fetchResultsForStep(0);
     const qint64 msFetch = loadTimer.elapsed() - msMeta - msMaps;
 
     // Slice §Y.2 — new results file: every cached item from any previous
@@ -803,19 +1273,31 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
     escalateSceneDirty(SceneDirty::Structural);
 
     emit totalTimeStepsChanged(m_totalSteps);
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit currentTimeStepChanged(m_currentStep);
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit currentDateTimeChanged(currentDateTime());
+    if (!self || generation != m_sourceGeneration)
+        return false;
     emit resultsOpened();
+    if (!self || generation != m_sourceGeneration)
+        return false;
 
     qCInfo(lcLoadResults).noquote()
         << QStringLiteral("%1: %2 periods — open (ms): output_open=%3 header=%4 "
                           "id_maps=%5 prefetch_step0=%6 total=%7")
                .arg(QFileInfo(m_resultsFilePath).fileName())
                .arg(m_totalSteps)
-               .arg(msOpen).arg(msMeta).arg(msMaps).arg(msFetch)
+               .arg(msOpen)
+               .arg(msMeta)
+               .arg(msMaps)
+               .arg(msFetch)
                .arg(msOpen + loadTimer.elapsed());
 
-    return true;
+    completeResultsOpen();
+    return self && generation == m_sourceGeneration && m_handle;
 }
 
 void SWMMResultsLayer::openResultsAsync()
@@ -825,60 +1307,122 @@ void SWMMResultsLayer::openResultsAsync()
     // period-0 fetch + emits stay on the GUI thread in finishOpen(). Fires
     // resultsOpenFinished(bool) when done. If the layer dies mid-open the
     // finished handler closes the orphaned handle.
-    if (!QFile::exists(m_resultsFilePath))
-    {
-        emit resultsError(QStringLiteral("Results file not found: ") + m_resultsFilePath);
-        emit resultsOpenFinished(false);
+    const QString path = m_resultsFilePath;
+    const bool missing = !QFile::exists(path);
+    const QPointer<SWMMResultsLayer> self(this);
+    const auto generation = beginResultsOpen(missing);
+    if (!self || generation != m_sourceGeneration)
+        return;
+    if (missing) {
+        const QString message = QStringLiteral("Results file not found: ") + path;
+        completeResultsOpen(message);
+        if (!self || generation != m_sourceGeneration)
+            return;
+        emit resultsError(message);
+        if (self && generation == m_sourceGeneration)
+            emit resultsOpenFinished(false);
         return;
     }
 
-    closeResults();   // drop any prior handle before opening the new one
-
-    struct HandleOpen { SWMM_Output handle = nullptr; qint64 msOpen = 0; };
-    const QString path = m_resultsFilePath;
-    QPointer<SWMMResultsLayer> self(this);
+    /** @brief Close a prepared reader unless the current GUI generation adopts it. */
+    struct PreparedOutput {
+        SWMM_Output handle = nullptr; ///< Exclusively released into the live layer on adoption.
+        ~PreparedOutput()
+        {
+            if (handle)
+                swmm_output_close(handle);
+        }
+    };
+    /** @brief Copyable future value with shared RAII ownership of a prepared handle. */
+    struct HandleOpen {
+        std::shared_ptr<PreparedOutput> output = std::make_shared<PreparedOutput>();
+        qint64 msOpen = 0; ///< Blocking output-open elapsed time, excluding GUI adoption.
+    };
     auto *watcher = new QFutureWatcher<HandleOpen>();
     QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
-                     [watcher, self, path]() {
+                     [watcher, self, path, generation]() {
         HandleOpen r = watcher->result();
         watcher->deleteLater();
-        if (!self) {
-            if (r.handle) swmm_output_close(r.handle);
+        if (!self || generation != self->m_sourceGeneration)
+            return;
+        if (!r.output->handle) {
+            const QString message = QStringLiteral("Failed to open results file: ") + path;
+            self->completeResultsOpen(message);
+            if (!self || generation != self->m_sourceGeneration)
+                return;
+            emit self->resultsError(message);
+            if (self && generation == self->m_sourceGeneration)
+                emit self->resultsOpenFinished(false);
             return;
         }
-        if (!r.handle) {
-            self->m_handle = nullptr;
-            emit self->resultsError(
-                QStringLiteral("Failed to open results file: ") + path);
-            emit self->resultsOpenFinished(false);
-            return;
-        }
-        self->m_handle = r.handle;
+        self->m_handle = std::exchange(r.output->handle, nullptr);
+        self->m_adoptedSourcePath = self->resultsFilePath();
         QList<QString> w, e;
         const bool ok = self->finishOpen(r.msOpen, w, e);
-        emit self->resultsOpenFinished(ok);
+        if (self && generation == self->m_sourceGeneration)
+            emit self->resultsOpenFinished(ok);
     });
     watcher->setFuture(QtConcurrent::run([path]() {
         HandleOpen r;
         QElapsedTimer t;
         t.start();
-        r.handle = swmm_output_open(path.toUtf8().constData());
+        r.output->handle = swmm_output_open(path.toUtf8().constData());
         r.msOpen = t.elapsed();
         return r;
     }));
 }
 
+openswmmvis::io::LidStateFrame SWMMResultsLayer::lidStateAt(const QDateTime &time,
+                                                            const QStringList &nodes)
+{
+    if (!m_handle) {
+        openswmmvis::io::LidStateFrame frame;
+        frame.status = tr("No open results source.");
+        return frame;
+    }
+    return m_lidStateReader.frameAt(resultsFilePath(), isLive(), time, nodes);
+}
+
 void SWMMResultsLayer::closeResults()
 {
-    if (m_handle)
-    {
+    ++m_sourceGeneration;
+    clearResults();
+    m_sourceLoading = false;
+    m_sourceError.clear();
+    emit sourceStateChanged();
+}
+
+quint64 SWMMResultsLayer::beginResultsOpen(bool keepReader)
+{
+    const auto generation = ++m_sourceGeneration;
+    if (!keepReader)
+        clearResults();
+    m_sourceLoading = true;
+    m_sourceError.clear();
+    emit sourceStateChanged();
+    return generation;
+}
+
+void SWMMResultsLayer::completeResultsOpen(const QString &error)
+{
+    m_sourceLoading = false;
+    m_sourceError = error;
+    emit sourceStateChanged();
+}
+
+void SWMMResultsLayer::clearResults()
+{
+    m_lidStateReader = {};
+    m_adoptedSourcePath.clear();
+    if (m_handle) {
         swmm_output_close(m_handle);
         m_handle = nullptr;
     }
 
-    m_totalSteps    = 0;
-    m_currentStep   = 0;
+    m_totalSteps = 0;
+    m_currentStep = 0;
     m_reportStepSec = 0;
+    m_live = false;
     m_nodeResults.clear();
     m_linkResults.clear();
     m_subcatchResults.clear();
@@ -893,6 +1437,12 @@ void SWMMResultsLayer::closeResults()
     m_nodeAttributeRange.clear();
     m_linkAttributeRange.clear();
     m_subcatchAttributeRange.clear();
+
+    // Aggregated node / link / subcatchment summary statistics are keyed by
+    // output index, so they MUST go with the file that defined those indices.
+    m_linkStats.clear();
+    m_subcatchStats.clear();
+    m_nodeStats.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -916,40 +1466,335 @@ void SWMMResultsLayer::closeResults()
 // (which shouldn't happen mid-open but the API is defensively coded)
 // fall through to 0.0 the same way.
 
+// Each of the four engine aggregators walks the whole .out file for its
+// variable (one seek + one 4-byte read per period), so the four accessors
+// below used to cost four full-file walks EVERY time a node dynamics cell
+// was painted — and a table scroll repaints them constantly. Memoise the
+// set exactly the way linkStatsFor / subcatchStatsFor already do.
+//
+// This is a pure memoisation: the same aggregators produce the same
+// numbers, just once per node instead of once per cell read.
+SWMMResultsLayer::NodeStats SWMMResultsLayer::nodeStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle)
+        return {};
+    if (const auto it = m_nodeStats.constFind(outIdx); it != m_nodeStats.constEnd())
+        return *it;
+
+    NodeStats st;
+    double v = 0.0;
+    if (swmm_output_get_node_stat_max_depth(m_handle, outIdx, &v) == 0)
+        st.maxDepth = v;
+    if (swmm_output_get_node_stat_max_overflow(m_handle, outIdx, &v) == 0)
+        st.maxOverflow = v;
+    if (swmm_output_get_node_stat_vol_flooded(m_handle, outIdx, &v) == 0)
+        st.volFlooded = v;
+    // Seconds out of the engine (OutputReader counts flooded periods and
+    // multiplies by report_step); the column is "Time Flooded (hr)", and
+    // this used to be handed over unconverted — a 3600x overstatement.
+    if (swmm_output_get_node_stat_time_flooded(m_handle, outIdx, &v) == 0)
+        st.timeFloodedHr = v / 3600.0;
+
+    m_nodeStats.insert(outIdx, st);
+    return st;
+}
+
 double SWMMResultsLayer::nodeStatMaxDepth(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_max_depth(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).maxDepth;
 }
 
 double SWMMResultsLayer::nodeStatMaxOverflow(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_max_overflow(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).maxOverflow;
 }
 
 double SWMMResultsLayer::nodeStatVolFlooded(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_vol_flooded(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).volFlooded;
 }
 
 double SWMMResultsLayer::nodeStatTimeFlooded(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_time_flooded(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).timeFloodedHr;
+}
+
+// ---------------------------------------------------------------------------
+// Per-output link / subcatchment summary statistics
+// ---------------------------------------------------------------------------
+//
+// The .out file has no stats block and — unlike the node case (engine gap
+// QA-01) — no `swmm_output_get_link_stat_*` aggregators either, so these are
+// computed here from the per-period series.
+//
+// Unit bookkeeping is the delicate part. The series carry the file's OWN
+// display units (flow in the file's flow-units code; rainfall in in/hr or
+// mm/hr), while the editing-engine getters these stand in for report project
+// VOLUME units. The engine's two conversion tables give the round trip:
+//
+//     internal = display / Ucf   and   display_flow = cfs * Qcf
+//
+// so a volume integral is  Σ (flow / Qcf) * dt  [ft³]  * Ucf[VOLUME].
+// The tables are duplicated here rather than #included because they live in
+// the engine's private src/engine/core/UnitConversion.hpp, which is not part
+// of the installed public headers the GUI links against.
+
+namespace
+{
+
+// Qcf[flow_units] — cfs → the file's display flow units. Indices match
+// swmm_output_get_flow_units(): 0=CFS 1=GPM 2=MGD 3=CMS 4=LPS 5=MLD.
+// Mirrors openswmm.engine src/engine/core/UnitConversion.hpp.
+constexpr double kQcf[6] = {1.0, 448.831, 0.64632, 0.02832, 28.317, 2.4466};
+
+// Ucf rows used below, [US, SI]. Same source.
+constexpr double kUcfRainfall[2] = {43200.0, 1097280.0};    // in/hr, mm/hr → ft/s
+constexpr double kUcfLandArea[2] = {2.2956e-5, 0.92903e-5}; // ac, ha → ft²
+constexpr double kUcfVolume[2] = {1.0, 0.02832};            // ft³, m³ → ft³
+
+// Flow-unit codes 3..5 (CMS/LPS/MLD) are the SI set.
+/**
+ * @param[in] code Raw flow-unit code.
+ * @return True for any code>=three (including unsupported larger codes); false otherwise. Normal supported SI codes are CMS/LPS/MLD.
+ */
+bool flowUnitsAreSI(int code)
+{
+    return code >= 3;
+}
+
+} // namespace
+
+SWMMResultsLayer::LinkStats SWMMResultsLayer::linkStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle || m_totalSteps <= 0)
+        return {};
+    if (const auto it = m_linkStats.constFind(outIdx); it != m_linkStats.constEnd())
+        return *it;
+
+    const int last = m_totalSteps - 1;
+    const int fu = swmm_output_get_flow_units(m_handle);
+    const bool si = flowUnitsAreSI(fu);
+    const double qcf = (fu >= 0 && fu < 6) ? kQcf[fu] : 1.0;
+    const double dtSec = double(m_reportStepSec);
+
+    QVector<float> buf(m_totalSteps);
+    LinkStats st;
+
+    auto readSeries = [&](int var) -> bool {
+        return swmm_output_get_link_series(m_handle, outIdx, var, 0, last, buf.data()) == 0;
+    };
+
+    if (readSeries(SWMM_OUT_LINK_FLOW)) {
+        double vol = 0.0;
+        for (const float f : buf) {
+            // Flow is SIGNED in the .out file (the engine multiplies by the
+            // link's direction), but both engine statistics are built from
+            // |q| — see SWMMEngine's per-step link loop — so take magnitudes
+            // here too. Signing max-flow instead would report a negative
+            // peak for any reverse-flowing conduit.
+            const double q = std::abs(double(f));
+            if (q > st.maxFlow)
+                st.maxFlow = q;
+            vol += q;
+        }
+        // Σ|q| * dt with q converted to cfs, then out to project volume units.
+        st.volFlow = (qcf != 0.0) ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0] : 0.0;
+    }
+    if (readSeries(SWMM_OUT_LINK_VELOCITY)) {
+        // Signed for the same reason; the engine's stat_max_veloc is derived
+        // from |q| and is therefore non-negative.
+        for (const float f : buf)
+            if (std::abs(double(f)) > st.maxVelocity)
+                st.maxVelocity = std::abs(double(f));
+    }
+
+    // The remaining statistics need model-side facts the .out file does not
+    // carry — the link's type, and (for conduits) its full depth — so resolve
+    // the engine index once here.
+    SWMM_Engine eng = m_modelLayer ? m_modelLayer->engine() : nullptr;
+    int lIdx = -1, lType = -1;
+    if (eng) {
+        const QString name = m_linkOutputIdx.key(outIdx);
+        lIdx = swmm_link_index(eng, name.toUtf8().constData());
+        if (lIdx >= 0)
+            swmm_link_get_type(eng, lIdx, &lType);
+    }
+
+    if (lType == SWMM_LINK_PUMP) {
+        // Pump utilisation. The engine's on/off test is
+        // `setting > 0 && flow > 0`, and both operands survive into the .out
+        // file: flow directly, and `setting` as CAPACITY — for a non-conduit
+        // that variable is the pump speed / regulator opening, NOT a fill
+        // ratio (legacy link.c). Reconstructing from those reproduces the
+        // engine's own accumulation loop step for step.
+        QVector<float> flow(m_totalSteps);
+        if (swmm_output_get_link_series(m_handle, outIdx, SWMM_OUT_LINK_FLOW, 0, last,
+                                        flow.data()) == 0 &&
+            readSeries(SWMM_OUT_LINK_CAPACITY)) {
+            int cycles = 0, onPeriods = 0;
+            bool wasOn = false;
+            double vol = 0.0;
+            for (int p = 0; p < m_totalSteps; ++p) {
+                const double q = std::abs(double(flow[p]));
+                const bool isOn = (double(buf[p]) > 0.0 && q > 0.0);
+                if (isOn && !wasOn)
+                    ++cycles; // OFF→ON only, as the engine counts
+                wasOn = isOn;
+                if (isOn) {
+                    ++onPeriods;
+                    vol += q;
+                }
+            }
+            st.pumpCycles = cycles;
+            st.pumpOnTimeHr = onPeriods * dtSec / 3600.0;
+            st.pumpVolume = (qcf != 0.0) ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0] : 0.0;
+        }
+    } else if (readSeries(SWMM_OUT_LINK_DEPTH)) {
+        // Filling and surcharge both need the FULL DEPTH.
+        //
+        // The tempting shortcut is SWMM_OUT_LINK_CAPACITY, and it is wrong:
+        // for a conduit that variable is xsect_getAofY(y)/aFull — an AREA
+        // ratio — while the engine's max-filling statistic is depth/y_full.
+        // The two differ by roughly a factor of two at part-full flow
+        // (validated against site_drainage_model: capacity gave 0.16 where
+        // the .rpt reports 0.32).
+        //
+        // So divide the depth series by the y_full the engine itself uses,
+        // taken from the model's resolved cross-section. That handles
+        // IRREGULAR and CUSTOM shapes, whose y_full is not simply geom1.
+        double yFull = 0.0;
+        SWMM_XSect xs = nullptr;
+        if (lIdx >= 0 && swmm_link_create_xsect(eng, lIdx, &xs) == SWMM_OK && xs) {
+            swmm_xsect_full_properties(xs, &yFull, nullptr, nullptr, nullptr, nullptr, nullptr);
+            swmm_xsect_free(xs);
+        }
+        if (yFull > 0.0) {
+            int surchargedPeriods = 0;
+            for (const float f : buf) {
+                const double fill = double(f) / yFull;
+                if (fill > st.maxFilling)
+                    st.maxFilling = fill;
+                if (fill >= 1.0)
+                    ++surchargedPeriods;
+            }
+            st.surchargeTimeHr = surchargedPeriods * dtSec / 3600.0;
+        }
+    }
+
+    m_linkStats.insert(outIdx, st);
+    return st;
+}
+
+SWMMResultsLayer::SubcatchStats SWMMResultsLayer::subcatchStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle || m_totalSteps <= 0)
+        return {};
+    if (const auto it = m_subcatchStats.constFind(outIdx); it != m_subcatchStats.constEnd())
+        return *it;
+
+    const int last = m_totalSteps - 1;
+    const int fu = swmm_output_get_flow_units(m_handle);
+    const bool si = flowUnitsAreSI(fu);
+    const double qcf = (fu >= 0 && fu < 6) ? kQcf[fu] : 1.0;
+    const double dtSec = double(m_reportStepSec);
+
+    QVector<float> buf(m_totalSteps);
+    SubcatchStats st;
+
+    auto readSeries = [&](int var) -> bool {
+        return swmm_output_get_subcatch_series(m_handle, outIdx, var, 0, last, buf.data()) == 0;
+    };
+
+    if (readSeries(SWMM_OUT_SUBCATCH_RUNOFF)) {
+        double vol = 0.0;
+        for (const float f : buf) {
+            if (double(f) > st.maxRunoff)
+                st.maxRunoff = double(f);
+            vol += double(f);
+        }
+        st.runoffVol = (qcf != 0.0) ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0] : 0.0;
+    }
+    if (readSeries(SWMM_OUT_SUBCATCH_RAINFALL)) {
+        // Rainfall is a DEPTH rate, so the volume needs the subcatchment's
+        // area — which the .out file does not carry. Read it from the model
+        // layer's engine; without a model layer there is nothing to scale by
+        // and precipitation volume stays 0 rather than reporting a depth as
+        // if it were a volume.
+        double areaFt2 = 0.0;
+        if (m_modelLayer) {
+            if (SWMM_Engine eng = m_modelLayer->engine()) {
+                const QString name = m_subcatchOutputIdx.key(outIdx);
+                const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+                double areaProj = 0.0;
+                if (sIdx >= 0 && swmm_subcatch_get_area(eng, sIdx, &areaProj) == SWMM_OK)
+                    areaFt2 = areaProj / kUcfLandArea[si ? 1 : 0];
+            }
+        }
+        if (areaFt2 > 0.0) {
+            double depthFt = 0.0;
+            for (const float f : buf)
+                depthFt += double(f) / kUcfRainfall[si ? 1 : 0] * dtSec;
+            st.precipVol = depthFt * areaFt2 * kUcfVolume[si ? 1 : 0];
+        }
+    }
+
+    m_subcatchStats.insert(outIdx, st);
+    return st;
+}
+
+double SWMMResultsLayer::linkStatMaxFlow(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).maxFlow;
+}
+
+double SWMMResultsLayer::linkStatMaxVelocity(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).maxVelocity;
+}
+
+double SWMMResultsLayer::linkStatMaxFilling(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).maxFilling;
+}
+
+double SWMMResultsLayer::linkStatVolFlow(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).volFlow;
+}
+
+double SWMMResultsLayer::linkStatSurchargeTime(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).surchargeTimeHr;
+}
+
+double SWMMResultsLayer::linkStatPumpCycles(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).pumpCycles;
+}
+
+double SWMMResultsLayer::linkStatPumpOnTime(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).pumpOnTimeHr;
+}
+
+double SWMMResultsLayer::linkStatPumpVolume(const QString &linkName) const
+{
+    return linkStatsFor(linkOutputIndex(linkName)).pumpVolume;
+}
+
+double SWMMResultsLayer::subcatchStatPrecip(const QString &subName) const
+{
+    return subcatchStatsFor(subcatchOutputIndex(subName)).precipVol;
+}
+
+double SWMMResultsLayer::subcatchStatRunoffVol(const QString &subName) const
+{
+    return subcatchStatsFor(subcatchOutputIndex(subName)).runoffVol;
+}
+
+double SWMMResultsLayer::subcatchStatMaxRunoff(const QString &subName) const
+{
+    return subcatchStatsFor(subcatchOutputIndex(subName)).maxRunoff;
 }
 
 void SWMMResultsLayer::buildOutputIdMaps()
@@ -959,8 +1804,7 @@ void SWMMResultsLayer::buildOutputIdMaps()
 
     const int nNodes = swmm_output_get_node_count(m_handle);
     m_nodeOutputIdx.reserve(nNodes);
-    for (int i = 0; i < nNodes; ++i)
-    {
+    for (int i = 0; i < nNodes; ++i) {
         const char *id = swmm_output_get_node_id(m_handle, i);
         if (id)
             m_nodeOutputIdx.insert(QString::fromUtf8(id), i);
@@ -968,8 +1812,7 @@ void SWMMResultsLayer::buildOutputIdMaps()
 
     const int nLinks = swmm_output_get_link_count(m_handle);
     m_linkOutputIdx.reserve(nLinks);
-    for (int i = 0; i < nLinks; ++i)
-    {
+    for (int i = 0; i < nLinks; ++i) {
         const char *id = swmm_output_get_link_id(m_handle, i);
         if (id)
             m_linkOutputIdx.insert(QString::fromUtf8(id), i);
@@ -977,8 +1820,7 @@ void SWMMResultsLayer::buildOutputIdMaps()
 
     const int nSubs = swmm_output_get_subcatch_count(m_handle);
     m_subcatchOutputIdx.reserve(nSubs);
-    for (int i = 0; i < nSubs; ++i)
-    {
+    for (int i = 0; i < nSubs; ++i) {
         const char *id = swmm_output_get_subcatch_id(m_handle, i);
         if (id)
             m_subcatchOutputIdx.insert(QString::fromUtf8(id), i);
@@ -987,8 +1829,23 @@ void SWMMResultsLayer::buildOutputIdMaps()
 
 void SWMMResultsLayer::fetchResultsForStep(int step)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     if (!m_handle || step < 0 || step >= m_totalSteps)
         return;
+
+    // Y2b-3 (D-G1 warn-on-miss): a −1 from a species token degrades to
+    // "no theme" exactly as before — but now it SAYS so, once per token
+    // per run, instead of silently painting nothing.
+    auto warnMiss = [this](int code, const QString &attr) {
+        if (code < 0) {
+            const QString msg = m_speciesMissWarner.noteMiss(attr, name());
+            if (!msg.isEmpty())
+                qCWarning(lcLoadResults).noquote() << msg;
+        }
+        return code;
+    };
 
     // Phase 2 (2026-05-25) — collect the set of (kind, varCode) pairs the
     // visible sublayers need so concurrent painting works (e.g. node markers
@@ -1001,13 +1858,17 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
     QSet<int> neededSubcatchVars;
 
     auto collect = [](QSet<int> &set, int code) {
-        if (code >= 0) set.insert(code);
+        if (code >= 0)
+            set.insert(code);
     };
 
     // Active variable — legacy path.
-    if (isNodeVar(m_variable))         collect(neededNodeVars,     nodeVar(m_variable));
-    else if (isLinkVar(m_variable))    collect(neededLinkVars,     linkVar(m_variable));
-    else if (isSubcatchVar(m_variable))collect(neededSubcatchVars, subcatchVar(m_variable));
+    if (isNodeVar(m_variable))
+        collect(neededNodeVars, nodeVar(m_variable));
+    else if (isLinkVar(m_variable))
+        collect(neededLinkVars, linkVar(m_variable));
+    else if (isSubcatchVar(m_variable))
+        collect(neededSubcatchVars, subcatchVar(m_variable));
 
     // Slice U-0 — walk the granular per-Category sublayer set. Each
     // visible sublayer contributes its attribute's output-code to the
@@ -1016,21 +1877,43 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
     using OpenSWMM::Render::FeatureSublayer;
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub || !sub->isVisible() || !sub->featureStyle()) continue;
+        if (!sub || !sub->isVisible() || !sub->featureStyle())
+            continue;
         const QString attr = sub->featureStyle()->attribute();
-        if (attr.isEmpty()) continue;
         switch (sub->archetype()) {
-            case FeatureSublayer::Archetype::Point:
-                collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
-                break;
-            case FeatureSublayer::Archetype::Line:
-                collect(neededLinkVars,     linkOutCodeForAttribute(attr));
-                if (auto *ls = sub->lineStyle(); ls && ls->showFlowArrows())
-                    collect(neededLinkVars, SWMM_OUT_LINK_FLOW);
-                break;
-            case FeatureSublayer::Archetype::Polygon:
-                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
-                break;
+        case FeatureSublayer::Archetype::Point:
+            collect(neededNodeVars, warnMiss(nodeOutCodeForAttribute(attr, species), attr));
+            break;
+        case FeatureSublayer::Archetype::Line:
+            collect(neededLinkVars, warnMiss(linkOutCodeForAttribute(attr, species), attr));
+            if (auto *ls = sub->lineStyle(); ls && ls->showFlowArrows())
+                collect(neededLinkVars, SWMM_OUT_LINK_FLOW);
+            break;
+        case FeatureSublayer::Archetype::Polygon:
+            collect(neededSubcatchVars, warnMiss(subcatchOutCodeForAttribute(attr, species), attr));
+            break;
+        }
+        const auto &subLabels = sub->featureStyle()->labelConfig();
+        const auto labels = subLabels.enabled ? subLabels : labelConfig();
+        if (labels.enabled) {
+            QStringList fields{labels.fieldName};
+            static const QRegularExpression token(QStringLiteral("\\{([^{}]+)\\}"));
+            auto matches = token.globalMatch(labels.expression);
+            while (matches.hasNext())
+                fields.append(matches.next().captured(1).trimmed());
+            for (const QString &field : fields) {
+                switch (sub->archetype()) {
+                case FeatureSublayer::Archetype::Point:
+                    collect(neededNodeVars, nodeOutCodeForAttribute(field, species));
+                    break;
+                case FeatureSublayer::Archetype::Line:
+                    collect(neededLinkVars, linkOutCodeForAttribute(field, species));
+                    break;
+                case FeatureSublayer::Archetype::Polygon:
+                    collect(neededSubcatchVars, subcatchOutCodeForAttribute(field, species));
+                    break;
+                }
+            }
         }
     }
 
@@ -1043,42 +1926,72 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         if (i >= static_cast<int>(m_kindRenderers.size()))
             break;
         auto *kr = m_kindRenderers[static_cast<size_t>(i)].get();
-        if (!kr) continue;
-        QString attr;
-        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
-            attr = g->classifyAttribute();
-        else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr))
-            attr = cz->classifyAttribute();
-        if (attr.isEmpty()) continue;
+        if (!kr)
+            continue;
+        QStringList attrsNeeded;
+        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+            attrsNeeded << g->classifyAttribute();
+            // Independent size attribute — the size/width axes may read a
+            // different output variable than the colour classification.
+            if (g->sizeAxisIndependent() && (g->outputSizeEnabled() || g->outputWidthEnabled()))
+                attrsNeeded << g->sizeAttribute();
+        } else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr)) {
+            attrsNeeded << cz->classifyAttribute();
+        }
         const auto c = static_cast<SWMMModelLayer::Category>(i);
-        if (catIsNodeScope(c))
-            collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
-        else if (catIsLinkScope(c))
-            collect(neededLinkVars,     linkOutCodeForAttribute(attr));
-        else if (catIsSubcatchScope(c))
-            collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+        for (const QString &attr : attrsNeeded) {
+            if (attr.isEmpty())
+                continue;
+            if (catIsNodeScope(c))
+                collect(neededNodeVars, warnMiss(nodeOutCodeForAttribute(attr, species), attr));
+            else if (catIsLinkScope(c))
+                collect(neededLinkVars, warnMiss(linkOutCodeForAttribute(attr, species), attr));
+            else if (catIsSubcatchScope(c))
+                collect(neededSubcatchVars,
+                        warnMiss(subcatchOutCodeForAttribute(attr, species), attr));
+        }
+    }
+
+    // Size channel — the sublayer style's own result variable for marker
+    // size / stroke width, independent of the kind renderer.
+    for (auto *sub : m_featureSublayers) {
+        const OpenSWMM::Render::SizeChannel *ch = sublayerSizeChannel(sub);
+        if (!ch || !ch->enabled || ch->attribute.isEmpty())
+            continue;
+        if (sub->archetype() == FeatureSublayer::Archetype::Point)
+            collect(neededNodeVars,
+                    warnMiss(nodeOutCodeForAttribute(ch->attribute, species), ch->attribute));
+        else
+            collect(neededLinkVars,
+                    warnMiss(linkOutCodeForAttribute(ch->attribute, species), ch->attribute));
     }
 
     // Drop cache entries for vars no longer needed (sublayer toggled off /
     // attribute changed) so memory tracks visible-sublayer set. QHash
     // iterators don't support arithmetic, so explicit if/else around
     // increment vs erase.
-    for (auto it = m_nodeResultsByVar.begin(); it != m_nodeResultsByVar.end(); ) {
-        if (neededNodeVars.contains(it.key())) ++it;
-        else it = m_nodeResultsByVar.erase(it);
+    for (auto it = m_nodeResultsByVar.begin(); it != m_nodeResultsByVar.end();) {
+        if (neededNodeVars.contains(it.key()))
+            ++it;
+        else
+            it = m_nodeResultsByVar.erase(it);
     }
-    for (auto it = m_linkResultsByVar.begin(); it != m_linkResultsByVar.end(); ) {
-        if (neededLinkVars.contains(it.key())) ++it;
-        else it = m_linkResultsByVar.erase(it);
+    for (auto it = m_linkResultsByVar.begin(); it != m_linkResultsByVar.end();) {
+        if (neededLinkVars.contains(it.key()))
+            ++it;
+        else
+            it = m_linkResultsByVar.erase(it);
     }
-    for (auto it = m_subcatchResultsByVar.begin(); it != m_subcatchResultsByVar.end(); ) {
-        if (neededSubcatchVars.contains(it.key())) ++it;
-        else it = m_subcatchResultsByVar.erase(it);
+    for (auto it = m_subcatchResultsByVar.begin(); it != m_subcatchResultsByVar.end();) {
+        if (neededSubcatchVars.contains(it.key()))
+            ++it;
+        else
+            it = m_subcatchResultsByVar.erase(it);
     }
 
     // Fetch each needed (kind, var) once for this period.
-    const int nodeCount     = swmm_output_get_node_count(m_handle);
-    const int linkCount     = swmm_output_get_link_count(m_handle);
+    const int nodeCount = swmm_output_get_node_count(m_handle);
+    const int linkCount = swmm_output_get_link_count(m_handle);
     const int subcatchCount = swmm_output_get_subcatch_count(m_handle);
 
     for (int v : neededNodeVars) {
@@ -1137,7 +2050,8 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
 // first time a results-styled sublayer was painted.
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 enum class RangeKind { Node, Link, Subcatch };
 
@@ -1145,43 +2059,67 @@ enum class RangeKind { Node, Link, Subcatch };
 // doesn't race the main thread's m_handle), scans every period for the
 // given variable, returns the (min, max). Returns {0.0, 1.0} on any
 // failure / degenerate case so callers don't have to special-case.
-QPair<double, double> scanRangeBlocking(const QString &path,
-                                        RangeKind     kind,
-                                        int           outCode,
-                                        int           totalSteps)
+/**
+ * @param[in] path Output path opened with an independently owned finalized-reader handle, closed before return.
+ * @param[in] kind Scope selecting node/link/subcatch result vectors.
+ * @param[in] outCode Scope-appropriate output variable code.
+ * @param[in] totalSteps Captured positive number of periods to scan, zero through totalSteps-1.
+ * @return Native-unit finite min/max across readable periods/objects; failed period reads are skipped. Invalid/no data gives[0,1]; constant data gives[0,positive maximum] or[0,1] for nonpositive constants. Negative code/empty path/open failure also falls back.
+ * @note Blocks on complete scan but touches no QObject/live layer reader, suitable for a worker. Live-incomplete files may fail finalized open and return placeholder range.
+ */
+QPair<double, double> scanRangeBlocking(const QString &path, RangeKind kind, int outCode,
+                                        int totalSteps)
 {
     auto fallback = QPair<double, double>(0.0, 1.0);
-    if (outCode < 0 || totalSteps <= 0 || path.isEmpty()) return fallback;
+    if (outCode < 0 || totalSteps <= 0 || path.isEmpty())
+        return fallback;
 
     auto *handle = swmm_output_open(path.toUtf8().constData());
-    if (!handle) return fallback;
+    if (!handle)
+        return fallback;
 
     int n = 0;
     switch (kind) {
-        case RangeKind::Node:     n = swmm_output_get_node_count(handle);     break;
-        case RangeKind::Link:     n = swmm_output_get_link_count(handle);     break;
-        case RangeKind::Subcatch: n = swmm_output_get_subcatch_count(handle); break;
+    case RangeKind::Node:
+        n = swmm_output_get_node_count(handle);
+        break;
+    case RangeKind::Link:
+        n = swmm_output_get_link_count(handle);
+        break;
+    case RangeKind::Subcatch:
+        n = swmm_output_get_subcatch_count(handle);
+        break;
     }
-    if (n <= 0) { swmm_output_close(handle); return fallback; }
+    if (n <= 0) {
+        swmm_output_close(handle);
+        return fallback;
+    }
 
     QVector<float> buf(n);
-    double mn =  std::numeric_limits<double>::infinity();
+    double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
     for (int t = 0; t < totalSteps; ++t) {
         int rc = 0;
         switch (kind) {
-            case RangeKind::Node:
-                rc = swmm_output_get_node_result(handle, t, outCode, buf.data()); break;
-            case RangeKind::Link:
-                rc = swmm_output_get_link_result(handle, t, outCode, buf.data()); break;
-            case RangeKind::Subcatch:
-                rc = swmm_output_get_subcatch_result(handle, t, outCode, buf.data()); break;
+        case RangeKind::Node:
+            rc = swmm_output_get_node_result(handle, t, outCode, buf.data());
+            break;
+        case RangeKind::Link:
+            rc = swmm_output_get_link_result(handle, t, outCode, buf.data());
+            break;
+        case RangeKind::Subcatch:
+            rc = swmm_output_get_subcatch_result(handle, t, outCode, buf.data());
+            break;
         }
-        if (rc != 0) continue;
+        if (rc != 0)
+            continue;
         for (float v : buf) {
-            if (!std::isfinite(v)) continue;
-            if (double(v) < mn) mn = double(v);
-            if (double(v) > mx) mx = double(v);
+            if (!std::isfinite(v))
+                continue;
+            if (double(v) < mn)
+                mn = double(v);
+            if (double(v) > mx)
+                mx = double(v);
         }
     }
     swmm_output_close(handle);
@@ -1206,20 +2144,24 @@ QPair<double, double> SWMMResultsLayer::ensureNodeAttributeRange(int outCode)
         return {0.0, 1.0};
     m_nodeRangePending.insert(outCode);
 
-    const QString path        = m_resultsFilePath;
-    const int     totalSteps  = m_totalSteps;
+    const QString path = m_resultsFilePath;
+    const int totalSteps = m_totalSteps;
     QPointer<SWMMResultsLayer> self(this);
     QtConcurrent::run([self, path, totalSteps, outCode]() {
         const auto range = scanRangeBlocking(path, RangeKind::Node, outCode, totalSteps);
-        QMetaObject::invokeMethod(qApp, [self, outCode, range]() {
-            if (!self) return;
-            self->m_nodeAttributeRange.insert(outCode, range);
-            self->m_nodeRangePending.remove(outCode);
-            // Gap A2.2 — FixedOverRun renderers classified against the
-            // frame showing at install time re-classify with run extremes.
-            self->reclassifyKindsForResolvedRange(0, outCode);
-            emit self->repaintRequested();
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            qApp,
+            [self, outCode, range]() {
+                if (!self)
+                    return;
+                self->m_nodeAttributeRange.insert(outCode, range);
+                self->m_nodeRangePending.remove(outCode);
+                // Gap A2.2 — FixedOverRun renderers classified against the
+                // frame showing at install time re-classify with run extremes.
+                self->reclassifyKindsForResolvedRange(0, outCode);
+                emit self->repaintRequested();
+            },
+            Qt::QueuedConnection);
     });
     return {0.0, 1.0};
 }
@@ -1235,18 +2177,22 @@ QPair<double, double> SWMMResultsLayer::ensureLinkAttributeRange(int outCode)
         return {0.0, 1.0};
     m_linkRangePending.insert(outCode);
 
-    const QString path        = m_resultsFilePath;
-    const int     totalSteps  = m_totalSteps;
+    const QString path = m_resultsFilePath;
+    const int totalSteps = m_totalSteps;
     QPointer<SWMMResultsLayer> self(this);
     QtConcurrent::run([self, path, totalSteps, outCode]() {
         const auto range = scanRangeBlocking(path, RangeKind::Link, outCode, totalSteps);
-        QMetaObject::invokeMethod(qApp, [self, outCode, range]() {
-            if (!self) return;
-            self->m_linkAttributeRange.insert(outCode, range);
-            self->m_linkRangePending.remove(outCode);
-            self->reclassifyKindsForResolvedRange(1, outCode);   // Gap A2.2
-            emit self->repaintRequested();
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            qApp,
+            [self, outCode, range]() {
+                if (!self)
+                    return;
+                self->m_linkAttributeRange.insert(outCode, range);
+                self->m_linkRangePending.remove(outCode);
+                self->reclassifyKindsForResolvedRange(1, outCode); // Gap A2.2
+                emit self->repaintRequested();
+            },
+            Qt::QueuedConnection);
     });
     return {0.0, 1.0};
 }
@@ -1262,18 +2208,22 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
         return {0.0, 1.0};
     m_subcatchRangePending.insert(outCode);
 
-    const QString path        = m_resultsFilePath;
-    const int     totalSteps  = m_totalSteps;
+    const QString path = m_resultsFilePath;
+    const int totalSteps = m_totalSteps;
     QPointer<SWMMResultsLayer> self(this);
     QtConcurrent::run([self, path, totalSteps, outCode]() {
         const auto range = scanRangeBlocking(path, RangeKind::Subcatch, outCode, totalSteps);
-        QMetaObject::invokeMethod(qApp, [self, outCode, range]() {
-            if (!self) return;
-            self->m_subcatchAttributeRange.insert(outCode, range);
-            self->m_subcatchRangePending.remove(outCode);
-            self->reclassifyKindsForResolvedRange(2, outCode);   // Gap A2.2
-            emit self->repaintRequested();
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            qApp,
+            [self, outCode, range]() {
+                if (!self)
+                    return;
+                self->m_subcatchAttributeRange.insert(outCode, range);
+                self->m_subcatchRangePending.remove(outCode);
+                self->reclassifyKindsForResolvedRange(2, outCode); // Gap A2.2
+                emit self->repaintRequested();
+            },
+            Qt::QueuedConnection);
     });
     return {0.0, 1.0};
 }
@@ -1286,9 +2236,11 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
 // convention; values labelled at bin centres.
 // ---------------------------------------------------------------------------
 
-QList<OpenSWMM::Render::LegendSymbolItem>
-SWMMResultsLayer::sublayerLegendItems()
+QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems()
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using OpenSWMM::Render::LegendSymbolItem;
     using OpenSWMM::Render::SymbolLayer;
     using OpenSWMM::Render::SymbolLayerKind;
@@ -1299,25 +2251,20 @@ SWMMResultsLayer::sublayerLegendItems()
     // Helper — build kBinCount graduated rows for one sublayer/attribute
     // pair. `kind` selects the swatch geometry (SimpleMarker / SimpleLine /
     // SimpleFill / MarkerLine) to match what populateScene draws.
-    auto appendRampRows =
-        [&](const QString &sublayerId,
-            const QString &attribute,
-            QPair<double, double> range,
-            SymbolLayerKind swatchKind,
-            double sizeOrWidthPx)
-    {
+    auto appendRampRows = [&](const QString &sublayerId, const QString &attribute,
+                              QPair<double, double> range, SymbolLayerKind swatchKind,
+                              double sizeOrWidthPx) {
         // Degenerate range → still emit ONE row at the midpoint colour so
         // the legend isn't empty when sampling failed.
         if (!(range.second > range.first)) {
             LegendSymbolItem item;
-            item.label      = QStringLiteral("%1 = %2").arg(attribute)
-                                .arg(range.first, 0, 'g', 3);
+            item.label = QStringLiteral("%1 = %2").arg(attribute).arg(range.first, 0, 'g', 3);
             item.sublayerId = sublayerId;
-            item.range      = range;
+            item.range = range;
             SymbolLayer sl;
             sl.kind = swatchKind;
             OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                    m_colorRamp.colorForValue(range.first));
+                                                      m_colorRamp.colorForValue(range.first));
             if (swatchKind == SymbolLayerKind::SimpleMarker)
                 sl.props.insert(QStringLiteral("size"), sizeOrWidthPx);
             if (swatchKind == SymbolLayerKind::SimpleLine)
@@ -1336,21 +2283,18 @@ SWMMResultsLayer::sublayerLegendItems()
         const double span = range.second - range.first;
         for (int i = 0; i < kBinCount; ++i) {
             // Bin centre value (uniform spacing).
-            const double t = (kBinCount == 1)
-                ? 0.5
-                : (double(i) + 0.5) / double(kBinCount);
+            const double t = (kBinCount == 1) ? 0.5 : (double(i) + 0.5) / double(kBinCount);
             const double value = range.first + t * span;
 
             LegendSymbolItem item;
             // Label format mirrors the BB convention "<low> – <high>" so
             // users see the bin extents, not just centres.
-            const double binLo = range.first + double(i)     / kBinCount * span;
+            const double binLo = range.first + double(i) / kBinCount * span;
             const double binHi = range.first + double(i + 1) / kBinCount * span;
-            item.label = QStringLiteral("%1 – %2")
-                .arg(binLo, 0, 'g', 3).arg(binHi, 0, 'g', 3);
+            item.label = QStringLiteral("%1 – %2").arg(binLo, 0, 'g', 3).arg(binHi, 0, 'g', 3);
             item.sublayerId = sublayerId;
-            item.range      = { binLo, binHi };
-            item.classKey   = QString::number(i); // matches BB legend editor's class indexing
+            item.range = {binLo, binHi};
+            item.classKey = QString::number(i); // matches BB legend editor's class indexing
 
             QColor col = localRamp.colorForValue(value);
             SymbolLayer sl;
@@ -1377,59 +2321,60 @@ SWMMResultsLayer::sublayerLegendItems()
 
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub || !sub->isVisible() || !sub->featureStyle()) continue;
+        if (!sub || !sub->isVisible() || !sub->featureStyle())
+            continue;
 
         const QString sublayerId = sub->id();
-        const QString attribute  = sub->featureStyle()->attribute();
-        const bool    useRamp    = sub->featureStyle()->useColorRamp();
-        const QColor  singleCol  = sub->featureStyle()->color();
+        const QString attribute = sub->featureStyle()->attribute();
+        const bool useRamp = sub->featureStyle()->useColorRamp();
+        const QColor singleCol = sub->featureStyle()->color();
 
         // Pick the swatch geometry + per-archetype size/width to feed
         // appendRampRows. Records also which range sampler to call.
         SymbolLayerKind swatchKind = SymbolLayerKind::SimpleMarker;
-        double          swatchSize = 6.0;
+        double swatchSize = 6.0;
         QPair<double, double> range{0.0, 1.0};
         bool haveData = false;
 
         switch (sub->archetype()) {
-            case FeatureSublayer::Archetype::Point: {
-                auto *st = sub->pointStyle();
-                swatchKind = SymbolLayerKind::SimpleMarker;
-                swatchSize = std::max(2.0, st->markerSizePx());
-                if (!attribute.isEmpty()) {
-                    const int code = nodeOutCodeForAttribute(attribute);
-                    if (code >= 0) {
-                        range = ensureNodeAttributeRange(code);
-                        haveData = true;
-                    }
+        case FeatureSublayer::Archetype::Point: {
+            auto *st = sub->pointStyle();
+            swatchKind = SymbolLayerKind::SimpleMarker;
+            swatchSize = std::max(2.0, st->markerSizePx());
+            if (!attribute.isEmpty()) {
+                const int code = nodeOutCodeForAttribute(attribute, species);
+                if (code >= 0) {
+                    range = ensureNodeAttributeRange(code);
+                    haveData = true;
                 }
-                break;
             }
-            case FeatureSublayer::Archetype::Line: {
-                auto *st = sub->lineStyle();
-                swatchKind = SymbolLayerKind::SimpleLine;
-                swatchSize = std::max(1.0, st->lineWidthPx());
-                if (!attribute.isEmpty()) {
-                    const int code = linkOutCodeForAttribute(attribute);
-                    if (code >= 0) {
-                        range = ensureLinkAttributeRange(code);
-                        haveData = true;
-                    }
+            break;
+        }
+        case FeatureSublayer::Archetype::Line: {
+            auto *st = sub->lineStyle();
+            swatchKind = SymbolLayerKind::SimpleLine;
+            swatchSize = std::max(1.0, st->lineWidthPx());
+            if (!attribute.isEmpty()) {
+                const int code = linkOutCodeForAttribute(attribute, species);
+                if (code >= 0) {
+                    range = ensureLinkAttributeRange(code);
+                    haveData = true;
                 }
-                break;
             }
-            case FeatureSublayer::Archetype::Polygon: {
-                swatchKind = SymbolLayerKind::SimpleFill;
-                swatchSize = 0.0;
-                if (!attribute.isEmpty()) {
-                    const int code = subcatchOutCodeForAttribute(attribute);
-                    if (code >= 0) {
-                        range = ensureSubcatchAttributeRange(code);
-                        haveData = true;
-                    }
+            break;
+        }
+        case FeatureSublayer::Archetype::Polygon: {
+            swatchKind = SymbolLayerKind::SimpleFill;
+            swatchSize = 0.0;
+            if (!attribute.isEmpty()) {
+                const int code = subcatchOutCodeForAttribute(attribute, species);
+                if (code >= 0) {
+                    range = ensureSubcatchAttributeRange(code);
+                    haveData = true;
                 }
-                break;
             }
+            break;
+        }
         }
 
         // Gap A2.3 — legend-from-renderer (§J.5 invariant): when a kind
@@ -1448,10 +2393,10 @@ SWMMResultsLayer::sublayerLegendItems()
             const auto rows = kr->legendSymbolItems();
             if (!rows.isEmpty()) {
                 LegendSymbolItem header;
-                header.label = rendererAttr.isEmpty()
-                                 ? sub->displayName()
-                                 : QStringLiteral("%1 — %2")
-                                       .arg(sub->displayName(), rendererAttr);
+                header.label =
+                    rendererAttr.isEmpty()
+                        ? sub->displayName()
+                        : QStringLiteral("%1 — %2").arg(sub->displayName(), rendererAttr);
                 header.sublayerId = sublayerId;
                 out.append(header);
                 const QString kk = SWMMModelLayer::kindKey(sub->category());
@@ -1471,8 +2416,7 @@ SWMMResultsLayer::sublayerLegendItems()
             if (useRamp && haveData) {
                 // Header row (text-only) + graduated swatch rows below.
                 LegendSymbolItem header;
-                header.label = QStringLiteral("%1 — %2")
-                                   .arg(sub->displayName(), attribute);
+                header.label = QStringLiteral("%1 — %2").arg(sub->displayName(), attribute);
                 header.sublayerId = sublayerId;
                 out.append(header);
                 appendRampRows(sublayerId, attribute, range, swatchKind, swatchSize);
@@ -1482,13 +2426,13 @@ SWMMResultsLayer::sublayerLegendItems()
                 // colour-named row under a patch-less header read as
                 // noise; the patch belongs on the label here).
                 LegendSymbolItem item;
-                item.label      = sub->displayName();
+                item.label = sub->displayName();
                 item.sublayerId = sublayerId;
                 SymbolLayer sl;
                 sl.kind = swatchKind;
-                OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                        singleCol.isValid() ? singleCol
-                                                            : QColor(0x60, 0x60, 0x60));
+                OpenSWMM::Render::SymbolProps::writeColor(
+                    sl.props, QStringLiteral("color"),
+                    singleCol.isValid() ? singleCol : QColor(0x60, 0x60, 0x60));
                 if (swatchKind == SymbolLayerKind::SimpleMarker)
                     sl.props.insert(QStringLiteral("size"), swatchSize);
                 if (swatchKind == SymbolLayerKind::SimpleLine)
@@ -1498,24 +2442,55 @@ SWMMResultsLayer::sublayerLegendItems()
             }
         }
 
+        // Size channel — header + a min and a max swatch drawn at the
+        // channel's px limits, labelled with the value range the map was
+        // sized against this frame (rebuildKindFeatureOverrides).
+        if (const auto *ch = sublayerSizeChannel(sub); ch && ch->enabled) {
+            const SizeRange r = m_kindSizeRange[static_cast<int>(sub->category())];
+            if (std::isfinite(r.low) && std::isfinite(r.high)) {
+                const bool point = sub->archetype() == FeatureSublayer::Archetype::Point;
+                LegendSymbolItem header;
+                header.label = (point ? tr("%1 — size by %2") : tr("%1 — width by %2"))
+                                   .arg(sub->displayName(), ch->attribute);
+                if (ch->rangeMode == OpenSWMM::Render::RangeMode::PerFrameAutoStretch)
+                    header.label += tr(" (this frame)");
+                header.sublayerId = sublayerId;
+                out.append(header);
+                const QColor swatchCol = singleCol.isValid() ? singleCol : QColor(0x60, 0x60, 0x60);
+                for (const auto &[value, px] :
+                     {std::pair{r.low, ch->minPx}, std::pair{r.high, ch->maxPx}}) {
+                    LegendSymbolItem item;
+                    item.label = QString::number(value, 'g', 3);
+                    item.sublayerId = sublayerId;
+                    SymbolLayer sl;
+                    sl.kind = point ? SymbolLayerKind::SimpleMarker : SymbolLayerKind::SimpleLine;
+                    OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                                              swatchCol);
+                    sl.props.insert(point ? QStringLiteral("size") : QStringLiteral("width"), px);
+                    item.symbol.layers.append(sl);
+                    out.append(item);
+                }
+            }
+        }
+
         // Optional: emit a Flow-arrows row when the line sublayer has
         // arrows enabled. Single swatch (single colour, single size).
         if (sub->archetype() == FeatureSublayer::Archetype::Line) {
             auto *st = sub->lineStyle();
             if (st && st->showFlowArrows()) {
                 const auto flowRange = ensureLinkAttributeRange(SWMM_OUT_LINK_FLOW);
-                const double magMax = std::max(std::abs(flowRange.first),
-                                                std::abs(flowRange.second));
+                const double magMax =
+                    std::max(std::abs(flowRange.first), std::abs(flowRange.second));
                 LegendSymbolItem item;
                 item.label = tr("%1 flow arrows (|Q|max = %2)")
-                               .arg(sub->displayName())
-                               .arg(magMax, 0, 'g', 3);
+                                 .arg(sub->displayName())
+                                 .arg(magMax, 0, 'g', 3);
                 item.sublayerId = sublayerId;
                 SymbolLayer sl;
                 sl.kind = SymbolLayerKind::SimpleMarker;
                 sl.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
                 OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                        st->arrowColor());
+                                                          st->arrowColor());
                 sl.props.insert(QStringLiteral("size"), st->arrowLengthPx());
                 item.symbol.layers.append(sl);
                 out.append(item);
@@ -1530,7 +2505,10 @@ SWMMResultsLayer::sublayerLegendItems()
 // Animation
 // ---------------------------------------------------------------------------
 
-int SWMMResultsLayer::currentTimeStep() const { return m_currentStep; }
+int SWMMResultsLayer::currentTimeStep() const
+{
+    return m_currentStep;
+}
 
 QDateTime SWMMResultsLayer::currentDateTime() const
 {
@@ -1539,21 +2517,32 @@ QDateTime SWMMResultsLayer::currentDateTime() const
 
     double t = 0.0;
     swmm_output_get_period_time(m_handle, m_currentStep, &t);
-    return openswmmvis::core::swmmDateTimeToQDateTime(t);
+    return openswmmvis::core::swmmDateTimeToMilliseconds(t);
 }
 
-int  SWMMResultsLayer::totalTimeSteps()   const { return m_totalSteps;   }
-QDateTime SWMMResultsLayer::startDateTime() const { return m_startDateTime; }
-QDateTime SWMMResultsLayer::endDateTime()   const { return m_endDateTime;   }
-int  SWMMResultsLayer::reportStepSeconds()  const { return m_reportStepSec; }
+int SWMMResultsLayer::totalTimeSteps() const
+{
+    return m_totalSteps;
+}
+QDateTime SWMMResultsLayer::startDateTime() const
+{
+    return m_startDateTime;
+}
+QDateTime SWMMResultsLayer::endDateTime() const
+{
+    return m_endDateTime;
+}
+int SWMMResultsLayer::reportStepSeconds() const
+{
+    return m_reportStepSec;
+}
 
 // 2026-07-19 — reported data origin (slider range fix); see header. Falls
 // back to the simulation start so callers degrade to the old behaviour when
 // period 0's time was unavailable at load.
 QDateTime SWMMResultsLayer::reportedStartDateTime() const
 {
-    return m_reportedStartDateTime.isValid() ? m_reportedStartDateTime
-                                             : m_startDateTime;
+    return m_reportedStartDateTime.isValid() ? m_reportedStartDateTime : m_startDateTime;
 }
 
 void SWMMResultsLayer::setCurrentTimeStep(int step)
@@ -1593,7 +2582,7 @@ void SWMMResultsLayer::dispatchAnimationTick(int period)
         return;
 
     if (period != m_currentStep) {
-        setCurrentTimeStep(period);   // cheap Values fetch + restyle
+        setCurrentTimeStep(period); // cheap Values fetch + restyle
     } else {
         escalateSceneDirty(SceneDirty::Values);
         emit repaintRequested();
@@ -1634,10 +2623,18 @@ void SWMMResultsLayer::stepBackward(bool loop)
 // Variable & colour mapping
 // ---------------------------------------------------------------------------
 
-SWMMResultVariable SWMMResultsLayer::variable() const { return m_variable; }
+SWMMResultVariable SWMMResultsLayer::variable() const
+{
+    return m_variable;
+}
 
-namespace {
+namespace
+{
 // Defined in the Slice OUT.2 block further down this TU.
+/**
+ * @param[in] v Supported result-variable enum.
+ * @return Exact enum spelling used as a renderer classify attribute, or empty for unsupported cast values.
+ */
 QString variableEnumName(SWMMResultVariable v);
 } // namespace
 
@@ -1658,14 +2655,12 @@ void SWMMResultsLayer::setVariable(SWMMResultVariable var)
     if (!attrName.isEmpty()) {
         for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(i);
-            const bool scopeMatch =
-                (isNodeVar(var)     && catIsNodeScope(c)) ||
-                (isLinkVar(var)     && catIsLinkScope(c)) ||
-                (isSubcatchVar(var) && catIsSubcatchScope(c));
+            const bool scopeMatch = (isNodeVar(var) && catIsNodeScope(c)) ||
+                                    (isLinkVar(var) && catIsLinkScope(c)) ||
+                                    (isSubcatchVar(var) && catIsSubcatchScope(c));
             if (!scopeMatch)
                 continue;
-            auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
-                kindRenderer(c));
+            auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kindRenderer(c));
             if (!g || g->classifyAttribute() == attrName)
                 continue;
             g->setClassifyAttribute(attrName);
@@ -1689,7 +2684,10 @@ void SWMMResultsLayer::setVariable(SWMMResultVariable var)
     emit repaintRequested();
 }
 
-RasterColorRamp SWMMResultsLayer::colorRamp() const { return m_colorRamp; }
+RasterColorRamp SWMMResultsLayer::colorRamp() const
+{
+    return m_colorRamp;
+}
 
 void SWMMResultsLayer::setColorRamp(const RasterColorRamp &ramp)
 {
@@ -1700,11 +2698,10 @@ void SWMMResultsLayer::setColorRamp(const RasterColorRamp &ramp)
     // classified range; only the stops / interpolation change.
     for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
         const auto c = static_cast<SWMMModelLayer::Category>(i);
-        auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
-            kindRenderer(c));
+        auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kindRenderer(c));
         if (!g)
             continue;
-        RasterColorRamp r  = ramp;
+        RasterColorRamp r = ramp;
         r.minValue = g->ramp().minValue;
         r.maxValue = g->ramp().maxValue;
         g->setRamp(r);
@@ -1730,10 +2727,10 @@ OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::renderer() const
 
 void SWMMResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
 {
-    if (!r)               // contract: renderer() never returns nullptr
+    if (!r) // contract: renderer() never returns nullptr
         return;
     if (r.get() == m_renderer.get())
-        return;           // no-op if the same pointer is reassigned
+        return; // no-op if the same pointer is reassigned
     m_renderer = std::move(r);
     // Slice §Y.2 — renderer swap can change filter / override semantics
     // for every kind; the cached items may no longer represent the right
@@ -1749,8 +2746,13 @@ void SWMMResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRen
 // loop to consult these slots (with the layer-level renderer as
 // fallback).
 
-namespace {
+namespace
+{
 
+/**
+ * @param[in] c Category ordinal.
+ * @return NodeDepth/LinkFlow/SubcatchRunoff for matching scope, empty for rain gages/unsupported ordinal; no source lookup.
+ */
 QString kindDefaultResultVariable(SWMMModelLayer::Category c)
 {
     switch (c) {
@@ -1783,8 +2785,8 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c)
     // base symbol made paint silently fall back to the legacy ramp).
     // Factory defaults match the old inline construction: viridis ramp +
     // 5 equal intervals.
-    auto r = RendererFactory::makeRenderer(
-        QStringLiteral("graduated"), FeatureSublayer::archetypeFor(c));
+    auto r = RendererFactory::makeRenderer(QStringLiteral("graduated"),
+                                           FeatureSublayer::archetypeFor(c));
     if (auto *g = dynamic_cast<GraduatedRenderer *>(r.get())) {
         g->setClassifyAttribute(kindDefaultResultVariable(c));
         // Gap A2.1 — results-layer kinds classify a per-frame output
@@ -1797,8 +2799,7 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c)
 
 } // namespace
 
-OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::kindRenderer(
-    SWMMModelLayer::Category c) const
+OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::kindRenderer(SWMMModelLayer::Category c) const
 {
     const int i = static_cast<int>(c);
     if (i < 0 || i >= static_cast<int>(m_kindRenderers.size()))
@@ -1806,9 +2807,8 @@ OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::kindRenderer(
     return m_kindRenderers[i].get();
 }
 
-void SWMMResultsLayer::setKindRenderer(
-    SWMMModelLayer::Category c,
-    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+void SWMMResultsLayer::setKindRenderer(SWMMModelLayer::Category c,
+                                       std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
 {
     const int i = static_cast<int>(c);
     if (i < 0 || i >= static_cast<int>(SWMMModelLayer::NumCategories))
@@ -1817,6 +2817,8 @@ void SWMMResultsLayer::setKindRenderer(
         m_kindRenderers.resize(SWMMModelLayer::NumCategories);
     if (m_kindRenderers[i].get() == r.get())
         return;
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r.get()))
+        migrateGraduatedOutputAxes(c, *g);
     m_kindRenderers[i] = std::move(r);
     // Slice OUT.2 — installing a new kind renderer invalidates the
     // override cache for that kind; rebuild immediately so the next
@@ -1864,115 +2866,156 @@ void SWMMResultsLayer::buildRuleListLazy() const
     // ("Junctions", "Conduits", ...) — same vocabulary as B.4 so the
     // Active Rule combo reads identically on model and results layers.
     for (int i = 0; i < SWMMModelLayer::NumCategories; ++i) {
-        const SWMMModelLayer::Category c =
-            static_cast<SWMMModelLayer::Category>(i);
+        const SWMMModelLayer::Category c = static_cast<SWMMModelLayer::Category>(i);
         OpenSWMM::Render::IFeatureRenderer *src =
             (i < static_cast<int>(m_kindRenderers.size()))
                 ? m_kindRenderers[static_cast<size_t>(i)].get()
                 : nullptr;
         std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> cloned =
-            src ? src->clone()
-                : std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+            src ? src->clone() : std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
         auto *rule = m_ruleList->append(std::make_unique<OpenSWMM::Render::Rule>(
             SWMMModelLayer::kindKey(c), std::move(cloned)));
 
-        // Rule-side renderer swaps propagate back through the existing
-        // setKindRenderer setter — which rebuilds override caches +
-        // escalates structural dirtiness so the next animation tick
-        // picks up the new symbol geometry.
-        //
-        // Slice SS.5 — also back-propagate single-symbol attribute
-        // edits onto the matching FeatureSublayerStyle so the painter
-        // (which reads line/arrow/marker knobs from the style, not
-        // from per-feature override caches) renders the change. No-op
-        // when the renderer isn't SingleSymbol — Graduated /
-        // Categorized modes feed the painter via the per-feature
-        // override caches (see plan §4.5).
-        QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
-                         self, [self, c, rule]() {
-            if (auto *r = rule->renderer()) {
-                // Guard so setKindRenderer's mirror-refresh doesn't bounce
-                // straight back into this Rule (it already holds the new
-                // renderer — that's what fired this signal).
-                self->m_ruleKindSyncGuard = true;
-                self->setKindRenderer(c, r->clone());
-                self->m_ruleKindSyncGuard = false;
-            }
-
-            // Slice SS.5 — back-propagate to the per-category
-            // FeatureSublayerStyle. Marker / Line / Polygon archetypes
-            // each pick the matching prop subset.
-            using namespace OpenSWMM::Render;
-            auto *ssr = dynamic_cast<const SingleSymbolRenderer *>(
-                rule->renderer());
-            if (!ssr) return;
-            const SymbolStyle &style = ssr->symbol();
-            if (style.layers.isEmpty()) return;
-            const SymbolLayer &layer = style.layers.first();
-
-            auto *sub = self->featureSublayer(c);
-            if (!sub || !sub->featureStyle()) return;
-
-            // Common: base-style fallback color (used when neither
-            // override cache nor ramp resolves a feature colour).
-            // For point/polygon this is `fillColor`; for line it's
-            // the line `color`. Both flow into FeatureSublayerStyle::color.
-            switch (sub->archetype()) {
-            case FeatureSublayer::Archetype::Point: {
-                auto *st = sub->pointStyle();
-                if (!st) break;
-                const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.fillColor);
-                st->setMarkerSizePx(spec.sizePx);
-                // PointFeatureSublayerStyle::MarkerShape only models 4
-                // shapes (Circle / Square / Triangle / Diamond /
-                // Star — int values 0..4). Richer Z.4 shapes round-
-                // trip through the SymbolLayer prop bag but fall back
-                // to Circle on the legacy sublayer; same convention as
-                // Slice Z.6a step 3 in swmm2dmeshlayer.cpp.
-                int shapeIdx = static_cast<int>(spec.shape);
-                if (shapeIdx < 0 || shapeIdx > 4) shapeIdx = 0;
-                st->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(
-                    shapeIdx));
-                break;
-            }
-            case FeatureSublayer::Archetype::Line: {
-                auto *st = sub->lineStyle();
-                if (!st) break;
-                const auto spec = LineSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.color);
-                st->setLineWidthPx(spec.width);
-                st->setDashPattern(spec.penStyle);
-                st->setShowFlowArrows(spec.drawArrows);
-                st->setArrowLengthPx(spec.arrows.lengthPx);
-                st->setArrowWidthPx(spec.arrows.widthPx);
-                st->setArrowColor(spec.arrows.color);
-                break;
-            }
-            case FeatureSublayer::Archetype::Polygon: {
-                auto *st = sub->polygonStyle();
-                if (!st) break;
-                // Polygon reuses marker keys for fill / outline. The
-                // dedicated fillOpacity knob comes from a direct prop
-                // read since MarkerSymbolLayerSpec doesn't carry it.
-                const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.fillColor);
-                st->setOutlineColor(spec.outlineColor);
-                st->setOutlineWidthPx(spec.outlineWidth);
-                if (layer.props.contains(QStringLiteral("fillOpacity"))) {
-                    st->setFillOpacity(
-                        layer.props.value(QStringLiteral("fillOpacity"))
-                            .toDouble());
-                }
-                break;
-            }
-            }
-        });
+        // Rule-side renderer swaps propagate back through
+        // attachRuleToKind → applyRuleToKind, the hook the Style Manager's
+        // in-place reload path shares (feedback C1).
+        self->attachRuleToKind(rule, c);
     }
+
+    // Feedback C1 — RuleListIO::load repopulates THIS list in place
+    // (clear + fromJson), replacing every Rule object; without this the
+    // fresh Rules carried no hooks and the loaded renderers never reached
+    // the painter. Connected after the loop so the initial appends don't
+    // re-install their own clones.
+    QObject::connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleListChanged, self,
+                     &SWMMResultsLayer::onRuleListRepopulated);
 
     // Per-frame rebinning is wired in the constructor (gap A1.1) — it
     // drives off m_kindRenderers directly and must not depend on this
     // lazily-built rule-list mirror.
+}
+
+void SWMMResultsLayer::attachRuleToKind(OpenSWMM::Render::Rule *rule, SWMMModelLayer::Category c)
+{
+    if (!rule || rule->property("swmmvis.kindAttached").toBool())
+        return;
+    rule->setProperty("swmmvis.kindAttached", true);
+    QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced, this,
+                     [this, c, rule]() { applyRuleToKind(rule, c); });
+}
+
+void SWMMResultsLayer::applyRuleToKind(OpenSWMM::Render::Rule *rule, SWMMModelLayer::Category c)
+{
+    // Push the Rule's renderer through the existing setKindRenderer
+    // setter — which rebuilds override caches + escalates structural
+    // dirtiness so the next animation tick picks up the new symbol
+    // geometry.
+    //
+    // Slice SS.5 — also back-propagate single-symbol attribute edits onto
+    // the matching FeatureSublayerStyle so the painter (which reads
+    // line/arrow/marker knobs from the style, not from per-feature
+    // override caches) renders the change. No-op when the renderer isn't
+    // SingleSymbol — Graduated / Categorized modes feed the painter via
+    // the per-feature override caches (see plan §4.5).
+    if (!rule)
+        return;
+    if (auto *r = rule->renderer()) {
+        // Guard so setKindRenderer's mirror-refresh doesn't bounce straight
+        // back into this Rule (it already holds the new renderer — that's
+        // what fired this signal).
+        m_ruleKindSyncGuard = true;
+        setKindRenderer(c, r->clone());
+        m_ruleKindSyncGuard = false;
+    }
+
+    // Slice SS.5 — back-propagate to the per-category FeatureSublayerStyle.
+    // Marker / Line / Polygon archetypes each pick the matching prop subset.
+    using namespace OpenSWMM::Render;
+    auto *ssr = dynamic_cast<const SingleSymbolRenderer *>(rule->renderer());
+    if (!ssr)
+        return;
+    const SymbolStyle &style = ssr->symbol();
+    if (style.layers.isEmpty())
+        return;
+    const SymbolLayer &layer = style.layers.first();
+
+    auto *sub = featureSublayer(c);
+    if (!sub || !sub->featureStyle())
+        return;
+
+    // Common: base-style fallback color (used when neither override cache
+    // nor ramp resolves a feature colour). For point/polygon this is
+    // `fillColor`; for line it's the line `color`. Both flow into
+    // FeatureSublayerStyle::color.
+    switch (sub->archetype()) {
+    case FeatureSublayer::Archetype::Point: {
+        auto *st = sub->pointStyle();
+        if (!st)
+            break;
+        const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.fillColor);
+        st->setMarkerSizePx(spec.sizePx);
+        // PointFeatureSublayerStyle::MarkerShape only models 4 shapes
+        // (Circle / Square / Triangle / Diamond / Star — int values 0..4).
+        // Richer Z.4 shapes round-trip through the SymbolLayer prop bag but
+        // fall back to Circle on the legacy sublayer; same convention as
+        // Slice Z.6a step 3 in swmm2dmeshlayer.cpp.
+        int shapeIdx = static_cast<int>(spec.shape);
+        if (shapeIdx < 0 || shapeIdx > 4)
+            shapeIdx = 0;
+        st->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(shapeIdx));
+        break;
+    }
+    case FeatureSublayer::Archetype::Line: {
+        auto *st = sub->lineStyle();
+        if (!st)
+            break;
+        const auto spec = LineSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.color);
+        st->setLineWidthPx(spec.width);
+        st->setDashPattern(spec.penStyle);
+        st->setShowFlowArrows(spec.drawArrows);
+        st->setArrowLengthPx(spec.arrows.lengthPx);
+        st->setArrowWidthPx(spec.arrows.widthPx);
+        st->setArrowColor(spec.arrows.color);
+        break;
+    }
+    case FeatureSublayer::Archetype::Polygon: {
+        auto *st = sub->polygonStyle();
+        if (!st)
+            break;
+        // Polygon reuses marker keys for fill / outline. The dedicated
+        // fillOpacity knob comes from a direct prop read since
+        // MarkerSymbolLayerSpec doesn't carry it.
+        const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.fillColor);
+        st->setOutlineColor(spec.outlineColor);
+        st->setOutlineWidthPx(spec.outlineWidth);
+        if (layer.props.contains(QStringLiteral("fillOpacity"))) {
+            st->setFillOpacity(layer.props.value(QStringLiteral("fillOpacity")).toDouble());
+        }
+        break;
+    }
+    }
+}
+
+void SWMMResultsLayer::onRuleListRepopulated()
+{
+    if (!m_ruleList)
+        return;
+    for (int i = 0; i < m_ruleList->count(); ++i) {
+        auto *rule = m_ruleList->at(i);
+        if (!rule || rule->property("swmmvis.kindAttached").toBool())
+            continue;
+        for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
+            const auto c = static_cast<SWMMModelLayer::Category>(k);
+            if (rule->name() != SWMMModelLayer::kindKey(c))
+                continue; // foreign rule
+            attachRuleToKind(rule, c);
+            applyRuleToKind(rule, c);
+            break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2001,14 +3044,17 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     // only forward-declared in this scope, hence the incomplete-type errors.)
     using L = OpenSWMMVis::SwmmCategory;
 
-    auto make = [](const char *name, const char *display,
-                   const char *unit) -> AttributeField {
+    // fromUtf8, not fromLatin1: the display and unit literals below carry
+    // "m³", which is two UTF-8 bytes. Decoding those as Latin-1 rendered
+    // every volume and flow unit as "mÂ³" wherever a field list is shown --
+    // the label expression builder, for one.
+    auto make = [](const char *name, const char *display, const char *unit) -> AttributeField {
         AttributeField f;
-        f.name        = QString::fromLatin1(name);
-        f.displayName = QString::fromLatin1(display);
-        f.type        = QMetaType::Double;
-        f.isDynamic   = true;
-        f.unit        = QString::fromLatin1(unit);
+        f.name = QString::fromLatin1(name);
+        f.displayName = QString::fromUtf8(display);
+        f.type = QMetaType::Double;
+        f.isDynamic = true;
+        f.unit = QString::fromUtf8(unit);
         return f;
     };
 
@@ -2018,11 +3064,11 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     case L::CatOutfalls:
     case L::CatStorage:
     case L::CatDividers:
-        out.append(make("depth",         "depth (m)",             "m"));
-        out.append(make("head",          "head (m)",              "m"));
-        out.append(make("volume",        "volume (m³)",      "m³"));
-        out.append(make("inflow",        "inflow (m³/s)",    "m³/s"));
-        out.append(make("overflow",      "overflow (m³/s)",  "m³/s"));
+        out.append(make("depth", "depth (m)", "m"));
+        out.append(make("head", "head (m)", "m"));
+        out.append(make("volume", "volume (m³)", "m³"));
+        out.append(make("inflow", "inflow (m³/s)", "m³/s"));
+        out.append(make("overflow", "overflow (m³/s)", "m³/s"));
         out.append(make("lateralInflow", "lateral inflow (m³/s)", "m³/s"));
         break;
     case L::CatConduits:
@@ -2030,16 +3076,20 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     case L::CatOrifices:
     case L::CatWeirs:
     case L::CatOutlets:
-        out.append(make("flow",     "flow (m³/s)",  "m³/s"));
-        out.append(make("depth",    "depth (m)",         "m"));
-        out.append(make("velocity", "velocity (m/s)",    "m/s"));
-        out.append(make("capacity", "capacity",          ""));
+        out.append(make("flow", "flow (m³/s)", "m³/s"));
+        out.append(make("depth", "depth (m)", "m"));
+        out.append(make("velocity", "velocity (m/s)", "m/s"));
+        out.append(make("capacity", "capacity", ""));
         break;
     case L::CatSubcatchments:
-        out.append(make("runoff",       "runoff (m³/s)",   "m³/s"));
-        out.append(make("infiltration", "infiltration (m/s)",   "m/s"));
-        out.append(make("evaporation",  "evaporation (m/s)",    "m/s"));
-        out.append(make("snowDepth",    "snow depth (m)",       "m"));
+        out.append(make("runoff", "runoff (m³/s)", "m³/s"));
+        out.append(make("infiltration", "infiltration (m/s)", "m/s"));
+        out.append(make("evaporation", "evaporation (m/s)", "m/s"));
+        out.append(make("snowDepth", "snow depth (m)", "m"));
+        out.append(make("rainfall", "rainfall (mm/hr)", "mm/hr"));
+        out.append(make("gwFlow", "groundwater flow (m³/s)", "m³/s"));
+        out.append(make("gwElevation", "groundwater elevation (m)", "m"));
+        out.append(make("soilMoisture", "soil moisture", ""));
         break;
     case L::CatRainGages:
         // Rain gages don't carry per-feature engine output today.
@@ -2047,16 +3097,73 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     default:
         break;
     }
+
+    // Y2a — dynamic species (pollutants + the reserved age/temperature
+    // columns). N is a property of the RUN, not of the build, so these are
+    // appended from the open `.out` rather than enumerated at compile time
+    // (GUI plan D-G1). A run with no quality appends nothing, which is why
+    // a legacy `.out` shows no species entries at all.
+    switch (cat) {
+    case L::CatJunctions:
+    case L::CatOutfalls:
+    case L::CatStorage:
+    case L::CatDividers:
+    case L::CatConduits:
+    case L::CatPumps:
+    case L::CatOrifices:
+    case L::CatWeirs:
+    case L::CatOutlets:
+    case L::CatSubcatchments: {
+        const QStringList species = speciesNames();
+        for (const QString &s : species) {
+            using namespace OpenSWMMVis::Species;
+            AttributeField f;
+            f.name = speciesAttributeName(s);
+            f.displayName = speciesDisplayLabel(s);
+            f.type = QMetaType::Double;
+            f.isDynamic = true;
+            f.unit = speciesUnitLabel(s, QStringLiteral("mg/L"));
+            out.append(f);
+        }
+        break;
+    }
+    default:
+        break;
+    }
     return out;
 }
 
-namespace {
+// Y2a — the run's species list, in `.out` order. Read through the public
+// reader rather than cached: the layer reopens its handle on reload, and a
+// stale cache would silently repoint every species theme by one slot.
+// The name is the discriminator (engine A2b) — an hours column and a
+// concentration column are otherwise indistinguishable.
+QStringList SWMMResultsLayer::speciesNames() const
+{
+    QStringList out;
+    if (!m_handle)
+        return out;
+    const int n = swmm_output_get_pollut_count(m_handle);
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        const char *id = swmm_output_get_pollut_id(m_handle, i);
+        if (id && *id)
+            out.append(QString::fromUtf8(id));
+    }
+    return out;
+}
+
+namespace
+{
 bool catIsNodeScope(SWMMModelLayer::Category c);
 bool catIsLinkScope(SWMMModelLayer::Category c);
 }
 
 void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using namespace OpenSWMM::Render;
 
     // O1-3 — drive off the canonical per-kind renderers (m_kindRenderers),
@@ -2070,16 +3177,14 @@ void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
         if (i >= static_cast<int>(m_kindRenderers.size()))
             break;
 
-        auto *g = dynamic_cast<GraduatedRenderer *>(
-            m_kindRenderers[static_cast<size_t>(i)].get());
+        auto *g = dynamic_cast<GraduatedRenderer *>(m_kindRenderers[static_cast<size_t>(i)].get());
         if (!g)
-            continue;   // only Graduated rebins; Single/Categorized N/A
+            continue; // only Graduated rebins; Single/Categorized N/A
 
         if (g->rangeMode() != RangeMode::PerFrameAutoStretch)
             continue;
 
-        const SWMMModelLayer::Category cat =
-            static_cast<SWMMModelLayer::Category>(i);
+        const SWMMModelLayer::Category cat = static_cast<SWMMModelLayer::Category>(i);
 
         // Collect the current step's samples for the renderer's bound
         // attribute via the same lookup rebuildKindFeatureOverrides
@@ -2088,17 +3193,20 @@ void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
         const QString attr = g->classifyAttribute();
         const QVector<float> *valuesPtr = nullptr;
         if (catIsNodeScope(cat)) {
-            const int outCode = nodeOutCodeForAttribute(attr);
+            const int outCode = nodeOutCodeForAttribute(attr, species);
             const auto it = m_nodeResultsByVar.constFind(outCode);
-            if (it != m_nodeResultsByVar.constEnd()) valuesPtr = &it.value();
+            if (it != m_nodeResultsByVar.constEnd())
+                valuesPtr = &it.value();
         } else if (catIsLinkScope(cat)) {
-            const int outCode = linkOutCodeForAttribute(attr);
+            const int outCode = linkOutCodeForAttribute(attr, species);
             const auto it = m_linkResultsByVar.constFind(outCode);
-            if (it != m_linkResultsByVar.constEnd()) valuesPtr = &it.value();
+            if (it != m_linkResultsByVar.constEnd())
+                valuesPtr = &it.value();
         } else if (cat == SWMMModelLayer::CatSubcatchments) {
-            const int outCode = subcatchOutCodeForAttribute(attr);
+            const int outCode = subcatchOutCodeForAttribute(attr, species);
             const auto it = m_subcatchResultsByVar.constFind(outCode);
-            if (it != m_subcatchResultsByVar.constEnd()) valuesPtr = &it.value();
+            if (it != m_subcatchResultsByVar.constEnd())
+                valuesPtr = &it.value();
         }
         if (!valuesPtr || valuesPtr->isEmpty())
             continue;
@@ -2131,18 +3239,27 @@ void SWMMResultsLayer::refreshRuleMirror(SWMMModelLayer::Category c)
     // rule's content is being made equal to the source of truth, so no
     // back-propagation must fire.
     const int i = static_cast<int>(c);
-    if (!m_ruleList || i < 0
-        || i >= static_cast<int>(m_kindRenderers.size())
-        || !m_kindRenderers[static_cast<size_t>(i)])
+    if (!m_ruleList || i < 0 || i >= static_cast<int>(m_kindRenderers.size()) ||
+        !m_kindRenderers[static_cast<size_t>(i)])
         return;
-    if (auto *rule = m_ruleList->at(i)) {
+    // Locate the kind's Rule by name rather than by index: a list reloaded
+    // from a library file (feedback C1) carries the file's rule order.
+    const QString key = SWMMModelLayer::kindKey(c);
+    for (int r = 0; r < m_ruleList->count(); ++r) {
+        auto *rule = m_ruleList->at(r);
+        if (!rule || rule->name() != key)
+            continue;
         QSignalBlocker block(rule);
         rule->setRenderer(m_kindRenderers[static_cast<size_t>(i)]->clone());
+        break;
     }
 }
 
 void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using namespace OpenSWMM::Render;
     if (outCode < 0)
         return;
@@ -2152,22 +3269,20 @@ void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
         if (i >= static_cast<int>(m_kindRenderers.size()))
             break;
         const auto c = static_cast<SWMMModelLayer::Category>(i);
-        const bool scopeMatch =
-            (scope == 0 && catIsNodeScope(c)) ||
-            (scope == 1 && catIsLinkScope(c)) ||
-            (scope == 2 && catIsSubcatchScope(c));
+        const bool scopeMatch = (scope == 0 && catIsNodeScope(c)) ||
+                                (scope == 1 && catIsLinkScope(c)) ||
+                                (scope == 2 && catIsSubcatchScope(c));
         if (!scopeMatch)
             continue;
 
-        auto *g = dynamic_cast<GraduatedRenderer *>(
-            m_kindRenderers[static_cast<size_t>(i)].get());
+        auto *g = dynamic_cast<GraduatedRenderer *>(m_kindRenderers[static_cast<size_t>(i)].get());
         if (!g || g->rangeMode() != RangeMode::FixedOverRun)
             continue;
 
         const QString attr = g->classifyAttribute();
-        const int krCode = (scope == 0) ? nodeOutCodeForAttribute(attr)
-                         : (scope == 1) ? linkOutCodeForAttribute(attr)
-                                        : subcatchOutCodeForAttribute(attr);
+        const int krCode = (scope == 0)   ? nodeOutCodeForAttribute(attr, species)
+                           : (scope == 1) ? linkOutCodeForAttribute(attr, species)
+                                          : subcatchOutCodeForAttribute(attr, species);
         if (krCode != outCode)
             continue;
 
@@ -2176,6 +3291,24 @@ void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
         g->clearBreaks();
         rebuildKindFeatureOverrides(c);
         any = true;
+    }
+
+    // Size channels sized from this frame while the run scan was pending.
+    if (scope == 0 || scope == 1) {
+        for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+            const auto c = static_cast<SWMMModelLayer::Category>(i);
+            if (scope == 0 ? !catIsNodeScope(c) : !catIsLinkScope(c))
+                continue;
+            const SizeChannel *ch = sublayerSizeChannel(featureSublayer(c));
+            if (!ch || !ch->enabled || ch->rangeMode != RangeMode::FixedOverRun)
+                continue;
+            const int chCode = scope == 0 ? nodeOutCodeForAttribute(ch->attribute, species)
+                                          : linkOutCodeForAttribute(ch->attribute, species);
+            if (chCode != outCode)
+                continue;
+            rebuildKindFeatureOverrides(c);
+            any = true;
+        }
     }
     if (any)
         escalateSceneDirty(SceneDirty::Values);
@@ -2186,7 +3319,7 @@ bool SWMMResultsLayer::kindRendererIsDefault(SWMMModelLayer::Category c) const
 {
     const auto *kr = kindRenderer(c);
     if (!kr)
-        return true;   // empty slot — nothing to persist either way
+        return true; // empty slot — nothing to persist either way
 
     const auto def = makeDefaultKindRenderer(c);
     if (!def || kr->rendererId() != def->rendererId())
@@ -2208,24 +3341,33 @@ bool SWMMResultsLayer::kindRendererIsDefault(SWMMModelLayer::Category c) const
 
 // ----- Gap B1 — legend-as-editor facade (mirrors SWMMModelLayer X4) --------
 
-namespace {
+namespace
+{
 // Kind-qualified legend class key separator; never appears in renderer
 // class keys, so the split is unambiguous. Same convention as
 // SWMMModelLayer's X4 facade.
 const QChar kResultsKindClassSep = QChar(0x1F);
 
-bool decodeResultsLegendClassKey(const QString &key,
-                                 SWMMModelLayer::Category *catOut,
+/**
+ * @param[in] key Exact kindKey/U+001F/inner-key string.
+ * @param[out] catOut Optional matching category destination.
+ * @param[out] innerOut Optional suffix destination, allowed empty.
+ * @return True when prefix matches a known kind, false without modifying outputs for missing separator/unknown prefix; later separators remain inside suffix.
+ */
+bool decodeResultsLegendClassKey(const QString &key, SWMMModelLayer::Category *catOut,
                                  QString *innerOut)
 {
     const int sep = key.indexOf(kResultsKindClassSep);
-    if (sep < 0) return false;
+    if (sep < 0)
+        return false;
     const QString kk = key.left(sep);
     for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
         const auto c = static_cast<SWMMModelLayer::Category>(i);
         if (SWMMModelLayer::kindKey(c) == kk) {
-            if (catOut)   *catOut = c;
-            if (innerOut) *innerOut = key.mid(sep + 1);
+            if (catOut)
+                *catOut = c;
+            if (innerOut)
+                *innerOut = key.mid(sep + 1);
             return true;
         }
     }
@@ -2237,11 +3379,14 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::legendSymbolItems()
 {
     // The renderer-driven sublayer walk already aggregates per-kind rows
     // (gap A2.3); it is the single source the legend views should read.
-    return sublayerLegendItems();
+    auto rows = sublayerLegendItems();
+    for (auto *sub : sublayers())
+        if (dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub) && sub->isVisible())
+            rows.append(sub->legendSymbolItems());
+    return rows;
 }
 
-bool SWMMResultsLayer::supportsClassEdit(
-    OpenSWMM::Render::ClassEditKind kind) const
+bool SWMMResultsLayer::supportsClassEdit(OpenSWMM::Render::ClassEditKind kind) const
 {
     for (size_t i = 0; i < m_kindRenderers.size(); ++i) {
         if (m_kindRenderers[i] && m_kindRenderers[i]->supportsClassEdit(kind))
@@ -2252,19 +3397,23 @@ bool SWMMResultsLayer::supportsClassEdit(
 
 QColor SWMMResultsLayer::colorForClass(const QString &classKey) const
 {
-    SWMMModelLayer::Category c; QString inner;
-    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return {};
+    SWMMModelLayer::Category c;
+    QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner))
+        return {};
     auto *r = kindRenderer(c);
     return r ? r->colorForClass(inner) : QColor{};
 }
 
-void SWMMResultsLayer::setColorForClass(const QString &classKey,
-                                        const QColor &color)
+void SWMMResultsLayer::setColorForClass(const QString &classKey, const QColor &color)
 {
-    SWMMModelLayer::Category c; QString inner;
-    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return;
+    SWMMModelLayer::Category c;
+    QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner))
+        return;
     auto *r = kindRenderer(c);
-    if (!r) return;
+    if (!r)
+        return;
     r->setColorForClass(inner, color);
     // The renderer is plain C++ — refresh the override cache + repaint so
     // map and legend update together.
@@ -2275,8 +3424,10 @@ void SWMMResultsLayer::setColorForClass(const QString &classKey,
 
 qreal SWMMResultsLayer::sizeForClass(const QString &classKey) const
 {
-    SWMMModelLayer::Category c; QString inner;
-    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return -1.0;
+    SWMMModelLayer::Category c;
+    QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner))
+        return -1.0;
     auto *r = kindRenderer(c);
     return r ? r->sizeForClass(inner) : -1.0;
 }
@@ -2285,7 +3436,8 @@ qreal SWMMResultsLayer::sizeForClass(const QString &classKey) const
 // Slice OUT.2 — per-feature override cache
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 // Stringified SWMMResultVariable enumerator (matches what CTX.1 puts in
 // the Graduated tab's Attribute combo, so renderer.classifyAttribute()
@@ -2293,35 +3445,57 @@ namespace {
 QString variableEnumName(SWMMResultVariable v)
 {
     switch (v) {
-    case SWMMResultVariable::NodeDepth:            return QStringLiteral("NodeDepth");
-    case SWMMResultVariable::NodeHead:             return QStringLiteral("NodeHead");
-    case SWMMResultVariable::NodeVolume:           return QStringLiteral("NodeVolume");
-    case SWMMResultVariable::NodeInflow:           return QStringLiteral("NodeInflow");
-    case SWMMResultVariable::NodeOverflow:         return QStringLiteral("NodeOverflow");
-    case SWMMResultVariable::NodeLateralInflow:    return QStringLiteral("NodeLateralInflow");
-    case SWMMResultVariable::LinkFlow:             return QStringLiteral("LinkFlow");
-    case SWMMResultVariable::LinkDepth:            return QStringLiteral("LinkDepth");
-    case SWMMResultVariable::LinkVelocity:         return QStringLiteral("LinkVelocity");
-    case SWMMResultVariable::LinkCapacity:         return QStringLiteral("LinkCapacity");
-    case SWMMResultVariable::SubcatchRunoff:       return QStringLiteral("SubcatchRunoff");
-    case SWMMResultVariable::SubcatchInfiltration: return QStringLiteral("SubcatchInfiltration");
-    case SWMMResultVariable::SubcatchEvaporation:  return QStringLiteral("SubcatchEvaporation");
-    case SWMMResultVariable::SubcatchSnowDepth:    return QStringLiteral("SubcatchSnowDepth");
+    case SWMMResultVariable::NodeDepth:
+        return QStringLiteral("NodeDepth");
+    case SWMMResultVariable::NodeHead:
+        return QStringLiteral("NodeHead");
+    case SWMMResultVariable::NodeVolume:
+        return QStringLiteral("NodeVolume");
+    case SWMMResultVariable::NodeInflow:
+        return QStringLiteral("NodeInflow");
+    case SWMMResultVariable::NodeOverflow:
+        return QStringLiteral("NodeOverflow");
+    case SWMMResultVariable::NodeLateralInflow:
+        return QStringLiteral("NodeLateralInflow");
+    case SWMMResultVariable::LinkFlow:
+        return QStringLiteral("LinkFlow");
+    case SWMMResultVariable::LinkDepth:
+        return QStringLiteral("LinkDepth");
+    case SWMMResultVariable::LinkVelocity:
+        return QStringLiteral("LinkVelocity");
+    case SWMMResultVariable::LinkCapacity:
+        return QStringLiteral("LinkCapacity");
+    case SWMMResultVariable::SubcatchRunoff:
+        return QStringLiteral("SubcatchRunoff");
+    case SWMMResultVariable::SubcatchInfiltration:
+        return QStringLiteral("SubcatchInfiltration");
+    case SWMMResultVariable::SubcatchEvaporation:
+        return QStringLiteral("SubcatchEvaporation");
+    case SWMMResultVariable::SubcatchSnowDepth:
+        return QStringLiteral("SubcatchSnowDepth");
+    case SWMMResultVariable::SubcatchRainfall:
+        return QStringLiteral("SubcatchRainfall");
+    case SWMMResultVariable::SubcatchGwFlow:
+        return QStringLiteral("SubcatchGwFlow");
+    case SWMMResultVariable::SubcatchGwElevation:
+        return QStringLiteral("SubcatchGwElevation");
+    case SWMMResultVariable::SubcatchSoilMoisture:
+        return QStringLiteral("SubcatchSoilMoisture");
     }
     return QString();
 }
 
 bool catIsNodeScope(SWMMModelLayer::Category c)
 {
-    return c == SWMMModelLayer::CatJunctions || c == SWMMModelLayer::CatOutfalls
-        || c == SWMMModelLayer::CatStorage   || c == SWMMModelLayer::CatDividers;
+    return c == SWMMModelLayer::CatJunctions || c == SWMMModelLayer::CatOutfalls ||
+           c == SWMMModelLayer::CatStorage || c == SWMMModelLayer::CatDividers;
 }
 
 bool catIsLinkScope(SWMMModelLayer::Category c)
 {
-    return c == SWMMModelLayer::CatConduits || c == SWMMModelLayer::CatPumps
-        || c == SWMMModelLayer::CatOrifices || c == SWMMModelLayer::CatWeirs
-        || c == SWMMModelLayer::CatOutlets;
+    return c == SWMMModelLayer::CatConduits || c == SWMMModelLayer::CatPumps ||
+           c == SWMMModelLayer::CatOrifices || c == SWMMModelLayer::CatWeirs ||
+           c == SWMMModelLayer::CatOutlets;
 }
 
 bool catIsSubcatchScope(SWMMModelLayer::Category c)
@@ -2329,11 +3503,19 @@ bool catIsSubcatchScope(SWMMModelLayer::Category c)
     return c == SWMMModelLayer::CatSubcatchments;
 }
 
+/**
+ * @param[in] c Category ordinal.
+ * @param[in] v Layer variable/raw-cast ordinal.
+ * @return Whether enum-range scope predicates and category scope agree; isSubcatchVar() includes unsupported larger ordinals.
+ */
 bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
 {
-    if (isNodeVar(v))     return catIsNodeScope(c);
-    if (isLinkVar(v))     return catIsLinkScope(c);
-    if (isSubcatchVar(v)) return catIsSubcatchScope(c);
+    if (isNodeVar(v))
+        return catIsNodeScope(c);
+    if (isLinkVar(v))
+        return catIsLinkScope(c);
+    if (isSubcatchVar(v))
+        return catIsSubcatchScope(c);
     return false;
 }
 
@@ -2342,41 +3524,68 @@ bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
 // grammar keys ("color" then "fillColor"). The old "color"-only read made
 // single-symbol marker base symbols (keyed "fillColor") silently fall back
 // to the legacy ramp colour.
+/**
+ * @param[in] s Symbol style read without modification.
+ * @param[in] fallback Colour used by SymbolProps::firstColor() when no usable prop resolves.
+ * @return Invalid colour for style.opacity<=zero, otherwise first supported color/fillColor property or fallback. Positive overall opacity is not multiplied into colour alpha here.
+ */
 QColor extractStyleColor(const OpenSWMM::Render::SymbolStyle &s, QColor fallback)
 {
+    if (s.opacity <= 0)
+        return QColor();
     return OpenSWMM::Render::SymbolProps::firstColor(s, fallback);
 }
 
+/**
+ * @param[in] s Symbol style whose first layer alone is inspected.
+ * @return Convertible size property, or minus one for missing layer/property/conversion failure. Logical pixel magnitude, without finite/range enforcement.
+ */
 double extractStyleSize(const OpenSWMM::Render::SymbolStyle &s)
 {
-    if (s.layers.isEmpty()) return -1.0;
+    if (s.layers.isEmpty())
+        return -1.0;
     const QVariant v = s.layers.first().props.value(QStringLiteral("size"));
     bool ok = false;
     const double d = v.toDouble(&ok);
     return ok ? d : -1.0;
 }
 
+/**
+ * @param[in] s Symbol style whose first layer alone is inspected.
+ * @return Convertible width property, or minus one for missing layer/property/conversion failure. Logical pixel magnitude, without finite/range enforcement.
+ */
 double extractStyleWidth(const OpenSWMM::Render::SymbolStyle &s)
 {
-    if (s.layers.isEmpty()) return -1.0;
+    if (s.layers.isEmpty())
+        return -1.0;
     const QVariant v = s.layers.first().props.value(QStringLiteral("width"));
     bool ok = false;
     const double d = v.toDouble(&ok);
     return ok ? d : -1.0;
 }
 
+/**
+ * @param[in] s Symbol style whose first layer alone is inspected.
+ * @return Convertible shape property, or minus one for missing layer/property/conversion failure. Raw ordinal without enum-range validation; string shape names are not resolved.
+ */
 int extractStyleShape(const OpenSWMM::Render::SymbolStyle &s)
 {
-    if (s.layers.isEmpty()) return -1;
+    if (s.layers.isEmpty())
+        return -1;
     const QVariant v = s.layers.first().props.value(QStringLiteral("shape"));
     bool ok = false;
     const int i = v.toInt(&ok);
     return ok ? i : -1;
 }
 
+/**
+ * @param[in] s Symbol style whose first layer alone is inspected.
+ * @return Convertible dash property, or minus one for missing layer/property/conversion failure. Raw ordinal without enum-range validation; string shape names are not resolved.
+ */
 int extractStyleDash(const OpenSWMM::Render::SymbolStyle &s)
 {
-    if (s.layers.isEmpty()) return -1;
+    if (s.layers.isEmpty())
+        return -1;
     const QVariant v = s.layers.first().props.value(QStringLiteral("dash"));
     bool ok = false;
     const int i = v.toInt(&ok);
@@ -2397,13 +3606,14 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     m_kindFeatureShapes[idx].clear();
     m_kindFeatureDashes[idx].clear();
     m_kindUsesOverrides[idx] = false;
+    m_kindSizeRange[idx] = {};
 
     if (!m_modelLayer || !m_handle)
         return;
 
     OpenSWMM::Render::IFeatureRenderer *kr = kindRenderer(c);
     if (!kr)
-        return;                       // no override; paint falls back to ramp
+        return; // no override; paint falls back to ramp
 
     // Slice S3 — drive the cache off the renderer's own classify attribute
     // instead of the (legacy) layer-wide m_variable. Each kind renderer
@@ -2424,10 +3634,13 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         return;
 
     m_kindFeatureColors[idx].resize(count);
-    m_kindFeatureSizes [idx].resize(count);
-    m_kindFeatureWidths[idx].resize(count); m_kindFeatureWidths[idx].fill(-1.0);
-    m_kindFeatureShapes[idx].resize(count); m_kindFeatureShapes[idx].fill(-1);
-    m_kindFeatureDashes[idx].resize(count); m_kindFeatureDashes[idx].fill(-1);
+    m_kindFeatureSizes[idx].resize(count);
+    m_kindFeatureWidths[idx].resize(count);
+    m_kindFeatureWidths[idx].fill(-1.0);
+    m_kindFeatureShapes[idx].resize(count);
+    m_kindFeatureShapes[idx].fill(-1);
+    m_kindFeatureDashes[idx].resize(count);
+    m_kindFeatureDashes[idx].fill(-1);
 
     // Choose the right (outputIdxMap, perVarResults) pair for the scope.
     // For each row we look up the feature's output index then pull the
@@ -2435,7 +3648,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // Gap A2.2 — `scopeOutCode` is kept so the classification step below
     // can consult the full-run attribute-range cache for FixedOverRun.
     const QHash<QString, int> *outIdxMap = nullptr;
-    const QVector<float>      *valuesPtr = nullptr;
+    const QVector<float> *valuesPtr = nullptr;
     int scopeOutCode = -1;
     if (catIsNodeScope(c)) {
         outIdxMap = &m_nodeOutputIdx;
@@ -2466,9 +3679,8 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // type — without this branch the categorized leg always falls back
     // to fallbackSymbol() and every feature paints the same colour.
     const bool useStringAttrLookup =
-        (dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr) != nullptr)
-        && !classifyAttr.isEmpty()
-        && valuesPtr == nullptr;
+        (dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr) != nullptr) &&
+        !classifyAttr.isEmpty() && valuesPtr == nullptr;
 
     // Slice X.21 — populate the per-(category, attr) cache once, then
     // every feature row reads from a flat QVector<QString> instead of
@@ -2481,7 +3693,8 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     if (useStringAttrLookup) {
         auto it = m_categoricalAttrCache.find(cacheKey);
         if (it == m_categoricalAttrCache.end() || it.value().size() != count) {
-            QVector<QString> values; values.reserve(count);
+            QVector<QString> values;
+            values.reserve(count);
             for (int row = 0; row < count; ++row) {
                 const QString name = m_modelLayer->objectNameAt(c, row);
                 const QVariantMap byName = m_modelLayer->identifyByName(name);
@@ -2496,7 +3709,8 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // needs real data to compute meaningful breaks; the freshly-installed
     // renderer has empty m_lastBreaks and a default [0,1] ramp range, so
     // without this the binner collapses every feature into the same bin).
-    QVector<double> values; values.reserve(count);
+    QVector<double> values;
+    values.reserve(count);
     for (int row = 0; row < count; ++row) {
         const QString name = m_modelLayer->objectNameAt(c, row);
         if (outIdxMap && valuesPtr) {
@@ -2505,7 +3719,8 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
                 const int outIdx = it.value();
                 if (outIdx >= 0 && outIdx < valuesPtr->size()) {
                     const double v = static_cast<double>(valuesPtr->at(outIdx));
-                    if (std::isfinite(v)) values.push_back(v);
+                    if (std::isfinite(v))
+                        values.push_back(v);
                 }
             }
         }
@@ -2528,13 +3743,16 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     //                        rebinDynamicRulesIfNeeded refreshes per tick.
     if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
         using OpenSWMM::Render::RangeMode;
-        if (g->rangeMode() == RangeMode::FixedOverRun
-            && g->sourceKind() == OpenSWMM::Render::AttributeSourceKind::Dynamic
-            && scopeOutCode >= 0) {
+        if (g->rangeMode() == RangeMode::FixedOverRun &&
+            g->sourceKind() == OpenSWMM::Render::AttributeSourceKind::Dynamic &&
+            scopeOutCode >= 0) {
             const QHash<int, QPair<double, double>> *rangeCache = nullptr;
-            if (catIsNodeScope(c))          rangeCache = &m_nodeAttributeRange;
-            else if (catIsLinkScope(c))     rangeCache = &m_linkAttributeRange;
-            else if (catIsSubcatchScope(c)) rangeCache = &m_subcatchAttributeRange;
+            if (catIsNodeScope(c))
+                rangeCache = &m_nodeAttributeRange;
+            else if (catIsLinkScope(c))
+                rangeCache = &m_linkAttributeRange;
+            else if (catIsSubcatchScope(c))
+                rangeCache = &m_subcatchAttributeRange;
             if (rangeCache) {
                 const auto it = rangeCache->constFind(scopeOutCode);
                 if (it != rangeCache->constEnd()) {
@@ -2542,14 +3760,80 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
                     values.append(it.value().second);
                 } else {
                     // Kick the async scan; completion re-classifies.
-                    if (catIsNodeScope(c))          ensureNodeAttributeRange(scopeOutCode);
-                    else if (catIsLinkScope(c))     ensureLinkAttributeRange(scopeOutCode);
-                    else if (catIsSubcatchScope(c)) ensureSubcatchAttributeRange(scopeOutCode);
+                    if (catIsNodeScope(c))
+                        ensureNodeAttributeRange(scopeOutCode);
+                    else if (catIsLinkScope(c))
+                        ensureLinkAttributeRange(scopeOutCode);
+                    else if (catIsSubcatchScope(c))
+                        ensureSubcatchAttributeRange(scopeOutCode);
                 }
             }
             OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
         } else if (g->rangeMode() != RangeMode::FixedUser) {
             OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
+        }
+    }
+
+    // Independent size attribute (size/width axes driven by a different
+    // result variable than the colour classification). Resolve its per-var
+    // results vector and make sure the renderer has a value range to
+    // normalise against — preferring the full-run attribute-range cache,
+    // falling back to this frame's extremes while the async scan runs.
+    const QVector<float> *sizeValuesPtr = nullptr;
+    QString sizeAttr;
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+        if (g->sizeAxisIndependent() && (g->outputSizeEnabled() || g->outputWidthEnabled())) {
+            sizeAttr = g->sizeAttribute();
+            int sizeOutCode = -1;
+            const QHash<int, QPair<double, double>> *rangeCache = nullptr;
+            if (catIsNodeScope(c)) {
+                sizeOutCode = nodeOutCodeForAttribute(sizeAttr);
+                const auto it = m_nodeResultsByVar.constFind(sizeOutCode);
+                if (it != m_nodeResultsByVar.constEnd())
+                    sizeValuesPtr = &it.value();
+                rangeCache = &m_nodeAttributeRange;
+            } else if (catIsLinkScope(c)) {
+                sizeOutCode = linkOutCodeForAttribute(sizeAttr);
+                const auto it = m_linkResultsByVar.constFind(sizeOutCode);
+                if (it != m_linkResultsByVar.constEnd())
+                    sizeValuesPtr = &it.value();
+                rangeCache = &m_linkAttributeRange;
+            } else if (catIsSubcatchScope(c)) {
+                sizeOutCode = subcatchOutCodeForAttribute(sizeAttr);
+                const auto it = m_subcatchResultsByVar.constFind(sizeOutCode);
+                if (it != m_subcatchResultsByVar.constEnd())
+                    sizeValuesPtr = &it.value();
+                rangeCache = &m_subcatchAttributeRange;
+            }
+            if (sizeOutCode >= 0 && rangeCache) {
+                const auto it = rangeCache->constFind(sizeOutCode);
+                if (it != rangeCache->constEnd()) {
+                    if (it.value().second > it.value().first)
+                        g->setSizeValueRange(it.value().first, it.value().second);
+                } else {
+                    // Kick the async full-run scan; meanwhile stand in with
+                    // this frame's extremes so sizes render immediately.
+                    if (catIsNodeScope(c))
+                        ensureNodeAttributeRange(sizeOutCode);
+                    else if (catIsLinkScope(c))
+                        ensureLinkAttributeRange(sizeOutCode);
+                    else if (catIsSubcatchScope(c))
+                        ensureSubcatchAttributeRange(sizeOutCode);
+                    if (!g->sizeValueRangeValid() && sizeValuesPtr) {
+                        double mn = std::numeric_limits<double>::infinity();
+                        double mx = -std::numeric_limits<double>::infinity();
+                        for (const float fv : *sizeValuesPtr) {
+                            const double dv = static_cast<double>(fv);
+                            if (!std::isfinite(dv))
+                                continue;
+                            mn = std::min(mn, dv);
+                            mx = std::max(mx, dv);
+                        }
+                        if (mx > mn)
+                            g->setSizeValueRange(mn, mx);
+                    }
+                }
+            }
         }
     }
 
@@ -2573,6 +3857,19 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
             // classifyAttr) at the top of the function.
             attrs.insert(classifyAttr, stringAttrs->value(row));
         }
+        // Independent size attribute — hand symbolFor this feature's value
+        // for the size/width axes alongside the classify value.
+        if (sizeValuesPtr && outIdxMap) {
+            const auto it = outIdxMap->constFind(name);
+            if (it != outIdxMap->constEnd()) {
+                const int outIdx = it.value();
+                if (outIdx >= 0 && outIdx < sizeValuesPtr->size()) {
+                    const double sv = static_cast<double>(sizeValuesPtr->at(outIdx));
+                    if (std::isfinite(sv))
+                        attrs.insert(sizeAttr, sv);
+                }
+            }
+        }
 
         OpenSWMM::Render::FeatureRef ref;
         ref.featureIndex = row;
@@ -2582,9 +3879,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         // Fallback color when the renderer didn't (or couldn't) classify:
         // sample the layer-level ramp so the canvas still has a sensible
         // colour instead of an invalid hole.
-        const QColor rampCol = std::isfinite(value)
-            ? m_colorRamp.colorForValue(value)
-            : QColor();
+        const QColor rampCol = std::isfinite(value) ? m_colorRamp.colorForValue(value) : QColor();
         m_kindFeatureColors[idx][row] = extractStyleColor(style, rampCol);
 
         // A Graduated renderer drives geometry ONLY through its explicit
@@ -2596,21 +3891,141 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         // SingleSymbol / Categorized symbols are user-authored, so their
         // geometry props remain authoritative.
         if (auto *gKr = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
-            m_kindFeatureSizes [idx][row] =
-                gKr->outputSizeEnabled()  ? extractStyleSize(style)  : -1.0;
+            m_kindFeatureSizes[idx][row] =
+                gKr->outputSizeEnabled() ? extractStyleSize(style) : -1.0;
             m_kindFeatureWidths[idx][row] =
                 gKr->outputWidthEnabled() ? extractStyleWidth(style) : -1.0;
             m_kindFeatureShapes[idx][row] = -1;
             m_kindFeatureDashes[idx][row] = -1;
         } else {
-            m_kindFeatureSizes [idx][row] = extractStyleSize(style);
+            m_kindFeatureSizes[idx][row] = extractStyleSize(style);
             m_kindFeatureWidths[idx][row] = extractStyleWidth(style);
             m_kindFeatureShapes[idx][row] = extractStyleShape(style);
             m_kindFeatureDashes[idx][row] = extractStyleDash(style);
         }
     }
 
+    applySizeChannel(c);
     m_kindUsesOverrides[idx] = true;
+}
+
+void SWMMResultsLayer::migrateGraduatedOutputAxes(SWMMModelLayer::Category c,
+                                                  OpenSWMM::Render::GraduatedRenderer &g)
+{
+    // On results layers the sublayer style's size channel replaces the
+    // Graduated "Size / Width by value" axes. Every install path (style file,
+    // dialog snapshot, .oswp) reaches here, so a style authored with the axes
+    // carries them over once — unless the kind already has a channel — and
+    // the renderer's axes are switched off so only one mechanism sizes.
+    if (!g.outputSizeEnabled() && !g.outputWidthEnabled())
+        return;
+    using OpenSWMM::Render::SizeChannel;
+    auto seed = [&g](SizeChannel ch, double minPx, double maxPx) {
+        ch.enabled = true;
+        ch.attribute = g.effectiveSizeAttribute();
+        ch.transform = SizeChannel::Transform::Linear;
+        // The axes mapped the full run's extremes (sizeValueMin/Max are
+        // sampled from the run, not entered by the user) onto min..max px.
+        ch.rangeMode = OpenSWMM::Render::RangeMode::FixedOverRun;
+        ch.zeroBased = false;
+        ch.minPx = minPx;
+        ch.maxPx = maxPx;
+        return ch;
+    };
+    auto *sub = featureSublayer(c);
+    if (auto *ps = sub ? sub->pointStyle() : nullptr) {
+        if (g.outputSizeEnabled() && !ps->sizeChannel().enabled) {
+            ps->setSizeChannel(seed(ps->sizeChannel(), g.outputSizeMin(), g.outputSizeMax()));
+            qCDebug(lcLoadResults)
+                << "migrated Graduated size axis to size channel for" << SWMMModelLayer::kindKey(c);
+        }
+    } else if (auto *ls = sub ? sub->lineStyle() : nullptr) {
+        if (!ls->widthChannel().enabled) {
+            const bool w = g.outputWidthEnabled();
+            ls->setWidthChannel(seed(ls->widthChannel(), w ? g.outputWidthMin() : g.outputSizeMin(),
+                                     w ? g.outputWidthMax() : g.outputSizeMax()));
+            qCDebug(lcLoadResults) << "migrated Graduated width axis to width channel for"
+                                   << SWMMModelLayer::kindKey(c);
+        }
+    }
+    g.setOutputSizeEnabled(false);
+    g.setOutputWidthEnabled(false);
+}
+
+void SWMMResultsLayer::applySizeChannel(SWMMModelLayer::Category c)
+{
+    // Size channel — the sublayer style drives marker size / stroke width
+    // from its own result variable, whatever renderer coloured the kind.
+    // Runs after the renderer pass, so it takes precedence over any size
+    // the renderer wrote.
+    const int idx = static_cast<int>(c);
+    m_kindSizeRange[idx] = {};
+    const OpenSWMM::Render::SizeChannel *ch = sublayerSizeChannel(featureSublayer(c));
+    if (!ch || !ch->enabled || ch->attribute.isEmpty())
+        return;
+
+    const bool point = catIsNodeScope(c);
+    const QStringList species = speciesNames();
+    const int outCode = point ? nodeOutCodeForAttribute(ch->attribute, species)
+                              : linkOutCodeForAttribute(ch->attribute, species);
+    const auto &byVar = point ? m_nodeResultsByVar : m_linkResultsByVar;
+    const auto vit = byVar.constFind(outCode);
+    if (outCode < 0 || vit == byVar.constEnd())
+        return;
+    const QVector<float> &values = vit.value();
+    const QHash<QString, int> &outIdx = point ? m_nodeOutputIdx : m_linkOutputIdx;
+
+    double lo = std::numeric_limits<double>::infinity();
+    double hi = -lo;
+    using OpenSWMM::Render::RangeMode;
+    if (ch->rangeMode == RangeMode::FixedUser) {
+        lo = ch->userMin;
+        hi = ch->userMax;
+    } else {
+        bool haveRun = false;
+        if (ch->rangeMode == RangeMode::FixedOverRun) {
+            const auto &cache = point ? m_nodeAttributeRange : m_linkAttributeRange;
+            const auto it = cache.constFind(outCode);
+            if (it != cache.constEnd()) {
+                lo = it.value().first;
+                hi = it.value().second;
+                haveRun = true;
+            } else if (point) {
+                ensureNodeAttributeRange(outCode); // completion rebuilds
+            } else {
+                ensureLinkAttributeRange(outCode);
+            }
+        }
+        // Each frame — or the whole run while its scan is still pending.
+        if (!haveRun) {
+            for (const float fv : values) {
+                const double dv = static_cast<double>(fv);
+                if (!std::isfinite(dv))
+                    continue;
+                lo = std::min(lo, dv);
+                hi = std::max(hi, dv);
+            }
+        }
+    }
+    if (!(hi >= lo))
+        return;
+    m_kindSizeRange[idx] = {ch->effectiveLow(lo), hi};
+
+    QVector<double> &sizes = point ? m_kindFeatureSizes[idx] : m_kindFeatureWidths[idx];
+    const int count = m_modelLayer->categoryCount(c);
+    sizes.resize(count);
+    for (int row = 0; row < count; ++row) {
+        double px = -1.0;
+        const auto it = outIdx.constFind(m_modelLayer->objectNameAt(c, row));
+        if (it != outIdx.constEnd() && it.value() >= 0 && it.value() < values.size()) {
+            const double v = ch->pixels(static_cast<double>(values.at(it.value())), lo, hi);
+            // Paint reads <= 0 as "no override"; a 0 px minimum still overrides
+            // (the painters clamp to their own floor).
+            if (std::isfinite(v))
+                px = std::max(v, 1e-3);
+        }
+        sizes[row] = px;
+    }
 }
 
 void SWMMResultsLayer::rebuildAllActiveKindFeatureOverrides()
@@ -2629,27 +4044,40 @@ void SWMMResultsLayer::autoStretchColorRamp()
     // callers (project open / post-sim auto-load / manual add) never
     // block the UI. On large outputs (West Whiteland's 427 MB .out)
     // the synchronous version cost several seconds of frozen UI.
-    if (!m_handle || m_totalSteps <= 0) return;
+    if (!m_handle || m_totalSteps <= 0)
+        return;
 
     RangeKind kind;
     int outCode = -1;
-    if      (isNodeVar(m_variable))     { kind = RangeKind::Node;     outCode = nodeVar(m_variable); }
-    else if (isLinkVar(m_variable))     { kind = RangeKind::Link;     outCode = linkVar(m_variable); }
-    else if (isSubcatchVar(m_variable)) { kind = RangeKind::Subcatch; outCode = subcatchVar(m_variable); }
-    else return;
-    if (outCode < 0) return;
+    if (isNodeVar(m_variable)) {
+        kind = RangeKind::Node;
+        outCode = nodeVar(m_variable);
+    } else if (isLinkVar(m_variable)) {
+        kind = RangeKind::Link;
+        outCode = linkVar(m_variable);
+    } else if (isSubcatchVar(m_variable)) {
+        kind = RangeKind::Subcatch;
+        outCode = subcatchVar(m_variable);
+    } else
+        return;
+    if (outCode < 0)
+        return;
 
-    const QString path       = m_resultsFilePath;
-    const int     totalSteps = m_totalSteps;
+    const QString path = m_resultsFilePath;
+    const int totalSteps = m_totalSteps;
     QPointer<SWMMResultsLayer> self(this);
     QtConcurrent::run([self, path, kind, outCode, totalSteps]() {
         const auto range = scanRangeBlocking(path, kind, outCode, totalSteps);
-        QMetaObject::invokeMethod(qApp, [self, range]() {
-            if (!self) return;
-            self->m_colorRamp.minValue = range.first;
-            self->m_colorRamp.maxValue = range.second;
-            emit self->repaintRequested();
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            qApp,
+            [self, range]() {
+                if (!self)
+                    return;
+                self->m_colorRamp.minValue = range.first;
+                self->m_colorRamp.maxValue = range.second;
+                emit self->repaintRequested();
+            },
+            Qt::QueuedConnection);
     });
 }
 
@@ -2657,7 +4085,10 @@ void SWMMResultsLayer::autoStretchColorRamp()
 // Legend
 // ---------------------------------------------------------------------------
 
-bool SWMMResultsLayer::showLegend() const { return m_showLegend; }
+bool SWMMResultsLayer::showLegend() const
+{
+    return m_showLegend;
+}
 
 void SWMMResultsLayer::setShowLegend(bool show)
 {
@@ -2674,8 +4105,7 @@ void SWMMResultsLayer::setShowLegend(bool show)
 
 void SWMMResultsLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
-    if (m_transform)
-    {
+    if (m_transform) {
         OCTDestroyCoordinateTransformation(
             reinterpret_cast<OGRCoordinateTransformationH>(m_transform));
         m_transform = nullptr;
@@ -2697,16 +4127,23 @@ void SWMMResultsLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanva
     escalateSceneDirty(SceneDirty::Structural);
 }
 
-void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
-                                      const MapExtent  &canvasExtent,
-                                      const SpatialReferenceSystem *canvasSRS)
+void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                                     const SpatialReferenceSystem *canvasSRS)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     Q_UNUSED(canvasExtent)
     Q_UNUSED(canvasSRS)
 
     if (!isVisible() || !m_modelLayer || opacity() <= 0.0)
         return;
 
+    for (auto *sub : sublayers())
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub)) {
+            trace->layer()->setLayerZValue(resultSublayerZ(this, trace));
+            trace->layer()->populateScene(scene, canvasExtent, canvasSRS);
+        }
     if (!m_handle || m_totalSteps <= 0)
         return;
 
@@ -2721,9 +4158,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // Tag value used by depopulateScene to identify this layer's items.
     const quintptr ownerTag = reinterpret_cast<quintptr>(this);
 
-    auto tag = [ownerTag](QGraphicsItem *item) {
+    double sublayerZ = layerZValue();
+    auto tag = [ownerTag, &sublayerZ](QGraphicsItem *item) {
         item->setData(0, QVariant::fromValue<quintptr>(ownerTag));
-        item->setZValue(10.0); // above the model layer
+        item->setZValue(sublayerZ);
     };
 
     // Slice U-0 — granular per-Category paint dispatch. The legacy
@@ -2746,38 +4184,36 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         p.setCosmetic(true);
         p.setWidthF(widthPx);
         p.setStyle(dash);
-        p.setCapStyle(Qt::FlatCap);
-        p.setJoinStyle(Qt::RoundJoin);
+        OpenSWMM::Render::configureLinkStrokePen(p);
         return p;
     };
 
     auto makeShapePolygon = [](PointFeatureSublayerStyle::MarkerShape s, double rPx) -> QPolygonF {
         QPolygonF p;
         switch (s) {
-            case PointFeatureSublayerStyle::Square:
-                p << QPointF(-rPx, -rPx) << QPointF(rPx, -rPx)
-                  << QPointF( rPx,  rPx) << QPointF(-rPx, rPx);
-                break;
-            case PointFeatureSublayerStyle::Triangle:
-                p << QPointF(0.0, -rPx) << QPointF( rPx, rPx) << QPointF(-rPx, rPx);
-                break;
-            case PointFeatureSublayerStyle::Diamond:
-                p << QPointF(0.0, -rPx) << QPointF(rPx, 0.0)
-                  << QPointF(0.0,  rPx) << QPointF(-rPx, 0.0);
-                break;
-            case PointFeatureSublayerStyle::Star: {
-                constexpr double kPi = 3.14159265358979323846;
-                const double inner = rPx * 0.45;
-                for (int k = 0; k < 10; ++k) {
-                    const double r = (k & 1) ? inner : rPx;
-                    const double a = -kPi / 2.0 + k * (kPi / 5.0);
-                    p << QPointF(r * std::cos(a), r * std::sin(a));
-                }
-                break;
+        case PointFeatureSublayerStyle::Square:
+            p << QPointF(-rPx, -rPx) << QPointF(rPx, -rPx) << QPointF(rPx, rPx)
+              << QPointF(-rPx, rPx);
+            break;
+        case PointFeatureSublayerStyle::Triangle:
+            p << QPointF(0.0, -rPx) << QPointF(rPx, rPx) << QPointF(-rPx, rPx);
+            break;
+        case PointFeatureSublayerStyle::Diamond:
+            p << QPointF(0.0, -rPx) << QPointF(rPx, 0.0) << QPointF(0.0, rPx) << QPointF(-rPx, 0.0);
+            break;
+        case PointFeatureSublayerStyle::Star: {
+            constexpr double kPi = 3.14159265358979323846;
+            const double inner = rPx * 0.45;
+            for (int k = 0; k < 10; ++k) {
+                const double r = (k & 1) ? inner : rPx;
+                const double a = -kPi / 2.0 + k * (kPi / 5.0);
+                p << QPointF(r * std::cos(a), r * std::sin(a));
             }
-            case PointFeatureSublayerStyle::Circle:
-            default:
-                break;
+            break;
+        }
+        case PointFeatureSublayerStyle::Circle:
+        default:
+            break;
         }
         return p;
     };
@@ -2785,23 +4221,26 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // ── Point-archetype paint ───────────────────────────────────────────
     auto paintPoint = [&](FeatureSublayer *sub) {
         auto *st = sub->pointStyle();
-        if (!st) return;
+        if (!st)
+            return;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int count = m_modelLayer->categoryCount(cat);
-        if (count <= 0) return;
+        if (count <= 0)
+            return;
 
         const int catIdx = static_cast<int>(cat);
         // Slice §Y.2 — pre-size the cache slot to categoryCount; entries
         // start null and get overwritten as items are added.
         m_itemByFeature[catIdx].fill(nullptr, count);
-        const bool useOverride = m_kindUsesOverrides[catIdx]
-            && m_kindFeatureColors[catIdx].size() == count;
+        const bool useOverride =
+            m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = nodeOutCodeForAttribute(attr);
+        const int outCode = nodeOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-            ? m_nodeResultsByVar.value(outCode) : QVector<float>{};
+                                           ? m_nodeResultsByVar.value(outCode)
+                                           : QVector<float>{};
         const bool haveResults = !results.isEmpty();
 
         RasterColorRamp ramp = m_colorRamp;
@@ -2812,9 +4251,9 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         }
 
         const double diameterPxDefault = std::max(2.0, st->markerSizePx());
-        const auto   shapeDefault      = st->shape();
-        const qreal  opMul    = sub->opacity();
-        const bool   useRamp  = st->useColorRamp();
+        const auto shapeDefault = st->shape();
+        const qreal opMul = sub->opacity();
+        const bool useRamp = st->useColorRamp();
         const QColor singleCol = st->color();
 
         for (int row = 0; row < count; ++row) {
@@ -2825,15 +4264,27 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 col = m_kindFeatureColors[catIdx][row];
             } else if (useRamp && haveResults) {
                 const int outIdx = nodeOutputIndex(name);
-                if (outIdx < 0 || outIdx >= results.size()) continue;
+                if (outIdx < 0 || outIdx >= results.size())
+                    continue;
                 const float val = results[outIdx];
-                if (!std::isfinite(val)) continue;
+                if (!std::isfinite(val))
+                    continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0)
+                    continue;
             }
-            if (!col.isValid()) continue;
+            if (!col.isValid())
+                continue;
 
             double mx = 0.0, my = 0.0;
-            if (!m_modelLayer->elementPosition(name, &mx, &my)) continue;
+            // Resolve geometry by category as well as name: rain gages
+            // and catchments may share IDs, and gage indices are not nodes.
+            const int soaIndex = m_modelLayer->soaIndexAt(cat, row);
+            const bool positioned = cat == SWMMModelLayer::CatRainGages
+                                        ? m_modelLayer->cachedGageCoord(soaIndex, &mx, &my)
+                                        : m_modelLayer->cachedNodeCoord(soaIndex, &mx, &my);
+            if (!positioned)
+                continue;
 
             // Per-class override surfaces from the override cache (size /
             // shape come from extractStyleSize/Shape in
@@ -2850,7 +4301,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             }
             const double rPx = diameterPx * 0.5;
             const QPolygonF poly = (shape == PointFeatureSublayerStyle::Circle)
-                                    ? QPolygonF{} : makeShapePolygon(shape, rPx);
+                                       ? QPolygonF{}
+                                       : makeShapePolygon(shape, rPx);
 
             QColor outline = col.darker(130);
             if (opMul < 1.0) {
@@ -2884,22 +4336,25 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // ── Line-archetype paint ────────────────────────────────────────────
     auto paintLine = [&](FeatureSublayer *sub) {
         auto *st = sub->lineStyle();
-        if (!st) return;
+        if (!st)
+            return;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int count = m_modelLayer->categoryCount(cat);
-        if (count <= 0) return;
+        if (count <= 0)
+            return;
 
         const int catIdx = static_cast<int>(cat);
         // Slice §Y.2 — pre-size the cache slot to categoryCount.
         m_itemByFeature[catIdx].fill(nullptr, count);
-        const bool useOverride = m_kindUsesOverrides[catIdx]
-            && m_kindFeatureColors[catIdx].size() == count;
+        const bool useOverride =
+            m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = linkOutCodeForAttribute(attr);
+        const int outCode = linkOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-            ? m_linkResultsByVar.value(outCode) : QVector<float>{};
+                                           ? m_linkResultsByVar.value(outCode)
+                                           : QVector<float>{};
         const bool haveResults = !results.isEmpty();
 
         RasterColorRamp ramp = m_colorRamp;
@@ -2910,47 +4365,56 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         }
 
         const bool showArrows = st->showFlowArrows();
-        const QVector<float> flowResults = showArrows
-            ? m_linkResultsByVar.value(SWMM_OUT_LINK_FLOW) : QVector<float>{};
-        const auto flowRange = showArrows
-            ? ensureLinkAttributeRange(SWMM_OUT_LINK_FLOW)
-            : QPair<double, double>{0.0, 1.0};
-        const double magDenom = std::max(1e-12, std::max(std::abs(flowRange.first),
-                                                          std::abs(flowRange.second)));
+        const QVector<float> flowResults =
+            showArrows ? m_linkResultsByVar.value(SWMM_OUT_LINK_FLOW) : QVector<float>{};
+        const auto flowRange = showArrows ? ensureLinkAttributeRange(SWMM_OUT_LINK_FLOW)
+                                          : QPair<double, double>{0.0, 1.0};
+        const double magDenom =
+            std::max(1e-12, std::max(std::abs(flowRange.first), std::abs(flowRange.second)));
 
         const double lineWidthPxDefault = std::max(0.5, st->lineWidthPx());
-        const Qt::PenStyle dashDefault  = st->dashPattern();
-        const bool renderAsLine  = st->renderAsLine();
-        const double dotRpx      = std::max(2.0, lineWidthPxDefault * 2.0) * 0.5;
-        const qreal  opMul       = sub->opacity();
-        const bool   useRamp     = st->useColorRamp();
-        const QColor singleCol   = st->color();
+        const Qt::PenStyle dashDefault = st->dashPattern();
+        const bool renderAsLine = st->renderAsLine();
+        const double dotRpx = std::max(2.0, lineWidthPxDefault * 2.0) * 0.5;
+        const qreal opMul = sub->opacity();
+        const bool useRamp = st->useColorRamp();
+        const QColor singleCol = st->color();
 
-        const double arrowLenPx   = std::max(2.0, st->arrowLengthPx());
-        const double arrowHalfWPx = std::max(1.0, st->arrowWidthPx());
-        const QColor arrowCol     = st->arrowColor();
+        const double arrowLenPx = std::max(2.0, st->arrowLengthPx());
+        // arrowWidthPx is the FULL base width, as it is on the model layer
+        // (drawFlowArrow / appendFlowArrowColored both halve it). Consuming it
+        // as a half-width here drew every results arrow twice as wide as the
+        // same style draws on the map — a flat wedge rather than an arrowhead.
+        const double arrowHalfWPx = std::max(1.0, st->arrowWidthPx()) * 0.5;
+        const QColor arrowCol = st->arrowColor();
 
         for (int row = 0; row < count; ++row) {
             const QString name = m_modelLayer->objectNameAt(cat, row);
             const int linkIdx = m_modelLayer->linkIndex(name);
-            if (linkIdx < 0) continue;
+            if (linkIdx < 0)
+                continue;
 
             QColor col = singleCol;
             if (useOverride) {
                 col = m_kindFeatureColors[catIdx][row];
             } else if (useRamp && haveResults) {
                 const int outIdx = linkOutputIndex(name);
-                if (outIdx < 0 || outIdx >= results.size()) continue;
+                if (outIdx < 0 || outIdx >= results.size())
+                    continue;
                 const float val = results[outIdx];
-                if (!std::isfinite(val)) continue;
+                if (!std::isfinite(val))
+                    continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0)
+                    continue;
             }
-            if (!col.isValid()) continue;
+            if (!col.isValid())
+                continue;
             if (opMul < 1.0)
                 col.setAlphaF(std::clamp(col.alphaF() * opMul, 0.0, 1.0));
 
             double lineWidthPx = lineWidthPxDefault;
-            Qt::PenStyle dash  = dashDefault;
+            Qt::PenStyle dash = dashDefault;
             if (useOverride) {
                 if (m_kindFeatureWidths[catIdx].value(row, -1.0) > 0.0)
                     lineWidthPx = std::max(0.5, m_kindFeatureWidths[catIdx][row]);
@@ -2960,7 +4424,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
 
             if (renderAsLine) {
                 const QVector<QPointF> polyMap = m_modelLayer->cachedLinkPolyline(linkIdx);
-                if (polyMap.size() < 2) continue;
+                if (polyMap.size() < 2)
+                    continue;
                 QPainterPath path;
                 path.moveTo(toScene(polyMap[0].x(), polyMap[0].y()));
                 for (int p = 1; p < polyMap.size(); ++p)
@@ -2975,7 +4440,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 m_itemByFeature[catIdx][row] = item;
             } else {
                 double mx = 0.0, my = 0.0;
-                if (!m_modelLayer->elementPosition(name, &mx, &my)) continue;
+                if (!m_modelLayer->elementPosition(name, &mx, &my))
+                    continue;
                 const QPointF mid = toScene(mx, my);
                 auto *dot = new QGraphicsEllipseItem(-dotRpx, -dotRpx, 2.0 * dotRpx, 2.0 * dotRpx);
                 dot->setPen(QPen(Qt::NoPen));
@@ -2989,12 +4455,15 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
 
             if (showArrows && !flowResults.isEmpty()) {
                 const int outIdx = linkOutputIndex(name);
-                if (outIdx < 0 || outIdx >= flowResults.size()) continue;
+                if (outIdx < 0 || outIdx >= flowResults.size())
+                    continue;
                 const float flow = flowResults[outIdx];
-                if (!std::isfinite(flow) || std::abs(flow) < 1e-9f) continue;
+                if (!std::isfinite(flow) || std::abs(flow) < 1e-9f)
+                    continue;
 
                 const QVector<QPointF> polyMap = m_modelLayer->cachedLinkPolyline(linkIdx);
-                if (polyMap.size() < 2) continue;
+                if (polyMap.size() < 2)
+                    continue;
 
                 QVector<QPointF> polyScene;
                 polyScene.reserve(polyMap.size());
@@ -3002,42 +4471,45 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                     polyScene.append(toScene(p.x(), p.y()));
 
                 double total = 0.0;
-                std::vector<double> segLens; segLens.reserve(polyScene.size() - 1);
+                std::vector<double> segLens;
+                segLens.reserve(polyScene.size() - 1);
                 for (int i = 1; i < polyScene.size(); ++i) {
                     const QPointF d = polyScene[i] - polyScene[i - 1];
                     segLens.push_back(std::hypot(d.x(), d.y()));
                     total += segLens.back();
                 }
-                if (total <= 0.0) continue;
+                if (total <= 0.0)
+                    continue;
                 const double target = total * 0.5;
                 double acc = 0.0;
                 int segIdx = 0;
                 for (segIdx = 0; segIdx < int(segLens.size()) - 1; ++segIdx) {
-                    if (acc + segLens[segIdx] >= target) break;
+                    if (acc + segLens[segIdx] >= target)
+                        break;
                     acc += segLens[segIdx];
                 }
-                const double t = (segLens[segIdx] > 0.0)
-                    ? (target - acc) / segLens[segIdx] : 0.0;
+                const double t = (segLens[segIdx] > 0.0) ? (target - acc) / segLens[segIdx] : 0.0;
                 const QPointF a = polyScene[segIdx];
                 const QPointF b = polyScene[segIdx + 1];
                 const QPointF mid = a + (b - a) * t;
 
                 QPointF dir = b - a;
                 const double dlen = std::hypot(dir.x(), dir.y());
-                if (dlen <= 0.0) continue;
+                if (dlen <= 0.0)
+                    continue;
                 dir /= dlen;
                 constexpr double kPi = 3.14159265358979323846;
                 double angleRad = std::atan2(dir.y(), dir.x());
-                if (flow < 0.0f) angleRad += kPi;
+                if (flow < 0.0f)
+                    angleRad += kPi;
                 const double angleDeg = angleRad * 180.0 / kPi;
 
                 const double magNorm = std::min(1.0, std::abs(flow) / magDenom);
-                const double arrLen  = arrowLenPx * (0.25 + 0.75 * magNorm);
+                const double arrLen = arrowLenPx * (0.25 + 0.75 * magNorm);
 
                 QPolygonF head;
-                head << QPointF(arrLen, 0.0)
-                     << QPointF(0.0,     arrowHalfWPx)
-                     << QPointF(0.0,    -arrowHalfWPx);
+                head << QPointF(arrLen, 0.0) << QPointF(0.0, arrowHalfWPx)
+                     << QPointF(0.0, -arrowHalfWPx);
 
                 QColor fillColor = arrowCol;
                 if (opMul < 1.0)
@@ -3058,22 +4530,25 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // ── Polygon-archetype paint ─────────────────────────────────────────
     auto paintPolygon = [&](FeatureSublayer *sub) {
         auto *st = sub->polygonStyle();
-        if (!st) return;
+        if (!st)
+            return;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int count = m_modelLayer->categoryCount(cat);
-        if (count <= 0) return;
+        if (count <= 0)
+            return;
 
         const int catIdx = static_cast<int>(cat);
         // Slice §Y.2 — pre-size the cache slot to categoryCount.
         m_itemByFeature[catIdx].fill(nullptr, count);
-        const bool useOverride = m_kindUsesOverrides[catIdx]
-            && m_kindFeatureColors[catIdx].size() == count;
+        const bool useOverride =
+            m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = subcatchOutCodeForAttribute(attr);
+        const int outCode = subcatchOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-            ? m_subcatchResultsByVar.value(outCode) : QVector<float>{};
+                                           ? m_subcatchResultsByVar.value(outCode)
+                                           : QVector<float>{};
         const bool haveResults = !results.isEmpty();
 
         RasterColorRamp ramp = m_colorRamp;
@@ -3083,12 +4558,12 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             ramp.maxValue = r.second;
         }
 
-        const QColor outlineCol      = st->outlineColor();
+        const QColor outlineCol = st->outlineColor();
         const double outlineWPxDefault = st->outlineWidthPx();
-        const double fillAlphaMul    = std::clamp(st->fillOpacity(), 0.0, 1.0);
-        const qreal  opMul           = sub->opacity();
-        const bool   useRamp         = st->useColorRamp();
-        const QColor singleCol       = st->color();
+        const double fillAlphaMul = std::clamp(st->fillOpacity(), 0.0, 1.0);
+        const qreal opMul = sub->opacity();
+        const bool useRamp = st->useColorRamp();
+        const QColor singleCol = st->color();
 
         auto buildOutlinePen = [&](double widthPx, Qt::PenStyle dash) -> QPen {
             QPen p(Qt::NoPen);
@@ -3097,7 +4572,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 p.setCosmetic(true);
                 p.setWidthF(widthPx);
                 p.setJoinStyle(Qt::RoundJoin);
-                if (dash >= 0) p.setStyle(dash);
+                if (dash >= 0)
+                    p.setStyle(dash);
             }
             return p;
         };
@@ -3111,15 +4587,19 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 col = m_kindFeatureColors[catIdx][row];
             } else if (useRamp && haveResults) {
                 const int outIdx = subcatchOutputIndex(name);
-                if (outIdx < 0 || outIdx >= results.size()) continue;
+                if (outIdx < 0 || outIdx >= results.size())
+                    continue;
                 const float val = results[outIdx];
-                if (!std::isfinite(val)) continue;
+                if (!std::isfinite(val))
+                    continue;
                 col = ramp.colorForValue(static_cast<double>(val));
+                if (col.alpha() == 0)
+                    continue;
             }
-            if (!col.isValid()) continue;
+            if (!col.isValid())
+                continue;
 
-            const int alpha = std::clamp(
-                int(255.0 * fillAlphaMul * opMul), 0, 255);
+            const int alpha = std::clamp(int(255.0 * fillAlphaMul * opMul), 0, 255);
             const QColor fill(col.red(), col.green(), col.blue(), alpha);
 
             // Slice X.20 — per-category outline width/dash overrides
@@ -3128,17 +4608,19 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             // sentinels fall back to the sublayer default.
             QPen outlinePen = defaultOutlinePen;
             if (useOverride) {
-                const double w  = m_kindFeatureWidths[catIdx].value(row, -1.0);
-                const int    ds = m_kindFeatureDashes[catIdx].value(row, -1);
+                const double w = m_kindFeatureWidths[catIdx].value(row, -1.0);
+                const int ds = m_kindFeatureDashes[catIdx].value(row, -1);
                 if (w > 0.0 || ds >= 0)
-                    outlinePen = buildOutlinePen(
-                        w > 0.0 ? w : outlineWPxDefault,
-                        ds >= 0 ? static_cast<Qt::PenStyle>(ds) : Qt::SolidLine);
+                    outlinePen =
+                        buildOutlinePen(w > 0.0 ? w : outlineWPxDefault,
+                                        ds >= 0 ? static_cast<Qt::PenStyle>(ds) : Qt::SolidLine);
             }
 
-            const QVector<QPointF> verts = m_modelLayer->cachedSubcatchVertices(row);
+            const QVector<QPointF> verts =
+                m_modelLayer->cachedSubcatchVertices(m_modelLayer->soaIndexAt(cat, row));
             if (verts.size() >= 3) {
-                QPolygonF poly; poly.reserve(verts.size());
+                QPolygonF poly;
+                poly.reserve(verts.size());
                 for (const QPointF &p : verts)
                     poly << toScene(p.x(), p.y());
                 auto *item = new QGraphicsPolygonItem(poly);
@@ -3156,12 +4638,12 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 m_itemByFeature[catIdx][row] = item;
             } else {
                 const MapExtent ext = m_modelLayer->objectExtent(name);
-                if (!std::isfinite(ext.xMin())) continue;
+                if (!std::isfinite(ext.xMin()))
+                    continue;
                 const double x1 = ext.xMin(), y1 = ext.yMin();
                 Q_UNUSED(y1);
                 const double x2 = ext.xMax(), y2 = ext.yMax();
-                auto *rect = scene->addRect(
-                    x1, -y2, x2 - x1, y2 - y1, outlinePen, QBrush(fill));
+                auto *rect = scene->addRect(x1, -y2, x2 - x1, y2 - y1, outlinePen, QBrush(fill));
                 tag(rect);
                 m_itemByFeature[catIdx][row] = rect;
             }
@@ -3172,14 +4654,25 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     // route each through the matching archetype paint helper.
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub) continue;
-        if (!sub->isVisible() || sub->opacity() <= 0.0) continue;
+        if (!sub)
+            continue;
+        if (!sub->isVisible() || sub->opacity() <= 0.0)
+            continue;
+        sublayerZ = resultSublayerZ(this, sub);
         switch (sub->archetype()) {
-            case FeatureSublayer::Archetype::Point:   paintPoint(sub);   break;
-            case FeatureSublayer::Archetype::Line:    paintLine(sub);    break;
-            case FeatureSublayer::Archetype::Polygon: paintPolygon(sub); break;
+        case FeatureSublayer::Archetype::Point:
+            paintPoint(sub);
+            break;
+        case FeatureSublayer::Archetype::Line:
+            paintLine(sub);
+            break;
+        case FeatureSublayer::Archetype::Polygon:
+            paintPolygon(sub);
+            break;
         }
     }
+
+    applySelectionStyles();
 
     // L-1 — build labels after the feature items exist (positions anchor off
     // m_itemByFeature). No-op when labelConfig().enabled is false.
@@ -3188,6 +4681,9 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
 
 void SWMMResultsLayer::depopulateScene(QGraphicsScene *scene)
 {
+    for (auto *sub : sublayers())
+        if (auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub))
+            trace->layer()->depopulateScene(scene);
     OpenSWMMVisLayer::depopulateScene(scene);
     // Slice §Y.2 — base class destroyed every item we cached, so the
     // pointers are now dangling. Drop them; the next populateScene
@@ -3222,23 +4718,24 @@ bool SWMMResultsLayer::requiresStructuralRebuildForRestyle() const
     using OpenSWMM::Render::FeatureSublayer;
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0) continue;
-        if (sub->archetype() != FeatureSublayer::Archetype::Line) continue;
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0)
+            continue;
+        if (sub->archetype() != FeatureSublayer::Archetype::Line)
+            continue;
         auto *st = sub->lineStyle();
-        if (st && st->showFlowArrows()) return true;
+        if (st && st->showFlowArrows())
+            return true;
     }
     return false;
 }
 
-void SWMMResultsLayer::refreshScene(QGraphicsScene *scene,
-                                    const MapExtent &canvasExtent,
+void SWMMResultsLayer::refreshScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
                                     const SpatialReferenceSystem *canvasSRS)
 {
     if (m_sceneDirty == SceneDirty::Clean)
         return;
 
-    if (m_sceneDirty == SceneDirty::Values
-        && !requiresStructuralRebuildForRestyle()) {
+    if (m_sceneDirty == SceneDirty::Values && !requiresStructuralRebuildForRestyle()) {
         restyleScene(scene);
         m_sceneDirty = SceneDirty::Clean;
         return;
@@ -3251,6 +4748,9 @@ void SWMMResultsLayer::refreshScene(QGraphicsScene *scene,
 
 void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     if (!isVisible() || !m_modelLayer || opacity() <= 0.0)
         return;
     if (!m_handle || m_totalSteps <= 0)
@@ -3261,29 +4761,35 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub) continue;
-        if (!sub->isVisible() || sub->opacity() <= 0.0) continue;
+        if (!sub)
+            continue;
+        if (!sub->isVisible() || sub->opacity() <= 0.0)
+            continue;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int catIdx = static_cast<int>(cat);
         const int count = m_modelLayer->categoryCount(cat);
-        if (count <= 0) continue;
+        if (count <= 0)
+            continue;
         // Defensive: a mid-session topology edit could have grown the
         // category since the last populateScene. Bail out — the next
         // structural refresh will rebuild correctly.
-        if (m_itemByFeature[catIdx].size() != count) continue;
+        if (m_itemByFeature[catIdx].size() != count)
+            continue;
 
         switch (sub->archetype()) {
         case FeatureSublayer::Archetype::Point: {
             auto *st = sub->pointStyle();
-            if (!st) break;
+            if (!st)
+                break;
 
-            const bool useOverride = m_kindUsesOverrides[catIdx]
-                && m_kindFeatureColors[catIdx].size() == count;
+            const bool useOverride =
+                m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = nodeOutCodeForAttribute(attr);
+            const int outCode = nodeOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-                ? m_nodeResultsByVar.value(outCode) : QVector<float>{};
+                                               ? m_nodeResultsByVar.value(outCode)
+                                               : QVector<float>{};
             const bool haveResults = !results.isEmpty();
 
             RasterColorRamp ramp = m_colorRamp;
@@ -3293,13 +4799,14 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                 ramp.maxValue = r.second;
             }
 
-            const qreal  opMul    = sub->opacity();
-            const bool   useRamp  = st->useColorRamp();
+            const qreal opMul = sub->opacity();
+            const bool useRamp = st->useColorRamp();
             const QColor singleCol = st->color();
 
             for (int row = 0; row < count; ++row) {
                 QGraphicsItem *item = m_itemByFeature[catIdx][row];
-                if (!item) continue;
+                if (!item)
+                    continue;
 
                 QColor col = singleCol;
                 bool drop = false;
@@ -3312,8 +4819,12 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         drop = true;
                     } else {
                         const float val = results[outIdx];
-                        if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        if (!std::isfinite(val))
+                            drop = true;
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {
@@ -3339,15 +4850,17 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 
         case FeatureSublayer::Archetype::Line: {
             auto *st = sub->lineStyle();
-            if (!st) break;
+            if (!st)
+                break;
             // requiresStructuralRebuildForRestyle() guarantees no arrows.
 
-            const bool useOverride = m_kindUsesOverrides[catIdx]
-                && m_kindFeatureColors[catIdx].size() == count;
+            const bool useOverride =
+                m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = linkOutCodeForAttribute(attr);
+            const int outCode = linkOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-                ? m_linkResultsByVar.value(outCode) : QVector<float>{};
+                                               ? m_linkResultsByVar.value(outCode)
+                                               : QVector<float>{};
             const bool haveResults = !results.isEmpty();
 
             RasterColorRamp ramp = m_colorRamp;
@@ -3358,7 +4871,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
             }
 
             const double lineWidthPxDefault = std::max(0.5, st->lineWidthPx());
-            const Qt::PenStyle dashDefault  = st->dashPattern();
+            const Qt::PenStyle dashDefault = st->dashPattern();
             const bool renderAsLine = st->renderAsLine();
             const qreal opMul = sub->opacity();
             const bool useRamp = st->useColorRamp();
@@ -3366,7 +4879,8 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 
             for (int row = 0; row < count; ++row) {
                 QGraphicsItem *item = m_itemByFeature[catIdx][row];
-                if (!item) continue;
+                if (!item)
+                    continue;
 
                 QColor col = singleCol;
                 bool drop = false;
@@ -3379,8 +4893,12 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         drop = true;
                     } else {
                         const float val = results[outIdx];
-                        if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        if (!std::isfinite(val))
+                            drop = true;
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {
@@ -3392,7 +4910,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                 item->setVisible(true);
 
                 double lineWidthPx = lineWidthPxDefault;
-                Qt::PenStyle dash  = dashDefault;
+                Qt::PenStyle dash = dashDefault;
                 if (useOverride) {
                     if (m_kindFeatureWidths[catIdx].value(row, -1.0) > 0.0)
                         lineWidthPx = std::max(0.5, m_kindFeatureWidths[catIdx][row]);
@@ -3406,13 +4924,14 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         pen.setCosmetic(true);
                         pen.setWidthF(lineWidthPx);
                         pen.setStyle(dash);
-                        pen.setCapStyle(Qt::FlatCap);
-                        pen.setJoinStyle(Qt::RoundJoin);
+                        OpenSWMM::Render::configureLinkStrokePen(pen);
                         p->setPen(pen);
                     }
                 } else {
-                    if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item))
+                    if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item)) {
+                        e->setPen(QPen(Qt::NoPen));
                         e->setBrush(QBrush(col));
+                    }
                 }
             }
             break;
@@ -3420,14 +4939,16 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 
         case FeatureSublayer::Archetype::Polygon: {
             auto *st = sub->polygonStyle();
-            if (!st) break;
+            if (!st)
+                break;
 
-            const bool useOverride = m_kindUsesOverrides[catIdx]
-                && m_kindFeatureColors[catIdx].size() == count;
+            const bool useOverride =
+                m_kindUsesOverrides[catIdx] && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = subcatchOutCodeForAttribute(attr);
+            const int outCode = subcatchOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
-                ? m_subcatchResultsByVar.value(outCode) : QVector<float>{};
+                                               ? m_subcatchResultsByVar.value(outCode)
+                                               : QVector<float>{};
             const bool haveResults = !results.isEmpty();
 
             RasterColorRamp ramp = m_colorRamp;
@@ -3437,12 +4958,12 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                 ramp.maxValue = r.second;
             }
 
-            const QColor outlineCol        = st->outlineColor();
+            const QColor outlineCol = st->outlineColor();
             const double outlineWPxDefault = st->outlineWidthPx();
-            const double fillAlphaMul      = std::clamp(st->fillOpacity(), 0.0, 1.0);
-            const qreal  opMul             = sub->opacity();
-            const bool   useRamp           = st->useColorRamp();
-            const QColor singleCol         = st->color();
+            const double fillAlphaMul = std::clamp(st->fillOpacity(), 0.0, 1.0);
+            const qreal opMul = sub->opacity();
+            const bool useRamp = st->useColorRamp();
+            const QColor singleCol = st->color();
 
             auto buildOutlinePen = [&](double widthPx, Qt::PenStyle dash) -> QPen {
                 QPen p(Qt::NoPen);
@@ -3451,7 +4972,8 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                     p.setCosmetic(true);
                     p.setWidthF(widthPx);
                     p.setJoinStyle(Qt::RoundJoin);
-                    if (dash >= 0) p.setStyle(dash);
+                    if (dash >= 0)
+                        p.setStyle(dash);
                 }
                 return p;
             };
@@ -3459,7 +4981,8 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 
             for (int row = 0; row < count; ++row) {
                 QGraphicsItem *item = m_itemByFeature[catIdx][row];
-                if (!item) continue;
+                if (!item)
+                    continue;
 
                 QColor col = singleCol;
                 bool drop = false;
@@ -3472,8 +4995,12 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         drop = true;
                     } else {
                         const float val = results[outIdx];
-                        if (!std::isfinite(val)) drop = true;
-                        else col = ramp.colorForValue(static_cast<double>(val));
+                        if (!std::isfinite(val))
+                            drop = true;
+                        else {
+                            col = ramp.colorForValue(static_cast<double>(val));
+                            drop = col.alpha() == 0;
+                        }
                     }
                 }
                 if (drop || !col.isValid()) {
@@ -3482,18 +5009,17 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                 }
                 item->setVisible(true);
 
-                const int alpha = std::clamp(
-                    int(255.0 * fillAlphaMul * opMul), 0, 255);
+                const int alpha = std::clamp(int(255.0 * fillAlphaMul * opMul), 0, 255);
                 const QColor fill(col.red(), col.green(), col.blue(), alpha);
 
                 QPen outlinePen = defaultOutlinePen;
                 if (useOverride) {
-                    const double w  = m_kindFeatureWidths[catIdx].value(row, -1.0);
-                    const int    ds = m_kindFeatureDashes[catIdx].value(row, -1);
+                    const double w = m_kindFeatureWidths[catIdx].value(row, -1.0);
+                    const int ds = m_kindFeatureDashes[catIdx].value(row, -1);
                     if (w > 0.0 || ds >= 0)
-                        outlinePen = buildOutlinePen(
-                            w > 0.0 ? w : outlineWPxDefault,
-                            ds >= 0 ? static_cast<Qt::PenStyle>(ds) : Qt::SolidLine);
+                        outlinePen = buildOutlinePen(w > 0.0 ? w : outlineWPxDefault,
+                                                     ds >= 0 ? static_cast<Qt::PenStyle>(ds)
+                                                             : Qt::SolidLine);
                 }
 
                 if (auto *p = qgraphicsitem_cast<QGraphicsPolygonItem *>(item)) {
@@ -3509,8 +5035,67 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
         }
     }
 
+    applySelectionStyles();
+
     // L-1 — refresh per-feature labels with the new frame's values.
     refreshLabels(scene);
+}
+
+void SWMMResultsLayer::applySelectionStyles()
+{
+    if (!m_modelLayer || m_modelLayer->selectedElements().isEmpty())
+        return;
+
+    QHash<QString, quint8> selected;
+    for (const auto &entry : m_modelLayer->selectedElements())
+        selected[entry.name] |= entry.kinds;
+
+    auto *prefs = PreferencesManager::instance();
+    using OpenSWMM::Render::FeatureSublayer;
+    for (auto *base : sublayers()) {
+        auto *sub = qobject_cast<FeatureSublayer *>(base);
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0)
+            continue;
+        const auto cat = sub->category();
+        const auto kind = SWMMModelLayer::kindBitForCategory(cat);
+        const QString key = catIsLinkScope(cat)                   ? QStringLiteral("link")
+                            : catIsSubcatchScope(cat)             ? QStringLiteral("subcatchment")
+                            : cat == SWMMModelLayer::CatRainGages ? QStringLiteral("gage")
+                                                                  : QStringLiteral("node");
+        QPen pen = prefs->selectionPen(key);
+        pen.setCosmetic(true);
+        QBrush brush = prefs->selectionBrush(key);
+        auto fade = [sub](QColor color) {
+            color.setAlphaF(std::clamp(color.alphaF() * sub->opacity(), 0.0, 1.0));
+            return color;
+        };
+        pen.setColor(fade(pen.color()));
+        brush.setColor(fade(brush.color()));
+        const auto &items = m_itemByFeature[static_cast<int>(cat)];
+        for (int row = 0; row < items.size(); ++row) {
+            auto *item = dynamic_cast<QAbstractGraphicsShapeItem *>(items[row]);
+            if (!item || !item->isVisible() ||
+                !(selected.value(m_modelLayer->objectNameAt(cat, row)) & kind))
+                continue;
+            if (catIsLinkScope(cat)) {
+                // Match model selection: the configured width adds a halo
+                // to the output's own (possibly data-driven) stroke width.
+                QPen halo = item->pen();
+                halo.setColor(pen.color());
+                halo.setWidthF(halo.widthF() + pen.widthF());
+                if (pen.style() != Qt::SolidLine)
+                    halo.setStyle(pen.style());
+                halo.setCosmetic(true);
+                item->setPen(halo);
+                // Links may also be rendered as midpoint markers.
+                if (sub->lineStyle() && !sub->lineStyle()->renderAsLine())
+                    item->setBrush(QBrush(pen.color()));
+            } else {
+                item->setPen(pen);
+                item->setBrush(brush);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3524,7 +5109,8 @@ void SWMMResultsLayer::clearLabels()
     // takes effect on the next paint.
     for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
         for (QGraphicsSimpleTextItem *lbl : m_labelByFeature[k]) {
-            if (!lbl) continue;
+            if (!lbl)
+                continue;
             if (QGraphicsScene *sc = lbl->scene())
                 sc->removeItem(lbl);
             delete lbl;
@@ -3535,7 +5121,13 @@ void SWMMResultsLayer::clearLabels()
 
 void SWMMResultsLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 {
-    OpenSWMMVisLayer::setLabelConfig(cfg);   // store + emit labelConfigChanged/repaint
+    const auto previous = labelConfig();
+    const bool needsFields =
+        cfg.enabled && (!previous.enabled || previous.fieldName != cfg.fieldName ||
+                        previous.expression != cfg.expression);
+    OpenSWMMVisLayer::setLabelConfig(cfg); // store + emit labelConfigChanged/repaint
+    if (m_handle && needsFields)
+        fetchResultsForStep(m_currentStep);
     // A label-only change leaves the scene "Clean"; escalate so the next
     // refresh runs restyleScene → refreshLabels and the change is applied.
     escalateSceneDirty(SceneDirty::Values);
@@ -3549,51 +5141,73 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
     // "{flow} m³/s" independently. The label text is an expression template:
     // {name} → element name, {field} → that feature's current value for the
     // named result variable; literal text is kept verbatim.
-    if (!scene || !m_modelLayer) { clearLabels(); return; }
+    if (!scene || !m_modelLayer) {
+        clearLabels();
+        return;
+    }
 
     using OpenSWMM::Render::FeatureSublayer;
     const quintptr ownerTag = reinterpret_cast<quintptr>(this);
-    const qreal    opMul = opacity();
+    const qreal opMul = opacity();
 
+    const QStringList species = speciesNames();
     // Resolve any result field's current value for one feature in a scope
     // (0=node, 1=link, 2=subcatch). Empty when no data / non-finite.
-    auto fieldValueStr = [&](int scope, const QString &field, const QString &name) -> QString {
+    // Feedback C4 — \p decimals is the effective LabelConfig's setting
+    // (-1 = 6 significant digits).
+    auto fieldValueStr = [&](int scope, const QString &field, const QString &name,
+                             int decimals) -> QString {
         const QVector<float> *vec = nullptr;
         if (scope == 0) {
-            const int oc = nodeOutCodeForAttribute(field);
-            if (oc >= 0) { const auto it = m_nodeResultsByVar.constFind(oc);
-                if (it != m_nodeResultsByVar.constEnd()) vec = &it.value(); }
+            const int oc = nodeOutCodeForAttribute(field, species);
+            if (oc >= 0) {
+                const auto it = m_nodeResultsByVar.constFind(oc);
+                if (it != m_nodeResultsByVar.constEnd())
+                    vec = &it.value();
+            }
         } else if (scope == 1) {
-            const int oc = linkOutCodeForAttribute(field);
-            if (oc >= 0) { const auto it = m_linkResultsByVar.constFind(oc);
-                if (it != m_linkResultsByVar.constEnd()) vec = &it.value(); }
+            const int oc = linkOutCodeForAttribute(field, species);
+            if (oc >= 0) {
+                const auto it = m_linkResultsByVar.constFind(oc);
+                if (it != m_linkResultsByVar.constEnd())
+                    vec = &it.value();
+            }
         } else {
-            const int oc = subcatchOutCodeForAttribute(field);
-            if (oc >= 0) { const auto it = m_subcatchResultsByVar.constFind(oc);
-                if (it != m_subcatchResultsByVar.constEnd()) vec = &it.value(); }
+            const int oc = subcatchOutCodeForAttribute(field, species);
+            if (oc >= 0) {
+                const auto it = m_subcatchResultsByVar.constFind(oc);
+                if (it != m_subcatchResultsByVar.constEnd())
+                    vec = &it.value();
+            }
         }
-        if (!vec) return QString();
-        const int oi = (scope == 0) ? nodeOutputIndex(name)
-                     : (scope == 1) ? linkOutputIndex(name)
-                                    : subcatchOutputIndex(name);
-        if (oi < 0 || oi >= vec->size()) return QString();
+        if (!vec)
+            return QString();
+        const int oi = (scope == 0)   ? nodeOutputIndex(name)
+                       : (scope == 1) ? linkOutputIndex(name)
+                                      : subcatchOutputIndex(name);
+        if (oi < 0 || oi >= vec->size())
+            return QString();
         const float v = (*vec)[oi];
-        return std::isfinite(v) ? QString::number(double(v), 'g', 4) : QString();
+        return OpenSWMM::Render::LabelConfig::formatValue(double(v), decimals);
     };
 
     // Substitute {token} placeholders in an expression.
-    auto evalExpr = [&](const QString &expr, int scope, const QString &name) -> QString {
+    auto evalExpr = [&](const QString &expr, int scope, const QString &name,
+                        int decimals) -> QString {
         QString out;
         int i = 0;
         while (i < expr.size()) {
             if (expr.at(i) == QLatin1Char('{')) {
                 const int j = expr.indexOf(QLatin1Char('}'), i + 1);
-                if (j < 0) { out += expr.mid(i); break; }
+                if (j < 0) {
+                    out += expr.mid(i);
+                    break;
+                }
                 const QString tok = expr.mid(i + 1, j - i - 1).trimmed();
                 if (tok.compare(QLatin1String("name"), Qt::CaseInsensitive) == 0)
                     out += name;
                 else
-                    out += fieldValueStr(scope, tok, name);
+                    out += fieldValueStr(scope, tok, name, decimals);
                 i = j + 1;
             } else {
                 out += expr.at(i);
@@ -3603,52 +5217,89 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
         return out;
     };
 
-    auto offsetFor = [](OpenSWMM::Render::LabelConfig::Placement pl,
-                        qreal w, qreal h) -> QPointF {
+    auto offsetFor = [](OpenSWMM::Render::LabelConfig::Placement pl, qreal w, qreal h) -> QPointF {
         using LC = OpenSWMM::Render::LabelConfig;
         switch (pl) {
-        case LC::Above:  return { -w * 0.5, -h - 2.0 };
-        case LC::Below:  return { -w * 0.5,  4.0 };
-        case LC::Left:   return { -w - 6.0, -h * 0.5 };
-        case LC::Right:  return {  6.0,     -h * 0.5 };
-        case LC::Centre: return { -w * 0.5, -h * 0.5 };
+        case LC::Above:
+            return {-w * 0.5, -h - 2.0};
+        case LC::Below:
+            return {-w * 0.5, 4.0};
+        case LC::Left:
+            return {-w - 6.0, -h * 0.5};
+        case LC::Right:
+            return {6.0, -h * 0.5};
+        case LC::Centre:
+            return {-w * 0.5, -h * 0.5};
         case LC::AutoPlacement:
-        default:         return {  6.0,     -h - 2.0 };
+        default:
+            return {6.0, -h - 2.0};
         }
     };
 
-    bool labelled[SWMMModelLayer::NumCategories] = { false };
+    bool labelled[SWMMModelLayer::NumCategories] = {false};
+
+    // Scale-window gate — resolve the owning canvas' scale denominator via
+    // the scene's views (labels re-evaluate on the next refresh after zoom).
+    double scaleDen = 0.0;
+    const auto sceneViews = scene->views();
+    for (QGraphicsView *v : sceneViews) {
+        for (QWidget *w = v; w; w = w->parentWidget()) {
+            if (auto *canvas = qobject_cast<MapCanvas *>(w)) {
+                scaleDen = canvas->scaleDenominator();
+                break;
+            }
+        }
+        if (scaleDen > 0.0)
+            break;
+    }
 
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
-        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0) continue;
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0)
+            continue;
 
         auto *stylePtr = sub->featureStyle();
-        if (!stylePtr) continue;
-        const OpenSWMM::Render::LabelConfig &lc = stylePtr->labelConfig();
-        if (!lc.enabled) continue;   // per-sublayer toggle — left unlabelled
+        if (!stylePtr)
+            continue;
+        // Effective config — the sublayer's own when enabled, else the
+        // layer-level Labels-tab config. (Previously the layer-level config
+        // was never read here, which made the Labels tab a no-op for 1D
+        // results layers.)
+        const OpenSWMM::Render::LabelConfig &subLc = stylePtr->labelConfig();
+        const OpenSWMM::Render::LabelConfig &lc = subLc.enabled ? subLc : labelConfig();
+        if (!lc.enabled)
+            continue; // neither sublayer nor layer labels on
+        // Honour the config's min/max scale visibility window.
+        if (!OpenSWMM::Render::LabelPainter::scaleVisible(lc, scaleDen))
+            continue;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int catIdx = static_cast<int>(cat);
-        const int count  = m_modelLayer->categoryCount(cat);
-        if (count <= 0 || m_itemByFeature[catIdx].size() != count) continue;
+        const int count = m_modelLayer->categoryCount(cat);
+        if (count <= 0 || m_itemByFeature[catIdx].size() != count)
+            continue;
 
         const int scope = (sub->archetype() == FeatureSublayer::Archetype::Point)  ? 0
-                        : (sub->archetype() == FeatureSublayer::Archetype::Line)   ? 1
+                          : (sub->archetype() == FeatureSublayer::Archetype::Line) ? 1
                                                                                    : 2;
-        const QString attr = stylePtr->attribute();   // default-text fallback
+        const QString attr = lc.fieldName.isEmpty() ? stylePtr->attribute() : lc.fieldName;
         QString unit;
         if (lc.expression.isEmpty())
             for (const auto &f : availableAttributes(cat))
-                if (f.name == attr) { unit = f.unit; break; }
+                if (f.name == attr) {
+                    unit = f.unit;
+                    break;
+                }
 
-        const QFont  font = lc.effectiveFont();
+        const QFont font = lc.effectiveFont();
         const QBrush textBrush(lc.color);
 
         if (m_labelByFeature[catIdx].size() != count) {
             for (QGraphicsSimpleTextItem *l : m_labelByFeature[catIdx]) {
-                if (!l) continue;
-                if (QGraphicsScene *sc = l->scene()) sc->removeItem(l);
+                if (!l)
+                    continue;
+                if (QGraphicsScene *sc = l->scene())
+                    sc->removeItem(l);
                 delete l;
             }
             m_labelByFeature[catIdx] = QVector<QGraphicsSimpleTextItem *>(count, nullptr);
@@ -3658,37 +5309,61 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
         for (int row = 0; row < count; ++row) {
             QGraphicsItem *fi = m_itemByFeature[catIdx][row];
             QGraphicsSimpleTextItem *&lbl = m_labelByFeature[catIdx][row];
-            if (!fi || !fi->isVisible()) { if (lbl) lbl->setVisible(false); continue; }
+            if (!fi || !fi->isVisible()) {
+                if (lbl)
+                    lbl->setVisible(false);
+                continue;
+            }
 
             const QString name = m_modelLayer->objectNameAt(cat, row);
             QString text;
             if (!lc.expression.isEmpty()) {
-                text = evalExpr(lc.expression, scope, name);
+                text = evalExpr(lc.expression, scope, name, lc.decimals);
             } else {
-                // No expression → default "name: value unit".
-                text = name;
-                const QString v = fieldValueStr(scope, attr, name);
-                if (!v.isEmpty()) {
-                    text += QStringLiteral(": ") + v;
-                    if (!unit.isEmpty()) text += QChar(' ') + unit;
+                // An explicit field displays its value. With no field,
+                // retain the default "name: themed value unit" text.
+                const QString v = fieldValueStr(scope, attr, name, lc.decimals);
+                if (!lc.fieldName.isEmpty()) {
+                    text = lc.fieldName == QLatin1String("name") ? name : v;
+                } else {
+                    text = name;
+                    if (!v.isEmpty()) {
+                        text += QStringLiteral(": ") + v;
+                        if (!unit.isEmpty())
+                            text += QChar(' ') + unit;
+                    }
                 }
             }
-            if (text.isEmpty()) { if (lbl) lbl->setVisible(false); continue; }
+            if (text.isEmpty()) {
+                if (lbl)
+                    lbl->setVisible(false);
+                continue;
+            }
 
             if (!lbl) {
                 lbl = new QGraphicsSimpleTextItem();
                 lbl->setData(0, QVariant::fromValue<quintptr>(ownerTag));
-                lbl->setZValue(20.0);   // above markers (z=10)
                 lbl->setFlag(QGraphicsItem::ItemIsSelectable, false);
                 lbl->setAcceptedMouseButtons(Qt::NoButton);
                 scene->addItem(lbl);
             }
+            lbl->setZValue(resultSublayerZ(this, sub, true));
             lbl->setText(text);
             lbl->setFont(font);
             lbl->setBrush(textBrush);
+            // Halo approximation — stroke the glyph outlines in the halo
+            // colour (QGraphicsSimpleTextItem has no true halo pass).
+            // Cosmetic pen so the stroke width stays constant across zoom.
+            if (lc.haloEnabled && lc.haloRadiusPx > 0.0) {
+                QPen haloPen(lc.haloColor, lc.haloRadiusPx * 0.5);
+                haloPen.setCosmetic(true);
+                lbl->setPen(haloPen);
+            } else {
+                lbl->setPen(QPen(Qt::NoPen));
+            }
             lbl->setOpacity(opMul);
             const QPointF anchor = fi->sceneBoundingRect().center();
-            const QRectF  br = lbl->boundingRect();
+            const QRectF br = lbl->boundingRect();
             lbl->setPos(anchor + offsetFor(lc.placement, br.width(), br.height()));
             lbl->setVisible(true);
         }
@@ -3697,10 +5372,13 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
     // Drop labels for categories not labelled this pass (sublayer disabled /
     // hidden / removed).
     for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
-        if (labelled[k]) continue;
+        if (labelled[k])
+            continue;
         for (QGraphicsSimpleTextItem *l : m_labelByFeature[k]) {
-            if (!l) continue;
-            if (QGraphicsScene *sc = l->scene()) sc->removeItem(l);
+            if (!l)
+                continue;
+            if (QGraphicsScene *sc = l->scene())
+                sc->removeItem(l);
             delete l;
         }
         m_labelByFeature[k].clear();

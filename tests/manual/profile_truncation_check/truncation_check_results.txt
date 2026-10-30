@@ -1,0 +1,9 @@
+2D profile truncation reproduction
+WSE = 1.0, ground = 0.1*chainage, sample step = 0.7
+True shoreline (WSE == ground): chainage = 10.0000
+
+Painted wet run: samples 0..14
+  band ends at chainage 9.8000
+  vertical cliff height (top - ground) at run end: 0.0200
+  horizontal shortfall vs true shoreline: 0.2000 (up to one step = 0.7)
+  FIX intercept (wet-side extrapolation): chainage = 10.0000  (error vs true = 0.00e+00)

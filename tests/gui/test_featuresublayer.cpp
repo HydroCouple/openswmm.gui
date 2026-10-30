@@ -1,14 +1,15 @@
-/*!
- * \file   test_featuresublayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Replaces the legacy per-class tests (NodeMarker / ConduitLine /
+/**
+ * @file      test_featuresublayer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Replaces the legacy per-class tests (NodeMarker / ConduitLine /
  *         ConduitArrow / SubcatchmentFill) with one self-contained suite
  *         that exercises the granular FeatureSublayer for each archetype
  *         (Point / Line / Polygon) and round-trips the style bag JSON.
  *
  *         Slice U-0.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/sublayers/feature/featuresublayer.h"
@@ -26,31 +27,75 @@ class TestFeatureSublayer : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require all eleven listed SWMM categories to map to point/line/polygon archetypes
+     * with nonnull styles.
+     *
+     */
     void archetypeMapping();
+    /**
+     *
+     * @brief Pin six-pixel circular point defaults and round-trip size, shape, color, attribute
+     * and ramp policy.
+     *
+     */
     void pointStyleDefaultsAndJsonRoundtrip();
+    /**
+     *
+     * @brief Pin line/arrow geometry defaults and round-trip independent widths, dash, arrow
+     * color, render mode and velocity attribute.
+     *
+     */
     void lineStyleDefaultsAndJsonRoundtrip();
+    /**
+     *
+     * @brief Pin polygon width/alpha defaults and round-trip outline RGBA/width, fill alpha and
+     * runoff attribute.
+     *
+     */
     void polygonStyleDefaultsAndJsonRoundtrip();
+    /**
+     *
+     * @brief Require rain-gage sublayers to be static with empty result attribute and disabled
+     * color ramp.
+     *
+     */
     void rainGageDefaultsToStatic();
+    /**
+     *
+     * @brief Require one sublayer invalidation from a point marker-size edit.
+     *
+     */
     void styleChangedTriggersInvalidated();
+    /**
+     *
+     * @brief Require visibility/alpha edits to invalidate once each and repeated alpha to emit
+     * nothing.
+     *
+     */
     void visibilityAndOpacityEmitInvalidated();
 };
 
 void TestFeatureSublayer::archetypeMapping()
 {
     using Cat = OpenSWMMVis::SwmmCategory;
-    struct Row { Cat c; FeatureSublayer::Archetype a; };
+    struct Row {
+        Cat c;
+        FeatureSublayer::Archetype a;
+    };
     const Row rows[] = {
-        { Cat::CatJunctions,     FeatureSublayer::Archetype::Point   },
-        { Cat::CatOutfalls,      FeatureSublayer::Archetype::Point   },
-        { Cat::CatStorage,       FeatureSublayer::Archetype::Point   },
-        { Cat::CatDividers,      FeatureSublayer::Archetype::Point   },
-        { Cat::CatConduits,      FeatureSublayer::Archetype::Line    },
-        { Cat::CatPumps,         FeatureSublayer::Archetype::Line    },
-        { Cat::CatOrifices,      FeatureSublayer::Archetype::Line    },
-        { Cat::CatWeirs,         FeatureSublayer::Archetype::Line    },
-        { Cat::CatOutlets,       FeatureSublayer::Archetype::Line    },
-        { Cat::CatSubcatchments, FeatureSublayer::Archetype::Polygon },
-        { Cat::CatRainGages,     FeatureSublayer::Archetype::Point   },
+        {Cat::CatJunctions, FeatureSublayer::Archetype::Point},
+        {Cat::CatOutfalls, FeatureSublayer::Archetype::Point},
+        {Cat::CatStorage, FeatureSublayer::Archetype::Point},
+        {Cat::CatDividers, FeatureSublayer::Archetype::Point},
+        {Cat::CatConduits, FeatureSublayer::Archetype::Line},
+        {Cat::CatPumps, FeatureSublayer::Archetype::Line},
+        {Cat::CatOrifices, FeatureSublayer::Archetype::Line},
+        {Cat::CatWeirs, FeatureSublayer::Archetype::Line},
+        {Cat::CatOutlets, FeatureSublayer::Archetype::Line},
+        {Cat::CatSubcatchments, FeatureSublayer::Archetype::Polygon},
+        {Cat::CatRainGages, FeatureSublayer::Archetype::Point},
     };
     for (const Row &r : rows) {
         FeatureSublayer sub(r.c, QStringLiteral("test.id"), QStringLiteral("test"));
@@ -61,8 +106,7 @@ void TestFeatureSublayer::archetypeMapping()
 
 void TestFeatureSublayer::pointStyleDefaultsAndJsonRoundtrip()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatJunctions,
-                        QStringLiteral("results.junctions"),
+    FeatureSublayer sub(OpenSWMMVis::CatJunctions, QStringLiteral("results.junctions"),
                         QStringLiteral("Junctions"));
     auto *ps = sub.pointStyle();
     QVERIFY(ps);
@@ -88,15 +132,21 @@ void TestFeatureSublayer::pointStyleDefaultsAndJsonRoundtrip()
 
 void TestFeatureSublayer::lineStyleDefaultsAndJsonRoundtrip()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatConduits,
-                        QStringLiteral("results.conduits"),
+    FeatureSublayer sub(OpenSWMMVis::CatConduits, QStringLiteral("results.conduits"),
                         QStringLiteral("Conduits"));
     auto *ls = sub.lineStyle();
     QVERIFY(ls);
     QCOMPARE(ls->lineWidthPx(), 1.5);
     QCOMPARE(ls->dashPattern(), Qt::SolidLine);
     QCOMPARE(ls->renderAsLine(), true);
-    QCOMPARE(ls->showFlowArrows(), false);
+    // Flow arrows ship ON for line (i.e. link) sublayers, at 16 px along the
+    // link by 8 px across — direction is the thing a drainage network is read
+    // for, so it should not need switching on. Pin the geometry too: the two
+    // axes are independent, and the painters fall back to 1.2 x length only
+    // when a width is missing or non-positive.
+    QCOMPARE(ls->showFlowArrows(), true);
+    QCOMPARE(ls->arrowLengthPx(), 16.0);
+    QCOMPARE(ls->arrowWidthPx(), 8.0);
 
     ls->setLineWidthPx(3.25);
     ls->setDashPattern(Qt::DashDotLine);
@@ -122,8 +172,7 @@ void TestFeatureSublayer::lineStyleDefaultsAndJsonRoundtrip()
 
 void TestFeatureSublayer::polygonStyleDefaultsAndJsonRoundtrip()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatSubcatchments,
-                        QStringLiteral("results.subcatchments"),
+    FeatureSublayer sub(OpenSWMMVis::CatSubcatchments, QStringLiteral("results.subcatchments"),
                         QStringLiteral("Subcatchments"));
     auto *ps = sub.polygonStyle();
     QVERIFY(ps);
@@ -146,19 +195,17 @@ void TestFeatureSublayer::polygonStyleDefaultsAndJsonRoundtrip()
 
 void TestFeatureSublayer::rainGageDefaultsToStatic()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatRainGages,
-                        QStringLiteral("results.raingages"),
+    FeatureSublayer sub(OpenSWMMVis::CatRainGages, QStringLiteral("results.raingages"),
                         QStringLiteral("Rain gages"));
-    QVERIFY(!sub.isDynamic());                             // static sublayer
+    QVERIFY(!sub.isDynamic()); // static sublayer
     QVERIFY(sub.style() != nullptr);
-    QVERIFY(sub.featureStyle()->attribute().isEmpty());    // no result attr
-    QCOMPARE(sub.featureStyle()->useColorRamp(), false);   // single-symbol
+    QVERIFY(sub.featureStyle()->attribute().isEmpty());  // no result attr
+    QCOMPARE(sub.featureStyle()->useColorRamp(), false); // single-symbol
 }
 
 void TestFeatureSublayer::styleChangedTriggersInvalidated()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatJunctions,
-                        QStringLiteral("results.junctions"),
+    FeatureSublayer sub(OpenSWMMVis::CatJunctions, QStringLiteral("results.junctions"),
                         QStringLiteral("Junctions"));
     QSignalSpy spy(&sub, &OpenSWMM::Render::ISublayer::invalidated);
     sub.pointStyle()->setMarkerSizePx(9.0);
@@ -167,8 +214,7 @@ void TestFeatureSublayer::styleChangedTriggersInvalidated()
 
 void TestFeatureSublayer::visibilityAndOpacityEmitInvalidated()
 {
-    FeatureSublayer sub(OpenSWMMVis::CatConduits,
-                        QStringLiteral("results.conduits"),
+    FeatureSublayer sub(OpenSWMMVis::CatConduits, QStringLiteral("results.conduits"),
                         QStringLiteral("Conduits"));
     QSignalSpy spy(&sub, &OpenSWMM::Render::ISublayer::invalidated);
     sub.setVisible(false);

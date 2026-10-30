@@ -1,43 +1,114 @@
-/*!
- * \file   meshenginesync.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshenginesync.cpp
+ * @brief     Push the GUI mesh layer's edited state (vertex Z, per-edge conveyance, per-edge
+ *            boundary conditions) into the live engine's in-memory 2D mesh, so a subsequent
+ *            `swmm_model_write*` serialises the edits.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/meshenginesync.h"
 
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellgeom.h"
 
-#include <openswmm/engine/openswmm_engine.h>  // swmm_get_flow_units
+#include <openswmm/engine/openswmm_engine.h> // swmm_get_flow_units
 #include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_model.h> // swmm_options_get_ext
+#include <openswmm/engine/openswmm_nodes.h> // swmm_node_index
+
+#include <QElapsedTimer>
+#include <QCoreApplication>
 
 #include <cmath>
+#include <cstddef>
+#include <limits>
+#include <vector>
 
-namespace mesh {
+Q_LOGGING_CATEGORY(lcSavePerf, "openswmm.save.perf")
 
-namespace {
+namespace mesh
+{
+
+namespace
+{
+
+// Per-element push counters for one pushMeshEditsToEngine call. Logged from the
+// destructor so every exit point reports, including
+// the early bail-outs that skip most of the work.
+struct SyncPerf {
+    int nv = 0, nt = 0;
+    int zPushed = 0, vAttrPushed = 0, triPushed = 0, edgePushed = 0;
+    const char *outcome = "ok";
+    QElapsedTimer timer;
+
+    /**
+     * @brief Start timing one mesh-sync call with zero element counters and an initial ok
+     * outcome.
+     * @note Stack-owned diagnostic helper, no engine handle or external buffers retained; caller
+     * updates counts/outcome as phases proceed. Destruction logs elapsed milliseconds on all
+     * normal scope exits.
+     */
+    SyncPerf() { timer.start(); }
+
+    /**
+     * @brief Emit the sync outcome, element counters and elapsed milliseconds through
+     * lcSavePerf.
+     * @note Diagnostic side effect occurs on every scope exit, including early refusal;
+     * logging-category configuration controls visibility. Does not alter engine/project state or
+     * throw an error result; counter values describe completed/attempted phases, not an
+     * atomic-save guarantee.
+     */
+    ~SyncPerf()
+    {
+        qCInfo(lcSavePerf).nospace()
+            << "[save][2d-sync] nv=" << nv << " nt=" << nt << " zPushed=" << zPushed
+            << " vAttrPushed=" << vAttrPushed << " triPushed=" << triPushed
+            << " edgePushed=" << edgePushed << " outcome=" << outcome << " ms=" << timer.elapsed();
+    }
+};
 
 // Engine [2D_BOUNDARY_CONDITIONS] type codes (openswmm_2d.h).
-constexpr int kEngWall           = 0;
-constexpr int kEngNormalFlow     = 1;
+constexpr int kEngWall = 0;
+constexpr int kEngNormalFlow = 1;
 constexpr int kEngSpecifiedStage = 2;
-constexpr int kEngSpecifiedFlow  = 3;
-constexpr int kEngRatingCurve    = 4;
+constexpr int kEngSpecifiedFlow = 3;
+constexpr int kEngRatingCurve = 4;
 
-// Display flow unit -> m³/s. The engine's SPECIFIED_FLOW BC is stored in SI
-// (m³/s per metre of edge) regardless of FLOW_UNITS, while the layer carries
-// the BC discharge in the project's display flow units. Index by the
-// swmm_get_flow_units() enum: CFS, GPM, MGD, CMS, LPS, MLD.
+// Display flow unit -> m³/s. The engine's SPECIFIED_FLOW BC is stored in
+// display flow units per metre until initialize() scales it to m³/s/m in
+// place; the layer always carries the project's display flow units. Applied
+// only for an initialized (mesh-scaled) engine — see pushMeshEditsToEngine.
+// Index by the swmm_get_flow_units() enum: CFS, GPM, MGD, CMS, LPS, MLD.
+/**
+ * @brief Return the project discharge multiplier from display flow units to cubic metres per
+ * second.
+ * @param[in] flowUnits Engine flow enum: 0 CFS, 1 GPM, 2 MGD, 3 CMS, 4 LPS, 5 MLD; unknown uses
+ * fallback 1.
+ * @return Positive conversion multiplier, using authored constants; when applied to a per-metre
+ * boundary flow it changes only discharge units, not edge-length units. No engine query,
+ * validation, allocation or state mutation; caller decides whether lifecycle conversion is
+ * needed.
+ */
 double flowUnitToCms(int flowUnits)
 {
     switch (flowUnits) {
-    case 0: return 0.0283168466;   // CFS  (ft³/s)
-    case 1: return 6.30901964e-05; // GPM  (US gal/min)
-    case 2: return 0.0438126364;   // MGD  (US Mgal/day)
-    case 3: return 1.0;            // CMS  (m³/s)
-    case 4: return 0.001;          // LPS  (L/s)
-    case 5: return 0.0115740741;   // MLD  (ML/day)
-    default: return 1.0;
+    case 0:
+        return 0.0283168466; // CFS  (ft³/s)
+    case 1:
+        return 6.30901964e-05; // GPM  (US gal/min)
+    case 2:
+        return 0.0438126364; // MGD  (US Mgal/day)
+    case 3:
+        return 1.0; // CMS  (m³/s)
+    case 4:
+        return 0.001; // LPS  (L/s)
+    case 5:
+        return 0.0115740741; // MLD  (ML/day)
+    default:
+        return 1.0;
     }
 }
 
@@ -45,6 +116,19 @@ double flowUnitToCms(int flowUnits)
 // XY are never edited in the GUI, so engine_coord / layer_coord is the exact
 // conversion the engine applied on load (1.0 for SI, 0.3048 for US). Falls
 // back to 1.0 when every vertex sits at the origin.
+/**
+ * @brief Estimate the layer-to-current-engine length multiplier from the largest-magnitude xy
+ * component.
+ * @param[in] engine Borrowed live matching mesh handle, used for one vertex-coordinate read;
+ * unchanged.
+ * @param[in] mesh Borrowed stable corresponding vertex xy values, unchanged. Identical
+ * index/coordinate identity except a uniform scale is required; no spatial equivalence check is
+ * performed.
+ * @return Engine/layer component ratio if finite with abs>1e-12, otherwise 1; all layer
+ * magnitudes below 1e-9 or API failure also fall back to 1. Negative ratios are not rejected, so
+ * caller's matching-frame precondition is essential. Linear scan plus one read, no engine
+ * mutation/allocation or handle retention.
+ */
 double deriveLengthFactor(SWMM_Engine engine, const MeshResult &mesh)
 {
     int best = -1;
@@ -53,18 +137,24 @@ double deriveLengthFactor(SWMM_Engine engine, const MeshResult &mesh)
     for (int i = 0; i < mesh.vertices.size(); ++i) {
         const double ax = std::abs(mesh.vertices[i].xy.x());
         const double ay = std::abs(mesh.vertices[i].xy.y());
-        const double m  = std::max(ax, ay);
-        if (m > bestMag) { bestMag = m; best = i; bestUseX = (ax >= ay); }
+        const double m = std::max(ax, ay);
+        if (m > bestMag) {
+            bestMag = m;
+            best = i;
+            bestUseX = (ax >= ay);
+        }
     }
-    if (best < 0 || bestMag < 1e-9) return 1.0;
+    if (best < 0 || bestMag < 1e-9)
+        return 1.0;
 
     double ex = 0.0, ey = 0.0, ez = 0.0;
-    if (swmm_2d_vertex_get_xyz(engine, best, &ex, &ey, &ez) != 0) return 1.0;
+    if (swmm_2d_vertex_get_xyz(engine, best, &ex, &ey, &ez) != 0)
+        return 1.0;
 
-    const double layerC = bestUseX ? mesh.vertices[best].xy.x()
-                                   : mesh.vertices[best].xy.y();
-    const double engC   = bestUseX ? ex : ey;
-    if (std::abs(layerC) < 1e-9) return 1.0;
+    const double layerC = bestUseX ? mesh.vertices[best].xy.x() : mesh.vertices[best].xy.y();
+    const double engC = bestUseX ? ex : ey;
+    if (std::abs(layerC) < 1e-9)
+        return 1.0;
     const double f = engC / layerC;
     // Guard against a degenerate/zero factor that would collapse the mesh.
     return (std::isfinite(f) && std::abs(f) > 1e-12) ? f : 1.0;
@@ -72,166 +162,463 @@ double deriveLengthFactor(SWMM_Engine engine, const MeshResult &mesh)
 
 } // namespace
 
-bool pushMeshEditsToEngine(SWMM_Engine engine,
-                           const MeshResult &mesh,
-                           const QVector<MeshEdgeBC> &bcs,
-                           QStringList *warnings,
-                           bool *outTrianglesSynced)
+QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &bcs)
 {
-    auto warn = [&](const QString &m) { if (warnings) warnings->append(m); };
-    if (outTrianglesSynced) *outTrianglesSynced = false;
+    const auto tr = [](const char *s) {
+        return QCoreApplication::translate("MeshSaveValidation", s);
+    };
+    const auto vertexError = [&](int i, const QString &reason) {
+        return tr("Vertex %1: %2").arg(i + 1).arg(reason);
+    };
+    const auto cellError = [&](int i, const QString &reason) {
+        return tr("Cell %1: %2").arg(i + 1).arg(reason);
+    };
+    const auto positive = [](double v) { return std::isfinite(v) && v > 0.0; };
+    if (mesh.vertices.isEmpty() || mesh.triangles.isEmpty())
+        return tr("the mesh needs vertices and cells");
+    if (bcs.size() != edgeSlotCount(mesh.triangles.size()))
+        return tr("the boundary-condition data does not match the mesh");
+    for (int i = 0; i < mesh.vertices.size(); ++i) {
+        const auto &v = mesh.vertices[i];
+        if (!std::isfinite(v.xy.x()) || !std::isfinite(v.xy.y()))
+            return vertexError(i, tr("coordinates must be finite"));
+        if (!std::isfinite(v.z))
+            return vertexError(i, tr("elevation must be finite"));
+        if (!v.coupledNode.isEmpty()) {
+            if (!positive(v.couplingCd))
+                return vertexError(i,
+                                   tr("coupling coefficient must be finite and greater than zero"));
+            if (!positive(v.couplingArea))
+                return vertexError(i, tr("coupling area must be finite and greater than zero"));
+        }
+    }
+    bool seenQuad = false;
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const auto &c = mesh.triangles[i];
+        if (c.v3 < -1)
+            return cellError(i, tr("invalid fourth vertex index"));
+        if (!c.isQuad() && seenQuad)
+            return cellError(
+                i,
+                tr("triangle cells must precede quadrilateral cells to preserve cell references"));
+        seenQuad |= c.isQuad();
+        const int count = c.vertexCount();
+        for (int k = 0; k < count; ++k) {
+            if (c.vertex(k) < 0 || c.vertex(k) >= mesh.vertices.size())
+                return cellError(i, tr("vertex %1 is outside the mesh").arg(k + 1));
+            for (int j = 0; j < k; ++j)
+                if (c.vertex(k) == c.vertex(j))
+                    return cellError(i, tr("duplicate vertex index"));
+        }
+        // Consecutive turns must be nonzero with a consistent sign. This
+        // accepts either winding and long rectangles without an aspect-ratio
+        // cutoff, and rejects collapsed, concave and self-crossing cells.
+        double firstTurn = 0.0;
+        for (int k = 0; k < count; ++k) {
+            const QPointF a = mesh.vertices[c.vertex(k)].xy;
+            const QPointF b = mesh.vertices[c.vertex((k + 1) % count)].xy;
+            const QPointF d = mesh.vertices[c.vertex((k + 2) % count)].xy;
+            const double turn =
+                (b.x() - a.x()) * (d.y() - b.y()) - (b.y() - a.y()) * (d.x() - b.x());
+            if (!std::isfinite(turn) || turn == 0.0 || (k && (turn > 0) != (firstTurn > 0)))
+                return cellError(i, tr("geometry must have finite nonzero area and be convex"));
+            if (!k)
+                firstTurn = turn;
+        }
+        // NaN is the documented unset sentinel for these two fields only.
+        if (!std::isnan(c.mannings) && !positive(c.mannings))
+            return cellError(i, tr("roughness must be finite and greater than zero, or unset"));
+        if (!std::isnan(c.initDepth) && (!std::isfinite(c.initDepth) || c.initDepth < 0.0))
+            return cellError(i, tr("initial depth must be finite and nonnegative, or unset"));
+        for (int e = 0; e < count; ++e) {
+            const auto &b = bcs[edgeSlot(i, e)];
+            QString reason;
+            if (!std::isfinite(b.conveyance) || b.conveyance < 0 || b.conveyance > 1)
+                reason = tr("conveyance must be finite and between zero and one");
+            else {
+                using T = MeshBCTypes::Type;
+                switch (b.type) {
+                case T::Wall:
+                    if (!std::isfinite(b.wallDrag) || b.wallDrag < 0)
+                        reason = tr("wall drag Cw must be finite and nonnegative");
+                    break;
+                case T::NormalFlow:
+                    if (!std::isfinite(b.slope) || b.slope < 0)
+                        reason = tr("boundary slope must be finite and nonnegative");
+                    break;
+                case T::SpecifiedStageConst:
+                    if (!std::isfinite(b.head))
+                        reason = tr("boundary head must be finite");
+                    break;
+                case T::SpecifiedFlowConst:
+                    if (!std::isfinite(b.flow))
+                        reason = tr("boundary flow must be finite");
+                    break;
+                case T::SpecifiedStageTS:
+                case T::SpecifiedFlowTS:
+                    if (b.tseries.trimmed().isEmpty())
+                        reason = tr("a boundary time series is required");
+                    break;
+                case T::RatingCurve:
+                    if (b.curve.trimmed().isEmpty())
+                        reason = tr("a rating curve is required");
+                    break;
+                default:
+                    reason = tr("unknown boundary type");
+                    break;
+                }
+            }
+            if (!reason.isEmpty())
+                return cellError(i, tr("edge %1: %2").arg(e + 1).arg(reason));
+        }
+    }
+    for (int i = 0; i < mesh.cellCouplings.size(); ++i) {
+        const auto &c = mesh.cellCouplings[i];
+        if (c.tri < 0 || c.tri >= mesh.triangles.size() || c.nodeId.trimmed().isEmpty() ||
+            !positive(c.cd) || !positive(c.area))
+            return tr("cell coupling row %1 requires a valid cell, a node name, and finite positive coefficient and area")
+                .arg(i + 1);
+    }
+    return {};
+}
 
-    // The GUI keeps the engine OPENED (not initialized), so make the parsed
-    // mesh editable: this lets the edit setters run and drains the authored
-    // BC / conveyance rows so per-edge edits are written on save.
-    swmm_2d_prepare_for_edit(engine);
+bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
+                           const QVector<MeshEdgeBC> &bcs, QStringList *warnings,
+                           bool *outTrianglesSynced, bool *outWriteRejected)
+{
+    auto warn = [&](const QString &m) {
+        if (warnings)
+            warnings->append(m);
+    };
+    if (outTrianglesSynced)
+        *outTrianglesSynced = false;
+
+    if (outWriteRejected)
+        *outWriteRejected = false;
+    SyncPerf perf;
+    const auto accepted = [&](int rc, const char *field, int item = -1, int edge = -1) {
+        if (rc == 0)
+            return true;
+        QString where = QString::fromLatin1(field);
+        if (item >= 0)
+            where += QStringLiteral(" (item %1)").arg(item + 1);
+        if (edge >= 0)
+            where += QStringLiteral(" (edge %1)").arg(edge + 1);
+        warn(QStringLiteral("2D mesh sync failed: %1, engine error %2. "
+                            "Correct the mesh value and retry Save.")
+                 .arg(where)
+                 .arg(rc));
+        if (outWriteRejected)
+            *outWriteRejected = true;
+        if (outTrianglesSynced)
+            *outTrianglesSynced = false;
+        perf.outcome = "engine-rejected";
+        return false;
+    };
 
     int nv = 0;
-    if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0)
-        return false;  // engine carries no 2D mesh — nothing to sync
+    if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0) {
+        perf.outcome = "no-engine-mesh";
+        return false; // engine carries no 2D mesh — nothing to sync
+    }
+    perf.nv = nv;
 
     if (nv != mesh.vertices.size()) {
         warn(QStringLiteral("2D mesh sync skipped: engine has %1 vertices, "
                             "layer has %2 — mesh edits were NOT saved.")
-                 .arg(nv).arg(mesh.vertices.size()));
+                 .arg(nv)
+                 .arg(mesh.vertices.size()));
+        perf.outcome = "vertex-count-mismatch";
         return false;
     }
 
+    // The GUI keeps the engine OPENED (not initialized), so make the parsed
+    // mesh editable: this lets the edit setters run and drains the authored
+    // BC / conveyance rows so per-edge edits are written on save.
+    if (!accepted(swmm_2d_prepare_for_edit(engine), "prepare mesh for editing"))
+        return false;
+
     const double factor = deriveLengthFactor(engine, mesh);
+    // The engine holds BC constants in DISPLAY units until swmm_engine_initialize
+    // scales them into SI alongside the mesh (SurfaceRouter2D::initialize). The
+    // GUI's editing engine is only OPENED, so the engine expects — and its
+    // writer emits — display flow units per metre; pushing m³/s/m here made a
+    // US project's constant SPECIFIED_FLOW shrink by 0.0283 on every
+    // save/reopen. Convert only once the engine has been initialized (the
+    // flow scaling is FLOW_UNITS-driven and independent of the mesh's
+    // `;; UNITS: SI (m)` tag, so the lifecycle state — not the length factor
+    // — is the right discriminator).
     double flowFactor = 1.0;
     {
-        int fu = 3;  // default CMS
-        if (swmm_get_flow_units(engine, &fu) == 0) flowFactor = flowUnitToCms(fu);
+        int state = SWMM_STATE_NONE;
+        if (!accepted(swmm_engine_get_state(engine, &state), "engine state"))
+            return false;
+        const bool initialized = state >= SWMM_STATE_INITIALIZED && state != SWMM_STATE_BUILDING;
+        int fu = 3; // default CMS
+        if (initialized) {
+            if (!accepted(swmm_get_flow_units(engine, &fu), "flow units"))
+                return false;
+            flowFactor = flowUnitToCms(fu);
+        }
     }
 
-    // ---- Vertex elevation, coupling, and descriptive tag -------------------
+    // ---- Vertex elevation --------------------------------------------------
+    // In ONE call, not one per vertex: the scalar swmm_2d_set_vertex_z rescans
+    // every triangle to refresh that vertex's derived geometry, so a per-vertex
+    // loop is O(nVertices x nTriangles) inside the engine — minutes on a
+    // million-cell mesh. The bulk setter writes all Zs and recomputes the
+    // derived geometry once, landing on bitwise-identical values.
+    {
+        std::vector<double> zs(static_cast<std::size_t>(nv));
+        for (int i = 0; i < nv; ++i)
+            zs[static_cast<std::size_t>(i)] = mesh.vertices[i].z * factor;
+        if (!accepted(swmm_2d_set_vertex_z_bulk(engine, zs.data(), nv), "vertex elevations"))
+            return false;
+        perf.zPushed = nv;
+    }
+
+    // ---- Vertex coupling and descriptive tag -------------------------------
     // Push every vertex so additions / changes / clears all propagate. The
     // coupled SWMM node and the descriptive [2D_VERTICES] TAG-column label are
     // independent fields; an empty value clears the corresponding slot.
     for (int i = 0; i < nv; ++i) {
-        swmm_2d_set_vertex_z(engine, i, mesh.vertices[i].z * factor);
-        swmm_2d_set_vertex_coupled_node(
-            engine, i, mesh.vertices[i].coupledNode.toUtf8().constData());
-        // Coupling Cd/Area ride along for coupled vertices only (the engine
-        // keeps them SI/as-authored — no length factor applies).
-        if (!mesh.vertices[i].coupledNode.isEmpty()) {
-            swmm_2d_set_vertex_coupling_cd(engine, i, mesh.vertices[i].couplingCd);
-            swmm_2d_set_vertex_coupling_area(engine, i, mesh.vertices[i].couplingArea);
+        ++perf.vAttrPushed;
+        const MeshVertex &mv = mesh.vertices[i];
+        // A row that leaves CD or AREA unauthored starts from the engine's
+        // cleared state (nothing authored); the setters below then author
+        // only what the row carries.
+        if (!mv.coupledNode.isEmpty() && !(mv.couplingCdSet && mv.couplingAreaSet) &&
+            !accepted(swmm_2d_set_vertex_coupled_node(engine, i, ""), "vertex coupled node", i))
+            return false;
+        if (!accepted(
+                swmm_2d_set_vertex_coupled_node(engine, i, mv.coupledNode.toUtf8().constData()),
+                "vertex coupled node", i))
+            return false;
+        // Coupling Cd/Area ride along for coupled vertices only (AREA in mesh
+        // length units² as authored — the engine scales it at initialize).
+        if (!mv.coupledNode.isEmpty()) {
+            if (mv.couplingCdSet &&
+                !accepted(swmm_2d_set_vertex_coupling_cd(engine, i, mv.couplingCd),
+                          "vertex coupling coefficient", i))
+                return false;
+            if (mv.couplingAreaSet &&
+                !accepted(swmm_2d_set_vertex_coupling_area(engine, i, mv.couplingArea),
+                          "vertex coupling area", i))
+                return false;
         }
-        swmm_2d_set_vertex_tag(
-            engine, i, mesh.vertices[i].tag.toUtf8().constData());
+        if (!accepted(swmm_2d_set_vertex_tag(engine, i, mesh.vertices[i].tag.toUtf8().constData()),
+                      "vertex tag", i))
+            return false;
     }
 
     int nt = 0;
-    if (swmm_2d_triangle_count(engine, &nt) != 0 || nt <= 0)
-        return true;  // no triangles to touch
+    if (!accepted(swmm_2d_triangle_count(engine, &nt), "cell count"))
+        return false;
+    if (nt <= 0) {
+        perf.outcome = "no-triangles";
+        return true; // no triangles to touch
+    }
+    perf.nt = nt;
 
     // ---- Per-triangle Manning's n + init depth + descriptive tag ----------
     if (nt == mesh.triangles.size()) {
         for (int t = 0; t < nt; ++t) {
             const double n = mesh.triangles[t].mannings;
-            if (std::isfinite(n) && n > 0.0)   // NaN = unset; keep engine value
-                swmm_2d_set_triangle_mannings(engine, t, n);
+            if (std::isfinite(n) && n > 0.0) { // NaN = unset; keep engine value
+                if (!accepted(swmm_2d_set_triangle_mannings(engine, t, n), "cell roughness", t))
+                    return false;
+            }
             const double d = mesh.triangles[t].initDepth;
             // INIT_DEPTH is a depth above the bed, so it carries the mesh's
             // vertical units and converts with the same factor as vertex Z.
-            if (std::isfinite(d) && d >= 0.0)  // NaN = unset; keep engine value
-                swmm_2d_set_triangle_init_depth(engine, t, d * factor);
-            swmm_2d_set_triangle_tag(
-                engine, t, mesh.triangles[t].tag.toUtf8().constData());
+            if (std::isfinite(d) && d >= 0.0) { // NaN = unset; keep engine value
+                if (!accepted(swmm_2d_set_triangle_init_depth(engine, t, d * factor),
+                              "cell initial depth", t))
+                    return false;
+            }
+            if (!accepted(
+                    swmm_2d_set_triangle_tag(engine, t, mesh.triangles[t].tag.toUtf8().constData()),
+                    "cell tag", t))
+                return false;
+            ++perf.triPushed;
         }
-        if (outTrianglesSynced) *outTrianglesSynced = true;
+        if (outTrianglesSynced)
+            *outTrianglesSynced = true;
     } else {
         warn(QStringLiteral("2D triangle sync skipped: engine has %1 triangles, "
                             "layer has %2 — per-cell roughness / initial depth / "
                             "tag edits were NOT written to the engine.")
-                 .arg(nt).arg(mesh.triangles.size()));
+                 .arg(nt)
+                 .arg(mesh.triangles.size()));
     }
 
     // ---- Node→cell couplings (Plan Part C) ----------------------------------
     // The row set is re-authored wholesale: clear, then append one row per
     // layer-side CellCoupling. Skipped entirely when the layer has no rows
     // AND the engine has none either — so models that never used cell
-    // coupling see zero API traffic. Area is authored in m² on both sides;
-    // no length factor applies (same rule as vertex coupling Cd/Area).
+    // coupling see zero API traffic. Area is in mesh length units² on both
+    // sides (same rule as vertex coupling Area); NaN leaves a token
+    // unauthored.
     if (nt == mesh.triangles.size()) {
         int engineRows = 0;
-        swmm_2d_triangle_coupling_rows(engine, &engineRows);
+        if (!accepted(swmm_2d_triangle_coupling_rows(engine, &engineRows), "cell coupling count"))
+            return false;
         if (!mesh.cellCouplings.isEmpty() || engineRows > 0) {
-            swmm_2d_clear_triangle_couplings(engine);
+            if (!accepted(swmm_2d_clear_triangle_couplings(engine), "clear cell couplings"))
+                return false;
+            const double unset = std::numeric_limits<double>::quiet_NaN();
             for (const auto &cc : mesh.cellCouplings) {
-                if (cc.tri < 0 || cc.tri >= nt || cc.nodeId.isEmpty()) continue;
-                swmm_2d_add_triangle_coupling(
-                    engine, cc.tri, cc.nodeId.toUtf8().constData(),
-                    cc.cd, cc.area);
+                if (!accepted(swmm_2d_add_triangle_coupling(
+                                  engine, cc.tri, cc.nodeId.toUtf8().constData(),
+                                  cc.cdSet ? cc.cd : unset, cc.areaSet ? cc.area : unset),
+                              "cell coupling", cc.tri))
+                    return false;
             }
         }
     }
 
     // ---- Per-edge conveyance + boundary conditions -------------------------
-    if (bcs.isEmpty())
-        return true;  // no BC/conveyance state authored on the layer
+    if (bcs.isEmpty()) {
+        perf.outcome = "no-edge-state";
+        return true; // no BC/conveyance state authored on the layer
+    }
 
-    if (bcs.size() != nt * 3) {
-        warn(QStringLiteral("2D edge sync skipped: engine has %1 edges, layer "
+    // The layer's edge vector is stride-kEdgeStride (mesh::edgeSlot); the
+    // engine's per-edge setters take (cell, localEdge), so only the cell's
+    // real edges (vertexCount()) are pushed — a triangle's padding slot 3 is
+    // never sent. Needs the layer's cell list to know each cell's edge count.
+    if (bcs.size() != edgeSlotCount(nt) || nt != mesh.triangles.size()) {
+        warn(QStringLiteral("2D edge sync skipped: engine has %1 edge slots, layer "
                             "has %2 — conveyance/BC edits were NOT saved.")
-                 .arg(nt * 3).arg(bcs.size()));
-        return true;  // vertex Z still synced above
+                 .arg(edgeSlotCount(nt))
+                 .arg(bcs.size()));
+        perf.outcome = "edge-count-mismatch";
+        return true; // vertex Z still synced above
     }
 
     using T = MeshBCTypes::Type;
     for (int t = 0; t < nt; ++t) {
-        for (int e = 0; e < 3; ++e) {
-            const MeshEdgeBC &b = bcs[t * 3 + e];
+        const int ne = mesh.triangles[t].vertexCount();
+        for (int e = 0; e < ne; ++e) {
+            const MeshEdgeBC &b = bcs[edgeSlot(t, e)];
 
             // Conveyance is dimensionless; push every edge so resets back to
             // the 1.0 default propagate too (interior edges are mirrored by
             // the engine).
-            swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance);
+            if (!accepted(swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance),
+                          "edge conveyance", t, e))
+                return false;
+            ++perf.edgePushed;
 
             // Clear all name slots first so a stale timeseries/curve name from
             // the loaded model can't mask a freshly-edited constant value
             // (the engine's writer prefers a name over a scalar).
-            swmm_2d_set_edge_bc_tseries_name(engine, t, e, "");
-            swmm_2d_set_edge_bc_flow_tseries_name(engine, t, e, "");
-            swmm_2d_set_edge_bc_rating_curve_name(engine, t, e, "");
+            if (!accepted(swmm_2d_set_edge_bc_tseries_name(engine, t, e, ""),
+                          "edge stage time series", t, e))
+                return false;
+            if (!accepted(swmm_2d_set_edge_bc_flow_tseries_name(engine, t, e, ""),
+                          "edge flow time series", t, e))
+                return false;
+            if (!accepted(swmm_2d_set_edge_bc_rating_curve_name(engine, t, e, ""),
+                          "edge rating curve", t, e))
+                return false;
 
             switch (b.type) {
             case T::Wall:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngWall);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngWall),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_wall_drag(engine, t, e, b.wallDrag), "wall drag", t, e))
+                    return false;
                 break;
             case T::NormalFlow:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngNormalFlow);
-                swmm_2d_set_edge_bc_slope(engine, t, e, b.slope);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngNormalFlow),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_slope(engine, t, e, b.slope),
+                              "edge boundary slope", t, e))
+                    return false;
                 break;
             case T::SpecifiedStageConst:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage);
-                swmm_2d_set_edge_bc_head(engine, t, e, b.head * factor);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_head(engine, t, e, b.head * factor),
+                              "edge boundary head", t, e))
+                    return false;
                 break;
             case T::SpecifiedStageTS:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage);
-                swmm_2d_set_edge_bc_tseries_name(
-                    engine, t, e, b.tseries.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedStage),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_tseries_name(engine, t, e,
+                                                               b.tseries.toUtf8().constData()),
+                              "edge stage time series", t, e))
+                    return false;
                 break;
             case T::SpecifiedFlowConst:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow);
-                swmm_2d_set_edge_bc_flow(engine, t, e, b.flow * flowFactor);
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_flow(engine, t, e, b.flow * flowFactor),
+                              "edge boundary flow", t, e))
+                    return false;
                 break;
             case T::SpecifiedFlowTS:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow);
-                swmm_2d_set_edge_bc_flow_tseries_name(
-                    engine, t, e, b.tseries.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngSpecifiedFlow),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_flow_tseries_name(engine, t, e,
+                                                                    b.tseries.toUtf8().constData()),
+                              "edge flow time series", t, e))
+                    return false;
                 break;
             case T::RatingCurve:
-                swmm_2d_set_edge_bc_type(engine, t, e, kEngRatingCurve);
-                swmm_2d_set_edge_bc_rating_curve_name(
-                    engine, t, e, b.curve.toUtf8().constData());
+                if (!accepted(swmm_2d_set_edge_bc_type(engine, t, e, kEngRatingCurve),
+                              "edge boundary type", t, e))
+                    return false;
+                if (!accepted(swmm_2d_set_edge_bc_rating_curve_name(engine, t, e,
+                                                                    b.curve.toUtf8().constData()),
+                              "edge rating curve", t, e))
+                    return false;
                 break;
             }
+            if (!accepted(swmm_2d_set_edge_bc_group(engine, t, e, b.group.toUtf8().constData()),
+                          "edge boundary group", t, e))
+                return false;
         }
     }
 
     return true;
+}
+
+bool couplingAuthorsCdArea(SWMM_Engine engine)
+{
+    if (!engine)
+        return true;
+    char law[64] = {};
+    if (swmm_options_get_ext(engine, "COUPLING_LAW", law, sizeof(law)) != 0)
+        return true;
+    return QString::fromUtf8(law).trimmed().compare(QStringLiteral("WEIR_ORIFICE"),
+                                                    Qt::CaseInsensitive) != 0;
+}
+
+QVector<QPair<QString, QPointF>> coupleableNodes(SWMM_Engine engine,
+                                                 const QVector<QPair<QString, QPointF>> &nodes)
+{
+    if (!engine)
+        return nodes;
+    QVector<QPair<QString, QPointF>> out;
+    out.reserve(nodes.size());
+    for (const auto &n : nodes) {
+        const int idx = swmm_node_index(engine, n.first.toUtf8().constData());
+        int type = SWMM_2D_COUPLING_MANHOLE;
+        if (idx >= 0 && swmm_node_get_2d_coupling_type(engine, idx, &type, nullptr) == 0 &&
+            type == SWMM_2D_COUPLING_NONE)
+            continue;
+        out.append(n);
+    }
+    return out;
 }
 
 } // namespace mesh

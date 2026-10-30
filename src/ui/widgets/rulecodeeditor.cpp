@@ -1,9 +1,12 @@
-/*!
- * \file   rulecodeeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rulecodeeditor.cpp
+ * @brief     `QTextEdit` subclass (rich text, per user spec — **not** `QPlainTextEdit`).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/rulecodeeditor.h"
 
 #include "controls/rulesyntaxhighlighter.h"
@@ -17,12 +20,12 @@
 #include <QStringListModel>
 #include <QTextCursor>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::controls::RuleSyntaxHighlighter;
 
-RuleCodeEditor::RuleCodeEditor(QWidget *parent)
-    : QTextEdit(parent)
+RuleCodeEditor::RuleCodeEditor(QWidget *parent) : QTextEdit(parent)
 {
     // Monospace font — content is code, not prose.
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -30,21 +33,21 @@ RuleCodeEditor::RuleCodeEditor(QWidget *parent)
     setFont(mono);
     setLineWrapMode(QTextEdit::NoWrap);
     setTabStopDistance(4 * QFontMetricsF(mono).horizontalAdvance(QLatin1Char(' ')));
-    setAcceptRichText(false);   // we paint colour via the highlighter; user
-                                 // typing should stay plain so paste from
-                                 // word processors doesn't smuggle styles in.
+    setAcceptRichText(false); // we paint colour via the highlighter; user
+                              // typing should stay plain so paste from
+                              // word processors doesn't smuggle styles in.
 
     m_highlighter = new RuleSyntaxHighlighter(document());
     m_highlighter->setPalette(palette());
 
-    m_complModel  = new QStringListModel(this);
-    m_completer   = new QCompleter(m_complModel, this);
+    m_complModel = new QStringListModel(this);
+    m_completer = new QCompleter(m_complModel, this);
     m_completer->setWidget(this);
     m_completer->setCompletionMode(QCompleter::PopupCompletion);
     m_completer->setCaseSensitivity(Qt::CaseInsensitive);
     m_completer->setModelSorting(QCompleter::UnsortedModel);
-    connect(m_completer, QOverload<const QString &>::of(&QCompleter::activated),
-            this, &RuleCodeEditor::insertCompletion_);
+    connect(m_completer, QOverload<const QString &>::of(&QCompleter::activated), this,
+            &RuleCodeEditor::insertCompletion_);
 }
 
 RuleCodeEditor::~RuleCodeEditor() = default;
@@ -57,7 +60,8 @@ void RuleCodeEditor::setModelLayer(SWMMModelLayer *layer)
 
 void RuleCodeEditor::focusInEvent(QFocusEvent *e)
 {
-    if (m_completer) m_completer->setWidget(this);
+    if (m_completer)
+        m_completer->setWidget(this);
     QTextEdit::focusInEvent(e);
 }
 
@@ -80,16 +84,15 @@ void RuleCodeEditor::rebuildCompletions_()
     if (m_layer) {
         using L = SWMMModelLayer;
         static constexpr L::Category kSpatialCats[] = {
-            L::CatJunctions, L::CatOutfalls, L::CatStorage, L::CatDividers,
-            L::CatConduits,  L::CatPumps,    L::CatOrifices,
-            L::CatWeirs,     L::CatOutlets,
-            L::CatSubcatchments, L::CatRainGages
-        };
+            L::CatJunctions, L::CatOutfalls,      L::CatStorage,  L::CatDividers,
+            L::CatConduits,  L::CatPumps,         L::CatOrifices, L::CatWeirs,
+            L::CatOutlets,   L::CatSubcatchments, L::CatRainGages};
         for (L::Category cat : kSpatialCats) {
             const int n = m_layer->categoryCount(cat);
             for (int i = 0; i < n; ++i) {
                 const QString name = m_layer->objectNameAt(cat, i);
-                if (!name.isEmpty()) list << name;
+                if (!name.isEmpty())
+                    list << name;
             }
         }
     }
@@ -104,12 +107,12 @@ void RuleCodeEditor::showCompleter_(const QString &prefix)
     // Snap the popup index to the first match so Enter immediately picks
     // the obvious candidate.
     QAbstractItemView *pop = m_completer->popup();
-    if (!pop) return;
+    if (!pop)
+        return;
     pop->setCurrentIndex(m_completer->completionModel()->index(0, 0));
 
     QRect cr = cursorRect();
-    cr.setWidth(pop->sizeHintForColumn(0)
-                + pop->verticalScrollBar()->sizeHint().width());
+    cr.setWidth(pop->sizeHintForColumn(0) + pop->verticalScrollBar()->sizeHint().width());
     m_completer->complete(cr);
 }
 
@@ -132,8 +135,8 @@ void RuleCodeEditor::keyPressEvent(QKeyEvent *e)
     }
 
     // Ctrl+Space force-triggers the popup at the current cursor.
-    const bool forceShow = (e->key() == Qt::Key_Space)
-                           && (e->modifiers().testFlag(Qt::ControlModifier));
+    const bool forceShow =
+        (e->key() == Qt::Key_Space) && (e->modifiers().testFlag(Qt::ControlModifier));
     if (forceShow) {
         showCompleter_(textUnderCursor_());
         return;
@@ -141,14 +144,17 @@ void RuleCodeEditor::keyPressEvent(QKeyEvent *e)
 
     QTextEdit::keyPressEvent(e);
 
-    if (!m_completer) return;
+    if (!m_completer)
+        return;
     // Auto-trigger after 2 chars of prefix, on word characters only.
     const QString prefix = textUnderCursor_();
-    const QString text   = e->text();
-    const bool wordChar  = !text.isEmpty() && (text.at(0).isLetterOrNumber() || text.at(0) == QLatin1Char('_'));
+    const QString text = e->text();
+    const bool wordChar =
+        !text.isEmpty() && (text.at(0).isLetterOrNumber() || text.at(0) == QLatin1Char('_'));
 
     if (!wordChar || prefix.size() < 2) {
-        if (m_completer->popup()) m_completer->popup()->hide();
+        if (m_completer->popup())
+            m_completer->popup()->hide();
         return;
     }
     if (prefix != m_completer->completionPrefix())
@@ -157,7 +163,8 @@ void RuleCodeEditor::keyPressEvent(QKeyEvent *e)
 
 void RuleCodeEditor::insertCompletion_(const QString &completion)
 {
-    if (!m_completer || m_completer->widget() != this) return;
+    if (!m_completer || m_completer->widget() != this)
+        return;
     QTextCursor c = textCursor();
     const int extra = completion.length() - m_completer->completionPrefix().length();
     c.movePosition(QTextCursor::Left);

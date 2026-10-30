@@ -1,8 +1,9 @@
-/*!
- * \file   nodecompoundeditref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      nodecompoundeditref.h
+ * @brief     Compound-attribute cell value for the node Property Browser.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice DB.2 — Compound-attribute cell value for the node Property
  * Browser. Carries everything the per-cell button widget needs to
@@ -15,6 +16,7 @@
  * cell goes into edit mode. A `QMetaType` string converter is also
  * installed so the read-only display state shows the `summary`
  * string rather than `QVariant<NodeCompoundEditRef>`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef NODECOMPOUNDEDITREF_H
@@ -23,39 +25,48 @@
 #include <QMetaType>
 #include <QString>
 
-#include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
+#include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
 class SWMMModelLayer;
 
 /*! Identifies one editable compound attribute on a single node. */
-struct NodeCompoundEditRef
-{
+struct NodeCompoundEditRef {
     /*! Which legacy SWMM concept this cell wraps. The order mirrors the
      *  layout in legacy `Fproped.pas` so the Property Browser rows read
      *  top-to-bottom in the same order users have seen for decades. */
     enum Kind {
-        Inflows = 0,   ///< `[INFLOWS]` per-node entries (per constituent)
-        Dwf,           ///< `[DWF]` per-node entries (per constituent)
-        Rdii,          ///< `[RDII]` per-node UH-group assignment + area
-        Treatment,     ///< `[TREATMENT]` per-node per-pollutant expression
+        Inflows = 0, ///< `[INFLOWS]` per-node entries (per constituent)
+        Dwf,         ///< `[DWF]` per-node entries (per constituent)
+        Rdii,        ///< `[RDII]` per-node UH-group assignment + area
+        Treatment,   ///< `[TREATMENT]` per-node per-pollutant expression
+        /*! Read-only navigation: subcatchments whose `[GROUNDWATER]`
+         *  receiving node is this node (AQUIFER_GROUNDWATER_EXCHANGE plan
+         *  G5). The button opens GroundwaterExchangeDialog for the pick;
+         *  the data is owned by the subcatchment. */
+        GroundwaterSources,
+        LidBottomConnection,
     };
 
-    SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
-    QString         nodeName;            ///< Owning node id
-    Kind            kind     = Inflows;
-    QString         summary;             ///< Short text shown in the cell
+    SWMM_Engine engine = nullptr; ///< Engine handle (borrow, not owned)
+    QString nodeName;             ///< Owning node id
+    Kind kind = Inflows;
+    QString summary; ///< Short text shown in the cell
     /*! Owning model layer (borrow). DB.4 — needed by the dialog's
      *  picker buttons so they can call `layer->createDataObject(...)`
      *  to materialise a new time series / pattern / UH inline. May be
      *  null when constructed in test contexts; pickers handle null
      *  gracefully by disabling the "..." button. */
-    SWMMModelLayer *layer    = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
+    /**
+     * @brief Compare reference identity and every cached display/value field.
+     * @param[in] other Reference to compare without dereferencing borrowed engine/model pointers.
+     * @return True only when all stored fields match; equality does not verify current engine state.
+     */
     bool operator==(const NodeCompoundEditRef &other) const noexcept
     {
-        return engine == other.engine && nodeName == other.nodeName
-               && kind == other.kind && summary == other.summary
-               && layer == other.layer;
+        return engine == other.engine && nodeName == other.nodeName && kind == other.kind &&
+               summary == other.summary && layer == other.layer;
     }
 };
 
@@ -64,7 +75,9 @@ Q_DECLARE_METATYPE(NodeCompoundEditRef)
 /*! Install the `NodeCompoundEditRef → QString` metatype converter so
  *  the read-only DisplayRole path on QPropertyModel renders `summary`
  *  in the cell when the user isn't actively editing. Idempotent — safe
- *  to call multiple times from different initialisers. */
+ *  to call multiple times from different initialisers.
+ * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
+ */
 void registerNodeCompoundEditRefConverter();
 
 #endif // NODECOMPOUNDEDITREF_H

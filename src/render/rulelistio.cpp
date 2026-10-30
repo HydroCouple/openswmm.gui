@@ -1,9 +1,10 @@
-/*!
- * \file   rulelistio.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  RuleList file I/O implementation (Slice Z.17-files).
+/**
+ * @file      rulelistio.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     RuleList file I/O implementation (Slice Z.17-files).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/rulelistio.h"
@@ -19,17 +20,22 @@
 #include <QJsonValue>
 #include <QSaveFile>
 
-namespace OpenSWMM::Render::RuleListIO {
+namespace OpenSWMM::Render::RuleListIO
+{
 
-namespace {
+namespace
+{
 
-constexpr const char *kKeyFormat       = "format";
-constexpr const char *kKeyVersion      = "version";
-constexpr const char *kKeyRules        = "rules";
+constexpr const char *kKeyFormat = "format";
+constexpr const char *kKeyVersion = "version";
+constexpr const char *kKeyRules = "rules";
 constexpr const char *kKeySymbolLevels = "symbolLevels";
 
 /*! Walk the top-level envelope keys we know about; anything else
  *  produces a warning. Keeps forward-compat loose. */
+/** @param env Envelope whose immediate keys are inspected without recursive validation.
+ * @param[in,out] warnings Append one message for each key other than format, version,
+ * rules or symbolLevels; prior messages are retained. */
 void warnOnUnknownKeys(const QJsonObject &env, QStringList &warnings)
 {
     static const QStringList known = {
@@ -56,9 +62,9 @@ RuleListIoResult save(const RuleList *list, const QString &path)
     }
 
     QJsonObject env;
-    env[QString::fromLatin1(kKeyFormat)]  = QString::fromLatin1(kFormat);
+    env[QString::fromLatin1(kKeyFormat)] = QString::fromLatin1(kFormat);
     env[QString::fromLatin1(kKeyVersion)] = kVersion;
-    env[QString::fromLatin1(kKeyRules)]   = list ? list->toJson() : QJsonArray{};
+    env[QString::fromLatin1(kKeyRules)] = list ? list->toJson() : QJsonArray{};
 
     // Symbol-levels envelope hook is a per-Rule flag in the data model
     // (Z.11); a future Z.11a may surface a layer-scope "enabled" flag
@@ -72,20 +78,21 @@ RuleListIoResult save(const RuleList *list, const QString &path)
     // half-written file when the disk fills mid-save.
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        res.error = QStringLiteral("Cannot open '%1' for write: %2")
-                        .arg(path, file.errorString());
+        res.error = QStringLiteral("Cannot open '%1' for write: %2").arg(path, file.errorString());
         return res;
     }
     const qint64 written = file.write(bytes);
     if (written != bytes.size()) {
         res.error = QStringLiteral("Short write to '%1' (%2 of %3 bytes)")
-                        .arg(path).arg(written).arg(bytes.size());
+                        .arg(path)
+                        .arg(written)
+                        .arg(bytes.size());
         file.cancelWriting();
         return res;
     }
     if (!file.commit()) {
-        res.error = QStringLiteral("Failed to commit save to '%1': %2")
-                        .arg(path, file.errorString());
+        res.error =
+            QStringLiteral("Failed to commit save to '%1': %2").arg(path, file.errorString());
         return res;
     }
     res.ok = true;
@@ -107,8 +114,7 @@ RuleListIoResult load(const QString &path, RuleList *list)
     }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        res.error = QStringLiteral("Cannot open '%1' for read: %2")
-                        .arg(path, file.errorString());
+        res.error = QStringLiteral("Cannot open '%1' for read: %2").arg(path, file.errorString());
         return res;
     }
     const QByteArray bytes = file.readAll();
@@ -118,8 +124,7 @@ RuleListIoResult load(const QString &path, RuleList *list)
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &parseErr);
     if (doc.isNull()) {
         res.error = QStringLiteral("Malformed JSON in '%1': %2 (offset %3)")
-                        .arg(path,
-                             parseErr.errorString())
+                        .arg(path, parseErr.errorString())
                         .arg(parseErr.offset);
         return res;
     }
@@ -131,17 +136,16 @@ RuleListIoResult load(const QString &path, RuleList *list)
 
     // Format / version checks are warnings, not failures — keeps the
     // loader permissive for hand-edited and legacy files.
-    if (env.value(QString::fromLatin1(kKeyFormat)).toString()
-        != QString::fromLatin1(kFormat)) {
-        res.warnings.append(QStringLiteral(
-            "Format key missing or unexpected (expected '%1')")
-                .arg(QString::fromLatin1(kFormat)));
+    if (env.value(QString::fromLatin1(kKeyFormat)).toString() != QString::fromLatin1(kFormat)) {
+        res.warnings.append(QStringLiteral("Format key missing or unexpected (expected '%1')")
+                                .arg(QString::fromLatin1(kFormat)));
     }
     const int version = env.value(QString::fromLatin1(kKeyVersion)).toInt(0);
     if (version != kVersion) {
-        res.warnings.append(QStringLiteral(
-            "Version mismatch (expected %1, got %2) — proceeding optimistically")
-                .arg(kVersion).arg(version));
+        res.warnings.append(
+            QStringLiteral("Version mismatch (expected %1, got %2) — proceeding optimistically")
+                .arg(kVersion)
+                .arg(version));
     }
     warnOnUnknownKeys(env, res.warnings);
 
@@ -176,9 +180,8 @@ RuleListIoResult load(const QString &path, RuleList *list)
         if (!probe) {
             const QJsonObject inner = v.toObject().value(QStringLiteral("renderer")).toObject();
             const QString id = inner.value(QStringLiteral("id")).toString();
-            res.warnings.append(QStringLiteral(
-                "Skipping rule with unknown renderer id '%1'")
-                    .arg(id.isEmpty() ? QStringLiteral("(missing)") : id));
+            res.warnings.append(QStringLiteral("Skipping rule with unknown renderer id '%1'")
+                                    .arg(id.isEmpty() ? QStringLiteral("(missing)") : id));
             ++res.rulesSkipped;
             continue;
         }

@@ -1,18 +1,28 @@
-/*!
- * \file   preferencesdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      preferencesdialog.cpp
+ * @brief     user-facing editor for PreferencesManager state.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
+#include "ui/widgets/meshresolutionwidget.h"
+#include <QMessageBox>
+
 #include "ui/dialogs/preferencesdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/dialogs/dialoglayoutwatcher.h"
 
 #include "plot/numberformat.h"
 
 #include "ui/dialogs/objectdefaultspage.h"
+#include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "core/linkrenderingprefs.h"
 #include "core/noderenderingprefs.h"
 #include "core/preferencesmanager.h"
+#include "core/meshbcrenderingprefs.h"
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/theme/thememanager.h"
@@ -31,6 +41,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QTabWidget>
 #include <QDoubleSpinBox>
 #include <QFontDialog>
 #include <QFormLayout>
@@ -38,15 +49,16 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QFileDialog>
 #include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include "plugins/extensionpreferences.h"
 #include <QVBoxLayout>
 
-PreferencesDialog::PreferencesDialog(QWidget *parent)
-    : QDialog(parent)
+PreferencesDialog::PreferencesDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
     // Small floor — below the pages' natural size the content scrolls
@@ -68,6 +80,10 @@ void PreferencesDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
+    // Named so the restructure's structural test can reach the sidebar by
+    // objectName instead of a friend declaration (same seam as the Simulation
+    // Options dialog).
+    m_categoryList->setObjectName(QStringLiteral("categories"));
     m_categoryList->setMinimumWidth(180);
     split->addWidget(m_categoryList);
 
@@ -77,140 +93,178 @@ void PreferencesDialog::buildUi()
     // (same-row set is a no-op, so no signal loop).
     setObjectName(QStringLiteral("PreferencesDialog"));
     m_pages->setObjectName(QStringLiteral("pages"));
-    connect(m_pages, &QStackedWidget::currentChanged,
-            m_categoryList, qOverload<int>(&QListWidget::setCurrentRow));
+    connect(m_pages, &QStackedWidget::currentChanged, m_categoryList,
+            qOverload<int>(&QListWidget::setCurrentRow));
     // Iteration 3 — pages scroll instead of squeezing when the dialog
     // shrinks (same funnel as SimulationOptionsDialog::addCategory).
+    /**
+     * @brief Append a sidebar caption and scrolling stack page. Argument `title`: translated
+     * caption. Argument `page`: required widget whose Qt ownership transfers to the scroll host.
+     * Returns: no value; called before initial selection.
+     */
     const auto addCategory = [this](const QString &title, QWidget *page) {
         m_categoryList->addItem(title);
         m_pages->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_pages));
     };
-    addCategory(tr("General"),               buildGeneralPage());
-    addCategory(tr("Selection"),             buildSelectionPage());
-    addCategory(tr("Canvas && CRS"),         buildCanvasPage());
-    addCategory(tr("Rendering"),             buildRenderingPage());
-    addCategory(tr("Simulation"),            buildSimulationPage());
-    addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
-    addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
-    addCategory(tr("2D Defaults"),           buildTwoDDefaultsPage());
-    addCategory(tr("Object Defaults"),       buildObjectDefaultsPage());
-    addCategory(tr("Map Display"),           buildMapDisplayPage());
-    addCategory(tr("Measure Tool"),          buildMeasureToolPage());
-    addCategory(tr("Plots"),                 buildPlotsPage());
-    addCategory(tr("Naming"),                buildNamingPage());
-    addCategory(tr("Appearance"),            buildAppearancePage());
-    addCategory(tr("Keyboard"),              buildKeyboardPage());
+    addCategory(tr("General"), buildGeneralPage());
+    addCategory(tr("Selection"), buildSelectionPage());
+    addCategory(tr("Canvas & CRS"), buildCanvasPage());
+    addCategory(tr("Rendering"), buildRenderingPage());
+    addCategory(tr("Simulation"), buildSimulationPage());
+    // Dynamic Wave Defaults and 2D Defaults fold in as tabs (PLAN §3).
+    addCategory(tr("Simulation Defaults"), buildSimulationDefaultsPage());
+    addCategory(tr("Object Defaults"), buildObjectDefaultsPage());
+    addCategory(tr("Map Display"), buildMapDisplayPage());
+    addCategory(tr("Measure Tool"), buildMeasureToolPage());
+    addCategory(tr("Plots"), buildPlotsPage());
+    addCategory(tr("Naming"), buildNamingPage());
+    addCategory(tr("Appearance"), buildAppearancePage());
+    addCategory(tr("Keyboard"), buildKeyboardPage());
+    // Keep the offline preference visible even when no extension is currently enabled.
+    auto *extensionNetwork = new QWidget(this);
+    auto *networkLayout = new QVBoxLayout(extensionNetwork);
+    auto *offline = new QCheckBox(tr("Work offline — disable extension network requests"), extensionNetwork);
+    offline->setObjectName(QStringLiteral("extensionNetworkOffline"));
+    offline->setChecked(QSettings().value(QStringLiteral("extensions/network/offline"), false).toBool());
+    networkLayout->addWidget(offline);
+    networkLayout->addStretch();
+    addCategory(tr("Extensions"), extensionNetwork);
+    for (const auto &entry : openswmmvis::extensionPreferences()) {
+        if (!entry.owner)
+            continue;
+        if (auto *page = entry.factory->create(entry.settings)) {
+            setProperty("extensionPreferences", true);
+            addCategory(tr("Extensions — %1").arg(entry.factory->title()), page);
+            page->setProperty("extensionPreferencesId", entry.id);
+            page->setObjectName(entry.id);
+        }
+    }
     split->addWidget(m_pages, 1);
 
-    connect(m_categoryList, &QListWidget::currentRowChanged,
-            m_pages, &QStackedWidget::setCurrentIndex);
-    m_categoryList->setCurrentRow(1);   // start on Selection — the most
-                                         // frequently-tuned page today.
+    connect(m_categoryList, &QListWidget::currentRowChanged, m_pages,
+            &QStackedWidget::setCurrentIndex);
+    m_categoryList->setCurrentRow(1); // start on Selection — the most
+                                      // frequently-tuned page today.
 
     // Buttons: Reset | Apply / Cancel / OK.
     auto *btnRow = new QHBoxLayout();
     root->addLayout(btnRow);
     auto *resetBtn = new QPushButton(tr("Reset to defaults"), this);
-    connect(resetBtn, &QPushButton::clicked,
-            this, &PreferencesDialog::onResetToDefaults);
+    connect(resetBtn, &QPushButton::clicked, this, &PreferencesDialog::onResetToDefaults);
     btnRow->addWidget(resetBtn);
     btnRow->addStretch(1);
 
     auto *bb = new QDialogButtonBox(
-        QDialogButtonBox::Apply | QDialogButtonBox::Cancel | QDialogButtonBox::Ok,
-        this);
+        QDialogButtonBox::Apply | QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
     btnRow->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, this, &PreferencesDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked,
-            this, &PreferencesDialog::onApply);
+    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked, this,
+            &PreferencesDialog::onApply);
 }
 
 QWidget *PreferencesDialog::buildGeneralPage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
 
-    m_showLicenseOnStartupBox = new QCheckBox(
-        tr("Show license agreement on startup"), page);
-    m_showLicenseOnStartupBox->setToolTip(tr(
-        "When checked, the MIT license agreement dialog is shown each time "
-        "the application starts. Uncheck to suppress it after you have "
-        "accepted the terms."));
+    m_showLicenseOnStartupBox = new QCheckBox(tr("Show license agreement on startup"), page);
+    m_showLicenseOnStartupBox->setToolTip(
+        tr("When checked, the MIT license agreement dialog is shown each time "
+           "the application starts. Uncheck to suppress it after you have "
+           "accepted the terms."));
     f->addRow(m_showLicenseOnStartupBox);
 
     m_autoLengthBox = new QCheckBox(tr("Auto-length conduits on edit"), page);
-    m_autoLengthBox->setToolTip(tr(
-        "When checked, conduit lengths recompute from geometry whenever "
-        "their endpoints move. Default on; toggled per-project from the "
-        "status-bar Auto-Length switch."));
+    m_autoLengthBox->setToolTip(tr("When checked, conduit lengths recompute from geometry whenever "
+                                   "their endpoints move. Default on; toggled per-project from the "
+                                   "status-bar Auto-Length switch."));
     f->addRow(m_autoLengthBox);
+
+    auto *directoryRow = new QWidget(page);
+    auto *directoryLayout = new QHBoxLayout(directoryRow);
+    directoryLayout->setContentsMargins(0, 0, 0, 0);
+    m_projectOpenDirectoryEdit = new QLineEdit(directoryRow);
+    m_projectOpenDirectoryEdit->setObjectName(QStringLiteral("projectOpenDirectory"));
+    m_projectOpenDirectoryEdit->setPlaceholderText(tr("Use the last project folder"));
+    auto *browse = new QPushButton(tr("Browse…"), directoryRow);
+    directoryLayout->addWidget(m_projectOpenDirectoryEdit, 1);
+    directoryLayout->addWidget(browse);
+    connect(browse, &QPushButton::clicked, this, [this] {
+        const QString directory = QFileDialog::getExistingDirectory(
+            this, tr("Project Open folder"), m_projectOpenDirectoryEdit->text());
+        if (!directory.isEmpty())
+            m_projectOpenDirectoryEdit->setText(directory);
+    });
+    f->addRow(tr("Project &Open folder"), directoryRow);
 
     m_defaultEngineCombo = new QComboBox(page);
     m_defaultEngineCombo->addItem(
-        tr("OpenSWMM %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
+        tr("SWMMVis %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
         QLatin1String(SWMM_VERSION));
     m_defaultEngineCombo->addItem(
         tr("SWMM %1 (legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
         QLatin1String(LEGACY_SWMM_VERSION));
-    m_defaultEngineCombo->setToolTip(tr(
-        "Engine version selected by default when a new project opens. "
-        "The status-bar engine picker remains available for per-project overrides."));
+#ifdef SWMMVIS_HAVE_ENGINE_524
+    m_defaultEngineCombo->addItem(tr("SWMM 5.2.4 (EPA)"), QStringLiteral("5.2.4"));
+#endif
+    m_defaultEngineCombo->setToolTip(
+        tr("Engine version selected by default when a new project opens. "
+           "The status-bar engine picker remains available for per-project overrides."));
     f->addRow(tr("D&efault engine mode"), m_defaultEngineCombo);
 
     m_profileMaxPathsSpin = new QSpinBox(page);
     m_profileMaxPathsSpin->setRange(1, 1000000);
     m_profileMaxPathsSpin->setSingleStep(10);
-    m_profileMaxPathsSpin->setToolTip(tr(
-        "Maximum number of candidate paths the profile-plot tool will "
-        "enumerate between two selected nodes before truncating. Results "
-        "are sorted shortest first, so raising this exposes the longer "
-        "detours through additional loops in the network. Exhaustive "
-        "enumeration is worst-case exponential — very high values may "
-        "freeze the UI briefly on heavily-meshed networks."));
+    m_profileMaxPathsSpin->setToolTip(
+        tr("Maximum number of candidate paths the profile-plot tool will "
+           "enumerate between two selected nodes before truncating. Results "
+           "are sorted shortest first, so raising this exposes the longer "
+           "detours through additional loops in the network. Exhaustive "
+           "enumeration is worst-case exponential — very high values may "
+           "freeze the UI briefly on heavily-meshed networks."));
     f->addRow(tr("M&ax profile candidate paths"), m_profileMaxPathsSpin);
 
     m_profileHaloRadiusSpin = new QSpinBox(page);
     m_profileHaloRadiusSpin->setRange(1, 200);
     m_profileHaloRadiusSpin->setSuffix(tr(" px"));
-    m_profileHaloRadiusSpin->setToolTip(tr(
-        "Radius of the start/end endpoint halo drawn on the map while a "
-        "profile is being picked. Halo size is in screen pixels and stays "
-        "constant regardless of map zoom. Defaults to 10 px, which sits "
-        "slightly outside the default 8 px junction marker."));
+    m_profileHaloRadiusSpin->setToolTip(
+        tr("Radius of the start/end endpoint halo drawn on the map while a "
+           "profile is being picked. Halo size is in screen pixels and stays "
+           "constant regardless of map zoom. Defaults to 10 px, which sits "
+           "slightly outside the default 8 px junction marker."));
     f->addRow(tr("P&rofile endpoint halo radius"), m_profileHaloRadiusSpin);
 
     // Helper that paints a color-swatch onto a QPushButton and updates the
     // associated "pending" QColor when the user picks a new colour via
     // QColorDialog.
-    auto wireColorButton = [this](QPushButton *btn,
-                                  QColor &pending,
-                                  const QString &dialogTitle) {
+    /**
+     * @brief Connect a pending color swatch picker. Argument `btn`: required borrowed button owned
+     * by this dialog. Argument `pending`: member color reference that must outlive its stored
+     * callback. Argument `dialogTitle`: copied picker caption. Returns: no value; valid selected
+     * alpha color updates the draft and RGB swatch, cancellation preserves it.
+     */
+    auto wireColorButton = [this](QPushButton *btn, QColor &pending, const QString &dialogTitle) {
         btn->setMinimumWidth(120);
         btn->setAutoFillBackground(true);
-        connect(btn, &QPushButton::clicked, this,
-                [this, btn, &pending, dialogTitle]() {
-            const QColor c = QColorDialog::getColor(
-                pending.isValid() ? pending : Qt::black,
-                this,
-                dialogTitle,
-                QColorDialog::ShowAlphaChannel);
-            if (!c.isValid()) return;
+        connect(btn, &QPushButton::clicked, this, [this, btn, &pending, dialogTitle]() {
+            const QColor c = QColorDialog::getColor(pending.isValid() ? pending : Qt::black, this,
+                                                    dialogTitle, QColorDialog::ShowAlphaChannel);
+            if (!c.isValid())
+                return;
             pending = c;
-            const QString css = QStringLiteral(
-                "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid palette(mid); padding: 3px 8px; }")
-                .arg(c.name(QColor::HexRgb),
-                     c.lightness() > 128 ? QStringLiteral("black")
-                                         : QStringLiteral("white"));
+            const QString css =
+                QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                               "border: 1px solid palette(mid); padding: 3px 8px; }")
+                    .arg(c.name(QColor::HexRgb),
+                         c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
             btn->setStyleSheet(css);
             btn->setText(c.name(QColor::HexRgb).toUpper());
         });
     };
 
     m_profileStartColorBtn = new QPushButton(page);
-    wireColorButton(m_profileStartColorBtn,
-                    m_pendingProfileStartColor,
+    wireColorButton(m_profileStartColorBtn, m_pendingProfileStartColor,
                     tr("Profile start endpoint colour"));
     f->addRow(tr("Pro&file start halo colour"), m_profileStartColorBtn);
 
@@ -222,8 +276,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
     f->addRow(tr("Prof&ile start halo width"), m_profileStartWidthSpin);
 
     m_profileEndColorBtn = new QPushButton(page);
-    wireColorButton(m_profileEndColorBtn,
-                    m_pendingProfileEndColor,
+    wireColorButton(m_profileEndColorBtn, m_pendingProfileEndColor,
                     tr("Profile end endpoint colour"));
     f->addRow(tr("Profile e&nd halo colour"), m_profileEndColorBtn);
 
@@ -234,34 +287,42 @@ QWidget *PreferencesDialog::buildGeneralPage()
     m_profileEndWidthSpin->setSuffix(tr(" px"));
     f->addRow(tr("Profile end halo &width"), m_profileEndWidthSpin);
 
+    for (auto *control : page->findChildren<QWidget *>()) {
+        const QString tip = control->toolTip();
+        if (tip.size() > 120 && !tip.startsWith(QLatin1Char('<')))
+            control->setToolTip(
+                QStringLiteral("<qt><table width=\"360\"><tr><td>%1</td></tr></table></qt>")
+                    .arg(tip.toHtmlEscaped()));
+    }
     return page;
 }
 
 QWidget *PreferencesDialog::buildSelectionPage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
 
     m_clickTolerancePxSpin = new QSpinBox(page);
     m_clickTolerancePxSpin->setRange(1, 200);
     m_clickTolerancePxSpin->setSuffix(tr(" px"));
-    m_clickTolerancePxSpin->setToolTip(tr(
-        "Minimum pick radius for click-selection. The effective radius "
-        "at pick time is max(this value, largest-rendered-glyph half-"
-        "bound + 4 px halo), so clicks inside any visible marker always "
-        "hit regardless of this number."));
-    f->addRow(tr("Click tolerance"),           m_clickTolerancePxSpin);
+    m_clickTolerancePxSpin->setToolTip(
+        tr("Minimum pick radius for click-selection. The effective radius "
+           "at pick time is max(this value, largest-rendered-glyph half-"
+           "bound + 4 px halo), so clicks inside any visible marker always "
+           "hit regardless of this number."));
+    f->addRow(tr("Click tolerance"), m_clickTolerancePxSpin);
 
     m_dragThresholdPxSpin = new QSpinBox(page);
     m_dragThresholdPxSpin->setRange(1, 200);
     m_dragThresholdPxSpin->setSuffix(tr(" px"));
-    m_dragThresholdPxSpin->setToolTip(tr(
-        "Cursor distance required before a click turns into a rubber-band "
-        "select. Higher values forgive trackpad jitter on single clicks."));
-    f->addRow(tr("Dra&g threshold"),             m_dragThresholdPxSpin);
+    m_dragThresholdPxSpin->setToolTip(
+        tr("Cursor distance required before a click turns into a rubber-band "
+           "select. Higher values forgive trackpad jitter on single clicks."));
+    f->addRow(tr("Dra&g threshold"), m_dragThresholdPxSpin);
 
     m_clearOnMissBox = new QCheckBox(tr("Clear selection when clicking "
-                                         "empty space"), page);
+                                        "empty space"),
+                                     page);
     f->addRow(m_clearOnMissBox);
 
     // Per-class selection pens + brushes. QPenPropertyItem and
@@ -271,24 +332,26 @@ QWidget *PreferencesDialog::buildSelectionPage()
     // SelectionRenderingPrefs's Q_PROPERTY setters straight into
     // PreferencesManager. Width semantics for the link pen are
     // ADDITIVE — see PreferencesManager::selectionPen() docs.
-    auto *page2 = page;   // keep `page` reference for QFormLayout above
-    auto *selGroup = new QGroupBox(tr("Selection Pens & Fills"), page2);
-    auto *gv       = new QVBoxLayout(selGroup);
+    auto *page2 = page; // keep `page` reference for QFormLayout above
+    auto *selGroup = new QGroupBox(tr("Selection Pens && Fills"),
+                                   page2); // '&&': a lone '&' is a mnemonic and vanished
+    auto *gv = new QVBoxLayout(selGroup);
     gv->setContentsMargins(8, 8, 8, 8);
 
-    auto *intro = new QLabel(
-        tr("Edit the stroke pen for each class (link halo, polygon "
-           "outline, glyph outline) and the fill brush for polygonal "
-           "and glyph classes. Link pen width adds on top of the "
-           "link's own pen — a width of 2 means a 2 px halo."),
-        selGroup);
+    auto *intro =
+        new QLabel(tr("These settings apply to both SWMM model instances and output layers. "
+                      "Edit the stroke pen for each class (link halo, polygon "
+                      "outline, glyph outline) and the fill brush for polygonal "
+                      "and glyph classes. Link pen width adds on top of the "
+                      "link's own pen — a width of 2 means a 2 px halo. "
+                      "Marker size is set in each layer's symbology."),
+                   selGroup);
     intro->setWordWrap(true);
     gv->addWidget(intro);
 
     m_selectionPrefs = new SelectionRenderingPrefs(this);
     m_selectionModel = new QPropertyModel(this);
-    m_selectionModel->setData(
-        QVariant::fromValue(static_cast<QObject*>(m_selectionPrefs)));
+    m_selectionModel->setData(QVariant::fromValue(static_cast<QObject *>(m_selectionPrefs)));
 
     auto *tree = new QTreeView(selGroup);
     tree->setModel(m_selectionModel);
@@ -308,30 +371,29 @@ QWidget *PreferencesDialog::buildSelectionPage()
 QWidget *PreferencesDialog::buildCanvasPage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
 
     m_defaultToolCombo = new QComboBox(page);
     m_defaultToolCombo->addItem(tr("Select"), QStringLiteral("Select"));
-    m_defaultToolCombo->addItem(tr("Pan"),    QStringLiteral("Pan"));
-    m_defaultToolCombo->addItem(tr("Zoom"),   QStringLiteral("Zoom"));
-    m_defaultToolCombo->setToolTip(tr(
-        "Tool automatically activated when a project window opens."));
+    m_defaultToolCombo->addItem(tr("Pan"), QStringLiteral("Pan"));
+    m_defaultToolCombo->addItem(tr("Zoom"), QStringLiteral("Zoom"));
+    m_defaultToolCombo->setToolTip(tr("Tool automatically activated when a project window opens."));
     f->addRow(tr("Defa&ult tool on project open"), m_defaultToolCombo);
 
     // CRS mode — auto-local (default) or custom EPSG code.
     auto *crsGroup = new QGroupBox(tr("Default CRS (when .inp has no CRS)"), page);
-    auto *crsVlay  = new QVBoxLayout(crsGroup);
+    auto *crsVlay = new QVBoxLayout(crsGroup);
 
     m_crsAutoRadio = new QRadioButton(tr("Auto — use map units from .inp (recommended)"), crsGroup);
-    m_crsAutoRadio->setToolTip(tr(
-        "Reads the [MAP] Units field (FEET / METERS) and assigns a local\n"
-        "projected CRS with the correct unit. Scale bar and distances are\n"
-        "physically meaningful without needing a geographic CRS."));
+    m_crsAutoRadio->setToolTip(
+        tr("Reads the [MAP] Units field (FEET / METERS) and assigns a local\n"
+           "projected CRS with the correct unit. Scale bar and distances are\n"
+           "physically meaningful without needing a geographic CRS."));
     crsVlay->addWidget(m_crsAutoRadio);
 
     m_crsCustomRadio = new QRadioButton(tr("Custom CRS:"), crsGroup);
-    m_crsCustomRadio->setToolTip(tr(
-        "Use a specific authority + code when the loaded .inp has no CRS."));
+    m_crsCustomRadio->setToolTip(
+        tr("Use a specific authority + code when the loaded .inp has no CRS."));
     crsVlay->addWidget(m_crsCustomRadio);
 
     auto *crsCustomRow = new QHBoxLayout();
@@ -347,13 +409,19 @@ QWidget *PreferencesDialog::buildCanvasPage()
     crsVlay->addLayout(crsCustomRow);
 
     // Enable custom fields only when the custom radio is selected.
+    /**
+     * @brief Enable custom CRS authority/code fields only when the Custom radio is checked. Takes
+     * no arguments and returns no value; does not resolve or persist a CRS.
+     */
     auto syncCrsWidgets = [this]() {
         const bool custom = m_crsCustomRadio->isChecked();
         m_crsAuthorityEdit->setEnabled(custom);
         m_crsCodeSpin->setEnabled(custom);
     };
-    connect(m_crsAutoRadio,   &QRadioButton::toggled, this, [syncCrsWidgets](bool){ syncCrsWidgets(); });
-    connect(m_crsCustomRadio, &QRadioButton::toggled, this, [syncCrsWidgets](bool){ syncCrsWidgets(); });
+    connect(m_crsAutoRadio, &QRadioButton::toggled, this,
+            [syncCrsWidgets](bool) { syncCrsWidgets(); });
+    connect(m_crsCustomRadio, &QRadioButton::toggled, this,
+            [syncCrsWidgets](bool) { syncCrsWidgets(); });
     m_crsAutoRadio->setChecked(true);
     syncCrsWidgets();
 
@@ -361,12 +429,12 @@ QWidget *PreferencesDialog::buildCanvasPage()
 
     // Snapping section.
     auto *snapGroup = new QGroupBox(tr("Snapping"), page);
-    auto *snapVlay  = new QVBoxLayout(snapGroup);
+    auto *snapVlay = new QVBoxLayout(snapGroup);
 
     m_snapEnabledBox = new QCheckBox(tr("Enable snapping"), snapGroup);
-    m_snapEnabledBox->setToolTip(tr(
-        "When checked, vertex placement in drawing tools snaps to nearby\n"
-        "nodes, link vertices, and subcatchment polygon vertices."));
+    m_snapEnabledBox->setToolTip(
+        tr("When checked, vertex placement in drawing tools snaps to nearby\n"
+           "nodes, link vertices, and subcatchment polygon vertices."));
     snapVlay->addWidget(m_snapEnabledBox);
 
     auto *snapRow = new QHBoxLayout();
@@ -380,12 +448,17 @@ QWidget *PreferencesDialog::buildCanvasPage()
     snapRow->addStretch();
     snapVlay->addLayout(snapRow);
 
-    m_snapToVerticesBox = new QCheckBox(tr("Also snap to link and subcatchment vertices"), snapGroup);
-    m_snapToVerticesBox->setToolTip(tr(
-        "In addition to node/gage centres, also snap to intermediate vertices\n"
-        "of links and polygon corners of subcatchments."));
+    m_snapToVerticesBox =
+        new QCheckBox(tr("Also snap to link and subcatchment vertices"), snapGroup);
+    m_snapToVerticesBox->setToolTip(
+        tr("In addition to node/gage centres, also snap to intermediate vertices\n"
+           "of links and polygon corners of subcatchments."));
     snapVlay->addWidget(m_snapToVerticesBox);
 
+    /**
+     * @brief Gate tolerance/vertex controls from the snapping draft checkbox. Takes no arguments
+     * and returns no value; does not save settings.
+     */
     auto syncSnapWidgets = [this]() {
         const bool on = m_snapEnabledBox->isChecked();
         m_snapToleranceSpin->setEnabled(on);
@@ -407,21 +480,36 @@ QWidget *PreferencesDialog::buildRenderingPage()
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
-    auto *f    = new QFormLayout();
+    // T7 — five stacked groups become four tabs (PLAN §3). Each QGroupBox
+    // moves whole; addWidget re-parents it into its tab.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("renderingTabs"));
+    outer->addWidget(tabs, 1);
+    auto *labelsTab = new QWidget(tabs);
+    auto *labelsLay = new QVBoxLayout(labelsTab);
+    auto *lnTab = new QWidget(tabs);
+    auto *lnLay = new QVBoxLayout(lnTab);
+    auto *gpuTab = new QWidget(tabs);
+    auto *gpuLay = new QVBoxLayout(gpuTab);
+    auto *bcTab = new QWidget(tabs);
+    auto *bcTabLay = new QVBoxLayout(bcTab);
+
+    auto *f = new QFormLayout();
 
     m_labelLodSpin = new QDoubleSpinBox(page);
     m_labelLodSpin->setRange(0.01, 100.0);
     m_labelLodSpin->setSingleStep(0.1);
     m_labelLodSpin->setDecimals(2);
-    m_labelLodSpin->setToolTip(tr(
-        "Minimum view-transform scale (m11) at which labels are drawn. "
-        "Higher values hide labels sooner when zooming out; lower "
-        "values draw labels even at coarse zoom (at a performance cost)."));
+    m_labelLodSpin->setToolTip(
+        tr("Minimum view-transform scale (m11) at which labels are drawn. "
+           "Higher values hide labels sooner when zooming out; lower "
+           "values draw labels even at coarse zoom (at a performance cost)."));
     f->addRow(tr("La&bel zoom-out threshold (m11)"), m_labelLodSpin);
 
     auto *lodGroup = new QGroupBox(tr("Label Rendering"), page);
     lodGroup->setLayout(f);
-    outer->addWidget(lodGroup);
+    labelsLay->addWidget(lodGroup);
+    labelsLay->addStretch(0);
 
     // Link pens — full QPen editor per link type. QPenPropertyItem
     // exposes width / dash-offset / style / cap / join / brush as
@@ -429,20 +517,19 @@ QWidget *PreferencesDialog::buildRenderingPage()
     // line thickness and cap shape (the non-conduit defaults are
     // round-capped — see kPumpPenDefault et al. in preferencesmanager.cpp).
     auto *linkGroup = new QGroupBox(tr("Link Pens"), page);
-    auto *lv        = new QVBoxLayout(linkGroup);
+    auto *lv = new QVBoxLayout(linkGroup);
     lv->setContentsMargins(8, 8, 8, 8);
 
-    auto *intro = new QLabel(
-        tr("Edit colour, width, line style, cap, and join per link type. "
-           "Expand a row to access individual pen attributes. Changes apply "
-           "immediately to open project views."),
-        linkGroup);
+    auto *intro = new QLabel(tr("Edit colour, width, line style, cap, and join per link type. "
+                                "Expand a row to access individual pen attributes. Changes apply "
+                                "immediately to open project views."),
+                             linkGroup);
     intro->setWordWrap(true);
     lv->addWidget(intro);
 
-    m_linkPrefs    = new LinkRenderingPrefs(this);
+    m_linkPrefs = new LinkRenderingPrefs(this);
     m_linkPenModel = new QPropertyModel(this);
-    m_linkPenModel->setData(QVariant::fromValue(static_cast<QObject*>(m_linkPrefs)));
+    m_linkPenModel->setData(QVariant::fromValue(static_cast<QObject *>(m_linkPrefs)));
 
     auto *tree = new QTreeView(linkGroup);
     tree->setModel(m_linkPenModel);
@@ -454,29 +541,33 @@ QWidget *PreferencesDialog::buildRenderingPage()
     tree->resizeColumnToContents(0);
     lv->addWidget(tree, 1);
 
-    outer->addWidget(linkGroup, 1);
+    lnLay->addWidget(linkGroup, 1);
 
     // Node symbols — outline pen, fill brush, and marker size per node
     // type. Same QPropertyModel pattern as link pens above: the bridge
     // routes every edit straight into PreferencesManager so there is no
     // pending-state to apply on OK and writeToManager() leaves these
     // alone.
-    auto *nodeGroup = new QGroupBox(tr("Node Symbols"), page);
-    auto *nv        = new QVBoxLayout(nodeGroup);
+    auto *nodeGroup = new QGroupBox(tr("Node, Rain Gage && Subcatchment Symbols"), page);
+    auto *nv = new QVBoxLayout(nodeGroup);
     nv->setContentsMargins(8, 8, 8, 8);
 
-    auto *nodeIntro = new QLabel(
-        tr("Edit marker size, fill brush, and outline pen per node type "
-           "(Junction, Outfall, Storage, Divider, Virtual Junction). Expand "
-           "a row to access individual pen and brush attributes. Changes "
-           "apply immediately to open project views."),
-        nodeGroup);
+    auto *nodeIntro =
+        new QLabel(tr("Edit marker size, fill brush, and outline pen per node type "
+                      "(Junction, Outfall, Storage, Divider, Virtual Junction, Inlet "
+                      "Junction), the Rain Gage marker, and the Subcatchment fill and "
+                      "outline pen. Expand a row to access individual pen and brush "
+                      "attributes. Node changes apply immediately to open project "
+                      "views; rain gage and subcatchment values seed new layers and "
+                      "layers that still carry the inherited value — a layer styled "
+                      "on its own keeps its style."),
+                   nodeGroup);
     nodeIntro->setWordWrap(true);
     nv->addWidget(nodeIntro);
 
-    m_nodePrefs      = new NodeRenderingPrefs(this);
+    m_nodePrefs = new NodeRenderingPrefs(this);
     m_nodeStyleModel = new QPropertyModel(this);
-    m_nodeStyleModel->setData(QVariant::fromValue(static_cast<QObject*>(m_nodePrefs)));
+    m_nodeStyleModel->setData(QVariant::fromValue(static_cast<QObject *>(m_nodePrefs)));
 
     auto *nodeTree = new QTreeView(nodeGroup);
     nodeTree->setModel(m_nodeStyleModel);
@@ -488,35 +579,69 @@ QWidget *PreferencesDialog::buildRenderingPage()
     nodeTree->resizeColumnToContents(0);
     nv->addWidget(nodeTree, 1);
 
-    outer->addWidget(nodeGroup, 1);
+    lnLay->addWidget(nodeGroup, 1);
 
     // ── GPU rendering (Slice §QSG-4) ──────────────────────────────────────
     auto *gpuGroup = new QGroupBox(tr("GPU Rendering"), page);
     auto *xv = new QVBoxLayout(gpuGroup);
     xv->setContentsMargins(8, 8, 8, 8);
-    m_qsgNodesBox = new QCheckBox(
-        tr("Use GPU rendering for SWMM layers (recommended)"), gpuGroup);
-    m_qsgNodesBox->setToolTip(tr(
-        "When enabled, junctions, outfalls, storage, dividers, links, "
-        "subcatchments, and rain gages are drawn by the GPU scene-graph "
-        "overlay. The CPU painter path is skipped while this is on so "
-        "the two pipelines never double-paint.\n\n"
-        "Turn this off only if you hit GPU-driver-specific rendering "
-        "issues — the legacy QPainter path remains the fallback."));
+    m_qsgNodesBox = new QCheckBox(tr("Use GPU rendering for SWMM layers (recommended)"), gpuGroup);
+    m_qsgNodesBox->setToolTip(tr("When enabled, junctions, outfalls, storage, dividers, links, "
+                                 "subcatchments, and rain gages are drawn by the GPU scene-graph "
+                                 "overlay. The CPU painter path is skipped while this is on so "
+                                 "the two pipelines never double-paint.\n\n"
+                                 "Turn this off only if you hit GPU-driver-specific rendering "
+                                 "issues — the legacy QPainter path remains the fallback."));
     xv->addWidget(m_qsgNodesBox);
-    m_qsgMeshBox = new QCheckBox(
-        tr("Use GPU rendering for 2D terrain mesh layers (recommended)"), gpuGroup);
-    m_qsgMeshBox->setToolTip(tr(
-        "When enabled, the 2D terrain mesh (elevation fill, wireframe, "
-        "contours) is drawn by the GPU scene-graph overlay instead of the "
-        "CPU painter — required for smooth pan/zoom on large meshes.\n\n"
-        "Turn this off only if you hit GPU-driver-specific rendering "
-        "issues — the legacy QPainter path remains the fallback. "
-        "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
+    m_qsgMeshBox =
+        new QCheckBox(tr("Use GPU rendering for 2D terrain mesh layers (recommended)"), gpuGroup);
+    m_qsgMeshBox->setToolTip(tr("When enabled, the 2D terrain mesh (elevation fill, wireframe, "
+                                "contours) is drawn by the GPU scene-graph overlay instead of the "
+                                "CPU painter — required for smooth pan/zoom on large meshes.\n\n"
+                                "Turn this off only if you hit GPU-driver-specific rendering "
+                                "issues — the legacy QPainter path remains the fallback. "
+                                "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
     xv->addWidget(m_qsgMeshBox);
-    outer->addWidget(gpuGroup);
+    gpuLay->addWidget(gpuGroup);
+    gpuLay->addStretch(0);
 
-    outer->addStretch(0);
+    // ── 2D mesh boundary-condition edge defaults ─────────────────────────
+    auto *bcGroup = new QGroupBox(tr("2D Mesh Boundary-Condition Edges"), page);
+    auto *bcv = new QVBoxLayout(bcGroup);
+    bcv->setContentsMargins(8, 8, 8, 8);
+
+    auto *bcIntro = new QLabel(tr("Default colour and width for the mesh's Boundary Conditions "
+                                  "sublayer, one entry per BC type. \"Colour by type\" shows or "
+                                  "hides the sublayer on open meshes immediately. Wall edges are "
+                                  "the interior wireframe and use the layer's own edge width.\n\n"
+                                  "Edits here apply live to open meshes you have not styled "
+                                  "individually; a layer styled through its own Boundary "
+                                  "Conditions tab keeps those settings, which are saved with the "
+                                  "project."),
+                               bcGroup);
+    bcIntro->setWordWrap(true);
+    bcv->addWidget(bcIntro);
+
+    m_meshBcPrefs = new MeshBcRenderingPrefs(this);
+    m_meshBcModel = new QPropertyModel(this);
+    m_meshBcModel->setData(QVariant::fromValue(static_cast<QObject *>(m_meshBcPrefs)));
+
+    auto *bcTree = new QTreeView(bcGroup);
+    bcTree->setModel(m_meshBcModel);
+    bcTree->setItemDelegate(new QPropertyItemDelegate(m_meshBcModel));
+    bcTree->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    bcTree->setAlternatingRowColors(true);
+    bcTree->setMinimumHeight(240);
+    bcTree->expandToDepth(0);
+    bcTree->resizeColumnToContents(0);
+    bcv->addWidget(bcTree, 1);
+
+    bcTabLay->addWidget(bcGroup, 1);
+
+    tabs->addTab(labelsTab, tr("Labels"));
+    tabs->addTab(lnTab, tr("Network Symbols")); // feedback C14 — was "Links && Nodes"
+    tabs->addTab(gpuTab, tr("GPU"));
+    tabs->addTab(bcTab, tr("2D Mesh Edges"));
 
     return page;
 }
@@ -524,87 +649,145 @@ QWidget *PreferencesDialog::buildRenderingPage()
 QWidget *PreferencesDialog::buildSimulationPage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
 
     m_progressTickMsSpin = new QSpinBox(page);
     m_progressTickMsSpin->setRange(50, 10000);
     m_progressTickMsSpin->setSingleStep(100);
     m_progressTickMsSpin->setSuffix(tr(" ms"));
-    m_progressTickMsSpin->setToolTip(tr(
-        "Rate at which the running simulation pushes progress / current-"
-        "time updates to the Simulation Status dock. Lower = more live, "
-        "more overhead. Default 1000 ms (1 Hz)."));
-    f->addRow(tr("Progress-tick interval"),       m_progressTickMsSpin);
+    m_progressTickMsSpin->setToolTip(
+        tr("Rate at which the running simulation pushes progress / current-"
+           "time updates to the Simulation Status dock. Lower = more live, "
+           "more overhead. Default 1000 ms (1 Hz)."));
+    f->addRow(tr("Progress-tick interval"), m_progressTickMsSpin);
+
+    m_live2DHistoryCapSpin = new QSpinBox(page);
+    m_live2DHistoryCapSpin->setRange(100, 200000);
+    m_live2DHistoryCapSpin->setSingleStep(500);
+    m_live2DHistoryCapSpin->setSuffix(tr(" frames"));
+    m_live2DHistoryCapSpin->setToolTip(
+        tr("Frames of live 2D results kept in memory while a run streams. Past "
+           "the cap the older half is thinned 2:1 (frames keep their times), so "
+           "memory stays bounded on long runs of large meshes."));
+    f->addRow(tr("Live 2D history cap"), m_live2DHistoryCapSpin);
+
+    m_live2DHistoryMBSpin = new QSpinBox(page);
+    m_live2DHistoryMBSpin->setRange(64, 32768);
+    m_live2DHistoryMBSpin->setSingleStep(256);
+    m_live2DHistoryMBSpin->setSuffix(tr(" MB"));
+    m_live2DHistoryMBSpin->setToolTip(
+        tr("Memory budget for the live 2D frames, applied together with the "
+           "frame cap — a frame costs roughly 28 bytes per cell plus 4 per "
+           "vertex, so the frame cap alone lets a large mesh hold gigabytes. "
+           "Past the budget the older half is thinned 2:1 until the history is "
+           "at 75 % of it."));
+    f->addRow(tr("Live 2D history budget"), m_live2DHistoryMBSpin);
 
     return page;
 }
 
 QWidget *PreferencesDialog::buildSimulationDefaultsPage()
 {
-    auto *page  = new QWidget(this);
+    auto *page = new QWidget(this);
     auto *outer = new QVBoxLayout(page);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
-    auto *intro = new QLabel(
-        tr("Defaults applied when File→New creates a blank project. "
-           "Existing projects are not affected — use Simulation Options "
-           "per project to change a running model."), page);
+    auto *intro = new QLabel(tr("Defaults applied when File→New creates a blank project. "
+                                "Existing projects are not affected — use Simulation Options "
+                                "per project to change a running model."),
+                             page);
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
+    // T7 — the Dynamic Wave Defaults and 2D Defaults sidebar rows fold in here
+    // as tabs (PLAN §3): fifteen rows become thirteen, and no page needs a
+    // scrollbar at 1280x800. Every QGroupBox moves whole; the two folded
+    // builders now fill the tab layouts they are handed rather than returning
+    // a page of their own.
+    auto *tabs = new QTabWidget(page);
+    tabs->setObjectName(QStringLiteral("simulationDefaultsTabs"));
+    outer->addWidget(tabs, 1);
+    auto *pmTab = new QWidget(tabs);
+    auto *pmLay = new QVBoxLayout(pmTab);
+    auto *hsTab = new QWidget(tabs);
+    auto *hsLay = new QVBoxLayout(hsTab);
+    auto *dwsTab = new QWidget(tabs);
+    auto *dwStepLay = new QVBoxLayout(dwsTab);
+    auto *dwvTab = new QWidget(tabs);
+    auto *dwSolvLay = new QVBoxLayout(dwvTab);
+    auto *twoTab = new QWidget(tabs);
+    auto *twoDLay = new QVBoxLayout(twoTab);
+    auto *tcplTab = new QWidget(tabs);
+    auto *twoDCplLay = new QVBoxLayout(tcplTab);
+    auto *tmshTab = new QWidget(tabs);
+    auto *twoDMeshLay = new QVBoxLayout(tmshTab);
+    // The tab frame and the page's scroll area already pad; the layouts'
+    // default 9 px margins on top of that are what pushed the densest tab
+    // past an 800 px-tall window.
+    for (QVBoxLayout *l : {pmLay, hsLay, dwStepLay, dwSolvLay, twoDLay, twoDCplLay, twoDMeshLay})
+        l->setContentsMargins(0, 6, 0, 0);
+
     // ── Process models ───────────────────────────────────────────────────
     auto *procGroup = new QGroupBox(tr("Process models"), page);
-    auto *procForm  = new QFormLayout(procGroup);
+    auto *procForm = new QFormLayout(procGroup);
 
     m_simFlowUnitsCombo = new QComboBox(procGroup);
     m_simFlowUnitsCombo->addItems({QStringLiteral("CFS"), QStringLiteral("GPM"),
-                                    QStringLiteral("MGD"), QStringLiteral("CMS"),
-                                    QStringLiteral("LPS"), QStringLiteral("MLD")});
+                                   QStringLiteral("MGD"), QStringLiteral("CMS"),
+                                   QStringLiteral("LPS"), QStringLiteral("MLD")});
     procForm->addRow(tr("Flow units (FLOW_UNITS)"), m_simFlowUnitsCombo);
 
     m_simInfiltrationCombo = new QComboBox(procGroup);
-    m_simInfiltrationCombo->addItem(tr("Horton"),               QStringLiteral("HORTON"));
-    m_simInfiltrationCombo->addItem(tr("Modified Horton"),      QStringLiteral("MODIFIED_HORTON"));
-    m_simInfiltrationCombo->addItem(tr("Green-Ampt"),           QStringLiteral("GREEN_AMPT"));
-    m_simInfiltrationCombo->addItem(tr("Modified Green-Ampt"),  QStringLiteral("MODIFIED_GREEN_AMPT"));
-    m_simInfiltrationCombo->addItem(tr("Curve Number"),         QStringLiteral("CURVE_NUMBER"));
+    m_simInfiltrationCombo->addItem(tr("Horton"), QStringLiteral("HORTON"));
+    m_simInfiltrationCombo->addItem(tr("Modified Horton"), QStringLiteral("MODIFIED_HORTON"));
+    m_simInfiltrationCombo->addItem(tr("Green-Ampt"), QStringLiteral("GREEN_AMPT"));
+    m_simInfiltrationCombo->addItem(tr("Modified Green-Ampt"),
+                                    QStringLiteral("MODIFIED_GREEN_AMPT"));
+    m_simInfiltrationCombo->addItem(tr("Curve Number"), QStringLiteral("CURVE_NUMBER"));
     procForm->addRow(tr("Infiltration model (INFILTRATION)"), m_simInfiltrationCombo);
 
     m_simFlowRoutingCombo = new QComboBox(procGroup);
-    m_simFlowRoutingCombo->addItem(tr("Steady"),         QStringLiteral("STEADY"));
+    m_simFlowRoutingCombo->addItem(tr("Steady"), QStringLiteral("STEADY"));
     m_simFlowRoutingCombo->addItem(tr("Kinematic Wave"), QStringLiteral("KINWAVE"));
-    m_simFlowRoutingCombo->addItem(tr("Dynamic Wave"),   QStringLiteral("DYNWAVE"));
-    m_simFlowRoutingCombo->addItem(tr("Finite Volume"),  QStringLiteral("FV"));
+    m_simFlowRoutingCombo->addItem(tr("Dynamic Wave"), QStringLiteral("DYNWAVE"));
+    m_simFlowRoutingCombo->addItem(tr("Finite Volume"), QStringLiteral("FV"));
     procForm->addRow(tr("H&ydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
 
-    outer->addWidget(procGroup);
+    pmLay->addWidget(procGroup);
 
     // ── Process toggles (all default OFF) ────────────────────────────────
     auto *togGroup = new QGroupBox(tr("Process modules (off by default)"), page);
-    auto *togLay   = new QVBoxLayout(togGroup);
+    auto *togLay = new QVBoxLayout(togGroup);
 
+    /**
+     * @brief Create a process toggle. Argument `label`: visible caption. Argument `tip`: optional
+     * tooltip, ignored when empty. Returns: new toggle-group-owned checkbox, without a manager
+     * write.
+     */
     auto mkBox = [togGroup](const QString &label, const QString &tip) {
         auto *b = new QCheckBox(label, togGroup);
-        if (!tip.isEmpty()) b->setToolTip(tip);
+        if (!tip.isEmpty())
+            b->setToolTip(tip);
         return b;
     };
-    m_simIgnoreRainfallBox    = mkBox(tr("Rainfall / Runoff"),
-        tr("When unchecked, IGNORE_RAINFALL is emitted into [OPTIONS]."));
-    m_simIgnoreRdiiBox        = mkBox(tr("RDII (rainfall-derived inflow)"),
-        tr("When unchecked, IGNORE_RDII is emitted."));
-    m_simIgnoreSnowmeltBox    = mkBox(tr("Snowmelt"),
-        tr("When unchecked, IGNORE_SNOWMELT is emitted."));
-    m_simIgnoreGroundwaterBox = mkBox(tr("Groundwater"),
-        tr("When unchecked, IGNORE_GROUNDWATER is emitted."));
-    m_simModule2DBox          = mkBox(tr("2D Surface Routing"),
-        tr("Enables the 2D module when a fresh project opens. Off by default."));
-    m_simIgnoreRoutingBox     = mkBox(tr("Flow Routing"),
-        tr("When unchecked, IGNORE_ROUTING is emitted (no link routing)."));
-    m_simIgnoreQualityBox     = mkBox(tr("Water Quality"),
-        tr("When unchecked, IGNORE_QUALITY is emitted."));
-    m_simAllowPondingBox      = mkBox(tr("Allow ponding (ALLOW_PONDING)"), QString());
-    m_simSkipSteadyStateBox   = mkBox(tr("Skip steady-state periods (SKIP_STEADY_STATE)"), QString());
+    m_simIgnoreRainfallBox = mkBox(
+        tr("Rainfall / Runoff"), tr("When unchecked, IGNORE_RAINFALL is emitted into [OPTIONS]."));
+    m_simIgnoreRdiiBox =
+        mkBox(tr("RDII (rainfall-derived inflow)"), tr("When unchecked, IGNORE_RDII is emitted."));
+    m_simIgnoreSnowmeltBox =
+        mkBox(tr("Snowmelt"), tr("When unchecked, IGNORE_SNOWMELT is emitted."));
+    m_simIgnoreGroundwaterBox =
+        mkBox(tr("Groundwater"), tr("When unchecked, IGNORE_GROUNDWATER is emitted."));
+    m_simModule2DBox =
+        mkBox(tr("2D Surface Routing"),
+              tr("Enables the 2D module when a fresh project opens. Off by default."));
+    m_simIgnoreRoutingBox = mkBox(
+        tr("Flow Routing"), tr("When unchecked, IGNORE_ROUTING is emitted (no link routing)."));
+    m_simIgnoreQualityBox =
+        mkBox(tr("Water Quality"), tr("When unchecked, IGNORE_QUALITY is emitted."));
+    m_simAllowPondingBox = mkBox(tr("Allow ponding (ALLOW_PONDING)"), QString());
+    m_simSkipSteadyStateBox = mkBox(tr("Skip steady-state periods (SKIP_STEADY_STATE)"), QString());
 
     togLay->addWidget(m_simIgnoreRainfallBox);
     togLay->addWidget(m_simIgnoreRdiiBox);
@@ -615,11 +798,11 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     togLay->addWidget(m_simIgnoreQualityBox);
     togLay->addWidget(m_simAllowPondingBox);
     togLay->addWidget(m_simSkipSteadyStateBox);
-    outer->addWidget(togGroup);
+    pmLay->addWidget(togGroup);
 
     // ── Geometry / hydraulics defaults ───────────────────────────────────
     auto *geomGroup = new QGroupBox(tr("Hydraulics"), page);
-    auto *geomForm  = new QFormLayout(geomGroup);
+    auto *geomForm = new QFormLayout(geomGroup);
 
     m_simMinSlopePctSpin = new QDoubleSpinBox(geomGroup);
     m_simMinSlopePctSpin->setRange(0.0, 100.0);
@@ -627,11 +810,11 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMinSlopePctSpin->setSuffix(QStringLiteral(" %"));
     m_simMinSlopePctSpin->setToolTip(tr("Minimum conduit slope (MIN_SLOPE)."));
     geomForm->addRow(tr("Minimum conduit slope"), m_simMinSlopePctSpin);
-    outer->addWidget(geomGroup);
+    hsLay->addWidget(geomGroup);
 
     // ── Schedule defaults ────────────────────────────────────────────────
     auto *schedGroup = new QGroupBox(tr("Schedule"), page);
-    auto *schedForm  = new QFormLayout(schedGroup);
+    auto *schedForm = new QFormLayout(schedGroup);
 
     auto *startReportNote = new QLabel(
         tr("<i>Start / Report-start default to today at midnight; End defaults to start + 24 h. "
@@ -646,12 +829,16 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simDryDaysSpin->setSuffix(QStringLiteral(" d"));
     schedForm->addRow(tr("Antecedent dry days (DRY_DAYS)"), m_simDryDaysSpin);
 
-    outer->addWidget(schedGroup);
+    hsLay->addWidget(schedGroup);
 
     // ── Time-step defaults ───────────────────────────────────────────────
     auto *stepGroup = new QGroupBox(tr("Time steps"), page);
-    auto *stepForm  = new QFormLayout(stepGroup);
+    auto *stepForm = new QFormLayout(stepGroup);
 
+    /**
+     * @brief Create a step-group-owned minute selector spanning [1,1440]. Takes no arguments.
+     * Returns: new spin; converting to seconds occurs only during preference writes.
+     */
     auto makeMinSpin = [stepGroup]() {
         auto *s = new QSpinBox(stepGroup);
         s->setRange(1, 24 * 60);
@@ -659,8 +846,8 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
         return s;
     };
     m_simReportStepSpin = makeMinSpin();
-    m_simDryStepSpin    = makeMinSpin();
-    m_simWetStepSpin    = makeMinSpin();
+    m_simDryStepSpin = makeMinSpin();
+    m_simWetStepSpin = makeMinSpin();
     stepForm->addRow(tr("Reporting (REPORT_STEP)"), m_simReportStepSpin);
     stepForm->addRow(tr("Runoff dry-weather (DRY_STEP)"), m_simDryStepSpin);
     stepForm->addRow(tr("Runoff wet-weather (WET_STEP)"), m_simWetStepSpin);
@@ -677,11 +864,11 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simRoutingStepSpin->setSuffix(QStringLiteral(" s"));
     stepForm->addRow(tr("Routing (ROUTING_STEP)"), m_simRoutingStepSpin);
 
-    outer->addWidget(stepGroup);
+    dwStepLay->addWidget(stepGroup);
 
     // ── Tolerances ───────────────────────────────────────────────────────
     auto *tolGroup = new QGroupBox(tr("Solver tolerances"), page);
-    auto *tolForm  = new QFormLayout(tolGroup);
+    auto *tolForm = new QFormLayout(tolGroup);
 
     m_simSysFlowTolSpin = new QDoubleSpinBox(tolGroup);
     m_simSysFlowTolSpin->setRange(0.0, 100.0);
@@ -697,42 +884,63 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simMaxTrialsSpin->setRange(1, 100);
     tolForm->addRow(tr("Ma&x trials (MAX_TRIALS)"), m_simMaxTrialsSpin);
 
-    outer->addWidget(tolGroup);
+    dwStepLay->addWidget(tolGroup);
 
-    outer->addStretch(1);
+    addDynamicWaveDefaultGroups(dwStepLay, dwSolvLay);
+    addTwoDDefaultGroups(twoDLay, twoDCplLay, twoDMeshLay);
+
+    pmLay->addStretch(1);
+    hsLay->addStretch(1);
+    dwStepLay->addStretch(1);
+    dwSolvLay->addStretch(1);
+    twoDLay->addStretch(1);
+    twoDCplLay->addStretch(1);
+    twoDMeshLay->addStretch(1);
+
+    tabs->addTab(pmTab, tr("Processes && Modules"));
+    tabs->addTab(hsTab, tr("Hydraulics && Schedule"));
+    tabs->addTab(dwsTab, tr("Time Steps && Tolerances"));
+    tabs->addTab(dwvTab, tr("Dynamic Wave"));
+    // PLAN §3 drew one "2D" tab. Its five groups need 1318 px against a 746 px
+    // viewport at 1280x800 — measured, not estimated — so they split three
+    // ways: exactly the arithmetic that gave the Simulation Options 2D page
+    // five tabs rather than §2's four. Every group still moves whole.
+    tabs->addTab(twoTab, tr("2D Solver"));
+    tabs->addTab(tcplTab, tr("2D Coupling && Rainfall"));
+    tabs->addTab(tmshTab, tr("2D Mesh"));
+
     return page;
 }
 
-QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
+void PreferencesDialog::addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay, QVBoxLayout *solverLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only: every group below is re-parented by the
+    // addWidget that files it under its tab.
+    QWidget *const page = this;
 
-    auto *intro = new QLabel(
-        tr("Dynamic-wave-specific defaults. Some keys (semi-implicit node "
-           "continuity, Anderson acceleration) only emit when the default "
-           "engine is the refactored engine; legacy engine .inp output stays "
-           "SWMM5-compatible."), page);
+    auto *intro = new QLabel(tr("Dynamic-wave-specific defaults. Some keys (semi-implicit node "
+                                "continuity, Anderson acceleration) only emit when the default "
+                                "engine is the refactored engine; legacy engine .inp output stays "
+                                "SWMM5-compatible."),
+                             page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    solverLay->addWidget(intro);
 
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
-    auto *condForm  = new QFormLayout(condGroup);
+    auto *condForm = new QFormLayout(condGroup);
 
     m_simInertialDampCombo = new QComboBox(condGroup);
-    m_simInertialDampCombo->addItem(tr("None"),    QStringLiteral("NONE"));
-    m_simInertialDampCombo->addItem(tr("Dampen"),  QStringLiteral("PARTIAL"));
-    m_simInertialDampCombo->addItem(tr("Ignore"),  QStringLiteral("FULL"));
+    m_simInertialDampCombo->addItem(tr("None"), QStringLiteral("NONE"));
+    m_simInertialDampCombo->addItem(tr("Dampen"), QStringLiteral("PARTIAL"));
+    m_simInertialDampCombo->addItem(tr("Ignore"), QStringLiteral("FULL"));
     m_simInertialDampCombo->setToolTip(tr("INERTIAL_DAMPING."));
     condForm->addRow(tr("Inertial terms"), m_simInertialDampCombo);
 
     m_simNormalFlowCombo = new QComboBox(condGroup);
-    m_simNormalFlowCombo->addItem(tr("Slope"),                 QStringLiteral("SLOPE"));
-    m_simNormalFlowCombo->addItem(tr("Froude"),                QStringLiteral("FROUDE"));
-    m_simNormalFlowCombo->addItem(tr("Slope and Froude"),      QStringLiteral("BOTH"));
-    m_simNormalFlowCombo->addItem(tr("Neither"),               QStringLiteral("NEITHER"));
+    m_simNormalFlowCombo->addItem(tr("Slope"), QStringLiteral("SLOPE"));
+    m_simNormalFlowCombo->addItem(tr("Froude"), QStringLiteral("FROUDE"));
+    m_simNormalFlowCombo->addItem(tr("Slope and Froude"), QStringLiteral("BOTH"));
+    m_simNormalFlowCombo->addItem(tr("Neither"), QStringLiteral("NEITHER"));
     m_simNormalFlowCombo->setToolTip(tr("NORMAL_FLOW_LIMITED."));
     condForm->addRow(tr("Normal flow criterion"), m_simNormalFlowCombo);
 
@@ -742,21 +950,51 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     condForm->addRow(tr("Force-main equation"), m_simForceMainCombo);
 
     m_simSurchargeCombo = new QComboBox(condGroup);
-    m_simSurchargeCombo->addItem(tr("EXTRAN (legacy)"),    QStringLiteral("EXTRAN"));
-    m_simSurchargeCombo->addItem(tr("SLOT (Preissmann)"),  QStringLiteral("SLOT"));
-    m_simSurchargeCombo->addItem(tr("DYNAMIC_SLOT"),       QStringLiteral("DYNAMIC_SLOT"));
+    m_simSurchargeCombo->addItem(tr("EXTRAN (legacy)"), QStringLiteral("EXTRAN"));
+    m_simSurchargeCombo->addItem(tr("SLOT (Preissmann)"), QStringLiteral("SLOT"));
+    m_simSurchargeCombo->addItem(tr("DYNAMIC_SLOT"), QStringLiteral("DYNAMIC_SLOT"));
+    m_simSurchargeCombo->addItem(tr("TPA (experimental)"), QStringLiteral("TPA"));
     condForm->addRow(tr("Surcharge method"), m_simSurchargeCombo);
 
-    outer->addWidget(condGroup);
+    m_simUnsteadyFrictionCombo = new QComboBox(condGroup);
+    m_simUnsteadyFrictionCombo->addItem(tr("None"), QStringLiteral("NONE"));
+    m_simUnsteadyFrictionCombo->addItem(tr("Vitkovsky"), QStringLiteral("VITKOVSKY"));
+    m_simUnsteadyFrictionCombo->setToolTip(
+        tr("UNSTEADY_FRICTION. Consumed by dynamic-wave and finite-volume "
+           "routing; requires the refactored engine."));
+    condForm->addRow(tr("Unsteady friction"), m_simUnsteadyFrictionCombo);
+
+    m_simUfK3Spin = new QDoubleSpinBox(condGroup);
+    m_simUfK3Spin->setRange(0.0, 0.05);
+    m_simUfK3Spin->setDecimals(3);
+    m_simUfK3Spin->setSingleStep(0.005);
+    m_simUfK3Spin->setToolTip(
+        tr("UF_K3. Vitkovsky coefficient; used only when an unsteady-friction "
+           "method is selected."));
+    condForm->addRow(tr("Unsteady friction k3 (UF_K3)"), m_simUfK3Spin);
+
+    /**
+     * @brief Enable the Vitkovsky coefficient unless unsteady-friction data is NONE. Takes no
+     * arguments and returns no value; gating does not change its held value.
+     */
+    auto syncUfK3 = [this]() {
+        m_simUfK3Spin->setEnabled(m_simUnsteadyFrictionCombo->currentData().toString() !=
+                                  QStringLiteral("NONE"));
+    };
+    connect(m_simUnsteadyFrictionCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [syncUfK3](int) { syncUfK3(); });
+    syncUfK3();
+
+    solverLay->addWidget(condGroup);
 
     // ── Variable timestep ────────────────────────────────────────────────
     auto *vsGroup = new QGroupBox(tr("Variable timestep"), page);
-    auto *vsLay   = new QVBoxLayout(vsGroup);
+    auto *vsLay = new QVBoxLayout(vsGroup);
 
     m_simVariableStepBox = new QCheckBox(tr("Use variable timestep"), vsGroup);
-    m_simVariableStepBox->setToolTip(tr(
-        "When checked, VARIABLE_STEP is set to the relaxation factor below. "
-        "When unchecked, VARIABLE_STEP is forced to 0 (disabled)."));
+    m_simVariableStepBox->setToolTip(
+        tr("When checked, VARIABLE_STEP is set to the relaxation factor below. "
+           "When unchecked, VARIABLE_STEP is forced to 0 (disabled)."));
     vsLay->addWidget(m_simVariableStepBox);
 
     auto *vsForm = new QFormLayout();
@@ -781,6 +1019,10 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
 
     vsLay->addLayout(vsForm);
 
+    /**
+     * @brief Gate relaxation/minimum-step widgets from the variable-step draft flag. Takes no
+     * arguments and returns no value; held values survive disabling.
+     */
     auto syncVsFields = [this]() {
         const bool on = m_simVariableStepBox->isChecked();
         m_simVariableStepFactorSpin->setEnabled(on);
@@ -789,11 +1031,11 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     connect(m_simVariableStepBox, &QCheckBox::toggled, this,
             [syncVsFields](bool) { syncVsFields(); });
     syncVsFields();
-    outer->addWidget(vsGroup);
+    stepsLay->addWidget(vsGroup);
 
     // ── Convergence + solver ─────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("Solver"), page);
-    auto *solvForm  = new QFormLayout(solvGroup);
+    auto *solvForm = new QFormLayout(solvGroup);
 
     m_simHeadToleranceSpin = new QDoubleSpinBox(solvGroup);
     m_simHeadToleranceSpin->setRange(1e-6, 1.0);
@@ -802,51 +1044,73 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     solvForm->addRow(tr("Head convergence (HEAD_TOLERANCE)"), m_simHeadToleranceSpin);
 
     m_simNodeContinuityCombo = new QComboBox(solvGroup);
-    m_simNodeContinuityCombo->addItem(tr("Explicit (legacy)"),   QStringLiteral("EXPLICIT"));
+    m_simNodeContinuityCombo->addItem(tr("Explicit (legacy)"), QStringLiteral("EXPLICIT"));
     m_simNodeContinuityCombo->addItem(tr("Semi-implicit (new)"), QStringLiteral("SEMI_IMPLICIT"));
-    m_simNodeContinuityCombo->setToolTip(tr(
-        "NODE_CONTINUITY. Semi-implicit requires the refactored engine."));
+    m_simNodeContinuityCombo->setToolTip(
+        tr("NODE_CONTINUITY. Semi-implicit requires the refactored engine."));
     solvForm->addRow(tr("Node continuity"), m_simNodeContinuityCombo);
 
     m_simAndersonAccelBox = new QCheckBox(tr("Anderson acceleration (ANDERSON_ACCEL)"), solvGroup);
-    m_simAndersonAccelBox->setToolTip(tr(
-        "Refactored-engine option for iterative-solver acceleration."));
+    m_simAndersonAccelBox->setToolTip(
+        tr("Refactored-engine option for iterative-solver acceleration."));
     solvForm->addRow(QString(), m_simAndersonAccelBox);
 
     m_simThreadsSpin = new QSpinBox(solvGroup);
     m_simThreadsSpin->setRange(0, 256);
     m_simThreadsSpin->setSpecialValueText(tr("auto"));
-    m_simThreadsSpin->setToolTip(tr(
-        "Number of OpenMP worker threads written to [OPTIONS] THREADS for "
-        "new projects. 0 = engine auto. The Reset button maxes this to the "
-        "machine's logical-processor count."));
+    {
+        SWMM_ThreadInfo ti{};
+        swmm_get_thread_info(&ti);
+        m_simThreadsSpin->setToolTip(
+            tr("Number of OpenMP worker threads written to [OPTIONS] THREADS for "
+               "new projects. 0 = engine auto. Values above the machine's logical "
+               "processors are allowed but oversubscribe the CPU. The Reset button "
+               "sets this to the machine's logical-processor count.\n\n%1")
+                .arg(SimulationOptionsDialog::threadLimitsSummary(ti)));
+        // Suffix shows the hardware limit next to the value (0 = auto has none).
+        const int logical = ti.logical_cpus;
+        /**
+         * @brief Describe worker-thread hardware capacity beside the draft count. Argument `v`:
+         * requested threads, zero means auto. Returns: no value; no suffix for auto/unknown
+         * hardware, otherwise identifies logical count and oversubscription without restricting the
+         * choice.
+         */
+        auto updateSuffix = [this, logical](int v) {
+            if (v == 0 || logical <= 0) {
+                m_simThreadsSpin->setSuffix(QString());
+                return;
+            }
+            m_simThreadsSpin->setSuffix(v > logical
+                                            ? tr(" / %1 logical — oversubscribed").arg(logical)
+                                            : tr(" / %1 logical").arg(logical));
+        };
+        connect(m_simThreadsSpin, qOverload<int>(&QSpinBox::valueChanged), this, updateSuffix);
+        updateSuffix(m_simThreadsSpin->value());
+    }
     solvForm->addRow(tr("Worker threads (THREADS)"), m_simThreadsSpin);
 
-    outer->addWidget(solvGroup);
-    outer->addStretch(1);
-    return page;
+    solverLay->addWidget(solvGroup);
 }
 
-QWidget *PreferencesDialog::buildTwoDDefaultsPage()
+void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplLay,
+                                             QVBoxLayout *meshLay)
 {
-    auto *page  = new QWidget(this);
-    auto *outer = new QVBoxLayout(page);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(12);
+    // Construction parent only — see addDynamicWaveDefaultGroups.
+    QWidget *const page = this;
 
-    auto *intro = new QLabel(
-        tr("Defaults for the 2D overland-flow model: the [2D_OPTIONS] keys "
-           "written into new projects (when the 2D module default on the "
-           "Simulation Defaults page is enabled) and used whenever a project "
-           "has no value for a key, plus the seed values the Generate Mesh "
-           "dialog starts from. Distances are metres; the mesh dialog "
-           "converts to the project's unit system."), page);
+    auto *intro = new QLabel(tr("Defaults for the 2D overland-flow model: the [2D_OPTIONS] keys "
+                                "written into new projects (when the 2D module default on the "
+                                "Simulation Defaults page is enabled) and used whenever a project "
+                                "has no value for a key, plus the seed values the Generate Mesh "
+                                "dialog starts from. Distances are metres; the mesh dialog "
+                                "converts to the project's unit system."),
+                             page);
     intro->setWordWrap(true);
-    outer->addWidget(intro);
+    lay->addWidget(intro);
 
     // ── 2D solver ────────────────────────────────────────────────────────
     auto *solvGroup = new QGroupBox(tr("2D solver ([2D_OPTIONS])"), page);
-    auto *solvForm  = new QFormLayout(solvGroup);
+    auto *solvForm = new QFormLayout(solvGroup);
 
     m_twoDMaxTimestepSpin = new QDoubleSpinBox(solvGroup);
     m_twoDMaxTimestepSpin->setRange(0.001, 3600.0);
@@ -855,7 +1119,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     solvForm->addRow(tr("Maximum timestep (MAX_TIMESTEP)"), m_twoDMaxTimestepSpin);
 
     m_twoDThetaSpin = new QDoubleSpinBox(solvGroup);
-    m_twoDThetaSpin->setRange(0.001, 1.0);   // engine requires (0, 1]
+    m_twoDThetaSpin->setRange(0.001, 1.0); // engine requires (0, 1]
     m_twoDThetaSpin->setDecimals(3);
     m_twoDThetaSpin->setSingleStep(0.05);
     solvForm->addRow(tr("Implicitness (THETA)"), m_twoDThetaSpin);
@@ -867,7 +1131,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     solvForm->addRow(tr("Courant number (CFL_NUMBER)"), m_twoDCflSpin);
 
     m_twoDLtsTiersSpin = new QSpinBox(solvGroup);
-    m_twoDLtsTiersSpin->setRange(1, 8);      // engine requires 1..8
+    m_twoDLtsTiersSpin->setRange(1, 8); // engine requires 1..8
     m_twoDLtsTiersSpin->setToolTip(tr("Local-timestepping tiers; 1 = global timestep."));
     solvForm->addRow(tr("Local timestep tiers (LTS_TIERS)"), m_twoDLtsTiersSpin);
 
@@ -882,18 +1146,16 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDFroudeMaxSpin->setDecimals(2);
     solvForm->addRow(tr("Froude limiter (FROUDE_MAX)"), m_twoDFroudeMaxSpin);
 
-    m_twoDAdvectionBox = new QCheckBox(
-        tr("Convective momentum flux (ADVECTION)"), solvGroup);
-    m_twoDAdvectionBox->setToolTip(
-        tr("Include the convective momentum flux at interior faces. Off "
-           "reproduces the established pure local-inertial results."));
+    m_twoDAdvectionBox = new QCheckBox(tr("Convective momentum flux (ADVECTION)"), solvGroup);
+    m_twoDAdvectionBox->setToolTip(tr("Include the convective momentum flux at interior faces. Off "
+                                      "reproduces the established pure local-inertial results."));
     solvForm->addRow(QString(), m_twoDAdvectionBox);
 
-    outer->addWidget(solvGroup);
+    lay->addWidget(solvGroup);
 
     // ── Wet/dry & VFR ────────────────────────────────────────────────────
     auto *wetGroup = new QGroupBox(tr("Wet/dry && VFR"), page);
-    auto *wetForm  = new QFormLayout(wetGroup);
+    auto *wetForm = new QFormLayout(wetGroup);
 
     m_twoDDryDepthSpin = new QDoubleSpinBox(wetGroup);
     m_twoDDryDepthSpin->setRange(0.0, 1.0);
@@ -925,14 +1187,13 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDVfrMinWetFracSpin = new QDoubleSpinBox(wetGroup);
     m_twoDVfrMinWetFracSpin->setRange(0.0, 1.0);
     m_twoDVfrMinWetFracSpin->setDecimals(4);
-    wetForm->addRow(tr("VFR minimum wet fraction (VFR_MIN_WET_FRAC)"),
-                    m_twoDVfrMinWetFracSpin);
+    wetForm->addRow(tr("VFR minimum wet fraction (VFR_MIN_WET_FRAC)"), m_twoDVfrMinWetFracSpin);
 
-    outer->addWidget(wetGroup);
+    lay->addWidget(wetGroup);
 
     // ── Coupling ─────────────────────────────────────────────────────────
     auto *cplGroup = new QGroupBox(tr("1D↔2D coupling"), page);
-    auto *cplForm  = new QFormLayout(cplGroup);
+    auto *cplForm = new QFormLayout(cplGroup);
 
     m_twoDCouplingCdSpin = new QDoubleSpinBox(cplGroup);
     m_twoDCouplingCdSpin->setRange(0.0, 10.0);
@@ -946,19 +1207,37 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDCouplingSyncSpin->setSpecialValueText(tr("every routing step"));
     cplForm->addRow(tr("Exchange interval (COUPLING_SYNC)"), m_twoDCouplingSyncSpin);
 
-    m_twoDCouplingAreaAutoBox = new QCheckBox(
-        tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
+    m_twoDCouplingAreaAutoBox =
+        new QCheckBox(tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
     cplForm->addRow(QString(), m_twoDCouplingAreaAutoBox);
 
-    outer->addWidget(cplGroup);
+    m_twoDCouplingLawCombo = new QComboBox(cplGroup);
+    m_twoDCouplingLawCombo->addItem(tr("Orifice (legacy)"), QStringLiteral("ORIFICE"));
+    m_twoDCouplingLawCombo->addItem(tr("Weir / orifice"), QStringLiteral("WEIR_ORIFICE"));
+    cplForm->addRow(tr("Exchange law (COUPLING_LAW)"), m_twoDCouplingLawCombo);
+
+    m_twoDCouplingHeadCombo = new QComboBox(cplGroup);
+    m_twoDCouplingHeadCombo->addItem(tr("Coupling cell (legacy)"), QStringLiteral("CELL"));
+    m_twoDCouplingHeadCombo->addItem(tr("Cells around the vertex"), QStringLiteral("VERTEX"));
+    m_twoDCouplingHeadCombo->addItem(tr("Wet mean over the structure area"),
+                                     QStringLiteral("STENCIL_WET_MEAN"));
+    cplForm->addRow(tr("Surface head (COUPLING_HEAD)"), m_twoDCouplingHeadCombo);
+
+    m_twoDCouplingPondCombo = new QComboBox(cplGroup);
+    m_twoDCouplingPondCombo->addItem(tr("Cell footprint (legacy)"), QStringLiteral("FOOTPRINT"));
+    m_twoDCouplingPondCombo->addItem(tr("Chamber only"), QStringLiteral("CHAMBER"));
+    m_twoDCouplingPondCombo->addItem(tr("Tracking the wet footprint"), QStringLiteral("TRACKING"));
+    cplForm->addRow(tr("Junction pond (COUPLING_POND_MODE)"), m_twoDCouplingPondCombo);
+
+    cplLay->addWidget(cplGroup);
 
     // ── Rainfall & reporting ─────────────────────────────────────────────
     auto *rainGroup = new QGroupBox(tr("Rainfall && reporting"), page);
-    auto *rainForm  = new QFormLayout(rainGroup);
+    auto *rainForm = new QFormLayout(rainGroup);
 
     m_twoDRainfallModeCombo = new QComboBox(rainGroup);
-    m_twoDRainfallModeCombo->addItem(tr("Natural neighbour"),
-                                     QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("Natural neighbour"), QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("Nearest neighbour"), QStringLiteral("NEAREST_NEIGHBOUR"));
     m_twoDRainfallModeCombo->addItem(tr("System mean"), QStringLiteral("SYSTEM"));
     m_twoDRainfallModeCombo->addItem(tr("None"), QStringLiteral("NONE"));
     rainForm->addRow(tr("Direct 2D rainfall (RAINFALL_MODE)"), m_twoDRainfallModeCombo);
@@ -966,45 +1245,56 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDReport2DBox = new QCheckBox(tr("Report 2D results (REPORT_2D)"), rainGroup);
     rainForm->addRow(QString(), m_twoDReport2DBox);
 
-    outer->addWidget(rainGroup);
+    cplLay->addWidget(rainGroup);
 
     // ── Mesh generation seeds ────────────────────────────────────────────
-    auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
-    auto *meshForm  = new QFormLayout(meshGroup);
+    auto *meshTabs = new QTabWidget(page);
+    meshTabs->setObjectName(QStringLiteral("meshDefaultsTabs"));
+    m_meshResolution = new MeshResolutionWidget(meshTabs);
+    meshTabs->addTab(m_meshResolution, tr("Cell size and terrain"));
+    auto *meshGroup = new QGroupBox(tr("Geometry and elevation defaults"), meshTabs);
+    auto *meshForm = new QFormLayout(meshGroup);
+    meshTabs->addTab(meshGroup, tr("Geometry and elevation"));
 
     m_twoDMeshMinAngleSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMinAngleSpin->setRange(0.0, 34.0);
+    m_twoDMeshMinAngleSpin->setRange(20.0, 33.0);
     m_twoDMeshMinAngleSpin->setDecimals(1);
     m_twoDMeshMinAngleSpin->setSuffix(QStringLiteral("°"));
+    m_twoDMeshMinAngleSpin->setToolTip(tr(
+        "Higher values, especially near 33 degrees, can greatly increase the cell count and spend the budget before terrain refinement. Input geometry, the cascade floor and resource limits can prevent the target from being reached."));
     meshForm->addRow(tr("Minimum triangle angle"), m_twoDMeshMinAngleSpin);
 
-    m_twoDMeshMaxAreaSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMaxAreaSpin->setRange(0.0, 1e9);
-    m_twoDMeshMaxAreaSpin->setDecimals(2);
-    m_twoDMeshMaxAreaSpin->setSpecialValueText(tr("unconstrained"));
-    meshForm->addRow(tr("Maximum triangle area (m²)"), m_twoDMeshMaxAreaSpin);
+    m_twoDMeshStreetQuadsBox =
+        new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshStreetQuadsBox);
 
-    m_twoDMeshMaxSteinerSpin = new QSpinBox(meshGroup);
-    m_twoDMeshMaxSteinerSpin->setRange(-1, 100000000);
-    m_twoDMeshMaxSteinerSpin->setSpecialValueText(tr("unlimited"));
-    meshForm->addRow(tr("Maximum Steiner points"), m_twoDMeshMaxSteinerSpin);
+    m_twoDMeshTrimTurnSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshTrimTurnSpin->setRange(0.0, 45.0);
+    m_twoDMeshTrimTurnSpin->setDecimals(1);
+    m_twoDMeshTrimTurnSpin->setSuffix(QStringLiteral("°"));
+    m_twoDMeshTrimTurnSpin->setSpecialValueText(tr("off"));
+    meshForm->addRow(tr("Trim boundary vertices: max turn"), m_twoDMeshTrimTurnSpin);
+
+    m_twoDMeshTrimDeviationSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshTrimDeviationSpin->setRange(0.0, 1000.0);
+    m_twoDMeshTrimDeviationSpin->setDecimals(3);
+    m_twoDMeshTrimDeviationSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshTrimDeviationSpin->setSpecialValueText(tr("cell size / 10"));
+    meshForm->addRow(tr("Trim boundary vertices: max deviation"), m_twoDMeshTrimDeviationSpin);
 
     m_twoDMeshIdwPowerSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshIdwPowerSpin->setRange(0.1, 10.0);
     m_twoDMeshIdwPowerSpin->setDecimals(1);
     meshForm->addRow(tr("IDW power"), m_twoDMeshIdwPowerSpin);
 
-    m_twoDMeshSimplifyEpsSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshSimplifyEpsSpin->setRange(0.0, 1000.0);
-    m_twoDMeshSimplifyEpsSpin->setDecimals(3);
-    m_twoDMeshSimplifyEpsSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Simplify tolerance"), m_twoDMeshSimplifyEpsSpin);
-
-    m_twoDMeshSnapEpsSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshSnapEpsSpin->setRange(0.0, 1000.0);
-    m_twoDMeshSnapEpsSpin->setDecimals(3);
-    m_twoDMeshSnapEpsSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Snap tolerance"), m_twoDMeshSnapEpsSpin);
+    m_twoDMeshNodesBox =
+        new QCheckBox(tr("Nodes as mesh vertices (except virtual junctions)"), meshGroup);
+    m_twoDMeshNodesRimBox = new QCheckBox(tr("at rim elevation instead of terrain"), meshGroup);
+    auto *nodesRow = new QHBoxLayout;
+    nodesRow->addWidget(m_twoDMeshNodesBox);
+    nodesRow->addWidget(m_twoDMeshNodesRimBox);
+    nodesRow->addStretch();
+    meshForm->addRow(QString(), nodesRow);
 
     m_twoDMeshFlattenRadSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshFlattenRadSpin->setRange(0.0, 1000.0);
@@ -1012,40 +1302,13 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDMeshFlattenRadSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Node flatten radius"), m_twoDMeshFlattenRadSpin);
 
-    m_twoDMeshMinSepBox = new QCheckBox(tr("Enforce minimum node separation"),
-                                        meshGroup);
+    m_twoDMeshMinSepBox = new QCheckBox(tr("Enforce minimum node separation"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshMinSepBox);
     m_twoDMeshMinSepSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshMinSepSpin->setRange(0.0, 1000.0);
     m_twoDMeshMinSepSpin->setDecimals(2);
     m_twoDMeshMinSepSpin->setSuffix(QStringLiteral(" m"));
     meshForm->addRow(tr("Minimum node separation"), m_twoDMeshMinSepSpin);
-
-    m_twoDMeshThinningBox = new QCheckBox(tr("Thin DTM points"), meshGroup);
-    meshForm->addRow(QString(), m_twoDMeshThinningBox);
-    m_twoDMeshThinningTolSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshThinningTolSpin->setRange(0.0, 1.0);
-    m_twoDMeshThinningTolSpin->setDecimals(2);
-    meshForm->addRow(tr("Thinning tolerance (normal dot)"), m_twoDMeshThinningTolSpin);
-    m_twoDMeshThinningPassesSpin = new QSpinBox(meshGroup);
-    m_twoDMeshThinningPassesSpin->setRange(1, 64);
-    meshForm->addRow(tr("Thinning passes"), m_twoDMeshThinningPassesSpin);
-
-    m_twoDMeshBoundaryBufSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshBoundaryBufSpin->setRange(0.0, 1000.0);
-    m_twoDMeshBoundaryBufSpin->setDecimals(2);
-    m_twoDMeshBoundaryBufSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshBoundaryBufSpin->setSpecialValueText(tr("auto"));
-    meshForm->addRow(tr("Boundary point filter buffer"), m_twoDMeshBoundaryBufSpin);
-
-    m_twoDMeshMaxEdgeBox = new QCheckBox(tr("Densify long boundary edges"),
-                                         meshGroup);
-    meshForm->addRow(QString(), m_twoDMeshMaxEdgeBox);
-    m_twoDMeshMaxEdgeSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMaxEdgeSpin->setRange(0.1, 10000.0);
-    m_twoDMeshMaxEdgeSpin->setDecimals(2);
-    m_twoDMeshMaxEdgeSpin->setSuffix(QStringLiteral(" m"));
-    meshForm->addRow(tr("Maximum boundary edge length"), m_twoDMeshMaxEdgeSpin);
 
     m_twoDMeshManningsSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshManningsSpin->setRange(0.001, 1.0);
@@ -1061,24 +1324,22 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
            "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
     meshForm->addRow(tr("Constant initial depth"), m_twoDMeshInitDepthSpin);
 
-    m_twoDMeshOutputExternalBox = new QCheckBox(
-        tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
+    m_twoDMeshOutputExternalBox =
+        new QCheckBox(tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
 
-    outer->addWidget(meshGroup);
-    outer->addStretch(1);
-    return page;
+    meshLay->addWidget(meshTabs);
 }
 
 QWidget *PreferencesDialog::buildMapDisplayPage()
 {
-    auto *page  = new QWidget(this);
+    auto *page = new QWidget(this);
     auto *outer = new QVBoxLayout(page);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
     auto *group = new QGroupBox(tr("Scale Bar"), page);
-    auto *f     = new QFormLayout(group);
+    auto *f = new QFormLayout(group);
 
     // Color button (same pattern as selection colors)
     m_scaleBarColorBtn = new QPushButton(group);
@@ -1086,18 +1347,16 @@ QWidget *PreferencesDialog::buildMapDisplayPage()
     m_scaleBarColorBtn->setAutoFillBackground(true);
     connect(m_scaleBarColorBtn, &QPushButton::clicked, this, [this]() {
         const QColor c = QColorDialog::getColor(
-            m_pendingScaleBarColor.isValid() ? m_pendingScaleBarColor : Qt::black,
-            this,
-            tr("Scale bar color"),
-            QColorDialog::ShowAlphaChannel);
-        if (!c.isValid()) return;
+            m_pendingScaleBarColor.isValid() ? m_pendingScaleBarColor : Qt::black, this,
+            tr("Scale bar color"), QColorDialog::ShowAlphaChannel);
+        if (!c.isValid())
+            return;
         m_pendingScaleBarColor = c;
-        const QString css = QStringLiteral(
-            "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid palette(mid); padding: 3px 8px; }")
-            .arg(c.name(QColor::HexRgb),
-                 c.lightness() > 128 ? QStringLiteral("black")
-                                     : QStringLiteral("white"));
+        const QString css =
+            QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                           "border: 1px solid palette(mid); padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
         m_scaleBarColorBtn->setStyleSheet(css);
         m_scaleBarColorBtn->setText(c.name(QColor::HexRgb).toUpper());
     });
@@ -1109,61 +1368,62 @@ QWidget *PreferencesDialog::buildMapDisplayPage()
     f->addRow(tr("Line width"), m_scaleBarPenWidthSpin);
 
     m_scaleBarPenStyleCombo = new QComboBox(group);
-    m_scaleBarPenStyleCombo->addItem(tr("Solid"),       static_cast<int>(Qt::SolidLine));
-    m_scaleBarPenStyleCombo->addItem(tr("Dash"),        static_cast<int>(Qt::DashLine));
-    m_scaleBarPenStyleCombo->addItem(tr("Dot"),         static_cast<int>(Qt::DotLine));
-    m_scaleBarPenStyleCombo->addItem(tr("Dash-Dot"),    static_cast<int>(Qt::DashDotLine));
+    m_scaleBarPenStyleCombo->addItem(tr("Solid"), static_cast<int>(Qt::SolidLine));
+    m_scaleBarPenStyleCombo->addItem(tr("Dash"), static_cast<int>(Qt::DashLine));
+    m_scaleBarPenStyleCombo->addItem(tr("Dot"), static_cast<int>(Qt::DotLine));
+    m_scaleBarPenStyleCombo->addItem(tr("Dash-Dot"), static_cast<int>(Qt::DashDotLine));
     m_scaleBarPenStyleCombo->addItem(tr("Dash-Dot-Dot"), static_cast<int>(Qt::DashDotDotLine));
     f->addRow(tr("Line style"), m_scaleBarPenStyleCombo);
 
     m_scaleBarFontBtn = new QPushButton(group);
     connect(m_scaleBarFontBtn, &QPushButton::clicked, this, [this]() {
         bool ok = false;
-        const QFont f = QFontDialog::getFont(&ok, m_pendingScaleBarFont, this, tr("Scale bar font"));
-        if (!ok) return;
+        const QFont f =
+            QFontDialog::getFont(&ok, m_pendingScaleBarFont, this, tr("Scale bar font"));
+        if (!ok)
+            return;
         m_pendingScaleBarFont = f;
-        m_scaleBarFontBtn->setText(QStringLiteral("%1, %2pt")
-            .arg(f.family()).arg(f.pointSize()));
+        m_scaleBarFontBtn->setText(QStringLiteral("%1, %2pt").arg(f.family()).arg(f.pointSize()));
     });
     f->addRow(tr("Font"), m_scaleBarFontBtn);
 
     m_scaleBarUnitsCombo = new QComboBox(group);
-    m_scaleBarUnitsCombo->addItem(tr("Auto"),       0);
-    m_scaleBarUnitsCombo->addItem(tr("Meters"),     1);
-    m_scaleBarUnitsCombo->addItem(tr("Feet"),        2);
+    m_scaleBarUnitsCombo->addItem(tr("Auto"), 0);
+    m_scaleBarUnitsCombo->addItem(tr("Meters"), 1);
+    m_scaleBarUnitsCombo->addItem(tr("Feet"), 2);
     m_scaleBarUnitsCombo->addItem(tr("Kilometers"), 3);
-    m_scaleBarUnitsCombo->addItem(tr("Miles"),      4);
+    m_scaleBarUnitsCombo->addItem(tr("Miles"), 4);
     f->addRow(tr("Units"), m_scaleBarUnitsCombo);
 
     m_scaleBarPositionCombo = new QComboBox(group);
-    m_scaleBarPositionCombo->addItem(tr("Bottom Left"),  0);
+    m_scaleBarPositionCombo->addItem(tr("Bottom Left"), 0);
     m_scaleBarPositionCombo->addItem(tr("Bottom Right"), 1);
-    m_scaleBarPositionCombo->addItem(tr("Top Left"),     2);
-    m_scaleBarPositionCombo->addItem(tr("Top Right"),    3);
+    m_scaleBarPositionCombo->addItem(tr("Top Left"), 2);
+    m_scaleBarPositionCombo->addItem(tr("Top Right"), 3);
     f->addRow(tr("Position"), m_scaleBarPositionCombo);
 
     m_scaleBarMaxBarLengthSpin = new QSpinBox(group);
     m_scaleBarMaxBarLengthSpin->setRange(20, 500);
     m_scaleBarMaxBarLengthSpin->setSuffix(tr(" px"));
-    m_scaleBarMaxBarLengthSpin->setToolTip(tr(
-        "Reference pixel length used to calculate the nearest round-number "
-        "distance. Larger values produce a longer scale bar."));
+    m_scaleBarMaxBarLengthSpin->setToolTip(
+        tr("Reference pixel length used to calculate the nearest round-number "
+           "distance. Larger values produce a longer scale bar."));
     f->addRow(tr("Max bar length"), m_scaleBarMaxBarLengthSpin);
 
     m_scaleBarLabelDecimalsSpin = new QSpinBox(group);
     m_scaleBarLabelDecimalsSpin->setRange(-1, 4);
     m_scaleBarLabelDecimalsSpin->setSpecialValueText(tr("Auto"));
-    m_scaleBarLabelDecimalsSpin->setToolTip(tr(
-        "Number of decimal places shown in the scale bar label.\n"
-        "-1 (Auto) removes trailing zeros (e.g. \"1 km\", \"2.5 km\").\n"
-        "0 rounds to a whole number (e.g. \"1 km\").\n"
-        "1–4 shows that many fixed decimal places."));
+    m_scaleBarLabelDecimalsSpin->setToolTip(
+        tr("Number of decimal places shown in the scale bar label.\n"
+           "-1 (Auto) removes trailing zeros (e.g. \"1 km\", \"2.5 km\").\n"
+           "0 rounds to a whole number (e.g. \"1 km\").\n"
+           "1–4 shows that many fixed decimal places."));
     f->addRow(tr("Label decimals"), m_scaleBarLabelDecimalsSpin);
 
     m_scaleBarCompactNotationBox = new QCheckBox(tr("Compact notation (\"1k\" / \"500m\")"), group);
-    m_scaleBarCompactNotationBox->setToolTip(tr(
-        "When checked, omits the space and shortens units:\n"
-        "\"1 km\" → \"1k\",  \"500 m\" → \"500m\"."));
+    m_scaleBarCompactNotationBox->setToolTip(
+        tr("When checked, omits the space and shortens units:\n"
+           "\"1 km\" → \"1k\",  \"500 m\" → \"500m\"."));
     f->addRow(QString(), m_scaleBarCompactNotationBox);
 
     outer->addWidget(group);
@@ -1173,39 +1433,48 @@ QWidget *PreferencesDialog::buildMapDisplayPage()
 
 QWidget *PreferencesDialog::buildMeasureToolPage()
 {
-    auto *page  = new QWidget(this);
+    auto *page = new QWidget(this);
     auto *outer = new QVBoxLayout(page);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
     // Helper: create a color button with live background preview.
+    /**
+     * @brief Allocate a measurement-color swatch. Argument `parent`: optional Qt group owner.
+     * Returns: new minimum-width auto-fill button; no picker is wired until caller connects it.
+     */
     auto makeColorBtn = [this](QGroupBox *parent) -> QPushButton * {
         auto *btn = new QPushButton(parent);
         btn->setMinimumWidth(120);
         btn->setAutoFillBackground(true);
         return btn;
     };
+    /**
+     * @brief Display a measurement color without persistence. Argument `btn`: required borrowed
+     * swatch. Argument `c`: color rendered as RGB with light/dark contrasting text. Returns: no
+     * value; pending state is managed by the caller.
+     */
     auto applyColorBtn = [](QPushButton *btn, const QColor &c) {
-        const QString css = QStringLiteral(
-            "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid palette(mid); padding: 3px 8px; }")
-            .arg(c.name(QColor::HexRgb),
-                 c.lightness() > 128 ? QStringLiteral("black")
-                                     : QStringLiteral("white"));
+        const QString css =
+            QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                           "border: 1px solid palette(mid); padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
         btn->setStyleSheet(css);
         btn->setText(c.name(QColor::HexRgb).toUpper());
     };
 
     // ── Line & vertex group ───────────────────────────────────────────────
     auto *lineGroup = new QGroupBox(tr("Lines && Vertices"), page);
-    auto *lf        = new QFormLayout(lineGroup);
+    auto *lf = new QFormLayout(lineGroup);
 
     m_measureLineColorBtn = makeColorBtn(lineGroup);
     connect(m_measureLineColorBtn, &QPushButton::clicked, this, [this, applyColorBtn]() {
         const QColor c = QColorDialog::getColor(
-            m_pendingMeasureLineColor.isValid() ? m_pendingMeasureLineColor : Qt::red,
-            this, tr("Measure line color"));
-        if (!c.isValid()) return;
+            m_pendingMeasureLineColor.isValid() ? m_pendingMeasureLineColor : Qt::red, this,
+            tr("Measure line color"));
+        if (!c.isValid())
+            return;
         m_pendingMeasureLineColor = c;
         applyColorBtn(m_measureLineColorBtn, c);
     });
@@ -1214,37 +1483,39 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
 
     // ── Labels group ─────────────────────────────────────────────────────
     auto *labelGroup = new QGroupBox(tr("Labels"), page);
-    auto *labf       = new QFormLayout(labelGroup);
+    auto *labf = new QFormLayout(labelGroup);
 
     m_measureLabelFontBtn = new QPushButton(labelGroup);
     connect(m_measureLabelFontBtn, &QPushButton::clicked, this, [this]() {
         bool ok = false;
-        const QFont f = QFontDialog::getFont(&ok, m_pendingMeasureLabelFont,
-                                              this, tr("Measure label font"));
-        if (!ok) return;
+        const QFont f =
+            QFontDialog::getFont(&ok, m_pendingMeasureLabelFont, this, tr("Measure label font"));
+        if (!ok)
+            return;
         m_pendingMeasureLabelFont = f;
-        m_measureLabelFontBtn->setText(QStringLiteral("%1, %2pt")
-            .arg(f.family()).arg(f.pointSize()));
+        m_measureLabelFontBtn->setText(
+            QStringLiteral("%1, %2pt").arg(f.family()).arg(f.pointSize()));
     });
     labf->addRow(tr("Font"), m_measureLabelFontBtn);
 
     m_measureLabelDecimalsSpin = new QSpinBox(labelGroup);
     m_measureLabelDecimalsSpin->setRange(0, 6);
-    m_measureLabelDecimalsSpin->setToolTip(tr("Number of decimal places shown in distance and area labels."));
+    m_measureLabelDecimalsSpin->setToolTip(
+        tr("Number of decimal places shown in distance and area labels."));
     labf->addRow(tr("Decimal places"), m_measureLabelDecimalsSpin);
     outer->addWidget(labelGroup);
 
     // ── Area fill group ───────────────────────────────────────────────────
     auto *fillGroup = new QGroupBox(tr("Area Fill"), page);
-    auto *ff        = new QFormLayout(fillGroup);
+    auto *ff = new QFormLayout(fillGroup);
 
     m_measureFillColorBtn = makeColorBtn(fillGroup);
     connect(m_measureFillColorBtn, &QPushButton::clicked, this, [this, applyColorBtn]() {
         const QColor c = QColorDialog::getColor(
-            m_pendingMeasureFillColor.isValid() ? m_pendingMeasureFillColor
-                                                : QColor(100, 149, 237),
+            m_pendingMeasureFillColor.isValid() ? m_pendingMeasureFillColor : QColor(100, 149, 237),
             this, tr("Area fill color"));
-        if (!c.isValid()) return;
+        if (!c.isValid())
+            return;
         m_pendingMeasureFillColor = c;
         applyColorBtn(m_measureFillColorBtn, c);
     });
@@ -1253,7 +1524,8 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
     m_measureFillOpacitySpin = new QSpinBox(fillGroup);
     m_measureFillOpacitySpin->setRange(0, 100);
     m_measureFillOpacitySpin->setSuffix(tr(" %"));
-    m_measureFillOpacitySpin->setToolTip(tr("Opacity of the area polygon fill (0 = transparent, 100 = opaque)."));
+    m_measureFillOpacitySpin->setToolTip(
+        tr("Opacity of the area polygon fill (0 = transparent, 100 = opaque)."));
     ff->addRow(tr("Fill opacity"), m_measureFillOpacitySpin);
     outer->addWidget(fillGroup);
 
@@ -1263,42 +1535,59 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
 
 QWidget *PreferencesDialog::buildPlotsPage()
 {
-    auto *page  = new QWidget(this);
+    auto *page = new QWidget(this);
     auto *outer = new QVBoxLayout(page);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(12);
 
-    auto *intro = new QLabel(tr(
-        "Default numeric precision for chart plots (profiles, time series, "
-        "curves, scatter). Each plot's own properties dialog can override "
-        "these. Time/date axes are unaffected."), page);
+    auto *intro = new QLabel(tr("Default numeric precision for chart plots (profiles, time series, "
+                                "curves, scatter). Each plot's own properties dialog can override "
+                                "these. Time/date axes are unaffected."),
+                             page);
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
     // Helper: build a "Number format" combo + "Precision" spin pair into a
     // group box. Returns nothing — widgets are assigned to the members.
-    auto buildAxisGroup = [this, page](const QString &title,
-                                       QComboBox *&formatCombo
-                                       ) {
+    /**
+     * @brief Create a draft number-format preset group. Argument `title`: axis caption. Argument
+     * `formatCombo`: output pointer replaced with a new group-owned combo (prior pointed object is
+     * not deleted). Returns: new page-owned group; item data stores formatting presets.
+     */
+    auto buildAxisGroup = [this, page](const QString &title, QComboBox *&formatCombo) {
         auto *group = new QGroupBox(title, page);
-        auto *f     = new QFormLayout(group);
+        auto *f = new QFormLayout(group);
 
         // One dropdown of meaningful combinations rather than a mode enum
         // plus a free integer: "3" on its own said nothing about whether it
         // meant decimals or significant figures, and allowed 0 sig figs.
         formatCombo = new QComboBox(group);
-        formatCombo->addItem(tr("12  (integer)"),              openswmmvis::plot::Integer);
-        formatCombo->addItem(tr("12.3  (1 decimal)"),          openswmmvis::plot::Decimals1);
-        formatCombo->addItem(tr("12.35  (2 decimals)"),        openswmmvis::plot::Decimals2);
-        formatCombo->addItem(tr("12.346  (3 decimals)"),       openswmmvis::plot::Decimals3);
-        formatCombo->addItem(tr("12.3457  (4 decimals)"),      openswmmvis::plot::Decimals4);
-        formatCombo->addItem(tr("12.345679  (6 decimals)"),    openswmmvis::plot::Decimals6);
-        formatCombo->addItem(tr("3 significant figures"),      openswmmvis::plot::SigFigs3);
-        formatCombo->addItem(tr("4 significant figures"),      openswmmvis::plot::SigFigs4);
-        formatCombo->addItem(tr("6 significant figures"),      openswmmvis::plot::SigFigs6);
-        formatCombo->setToolTip(tr(
-            "Default number format for this axis on newly-opened plots. "
-            "Each plot can override it in its own options."));
+        formatCombo->addItem(tr("12  (integer)"), openswmmvis::plot::Integer);
+        formatCombo->addItem(tr("12.3  (1 decimal)"), openswmmvis::plot::Decimals1);
+        formatCombo->addItem(tr("12.35  (2 decimals)"), openswmmvis::plot::Decimals2);
+        formatCombo->addItem(tr("12.346  (3 decimals)"), openswmmvis::plot::Decimals3);
+        formatCombo->addItem(tr("12.3457  (4 decimals)"), openswmmvis::plot::Decimals4);
+        formatCombo->addItem(tr("12.345679  (6 decimals)"), openswmmvis::plot::Decimals6);
+        formatCombo->addItem(tr("3 significant figures"), openswmmvis::plot::SigFigs3);
+        formatCombo->addItem(tr("4 significant figures"), openswmmvis::plot::SigFigs4);
+        formatCombo->addItem(tr("6 significant figures"), openswmmvis::plot::SigFigs6);
+        formatCombo->addItem(tr("1.23e+01  (scientific, 2 decimals)"),
+                             openswmmvis::plot::Scientific2);
+        formatCombo->addItem(tr("1.235e+01  (scientific, 3 decimals)"),
+                             openswmmvis::plot::Scientific3);
+        formatCombo->addItem(tr("1.2346e+01  (scientific, 4 decimals)"),
+                             openswmmvis::plot::Scientific4);
+        formatCombo->addItem(tr("12.35e+00  (engineering, 2 decimals)"),
+                             openswmmvis::plot::Engineering2);
+        formatCombo->addItem(tr("12.346e+00  (engineering, 3 decimals)"),
+                             openswmmvis::plot::Engineering3);
+        formatCombo->addItem(tr("12,346  (thousands, integer)"),
+                             openswmmvis::plot::ThousandsInteger);
+        formatCombo->addItem(tr("12,345.7  (thousands, 1 decimal)"), openswmmvis::plot::Thousands1);
+        formatCombo->addItem(tr("12,345.68  (thousands, 2 decimals)"),
+                             openswmmvis::plot::Thousands2);
+        formatCombo->setToolTip(tr("Default number format for this axis on newly-opened plots. "
+                                   "Each plot can override it in its own options."));
         f->addRow(tr("Number format"), formatCombo);
         return group;
     };
@@ -1316,17 +1605,17 @@ QWidget *PreferencesDialog::buildPlotsPage()
 QWidget *PreferencesDialog::buildAppearancePage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
 
-    auto *hint = new QLabel(tr(
-        "Choose how the application chrome is themed. \"System\" follows "
-        "the operating system's light/dark appearance automatically."), page);
+    auto *hint = new QLabel(tr("Choose how the application chrome is themed. \"System\" follows "
+                               "the operating system's light/dark appearance automatically."),
+                            page);
     hint->setWordWrap(true);
     f->addRow(hint);
 
     m_appearanceSystemRadio = new QRadioButton(tr("&System (follow OS appearance)"), page);
-    m_appearanceLightRadio  = new QRadioButton(tr("&Light"), page);
-    m_appearanceDarkRadio   = new QRadioButton(tr("&Dark"), page);
+    m_appearanceLightRadio = new QRadioButton(tr("&Light"), page);
+    m_appearanceDarkRadio = new QRadioButton(tr("&Dark"), page);
     f->addRow(m_appearanceSystemRadio);
     f->addRow(m_appearanceLightRadio);
     f->addRow(m_appearanceDarkRadio);
@@ -1351,6 +1640,10 @@ void PreferencesDialog::openAtCategory(const QString &label)
 {
     if (!m_categoryList)
         return;
+    if (!property(openswmmvis::ui::kLayoutRestoredOnceProp).toBool()) {
+        openswmmvis::ui::restoreDialogLayout(this);
+        setProperty(openswmmvis::ui::kLayoutRestoredOnceProp, true);
+    }
     for (int row = 0; row < m_categoryList->count(); ++row) {
         if (m_categoryList->item(row)->text() == label) {
             m_categoryList->setCurrentRow(row);
@@ -1362,6 +1655,7 @@ void PreferencesDialog::openAtCategory(const QString &label)
 void PreferencesDialog::readFromManager()
 {
     auto *p = PreferencesManager::instance();
+    m_projectOpenDirectoryEdit->setText(p->projectOpenDirectory());
 
     {
         using openswmmvis::ui::ThemeManager;
@@ -1375,21 +1669,27 @@ void PreferencesDialog::readFromManager()
     m_autoLengthBox->setChecked(p->autoLengthEnabled());
     {
         QString currentEngine = p->defaultEngineMode();
-        if (currentEngine.isEmpty()) currentEngine = QLatin1String(SWMM_VERSION);
+        if (currentEngine.isEmpty())
+            currentEngine = QLatin1String(SWMM_VERSION);
         const int idx = m_defaultEngineCombo->findData(currentEngine);
         m_defaultEngineCombo->setCurrentIndex(idx >= 0 ? idx : 0);
     }
     m_profileMaxPathsSpin->setValue(p->profileMaxPaths());
 
     {
+        /**
+         * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+         * borrowed button. Argument `held`: output member color reference. Argument `c`: input
+         * color copied, RGB text/background shown with contrasting foreground. Returns: no value;
+         * performs no preference write.
+         */
         auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
             held = c;
-            const QString css = QStringLiteral(
-                "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid palette(mid); padding: 3px 8px; }")
-                .arg(c.name(QColor::HexRgb),
-                     c.lightness() > 128 ? QStringLiteral("black")
-                                         : QStringLiteral("white"));
+            const QString css =
+                QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                               "border: 1px solid palette(mid); padding: 3px 8px; }")
+                    .arg(c.name(QColor::HexRgb),
+                         c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
             btn->setStyleSheet(css);
             btn->setText(c.name(QColor::HexRgb).toUpper());
         };
@@ -1398,7 +1698,7 @@ void PreferencesDialog::readFromManager()
         const QPen ep = p->profileEndEndpointPen();
         applyColor(m_profileStartColorBtn, m_pendingProfileStartColor, sp.color());
         m_profileStartWidthSpin->setValue(sp.widthF());
-        applyColor(m_profileEndColorBtn,   m_pendingProfileEndColor,   ep.color());
+        applyColor(m_profileEndColorBtn, m_pendingProfileEndColor, ep.color());
         m_profileEndWidthSpin->setValue(ep.widthF());
     }
 
@@ -1406,20 +1706,26 @@ void PreferencesDialog::readFromManager()
     m_dragThresholdPxSpin->setValue(p->dragThresholdPx());
     m_clearOnMissBox->setChecked(p->clearSelectionOnMiss());
 
+    /**
+     * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+     * borrowed button. Argument `held`: output member color reference. Argument `c`: input color
+     * copied, RGB text/background shown with contrasting foreground. Returns: no value; performs no
+     * preference write.
+     */
     auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
         held = c;
-        QString css = QStringLiteral(
-            "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid palette(mid); padding: 3px 8px; }")
-            .arg(c.name(QColor::HexRgb),
-                 c.lightness() > 128 ? QStringLiteral("black")
-                                     : QStringLiteral("white"));
+        QString css =
+            QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                           "border: 1px solid palette(mid); padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
         btn->setStyleSheet(css);
         btn->setText(c.name(QColor::HexRgb).toUpper());
     };
     // Selection pens + brushes reflect live through SelectionRendering-
     // Prefs's getters; refresh the model rather than re-populating widgets.
-    if (m_selectionModel) m_selectionModel->refreshValues();
+    if (m_selectionModel)
+        m_selectionModel->refreshValues();
 
     const int toolIdx = m_defaultToolCombo->findData(p->defaultTool());
     m_defaultToolCombo->setCurrentIndex(toolIdx >= 0 ? toolIdx : 0);
@@ -1439,66 +1745,78 @@ void PreferencesDialog::readFromManager()
     m_qsgMeshBox->setChecked(p->qsgMeshRenderEnabled());
     // Link pens reflect live through LinkRenderingPrefs's getters, so
     // refresh the QPropertyModel rather than re-populating widgets.
-    if (m_linkPenModel) m_linkPenModel->refreshValues();
+    if (m_linkPenModel)
+        m_linkPenModel->refreshValues();
     // Node symbols reflect live through NodeRenderingPrefs's getters.
-    if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
+    if (m_nodeStyleModel)
+        m_nodeStyleModel->refreshValues();
 
     m_progressTickMsSpin->setValue(p->progressTickMs());
+    m_live2DHistoryCapSpin->setValue(p->live2DHistoryCap());
+    m_live2DHistoryMBSpin->setValue(p->live2DHistoryMB());
 
     // Simulation Defaults
     {
         const auto d = p->simulationDefaults();
+        /**
+         * @brief Select a matching combo data value with first-row fallback. Argument `c`: required
+         * borrowed combo. Argument `v`: item-data key. Returns: no value; only widget state
+         * changes.
+         */
         auto selData = [](QComboBox *c, const QString &v) {
             const int i = c->findData(v);
             c->setCurrentIndex(i >= 0 ? i : 0);
         };
-        selData(m_simFlowUnitsCombo,        d.flowUnits.isEmpty() ? QStringLiteral("CFS") : d.flowUnits);
+        selData(m_simFlowUnitsCombo, d.flowUnits.isEmpty() ? QStringLiteral("CFS") : d.flowUnits);
         // FlowUnits combo uses raw text, not userData — fall back to setCurrentText.
         m_simFlowUnitsCombo->setCurrentText(d.flowUnits);
-        selData(m_simInfiltrationCombo,     d.infiltrationModel);
-        selData(m_simFlowRoutingCombo,      d.flowRouting);
+        selData(m_simInfiltrationCombo, d.infiltrationModel);
+        selData(m_simFlowRoutingCombo, d.flowRouting);
 
-        m_simIgnoreRainfallBox   ->setChecked(!d.ignoreRainfall);
-        m_simIgnoreRdiiBox       ->setChecked(!d.ignoreRdii);
-        m_simIgnoreSnowmeltBox   ->setChecked(!d.ignoreSnowmelt);
+        m_simIgnoreRainfallBox->setChecked(!d.ignoreRainfall);
+        m_simIgnoreRdiiBox->setChecked(!d.ignoreRdii);
+        m_simIgnoreSnowmeltBox->setChecked(!d.ignoreSnowmelt);
         m_simIgnoreGroundwaterBox->setChecked(!d.ignoreGroundwater);
-        m_simIgnoreQualityBox    ->setChecked(!d.ignoreQuality);
-        m_simIgnoreRoutingBox    ->setChecked(!d.ignoreRouting);
-        m_simModule2DBox         ->setChecked(d.module2DEnabled);
+        m_simIgnoreQualityBox->setChecked(!d.ignoreQuality);
+        m_simIgnoreRoutingBox->setChecked(!d.ignoreRouting);
+        m_simModule2DBox->setChecked(d.module2DEnabled);
 
-        m_simAllowPondingBox     ->setChecked(d.allowPonding);
-        m_simSkipSteadyStateBox  ->setChecked(d.skipSteadyState);
-        m_simMinSlopePctSpin     ->setValue(d.minSlopePct);
+        m_simAllowPondingBox->setChecked(d.allowPonding);
+        m_simSkipSteadyStateBox->setChecked(d.skipSteadyState);
+        m_simMinSlopePctSpin->setValue(d.minSlopePct);
 
-        m_simDryDaysSpin         ->setValue(d.dryDays);
+        m_simDryDaysSpin->setValue(d.dryDays);
 
-        m_simReportStepSpin      ->setValue(qMax(1, d.reportStepSec / 60));
-        m_simDryStepSpin         ->setValue(qMax(1, d.dryStepSec    / 60));
-        m_simWetStepSpin         ->setValue(qMax(1, d.wetStepSec    / 60));
-        m_simRuleStepSpin        ->setValue(d.ruleStepSec);
-        m_simRoutingStepSpin     ->setValue(d.routingStepSec);
+        m_simReportStepSpin->setValue(qMax(1, d.reportStepSec / 60));
+        m_simDryStepSpin->setValue(qMax(1, d.dryStepSec / 60));
+        m_simWetStepSpin->setValue(qMax(1, d.wetStepSec / 60));
+        m_simRuleStepSpin->setValue(d.ruleStepSec);
+        m_simRoutingStepSpin->setValue(d.routingStepSec);
 
-        m_simSysFlowTolSpin      ->setValue(d.sysFlowTolPct);
-        m_simLatFlowTolSpin      ->setValue(d.latFlowTolPct);
-        m_simMaxTrialsSpin       ->setValue(d.maxTrials);
+        m_simSysFlowTolSpin->setValue(d.sysFlowTolPct);
+        m_simLatFlowTolSpin->setValue(d.latFlowTolPct);
+        m_simMaxTrialsSpin->setValue(d.maxTrials);
 
-        selData(m_simInertialDampCombo,     d.inertialDamping);
-        selData(m_simNormalFlowCombo,       d.normalFlowLimited);
-        selData(m_simForceMainCombo,        d.forceMainEquation);
-        selData(m_simSurchargeCombo,        d.surchargeMethod);
+        selData(m_simInertialDampCombo, d.inertialDamping);
+        selData(m_simNormalFlowCombo, d.normalFlowLimited);
+        selData(m_simForceMainCombo, d.forceMainEquation);
+        selData(m_simSurchargeCombo, d.surchargeMethod);
+        selData(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin->setValue(d.ufK3);
 
-        m_simVariableStepBox     ->setChecked(d.variableStepOn);
+        m_simVariableStepBox->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
-        m_simMinRoutingStepSpin  ->setValue(d.minRoutingStepSec);
-        m_simLengtheningStepSpin ->setValue(d.lengtheningStepSec);
-        m_simHeadToleranceSpin   ->setValue(d.headTolerance);
+        m_simMinRoutingStepSpin->setValue(d.minRoutingStepSec);
+        m_simLengtheningStepSpin->setValue(d.lengtheningStepSec);
+        m_simHeadToleranceSpin->setValue(d.headTolerance);
 
-        selData(m_simNodeContinuityCombo,   d.nodeContinuity);
-        m_simAndersonAccelBox    ->setChecked(d.andersonAccel);
-        m_simThreadsSpin         ->setValue(d.threads);
+        selData(m_simNodeContinuityCombo, d.nodeContinuity);
+        m_simAndersonAccelBox->setChecked(d.andersonAccel);
+        m_simThreadsSpin->setValue(d.threads);
     }
 
-    // 2D Defaults (shared widget-apply helper — also used by Reset)
+    // Simulation Defaults > 2D tabs (shared widget-apply helper — also
+    // used by Reset)
     applyTwoDDefaultsToWidgets(p->twoDDefaults());
 
     // Object Defaults (self-contained page — pulls both US and SI sets)
@@ -1513,7 +1831,8 @@ void PreferencesDialog::readFromManager()
     }
     m_pendingScaleBarFont = QFont(p->scaleBarFontFamily(), p->scaleBarFontSize());
     m_scaleBarFontBtn->setText(QStringLiteral("%1, %2pt")
-        .arg(m_pendingScaleBarFont.family()).arg(m_pendingScaleBarFont.pointSize()));
+                                   .arg(m_pendingScaleBarFont.family())
+                                   .arg(m_pendingScaleBarFont.pointSize()));
     {
         const int idx = m_scaleBarUnitsCombo->findData(p->scaleBarUnits());
         m_scaleBarUnitsCombo->setCurrentIndex(idx >= 0 ? idx : 0);
@@ -1530,33 +1849,34 @@ void PreferencesDialog::readFromManager()
     applyColor(m_measureLineColorBtn, m_pendingMeasureLineColor, p->measureLineColor());
     m_pendingMeasureLabelFont = QFont(p->measureLabelFontFamily(), p->measureLabelFontSize());
     m_measureLabelFontBtn->setText(QStringLiteral("%1, %2pt")
-        .arg(m_pendingMeasureLabelFont.family()).arg(m_pendingMeasureLabelFont.pointSize()));
+                                       .arg(m_pendingMeasureLabelFont.family())
+                                       .arg(m_pendingMeasureLabelFont.pointSize()));
     m_measureLabelDecimalsSpin->setValue(p->measureLabelDecimals());
     applyColor(m_measureFillColorBtn, m_pendingMeasureFillColor, p->measureFillColor());
     m_measureFillOpacitySpin->setValue(p->measureFillOpacity());
 
     // Plots — default numeric precision
     // Stored as mode + count; shown as the nearest single preset.
-    m_plotXFormatCombo->setCurrentIndex(m_plotXFormatCombo->findData(
-        openswmmvis::plot::presetForNumberFormat(
+    m_plotXFormatCombo->setCurrentIndex(
+        m_plotXFormatCombo->findData(openswmmvis::plot::presetForNumberFormat(
             static_cast<openswmmvis::plot::NumberFormatMode>(p->plotXAxisFormatMode()),
             p->plotXAxisPrecision())));
-    m_plotYFormatCombo->setCurrentIndex(m_plotYFormatCombo->findData(
-        openswmmvis::plot::presetForNumberFormat(
+    m_plotYFormatCombo->setCurrentIndex(
+        m_plotYFormatCombo->findData(openswmmvis::plot::presetForNumberFormat(
             static_cast<openswmmvis::plot::NumberFormatMode>(p->plotYAxisFormatMode()),
             p->plotYAxisPrecision())));
 
     // Naming prefixes
-    m_prefixJunction    ->setText(p->elementNamePrefix(QStringLiteral("junction")));
-    m_prefixOutfall     ->setText(p->elementNamePrefix(QStringLiteral("outfall")));
-    m_prefixStorage     ->setText(p->elementNamePrefix(QStringLiteral("storage")));
-    m_prefixDivider     ->setText(p->elementNamePrefix(QStringLiteral("divider")));
-    m_prefixConduit     ->setText(p->elementNamePrefix(QStringLiteral("conduit")));
-    m_prefixPump        ->setText(p->elementNamePrefix(QStringLiteral("pump")));
-    m_prefixOrifice     ->setText(p->elementNamePrefix(QStringLiteral("orifice")));
-    m_prefixWeir        ->setText(p->elementNamePrefix(QStringLiteral("weir")));
-    m_prefixOutlet      ->setText(p->elementNamePrefix(QStringLiteral("outlet")));
-    m_prefixRaingage    ->setText(p->elementNamePrefix(QStringLiteral("raingage")));
+    m_prefixJunction->setText(p->elementNamePrefix(QStringLiteral("junction")));
+    m_prefixOutfall->setText(p->elementNamePrefix(QStringLiteral("outfall")));
+    m_prefixStorage->setText(p->elementNamePrefix(QStringLiteral("storage")));
+    m_prefixDivider->setText(p->elementNamePrefix(QStringLiteral("divider")));
+    m_prefixConduit->setText(p->elementNamePrefix(QStringLiteral("conduit")));
+    m_prefixPump->setText(p->elementNamePrefix(QStringLiteral("pump")));
+    m_prefixOrifice->setText(p->elementNamePrefix(QStringLiteral("orifice")));
+    m_prefixWeir->setText(p->elementNamePrefix(QStringLiteral("weir")));
+    m_prefixOutlet->setText(p->elementNamePrefix(QStringLiteral("outlet")));
+    m_prefixRaingage->setText(p->elementNamePrefix(QStringLiteral("raingage")));
     m_prefixSubcatchment->setText(p->elementNamePrefix(QStringLiteral("subcatchment")));
 }
 
@@ -1568,50 +1888,52 @@ QWidget *PreferencesDialog::buildObjectDefaultsPage()
     return m_objectDefaultsPage;
 }
 
-void PreferencesDialog::applyTwoDDefaultsToWidgets(
-    const PreferencesManager::TwoDDefaults &d)
+void PreferencesDialog::applyTwoDDefaultsToWidgets(const PreferencesManager::TwoDDefaults &d)
 {
+    /**
+     * @brief Select a matching combo data value with first-row fallback. Argument `c`: required
+     * borrowed combo. Argument `v`: item-data key. Returns: no value; only widget state changes.
+     */
     auto selData = [](QComboBox *c, const QString &v) {
         const int i = c->findData(v, Qt::UserRole, Qt::MatchFixedString);
         c->setCurrentIndex(i >= 0 ? i : 0);
     };
-    m_twoDMaxTimestepSpin    ->setValue(d.maxTimestepSec);
-    m_twoDThetaSpin          ->setValue(d.theta);
-    m_twoDCflSpin            ->setValue(d.cflNumber);
-    m_twoDLtsTiersSpin       ->setValue(d.ltsTiers);
-    m_twoDHMoveSpin          ->setValue(d.hMove);
-    m_twoDFroudeMaxSpin      ->setValue(d.froudeMax);
-    m_twoDAdvectionBox       ->setChecked(d.advection);
-    m_twoDDryDepthSpin       ->setValue(d.dryDepth);
-    m_twoDLimiterEpsSpin     ->setValue(d.limiterEpsilon);
-    m_twoDFluxDhEpsSpin      ->setValue(d.fluxDhEps);
+    m_twoDMaxTimestepSpin->setValue(d.maxTimestepSec);
+    m_twoDThetaSpin->setValue(d.theta);
+    m_twoDCflSpin->setValue(d.cflNumber);
+    m_twoDLtsTiersSpin->setValue(d.ltsTiers);
+    m_twoDHMoveSpin->setValue(d.hMove);
+    m_twoDFroudeMaxSpin->setValue(d.froudeMax);
+    m_twoDAdvectionBox->setChecked(d.advection);
+    m_twoDDryDepthSpin->setValue(d.dryDepth);
+    m_twoDLimiterEpsSpin->setValue(d.limiterEpsilon);
+    m_twoDFluxDhEpsSpin->setValue(d.fluxDhEps);
     selData(m_twoDCellClosureCombo, d.cellClosure);
-    selData(m_twoDFaceReconCombo,   d.faceReconstruction);
-    m_twoDVfrMinWetFracSpin  ->setValue(d.vfrMinWetFrac);
-    m_twoDCouplingCdSpin     ->setValue(d.couplingCd);
-    m_twoDCouplingSyncSpin   ->setValue(d.couplingSync);
+    selData(m_twoDFaceReconCombo, d.faceReconstruction);
+    m_twoDVfrMinWetFracSpin->setValue(d.vfrMinWetFrac);
+    m_twoDCouplingCdSpin->setValue(d.couplingCd);
+    m_twoDCouplingSyncSpin->setValue(d.couplingSync);
     m_twoDCouplingAreaAutoBox->setChecked(d.couplingAreaAuto);
+    selData(m_twoDCouplingLawCombo, d.couplingLaw);
+    selData(m_twoDCouplingHeadCombo, d.couplingHead);
+    selData(m_twoDCouplingPondCombo, d.couplingPondMode);
     selData(m_twoDRainfallModeCombo, d.rainfallMode);
-    m_twoDReport2DBox        ->setChecked(d.report2D);
+    m_twoDReport2DBox->setChecked(d.report2D);
 
-    m_twoDMeshMinAngleSpin      ->setValue(d.meshMinAngleDeg);
-    m_twoDMeshMaxAreaSpin       ->setValue(d.meshMaxArea);
-    m_twoDMeshMaxSteinerSpin    ->setValue(d.meshMaxSteiner);
-    m_twoDMeshIdwPowerSpin      ->setValue(d.meshIdwPower);
-    m_twoDMeshSimplifyEpsSpin   ->setValue(d.meshSimplifyEpsM);
-    m_twoDMeshSnapEpsSpin       ->setValue(d.meshSnapEpsM);
-    m_twoDMeshFlattenRadSpin    ->setValue(d.meshNodeFlattenRadM);
-    m_twoDMeshMinSepBox         ->setChecked(d.meshMinNodeSepOn);
-    m_twoDMeshMinSepSpin        ->setValue(d.meshMinNodeSepM);
-    m_twoDMeshThinningBox       ->setChecked(d.meshThinningOn);
-    m_twoDMeshThinningTolSpin   ->setValue(d.meshThinningTol);
-    m_twoDMeshThinningPassesSpin->setValue(d.meshThinningPasses);
-    m_twoDMeshBoundaryBufSpin   ->setValue(d.meshBoundaryBufferM);
-    m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
-    m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
-    m_twoDMeshManningsSpin      ->setValue(d.meshManningsN);
-    m_twoDMeshInitDepthSpin     ->setValue(d.meshInitDepth);
-    m_twoDMeshOutputExternalBox ->setChecked(d.meshOutputExternal);
+    m_meshResolution->setSettings(d.resolutionSettings());
+    m_twoDMeshMinAngleSpin->setValue(d.meshMinAngleDeg);
+    m_twoDMeshStreetQuadsBox->setChecked(d.meshQuadsBetweenBreaklines);
+    m_twoDMeshTrimTurnSpin->setValue(d.meshTrimTurnDeg);
+    m_twoDMeshTrimDeviationSpin->setValue(d.meshTrimDeviationM);
+    m_twoDMeshIdwPowerSpin->setValue(d.meshIdwPower);
+    m_twoDMeshFlattenRadSpin->setValue(d.meshNodeFlattenRadM);
+    m_twoDMeshNodesBox->setChecked(d.meshNodesAsVertices);
+    m_twoDMeshNodesRimBox->setChecked(d.meshNodesUseRim);
+    m_twoDMeshMinSepBox->setChecked(d.meshMinNodeSepOn);
+    m_twoDMeshMinSepSpin->setValue(d.meshMinNodeSepM);
+    m_twoDMeshManningsSpin->setValue(d.meshManningsN);
+    m_twoDMeshInitDepthSpin->setValue(d.meshInitDepth);
+    m_twoDMeshOutputExternalBox->setChecked(d.meshOutputExternal);
 }
 
 void PreferencesDialog::writeToManager()
@@ -1626,11 +1948,12 @@ void PreferencesDialog::writeToManager()
         else if (m_appearanceDarkRadio->isChecked())
             mode = ThemeManager::Mode::Dark;
         p->setAppearanceMode(ThemeManager::modeToString(mode));
-        ThemeManager::instance()->setMode(mode);   // applies live on Apply/OK
+        ThemeManager::instance()->setMode(mode); // applies live on Apply/OK
     }
 
     LicenseAgreementDialog::setShowOnStartup(m_showLicenseOnStartupBox->isChecked());
     p->setAutoLengthEnabled(m_autoLengthBox->isChecked());
+    p->setProjectOpenDirectory(m_projectOpenDirectoryEdit->text());
     p->setDefaultEngineMode(m_defaultEngineCombo->currentData().toString());
     p->setProfileMaxPaths(m_profileMaxPathsSpin->value());
 
@@ -1656,9 +1979,8 @@ void PreferencesDialog::writeToManager()
     // Prefs's Q_PROPERTY setters at edit time — nothing to flush here.
 
     p->setDefaultTool(m_defaultToolCombo->currentData().toString());
-    p->setDefaultCrsMode(m_crsAutoRadio->isChecked()
-                         ? QStringLiteral("LocalAuto")
-                         : QStringLiteral("EPSG"));
+    p->setDefaultCrsMode(m_crsAutoRadio->isChecked() ? QStringLiteral("LocalAuto")
+                                                     : QStringLiteral("EPSG"));
     p->setDefaultCrsAuthority(m_crsAuthorityEdit->text().trimmed());
     p->setDefaultCrsCode(m_crsCodeSpin->value());
 
@@ -1673,95 +1995,99 @@ void PreferencesDialog::writeToManager()
     // setters at edit time — nothing to flush here.
 
     p->setProgressTickMs(m_progressTickMsSpin->value());
+    p->setLive2DHistoryCap(m_live2DHistoryCapSpin->value());
+    p->setLive2DHistoryMB(m_live2DHistoryMBSpin->value());
 
     // Simulation Defaults — package the page state and persist via one setter.
     {
         PreferencesManager::SimulationDefaults d;
-        d.flowUnits          = m_simFlowUnitsCombo->currentText();
-        d.infiltrationModel  = m_simInfiltrationCombo->currentData().toString();
-        d.flowRouting        = m_simFlowRoutingCombo->currentData().toString();
+        d.flowUnits = m_simFlowUnitsCombo->currentText();
+        d.infiltrationModel = m_simInfiltrationCombo->currentData().toString();
+        d.flowRouting = m_simFlowRoutingCombo->currentData().toString();
 
-        d.ignoreRainfall     = !m_simIgnoreRainfallBox   ->isChecked();
-        d.ignoreRdii         = !m_simIgnoreRdiiBox       ->isChecked();
-        d.ignoreSnowmelt     = !m_simIgnoreSnowmeltBox   ->isChecked();
-        d.ignoreGroundwater  = !m_simIgnoreGroundwaterBox->isChecked();
-        d.ignoreQuality      = !m_simIgnoreQualityBox    ->isChecked();
-        d.ignoreRouting      = !m_simIgnoreRoutingBox    ->isChecked();
-        d.module2DEnabled    =  m_simModule2DBox         ->isChecked();
+        d.ignoreRainfall = !m_simIgnoreRainfallBox->isChecked();
+        d.ignoreRdii = !m_simIgnoreRdiiBox->isChecked();
+        d.ignoreSnowmelt = !m_simIgnoreSnowmeltBox->isChecked();
+        d.ignoreGroundwater = !m_simIgnoreGroundwaterBox->isChecked();
+        d.ignoreQuality = !m_simIgnoreQualityBox->isChecked();
+        d.ignoreRouting = !m_simIgnoreRoutingBox->isChecked();
+        d.module2DEnabled = m_simModule2DBox->isChecked();
 
-        d.allowPonding       =  m_simAllowPondingBox     ->isChecked();
-        d.skipSteadyState    =  m_simSkipSteadyStateBox  ->isChecked();
-        d.minSlopePct        =  m_simMinSlopePctSpin     ->value();
+        d.allowPonding = m_simAllowPondingBox->isChecked();
+        d.skipSteadyState = m_simSkipSteadyStateBox->isChecked();
+        d.minSlopePct = m_simMinSlopePctSpin->value();
 
-        d.dryDays            =  m_simDryDaysSpin         ->value();
+        d.dryDays = m_simDryDaysSpin->value();
 
-        d.reportStepSec      =  m_simReportStepSpin      ->value() * 60;
-        d.dryStepSec         =  m_simDryStepSpin         ->value() * 60;
-        d.wetStepSec         =  m_simWetStepSpin         ->value() * 60;
-        d.ruleStepSec        =  m_simRuleStepSpin        ->value();
-        d.routingStepSec     =  m_simRoutingStepSpin     ->value();
+        d.reportStepSec = m_simReportStepSpin->value() * 60;
+        d.dryStepSec = m_simDryStepSpin->value() * 60;
+        d.wetStepSec = m_simWetStepSpin->value() * 60;
+        d.ruleStepSec = m_simRuleStepSpin->value();
+        d.routingStepSec = m_simRoutingStepSpin->value();
 
-        d.maxTrials          =  m_simMaxTrialsSpin       ->value();
-        d.headTolerance      =  m_simHeadToleranceSpin   ->value();
-        d.sysFlowTolPct      =  m_simSysFlowTolSpin      ->value();
-        d.latFlowTolPct      =  m_simLatFlowTolSpin      ->value();
+        d.maxTrials = m_simMaxTrialsSpin->value();
+        d.headTolerance = m_simHeadToleranceSpin->value();
+        d.sysFlowTolPct = m_simSysFlowTolSpin->value();
+        d.latFlowTolPct = m_simLatFlowTolSpin->value();
 
-        d.inertialDamping    =  m_simInertialDampCombo   ->currentData().toString();
-        d.normalFlowLimited  =  m_simNormalFlowCombo     ->currentData().toString();
-        d.forceMainEquation  =  m_simForceMainCombo      ->currentData().toString();
-        d.surchargeMethod    =  m_simSurchargeCombo      ->currentData().toString();
-        d.variableStepOn     =  m_simVariableStepBox     ->isChecked();
-        d.variableStepFactor =  m_simVariableStepFactorSpin->value();
-        d.minRoutingStepSec  =  m_simMinRoutingStepSpin  ->value();
-        d.lengtheningStepSec =  m_simLengtheningStepSpin ->value();
+        d.inertialDamping = m_simInertialDampCombo->currentData().toString();
+        d.normalFlowLimited = m_simNormalFlowCombo->currentData().toString();
+        d.forceMainEquation = m_simForceMainCombo->currentData().toString();
+        d.surchargeMethod = m_simSurchargeCombo->currentData().toString();
+        d.unsteadyFriction = m_simUnsteadyFrictionCombo->currentData().toString();
+        d.ufK3 = m_simUfK3Spin->value();
+        d.variableStepOn = m_simVariableStepBox->isChecked();
+        d.variableStepFactor = m_simVariableStepFactorSpin->value();
+        d.minRoutingStepSec = m_simMinRoutingStepSpin->value();
+        d.lengtheningStepSec = m_simLengtheningStepSpin->value();
 
-        d.nodeContinuity     =  m_simNodeContinuityCombo ->currentData().toString();
-        d.andersonAccel      =  m_simAndersonAccelBox    ->isChecked();
-        d.threads            =  m_simThreadsSpin         ->value();
+        d.nodeContinuity = m_simNodeContinuityCombo->currentData().toString();
+        d.andersonAccel = m_simAndersonAccelBox->isChecked();
+        d.threads = m_simThreadsSpin->value();
 
         p->setSimulationDefaults(d);
     }
 
-    // 2D Defaults — package the page state and persist via one setter.
+    // Simulation Defaults > 2D tabs — package the state, persist via one
+    // setter.
     {
         PreferencesManager::TwoDDefaults d;
-        d.maxTimestepSec     = m_twoDMaxTimestepSpin    ->value();
-        d.theta              = m_twoDThetaSpin          ->value();
-        d.cflNumber          = m_twoDCflSpin            ->value();
-        d.ltsTiers           = m_twoDLtsTiersSpin       ->value();
-        d.hMove              = m_twoDHMoveSpin          ->value();
-        d.froudeMax          = m_twoDFroudeMaxSpin      ->value();
-        d.advection          = m_twoDAdvectionBox       ->isChecked();
-        d.dryDepth           = m_twoDDryDepthSpin       ->value();
-        d.limiterEpsilon     = m_twoDLimiterEpsSpin     ->value();
-        d.fluxDhEps          = m_twoDFluxDhEpsSpin      ->value();
-        d.cellClosure        = m_twoDCellClosureCombo   ->currentData().toString();
-        d.faceReconstruction = m_twoDFaceReconCombo     ->currentData().toString();
-        d.vfrMinWetFrac      = m_twoDVfrMinWetFracSpin  ->value();
-        d.couplingCd         = m_twoDCouplingCdSpin     ->value();
-        d.couplingSync       = m_twoDCouplingSyncSpin   ->value();
-        d.couplingAreaAuto   = m_twoDCouplingAreaAutoBox->isChecked();
-        d.rainfallMode       = m_twoDRainfallModeCombo  ->currentData().toString();
-        d.report2D           = m_twoDReport2DBox        ->isChecked();
+        d.maxTimestepSec = m_twoDMaxTimestepSpin->value();
+        d.theta = m_twoDThetaSpin->value();
+        d.cflNumber = m_twoDCflSpin->value();
+        d.ltsTiers = m_twoDLtsTiersSpin->value();
+        d.hMove = m_twoDHMoveSpin->value();
+        d.froudeMax = m_twoDFroudeMaxSpin->value();
+        d.advection = m_twoDAdvectionBox->isChecked();
+        d.dryDepth = m_twoDDryDepthSpin->value();
+        d.limiterEpsilon = m_twoDLimiterEpsSpin->value();
+        d.fluxDhEps = m_twoDFluxDhEpsSpin->value();
+        d.cellClosure = m_twoDCellClosureCombo->currentData().toString();
+        d.faceReconstruction = m_twoDFaceReconCombo->currentData().toString();
+        d.vfrMinWetFrac = m_twoDVfrMinWetFracSpin->value();
+        d.couplingCd = m_twoDCouplingCdSpin->value();
+        d.couplingSync = m_twoDCouplingSyncSpin->value();
+        d.couplingAreaAuto = m_twoDCouplingAreaAutoBox->isChecked();
+        d.couplingLaw = m_twoDCouplingLawCombo->currentData().toString();
+        d.couplingHead = m_twoDCouplingHeadCombo->currentData().toString();
+        d.couplingPondMode = m_twoDCouplingPondCombo->currentData().toString();
+        d.rainfallMode = m_twoDRainfallModeCombo->currentData().toString();
+        d.report2D = m_twoDReport2DBox->isChecked();
 
-        d.meshMinAngleDeg       = m_twoDMeshMinAngleSpin      ->value();
-        d.meshMaxArea           = m_twoDMeshMaxAreaSpin       ->value();
-        d.meshMaxSteiner        = m_twoDMeshMaxSteinerSpin    ->value();
-        d.meshIdwPower          = m_twoDMeshIdwPowerSpin      ->value();
-        d.meshSimplifyEpsM      = m_twoDMeshSimplifyEpsSpin   ->value();
-        d.meshSnapEpsM          = m_twoDMeshSnapEpsSpin       ->value();
-        d.meshNodeFlattenRadM   = m_twoDMeshFlattenRadSpin    ->value();
-        d.meshMinNodeSepOn      = m_twoDMeshMinSepBox         ->isChecked();
-        d.meshMinNodeSepM       = m_twoDMeshMinSepSpin        ->value();
-        d.meshThinningOn        = m_twoDMeshThinningBox       ->isChecked();
-        d.meshThinningTol       = m_twoDMeshThinningTolSpin   ->value();
-        d.meshThinningPasses    = m_twoDMeshThinningPassesSpin->value();
-        d.meshBoundaryBufferM   = m_twoDMeshBoundaryBufSpin   ->value();
-        d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
-        d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();
-        d.meshManningsN         = m_twoDMeshManningsSpin      ->value();
-        d.meshInitDepth         = m_twoDMeshInitDepthSpin     ->value();
-        d.meshOutputExternal    = m_twoDMeshOutputExternalBox ->isChecked();
+        d.meshResolution = m_meshResolution->settings();
+        d.meshMinAngleDeg = m_twoDMeshMinAngleSpin->value();
+        d.meshQuadsBetweenBreaklines = m_twoDMeshStreetQuadsBox->isChecked();
+        d.meshTrimTurnDeg = m_twoDMeshTrimTurnSpin->value();
+        d.meshTrimDeviationM = m_twoDMeshTrimDeviationSpin->value();
+        d.meshIdwPower = m_twoDMeshIdwPowerSpin->value();
+        d.meshNodeFlattenRadM = m_twoDMeshFlattenRadSpin->value();
+        d.meshNodesAsVertices = m_twoDMeshNodesBox->isChecked();
+        d.meshNodesUseRim = m_twoDMeshNodesRimBox->isChecked();
+        d.meshMinNodeSepOn = m_twoDMeshMinSepBox->isChecked();
+        d.meshMinNodeSepM = m_twoDMeshMinSepSpin->value();
+        d.meshManningsN = m_twoDMeshManningsSpin->value();
+        d.meshInitDepth = m_twoDMeshInitDepthSpin->value();
+        d.meshOutputExternal = m_twoDMeshOutputExternalBox->isChecked();
 
         p->setTwoDDefaults(d);
     }
@@ -1796,47 +2122,72 @@ void PreferencesDialog::writeToManager()
 
     // Plots — default numeric precision
     {
-        const auto xf = openswmmvis::plot::numberFormatForPreset(
-            m_plotXFormatCombo->currentData().toInt());
+        const auto xf =
+            openswmmvis::plot::numberFormatForPreset(m_plotXFormatCombo->currentData().toInt());
         p->setPlotXAxisFormatMode(static_cast<int>(xf.mode));
         p->setPlotXAxisPrecision(xf.count);
-        const auto yf = openswmmvis::plot::numberFormatForPreset(
-            m_plotYFormatCombo->currentData().toInt());
+        const auto yf =
+            openswmmvis::plot::numberFormatForPreset(m_plotYFormatCombo->currentData().toInt());
         p->setPlotYAxisFormatMode(static_cast<int>(yf.mode));
         p->setPlotYAxisPrecision(yf.count);
     }
 
     // Naming prefixes
+    /**
+     * @brief Save one nonempty trimmed naming prefix. Argument `ed`: required borrowed line edit.
+     * Argument `kind`: manager element-kind key. Returns: no value; empty text leaves its previous
+     * setting unchanged.
+     */
     auto savePrefix = [&](QLineEdit *ed, const QString &kind) {
         const QString t = ed->text().trimmed();
-        if (!t.isEmpty()) p->setElementNamePrefix(kind, t);
+        if (!t.isEmpty())
+            p->setElementNamePrefix(kind, t);
     };
-    savePrefix(m_prefixJunction,     QStringLiteral("junction"));
-    savePrefix(m_prefixOutfall,      QStringLiteral("outfall"));
-    savePrefix(m_prefixStorage,      QStringLiteral("storage"));
-    savePrefix(m_prefixDivider,      QStringLiteral("divider"));
-    savePrefix(m_prefixConduit,      QStringLiteral("conduit"));
-    savePrefix(m_prefixPump,         QStringLiteral("pump"));
-    savePrefix(m_prefixOrifice,      QStringLiteral("orifice"));
-    savePrefix(m_prefixWeir,         QStringLiteral("weir"));
-    savePrefix(m_prefixOutlet,       QStringLiteral("outlet"));
-    savePrefix(m_prefixRaingage,     QStringLiteral("raingage"));
+    savePrefix(m_prefixJunction, QStringLiteral("junction"));
+    savePrefix(m_prefixOutfall, QStringLiteral("outfall"));
+    savePrefix(m_prefixStorage, QStringLiteral("storage"));
+    savePrefix(m_prefixDivider, QStringLiteral("divider"));
+    savePrefix(m_prefixConduit, QStringLiteral("conduit"));
+    savePrefix(m_prefixPump, QStringLiteral("pump"));
+    savePrefix(m_prefixOrifice, QStringLiteral("orifice"));
+    savePrefix(m_prefixWeir, QStringLiteral("weir"));
+    savePrefix(m_prefixOutlet, QStringLiteral("outlet"));
+    savePrefix(m_prefixRaingage, QStringLiteral("raingage"));
     savePrefix(m_prefixSubcatchment, QStringLiteral("subcatchment"));
+    if (auto *offline = findChild<QCheckBox *>(QStringLiteral("extensionNetworkOffline")))
+        QSettings().setValue(QStringLiteral("extensions/network/offline"), offline->isChecked());
 }
 
 void PreferencesDialog::onApply()
 {
+    if (const QString error = m_meshResolution->settings().validate(); !error.isEmpty()) {
+        QMessageBox::warning(this, tr("Mesh resolution settings"), error);
+        return;
+    }
     writeToManager();
+    for (const auto &entry : openswmmvis::extensionPreferences())
+        if (entry.owner && findChild<QWidget *>(entry.id))
+            entry.factory->apply();
 }
 
 void PreferencesDialog::onAccept()
 {
+    if (const QString error = m_meshResolution->settings().validate(); !error.isEmpty()) {
+        QMessageBox::warning(this, tr("Mesh resolution settings"), error);
+        return;
+    }
     writeToManager();
+    for (const auto &entry : openswmmvis::extensionPreferences())
+        if (entry.owner && findChild<QWidget *>(entry.id))
+            entry.factory->apply();
     accept();
 }
 
 void PreferencesDialog::onResetToDefaults()
 {
+    if (auto *offline = findChild<QCheckBox *>(QStringLiteral("extensionNetworkOffline")))
+        offline->setChecked(false);
+    m_projectOpenDirectoryEdit->clear();
     // Defaults mirror the `k…` constants in preferencesmanager.cpp — not
     // shared via a header because the dialog also wants to show them as
     // live values after a reset-click. Keep in sync if you change the
@@ -1850,22 +2201,25 @@ void PreferencesDialog::onResetToDefaults()
     m_profileMaxPathsSpin->setValue(100);
     m_profileHaloRadiusSpin->setValue(10);
     {
+        /**
+         * @brief Copy a color into pending state and update its swatch. Argument `btn`: required
+         * borrowed button. Argument `held`: output member color reference. Argument `c`: input
+         * color copied, RGB text/background shown with contrasting foreground. Returns: no value;
+         * performs no preference write.
+         */
         auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
             held = c;
-            const QString css = QStringLiteral(
-                "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid palette(mid); padding: 3px 8px; }")
-                .arg(c.name(QColor::HexRgb),
-                     c.lightness() > 128 ? QStringLiteral("black")
-                                         : QStringLiteral("white"));
+            const QString css =
+                QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                               "border: 1px solid palette(mid); padding: 3px 8px; }")
+                    .arg(c.name(QColor::HexRgb),
+                         c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
             btn->setStyleSheet(css);
             btn->setText(c.name(QColor::HexRgb).toUpper());
         };
-        applyColor(m_profileStartColorBtn, m_pendingProfileStartColor,
-                   QColor(0x2c, 0xa0, 0x2c));
+        applyColor(m_profileStartColorBtn, m_pendingProfileStartColor, QColor(0x2c, 0xa0, 0x2c));
         m_profileStartWidthSpin->setValue(3.0);
-        applyColor(m_profileEndColorBtn,   m_pendingProfileEndColor,
-                   QColor(0xd6, 0x27, 0x28));
+        applyColor(m_profileEndColorBtn, m_pendingProfileEndColor, QColor(0xd6, 0x27, 0x28));
         m_profileEndWidthSpin->setValue(3.0);
     }
 
@@ -1878,12 +2232,12 @@ void PreferencesDialog::onResetToDefaults()
     // preferencesmanager.cpp; refresh the property tree.
     {
         auto *p = PreferencesManager::instance();
-        const QStringList classes = { QStringLiteral("link"),
-                                      QStringLiteral("subcatchment"),
-                                      QStringLiteral("node"),
-                                      QStringLiteral("gage") };
-        for (const QString &c : classes) p->resetSelectionStyleToDefault(c);
-        if (m_selectionModel) m_selectionModel->refreshValues();
+        const QStringList classes = {QStringLiteral("link"), QStringLiteral("subcatchment"),
+                                     QStringLiteral("node"), QStringLiteral("gage")};
+        for (const QString &c : classes)
+            p->resetSelectionStyleToDefault(c);
+        if (m_selectionModel)
+            m_selectionModel->refreshValues();
     }
 
     const int selIdx = m_defaultToolCombo->findData(QStringLiteral("Select"));
@@ -1897,8 +2251,8 @@ void PreferencesDialog::onResetToDefaults()
     m_snapToVerticesBox->setChecked(true);
 
     m_labelLodSpin->setValue(0.5);
-    m_qsgNodesBox->setChecked(true);  // default ON
-    m_qsgMeshBox->setChecked(true);   // default ON
+    m_qsgNodesBox->setChecked(true); // default ON
+    m_qsgMeshBox->setChecked(true);  // default ON
 
     // Link pens — re-seed each type with its compile-time default
     // (see kConduitPenDefault / kPumpPenDefault / … in
@@ -1908,13 +2262,13 @@ void PreferencesDialog::onResetToDefaults()
     // refreshes the layer mirror.
     {
         auto *p = PreferencesManager::instance();
-        const QStringList keys = { QStringLiteral("conduit"),
-                                   QStringLiteral("pump"),
-                                   QStringLiteral("orifice"),
-                                   QStringLiteral("weir"),
-                                   QStringLiteral("outlet") };
-        for (const QString &k : keys) p->resetLinkPenToDefault(k);
-        if (m_linkPenModel) m_linkPenModel->refreshValues();
+        const QStringList keys = {QStringLiteral("conduit"), QStringLiteral("pump"),
+                                  QStringLiteral("orifice"), QStringLiteral("weir"),
+                                  QStringLiteral("outlet")};
+        for (const QString &k : keys)
+            p->resetLinkPenToDefault(k);
+        if (m_linkPenModel)
+            m_linkPenModel->refreshValues();
     }
 
     // Node symbols — wipe per-type pen / brush / size keys so the next
@@ -1922,82 +2276,98 @@ void PreferencesDialog::onResetToDefaults()
     // in preferencesmanager.cpp.
     {
         auto *p = PreferencesManager::instance();
-        const QStringList keys = { QStringLiteral("junction"),
-                                   QStringLiteral("outfall"),
-                                   QStringLiteral("storage"),
-                                   QStringLiteral("divider"),
-                                   QStringLiteral("virtual_junction") };
-        for (const QString &k : keys) p->resetNodeStyleToDefault(k);
-        if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
+        const QStringList keys = {
+            QStringLiteral("junction"),         QStringLiteral("outfall"),
+            QStringLiteral("storage"),          QStringLiteral("divider"),
+            QStringLiteral("virtual_junction"), QStringLiteral("inlet_junction"),
+            QStringLiteral("raingage"), // feedback C14
+            QStringLiteral("subcatchment")};
+        for (const QString &k : keys)
+            p->resetNodeStyleToDefault(k);
+        if (m_nodeStyleModel)
+            m_nodeStyleModel->refreshValues();
     }
 
+    /**
+     * @brief Reset a pending color and its swatch. Argument `btn`: required borrowed button.
+     * Argument `held`: member color reference updated by value. Argument `c`: seed color displayed
+     * as RGB. Returns: no value; does not persist the setting.
+     */
     auto resetColorButton = [](QPushButton *btn, QColor &held, const QColor &c) {
         held = c;
-        const QString css = QStringLiteral(
-            "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid palette(mid); padding: 3px 8px; }")
-            .arg(c.name(QColor::HexRgb),
-                 c.lightness() > 128 ? QStringLiteral("black")
-                                     : QStringLiteral("white"));
+        const QString css =
+            QStringLiteral("QPushButton { background-color: %1; color: %2; "
+                           "border: 1px solid palette(mid); padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black") : QStringLiteral("white"));
         btn->setStyleSheet(css);
         btn->setText(c.name(QColor::HexRgb).toUpper());
     };
 
     m_progressTickMsSpin->setValue(1000);
+    m_live2DHistoryCapSpin->setValue(2000);
+    m_live2DHistoryMBSpin->setValue(1024);
 
-    // Simulation Defaults — restore the struct's compile-time seeds and
-    // max the THREADS knob to the machine's logical-processor count
-    // (per the user request: "Number of threads should be maxed to the
-    // total number of logical processors").
+    // Simulation Defaults — restore the struct's compile-time seeds. THREADS
+    // resets to 0 (engine auto). It used to reset to the logical-processor
+    // count, but an explicit count bypasses the engine's Apple Silicon
+    // performance-core clamp and lets the OpenMP team spin against the GUI's
+    // own threads (engine measurement: T=8 unclamped 204 s vs T=4 57 s).
     {
-        const PreferencesManager::SimulationDefaults d;  // compile-time defaults
+        const PreferencesManager::SimulationDefaults d; // compile-time defaults
+        /**
+         * @brief Select a matching default combo item or its first entry. Argument `c`: required
+         * borrowed combo. Argument `v`: exact item-data value. Returns: no value; updates widget
+         * selection only.
+         */
         auto sel = [](QComboBox *c, const QString &v) {
             const int i = c->findData(v);
             c->setCurrentIndex(i >= 0 ? i : 0);
         };
         m_simFlowUnitsCombo->setCurrentText(d.flowUnits);
         sel(m_simInfiltrationCombo, d.infiltrationModel);
-        sel(m_simFlowRoutingCombo,  d.flowRouting);
+        sel(m_simFlowRoutingCombo, d.flowRouting);
 
-        m_simIgnoreRainfallBox   ->setChecked(!d.ignoreRainfall);
-        m_simIgnoreRdiiBox       ->setChecked(!d.ignoreRdii);
-        m_simIgnoreSnowmeltBox   ->setChecked(!d.ignoreSnowmelt);
+        m_simIgnoreRainfallBox->setChecked(!d.ignoreRainfall);
+        m_simIgnoreRdiiBox->setChecked(!d.ignoreRdii);
+        m_simIgnoreSnowmeltBox->setChecked(!d.ignoreSnowmelt);
         m_simIgnoreGroundwaterBox->setChecked(!d.ignoreGroundwater);
-        m_simIgnoreQualityBox    ->setChecked(!d.ignoreQuality);
-        m_simIgnoreRoutingBox    ->setChecked(!d.ignoreRouting);
-        m_simModule2DBox         ->setChecked(d.module2DEnabled);
-        m_simAllowPondingBox     ->setChecked(d.allowPonding);
-        m_simSkipSteadyStateBox  ->setChecked(d.skipSteadyState);
-        m_simMinSlopePctSpin     ->setValue(d.minSlopePct);
+        m_simIgnoreQualityBox->setChecked(!d.ignoreQuality);
+        m_simIgnoreRoutingBox->setChecked(!d.ignoreRouting);
+        m_simModule2DBox->setChecked(d.module2DEnabled);
+        m_simAllowPondingBox->setChecked(d.allowPonding);
+        m_simSkipSteadyStateBox->setChecked(d.skipSteadyState);
+        m_simMinSlopePctSpin->setValue(d.minSlopePct);
 
-        m_simDryDaysSpin         ->setValue(d.dryDays);
+        m_simDryDaysSpin->setValue(d.dryDays);
 
-        m_simReportStepSpin      ->setValue(d.reportStepSec / 60);
-        m_simDryStepSpin         ->setValue(d.dryStepSec    / 60);
-        m_simWetStepSpin         ->setValue(d.wetStepSec    / 60);
-        m_simRuleStepSpin        ->setValue(d.ruleStepSec);
-        m_simRoutingStepSpin     ->setValue(d.routingStepSec);
+        m_simReportStepSpin->setValue(d.reportStepSec / 60);
+        m_simDryStepSpin->setValue(d.dryStepSec / 60);
+        m_simWetStepSpin->setValue(d.wetStepSec / 60);
+        m_simRuleStepSpin->setValue(d.ruleStepSec);
+        m_simRoutingStepSpin->setValue(d.routingStepSec);
 
-        m_simSysFlowTolSpin      ->setValue(d.sysFlowTolPct);
-        m_simLatFlowTolSpin      ->setValue(d.latFlowTolPct);
-        m_simMaxTrialsSpin       ->setValue(d.maxTrials);
+        m_simSysFlowTolSpin->setValue(d.sysFlowTolPct);
+        m_simLatFlowTolSpin->setValue(d.latFlowTolPct);
+        m_simMaxTrialsSpin->setValue(d.maxTrials);
 
         sel(m_simInertialDampCombo, d.inertialDamping);
-        sel(m_simNormalFlowCombo,   d.normalFlowLimited);
-        sel(m_simForceMainCombo,    d.forceMainEquation);
-        sel(m_simSurchargeCombo,    d.surchargeMethod);
+        sel(m_simNormalFlowCombo, d.normalFlowLimited);
+        sel(m_simForceMainCombo, d.forceMainEquation);
+        sel(m_simSurchargeCombo, d.surchargeMethod);
+        sel(m_simUnsteadyFrictionCombo, d.unsteadyFriction);
+        m_simUfK3Spin->setValue(d.ufK3);
 
-        m_simVariableStepBox     ->setChecked(d.variableStepOn);
+        m_simVariableStepBox->setChecked(d.variableStepOn);
         m_simVariableStepFactorSpin->setValue(d.variableStepFactor);
-        m_simMinRoutingStepSpin  ->setValue(d.minRoutingStepSec);
-        m_simLengtheningStepSpin ->setValue(d.lengtheningStepSec);
-        m_simHeadToleranceSpin   ->setValue(d.headTolerance);
+        m_simMinRoutingStepSpin->setValue(d.minRoutingStepSec);
+        m_simLengtheningStepSpin->setValue(d.lengtheningStepSec);
+        m_simHeadToleranceSpin->setValue(d.headTolerance);
 
         sel(m_simNodeContinuityCombo, d.nodeContinuity);
-        m_simAndersonAccelBox    ->setChecked(d.andersonAccel);
+        m_simAndersonAccelBox->setChecked(d.andersonAccel);
 
-        const int hwThreads = QThread::idealThreadCount();
-        m_simThreadsSpin         ->setValue(hwThreads > 0 ? hwThreads : 0);
+        m_simThreadsSpin->setValue(0);
     }
 
     // 2D defaults — compile-time struct defaults straight to the widgets.
@@ -2010,49 +2380,46 @@ void PreferencesDialog::onResetToDefaults()
     // Scale bar defaults
     {
         const QColor black = Qt::black;
-        const QString css = QStringLiteral(
-            "QPushButton { background-color: %1; color: white; "
-            "border: 1px solid palette(mid); padding: 3px 8px; }")
-            .arg(black.name(QColor::HexRgb));
+        const QString css = QStringLiteral("QPushButton { background-color: %1; color: white; "
+                                           "border: 1px solid palette(mid); padding: 3px 8px; }")
+                                .arg(black.name(QColor::HexRgb));
         m_scaleBarColorBtn->setStyleSheet(css);
         m_scaleBarColorBtn->setText(black.name(QColor::HexRgb).toUpper());
         m_pendingScaleBarColor = black;
     }
     m_scaleBarPenWidthSpin->setValue(2);
-    m_scaleBarPenStyleCombo->setCurrentIndex(0);    // Solid
+    m_scaleBarPenStyleCombo->setCurrentIndex(0); // Solid
     m_pendingScaleBarFont = QFont(QStringLiteral("sans-serif"), 8);
     m_scaleBarFontBtn->setText(QStringLiteral("sans-serif, 8pt"));
-    m_scaleBarUnitsCombo->setCurrentIndex(0);       // Auto
-    m_scaleBarPositionCombo->setCurrentIndex(0);    // Bottom Left
+    m_scaleBarUnitsCombo->setCurrentIndex(0);    // Auto
+    m_scaleBarPositionCombo->setCurrentIndex(0); // Bottom Left
     m_scaleBarMaxBarLengthSpin->setValue(100);
     m_scaleBarLabelDecimalsSpin->setValue(-1);
     m_scaleBarCompactNotationBox->setChecked(false);
 
     // Measure Tool defaults
-    resetColorButton(m_measureLineColorBtn,  m_pendingMeasureLineColor,  Qt::red);
-    resetColorButton(m_measureFillColorBtn,  m_pendingMeasureFillColor,  QColor(100, 149, 237));
+    resetColorButton(m_measureLineColorBtn, m_pendingMeasureLineColor, Qt::red);
+    resetColorButton(m_measureFillColorBtn, m_pendingMeasureFillColor, QColor(100, 149, 237));
     m_pendingMeasureLabelFont = QFont(QStringLiteral("sans-serif"), 8);
     m_measureLabelFontBtn->setText(QStringLiteral("sans-serif, 8pt"));
     m_measureLabelDecimalsSpin->setValue(2);
     m_measureFillOpacitySpin->setValue(30);
 
     // Plots — default numeric format (X: integer, Y: 2 decimals)
-    m_plotXFormatCombo->setCurrentIndex(
-        m_plotXFormatCombo->findData(openswmmvis::plot::Integer));
-    m_plotYFormatCombo->setCurrentIndex(
-        m_plotYFormatCombo->findData(openswmmvis::plot::Decimals2));
+    m_plotXFormatCombo->setCurrentIndex(m_plotXFormatCombo->findData(openswmmvis::plot::Integer));
+    m_plotYFormatCombo->setCurrentIndex(m_plotYFormatCombo->findData(openswmmvis::plot::Decimals2));
 
     // Naming prefix defaults
-    m_prefixJunction    ->setText(QStringLiteral("J"));
-    m_prefixOutfall     ->setText(QStringLiteral("O"));
-    m_prefixStorage     ->setText(QStringLiteral("S"));
-    m_prefixDivider     ->setText(QStringLiteral("D"));
-    m_prefixConduit     ->setText(QStringLiteral("C"));
-    m_prefixPump        ->setText(QStringLiteral("Pu"));
-    m_prefixOrifice     ->setText(QStringLiteral("Or"));
-    m_prefixWeir        ->setText(QStringLiteral("W"));
-    m_prefixOutlet      ->setText(QStringLiteral("Ou"));
-    m_prefixRaingage    ->setText(QStringLiteral("RG"));
+    m_prefixJunction->setText(QStringLiteral("J"));
+    m_prefixOutfall->setText(QStringLiteral("O"));
+    m_prefixStorage->setText(QStringLiteral("S"));
+    m_prefixDivider->setText(QStringLiteral("D"));
+    m_prefixConduit->setText(QStringLiteral("C"));
+    m_prefixPump->setText(QStringLiteral("Pu"));
+    m_prefixOrifice->setText(QStringLiteral("Or"));
+    m_prefixWeir->setText(QStringLiteral("W"));
+    m_prefixOutlet->setText(QStringLiteral("Ou"));
+    m_prefixRaingage->setText(QStringLiteral("RG"));
     m_prefixSubcatchment->setText(QStringLiteral("Sub"));
 }
 
@@ -2063,9 +2430,13 @@ void PreferencesDialog::onResetToDefaults()
 QWidget *PreferencesDialog::buildNamingPage()
 {
     auto *page = new QWidget(this);
-    auto *f    = new QFormLayout(page);
+    auto *f = new QFormLayout(page);
     f->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
+    /**
+     * @brief Create a draft prefix editor. Argument `defaultText`: placeholder example, not actual
+     * input. Returns: new page-owned line edit with maximum width 120 px.
+     */
     auto mkEdit = [&](const QString &defaultText) -> QLineEdit * {
         auto *ed = new QLineEdit(page);
         ed->setPlaceholderText(defaultText);
@@ -2073,36 +2444,35 @@ QWidget *PreferencesDialog::buildNamingPage()
         return ed;
     };
 
-    f->addRow(new QLabel(tr(
-        "<b>Element name prefixes</b><br>"
-        "Auto-generated names use these prefixes followed by a sequential "
-        "number (e.g. J1, J2, …). Changing the prefix here takes effect "
-        "immediately for the next placed element."
-        ), page));
+    f->addRow(new QLabel(tr("<b>Element name prefixes</b><br>"
+                            "Auto-generated names use these prefixes followed by a sequential "
+                            "number (e.g. J1, J2, …). Changing the prefix here takes effect "
+                            "immediately for the next placed element."),
+                         page));
 
-    m_prefixJunction     = mkEdit(QStringLiteral("J"));
-    m_prefixOutfall      = mkEdit(QStringLiteral("O"));
-    m_prefixStorage      = mkEdit(QStringLiteral("S"));
-    m_prefixDivider      = mkEdit(QStringLiteral("D"));
-    m_prefixConduit      = mkEdit(QStringLiteral("C"));
-    m_prefixPump         = mkEdit(QStringLiteral("Pu"));
-    m_prefixOrifice      = mkEdit(QStringLiteral("Or"));
-    m_prefixWeir         = mkEdit(QStringLiteral("W"));
-    m_prefixOutlet       = mkEdit(QStringLiteral("Ou"));
-    m_prefixRaingage     = mkEdit(QStringLiteral("RG"));
+    m_prefixJunction = mkEdit(QStringLiteral("J"));
+    m_prefixOutfall = mkEdit(QStringLiteral("O"));
+    m_prefixStorage = mkEdit(QStringLiteral("S"));
+    m_prefixDivider = mkEdit(QStringLiteral("D"));
+    m_prefixConduit = mkEdit(QStringLiteral("C"));
+    m_prefixPump = mkEdit(QStringLiteral("Pu"));
+    m_prefixOrifice = mkEdit(QStringLiteral("Or"));
+    m_prefixWeir = mkEdit(QStringLiteral("W"));
+    m_prefixOutlet = mkEdit(QStringLiteral("Ou"));
+    m_prefixRaingage = mkEdit(QStringLiteral("RG"));
     m_prefixSubcatchment = mkEdit(QStringLiteral("Sub"));
 
-    f->addRow(tr("&Junction:"),      m_prefixJunction);
-    f->addRow(tr("Outfall:"),       m_prefixOutfall);
-    f->addRow(tr("Storage:"),       m_prefixStorage);
-    f->addRow(tr("Divider:"),       m_prefixDivider);
-    f->addRow(tr("Conduit:"),       m_prefixConduit);
-    f->addRow(tr("Pump:"),          m_prefixPump);
-    f->addRow(tr("Orifice:"),       m_prefixOrifice);
-    f->addRow(tr("Weir:"),          m_prefixWeir);
-    f->addRow(tr("Outlet:"),        m_prefixOutlet);
-    f->addRow(tr("Rain Gage:"),     m_prefixRaingage);
-    f->addRow(tr("Subcatchment:"),  m_prefixSubcatchment);
+    f->addRow(tr("&Junction:"), m_prefixJunction);
+    f->addRow(tr("Outfall:"), m_prefixOutfall);
+    f->addRow(tr("Storage:"), m_prefixStorage);
+    f->addRow(tr("Divider:"), m_prefixDivider);
+    f->addRow(tr("Conduit:"), m_prefixConduit);
+    f->addRow(tr("Pump:"), m_prefixPump);
+    f->addRow(tr("Orifice:"), m_prefixOrifice);
+    f->addRow(tr("Weir:"), m_prefixWeir);
+    f->addRow(tr("Outlet:"), m_prefixOutlet);
+    f->addRow(tr("Rain Gage:"), m_prefixRaingage);
+    f->addRow(tr("Subcatchment:"), m_prefixSubcatchment);
 
     return page;
 }

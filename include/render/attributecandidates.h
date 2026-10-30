@@ -1,8 +1,9 @@
-/*!
- * \file   attributecandidates.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      attributecandidates.h
+ * @brief     Slice CTX.1 / CTX.3 — per-(layer, kind) attribute candidate lists.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice CTX.1 / CTX.3 — per-(layer, kind) attribute candidate lists.
  *
@@ -15,7 +16,9 @@
  * Q_PROPERTY declarations. A future pass can replace this with
  * QMetaObject introspection (see the "Q_PROPERTY auto-introspection"
  * deferred bullet in §L.BI.CTX of GUI_IMPLEMENTATION_PLAN.md).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_RENDER_ATTRIBUTECANDIDATES_H
 #define OPENSWMMVIS_RENDER_ATTRIBUTECANDIDATES_H
 
@@ -23,20 +26,35 @@
 
 #include <QStringList>
 
-namespace OpenSWMM::Render::AttributeCandidates {
+namespace OpenSWMM::Render::AttributeCandidates
+{
 
 /*! Per-kind static numeric .inp attribute candidates for the SWMM model
  *  layer's Graduated + Single-tab data-defined-size combos. */
+/** @param cat Model category used by the hardcoded adapter-property mapping.
+ * @return Ordered independent property-name list; empty for raingages, NumCategories
+ * or unknown categories. The live layer/schema and numeric value availability are not inspected. */
 [[nodiscard]] QStringList modelLayerNumeric(SWMMModelLayer::Category cat);
 
 /*! Per-kind string/enum .inp attribute candidates for Categorized. */
+/** @param cat Model category used by the hardcoded adapter-property mapping.
+ * @return Ordered independent string/enum-property names, including raingage tag/dataSource;
+ * empty for NumCategories or unknown values. The live layer/schema is not inspected. */
 [[nodiscard]] QStringList modelLayerString(SWMMModelLayer::Category cat);
 
 /*! SWMMResultVariable enumerator names appropriate for the kind's
  *  geometry scope (Nodes / Links / Subcatch). \p kindOrdinal of -1
  *  returns every result variable (for the pre-OUT.3 layer-scope dialog
  *  on SWMMResultsLayer). */
+/** @param kindOrdinal SWMMModelLayer::Category integer; any negative value requests
+ * all eighteen known node/link/subcatch result-variable tokens.
+ * @return Ordered independent names for the geometry scope; empty for raingages,
+ * NumCategories or unknown nonnegative values. Does not check whether results are loaded. */
 [[nodiscard]] QStringList resultsLayerNumeric(int kindOrdinal);
+
+// NB 2D mesh cells are deliberately absent here: MeshFillStyle exposes its
+// colour source as a Q_ENUM (CellAttribute), so the generic property editor
+// builds the combo itself — the same mechanism dashPattern already uses.
 
 } // namespace OpenSWMM::Render::AttributeCandidates
 

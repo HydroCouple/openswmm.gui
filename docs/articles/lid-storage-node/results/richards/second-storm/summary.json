@@ -1,0 +1,61 @@
+{
+  "library_filename": "libopenswmm.engine.6.0.0.dylib",
+  "library_sha256": "dabc78a26287aff798c94bbaba0ca2d5171176ff2c4a0fa8c901ccf50291f146",
+  "sample_seconds": 30,
+  "formulation": "richards",
+  "decks": "docs/manual/tutorials/models/lid_richards_chain",
+  "acceptance_error_percent": 0.5,
+  "runs": [
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 2.5,
+      "input_sha256": "7a219fc53746a40757ae3dbf09cafac49ea0ba3cfb0f65b4f4a66fbc8f8daf30",
+      "runtime_seconds": 96.71705824998207,
+      "warnings": [],
+      "flow_error_percent": -2.609697858369912e-12,
+      "reactive_error_percent": 0.0,
+      "tracer_error_percent": 0.0,
+      "inflow_ft3": 2699.9999995581493,
+      "outflow_ft3": 2054.689460853446,
+      "flood_ft3": 0.0,
+      "initial_ft3": 332.0,
+      "final_ft3": 977.3105387047829,
+      "mass_in_lbs": [
+        3.369,
+        3.369
+      ],
+      "mass_out_lbs": [
+        2.348,
+        2.454
+      ],
+      "mass_reacted_lbs": [
+        0.841,
+        0.0
+      ],
+      "mass_flood_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_initial_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_final_lbs": [
+        0.179,
+        0.915
+      ],
+      "peak_receiving_cfs": 0.0044425112301767974,
+      "peak_all_exits_cfs": 0.3852967631992709,
+      "reverse_AB_ft3_sampled": 0,
+      "reverse_BR_ft3_sampled": 0,
+      "bypass_ft3_engine": 1851.6646826729302,
+      "bypass_ft3_sampled": 1851.662616016992,
+      "max_depth_A_ft": 2.3760856708488274,
+      "max_depth_B_ft": 2.0,
+      "reacted_percent": 24.962897002077764,
+      "tracer_half_export_hour": 10.441666666666666,
+      "accepted_hydraulics": true,
+      "accepted": true
+    }
+  ]
+}

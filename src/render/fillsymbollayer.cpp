@@ -1,9 +1,10 @@
-/*!
- * \file   fillsymbollayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  FillSymbolLayerSpec + fill draw helper (VS.2).
+/**
+ * @file      fillsymbollayer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     FillSymbolLayerSpec + fill draw helper (VS.2).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/fillsymbollayer.h"
@@ -47,21 +48,17 @@ FillSymbolLayerSpec FillSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
     const QVariantMap &p = layer.props;
 
     // Gap A1.2 — tolerant reads (QColor variant or legacy hex string).
-    s.fillColor = SymbolProps::readColor(p, QStringLiteral("fillColor"),
-                                         s.fillColor);
+    s.fillColor = SymbolProps::readColor(p, QStringLiteral("fillColor"), s.fillColor);
     if (p.contains(QStringLiteral("fillStyle")))
-        s.fillStyle = static_cast<Qt::BrushStyle>(
-            p.value(QStringLiteral("fillStyle")).toInt());
-    s.outlineColor = SymbolProps::readColor(p, QStringLiteral("outlineColor"),
-                                            s.outlineColor);
+        s.fillStyle = static_cast<Qt::BrushStyle>(p.value(QStringLiteral("fillStyle")).toInt());
+    s.outlineColor = SymbolProps::readColor(p, QStringLiteral("outlineColor"), s.outlineColor);
     if (p.contains(QStringLiteral("outlineWidth")))
         s.outlineWidth = p.value(QStringLiteral("outlineWidth")).toDouble();
     if (p.contains(QStringLiteral("outlinePenStyle")))
-        s.outlinePenStyle = static_cast<Qt::PenStyle>(
-            p.value(QStringLiteral("outlinePenStyle")).toInt());
+        s.outlinePenStyle =
+            static_cast<Qt::PenStyle>(p.value(QStringLiteral("outlinePenStyle")).toInt());
     if (p.contains(QStringLiteral("joinStyle")))
-        s.joinStyle = static_cast<Qt::PenJoinStyle>(
-            p.value(QStringLiteral("joinStyle")).toInt());
+        s.joinStyle = static_cast<Qt::PenJoinStyle>(p.value(QStringLiteral("joinStyle")).toInt());
 
     return s;
 }
@@ -71,17 +68,15 @@ void FillSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
     layer.kind = SymbolLayerKind::SimpleFill;
     // QColor variants (hex reverted — readers use value<QColor>() which doesn't
     // parse hex strings here; X1 regression fix 2026-06-01).
-    layer.props[QStringLiteral("fillColor")]       = fillColor;
-    layer.props[QStringLiteral("fillStyle")]       = static_cast<int>(fillStyle);
-    layer.props[QStringLiteral("outlineColor")]    = outlineColor;
-    layer.props[QStringLiteral("outlineWidth")]    = outlineWidth;
+    layer.props[QStringLiteral("fillColor")] = fillColor;
+    layer.props[QStringLiteral("fillStyle")] = static_cast<int>(fillStyle);
+    layer.props[QStringLiteral("outlineColor")] = outlineColor;
+    layer.props[QStringLiteral("outlineWidth")] = outlineWidth;
     layer.props[QStringLiteral("outlinePenStyle")] = static_cast<int>(outlinePenStyle);
-    layer.props[QStringLiteral("joinStyle")]       = static_cast<int>(joinStyle);
+    layer.props[QStringLiteral("joinStyle")] = static_cast<int>(joinStyle);
 }
 
-void drawFill(QPainter *painter,
-              const QPolygonF &polygon,
-              const FillSymbolLayerSpec &spec)
+void drawFill(QPainter *painter, const QPolygonF &polygon, const FillSymbolLayerSpec &spec)
 {
     if (!painter || polygon.size() < 3)
         return;

@@ -1,9 +1,12 @@
-/*!
- * \file   legendcolordelegate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      legendcolordelegate.cpp
+ * @brief     "Color" column.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/delegates/legendcolordelegate.h"
 
 #include "ui/models/legendlayertreemodel.h"
@@ -13,11 +16,10 @@
 #include <QMouseEvent>
 #include <QPainter>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-LegendColorDelegate::LegendColorDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
-{}
+LegendColorDelegate::LegendColorDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
 void LegendColorDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
                                 const QModelIndex &index) const
@@ -26,7 +28,7 @@ void LegendColorDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // alternating colours look consistent with the rest of the view.
     QStyleOptionViewItem opt = option;
     initStyleOption(&opt, index);
-    opt.text.clear();   // we paint the swatch instead.
+    opt.text.clear(); // we paint the swatch instead.
     QStyledItemDelegate::paint(painter, opt, index);
 
     const QColor c = index.data(Qt::EditRole).value<QColor>();
@@ -63,8 +65,7 @@ void LegendColorDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 }
 
 bool LegendColorDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
-                                      const QStyleOptionViewItem &option,
-                                      const QModelIndex &index)
+                                      const QStyleOptionViewItem &option, const QModelIndex &index)
 {
     if (!model || !index.isValid())
         return QStyledItemDelegate::editorEvent(event, model, option, index);
@@ -82,12 +83,11 @@ bool LegendColorDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
         return QStyledItemDelegate::editorEvent(event, model, option, index);
 
     const QColor current = index.data(Qt::EditRole).value<QColor>();
-    const QColor picked = QColorDialog::getColor(
-        current.isValid() ? current : QColor(Qt::white),
-        nullptr,
-        tr("Change legend color"),
-        QColorDialog::ShowAlphaChannel);
-    if (!picked.isValid()) return true;   // user cancelled — event consumed.
+    const QColor picked =
+        QColorDialog::getColor(current.isValid() ? current : QColor(Qt::white), nullptr,
+                               tr("Change legend color"), QColorDialog::ShowAlphaChannel);
+    if (!picked.isValid())
+        return true; // user cancelled — event consumed.
 
     model->setData(index, picked, Qt::EditRole);
     return true;

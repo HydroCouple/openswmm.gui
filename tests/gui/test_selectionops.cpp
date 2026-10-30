@@ -1,15 +1,16 @@
-/*!
- * \file   test_selectionops.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Coverage for the three toolbar selection features:
+/**
+ * @file      test_selectionops.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Coverage for the three toolbar selection features:
  *
  *           1. SelectionOps::invert  — category-scoped Invert Selection.
  *           2. SelectionOps::trace   — Select Upstream / Downstream, with
  *                                      subcatchment outlet chaining.
  *           3. AttributeTablePanel::selectionAsTsv — Copy in the Attribute
  *                                      Table.
+ *           4. The Attribute Table's "N of M selected" footer.
  *
  *         Fixtures:
  *           - `selection_trace_fixture.inp` — see its [TITLE] block for the
@@ -21,7 +22,9 @@
  *             on the typed ref rather than the bare name.
  *
  *         Each slot opens its own layer so slots stay order-independent.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "selection/selectionmanager.h"
 #include "selection/selectionops.h"
@@ -29,10 +32,15 @@
 
 #include <QComboBox>
 #include <QDir>
+#include <QItemSelectionModel>
+#include <QLabel>
+#include <QLineEdit>
 #include <QObject>
+#include <QRadioButton>
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QTableView>
 #include <QTest>
 
 #include <algorithm>
@@ -42,41 +50,117 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select SWMMVIS_GUI_TEST_DATA or current-directory dot for selection fixtures.
+ * @return Owned unvalidated directory string; no IO.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Allocate and load an independent selection fixture model.
+ * @param fixture Borrowed input filename resolved under dataDir(), without sanitization.
+ * @return Unique owned loaded layer or nullptr after failed-load cleanup; warnings
+ * and errors are collected locally. Loading may write a report, while test model
+ * edits remain in memory and are not saved to the source input.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 {
-    auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture),
-                                                  nullptr);
+    auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
-SWMMObjectRef node(const QString &n) { return {SWMMObjectRef::Node, n}; }
-SWMMObjectRef link(const QString &n) { return {SWMMObjectRef::Link, n}; }
-SWMMObjectRef sub (const QString &n) { return {SWMMObjectRef::Subcatchment, n}; }
-SWMMObjectRef gage(const QString &n) { return {SWMMObjectRef::RainGage, n}; }
+/**
+ *
+ * @brief Build a detached node identity.
+ * @param n Borrowed name copied without engine validation.
+ * @return By-value Node reference with no engine ownership.
+ *
+ */
+SWMMObjectRef node(const QString &n)
+{
+    return {SWMMObjectRef::Node, n};
+}
+/**
+ *
+ * @brief Build a detached link identity.
+ * @param n Borrowed name copied without engine validation.
+ * @return By-value Link reference with no engine ownership.
+ *
+ */
+SWMMObjectRef link(const QString &n)
+{
+    return {SWMMObjectRef::Link, n};
+}
+/**
+ *
+ * @brief Build a detached subcatchment identity.
+ * @param n Borrowed name copied without engine validation.
+ * @return By-value Subcatchment reference with no engine ownership.
+ *
+ */
+SWMMObjectRef sub(const QString &n)
+{
+    return {SWMMObjectRef::Subcatchment, n};
+}
+/**
+ *
+ * @brief Build a detached rain-gage identity.
+ * @param n Borrowed name copied without engine validation.
+ * @return By-value RainGage reference with no engine ownership.
+ *
+ */
+SWMMObjectRef gage(const QString &n)
+{
+    return {SWMMObjectRef::RainGage, n};
+}
 
 //! Sorted "Type:Name" strings — readable diffs on failure, and order-stable
 //! unlike QSet iteration.
+/**
+ *
+ * @brief Spell selection identities in stable sorted diagnostic form.
+ * @param refs Borrowed unordered typed reference set.
+ * @return Owned lexically sorted strings prefixed N/L/S/G/MESH or question mark
+ * for unsupported kinds; names are not escaped, validated or resolved.
+ *
+ */
 QStringList spell(const QSet<SWMMObjectRef> &refs)
 {
     QStringList out;
     for (const SWMMObjectRef &r : refs) {
         QString t;
         switch (r.objectType) {
-        case SWMMObjectRef::Node:         t = QStringLiteral("N");    break;
-        case SWMMObjectRef::Link:         t = QStringLiteral("L");    break;
-        case SWMMObjectRef::Subcatchment: t = QStringLiteral("S");    break;
-        case SWMMObjectRef::RainGage:     t = QStringLiteral("G");    break;
-        case SWMMObjectRef::MeshCell:     t = QStringLiteral("MESH"); break;
-        default:                          t = QStringLiteral("?");    break;
+        case SWMMObjectRef::Node:
+            t = QStringLiteral("N");
+            break;
+        case SWMMObjectRef::Link:
+            t = QStringLiteral("L");
+            break;
+        case SWMMObjectRef::Subcatchment:
+            t = QStringLiteral("S");
+            break;
+        case SWMMObjectRef::RainGage:
+            t = QStringLiteral("G");
+            break;
+        case SWMMObjectRef::MeshCell:
+            t = QStringLiteral("MESH");
+            break;
+        default:
+            t = QStringLiteral("?");
+            break;
         }
         out << t + QLatin1Char(':') + r.name;
     }
@@ -111,6 +195,9 @@ private slots:
     void tsvCopiesSelectedRowsWithHeader();
     void tsvFallsBackToAllVisibleRows();
 
+    // ── Attribute-table selection count ────────────────────────────────────
+    void selectionCountReportsSelectedOfTotal();
+
     // ---- 4. AttributeTablePanel::deleteObjects -----------------------
     void deleteLeafNodeCascadesItsOneLink();
     void deleteNodeCascadesConnectedLinks();
@@ -125,6 +212,12 @@ private slots:
 // Invert
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require junction-only inversion to remain within the junction category and return its
+ * two unselected members.
+ *
+ */
 void TestSelectionOps::invertScopesToHomogeneousCategory()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -136,6 +229,12 @@ void TestSelectionOps::invertScopesToHomogeneousCategory()
     QCOMPARE(got, (QStringList{"N:J3", "N:J4"}));
 }
 
+/**
+ *
+ * @brief Require mixed junction/outfall categories to invert across the fixture universe and
+ * return the exact twelve remaining objects.
+ *
+ */
 void TestSelectionOps::invertAcrossAllWhenMixed()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -147,11 +246,16 @@ void TestSelectionOps::invertAcrossAllWhenMixed()
     const QStringList got = spell(SelectionOps::invert(layer.get(), cur));
 
     // 14 objects in the fixture, minus the 2 selected.
-    QCOMPARE(got, (QStringList{"G:RG1", "L:C1", "L:C2", "L:C3", "L:P1",
-                               "N:J2", "N:J3", "N:J4",
+    QCOMPARE(got, (QStringList{"G:RG1", "L:C1", "L:C2", "L:C3", "L:P1", "N:J2", "N:J3", "N:J4",
                                "S:S1", "S:S2", "S:S3", "S:S4"}));
 }
 
+/**
+ *
+ * @brief Require empty inversion to select fourteen fixture objects including node, pump,
+ * catchment and gage.
+ *
+ */
 void TestSelectionOps::invertEmptySelectsEverything()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -165,6 +269,12 @@ void TestSelectionOps::invertEmptySelectsEverything()
     QVERIFY(got.contains(gage("RG1")));
 }
 
+/**
+ *
+ * @brief Require an opaque mesh identity to survive inversion without changing the otherwise
+ * homogeneous junction scope.
+ *
+ */
 void TestSelectionOps::invertPassesMeshRefsThrough()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -179,6 +289,12 @@ void TestSelectionOps::invertPassesMeshRefsThrough()
     QCOMPARE(got, (QStringList{"MESH:mesh1:42", "N:J2", "N:J3", "N:J4"}));
 }
 
+/**
+ *
+ * @brief Require node/link and gage/catchment name collisions to preserve inversion kind/category
+ * boundaries.
+ *
+ */
 void TestSelectionOps::invertIsNameCollisionSafe()
 {
     auto layer = openLayer(QStringLiteral("typed_selection_fixture.inp"));
@@ -187,14 +303,12 @@ void TestSelectionOps::invertIsNameCollisionSafe()
     // The fixture has a junction "X1" AND a conduit "X1". Selecting the
     // junction must scope invert to Junctions — the identically-named conduit
     // must not be mistaken for part of the selection, nor drag Conduits in.
-    const QSet<SWMMObjectRef> got =
-        SelectionOps::invert(layer.get(), {node("X1")});
+    const QSet<SWMMObjectRef> got = SelectionOps::invert(layer.get(), {node("X1")});
     QCOMPARE(spell(got), (QStringList{"N:J1"}));
 
     // Same for the gage "S1" vs the subcatchment "S1": inverting the gage
     // yields nothing (it is the only gage), and leaves the subcatchment alone.
-    const QSet<SWMMObjectRef> gotGage =
-        SelectionOps::invert(layer.get(), {gage("S1")});
+    const QSet<SWMMObjectRef> gotGage = SelectionOps::invert(layer.get(), {gage("S1")});
     QVERIFY(gotGage.isEmpty());
 }
 
@@ -202,6 +316,12 @@ void TestSelectionOps::invertIsNameCollisionSafe()
 // Trace
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require upstream outfall tracing to return every expected fixture node/link/catchment
+ * and exact category counts.
+ *
+ */
 void TestSelectionOps::traceUpstreamFromOutfallTakesWholeNetwork()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -209,15 +329,19 @@ void TestSelectionOps::traceUpstreamFromOutfallTakesWholeNetwork()
 
     const auto res = SelectionOps::trace(layer.get(), {node("O1")}, /*upstream=*/true);
     QVERIFY(!res.noSeeds);
-    QCOMPARE(res.nodeCount,     5);   // O1 J3 J2 J1 J4
-    QCOMPARE(res.linkCount,     4);   // C1 C2 C3 P1
-    QCOMPARE(res.subcatchCount, 4);   // S1 S2 S3 S4
-    QCOMPARE(spell(res.refs),
-             (QStringList{"L:C1", "L:C2", "L:C3", "L:P1",
-                          "N:J1", "N:J2", "N:J3", "N:J4", "N:O1",
-                          "S:S1", "S:S2", "S:S3", "S:S4"}));
+    QCOMPARE(res.nodeCount, 5);     // O1 J3 J2 J1 J4
+    QCOMPARE(res.linkCount, 4);     // C1 C2 C3 P1
+    QCOMPARE(res.subcatchCount, 4); // S1 S2 S3 S4
+    QCOMPARE(spell(res.refs), (QStringList{"L:C1", "L:C2", "L:C3", "L:P1", "N:J1", "N:J2", "N:J3",
+                                           "N:J4", "N:O1", "S:S1", "S:S2", "S:S3", "S:S4"}));
 }
 
+/**
+ *
+ * @brief Require upstream tracing from J2 to follow the S3-to-S2 catchment chain while excluding
+ * downstream and disconnected branches.
+ *
+ */
 void TestSelectionOps::traceUpstreamChainsSubcatchments()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -227,10 +351,15 @@ void TestSelectionOps::traceUpstreamChainsSubcatchments()
     // transitive subcatchment→subcatchment hop is the assertion here. S4 (on
     // the J4 pump branch) and J3/O1 (downstream) must stay out.
     const auto res = SelectionOps::trace(layer.get(), {node("J2")}, /*upstream=*/true);
-    QCOMPARE(spell(res.refs),
-             (QStringList{"L:C1", "N:J1", "N:J2", "S:S1", "S:S2", "S:S3"}));
+    QCOMPARE(spell(res.refs), (QStringList{"L:C1", "N:J1", "N:J2", "S:S1", "S:S2", "S:S3"}));
 }
 
+/**
+ *
+ * @brief Require a link seed to trace upstream from both endpoints, including the pump branch and
+ * catchment chains.
+ *
+ */
 void TestSelectionOps::traceUpstreamFromLinkSeedsBothEnds()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -239,12 +368,16 @@ void TestSelectionOps::traceUpstreamFromLinkSeedsBothEnds()
     // C2 spans J2→J3, so both endpoints seed. Upstream of J3 reaches the pump
     // branch (J4/P1/S4); upstream of J2 reaches J1/C1/S1/S2/S3.
     const auto res = SelectionOps::trace(layer.get(), {link("C2")}, /*upstream=*/true);
-    QCOMPARE(spell(res.refs),
-             (QStringList{"L:C1", "L:C2", "L:P1",
-                          "N:J1", "N:J2", "N:J3", "N:J4",
-                          "S:S1", "S:S2", "S:S3", "S:S4"}));
+    QCOMPARE(spell(res.refs), (QStringList{"L:C1", "L:C2", "L:P1", "N:J1", "N:J2", "N:J3", "N:J4",
+                                           "S:S1", "S:S2", "S:S3", "S:S4"}));
 }
 
+/**
+ *
+ * @brief Require downstream catchment tracing to follow S3/S2 into the node/link network without
+ * collecting upstream branches.
+ *
+ */
 void TestSelectionOps::traceDownstreamFromSubcatchFollowsOutletChain()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -259,6 +392,12 @@ void TestSelectionOps::traceDownstreamFromSubcatchFollowsOutletChain()
              (QStringList{"L:C2", "L:C3", "N:J2", "N:J3", "N:O1", "S:S2", "S:S3"}));
 }
 
+/**
+ *
+ * @brief Require downstream node tracing to follow links to the outfall without reversing
+ * catchment drainage direction.
+ *
+ */
 void TestSelectionOps::traceDownstreamFromNodeTakesNoSubcatchments()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -273,6 +412,12 @@ void TestSelectionOps::traceDownstreamFromNodeTakesNoSubcatchments()
              (QStringList{"L:C1", "L:C2", "L:C3", "N:J1", "N:J2", "N:J3", "N:O1"}));
 }
 
+/**
+ *
+ * @brief Require upstream/downstream traces to cross the all-types fixture
+ * junction/storage/divider/outfall and conduit/orifice/weir/outlet/pump chain.
+ *
+ */
 void TestSelectionOps::traceTraversesEveryNodeAndLinkKind()
 {
     // selection_trace_alltypes_fixture.inp chains every node kind (junction,
@@ -288,19 +433,23 @@ void TestSelectionOps::traceTraversesEveryNodeAndLinkKind()
     const auto up = SelectionOps::trace(layer.get(), {node("O1")}, /*upstream=*/true);
     QVERIFY(!up.noSeeds);
     QCOMPARE(spell(up.refs),
-             (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1",
-                          "N:DV1", "N:J1", "N:J2", "N:J3", "N:O1", "N:ST1",
-                          "S:S1", "S:S2", "S:S3", "S:S4"}));
+             (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1", "N:DV1", "N:J1", "N:J2",
+                          "N:J3", "N:O1", "N:ST1", "S:S1", "S:S2", "S:S3", "S:S4"}));
 
     // And the mirror image: downstream from the head junction crosses the
     // orifice, storage, weir, divider, outlet, pump chain to the outfall.
     const auto down = SelectionOps::trace(layer.get(), {node("J1")}, /*upstream=*/false);
     QVERIFY(!down.noSeeds);
-    QCOMPARE(spell(down.refs),
-             (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1",
-                          "N:DV1", "N:J1", "N:J2", "N:J3", "N:O1", "N:ST1"}));
+    QCOMPARE(spell(down.refs), (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1",
+                                            "N:DV1", "N:J1", "N:J2", "N:J3", "N:O1", "N:ST1"}));
 }
 
+/**
+ *
+ * @brief Require empty and exclusively gage/mesh selections to report no traceable seeds and
+ * produce no references.
+ *
+ */
 void TestSelectionOps::traceWithoutSeedsReportsNoSeeds()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -321,6 +470,14 @@ void TestSelectionOps::traceWithoutSeedsReportsNoSeeds()
 // Attribute-table copy
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require TSV serialization to include its Name header, exactly the selected rows and
+ * aligned column counts.
+ * Checks membership independent of persisted host sort order; inspects returned
+ * text and does not write to the application clipboard.
+ *
+ */
 void TestSelectionOps::tsvCopiesSelectedRowsWithHeader()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -331,11 +488,10 @@ void TestSelectionOps::tsvCopiesSelectedRowsWithHeader()
     panel.setProject(layer.get(), &selMgr, nullptr);
 
     // Default category is the first non-empty one — Junctions.
-    selMgr.select(QSet<SWMMObjectRef>{node("J1"), node("J3")},
-                  SelectionManager::Replace);
+    selMgr.select(QSet<SWMMObjectRef>{node("J1"), node("J3")}, SelectionManager::Replace);
 
     const QStringList lines = panel.selectionAsTsv().split(QLatin1Char('\n'));
-    QCOMPARE(lines.size(), 3);                       // header + 2 selected rows
+    QCOMPARE(lines.size(), 3); // header + 2 selected rows
     QVERIFY(lines.at(0).startsWith(QStringLiteral("Name\t")));
     // Rows copy in on-screen order, and the view restores the user's
     // persisted per-category sort from QSettings (restoreColumnWidths →
@@ -353,6 +509,12 @@ void TestSelectionOps::tsvCopiesSelectedRowsWithHeader()
     QCOMPARE(lines.at(2).count(QLatin1Char('\t')), cols);
 }
 
+/**
+ *
+ * @brief Require TSV serialization without selection to return the header and all four visible
+ * junction rows.
+ *
+ */
 void TestSelectionOps::tsvFallsBackToAllVisibleRows()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -369,6 +531,74 @@ void TestSelectionOps::tsvFallsBackToAllVisibleRows()
 }
 
 // ---------------------------------------------------------------------------
+// Attribute-table "N of M selected" footer
+// ---------------------------------------------------------------------------
+
+/**
+ *
+ * @brief Require the footer/highlights to track category-specific selection across filtering,
+ * category switches and clearing.
+ * A filtered-out selected row still counts; an outfall is excluded from junction counts.
+ *
+ */
+void TestSelectionOps::selectionCountReportsSelectedOfTotal()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr); // Junctions: J1..J4
+
+    auto *count = panel.findChild<QLabel *>(QStringLiteral("attributeSelectionCount"));
+    auto *query = panel.findChild<QLineEdit *>(QStringLiteral("attributeQuery"));
+    auto *view = panel.findChild<QTableView *>();
+    auto *combo = panel.findChild<QComboBox *>();
+    QRadioButton *add = nullptr;
+    for (QRadioButton *r : panel.findChildren<QRadioButton *>())
+        if (r->text() == QStringLiteral("Add"))
+            add = r;
+    QVERIFY(count && query && view && combo && add);
+
+    QCOMPARE(count->text(), QStringLiteral("0 of 4 selected"));
+
+    // O1 is a Node ref too, but an Outfall: only this category's rows count.
+    selMgr.select(QSet<SWMMObjectRef>{node("J1"), node("J3"), node("O1")},
+                  SelectionManager::Replace);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+
+    // A selected row the query hides still counts, as in GIS tables: Add
+    // keeps J3 selected while the filter shows only J1.
+    add->setChecked(true);
+    query->setText(QStringLiteral("Name = 'J1'"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QCOMPARE(view->model()->rowCount(), 1);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+
+    // Switching category recounts against the new source: C1..C3 (P1 is a
+    // pump), none of them selected yet.
+    const int idx = combo->findText(QStringLiteral("Conduits"), Qt::MatchStartsWith);
+    QVERIFY2(idx >= 0, "Conduits category should be present");
+    combo->setCurrentIndex(idx);
+    QCOMPARE(count->text(), QStringLiteral("0 of 3 selected"));
+
+    selMgr.select(link("C2"), SelectionManager::Add);
+    QCOMPARE(count->text(), QStringLiteral("1 of 3 selected"));
+
+    // Switching back highlights the rows the bus already holds (J1, J3), so
+    // the highlight agrees with the footer.
+    const int junctions = combo->findText(QStringLiteral("Junctions"), Qt::MatchStartsWith);
+    QVERIFY2(junctions >= 0, "Junctions category should be present");
+    combo->setCurrentIndex(junctions);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+    QCOMPARE(view->selectionModel()->selectedRows().size(), 2);
+
+    selMgr.select(QSet<SWMMObjectRef>{}, SelectionManager::Replace);
+    QCOMPARE(count->text(), QStringLiteral("0 of 4 selected"));
+    QCOMPARE(view->selectionModel()->selectedRows().size(), 0);
+}
+
+// ---------------------------------------------------------------------------
 // 4. AttributeTablePanel::deleteObjects
 //
 // The panel is given a null canvas (as the tsv tests do), so deleteObjects
@@ -378,6 +608,13 @@ void TestSelectionOps::tsvFallsBackToAllVisibleRows()
 //   J1 is a leaf (only C1); J2 joins C1+C2; O1 terminates C3.
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require direct table deletion of leaf J1 to remove its one incident conduit and retain
+ * unrelated links.
+ * Uses the null-canvas fallback without an undo stack; changes only the loaded model.
+ *
+ */
 void TestSelectionOps::deleteLeafNodeCascadesItsOneLink()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -386,7 +623,7 @@ void TestSelectionOps::deleteLeafNodeCascadesItsOneLink()
 
     SelectionManager selMgr;
     AttributeTablePanel panel;
-    panel.setProject(layer.get(), &selMgr, nullptr);   // Junctions category
+    panel.setProject(layer.get(), &selMgr, nullptr); // Junctions category
 
     const int nodes0 = swmm_node_count(e);
     const int links0 = swmm_link_count(e);
@@ -396,12 +633,17 @@ void TestSelectionOps::deleteLeafNodeCascadesItsOneLink()
     QCOMPARE(panel.deleteObjects({QStringLiteral("J1")}), 1);
 
     QCOMPARE(swmm_node_count(e), nodes0 - 1);
-    QCOMPARE(swmm_node_index(e, "J1"), -1);            // gone
-    QCOMPARE(swmm_link_count(e), links0 - 1);          // its one conduit cascades
+    QCOMPARE(swmm_node_index(e, "J1"), -1);   // gone
+    QCOMPARE(swmm_link_count(e), links0 - 1); // its one conduit cascades
     QCOMPARE(swmm_link_index(e, "C1"), -1);
-    QVERIFY(swmm_link_index(e, "C2") >= 0);            // unrelated links survive
+    QVERIFY(swmm_link_index(e, "C2") >= 0); // unrelated links survive
 }
 
+/**
+ *
+ * @brief Require deleting middle junction J2 to remove both incident conduits while retaining C3.
+ *
+ */
 void TestSelectionOps::deleteNodeCascadesConnectedLinks()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -429,6 +671,11 @@ void TestSelectionOps::deleteNodeCascadesConnectedLinks()
     QVERIFY(swmm_link_index(e, "C3") >= 0);
 }
 
+/**
+ *
+ * @brief Require switching the table to Conduits and deleting C3 to reduce only link count.
+ *
+ */
 void TestSelectionOps::deleteConduitLeavesNodesIntact()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -443,8 +690,7 @@ void TestSelectionOps::deleteConduitLeavesNodesIntact()
     // deleteObjects resolves the Link kind (drives the real UI path).
     auto *combo = panel.findChild<QComboBox *>();
     QVERIFY(combo);
-    const int idx = combo->findText(QStringLiteral("Conduits"),
-                                    Qt::MatchStartsWith);
+    const int idx = combo->findText(QStringLiteral("Conduits"), Qt::MatchStartsWith);
     QVERIFY2(idx >= 0, "Conduits category should be present");
     combo->setCurrentIndex(idx);
     QVERIFY(panel.categoryIsDeletable());
@@ -456,9 +702,15 @@ void TestSelectionOps::deleteConduitLeavesNodesIntact()
 
     QCOMPARE(swmm_link_count(e), links0 - 1);
     QCOMPARE(swmm_link_index(e, "C3"), -1);
-    QCOMPARE(swmm_node_count(e), nodes0);              // nodes untouched
+    QCOMPARE(swmm_node_count(e), nodes0); // nodes untouched
 }
 
+/**
+ *
+ * @brief Require unknown-name and empty-list deletion to return zero and retain node count.
+ * The case does not switch into a nondeletable category despite its legacy name.
+ *
+ */
 void TestSelectionOps::deleteSkipsUnknownNamesAndNonDeletableCategory()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -467,7 +719,7 @@ void TestSelectionOps::deleteSkipsUnknownNamesAndNonDeletableCategory()
 
     SelectionManager selMgr;
     AttributeTablePanel panel;
-    panel.setProject(layer.get(), &selMgr, nullptr);   // Junctions (deletable)
+    panel.setProject(layer.get(), &selMgr, nullptr); // Junctions (deletable)
 
     const int nodes0 = swmm_node_count(e);
 
@@ -488,6 +740,16 @@ void TestSelectionOps::deleteSkipsUnknownNamesAndNonDeletableCategory()
 //
 //   QT_QPA_PLATFORM=offscreen SWMM_TRACE_PROBE_INP="/path/model.inp" \
 //     ./build/tests/gui/test_selectionops probeExternalModelTrace
+/**
+ *
+ * @brief Inspect upstream coverage from every outfall in an optional external model.
+ * Skips without SWMM_TRACE_PROBE_INP. Requires successful load, nonempty outfall
+ * seeds and a traceable result; emits graph/type coverage, up to twelve dropped
+ * links, three pump-crossing checks and undirected reachability diagnostics.
+ * Coverage diagnostics are not assertions of complete network reachability.
+ * Reads the supplied model and may write engine report outputs, but does not save edits.
+ *
+ */
 void TestSelectionOps::probeExternalModelTrace()
 {
     const QString path = qEnvironmentVariable("SWMM_TRACE_PROBE_INP");
@@ -496,9 +758,9 @@ void TestSelectionOps::probeExternalModelTrace()
 
     auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
     QList<QString> warnings, errors;
-    QVERIFY2(layer->loadModel(warnings, errors),
-             qPrintable(QStringLiteral("loadModel failed: %1")
-                            .arg(errors.join(QStringLiteral(" | ")))));
+    QVERIFY2(
+        layer->loadModel(warnings, errors),
+        qPrintable(QStringLiteral("loadModel failed: %1").arg(errors.join(QStringLiteral(" | ")))));
 
     QSet<SWMMObjectRef> seeds;
     const int outfalls = layer->categoryCount(SWMMModelLayer::CatOutfalls);
@@ -509,9 +771,13 @@ void TestSelectionOps::probeExternalModelTrace()
 
     const auto res = SelectionOps::trace(layer.get(), seeds, /*upstream=*/true);
     QVERIFY(!res.noSeeds);
-    qWarning().noquote() << QStringLiteral(
-        "[trace-probe] upstream from %1 outfall(s): nodes=%2 links=%3 subcatch=%4")
-        .arg(outfalls).arg(res.nodeCount).arg(res.linkCount).arg(res.subcatchCount);
+    qWarning().noquote()
+        << QStringLiteral(
+               "[trace-probe] upstream from %1 outfall(s): nodes=%2 links=%3 subcatch=%4")
+               .arg(outfalls)
+               .arg(res.nodeCount)
+               .arg(res.linkCount)
+               .arg(res.subcatchCount);
 
     // Graph diagnostics — which engine links never made it into the BFS
     // graph, can a trace cross a pump, and how connected is the network
@@ -523,50 +789,65 @@ void TestSelectionOps::probeExternalModelTrace()
         const int nodeCount = swmm_node_count(eng);
         const auto g = ProfileNetworkAdapter::buildGraphFromModel(layer.get());
         QSet<int> inGraph;
-        for (const auto &e2 : g.edges) inGraph.insert(e2.linkId);
+        for (const auto &e2 : g.edges)
+            inGraph.insert(e2.linkId);
         int shown = 0;
-        QHash<int,int> missByType, totByType;
+        QHash<int, int> missByType, totByType;
         for (int i = 0; i < linkCount; ++i) {
-            int type = -9; swmm_link_get_type(eng, i, &type);
+            int type = -9;
+            swmm_link_get_type(eng, i, &type);
             ++totByType[type];
-            if (inGraph.contains(i)) continue;
+            if (inGraph.contains(i))
+                continue;
             ++missByType[type];
             if (shown < 12) {
                 int from = -1, to = -1;
                 const int rcF = swmm_link_get_from_node(eng, i, &from);
                 const int rcT = swmm_link_get_to_node(eng, i, &to);
-                qWarning().noquote() << QStringLiteral(
-                    "[trace-probe]   DROPPED link %1 '%2' type=%3 from=%4(rc %5) to=%6(rc %7) nodeCount=%8")
-                    .arg(i).arg(QString::fromUtf8(swmm_link_id(eng, i)))
-                    .arg(type).arg(from).arg(rcF).arg(to).arg(rcT).arg(nodeCount);
+                qWarning().noquote()
+                    << QStringLiteral(
+                           "[trace-probe]   DROPPED link %1 '%2' type=%3 from=%4(rc %5) to=%6(rc %7) nodeCount=%8")
+                           .arg(i)
+                           .arg(QString::fromUtf8(swmm_link_id(eng, i)))
+                           .arg(type)
+                           .arg(from)
+                           .arg(rcF)
+                           .arg(to)
+                           .arg(rcT)
+                           .arg(nodeCount);
                 ++shown;
             }
         }
         for (auto it = totByType.cbegin(); it != totByType.cend(); ++it)
             qWarning().noquote() << QStringLiteral(
-                "[trace-probe]   graph coverage type %1: %2/%3 in graph")
-                .arg(it.key()).arg(it.value() - missByType.value(it.key())).arg(it.value());
+                                        "[trace-probe]   graph coverage type %1: %2/%3 in graph")
+                                        .arg(it.key())
+                                        .arg(it.value() - missByType.value(it.key()))
+                                        .arg(it.value());
 
         // Can a trace CROSS a pump at all? Trace upstream from each pump's
         // to-node and check the pump + its from-node land in the result.
         int pumpsChecked = 0;
         for (int i = 0; i < linkCount && pumpsChecked < 3; ++i) {
-            int type = -9; swmm_link_get_type(eng, i, &type);
-            if (type != 1) continue;   // pumps
+            int type = -9;
+            swmm_link_get_type(eng, i, &type);
+            if (type != 1)
+                continue; // pumps
             ++pumpsChecked;
             int from = -1, to = -1;
             swmm_link_get_from_node(eng, i, &from);
             swmm_link_get_to_node(eng, i, &to);
             const QString pumpName = QString::fromUtf8(swmm_link_id(eng, i));
             const QString fromName = QString::fromUtf8(swmm_node_id(eng, from));
-            const QString toName   = QString::fromUtf8(swmm_node_id(eng, to));
-            const auto up = SelectionOps::trace(
-                layer.get(), {SWMMObjectRef(SWMMObjectRef::Node, toName)}, true);
-            qWarning().noquote() << QStringLiteral(
-                "[trace-probe]   pump %1 (%2 -> %3): upstream-from-toNode crosses it? link=%4 fromNode=%5")
-                .arg(pumpName, fromName, toName)
-                .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Link, pumpName)))
-                .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Node, fromName)));
+            const QString toName = QString::fromUtf8(swmm_node_id(eng, to));
+            const auto up = SelectionOps::trace(layer.get(),
+                                                {SWMMObjectRef(SWMMObjectRef::Node, toName)}, true);
+            qWarning().noquote()
+                << QStringLiteral(
+                       "[trace-probe]   pump %1 (%2 -> %3): upstream-from-toNode crosses it? link=%4 fromNode=%5")
+                       .arg(pumpName, fromName, toName)
+                       .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Link, pumpName)))
+                       .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Node, fromName)));
         }
 
         // Undirected reachability from the outfall seeds — how much of the
@@ -580,35 +861,46 @@ void TestSelectionOps::probeExternalModelTrace()
         QList<int> q;
         for (const SWMMObjectRef &s : seeds) {
             const int idx = swmm_node_index(eng, s.name.toUtf8().constData());
-            if (idx >= 0) { reach.insert(idx); q.push_back(idx); }
+            if (idx >= 0) {
+                reach.insert(idx);
+                q.push_back(idx);
+            }
         }
         while (!q.isEmpty()) {
             const int n = q.takeFirst();
             for (int nx : undirected.value(n))
-                if (!reach.contains(nx)) { reach.insert(nx); q.push_back(nx); }
+                if (!reach.contains(nx)) {
+                    reach.insert(nx);
+                    q.push_back(nx);
+                }
         }
-        qWarning().noquote() << QStringLiteral(
-            "[trace-probe]   undirected reachability from outfalls: %1/%2 nodes")
-            .arg(reach.size()).arg(nodeCount);
+        qWarning().noquote()
+            << QStringLiteral("[trace-probe]   undirected reachability from outfalls: %1/%2 nodes")
+                   .arg(reach.size())
+                   .arg(nodeCount);
     }
 
-    struct CatSpec { SWMMModelLayer::Category cat; SWMMObjectRef::ObjectType type;
-                     const char *name; };
+    struct CatSpec {
+        SWMMModelLayer::Category cat;
+        SWMMObjectRef::ObjectType type;
+        const char *name;
+    };
     const CatSpec cats[] = {
-        { SWMMModelLayer::CatJunctions,     SWMMObjectRef::Node,         "junctions" },
-        { SWMMModelLayer::CatOutfalls,      SWMMObjectRef::Node,         "outfalls" },
-        { SWMMModelLayer::CatStorage,       SWMMObjectRef::Node,         "storage" },
-        { SWMMModelLayer::CatDividers,      SWMMObjectRef::Node,         "dividers" },
-        { SWMMModelLayer::CatConduits,      SWMMObjectRef::Link,         "conduits" },
-        { SWMMModelLayer::CatPumps,         SWMMObjectRef::Link,         "pumps" },
-        { SWMMModelLayer::CatOrifices,      SWMMObjectRef::Link,         "orifices" },
-        { SWMMModelLayer::CatWeirs,         SWMMObjectRef::Link,         "weirs" },
-        { SWMMModelLayer::CatOutlets,       SWMMObjectRef::Link,         "outlets" },
-        { SWMMModelLayer::CatSubcatchments, SWMMObjectRef::Subcatchment, "subcatchments" },
+        {SWMMModelLayer::CatJunctions, SWMMObjectRef::Node, "junctions"},
+        {SWMMModelLayer::CatOutfalls, SWMMObjectRef::Node, "outfalls"},
+        {SWMMModelLayer::CatStorage, SWMMObjectRef::Node, "storage"},
+        {SWMMModelLayer::CatDividers, SWMMObjectRef::Node, "dividers"},
+        {SWMMModelLayer::CatConduits, SWMMObjectRef::Link, "conduits"},
+        {SWMMModelLayer::CatPumps, SWMMObjectRef::Link, "pumps"},
+        {SWMMModelLayer::CatOrifices, SWMMObjectRef::Link, "orifices"},
+        {SWMMModelLayer::CatWeirs, SWMMObjectRef::Link, "weirs"},
+        {SWMMModelLayer::CatOutlets, SWMMObjectRef::Link, "outlets"},
+        {SWMMModelLayer::CatSubcatchments, SWMMObjectRef::Subcatchment, "subcatchments"},
     };
     for (const CatSpec &c : cats) {
         const int total = layer->categoryCount(c.cat);
-        if (total == 0) continue;
+        if (total == 0)
+            continue;
         int hit = 0;
         QStringList missed;
         for (int i = 0; i < total; ++i) {
@@ -619,10 +911,13 @@ void TestSelectionOps::probeExternalModelTrace()
                 missed << name;
         }
         qWarning().noquote() << QStringLiteral("[trace-probe]   %1: %2/%3%4")
-            .arg(QLatin1String(c.name)).arg(hit).arg(total)
-            .arg(hit == total ? QString()
-                              : QStringLiteral("  missed e.g. %1")
-                                    .arg(missed.join(QStringLiteral(", "))));
+                                    .arg(QLatin1String(c.name))
+                                    .arg(hit)
+                                    .arg(total)
+                                    .arg(hit == total
+                                             ? QString()
+                                             : QStringLiteral("  missed e.g. %1")
+                                                   .arg(missed.join(QStringLiteral(", "))));
     }
 }
 

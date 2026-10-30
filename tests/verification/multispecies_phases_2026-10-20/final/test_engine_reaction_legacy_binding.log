@@ -1,0 +1,29 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from ReactionLegacyBindingTest
+[ RUN      ] ReactionLegacyBindingTest.ParityGuardWhenNoConfig
+[       OK ] ReactionLegacyBindingTest.ParityGuardWhenNoConfig (2 ms)
+[ RUN      ] ReactionLegacyBindingTest.ExactExponentialReplacesLinearDecay
+[       OK ] ReactionLegacyBindingTest.ExactExponentialReplacesLinearDecay (1 ms)
+[ RUN      ] ReactionLegacyBindingTest.MsxFormulaReadsPollutant
+[       OK ] ReactionLegacyBindingTest.MsxFormulaReadsPollutant (2 ms)
+[ RUN      ] ReactionLegacyBindingTest.PollutantKineticsRowErrors
+[       OK ] ReactionLegacyBindingTest.PollutantKineticsRowErrors (1 ms)
+[ RUN      ] ReactionLegacyBindingTest.RateMsxEvolvesLocallyWithWarning
+[       OK ] ReactionLegacyBindingTest.RateMsxEvolvesLocallyWithWarning (1 ms)
+[ RUN      ] ReactionLegacyBindingTest.FailureIsLoudActionableAndNonFatal
+[       OK ] ReactionLegacyBindingTest.FailureIsLoudActionableAndNonFatal (406 ms)
+[ RUN      ] ReactionLegacyBindingTest.LinkDecayIsNotDoubleApplied
+[       OK ] ReactionLegacyBindingTest.LinkDecayIsNotDoubleApplied (4 ms)
+[ RUN      ] ReactionLegacyBindingTest.MsxPipeScopeFormulaTracksLinkPollutant
+[       OK ] ReactionLegacyBindingTest.MsxPipeScopeFormulaTracksLinkPollutant (2 ms)
+[ RUN      ] ReactionLegacyBindingTest.MsxOnlyModelWithoutPollutantsStillReacts
+[       OK ] ReactionLegacyBindingTest.MsxOnlyModelWithoutPollutantsStillReacts (2 ms)
+[ RUN      ] ReactionLegacyBindingTest.BypassedBindingIsAnnounced
+[       OK ] ReactionLegacyBindingTest.BypassedBindingIsAnnounced (3 ms)
+[----------] 10 tests from ReactionLegacyBindingTest (429 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (429 ms total)
+[  PASSED  ] 10 tests.

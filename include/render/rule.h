@@ -1,9 +1,9 @@
-/*!
- * \file   rule.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Layer-scope Rule — one styled aspect of a layer.
+/**
+ * @file      rule.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Layer-scope Rule — one styled aspect of a layer.
  *
  *         A Rule is the user-facing styling unit introduced by Slice Z.1
  *         (RENDERING_RULE_MODEL_PLAN.md §3.1). It wraps an IFeatureRenderer
@@ -22,6 +22,7 @@
  *         it. The renderer is serialised via its IFeatureRenderer::toJson
  *         contract; the renderer id (`"single"` / `"graduated"` / ...) is
  *         what fromJson dispatches on.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_RULE_H
@@ -44,16 +45,16 @@ namespace OpenSWMM::Render
  *
  *        A Rule owns its IFeatureRenderer via std::unique_ptr. Property
  *        edits emit ruleChanged(); replacing the renderer emits the
- *        distinct rendererReplaced() signal so editors can rebind to the
- *        new renderer instance without confusing it with a routine edit.
+ *        rendererReplaced() signal so editors can rebind. Explicit renderer-state
+ *        notifications emit that signal too, even when the pointer is unchanged.
  */
 class Rule : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY ruleChanged)
     Q_PROPERTY(bool isVisible READ isVisible WRITE setVisible NOTIFY ruleChanged)
-    Q_PROPERTY(QString filterExpression READ filterExpression WRITE setFilterExpression
-                   NOTIFY ruleChanged)
+    Q_PROPERTY(
+        QString filterExpression READ filterExpression WRITE setFilterExpression NOTIFY ruleChanged)
     Q_PROPERTY(double minScale READ minScale WRITE setMinScale NOTIFY ruleChanged)
     Q_PROPERTY(double maxScale READ maxScale WRITE setMaxScale NOTIFY ruleChanged)
     Q_PROPERTY(QString blendMode READ blendMode WRITE setBlendMode NOTIFY ruleChanged)
@@ -62,33 +63,51 @@ class Rule : public QObject
      *  plan-spec lifecycle (RENDERING_RULE_MODEL_PLAN.md §14.1) is to
      *  sample once at Rule creation and freeze the breaks. The opt-in is
      *  for users who want continuous color rescaling. */
-    Q_PROPERTY(bool rebinPerFrame READ rebinPerFrame WRITE setRebinPerFrame
-                   NOTIFY ruleChanged)
+    Q_PROPERTY(bool rebinPerFrame READ rebinPerFrame WRITE setRebinPerFrame NOTIFY ruleChanged)
     /*! Slice Z.11 — when true, the paint host walks features in
      *  level-major order (every feature's level-0 symbol layers first,
      *  then every feature's level-1, …). See RENDERING_RULE_MODEL_PLAN.md
      *  §8 + render/symbollevels.h. Off by default; intersection
      *  seams in line networks come out clean when enabled. */
-    Q_PROPERTY(bool symbolLevelsEnabled READ symbolLevelsEnabled
-                   WRITE setSymbolLevelsEnabled NOTIFY ruleChanged)
+    Q_PROPERTY(bool symbolLevelsEnabled READ symbolLevelsEnabled WRITE setSymbolLevelsEnabled NOTIFY
+                   ruleChanged)
 
 public:
+    /** @brief Construct a visible unnamed rule with an empty single-symbol renderer.
+     * @param parent Optional QObject owner. Filters/scales are empty/unbounded,
+     * blend mode Normal, and per-frame rebinning/symbol levels disabled. */
     explicit Rule(QObject *parent = nullptr);
-    Rule(QString name,
-         std::unique_ptr<IFeatureRenderer> renderer,
-         QObject *parent = nullptr);
+    /** @brief Construct a named rule and take ownership of its renderer.
+     * @param name Text moved verbatim, including empty or duplicate names.
+     * @param renderer Ownership transferred; null creates an empty SingleSymbolRenderer.
+     * @param parent Optional QObject owner, which owns the Rule through Qt parenting.
+     * No change signals are emitted during construction. */
+    Rule(QString name, std::unique_ptr<IFeatureRenderer> renderer, QObject *parent = nullptr);
+    /** @brief Destroy the owned renderer and QObject-owned children. */
     ~Rule() override;
 
     // Non-copyable / non-movable: Rule has identity (signals, owned renderer).
+    /** @brief Prohibit copying a QObject identity and its owned renderer. */
     Rule(const Rule &) = delete;
+    /** @brief Prohibit copy assignment of an established QObject identity. */
     Rule &operator=(const Rule &) = delete;
+    /** @brief Prohibit moving a QObject whose signal connections have stable identity. */
     Rule(Rule &&) = delete;
+    /** @brief Prohibit move assignment of an established QObject identity. */
     Rule &operator=(Rule &&) = delete;
 
+    /** @brief Read the rule's display/persistence name.
+     * @return Owned text, without normalization or uniqueness checks. */
     [[nodiscard]] QString name() const { return m_name; }
+    /** @brief Replace the name and emit ruleChanged() on an exact text change.
+     * @param name Text copied verbatim; empty, whitespace and duplicates are accepted. */
     void setName(const QString &name);
 
+    /** @brief Read whether the paint host should consider this rule enabled.
+     * @return Stored visibility; scale/filter checks are separate host responsibilities. */
     [[nodiscard]] bool isVisible() const { return m_isVisible; }
+    /** @brief Toggle rule visibility and emit ruleChanged() on change.
+     * @param v True enables consideration by the paint host; false disables it. */
     void setVisible(bool v);
 
     /*!
@@ -99,41 +118,68 @@ public:
      *        Rule's renderer is consulted only for features that satisfy
      *        the expression; non-matching features fall through to the
      *        next Rule in the stack.
+     * @return Stored expression text; this getter does not parse or evaluate it.
      */
     [[nodiscard]] QString filterExpression() const { return m_filterExpression; }
+    /** @brief Replace filter text without compiling or validating it.
+     * @param expr Expression copied verbatim, including empty text. An exact text
+     * change emits ruleChanged(); host evaluation defines error/nonmatch behavior. */
     void setFilterExpression(const QString &expr);
 
-    /*! \brief Minimum map scale at which this Rule paints. 0 = unbounded. */
+    /** @brief Read the lower visibility-scale metadata; zero means unbounded.
+     * @return Stored map-scale value, interpreted by the paint host. */
     [[nodiscard]] double minScale() const { return m_minScale; }
+    /** @brief Store a lower visibility scale and notify when it changes fuzzily.
+     * @param s Scale value, with zero for unbounded; no finite, nonnegative or
+     * min/max ordering check occurs. Uses qFuzzyCompare after adding one and
+     * emits ruleChanged() only when that comparison differs. */
     void setMinScale(double s);
 
-    /*! \brief Maximum map scale at which this Rule paints. 0 = unbounded. */
+    /** @brief Read the upper visibility-scale metadata; zero means unbounded.
+     * @return Stored map-scale value, interpreted by the paint host. */
     [[nodiscard]] double maxScale() const { return m_maxScale; }
+    /** @brief Store an upper visibility scale and notify when it changes fuzzily.
+     * @param s Scale value, with zero for unbounded; no finite, nonnegative or
+     * ordering check occurs. Uses the same shifted comparison as setMinScale(). */
     void setMaxScale(double s);
 
     /*! \brief Composition / blend mode for this Rule's paint pass.
      *         "Normal" (default), "Multiply", "Screen", "Overlay",
      *         "Darken", "Lighten", "ColorDodge", "ColorBurn",
      *         "HardLight", "SoftLight", "Difference", "Exclusion".
-     *         Unknown values fall back to "Normal" at paint time. */
+     *         Paint hosts interpret the stored token.
+     * @return Owned token text without normalization or validation. */
     [[nodiscard]] QString blendMode() const { return m_blendMode; }
+    /** @brief Store a blend-mode token and emit ruleChanged() on exact change.
+     * @param m Text copied verbatim; unknown/empty tokens are accepted and left
+     * for paint-host interpretation. This setter performs no compositing. */
     void setBlendMode(const QString &m);
 
-    /*! Slice Z.7 — see Q_PROPERTY doc above. */
+    /** @brief Read the owning layer's per-frame classification preference.
+     * @return Stored flag; the Rule does not itself sample or reclassify data. */
     [[nodiscard]] bool rebinPerFrame() const { return m_rebinPerFrame; }
+    /** @brief Store the per-frame rebinning preference and notify on change.
+     * @param v True requests fresh frame-specific breaks from the owning layer. */
     void setRebinPerFrame(bool v);
 
-    /*! Slice Z.11 — see Q_PROPERTY doc above. */
+    /** @brief Read the preferred symbol-pass ordering mode.
+     * @return True requests level-major painting; the Rule does not paint itself. */
     [[nodiscard]] bool symbolLevelsEnabled() const { return m_symbolLevelsEnabled; }
+    /** @brief Store level-major painting preference and emit ruleChanged() on change.
+     * @param v True requests symbol levels; false requests ordinary host ordering. */
     void setSymbolLevelsEnabled(bool v);
 
     /*! \brief The owned renderer. Never null in a default-constructed Rule
      *         — the constructor seeds it with a SingleSymbolRenderer if
-     *         none is supplied. */
+     *         none is supplied.
+     * @return Borrowed non-null renderer. Replacement or Rule destruction
+     * invalidates it; notifyRendererStateChanged() alone need not change the pointer. */
     [[nodiscard]] IFeatureRenderer *renderer() const { return m_renderer.get(); }
 
     /*! \brief Replace the renderer. Takes ownership; the old renderer is
-     *         destroyed. Emits rendererReplaced() then ruleChanged(). */
+     *         destroyed. Emits rendererReplaced() then ruleChanged().
+     * @param r Ownership transferred by value. Null creates a fresh empty
+     * SingleSymbolRenderer; signals are emitted for every call without an equality check. */
     void setRenderer(std::unique_ptr<IFeatureRenderer> r);
 
     /*! \brief Slice Z.3b — swap the renderer to a freshly-constructed
@@ -144,6 +190,10 @@ public:
      *         \p id is unknown, empty, or equals the current renderer's
      *         id (no-op). On true, fires rendererReplaced() then
      *         ruleChanged() per setRenderer.
+     * @param id Exact case-sensitive class key, without trimming.
+     * @return True after replacing the renderer; false for no-op/unsupported keys.
+     * The shared factory carries the prior base symbol and compatible attribute;
+     * it does not preserve bins, categories, rules or other renderer-specific state.
      */
     bool setRendererById(const QString &id);
 
@@ -157,34 +207,50 @@ public:
     void notifyRendererStateChanged();
 
     /*! \brief Serialise this Rule to a JSON object suitable for
-     *         .swmm-rule.json and .oswp persistence. */
+     *         .swmm-rule.json and .oswp persistence.
+     * @return Owned snapshot, omitting default optional metadata and delegating
+     * renderer configuration to its toJson(). No filter/scale validation occurs. */
     [[nodiscard]] QJsonObject toJson() const;
 
     /*! \brief Construct a Rule from JSON. Returns nullptr if the JSON is
      *         malformed (no "renderer" object or an unknown renderer id).
      *         Tolerant of missing optional keys — they fall back to
-     *         defaults. */
+     *         defaults.
+     * @param j Rule object with a renderer object whose exact id is single,
+     * graduated, categorized, rule or unclassed. Unknown/missing renderer IDs fail.
+     * @param parent Optional QObject parent, which must outlive the returned
+     * unique_ptr owner or have ownership released before it deletes the child.
+     * @return Owning rule snapshot, or nullptr for unsupported/missing renderer
+     * metadata. Other malformed fields use Qt defaults; filter/scale validity is
+     * not checked. Fields are assigned without emitting change signals. */
     [[nodiscard]] static std::unique_ptr<Rule> fromJson(const QJsonObject &j,
                                                         QObject *parent = nullptr);
 
     /*! \brief Deep copy. Owned renderer is cloned via
      *         IFeatureRenderer::clone(). The copy carries the same
-     *         property values as the original. */
+     *         property values as the original.
+     * @param parent Optional QObject parent with the same lifetime requirement as fromJson().
+     * @return Sole ownership of a new Rule identity and independently cloned
+     * renderer. Existing signal connections are not copied and construction emits no changes. */
     [[nodiscard]] std::unique_ptr<Rule> clone(QObject *parent = nullptr) const;
 
 signals:
-    void ruleChanged();          /*!< Any Q_PROPERTY edit. */
-    void rendererReplaced();     /*!< setRenderer() called; renderer pointer changed. */
+    /** @brief Notify a metadata edit, renderer replacement, or explicit renderer-state change. */
+    void ruleChanged();
+    /** @brief Notify renderer replacement or an explicit internal state update.
+     * Rebind/read the renderer again; the pointer may be unchanged. Emitted
+     * before ruleChanged() by setRenderer() and notifyRendererStateChanged(). */
+    void rendererReplaced();
 
 private:
-    QString                           m_name;
-    bool                              m_isVisible = true;
-    QString                           m_filterExpression;
-    double                            m_minScale = 0.0;
-    double                            m_maxScale = 0.0;
-    QString                           m_blendMode = QStringLiteral("Normal");
-    bool                              m_rebinPerFrame = false;
-    bool                              m_symbolLevelsEnabled = false;
+    QString m_name;
+    bool m_isVisible = true;
+    QString m_filterExpression;
+    double m_minScale = 0.0;
+    double m_maxScale = 0.0;
+    QString m_blendMode = QStringLiteral("Normal");
+    bool m_rebinPerFrame = false;
+    bool m_symbolLevelsEnabled = false;
     std::unique_ptr<IFeatureRenderer> m_renderer;
 };
 

@@ -1,9 +1,10 @@
-/*!
- * \file   unclassedcolorsrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  UnclassedColorsRenderer implementation (Slice Z.9).
+/**
+ * @file      unclassedcolorsrenderer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     UnclassedColorsRenderer implementation (Slice Z.9).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/unclassedcolorsrenderer.h"
@@ -18,17 +19,24 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 // Gap A1.2 — colour convention now lives in one place: SymbolProps
 // (render/symbolstyle.h). Local alias keeps the call sites unchanged.
 using SymbolProps::overrideColorInPlace;
 
+/** @brief Encode an object as compact JSON text.
+ * @param obj Object to encode without mutation.
+ * @return Owned UTF-8-decoded JSON string without pretty-print whitespace. */
 QString jsonObjectToString(const QJsonObject &obj)
 {
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
+/** @brief Parse UTF-8 JSON text and extract an object without reporting errors.
+ * @param s Text to parse; invalid text or a nonobject document is accepted as empty.
+ * @return Parsed object, or an empty object on failure/nonobject input. */
 QJsonObject jsonObjectFromString(const QString &s)
 {
     return QJsonDocument::fromJson(s.toUtf8()).object();
@@ -60,10 +68,10 @@ QColor UnclassedColorsRenderer::colorForValue(double v) const
     const double mx = m_ramp.maxValue;
 
     if (v < mn) {
-        return m_belowRange.isValid() ? m_belowRange : m_ramp.colorAt(0.0);
+        return Qt::transparent;
     }
     if (v > mx) {
-        return m_aboveRange.isValid() ? m_aboveRange : m_ramp.colorAt(1.0);
+        return m_ramp.colorAt(1.0);
     }
     // Degenerate range: emit the midpoint colour so we never divide by zero.
     if (qFuzzyCompare(mn + 1.0, mx + 1.0))
@@ -76,7 +84,7 @@ QColor UnclassedColorsRenderer::colorForValue(double v) const
 // ── IFeatureRenderer ────────────────────────────────────────────────
 
 SymbolStyle UnclassedColorsRenderer::symbolFor(const FeatureRef & /*f*/,
-                                                const QVariantMap &attrs) const
+                                               const QVariantMap &attrs) const
 {
     SymbolStyle out = m_baseSymbol;
     if (m_classifyAttribute.isEmpty())
@@ -93,6 +101,11 @@ SymbolStyle UnclassedColorsRenderer::symbolFor(const FeatureRef & /*f*/,
         overrideColorInPlace(out, m_noData);
         return out;
     }
+    if (std::isfinite(v) && v < m_ramp.minValue) {
+        overrideColorInPlace(out, QColor(Qt::transparent));
+        out.opacity = 0.0;
+        return out;
+    }
     overrideColorInPlace(out, colorForValue(v));
     return out;
 }
@@ -102,21 +115,20 @@ QList<LegendSymbolItem> UnclassedColorsRenderer::legendSymbolItems() const
     QList<LegendSymbolItem> items;
     const double mn = m_ramp.minValue;
     const double mx = m_ramp.maxValue;
-    const int    n  = m_legendLabelCount;
+    const int n = m_legendLabelCount;
 
     items.reserve(n);
     for (int i = 0; i < n; ++i) {
-        const double t = (n == 1) ? 0.0
-                                  : static_cast<double>(i) / (n - 1);
+        const double t = (n == 1) ? 0.0 : static_cast<double>(i) / (n - 1);
         const double v = mn + t * (mx - mn);
 
         LegendSymbolItem item;
         item.label = QString::number(v, 'g', 4);
         item.symbol = m_baseSymbol;
         overrideColorInPlace(item.symbol, m_ramp.colorAt(t));
-        item.range = { v, v };
+        item.range = {v, v};
         item.sortIndex = i;
-        item.classKey  = QString::number(i);
+        item.classKey = QString::number(i);
         items.append(item);
     }
     return items;
@@ -125,16 +137,16 @@ QList<LegendSymbolItem> UnclassedColorsRenderer::legendSymbolItems() const
 QJsonObject UnclassedColorsRenderer::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("id")]                = rendererId();
+    j[QStringLiteral("id")] = rendererId();
     j[QStringLiteral("classifyAttribute")] = m_classifyAttribute;
-    j[QStringLiteral("ramp")]              = m_ramp.toJson();
-    j[QStringLiteral("baseSymbol")]        = m_baseSymbol.toJson();
+    j[QStringLiteral("ramp")] = m_ramp.toJson();
+    j[QStringLiteral("baseSymbol")] = m_baseSymbol.toJson();
     if (m_belowRange.isValid())
         j[QStringLiteral("belowRange")] = m_belowRange.name(QColor::HexArgb);
     if (m_aboveRange.isValid())
         j[QStringLiteral("aboveRange")] = m_aboveRange.name(QColor::HexArgb);
-    if (m_noData.alpha() != 0 || m_noData.red() != 0
-        || m_noData.green() != 0 || m_noData.blue() != 0)
+    if (m_noData.alpha() != 0 || m_noData.red() != 0 || m_noData.green() != 0 ||
+        m_noData.blue() != 0)
         j[QStringLiteral("noDataColor")] = m_noData.name(QColor::HexArgb);
     if (m_legendLabelCount != 5)
         j[QStringLiteral("legendLabelCount")] = m_legendLabelCount;
@@ -158,19 +170,20 @@ void UnclassedColorsRenderer::fromJson(const QJsonObject &j)
     m_noData = nd.isEmpty() ? QColor(0, 0, 0, 0) : QColor(nd);
 
     m_legendLabelCount = j.value(QStringLiteral("legendLabelCount")).toInt(5);
-    if (m_legendLabelCount < 2) m_legendLabelCount = 2;
+    if (m_legendLabelCount < 2)
+        m_legendLabelCount = 2;
 }
 
 std::unique_ptr<IFeatureRenderer> UnclassedColorsRenderer::clone() const
 {
     auto c = std::make_unique<UnclassedColorsRenderer>();
     c->m_classifyAttribute = m_classifyAttribute;
-    c->m_ramp              = m_ramp;
-    c->m_baseSymbol        = m_baseSymbol;
-    c->m_belowRange        = m_belowRange;
-    c->m_aboveRange        = m_aboveRange;
-    c->m_noData            = m_noData;
-    c->m_legendLabelCount  = m_legendLabelCount;
+    c->m_ramp = m_ramp;
+    c->m_baseSymbol = m_baseSymbol;
+    c->m_belowRange = m_belowRange;
+    c->m_aboveRange = m_aboveRange;
+    c->m_noData = m_noData;
+    c->m_legendLabelCount = m_legendLabelCount;
     return c;
 }
 

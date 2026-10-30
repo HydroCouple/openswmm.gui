@@ -1,0 +1,54 @@
+{
+  "library_sha256": "c3c397ec3245125727141c4852df80ca4bd9b609e45bf8c05bb25f27e6a9a1dd",
+  "source": "cumulative engine emergency-weir flow statistics",
+  "runs": [
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.1,
+      "bypass_ft3_engine": 1189.478265901035,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.05,
+      "bypass_ft3_engine": 1189.4577107562936,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.025,
+      "bypass_ft3_engine": 1203.990376231671,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.0125,
+      "bypass_ft3_engine": 1189.4412614208575,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.00625,
+      "bypass_ft3_engine": 1189.439062282721,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "06_stuck_closed",
+      "step_seconds": 0.1,
+      "bypass_ft3_engine": 2006.564700969864,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "06_stuck_closed",
+      "step_seconds": 0.05,
+      "bypass_ft3_engine": 2006.5646961871926,
+      "flood_ft3": 0.0
+    },
+    {
+      "case": "06_stuck_closed",
+      "step_seconds": 0.025,
+      "bypass_ft3_engine": 2006.564693790074,
+      "flood_ft3": 0.0
+    }
+  ]
+}

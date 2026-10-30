@@ -1,0 +1,9 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Same sectional block as Profile (profile.svg), with a triangulated
+       mesh surface replacing the filled water wedge. -->
+  <path d="M3 7V18" stroke="#777777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M21 4V15.5" stroke="#777777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M21 7L3 9.72727V18L21 15.5V7Z" stroke="#777777" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M3 14.5l4.5-3 4 2.5 4.5-3 5 2" stroke="#777777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7.5 11.5v6.2M11.5 14v3.5M16 11v5.5" stroke="#777777" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

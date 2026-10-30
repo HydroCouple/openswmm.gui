@@ -1,7 +1,10 @@
-/*!
- * \file   wmtsconnectiondialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      wmtsconnectiondialog.cpp
+ * @brief     Dialog for connecting to an OGC WMTS service and selecting a layer to add.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/wmtsconnectiondialog.h"
@@ -26,8 +29,7 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-WMTSConnectionDialog::WMTSConnectionDialog(QWidget *parent)
-    : QDialog(parent)
+WMTSConnectionDialog::WMTSConnectionDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("Add WMTS Layer"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -58,8 +60,7 @@ WMTSLayer *WMTSConnectionDialog::createLayer(QObject *parent) const
     if (urlText.isEmpty())
         return nullptr;
 
-    auto *layer = new WMTSLayer(QUrl(urlText),
-                                qobject_cast<OpenSWMMVisWorkspace *>(parent));
+    auto *layer = new WMTSLayer(QUrl(urlText), qobject_cast<OpenSWMMVisWorkspace *>(parent));
 
     // Transfer the already-fetched service info so the layer has m_capsReady = true
     // and a populated m_serviceInfo on first use — without this the layer's
@@ -73,12 +74,9 @@ WMTSLayer *WMTSConnectionDialog::createLayer(QObject *parent) const
     layer->setImageFormat(m_formatCombo->currentText());
 
     // Set human-readable name
-    if (m_serviceInfo)
-    {
-        for (const WMTSLayerInfo &info : m_serviceInfo->layers)
-        {
-            if (info.identifier == m_selectedLayerId)
-            {
+    if (m_serviceInfo) {
+        for (const WMTSLayerInfo &info : m_serviceInfo->layers) {
+            if (info.identifier == m_selectedLayerId) {
                 layer->setName(info.title.isEmpty() ? info.identifier : info.title);
                 break;
             }
@@ -102,8 +100,7 @@ void WMTSConnectionDialog::setupUi()
     m_urlCombo = new QComboBox(this);
     m_urlCombo->setEditable(true);
     m_urlCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    m_urlCombo->lineEdit()->setPlaceholderText(
-        tr("https://example.org/wmts?SERVICE=WMTS"));
+    m_urlCombo->lineEdit()->setPlaceholderText(tr("https://example.org/wmts?SERVICE=WMTS"));
     urlRow->addWidget(m_urlCombo, 1);
     auto *connectBtn = new QPushButton(tr("Connect"), this);
     urlRow->addWidget(connectBtn);
@@ -125,7 +122,7 @@ void WMTSConnectionDialog::setupUi()
 
     // Options panel
     auto *optWidget = new QWidget(this);
-    auto *optVlay   = new QVBoxLayout(optWidget);
+    auto *optVlay = new QVBoxLayout(optWidget);
     optVlay->setContentsMargins(4, 0, 0, 0);
 
     optVlay->addWidget(new QLabel(tr("Tile Matrix Set:"), optWidget));
@@ -153,10 +150,10 @@ void WMTSConnectionDialog::setupUi()
     vlay->addWidget(m_buttonBox);
 
     connect(connectBtn, &QPushButton::clicked, this, &WMTSConnectionDialog::onConnectClicked);
-    connect(m_urlCombo, &QComboBox::currentTextChanged,
-            this, &WMTSConnectionDialog::onUrlComboChanged);
-    connect(m_layerList, &QTreeWidget::itemSelectionChanged,
-            this, &WMTSConnectionDialog::onLayerSelectionChanged);
+    connect(m_urlCombo, &QComboBox::currentTextChanged, this,
+            &WMTSConnectionDialog::onUrlComboChanged);
+    connect(m_layerList, &QTreeWidget::itemSelectionChanged, this,
+            &WMTSConnectionDialog::onLayerSelectionChanged);
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -175,10 +172,10 @@ void WMTSConnectionDialog::onConnectClicked()
     m_pendingLayer = new WMTSLayer(QUrl(urlText), nullptr);
     m_pendingLayer->setParent(this);
 
-    connect(m_pendingLayer, &WMTSLayer::capabilitiesFetched,
-            this, &WMTSConnectionDialog::onCapabilitiesFetched);
-    connect(m_pendingLayer, &WMTSLayer::capabilitiesError,
-            this, &WMTSConnectionDialog::onCapabilitiesError);
+    connect(m_pendingLayer, &WMTSLayer::capabilitiesFetched, this,
+            &WMTSConnectionDialog::onCapabilitiesFetched);
+    connect(m_pendingLayer, &WMTSLayer::capabilitiesError, this,
+            &WMTSConnectionDialog::onCapabilitiesError);
 
     m_serviceTitle->setText(tr("Connecting to %1 …").arg(urlText));
     m_layerList->clear();
@@ -193,9 +190,7 @@ void WMTSConnectionDialog::onCapabilitiesFetched(const WMTSServiceInfo &info)
     delete m_serviceInfo;
     m_serviceInfo = new WMTSServiceInfo(info);
 
-    m_serviceTitle->setText(info.title.isEmpty()
-                            ? tr("WMTS service")
-                            : info.title);
+    m_serviceTitle->setText(info.title.isEmpty() ? tr("WMTS service") : info.title);
 
     populateLayerList(info);
 }
@@ -209,8 +204,7 @@ void WMTSConnectionDialog::onCapabilitiesError(const QString &error)
 void WMTSConnectionDialog::onLayerSelectionChanged()
 {
     const QList<QTreeWidgetItem *> sel = m_layerList->selectedItems();
-    if (sel.isEmpty())
-    {
+    if (sel.isEmpty()) {
         m_selectedLayerId.clear();
         m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
         return;
@@ -220,19 +214,16 @@ void WMTSConnectionDialog::onLayerSelectionChanged()
     m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!m_selectedLayerId.isEmpty());
 
     // Populate tile matrix set, styles, formats for this layer
-    if (m_serviceInfo)
-    {
-        for (const WMTSLayerInfo &info : m_serviceInfo->layers)
-        {
-            if (info.identifier == m_selectedLayerId)
-            {
+    if (m_serviceInfo) {
+        for (const WMTSLayerInfo &info : m_serviceInfo->layers) {
+            if (info.identifier == m_selectedLayerId) {
                 m_tileMatrixCombo->clear();
                 m_tileMatrixCombo->addItems(info.tileMatrixSetIds);
 
                 m_formatCombo->clear();
                 m_formatCombo->addItems(info.formats.isEmpty()
-                                        ? QStringList{QStringLiteral("image/png")}
-                                        : info.formats);
+                                            ? QStringList{QStringLiteral("image/png")}
+                                            : info.formats);
 
                 // Styles: populated from capabilities; fall back to "default"
                 m_styleCombo->clear();
@@ -261,8 +252,7 @@ void WMTSConnectionDialog::populateLayerList(const WMTSServiceInfo &info)
 {
     m_layerList->clear();
 
-    for (const WMTSLayerInfo &lyrInfo : info.layers)
-    {
+    for (const WMTSLayerInfo &lyrInfo : info.layers) {
         auto *item = new QTreeWidgetItem(m_layerList);
         item->setText(0, lyrInfo.title.isEmpty() ? lyrInfo.identifier : lyrInfo.title);
         item->setToolTip(0, lyrInfo.abstractText);

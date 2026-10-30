@@ -1,20 +1,22 @@
-/*!
- * \file   pollutantregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      pollutantregistry.cpp
+ * @brief     Mirrors StreetRegistry.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "pollutant/pollutantregistry.h"
 
+#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 
-namespace openswmmvis::pollutant {
-
-PollutantRegistry::PollutantRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::pollutant
 {
-}
+
+PollutantRegistry::PollutantRegistry(QObject *parent) : QObject(parent) {}
 
 PollutantRegistry::~PollutantRegistry() = default;
 
@@ -25,7 +27,8 @@ PollutantProvider *PollutantRegistry::findByName(const QString &name) const
 
 void PollutantRegistry::wireProviderSignals_(PollutantProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     connect(p, &PollutantProvider::nameChanged, this,
             [this, p](const QString &prev, const QString &now) {
                 m_byLowerName.remove(prev.toLower());
@@ -38,19 +41,42 @@ void PollutantRegistry::wireProviderSignals_(PollutantProvider *p)
 
 PollutantProvider *PollutantRegistry::create(const QString &name)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
     auto *p = new PollutantProvider(name, this);
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
     wireProviderSignals_(p);
+    // Reach the engine at creation so the object can be selected where it
+    // is referenced (pickers list engine names, setters resolve them there)
+    // while its editor is still open. Parameters follow through
+    // saveToEngine. Skipped when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray id = name.toUtf8();
+        if (swmm_pollutant_index(eng, id.constData()) < 0)
+            swmm_pollutant_add(eng, id.constData(), p->units());
+    }
+
     emit providerAdded(p);
     return p;
 }
 
 void PollutantRegistry::remove(PollutantProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
     emit providerAboutToBeRemoved(p);
+
+    // The engine copy exists from creation, so it goes too; otherwise the
+    // object survived in the saved .inp and came back on the next load.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_pollutant_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0)
+            swmm_pollutant_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -58,21 +84,19 @@ void PollutantRegistry::remove(PollutantProvider *p)
 
 bool PollutantRegistry::rename(PollutantProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
-    const bool caseOnly =
-        p->name().compare(newName, Qt::CaseInsensitive) == 0;
-    if (!caseOnly && hasName(newName)) return false;
+    if (!p || newName.isEmpty())
+        return false;
+    const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName))
+        return false;
 
     // Iteration 4 — rename in the engine too (name-stored [INFLOWS]/[DWF]
     // constituent references follow). Without this, saveToEngine saw an
     // unknown name and ADDED a duplicate pollutant.
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
-        const int idx =
-            swmm_pollutant_index(eng, p->name().toUtf8().constData());
-        if (idx >= 0 &&
-            swmm_pollutant_rename(eng, idx, newName.toUtf8().constData())
-                != SWMM_OK)
+        const int idx = swmm_pollutant_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 && swmm_pollutant_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
             return false;
     }
 
@@ -82,24 +106,29 @@ bool PollutantRegistry::rename(PollutantProvider *p, const QString &newName)
 
 int PollutantRegistry::loadFromEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
     const int n = swmm_pollutant_count(eng);
-    if (n <= 0) return 0;
+    if (n <= 0)
+        return 0;
 
     int added = 0;
     for (int i = 0; i < n; ++i) {
         const char *cid = swmm_pollutant_id(eng, i);
-        if (!cid || !*cid) continue;
+        if (!cid || !*cid)
+            continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id)) continue;
+        if (hasName(id))
+            continue;
 
         PollutantProvider *p = create(id);
-        if (!p) continue;
+        if (!p)
+            continue;
 
-        int    units = 0, snowOnly = 0, coIdx = -1;
+        int units = 0, snowOnly = 0, coIdx = -1;
         double rain = 0.0, gw = 0.0, init = 0.0, rdii = 0.0, k = 0.0, mwt = 0.0, frac = 0.0;
         swmm_pollutant_get_units(eng, i, &units);
         swmm_pollutant_get_rain_conc(eng, i, &rain);
@@ -138,7 +167,8 @@ int PollutantRegistry::saveToEngine()
 
 int PollutantRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
@@ -152,7 +182,8 @@ int PollutantRegistry::saveToEngine(void *engineHandle)
             if (swmm_pollutant_add(eng, idUtf8.constData(), p->units()) != SWMM_OK)
                 continue;
             idx = swmm_pollutant_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
         }
         swmm_pollutant_set_rain_conc(eng, idx, p->rainConc());
         swmm_pollutant_set_gw_conc(eng, idx, p->gwConc());
@@ -167,7 +198,8 @@ int PollutantRegistry::saveToEngine(void *engineHandle)
     for (PollutantProvider *p : m_providers) {
         const QByteArray idUtf8 = p->name().toUtf8();
         const int idx = swmm_pollutant_index(eng, idUtf8.constData());
-        if (idx < 0) continue;
+        if (idx < 0)
+            continue;
         int coIdx = -1;
         if (!p->coPollutant().isEmpty()) {
             const QByteArray coUtf8 = p->coPollutant().toUtf8();

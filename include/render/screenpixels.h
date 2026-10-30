@@ -1,9 +1,9 @@
-/*!
- * \file   screenpixels.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Inverse-zoom helpers for screen-pixel-sized geometry.
+/**
+ * @file      screenpixels.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Inverse-zoom helpers for screen-pixel-sized geometry.
  *
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 2
  *         and §3 (SublayerContext carries pixelsPerSceneUnit so sublayer
@@ -18,7 +18,9 @@
  *         All functions are constexpr / noexcept / pure-numeric so they
  *         pull in no Qt headers. Keep this header dependency-free so it
  *         can be included from the tightest QSG inner loops.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_SCREENPIXELS_H
 #define OPENSWMM_RENDER_SCREENPIXELS_H
 
@@ -40,12 +42,9 @@ namespace OpenSWMM::Render
  *   sceneSizeFromPixels(6,  10) == 0.6    // same 6 px when zoomed out 10×
  *   sceneSizeFromPixels(6, 1000) == 0.006 // same 6 px when zoomed in 10×
  */
-constexpr double sceneSizeFromPixels(double pixelSize,
-                                     double pixelsPerSceneUnit) noexcept
+constexpr double sceneSizeFromPixels(double pixelSize, double pixelsPerSceneUnit) noexcept
 {
-    return (pixelsPerSceneUnit > 0.0)
-               ? (pixelSize / pixelsPerSceneUnit)
-               : 0.0;
+    return (pixelsPerSceneUnit > 0.0) ? (pixelSize / pixelsPerSceneUnit) : 0.0;
 }
 
 /*!
@@ -54,9 +53,13 @@ constexpr double sceneSizeFromPixels(double pixelSize,
  *
  *        Useful for hit-testing (is the cursor within N px of a feature?)
  *        and for diagnostic readouts.
+ * @param[in] sceneSize Signed distance or offset in scene coordinates.
+ * @param[in] pixelsPerSceneUnit View scale in CSS pixels per scene unit, normally
+ *                              the non-negative absolute X-axis scale of the view matrix.
+ * @return sceneSize multiplied by pixelsPerSceneUnit, in CSS pixels. Unlike the
+ *         inverse helper, this function does not clamp or validate the scale.
  */
-constexpr double pixelsFromSceneSize(double sceneSize,
-                                     double pixelsPerSceneUnit) noexcept
+constexpr double pixelsFromSceneSize(double sceneSize, double pixelsPerSceneUnit) noexcept
 {
     return sceneSize * pixelsPerSceneUnit;
 }

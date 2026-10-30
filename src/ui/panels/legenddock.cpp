@@ -1,9 +1,12 @@
-/*!
- * \file   legenddock.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      legenddock.cpp
+ * @brief     style editor panel.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/panels/legenddock.h"
 
 #include "map/mapcanvas.h"
@@ -12,11 +15,10 @@
 #include "ui/widgets/legendoverlay.h"
 #include "render/legendoverlaystyle.h"
 
-// Slice S4 P5 — sublayer right-click → SublayerStyleDialog routing.
+// Slice S4 P5 — sublayer right-click → LayerStyleDialog routing.
 #include "layers/openswmmvislayer.h"
 #include "render/isublayer.h"
 #include "render/isublayerhost.h"
-#include "ui/dialogs/sublayerstyledialog.h"
 #include "ui/dialogs/layerstyledialog.h"
 
 #include <QAbstractItemView>
@@ -25,15 +27,14 @@
 #include <QMenu>
 #include <QTreeView>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-LegendDock::LegendDock(QWidget *parent)
-    : QDockWidget(tr("Legend"), parent)
+LegendDock::LegendDock(QWidget *parent) : QDockWidget(tr("Legend"), parent)
 {
     setObjectName(QStringLiteral("LegendDock"));
-    setFeatures(QDockWidget::DockWidgetClosable
-              | QDockWidget::DockWidgetMovable
-              | QDockWidget::DockWidgetFloatable);
+    setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
+                QDockWidget::DockWidgetFloatable);
 
     m_tree = new QTreeView(this);
     m_tree->setAlternatingRowColors(true);
@@ -44,32 +45,32 @@ LegendDock::LegendDock(QWidget *parent)
     m_tree->setAllColumnsShowFocus(true);
     // Match QGIS / ArcGIS: click directly on the swatch chip opens the
     // colour picker without a separate selection step.
-    m_tree->setItemDelegateForColumn(LegendLayerTreeModel::ColColor,
-                                     new LegendColorDelegate(this));
+    m_tree->setItemDelegateForColumn(LegendLayerTreeModel::ColColor, new LegendColorDelegate(this));
 
     // Slice S4 P5 — enable right-click on legend rows. The handler builds
     // a context menu that includes "Edit Sublayer Style…" when the row
     // carries a sublayerId.
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_tree, &QWidget::customContextMenuRequested,
-            this, &LegendDock::onCustomContextMenuRequested);
+    connect(m_tree, &QWidget::customContextMenuRequested, this,
+            &LegendDock::onCustomContextMenuRequested);
 
     setWidget(m_tree);
 }
 
 void LegendDock::onCustomContextMenuRequested(const QPoint &pos)
 {
-    if (!m_tree || !m_model) return;
+    if (!m_tree || !m_model)
+        return;
     const QModelIndex idx = m_tree->indexAt(pos);
-    if (!idx.isValid()) return;
+    if (!idx.isValid())
+        return;
 
     // Try to surface a sublayer-style action. The row's SublayerIdRole is
     // non-empty for rows produced by an ISublayer; the parent layer comes
     // from LayerPtrRole. Both are populated by the legend tree model.
-    const QString sublayerId =
-        idx.data(LegendLayerTreeModel::SublayerIdRole).toString();
-    OpenSWMMVisLayer *parentLayer = qvariant_cast<OpenSWMMVisLayer *>(
-        idx.data(LegendLayerTreeModel::LayerPtrRole));
+    const QString sublayerId = idx.data(LegendLayerTreeModel::SublayerIdRole).toString();
+    OpenSWMMVisLayer *parentLayer =
+        qvariant_cast<OpenSWMMVisLayer *>(idx.data(LegendLayerTreeModel::LayerPtrRole));
 
     QMenu menu(this);
     QAction *editStyleAct = nullptr;
@@ -79,17 +80,18 @@ void LegendDock::onCustomContextMenuRequested(const QPoint &pos)
         // menu wording changes.
         editStyleAct = menu.addAction(tr("Edit Style…"));
     }
-    if (menu.isEmpty()) return;
+    if (menu.isEmpty())
+        return;
 
     QAction *picked = menu.exec(m_tree->viewport()->mapToGlobal(pos));
-    if (!picked) return;
+    if (!picked)
+        return;
 
     if (picked == editStyleAct) {
         // Slice U-10 — open the unified LayerStyleDialog focused on the
         // sublayer's tab. The dialog walks parentLayer->styleSubjects()
         // and matches routingId == sublayerId to pick the initial tab.
-        auto *dlg = new openswmmvis::ui::LayerStyleDialog(
-            parentLayer, sublayerId, this);
+        auto *dlg = new openswmmvis::ui::LayerStyleDialog(parentLayer, sublayerId, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     }
@@ -102,7 +104,8 @@ MapCanvas *LegendDock::canvas() const noexcept
 
 void LegendDock::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    if (m_canvas == canvas)
+        return;
     m_canvas = canvas;
 
     // Replace the model so it reads from the new canvas's layer list.
@@ -113,8 +116,7 @@ void LegendDock::setCanvas(MapCanvas *canvas)
     // so per-item visibility / rename edits route back through the same
     // MVC model the on-canvas overlay paints from.
     if (canvas) {
-        auto *overlay = canvas->findChild<LegendOverlay *>(
-            QString(), Qt::FindDirectChildrenOnly);
+        auto *overlay = canvas->findChild<LegendOverlay *>(QString(), Qt::FindDirectChildrenOnly);
         if (!overlay)
             overlay = new LegendOverlay(canvas);
         m_model->setOverlayStyle(overlay->style());
@@ -122,11 +124,12 @@ void LegendDock::setCanvas(MapCanvas *canvas)
 
     m_tree->setModel(m_model);
     m_tree->expandAll();
-    if (old) old->deleteLater();
+    if (old)
+        old->deleteLater();
 
     // Re-expand after every internal reset (rebuildLayerCache fires it).
-    connect(m_model, &QAbstractItemModel::modelReset,
-            m_tree, &QTreeView::expandAll, Qt::UniqueConnection);
+    connect(m_model, &QAbstractItemModel::modelReset, m_tree, &QTreeView::expandAll,
+            Qt::UniqueConnection);
 
     if (auto *hdr = m_tree->header()) {
         // All columns user-resizable (drag the header dividers). Interactive
@@ -134,13 +137,13 @@ void LegendDock::setCanvas(MapCanvas *canvas)
         // auto-fills; the widths below are the initial defaults the user can
         // then drag. Disable last-section stretch so the dragged Size width
         // sticks instead of snapping to fill the viewport.
-        hdr->setSectionResizeMode(LegendLayerTreeModel::ColItem,  QHeaderView::Interactive);
+        hdr->setSectionResizeMode(LegendLayerTreeModel::ColItem, QHeaderView::Interactive);
         hdr->setSectionResizeMode(LegendLayerTreeModel::ColColor, QHeaderView::Interactive);
-        hdr->setSectionResizeMode(LegendLayerTreeModel::ColSize,  QHeaderView::Interactive);
+        hdr->setSectionResizeMode(LegendLayerTreeModel::ColSize, QHeaderView::Interactive);
         hdr->setStretchLastSection(false);
-        hdr->resizeSection(LegendLayerTreeModel::ColItem,  200);
+        hdr->resizeSection(LegendLayerTreeModel::ColItem, 200);
         hdr->resizeSection(LegendLayerTreeModel::ColColor, 80);
-        hdr->resizeSection(LegendLayerTreeModel::ColSize,  60);
+        hdr->resizeSection(LegendLayerTreeModel::ColSize, 60);
     }
 }
 

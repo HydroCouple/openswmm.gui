@@ -1,17 +1,27 @@
-/*!
- * \file   swmm2dmeshlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmm2dmeshlayer.cpp
+ * @brief     renders a generated 2D triangular mesh on the canvas.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Rendering uses SWMM2DMeshGraphicsItem — a QGraphicsItem that paints
  * the triangulated mesh via QPainter, exactly like SWMMLayerItem does for
  * the SWMM network.  rebuildSceneGeometry() populates the scene-space caches
  * (m_sceneTris / m_sceneEdges / m_sceneNodes); the graphics item reads them
  * and calls update() on itself whenever repaintRequested() fires.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
-#include "layers/swmm2dmeshlayer.h"
 
+#include "core/crsreproject.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "core/preferencesmanager.h"
+#include "layers/swmmmodellayer.h"
+#include <openswmm/engine/openswmm_infil2d.h>
+
+#include "core/unitsystem.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
 
@@ -33,7 +43,9 @@
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/couplednodesublayer.h"
 #include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
@@ -43,8 +55,11 @@
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLocale>
 #include <QPainter>
+#include "assignment/surfaceownership.h"
 #include <QSet>
 #include <QStyleOptionGraphicsItem>
 #include <QtConcurrent/QtConcurrentRun>
@@ -59,27 +74,34 @@
 // ---------------------------------------------------------------------------
 // Elevation colour ramp — same 5-stop ramp as SWMM2DMeshQSGRenderer
 // ---------------------------------------------------------------------------
-namespace {
+namespace
+{
 
+/**
+ * @param[in] t Finite normalized bed coordinate, clamped0..1.
+ * @param[out] r,g,b Rounded RGB channels of the fixed five-stop terrain ramp,0..255.
+ * @note No alpha/shading or mutable global state.
+ */
 void elevationColorRgb(double t, int &r, int &g, int &b)
 {
-    struct Stop { double t; int r, g, b; };
-    static const Stop stops[] = {
-        {0.00, 0x1a, 0x3d, 0x6b},
-        {0.20, 0x2e, 0x8b, 0x57},
-        {0.50, 0xc8, 0xd9, 0x4e},
-        {0.75, 0xc8, 0xa0, 0x00},
-        {1.00, 0xf0, 0xf0, 0xe8},
+    struct Stop {
+        double t;
+        int r, g, b;
     };
-    constexpr int N = int(sizeof(stops)/sizeof(*stops));
+    static const Stop stops[] = {
+        {0.00, 0x1a, 0x3d, 0x6b}, {0.20, 0x2e, 0x8b, 0x57}, {0.50, 0xc8, 0xd9, 0x4e},
+        {0.75, 0xc8, 0xa0, 0x00}, {1.00, 0xf0, 0xf0, 0xe8},
+    };
+    constexpr int N = int(sizeof(stops) / sizeof(*stops));
     t = qBound(0.0, t, 1.0);
     int i = 0;
-    while (i < N - 2 && stops[i+1].t <= t) ++i;
-    const Stop &lo = stops[i], &hi = stops[i+1];
-    const double f = (hi.t > lo.t) ? (t - lo.t)/(hi.t - lo.t) : 0.0;
-    r = qRound(lo.r + f*(hi.r - lo.r));
-    g = qRound(lo.g + f*(hi.g - lo.g));
-    b = qRound(lo.b + f*(hi.b - lo.b));
+    while (i < N - 2 && stops[i + 1].t <= t)
+        ++i;
+    const Stop &lo = stops[i], &hi = stops[i + 1];
+    const double f = (hi.t > lo.t) ? (t - lo.t) / (hi.t - lo.t) : 0.0;
+    r = qRound(lo.r + f * (hi.r - lo.r));
+    g = qRound(lo.g + f * (hi.g - lo.g));
+    b = qRound(lo.b + f * (hi.b - lo.b));
 }
 
 } // namespace
@@ -91,41 +113,63 @@ void elevationColorRgb(double t, int &r, int &g, int &b)
 class SWMM2DMeshGraphicsItem : public QGraphicsItem
 {
 public:
+    /**
+     * @param[in] layer Required borrowed mesh layer, stable until item deletion.
+     * @param[in] parent Optional graphics-item owner.
+     * @note Tags owner/baseZ, disables item cache and enables exposed-rect paint options. Layer caches supply bounds; no geometry copies or QObject ownership acquired.
+     */
     explicit SWMM2DMeshGraphicsItem(SWMM2DMeshLayer *layer, QGraphicsItem *parent = nullptr)
         : QGraphicsItem(parent), m_layer(layer)
     {
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
         setCacheMode(QGraphicsItem::NoCache);
         setZValue(layer->layerZValue());
+        setData(0, QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
-    void geometryChanged() { prepareGeometryChange(); update(); }
-
-    QRectF boundingRect() const override
+    /**
+     * @brief Notify scene index of changed cached bounds and schedule item repaint.
+     * @note GUI-thread call while borrowed layer remains valid; does not itself recompute any geometry.
+     */
+    void geometryChanged()
     {
-        return m_layer->m_sceneBBox;
+        prepareGeometryChange();
+        update();
     }
 
+    /**
+     * @return Current layer scene bbox by value, requiring stable caches and live borrowed layer.
+     */
+    QRectF boundingRect() const override { return m_layer->m_sceneBBox; }
+
+    /**
+     * @param[in] p Required active scene painter; saves/restores its state for rendered passes.
+     * @param[in] option Required style option supplying scene exposed bounds.
+     * @note Unnamed widget argument unused. Returns when QSG owns rendering/hidden/no fan. Paints CPU terrain/contours/edges/BC/nodes/selection using current cache/style, zoom/LOD gates and optional mask clip. Fixed pass order is independent of user sublayer list reordering. Grids query mutable seen scratch, so exclude concurrent CPU paints/cache rebuilds. No engine/file access.
+     */
     void paint(QPainter *p, const QStyleOptionGraphicsItem *option, QWidget *) override
     {
         // Mesh Tiled LOD plan P1.1 — while SWMM2DMeshQSGRenderer owns this
         // layer, the CPU path must not double-paint (mirrors
         // SWMM2DResultsLayer's gate).
-        if (m_layer->qsgOwnsRendering()) return;
-        if (!m_layer->isVisible()) return;
+        if (m_layer->qsgOwnsRendering())
+            return;
+        if (!m_layer->isVisible())
+            return;
 
-        const auto &tris  = m_layer->m_sceneTris;
+        const auto &tris = m_layer->m_sceneTris;
         const auto &edges = m_layer->m_sceneEdges;
 
-        if (tris.isEmpty()) return;
+        if (tris.isEmpty())
+            return;
 
         const QRectF exposed = option->exposedRect;
-        const bool hasElev   = (m_layer->m_zMax > m_layer->m_zMin);
-        const double zMin    = m_layer->m_zMin;
-        const double zMax    = m_layer->m_zMax;
-        const double zRange  = zMax - zMin;
-        const bool active    = m_layer->isActiveMesh();
-        const int  fillAlpha = active ? 160 : 110;
+        const bool hasElev = (m_layer->m_zMax > m_layer->m_zMin);
+        const double zMin = m_layer->m_zMin;
+        const double zMax = m_layer->m_zMax;
+        const double zRange = zMax - zMin;
+        const bool active = m_layer->isActiveMesh();
+        const int fillAlpha = active ? 160 : 110;
 
         // Per-sublayer visibility + opacity. This is the fallback render
         // path (active when the QSG renderer does not own the layer — see
@@ -138,26 +182,29 @@ public:
         const auto *edgeSub = m_layer->meshEdgeSublayer();
         const auto *nodeSub = m_layer->meshNodeSublayer();
         const auto *bandSub = m_layer->contourBandSublayer();
-        const auto *isoSub  = m_layer->isolineSublayer();
+        const auto *isoSub = m_layer->isolineSublayer();
+        const auto *coupledSub = m_layer->coupledNodeSublayer();
 
-        const bool  fillVisible  = !fillSub || fillSub->isVisible();
+        const bool fillVisible = !fillSub || fillSub->isVisible();
         // Zoom gates matching the QSG LOD policy (kEdgeMinCellAreaPx /
         // kMarkerMinCellAreaPx): wireframe and vertex dots appear
         // automatically once cells project large enough on screen, and stay
         // out of the way (sub-pixel noise / a dark wash) below that.
-        const double kPaintPx  = p->worldTransform().m11();
+        const double kPaintPx = p->worldTransform().m11();
         const double kCellAreaPx =
             (!m_layer->m_sceneTris.isEmpty() && !m_layer->m_sceneBBox.isNull())
-                ? (m_layer->m_sceneBBox.width() * m_layer->m_sceneBBox.height()
-                   / double(m_layer->m_sceneTris.size()))
-                      * kPaintPx * kPaintPx
+                ? (m_layer->m_sceneBBox.width() * m_layer->m_sceneBBox.height() /
+                   double(m_layer->m_sceneTris.size())) *
+                      kPaintPx * kPaintPx
                 : 0.0;
-        const bool  edgesVisible = (!edgeSub || edgeSub->isVisible())
-                                   && kCellAreaPx >= m_layer->edgeMinCellAreaPx();
-        const bool  nodesVisible = nodeSub && nodeSub->isVisible()
-                                   && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
-        const bool  bandsVisible = bandSub && bandSub->isVisible();
-        const bool  isoVisible   = isoSub  && isoSub->isVisible();
+        const bool edgesVisible =
+            (!edgeSub || edgeSub->isVisible()) && kCellAreaPx >= m_layer->edgeMinCellAreaPx();
+        const bool nodesVisible =
+            nodeSub && nodeSub->isVisible() && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
+        const bool coupledVisible =
+            coupledSub && coupledSub->isVisible() && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
+        const bool bandsVisible = bandSub && bandSub->isVisible();
+        const bool isoVisible = isoSub && isoSub->isVisible();
 
         const qreal fillOpacity = fillSub ? fillSub->opacity() : 1.0;
         const qreal edgeOpacity = edgeSub ? edgeSub->opacity() : 1.0;
@@ -176,13 +223,13 @@ public:
         // renderer (swmm2dmeshqsgrenderer.cpp), so both paths agree. The
         // layer defaults (az=225°, alt=35.264°, zExag=3, minLit=0.15)
         // reproduce the historic NW-35° constants exactly.
-        const double azRad      = qDegreesToRadians(m_layer->hillshadeAzimuth());
-        const double altRad     = qDegreesToRadians(m_layer->hillshadeAltitude());
-        const float  kLx        = float(std::sin(azRad) * std::cos(altRad));
-        const float  kLy        = float(std::cos(azRad) * std::cos(altRad));
-        const float  kLz        = float(std::sin(altRad));
-        const float  kVertExag  = float(m_layer->hillshadeZExag());
-        const float  kLitMin    = float(m_layer->hillshadeMinLit());
+        const double azRad = qDegreesToRadians(m_layer->hillshadeAzimuth());
+        const double altRad = qDegreesToRadians(m_layer->hillshadeAltitude());
+        const float kLx = float(std::sin(azRad) * std::cos(altRad));
+        const float kLy = float(std::cos(azRad) * std::cos(altRad));
+        const float kLz = float(std::sin(altRad));
+        const float kVertExag = float(m_layer->hillshadeZExag());
+        const float kLitMin = float(m_layer->hillshadeMinLit());
 
         p->save();
         p->setPen(Qt::NoPen);
@@ -193,8 +240,7 @@ public:
         // for the duration of this paint pass (p->save above will
         // restore on the p->restore below).
         {
-            const auto clip = OpenSWMM::Render::resolveMaskClip(
-                m_layer, m_layer->maskSpec());
+            const auto clip = OpenSWMM::Render::resolveMaskClip(m_layer, m_layer->maskSpec());
             if (clip.ok && !clip.path.isEmpty()) {
                 if (clip.mode == OpenSWMM::Render::MaskMode::ClipInside) {
                     p->setClipPath(clip.path, Qt::IntersectClip);
@@ -202,11 +248,9 @@ public:
                     // ClipOutside: invert by subtracting the polygon from
                     // the painter's current clip region (≈ exposed rect).
                     QPainterPath all;
-                    all.addRect(exposed.isNull()
-                                    ? m_layer->m_sceneBBox.adjusted(-1, -1, 1, 1)
-                                    : exposed);
-                    p->setClipPath(all.subtracted(clip.path),
-                                    Qt::IntersectClip);
+                    all.addRect(exposed.isNull() ? m_layer->m_sceneBBox.adjusted(-1, -1, 1, 1)
+                                                 : exposed);
+                    p->setClipPath(all.subtracted(clip.path), Qt::IntersectClip);
                 }
             }
         }
@@ -216,15 +260,15 @@ public:
         // to O(visible). Fall back to the full vector if the grid is
         // empty (no rebuild yet) or no exposed rect is given (full paint).
         const bool haveExposed = !exposed.isNull();
-        const QVector<int> visibleTris  = (haveExposed && !m_layer->m_triGrid.isEmpty())
-                                          ? m_layer->m_triGrid.query(exposed)
-                                          : QVector<int>{};
+        const QVector<int> visibleTris = (haveExposed && !m_layer->m_triGrid.isEmpty())
+                                             ? m_layer->m_triGrid.query(exposed)
+                                             : QVector<int>{};
         const QVector<int> visibleEdges = (haveExposed && !m_layer->m_edgeGrid.isEmpty())
-                                          ? m_layer->m_edgeGrid.query(exposed)
-                                          : QVector<int>{};
-        const bool useTriIdx  = haveExposed && !m_layer->m_triGrid.isEmpty();
+                                              ? m_layer->m_edgeGrid.query(exposed)
+                                              : QVector<int>{};
+        const bool useTriIdx = haveExposed && !m_layer->m_triGrid.isEmpty();
         const bool useEdgeIdx = haveExposed && !m_layer->m_edgeGrid.isEmpty();
-        const int triCount  = useTriIdx  ? visibleTris.size()  : tris.size();
+        const int triCount = useTriIdx ? visibleTris.size() : tris.size();
         const int edgeCount = useEdgeIdx ? visibleEdges.size() : edges.size();
 
         // ---- Level-of-detail (LOD) selection ---------------------------------
@@ -238,25 +282,26 @@ public:
         // fallback floor when no real cell is large enough (e.g. a uniformly
         // fine mesh zoomed right out), so the mesh never vanishes. Zoomed-in
         // views keep the exact legacy per-triangle path below.
-        const double pxPerScene = p->worldTransform().m11();   // scene units → device px
+        const double pxPerScene = p->worldTransform().m11(); // scene units → device px
         constexpr double kLodTriPx = 2.0;
         // Progressive load: with the spatial grid still pending, an exact
         // paint would walk every triangle — stay on the overview until the
         // deferred build lands.
-        const bool useLod = m_layer->hasOverview()
-                         && ((m_layer->m_nativeTriSpan * pxPerScene) < kLodTriPx
-                             || m_layer->m_triGrid.isEmpty());
+        const bool useLod =
+            m_layer->hasOverview() &&
+            ((m_layer->m_nativeTriSpan * pxPerScene) < kLodTriPx || m_layer->m_triGrid.isEmpty());
         const auto &overview = m_layer->m_overviewTris;
 
         // Shared helpers for the LOD passes.
         auto exposedRejects = [&](const SWMM2DMeshLayer::SceneTri &t) -> bool {
-            if (!haveExposed) return false;
+            if (!haveExposed)
+                return false;
             const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
             const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
             const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
             const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-            return (maxX < exposed.left() || minX > exposed.right() ||
-                    maxY < exposed.top()  || minY > exposed.bottom());
+            return (maxX < exposed.left() || minX > exposed.right() || maxY < exposed.top() ||
+                    minY > exposed.bottom());
         };
         // Style-driven fill colour — parity with the QSG fill's
         // schemeDrivesColor branch: the default "Terrain" ramp keeps the
@@ -266,68 +311,75 @@ public:
         // ramp, so ramp edits only changed the GPU pipeline.)
         const auto *fillStyleQ = fillSub ? fillSub->fillStyle() : nullptr;
         const bool useRampFill = fillStyleQ ? fillStyleQ->useElevationRamp() : true;
-        const QColor flatFill  = fillStyleQ ? fillStyleQ->fillColor()
-                                            : QColor(70, 130, 180);
+        const QColor flatFill = fillStyleQ ? fillStyleQ->fillColor() : QColor(70, 130, 180);
         const OpenSWMM::Render::ClassificationScheme fillScheme =
-            fillStyleQ ? fillStyleQ->scheme()
-                       : OpenSWMM::Render::ClassificationScheme();
+            fillStyleQ ? fillStyleQ->scheme() : OpenSWMM::Render::ClassificationScheme();
         const bool fillClassified =
-            fillScheme.mode()
-            == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
+            fillScheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
         const QString fillRampName = fillScheme.rampName();
         const bool fillDefaultRamp =
-            fillRampName.isEmpty()
-            || fillRampName.compare(QLatin1String("terrain"),
-                                    Qt::CaseInsensitive) == 0;
-        const bool fillSchemeDrives =
-            fillClassified || fillScheme.invertRamp() || !fillDefaultRamp;
+            fillRampName.isEmpty() ||
+            fillRampName.compare(QLatin1String("terrain"), Qt::CaseInsensitive) == 0;
+        const bool fillSchemeDrives = fillClassified || fillScheme.useCustomRange() ||
+                                      fillScheme.invertRamp() || !fillDefaultRamp;
         const QVector<double> fillClassEdges =
-            fillClassified ? fillScheme.levelEdges(zMin, zMax, {})
-                           : QVector<double>{};
+            fillClassified ? fillScheme.levelEdges(zMin, zMax, {}) : QVector<double>{};
 
         // \p ca — the class colour's own alpha (255 for continuous ramps and
         // the flat fill): a fully transparent classified class must vanish.
-        auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t,
-                             int &cr, int &cg, int &cb, int &ca) {
+        auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t, int &cr, int &cg, int &cb,
+                             int &ca) {
             ca = 255;
             if (hasElev && useRampFill) {
                 if (fillSchemeDrives) {
-                    const QColor sc = fillClassified
-                        ? fillScheme.colorForClass(
-                              OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                  double(t.zAvg), fillClassEdges),
-                              fillScheme.classCount())
-                        : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
-                    cr = sc.red(); cg = sc.green(); cb = sc.blue();
-                    if (fillClassified) ca = sc.alpha();
+                    const QColor sc =
+                        fillClassified ? fillScheme.colorForClass(
+                                             OpenSWMM::Render::ClassificationScheme::classIndexFor(
+                                                 double(t.zAvg), fillClassEdges),
+                                             std::max(1, int(fillClassEdges.size()) - 1))
+                                       : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
+                    cr = sc.red();
+                    cg = sc.green();
+                    cb = sc.blue();
+                    ca = sc.alpha();
                 } else {
                     elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
                 }
-                const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
-                const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
+                const float ax = float(t.b.x() - t.a.x()), ay = float(t.b.y() - t.a.y());
+                const float bx = float(t.c.x() - t.a.x()), by = float(t.c.y() - t.a.y());
                 const float az = (t.z1 - t.z0) * kVertExag;
                 const float bz = (t.z2 - t.z0) * kVertExag;
-                float nx = ay*bz - az*by;
-                float ny = az*bx - ax*bz;
-                float nz = ax*by - ay*bx;
-                if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
-                const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
-                if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
-                const float lit = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
-                cr = qBound(0, int(float(cr)*lit), 255);
-                cg = qBound(0, int(float(cg)*lit), 255);
-                cb = qBound(0, int(float(cb)*lit), 255);
+                float nx = ay * bz - az * by;
+                float ny = az * bx - ax * bz;
+                float nz = ax * by - ay * bx;
+                if (nz < 0.f) {
+                    nx = -nx;
+                    ny = -ny;
+                    nz = -nz;
+                }
+                const float nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
+                if (nlen > 1e-12f) {
+                    nx /= nlen;
+                    ny /= nlen;
+                    nz /= nlen;
+                }
+                const float lit = qBound(kLitMin, nx * kLx + ny * kLy + nz * kLz, 1.0f);
+                cr = qBound(0, int(float(cr) * lit), 255);
+                cg = qBound(0, int(float(cg) * lit), 255);
+                cb = qBound(0, int(float(cb) * lit), 255);
             } else {
-                cr = flatFill.red(); cg = flatFill.green(); cb = flatFill.blue();
+                cr = flatFill.red();
+                cg = flatFill.green();
+                cb = flatFill.blue();
             }
         };
 
         // ---- Pass 1: filled triangles (MeshFillSublayer) ---------------------
         if (fillVisible && useLod) {
             auto drawTri = [&](const SWMM2DMeshLayer::SceneTri &t) {
-                int cr, cg, cb, ca; fillColor(t, cr, cg, cb, ca);
-                const int fa = qBound(0,
-                    int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
+                int cr, cg, cb, ca;
+                fillColor(t, cr, cg, cb, ca);
+                const int fa = qBound(0, int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
                 p->drawConvexPolygon(pts, 3);
@@ -339,7 +391,8 @@ public:
             //     are always backed by the overview and the mesh can never
             //     vanish, at any zoom.
             for (const SWMM2DMeshLayer::SceneTri &t : overview) {
-                if (exposedRejects(t)) continue;
+                if (exposedRejects(t))
+                    continue;
                 drawTri(t);
             }
 
@@ -349,29 +402,28 @@ public:
             //     descending area), so this is O(kept), not O(all). Large
             //     cells thus render with their true geometry while tiny cells
             //     stay represented by the overview base from (a).
-            const double pxArea          = pxPerScene * pxPerScene;
-            constexpr double kLodKeepPx2 = 16.0;   // real cells ≳ 4×4 px
+            const double pxArea = pxPerScene * pxPerScene;
+            constexpr double kLodKeepPx2 = 16.0; // real cells ≳ 4×4 px
             const double minAreaScene = (pxArea > 0.0) ? (kLodKeepPx2 / pxArea) : 0.0;
             const auto &bySize = m_layer->m_trisBySizeDesc;
             for (int idx : bySize) {
                 const SWMM2DMeshLayer::SceneTri &t = tris[idx];
-                const double ux = t.b.x()-t.a.x(), uy = t.b.y()-t.a.y();
-                const double vx = t.c.x()-t.a.x(), vy = t.c.y()-t.a.y();
-                const double areaScene = 0.5 * std::abs(ux*vy - uy*vx);
-                if (areaScene < minAreaScene) break;   // sorted desc → rest smaller
-                if (exposedRejects(t)) continue;
+                const double ux = t.b.x() - t.a.x(), uy = t.b.y() - t.a.y();
+                const double vx = t.c.x() - t.a.x(), vy = t.c.y() - t.a.y();
+                const double areaScene = 0.5 * std::abs(ux * vy - uy * vx);
+                if (areaScene < minAreaScene)
+                    break; // sorted desc → rest smaller
+                if (exposedRejects(t))
+                    continue;
                 drawTri(t);
             }
-        }
-        else if (fillVisible) {
+        } else if (fillVisible) {
             for (int i = 0; i < triCount; ++i) {
-                const SWMM2DMeshLayer::SceneTri &t =
-                    useTriIdx ? tris[visibleTris[i]] : tris[i];
+                const SWMM2DMeshLayer::SceneTri &t = useTriIdx ? tris[visibleTris[i]] : tris[i];
 
                 int cr, cg, cb, ca;
-                fillColor(t, cr, cg, cb, ca);   // style-driven; same math as LOD pass
-                const int fa = qBound(0,
-                    int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
+                fillColor(t, cr, cg, cb, ca); // style-driven; same math as LOD pass
+                const int fa = qBound(0, int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
 
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
@@ -385,7 +437,7 @@ public:
         // convex polygon per (triangle, band). Off by default.
         if (hasElev && bandsVisible) {
             const auto *bandStyle = bandSub->bandStyle();
-            const qreal bandOp    = qBound(0.0, bandSub->opacity(), 1.0);
+            const qreal bandOp = qBound(0.0, bandSub->opacity(), 1.0);
 
             // At far zoom run marching-triangles over the coarse overview so
             // enabling bands on a multi-million-triangle mesh stays affordable.
@@ -398,40 +450,38 @@ public:
             if (bandStyle) {
                 QVector<double> zSamples;
                 const auto m = bandStyle->scheme().method();
-                if (m == OpenSWMM::Render::BinMethod::Quantile
-                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    zSamples.reserve(contourTris.size() * 3);
-                    for (const auto &t : contourTris) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                if (m == OpenSWMM::Render::BinMethod::Quantile ||
+                    m == OpenSWMM::Render::BinMethod::NaturalBreaks ||
+                    m == OpenSWMM::Render::BinMethod::StdDev) {
+                    SWMM2DMeshLayer::appendVertexElevationSamples(contourTris, zSamples);
                 }
-                const QVector<double> edges =
-                    bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
+                const QVector<double> edges = bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
                 levels.assign(edges.cbegin(), edges.cend());
             } else {
                 levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(zMin, zMax, 9);
             }
             const int nBands = std::max(1, int(levels.size()) - 1);
 
-            const auto extract = [](const SWMM2DMeshLayer::SceneTri &t,
-                                    QPointF &p0, QPointF &p1, QPointF &p2,
-                                    double  &v0, double  &v1, double  &v2) {
-                p0 = t.a; p1 = t.b; p2 = t.c;
-                v0 = t.z0; v1 = t.z1; v2 = t.z2;
+            const auto extract = [](const SWMM2DMeshLayer::SceneTri &t, QPointF &p0, QPointF &p1,
+                                    QPointF &p2, double &v0, double &v1, double &v2) {
+                p0 = t.a;
+                p1 = t.b;
+                p2 = t.c;
+                v0 = t.z0;
+                v1 = t.z1;
+                v2 = t.z2;
             };
-            const auto bands = OpenSWMM::Contour::marchingTrianglesIsobands(
-                contourTris, levels, extract);
+            const auto bands =
+                OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, levels, extract);
 
             p->setPen(Qt::NoPen);
             for (const auto &bp : bands) {
-                if (bp.verts.size() < 3) continue;
+                if (bp.verts.size() < 3)
+                    continue;
                 const int idx = std::min(bp.bandIndex, nBands - 1);
-                QColor col = bandStyle
-                    ? bandStyle->colorForBand(idx, nBands)
-                    : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
+                QColor col =
+                    bandStyle ? bandStyle->colorForBand(idx, nBands)
+                              : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
                 // Multiply, don't overwrite: the band colour's own alpha (a
                 // fully transparent class must vanish) composes with the
                 // sublayer opacity slider.
@@ -439,7 +489,8 @@ public:
                 p->setBrush(col);
                 QPolygonF poly;
                 poly.reserve(int(bp.verts.size()));
-                for (const QPointF &v : bp.verts) poly << v;
+                for (const QPointF &v : bp.verts)
+                    poly << v;
                 p->drawPolygon(poly);
             }
         }
@@ -447,24 +498,98 @@ public:
         // ---- Pass 2: edges (MeshEdgeSublayer) --------------------------------
         const float maxSlope = m_layer->m_maxSlope;
         const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
-        constexpr float kSlopeBreak = 0.35f;
+        const auto *edgeStyle = edgeSub ? edgeSub->edgeStyle() : nullptr;
+        const bool useSlopeWidth = edgeStyle ? edgeStyle->useSlopeDrivenWidth() : true;
+        float slopeBreak = edgeStyle ? float(edgeStyle->slopeBreak()) : 0.35f;
+        QColor thinColor = edgeStyle ? edgeStyle->color() : QColor(0, 0, 0, 130);
+        QColor wideColor = edgeStyle ? edgeStyle->wideColor() : QColor(0, 0, 0, 210);
+        // Match the GPU path's existing two-tier slope classification.
+        if (edgeStyle) {
+            const auto &scheme = edgeStyle->scheme();
+            const bool customized =
+                scheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified &&
+                (scheme.classCount() != 2 ||
+                 scheme.method() != OpenSWMM::Render::BinMethod::Manual);
+            if (customized && scheme.classCount() >= 2) {
+                const auto levels = scheme.levelEdges(0.0, 1.0, {});
+                if (levels.size() >= 3)
+                    slopeBreak = float(levels[1]);
+                thinColor = scheme.colorForClass(0, scheme.classCount());
+                wideColor = scheme.colorForClass(scheme.classCount() - 1, scheme.classCount());
+            }
+        }
+
+        // BC state (Pass 2b parity with SWMM2DMeshQSGRenderer): the CPU
+        // fallback previously ignored the Boundary Conditions sublayer
+        // entirely, so BC styling looked dead whenever the QSG renderer did
+        // not own the layer. Same slot-vector guard as the QSG path — a
+        // short/absent slot vector (progressive load) means every edge is
+        // *unknown*, not Wall.
+        const auto *bcSub = m_layer->meshBcSublayer();
+        const auto *bcStyle = bcSub ? bcSub->bcStyle() : nullptr;
+        const bool bcVisible = bcSub && bcSub->isVisible() && bcStyle;
+        const qreal bcOpacity = bcSub ? bcSub->opacity() : 1.0;
+        const auto &edgeSlots = m_layer->m_sceneEdgeSlot;
+        const auto &edgeBCs = m_layer->edgeBCs();
+        const bool slotsUsable =
+            bcVisible && edgeSlots.size() == edges.size() && !edgeBCs.isEmpty();
+        constexpr int kBcTypes = OpenSWMM::Render::MeshBcStyle::kBcTypeCount;
 
         if (edgesVisible && !useLod) {
+            // Wall colouring has the same precedence as in the GPU renderer.
+            if (slotsUsable && bcStyle->wallVisible())
+                thinColor = wideColor = bcStyle->wallColor();
+            QPen thinPen(withOpacity(thinColor, edgeOpacity));
+            thinPen.setWidthF(edgeStyle ? edgeStyle->lineWidthPx() : 0.35);
+            thinPen.setCosmetic(true);
+            if (edgeStyle)
+                thinPen.setStyle(edgeStyle->dashPattern());
+            QPen widePen(thinPen);
+            widePen.setColor(withOpacity(wideColor, edgeOpacity));
+            widePen.setWidthF(edgeStyle ? edgeStyle->wideWidthPx() : 0.9);
             for (int i = 0; i < edgeCount; ++i) {
-                const SWMM2DMeshLayer::SceneEdge &e =
-                    useEdgeIdx ? edges[visibleEdges[i]] : edges[i];
+                const int ei = useEdgeIdx ? visibleEdges[i] : i;
+                const SWMM2DMeshLayer::SceneEdge &e = edges[ei];
 
-                const bool wide = hasElev && (e.slope * invSlope > kSlopeBreak);
-                const int  alpha = wide ? 210 : 130;
-                const qreal lw  = wide ? (active ? 0.9 : 0.6) : (active ? 0.35 : 0.25);
+                // BC-typed edges are drawn by the ring pass below (a hidden
+                // BC type degrades to a plain wireframe edge, QSG parity).
+                if (slotsUsable) {
+                    const qint32 slot = edgeSlots[ei];
+                    const int t =
+                        (slot >= 0 && slot < edgeBCs.size()) ? int(edgeBCs[slot].type) : 0;
+                    if (t > 0 && t < kBcTypes && bcStyle->bcTypeVisible(t))
+                        continue;
+                }
 
-                // Use a cosmetic pen so width is in pixels regardless of zoom
-                QPen pen(withOpacity(QColor(0, 0, 0, alpha), edgeOpacity));
-                pen.setWidthF(lw);
-                pen.setCosmetic(true);
-                p->setPen(pen);
+                const bool wide = useSlopeWidth && hasElev && (e.slope * invSlope > slopeBreak);
+                p->setPen(wide ? widePen : thinPen);
                 p->setBrush(Qt::NoBrush);
                 p->drawLine(e.line);
+            }
+        }
+
+        // ---- Pass 2b: boundary-condition ring (MeshBcSublayer) ---------------
+        // Drawn even when the wireframe is zoom-gated or LOD-suppressed:
+        // the ring is O(boundary) and carries the information the user
+        // turned the sublayer ON to see (QSG-renderer parity).
+        if (slotsUsable) {
+            p->setBrush(Qt::NoBrush);
+            int lastType = -1;
+            for (const qint32 ei : m_layer->bcSceneEdges()) {
+                if (ei < 0 || ei >= edges.size())
+                    continue;
+                const qint32 slot = edgeSlots[ei];
+                const int t = (slot >= 0 && slot < edgeBCs.size()) ? int(edgeBCs[slot].type) : 0;
+                if (t <= 0 || t >= kBcTypes || !bcStyle->bcTypeVisible(t))
+                    continue;
+                if (t != lastType) {
+                    QPen pen(withOpacity(bcStyle->bcColorForType(t), bcOpacity));
+                    pen.setWidthF(bcStyle->bcWidthForType(t));
+                    pen.setCosmetic(true);
+                    p->setPen(pen);
+                    lastType = t;
+                }
+                p->drawLine(edges[ei].line);
             }
         }
 
@@ -483,15 +608,10 @@ public:
             if (isoStyle) {
                 QVector<double> zSamples;
                 const auto m = isoStyle->scheme().method();
-                if (m == OpenSWMM::Render::BinMethod::Quantile
-                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
-                    || m == OpenSWMM::Render::BinMethod::StdDev) {
-                    zSamples.reserve(contourTris.size() * 3);
-                    for (const auto &t : contourTris) {
-                        zSamples.push_back(double(t.z0));
-                        zSamples.push_back(double(t.z1));
-                        zSamples.push_back(double(t.z2));
-                    }
+                if (m == OpenSWMM::Render::BinMethod::Quantile ||
+                    m == OpenSWMM::Render::BinMethod::NaturalBreaks ||
+                    m == OpenSWMM::Render::BinMethod::StdDev) {
+                    SWMM2DMeshLayer::appendVertexElevationSamples(contourTris, zSamples);
                 }
                 const auto lv = isoStyle->levelsForRange(zMin, zMax, zSamples);
                 levels.assign(lv.cbegin(), lv.cend());
@@ -499,14 +619,16 @@ public:
                 levels = OpenSWMM::Contour::evenlySpacedLevels(zMin, zMax, 8);
             }
 
-            const auto extract = [](const SWMM2DMeshLayer::SceneTri &t,
-                                    QPointF &p0, QPointF &p1, QPointF &p2,
-                                    double  &v0, double  &v1, double  &v2) {
-                p0 = t.a; p1 = t.b; p2 = t.c;
-                v0 = t.z0; v1 = t.z1; v2 = t.z2;
+            const auto extract = [](const SWMM2DMeshLayer::SceneTri &t, QPointF &p0, QPointF &p1,
+                                    QPointF &p2, double &v0, double &v1, double &v2) {
+                p0 = t.a;
+                p1 = t.b;
+                p2 = t.c;
+                v0 = t.z0;
+                v1 = t.z1;
+                v2 = t.z2;
             };
-            const auto segs = OpenSWMM::Contour::marchingTriangles(
-                contourTris, levels, extract);
+            const auto segs = OpenSWMM::Contour::marchingTriangles(contourTris, levels, extract);
 
             QPen pen(withOpacity(lineCol, isoSub->opacity()));
             pen.setWidthF(widthPx);
@@ -518,34 +640,39 @@ public:
                 p->drawLine(s.a, s.b);
         }
 
-        // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) ------------------
-        // Stylable replacement for the historic showMeshNodes toggle. Tagged
-        // (SWMM-coupled) vertices get the highlight colour / size. Off by
-        // default. Marker radius is specified in pixels, so convert to scene
-        // units via the painter's current scale.
-        if (nodesVisible && !useLod) {
+        // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) + ----------------
+        // ---- Pass 5b: SWMM-coupled markers (CoupledNodeSublayer) -------------
+        // Marker radius is specified in pixels, so convert to scene units via
+        // the painter's current scale. A coupled vertex is drawn by the
+        // coupled pass only (the base marker beneath would just muddy the
+        // alpha).
+        if ((nodesVisible || coupledVisible) && !useLod) {
             const auto &nodes = m_layer->m_sceneNodes;
-            const auto *nodeStyle = nodeSub->nodeStyle();
-            const QColor baseC   = nodeStyle ? nodeStyle->color() : QColor(40, 40, 40, 220);
-            const QColor taggedC = nodeStyle ? nodeStyle->taggedColor()
-                                             : QColor(0xff, 0x8c, 0x00, 235);
-            const double baseSzPx   = nodeStyle ? nodeStyle->markerSizePx() : 3.0;
-            const double taggedSzPx = nodeStyle ? nodeStyle->taggedSizePx() : 5.0;
-            const bool   highlight  = nodeStyle ? nodeStyle->highlightTagged() : true;
-            const qreal  nodeOp     = nodeSub->opacity();
+            const auto *nodeStyle = nodeSub ? nodeSub->nodeStyle() : nullptr;
+            const auto *coupledStyle = coupledSub ? coupledSub->coupledStyle() : nullptr;
+            const QColor baseC = nodeStyle ? nodeStyle->color() : QColor(40, 40, 40, 220);
+            const QColor coupledC =
+                coupledStyle ? coupledStyle->color() : QColor(0xff, 0x8c, 0x00, 235);
+            const double baseSzPx = nodeStyle ? nodeStyle->markerSizePx() : 3.0;
+            const double coupledSzPx = coupledStyle ? coupledStyle->markerSizePx() : 5.0;
+            const qreal nodeOp = nodeSub ? nodeSub->opacity() : 1.0;
+            const qreal coupledOp = coupledSub ? coupledSub->opacity() : 1.0;
 
             const QTransform wt = p->worldTransform();
-            const double scale  = wt.m11();
+            const double scale = wt.m11();
             const double pxToScene = (scale > 0.0) ? (1.0 / scale) : 1.0;
-            const QColor baseUsed   = withOpacity(baseC, nodeOp);
-            const QColor taggedUsed = withOpacity(taggedC, nodeOp);
+            const QColor baseUsed = withOpacity(baseC, nodeOp);
+            const QColor coupledUsed = withOpacity(coupledC, coupledOp);
 
             p->setPen(Qt::NoPen);
             for (const SWMM2DMeshLayer::SceneNode &n : nodes) {
-                if (haveExposed && !exposed.contains(n.pt)) continue;
-                const bool tag = highlight && n.tagged;
-                const double r = 0.5 * (tag ? taggedSzPx : baseSzPx) * pxToScene;
-                p->setBrush(tag ? taggedUsed : baseUsed);
+                if (haveExposed && !exposed.contains(n.pt))
+                    continue;
+                const bool coupled = coupledVisible && n.tagged;
+                if (!coupled && !nodesVisible)
+                    continue;
+                const double r = 0.5 * (coupled ? coupledSzPx : baseSzPx) * pxToScene;
+                p->setBrush(coupled ? coupledUsed : baseUsed);
                 p->drawEllipse(n.pt, r, r);
             }
         }
@@ -562,12 +689,17 @@ public:
         if (!selT.isEmpty()) {
             p->setPen(Qt::NoPen);
             p->setBrush(QColor(0, 200, 255, 110));
-            const int nt = tris.size();
-            for (int t : selT) {
-                if (t < 0 || t >= nt) continue;
-                const SWMM2DMeshLayer::SceneTri &tr = tris[t];
-                const QPointF pts[3] = { tr.a, tr.b, tr.c };
-                p->drawConvexPolygon(pts, 3);
+            // Cell → fan (one or two SceneTris) via the CSR map.
+            const auto &cellStart = m_layer->m_cellSceneStart;
+            const int nc = cellStart.size() - 1;
+            for (int c : selT) {
+                if (c < 0 || c >= nc)
+                    continue;
+                for (int i = cellStart[c]; i < cellStart[c + 1]; ++i) {
+                    const SWMM2DMeshLayer::SceneTri &tr = tris[i];
+                    const QPointF pts[3] = {tr.a, tr.b, tr.c};
+                    p->drawConvexPolygon(pts, 3);
+                }
             }
         }
 
@@ -578,30 +710,29 @@ public:
             epen.setCapStyle(Qt::RoundCap);
             p->setPen(epen);
             p->setBrush(Qt::NoBrush);
-            const int nt = tris.size();
+            const auto &cells = m_layer->mesh().triangles;
+            const int nc = cells.size();
             for (int flat : selE) {
-                const int t = flat / 3, e = flat % 3;
-                if (t < 0 || t >= nt) continue;
-                const SWMM2DMeshLayer::SceneTri &tr = tris[t];
-                // edge 0 → (b,c), 1 → (c,a), 2 → (a,b)
-                QPointF p0, p1;
-                switch (e) {
-                case 0: p0 = tr.b; p1 = tr.c; break;
-                case 1: p0 = tr.c; p1 = tr.a; break;
-                default: p0 = tr.a; p1 = tr.b; break;
-                }
-                p->drawLine(p0, p1);
+                const int c = mesh::slotCell(flat), e = mesh::slotLocal(flat);
+                if (c < 0 || c >= nc || e >= cells[c].vertexCount())
+                    continue;
+                int va = -1, vb = -1;
+                mesh::edgeEndpoints(cells[c], e, va, vb);
+                if (va < 0 || vb < 0 || va >= nodes.size() || vb >= nodes.size())
+                    continue;
+                p->drawLine(nodes[va].pt, nodes[vb].pt);
             }
         }
 
         if (!selV.isEmpty()) {
             const QTransform wt = p->worldTransform();
             const double scale = wt.m11();
-            const double r = (scale > 0.0) ? (5.0 / scale) : 1.0;   // ~5 px
+            const double r = (scale > 0.0) ? (5.0 / scale) : 1.0; // ~5 px
             p->setPen(QPen(QColor(0, 120, 200, 240), (scale > 0.0) ? 1.5 / scale : 1.0));
             p->setBrush(QColor(0, 200, 255, 200));
             for (int vi : selV) {
-                if (vi < 0 || vi >= nodes.size()) continue;
+                if (vi < 0 || vi >= nodes.size())
+                    continue;
                 p->drawEllipse(nodes[vi].pt, r, r);
             }
         }
@@ -617,13 +748,9 @@ private:
 // SWMM2DMeshLayer
 // ---------------------------------------------------------------------------
 
-SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
-                                  const QString       &sourcePath,
-                                  OpenSWMMVisWorkspace *parent,
-                                  bool                  deferHeavyGeometry)
-    : OpenSWMMVisLayer(parent),
-      m_mesh(std::move(result)),
-      m_sourcePath(sourcePath)
+SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourcePath,
+                                 OpenSWMMVisWorkspace *parent, bool deferHeavyGeometry)
+    : OpenSWMMVisLayer(parent), m_mesh(std::move(result)), m_sourcePath(sourcePath)
 {
     setLayerType(OpenSWMMVisLayer::SWMM2DMeshLayer);
     setName(sourcePath.isEmpty() ? QStringLiteral("Mesh") : sourcePath);
@@ -637,16 +764,57 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
     // Sublayer mix. QObject parent-child keeps them alive for the layer's
     // lifetime; sublayers() returns them in paint order. Defaults preserve
     // the historic visual: fill + edges on, nodes/contours/bands off.
-    m_meshFillSublayer    = new OpenSWMM::Render::MeshFillSublayer(
-        QStringLiteral("mesh.fill"), this);
-    m_meshEdgeSublayer    = new OpenSWMM::Render::MeshEdgeSublayer(
-        QStringLiteral("mesh.edges"), this);
-    m_meshNodeSublayer    = new OpenSWMM::Render::MeshNodeSublayer(
-        QStringLiteral("mesh.vertices"), this);
-    m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
-        QStringLiteral("mesh.contourBands"), this);
-    m_isolineSublayer     = new OpenSWMM::Render::IsolineSublayer(
-        QStringLiteral("mesh.isolines"), this);
+    m_meshFillSublayer = new OpenSWMM::Render::MeshFillSublayer(QStringLiteral("mesh.fill"), this);
+    m_meshEdgeSublayer = new OpenSWMM::Render::MeshEdgeSublayer(QStringLiteral("mesh.edges"), this);
+    m_meshBcSublayer = new OpenSWMM::Render::MeshBcSublayer(QStringLiteral("mesh.bc"), this);
+    // Seed BC styling from user preferences. This only sets the starting
+    // point for a style nobody has configured yet — a project or
+    // .swmm-style.json load overwrites it right after, and any per-layer edit
+    // is persisted, so the preference never fights an explicit choice. Same
+    // relationship nodePen()/linkPen() have with object symbology. The old
+    // "colour by BC type" preference now seeds the sublayer's visibility.
+    if (auto *bs = m_meshBcSublayer->bcStyle()) {
+        auto *pm = PreferencesManager::instance();
+        m_meshBcSublayer->setVisible(pm->meshBcColorByType());
+        for (int t = 0; t < OpenSWMM::Render::MeshBcStyle::kBcTypeCount; ++t) {
+            bs->setBcColor(t, pm->meshBcColor(t));
+            if (t > 0)
+                bs->setBcWidth(t, pm->meshBcWidthPx(t));
+        }
+    }
+    // Live preference propagation: BC default edits in the Preferences
+    // dialog re-seed open layers whose BC style the user has NOT edited
+    // directly (isCustomized()); "Colour by type" toggles the sublayer's
+    // visibility unconditionally — it's an explicit show/hide action.
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged, this,
+            [this](const QString &group, const QString &key) {
+                if (group != QLatin1String("Mesh2D") || !m_meshBcSublayer)
+                    return;
+                auto *bs = m_meshBcSublayer->bcStyle();
+                auto *pm = PreferencesManager::instance();
+                if (key == QLatin1String("BcColorByType")) {
+                    m_meshBcSublayer->setVisible(pm->meshBcColorByType());
+                    return;
+                }
+                if (!bs || bs->isCustomized())
+                    return;
+                if (key.startsWith(QLatin1String("BcColor/")) ||
+                    key.startsWith(QLatin1String("BcWidthPx/"))) {
+                    for (int t = 0; t < OpenSWMM::Render::MeshBcStyle::kBcTypeCount; ++t) {
+                        bs->setBcColor(t, pm->meshBcColor(t));
+                        if (t > 0)
+                            bs->setBcWidth(t, pm->meshBcWidthPx(t));
+                    }
+                }
+            });
+    m_meshNodeSublayer =
+        new OpenSWMM::Render::MeshNodeSublayer(QStringLiteral("mesh.vertices"), this);
+    m_coupledNodeSublayer =
+        new OpenSWMM::Render::CoupledNodeSublayer(QStringLiteral("mesh.coupledNodes"), this);
+    m_contourBandSublayer =
+        new OpenSWMM::Render::ContourBandSublayer(QStringLiteral("mesh.contourBands"), this);
+    m_isolineSublayer =
+        new OpenSWMM::Render::IsolineSublayer(QStringLiteral("mesh.isolines"), this);
 
     // Mesh vertices default ON: the renderers' LOD gates
     // (kMarkerMinCellAreaPx — cells ≥ ~14 px across) mean the dots only
@@ -678,27 +846,32 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
     // SWMM2DMeshQSGRenderer::setLayer, so this single hop covers every
     // sublayer state mutation.
     auto wire = [this](OpenSWMM::Render::ISublayer *s) {
-        if (!s) return;
-        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated,
-                         this, [this]() { emit repaintRequested(); });
+        if (!s)
+            return;
+        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated, this,
+                         [this]() { emit repaintRequested(); });
     };
     wire(m_meshFillSublayer);
     wire(m_meshEdgeSublayer);
+    wire(m_meshBcSublayer);
     wire(m_meshNodeSublayer);
+    wire(m_coupledNodeSublayer);
     wire(m_contourBandSublayer);
     wire(m_isolineSublayer);
 
-    if (!m_mesh.vertices.isEmpty())
-    {
+    if (!m_mesh.vertices.isEmpty()) {
         const auto &v0 = m_mesh.vertices.first();
         double minX = v0.xy.x(), maxX = v0.xy.x();
         double minY = v0.xy.y(), maxY = v0.xy.y();
-        for (const auto &v : m_mesh.vertices)
-        {
-            if (v.xy.x() < minX) minX = v.xy.x();
-            if (v.xy.x() > maxX) maxX = v.xy.x();
-            if (v.xy.y() < minY) minY = v.xy.y();
-            if (v.xy.y() > maxY) maxY = v.xy.y();
+        for (const auto &v : m_mesh.vertices) {
+            if (v.xy.x() < minX)
+                minX = v.xy.x();
+            if (v.xy.x() > maxX)
+                maxX = v.xy.x();
+            if (v.xy.y() < minY)
+                minY = v.xy.y();
+            if (v.xy.y() > maxY)
+                maxY = v.xy.y();
         }
         setExtent(MapExtent(minX, minY, maxX, maxY));
     }
@@ -723,9 +896,7 @@ QString SWMM2DMeshLayer::sourcePath() const
 {
     // Absolute path so the Properties window shows the full on-disk
     // mesh location.
-    return m_sourcePath.isEmpty()
-               ? m_sourcePath
-               : QFileInfo(m_sourcePath).absoluteFilePath();
+    return m_sourcePath.isEmpty() ? m_sourcePath : QFileInfo(m_sourcePath).absoluteFilePath();
 }
 
 QString SWMM2DMeshLayer::sourceDescription() const
@@ -739,57 +910,67 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
     QVector<QPair<QString, QString>> md;
     const QLocale loc;
 
-    md.append({ tr("Vertices"),          loc.toString(vertexCount()) });
-    md.append({ tr("Cells (triangles)"), loc.toString(triangleCount()) });
-    md.append({ tr("Edges (total)"),     loc.toString(edgeCount()) });
-    md.append({ tr("Boundary edges"),    loc.toString(boundaryEdgeCount()) });
+    md.append({tr("Vertices"), loc.toString(vertexCount())});
+    const int nQuads = quadCount();
+    md.append({tr("Cells (triangles)"), loc.toString(triangleCount() - nQuads)});
+    if (nQuads > 0)
+        md.append({tr("Cells (quads)"), loc.toString(nQuads)});
+    md.append({tr("Edges (total)"), loc.toString(edgeCount())});
+    md.append({tr("Boundary edges"), loc.toString(boundaryEdgeCount())});
 
     // Cell-area statistics (Part A, MESH_DECOUPLED_1D2D_REMAP_PLAN).
     const mesh::CellAreaStats as = mesh::computeCellAreaStats(m_mesh);
-    if (as.count > 0)
-    {
-        md.append({ tr("Cell area (min)"),    QString::number(as.min,    'g', 4) });
-        md.append({ tr("Cell area (max)"),    QString::number(as.max,    'g', 4) });
-        md.append({ tr("Cell area (mean)"),   QString::number(as.mean,   'g', 4) });
-        md.append({ tr("Cell area (median)"), QString::number(as.median, 'g', 4) });
+    if (as.count > 0) {
+        md.append({tr("Cell area (min)"), QString::number(as.min, 'g', 4)});
+        md.append({tr("Cell area (max)"), QString::number(as.max, 'g', 4)});
+        md.append({tr("Cell area (mean)"), QString::number(as.mean, 'g', 4)});
+        md.append({tr("Cell area (median)"), QString::number(as.median, 'g', 4)});
+    }
+    if (nQuads > 0) {
+        const mesh::QuadStats qs = mesh::computeQuadStats(m_mesh);
+        md.append({tr("Quad angle (min / max)"), QStringLiteral("%1° / %2°")
+                                                     .arg(qs.minAngleDeg, 0, 'f', 1)
+                                                     .arg(qs.maxAngleDeg, 0, 'f', 1)});
+        md.append(
+            {tr("Quad bed non-planarity (max)"), QString::number(qs.maxNonPlanarity, 'g', 4)});
     }
 
-    md.append({ tr("Bed elevation (min / max)"),
-                QStringLiteral("%1 / %2")
-                    .arg(zMin(), 0, 'f', 3).arg(zMax(), 0, 'f', 3) });
+    md.append({tr("Bed elevation (min / max)"),
+               QStringLiteral("%1 / %2").arg(zMin(), 0, 'f', 3).arg(zMax(), 0, 'f', 3)});
 
-    md.append({ tr("Max edge slope"), QString::number(maxSlope(), 'f', 4) });
+    md.append({tr("Max edge slope"), QString::number(maxSlope(), 'f', 4)});
 
     // Manning's n range — per-triangle, skipping NaN/unset cells.
     double nMin = std::numeric_limits<double>::infinity();
     double nMax = -std::numeric_limits<double>::infinity();
-    int    nWith = 0;
+    int nWith = 0;
     for (const auto &t : m_mesh.triangles) {
-        if (std::isnan(t.mannings)) continue;
+        if (std::isnan(t.mannings))
+            continue;
         nMin = std::min(nMin, t.mannings);
         nMax = std::max(nMax, t.mannings);
         ++nWith;
     }
     if (nWith > 0)
-        md.append({ tr("Manning's n (min / max)"),
-                    QStringLiteral("%1 / %2")
-                        .arg(nMin, 0, 'g', 4).arg(nMax, 0, 'g', 4) });
+        md.append({tr("Manning's n (min / max)"),
+                   QStringLiteral("%1 / %2").arg(nMin, 0, 'g', 4).arg(nMax, 0, 'g', 4)});
 
     // Vertices coupled to a 1D SWMM node.
     int coupled = 0;
     for (const auto &v : m_mesh.vertices)
-        if (!v.coupledNode.isEmpty()) ++coupled;
-    md.append({ tr("Coupled vertices"), loc.toString(coupled) });
+        if (!v.coupledNode.isEmpty())
+            ++coupled;
+    md.append({tr("Coupled vertices"), loc.toString(coupled)});
     if (!m_mesh.cellCouplings.isEmpty())
-        md.append({ tr("Coupled cells (rows)"),
-                    loc.toString(m_mesh.cellCouplings.size()) });
+        md.append({tr("Coupled cells (rows)"), loc.toString(m_mesh.cellCouplings.size())});
 
     const MapExtent e = extent();
     if (e.isValid())
-        md.append({ tr("Extent (xmin, ymin → xmax, ymax)"),
-                    QStringLiteral("%1, %2 → %3, %4")
-                        .arg(e.xMin(), 0, 'f', 2).arg(e.yMin(), 0, 'f', 2)
-                        .arg(e.xMax(), 0, 'f', 2).arg(e.yMax(), 0, 'f', 2) });
+        md.append({tr("Extent (xmin, ymin → xmax, ymax)"), QStringLiteral("%1, %2 → %3, %4")
+                                                               .arg(e.xMin(), 0, 'f', 2)
+                                                               .arg(e.yMin(), 0, 'f', 2)
+                                                               .arg(e.xMax(), 0, 'f', 2)
+                                                               .arg(e.yMax(), 0, 'f', 2)});
 
     return md;
 }
@@ -819,87 +1000,169 @@ void SWMM2DMeshLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRend
 // (progressive load, Mesh Tiled LOD P1.2).
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! The heavy scene-side products: deduplicated wireframe edges + bbox
  *  arrays + spatial culling grids. Dominates the build time on multi-
  *  million-triangle meshes (a hash probe per triangle edge). */
-struct MeshHeavyGeom
-{
+struct MeshHeavyGeom {
     QVector<SWMM2DMeshLayer::SceneEdge> sceneEdges;
-    QVector<QRectF>                     triBBoxes;
-    QVector<QRectF>                     edgeBBoxes;
-    MeshSpatialGrid                     triGrid;
-    MeshSpatialGrid                     edgeGrid;
-    float                               maxSlope = 0.0f;
+    QVector<qint32> sceneEdgeSlot; ///< parallel: mesh::edgeSlot(cell, edgeLocal)
+    QVector<QRectF> triBBoxes;
+    QVector<QRectF> edgeBBoxes;
+    MeshSpatialGrid triGrid;
+    MeshSpatialGrid edgeGrid;
+    float maxSlope = 0.0f;
 };
 
-/*! Append one SceneTri per valid mesh triangle (shared by the light and
- *  full builds; skips degenerate vertex indices exactly as before). */
-void appendSceneTris(const mesh::MeshResult &meshData,
-                     const QVector<QPointF> &scenePts,
-                     QVector<SWMM2DMeshLayer::SceneTri> &out)
+/*! True when every vertex id of \p t is in range (the "degenerate" skip
+ *  predicate shared by the scene build, the attribute cache and the picks).
+ * @param[in] t Original triangle/quad cell.
+ * @param[in] nVerts Number of readable vertices.
+ * @return True when every active vertex ordinal lies in[0,nVerts); does not test distinctness, finite XY/Z, area/convexity or diagonal quality.
+ */
+inline bool cellVerticesValid(const mesh::MeshTriangle &t, int nVerts)
 {
-    const int nVerts = meshData.vertices.size();
-    out.reserve(meshData.triangles.size());
-    for (const auto &t : meshData.triangles)
-    {
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        SWMM2DMeshLayer::SceneTri st;
-        st.a    = scenePts[t.v0];
-        st.b    = scenePts[t.v1];
-        st.c    = scenePts[t.v2];
-        st.z0   = static_cast<float>(meshData.vertices[t.v0].z);
-        st.z1   = static_cast<float>(meshData.vertices[t.v1].z);
-        st.z2   = static_cast<float>(meshData.vertices[t.v2].z);
-        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
-        out.append(st);
+    const int nv = t.vertexCount();
+    for (int k = 0; k < nv; ++k) {
+        const int v = t.vertex(k);
+        if (v < 0 || v >= nVerts)
+            return false;
     }
+    return true;
 }
 
-MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
-                                 const QVector<QPointF> &scenePts,
+/*! Fill the fan SceneTris of cell \p ci into \p out[0..] — one entry for a
+ *  triangle, two for a quad (mesh::cellGeom decides the diagonal).
+ *  \p scenePt maps a vertex id to its scene-space point. Returns the number
+ *  written. */
+template <typename ScenePtFn>
+/**
+ * @param[in] meshData Stable mesh with valid cell/subtriangle indices.
+ * @param[in] scenePt Callable accepting each original vertex ID and returning finite scene XY.
+ * @param[in] ci Valid original cell index.
+ * @param[out] out Required writable capacity for up to two SceneTris.
+ * @return Number of display halves written, from mesh::cellGeom(). Z values are narrowed to float and averaged; each half retains original cell ID. No input validation/allocation inside the write.
+ */
+int writeCellSceneTris(const mesh::MeshResult &meshData, ScenePtFn &&scenePt, int ci,
+                       SWMM2DMeshLayer::SceneTri *out)
+{
+    const mesh::CellGeom g = mesh::cellGeom(meshData.vertices, meshData.triangles[ci]);
+    for (int s = 0; s < g.nSub; ++s) {
+        const int a = g.sub[s][0], b = g.sub[s][1], c = g.sub[s][2];
+        SWMM2DMeshLayer::SceneTri &st = out[s];
+        st.a = scenePt(a);
+        st.b = scenePt(b);
+        st.c = scenePt(c);
+        st.z0 = static_cast<float>(meshData.vertices[a].z);
+        st.z1 = static_cast<float>(meshData.vertices[b].z);
+        st.z2 = static_cast<float>(meshData.vertices[c].z);
+        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+        st.cell = ci;
+    }
+    return g.nSub;
+}
+
+/*! Append the sub-triangle fan of every valid mesh cell (shared by the
+ *  light and full builds; skips out-of-range vertex indices exactly as
+ *  before). \p cellStart receives the CSR cell → fan map (n_cells + 1).
+ * @param[in] meshData Stable original mesh/connectivity.
+ * @param[in] scenePts Point array covering every original vertex.
+ * @param[in,out] out Existing fan entries retained and extended; usual rebuild passes a cleared vector.
+ * @param[out] cellStart Replaced CSR offsets of lengthcellCount+one indexing appended ranges in out.
+ * @note Invalid vertex-index cells emit empty range; other degeneracy follows cellGeom(). Allocates owned output, no caller cache mutation beyond destinations.
+ */
+void appendSceneTris(const mesh::MeshResult &meshData, const QVector<QPointF> &scenePts,
+                     QVector<SWMM2DMeshLayer::SceneTri> &out, QVector<qint32> &cellStart)
+{
+    const int nVerts = meshData.vertices.size();
+    const int nCells = meshData.triangles.size();
+    out.reserve(nCells);
+    cellStart.resize(nCells + 1);
+    for (int ci = 0; ci < nCells; ++ci) {
+        cellStart[ci] = out.size();
+        if (!cellVerticesValid(meshData.triangles[ci], nVerts))
+            continue;
+        SWMM2DMeshLayer::SceneTri fan[2];
+        const int n = writeCellSceneTris(meshData, [&](int v) { return scenePts[v]; }, ci, fan);
+        for (int s = 0; s < n; ++s)
+            out.append(fan[s]);
+    }
+    cellStart[nCells] = out.size();
+}
+
+/**
+ * @param[in] meshData Stable original mesh with finite practical coordinates/Z; invalid-index cells skipped.
+ * @param[in] scenePts Point array covering original vertices, already transformed/Y-flipped.
+ * @param[in] sceneTris Stable fan geometry supplying display triangle bboxes.
+ * @return Owned unique-edge/first-slot/bbox/spatial-grid products and maximum native slope. Quad split diagonal is excluded; first original cell/local edge wins shared pair identity.
+ * @note Worker-safe with private immutable snapshots. Uses endpoint-pair hashing and bbox grids; no source/layer references retained or layer/Qt signals touched.
+ */
+MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData, const QVector<QPointF> &scenePts,
                                  const QVector<SWMM2DMeshLayer::SceneTri> &sceneTris)
 {
     using SceneEdge = SWMM2DMeshLayer::SceneEdge;
     MeshHeavyGeom out;
     const int nVerts = meshData.vertices.size();
 
-    QSet<QPair<int,int>> seen;
+    QSet<QPair<int, int>> seen;
     seen.reserve(meshData.triangles.size() * 3);
     out.sceneEdges.reserve(meshData.triangles.size() * 3);
+    out.sceneEdgeSlot.reserve(meshData.triangles.size() * 3);
 
-    auto pushEdge = [&](int a, int b) {
-        if (a == b) return;
-        const QPair<int,int> key = (a < b) ? qMakePair(a,b) : qMakePair(b,a);
-        if (seen.contains(key)) return;
+    // First-writer-wins on the dedup, which is exactly right for BC slots: a
+    // boundary edge belongs to exactly one triangle, so it is pushed once and
+    // keeps its own slot. Only interior edges are pushed twice, and both of
+    // their slots are Wall by construction (resizeBCsToMesh defaults them and
+    // the engine ignores interior slots).
+    auto pushEdge = [&](int a, int b, qint32 slot) {
+        if (a == b)
+            return;
+        const QPair<int, int> key = (a < b) ? qMakePair(a, b) : qMakePair(b, a);
+        if (seen.contains(key))
+            return;
         seen.insert(key);
 
         const double za = meshData.vertices[a].z;
         const double zb = meshData.vertices[b].z;
         const double dx = meshData.vertices[a].xy.x() - meshData.vertices[b].xy.x();
         const double dy = meshData.vertices[a].xy.y() - meshData.vertices[b].xy.y();
-        const double dist = std::sqrt(dx*dx + dy*dy);
-        const float  slope = (dist > 1e-9) ? static_cast<float>(std::abs(za-zb) / dist) : 0.0f;
-        if (slope > out.maxSlope) out.maxSlope = slope;
+        const double dist = std::sqrt(dx * dx + dy * dy);
+        const float slope = (dist > 1e-9) ? static_cast<float>(std::abs(za - zb) / dist) : 0.0f;
+        if (slope > out.maxSlope)
+            out.maxSlope = slope;
 
         SceneEdge e;
-        e.line  = QLineF(scenePts[a], scenePts[b]);
-        e.zAvg  = static_cast<float>((za + zb) * 0.5);
+        e.line = QLineF(scenePts[a], scenePts[b]);
+        e.zAvg = static_cast<float>((za + zb) * 0.5);
         e.slope = slope;
         out.sceneEdges.append(e);
+        out.sceneEdgeSlot.append(slot);
     };
 
-    for (const auto &t : meshData.triangles)
-    {
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        pushEdge(t.v0, t.v1);
-        pushEdge(t.v1, t.v2);
-        pushEdge(t.v2, t.v0);
+    // Local-edge convention (mesh::edgeEndpoints — matches buildBoundaryFlags
+    // / findEdgeNeighbour): edge k = (v[(k+1)%nv], v[(k+2)%nv]), i.e. for a
+    // triangle edge 0 = (v1, v2), edge 1 = (v2, v0), edge 2 = (v0, v1). The
+    // walk starts at the last local edge so the push order stays (v0,v1),
+    // (v1,v2), … — the historic 2, 0, 1 order for triangles. A quad pushes
+    // its four true polygon edges; the fan diagonal is never an edge.
+    //
+    // The slot must use the *mesh* cell index, because m_bc is sized
+    // edgeSlotCount(nCells) over meshData.triangles — sceneTris is the fan
+    // and skips degenerate cells, so it is a different index space.
+    const int nTri = meshData.triangles.size();
+    for (int ti = 0; ti < nTri; ++ti) {
+        const auto &t = meshData.triangles[ti];
+        if (!cellVerticesValid(t, nVerts))
+            continue;
+        const int nv = t.vertexCount();
+        for (int j = 0; j < nv; ++j) {
+            const int k = (j + nv - 1) % nv;
+            int a = -1, b = -1;
+            mesh::edgeEndpoints(t, k, a, b);
+            pushEdge(a, b, qint32(mesh::edgeSlot(ti, k)));
+        }
     }
 
     // Spatial grids over the bbox sets — O(visible) paint-time culling.
@@ -925,18 +1188,25 @@ MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
 }
 
 /*! CSR vertex→triangle adjacency (verbatim logic of the former member-only
- *  implementation; the member now delegates here). */
-void buildVertexAdjacency(const mesh::MeshResult &meshData,
-                          QVector<int> &ptr, QVector<int> &idx)
+ *  implementation; the member now delegates here).
+ * @param[in] meshData Stable original mesh; invalid vertex incidences ignored, repeated valid incidences retained.
+ * @param[out] ptr Replaced CSR offsets, lengthvertexCount+one.
+ * @param[out] idx Replaced original-cell incidence sequence in original cell/local order.
+ * @note Destinations must not alias and need exclusive access; allocates, retains no mesh reference and touches no QObject.
+ */
+void buildVertexAdjacency(const mesh::MeshResult &meshData, QVector<int> &ptr, QVector<int> &idx)
 {
     const int nv = meshData.vertices.size();
     const int nt = meshData.triangles.size();
 
     QVector<int> counts(nv, 0);
     for (const auto &tri : meshData.triangles) {
-        if (tri.v0 >= 0 && tri.v0 < nv) ++counts[tri.v0];
-        if (tri.v1 >= 0 && tri.v1 < nv) ++counts[tri.v1];
-        if (tri.v2 >= 0 && tri.v2 < nv) ++counts[tri.v2];
+        const int n = tri.vertexCount();
+        for (int k = 0; k < n; ++k) {
+            const int v = tri.vertex(k);
+            if (v >= 0 && v < nv)
+                ++counts[v];
+        }
     }
 
     ptr.resize(nv + 1);
@@ -948,48 +1218,54 @@ void buildVertexAdjacency(const mesh::MeshResult &meshData,
     QVector<int> cursor = ptr;
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        if (tri.v0 >= 0 && tri.v0 < nv) idx[cursor[tri.v0]++] = t;
-        if (tri.v1 >= 0 && tri.v1 < nv) idx[cursor[tri.v1]++] = t;
-        if (tri.v2 >= 0 && tri.v2 < nv) idx[cursor[tri.v2]++] = t;
+        const int n = tri.vertexCount();
+        for (int k = 0; k < n; ++k) {
+            const int v = tri.vertex(k);
+            if (v >= 0 && v < nv)
+                idx[cursor[v]++] = t;
+        }
     }
 }
 
-/*! Per-(tri,edgeLocal) boundary flags from triangle adjacency (verbatim
- *  logic of resizeBCsToMesh's second half; the member delegates here). */
+/*! Per-(cell,edgeLocal) boundary flags from cell adjacency (verbatim
+ *  logic of resizeBCsToMesh's second half; the member delegates here).
+ *  Sized mesh::edgeSlotCount(nCells); a triangle's unused slot 3 is false.
+ * @param[in] meshData Stable mesh with valid practical endpoint identities; boundary markers supply optional forced boundary pairs.
+ * @return Owned stride-four flags true for endpoint pairs used at most once OR present in explicit boundary markers; triangle padding false. No geometric area/engine-neighbour test or source mutation.
+ */
 QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
 {
     const int nt = meshData.triangles.size();
-    QHash<QPair<int,int>, int> edgeUseCount;
+    QHash<QPair<int, int>, int> edgeUseCount;
     edgeUseCount.reserve(nt * 3);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPair<int, int> key = (va < vb) ? qMakePair(va, vb) : qMakePair(vb, va);
             ++edgeUseCount[key];
         }
     }
 
-    QSet<QPair<int,int>> markerBoundary;
+    QSet<QPair<int, int>> markerBoundary;
     for (const auto &e : meshData.boundaryEdges) {
-        const QPair<int,int> key = (e.v0 < e.v1) ? qMakePair(e.v0, e.v1)
-                                                 : qMakePair(e.v1, e.v0);
+        const QPair<int, int> key = (e.v0 < e.v1) ? qMakePair(e.v0, e.v1) : qMakePair(e.v1, e.v0);
         markerBoundary.insert(key);
     }
 
-    QVector<bool> flags(nt * 3, false);
+    QVector<bool> flags(mesh::edgeSlotCount(nt), false);
     for (int t = 0; t < nt; ++t) {
         const auto &tri = meshData.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPair<int, int> key = (va < vb) ? qMakePair(va, vb) : qMakePair(vb, va);
             const int uses = edgeUseCount.value(key, 0);
             if (uses <= 1 || markerBoundary.contains(key))
-                flags[t * 3 + e] = true;
+                flags[mesh::edgeSlot(t, e)] = true;
         }
     }
     return flags;
@@ -1006,7 +1282,9 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     const int nVerts = m_mesh.vertices.size();
 
     m_sceneTris.clear();
+    m_cellSceneStart.clear();
     m_sceneEdges.clear();
+    m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
     m_triBBoxes.clear();
     m_edgeBBoxes.clear();
@@ -1019,66 +1297,89 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
 
     if (nVerts == 0 || m_mesh.triangles.isEmpty()) {
         ++m_geomRevision;
+        invalidateSurfaceOwnership();
         return;
     }
 
     bool hasElevation = false;
     for (const auto &v : m_mesh.vertices)
-        if (v.z != 0.0) { hasElevation = true; break; }
+        if (v.z != 0.0) {
+            hasElevation = true;
+            break;
+        }
 
     // ── Scene-space vertex positions (with OGR reprojection + Y-flip) ──────
+    // Batched reprojection (see rebuildSceneGeometryLight) — one OGR call per
+    // 64k vertices rather than one per vertex.
     QVector<QPointF> scenePts;
-    scenePts.reserve(nVerts);
-    for (const auto &v : m_mesh.vertices)
+    scenePts.resize(nVerts);
     {
-        double x = v.xy.x(), y = v.xy.y();
-        if (m_transform) m_transform->Transform(1, &x, &y);
-        scenePts.append(QPointF(x, -y));  // Y-flip: scene grows downward
-        if (hasElevation)
-        {
-            if (v.z < m_zMin) m_zMin = v.z;
-            if (v.z > m_zMax) m_zMax = v.z;
+        std::vector<double> bx(nVerts), by(nVerts);
+        for (int i = 0; i < nVerts; ++i) {
+            const auto &v = m_mesh.vertices[i];
+            bx[i] = v.xy.x();
+            by[i] = v.xy.y();
+            if (hasElevation) {
+                if (v.z < m_zMin)
+                    m_zMin = v.z;
+                if (v.z > m_zMax)
+                    m_zMax = v.z;
+            }
         }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nVerts);
+        for (int i = 0; i < nVerts; ++i)
+            scenePts[i] = QPointF(bx[i], -by[i]); // Y-flip: scene grows downward
     }
-    if (!hasElevation) { m_zMin = 0.0; m_zMax = 0.0; }
+    if (!hasElevation) {
+        m_zMin = 0.0;
+        m_zMax = 0.0;
+    }
 
     // ── Node dots ────────────────────────────────────────────────────────────
     m_sceneNodes.reserve(nVerts);
     bool first = true;
-    for (int i = 0; i < nVerts; ++i)
-    {
+    for (int i = 0; i < nVerts; ++i) {
         SceneNode n;
-        n.pt     = scenePts[i];
-        n.z      = static_cast<float>(m_mesh.vertices[i].z);
+        n.pt = scenePts[i];
+        n.z = static_cast<float>(m_mesh.vertices[i].z);
         n.tagged = !m_mesh.vertices[i].coupledNode.isEmpty();
         m_sceneNodes.append(n);
 
-        if (first) { m_sceneBBox = QRectF(n.pt, QSizeF(0,0)); first = false; }
-        else {
-            if (n.pt.x() < m_sceneBBox.left())   m_sceneBBox.setLeft(n.pt.x());
-            if (n.pt.x() > m_sceneBBox.right())  m_sceneBBox.setRight(n.pt.x());
-            if (n.pt.y() < m_sceneBBox.top())    m_sceneBBox.setTop(n.pt.y());
-            if (n.pt.y() > m_sceneBBox.bottom()) m_sceneBBox.setBottom(n.pt.y());
+        if (first) {
+            m_sceneBBox = QRectF(n.pt, QSizeF(0, 0));
+            first = false;
+        } else {
+            if (n.pt.x() < m_sceneBBox.left())
+                m_sceneBBox.setLeft(n.pt.x());
+            if (n.pt.x() > m_sceneBBox.right())
+                m_sceneBBox.setRight(n.pt.x());
+            if (n.pt.y() < m_sceneBBox.top())
+                m_sceneBBox.setTop(n.pt.y());
+            if (n.pt.y() > m_sceneBBox.bottom())
+                m_sceneBBox.setBottom(n.pt.y());
         }
     }
 
     // ── Triangles ───────────────────────────────────────────────────────────
-    appendSceneTris(m_mesh, scenePts, m_sceneTris);
+    appendSceneTris(m_mesh, scenePts, m_sceneTris, m_cellSceneStart);
 
     // ── Edges + spatial grids (the heavy tail — shared with the deferred
     //    background build; see buildMeshHeavyGeom below) ─────────────────────
     MeshHeavyGeom heavy = buildMeshHeavyGeom(m_mesh, scenePts, m_sceneTris);
-    m_sceneEdges  = std::move(heavy.sceneEdges);
-    m_triBBoxes   = std::move(heavy.triBBoxes);
-    m_edgeBBoxes  = std::move(heavy.edgeBBoxes);
-    m_triGrid     = std::move(heavy.triGrid);
-    m_edgeGrid    = std::move(heavy.edgeGrid);
-    m_maxSlope    = heavy.maxSlope;
+    m_sceneEdges = std::move(heavy.sceneEdges);
+    m_sceneEdgeSlot = std::move(heavy.sceneEdgeSlot);
+    m_triBBoxes = std::move(heavy.triBBoxes);
+    m_edgeBBoxes = std::move(heavy.edgeBBoxes);
+    m_triGrid = std::move(heavy.triGrid);
+    m_edgeGrid = std::move(heavy.edgeGrid);
+    m_maxSlope = heavy.maxSlope;
 
     // ── LOD overview for far-zoom rendering ──────────────────────────────────
     rebuildOverview();
 
     ++m_geomRevision;
+    invalidateSurfaceOwnership();
+    refreshSublayerLegendInputs();
 
     // Notify the graphics item (if any) that its geometry changed.
     if (m_graphicsItem)
@@ -1094,7 +1395,9 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     const int nVerts = m_mesh.vertices.size();
 
     m_sceneTris.clear();
+    m_cellSceneStart.clear();
     m_sceneEdges.clear();
+    m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
     m_triBBoxes.clear();
     m_edgeBBoxes.clear();
@@ -1109,48 +1412,69 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     if (nVerts == 0 || m_mesh.triangles.isEmpty()) {
         m_sceneGeomComplete = true;
         ++m_geomRevision;
+        invalidateSurfaceOwnership();
         return;
     }
 
     bool hasElevation = false;
     for (const auto &v : m_mesh.vertices)
-        if (v.z != 0.0) { hasElevation = true; break; }
-
-    QVector<QPointF> scenePts;
-    scenePts.reserve(nVerts);
-    for (const auto &v : m_mesh.vertices)
-    {
-        double x = v.xy.x(), y = v.xy.y();
-        if (m_transform) m_transform->Transform(1, &x, &y);
-        scenePts.append(QPointF(x, -y));
-        if (hasElevation)
-        {
-            if (v.z < m_zMin) m_zMin = v.z;
-            if (v.z > m_zMax) m_zMax = v.z;
+        if (v.z != 0.0) {
+            hasElevation = true;
+            break;
         }
+
+    // Batched reprojection — one OGR call per 64k vertices instead of one per
+    // vertex. At 750k vertices (and 4.7M on the user's real deck) the per-point
+    // form dominated this function.
+    QVector<QPointF> scenePts;
+    scenePts.resize(nVerts);
+    {
+        std::vector<double> bx(nVerts), by(nVerts);
+        for (int i = 0; i < nVerts; ++i) {
+            const auto &v = m_mesh.vertices[i];
+            bx[i] = v.xy.x();
+            by[i] = v.xy.y();
+            if (hasElevation) {
+                if (v.z < m_zMin)
+                    m_zMin = v.z;
+                if (v.z > m_zMax)
+                    m_zMax = v.z;
+            }
+        }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nVerts);
+        for (int i = 0; i < nVerts; ++i)
+            scenePts[i] = QPointF(bx[i], -by[i]);
     }
-    if (!hasElevation) { m_zMin = 0.0; m_zMax = 0.0; }
+    if (!hasElevation) {
+        m_zMin = 0.0;
+        m_zMax = 0.0;
+    }
 
     m_sceneNodes.reserve(nVerts);
     bool first = true;
-    for (int i = 0; i < nVerts; ++i)
-    {
+    for (int i = 0; i < nVerts; ++i) {
         SceneNode n;
-        n.pt     = scenePts[i];
-        n.z      = static_cast<float>(m_mesh.vertices[i].z);
+        n.pt = scenePts[i];
+        n.z = static_cast<float>(m_mesh.vertices[i].z);
         n.tagged = !m_mesh.vertices[i].coupledNode.isEmpty();
         m_sceneNodes.append(n);
 
-        if (first) { m_sceneBBox = QRectF(n.pt, QSizeF(0,0)); first = false; }
-        else {
-            if (n.pt.x() < m_sceneBBox.left())   m_sceneBBox.setLeft(n.pt.x());
-            if (n.pt.x() > m_sceneBBox.right())  m_sceneBBox.setRight(n.pt.x());
-            if (n.pt.y() < m_sceneBBox.top())    m_sceneBBox.setTop(n.pt.y());
-            if (n.pt.y() > m_sceneBBox.bottom()) m_sceneBBox.setBottom(n.pt.y());
+        if (first) {
+            m_sceneBBox = QRectF(n.pt, QSizeF(0, 0));
+            first = false;
+        } else {
+            if (n.pt.x() < m_sceneBBox.left())
+                m_sceneBBox.setLeft(n.pt.x());
+            if (n.pt.x() > m_sceneBBox.right())
+                m_sceneBBox.setRight(n.pt.x());
+            if (n.pt.y() < m_sceneBBox.top())
+                m_sceneBBox.setTop(n.pt.y());
+            if (n.pt.y() > m_sceneBBox.bottom())
+                m_sceneBBox.setBottom(n.pt.y());
         }
     }
 
-    appendSceneTris(m_mesh, scenePts, m_sceneTris);
+    appendSceneTris(m_mesh, scenePts, m_sceneTris, m_cellSceneStart);
 
     // Keep the (implicitly shared) scene points so the background heavy
     // build doesn't have to re-project; freed on adoption.
@@ -1161,45 +1485,50 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
     rebuildOverview();
 
     ++m_geomRevision;
+    invalidateSurfaceOwnership();
     if (m_graphicsItem)
         m_graphicsItem->geometryChanged();
 }
 
 void SWMM2DMeshLayer::finishSceneGeometryAsync()
 {
-    if (m_sceneGeomComplete || m_heavyBuildRunning) return;
+    if (m_sceneGeomComplete || m_heavyBuildRunning)
+        return;
     m_heavyBuildRunning = true;
 
     // Snapshots are implicitly shared; a concurrent GUI edit detaches the
     // layer's copy, so the worker always sees a consistent state.
-    const mesh::MeshResult   meshSnap = m_mesh;
-    QVector<QPointF>         ptsSnap  = m_pendingScenePts;
-    const QVector<SceneTri>  trisSnap = m_sceneTris;
-    const quint64            revAtLaunch = m_geomRevision;
+    const mesh::MeshResult meshSnap = m_mesh;
+    QVector<QPointF> ptsSnap = m_pendingScenePts;
+    const QVector<SceneTri> trisSnap = m_sceneTris;
+    const quint64 revAtLaunch = m_geomRevision;
 
     if (ptsSnap.isEmpty()) {
         // Rare re-run path (e.g. a CRS change forced a full synchronous
         // rebuild mid-defer): re-project here so the worker matches the
         // current transform.
-        ptsSnap.reserve(meshSnap.vertices.size());
-        for (const auto &v : meshSnap.vertices) {
-            double x = v.xy.x(), y = v.xy.y();
-            if (m_transform) m_transform->Transform(1, &x, &y);
-            ptsSnap.append(QPointF(x, -y));
+        const int nv = meshSnap.vertices.size();
+        ptsSnap.resize(nv);
+        std::vector<double> bx(nv), by(nv);
+        for (int i = 0; i < nv; ++i) {
+            bx[i] = meshSnap.vertices[i].xy.x();
+            by[i] = meshSnap.vertices[i].xy.y();
         }
+        CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nv);
+        for (int i = 0; i < nv; ++i)
+            ptsSnap[i] = QPointF(bx[i], -by[i]);
     }
 
     struct DeferredGeom {
-        MeshHeavyGeom             heavy;
-        QVector<int>              vertTriPtr;
-        QVector<int>              vertTriIdx;
-        QVector<bool>             isBoundary;
+        MeshHeavyGeom heavy;
+        QVector<int> vertTriPtr;
+        QVector<int> vertTriIdx;
+        QVector<bool> isBoundary;
         QVector<mesh::MeshEdgeBC> bcDefaults;
     };
 
     auto *watcher = new QFutureWatcher<QSharedPointer<DeferredGeom>>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, revAtLaunch]() {
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, revAtLaunch]() {
         // result() rethrows any exception the worker stored (std::bad_alloc
         // on a huge mesh) — uncaught in a slot, that is std::terminate.
         QSharedPointer<DeferredGeom> d;
@@ -1210,7 +1539,8 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             m_heavyBuildRunning = false;
             qWarning("SWMM2DMeshLayer: deferred scene-geometry build failed "
                      "(%s) — mesh interaction stays limited to the light "
-                     "geometry.", e.what());
+                     "geometry.",
+                     e.what());
             return;
         }
         watcher->deleteLater();
@@ -1218,20 +1548,22 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
 
         // Stale result (geometry re-projected mid-build) — rebuild again.
         if (revAtLaunch != m_geomRevision) {
-            if (!m_sceneGeomComplete) finishSceneGeometryAsync();
+            if (!m_sceneGeomComplete)
+                finishSceneGeometryAsync();
             return;
         }
 
-        m_sceneEdges  = std::move(d->heavy.sceneEdges);
-        m_triBBoxes   = std::move(d->heavy.triBBoxes);
-        m_edgeBBoxes  = std::move(d->heavy.edgeBBoxes);
-        m_triGrid     = std::move(d->heavy.triGrid);
-        m_edgeGrid    = std::move(d->heavy.edgeGrid);
-        m_maxSlope    = d->heavy.maxSlope;
-        m_vertTriPtr  = std::move(d->vertTriPtr);
-        m_vertTriIdx  = std::move(d->vertTriIdx);
-        m_isBoundary  = std::move(d->isBoundary);
-        m_boundaryGraph      = mesh::MeshBoundaryGraph();
+        m_sceneEdges = std::move(d->heavy.sceneEdges);
+        m_sceneEdgeSlot = std::move(d->heavy.sceneEdgeSlot);
+        m_triBBoxes = std::move(d->heavy.triBBoxes);
+        m_edgeBBoxes = std::move(d->heavy.edgeBBoxes);
+        m_triGrid = std::move(d->heavy.triGrid);
+        m_edgeGrid = std::move(d->heavy.edgeGrid);
+        m_maxSlope = d->heavy.maxSlope;
+        m_vertTriPtr = std::move(d->vertTriPtr);
+        m_vertTriIdx = std::move(d->vertTriIdx);
+        m_isBoundary = std::move(d->isBoundary);
+        m_boundaryGraph = mesh::MeshBoundaryGraph();
         m_boundaryGraphValid = false;
         // BCs loaded from the file (already correctly sized) win; otherwise
         // adopt the default-Wall slots built on the worker.
@@ -1239,18 +1571,23 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             m_bc = std::move(d->bcDefaults);
         m_pendingScenePts = QVector<QPointF>();
         m_sceneGeomComplete = true;
+        // Edges (and therefore BC-coloured edges) only exist from here on the
+        // progressive path — refresh the legend inputs now, not in the light
+        // build, which has no edges at all.
+        refreshSublayerLegendInputs();
 
         emit sceneGeometryReady();
-        if (m_graphicsItem) m_graphicsItem->geometryChanged();
+        if (m_graphicsItem)
+            m_graphicsItem->geometryChanged();
         emit repaintRequested();
     });
-    watcher->setFuture(QtConcurrent::run(
-        [meshSnap, ptsSnap, trisSnap]() -> QSharedPointer<DeferredGeom> {
+    watcher->setFuture(
+        QtConcurrent::run([meshSnap, ptsSnap, trisSnap]() -> QSharedPointer<DeferredGeom> {
             auto d = QSharedPointer<DeferredGeom>::create();
             d->heavy = buildMeshHeavyGeom(meshSnap, ptsSnap, trisSnap);
             buildVertexAdjacency(meshSnap, d->vertTriPtr, d->vertTriIdx);
             d->isBoundary = buildBoundaryFlags(meshSnap);
-            d->bcDefaults.resize(meshSnap.triangles.size() * 3);
+            d->bcDefaults.resize(mesh::edgeSlotCount(meshSnap.triangles.size()));
             return d;
         }));
 }
@@ -1265,34 +1602,41 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
 // existing hillshade face-normal still produces relief on the coarse mesh.
 // Empty cells (holes in the source mesh) emit nothing, so the overview keeps
 // the mesh's outline. Cost is one O(triangles) binning pass at load time.
-namespace {
+namespace
+{
 
 /*! One overview ("pyramid") bake. Extracted from rebuildOverview() so
  *  the same code serves the synchronous load-time build and the
  *  background rebuild (SWMM2DMeshLayer::rebuildOverviewAsync). Pure
  *  function of its inputs — safe to run on a worker thread against
  *  detached (implicitly-shared) snapshots of the scene caches. */
-struct MeshOverviewData
-{
+struct MeshOverviewData {
     QVector<SWMM2DMeshLayer::SceneTri> overviewTris;
-    QVector<int>                       trisBySizeDesc;
-    double                             nativeTriSpan = 0.0;
+    QVector<int> trisBySizeDesc;
+    double nativeTriSpan = 0.0;
 };
 
-MeshOverviewData buildMeshOverviewData(
-    const QVector<SWMM2DMeshLayer::SceneTri> &sceneTris,
-    const QRectF &sceneBBox)
+/**
+ * @param[in] sceneTris Stable finite scene fan triangles with finitefloat Z.
+ * @param[in] sceneBBox Finite positive scene bbox.
+ * @return Owned representative native-span estimate and, for at least200000fan triangles, coarse fill/descending-area index. Empty/invalid shape returns defaults; small mesh only computes native span.
+ * @note Approximately60000grid cells accumulate all overlapping triangle bboxes (not exact triangle clipping), so overview can broaden outline/hole edges. Corner heights average adjacent bin means. Worker-safe snapshots, no source/layer state or IO; equal-area index order unspecified.
+ */
+MeshOverviewData buildMeshOverviewData(const QVector<SWMM2DMeshLayer::SceneTri> &sceneTris,
+                                       const QRectF &sceneBBox)
 {
     using SceneTri = SWMM2DMeshLayer::SceneTri;
     MeshOverviewData out;
 
     const int nTri = sceneTris.size();
-    if (nTri == 0 || sceneBBox.isNull()) return out;
+    if (nTri == 0 || sceneBBox.isNull())
+        return out;
 
     const double bw = sceneBBox.width();
     const double bh = sceneBBox.height();
     const double area = bw * bh;
-    if (area <= 0.0) return out;
+    if (area <= 0.0)
+        return out;
 
     // Representative native triangle edge length (scene units). sqrt(area /
     // triCount) is the side of an equal-area square per triangle — close
@@ -1302,7 +1646,8 @@ MeshOverviewData buildMeshOverviewData(
     // Small meshes draw full-res fast enough that an overview would only add
     // zoom popping; skip it for them.
     constexpr int kOverviewMinTris = 200000;
-    if (nTri < kOverviewMinTris) return out;
+    if (nTri < kOverviewMinTris)
+        return out;
 
     // Aim for ~60k cells (~120k overview triangles) regardless of source
     // size. Still trivially cheap on the QSG path (a few MB of vertices) and
@@ -1319,7 +1664,7 @@ MeshOverviewData buildMeshOverviewData(
     // dims to kTargetCells keeps cols*rows <= kTargetCells^2 well inside
     // qsizetype and the grid itself never larger than intended.
     const double aspect = (bh > 0.0) ? (bw / bh) : 1.0;
-    const double colsD  = std::round(std::sqrt(double(kTargetCells) * aspect));
+    const double colsD = std::round(std::sqrt(double(kTargetCells) * aspect));
     const int cols = int(qBound(1.0, colsD, double(kTargetCells)));
     const int rows = qMax(1, int(std::round(double(kTargetCells) / double(cols))));
 
@@ -1327,14 +1672,15 @@ MeshOverviewData buildMeshOverviewData(
     const double ch = bh / double(rows);
     const double ox = sceneBBox.left();
     const double oy = sceneBBox.top();
-    if (cw <= 0.0 || ch <= 0.0) return out;
+    if (cw <= 0.0 || ch <= 0.0)
+        return out;
 
     // Accumulate by *bbox coverage*, not centroid: a cell receives every
     // triangle whose bounding box overlaps it. A large triangle therefore
     // fills all the overview cells it spans (centroid binning would fill only
     // one and leave holes under the rest), so the overview is a gap-free floor.
     QVector<double> zsum(cols * rows, 0.0);
-    QVector<int>    cnt (cols * rows, 0);
+    QVector<int> cnt(cols * rows, 0);
     for (const SceneTri &t : sceneTris) {
         const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
         const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
@@ -1353,41 +1699,57 @@ MeshOverviewData buildMeshOverviewData(
     }
 
     auto cellMean = [&](int i, int j, double &out) -> bool {
-        if (i < 0 || j < 0 || i >= cols || j >= rows) return false;
+        if (i < 0 || j < 0 || i >= cols || j >= rows)
+            return false;
         const int k = j * cols + i;
-        if (cnt[k] == 0) return false;
+        if (cnt[k] == 0)
+            return false;
         out = zsum[k] / double(cnt[k]);
         return true;
     };
     // Corner height = mean of the up-to-4 surrounding cell means.
     auto cornerZ = [&](int i, int j) -> float {
-        double s = 0.0; int n = 0; double m = 0.0;
+        double s = 0.0;
+        int n = 0;
+        double m = 0.0;
         for (int dj = -1; dj <= 0; ++dj)
             for (int di = -1; di <= 0; ++di)
-                if (cellMean(i + di, j + dj, m)) { s += m; ++n; }
+                if (cellMean(i + di, j + dj, m)) {
+                    s += m;
+                    ++n;
+                }
         return n ? float(s / n) : 0.0f;
     };
 
     out.overviewTris.reserve(cols * rows * 2);
     for (int j = 0; j < rows; ++j) {
         for (int i = 0; i < cols; ++i) {
-            if (cnt[j * cols + i] == 0) continue;   // hole — emit no fill
+            if (cnt[j * cols + i] == 0)
+                continue; // hole — emit no fill
             const double x0 = ox + i * cw, x1 = x0 + cw;
             const double y0 = oy + j * ch, y1 = y0 + ch;
-            const float z00 = cornerZ(i,     j);
+            const float z00 = cornerZ(i, j);
             const float z10 = cornerZ(i + 1, j);
-            const float z01 = cornerZ(i,     j + 1);
+            const float z01 = cornerZ(i, j + 1);
             const float z11 = cornerZ(i + 1, j + 1);
 
             SceneTri t1;
-            t1.a = QPointF(x0, y0); t1.b = QPointF(x1, y0); t1.c = QPointF(x1, y1);
-            t1.z0 = z00; t1.z1 = z10; t1.z2 = z11;
+            t1.a = QPointF(x0, y0);
+            t1.b = QPointF(x1, y0);
+            t1.c = QPointF(x1, y1);
+            t1.z0 = z00;
+            t1.z1 = z10;
+            t1.z2 = z11;
             t1.zAvg = (z00 + z10 + z11) / 3.0f;
             out.overviewTris.append(t1);
 
             SceneTri t2;
-            t2.a = QPointF(x0, y0); t2.b = QPointF(x1, y1); t2.c = QPointF(x0, y1);
-            t2.z0 = z00; t2.z1 = z11; t2.z2 = z01;
+            t2.a = QPointF(x0, y0);
+            t2.b = QPointF(x1, y1);
+            t2.c = QPointF(x0, y1);
+            t2.z0 = z00;
+            t2.z1 = z11;
+            t2.z2 = z01;
             t2.zAvg = (z00 + z11 + z01) / 3.0f;
             out.overviewTris.append(t2);
         }
@@ -1406,7 +1768,8 @@ MeshOverviewData buildMeshOverviewData(
             areaTmp[i] = float(0.5 * std::abs(ux * vy - uy * vx));
         }
         out.trisBySizeDesc.resize(nTri);
-        for (int i = 0; i < nTri; ++i) out.trisBySizeDesc[i] = i;
+        for (int i = 0; i < nTri; ++i)
+            out.trisBySizeDesc[i] = i;
         std::sort(out.trisBySizeDesc.begin(), out.trisBySizeDesc.end(),
                   [&areaTmp](int p, int q) { return areaTmp[p] > areaTmp[q]; });
     }
@@ -1418,14 +1781,15 @@ MeshOverviewData buildMeshOverviewData(
 void SWMM2DMeshLayer::rebuildOverview()
 {
     MeshOverviewData d = buildMeshOverviewData(m_sceneTris, m_sceneBBox);
-    m_overviewTris   = std::move(d.overviewTris);
+    m_overviewTris = std::move(d.overviewTris);
     m_trisBySizeDesc = std::move(d.trisBySizeDesc);
-    m_nativeTriSpan  = d.nativeTriSpan;
+    m_nativeTriSpan = d.nativeTriSpan;
 }
 
 void SWMM2DMeshLayer::rebuildOverviewAsync()
 {
-    if (m_overviewBuildRunning) return;
+    if (m_overviewBuildRunning)
+        return;
     m_overviewBuildRunning = true;
     emit overviewBuildStarted(name());
 
@@ -1434,7 +1798,7 @@ void SWMM2DMeshLayer::rebuildOverviewAsync()
     // applyMeshVertexZ) detaches the layer's copy first, so the worker sees
     // a consistent snapshot.
     const QVector<SceneTri> tris = m_sceneTris;
-    const QRectF            bbox = m_sceneBBox;
+    const QRectF bbox = m_sceneBBox;
 
     auto *watcher = new QFutureWatcher<MeshOverviewData>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
@@ -1446,26 +1810,24 @@ void SWMM2DMeshLayer::rebuildOverviewAsync()
         } catch (const std::exception &e) {
             watcher->deleteLater();
             m_overviewBuildRunning = false;
-            qWarning("SWMM2DMeshLayer: overview (pyramid) build failed: %s",
-                     e.what());
+            qWarning("SWMM2DMeshLayer: overview (pyramid) build failed: %s", e.what());
             emit overviewBuildFinished(false);
             return;
         }
         watcher->deleteLater();
-        m_overviewTris   = std::move(d.overviewTris);
+        m_overviewTris = std::move(d.overviewTris);
         m_trisBySizeDesc = std::move(d.trisBySizeDesc);
-        m_nativeTriSpan  = d.nativeTriSpan;
+        m_nativeTriSpan = d.nativeTriSpan;
         m_overviewBuildRunning = false;
         emit overviewBuildFinished(true);
         // Both pipelines redraw with the fresh pyramid.
-        if (m_graphicsItem) m_graphicsItem->geometryChanged();
+        if (m_graphicsItem)
+            m_graphicsItem->geometryChanged();
         emit repaintRequested();
     });
-    watcher->setFuture(QtConcurrent::run([tris, bbox]() {
-        return buildMeshOverviewData(tris, bbox);
-    }));
+    watcher->setFuture(
+        QtConcurrent::run([tris, bbox]() { return buildMeshOverviewData(tris, bbox); }));
 }
-
 
 // MeshSpatialGrid — definitions live in src/layers/meshspatialgrid.cpp so
 // the spatial-index logic can be unit-tested without linking the whole
@@ -1478,7 +1840,8 @@ void SWMM2DMeshLayer::rebuildOverviewAsync()
 
 void SWMM2DMeshLayer::setActiveMesh(bool active)
 {
-    if (m_active == active) return;
+    if (m_active == active)
+        return;
     m_active = active;
     emit activeMeshChanged(m_active);
     emit repaintRequested();
@@ -1486,11 +1849,13 @@ void SWMM2DMeshLayer::setActiveMesh(bool active)
 
 void SWMM2DMeshLayer::setQsgOwnsRendering(bool own)
 {
-    if (m_qsgOwnsRendering == own) return;
+    if (m_qsgOwnsRendering == own)
+        return;
     m_qsgOwnsRendering = own;
     // Both pipelines need a repaint: the CPU item must clear (or redraw)
     // and the canvas must regrab the QSG frame.
-    if (m_graphicsItem) m_graphicsItem->geometryChanged();
+    if (m_graphicsItem)
+        m_graphicsItem->geometryChanged();
     emit repaintRequested();
 }
 
@@ -1502,7 +1867,7 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
 {
     // NB: `slots` is a Qt keyword macro — pick a different local name.
     const int nt = m_mesh.triangles.size();
-    const int nslots = nt * 3;
+    const int nslots = mesh::edgeSlotCount(nt);
     if (m_bc.size() != nslots) {
         m_bc.resize(nslots);
         // Default-constructed MeshEdgeBC == Wall + zero params + empty group.
@@ -1511,8 +1876,178 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
     // Precompute boundary status from triangle adjacency — logic lives in
     // buildBoundaryFlags so the deferred background build shares it.
     m_isBoundary = buildBoundaryFlags(m_mesh);
-    m_boundaryGraph      = mesh::MeshBoundaryGraph();
+    m_boundaryGraph = mesh::MeshBoundaryGraph();
     m_boundaryGraphValid = false;
+    ++m_bcRevision;
+    refreshSublayerLegendInputs();
+}
+
+const QVector<qint32> &SWMM2DMeshLayer::bcSceneEdges() const
+{
+    if (m_bcSceneEdgesBcRev == m_bcRevision && m_bcSceneEdgesGeomRev == m_geomRevision)
+        return m_bcSceneEdges;
+
+    m_bcSceneEdges.clear();
+    // Same guard the renderer applies: a short/absent slot vector means the
+    // heavy geometry has not landed yet, and every edge is *unknown* rather
+    // than Wall.
+    if (m_sceneEdgeSlot.size() == m_sceneEdges.size() && !m_bc.isEmpty()) {
+        for (qint32 i = 0; i < m_sceneEdgeSlot.size(); ++i) {
+            const qint32 slot = m_sceneEdgeSlot[i];
+            if (slot >= 0 && slot < m_bc.size() && int(m_bc[slot].type) > 0)
+                m_bcSceneEdges.append(i);
+        }
+    }
+    m_bcSceneEdgesBcRev = m_bcRevision;
+    m_bcSceneEdgesGeomRev = m_geomRevision;
+    return m_bcSceneEdges;
+}
+
+void SWMM2DMeshLayer::scheduleLegendInputRefresh()
+{
+    if (m_legendRefreshQueued)
+        return;
+    m_legendRefreshQueued = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            m_legendRefreshQueued = false;
+            refreshSublayerLegendInputs();
+        },
+        Qt::QueuedConnection);
+}
+
+void SWMM2DMeshLayer::refreshSublayerLegendInputs()
+{
+    if (m_meshBcSublayer) {
+        QSet<int> present;
+        for (const auto &bc : m_bc) {
+            present.insert(int(bc.type));
+            // All seven seen — nothing left to learn from the rest of the scan.
+            if (present.size() >= OpenSWMM::Render::MeshBcStyle::kBcTypeCount)
+                break;
+        }
+        m_meshBcSublayer->setBcTypesPresent(present);
+        // The Wall legend row previews the wireframe width (Wall edges ARE
+        // the wireframe).
+        if (m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle())
+            m_meshBcSublayer->setWallLegendWidthPx(m_meshEdgeSublayer->edgeStyle()->lineWidthPx());
+    }
+
+    if (m_meshFillSublayer) {
+        const auto *st = m_meshFillSublayer->fillStyle();
+        bool hasData = true;
+        if (st && !st->colorsByElevation()) {
+            double lo = 0.0, hi = 0.0;
+            hasData = cellAttributeRange(st->colorByAttributeKey(), &lo, &hi);
+        }
+        m_meshFillSublayer->setAttributeHasData(hasData);
+
+        // Categorical fill (the infiltration method): the legend emits one row
+        // per value actually present, so the model has to supply that set —
+        // legendSymbolItems() is const and context-free. cellAttributeValues()
+        // was just primed for this very key by cellAttributeRange() above, so
+        // the scan runs over a warm cache.
+        QVector<int> present;
+        if (st && st->colorsByCategory()) {
+            const QVector<float> &vals = cellAttributeValues(st->colorByAttributeKey());
+            QSet<int> seen;
+            for (float f : vals)
+                if (std::isfinite(f))
+                    seen.insert(int(std::lround(f)));
+            present = QVector<int>(seen.cbegin(), seen.cend());
+            std::sort(present.begin(), present.end());
+        }
+        m_meshFillSublayer->setCategoriesPresent(present);
+
+        if (auto *us = UnitSystem::instance())
+            m_meshFillSublayer->setDepthUnitLabel(us->depthLabel());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-cell attribute colouring — values flow through mesh::cellParamValue()
+// so a parameter added to the registry lights up here for free.
+// ---------------------------------------------------------------------------
+
+const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key) const
+{
+    const bool hit = m_attrCacheKey == key && m_attrCacheGeomRev == m_geomRevision &&
+                     m_attrCacheAttrRev == m_attrRevision;
+    if (hit)
+        return m_attrCacheVals;
+
+    m_attrCacheKey = key;
+    m_attrCacheGeomRev = m_geomRevision;
+    m_attrCacheAttrRev = m_attrRevision;
+    m_attrCacheVals.clear();
+    m_attrCacheHasData = false;
+    m_attrCacheMin = 0.0;
+    m_attrCacheMax = 0.0;
+
+    if (!mesh::cellParamSpec(key))
+        return m_attrCacheVals; // unknown key
+
+    // Parallel to m_sceneTris — the sub-triangle fan, which skips degenerate
+    // cells and holds two entries per quad. Each fan entry carries its
+    // cell's value (SceneTri::cell); indexing by mesh cell index here would
+    // silently shift every colour.
+    m_attrCacheVals.reserve(m_sceneTris.size());
+
+    double lo = std::numeric_limits<double>::max();
+    double hi = -std::numeric_limits<double>::max();
+
+    for (const SceneTri &st : m_sceneTris) {
+        const double v = mesh::cellParamValue(m_mesh, st.cell, key);
+        m_attrCacheVals.append(float(v));
+        if (std::isfinite(v)) {
+            if (v < lo)
+                lo = v;
+            if (v > hi)
+                hi = v;
+            m_attrCacheHasData = true;
+        }
+    }
+
+    if (m_attrCacheHasData) {
+        m_attrCacheMin = lo;
+        m_attrCacheMax = hi;
+    }
+    return m_attrCacheVals;
+}
+
+bool SWMM2DMeshLayer::cellAttributeRange(const QByteArray &key, double *vMin, double *vMax) const
+{
+    cellAttributeValues(key); // populates the cache + range
+    if (!m_attrCacheHasData)
+        return false;
+    if (vMin)
+        *vMin = m_attrCacheMin;
+    if (vMax)
+        *vMax = m_attrCacheMax;
+    return true;
+}
+
+QVector<double> SWMM2DMeshLayer::cellAttributeSamples(const QByteArray &key, int maxSamples) const
+{
+    const QVector<float> &vals = cellAttributeValues(key);
+    QVector<double> out;
+    const int n = vals.size();
+    if (n == 0)
+        return out;
+
+    // Same striding contract as elevationSamples(): the classification editor
+    // resamples on every keystroke, so a multi-million-cell mesh must not walk
+    // the whole vector.
+    const int cap = std::max(1, maxSamples);
+    const int step = (n > cap) ? (n + cap - 1) / cap : 1;
+    out.reserve((n + step - 1) / step);
+    for (int i = 0; i < n; i += step) {
+        const double v = double(vals[i]);
+        if (std::isfinite(v))
+            out.push_back(v);
+    }
+    return out;
 }
 
 void SWMM2DMeshLayer::rebuildVertexAdjacency()
@@ -1522,10 +2057,10 @@ void SWMM2DMeshLayer::rebuildVertexAdjacency()
     buildVertexAdjacency(m_mesh, m_vertTriPtr, m_vertTriIdx);
 }
 
-int SWMM2DMeshLayer::pickVertexAt(double sx, double sy,
-                                   double tolPx, double pxPerSceneUnit) const
+int SWMM2DMeshLayer::pickVertexAt(double sx, double sy, double tolPx, double pxPerSceneUnit) const
 {
-    if (m_sceneNodes.isEmpty() || pxPerSceneUnit <= 0.0) return -1;
+    if (m_sceneNodes.isEmpty() || pxPerSceneUnit <= 0.0)
+        return -1;
     const double tolScene = tolPx / pxPerSceneUnit;
     const double tolSq = tolScene * tolScene;
     int best = -1;
@@ -1542,11 +2077,11 @@ int SWMM2DMeshLayer::pickVertexAt(double sx, double sy,
     return best;
 }
 
-int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
-                                 double tolPx, double pxPerSceneUnit,
-                                 bool boundaryOnly) const
+int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy, double tolPx, double pxPerSceneUnit,
+                                bool boundaryOnly) const
 {
-    if (m_sceneNodes.isEmpty() || pxPerSceneUnit <= 0.0) return -1;
+    if (m_sceneNodes.isEmpty() || pxPerSceneUnit <= 0.0)
+        return -1;
     const double tolScene = tolPx / pxPerSceneUnit;
     const double tolSq = tolScene * tolScene;
 
@@ -1555,26 +2090,24 @@ int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
     double bestSq = tolSq;
     for (int t = 0; t < nt; ++t) {
         const auto &tri = m_mesh.triangles[t];
-        if (tri.v0 < 0 || tri.v0 >= m_sceneNodes.size()) continue;
-        if (tri.v1 < 0 || tri.v1 >= m_sceneNodes.size()) continue;
-        if (tri.v2 < 0 || tri.v2 >= m_sceneNodes.size()) continue;
+        if (!cellVerticesValid(tri, m_sceneNodes.size()))
+            continue;
 
-        const QPointF &p0 = m_sceneNodes[tri.v0].pt;
-        const QPointF &p1 = m_sceneNodes[tri.v1].pt;
-        const QPointF &p2 = m_sceneNodes[tri.v2].pt;
-        // Edge local e is opposite vertex e (matches engine convention).
-        const QPointF *endpoints[3][2] = {
-            {&p1, &p2}, {&p2, &p0}, {&p0, &p1}
-        };
-        for (int e = 0; e < 3; ++e) {
-            const int flat = t * 3 + e;
-            if (boundaryOnly && (flat >= m_isBoundary.size() || !m_isBoundary[flat])) continue;
-            const QPointF &a = *endpoints[e][0];
-            const QPointF &b = *endpoints[e][1];
+        // Edge local e = (v[(e+1)%nv], v[(e+2)%nv]) — engine convention.
+        const int nv = tri.vertexCount();
+        for (int e = 0; e < nv; ++e) {
+            const int flat = mesh::edgeSlot(t, e);
+            if (boundaryOnly && (flat >= m_isBoundary.size() || !m_isBoundary[flat]))
+                continue;
+            int va = -1, vb = -1;
+            mesh::edgeEndpoints(tri, e, va, vb);
+            const QPointF &a = m_sceneNodes[va].pt;
+            const QPointF &b = m_sceneNodes[vb].pt;
             const double dx = b.x() - a.x();
             const double dy = b.y() - a.y();
             const double lenSq = dx * dx + dy * dy;
-            if (lenSq <= 0.0) continue;
+            if (lenSq <= 0.0)
+                continue;
             double u = ((sx - a.x()) * dx + (sy - a.y()) * dy) / lenSq;
             u = qBound(0.0, u, 1.0);
             const double px = a.x() + u * dx;
@@ -1592,27 +2125,37 @@ int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
 
 int SWMM2DMeshLayer::locateTriangleAt(double sx, double sy) const
 {
-    // Bbox cull + barycentric point-in-triangle test for one triangle index.
+    const int st = locateSceneTriAt(sx, sy);
+    return st < 0 ? -1 : m_sceneTris[st].cell;
+}
+
+int SWMM2DMeshLayer::locateSceneTriAt(double sx, double sy) const
+{
+    // Bbox cull + barycentric point-in-triangle test for one fan triangle
+    // index (a quad is hit through either of its two sub-triangles).
     auto hits = [&](int t) -> bool {
         const SceneTri &tri = m_sceneTris[t];
         const double minX = std::min({tri.a.x(), tri.b.x(), tri.c.x()});
         const double maxX = std::max({tri.a.x(), tri.b.x(), tri.c.x()});
-        if (sx < minX || sx > maxX) return false;
+        if (sx < minX || sx > maxX)
+            return false;
         const double minY = std::min({tri.a.y(), tri.b.y(), tri.c.y()});
         const double maxY = std::max({tri.a.y(), tri.b.y(), tri.c.y()});
-        if (sy < minY || sy > maxY) return false;
+        if (sy < minY || sy > maxY)
+            return false;
 
         // Barycentric in (sx,sy):
         const double v0x = tri.c.x() - tri.a.x(), v0y = tri.c.y() - tri.a.y();
         const double v1x = tri.b.x() - tri.a.x(), v1y = tri.b.y() - tri.a.y();
-        const double v2x = sx - tri.a.x(),        v2y = sy - tri.a.y();
+        const double v2x = sx - tri.a.x(), v2y = sy - tri.a.y();
         const double d00 = v0x * v0x + v0y * v0y;
         const double d01 = v0x * v1x + v0y * v1y;
         const double d11 = v1x * v1x + v1y * v1y;
         const double d20 = v2x * v0x + v2y * v0y;
         const double d21 = v2x * v1x + v2y * v1y;
         const double denom = d00 * d11 - d01 * d01;
-        if (denom == 0.0) return false;
+        if (denom == 0.0)
+            return false;
         const double u = (d11 * d20 - d01 * d21) / denom;
         const double v = (d00 * d21 - d01 * d20) / denom;
         const double w = 1.0 - u - v;
@@ -1627,14 +2170,16 @@ int SWMM2DMeshLayer::locateTriangleAt(double sx, double sy) const
         const int *b = nullptr, *e = nullptr;
         m_triGrid.candidatesAtPoint(sx, sy, b, e);
         for (const int *p = b; p < e; ++p)
-            if (hits(*p)) return *p;
+            if (hits(*p))
+                return *p;
         return -1;
     }
 
     // Fallback: linear scan when the grid isn't built (e.g. degenerate mesh).
     const int nt = m_sceneTris.size();
     for (int t = 0; t < nt; ++t)
-        if (hits(t)) return t;
+        if (hits(t))
+            return t;
     return -1;
 }
 
@@ -1643,17 +2188,53 @@ int SWMM2DMeshLayer::pickCellAt(const QPointF &scenePt) const
     return locateTriangleAt(scenePt.x(), scenePt.y());
 }
 
+namespace
+{
+
+/*! Scene-space area centroid of the fan [first, last) of one cell — the
+ *  triangle centroid for a single entry, the area-weighted centroid of the
+ *  two sub-triangles for a quad.
+ * @param[in] tris Stable finite scene-fan vector.
+ * @param[in] first,last Nonempty valid half-open range for one cell.
+ * @return One triangle centroid or absolute-area weighted fan centroid; zero total area falls back to first triangle centroid. Native scene units, no reprojection/allocation.
+ */
+QPointF fanCentroid(const QVector<SWMM2DMeshLayer::SceneTri> &tris, int first, int last)
+{
+    double ax = 0.0, ay = 0.0, aSum = 0.0;
+    for (int i = first; i < last; ++i) {
+        const auto &t = tris[i];
+        const double ux = t.b.x() - t.a.x(), uy = t.b.y() - t.a.y();
+        const double vx = t.c.x() - t.a.x(), vy = t.c.y() - t.a.y();
+        const double area = 0.5 * std::abs(ux * vy - uy * vx);
+        const double cx = (t.a.x() + t.b.x() + t.c.x()) / 3.0;
+        const double cy = (t.a.y() + t.b.y() + t.c.y()) / 3.0;
+        if (last - first == 1)
+            return QPointF(cx, cy);
+        ax += area * cx;
+        ay += area * cy;
+        aSum += area;
+    }
+    if (aSum > 0.0)
+        return QPointF(ax / aSum, ay / aSum);
+    const auto &t = tris[first];
+    return QPointF((t.a.x() + t.b.x() + t.c.x()) / 3.0, (t.a.y() + t.b.y() + t.c.y()) / 3.0);
+}
+
+} // namespace
+
 QVector<int> SWMM2DMeshLayer::pickCellsInRect(const QRectF &sceneRect) const
 {
     QVector<int> hits;
-    if (sceneRect.isNull() || m_sceneTris.isEmpty()) return hits;
+    if (sceneRect.isNull() || m_sceneTris.isEmpty())
+        return hits;
     hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri &t = m_sceneTris[i];
-        const QPointF centroid((t.a.x() + t.b.x() + t.c.x()) / 3.0,
-                               (t.a.y() + t.b.y() + t.c.y()) / 3.0);
-        if (sceneRect.contains(centroid))
-            hits.push_back(i);
+    const int nc = m_cellSceneStart.size() - 1;
+    for (int c = 0; c < nc; ++c) {
+        const int first = m_cellSceneStart[c], last = m_cellSceneStart[c + 1];
+        if (first >= last)
+            continue; // degenerate cell — no fan
+        if (sceneRect.contains(fanCentroid(m_sceneTris, first, last)))
+            hits.push_back(c);
     }
     return hits;
 }
@@ -1661,14 +2242,16 @@ QVector<int> SWMM2DMeshLayer::pickCellsInRect(const QRectF &sceneRect) const
 QVector<int> SWMM2DMeshLayer::pickCellsInPolygon(const QPolygonF &scenePoly) const
 {
     QVector<int> hits;
-    if (scenePoly.size() < 3 || m_sceneTris.isEmpty()) return hits;
+    if (scenePoly.size() < 3 || m_sceneTris.isEmpty())
+        return hits;
     hits.reserve(m_sceneTris.size() / 4);
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri &t = m_sceneTris[i];
-        const QPointF centroid((t.a.x() + t.b.x() + t.c.x()) / 3.0,
-                               (t.a.y() + t.b.y() + t.c.y()) / 3.0);
-        if (scenePoly.containsPoint(centroid, Qt::OddEvenFill))
-            hits.push_back(i);
+    const int nc = m_cellSceneStart.size() - 1;
+    for (int c = 0; c < nc; ++c) {
+        const int first = m_cellSceneStart[c], last = m_cellSceneStart[c + 1];
+        if (first >= last)
+            continue;
+        if (scenePoly.containsPoint(fanCentroid(m_sceneTris, first, last), Qt::OddEvenFill))
+            hits.push_back(c);
     }
     return hits;
 }
@@ -1677,36 +2260,41 @@ QVector<double> SWMM2DMeshLayer::elevationSamples(int maxSamples) const
 {
     const int nv = m_mesh.vertices.size();
     QVector<double> out;
-    if (nv == 0) return out;
+    if (nv == 0)
+        return out;
 
     // Stride so very large meshes stay responsive under a "resample" click;
     // step 1 (every vertex) for small meshes.
-    const int cap  = std::max(1, maxSamples);
+    const int cap = std::max(1, maxSamples);
     const int step = (nv > cap) ? (nv + cap - 1) / cap : 1;
     out.reserve((nv + step - 1) / step);
     for (int i = 0; i < nv; i += step) {
         const double z = m_mesh.vertices[i].z;
-        if (std::isfinite(z)) out.push_back(z);
+        if (std::isfinite(z))
+            out.push_back(z);
     }
     return out;
 }
 
 double SWMM2DMeshLayer::sampleZAt(double sx, double sy) const
 {
-    const int t = locateTriangleAt(sx, sy);
-    if (t < 0) return std::numeric_limits<double>::quiet_NaN();
+    const int t = locateSceneTriAt(sx, sy);
+    if (t < 0)
+        return std::numeric_limits<double>::quiet_NaN();
     const SceneTri &tri = m_sceneTris[t];
-    // Recompute barycentric weights and blend Z.
+    // Recompute barycentric weights and blend Z (planar per sub-triangle —
+    // the engine's storage model for a quad; never bilinear).
     const double v0x = tri.c.x() - tri.a.x(), v0y = tri.c.y() - tri.a.y();
     const double v1x = tri.b.x() - tri.a.x(), v1y = tri.b.y() - tri.a.y();
-    const double v2x = sx - tri.a.x(),        v2y = sy - tri.a.y();
+    const double v2x = sx - tri.a.x(), v2y = sy - tri.a.y();
     const double d00 = v0x * v0x + v0y * v0y;
     const double d01 = v0x * v1x + v0y * v1y;
     const double d11 = v1x * v1x + v1y * v1y;
     const double d20 = v2x * v0x + v2y * v0y;
     const double d21 = v2x * v1x + v2y * v1y;
     const double denom = d00 * d11 - d01 * d01;
-    if (denom == 0.0) return std::numeric_limits<double>::quiet_NaN();
+    if (denom == 0.0)
+        return std::numeric_limits<double>::quiet_NaN();
     const double u = (d11 * d20 - d01 * d21) / denom;
     const double v = (d00 * d21 - d01 * d20) / denom;
     const double w = 1.0 - u - v;
@@ -1719,9 +2307,10 @@ const mesh::MeshBoundaryGraph &SWMM2DMeshLayer::boundaryGraph()
     // Progressive load: m_isBoundary is still empty, so building now would
     // cache an empty graph forever. Stay invalid and retry after
     // sceneGeometryReady() refills the flags.
-    if (!m_sceneGeomComplete) return m_boundaryGraph;
+    if (!m_sceneGeomComplete)
+        return m_boundaryGraph;
     if (!m_boundaryGraphValid) {
-        m_boundaryGraph      = mesh::MeshBoundaryGraph::build(m_mesh, m_isBoundary);
+        m_boundaryGraph = mesh::MeshBoundaryGraph::build(m_mesh, m_isBoundary);
         m_boundaryGraphValid = true;
     }
     return m_boundaryGraph;
@@ -1729,16 +2318,20 @@ const mesh::MeshBoundaryGraph &SWMM2DMeshLayer::boundaryGraph()
 
 bool SWMM2DMeshLayer::isBoundaryEdge(int triIdx, int edgeLocal) const
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return false;
-    const int flat = triIdx * 3 + edgeLocal;
-    if (flat < 0 || flat >= m_isBoundary.size()) return false;
-    return m_isBoundary[flat];
+    if (triIdx < 0 || edgeLocal < 0 || edgeLocal >= mesh::kEdgeStride)
+        return false;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
+    if (flat < 0 || flat >= m_isBoundary.size())
+        return false;
+    return m_isBoundary[flat]; // a triangle's slot 3 is never flagged
 }
 
 bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
 {
-    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
-    if (m_mesh.vertices[vertexIdx].z == z) return true;
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    if (m_mesh.vertices[vertexIdx].z == z)
+        return true;
     m_mesh.vertices[vertexIdx].z = z;
 
     // Incremental update. Changing an elevation moves nothing in XY, so the
@@ -1748,33 +2341,38 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     // vertex — O(incident) — instead of the full O(N) rebuildSceneGeometry(),
     // which on a multi-million-cell mesh turned one edit (or one per selected
     // vertex) into a multi-second stall. Falls back to a full rebuild if the
-    // scene caches aren't in the expected 1:1 shape (e.g. some triangles were
-    // skipped as degenerate during the last full build).
-    const bool canIncremental =
-        m_sceneTris.size() == m_mesh.triangles.size()
-        && vertexIdx < m_sceneNodes.size()
-        && (vertexIdx + 1) < m_vertTriPtr.size();
+    // scene caches aren't in the expected shape (cell → fan map missing).
+    // A quad's fan is rewritten whole: its diagonal follows the elevation
+    // ordering of its corners (mesh::cellGeom), so a z edit may flip it.
+    const bool canIncremental = m_cellSceneStart.size() == m_mesh.triangles.size() + 1 &&
+                                vertexIdx < m_sceneNodes.size() &&
+                                (vertexIdx + 1) < m_vertTriPtr.size();
     if (canIncremental) {
         m_sceneNodes[vertexIdx].z = float(z);
         const int beg = m_vertTriPtr[vertexIdx];
         const int end = m_vertTriPtr[vertexIdx + 1];
         for (int k = beg; k < end; ++k) {
             const int ti = m_vertTriIdx[k];
-            if (ti < 0 || ti >= m_sceneTris.size()) continue;
-            const auto &mt = m_mesh.triangles[ti];
-            SceneTri &st = m_sceneTris[ti];
-            st.z0   = float(m_mesh.vertices[mt.v0].z);
-            st.z1   = float(m_mesh.vertices[mt.v1].z);
-            st.z2   = float(m_mesh.vertices[mt.v2].z);
-            st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+            if (ti < 0 || ti + 1 >= m_cellSceneStart.size())
+                continue;
+            const int first = m_cellSceneStart[ti], last = m_cellSceneStart[ti + 1];
+            if (first >= last)
+                continue; // skipped as degenerate
+            SceneTri fan[2];
+            const int n =
+                writeCellSceneTris(m_mesh, [&](int v) { return m_sceneNodes[v].pt; }, ti, fan);
+            for (int s = 0; s < n && first + s < last; ++s)
+                m_sceneTris[first + s] = fan[s];
         }
         // Keep the elevation range a valid superset (expand only). A loosened
         // range slightly compresses the colour ramp until the next full
         // rebuild; re-tightening exactly would cost O(N). Incident mesh edges'
         // slope styling and the far-zoom overview colour are left until the
         // next full rebuild (both are secondary to the fill/hillshade update).
-        if (z < m_zMin) m_zMin = z;
-        if (z > m_zMax) m_zMax = z;
+        if (z < m_zMin)
+            m_zMin = z;
+        if (z > m_zMax)
+            m_zMax = z;
     } else if (!m_sceneGeomComplete) {
         // Progressive load still finishing (no adjacency yet) — refresh the
         // light caches only; the background build delivers the rest.
@@ -1793,6 +2391,7 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     // shading does not change. Unconditional (the rebuild branches bump too);
     // a redundant increment costs nothing but a cache miss.
     ++m_geomRevision;
+    invalidateSurfaceOwnership();
 
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
@@ -1801,55 +2400,76 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
 
 bool SWMM2DMeshLayer::applyMeshEdgeBC(int triIdx, int edgeLocal, const mesh::MeshEdgeBC &bc)
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return false;
-    if (triIdx >= m_mesh.triangles.size()) return false;
-    const int flat = triIdx * 3 + edgeLocal;
-    if (flat >= m_bc.size()) return false;
-    if (m_bc[flat] == bc) return true;
+    if (triIdx < 0 || edgeLocal < 0)
+        return false;
+    if (triIdx >= m_mesh.triangles.size())
+        return false;
+    if (edgeLocal >= m_mesh.triangles[triIdx].vertexCount())
+        return false;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
+    if (flat >= m_bc.size())
+        return false;
+    if (m_bc[flat] == bc)
+        return true;
     m_bc[flat] = bc;
+    ++m_bcRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::edge(m_sourcePath, triIdx, edgeLocal).name);
     emit repaintRequested();
     return true;
 }
 
-QPair<int,int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) const
+QPair<int, int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) const
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return {-1, -1};
-    if (triIdx >= m_mesh.triangles.size())             return {-1, -1};
+    if (triIdx < 0 || edgeLocal < 0)
+        return {-1, -1};
+    if (triIdx >= m_mesh.triangles.size())
+        return {-1, -1};
     // Progressive load — adjacency not built yet (deferred heavy geometry).
-    if (m_vertTriPtr.size() != m_mesh.vertices.size() + 1) return {-1, -1};
+    if (m_vertTriPtr.size() != m_mesh.vertices.size() + 1)
+        return {-1, -1};
     const auto &tri = m_mesh.triangles[triIdx];
-    // Local edge convention matches resizeBCsToMesh's edge-use scan:
-    //   edge 0 = (v1, v2),  edge 1 = (v2, v0),  edge 2 = (v0, v1).
+    if (edgeLocal >= tri.vertexCount())
+        return {-1, -1};
+    // Local edge convention matches resizeBCsToMesh's edge-use scan
+    // (mesh::edgeEndpoints): edge k = (v[(k+1)%nv], v[(k+2)%nv]).
     int va = -1, vb = -1;
-    switch (edgeLocal) {
-    case 0: va = tri.v1; vb = tri.v2; break;
-    case 1: va = tri.v2; vb = tri.v0; break;
-    case 2: va = tri.v0; vb = tri.v1; break;
-    }
-    if (va < 0 || vb < 0 || va >= m_vertTriPtr.size() - 1) return {-1, -1};
-    // Walk triangles incident to va; the neighbour must also be incident to vb.
+    mesh::edgeEndpoints(tri, edgeLocal, va, vb);
+    if (va < 0 || vb < 0 || va >= m_vertTriPtr.size() - 1)
+        return {-1, -1};
+    // Walk cells incident to va; the neighbour must also be incident to vb.
     const int beg = m_vertTriPtr[va];
     const int end = m_vertTriPtr[va + 1];
     for (int k = beg; k < end; ++k) {
         const int t2 = m_vertTriIdx[k];
-        if (t2 == triIdx || t2 < 0 || t2 >= m_mesh.triangles.size()) continue;
+        if (t2 == triIdx || t2 < 0 || t2 >= m_mesh.triangles.size())
+            continue;
         const auto &t = m_mesh.triangles[t2];
         // Edge (va, vb) in t2 — direction doesn't matter.
-        if      ((t.v1 == va && t.v2 == vb) || (t.v1 == vb && t.v2 == va)) return {t2, 0};
-        else if ((t.v2 == va && t.v0 == vb) || (t.v2 == vb && t.v0 == va)) return {t2, 1};
-        else if ((t.v0 == va && t.v1 == vb) || (t.v0 == vb && t.v1 == va)) return {t2, 2};
+        const int nv2 = t.vertexCount();
+        for (int e2 = 0; e2 < nv2; ++e2) {
+            int a2 = -1, b2 = -1;
+            mesh::edgeEndpoints(t, e2, a2, b2);
+            if ((a2 == va && b2 == vb) || (a2 == vb && b2 == va))
+                return {t2, e2};
+        }
     }
-    return {-1, -1};  // boundary edge — no neighbour
+    return {-1, -1}; // boundary edge — no neighbour
 }
 
 bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance)
 {
-    if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2)        return false;
-    if (triIdx >= m_mesh.triangles.size())                    return false;
-    if (!(conveyance >= 0.0 && conveyance <= 1.0))            return false;
-    const int flat = triIdx * 3 + edgeLocal;
-    if (flat >= m_bc.size())                                  return false;
+    if (triIdx < 0 || edgeLocal < 0)
+        return false;
+    if (triIdx >= m_mesh.triangles.size())
+        return false;
+    if (edgeLocal >= m_mesh.triangles[triIdx].vertexCount())
+        return false;
+    if (!(conveyance >= 0.0 && conveyance <= 1.0))
+        return false;
+    const int flat = mesh::edgeSlot(triIdx, edgeLocal);
+    if (flat >= m_bc.size())
+        return false;
 
     bool changed = false;
     if (m_bc[flat].conveyance != conveyance) {
@@ -1861,13 +2481,14 @@ bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double 
     // post-parse drain does the same thing).
     const auto nbr = findEdgeNeighbour(triIdx, edgeLocal);
     if (nbr.first >= 0 && nbr.second >= 0) {
-        const int nflat = nbr.first * 3 + nbr.second;
+        const int nflat = mesh::edgeSlot(nbr.first, nbr.second);
         if (nflat < m_bc.size() && m_bc[nflat].conveyance != conveyance) {
             m_bc[nflat].conveyance = conveyance;
             changed = true;
         }
     }
-    if (!changed) return true;
+    if (!changed)
+        return true;
     emit attributeChanged(mesh::MeshObjectRef::edge(m_sourcePath, triIdx, edgeLocal).name);
     emit repaintRequested();
     return true;
@@ -1875,29 +2496,34 @@ bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double 
 
 void SWMM2DMeshLayer::setHighlightedVertices(const QSet<int> &indices)
 {
-    if (m_selVertices == indices) return;
+    if (m_selVertices == indices)
+        return;
     m_selVertices = indices;
     emit repaintRequested();
 }
 
 void SWMM2DMeshLayer::setHighlightedEdges(const QSet<int> &flatIndices)
 {
-    if (m_selEdges == flatIndices) return;
+    if (m_selEdges == flatIndices)
+        return;
     m_selEdges = flatIndices;
     emit repaintRequested();
 }
 
 void SWMM2DMeshLayer::setHighlightedTriangles(const QSet<int> &indices)
 {
-    if (m_selTriangles == indices) return;
+    if (m_selTriangles == indices)
+        return;
     m_selTriangles = indices;
     emit repaintRequested();
 }
 
 bool SWMM2DMeshLayer::applyMeshVertexTag(int vertexIdx, const QString &tag)
 {
-    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
-    if (m_mesh.vertices[vertexIdx].tag == tag) return true;
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    if (m_mesh.vertices[vertexIdx].tag == tag)
+        return true;
     m_mesh.vertices[vertexIdx].tag = tag;
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
@@ -1906,14 +2532,18 @@ bool SWMM2DMeshLayer::applyMeshVertexTag(int vertexIdx, const QString &tag)
 
 bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &node)
 {
-    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
-    if (m_mesh.vertices[vertexIdx].coupledNode == node) return true;
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode == node)
+        return true;
     m_mesh.vertices[vertexIdx].coupledNode = node;
     // Clearing the coupling resets Cd/Area so a re-coupled vertex starts
     // from the documented engine defaults.
     if (node.isEmpty()) {
-        m_mesh.vertices[vertexIdx].couplingCd   = 0.65;
+        m_mesh.vertices[vertexIdx].couplingCd = 0.65;
         m_mesh.vertices[vertexIdx].couplingArea = 1.0;
+        m_mesh.vertices[vertexIdx].couplingCdSet = true;
+        m_mesh.vertices[vertexIdx].couplingAreaSet = true;
     }
     // The scene node "tagged" flag tracks coupling — repaint so the
     // SWMM-coupled-vertex glyph reflects the change.
@@ -1924,16 +2554,17 @@ bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &n
     return true;
 }
 
-QVector<mesh::CellCoupling> SWMM2DMeshLayer::applyCellCouplings(
-    const QVector<mesh::CellCoupling> &rows)
+QVector<mesh::CellCoupling>
+SWMM2DMeshLayer::applyCellCouplings(const QVector<mesh::CellCoupling> &rows)
 {
     QVector<mesh::CellCoupling> previous = m_mesh.cellCouplings;
     QVector<mesh::CellCoupling> cleaned;
     cleaned.reserve(rows.size());
-    for (const mesh::CellCoupling &cc : rows)
-    {
-        if (cc.tri < 0 || cc.tri >= m_mesh.triangles.size()) continue;
-        if (cc.nodeId.isEmpty()) continue;
+    for (const mesh::CellCoupling &cc : rows) {
+        if (cc.tri < 0 || cc.tri >= m_mesh.triangles.size())
+            continue;
+        if (cc.nodeId.isEmpty())
+            continue;
         cleaned.append(cc);
     }
     m_mesh.cellCouplings = cleaned;
@@ -1944,32 +2575,62 @@ QVector<mesh::CellCoupling> SWMM2DMeshLayer::applyCellCouplings(
 
 bool SWMM2DMeshLayer::applyMeshVertexCouplingCd(int vertexIdx, double cd)
 {
-    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
-    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
-    if (!(cd > 0.0)) return false;
-    if (m_mesh.vertices[vertexIdx].couplingCd == cd) return true;
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty())
+        return false;
+    if (!(cd > 0.0))
+        return false;
+    // An explicit value authors the token even when it equals the default.
+    if (m_mesh.vertices[vertexIdx].couplingCd == cd && m_mesh.vertices[vertexIdx].couplingCdSet)
+        return true;
     m_mesh.vertices[vertexIdx].couplingCd = cd;
+    m_mesh.vertices[vertexIdx].couplingCdSet = true;
+    emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshVertexCouplingAuthored(int vertexIdx, bool cdSet, bool areaSet)
+{
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    mesh::MeshVertex &v = m_mesh.vertices[vertexIdx];
+    if (v.couplingCdSet == cdSet && v.couplingAreaSet == areaSet)
+        return true;
+    v.couplingCdSet = cdSet;
+    v.couplingAreaSet = areaSet;
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     return true;
 }
 
 bool SWMM2DMeshLayer::applyMeshVertexCouplingArea(int vertexIdx, double area)
 {
-    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
-    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
-    if (!(area > 0.0)) return false;
-    if (m_mesh.vertices[vertexIdx].couplingArea == area) return true;
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size())
+        return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty())
+        return false;
+    if (!(area > 0.0))
+        return false;
+    if (m_mesh.vertices[vertexIdx].couplingArea == area &&
+        m_mesh.vertices[vertexIdx].couplingAreaSet)
+        return true;
     m_mesh.vertices[vertexIdx].couplingArea = area;
+    m_mesh.vertices[vertexIdx].couplingAreaSet = true;
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     return true;
 }
 
 bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
 {
-    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
-    if (!(mannings > 0.0)) return false;
-    if (m_mesh.triangles[triIdx].mannings == mannings) return true;
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (!(mannings > 0.0))
+        return false;
+    if (m_mesh.triangles[triIdx].mannings == mannings)
+        return true;
     m_mesh.triangles[triIdx].mannings = mannings;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;
@@ -1977,10 +2638,15 @@ bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
 
 bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
 {
-    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
-    if (!(depth >= 0.0)) return false;
-    if (m_mesh.triangles[triIdx].initDepth == depth) return true;
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (!(depth >= 0.0))
+        return false;
+    if (m_mesh.triangles[triIdx].initDepth == depth)
+        return true;
     m_mesh.triangles[triIdx].initDepth = depth;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;
@@ -1988,11 +2654,85 @@ bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
 
 bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
 {
-    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
-    if (m_mesh.triangles[triIdx].tag == tag) return true;
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (m_mesh.triangles[triIdx].tag == tag)
+        return true;
     m_mesh.triangles[triIdx].tag = tag;
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshTriangleInfil(int triIdx, const mesh::InfilRow &row)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    const auto it = m_mesh.infilOverrides.constFind(triIdx);
+    if (it != m_mesh.infilOverrides.constEnd() && it.value() == row)
+        return true;
+    m_mesh.infilOverrides.insert(triIdx, row);
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::clearMeshTriangleInfil(int triIdx)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (m_mesh.infilOverrides.remove(triIdx) == 0)
+        return true; // already inheriting
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+/*! Both region-defaults mutators announce themselves the same way: a
+ *  layer-scope attributeChanged (no single element moved, but the project is
+ *  now dirty and the mesh has diverged from the engine's copy) plus
+ *  meshEditsChanged, which the attribute table already treats as "repaint
+ *  every row". Views that key off the ref name parse the layer key, fail, and
+ *  correctly ignore the first signal. */
+void SWMM2DMeshLayer::announceInfilDefaultsChanged()
+{
+    ++m_attrRevision;             // fill-colour cache key — inherited
+    scheduleLegendInputRefresh(); // values feed cellAttributeValues()
+    emit attributeChanged(mesh::MeshObjectRef::layerKey(m_sourcePath));
+    emit meshEditsChanged();
+    emit repaintRequested();
+}
+
+bool SWMM2DMeshLayer::applyMeshInfilDefault(const QString &tag, const mesh::InfilRow &row)
+{
+    if (tag.isEmpty())
+        return false;
+    const int i = mesh::indexOfDefault(m_mesh, tag);
+    if (i >= 0) {
+        if (m_mesh.infilDefaults[i].row == row)
+            return true; // already there
+        m_mesh.infilDefaults[i].row = row;
+    } else {
+        // Appended, never inserted: '*' may sit anywhere in the section and
+        // resolveInfil() looks it up by tag, so order carries no meaning
+        // beyond keeping a re-saved file close to the one that was read.
+        m_mesh.infilDefaults.append(mesh::InfilDefaultRow{tag, row});
+    }
+    announceInfilDefaultsChanged();
+    return true;
+}
+
+bool SWMM2DMeshLayer::clearMeshInfilDefault(const QString &tag)
+{
+    const int i = mesh::indexOfDefault(m_mesh, tag);
+    if (i < 0)
+        return true; // already absent
+    m_mesh.infilDefaults.remove(i);
+    announceInfilDefaultsChanged();
     return true;
 }
 
@@ -2010,7 +2750,8 @@ bool SWMM2DMeshLayer::showMeshNodes() const
 
 void SWMM2DMeshLayer::setShowMeshNodes(bool show)
 {
-    if (m_meshNodeSublayer) m_meshNodeSublayer->setVisible(show);
+    if (m_meshNodeSublayer)
+        m_meshNodeSublayer->setVisible(show);
 }
 
 bool SWMM2DMeshLayer::showEdges() const
@@ -2020,13 +2761,15 @@ bool SWMM2DMeshLayer::showEdges() const
 
 void SWMM2DMeshLayer::setShowEdges(bool show)
 {
-    if (m_meshEdgeSublayer) m_meshEdgeSublayer->setVisible(show);
+    if (m_meshEdgeSublayer)
+        m_meshEdgeSublayer->setVisible(show);
 }
 
 void SWMM2DMeshLayer::setEdgeZoomMinCellPx(double px)
 {
     px = qBound(0.0, px, 500.0);
-    if (qFuzzyCompare(m_edgeMinCellPx + 1.0, px + 1.0)) return;
+    if (qFuzzyCompare(m_edgeMinCellPx + 1.0, px + 1.0))
+        return;
     m_edgeMinCellPx = px;
     emit repaintRequested();
 }
@@ -2034,7 +2777,8 @@ void SWMM2DMeshLayer::setEdgeZoomMinCellPx(double px)
 void SWMM2DMeshLayer::setVertexZoomMinCellPx(double px)
 {
     px = qBound(0.0, px, 500.0);
-    if (qFuzzyCompare(m_vertexMinCellPx + 1.0, px + 1.0)) return;
+    if (qFuzzyCompare(m_vertexMinCellPx + 1.0, px + 1.0))
+        return;
     m_vertexMinCellPx = px;
     emit repaintRequested();
 }
@@ -2042,9 +2786,12 @@ void SWMM2DMeshLayer::setVertexZoomMinCellPx(double px)
 void SWMM2DMeshLayer::setHillshadeAzimuth(double degrees)
 {
     // Wrap into [0, 360) so the UI can spin past the boundary cleanly.
-    while (degrees <  0.0) degrees += 360.0;
-    while (degrees >= 360.0) degrees -= 360.0;
-    if (qFuzzyCompare(m_hillshadeAz, degrees)) return;
+    while (degrees < 0.0)
+        degrees += 360.0;
+    while (degrees >= 360.0)
+        degrees -= 360.0;
+    if (qFuzzyCompare(m_hillshadeAz, degrees))
+        return;
     m_hillshadeAz = degrees;
     emit repaintRequested();
 }
@@ -2052,7 +2799,8 @@ void SWMM2DMeshLayer::setHillshadeAzimuth(double degrees)
 void SWMM2DMeshLayer::setHillshadeAltitude(double degrees)
 {
     degrees = qBound(0.0, degrees, 90.0);
-    if (qFuzzyCompare(m_hillshadeAlt, degrees)) return;
+    if (qFuzzyCompare(m_hillshadeAlt, degrees))
+        return;
     m_hillshadeAlt = degrees;
     emit repaintRequested();
 }
@@ -2090,7 +2838,8 @@ void SWMM2DMeshLayer::setHillshadeZExag(double factor)
 void SWMM2DMeshLayer::setHillshadeMinLit(double minLit)
 {
     minLit = qBound(0.0, minLit, 1.0);
-    if (qFuzzyCompare(m_hillshadeMinLit, minLit)) return;
+    if (qFuzzyCompare(m_hillshadeMinLit, minLit))
+        return;
     // Plain per-layer member. This was a `thread_local` namespace global:
     // the GUI thread's edits were invisible to the scene-graph render
     // thread, so the Shadow-floor control silently never reached the live
@@ -2128,7 +2877,8 @@ double SWMM2DMeshLayer::contourLineWidth() const
 
 void SWMM2DMeshLayer::setShowContours(bool show)
 {
-    if (m_isolineSublayer) m_isolineSublayer->setVisible(show);
+    if (m_isolineSublayer)
+        m_isolineSublayer->setVisible(show);
 }
 
 void SWMM2DMeshLayer::setContourIntervalCount(int n)
@@ -2142,7 +2892,8 @@ void SWMM2DMeshLayer::setContourIntervalCount(int n)
 
 void SWMM2DMeshLayer::setContourColor(const QColor &c)
 {
-    if (!c.isValid()) return;
+    if (!c.isValid())
+        return;
     if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
         m_isolineSublayer->isolineStyle()->setColor(c);
 }
@@ -2167,13 +2918,15 @@ double SWMM2DMeshLayer::filledContoursOpacity() const
 
 void SWMM2DMeshLayer::setFilledContours(bool filled)
 {
-    if (m_contourBandSublayer) m_contourBandSublayer->setVisible(filled);
+    if (m_contourBandSublayer)
+        m_contourBandSublayer->setVisible(filled);
 }
 
 void SWMM2DMeshLayer::setFilledContoursOpacity(double a)
 {
     a = qBound(0.0, a, 1.0);
-    if (m_contourBandSublayer) m_contourBandSublayer->setOpacity(a);
+    if (m_contourBandSublayer)
+        m_contourBandSublayer->setOpacity(a);
 }
 
 QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
@@ -2182,58 +2935,59 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
     //   fill (static)         → terrain base
     //   contour bands         → filled isobands above hillshade
     //   edges                 → mesh wireframe
+    //   BC indicators         → boundary-condition ring above the wireframe
     //   isolines              → labelled contour lines
-    //   vertex markers (top)  → coupled-node glyphs
+    //   vertex markers        → mesh vertex glyphs
+    //   coupled nodes (top)   → SWMM-coupled vertex markers
     // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
-            m_meshFillSublayer,
-            m_contourBandSublayer,
-            m_meshEdgeSublayer,
-            m_isolineSublayer,
-            m_meshNodeSublayer,
+            m_meshFillSublayer, m_contourBandSublayer, m_meshEdgeSublayer,    m_meshBcSublayer,
+            m_isolineSublayer,  m_meshNodeSublayer,    m_coupledNodeSublayer,
         };
         for (auto *s : defaults)
-            if (s) m_sublayerOrder.append(s);
+            if (s)
+                m_sublayerOrder.append(s);
     }
     return m_sublayerOrder;
 }
 
 bool SWMM2DMeshLayer::moveSublayer(int from, int to)
 {
-    (void) sublayers();      // force lazy seed
-    if (from < 0 || from >= m_sublayerOrder.size()
-        || to   < 0 || to   >= m_sublayerOrder.size()
-        || from == to)
+    (void)sublayers(); // force lazy seed
+    if (from < 0 || from >= m_sublayerOrder.size() || to < 0 || to >= m_sublayerOrder.size() ||
+        from == to)
         return false;
     m_sublayerOrder.move(from, to);
     emit repaintRequested();
     return true;
 }
 
-void SWMM2DMeshLayer::populateScene(QGraphicsScene *scene,
-                                     const MapExtent &,
-                                     const SpatialReferenceSystem *)
+void SWMM2DMeshLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
+                                    const SpatialReferenceSystem *)
 {
-    if (!scene || m_graphicsItem) return;
+    if (!scene || m_graphicsItem)
+        return;
     m_graphicsItem = new SWMM2DMeshGraphicsItem(this);
     scene->addItem(m_graphicsItem);
 }
 
 void SWMM2DMeshLayer::depopulateScene(QGraphicsScene *scene)
 {
-    if (!m_graphicsItem) return;
-    if (scene) scene->removeItem(m_graphicsItem);
+    if (!m_graphicsItem)
+        return;
+    if (scene)
+        scene->removeItem(m_graphicsItem);
     delete m_graphicsItem;
     m_graphicsItem = nullptr;
 }
 
-void SWMM2DMeshLayer::refreshScene(QGraphicsScene *scene,
-                                    const MapExtent &extent,
-                                    const SpatialReferenceSystem *canvasSRS)
+void SWMM2DMeshLayer::refreshScene(QGraphicsScene *scene, const MapExtent &extent,
+                                   const SpatialReferenceSystem *canvasSRS)
 {
-    if (!scene) return;
+    if (!scene)
+        return;
 
     if (!isVisible()) {
         depopulateScene(scene);
@@ -2251,14 +3005,11 @@ void SWMM2DMeshLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvas
     OGRCoordinateTransformation::DestroyCT(m_transform);
     m_transform = nullptr;
 
-    if (srs() && newCanvasSRS
-        && srs()->ogrSpatialReference()
-        && newCanvasSRS->ogrSpatialReference()
-        && !srs()->ogrSpatialReference()->IsSame(newCanvasSRS->ogrSpatialReference()))
-    {
-        m_transform = OGRCreateCoordinateTransformation(
-            srs()->ogrSpatialReference(),
-            newCanvasSRS->ogrSpatialReference());
+    if (srs() && newCanvasSRS && srs()->ogrSpatialReference() &&
+        newCanvasSRS->ogrSpatialReference() &&
+        !srs()->ogrSpatialReference()->IsSame(newCanvasSRS->ogrSpatialReference())) {
+        m_transform = OGRCreateCoordinateTransformation(srs()->ogrSpatialReference(),
+                                                        newCanvasSRS->ogrSpatialReference());
     }
 
     rebuildSceneGeometry();
@@ -2306,28 +3057,27 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
     // Six seeds — "Contour bands" and "Contour lines" are separate Rules
     // because the QSG renderer paints them as two passes (filled iso-
     // bands + iso-line strokes), each driven by its own ContourSpec.
-    struct Seed { const char *name; SymbolLayer (*build)(); };
+    struct Seed {
+        const char *name;
+        SymbolLayer (*build)();
+    };
     const Seed seeds[] = {
-        {"Mesh fill",
-            [] { return RasterColorRampSymbolLayerSpec{}.toSymbolLayer(); }},
-        {"Hillshade",
-            [] { return HillshadeSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Mesh fill", [] { return RasterColorRampSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Hillshade", [] { return HillshadeSymbolLayerSpec{}.toSymbolLayer(); }},
         {"Contour bands",
-            [] {
-                ContourSymbolLayerSpec s;
-                s.mode = ContourMode::Filled;
-                return s.toSymbolLayer();
-            }},
+         [] {
+             ContourSymbolLayerSpec s;
+             s.mode = ContourMode::Filled;
+             return s.toSymbolLayer();
+         }},
         {"Contour lines",
-            [] {
-                ContourSymbolLayerSpec s;
-                s.mode = ContourMode::Lines;
-                return s.toSymbolLayer();
-            }},
-        {"Mesh edges",
-            [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
-        {"Mesh nodes",
-            [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
+         [] {
+             ContourSymbolLayerSpec s;
+             s.mode = ContourMode::Lines;
+             return s.toSymbolLayer();
+         }},
+        {"Mesh edges", [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Mesh nodes", [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
     };
 
     QVector<Rule *> ruleHandles;
@@ -2338,8 +3088,8 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
         style.layers.clear();
         style.layers.append(s.build());
         single->setSymbol(style);
-        Rule *r = m_ruleList->append(std::make_unique<Rule>(
-            QString::fromLatin1(s.name), std::move(single)));
+        Rule *r = m_ruleList->append(
+            std::make_unique<Rule>(QString::fromLatin1(s.name), std::move(single)));
         ruleHandles.append(r);
     }
 
@@ -2359,91 +3109,99 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
     // mesh-decoration specs don't apply to those classes, and the paint
     // pipeline continues reading the current legacy field values.
     auto firstLayer = [](Rule *r) -> const SymbolLayer * {
-        if (!r) return nullptr;
+        if (!r)
+            return nullptr;
         auto *single = dynamic_cast<const SingleSymbolRenderer *>(r->renderer());
-        if (!single) return nullptr;
-        if (single->symbol().layers.isEmpty()) return nullptr;
+        if (!single)
+            return nullptr;
+        if (single->symbol().layers.isEmpty())
+            return nullptr;
         return &single->symbol().layers.first();
     };
 
     // ── Mesh fill (RasterColorRampSpec) ────────────────────────────────
     QObject::connect(ruleHandles[0], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[0]);
-            if (!layer || layer->kind != SymbolLayerKind::RasterColorRamp) return;
-            const auto spec = RasterColorRampSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_meshFillSublayer) {
-                sub->setOpacity(spec.opacity);
-                if (auto *st = sub->fillStyle())
-                    st->setFillColor(spec.noDataColor);
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[0]);
+                         if (!layer || layer->kind != SymbolLayerKind::RasterColorRamp)
+                             return;
+                         const auto spec = RasterColorRampSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_meshFillSublayer) {
+                             sub->setOpacity(spec.opacity);
+                             if (auto *st = sub->fillStyle())
+                                 st->setFillColor(spec.noDataColor);
+                         }
+                     });
 
     // ── Hillshade (HillshadeSpec) — drives both the mesh-layer hillshade
     //    transform (azimuth / altitude / zexag / shadow floor) and the
     //    fill-style's hillshade-strength multiplier. ─────────────────────
     QObject::connect(ruleHandles[1], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[1]);
-            if (!layer || layer->kind != SymbolLayerKind::Hillshade) return;
-            const auto spec = HillshadeSymbolLayerSpec::fromSymbolLayer(*layer);
-            self->setHillshadeAzimuth(spec.azimuthDeg);
-            self->setHillshadeAltitude(spec.altitudeDeg);
-            self->setHillshadeZExag(spec.zExaggeration);
-            self->setHillshadeMinLit(spec.shadowFloor);
-            if (auto *fill = self->m_meshFillSublayer; fill && fill->fillStyle())
-                fill->fillStyle()->setHillshadeStrength(spec.strength);
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[1]);
+                         if (!layer || layer->kind != SymbolLayerKind::Hillshade)
+                             return;
+                         const auto spec = HillshadeSymbolLayerSpec::fromSymbolLayer(*layer);
+                         self->setHillshadeAzimuth(spec.azimuthDeg);
+                         self->setHillshadeAltitude(spec.altitudeDeg);
+                         self->setHillshadeZExag(spec.zExaggeration);
+                         self->setHillshadeMinLit(spec.shadowFloor);
+                         if (auto *fill = self->m_meshFillSublayer; fill && fill->fillStyle())
+                             fill->fillStyle()->setHillshadeStrength(spec.strength);
+                     });
 
     // ── Contour bands (ContourSpec mode=Filled) ─────────────────────────
     QObject::connect(ruleHandles[2], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[2]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour) return;
-            const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_contourBandSublayer; sub && sub->bandStyle()) {
-                auto *st = sub->bandStyle();
-                st->setBandCount(spec.binner.binCount());
-                st->setSmoothBands(spec.smoothBands);
-                if (!spec.ramp.stops.isEmpty()) {
-                    st->setLowColor(spec.ramp.stops.first().second);
-                    st->setHighColor(spec.ramp.stops.last().second);
-                }
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[2]);
+                         if (!layer || layer->kind != SymbolLayerKind::Contour)
+                             return;
+                         const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_contourBandSublayer; sub && sub->bandStyle()) {
+                             auto *st = sub->bandStyle();
+                             st->setBandCount(spec.binner.binCount());
+                             st->setSmoothBands(spec.smoothBands);
+                             if (!spec.ramp.stops.isEmpty()) {
+                                 st->setLowColor(spec.ramp.stops.first().second);
+                                 st->setHighColor(spec.ramp.stops.last().second);
+                             }
+                         }
+                     });
 
     // ── Contour lines (ContourSpec mode=Lines) ──────────────────────────
     QObject::connect(ruleHandles[3], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[3]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour) return;
-            const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_isolineSublayer; sub && sub->isolineStyle()) {
-                auto *st = sub->isolineStyle();
-                st->setIsoValueCount(spec.binner.binCount());
-                st->setColor(spec.lineColor);
-                st->setLineWidthPx(spec.lineWidthPx);
-                st->setLabels(spec.labelEveryN > 0);
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[3]);
+                         if (!layer || layer->kind != SymbolLayerKind::Contour)
+                             return;
+                         const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_isolineSublayer; sub && sub->isolineStyle()) {
+                             auto *st = sub->isolineStyle();
+                             st->setIsoValueCount(spec.binner.binCount());
+                             st->setColor(spec.lineColor);
+                             st->setLineWidthPx(spec.lineWidthPx);
+                             st->setLabels(spec.labelEveryN > 0);
+                         }
+                     });
 
     // ── Mesh edges (MeshEdgeSpec) ───────────────────────────────────────
     QObject::connect(ruleHandles[4], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[4]);
-            if (!layer || layer->kind != SymbolLayerKind::MeshEdge) return;
-            const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
-                auto *st = sub->edgeStyle();
-                st->setColor(spec.color);
-                st->setLineWidthPx(spec.width);
-                st->setDashPattern(spec.penStyle);
-                st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
-                st->setSlopeBreak(spec.slopeBreak);
-                st->setWideWidthPx(spec.wideWidthPx);
-                st->setWideColor(spec.wideColor);
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[4]);
+                         if (!layer || layer->kind != SymbolLayerKind::MeshEdge)
+                             return;
+                         const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
+                             auto *st = sub->edgeStyle();
+                             st->setColor(spec.color);
+                             st->setLineWidthPx(spec.width);
+                             st->setDashPattern(spec.penStyle);
+                             st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
+                             st->setSlopeBreak(spec.slopeBreak);
+                             st->setWideWidthPx(spec.wideWidthPx);
+                             st->setWideColor(spec.wideColor);
+                         }
+                     });
 
     // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
     //
@@ -2453,113 +3211,262 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
     // back to Circle on the legacy sublayer; a future mesh-node renderer
     // that consumes the spec directly will pick up the richer value.
     QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[5]);
-            if (!layer || layer->kind != SymbolLayerKind::MeshNode) return;
-            const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
-                auto *st = sub->nodeStyle();
-                st->setColor(spec.marker.fillColor);
-                st->setMarkerSizePx(spec.marker.sizePx);
-                st->setOutlineColor(spec.marker.outlineColor);
-                st->setOutlineWidthPx(spec.marker.outlineWidth);
-                int shapeIdx = static_cast<int>(spec.marker.shape);
-                if (shapeIdx < 0 || shapeIdx > 3) shapeIdx = 0;
-                st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[5]);
+                         if (!layer || layer->kind != SymbolLayerKind::MeshNode)
+                             return;
+                         const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
+                             auto *st = sub->nodeStyle();
+                             st->setColor(spec.marker.fillColor);
+                             st->setMarkerSizePx(spec.marker.sizePx);
+                             st->setOutlineColor(spec.marker.outlineColor);
+                             st->setOutlineWidthPx(spec.marker.outlineWidth);
+                             int shapeIdx = static_cast<int>(spec.marker.shape);
+                             if (shapeIdx < 0 || shapeIdx > 3)
+                                 shapeIdx = 0;
+                             st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
+                         }
+                     });
 }
 
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-SWMM2DMeshLayer::styleSubjects()
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMM2DMeshLayer::styleSubjects()
 {
     using namespace OpenSWMM::Render;
     using openswmmvis::ui::ILayerStyleSubject;
     using openswmmvis::ui::LayerStyleSubject;
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
-    // Layer-level terrain styling (hillshade light + bed-elevation contour
-    // controls) keeps its dedicated MeshHillshadeEditor, registered for the
-    // SWMM2DMeshLayer class — so the layer itself is the propertyObject.
-    out.push_back(std::make_unique<LayerStyleSubject>(
-        tr("Mesh / TIN"), this,
-        QStringLiteral("mesh.layer"),
-        QString()));
+    // Layer-level terrain styling — the hillshade sun (azimuth / altitude /
+    // zExag / minLit) lives on the layer's Q_PROPERTYs, so the layer itself
+    // stays a subject for the dialog's snapshot/undo machinery. The
+    // Swmm2DMeshStylePanel's Terrain Fill tab edits these directly.
+    out.push_back(std::make_unique<LayerStyleSubject>(tr("Mesh / TIN"), this,
+                                                      QStringLiteral("mesh.layer"), QString()));
 
-    // Per-sublayer styling now mounts the registered 2D adapter editors
-    // (color pickers / combos via symbolstyleeditors2d) instead of the
-    // generic QPropertyModel grid — which lacks a QColor item and so showed
-    // no colour picker. The adapter edits the matching Rule; the Rule →
-    // legacy-style back-prop wired in buildRuleListLazy() applies the change
-    // to the painted sublayer style.
-    //
-    // The Rule specs are default-seeded in buildRuleListLazy(), so before
-    // handing an adapter to the dialog we forward-seed each Rule's
-    // SymbolLayer from the *current* legacy sublayer style. Without this the
-    // editor would open on defaults and the back-prop would reset the user's
-    // styling on the first edit.
-    if (!m_ruleList)
-        buildRuleListLazy();
-
-    const QString sect = tr("Sublayers");
-
-    // Replace a Rule's single SymbolLayer with one carrying the current
-    // legacy-style values (so the adapter/editor opens on real values).
-    auto setRuleLayer = [](Rule *r, const SymbolLayer &sl) {
-        if (!r) return;
-        auto *single = dynamic_cast<SingleSymbolRenderer *>(r->renderer());
-        if (!single) return;
-        SymbolStyle sym = single->symbol();
-        sym.layers.clear();
-        sym.layers.append(sl);
-        single->setSymbol(sym);
+    // One subject per sublayer STYLE BAG (results-layer pattern) so dialog
+    // Cancel restores every edit and Accept pushes one undo entry covering
+    // them all. The tabbed Swmm2DMeshStylePanel is the editor — the old
+    // SymbolStyleAdapter/Rule subjects are gone (the adapter path could not
+    // carry the classification schemes, the BC fields, or per-type
+    // visibility; the Rule specs remain renderer-side inputs only).
+    auto add = [&](OpenSWMM::Render::ISublayer *sub) {
+        if (!sub || !sub->style())
+            return;
+        out.push_back(std::make_unique<LayerStyleSubject>(sub->displayName(), sub->style(),
+                                                          sub->id(), tr("Sublayers")));
     };
-    auto addAdapter = [&](Rule *r, const QString &title, const QString &id) {
-        if (!r) return;
-        if (QObject *adapter = SymbolStyleAdapter::createFor(r, this))
-            out.push_back(std::make_unique<LayerStyleSubject>(title, adapter, id, sect));
-    };
-
-    const int n = m_ruleList->count();
-    Rule *rEdge = n > 4 ? m_ruleList->at(4) : nullptr;  // Mesh edges
-    Rule *rNode = n > 5 ? m_ruleList->at(5) : nullptr;  // Mesh nodes
-
-    // The fill, contour-band and contour-line sublayers are intentionally NOT
-    // exposed here: their colour band / classification / sampling is edited
-    // solely by the "Mesh / TIN" tab's ClassificationEditors (MeshFillStyle /
-    // ContourBandStyle scheme + IsolineStyle). The SymbolStyleAdapter path can
-    // only carry a flat low/high gradient, which cannot represent the scheme
-    // and previously duplicated (and, for bands, fought) the Mesh/TIN editors.
-    // Only edges and vertex markers — whose colour/width/dash/marker styling
-    // lives nowhere else — remain in the Sublayers section.
-
-    // Mesh edges.
-    if (rEdge && m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle()) {
-        auto *st = m_meshEdgeSublayer->edgeStyle();
-        MeshEdgeSymbolLayerSpec spec;
-        spec.color               = st->color();
-        spec.width               = st->lineWidthPx();
-        spec.penStyle            = st->dashPattern();
-        spec.useSlopeDrivenWidth = st->useSlopeDrivenWidth();
-        spec.slopeBreak          = st->slopeBreak();
-        spec.wideWidthPx         = st->wideWidthPx();
-        spec.wideColor           = st->wideColor();
-        setRuleLayer(rEdge, spec.toSymbolLayer());
-        addAdapter(rEdge, m_meshEdgeSublayer->displayName(), m_meshEdgeSublayer->id());
-    }
-
-    // Mesh nodes (vertex markers).
-    if (rNode && m_meshNodeSublayer && m_meshNodeSublayer->nodeStyle()) {
-        auto *st = m_meshNodeSublayer->nodeStyle();
-        MeshNodeSymbolLayerSpec spec;
-        spec.marker.fillColor    = st->color();
-        spec.marker.sizePx       = st->markerSizePx();
-        spec.marker.outlineColor = st->outlineColor();
-        spec.marker.outlineWidth = st->outlineWidthPx();
-        spec.marker.shape        = static_cast<MarkerShape>(static_cast<int>(st->shape()));
-        setRuleLayer(rNode, spec.toSymbolLayer());
-        addAdapter(rNode, m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
-    }
+    add(m_meshFillSublayer);
+    add(m_contourBandSublayer);
+    add(m_meshEdgeSublayer);
+    add(m_meshBcSublayer);
+    add(m_isolineSublayer);
+    add(m_meshNodeSublayer);
+    add(m_coupledNodeSublayer);
 
     return out;
+}
+
+void SWMM2DMeshLayer::onSublayersJsonLoaded(const QJsonObject &sublayersJson)
+{
+    // Migration for pre-split projects/styles: BC styling used to live on
+    // MeshEdgeStyle ("bc*" keys + colorByBC) and coupled-node styling on
+    // MeshNodeStyle ("tagged*" keys). A payload that already carries the
+    // new sublayer ids is post-split — leave it alone (idempotence), and
+    // re-saving writes the new rows so migration completes automatically.
+    const QJsonArray arr = sublayersJson.value(QStringLiteral("sublayers")).toArray();
+    QHash<QString, QJsonObject> rows;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject row = v.toObject();
+        rows.insert(row.value(QStringLiteral("id")).toString(), row);
+    }
+    if (rows.isEmpty())
+        return; // no sublayer payload at all — nothing to do
+
+    if (!rows.contains(QStringLiteral("mesh.bc")) && m_meshBcSublayer) {
+        const QJsonObject edgeStyle =
+            rows.value(QStringLiteral("mesh.edges")).value(QStringLiteral("style")).toObject();
+        if (edgeStyle.contains(QStringLiteral("colorByBC")) ||
+            edgeStyle.contains(QStringLiteral("bcWallColor"))) {
+            if (auto *bs = m_meshBcSublayer->bcStyle())
+                bs->seedFromLegacyEdgeJson(edgeStyle);
+            // Legacy draw condition: the BC ring rendered only when the edge
+            // sublayer was visible AND colorByBC was on. The edge row's
+            // visibility has already been applied by loadSublayersFromJson.
+            const bool edgesVisible = m_meshEdgeSublayer && m_meshEdgeSublayer->isVisible();
+            m_meshBcSublayer->setVisible(
+                edgeStyle.value(QStringLiteral("colorByBC")).toBool(false) && edgesVisible);
+        }
+    }
+
+    if (!rows.contains(QStringLiteral("mesh.coupledNodes")) && m_coupledNodeSublayer) {
+        const QJsonObject vertStyle =
+            rows.value(QStringLiteral("mesh.vertices")).value(QStringLiteral("style")).toObject();
+        if (vertStyle.contains(QStringLiteral("highlightTagged")) ||
+            vertStyle.contains(QStringLiteral("taggedColor")) ||
+            vertStyle.contains(QStringLiteral("taggedSizePx"))) {
+            if (auto *cs = m_coupledNodeSublayer->coupledStyle()) {
+                const QColor c(vertStyle.value(QStringLiteral("taggedColor")).toString());
+                if (c.isValid())
+                    cs->setColor(c);
+                if (vertStyle.contains(QStringLiteral("taggedSizePx")))
+                    cs->setMarkerSizePx(vertStyle.value(QStringLiteral("taggedSizePx"))
+                                            .toDouble(cs->markerSizePx()));
+            }
+            // Legacy draw condition: tagged markers rendered only when the
+            // vertex sublayer was visible AND highlightTagged was on.
+            const bool vertsVisible = m_meshNodeSublayer && m_meshNodeSublayer->isVisible();
+            m_coupledNodeSublayer->setVisible(
+                vertStyle.value(QStringLiteral("highlightTagged")).toBool(true) && vertsVisible);
+        }
+    }
+}
+
+void SWMM2DMeshLayer::copyDisplayStateFrom(const SWMM2DMeshLayer &source)
+{
+    setName(source.name());
+    setVisible(source.isVisible());
+    setOpacity(source.opacity());
+    if (source.renderer())
+        setRenderer(source.renderer()->clone());
+    OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(
+        *this, OpenSWMM::Render::ISublayerHost::saveSublayersToJson(source));
+    setEdgeZoomMinCellPx(source.edgeZoomMinCellPx());
+    setVertexZoomMinCellPx(source.vertexZoomMinCellPx());
+    setHillshadeAzimuth(source.hillshadeAzimuth());
+    setHillshadeAltitude(source.hillshadeAltitude());
+    setHillshadeZExag(source.hillshadeZExag());
+    setHillshadeMinLit(source.hillshadeMinLit());
+}
+
+void SWMM2DMeshLayer::setInfiltrationModel(::SWMMModelLayer *model)
+{
+    if (m_infiltrationModel != model) {
+        disconnect(m_ownerClosing);
+        disconnect(m_ownerEdited);
+        m_infiltrationModel = model;
+        if (model) {
+            m_ownerClosing = connect(model, &::SWMMModelLayer::engineAboutToClose, this, [this] {
+                m_mesh.infiltrationOwner.clear();
+                m_mesh.infiltrationConflict.clear();
+                m_mesh.infiltrationSource.clear();
+                invalidateSurfaceOwnership();
+                emit meshEditsChanged();
+            });
+            m_ownerEdited = connect(model, &::SWMMModelLayer::modelEdited, this, [this] {
+                refreshInfiltrationOwnership();
+                refreshSurfaceOwnership();
+            });
+        }
+    }
+    refreshInfiltrationOwnership();
+    refreshSurfaceOwnership();
+}
+void SWMM2DMeshLayer::invalidateSurfaceOwnership()
+{
+    if (m_mesh.surfaceMeshWeatherPercent.isEmpty() &&
+        m_mesh.surfaceSourcePerviousPercent.isEmpty() && m_mesh.surfaceOwnershipStatus.isEmpty())
+        return;
+    m_mesh.surfaceMeshWeatherPercent.clear();
+    m_mesh.surfaceSourcePerviousPercent.clear();
+    m_mesh.surfaceOwnershipStatus.clear();
+    ++m_attrRevision;
+    emit meshEditsChanged();
+    emit repaintRequested();
+}
+void SWMM2DMeshLayer::refreshSurfaceOwnership()
+{
+    QVector<double> weather, pervious;
+    QVector<int> status;
+    QString error;
+    QVector<int> rows;
+    auto *model = m_infiltrationModel.data();
+    if (model && openswmmvis::assignment::readSurfaceOwners(model->engine(), &rows, &error) &&
+        !rows.isEmpty() &&
+        openswmmvis::assignment::surfaceOwnershipMeshMatches(model->engine(), this, &error)) {
+        const auto p = openswmmvis::assignment::previewSurfaceOwners(model->engine(), rows);
+        if (!p.token.isEmpty()) {
+            weather.resize(p.meshWeatherArea.size());
+            pervious.fill(0, p.meshWeatherArea.size());
+            status.fill(p.valid ? 0 : 3, p.meshWeatherArea.size());
+            QVector<double> source(p.meshWeatherArea.size(), 0);
+            for (const auto &s : p.shares) {
+                const auto &o = p.objects[s.subcatch];
+                if (o.reviewed) {
+                    source[s.cell] += s.weather_area;
+                    if (!o.lumped)
+                        pervious[s.cell] += s.pervious_area + s.native_lid_area;
+                    if (p.valid)
+                        status[s.cell] = 1;
+                } else if (p.valid)
+                    status[s.cell] = 2;
+            }
+            for (int c = 0; c < weather.size(); ++c) {
+                const double area = p.meshWeatherArea[c] + source[c];
+                weather[c] = p.valid ? (area > 0 ? 100 * p.meshWeatherArea[c] / area : 0)
+                                     : std::numeric_limits<double>::quiet_NaN();
+                pervious[c] = p.valid ? (area > 0 ? 100 * pervious[c] / area : 0)
+                                      : std::numeric_limits<double>::quiet_NaN();
+            }
+        }
+    }
+    if (weather == m_mesh.surfaceMeshWeatherPercent &&
+        pervious == m_mesh.surfaceSourcePerviousPercent && status == m_mesh.surfaceOwnershipStatus)
+        return;
+    m_mesh.surfaceMeshWeatherPercent = weather;
+    m_mesh.surfaceSourcePerviousPercent = pervious;
+    m_mesh.surfaceOwnershipStatus = status;
+    ++m_attrRevision;
+    emit meshEditsChanged();
+    emit repaintRequested();
+}
+void SWMM2DMeshLayer::refreshInfiltrationOwnership()
+{
+    QVector<int> resolvedOwners, resolvedConflicts;
+    QStringList resolvedSources;
+    const int count = m_mesh.triangles.size();
+    QVector<int> owners(count), rows(count), conflicts(count);
+    if (m_infiltrationModel && m_infiltrationModel->engine() && count &&
+        swmm_infil2d_get_ownership_bulk(m_infiltrationModel->engine(), owners.data(), rows.data(),
+                                        conflicts.data(), count, nullptr) == SWMM_OK)
+        for (int cell = 0; cell < count; ++cell) {
+            const int owner = owners[cell], row = rows[cell];
+            int conflict = conflicts[cell];
+            // Unsaved mesh edits participate in conflict display immediately.
+            if (owner == 2 && m_mesh.infilOverrides.contains(cell) &&
+                !m_mesh.infilOverrides[cell].isNone())
+                conflict = 1;
+            resolvedOwners.append(owner);
+            resolvedConflicts.append(conflict);
+            resolvedSources.append(owner == 2 ? (row < 0 ? tr("Implicit whole-mesh aquifer default")
+                                                         : tr("Aquifer row %1").arg(row + 1))
+                                   : owner == 0 ? tr("Infiltration OFF")
+                                                : tr("Surface bank"));
+        }
+    if (m_mesh.infiltrationOwner == resolvedOwners &&
+        m_mesh.infiltrationConflict == resolvedConflicts &&
+        m_mesh.infiltrationSource == resolvedSources)
+        return;
+    m_mesh.infiltrationOwner = resolvedOwners;
+    m_mesh.infiltrationConflict = resolvedConflicts;
+    m_mesh.infiltrationSource = resolvedSources;
+    ++m_attrRevision;
+    emit meshEditsChanged();
+    emit repaintRequested();
+}
+bool SWMM2DMeshLayer::surfaceInfiltrationEditable(int cell) const
+{
+    return cell < 0 || cell >= m_mesh.infiltrationOwner.size() ||
+           m_mesh.infiltrationOwner[cell] == 1;
+}
+
+void SWMM2DMeshLayer::replaceInfiltrationRows(const QVector<mesh::InfilDefaultRow> &defaults,
+                                              const QHash<int, mesh::InfilRow> &overrides)
+{
+    m_mesh.infilDefaults = defaults;
+    m_mesh.infilOverrides = overrides;
+    ++m_attrRevision;
+    refreshInfiltrationOwnership();
+    emit attributeChanged(sourcePath());
+    emit meshEditsChanged();
 }

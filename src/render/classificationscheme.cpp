@@ -1,15 +1,18 @@
-/*!
- * \file   classificationscheme.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice US.1 — shared classification value type.
+/**
+ * @file      classificationscheme.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice US.1 — shared classification value type.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/classificationscheme.h"
 
 #include "render/symbolstyle.h"
 
 #include <QJsonObject>
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <atomic>
@@ -25,18 +28,33 @@ namespace
 // never collides with the default-constructed revision of 0.
 std::atomic<quint64> g_revisionCounter{1};
 
-QString modeToString(ClassificationScheme::ClassMode m)
+/** @brief Check an entire manual boundary list without repairing its contents.
+ * @param breaks Data-unit boundaries in their supplied order; an empty list is legal.
+ * @return True only when every entry is finite and strictly greater than its predecessor. */
+bool validManualBreaks(const QVector<double> &breaks)
 {
-    return m == ClassificationScheme::ClassMode::Continuous
-               ? QStringLiteral("continuous")
-               : QStringLiteral("classified");
+    for (qsizetype i = 0; i < breaks.size(); ++i)
+        if (!std::isfinite(breaks[i]) || (i > 0 && !(breaks[i] > breaks[i - 1])))
+            return false;
+    return true;
 }
 
+/** @brief Encode the class-mode JSON token.
+ * @param m Mode to encode; any value other than Continuous selects classified.
+ * @return Lowercase continuous or classified token. */
+QString modeToString(ClassificationScheme::ClassMode m)
+{
+    return m == ClassificationScheme::ClassMode::Continuous ? QStringLiteral("continuous")
+                                                            : QStringLiteral("classified");
+}
+
+/** @brief Decode a case-sensitive class-mode token without trimming.
+ * @param s JSON text to inspect; only exact continuous selects Continuous.
+ * @return Continuous for the recognized token, otherwise Classified. */
 ClassificationScheme::ClassMode modeFromString(const QString &s)
 {
-    return s == QLatin1String("continuous")
-               ? ClassificationScheme::ClassMode::Continuous
-               : ClassificationScheme::ClassMode::Classified;
+    return s == QLatin1String("continuous") ? ClassificationScheme::ClassMode::Continuous
+                                            : ClassificationScheme::ClassMode::Classified;
 }
 
 } // namespace
@@ -50,15 +68,16 @@ void ClassificationScheme::bump()
 
 void ClassificationScheme::setMode(ClassMode m)
 {
-    if (m_mode == m) return;
+    if (m_mode == m)
+        return;
     m_mode = m;
     bump();
 }
 
 void ClassificationScheme::setBinner(const IntervalBinner &b)
 {
-    if (m_binner.method() == b.method() && m_binner.binCount() == b.binCount()
-        && m_binner.manualBreaks() == b.manualBreaks())
+    if (m_binner.method() == b.method() && m_binner.binCount() == b.binCount() &&
+        m_binner.manualBreaks() == b.manualBreaks())
         return;
     m_binner = b;
     bump();
@@ -66,97 +85,142 @@ void ClassificationScheme::setBinner(const IntervalBinner &b)
 
 void ClassificationScheme::setMethod(BinMethod m)
 {
-    if (m_binner.method() == m) return;
+    if (m_binner.method() == m)
+        return;
     m_binner.setMethod(m);
     bump();
 }
 
 void ClassificationScheme::setClassCount(int n)
 {
-    if (n < 1) n = 1;
-    if (m_binner.binCount() == n) return;
+    if (n < 1)
+        n = 1;
+    if (m_binner.binCount() == n)
+        return;
     m_binner.setBinCount(n);
     bump();
 }
 
 void ClassificationScheme::setManualBreaks(QVector<double> breaks)
 {
-    std::sort(breaks.begin(), breaks.end());
-    if (m_binner.manualBreaks() == breaks) return;
+    // A replacement is atomic. Interactive callers report the rejected draft;
+    // the value type never sorts or drops entries to make invalid input fit.
+    if (!validManualBreaks(breaks))
+        return;
+    if (m_binner.manualBreaks() == breaks)
+        return;
     m_binner.setManualBreaks(std::move(breaks));
     bump();
 }
 
 void ClassificationScheme::setRampName(const QString &name)
 {
-    if (m_rampName == name) return;
+    // Same label = no-op, deliberately KEEPING any embedded custom payload
+    // (redundant setRampName("Custom 1") calls must not degrade to the
+    // builtin-lookup grayscale fallback). A different name means the user
+    // picked another ramp, so the stale custom payload is dropped.
+    if (m_rampName == name)
+        return;
     m_rampName = name;
+    m_hasCustomRamp = false;
+    m_customRamp = RasterColorRamp();
+    bump();
+}
+
+void ClassificationScheme::setCustomRamp(const RasterColorRamp &ramp, const QString &name)
+{
+    if (m_hasCustomRamp && m_rampName == name && m_customRamp.stops == ramp.stops &&
+        m_customRamp.interp == ramp.interp && m_customRamp.clampMin == ramp.clampMin &&
+        m_customRamp.clampMax == ramp.clampMax)
+        return;
+    m_customRamp = ramp;
+    m_hasCustomRamp = true;
+    m_rampName = name;
+    bump();
+}
+
+void ClassificationScheme::clearCustomRamp()
+{
+    if (!m_hasCustomRamp)
+        return;
+    m_hasCustomRamp = false;
+    m_customRamp = RasterColorRamp();
     bump();
 }
 
 void ClassificationScheme::setInvertRamp(bool on)
 {
-    if (m_invertRamp == on) return;
+    if (m_invertRamp == on)
+        return;
     m_invertRamp = on;
     bump();
 }
 
 void ClassificationScheme::setLowColor(const QColor &c)
 {
-    if (m_lowColor == c) return;
+    if (m_lowColor == c)
+        return;
     m_lowColor = c;
     bump();
 }
 
 void ClassificationScheme::setHighColor(const QColor &c)
 {
-    if (m_highColor == c) return;
+    if (m_highColor == c)
+        return;
     m_highColor = c;
     bump();
 }
 
 RasterColorRamp ClassificationScheme::resolvedRamp() const
 {
+    if (m_hasCustomRamp && !m_customRamp.stops.isEmpty())
+        return m_customRamp;
     if (!m_rampName.isEmpty())
         return RasterColorRamp::builtin(m_rampName);
     RasterColorRamp ramp;
     ramp.minValue = 0.0;
     ramp.maxValue = 1.0;
-    ramp.stops = { { 0.0, m_lowColor }, { 1.0, m_highColor } };
+    ramp.stops = {{0.0, m_lowColor}, {1.0, m_highColor}};
     return ramp;
 }
 
 void ClassificationScheme::setUseCustomRange(bool on)
 {
-    if (m_useCustomRange == on) return;
+    if (m_useCustomRange == on)
+        return;
     m_useCustomRange = on;
     bump();
 }
 
 void ClassificationScheme::setRangeMin(double v)
 {
-    if (m_rangeMin == v) return;
+    if (m_rangeMin == v)
+        return;
     m_rangeMin = v;
     bump();
 }
 
 void ClassificationScheme::setRangeMax(double v)
 {
-    if (m_rangeMax == v) return;
+    if (m_rangeMax == v)
+        return;
     m_rangeMax = v;
     bump();
 }
 
 void ClassificationScheme::setRangeMode(RangeMode m)
 {
-    if (m_rangeMode == m) return;
+    if (m_rangeMode == m)
+        return;
     m_rangeMode = m;
     bump();
 }
 
 void ClassificationScheme::setLabelFormat(LabelFormat f)
 {
-    if (m_labelFormat == f) return;
+    if (m_labelFormat == f)
+        return;
     m_labelFormat = f;
     bump();
 }
@@ -164,7 +228,8 @@ void ClassificationScheme::setLabelFormat(LabelFormat f)
 void ClassificationScheme::setLabelPrecision(int digits)
 {
     const int d = std::clamp(digits, 0, 12);
-    if (m_labelPrecision == d) return;
+    if (m_labelPrecision == d)
+        return;
     m_labelPrecision = d;
     bump();
 }
@@ -179,9 +244,26 @@ QString ClassificationScheme::formatValue(double v) const
 
 QPair<double, double> ClassificationScheme::effectiveRange(double dataMin, double dataMax) const
 {
-    if (m_useCustomRange && m_rangeMax > m_rangeMin)
-        return { m_rangeMin, m_rangeMax };
-    return { dataMin, dataMax };
+    if (m_useCustomRange)
+        return {m_rangeMin, m_rangeMax};
+    return {dataMin, dataMax};
+}
+
+QString ClassificationScheme::validationError(double dataMin, double dataMax) const
+{
+    const auto [lo, hi] = effectiveRange(dataMin, dataMax);
+    const auto text = [](const char *message) {
+        return QCoreApplication::translate("ClassificationScheme", message);
+    };
+    if (!std::isfinite(lo) || !std::isfinite(hi))
+        return text("Classification bounds must be finite numbers.");
+    if (hi < lo || (m_useCustomRange && hi == lo))
+        return text("The maximum classification bound must be greater than the minimum.");
+    if (m_mode == ClassMode::Classified && m_binner.method() == BinMethod::Logarithmic && lo <= 0.0)
+        return text("Logarithmic classification requires a strictly positive range.");
+    if (m_binner.method() == BinMethod::Manual && !validManualBreaks(m_binner.manualBreaks()))
+        return text("Class breaks must be finite and strictly increasing.");
+    return {};
 }
 
 QColor ClassificationScheme::colorOverride(int classIndex) const
@@ -191,8 +273,12 @@ QColor ClassificationScheme::colorOverride(int classIndex) const
 
 void ClassificationScheme::setColorOverride(int classIndex, const QColor &c)
 {
-    if (!c.isValid()) { clearColorOverride(classIndex); return; }
-    if (m_colorOverrides.value(classIndex) == c) return;
+    if (!c.isValid()) {
+        clearColorOverride(classIndex);
+        return;
+    }
+    if (m_colorOverrides.value(classIndex) == c)
+        return;
     m_colorOverrides.insert(classIndex, c);
     bump();
 }
@@ -210,8 +296,12 @@ QString ClassificationScheme::labelOverride(int classIndex) const
 
 void ClassificationScheme::setLabelOverride(int classIndex, const QString &label)
 {
-    if (label.isEmpty()) { clearLabelOverride(classIndex); return; }
-    if (m_labelOverrides.value(classIndex) == label) return;
+    if (label.isEmpty()) {
+        clearLabelOverride(classIndex);
+        return;
+    }
+    if (m_labelOverrides.value(classIndex) == label)
+        return;
     m_labelOverrides.insert(classIndex, label);
     bump();
 }
@@ -224,7 +314,8 @@ void ClassificationScheme::clearLabelOverride(int classIndex)
 
 void ClassificationScheme::clearOverrides()
 {
-    if (m_colorOverrides.isEmpty() && m_labelOverrides.isEmpty()) return;
+    if (m_colorOverrides.isEmpty() && m_labelOverrides.isEmpty())
+        return;
     m_colorOverrides.clear();
     m_labelOverrides.clear();
     bump();
@@ -233,8 +324,11 @@ void ClassificationScheme::clearOverrides()
 QVector<double> ClassificationScheme::levelEdges(double dataMin, double dataMax,
                                                  const QVector<double> &samples) const
 {
+    if (!validationError(dataMin, dataMax).isEmpty())
+        return {};
     const auto [lo, hi] = effectiveRange(dataMin, dataMax);
-    if (!(hi > lo)) return {};
+    if (!(hi > lo))
+        return {};
 
     const int n = m_binner.binCount();
     QVector<double> edges;
@@ -251,13 +345,11 @@ QVector<double> ClassificationScheme::levelEdges(double dataMin, double dataMax,
         return out;
     };
 
-    switch (m_binner.method())
-    {
+    switch (m_binner.method()) {
     case BinMethod::EqualInterval:
         return equallySpaced();
 
-    case BinMethod::Manual:
-    {
+    case BinMethod::Manual: {
         edges.append(lo);
         for (double b : m_binner.manualBreaks())
             if (b > lo && b < hi && (edges.size() < 2 || b != edges.last()))
@@ -270,22 +362,21 @@ QVector<double> ClassificationScheme::levelEdges(double dataMin, double dataMax,
     case BinMethod::Exponential:
     case BinMethod::Quantile:
     case BinMethod::NaturalBreaks:
-    case BinMethod::StdDev:
-    {
+    case BinMethod::StdDev: {
         // Range-only methods (Log/Exp) get the range endpoints as their
         // sample set; data-driven methods classify the in-range finite
         // samples and degrade to the endpoints when none are available.
         QVector<double> classifyOn;
-        if (m_binner.method() == BinMethod::Quantile
-            || m_binner.method() == BinMethod::NaturalBreaks
-            || m_binner.method() == BinMethod::StdDev) {
+        if (m_binner.method() == BinMethod::Quantile ||
+            m_binner.method() == BinMethod::NaturalBreaks ||
+            m_binner.method() == BinMethod::StdDev) {
             classifyOn.reserve(samples.size());
             for (double v : samples)
                 if (std::isfinite(v) && v >= lo && v <= hi)
                     classifyOn.append(v);
         }
         if (classifyOn.isEmpty())
-            classifyOn = { lo, hi };
+            classifyOn = {lo, hi};
 
         QVector<double> breaks = m_binner.computeBreaks(classifyOn);
         if (breaks.isEmpty())
@@ -309,7 +400,8 @@ QVector<double> ClassificationScheme::interiorLevels(double dataMin, double data
                                                      const QVector<double> &samples) const
 {
     QVector<double> edges = levelEdges(dataMin, dataMax, samples);
-    if (edges.size() <= 2) return {};
+    if (edges.size() <= 2)
+        return {};
     edges.removeFirst();
     edges.removeLast();
     return edges;
@@ -317,7 +409,12 @@ QVector<double> ClassificationScheme::interiorLevels(double dataMin, double data
 
 int ClassificationScheme::classIndexFor(double value, const QVector<double> &edges)
 {
-    if (edges.size() < 2 || !std::isfinite(value)) return 0;
+    if (!std::isfinite(value))
+        return -1;
+    if (edges.size() < 2)
+        return 0; // Constant fields still have one color.
+    if (value < edges.front())
+        return -1;
     // Interior edges are edges[1..size-2]; the class index is the count of
     // interior edges <= value, clamped to the last class.
     const auto it = std::upper_bound(edges.cbegin() + 1, edges.cend() - 1, value);
@@ -339,6 +436,8 @@ QColor ClassificationScheme::colorForClass(int classIndex) const
 
 QColor ClassificationScheme::colorForClass(int classIndex, int count) const
 {
+    if (classIndex < 0)
+        return QColor(Qt::transparent);
     const QColor override_ = m_colorOverrides.value(classIndex, QColor());
     if (override_.isValid())
         return override_;
@@ -350,6 +449,8 @@ QColor ClassificationScheme::colorForClass(int classIndex, int count) const
 QColor ClassificationScheme::colorForValue(double value, double dataMin, double dataMax) const
 {
     const auto [lo, hi] = effectiveRange(dataMin, dataMax);
+    if (!std::isfinite(value) || value < lo)
+        return QColor(Qt::transparent);
     if (!(hi > lo))
         return colorAtF(0.0);
     return colorAtF((value - lo) / (hi - lo));
@@ -369,9 +470,8 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
         // override (item.userLabel). The legend/editor render the range and
         // the override label as distinct fields.
         if (edges.size() >= 2) {
-            item.label = QStringLiteral("%1 – %2")
-                             .arg(formatValue(edges[i]))
-                             .arg(formatValue(edges[i + 1]));
+            item.label =
+                QStringLiteral("%1 – %2").arg(formatValue(edges[i])).arg(formatValue(edges[i + 1]));
         } else {
             item.label = QStringLiteral("Class %1").arg(i + 1);
         }
@@ -379,8 +479,8 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
         if (!override_.isEmpty())
             item.userLabel = override_;
         if (edges.size() >= 2)
-            item.range = { edges[i], edges[i + 1] };
-        item.classKey  = QString::number(i);
+            item.range = {edges[i], edges[i + 1]};
+        item.classKey = QString::number(i);
         item.sortIndex = i;
 
         SymbolLayer fill;
@@ -395,17 +495,19 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
 QJsonObject ClassificationScheme::toJson() const
 {
     QJsonObject obj;
-    obj.insert(QStringLiteral("mode"),       modeToString(m_mode));
-    obj.insert(QStringLiteral("binner"),     m_binner.toJson());
-    obj.insert(QStringLiteral("rampName"),   m_rampName);
+    obj.insert(QStringLiteral("mode"), modeToString(m_mode));
+    obj.insert(QStringLiteral("binner"), m_binner.toJson());
+    obj.insert(QStringLiteral("rampName"), m_rampName);
+    if (m_hasCustomRamp)
+        obj.insert(QStringLiteral("customRamp"), m_customRamp.toJson());
     obj.insert(QStringLiteral("invertRamp"), m_invertRamp);
-    obj.insert(QStringLiteral("lowColor"),   m_lowColor.name(QColor::HexArgb));
-    obj.insert(QStringLiteral("highColor"),  m_highColor.name(QColor::HexArgb));
+    obj.insert(QStringLiteral("lowColor"), m_lowColor.name(QColor::HexArgb));
+    obj.insert(QStringLiteral("highColor"), m_highColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("useCustomRange"), m_useCustomRange);
-    obj.insert(QStringLiteral("rangeMin"),   m_rangeMin);
-    obj.insert(QStringLiteral("rangeMax"),   m_rangeMax);
-    obj.insert(QStringLiteral("rangeMode"),  rangeModeToString(m_rangeMode));
-    obj.insert(QStringLiteral("labelFormat"),    int(m_labelFormat));
+    obj.insert(QStringLiteral("rangeMin"), m_rangeMin);
+    obj.insert(QStringLiteral("rangeMax"), m_rangeMax);
+    obj.insert(QStringLiteral("rangeMode"), rangeModeToString(m_rangeMode));
+    obj.insert(QStringLiteral("labelFormat"), int(m_labelFormat));
     obj.insert(QStringLiteral("labelPrecision"), m_labelPrecision);
 
     if (!m_colorOverrides.isEmpty()) {
@@ -426,28 +528,40 @@ QJsonObject ClassificationScheme::toJson() const
 ClassificationScheme ClassificationScheme::fromJson(const QJsonObject &j)
 {
     ClassificationScheme s;
-    s.m_mode       = modeFromString(j.value(QStringLiteral("mode")).toString());
-    s.m_binner     = IntervalBinner::fromJson(j.value(QStringLiteral("binner")).toObject());
-    s.m_rampName   = j.value(QStringLiteral("rampName")).toString(s.m_rampName);
+    s.m_mode = modeFromString(j.value(QStringLiteral("mode")).toString());
+    s.m_binner = IntervalBinner::fromJson(j.value(QStringLiteral("binner")).toObject());
+    s.m_rampName = j.value(QStringLiteral("rampName")).toString(s.m_rampName);
+    if (j.contains(QStringLiteral("customRamp"))) {
+        const RasterColorRamp cr =
+            RasterColorRamp::fromJson(j.value(QStringLiteral("customRamp")).toObject());
+        if (!cr.stops.isEmpty()) {
+            s.m_customRamp = cr;
+            s.m_hasCustomRamp = true;
+        }
+    }
     s.m_invertRamp = j.value(QStringLiteral("invertRamp")).toBool(s.m_invertRamp);
 
     auto readColor = [&](const char *key, QColor &slot) {
         const QString t = j.value(QString::fromLatin1(key)).toString();
-        if (!t.isEmpty()) { const QColor c(t); if (c.isValid()) slot = c; }
+        if (!t.isEmpty()) {
+            const QColor c(t);
+            if (c.isValid())
+                slot = c;
+        }
     };
-    readColor("lowColor",  s.m_lowColor);
+    readColor("lowColor", s.m_lowColor);
     readColor("highColor", s.m_highColor);
 
     s.m_useCustomRange = j.value(QStringLiteral("useCustomRange")).toBool(s.m_useCustomRange);
-    s.m_rangeMin       = j.value(QStringLiteral("rangeMin")).toDouble(s.m_rangeMin);
-    s.m_rangeMax       = j.value(QStringLiteral("rangeMax")).toDouble(s.m_rangeMax);
-    s.m_rangeMode      = rangeModeFromString(j.value(QStringLiteral("rangeMode")).toString());
-    s.m_labelFormat    = (j.value(QStringLiteral("labelFormat")).toInt(int(s.m_labelFormat))
-                          == int(LabelFormat::Decimals))
-                             ? LabelFormat::Decimals
-                             : LabelFormat::SignificantFigures;
-    s.m_labelPrecision = std::clamp(
-        j.value(QStringLiteral("labelPrecision")).toInt(s.m_labelPrecision), 0, 12);
+    s.m_rangeMin = j.value(QStringLiteral("rangeMin")).toDouble(s.m_rangeMin);
+    s.m_rangeMax = j.value(QStringLiteral("rangeMax")).toDouble(s.m_rangeMax);
+    s.m_rangeMode = rangeModeFromString(j.value(QStringLiteral("rangeMode")).toString());
+    s.m_labelFormat = (j.value(QStringLiteral("labelFormat")).toInt(int(s.m_labelFormat)) ==
+                       int(LabelFormat::Decimals))
+                          ? LabelFormat::Decimals
+                          : LabelFormat::SignificantFigures;
+    s.m_labelPrecision =
+        std::clamp(j.value(QStringLiteral("labelPrecision")).toInt(s.m_labelPrecision), 0, 12);
 
     const QJsonObject co = j.value(QStringLiteral("colorOverrides")).toObject();
     for (auto it = co.constBegin(); it != co.constEnd(); ++it) {
@@ -471,22 +585,20 @@ ClassificationScheme ClassificationScheme::fromJson(const QJsonObject &j)
 
 bool ClassificationScheme::operator==(const ClassificationScheme &o) const
 {
-    return m_mode == o.m_mode
-           && m_binner.method() == o.m_binner.method()
-           && m_binner.binCount() == o.m_binner.binCount()
-           && m_binner.manualBreaks() == o.m_binner.manualBreaks()
-           && m_rampName == o.m_rampName
-           && m_invertRamp == o.m_invertRamp
-           && m_lowColor == o.m_lowColor
-           && m_highColor == o.m_highColor
-           && m_useCustomRange == o.m_useCustomRange
-           && m_rangeMin == o.m_rangeMin
-           && m_rangeMax == o.m_rangeMax
-           && m_rangeMode == o.m_rangeMode
-           && m_labelFormat == o.m_labelFormat
-           && m_labelPrecision == o.m_labelPrecision
-           && m_colorOverrides == o.m_colorOverrides
-           && m_labelOverrides == o.m_labelOverrides;
+    return m_mode == o.m_mode && m_binner.method() == o.m_binner.method() &&
+           m_binner.binCount() == o.m_binner.binCount() &&
+           m_binner.manualBreaks() == o.m_binner.manualBreaks() && m_rampName == o.m_rampName &&
+           m_hasCustomRamp == o.m_hasCustomRamp &&
+           (!m_hasCustomRamp || (m_customRamp.stops == o.m_customRamp.stops &&
+                                 m_customRamp.interp == o.m_customRamp.interp &&
+                                 m_customRamp.clampMin == o.m_customRamp.clampMin &&
+                                 m_customRamp.clampMax == o.m_customRamp.clampMax)) &&
+           m_invertRamp == o.m_invertRamp && m_lowColor == o.m_lowColor &&
+           m_highColor == o.m_highColor && m_useCustomRange == o.m_useCustomRange &&
+           m_rangeMin == o.m_rangeMin && m_rangeMax == o.m_rangeMax &&
+           m_rangeMode == o.m_rangeMode && m_labelFormat == o.m_labelFormat &&
+           m_labelPrecision == o.m_labelPrecision && m_colorOverrides == o.m_colorOverrides &&
+           m_labelOverrides == o.m_labelOverrides;
 }
 
 } // namespace OpenSWMM::Render

@@ -1,23 +1,41 @@
-/*!
- * \file   annotationtextitem.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      annotationtextitem.cpp
+ * @brief     A pure QObject (no QGraphicsItem inheritance) so a QPropertyModel can drive the style
+ *            editor directly and the annotation layer can re-emit a single aggregate `changed()`
+ *            signal on every edit (live preview hook).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/annotationtextitem.h"
 
 #include <QJsonObject>
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Encode a colour for JSON including alpha.
+ * @param[in] c Colour value; validity is not checked.
+ * @return QColor::HexArgb string.
+ */
 QString colorToString(const QColor &c)
 {
     return c.name(QColor::HexArgb);
 }
 
+/**
+ * @brief Decode a named/hex annotation colour with a retained-value fallback.
+ * @param[in] s Colour text; empty selects fallback.
+ * @param[in] fallback Existing colour retained for invalid input.
+ * @return Parsed valid colour or fallback, without changing either input.
+ */
 QColor colorFromString(const QString &s, const QColor &fallback)
 {
-    if (s.isEmpty()) return fallback;
+    if (s.isEmpty())
+        return fallback;
     QColor c;
     c.setNamedColor(s);
     return c.isValid() ? c : fallback;
@@ -26,8 +44,7 @@ QColor colorFromString(const QString &s, const QColor &fallback)
 } // anonymous
 
 AnnotationTextItem::AnnotationTextItem(QObject *parent)
-    : QObject(parent)
-    , m_id(QUuid::createUuid().toString(QUuid::WithoutBraces))
+    : QObject(parent), m_id(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     m_font.setPointSizeF(10.0);
 }
@@ -35,39 +52,50 @@ AnnotationTextItem::AnnotationTextItem(QObject *parent)
 QJsonObject AnnotationTextItem::toJson() const
 {
     QJsonObject o;
-    o["id"]       = m_id;
-    o["text"]     = m_text;
-    o["x"]        = m_x;
-    o["y"]        = m_y;
+    o["id"] = m_id;
+    o["text"] = m_text;
+    o["x"] = m_x;
+    o["y"] = m_y;
     o["rotation"] = m_rotation;
 
-    o["font"]     = m_font.toString();
-    o["fill"]     = colorToString(m_fillColor);
+    o["font"] = m_font.toString();
+    o["fill"] = colorToString(m_fillColor);
 
     o["outlineEnabled"] = m_outlineEnabled;
-    o["outlineColor"]   = colorToString(m_outlineColor);
-    o["outlineWidth"]   = m_outlineWidth;
+    o["outlineColor"] = colorToString(m_outlineColor);
+    o["outlineWidth"] = m_outlineWidth;
 
     o["haloEnabled"] = m_haloEnabled;
-    o["haloColor"]   = colorToString(m_haloColor);
-    o["haloRadius"]  = m_haloRadius;
+    o["haloColor"] = colorToString(m_haloColor);
+    o["haloRadius"] = m_haloRadius;
 
-    o["bgEnabled"]       = m_bgEnabled;
-    o["bgFill"]          = colorToString(m_bgFill);
-    o["bgOutline"]       = colorToString(m_bgOutline);
-    o["bgOutlineWidth"]  = m_bgOutlineWidth;
-    o["bgPadding"]       = m_bgPadding;
-    o["bgCornerRadius"]  = m_bgCornerRadius;
+    o["bgEnabled"] = m_bgEnabled;
+    o["bgFill"] = colorToString(m_bgFill);
+    o["bgOutline"] = colorToString(m_bgOutline);
+    o["bgOutlineWidth"] = m_bgOutlineWidth;
+    o["bgPadding"] = m_bgPadding;
+    o["bgCornerRadius"] = m_bgCornerRadius;
+    o["feature"] = m_featureReference;
+    o["expression"] = m_expression;
+    o["callout"] = m_calloutEnabled;
+    o["offsetX"] = m_offset.x();
+    o["offsetY"] = m_offset.y();
+    o["pinned"] = m_pinned;
     return o;
 }
 
 void AnnotationTextItem::fromJson(const QJsonObject &o)
 {
-    if (o.contains("id"))       m_id       = o.value("id").toString(m_id);
-    if (o.contains("text"))     m_text     = o.value("text").toString(m_text);
-    if (o.contains("x"))        m_x        = o.value("x").toDouble(m_x);
-    if (o.contains("y"))        m_y        = o.value("y").toDouble(m_y);
-    if (o.contains("rotation")) m_rotation = o.value("rotation").toDouble(m_rotation);
+    if (o.contains("id"))
+        m_id = o.value("id").toString(m_id);
+    if (o.contains("text"))
+        m_text = o.value("text").toString(m_text);
+    if (o.contains("x"))
+        m_x = o.value("x").toDouble(m_x);
+    if (o.contains("y"))
+        m_y = o.value("y").toDouble(m_y);
+    if (o.contains("rotation"))
+        m_rotation = o.value("rotation").toDouble(m_rotation);
 
     if (o.contains("font")) {
         QFont f;
@@ -77,20 +105,67 @@ void AnnotationTextItem::fromJson(const QJsonObject &o)
     m_fillColor = colorFromString(o.value("fill").toString(), m_fillColor);
 
     m_outlineEnabled = o.value("outlineEnabled").toBool(m_outlineEnabled);
-    m_outlineColor   = colorFromString(o.value("outlineColor").toString(), m_outlineColor);
-    m_outlineWidth   = o.value("outlineWidth").toDouble(m_outlineWidth);
+    m_outlineColor = colorFromString(o.value("outlineColor").toString(), m_outlineColor);
+    m_outlineWidth = o.value("outlineWidth").toDouble(m_outlineWidth);
 
     m_haloEnabled = o.value("haloEnabled").toBool(m_haloEnabled);
-    m_haloColor   = colorFromString(o.value("haloColor").toString(), m_haloColor);
-    m_haloRadius  = o.value("haloRadius").toDouble(m_haloRadius);
+    m_haloColor = colorFromString(o.value("haloColor").toString(), m_haloColor);
+    m_haloRadius = o.value("haloRadius").toDouble(m_haloRadius);
 
-    m_bgEnabled      = o.value("bgEnabled").toBool(m_bgEnabled);
-    m_bgFill         = colorFromString(o.value("bgFill").toString(), m_bgFill);
-    m_bgOutline      = colorFromString(o.value("bgOutline").toString(), m_bgOutline);
+    m_bgEnabled = o.value("bgEnabled").toBool(m_bgEnabled);
+    m_bgFill = colorFromString(o.value("bgFill").toString(), m_bgFill);
+    m_bgOutline = colorFromString(o.value("bgOutline").toString(), m_bgOutline);
     m_bgOutlineWidth = o.value("bgOutlineWidth").toDouble(m_bgOutlineWidth);
-    m_bgPadding      = o.value("bgPadding").toDouble(m_bgPadding);
+    m_bgPadding = o.value("bgPadding").toDouble(m_bgPadding);
     m_bgCornerRadius = o.value("bgCornerRadius").toDouble(m_bgCornerRadius);
+    m_featureReference = o.value("feature").toObject();
+    m_expression = o.value("expression").toString();
+    m_calloutEnabled = o.value("callout").toBool();
+    m_offset = QPointF(o.value("offsetX").toDouble(), o.value("offsetY").toDouble());
+    m_pinned = o.value("pinned").toBool();
 
+    emit positionChanged();
+    emit textChanged(m_text);
+    emit changed();
+}
+
+void AnnotationTextItem::setFeatureReference(const QJsonObject &ref)
+{
+    if (m_featureReference == ref)
+        return;
+    m_featureReference = ref;
+    emit changed();
+}
+
+void AnnotationTextItem::setExpression(const QString &expression)
+{
+    if (m_expression == expression)
+        return;
+    m_expression = expression;
+    emit changed();
+}
+
+void AnnotationTextItem::setCalloutEnabled(bool enabled)
+{
+    if (m_calloutEnabled == enabled)
+        return;
+    m_calloutEnabled = enabled;
+    emit changed();
+}
+
+void AnnotationTextItem::setOffset(const QPointF &offset)
+{
+    if (m_offset == offset)
+        return;
+    m_offset = offset;
+    emit changed();
+}
+
+void AnnotationTextItem::setPinned(bool pinned)
+{
+    if (m_pinned == pinned)
+        return;
+    m_pinned = pinned;
     emit changed();
 }
 
@@ -102,7 +177,8 @@ void AnnotationTextItem::fromJson(const QJsonObject &o)
 
 void AnnotationTextItem::setText(const QString &t)
 {
-    if (m_text == t) return;
+    if (m_text == t)
+        return;
     m_text = t;
     emit textChanged(m_text);
     emit changed();
@@ -110,7 +186,8 @@ void AnnotationTextItem::setText(const QString &t)
 
 void AnnotationTextItem::setX(double v)
 {
-    if (m_x == v) return;
+    if (m_x == v)
+        return;
     m_x = v;
     emit positionChanged();
     emit changed();
@@ -118,7 +195,8 @@ void AnnotationTextItem::setX(double v)
 
 void AnnotationTextItem::setY(double v)
 {
-    if (m_y == v) return;
+    if (m_y == v)
+        return;
     m_y = v;
     emit positionChanged();
     emit changed();
@@ -126,7 +204,8 @@ void AnnotationTextItem::setY(double v)
 
 void AnnotationTextItem::setPosition(double x, double y)
 {
-    if (m_x == x && m_y == y) return;
+    if (m_x == x && m_y == y)
+        return;
     m_x = x;
     m_y = y;
     emit positionChanged();
@@ -135,7 +214,8 @@ void AnnotationTextItem::setPosition(double x, double y)
 
 void AnnotationTextItem::setRotation(double deg)
 {
-    if (m_rotation == deg) return;
+    if (m_rotation == deg)
+        return;
     m_rotation = deg;
     emit rotationChanged(deg);
     emit changed();
@@ -143,7 +223,8 @@ void AnnotationTextItem::setRotation(double deg)
 
 void AnnotationTextItem::setFont(const QFont &f)
 {
-    if (m_font == f) return;
+    if (m_font == f)
+        return;
     m_font = f;
     emit fontChanged(f);
     emit changed();
@@ -151,7 +232,8 @@ void AnnotationTextItem::setFont(const QFont &f)
 
 void AnnotationTextItem::setFillColor(const QColor &c)
 {
-    if (m_fillColor == c) return;
+    if (m_fillColor == c)
+        return;
     m_fillColor = c;
     emit fillColorChanged(c);
     emit changed();
@@ -159,7 +241,8 @@ void AnnotationTextItem::setFillColor(const QColor &c)
 
 void AnnotationTextItem::setOutlineEnabled(bool on)
 {
-    if (m_outlineEnabled == on) return;
+    if (m_outlineEnabled == on)
+        return;
     m_outlineEnabled = on;
     emit outlineEnabledChanged(on);
     emit changed();
@@ -167,7 +250,8 @@ void AnnotationTextItem::setOutlineEnabled(bool on)
 
 void AnnotationTextItem::setOutlineColor(const QColor &c)
 {
-    if (m_outlineColor == c) return;
+    if (m_outlineColor == c)
+        return;
     m_outlineColor = c;
     emit outlineColorChanged(c);
     emit changed();
@@ -175,7 +259,8 @@ void AnnotationTextItem::setOutlineColor(const QColor &c)
 
 void AnnotationTextItem::setOutlineWidth(double w)
 {
-    if (m_outlineWidth == w) return;
+    if (m_outlineWidth == w)
+        return;
     m_outlineWidth = w;
     emit outlineWidthChanged(w);
     emit changed();
@@ -183,7 +268,8 @@ void AnnotationTextItem::setOutlineWidth(double w)
 
 void AnnotationTextItem::setHaloEnabled(bool on)
 {
-    if (m_haloEnabled == on) return;
+    if (m_haloEnabled == on)
+        return;
     m_haloEnabled = on;
     emit haloEnabledChanged(on);
     emit changed();
@@ -191,7 +277,8 @@ void AnnotationTextItem::setHaloEnabled(bool on)
 
 void AnnotationTextItem::setHaloColor(const QColor &c)
 {
-    if (m_haloColor == c) return;
+    if (m_haloColor == c)
+        return;
     m_haloColor = c;
     emit haloColorChanged(c);
     emit changed();
@@ -199,7 +286,8 @@ void AnnotationTextItem::setHaloColor(const QColor &c)
 
 void AnnotationTextItem::setHaloRadius(double r)
 {
-    if (m_haloRadius == r) return;
+    if (m_haloRadius == r)
+        return;
     m_haloRadius = r;
     emit haloRadiusChanged(r);
     emit changed();
@@ -207,7 +295,8 @@ void AnnotationTextItem::setHaloRadius(double r)
 
 void AnnotationTextItem::setBackgroundEnabled(bool on)
 {
-    if (m_bgEnabled == on) return;
+    if (m_bgEnabled == on)
+        return;
     m_bgEnabled = on;
     emit backgroundEnabledChanged(on);
     emit changed();
@@ -215,7 +304,8 @@ void AnnotationTextItem::setBackgroundEnabled(bool on)
 
 void AnnotationTextItem::setBackgroundFillColor(const QColor &c)
 {
-    if (m_bgFill == c) return;
+    if (m_bgFill == c)
+        return;
     m_bgFill = c;
     emit backgroundFillColorChanged(c);
     emit changed();
@@ -223,7 +313,8 @@ void AnnotationTextItem::setBackgroundFillColor(const QColor &c)
 
 void AnnotationTextItem::setBackgroundOutlineColor(const QColor &c)
 {
-    if (m_bgOutline == c) return;
+    if (m_bgOutline == c)
+        return;
     m_bgOutline = c;
     emit backgroundOutlineColorChanged(c);
     emit changed();
@@ -231,7 +322,8 @@ void AnnotationTextItem::setBackgroundOutlineColor(const QColor &c)
 
 void AnnotationTextItem::setBackgroundOutlineWidth(double w)
 {
-    if (m_bgOutlineWidth == w) return;
+    if (m_bgOutlineWidth == w)
+        return;
     m_bgOutlineWidth = w;
     emit backgroundOutlineWidthChanged(w);
     emit changed();
@@ -239,7 +331,8 @@ void AnnotationTextItem::setBackgroundOutlineWidth(double w)
 
 void AnnotationTextItem::setBackgroundPadding(double p)
 {
-    if (m_bgPadding == p) return;
+    if (m_bgPadding == p)
+        return;
     m_bgPadding = p;
     emit backgroundPaddingChanged(p);
     emit changed();
@@ -247,7 +340,8 @@ void AnnotationTextItem::setBackgroundPadding(double p)
 
 void AnnotationTextItem::setBackgroundCornerRadius(double r)
 {
-    if (m_bgCornerRadius == r) return;
+    if (m_bgCornerRadius == r)
+        return;
     m_bgCornerRadius = r;
     emit backgroundCornerRadiusChanged(r);
     emit changed();
