@@ -99,6 +99,10 @@ function(add_swmmvis_gui_test TEST_NAME)
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────
+add_swmmvis_gui_test(test_subcatchmentgeometry test_subcatchmentgeometry.cpp)
+target_compile_definitions(test_subcatchmentgeometry PRIVATE
+    SUBCATCHMENT_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/subcatchment_multipart")
+
 add_swmmvis_gui_test(test_meshconstraintwidgets
     test_meshconstraintwidgets.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/meshconstraintsourceswidget.cpp
