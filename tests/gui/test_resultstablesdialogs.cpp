@@ -467,18 +467,17 @@ private slots:
             QVERIFY2(std::fabs(v - printed) < 0.0005 + printed * 2e-4,
                      qPrintable(QStringLiteral("%1 vs %2").arg(v).arg(printed)));
         }
-        // Link loads (this engine prints them in lb even for SI runs).
+        // Link loads (kg for SI runs, as legacy prints them).
         const int c2 = rowOf(links, QStringLiteral("C2"));
         const QStringList link = reportRow(path("tables.rpt"), "Link Pollutant Load Summary", "C2");
-        const double kgPerLb = 0.45359237;
         const int linkLoad = columnOf(links, {"TSS net load (integrated from report-step samples)"});
         QVERIFY(linkLoad > 0);
         QVERIFY(links->headerData(linkLoad, Qt::Horizontal, Qt::ToolTipRole)
                     .toString()
                     .contains(QStringLiteral("net of reversing flow")));
         const double tssKg = cell(links, c2, linkLoad);
-        QVERIFY2(std::fabs(tssKg / kgPerLb - link.at(0).toDouble()) < 0.0005 + tssKg * 5e-4,
-                 qPrintable(QStringLiteral("%1 kg vs %2 lb").arg(tssKg).arg(link.at(0))));
+        QVERIFY2(std::fabs(tssKg - link.at(0).toDouble()) < 0.0005 + tssKg * 5e-4,
+                 qPrintable(QStringLiteral("%1 kg vs %2 kg").arg(tssKg).arg(link.at(0))));
         QVERIFY(columnOf(nodes, {"TSS load (integrated from report-step samples)"}) > 0);
         const QString nodeTip =
             nodes->headerData(columnOf(nodes, {"TSS load"}), Qt::Horizontal, Qt::ToolTipRole)
