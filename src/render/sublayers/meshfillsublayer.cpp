@@ -32,10 +32,10 @@ constexpr const char *kAttrKeys[] = {
     "elevation",   "mannings",      "initDepth",      "infil.method",  "infil.f0",  "infil.fmin",
     "infil.decay", "infil.dryTime", "infil.Fmax",     "infil.suction", "infil.Ks",  "infil.IMD",
     "infil.CN",    "infil.rate",    "gw.Ks",          "gw.zs",         "gw.thetaS", "gw.hu0",
-    "gw.hg0",      "infil.owner",   "infil.conflict",
+    "gw.hg0",      "infil.owner",   "infil.conflict", "tag",
 };
 constexpr int kAttrKeyCount = int(std::size(kAttrKeys));
-static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::InfilConflict) + 1,
+static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::Tag) + 1,
               "kAttrKeys must carry exactly one key per CellAttribute value");
 
 } // namespace
@@ -144,6 +144,8 @@ bool MeshFillStyle::colorsByCategory() const
 {
     if (colorsByElevation())
         return false;
+    if (m_colorByAttribute == CellAttribute::Tag)
+        return true;
     const mesh::CellParamSpec *s = mesh::cellParamSpec(colorByAttributeKey());
     return s && s->kind == mesh::CellParamSpec::Kind::Enum;
 }
@@ -268,6 +270,14 @@ void MeshFillSublayer::setCategoriesPresent(const QVector<int> &values)
     emit invalidated();
 }
 
+void MeshFillSublayer::setCategoryNames(const QStringList &names)
+{
+    if (m_categoryNames == names)
+        return;
+    m_categoryNames = names;
+    emit invalidated();
+}
+
 QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
 {
     // Categorical fill (the infiltration method): one row per value actually
@@ -282,6 +292,7 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
             row.sublayerId = m_id;
             const int li = spec ? v - int(spec->min) : -1;
             row.label = (spec && li >= 0 && li < spec->enumLabels.size()) ? spec->enumLabels.at(li)
+                        : (!spec && v >= 0 && v < m_categoryNames.size()) ? m_categoryNames.at(v)
                                                                           : QString::number(v);
 
             SymbolLayer fill;
@@ -307,6 +318,8 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
         item.label = tr("Terrain fill");
     } else if (m_style->colorsByElevation()) {
         item.label = tr("Terrain elevation");
+    } else if (m_style->colorByAttribute() == MeshFillStyle::CellAttribute::Tag) {
+        item.label = tr("Cell tag");
     } else {
         // cellParamLabel() carries the registry's translated label; the unit
         // suffix needs the project depth unit, which the layer pushes in.
@@ -319,7 +332,9 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
     // A selected attribute with no data at all (every gw.* key today) must
     // not render as a plausible-looking uniform fill — say so.
     if (m_style->useElevationRamp() && !m_style->colorsByElevation() && !m_attributeHasData) {
-        item.label = tr("%1 — no data (engine support pending)").arg(item.label);
+        item.label = m_style->colorByAttribute() == MeshFillStyle::CellAttribute::Tag
+                         ? tr("%1 — no tagged cells").arg(item.label)
+                         : tr("%1 — no data (engine support pending)").arg(item.label);
         SymbolProps::writeColor(fill.props, QStringLiteral("color"), m_style->noDataColor());
     } else {
         SymbolProps::writeColor(fill.props, QStringLiteral("color"), m_style->fillColor());

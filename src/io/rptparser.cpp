@@ -11,6 +11,7 @@
 #include "io/rptparser.h"
 
 #include <QFile>
+#include <QHash>
 #include <QRegularExpression>
 #include <QTextStream>
 
@@ -131,19 +132,74 @@ QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
 
 bool RptParser::hasHighContinuityError(const QVector<RptSection> &sections, double thresholdPct)
 {
+    return !highContinuityErrorBlocks(sections, thresholdPct).isEmpty();
+}
+
+namespace
+{
+/**
+ * @brief Column words written to the right of a titled section's opening star rule.
+ * @param[in] s Parsed section; its body starts with the raw demarcation block.
+ * @return The words after the asterisks (species names of a quality block, or table
+ * headings such as "Volume Depth"); empty for untitled sections or a bare rule.
+ */
+QStringList headerColumns(const RptSection &s)
+{
+    if (s.title.isEmpty())
+        return {};
+    static const QRegularExpression rule(QStringLiteral("^\\s*\\*{3,}(.*)$"));
+    const auto m = rule.match(s.body.section(QLatin1Char('\n'), 0, 0));
+    return m.hasMatch() ? m.captured(1).split(QLatin1Char(' '), Qt::SkipEmptyParts)
+                        : QStringList();
+}
+} // namespace
+
+QStringList RptParser::highContinuityErrorBlocks(const QVector<RptSection> &sections,
+                                                 double thresholdPct)
+{
+    // One line, never across line breaks: "n/a" must not borrow the next number.
     static const QRegularExpression continRx(
-        QStringLiteral("Continuity Error\\s*\\(%\\)[^\\d\\-]*([-\\d\\.]+)"));
+        QStringLiteral("Continuity Error\\s*\\(%\\)[ \\t.]*([^\\n]*)"));
+    QStringList blocks;
     for (const auto &s : sections) {
+        const QStringList columns = headerColumns(s);
+        const QString title = s.title.isEmpty() ? QStringLiteral("(untitled)") : s.title;
         auto it = continRx.globalMatch(s.body);
         while (it.hasNext()) {
-            const auto m = it.next();
-            bool ok = false;
-            const double v = std::abs(m.captured(1).toDouble(&ok));
-            if (ok && v > thresholdPct)
-                return true;
+            const QStringList values =
+                it.next().captured(1).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (int k = 0; k < values.size(); ++k) {
+                bool ok = false;
+                const double v = std::abs(values[k].toDouble(&ok));
+                if (!ok || v <= thresholdPct)
+                    continue;
+                const QString label = columns.size() == values.size()
+                                          ? QStringLiteral("%1 (%2)").arg(title, columns[k])
+                                          : title;
+                if (!blocks.contains(label))
+                    blocks.append(label);
+            }
         }
     }
-    return false;
+    return blocks;
+}
+
+QStringList RptParser::bookmarkLabels(const QVector<RptSection> &sections)
+{
+    QHash<QString, int> uses;
+    for (const auto &s : sections)
+        if (!s.title.isEmpty())
+            ++uses[s.title];
+    QStringList labels;
+    for (const auto &s : sections) {
+        const QString columns = headerColumns(s).join(QLatin1Char(' '));
+        const bool distinguish = uses.value(s.title) > 1 ||
+                                 s.title == QLatin1String("2D Aquifer Quality Continuity");
+        labels.append(distinguish && !columns.isEmpty()
+                          ? QStringLiteral("%1 — %2").arg(s.title, columns)
+                          : s.title);
+    }
+    return labels;
 }
 
 } // namespace openswmmvis::io

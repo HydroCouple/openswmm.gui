@@ -288,6 +288,7 @@ set(
         include/io/mesh2dscalarframe.h
         include/io/mesh2dresultvariable.h
         include/io/mesh2dlivevariables.h
+        include/io/mesh2dderivedvariables.h
         include/io/mesh2dvariablegisexport.h
         include/ui/dialogs/resultvariableexportdialog.h
         include/render/resultscalargeometry.h
@@ -296,6 +297,8 @@ set(
         # first-class sublayers.
         include/render/sublayers/meshbcsublayer.h
         include/render/sublayers/couplednodesublayer.h
+        include/render/sublayers/groundwatermarkersublayer.h
+        include/layers/groundwatermapmarkers.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
         # AUTOMOC needs the headers in this list).
         include/render/rule.h
@@ -1154,6 +1157,8 @@ set(
         src/render/sublayers/scalarfillsublayer.cpp
         src/render/sublayers/meshbcsublayer.cpp
         src/render/sublayers/couplednodesublayer.cpp
+        src/render/sublayers/groundwatermarkersublayer.cpp
+        src/layers/groundwatermapmarkers.cpp
 
         # Plot
         src/plot/profilerouter.cpp
@@ -1322,6 +1327,7 @@ set(
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp
+        src/io/mesh2dderivedvariables.cpp
         src/io/lidstates.cpp
         src/io/mesh2dvariablegisexport.cpp
         src/ui/dialogs/resultvariableexportdialog.cpp

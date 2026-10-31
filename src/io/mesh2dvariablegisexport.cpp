@@ -292,6 +292,10 @@ void metadata(GDALMajorObject *object, const Mesh2DVariableGisSnapshot &s)
         {"STATUS_CODES", "0=valid;1=missing;2=waterless;3=not_applicable;255=outside"}};
     for (const auto &r : rows)
         object->SetMetadataItem(r.first, r.second.toUtf8().constData());
+    // V1: a GUI-derived variable names the inputs it was computed from.
+    if (d.derived)
+        object->SetMetadataItem("DERIVED_FROM",
+                                d.derivedFrom.join(QLatin1Char(';')).toUtf8().constData());
 }
 struct Dataset {
     GDALDataset *value = nullptr;

@@ -1778,6 +1778,13 @@ void SWMMVis::initializeMeshEditingToolBar()
             }
             connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
                     [pw] { pw->setHasChanges(true); });
+            // R7: source and node-bed edits move the map's groundwater markers.
+            connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
+                    [pw] {
+                        for (auto *layer : pw->canvas()->layers())
+                            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
+                                mesh->refreshGroundwaterMarkers();
+                    });
         }
         dlg.exec();
     };

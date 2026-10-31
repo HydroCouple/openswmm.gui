@@ -19,6 +19,7 @@
 #include "mesh/meshcellgeom.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
@@ -501,6 +502,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     //        m_nodes.contourLabels (Pass 3b: isoline labels)
     //        m_nodes.nodeMark  (Pass 5: vertex markers — MeshNodeSublayer)
     //        m_nodes.coupledMark (Pass 5b: SWMM-coupled markers — CoupledNodeSublayer)
+    //        m_nodes.gwMark    (Pass 5c: groundwater markers — GroundwaterMarkerSublayer)
     //        m_nodes.selTri/selEdge/selVert (§V selection overlay — cyan)
     //
     // Named member handles replace the old positional nextSibling() re-walk
@@ -538,6 +540,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         m_nodes.contourLabels = new QSGNode(); // parent for QSGSimpleTextureNode labels
         m_nodes.nodeMark = makeColoredNode();
         m_nodes.coupledMark = makeColoredNode();
+        m_nodes.gwMark = makeColoredNode();
         m_nodes.selTri = makeFlatNode(kSelTriColor);
         m_nodes.selEdge = makeFlatNode(kSelEdgeColor);
         m_nodes.selVert = makeFlatNode(kSelVertColor);
@@ -551,6 +554,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         root->appendChildNode(m_nodes.contourLabels);
         root->appendChildNode(m_nodes.nodeMark);
         root->appendChildNode(m_nodes.coupledMark);
+        root->appendChildNode(m_nodes.gwMark);
         root->appendChildNode(m_nodes.selTri);
         root->appendChildNode(m_nodes.selEdge);
         root->appendChildNode(m_nodes.selVert);
@@ -566,6 +570,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     QSGNode *contourLabels = m_nodes.contourLabels;
     QSGGeometryNode *nodeMarkNode = m_nodes.nodeMark;
     QSGGeometryNode *coupledMarkNode = m_nodes.coupledMark;
+    QSGGeometryNode *gwMarkNode = m_nodes.gwMark;
     QSGGeometryNode *selTriNode = m_nodes.selTri;
     QSGGeometryNode *selEdgeNode = m_nodes.selEdge;
     QSGGeometryNode *selVertNode = m_nodes.selVert;
@@ -616,6 +621,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 delete c;
             }
             uploadColoredVerts(nodeMarkNode, empty_c);
+            uploadColoredVerts(gwMarkNode, empty_c);
             uploadFlatVerts(selTriNode, empty_p);
             uploadFlatVerts(selEdgeNode, empty_p);
             uploadFlatVerts(selVertNode, empty_p);
@@ -1681,6 +1687,41 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadColoredVerts(nodeMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
             uploadColoredVerts(coupledMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
         }
+
+        // ---- Pass 5c: groundwater sources / aquifer node beds (R7) ------
+        // A handful of markers, drawn at every zoom (no vertex LOD gate):
+        // sources as squares, beds as diamonds, an EXCHANGE NO bed grey.
+        std::vector<QSGGeometry::ColoredPoint2D> gwVerts;
+        const auto *gwSub = m_layer->groundwaterMarkerSublayer();
+        if (gwSub && gwSub->isVisible()) {
+            using Kind = OpenSWMMVis::Groundwater::GroundwaterMapMarker::Kind;
+            const auto *gwStyle = gwSub->markerStyle();
+            const float r = float(gwStyle->markerSizePx()) * 0.5f * invView;
+            for (const auto &m : m_layer->groundwaterSceneMarkers()) {
+                QColor c = m.kind == Kind::Source    ? gwStyle->sourceColor()
+                           : m.kind == Kind::NodeBed ? gwStyle->bedColor()
+                                                     : gwStyle->noExchangeColor();
+                c.setAlpha(int(qBound(0.0, c.alpha() * gwSub->opacity(), 255.0)));
+                const quint8 ca = quint8(c.alpha());
+                const auto V = [&](float x, float y) {
+                    QSGGeometry::ColoredPoint2D v;
+                    v.set(x, y, premul(quint8(c.red()), ca), premul(quint8(c.green()), ca),
+                          premul(quint8(c.blue()), ca), ca);
+                    return v;
+                };
+                const float cx = float(m.pt.x() - ox), cy = float(m.pt.y() - oy);
+                if (m.kind == Kind::Source) {
+                    for (const auto &p : {V(cx - r, cy - r), V(cx + r, cy - r), V(cx - r, cy + r),
+                                          V(cx + r, cy - r), V(cx + r, cy + r), V(cx - r, cy + r)})
+                        gwVerts.push_back(p);
+                } else {
+                    for (const auto &p : {V(cx, cy - r), V(cx + r, cy), V(cx - r, cy),
+                                          V(cx + r, cy), V(cx, cy + r), V(cx - r, cy)})
+                        gwVerts.push_back(p);
+                }
+            }
+        }
+        uploadColoredVerts(gwMarkNode, gwVerts);
     }
 
     // ---- §V selection-overlay pass ------------------------------------

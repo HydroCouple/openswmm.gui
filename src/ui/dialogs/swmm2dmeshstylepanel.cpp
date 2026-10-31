@@ -20,6 +20,7 @@
 #include "render/categoricalpalette.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
@@ -58,6 +59,7 @@ namespace
 
 using OpenSWMM::Render::ContourBandStyle;
 using OpenSWMM::Render::CoupledNodeStyle;
+using OpenSWMM::Render::GroundwaterMarkerStyle;
 using OpenSWMM::Render::IsolineStyle;
 using OpenSWMM::Render::MeshBcStyle;
 using OpenSWMM::Render::MeshEdgeStyle;
@@ -102,6 +104,8 @@ QString cellAttributeLabel(MeshFillStyle::CellAttribute a)
 {
     if (a == MeshFillStyle::CellAttribute::Elevation)
         return QObject::tr("Bed elevation");
+    if (a == MeshFillStyle::CellAttribute::Tag)
+        return QObject::tr("Cell tag (categories)");
     const QByteArray key = MeshFillStyle::attributeKey(a);
     for (const auto &spec : mesh::cellParamSpecs())
         if (spec.key == key)
@@ -157,6 +161,8 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     addTab(buildMeshNodeTab(tabs), tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
     addTab(buildBcTab(tabs), tr("Boundary &Conditions"), m_layer->meshBcSublayer());
     addTab(buildCoupledNodeTab(tabs), tr("Couple&d Nodes"), m_layer->coupledNodeSublayer());
+    addTab(buildGroundwaterMarkerTab(tabs), tr("&Groundwater Markers"),
+           m_layer->groundwaterMarkerSublayer());
 }
 
 // ─── Terrain fill (ramp + attribute colouring + hillshade) ──────────────────
@@ -659,6 +665,55 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
                 [st](const QColor &c) { st->setColor(c); });
         connect(size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setMarkerSizePx(v); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Groundwater markers (R7) ───────────────────────────────────────────────
+
+QWidget *Swmm2DMeshStylePanel::buildGroundwaterMarkerTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay = new QVBoxLayout(page);
+
+    auto *sub = m_layer->groundwaterMarkerSublayer();
+    GroundwaterMarkerStyle *st = sub ? sub->markerStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show groundwater markers")));
+
+    if (st) {
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
+        auto *symForm = new QFormLayout(symBox);
+        const auto colourRow = [&](const QString &label, const QColor &value,
+                                   void (GroundwaterMarkerStyle::*setter)(const QColor &)) {
+            auto *button = new ColorButton(symBox);
+            button->setShowAlpha(true);
+            button->setColor(value);
+            symForm->addRow(label, button);
+            connect(button, &ColorButton::colorChanged, this,
+                    [st, setter](const QColor &c) { (st->*setter)(c); });
+        };
+        colourRow(tr("Source (square):"), st->sourceColor(),
+                  &GroundwaterMarkerStyle::setSourceColor);
+        colourRow(tr("Node bed (diamond):"), st->bedColor(), &GroundwaterMarkerStyle::setBedColor);
+        colourRow(tr("Node bed, exchange off:"), st->noExchangeColor(),
+                  &GroundwaterMarkerStyle::setNoExchangeColor);
+        auto *size = makeDSpin(symBox, 2.0, 40.0, 0.5, 1, st->markerSizePx(), tr(" px"));
+        symForm->addRow(tr("Marker size:"), size);
+        connect(size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setMarkerSizePx(v); });
+        lay->addWidget(symBox);
+
+        auto *note = new QLabel(tr("Marks [GW_SOURCES] rows placed by XY (at their "
+                                   "coordinates) or by CELL (at the cell centre), and "
+                                   "[2D_AQUIFER_NODE] beds at their node; beds authored with "
+                                   "EXCHANGE NO use the exchange-off colour. Sources scoped to "
+                                   "all cells or a tag have no single location and are not "
+                                   "drawn."),
+                                page);
+        note->setWordWrap(true);
+        lay->addWidget(note);
     }
     lay->addStretch();
     return page;

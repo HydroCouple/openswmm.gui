@@ -183,6 +183,7 @@ private:
         QSGNode *contourLabels = nullptr;
         QSGGeometryNode *nodeMark = nullptr;
         QSGGeometryNode *coupledMark = nullptr;
+        QSGGeometryNode *gwMark = nullptr; // R7 groundwater sources / node beds
         QSGGeometryNode *selTri = nullptr;
         QSGGeometryNode *selEdge = nullptr;
         QSGGeometryNode *selVert = nullptr;

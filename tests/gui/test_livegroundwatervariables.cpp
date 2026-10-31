@@ -325,7 +325,9 @@ private slots:
         const auto captured = captureGroundwaterVariables(engine.handle, 2, &error);
         QVERIFY2(captured, qPrintable(error));
         QVERIFY(error.isEmpty());
-        QCOMPARE(captured->variables.size(), 8);
+        // Table, base, ground (cell bed), h_g and eight held fluxes (R3), then
+        // three species in two zones.
+        QCOMPARE(captured->variables.size(), 18);
         const Mesh2DLiveVariable *table = nullptr, *base = nullptr;
         for (const auto &v : captured->variables) {
             if (v.descriptor.dataset == "Mesh2_face_gw_table_elev")
