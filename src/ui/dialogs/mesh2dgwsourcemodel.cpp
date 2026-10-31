@@ -14,10 +14,11 @@
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_gw_transport.h>
 
-#include <QFile>
 #include <QLocale>
 #include <QRegularExpression>
+#include <QSet>
 
+#include <algorithm>
 #include <cmath>
 
 namespace openswmmvis::ui
@@ -28,6 +29,8 @@ using assignment::GroundwaterSpeciesTerm;
 
 namespace
 {
+
+constexpr int kScopeXy = 3; //!< Scope column index of an XY source (after *, TAG, CELL)
 
 bool editable(SWMM_Engine engine)
 {
@@ -43,17 +46,37 @@ QString numberText(double value)
 
 QStringList scopeLabels()
 {
-    return {QObject::tr("All cells"), QObject::tr("Tag"), QObject::tr("Cell")};
+    return {QObject::tr("All cells"), QObject::tr("Tag"), QObject::tr("Cell"), QObject::tr("XY")};
 }
 
-/** Inactive location fields cleared, as the engine reads them back. */
+/**
+ * Inactive location fields cleared, as the engine reads them back. An XY row's cell is derived
+ * from its coordinates, so it is left out of comparisons.
+ */
 GroundwaterSourceRow normalized(GroundwaterSourceRow row)
 {
+    if (row.byXy) {
+        row.scope = SWMM_GW_SCOPE_CELL;
+        row.tag.clear();
+        row.cell = -1;
+        return row;
+    }
     if (row.scope != SWMM_GW_SCOPE_TAG)
         row.tag.clear();
     if (row.scope != SWMM_GW_SCOPE_CELL)
         row.cell = -1;
+    row.x = row.y = 0.0;
     return row;
+}
+
+bool sameRows(const QList<GroundwaterSourceRow> &a, const QList<GroundwaterSourceRow> &b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (int i = 0; i < a.size(); ++i)
+        if (normalized(a[i]) != normalized(b[i]))
+            return false;
+    return true;
 }
 
 QString termText(const GroundwaterSpeciesTerm &term)
@@ -89,14 +112,19 @@ QVariant Mesh2DGwSourceModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() >= m_rows.size())
         return {};
-    const Row &r = m_rows[index.row()];
-    const GroundwaterSourceRow &s = r.source;
+    const Row &s = m_rows[index.row()];
     if (role == Qt::ToolTipRole) {
-        if (r.xy && index.column() <= ColFlowSeries)
-            return tr("Authored by XY coordinates. The engine placed it in cell %1 and cannot "
-                      "report the coordinates, so changing its location saves it as CELL %1.")
-                .arg(s.cell + 1);
         switch (index.column()) {
+        case ColScope:
+            return tr("All cells (*), every cell with a tag, one cell, or XY coordinates.");
+        case ColTarget:
+            return s.byXy ? tr("The cell whose centroid is nearest to X, Y; the engine places "
+                               "the source when it is applied.")
+                          : tr("A mesh cell tag for Tag sources, a 1-based cell number for Cell "
+                               "sources.");
+        case ColX:
+        case ColY:
+            return tr("Location in project map units, used when the scope is XY.");
         case ColFlow:
             return tr("Total discharge in m³/s, positive into the aquifer. A TAG or * source is "
                       "shared among its cells by area. A flow series replaces this value.");
@@ -113,7 +141,7 @@ QVariant Mesh2DGwSourceModel::data(const QModelIndex &index, int role) const
         case ColScope:
             return scopeLabels();
         case ColTarget:
-            if (s.scope == SWMM_GW_SCOPE_TAG) {
+            if (!s.byXy && s.scope == SWMM_GW_SCOPE_TAG) {
                 QStringList tags = m_tags;
                 if (!s.tag.isEmpty() && !tags.contains(s.tag))
                     tags << s.tag;
@@ -132,17 +160,22 @@ QVariant Mesh2DGwSourceModel::data(const QModelIndex &index, int role) const
     case ColName:
         return s.name;
     case ColScope:
-        return r.xy && role == Qt::DisplayRole ? tr("XY") : scopeLabels().value(s.scope);
+        return scopeLabels().value(s.byXy ? kScopeXy : s.scope);
     case ColTarget:
+        if (s.byXy) {
+            if (role == Qt::EditRole)
+                return QString();
+            return s.cell >= 0 ? tr("cell %1").arg(s.cell + 1) : tr("(placed on Apply)");
+        }
         if (s.scope == SWMM_GW_SCOPE_TAG)
             return s.tag;
-        if (s.scope == SWMM_GW_SCOPE_CELL) {
-            if (s.cell < 0)
-                return QString();
-            return r.xy && role == Qt::DisplayRole ? tr("cell %1").arg(s.cell + 1)
-                                                   : QString::number(s.cell + 1);
-        }
+        if (s.scope == SWMM_GW_SCOPE_CELL)
+            return s.cell >= 0 ? QString::number(s.cell + 1) : QString();
         return role == Qt::EditRole ? QString() : QStringLiteral("—");
+    case ColX:
+        return s.byXy ? numberText(s.x) : QString();
+    case ColY:
+        return s.byXy ? numberText(s.y) : QString();
     case ColFlow:
         return s.series.isEmpty() ? numberText(s.flow) : QString();
     case ColFlowSeries:
@@ -165,7 +198,7 @@ bool Mesh2DGwSourceModel::setData(const QModelIndex &index, const QVariant &valu
     if (role != Qt::EditRole || !index.isValid() || index.row() >= m_rows.size() ||
         !(flags(index) & Qt::ItemIsEditable))
         return false;
-    GroundwaterSourceRow &s = m_rows[index.row()].source;
+    Row &s = m_rows[index.row()];
     const QString text = value.toString().trimmed();
     bool ok = false;
     switch (index.column()) {
@@ -181,12 +214,20 @@ bool Mesh2DGwSourceModel::setData(const QModelIndex &index, const QVariant &valu
             if (!ok)
                 return false;
         }
-        if (scope < SWMM_GW_SCOPE_GLOBAL || scope > SWMM_GW_SCOPE_CELL)
+        if (scope < SWMM_GW_SCOPE_GLOBAL || scope > kScopeXy)
             return false;
-        s.scope = scope;
-        if (scope == SWMM_GW_SCOPE_CELL && s.cell < 0)
-            s.cell = 0;
-        emit dataChanged(this->index(index.row(), ColScope), this->index(index.row(), ColTarget));
+        if (scope == kScopeXy) {
+            if (!s.byXy)
+                s.cell = -1; // placed from X, Y on Apply
+            s.byXy = true;
+            s.scope = SWMM_GW_SCOPE_CELL;
+        } else {
+            s.byXy = false;
+            s.scope = scope;
+            if (scope == SWMM_GW_SCOPE_CELL && s.cell < 0)
+                s.cell = 0;
+        }
+        emit dataChanged(this->index(index.row(), ColScope), this->index(index.row(), ColY));
         return true;
     }
     case ColTarget:
@@ -201,6 +242,16 @@ bool Mesh2DGwSourceModel::setData(const QModelIndex &index, const QVariant &valu
             s.cell = cell - 1;
         }
         break;
+    case ColX:
+    case ColY: {
+        const double v = text.toDouble(&ok);
+        if (!ok || !std::isfinite(v))
+            return false;
+        (index.column() == ColX ? s.x : s.y) = v;
+        s.cell = -1; // the engine places it again on Apply
+        emit dataChanged(this->index(index.row(), ColTarget), this->index(index.row(), ColY));
+        return true;
+    }
     case ColFlow: {
         const double flow = text.toDouble(&ok);
         if (!ok || !std::isfinite(flow))
@@ -247,6 +298,10 @@ QVariant Mesh2DGwSourceModel::headerData(int section, Qt::Orientation orientatio
         return tr("Scope");
     case ColTarget:
         return tr("Tag / cell");
+    case ColX:
+        return tr("X");
+    case ColY:
+        return tr("Y");
     case ColFlow:
         return tr("Flow (m³/s)");
     case ColFlowSeries:
@@ -265,18 +320,20 @@ Qt::ItemFlags Mesh2DGwSourceModel::flags(const QModelIndex &index) const
     if (!index.isValid() || index.row() >= m_rows.size())
         return Qt::NoItemFlags;
     const Qt::ItemFlags base = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
-    const Row &r = m_rows[index.row()];
+    const Row &s = m_rows[index.row()];
     switch (index.column()) {
-    case ColScale:
-        return base | Qt::ItemIsEditable;
-    case ColName: // a rename rewrites the source, which would save an XY source as CELL
+    case ColName:
     case ColScope:
     case ColFlowSeries:
-        return r.xy ? base : base | Qt::ItemIsEditable;
+    case ColScale:
+        return base | Qt::ItemIsEditable;
     case ColTarget:
-        return r.xy || r.source.scope == SWMM_GW_SCOPE_GLOBAL ? base : base | Qt::ItemIsEditable;
+        return s.byXy || s.scope == SWMM_GW_SCOPE_GLOBAL ? base : base | Qt::ItemIsEditable;
+    case ColX:
+    case ColY:
+        return s.byXy ? base | Qt::ItemIsEditable : base;
     case ColFlow:
-        return r.xy || !r.source.series.isEmpty() ? base : base | Qt::ItemIsEditable;
+        return s.series.isEmpty() ? base | Qt::ItemIsEditable : base;
     default:
         return base;
     }
@@ -292,35 +349,7 @@ bool Mesh2DGwSourceModel::removeRows(int row, int count, const QModelIndex &pare
     return true;
 }
 
-QSet<QString> Mesh2DGwSourceModel::xySourceNames(const QString &inputFile)
-{
-    QSet<QString> names;
-    QFile file(inputFile);
-    if (inputFile.isEmpty() || !file.open(QIODevice::ReadOnly | QIODevice::Text))
-        return names;
-    bool inSources = false;
-    while (!file.atEnd()) {
-        QString line = QString::fromUtf8(file.readLine());
-        const int comment = line.indexOf(QLatin1Char(';'));
-        if (comment >= 0)
-            line.truncate(comment);
-        line = line.simplified();
-        if (line.isEmpty())
-            continue;
-        if (line.startsWith(QLatin1Char('['))) {
-            inSources = line.compare(QLatin1String("[GW_SOURCES]"), Qt::CaseInsensitive) == 0;
-            continue;
-        }
-        if (!inSources)
-            continue;
-        const QStringList tokens = line.split(QLatin1Char(' '));
-        if (tokens.size() >= 4 && tokens[1].compare(QLatin1String("XY"), Qt::CaseInsensitive) == 0)
-            names.insert(tokens[0]);
-    }
-    return names;
-}
-
-QString Mesh2DGwSourceModel::load(SWMM_Engine engine, const QString &inputFile)
+QString Mesh2DGwSourceModel::load(SWMM_Engine engine)
 {
     beginResetModel();
     m_rows.clear();
@@ -337,13 +366,8 @@ QString Mesh2DGwSourceModel::load(SWMM_Engine engine, const QString &inputFile)
         for (const auto &species : assignment::groundwaterTransportSpecies(engine))
             m_species << species.id;
         m_series = timeSeriesNames(engine);
-        QVector<GroundwaterSourceRow> live;
-        if (assignment::readGroundwaterSources(engine, &live, &m_loadError)) {
-            const QSet<QString> xy = xySourceNames(inputFile);
-            for (const auto &source : live)
-                m_loaded.append({source, source.scope == SWMM_GW_SCOPE_CELL &&
-                                             xy.contains(source.name)});
-        }
+        if (!assignment::readGroundwaterSources(engine, &m_loaded, &m_loadError))
+            m_loaded.clear();
         m_rows = m_loaded;
     }
     endResetModel();
@@ -352,26 +376,25 @@ QString Mesh2DGwSourceModel::load(SWMM_Engine engine, const QString &inputFile)
 
 bool Mesh2DGwSourceModel::isDirty() const
 {
-    if (m_rows.size() != m_loaded.size())
-        return true;
-    for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows[i].xy != m_loaded[i].xy ||
-            normalized(m_rows[i].source) != normalized(m_loaded[i].source))
-            return true;
-    return false;
+    return !sameRows(m_rows, m_loaded);
 }
 
-QString Mesh2DGwSourceModel::rowError(const Row &r) const
+QString Mesh2DGwSourceModel::rowError(const Row &s) const
 {
-    const GroundwaterSourceRow &s = r.source;
     static const QRegularExpression namePattern(QStringLiteral("^[^\\s\\\";\\[\\]]+$"));
     if (!namePattern.match(s.name).hasMatch())
         return tr("use a name without spaces, quotes, semicolons or brackets");
-    if (s.scope == SWMM_GW_SCOPE_TAG && s.tag.trimmed().isEmpty())
+    if (s.byXy) {
+        if (!std::isfinite(s.x) || !std::isfinite(s.y))
+            return tr("X and Y must be finite");
+        if (m_cellCount <= 0)
+            return tr("an XY source needs a mesh to be placed on");
+    } else if (s.scope == SWMM_GW_SCOPE_TAG && s.tag.trimmed().isEmpty()) {
         return tr("choose a mesh tag");
-    if (s.scope == SWMM_GW_SCOPE_CELL &&
-        (s.cell < 0 || (m_cellCount > 0 && s.cell >= m_cellCount)))
+    } else if (s.scope == SWMM_GW_SCOPE_CELL &&
+               (s.cell < 0 || (m_cellCount > 0 && s.cell >= m_cellCount))) {
         return tr("enter a cell between 1 and %1").arg(m_cellCount);
+    }
     if (!std::isfinite(s.flow) || !std::isfinite(s.scale) || s.scale < 0.0)
         return tr("flow must be finite and the scale finite and at least 0");
     if (!s.series.isEmpty() && !m_series.contains(s.series))
@@ -405,28 +428,24 @@ QString Mesh2DGwSourceModel::validateCommit(SWMM_Engine engine) const
     QString error;
     if (!assignment::readGroundwaterSources(engine, &live, &error))
         return error;
-    bool same = live.size() == m_loaded.size();
-    for (int i = 0; same && i < live.size(); ++i)
-        same = normalized(live[i]) == normalized(m_loaded[i].source);
-    if (!same)
+    if (!sameRows(m_loaded, live))
         return tr("The groundwater sources changed outside this editor. Reopen it to keep the "
                   "newer rows.");
     QSet<QString> names;
     for (int i = 0; i < m_rows.size(); ++i) {
         const QString problem = rowError(m_rows[i]);
         if (!problem.isEmpty())
-            return tr("Source %1 (row %2): %3.").arg(m_rows[i].source.name).arg(i + 1).arg(problem);
-        const QString folded = m_rows[i].source.name.toCaseFolded();
+            return tr("Source %1 (row %2): %3.").arg(m_rows[i].name).arg(i + 1).arg(problem);
+        const QString folded = m_rows[i].name.toCaseFolded();
         if (names.contains(folded))
             return tr("Two sources are named %1; source names must be unique.")
-                .arg(m_rows[i].source.name);
+                .arg(m_rows[i].name);
         names.insert(folded);
     }
     return {};
 }
 
-QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target,
-                                        const QSet<QString> &forceLocation) const
+QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target) const
 {
     QVector<GroundwaterSourceRow> live;
     QString error;
@@ -434,7 +453,7 @@ QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target,
         return error;
     QSet<QString> names;
     for (const Row &r : target)
-        names.insert(r.source.name);
+        names.insert(r.name);
     for (int i = int(live.size()) - 1; i >= 0; --i) {
         if (names.contains(live[i].name))
             continue;
@@ -443,7 +462,7 @@ QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target,
         live.removeAt(i);
     }
     for (const Row &r : target) {
-        const GroundwaterSourceRow s = normalized(r.source);
+        const GroundwaterSourceRow s = normalized(r);
         int at = -1;
         for (int i = 0; i < live.size() && at < 0; ++i)
             if (live[i].name == s.name)
@@ -455,14 +474,19 @@ QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target,
             live.append(s);
             continue;
         }
-        const GroundwaterSourceRow old = live[at];
-        // Only a location/flow change goes through swmm_gw_source_set: it is the one call that
-        // also drops an XY location the API cannot read back.
-        if ((forceLocation.contains(s.name) || old.scope != s.scope || old.tag != s.tag ||
-             old.cell != s.cell || old.flow != s.flow || old.series != s.series) &&
-            swmm_gw_source_set(e, s.name.toUtf8().constData(), s.scope, s.tag.toUtf8().constData(),
-                               s.cell, s.flow, s.series.toUtf8().constData()) != SWMM_OK)
-            return refused;
+        const GroundwaterSourceRow old = normalized(live[at]);
+        // swmm_gw_source_set is the only flow/location setter and it clears an XY location,
+        // so an XY row is placed again right after it.
+        if (old.byXy != s.byXy || old.scope != s.scope || old.tag != s.tag ||
+            old.cell != s.cell || old.x != s.x || old.y != s.y || old.flow != s.flow ||
+            old.series != s.series) {
+            if (swmm_gw_source_set(e, s.name.toUtf8().constData(), s.scope,
+                                   s.tag.toUtf8().constData(),
+                                   s.byXy ? std::max(live[at].cell, 0) : s.cell, s.flow,
+                                   s.series.toUtf8().constData()) != SWMM_OK ||
+                (s.byXy && swmm_gw_source_xy_set(e, at, s.x, s.y) != SWMM_OK))
+                return refused;
+        }
         if (old.scale != s.scale && swmm_gw_source_scale_set(e, at, s.scale) != SWMM_OK)
             return refused;
         if (old.terms != s.terms) {
@@ -484,8 +508,8 @@ QString Mesh2DGwSourceModel::transition(SWMM_Engine e, const QList<Row> &target,
     for (const Row &r : target) {
         bool found = false;
         for (const auto &b : back)
-            if (b.name == r.source.name)
-                found = normalized(b) == normalized(r.source);
+            if (b.name == r.name)
+                found = normalized(b) == normalized(r);
         same = same && found;
     }
     return same ? QString()
@@ -499,12 +523,7 @@ QString Mesh2DGwSourceModel::commit(SWMM_Engine engine, bool advanceBaseline)
     QString error = validateCommit(engine);
     if (!error.isEmpty())
         return error;
-    QSet<QString> convert; // XY sources the user chose to save as CELL
-    for (const Row &r : m_rows)
-        for (const Row &l : m_loaded)
-            if (!r.xy && l.xy && l.source.name == r.source.name)
-                convert.insert(r.source.name);
-    error = transition(engine, m_rows, convert);
+    error = transition(engine, m_rows);
     if (!error.isEmpty()) {
         const QString restore = restoreLoaded(engine);
         return restore.isEmpty() ? error + tr(" The previous sources were restored.")
@@ -520,32 +539,16 @@ QString Mesh2DGwSourceModel::commit(SWMM_Engine engine, bool advanceBaseline)
 QString Mesh2DGwSourceModel::restoreLoaded(SWMM_Engine engine) const
 {
     QVector<GroundwaterSourceRow> live;
-    if (assignment::readGroundwaterSources(engine, &live)) {
-        bool same = live.size() == m_loaded.size();
-        for (int i = 0; same && i < live.size(); ++i)
-            same = normalized(live[i]) == normalized(m_loaded[i].source);
-        if (same)
-            return {};
-    }
-    return transition(engine, m_loaded, {});
+    if (assignment::readGroundwaterSources(engine, &live) && sameRows(m_loaded, live))
+        return {};
+    return transition(engine, m_loaded);
 }
 
 void Mesh2DGwSourceModel::acceptChanges()
 {
-    QList<Row> rows;
-    if (m_hasWritten) {
-        // Renamed and new sources were appended, so adopt the engine's order.
-        for (const auto &source : m_written) {
-            bool xy = false;
-            for (const Row &r : m_rows)
-                if (r.source.name == source.name)
-                    xy = r.xy;
-            rows.append({source, xy});
-        }
-    } else {
-        for (const Row &r : m_rows)
-            rows.append({normalized(r.source), r.xy});
-    }
+    // After a commit adopt the engine's order (renamed and new sources were appended) and the
+    // cells it placed XY sources in.
+    const QList<Row> rows = m_hasWritten ? m_written : m_rows;
     m_hasWritten = false;
     beginResetModel();
     m_rows = rows;
@@ -557,14 +560,14 @@ int Mesh2DGwSourceModel::appendSource()
 {
     QSet<QString> names;
     for (const Row &r : m_rows)
-        names.insert(r.source.name.toCaseFolded());
+        names.insert(r.name.toCaseFolded());
     Row r;
     int n = int(m_rows.size()) + 1;
     do {
-        r.source.name = QStringLiteral("Source%1").arg(n++);
-    } while (names.contains(r.source.name.toCaseFolded()));
-    r.source.scope = SWMM_GW_SCOPE_CELL;
-    r.source.cell = 0;
+        r.name = QStringLiteral("Source%1").arg(n++);
+    } while (names.contains(r.name.toCaseFolded()));
+    r.scope = SWMM_GW_SCOPE_CELL;
+    r.cell = 0;
     const int at = int(m_rows.size());
     beginInsertRows(QModelIndex(), at, at);
     m_rows.append(r);
@@ -574,21 +577,12 @@ int Mesh2DGwSourceModel::appendSource()
 
 bool Mesh2DGwSourceModel::isXy(int row) const
 {
-    return row >= 0 && row < m_rows.size() && m_rows[row].xy;
-}
-
-bool Mesh2DGwSourceModel::convertToCell(int row)
-{
-    if (!isXy(row))
-        return false;
-    m_rows[row].xy = false;
-    emit dataChanged(index(row, 0), index(row, ColCount - 1));
-    return true;
+    return row >= 0 && row < m_rows.size() && m_rows[row].byXy;
 }
 
 QVector<GroundwaterSpeciesTerm> Mesh2DGwSourceModel::terms(int row) const
 {
-    return row >= 0 && row < m_rows.size() ? m_rows[row].source.terms
+    return row >= 0 && row < m_rows.size() ? m_rows[row].terms
                                            : QVector<GroundwaterSpeciesTerm>();
 }
 
@@ -596,7 +590,7 @@ bool Mesh2DGwSourceModel::setTerms(int row, const QVector<GroundwaterSpeciesTerm
 {
     if (row < 0 || row >= m_rows.size())
         return false;
-    m_rows[row].source.terms = terms;
+    m_rows[row].terms = terms;
     emit dataChanged(index(row, ColTerms), index(row, ColTerms));
     return true;
 }
@@ -605,7 +599,7 @@ QStringList Mesh2DGwSourceModel::speciesChoices() const
 {
     QStringList names = m_species;
     for (const Row &r : m_rows)
-        for (const auto &term : r.source.terms)
+        for (const auto &term : r.terms)
             if (!term.species.isEmpty() && !names.contains(term.species))
                 names << term.species;
     return names;

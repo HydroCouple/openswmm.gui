@@ -55,6 +55,8 @@ struct GroundwaterSourceRow {
     int scope = 2, cell = -1;
     double flow = 0, scale = 1;
     QVector<GroundwaterSpeciesTerm> terms;
+    bool byXy = false; // located by `XY x y`; scope/cell then hold the cell it resolved to
+    double x = 0, y = 0;
     /**
      * @brief Compare all stored GroundwaterSourceRow fields using their value equality operators.
      * @param[in] other Record to compare without modifying either value.
@@ -105,16 +107,18 @@ bool readGroundwaterQualityRows(SWMM_Engine engine, QVector<GroundwaterQualityRo
  */
 bool writeGroundwaterQualityRow(SWMM_Engine engine, const GroundwaterQualityRow &row);
 /**
- * @brief Read every authored [GW_SOURCES] row with its scale and species terms.
+ * @brief Read every authored [GW_SOURCES] row with its scale, species terms and XY location.
  * @param[in] engine Borrowed engine.
  * @param[out] rows Non-null destination, replaced only after a complete successful read.
  * @param[out] error Optional failure description, cleared at entry.
- * @return True on a complete read. An XY-authored source reads back as its resolved CELL.
+ * @return True on a complete read. An XY row reads as CELL scope at its resolved cell, with
+ * byXy set and its authored x/y.
  */
 bool readGroundwaterSources(SWMM_Engine engine, QVector<GroundwaterSourceRow> *rows,
                             QString *error = nullptr);
 /**
- * @brief Write one named source, then its scale at @p index and each species term.
+ * @brief Write one named source (re-locating it by XY when row.byXy), then its scale at
+ * @p index and each species term.
  * @param[in] engine Borrowed editable engine.
  * @param[in] index Zero-based row index the source occupies after the upsert (the current count
  * for a new source).
