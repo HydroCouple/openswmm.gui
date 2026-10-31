@@ -1651,7 +1651,8 @@ void SWMMVis::initializeMeshEditingToolBar()
     assignGroundwater->setObjectName(QStringLiteral("actionAssignGroundwater"));
     assignGroundwater->setToolTip(tr(
         "Preview and assign groundwater values using selected cells, feature layers or rasters."));
-    connect(assignGroundwater, &QAction::triggered, this, [this] {
+    // Phase 3b: one spatial assignment dialog serves groundwater and mesh surface-quality rows.
+    const auto openSpatialAssignment = [this](const QString &target) {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer())
             return;
@@ -1678,12 +1679,27 @@ void SWMMVis::initializeMeshEditingToolBar()
                     if (!store->append(recipe, &error))
                         QMessageBox::warning(pw, tr("Assignment history"), error);
                 });
+        if (!target.isEmpty())
+            dialog->selectTarget(target);
         dialog->show();
-    });
+    };
+    connect(assignGroundwater, &QAction::triggered, this,
+            [openSpatialAssignment] { openSpatialAssignment({}); });
     if (mMeshEditingToolbar)
         mMeshEditingToolbar->addCellAction(assignGroundwater);
     if (ui->menuModel)
         ui->menuModel->addAction(assignGroundwater);
+    auto *assignSurfaceQuality = new QAction(tr("Assign Surface Quality…"), this);
+    assignSurfaceQuality->setObjectName(QStringLiteral("actionAssignSurfaceQuality"));
+    assignSurfaceQuality->setToolTip(
+        tr("Preview and assign land-use coverages, initial buildup, curb length or initial "
+           "concentrations to mesh cells from the selection, feature layers or rasters."));
+    connect(assignSurfaceQuality, &QAction::triggered, this,
+            [openSpatialAssignment] { openSpatialAssignment(QStringLiteral("SQ_COVERAGE")); });
+    if (mMeshEditingToolbar)
+        mMeshEditingToolbar->addCellAction(assignSurfaceQuality);
+    if (ui->menuModel)
+        ui->menuModel->addAction(assignSurfaceQuality);
 
     auto *assignSnow = new QAction(tr("Assign snow…"), this);
     assignSnow->setObjectName("actionMeshSnow");

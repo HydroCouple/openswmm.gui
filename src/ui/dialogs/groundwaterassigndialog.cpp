@@ -17,6 +17,7 @@
 #include "layers/gisrasterlayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "map/meshcommands.h"
 #include "map/spatialreferencesystem.h"
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
@@ -24,6 +25,7 @@
 #include "core/unitsystem.h"
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -48,6 +50,7 @@
 #include <QStandardItemModel>
 #include <QTableWidget>
 #include <QScopeGuard>
+#include <QSignalBlocker>
 #include "ui/util/numerictablewidgetitem.h"
 #include <QVBoxLayout>
 #include <QUuid>
@@ -192,6 +195,21 @@ void installOwnershipRows(SWMM2DMeshLayer *layer, const InfiltrationOwnershipSna
         else
             overrides[row.cell] = meshRow(row.row);
     layer->replaceInfiltrationRows(defaults, overrides);
+}
+/**
+ * @brief Copy engine-side tag changes into the mesh layer, which owns tags for saving.
+ * @param[in,out] layer Mesh whose cells follow engine cell order.
+ * @param[in] from Tags the change started from; cells equal in both lists are untouched.
+ * @param[in] to Tags to install.
+ */
+void installTags(SWMM2DMeshLayer *layer, const QStringList &from, const QStringList &to)
+{
+    if (!layer || from.size() != to.size() || from == to)
+        return;
+    mesh::AttributeEditBatch batch(layer, to.size());
+    for (int c = 0; c < to.size() && c < layer->mesh().triangles.size(); ++c)
+        if (from[c] != to[c])
+            layer->applyMeshTriangleTag(c, to[c]);
 }
 class ProcessUndo final : public QObject, public QUndoCommand
 {
@@ -346,7 +364,8 @@ class AssignmentUndo final : public QObject, public QUndoCommand
     quint64 geometry;
     AquiferPreview preview;
     GroundwaterTransportPreview transport;
-    bool isTransport = false, first = true, valid = true;
+    RowAssignmentPreview rows;
+    bool isTransport = false, isRows = false, first = true, valid = true;
     std::function<void(bool)> changed;
     std::function<void(const QString &)> partial;
     /**
@@ -425,6 +444,21 @@ public:
                             transport.cells.size()));
     }
     /**
+     * @brief Own an already-applied scoped-row proposal (Phase 3b surface / groundwater rows).
+     * @param[in] p Preview whose before/after rows and cell tags are replayed; the mesh layer's
+     * tags follow the engine's on every replay.
+     */
+    AssignmentUndo(SWMMModelLayer *m, SWMM2DMeshLayer *layer, RowAssignmentPreview p,
+                   std::function<void(bool)> notify, std::function<void(const QString &)> dirty)
+        : AssignmentUndo(m, layer, AquiferPreview{}, std::move(notify))
+    {
+        rows = std::move(p);
+        isRows = true;
+        partial = std::move(dirty);
+        setText(QObject::tr("Assign %1 rows to %n cell(s)", nullptr, rows.cells.size())
+                    .arg(ui::Mesh2DSectionRowModel(rows.before.section).sectionName()));
+    }
+    /**
      * @brief Undo the retained property or transport proposal while its owner still matches.
      * @details Invalid owner or helper failure marks obsolete and warns. A failed transport
      * result with changed=true invokes the partial callback before reporting failure; successful
@@ -438,7 +472,16 @@ public:
             failed(QObject::tr("The model or mesh changed; assignment undo was refused."));
             return;
         }
-        if (isTransport) {
+        if (isRows) {
+            auto r = undoRowAssignment(engine, rows);
+            if (!r.success) {
+                if (r.changed && partial)
+                    partial(r.error);
+                failed(r.error);
+                return;
+            }
+            installTags(mesh, rows.after.cellTags, rows.before.cellTags);
+        } else if (isTransport) {
             auto r = undoGroundwaterTransport(engine, transport);
             if (!r.success) {
                 if (r.changed && partial)
@@ -446,10 +489,14 @@ public:
                 failed(r.error);
                 return;
             }
+            installTags(mesh, transport.after.cellTags, transport.before.cellTags);
         } else if (!undoAquiferPreview(engine, preview, &error)) {
             failed(error);
             return;
+        } else {
+            installTags(mesh, preview.tagsAfter, preview.tagsBefore);
         }
+        model->markEdited();
         if (changed)
             changed(false);
     }
@@ -471,7 +518,16 @@ public:
             failed(QObject::tr("The model or mesh changed; assignment redo was refused."));
             return;
         }
-        if (isTransport) {
+        if (isRows) {
+            auto r = applyRowAssignment(engine, rows);
+            if (!r.success) {
+                if (r.changed && partial)
+                    partial(r.error);
+                failed(r.error);
+                return;
+            }
+            installTags(mesh, rows.before.cellTags, rows.after.cellTags);
+        } else if (isTransport) {
             auto r = applyGroundwaterTransport(engine, transport);
             if (!r.success) {
                 if (r.changed && partial)
@@ -479,10 +535,14 @@ public:
                 failed(r.error);
                 return;
             }
+            installTags(mesh, transport.before.cellTags, transport.after.cellTags);
         } else if (!applyAquiferPreview(engine, preview, &error)) {
             failed(error);
             return;
+        } else {
+            installTags(mesh, preview.tagsBefore, preview.tagsAfter);
         }
+        model->markEdited();
         if (changed)
             changed(true);
     }
@@ -494,7 +554,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     : QDialog(parent), m_model(model), m_mesh(mesh), m_canvas(canvas), m_selection(selection)
 {
     m_events = new GroundwaterAssignmentEvents(model ? static_cast<QObject *>(model) : this);
-    setWindowTitle(tr("Assign groundwater values"));
+    setWindowTitle(tr("Assign spatial values"));
     setWindowModality(Qt::NonModal);
     resize(780, 790);
     m_engine = model ? model->engine() : nullptr;
@@ -504,7 +564,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
         m_mesh->setInfiltrationModel(model);
     auto *outer = new QVBoxLayout(this);
     auto *intro = new QLabel(
-        tr("Use the existing map rectangle or polygon cell selection, or enter cells below. Spatial property sampling uses cell centroids. Preview preserves existing aquifer rows and creates explicit cell overrides; these stop inheriting later property changes."),
+        tr("Use the existing map rectangle or polygon cell selection, or enter cells below. Groundwater properties are written as explicit cell overrides that stop inheriting later property changes. Surface-quality and initial-quality rows are written as CELL rows, or as one TAG row for cells tagged for it."),
         this);
     intro->setObjectName("gwAssignmentIntro");
     intro->setWordWrap(true);
@@ -532,6 +592,22 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     m_target->addItem(tr("Review ET and seepage defaults"), "ET_POLICY");
     m_target->addItem(tr("Initial species concentration"), "INITIAL_QUALITY");
     m_target->addItem(tr("Add injection / extraction sources"), "FLOW");
+    // Phase 3b: the mesh surface-quality rows share the same selection, sampling and review.
+    m_target->addItem(tr("Land-use coverage [2D_COVERAGES]"), "SQ_COVERAGE");
+    m_target->addItem(tr("Initial buildup [2D_LOADINGS]"), "SQ_LOADING");
+    m_target->addItem(tr("Curb length [2D_CURB_LENGTH]"), "SQ_CURB");
+    m_target->addItem(tr("Surface initial concentration [2D_INITIAL_QUALITY]"), "SQ_INITIAL");
+    {
+        Mesh2DSectionRowModel coverages(Mesh2DSectionRowModel::Section::Coverages),
+            loadings(Mesh2DSectionRowModel::Section::Loadings),
+            initial(Mesh2DSectionRowModel::Section::SurfaceInitialQuality);
+        coverages.load(m_engine);
+        loadings.load(m_engine);
+        initial.load(m_engine);
+        m_landUses = coverages.landUses();
+        m_loadingSpecies = loadings.names();
+        m_surfaceIqSpecies = initial.names();
+    }
     form->addRow(tr("&Target:"), m_target);
     m_units = new QLabel(this);
     m_units->setWordWrap(true);
@@ -613,6 +689,29 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     m_scopeText->setPlaceholderText(
         tr("Tag, 1-based cell numbers separated by commas, or POLYGON ((x y, ...))"));
     form->addRow(tr("Scope &details:"), m_scopeText);
+    auto *selectionRow = new QWidget(this);
+    auto *selectionLayout = new QHBoxLayout(selectionRow);
+    selectionLayout->setContentsMargins(0, 0, 0, 0);
+    m_selectionCount = new QLabel(selectionRow);
+    m_selectionCount->setObjectName("gwAssignmentSelectionCount");
+    m_selectionCount->setWordWrap(true);
+    selectionLayout->addWidget(m_selectionCount, 1);
+    auto *pickCells = new QPushButton(tr("Select cells on map"), selectionRow);
+    pickCells->setObjectName("gwAssignmentPickCells");
+    pickCells->setAutoDefault(false);
+    pickCells->setToolTip(
+        tr("Turns on the mesh cell selection tool. Drag a box, or press L and click a polygon "
+           "(double-click closes it). Shift adds, Alt subtracts, Ctrl toggles; cells whose "
+           "centroid lies inside are selected."));
+    selectionLayout->addWidget(pickCells);
+    form->addRow(tr("Selection:"), selectionRow);
+    connect(pickCells, &QPushButton::clicked, this, [] {
+        for (QWidget *window : QApplication::topLevelWidgets())
+            if (auto *action = window->findChild<QAction *>("actionPick2DCells")) {
+                action->setChecked(true);
+                return;
+            }
+    });
     m_route = new QComboBox(this);
     m_route->setObjectName("gwAssignmentRoute");
     m_route->addItems({tr("Manual constant"), tr("Feature layer"), tr("Raster")});
@@ -668,15 +767,25 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
         for (auto it = catalog.timeSeries.cbegin(); it != catalog.timeSeries.cend(); ++it)
             m_flowSeries->addItem(it.key(), it.key());
     sourceForm->addRow(tr("Flow time series:"), m_flowSeries);
+    m_pointPlacement = new QComboBox(m_sourceControls);
+    m_pointPlacement->setObjectName("gwAssignmentPointPlacement");
+    m_pointPlacement->addItem(tr("In the cell that contains the point (CELL)"), "CELL");
+    m_pointPlacement->addItem(tr("At the point (XY; placed in the nearest cell centroid)"), "XY");
+    sourceForm->addRow(tr("Point features:"), m_pointPlacement);
+    m_pointName = new QLineEdit(m_sourceControls);
+    m_pointName->setObjectName("gwAssignmentPointNameField");
+    m_pointName->setPlaceholderText(tr("Optional field naming each source"));
+    sourceForm->addRow(tr("Point name field:"), m_pointName);
     auto *explanation = new QLabel(
-        tr("Each application adds new named sources alongside existing forcing. Undo removes that batch. Flow is signed m³/s: positive injects; negative extracts at in-situ concentration. CONC uses the species' native concentration units; MASS uses native mass/s. Region totals split flow and MASS by cell area; CONC is unchanged. Layer values require separate soil-layer chemistry in Groundwater Options. Hydraulic edge chemistry is specified with its hydraulic boundary. Feature values and default raster sampling are per-cell rates. Choose raster water flux density to integrate flow over pixel–cell intersections. Species terms remain per-cell values; only water flux is area-integrated."),
+        tr("Each application adds new named sources alongside existing forcing. Undo removes that batch. Flow is signed m³/s: positive injects; negative extracts at in-situ concentration. CONC uses the species' native concentration units; MASS uses native mass/s. Region totals split flow and MASS by cell area; CONC is unchanged. Layer values require separate soil-layer chemistry in Groundwater Options. Hydraulic edge chemistry is specified with its hydraulic boundary. Feature values and default raster sampling are per-cell rates. Choose raster water flux density to integrate flow over pixel–cell intersections. Species terms remain per-cell values; only water flux is area-integrated. A point feature layer adds one source per point: flow from the numeric field, species values from each term's feature field (blank keeps the constant), and points outside the mesh or scope are listed, not assigned. Writing one TAG row needs the total across selected cells; the engine spreads it over the tagged cells by area."),
         m_sourceControls);
     explanation->setWordWrap(true);
     sourceForm->addRow(explanation);
-    m_terms = new QTableWidget(0, 5, m_sourceControls);
+    m_terms = new QTableWidget(0, 6, m_sourceControls);
     m_terms->setObjectName("gwAssignmentTerms");
-    m_terms->setHorizontalHeaderLabels(
-        {tr("Species"), tr("Term"), tr("Constant"), tr("Time series"), tr("Native units")});
+    m_terms->setHorizontalHeaderLabels({tr("Species"), tr("Term"), tr("Constant"),
+                                        tr("Time series"), tr("Native units"),
+                                        tr("Feature field (points)")});
     m_terms->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_terms->setMaximumHeight(135);
     sourceForm->addRow(m_terms);
@@ -689,6 +798,46 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     termLayout->addWidget(removeTerm);
     sourceForm->addRow(termButtons);
     form->addRow(m_sourceControls);
+    m_surfaceControls = new QWidget(this);
+    auto *surfaceForm = new QFormLayout(m_surfaceControls);
+    surfaceForm->setContentsMargins(0, 0, 0, 0);
+    m_surfaceSpecies = new QComboBox(m_surfaceControls);
+    m_surfaceSpecies->setObjectName("gwAssignmentSurfaceSpecies");
+    surfaceForm->addRow(tr("Surface species:"), m_surfaceSpecies);
+    m_landUse = new QComboBox(m_surfaceControls);
+    m_landUse->setObjectName("gwAssignmentLandUse");
+    for (const QString &use : m_landUses)
+        m_landUse->addItem(use, use);
+    surfaceForm->addRow(tr("Land use (manual value is its percent):"), m_landUse);
+    m_classLookup = new QLineEdit(m_surfaceControls);
+    m_classLookup->setObjectName("gwAssignmentClassLookup");
+    m_classLookup->setPlaceholderText(tr("e.g. 1=Urban, 2=Grass (blank: class values are "
+                                         "land-use names)"));
+    surfaceForm->addRow(tr("Class to land use:"), m_classLookup);
+    form->addRow(m_surfaceControls);
+    m_strategyControls = new QWidget(this);
+    auto *strategyForm = new QFormLayout(m_strategyControls);
+    strategyForm->setContentsMargins(0, 0, 0, 0);
+    m_strategy = new QComboBox(m_strategyControls);
+    m_strategy->setObjectName("gwAssignmentStrategy");
+    m_strategy->addItem(tr("Automatic: one TAG row when every cell gets the same value"), "AUTO");
+    m_strategy->addItem(tr("One CELL row per cell"), "CELL");
+    m_strategy->addItem(tr("Tag the cells and write one TAG row"), "TAG");
+    strategyForm->addRow(tr("Write as:"), m_strategy);
+    m_tagName = new QLineEdit(m_strategyControls);
+    m_tagName->setObjectName("gwAssignmentTagName");
+    m_tagName->setPlaceholderText(tr("Blank: the scope's own tag, or a new unused name"));
+    strategyForm->addRow(tr("Tag name:"), m_tagName);
+    m_allowRetag = new QCheckBox(
+        tr("Allow moving cells out of another tag (the preview lists what they stop inheriting)"),
+        m_strategyControls);
+    m_allowRetag->setObjectName("gwAssignmentAllowRetag");
+    strategyForm->addRow(m_allowRetag);
+    form->addRow(m_strategyControls);
+    for (auto *combo : {m_surfaceSpecies, m_landUse, m_strategy, m_pointPlacement})
+        connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                &GroundwaterAssignDialog::invalidatePreview);
+    connect(m_allowRetag, &QCheckBox::toggled, this, &GroundwaterAssignDialog::invalidatePreview);
     addTerm->setAutoDefault(false);
     removeTerm->setAutoDefault(false);
     m_terms->setAccessibleName(tr("Groundwater source species terms"));
@@ -746,6 +895,16 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     m_sampling->addItem(tr("Per-cell value at centroid"), "cell-rate");
     m_sampling->addItem(tr("Water flux density (area integral)"), "flux-density");
     form->addRow(tr("Raster &values:"), m_sampling);
+    m_cellSampling = new QComboBox(this);
+    m_cellSampling->setObjectName("gwAssignmentCellSampling");
+    m_cellSampling->addItem(tr("Value at the cell centroid"), "centroid");
+    m_cellSampling->addItem(tr("Area-weighted mean over the cell"), "area");
+    m_cellSampling->setToolTip(
+        tr("For intensive values. Raster means use exact pixel–cell overlap and need the raster "
+           "in the mesh's projected CRS; feature means weight each polygon by its overlap."));
+    form->addRow(tr("Cell value from &source:"), m_cellSampling);
+    connect(m_cellSampling, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &GroundwaterAssignDialog::invalidatePreview);
     m_densityUnits = new QComboBox(this);
     m_densityUnits->setObjectName("gwAssignmentDensityUnits");
     m_densityUnits->addItem(tr("Choose density units…"), QString());
@@ -814,7 +973,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     connect(buttons, &QDialogButtonBox::rejected, this, &GroundwaterAssignDialog::reject);
     // Form buddies provide keyboard focus; explicit descriptions retain the
     // field identity where native combo accessibility uses the selected value.
-    for (auto *layout : {form, transportForm, sourceForm})
+    for (auto *layout : {form, transportForm, sourceForm, surfaceForm, strategyForm})
         for (int row = 0; row < layout->rowCount(); ++row) {
             auto *field = layout->itemAt(row, QFormLayout::FieldRole);
             auto *labelItem = layout->itemAt(row, QFormLayout::LabelRole);
@@ -873,17 +1032,43 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     }
     if (mesh)
         connect(mesh, &QObject::destroyed, this, &GroundwaterAssignDialog::invalidateContext);
-    if (selection)
+    if (selection) {
         connect(selection, &SelectionManager::selectionChanged, this,
                 &GroundwaterAssignDialog::invalidatePreview);
+        connect(selection, &SelectionManager::selectionChanged, this,
+                &GroundwaterAssignDialog::refreshSelectionCount);
+    }
     if (units)
         connect(units, &UnitSystem::unitsChanged, this,
                 &GroundwaterAssignDialog::invalidateContext);
     populateSources();
     updateTarget();
     sourceChanged();
+    refreshSelectionCount();
     if (!model || !mesh || !canvas || !canvas->undoStack() || !m_engine)
         invalidateContext();
+}
+void GroundwaterAssignDialog::selectTarget(const QString &key)
+{
+    const int index = m_target->findData(key);
+    if (index >= 0)
+        m_target->setCurrentIndex(index);
+}
+void GroundwaterAssignDialog::refreshSelectionCount()
+{
+    int cells = 0;
+    if (m_selection && m_mesh) {
+        const auto key = mesh::MeshObjectRef::layerKey(m_mesh->sourcePath());
+        for (const auto &ref : m_selection->selection()) {
+            QString layer;
+            int cell = -1;
+            if (mesh::MeshObjectRef::parseCell(ref, &layer, &cell) && layer == key)
+                ++cells;
+        }
+    }
+    m_selectionCount->setText(
+        tr("%n cell(s) selected on this mesh. Shift adds, Alt subtracts, Ctrl toggles.", nullptr,
+           cells));
 }
 GroundwaterAssignDialog::~GroundwaterAssignDialog()
 {
@@ -945,6 +1130,31 @@ void GroundwaterAssignDialog::updateTarget()
     m_transportControls->setVisible(quality);
     m_sourceControls->setVisible(source);
     m_qualityLayer->setEnabled(quality && m_zone->currentData().toInt() == 2);
+    const bool surface = key.startsWith(QLatin1String("SQ_")), coverage = key == "SQ_COVERAGE";
+    m_surfaceControls->setVisible(surface);
+    if (auto *surfaceForm = qobject_cast<QFormLayout *>(m_surfaceControls->layout())) {
+        surfaceForm->setRowVisible(m_surfaceSpecies, key == "SQ_LOADING" || key == "SQ_INITIAL");
+        surfaceForm->setRowVisible(m_landUse, coverage);
+        surfaceForm->setRowVisible(m_classLookup, coverage);
+    }
+    // Aquifer properties and sources keep their Phase 35 default of exact per-cell rows;
+    // surface and initial-quality rows default to Automatic (TAG when every value is equal).
+    const bool aquifer = !surface && !quality && !source && !review;
+    m_strategyControls->setVisible(surface || quality || source || aquifer);
+    if (key != m_lastTarget) {
+        m_lastTarget = key;
+        const QSignalBlocker block(m_strategy);
+        m_strategy->setCurrentIndex(m_strategy->findData(source || aquifer ? "CELL" : "AUTO"));
+    }
+    if (surface) {
+        const QStringList names = key == "SQ_INITIAL" ? m_surfaceIqSpecies : m_loadingSpecies;
+        const QString current = m_surfaceSpecies->currentData().toString();
+        const QSignalBlocker block(m_surfaceSpecies);
+        m_surfaceSpecies->clear();
+        for (const QString &name : names)
+            m_surfaceSpecies->addItem(name, name);
+        m_surfaceSpecies->setCurrentIndex(std::max(0, m_surfaceSpecies->findData(current)));
+    }
     if (process) {
         m_units->setText(tr(
             "One mesh-area atmospheric demand. Surface evaporation uses it first; soil ET uses the remainder with one stress factor. Capillary rise is internal transfer. Automatic resolves to Both and Two way for an active mesh aquifer. Subcatchment and LID area partitioning requires their own reviewed configuration."));
@@ -955,7 +1165,20 @@ void GroundwaterAssignDialog::updateTarget()
             "Whole-mesh ownership review. Capacities are computed by the aquifer; no second infiltration rate is assigned. Explicit conflicts block Apply until their removal is reviewed."));
         return;
     }
-    if (source) {
+    const bool us = m_length == QLatin1String("ft");
+    if (coverage) {
+        m_units->setText(tr(
+            "Percent of the cell's area per land use (0–100; a cell's percents add to at most 100). Polygon and raster sources give each class's share of the cell's area; the class lookup maps class values to land uses."));
+    } else if (key == "SQ_LOADING") {
+        m_units->setText(
+            tr("Initial buildup: %1 (project units), divided among the cell's covered land uses.")
+                .arg(us ? tr("lb/ac") : tr("kg/ha")));
+    } else if (key == "SQ_CURB") {
+        m_units->setText(tr("Curb length: %1 (project length units).").arg(m_length));
+    } else if (key == "SQ_INITIAL") {
+        m_units->setText(tr(
+            "Initial concentration in the species' units (water age in hours, temperature in °C) in water standing on the cell at the start. This sets an initial value, not a sustained load."));
+    } else if (source) {
         m_units->setText(tr(
             "Flow: m³/s, independent of project length units. Series values keep their authored times; preview lists only the currently authored constant or series reference."));
     } else if (quality) {
@@ -1001,6 +1224,7 @@ void GroundwaterAssignDialog::addSpeciesTerm()
     m_terms->setCellWidget(row, 0, species);
     m_terms->setCellWidget(row, 1, kind);
     m_terms->setItem(row, 2, new QTableWidgetItem("0"));
+    m_terms->setItem(row, 5, new QTableWidgetItem(QString()));
     m_terms->setCellWidget(row, 3, series);
     auto *unit = new QLabel(m_terms);
     m_terms->setCellWidget(row, 4, unit);
@@ -1076,6 +1300,17 @@ void GroundwaterAssignDialog::sourceChanged()
     m_densityUnits->setEnabled(flux);
     m_coverage->setEnabled(flux);
     m_skip->setEnabled(!flux);
+    const QString key = m_target->currentData().toString();
+    const bool coverage = key == "SQ_COVERAGE";
+    m_cellSampling->setEnabled(!manual && !coverage && key != "FLOW");
+    m_landUse->setEnabled(coverage && manual);
+    m_classLookup->setEnabled(coverage && !manual);
+    m_scale->setEnabled(!manual && !coverage);
+    m_offset->setEnabled(!manual && !coverage);
+    if (auto *form = findChild<QFormLayout *>("gwAssignmentForm"))
+        if (auto *caption = qobject_cast<QLabel *>(form->labelForField(m_field)))
+            caption->setText(coverage ? tr("Land-use class field:") : tr("Numeric field:"));
+    m_field->setAccessibleName(coverage ? tr("Land-use class field") : tr("Numeric field"));
     if (!m_canvas)
         return;
     for (auto *base : m_canvas->layers())
@@ -1277,10 +1512,19 @@ void GroundwaterAssignDialog::preview()
     m_haveOwnership = false;
     AquiferRequest request;
     GroundwaterTransportRequest transport;
+    RowAssignmentRequest rowRequest;
     const QString key = m_target->currentData().toString();
-    const bool isTransport = key == "FLOW" || key == "INITIAL_QUALITY";
-    const bool fluxMode = key == "FLOW" && m_route->currentIndex() == 2 &&
-                          m_sampling->currentData() == "flux-density";
+    const bool surface = key.startsWith(QLatin1String("SQ_")), coverage = key == "SQ_COVERAGE";
+    const bool gwQuality = key == "INITIAL_QUALITY";
+    const QString strategy = m_strategy->currentData().toString();
+    const bool isTransport = key == "FLOW" || gwQuality;
+    bool isRows = surface || (gwQuality && strategy != "CELL");
+    const int route = m_route->currentIndex();
+    const bool fluxMode = key == "FLOW" && route == 2 && m_sampling->currentData() == "flux-density";
+    const bool areaMean =
+        route && !coverage && key != "FLOW" && m_cellSampling->currentData() == "area";
+    const bool zonal = route == 2 && (coverage || areaMean); // exact pixel overlap
+    const bool pointCapable = key == "FLOW" && route == 1;    // point layers: one source each
     if (fluxMode && m_densityUnits->currentData().toString().isEmpty()) {
         m_status->setText(tr("Choose explicit water flux density units before preview."));
         m_densityUnits->setFocus();
@@ -1291,7 +1535,7 @@ void GroundwaterAssignDialog::preview()
             m_status->setText(error);
             return;
         }
-    } else if (!readAquiferSnapshot(m_engine, &request.before, &error)) {
+    } else if (!surface && !readAquiferSnapshot(m_engine, &request.before, &error)) {
         m_status->setText(error);
         return;
     }
@@ -1307,6 +1551,7 @@ void GroundwaterAssignDialog::preview()
     m_attributes = m_mesh->attrRevision();
     m_meshPath = m_mesh->sourcePath();
     m_meshCrs = m_mesh->srs() ? m_mesh->srs()->toWkt() : QString();
+    const auto &meshData = m_mesh->mesh();
     MeshAssignmentSampling::Job job;
     job.strictCrs = true;
     job.rejectOverlaps = true;
@@ -1315,12 +1560,37 @@ void GroundwaterAssignDialog::preview()
     job.targetKeys = {request.target.toUtf8()};
     job.targetMin = {-std::numeric_limits<double>::max()};
     job.targetMax = {std::numeric_limits<double>::max()};
+    QVector<double> areas;
+    QVector<QVector<QPointF>> footprints;
     for (int cell : m_scope) {
-        request.cellTags.append(m_mesh->mesh().triangles[cell].tag);
-        job.centroids.append(
-            mesh::cellGeom(m_mesh->mesh().vertices, m_mesh->mesh().triangles[cell]).centroid);
+        const auto &t = meshData.triangles[cell];
+        request.cellTags.append(t.tag);
+        job.centroids.append(mesh::cellGeom(meshData.vertices, t).centroid);
+        areas.append(std::abs(mesh::cellSignedArea(meshData.vertices, t)));
+        QVector<QPointF> polygon;
+        for (int k = 0; k < t.vertexCount(); ++k) {
+            const int vertex = t.vertex(k);
+            if (vertex < 0 || vertex >= meshData.vertices.size()) {
+                m_status->setText(tr("A selected cell has an invalid vertex."));
+                return;
+            }
+            polygon.append(meshData.vertices[vertex].xy);
+        }
+        footprints.append(polygon);
+        for (int k = 0; k < 4; ++k) // overlay footprints: a triangle repeats its first corner
+            job.triVerts.append(polygon[k < polygon.size() ? k : 0]);
     }
-    const int route = m_route->currentIndex();
+    if (coverage) {
+        job.mode = MeshAssignmentSampling::Mode::CategoryShare;
+        job.keyField1 = m_field->text();
+        job.sampling = MeshAssignmentSampling::Sampling::AreaWeightedMean;
+    } else if (areaMean) {
+        job.sampling = MeshAssignmentSampling::Sampling::AreaWeightedMean;
+    }
+    // Layer tags are what Save writes; TAG rows need them equal to the model's.
+    QStringList layerTags;
+    for (const auto &t : meshData.triangles)
+        layerTags.append(t.tag);
     if (isTransport) {
         transport.cells = request.cells;
         transport.skipNoData = request.skipNoData;
@@ -1334,7 +1604,7 @@ void GroundwaterAssignDialog::preview()
         transport.distribution = m_distribution->currentIndex() == 1
                                      ? GroundwaterSourceDistribution::RegionTotal
                                      : GroundwaterSourceDistribution::PerCell;
-        if (key == "INITIAL_QUALITY") {
+        if (gwQuality) {
             bool known = false;
             for (const auto &sp : m_speciesCatalog)
                 if (sp.id == transport.species && !sp.nativeConcUnits.isEmpty())
@@ -1351,9 +1621,7 @@ void GroundwaterAssignDialog::preview()
                     "Region-total or time-series flow requires the manual input method. Use per-cell distribution with raster density integration; it already computes each cell’s m³/s without further area weighting."));
                 return;
             }
-            for (int cell : m_scope)
-                transport.areaWeights.append(std::abs(
-                    mesh::cellSignedArea(m_mesh->mesh().vertices, m_mesh->mesh().triangles[cell])));
+            transport.areaWeights = areas;
             for (int row = 0; row < m_terms->rowCount(); ++row) {
                 GroundwaterSpeciesTerm term;
                 term.species = qobject_cast<QComboBox *>(m_terms->cellWidget(row, 0))
@@ -1370,6 +1638,110 @@ void GroundwaterAssignDialog::preview()
                     return;
                 }
                 transport.terms.append(term);
+            }
+            if (strategy == "TAG") {
+                if (layerTags != transport.before.cellTags) {
+                    m_status->setText(tr(
+                        "One TAG source cannot be written: mesh tag edits since the last save are not in the model yet. Save first, or write CELL rows."));
+                    return;
+                }
+                transport.tag = m_tagName->text().trimmed();
+                for (int n = 1; transport.tag.isEmpty(); ++n)
+                    if (!layerTags.contains(QStringLiteral("SOURCE_%1").arg(n)))
+                        transport.tag = QStringLiteral("SOURCE_%1").arg(n);
+                transport.allowRetag = m_allowRetag->isChecked();
+            }
+        }
+    }
+    QStringList strategyNotes;
+    if (!isTransport && !surface && strategy != "CELL") {
+        // Aquifer TAG rows resolve against the engine tags, which must match what Save writes.
+        request.allCellTags = engineCellTags(m_engine, &error);
+        if (!error.isEmpty() || request.allCellTags != layerTags) {
+            if (strategy == "TAG") {
+                m_status->setText(tr("One TAG row cannot be written: mesh tag edits since the "
+                                     "last save are not in the model yet."));
+                return;
+            }
+            error.clear();
+            strategyNotes << tr("Automatic: one CELL override per cell, because mesh tag edits "
+                                "since the last save are not in the model yet.");
+        } else {
+            request.strategy = strategy == "TAG" ? AquiferWriteStrategy::TagRow
+                                                 : AquiferWriteStrategy::Automatic;
+            request.tag = m_tagName->text().trimmed();
+            request.allowRetag = m_allowRetag->isChecked();
+        }
+    }
+    if (isRows) {
+        using Section = Mesh2DSectionRowModel::Section;
+        const Section section = coverage                ? Section::Coverages
+                                : key == "SQ_LOADING"   ? Section::Loadings
+                                : key == "SQ_CURB"      ? Section::CurbLength
+                                : key == "SQ_INITIAL"   ? Section::SurfaceInitialQuality
+                                                        : Section::GwInitialQuality;
+        if (!readRowAssignmentSnapshot(m_engine, section, &rowRequest.before, &error)) {
+            m_status->setText(error);
+            return;
+        }
+        rowRequest.cells = m_scope;
+        rowRequest.skipNoData = request.skipNoData;
+        rowRequest.name =
+            surface ? m_surfaceSpecies->currentData().toString() : transport.species;
+        rowRequest.zone = gwQuality ? transport.zone : 0;
+        rowRequest.strategy = strategy == "TAG"    ? RowWriteStrategy::TagRow
+                              : strategy == "CELL" ? RowWriteStrategy::CellRows
+                                                   : RowWriteStrategy::Automatic;
+        rowRequest.tag = m_tagName->text().trimmed();
+        rowRequest.allowRetag = m_allowRetag->isChecked();
+        if (rowRequest.strategy != RowWriteStrategy::CellRows) {
+            QString refuse;
+            if (layerTags != rowRequest.before.cellTags)
+                refuse = tr("mesh tag edits since the last save are not in the model yet");
+            else if (gwQuality && !transport.before.qualityFile.isEmpty())
+                refuse = tr("[GW_INITIAL_QUALITY] rows come from a FILE reference");
+            else if (gwQuality && transport.zone == 2)
+                refuse = tr("soil-layer values are written per cell");
+            if (!refuse.isEmpty()) {
+                if (rowRequest.strategy == RowWriteStrategy::TagRow) {
+                    m_status->setText(tr("One TAG row cannot be written: %1.").arg(refuse));
+                    return;
+                }
+                rowRequest.strategy = RowWriteStrategy::CellRows;
+                strategyNotes << tr("Automatic: one CELL row per cell, because %1.").arg(refuse);
+                isRows = !gwQuality; // groundwater CELL rows use the per-cell transport path
+            } else {
+                rowRequest.tagUsage = tagReferences(m_engine);
+                for (const auto &row : meshData.infilDefaults)
+                    if (!rowRequest.tagUsage.value(row.tag).contains("[2D_INFILTRATION_DEFAULTS]"))
+                        rowRequest.tagUsage[row.tag] << QStringLiteral("[2D_INFILTRATION_DEFAULTS]");
+            }
+        }
+    }
+    QMap<QString, QString> lookup;
+    QString manualLandUse;
+    if (coverage) {
+        if (route == 0) {
+            manualLandUse = m_landUse->currentData().toString();
+            if (manualLandUse.isEmpty()) {
+                m_status->setText(tr("The model has no land uses; add them under [LANDUSES]."));
+                return;
+            }
+        } else {
+            lookup = parseClassLookup(m_classLookup->text(), rowRequest.before.landUses, &error);
+            if (!error.isEmpty()) {
+                m_status->setText(error);
+                return;
+            }
+            if (route == 2 && lookup.isEmpty()) {
+                m_status->setText(tr("Raster classes are numbers: enter a class lookup such as "
+                                     "1=Urban, 2=Grass."));
+                m_classLookup->setFocus();
+                return;
+            }
+            if (route == 1 && m_field->text().trimmed().isEmpty()) {
+                m_status->setText(tr("Choose the field that holds each polygon's land-use class."));
+                return;
             }
         }
     }
@@ -1422,21 +1794,46 @@ void GroundwaterAssignDialog::preview()
         fluxRequest.offset = job.offset;
         fluxRequest.coverage =
             request.skipNoData ? RasterFluxCoverage::ValidAreaOnly : RasterFluxCoverage::Complete;
-        for (int id : m_scope) {
-            const auto &cell = m_mesh->mesh().triangles[id];
-            QVector<QPointF> polygon;
-            for (int k = 0; k < cell.vertexCount(); ++k) {
-                const int vertex = cell.vertex(k);
-                if (vertex < 0 || vertex >= m_mesh->mesh().vertices.size()) {
-                    m_status->setText(tr("A selected cell has an invalid vertex."));
-                    return;
-                }
-                polygon.append(m_mesh->mesh().vertices[vertex].xy);
-            }
-            fluxRequest.footprints.append(polygon);
-        }
+        fluxRequest.footprints = footprints;
+    }
+    RasterZonalRequest zonalRequest;
+    if (zonal) {
+        zonalRequest.path = path;
+        zonalRequest.band = m_band->value();
+        zonalRequest.meshCrsWkt = m_meshCrs;
+        zonalRequest.assignedSourceCrsWkt = job.assignedSourceCrsWkt;
+        zonalRequest.cells = m_scope;
+        zonalRequest.footprints = footprints;
+        zonalRequest.scale = job.scale;
+        zonalRequest.offset = job.offset;
+        zonalRequest.categorical = coverage;
+    }
+    PointSourceJob pointJob;
+    if (pointCapable) {
+        pointJob.path = path;
+        pointJob.layerName = job.vectorLayerName;
+        pointJob.filter = job.vectorFilterExpr;
+        pointJob.assignedSourceCrsWkt = job.assignedSourceCrsWkt;
+        pointJob.meshCrsWkt = m_meshCrs;
+        pointJob.filterBySelection = job.filterBySelection && m_selectedFeatures->isChecked();
+        pointJob.selectedIds = job.selectedIds;
+        pointJob.nameField = m_pointName->text().trimmed();
+        pointJob.flowField = m_field->text().trimmed();
+        for (int row = 0; row < m_terms->rowCount(); ++row)
+            pointJob.termFields << (m_terms->item(row, 5) ? m_terms->item(row, 5)->text().trimmed()
+                                                          : QString());
+        pointJob.scale = job.scale;
+        pointJob.offset = job.offset;
+        pointJob.vertices = meshData.vertices;
+        pointJob.cells = meshData.triangles;
+        for (int cell : m_scope)
+            pointJob.scope.insert(cell);
+        pointJob.byXy = m_pointPlacement->currentData() == "XY";
     }
     request.values.fill(m_value->value(), m_scope.size());
+    QVector<QMap<QString, double>> manualPercents;
+    if (coverage && route == 0)
+        manualPercents.fill({{manualLandUse, m_value->value()}}, m_scope.size());
     m_recipe = {{"operationId", QUuid::createUuid().toString(QUuid::WithoutBraces)},
                 {"recordKind", "snapshot-assignment-audit"},
                 {"version", 1},
@@ -1449,7 +1846,10 @@ void GroundwaterAssignDialog::preview()
                 {"band", m_band->value()},
                 {"scale", job.scale},
                 {"offset", job.offset},
-                {"sampling", "centroid"},
+                {"sampling", zonal       ? "pixel-cell-area-weighted"
+                             : areaMean  ? "polygon-area-weighted"
+                             : coverage  ? "polygon-area-share"
+                                         : "centroid"},
                 {"skipNoData", request.skipNoData},
                 {"meshCrsWkt", m_meshCrs},
                 {"assignedSourceCrsWkt", job.assignedSourceCrsWkt},
@@ -1457,7 +1857,14 @@ void GroundwaterAssignDialog::preview()
                 {"scopeMode", m_scopeChoice->currentIndex()},
                 {"scopeText", m_scopeText->text()},
                 {"meshLayerId", m_mesh->layerId()},
+                {"writeStrategy", strategy},
+                {"tag", m_tagName->text().trimmed()},
                 {"refreshPolicy", "snapshot-only"}};
+    if (surface) {
+        m_recipe["species"] = rowRequest.name;
+        m_recipe["landUse"] = manualLandUse;
+        m_recipe["classLookup"] = m_classLookup->text();
+    }
     if (fluxMode) {
         m_recipe["sampling"] = "pixel-cell-area-integral";
         m_recipe["densityUnits"] = fluxRequest.densityUnit;
@@ -1474,12 +1881,19 @@ void GroundwaterAssignDialog::preview()
         m_recipe["flowSeries"] = transport.flowSeries;
         m_recipe["sourceName"] = transport.sourceName;
         QJsonArray terms;
-        for (const auto &t : transport.terms)
+        for (int i = 0; i < transport.terms.size(); ++i) {
+            const auto &t = transport.terms[i];
             terms.append(QJsonObject{{"species", t.species},
                                      {"kind", t.kind},
                                      {"series", t.series},
-                                     {"value", t.value}});
+                                     {"value", t.value},
+                                     {"field", pointJob.termFields.value(i)}});
+        }
         m_recipe["terms"] = terms;
+        if (pointCapable) {
+            m_recipe["pointNameField"] = pointJob.nameField;
+            m_recipe["pointPlacement"] = pointJob.byXy ? "XY" : "CELL";
+        }
     }
     QJsonArray ids;
     for (int cell : m_scope)
@@ -1490,6 +1904,9 @@ void GroundwaterAssignDialog::preview()
         fids.append(QString::number(id));
     m_recipe["featureIds"] = fids;
     const auto serial = m_serial;
+    const bool us = m_length == QLatin1String("ft");
+    const QString sourcePrefix = transport.sourceName.isEmpty() ? QStringLiteral("Assigned")
+                                                                : transport.sourceName;
     m_preview->setEnabled(false);
     m_status->setText(tr("Preparing an immutable preview…"));
     m_watcher = new QFutureWatcher<WorkResult>(this);
@@ -1501,82 +1918,213 @@ void GroundwaterAssignDialog::preview()
         }
         finishPreview();
     });
-    m_watcher->setFuture(QtConcurrent::run([request, transport, isTransport, job, route, path,
-                                            serial, fluxMode,
-                                            fluxRequest](QPromise<WorkResult> &promise) mutable {
-        Q_UNUSED(serial);
-        WorkResult result;
-        try {
-            if (route) {
-                auto files = sourceFiles(path, &result.error);
-                if (result.error.isEmpty())
-                    result.fingerprints =
-                        fingerprints(files, &result.error, [&] { return promise.isCanceled(); });
-                if (result.error.isEmpty()) {
-                    if (fluxMode) {
-                        result.isFlux = true;
-                        result.flux =
-                            integrateRasterFlux(fluxRequest, [&] { return promise.isCanceled(); });
-                        result.error = result.flux.error;
-                        result.cancelled = result.flux.cancelled;
-                        request.values = result.flux.flows;
-                        if (result.error.isEmpty() && !result.cancelled &&
-                            fingerprints(files, &result.error,
-                                         [&] { return promise.isCanceled(); }) !=
-                                result.fingerprints &&
-                            result.error.isEmpty())
-                            result.error =
-                                QObject::tr("The source changed while integrating; preview again.");
-                    } else {
-                        const auto sampled =
-                            sampleMeshAssignment(job, [&] { return promise.isCanceled(); });
-                        result.error = sampled.error;
-                        result.cancelled = sampled.cancelled;
-                        request.values.fill(std::numeric_limits<double>::quiet_NaN(),
-                                            request.cells.size());
-                        if (sampled.skippedRange || sampled.skippedNonNumeric)
-                            result.error = QObject::tr(
-                                "The source contains invalid numeric values; no assignment was prepared.");
-                        if (result.error.isEmpty() && !result.cancelled) {
-                            for (int i = 0; i < sampled.triangles.size(); ++i) {
-                                const auto at =
-                                    std::lower_bound(request.cells.begin(), request.cells.end(),
-                                                     sampled.triangles[i]);
-                                if (at != request.cells.end() && *at == sampled.triangles[i] &&
-                                    !sampled.values.isEmpty())
-                                    request.values[int(at - request.cells.begin())] =
-                                        route == 1 ? sampled.values[0][i] * job.scale + job.offset
-                                                   : sampled.values[0][i];
+    m_watcher->setFuture(QtConcurrent::run(
+        [request, transport, rowRequest, isTransport, isRows, gwQuality, coverage, zonal,
+         pointCapable, job, route, path, fluxMode, fluxRequest, zonalRequest, pointJob, lookup,
+         manualPercents, areas, strategyNotes, us, sourcePrefix,
+         key](QPromise<WorkResult> &promise) mutable {
+            WorkResult result;
+            const auto stop = [&] { return promise.isCanceled(); };
+            QStringList notes = strategyNotes;
+            QVector<QMap<QString, double>> percents = manualPercents;
+            bool points = false;
+            try {
+                if (route) {
+                    auto files = sourceFiles(path, &result.error);
+                    if (result.error.isEmpty())
+                        result.fingerprints = fingerprints(files, &result.error, stop);
+                    if (result.error.isEmpty() && pointCapable) {
+                        const auto sample = samplePointSources(pointJob, stop);
+                        result.error = sample.error;
+                        result.cancelled = sample.cancelled;
+                        if (sample.pointLayer && result.error.isEmpty() && !result.cancelled) {
+                            points = true;
+                            transport.target = GroundwaterTransportTarget::PointSources;
+                            for (const auto &f : sample.features) {
+                                if (!f.problem.isEmpty()) {
+                                    result.unmatched << QObject::tr("feature %1: %2")
+                                                            .arg(f.fid)
+                                                            .arg(f.problem);
+                                    continue;
+                                }
+                                GroundwaterSourceRow row;
+                                row.name = f.name.isEmpty()
+                                               ? QStringLiteral("%1_pt%2").arg(sourcePrefix).arg(f.fid)
+                                               : f.name;
+                                row.cell = pointJob.byXy ? f.xyCell : f.cell;
+                                row.flow = f.flow;
+                                row.byXy = pointJob.byXy;
+                                row.x = f.xy.x();
+                                row.y = f.xy.y();
+                                for (int k = 0; k < transport.terms.size(); ++k) {
+                                    auto term = transport.terms[k];
+                                    if (!std::isnan(f.termValues.value(k, std::nan(""))))
+                                        term.value = f.termValues[k];
+                                    row.terms.append(term);
+                                }
+                                if (f.sharedEdge)
+                                    notes << QObject::tr("Feature %1 lies on a shared cell edge; "
+                                                         "it is placed in cell %2.")
+                                                 .arg(f.fid)
+                                                 .arg(f.cell + 1);
+                                if (pointJob.byXy && f.xyCell != f.cell)
+                                    notes << QObject::tr("Feature %1 lies in cell %2; its XY row "
+                                                         "resolves to the nearest centroid, cell "
+                                                         "%3.")
+                                                 .arg(f.fid)
+                                                 .arg(f.cell + 1)
+                                                 .arg(f.xyCell + 1);
+                                transport.points.append(row);
                             }
-                            if (fingerprints(files, &result.error,
-                                             [&] { return promise.isCanceled(); }) !=
-                                    result.fingerprints &&
-                                result.error.isEmpty())
-                                result.error = QObject::tr(
-                                    "The source changed while sampling; preview again.");
                         }
                     }
+                    if (result.error.isEmpty() && !result.cancelled && !points) {
+                        if (fluxMode) {
+                            result.isFlux = true;
+                            result.flux = integrateRasterFlux(fluxRequest, stop);
+                            result.error = result.flux.error;
+                            result.cancelled = result.flux.cancelled;
+                            request.values = result.flux.flows;
+                        } else if (zonal) {
+                            const auto z = integrateRasterZonal(zonalRequest, stop);
+                            result.error = z.error;
+                            result.cancelled = z.cancelled;
+                            if (result.error.isEmpty() && !result.cancelled) {
+                                request.values.fill(std::numeric_limits<double>::quiet_NaN(),
+                                                    request.cells.size());
+                                percents.fill({}, request.cells.size());
+                                double mapped = 0, unmapped = 0, total = 0;
+                                for (int i = 0; i < request.cells.size(); ++i) {
+                                    total += z.cellAreas[i];
+                                    if (!coverage) {
+                                        if (z.validAreas[i] > 0)
+                                            request.values[i] = z.means[i];
+                                        continue;
+                                    }
+                                    QMap<QString, double> fractions;
+                                    for (auto it = z.classAreas[i].cbegin();
+                                         it != z.classAreas[i].cend(); ++it)
+                                        fractions.insert(QString::number(it.key()),
+                                                         it.value() / z.cellAreas[i]);
+                                    double lost = 0;
+                                    percents[i] = sharesToPercents(fractions, lookup,
+                                                                   rowRequest.before.landUses,
+                                                                   &lost);
+                                    unmapped += lost * z.cellAreas[i];
+                                    mapped += z.validAreas[i] - lost * z.cellAreas[i];
+                                }
+                                if (coverage && total > 0)
+                                    notes << QObject::tr("Land-use shares: %1 % of the selected "
+                                                         "area maps to land uses, %2 % lies in "
+                                                         "classes without a land use, %3 % has "
+                                                         "no raster value.")
+                                                 .arg(displayNumber(100 * mapped / total),
+                                                      displayNumber(100 * unmapped / total),
+                                                      displayNumber(
+                                                          100 * (total - mapped - unmapped) /
+                                                          total));
+                            }
+                        } else {
+                            const auto sampled = sampleMeshAssignment(job, stop);
+                            result.error = sampled.error;
+                            result.cancelled = sampled.cancelled;
+                            request.values.fill(std::numeric_limits<double>::quiet_NaN(),
+                                                request.cells.size());
+                            percents.fill({}, request.cells.size());
+                            if (sampled.skippedRange || sampled.skippedNonNumeric)
+                                result.error = QObject::tr(
+                                    "The source contains invalid numeric values; no assignment was prepared.");
+                            double mapped = 0, unmapped = 0, total = 0;
+                            for (double a : areas)
+                                total += a;
+                            if (result.error.isEmpty() && !result.cancelled)
+                                for (int i = 0; i < sampled.triangles.size(); ++i) {
+                                    const auto at = std::lower_bound(request.cells.begin(),
+                                                                     request.cells.end(),
+                                                                     sampled.triangles[i]);
+                                    if (at == request.cells.end() || *at != sampled.triangles[i])
+                                        continue;
+                                    const int index = int(at - request.cells.begin());
+                                    if (coverage) {
+                                        double lost = 0, covered = 0;
+                                        for (double f : sampled.shares[i])
+                                            covered += f;
+                                        percents[index] = sharesToPercents(
+                                            sampled.shares[i], lookup, rowRequest.before.landUses,
+                                            &lost);
+                                        unmapped += lost * areas[index];
+                                        mapped += (covered - lost) * areas[index];
+                                    } else if (!sampled.values.isEmpty()) {
+                                        request.values[index] =
+                                            route == 1 ? sampled.values[0][i] * job.scale + job.offset
+                                                       : sampled.values[0][i];
+                                    }
+                                }
+                            if (coverage && total > 0)
+                                notes << QObject::tr("Land-use shares: %1 % of the selected area "
+                                                     "maps to land uses, %2 % lies in classes "
+                                                     "without a land use, %3 % has no polygon.")
+                                             .arg(displayNumber(100 * mapped / total),
+                                                  displayNumber(100 * unmapped / total),
+                                                  displayNumber(100 * (total - mapped - unmapped) /
+                                                                total));
+                        }
+                    }
+                    if (result.error.isEmpty() && !result.cancelled &&
+                        fingerprints(files, &result.error, stop) != result.fingerprints &&
+                        result.error.isEmpty())
+                        result.error =
+                            QObject::tr("The source changed while sampling; preview again.");
                 }
+                if (result.error.isEmpty() && !result.cancelled && !promise.isCanceled()) {
+                    result.values = request.values;
+                    if (points) {
+                        result.isTransport = true;
+                        result.transport = previewGroundwaterTransport(transport, stop);
+                    } else if (isRows) {
+                        rowRequest.values = request.values;
+                        rowRequest.percents = percents;
+                        result.rows = previewRowAssignment(rowRequest, stop);
+                        result.isRows = true;
+                        notes << result.rows.notes;
+                        if (gwQuality && result.rows.error.isEmpty() && !result.rows.tagRow) {
+                            // Automatic chose CELL rows: those use the per-cell transport path.
+                            result.isRows = false;
+                            result.isTransport = true;
+                            notes = strategyNotes + result.rows.notes;
+                            transport.values = request.values;
+                            result.transport = previewGroundwaterTransport(transport, stop);
+                        } else if (key == "SQ_LOADING" && result.rows.error.isEmpty()) {
+                            double mass = 0;
+                            for (int i = 0; i < request.cells.size(); ++i)
+                                if (std::isfinite(request.values[i]) &&
+                                    (result.rows.cells.contains(request.cells[i]) ||
+                                     result.rows.unchangedCells.contains(request.cells[i])))
+                                    mass += request.values[i] * areas[i] / (us ? 43560.0 : 1e4);
+                            notes << QObject::tr("Integrated initial buildup over the assigned "
+                                                 "cells: %1 %2.")
+                                         .arg(displayNumber(mass), us ? QObject::tr("lb")
+                                                                      : QObject::tr("kg"));
+                        }
+                    } else if (isTransport) {
+                        result.isTransport = true;
+                        transport.values = request.values;
+                        result.transport = previewGroundwaterTransport(transport, stop);
+                    } else {
+                        result.preview = previewAquiferAssignment(request, stop);
+                        notes << result.preview.notes;
+                    }
+                }
+            } catch (const std::exception &e) {
+                result.error = QString::fromUtf8(e.what());
+            } catch (...) {
+                result.error = QObject::tr("Assignment preview failed.");
             }
-            if (result.error.isEmpty() && !result.cancelled && !promise.isCanceled()) {
-                result.isTransport = isTransport;
-                result.values = request.values;
-                if (isTransport) {
-                    transport.values = request.values;
-                    result.transport = previewGroundwaterTransport(
-                        transport, [&] { return promise.isCanceled(); });
-                } else
-                    result.preview =
-                        previewAquiferAssignment(request, [&] { return promise.isCanceled(); });
-            }
-        } catch (const std::exception &e) {
-            result.error = QString::fromUtf8(e.what());
-        } catch (...) {
-            result.error = QObject::tr("Assignment preview failed.");
-        }
-        result.cancelled = result.cancelled || promise.isCanceled();
-        promise.addResult(result);
-    }));
+            if (!notes.isEmpty())
+                result.summary += QStringLiteral(" ") + notes.join(QStringLiteral(" "));
+            result.cancelled = result.cancelled || promise.isCanceled();
+            promise.addResult(result);
+        }));
 }
 void GroundwaterAssignDialog::finishPreview()
 {
@@ -1604,7 +2152,9 @@ void GroundwaterAssignDialog::finishPreview()
         m_status->setText(error);
         return;
     }
-    const QString previewError = result.isTransport ? result.transport.error : result.preview.error;
+    const QString previewError = result.isRows        ? result.rows.error
+                                 : result.isTransport ? result.transport.error
+                                                      : result.preview.error;
     if (!result.error.isEmpty() || !previewError.isEmpty()) {
         m_status->setText(result.error.isEmpty() ? previewError : result.error);
         return;
@@ -1617,15 +2167,42 @@ void GroundwaterAssignDialog::finishPreview()
         m_recipe["integratedFlowM3PerS"] = f.totalFlow;
         m_recipe["partialCells"] = f.partialCells;
         m_recipe["emptyCells"] = f.emptyCells;
-        result.summary =
+        result.summary.prepend(
             tr(" Raster coverage: %1 m² valid, %2 m² uncovered; %3 partial cells. Integrated water flow: %4 m³/s.")
                 .arg(openswmmvis::displayNumber(f.validArea),
                      openswmmvis::displayNumber(f.uncoveredArea))
                 .arg(f.partialCells)
-                .arg(openswmmvis::displayNumber(f.totalFlow));
+                .arg(openswmmvis::displayNumber(f.totalFlow)));
     }
     m_table->setSortingEnabled(false);
     const auto restoreSorting = qScopeGuard([this] { m_table->setSortingEnabled(true); });
+    if (result.isRows) {
+        m_reviewed = result;
+        m_havePreview = true;
+        const auto &p = result.rows;
+        m_table->setHorizontalHeaderLabels(
+            {tr("Cell"), tr("Old effective value"), tr("New value")});
+        m_table->setRowCount(std::min(qsizetype(500), p.cells.size()));
+        for (int i = 0; i < m_table->rowCount(); ++i) {
+            m_table->setItem(i, 0, new NumericTableWidgetItem(QString::number(p.cells[i] + 1)));
+            m_table->setItem(i, 1, new QTableWidgetItem(p.oldValues.value(i)));
+            m_table->setItem(i, 2, new QTableWidgetItem(p.newValues.value(i)));
+        }
+        m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        for (int column = 1; column < 3; ++column) // coverage sets need the width
+            m_table->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Stretch);
+        const QString section = Mesh2DSectionRowModel(p.before.section).sectionName();
+        m_status->setText(
+            tr("Preview %1: %2 cell(s) change, written as %3. %4 cell(s) already have this value; %5 cell(s) without a source value are preserved. The table shows up to 500 cells.%6")
+                .arg(section)
+                .arg(p.cells.size())
+                .arg(p.tagRow ? tr("one TAG row for tag %1").arg(p.tag) : tr("CELL rows"))
+                .arg(p.unchangedCells.size())
+                .arg(p.skippedCells.size())
+                .arg(result.summary));
+        m_apply->setEnabled(!(p.before == p.after));
+        return;
+    }
     if (result.isTransport) {
         m_reviewed = result;
         m_havePreview = true;
@@ -1633,13 +2210,24 @@ void GroundwaterAssignDialog::finishPreview()
         m_table->setRowCount(std::min(qsizetype(500), p.cells.size()));
         m_table->setHorizontalHeaderLabels(
             {tr("Cell"), tr("Previous records"), tr("Reviewed value / series")});
-        QHash<int, QString> sourceValues;
-        if (p.target == GroundwaterTransportTarget::Source)
+        QHash<int, QStringList> sourceValues;
+        const bool sources = p.target != GroundwaterTransportTarget::InitialQuality;
+        if (sources)
             for (int i = p.before.sources.size(); i < p.after.sources.size(); ++i) {
                 const auto &r = p.after.sources[i];
-                sourceValues.insert(
-                    r.cell, (r.series.isEmpty() ? openswmmvis::displayNumber(r.flow) : r.series) +
-                                tr(" × %1").arg(openswmmvis::displayNumber(r.scale)));
+                const QString flow =
+                    (r.series.isEmpty() ? openswmmvis::displayNumber(r.flow) : r.series) +
+                    tr(" × %1").arg(openswmmvis::displayNumber(r.scale));
+                if (r.scope == 1) { // one TAG source: the engine area-weights its total
+                    for (int cell : p.cells)
+                        sourceValues[cell] << tr("TAG %1 source %2: %3 m³/s total, area-weighted")
+                                                  .arg(r.tag, r.name, flow);
+                } else if (p.target == GroundwaterTransportTarget::PointSources) {
+                    sourceValues[r.cell] << tr("%1%2: %3 m³/s")
+                                                .arg(r.name, r.byXy ? tr(" (XY)") : QString(), flow);
+                } else {
+                    sourceValues[r.cell] << flow;
+                }
             }
         for (int i = 0; i < m_table->rowCount(); ++i) {
             const int cell = p.cells[i];
@@ -1648,8 +2236,8 @@ void GroundwaterAssignDialog::finishPreview()
             QString value = at < result.values.size()
                                 ? openswmmvis::displayNumber(result.values[at])
                                 : QString();
-            if (p.target == GroundwaterTransportTarget::Source)
-                value = sourceValues.value(cell);
+            if (sources)
+                value = sourceValues.value(cell).join(QStringLiteral("; "));
             if (result.isFlux && at < result.flux.validAreas.size())
                 value += tr(" m³/s; %1 m² valid, %2 m² uncovered")
                              .arg(openswmmvis::displayNumber(result.flux.validAreas[at]),
@@ -1662,19 +2250,55 @@ void GroundwaterAssignDialog::finishPreview()
             m_table->setItem(i, 2, new openswmmvis::ui::NumericTableWidgetItem(value));
         }
         QString totals;
-        if (p.target == GroundwaterTransportTarget::Source) {
+        if (sources) {
             double flow = 0;
             bool series = false;
+            QMap<QString, double> mass;
             for (int i = p.before.sources.size(); i < p.after.sources.size(); ++i) {
                 const auto &r = p.after.sources[i];
                 flow += r.flow * r.scale;
                 series |= !r.series.isEmpty();
+                for (const auto &t : r.terms)
+                    if (t.kind == QLatin1String("MASS")) {
+                        mass[t.species] += t.value * r.scale;
+                        series |= !t.series.isEmpty();
+                    }
             }
             totals =
                 series
                     ? tr(" Flow series and area scales are preserved; no single instantaneous total is implied.")
                     : tr(" Total authored constant flow: %1 m³/s.")
                           .arg(openswmmvis::displayNumber(flow));
+            if (!series)
+                for (auto it = mass.cbegin(); it != mass.cend(); ++it)
+                    totals += tr(" Total %1 MASS rate: %2 (species mass units per second).")
+                                  .arg(it.key(), openswmmvis::displayNumber(it.value()));
+            // A region total is split by normalized area weights; check the split sums back.
+            const bool regionTotal = p.target == GroundwaterTransportTarget::Source &&
+                                     !result.values.isEmpty() && !series &&
+                                     p.after.sources.size() > p.before.sources.size() &&
+                                     m_distribution->currentIndex() == 1;
+            if (regionTotal) {
+                const double requested = result.values.first();
+                totals += std::abs(flow - requested) <= 1e-12 * std::max(1.0, std::abs(requested))
+                              ? tr(" The split sums to the requested total.")
+                              : tr(" Warning: the split sums to %1, not the requested %2.")
+                                    .arg(openswmmvis::displayNumber(flow),
+                                         openswmmvis::displayNumber(requested));
+            }
+            if (!result.unmatched.isEmpty())
+                totals += tr(" %n point feature(s) not assigned: %1.", nullptr,
+                             result.unmatched.size())
+                              .arg(result.unmatched.mid(0, 10).join(QStringLiteral("; ")) +
+                                   (result.unmatched.size() > 10 ? tr("; …") : QString()));
+            const int retagged = [&] {
+                int n = 0;
+                for (int c = 0; c < p.after.cellTags.size() && c < p.before.cellTags.size(); ++c)
+                    n += p.after.cellTags[c] != p.before.cellTags[c];
+                return n;
+            }();
+            if (retagged)
+                totals += tr(" %n cell(s) are tagged for the TAG source.", nullptr, retagged);
         }
         m_status->setText(
             tr("Preview: %1 cells; %2 NoData cells preserved. Existing unrelated transport records are retained.%3")
@@ -1700,9 +2324,12 @@ void GroundwaterAssignDialog::finishPreview()
                              openswmmvis::displayNumber(result.preview.newValues[i])));
     }
     m_status->setText(
-        tr("Preview: %1 changed cells; %2 cells preserved for NoData / no coverage. Original aquifer rows and mesh tags are retained. The table shows up to 500 changed cells. This property/initial-state assignment adds no sustained water or mass rate.")
+        (result.preview.tagsAfter.isEmpty()
+             ? tr("Preview: %1 changed cells; %2 cells preserved for NoData / no coverage. Original aquifer rows and mesh tags are retained. The table shows up to 500 changed cells. This property/initial-state assignment adds no sustained water or mass rate.")
+             : tr("Preview: %1 cells; %2 cells preserved for NoData / no coverage. Original aquifer rows are retained; one TAG row is appended. This property/initial-state assignment adds no sustained water or mass rate."))
             .arg(result.preview.cells.size())
-            .arg(result.preview.skippedCells.size()));
+            .arg(result.preview.skippedCells.size()) +
+        result.summary);
     m_apply->setEnabled(!result.preview.appended.isEmpty());
 }
 void GroundwaterAssignDialog::apply()
@@ -1823,25 +2450,47 @@ void GroundwaterAssignDialog::commitVerified()
         invalidatePreview();
         return;
     }
-    if (m_reviewed.isTransport) {
-        const auto result = applyGroundwaterTransport(m_engine, m_reviewed.transport);
-        if (!result.success) {
-            if (result.changed && m_events) {
+    if (m_reviewed.isRows || m_reviewed.isTransport) {
+        // Both report the same success / changed / rollbackComplete contract.
+        bool success = false, changed = false, rollbackComplete = true;
+        if (m_reviewed.isRows) {
+            const auto result = applyRowAssignment(m_engine, m_reviewed.rows);
+            success = result.success;
+            changed = result.changed;
+            rollbackComplete = result.rollbackComplete;
+            error = result.error;
+        } else {
+            const auto result = applyGroundwaterTransport(m_engine, m_reviewed.transport);
+            success = result.success;
+            changed = result.changed;
+            rollbackComplete = result.rollbackComplete;
+            error = result.error;
+        }
+        if (!success) {
+            if (changed && m_events) {
                 auto event = m_recipe;
                 event["event"] = "failed-after-write";
-                event["error"] = result.error;
-                event["rollbackComplete"] = result.rollbackComplete;
+                event["error"] = error;
+                event["rollbackComplete"] = rollbackComplete;
                 emit m_events->changed(event, true);
                 emit applied();
             }
-            m_status->setText(result.error);
+            m_status->setText(error);
             invalidatePreview();
             return;
         }
+        // The mesh layer owns the tags that Save writes; follow the engine's.
+        if (m_reviewed.isRows)
+            installTags(m_mesh, m_reviewed.rows.before.cellTags, m_reviewed.rows.after.cellTags);
+        else
+            installTags(m_mesh, m_reviewed.transport.before.cellTags,
+                        m_reviewed.transport.after.cellTags);
     } else if (!applyAquiferPreview(m_engine, m_reviewed.preview, &error)) {
         m_status->setText(error);
         invalidatePreview();
         return;
+    } else {
+        installTags(m_mesh, m_reviewed.preview.tagsBefore, m_reviewed.preview.tagsAfter);
     }
     QJsonObject hashes;
     for (auto it = m_reviewed.fingerprints.begin(); it != m_reviewed.fingerprints.end(); ++it)
@@ -1868,11 +2517,13 @@ void GroundwaterAssignDialog::commitVerified()
         }
     };
     AssignmentUndo *command =
-        m_reviewed.isTransport
+        m_reviewed.isRows ? new AssignmentUndo(m_model, m_mesh, m_reviewed.rows, changed, partial)
+        : m_reviewed.isTransport
             ? new AssignmentUndo(m_model, m_mesh, m_reviewed.transport, changed, partial)
             : new AssignmentUndo(m_model, m_mesh, m_reviewed.preview, changed);
     m_canvas->undoStack()->push(command);
     m_mesh->refreshInfiltrationOwnership();
+    m_model->markEdited(); // refreshes groundwater markers and other engine-derived views
     if (events) {
         auto event = recipe;
         event["event"] = "applied";
@@ -1881,8 +2532,9 @@ void GroundwaterAssignDialog::commitVerified()
     emit applied();
     emit recipeAccepted(m_recipe);
     m_status->setText(tr("Applied %1 cell overrides as one undoable operation.")
-                          .arg(m_reviewed.isTransport ? m_reviewed.transport.cells.size()
-                                                      : m_reviewed.preview.cells.size()));
+                          .arg(m_reviewed.isRows        ? m_reviewed.rows.cells.size()
+                               : m_reviewed.isTransport ? m_reviewed.transport.cells.size()
+                                                        : m_reviewed.preview.cells.size()));
     invalidatePreview();
 }
 } // namespace

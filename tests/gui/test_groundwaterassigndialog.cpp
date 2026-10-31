@@ -9,6 +9,10 @@
 
 #include "ui/dialogs/groundwaterassigndialog.h"
 #include "assignment/groundwaterassignment.h"
+#include "assignment/spatialassignment.h"
+#include "map/tools/maptoolpick2dcells.h"
+#include <openswmm/engine/openswmm_sq2d.h>
+#include <QMouseEvent>
 #include "assignment/groundwatertransportassignment.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -17,6 +21,7 @@
 #include "map/spatialreferencesystem.h"
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
+#include <ogrsf_frmts.h>
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
 #include "core/unitsystem.h"
@@ -183,6 +188,305 @@ void configureFlux(GroundwaterAssignDialog &dialog, const QString &path)
     dialog.findChild<QLineEdit *>("gwAssignmentPath")->setText(path);
 }
 }
+// ---------------------------------------------------------------------------
+// Phase 3b (2026-10-31): spatial assignment of surface-quality rows and point sources through
+// this dialog. Files land under SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT/dialog/<test>[/<route>].
+// ---------------------------------------------------------------------------
+namespace
+{
+const QByteArray kSurfaceDeck = R"INP([OPTIONS]
+FLOW_UNITS CMS
+INFILTRATION HORTON
+FLOW_ROUTING DYNWAVE
+START_DATE 01/01/2026
+START_TIME 00:00:00
+END_DATE 01/01/2026
+END_TIME 00:05:00
+REPORT_STEP 00:01:00
+ROUTING_STEP 5
+[JUNCTIONS]
+J1 -2 4 0 0 0
+[OUTFALLS]
+O1 -2.5 FREE NO
+[CONDUITS]
+C1 J1 O1 30 0.013 0 0 0
+[XSECTIONS]
+C1 CIRCULAR 0.5 0 0 0 1
+[POLLUTANTS]
+TSS MG/L 0 0 0 0 NO * 0 0 0
+[LANDUSES]
+Urban 0 0 0
+Grass 0 0 0
+[BUILDUP]
+Urban TSS NONE 0 0 0 AREA
+Grass TSS NONE 0 0 0 AREA
+[WASHOFF]
+Urban TSS EXP 0.1 1.0 0 0
+Grass TSS EXP 0.1 1.0 0 0
+[2D_OPTIONS]
+MAX_TIMESTEP 5
+DRY_DEPTH 0.002
+REPORT_2D NO
+[2D_VERTICES]
+0 0 0
+2 0 0
+2 2 0
+0 2 0
+4 0 0
+4 2 0
+[2D_TRIANGLES]
+0 1 2 0.03 0
+[2D_QUADS]
+1 4 5 2 0.03 0
+[2D_AQUIFER_OPTIONS]
+CLOSURE CLOSED_FORM
+NODE_ENROLMENT ROWS
+[2D_AQUIFER]
+* 36 1 0.45 0.10 2 HG0 0.5
+[GW_TRANSPORT_OPTIONS]
+TRANSPORT_POLLUTANTS YES
+[COORDINATES]
+J1 1 1
+O1 40 40
+)INP";
+
+/** Output folder for one dialog test (and optional route), created on demand. */
+QString spatialOutput(const QString &leaf = {})
+{
+    QString dir = qEnvironmentVariable(
+                      "SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT",
+                      QDir::currentPath() + "/tests/output/spatial_assignment_2026-10-31") +
+                  "/dialog/" + QString::fromLatin1(QTest::currentTestFunction());
+    if (!leaf.isEmpty())
+        dir += "/" + leaf;
+    QDir().mkpath(dir);
+    return dir;
+}
+
+QString utm18Wkt()
+{
+    OGRSpatialReference srs;
+    srs.importFromEPSG(32618);
+    char *wkt = nullptr;
+    srs.exportToWkt(&wkt);
+    const QString out = QString::fromUtf8(wkt);
+    CPLFree(wkt);
+    return out;
+}
+
+/** 4 x 2 unit-pixel raster (x 0..4, y 0..2): column 0 holds @p a, columns 1..3 hold @p b. */
+QString splitRaster(const QString &path, double a, double b, GDALDataType type)
+{
+    GDALAllRegister();
+    auto *ds = GetGDALDriverManager()->GetDriverByName("GTiff")->Create(
+        path.toUtf8().constData(), 4, 2, 1, type, nullptr);
+    if (!ds)
+        return {};
+    double gt[] = {0, 1, 0, 0, 0, 1};
+    ds->SetGeoTransform(gt);
+    ds->SetProjection(utm18Wkt().toUtf8().constData());
+    QVector<double> values{a, b, b, b, a, b, b, b};
+    auto *band = ds->GetRasterBand(1);
+    band->SetNoDataValue(-9999);
+    const bool ok =
+        band->RasterIO(GF_Write, 0, 0, 4, 2, values.data(), 4, 2, GDT_Float64, 0, 0) == CE_None;
+    GDALClose(ds);
+    return ok ? path : QString();
+}
+
+/** GeoPackage with the polygons x 0..1 and x 1..4 (y 0..2), fields LU (text) and LOAD. */
+QString splitPolygons(const QString &path, const QString &leftUse, double leftLoad,
+                      const QString &rightUse, double rightLoad)
+{
+    GDALAllRegister();
+    QFile::remove(path);
+    auto *ds = GetGDALDriverManager()->GetDriverByName("GPKG")->Create(
+        path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!ds)
+        return {};
+    OGRSpatialReference srs;
+    srs.importFromEPSG(32618);
+    auto *layer = ds->CreateLayer("zones", &srs, wkbPolygon, nullptr);
+    OGRFieldDefn lu("LU", OFTString), load("LOAD", OFTReal);
+    layer->CreateField(&lu);
+    layer->CreateField(&load);
+    bool ok = true;
+    const auto add = [&](const char *wkt, const QString &use, double value) {
+        OGRFeature f(layer->GetLayerDefn());
+        f.SetField("LU", use.toUtf8().constData());
+        f.SetField("LOAD", value);
+        OGRGeometry *g = nullptr;
+        OGRGeometryFactory::createFromWkt(wkt, nullptr, &g);
+        f.SetGeometryDirectly(g);
+        ok = ok && layer->CreateFeature(&f) == OGRERR_NONE;
+    };
+    add("POLYGON ((0 0, 1 0, 1 2, 0 2, 0 0))", leftUse, leftLoad);
+    add("POLYGON ((1 0, 4 0, 4 2, 1 2, 1 0))", rightUse, rightLoad);
+    GDALClose(ds);
+    return ok ? path : QString();
+}
+
+/** Wells at the triangle and quad centroids (FLOW, TSS) plus one outside the mesh. */
+QString wellPoints(const QString &path)
+{
+    GDALAllRegister();
+    QFile::remove(path);
+    auto *ds = GetGDALDriverManager()->GetDriverByName("GPKG")->Create(
+        path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!ds)
+        return {};
+    OGRSpatialReference srs;
+    srs.importFromEPSG(32618);
+    auto *layer = ds->CreateLayer("wells", &srs, wkbPoint, nullptr);
+    OGRFieldDefn name("NAME", OFTString), flow("FLOW", OFTReal), tss("TSS", OFTReal);
+    layer->CreateField(&name);
+    layer->CreateField(&flow);
+    layer->CreateField(&tss);
+    bool ok = true;
+    const struct {
+        const char *name;
+        double x, y, flow, tss;
+    } wells[] = {{"WTri", 4. / 3, 2. / 3, .002, 100},
+                 {"WQuad", 3, 1, .004, 100},
+                 {"WFar", 9, 9, .5, 100}};
+    for (const auto &w : wells) {
+        OGRFeature f(layer->GetLayerDefn());
+        f.SetField("NAME", w.name);
+        f.SetField("FLOW", w.flow);
+        f.SetField("TSS", w.tss);
+        OGRPoint p(w.x, w.y);
+        f.SetGeometry(&p);
+        ok = ok && layer->CreateFeature(&f) == OGRERR_NONE;
+    }
+    GDALClose(ds);
+    return ok ? path : QString();
+}
+
+/** A model with land uses, TSS and an aquifer on the mixed triangle/quad mesh, shown on a
+ *  projected canvas with the cell picker active. */
+struct SpatialFixture {
+    SWMMModelLayer model{QString()};
+    SWMM2DMeshLayer mesh{geometry(), QStringLiteral("spatial-assignment.2dm")};
+    MapCanvas canvas;
+    SelectionManager selection;
+    UnitSystem units;
+    MapToolPick2DCells picker{&canvas, &selection};
+    bool attached = false;
+    QString dir;
+    bool open(const QString &leaf = {})
+    {
+        dir = spatialOutput(leaf);
+        const QString path = dir + "/input.inp";
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+            file.write(kSurfaceDeck) != kSurfaceDeck.size())
+            return false;
+        file.close();
+        model.setModelFilePath(path);
+        QList<QString> warnings, errors;
+        if (!model.loadModel(warnings, errors))
+            return false;
+        units.setFlowUnits(swmm_CMS); // the deck's units, as the project window sets them
+        mesh.setSRS(new SpatialReferenceSystem(QStringLiteral("EPSG"), 32618), true);
+        canvas.applyCRSInternal(new SpatialReferenceSystem(QStringLiteral("EPSG"), 32618), true);
+        canvas.resize(700, 400);
+        canvas.addLayer(&mesh, false);
+        attached = true;
+        canvas.setExtent(MapExtent(-1, -1, 5, 3), false);
+        picker.activate();
+        return true;
+    }
+    ~SpatialFixture()
+    {
+        picker.deactivate();
+        if (attached)
+            canvas.takeLayer(canvas.layers().indexOf(&mesh), false);
+    }
+    void selectBoth()
+    {
+        selection.select({mesh::MeshObjectRef::cell(mesh.sourcePath(), 0),
+                          mesh::MeshObjectRef::cell(mesh.sourcePath(), 1)},
+                         SelectionManager::Replace);
+    }
+    /** Deliver one picker event at map coordinates. */
+    void mouse(QEvent::Type type, double x, double y, Qt::KeyboardModifiers mods = Qt::NoModifier)
+    {
+        int px = 0, py = 0;
+        picker.toPixelCoords(x, y, px, py);
+        const QPointF p(px, py);
+        QMouseEvent event(type, p, p, type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                          type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, mods);
+        if (type == QEvent::MouseButtonPress)
+            picker.mousePressEvent(&event);
+        else if (type == QEvent::MouseMove)
+            picker.mouseMoveEvent(&event);
+        else if (type == QEvent::MouseButtonRelease)
+            picker.mouseReleaseEvent(&event);
+        else
+            picker.mouseDoubleClickEvent(&event);
+    }
+    QStringList layerTags() const
+    {
+        QStringList tags;
+        for (const auto &t : mesh.mesh().triangles)
+            tags << t.tag;
+        return tags;
+    }
+};
+
+/** Point the dialog at one target, input route and (for files) source. */
+void configure(GroundwaterAssignDialog &d, const QString &target, int route,
+               const QString &path = {}, const QString &field = {})
+{
+    auto *t = d.findChild<QComboBox *>("gwAssignmentTarget");
+    t->setCurrentIndex(t->findData(target));
+    d.findChild<QComboBox *>("gwAssignmentRoute")->setCurrentIndex(route);
+    if (!path.isEmpty())
+        d.findChild<QLineEdit *>("gwAssignmentPath")->setText(path);
+    if (!field.isEmpty())
+        d.findChild<QLineEdit *>("gwAssignmentField")->setText(field);
+}
+
+/** Preview and wait; returns the status text and whether Apply became available. */
+bool previewReady(GroundwaterAssignDialog &d, QString *status)
+{
+    auto *apply = d.findChild<QPushButton *>("gwAssignmentApplyButton");
+    d.findChild<QPushButton *>("gwAssignmentPreviewButton")->click();
+    auto *preview = d.findChild<QPushButton *>("gwAssignmentPreviewButton");
+    (void)QTest::qWaitFor([preview] { return preview->isEnabled(); }, 15000);
+    QCoreApplication::processEvents();
+    *status = d.findChild<QLabel *>("gwAssignmentStatus")->text();
+    return apply->isEnabled();
+}
+
+/** Click Apply and wait for the undo entry; file-backed reviews re-hash their sources first. */
+bool applyAndWait(GroundwaterAssignDialog &d, MapCanvas &canvas, int expected = 1)
+{
+    d.findChild<QPushButton *>("gwAssignmentApplyButton")->click();
+    return QTest::qWaitFor([&] { return canvas.undoStack()->count() == expected; }, 15000);
+}
+
+/** Effective [GW_SOURCES] flow per cell: CELL rows by cell, TAG rows split by area. */
+QVector<double> flowPerCell(SWMM_Engine e, const QVector<double> &areas)
+{
+    GroundwaterTransportSnapshot s;
+    readGroundwaterTransportSnapshot(e, &s);
+    QVector<double> flow(areas.size(), 0.0);
+    for (const auto &r : s.sources) {
+        if (r.scope == 2 && r.cell >= 0 && r.cell < flow.size())
+            flow[r.cell] += r.flow * r.scale;
+        if (r.scope == 1) {
+            double total = 0;
+            for (int c = 0; c < areas.size(); ++c)
+                total += s.cellTags[c] == r.tag ? areas[c] : 0;
+            for (int c = 0; c < areas.size(); ++c)
+                if (s.cellTags[c] == r.tag)
+                    flow[c] += r.flow * r.scale * areas[c] / total;
+        }
+    }
+    return flow;
+}
+} // namespace
 class TestGroundwaterAssignDialog : public QObject
 {
     Q_OBJECT
@@ -1026,6 +1330,443 @@ private slots:
         swmm_gw2d_row_count(f.model.engine(), &rows);
         QCOMPARE(rows, 1);
         QVERIFY(dialog.findChild<QLabel *>("gwAssignmentStatus")->text().contains("changed"));
+    }
+    // ---- Phase 3b (2026-10-31): spatial assignment of surface quality and point sources ----
+
+    /**
+     * @brief Gate (equivalence): manual, polygon and raster land-use inputs that describe the same
+     * map write the same [2D_COVERAGES] rows and cell tags. Uniform coverage becomes one TAG row
+     * (Automatic) with both cells tagged in the engine and the mesh layer; split coverage becomes
+     * equal CELL rows from polygons and from a classified raster. Undo restores rows and tags.
+     */
+    void spatialCoverageEquivalentAcrossRoutes()
+    {
+        const QString data = spatialOutput("sources");
+        const QString uniformPolygons = splitPolygons(data + "/urban.gpkg", "Urban", 0, "Urban", 0);
+        const QString uniformRaster = splitRaster(data + "/urban.tif", 1, 1, GDT_Int32);
+        const QString splitZones = splitPolygons(data + "/split.gpkg", "Urban", 0, "Grass", 0);
+        const QString splitClasses = splitRaster(data + "/split.tif", 1, 2, GDT_Int32);
+        QVERIFY(!uniformPolygons.isEmpty() && !uniformRaster.isEmpty() && !splitZones.isEmpty() &&
+                !splitClasses.isEmpty());
+        QList<RowAssignmentSnapshot> uniform, split;
+        for (int route = 0; route < 3; ++route)
+            for (bool mixed : {false, true}) {
+                if (mixed && route == 0)
+                    continue; // one manual land use per assignment
+                SpatialFixture f;
+                QVERIFY(f.open(QStringLiteral("%1_%2")
+                                   .arg(QStringList{"manual", "polygons", "raster"}[route],
+                                        mixed ? "split" : "uniform")));
+                f.selectBoth();
+                QSignalSpy edited(&f.model, &SWMMModelLayer::modelEdited);
+                GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection,
+                                               &f.units);
+                configure(dialog, "SQ_COVERAGE", route,
+                          route == 1 ? (mixed ? splitZones : uniformPolygons)
+                          : route == 2 ? (mixed ? splitClasses : uniformRaster)
+                                       : QString(),
+                          route == 1 ? "LU" : QString());
+                if (route == 0) {
+                    auto *use = dialog.findChild<QComboBox *>("gwAssignmentLandUse");
+                    QVERIFY(use);
+                    use->setCurrentIndex(use->findData("Urban"));
+                    dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(100);
+                }
+                if (route == 2) {
+                    auto *lookup = dialog.findChild<QLineEdit *>("gwAssignmentClassLookup");
+                    QVERIFY(lookup);
+                    lookup->setText("1=Urban, 2=Grass");
+                }
+                RowAssignmentSnapshot before, after;
+                QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                                  Mesh2DSectionRowModel::Section::Coverages,
+                                                  &before));
+                QString status;
+                QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+                QVERIFY2(status.contains(mixed ? "CELL rows" : "one TAG row"), qPrintable(status));
+                if (route)
+                    QVERIFY2(status.contains("Land-use shares: 100 %"), qPrintable(status));
+                QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                                  Mesh2DSectionRowModel::Section::Coverages,
+                                                  &after));
+                QVERIFY(after == before); // preview writes nothing
+                dialog.resize(980, 1100);
+                dialog.show();
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                QVERIFY(dialog.grab().save(f.dir + "/reviewed_preview.png"));
+                QVERIFY2(applyAndWait(dialog, f.canvas),
+                         qPrintable(dialog.findChild<QLabel *>("gwAssignmentStatus")->text()));
+                QVERIFY(edited.count() > 0); // engine-derived views refresh
+                QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                                  Mesh2DSectionRowModel::Section::Coverages,
+                                                  &after));
+                QCOMPARE(f.layerTags(), after.cellTags); // the layer Save writes follows
+                QCOMPARE(swmm_model_write(f.model.engine(),
+                                          (f.dir + "/saved.inp").toUtf8().constData()),
+                         SWMM_OK);
+                (mixed ? split : uniform) << after;
+                f.canvas.undoStack()->undo();
+                RowAssignmentSnapshot undone;
+                QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                                  Mesh2DSectionRowModel::Section::Coverages,
+                                                  &undone));
+                QVERIFY(undone == before);
+                QCOMPARE(f.layerTags(), before.cellTags);
+            }
+        QCOMPARE(uniform.size(), 3);
+        QCOMPARE(uniform[0].cellTags, QStringList({"COVERAGE_1", "COVERAGE_1"}));
+        QCOMPARE(uniform[0].rows.size(), 1);
+        QCOMPARE(uniform[0].rows[0].scope, 1);
+        QCOMPARE(uniform[0].rows[0].percents, (QMap<QString, double>{{"Urban", 100}}));
+        for (const auto &s : uniform)
+            QVERIFY(s == uniform[0]);
+        QCOMPARE(split.size(), 2);
+        QCOMPARE(split[0].rows.size(), 2);
+        QCOMPARE(split[0].cellTags, QStringList({QString(), QString()}));
+        QCOMPARE(split[0].rows.size(), split[1].rows.size());
+        for (int i = 0; i < split[0].rows.size(); ++i) {
+            QCOMPARE(split[0].rows[i].cell, split[1].rows[i].cell);
+            QCOMPARE(split[0].rows[i].percents.keys(), split[1].rows[i].percents.keys());
+            for (const QString &use : split[0].rows[i].percents.keys())
+                QVERIFY(std::abs(split[0].rows[i].percents[use] - split[1].rows[i].percents[use]) <
+                        1e-9);
+        }
+        QVERIFY(std::abs(split[0].rows[0].percents.value("Urban") - 25) < 1e-9);
+        QVERIFY(std::abs(split[0].rows[0].percents.value("Grass") - 75) < 1e-9);
+        QCOMPARE(split[0].rows[1].percents, (QMap<QString, double>{{"Grass", 100}}));
+    }
+
+    /**
+     * @brief Gate (equivalence, intensive values): a constant, a polygon field and a raster band
+     * give the same [2D_LOADINGS] rows under area-weighted sampling, and the preview reports the
+     * integrated initial buildup.
+     */
+    void spatialLoadingEquivalentAcrossRoutes()
+    {
+        const QString data = spatialOutput("sources");
+        const QString polygons = splitPolygons(data + "/loads.gpkg", "Urban", 20, "Urban", 20);
+        const QString raster = splitRaster(data + "/loads.tif", 20, 20, GDT_Float64);
+        const QString splitZones = splitPolygons(data + "/split_loads.gpkg", "Urban", 10, "Urban", 20);
+        const QString splitRasterPath = splitRaster(data + "/split_loads.tif", 10, 20, GDT_Float64);
+        QList<RowAssignmentSnapshot> uniform, split;
+        for (int route = 0; route < 3; ++route)
+            for (bool mixed : {false, true}) {
+                if (mixed && route == 0)
+                    continue;
+                SpatialFixture f;
+                QVERIFY(f.open(QStringLiteral("%1_%2")
+                                   .arg(QStringList{"manual", "polygons", "raster"}[route],
+                                        mixed ? "split" : "uniform")));
+                f.selectBoth();
+                GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection,
+                                               &f.units);
+                configure(dialog, "SQ_LOADING", route,
+                          route == 1 ? (mixed ? splitZones : polygons)
+                          : route == 2 ? (mixed ? splitRasterPath : raster)
+                                       : QString(),
+                          route == 1 ? "LOAD" : QString());
+                auto *species = dialog.findChild<QComboBox *>("gwAssignmentSurfaceSpecies");
+                QVERIFY(species && species->findData("TSS") >= 0);
+                species->setCurrentIndex(species->findData("TSS"));
+                dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(20);
+                if (route) {
+                    auto *sampling = dialog.findChild<QComboBox *>("gwAssignmentCellSampling");
+                    QVERIFY(sampling && sampling->isEnabled());
+                    sampling->setCurrentIndex(sampling->findData("area"));
+                }
+                QString status;
+                QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+                if (!mixed)
+                    QVERIFY2(status.contains("0.012 kg"), qPrintable(status)); // 20 kg/ha x 6 m²
+                QVERIFY2(applyAndWait(dialog, f.canvas),
+                         qPrintable(dialog.findChild<QLabel *>("gwAssignmentStatus")->text()));
+                RowAssignmentSnapshot after;
+                QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                                  Mesh2DSectionRowModel::Section::Loadings,
+                                                  &after));
+                (mixed ? split : uniform) << after;
+            }
+        for (const auto &s : uniform)
+            QVERIFY(s == uniform[0]);
+        QCOMPARE(uniform[0].rows.size(), 1);
+        QCOMPARE(uniform[0].rows[0].values, QVector<double>{20});
+        QCOMPARE(split.size(), 2);
+        QCOMPARE(split[0].rows.size(), 2);
+        for (int i = 0; i < 2; ++i) {
+            QCOMPARE(split[0].rows[i].cell, split[1].rows[i].cell);
+            QVERIFY(std::abs(split[0].rows[i].values[0] - split[1].rows[i].values[0]) < 1e-9);
+        }
+        QVERIFY(std::abs(split[0].rows[0].values[0] - 17.5) < 1e-9);
+    }
+
+    /**
+     * @brief Gate (manual selection): rectangle and polygon selections drive the scope end to
+     * end. The visible count follows Shift-add / Alt-subtract; the written rows survive saving
+     * and reopening the model.
+     */
+    void rectangleAndPolygonSelectionEndToEnd()
+    {
+        SpatialFixture f;
+        QVERIFY(f.open());
+        GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+        auto *count = dialog.findChild<QLabel *>("gwAssignmentSelectionCount");
+        QVERIFY(count);
+        f.picker.setMode(MapToolPick2DCells::Mode::Box);
+        f.mouse(QEvent::MouseButtonPress, -.2, -.2);
+        f.mouse(QEvent::MouseMove, 4.2, 2.2);
+        f.mouse(QEvent::MouseButtonRelease, 4.2, 2.2);
+        QVERIFY2(count->text().startsWith("2 cell"), qPrintable(count->text()));
+        f.mouse(QEvent::MouseButtonPress, 3, 1, Qt::AltModifier); // subtract the quad
+        f.mouse(QEvent::MouseButtonRelease, 3, 1, Qt::AltModifier);
+        QVERIFY2(count->text().startsWith("1 cell"), qPrintable(count->text()));
+        QCOMPARE(f.selection.selection(),
+                 (QSet<SWMMObjectRef>{mesh::MeshObjectRef::cell(f.mesh.sourcePath(), 0)}));
+        configure(dialog, "SQ_CURB", 0);
+        auto *strategy = dialog.findChild<QComboBox *>("gwAssignmentStrategy");
+        QVERIFY(strategy);
+        strategy->setCurrentIndex(strategy->findData("CELL"));
+        dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(12.5);
+        QString status;
+        QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+        QCOMPARE(dialog.findChild<QTableWidget *>("gwAssignmentPreview")->rowCount(), 1);
+        // A selection edit after preview invalidates it; the polygon (lasso) picks both cells.
+        f.picker.setMode(MapToolPick2DCells::Mode::Lasso);
+        f.mouse(QEvent::MouseButtonPress, -.2, -.2);
+        f.mouse(QEvent::MouseButtonPress, 4.2, -.2);
+        f.mouse(QEvent::MouseButtonPress, 4.2, 2.2);
+        f.mouse(QEvent::MouseButtonDblClick, -.2, 2.2);
+        QVERIFY(!dialog.findChild<QPushButton *>("gwAssignmentApplyButton")->isEnabled());
+        QVERIFY2(count->text().startsWith("2 cell"), qPrintable(count->text()));
+        QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+        QCOMPARE(dialog.findChild<QTableWidget *>("gwAssignmentPreview")->rowCount(), 2);
+        dialog.findChild<QPushButton *>("gwAssignmentApplyButton")->click();
+        QCOMPARE(f.canvas.undoStack()->count(), 1);
+        RowAssignmentSnapshot after;
+        QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                          Mesh2DSectionRowModel::Section::CurbLength, &after));
+        QCOMPARE(after.rows.size(), 2);
+        const QString saved = f.dir + "/saved.inp";
+        QCOMPARE(swmm_model_write(f.model.engine(), saved.toUtf8().constData()), SWMM_OK);
+        SWMM_Engine reopened = swmm_engine_create();
+        QCOMPARE(swmm_engine_open(reopened, saved.toUtf8().constData(),
+                                  (f.dir + "/reopened.rpt").toUtf8().constData(), nullptr,
+                                  nullptr),
+                 SWMM_OK);
+        RowAssignmentSnapshot back;
+        const bool read = readRowAssignmentSnapshot(
+            reopened, Mesh2DSectionRowModel::Section::CurbLength, &back);
+        swmm_engine_close(reopened);
+        swmm_engine_destroy(reopened);
+        QVERIFY(read);
+        QVERIFY(back.rows == after.rows);
+        QCOMPARE(back.rows[0].values, QVector<double>{12.5});
+    }
+
+    /**
+     * @brief Gate (integrated rates): a manual region total (CELL rows with area scales, or one
+     * TAG row), point wells read from a feature layer, and a raster flux density give the same
+     * flow per cell. The well outside the mesh is reported and not assigned.
+     */
+    void pointSourcesMatchRegionAndRasterRates()
+    {
+        const QString data = spatialOutput("sources");
+        const QString wells = wellPoints(data + "/wells.gpkg");
+        const QString density = splitRaster(data + "/density.tif", .001, .001, GDT_Float64);
+        QVERIFY(!wells.isEmpty() && !density.isEmpty());
+        const QVector<double> areas{2, 4};
+        QList<QVector<double>> rates;
+        const QStringList names{"manual_total", "manual_tag", "points", "raster_density"};
+        for (int run = 0; run < names.size(); ++run) {
+            SpatialFixture f;
+            QVERIFY(f.open(names[run]));
+            f.selectBoth();
+            GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+            configure(dialog, "FLOW", run == 2 ? 1 : run == 3 ? 2 : 0,
+                      run == 2 ? wells : run == 3 ? density : QString(),
+                      run == 2 ? "FLOW" : QString());
+            if (run < 2) {
+                dialog.findChild<QComboBox *>("gwAssignmentDistribution")->setCurrentIndex(1);
+                dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(.006);
+            }
+            if (run == 1) {
+                auto *strategy = dialog.findChild<QComboBox *>("gwAssignmentStrategy");
+                QVERIFY(strategy);
+                strategy->setCurrentIndex(strategy->findData("TAG"));
+            }
+            if (run == 2) {
+                auto *name = dialog.findChild<QLineEdit *>("gwAssignmentPointNameField");
+                QVERIFY(name);
+                name->setText("NAME");
+            }
+            if (run == 3) {
+                auto *meaning = dialog.findChild<QComboBox *>("gwAssignmentRasterMeaning");
+                meaning->setCurrentIndex(meaning->findData("flux-density"));
+                auto *units = dialog.findChild<QComboBox *>("gwAssignmentDensityUnits");
+                units->setCurrentIndex(units->findData("m/s"));
+            }
+            QString status;
+            QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+            QVERIFY2(status.contains("Total authored constant flow: 0.006 m³/s"),
+                     qPrintable(status));
+            if (run == 0)
+                QVERIFY2(status.contains("sums to the requested total"), qPrintable(status));
+            if (run == 2)
+                QVERIFY2(status.contains("1 point feature(s) not assigned") &&
+                             status.contains("outside the mesh"),
+                         qPrintable(status));
+            QVERIFY2(applyAndWait(dialog, f.canvas),
+                     qPrintable(dialog.findChild<QLabel *>("gwAssignmentStatus")->text()));
+            GroundwaterTransportSnapshot after;
+            QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(), &after));
+            if (run == 1) {
+                QCOMPARE(after.sources.size(), 1);
+                QCOMPARE(after.sources[0].scope, 1);
+                QCOMPARE(f.layerTags(), after.cellTags);
+                QCOMPARE(after.cellTags, QStringList({"SOURCE_1", "SOURCE_1"}));
+            }
+            if (run == 2) {
+                QCOMPARE(after.sources.size(), 2);
+                QCOMPARE(after.sources[0].name, QStringLiteral("WTri"));
+            }
+            QCOMPARE(swmm_model_write(f.model.engine(),
+                                      (f.dir + "/saved.inp").toUtf8().constData()),
+                     SWMM_OK);
+            rates << flowPerCell(f.model.engine(), areas);
+            f.canvas.undoStack()->undo();
+            GroundwaterTransportSnapshot undone;
+            QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(), &undone));
+            QVERIFY(undone.sources.isEmpty());
+            QCOMPARE(f.layerTags(), QStringList({QString(), QString()}));
+        }
+        for (const auto &r : rates) {
+            QVERIFY2(std::abs(r[0] - .002) < 1e-12 && std::abs(r[1] - .004) < 1e-12,
+                     qPrintable(QString("%1 %2").arg(r[0], 0, 'g', 17).arg(r[1], 0, 'g', 17)));
+        }
+    }
+
+    /**
+     * @brief Gate (cancel / stale): cancelling a surface-quality preview and applying a preview
+     * after the rows changed elsewhere both leave the model as it was, with no undo entry.
+     */
+    void surfaceCancelAndStaleLeaveModelUnchanged()
+    {
+        const QString data = spatialOutput("sources");
+        const QString classes = splitRaster(data + "/classes.tif", 1, 2, GDT_Int32);
+        SpatialFixture f;
+        QVERIFY(f.open());
+        f.selectBoth();
+        RowAssignmentSnapshot before, now;
+        QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                          Mesh2DSectionRowModel::Section::Coverages, &before));
+        {
+            GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+            configure(dialog, "SQ_COVERAGE", 2, classes);
+            auto *lookup = dialog.findChild<QLineEdit *>("gwAssignmentClassLookup");
+            QVERIFY(lookup);
+            lookup->setText("1=Urban, 2=Grass");
+            dialog.findChild<QPushButton *>("gwAssignmentPreviewButton")->click();
+            dialog.reject(); // cancel while the worker samples
+            QTRY_VERIFY(dialog.findChild<QPushButton *>("gwAssignmentPreviewButton")->isEnabled());
+            QVERIFY(!dialog.findChild<QPushButton *>("gwAssignmentApplyButton")->isEnabled());
+        }
+        QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                          Mesh2DSectionRowModel::Section::Coverages, &now));
+        QVERIFY(now == before);
+        GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+        configure(dialog, "SQ_COVERAGE", 0);
+        dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(100);
+        QString status;
+        QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+        const char *grass = "Grass";
+        const double hundred = 100;
+        QCOMPARE(swmm_2d_coverage_set(f.model.engine(), SWMM_SQ2D_SCOPE_GLOBAL, nullptr, -1,
+                                      &grass, &hundred, 1),
+                 SWMM_OK);
+        QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                          Mesh2DSectionRowModel::Section::Coverages, &before));
+        dialog.findChild<QPushButton *>("gwAssignmentApplyButton")->click();
+        QVERIFY(readRowAssignmentSnapshot(f.model.engine(),
+                                          Mesh2DSectionRowModel::Section::Coverages, &now));
+        QVERIFY(now == before);
+        QCOMPARE(f.layerTags(), QStringList({QString(), QString()}));
+        QCOMPARE(f.canvas.undoStack()->count(), 0);
+        QVERIFY(dialog.findChild<QLabel *>("gwAssignmentStatus")->text().contains("changed"));
+    }
+
+    /**
+     * @brief [GW_INITIAL_QUALITY] follows the same write strategy: equal values become one TAG
+     * row through the shared row model (Automatic), and CELL rows still use the per-cell
+     * transport path with its aquifer checks.
+     */
+    void groundwaterInitialQualityTagOrCellRows()
+    {
+        for (bool cellRows : {false, true}) {
+            SpatialFixture f;
+            QVERIFY(f.open(cellRows ? "cell_rows" : "tag_row"));
+            f.selectBoth();
+            GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+            configure(dialog, "INITIAL_QUALITY", 0);
+            auto *species = dialog.findChild<QComboBox *>("gwAssignmentSpecies");
+            species->setCurrentIndex(species->findData("TSS"));
+            if (cellRows) {
+                auto *strategy = dialog.findChild<QComboBox *>("gwAssignmentStrategy");
+                QVERIFY(strategy);
+                strategy->setCurrentIndex(strategy->findData("CELL"));
+            }
+            dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(5);
+            QString status;
+            QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+            QVERIFY2(applyAndWait(dialog, f.canvas), qPrintable(status));
+            RowAssignmentSnapshot after;
+            QVERIFY(readRowAssignmentSnapshot(
+                f.model.engine(), Mesh2DSectionRowModel::Section::GwInitialQuality, &after));
+            QCOMPARE(after.rows.size(), cellRows ? 2 : 1);
+            QCOMPARE(after.rows[0].scope, cellRows ? 2 : 1);
+            QCOMPARE(after.rows[0].values, QVector<double>{5});
+            QCOMPARE(after.rows[0].name, QStringLiteral("TSS"));
+            QCOMPARE(f.layerTags(), after.cellTags);
+            QCOMPARE(after.cellTags, cellRows ? QStringList({QString(), QString()})
+                                              : QStringList({"GW_IQ_1", "GW_IQ_1"}));
+            f.canvas.undoStack()->undo();
+            QVERIFY(readRowAssignmentSnapshot(
+                f.model.engine(), Mesh2DSectionRowModel::Section::GwInitialQuality, &after));
+            QVERIFY(after.rows.isEmpty());
+            QCOMPARE(f.layerTags(), QStringList({QString(), QString()}));
+        }
+    }
+
+    /**
+     * @brief [2D_AQUIFER] properties keep exact CELL overrides by default; choosing a TAG row
+     * appends one lossless TAG row and tags the cells in the engine and the mesh layer.
+     */
+    void aquiferPropertyTagRowFromDialog()
+    {
+        SpatialFixture f;
+        QVERIFY(f.open());
+        f.selectBoth();
+        GroundwaterAssignDialog dialog(&f.model, &f.mesh, &f.canvas, &f.selection, &f.units);
+        configure(dialog, "KS", 0);
+        auto *strategy = dialog.findChild<QComboBox *>("gwAssignmentStrategy");
+        QVERIFY(strategy);
+        QCOMPARE(strategy->currentData().toString(), QStringLiteral("CELL"));
+        strategy->setCurrentIndex(strategy->findData("TAG"));
+        dialog.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(12);
+        AquiferSnapshot before, after;
+        QVERIFY(readAquiferSnapshot(f.model.engine(), &before, nullptr));
+        QString status;
+        QVERIFY2(previewReady(dialog, &status), qPrintable(status));
+        QVERIFY2(status.contains("one TAG row is appended"), qPrintable(status));
+        QVERIFY2(applyAndWait(dialog, f.canvas), qPrintable(status));
+        QVERIFY(readAquiferSnapshot(f.model.engine(), &after, nullptr));
+        QCOMPARE(after.rows.size(), before.rows.size() + 1);
+        QCOMPARE(after.rows.last().scope, 1);
+        QCOMPARE(after.rows.last().ks, 12.);
+        QCOMPARE(f.layerTags(), QStringList({"AQUIFER_1", "AQUIFER_1"}));
+        QCOMPARE(engineCellTags(f.model.engine()), f.layerTags());
+        f.canvas.undoStack()->undo();
+        QVERIFY(readAquiferSnapshot(f.model.engine(), &after, nullptr));
+        QCOMPARE(after, before);
+        QCOMPARE(f.layerTags(), QStringList({QString(), QString()}));
     }
 };
 QTEST_MAIN(TestGroundwaterAssignDialog)

@@ -129,6 +129,11 @@ QVector<AquiferTarget> aquiferTargets();
  * @return True on a complete capture; false leaves the destination unchanged.
  */
 bool readAquiferSnapshot(SWMM_Engine engine, AquiferSnapshot *snapshot, QString *error);
+// Phase 3b: how an assignment is written. CellRows (the default) appends exact CELL overrides;
+// TagRow appends one TAG row holding the cells' shared record with the new value and tags the
+// cells (lossless only when every cell shares one effective record and value); Automatic picks
+// TagRow when that holds and nothing else would change, else CellRows.
+enum class AquiferWriteStrategy { CellRows, Automatic, TagRow };
 struct AquiferRequest {
     AquiferSnapshot before;
     QVector<int> cells;
@@ -136,6 +141,10 @@ struct AquiferRequest {
     QString target;
     QVector<double> values; // One sampled value per cell; NaN is explicit NoData.
     bool skipNoData = false;
+    AquiferWriteStrategy strategy = AquiferWriteStrategy::CellRows;
+    QString tag;              // TAG name; empty = a generated unused name
+    bool allowRetag = false;  // allow moving cells out of another tag
+    QStringList allCellTags;  // engine tag of every cell (TagRow / Automatic)
 };
 struct AquiferPreview {
     AquiferSnapshot before;
@@ -143,6 +152,8 @@ struct AquiferPreview {
     QVector<int> cells, skippedCells;
     QVector<double> oldValues, newValues;
     QString target, error;
+    QStringList tagsBefore, tagsAfter; // engine cell tags; set only for a TAG assignment
+    QStringList notes;                 // strategy choice and retag notes
 };
 // A true cancellation callback discards all actionable rows; engine state is untouched.
 /**

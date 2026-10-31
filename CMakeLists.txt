@@ -379,6 +379,7 @@ set(
         include/assignment/raingageassignment.h
         include/assignment/meshassignmentsampling.h
         include/assignment/rasterfluxintegration.h
+        include/assignment/spatialassignment.h
         include/project/profilesectionstore.h
         include/plot/profilesectionseries.h
         include/plot/meshprofiletrackswidget.h
@@ -1184,6 +1185,7 @@ set(
         src/assignment/raingageassignment.cpp
         src/assignment/meshassignmentsampling.cpp
         src/assignment/rasterfluxintegration.cpp
+        src/assignment/spatialassignment.cpp
         src/project/profilesectionstore.cpp
         src/plot/profilesectionseries.cpp
         src/io/profilesectionio.cpp

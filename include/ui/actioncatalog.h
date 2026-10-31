@@ -301,6 +301,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model/Mesh", Contextual2D},
     {"mesh.surfaceQuality2d", "actionMesh2DSurfaceQuality", "Mesh 2D", "", "LandUse", "mesh2d",
      "Model/Mesh", Contextual2D},
+    {"mesh.assignSurfaceQuality", "actionAssignSurfaceQuality", "Mesh 2D", "", "LandUse",
+     "mesh2d", "Model/Mesh", Contextual2D},
     {"terrain.profile", "actionTerrainProfile", "Model", "", "Profile", "model", "Model", NoTags},
 
     // ── View / panels (dock toggle actions; objectNames assigned where

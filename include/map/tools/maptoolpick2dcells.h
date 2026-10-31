@@ -191,12 +191,13 @@ private:
     SWMM2DMeshLayer *findMeshLayer_() const;
 
     /*! \brief Push \p hits into the SelectionManager as MeshCell refs per the
-     *  modifier convention (Shift = add, Ctrl = toggle, none = replace). The
+     *  modifier convention (Shift = add, Ctrl = toggle, Alt = subtract, none = replace). The
      *  toolbar mirrors the selection into the mesh layer's triangle highlight
      *  + cell label. Selection only highlights — it does NOT open the plot.
      * @param[in] hits Current cell indices converted to MeshCell refs; duplicates collapsed by
      *   QSet, no bounds validation here.
-     * @param[in] mods Control Toggle before Shift Add, otherwise Replace; other bits ignored.
+     * @param[in] mods Alt Subtract before Control Toggle before Shift Add, otherwise Replace;
+     *   other bits ignored.
      * @note Missing manager no-op. Uses cached mesh source path, refreshes only if null; absent
      *   mesh uses empty-path unsaved mesh key so results-only picks remain representable. Selection
      *   only, no direct repaint/plot/engine edit.

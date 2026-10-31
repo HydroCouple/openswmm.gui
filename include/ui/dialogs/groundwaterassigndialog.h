@@ -13,6 +13,7 @@
 #include "assignment/groundwatertransportassignment.h"
 #include "assignment/meshassignmentsampling.h"
 #include "assignment/rasterfluxintegration.h"
+#include "assignment/spatialassignment.h"
 #include <QDialog>
 #include <QPointer>
 #include <QFutureWatcher>
@@ -97,6 +98,11 @@ public:
      * and able to outlive this dialog; caller never deletes it.
      */
     GroundwaterAssignmentEvents *assignmentEvents() const { return m_events; }
+    /**
+     * @brief Choose the assignment target by key (e.g. "SQ_COVERAGE", "FLOW", "KS").
+     * @details Unknown keys leave the current target. Used by the Assign Surface Quality action.
+     */
+    void selectTarget(const QString &key);
 public slots:
     /**
      * @brief Cancel outstanding work or reject an idle editor without applying a draft.
@@ -170,7 +176,9 @@ private:
     struct WorkResult {
         assignment::AquiferPreview preview;
         assignment::GroundwaterTransportPreview transport;
-        bool isTransport = false, isFlux = false;
+        assignment::RowAssignmentPreview rows; // Phase 3b scoped surface / GW quality rows
+        bool isTransport = false, isFlux = false, isRows = false;
+        QStringList unmatched; // point features not placed, with the reason
         assignment::RasterFluxResult flux;
         QVector<double> values;
         QMap<QString, QByteArray> fingerprints;
@@ -261,6 +269,8 @@ private:
      * occurs. Caller must invoke after the matching watcher has finished.
      */
     void finishPreview();
+    /** Show how many cells of this mesh the shared selection holds (Phase 3b). */
+    void refreshSelectionCount();
     QPointer<GroundwaterAssignmentEvents> m_events;
     QPointer<SWMMModelLayer> m_model;
     QPointer<SWMM2DMeshLayer> m_mesh;
@@ -299,6 +309,15 @@ private:
     QLabel *m_status = nullptr, *m_units = nullptr;
     QPushButton *m_preview = nullptr, *m_apply = nullptr;
     QTableWidget *m_table = nullptr, *m_terms = nullptr;
+    // Phase 3b: surface-quality targets, write strategy, cell sampling and point sources.
+    QWidget *m_surfaceControls = nullptr, *m_strategyControls = nullptr;
+    QComboBox *m_surfaceSpecies = nullptr, *m_landUse = nullptr, *m_strategy = nullptr,
+              *m_cellSampling = nullptr, *m_pointPlacement = nullptr;
+    QLineEdit *m_classLookup = nullptr, *m_tagName = nullptr, *m_pointName = nullptr;
+    QCheckBox *m_allowRetag = nullptr;
+    QLabel *m_selectionCount = nullptr;
+    QStringList m_landUses, m_loadingSpecies, m_surfaceIqSpecies;
+    QString m_lastTarget;
 };
 }
 #endif
