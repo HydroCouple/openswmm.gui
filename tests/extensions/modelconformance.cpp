@@ -679,6 +679,27 @@ private:
             ok = false;
         QCoreApplication::exit(ok ? 0 : 1);
     }
+    /** @brief Open a Data tool through its real action, with legacy fixture compatibility.
+     * @param[in] host Conformance SDK host providing ordinary main-window Qt access.
+     * @param[in] terrain True opens elevation; false opens USGS observations.
+     * @return Borrowed tool contents, or null if the independently built plugin is absent. */
+    static QWidget *dataPanel(ExtensionHost *host, bool terrain = false)
+    {
+        auto *window = host->ui()->mainWindow();
+        const auto tool = terrain ? QStringLiteral("terrain") : QStringLiteral("sites");
+        const auto name = QStringLiteral("dataToolPanel.") + tool;
+        if (auto *panel = window->findChild<QWidget *>(name))
+            return panel;
+        for (auto *action : window->actions())
+            if (action->objectName() == QStringLiteral("ext.openswmm.gui.data.") + tool) {
+                action->trigger();
+                break;
+            }
+        if (auto *panel = window->findChild<QWidget *>(name))
+            return panel;
+        return window->findChild<QWidget *>(QStringLiteral("dataPreviewPanel"));
+    }
+
     /** @brief Exercise the separately built Data plugin through its ordinary Qt widgets.
      * @param[in] host Borrowed conformance host, used only for public SDK/Qt access.
      * @param[in] instance Live model whose loaded boundary is the fixture area.
@@ -695,7 +716,7 @@ private:
             done(checks);
             return;
         }
-        auto *panel = host->ui()->mainWindow()->findChild<QWidget *>("dataPreviewPanel");
+        auto *panel = dataPanel(host);
         checks["dataPluginLoaded"] = bool(panel);
         auto *area = panel ? panel->findChild<QComboBox *>("dataAreaMode") : nullptr;
         auto *source = panel ? panel->findChild<QComboBox *>("dataSource") : nullptr;
@@ -741,7 +762,8 @@ private:
                     done(checks);
                     return;
                 }
-                if ((*stage < 2 || *stage == 10 || *stage == 11) && table->model()->rowCount() != 2)
+                if ((*stage < 2 || *stage == 10 || *stage == 11 || *stage == 14 || *stage == 15) &&
+                    table->model()->rowCount() != 2)
                     return;
                 if (*stage == 0) {
                     QStringList ids;
@@ -750,7 +772,15 @@ private:
                     checks["dataSitesRespectHoleAndParts"] =
                         ids.contains("outer") && ids.contains("second") && !ids.contains("hole");
                     table->selectRow(0);
-                    checks["dataSelectionEnablesExport"] = exportButton->isEnabled();
+                    *stage = 14;
+                    return;
+                }
+                if (*stage == 14) {
+                    // Native preview selection advances the model revision. Its detailed
+                    // queued event must rebase the reviewed source before writes enable.
+                    if (!exportButton->isEnabled())
+                        return;
+                    checks["dataSelectionEnablesExport"] = true;
                     area->setCurrentIndex(0);
                     checks["dataAreaChangeInvalidatesReview"] =
                         table->model()->rowCount() == 0 && !exportButton->isEnabled();
@@ -767,25 +797,19 @@ private:
                     const auto layerCount = instance->project()->layers().size();
                     table->selectRow(0);
                     const bool applied = events->controls->executeViewCommand(request, &error);
+                    checks["dataViewFilterCommandAccepted"] = applied;
                     if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
                         exportButton->click();
                         checks["dataPendingFilterExportRefused"] =
                             applied && instance->project()->layers().size() == layerCount &&
-                            table->model()->rowCount() == 0 && !exportButton->isEnabled();
-                        *stage = 12;
-                        return;
+                            !exportButton->isEnabled();
                     }
-                    checks["dataViewFilterInvalidatesReview"] =
-                        applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
-                    request.text.clear();
-                    checks["dataViewFilterRestored"] =
-                        events->controls->executeViewCommand(request, &error);
-                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
-                    *stage = 11;
+                    *stage = 12;
                     return;
                 }
                 if (*stage == 12) {
                     checks["dataViewFilterInvalidatesReview"] =
+                        checks.value("dataViewFilterCommandAccepted").toBool() &&
                         table->model()->rowCount() == 0 && !exportButton->isEnabled();
                     QString error;
                     auto request = viewCommand(*events, ViewCommandKind::SetLayerFilter,
@@ -806,22 +830,13 @@ private:
                         request.featureIds = {boundary.first()["id"].toLongLong()};
                     const bool applied = !request.featureIds.isEmpty() &&
                                          events->controls->executeViewCommand(request, &error);
-                    if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
-                        checks["dataViewSelectionCommandAccepted"] = applied;
-                        *stage = 13;
-                        return;
-                    }
-                    checks["dataViewSelectionInvalidatesReview"] =
-                        applied && table->model()->rowCount() == 0 && !exportButton->isEnabled();
-                    request.featureIds.clear();
-                    checks["dataViewSelectionRestored"] =
-                        events->controls->executeViewCommand(request, &error);
-                    QMetaObject::invokeMethod(panel, "loadCatalogue", Q_ARG(QString, sites));
-                    *stage = 1;
+                    checks["dataViewSelectionCommandAccepted"] = applied;
+                    *stage = 13;
                     return;
                 }
                 if (*stage == 13) {
                     checks["dataViewSelectionInvalidatesReview"] =
+                        checks.value("dataViewSelectionCommandAccepted").toBool() &&
                         table->model()->rowCount() == 0 && !exportButton->isEnabled();
                     QString error;
                     auto request = viewCommand(*events, ViewCommandKind::SelectLayerFeatures,
@@ -834,10 +849,20 @@ private:
                 }
                 if (*stage == 1) {
                     table->selectRow(0);
+                    *stage = 15;
+                    return;
+                }
+                if (*stage == 15) {
+                    if (!exportButton->isEnabled())
+                        return;
                     const auto selected = table->model()->index(0, 1).data().toString();
+                    const auto countBeforeExport = instance->project()->layers().size();
                     exportButton->click();
                     checks["dataExportAddsMapLayer"] =
-                        instance->project()->layers().size() == before + 1;
+                        instance->project()->layers().size() == countBeforeExport + 1;
+                    checks["dataExportKeepsSelectedIdentity"] = false;
+                    checks["dataExportKeepsReviewedArea"] = false;
+                    checks["dataExportKeepsSavedResponseOrigin"] = false;
                     const QDir directory(QDir(instance->project()->directory())
                                              .filePath("data/external/preview-layers"));
                     const auto files = directory.entryList({"*.geojson"}, QDir::Files);
@@ -858,7 +883,24 @@ private:
                             review["response"].toObject()["path"] == sites &&
                             !review["intendedQuery"].toString().isEmpty();
                     }
-                    source->setCurrentIndex(1);
+                    auto *terrain = dataPanel(host, true);
+                    if (terrain && terrain != panel) {
+                        checks["dataToolPanelsIndependent"] = true;
+                        panel = terrain;
+                        area = panel->findChild<QComboBox *>("dataAreaMode");
+                        source = panel->findChild<QComboBox *>("dataSource");
+                        table = panel->findChild<QTableView *>("dataCatalogue");
+                        exportButton = panel->findChild<QPushButton *>("dataExport");
+                        if (!area || !source || !table || !exportButton) {
+                            timer->stop();
+                            checks["dataTerrainToolControls"] = false;
+                            done(checks);
+                            return;
+                        }
+                        area->setCurrentIndex(1);
+                    } else {
+                        source->setCurrentIndex(1);
+                    }
                     QMetaObject::invokeMethod(
                         panel, "loadCatalogue",
                         Q_ARG(QString, qEnvironmentVariable("SDK_DATA_TERRAIN")));
@@ -867,10 +909,40 @@ private:
                 }
                 if (table->model()->rowCount() != 1)
                     return;
+                if (checks.value("dataToolPanelsIndependent").toBool()) {
+                    auto *sitesPanel = dataPanel(host);
+                    auto *sitesTable = sitesPanel ? sitesPanel->findChild<QTableView *>("dataCatalogue")
+                                                   : nullptr;
+                    checks["dataSitePreviewSurvivesTerrainPreview"] =
+                        sitesTable && sitesTable != table && sitesTable->model()->rowCount() == 2;
+                }
                 checks["dataFootprintsRespectExactArea"] =
                     table->model()->index(0, 1).data().toString() == "footprint-inside";
-                checks["dataFootprintPreviewIsTransient"] =
-                    instance->project()->layers().size() == before + 1;
+                // Native previews appear in Layers. Clearing the DEM removes its
+                // disposable attachment while the exported feature layer stays loaded.
+                const auto countWithTerrain = instance->project()->layers().size();
+                checks["dataNativePreviewLayersRemainInspectable"] =
+                    countWithTerrain == before + 3;
+                auto *clear = panel->findChild<QPushButton *>("dataClearPreview");
+                const bool canClear = clear && clear->isEnabled();
+                if (canClear)
+                    clear->click();
+                checks["dataFootprintPreviewIsTransient"] = canClear &&
+                    table->model()->rowCount() == 0 &&
+                    instance->project()->layers().size() == countWithTerrain - 1;
+                if (!checks.value("dataFootprintPreviewIsTransient").toBool()) {
+                    const auto *status = panel->findChild<QLabel *>("dataStatus");
+                    qWarning() << "Data clear did not settle" << "enabled" << canClear
+                               << "rows" << table->model()->rowCount()
+                               << "layers before" << countWithTerrain
+                               << "layers after" << instance->project()->layers().size()
+                               << "status" << (status ? status->text() : QString{});
+                }
+                auto *sitesPanel = dataPanel(host);
+                auto *sitesTable = sitesPanel ? sitesPanel->findChild<QTableView *>("dataCatalogue")
+                                               : nullptr;
+                checks["dataDemClearKeepsGagePreview"] = sitesTable && sitesTable != table &&
+                    sitesTable->model()->rowCount() == 2;
                 timer->stop();
                 checks["dataPreviewCompleted"] = true;
                 done(checks);
@@ -895,7 +967,7 @@ private:
             return;
         }
         const QPointer<QWidget> panel(
-            host->ui()->mainWindow()->findChild<QWidget *>("dataPreviewPanel"));
+            dataPanel(host));
         auto *area = panel ? panel->findChild<QComboBox *>("dataAreaMode") : nullptr;
         auto *source = panel ? panel->findChild<QComboBox *>("dataSource") : nullptr;
         auto *layers = panel ? panel->findChild<QComboBox *>("dataBoundaryLayer") : nullptr;
@@ -1250,7 +1322,7 @@ private:
                         host->activeInstance() == instance;
                     if (qEnvironmentVariableIsSet("SDK_DATA_TYPED_CONSUMER")) {
                         auto *panel =
-                            host->ui()->mainWindow()->findChild<QWidget *>("dataPreviewPanel");
+                            dataPanel(host);
                         auto *table =
                             panel ? panel->findChild<QTableView *>("dataCatalogue") : nullptr;
                         auto *exportButton =
@@ -1859,6 +1931,17 @@ private:
                                                         ++closed;
                                                 checks["oneAuthoritativeSessionClosed"] =
                                                     closed == 1;
+                                                if (closed != 1 || !checks.value(
+                                                        "nativeTerminalHistorySurvivesModelClose").toBool())
+                                                    qWarning() << "Closure observations" << "session closed" << closed
+                                                        << "first finishes" << activityCount(*events,
+                                                            events->firstRunAttempt, ActivityEventKind::OperationFinished)
+                                                        << "second finishes" << activityCount(*events,
+                                                            events->secondRunAttempt, ActivityEventKind::OperationFinished)
+                                                        << "second removals" << activityCount(*events,
+                                                            events->secondRunAttempt, ActivityEventKind::OperationRemoved)
+                                                        << "states" << events->states.size()
+                                                        << "activities" << events->activities.size();
                                                 if (qEnvironmentVariableIsSet(
                                                         "SDK_EV2_MULTI_MODEL")) {
                                                     const auto other = sessionState(

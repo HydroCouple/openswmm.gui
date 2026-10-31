@@ -18,6 +18,10 @@
 #include "sdk/ITimeSeriesLayers.hpp"
 #include "sdk/IProgress.hpp"
 #include "sdk/IPreviewLayers.hpp"
+#include "sdk/IToolbox.hpp"
+#include "sdk/ISharedRibbon.hpp"
+#include "sdk/IToolRuns.hpp"
+#include "sdk/IToolPreviews.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -38,6 +42,8 @@ namespace openswmmvis
 class ExtensionNetwork;
 class ExtensionStateRegistry;
 class ExtensionActivityUi;
+class ExtensionToolbox;
+class ExtensionToolRuns;
 /** @brief Application callbacks keeping the generic host independent of concrete GUI registries. */
 struct ExtensionUiBridge {
     /** @brief Mount a qualified tab using the extension's registered local QAction map. */
@@ -46,6 +52,11 @@ struct ExtensionUiBridge {
         addTab;
     /** @brief Remove a qualified tab and destroy its toolbar widgets. */
     std::function<void(const QString &)> removeTab;
+    /** @brief Mount one owner's action groups on an explicitly shared tab. */
+    std::function<bool(const OpenSWMM::Sdk::SharedRibbonTabSpec &,
+                       const QHash<QString, QPointer<QAction>> &, QString *)> addSharedTab;
+    /** @brief Remove only the calling host's local shared contribution. */
+    std::function<void(const QString &)> removeSharedTab;
     /** @brief Publish a qualified command to the application command registry. */
     std::function<void(const QString &, QAction *)> addAction;
     /** @brief Forget a qualified command while leaving its QAction ownership unchanged. */
@@ -95,10 +106,14 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IActivityControls,
                                public OpenSWMM::Sdk::ITimeSeriesLayers,
                                public OpenSWMM::Sdk::IProgress,
-                               public OpenSWMM::Sdk::IPreviewLayers
+                               public OpenSWMM::Sdk::IPreviewLayers,
+                               public OpenSWMM::Sdk::IToolbox,
+                               public OpenSWMM::Sdk::IToolRuns,
+                               public OpenSWMM::Sdk::IToolPreviews,
+                               public OpenSWMM::Sdk::ISharedRibbon
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IModelEvents OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IViewControls OpenSWMM::Sdk::IActivityEvents OpenSWMM::Sdk::IActivityControls OpenSWMM::Sdk::ITimeSeriesLayers OpenSWMM::Sdk::IProgress OpenSWMM::Sdk::IPreviewLayers)
+    Q_INTERFACES(OpenSWMM::Sdk::IModelEvents OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IViewControls OpenSWMM::Sdk::IActivityEvents OpenSWMM::Sdk::IActivityControls OpenSWMM::Sdk::ITimeSeriesLayers OpenSWMM::Sdk::IProgress OpenSWMM::Sdk::IPreviewLayers OpenSWMM::Sdk::IToolbox OpenSWMM::Sdk::IToolRuns OpenSWMM::Sdk::IToolPreviews OpenSWMM::Sdk::ISharedRibbon)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -131,6 +146,64 @@ public:
     /** @copydoc OpenSWMM::Sdk::IProgress::finishProgress */
     bool finishProgress(const QUuid &operationId, OpenSWMM::Sdk::ProgressOutcome outcome,
                         const QString &detail = {}) override;
+    /** @copydoc OpenSWMM::Sdk::IToolbox::registerTool */
+    bool registerTool(const OpenSWMM::Sdk::ToolSpec &spec, QObject *context,
+                      std::function<QWidget *(OpenSWMM::Sdk::ExtensionHost *)> create,
+                      QString *error = nullptr) override;
+    /** @copydoc OpenSWMM::Sdk::IToolbox::unregisterTool */
+    void unregisterTool(const QString &id) override;
+    /** @copydoc OpenSWMM::Sdk::IToolbox::openTool */
+    bool openTool(const QString &id, QString *error = nullptr) override;
+    /** @brief Resolve an own registered launch action for tool validation.
+     * @param[in] id Extension-local registered command identity.
+     * @return Borrowed registered action, or null when unavailable. */
+    QAction *registeredToolAction(const QString &id) const { return mActions.value(id); }
+    /** @brief Publish or retire a tool dock in the existing activity observation service.
+     * @param[in] id Extension-local tool dock identity.
+     * @param[in] dock Borrowed live dock, or null to retire its activity registration. */
+    void trackToolDock(const QString &id, QDockWidget *dock);
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::beginToolRun */
+    QUuid beginToolRun(const OpenSWMM::Sdk::ToolRunRequest &request, QObject *context,
+                       std::function<void()> cancel = {}) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::updateToolRun */
+    bool updateToolRun(const QUuid &id, double fraction, const QString &stage) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::appendToolMessage */
+    bool appendToolMessage(const QUuid &id, const QString &level, const QString &text) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::addToolResult */
+    bool addToolResult(const QUuid &id, const OpenSWMM::Sdk::ToolResult &result) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::finishToolRun */
+    bool finishToolRun(const QUuid &id, OpenSWMM::Sdk::ToolRunOutcome outcome,
+                       const QString &detail = {}) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::cancelToolRun */
+    bool cancelToolRun(const QUuid &id) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::toolRuns */
+    QList<OpenSWMM::Sdk::ToolRunState> toolRuns() const override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::runToolJob */
+    OpenSWMM::Sdk::IJob *runToolJob(
+        const QUuid &id, const QString &title,
+        std::function<void(OpenSWMM::Sdk::IJobContext &)> work,
+        std::function<void(bool, const QString &)> finished = {}) override;
+    /** @copydoc OpenSWMM::Sdk::IToolRuns::importToolTimeSeries */
+    OpenSWMM::Sdk::IJob *importToolTimeSeries(
+        const QUuid &id, const OpenSWMM::Sdk::TimeSeriesImportRequest &request, QObject *context,
+        std::function<void(const OpenSWMM::Sdk::TimeSeriesImportResult &)> finished,
+        QString *error = nullptr) override;
+    /** @copydoc OpenSWMM::Sdk::IToolPreviews::showToolPreview */
+    bool showToolPreview(const QUuid &sessionId, quint64 loadGeneration, const QString &toolId,
+                         const QJsonObject &collection, QString *error = nullptr) override;
+    /** @copydoc OpenSWMM::Sdk::IToolPreviews::clearToolPreview */
+    void clearToolPreview(const QUuid &sessionId, const QString &toolId) override;
+    /** @copydoc OpenSWMM::Sdk::IToolPreviews::toolPreviewLayer */
+    QUuid toolPreviewLayer(const QUuid &sessionId, const QString &toolId,
+                           QList<qint64> *featureIds = nullptr) const override;
+    /** @brief Install native owner/session/tool preview routes during model bridge setup.
+     * @param[in] show GUI-thread publisher validating the exact model generation.
+     * @param[in] clear GUI-thread cleanup limited to the named tool/session preview.
+     * @param[in] lookup Lookup-only resolver of the current native attachment and FIDs. */
+    void setToolPreviews(
+        std::function<bool(const QUuid &, quint64, const QString &, const QJsonObject &, QString *)> show,
+        std::function<void(const QUuid &, const QString &)> clear,
+        std::function<QUuid(const QUuid &, const QString &, QList<qint64> *)> lookup);
     OpenSWMM::Sdk::INetworkPolicy *network() override;
     OpenSWMM::Sdk::IRunRegistry *runRegistry() override { return this; }
     OpenSWMM::Sdk::IPlotService *plots() override { return this; }
@@ -313,6 +386,11 @@ public:
                             std::function<void(const QString &, int)> handler) override;
     bool registerAction(const QString &id, QAction *action) override;
     void unregisterAction(const QString &id) override;
+    /** @copydoc OpenSWMM::Sdk::ISharedRibbon::registerSharedRibbonTab */
+    bool registerSharedRibbonTab(const OpenSWMM::Sdk::SharedRibbonTabSpec &spec,
+                                  QString *error = nullptr) override;
+    /** @copydoc OpenSWMM::Sdk::ISharedRibbon::unregisterSharedRibbonTab */
+    void unregisterSharedRibbonTab(const QString &id) override;
     bool registerRibbonTab(const OpenSWMM::Sdk::RibbonTabSpec &tab) override;
     void unregisterRibbonTab(const QString &id) override;
     bool registerDockPanelFactory(OpenSWMM::Sdk::IDockPanelFactory *factory) override;
@@ -384,6 +462,7 @@ private:
     struct ProgressOperation {
         QPointer<QObject> context; ///< Required owner lifetime, never dereferenced off-thread.
         QMetaObject::Connection destroyed; ///< Auto-release registration, removed at settlement.
+        QDateTime startedAt; ///< UTC acceptance time for timing metadata in progress logs.
         QString title; ///< Local title; native bridge receives plugin-qualified text.
         QString stage; ///< Latest stage, compared to coalesce repeated log messages.
         double fraction = -1.; ///< Normalized progress, negative for indeterminate.
@@ -419,6 +498,11 @@ private:
     ExtensionUiBridge mBridge;
     QHash<QString, QPointer<QAction>> mActions;
     QStringList mTabs;
+    QHash<QString, OpenSWMM::Sdk::SharedRibbonTabSpec> mSharedTabs; ///< Own shared contributions only.
+    QHash<QString, QUuid> mSharedTabRegistrations; ///< Fence native assembly against replacement.
+    /** @brief Retire own contributions referencing a removed action.
+     * @param[in] id Extension-local registered action identity. */
+    void removeSharedTabsForAction(const QString &id);
     QHash<QString, QPointer<QDockWidget>> mDocks;
     QHash<QString, OpenSWMM::Sdk::IDocumentViewFactory *> mFactories;
     QList<View> mViews;
@@ -431,6 +515,11 @@ private:
     ExtensionNetwork *mNetwork = nullptr;
     std::vector<std::unique_ptr<Job>> mJobs;
     QHash<QUuid, ProgressOperation> mProgress; ///< Per-host UUID ownership; finished IDs are erased.
+    std::unique_ptr<ExtensionToolbox> mToolbox; ///< Own lazy tool contributions.
+    std::unique_ptr<ExtensionToolRuns> mToolRuns; ///< Run controller with window-owned history.
+    std::function<bool(const QUuid &, quint64, const QString &, const QJsonObject &, QString *)> mShowToolPreview;
+    std::function<void(const QUuid &, const QString &)> mClearToolPreview;
+    std::function<QUuid(const QUuid &, const QString &, QList<qint64> *)> mToolPreviewLayer;
     bool mStopping = false;
     QUuid mActivityOwnerId = QUuid::createUuid(); ///< Unique per-host private activity scope.
     QUuid mActivityWindowId; ///< Established main-window lifetime.

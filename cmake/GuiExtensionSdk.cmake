@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 include(CMakePackageConfigHelpers)
 
-set(OPENSWMMVIS_SDK_API_VERSION "1.9")
+set(OPENSWMMVIS_SDK_API_VERSION "1.11")
 set(_sdk_engine_tag "")
 if(TARGET OpenSWMMEngine::openswmm_engine)
     get_target_property(_sdk_engine_includes OpenSWMMEngine::openswmm_engine INTERFACE_INCLUDE_DIRECTORIES)
@@ -76,6 +76,8 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/activity/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/activity" COMPONENT GuiSdk)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/values/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/values" COMPONENT GuiSdk)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/examples/extensions/toolbox/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/openswmmvis-sdk/examples/toolbox" COMPONENT GuiSdk)
 set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE "${PROJECT_SOURCE_DIR}/src/sdk/ActivitySignalAdapter.cpp")
 set(OpenSWMMVisSdk_ACTIVITY_ADAPTER_HEADER "${PROJECT_SOURCE_DIR}/include/sdk/qt/ActivitySignalAdapter.hpp")
 install(FILES "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE}"
@@ -116,7 +118,16 @@ if(NOT SWMMVIS_SDK_ONLY)
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionattributes.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionevents.cpp"
         "${PROJECT_SOURCE_DIR}/src/plugins/extensionstateregistry.cpp"
-        "${PROJECT_SOURCE_DIR}/src/plugins/guiextensionhost.cpp")
+        "${PROJECT_SOURCE_DIR}/src/plugins/guiextensionhost.cpp"
+        "${PROJECT_SOURCE_DIR}/include/plugins/extensiontoolbox.h"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensiontoolbox.cpp"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensiontoolservices.cpp"
+        "${PROJECT_SOURCE_DIR}/include/plugins/extensiontoolruns.h"
+        "${PROJECT_SOURCE_DIR}/src/plugins/extensiontoolruns.cpp"
+        "${PROJECT_SOURCE_DIR}/include/ui/panels/toolboxpanel.h"
+        "${PROJECT_SOURCE_DIR}/src/ui/panels/toolboxpanel.cpp"
+        "${PROJECT_SOURCE_DIR}/include/ui/panels/toolrunspanel.h"
+        "${PROJECT_SOURCE_DIR}/src/ui/panels/toolrunspanel.cpp")
     set_target_properties(openswmmvis_extensions PROPERTIES AUTOMOC ON)
     target_include_directories(openswmmvis_extensions PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sdk")
     target_link_libraries(openswmmvis_extensions PUBLIC openswmmvis_sdk)

@@ -1,3 +1,4 @@
+#include "ui/panels/toolboxpanel.h"
 #include "ui/delegates/datetimedelegate.h"
 #include "core/displaynumber.h"
 #include "ui/dialogs/traceanalysisdialog.h"
@@ -431,6 +432,7 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
     initializeStatusBar();
     initializeWelcomeScreen();
     initializeDockWidgets();
+    openswmmvis::ui::ensureToolboxPanel(this);
     initializeMenus();
     // After the docks (the actions capture mFeatureLayerPanel) and before
     // registerActions(), which sweeps the catalog by objectName.
@@ -5306,6 +5308,7 @@ void SWMMVis::initializeMenus()
             const char *toggleName;
         };
         const PanelEntry panelDocks[] = {
+            {ui->dockWidgetAnalysisToolBox, "actionToggleDockToolbox"},
             {ui->dockWidgetSWMMLayers, "actionToggleDockLayers"},
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetObjectBrowser")),
              "actionToggleDockObjectBrowser"},

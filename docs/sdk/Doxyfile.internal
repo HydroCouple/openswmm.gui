@@ -4,7 +4,18 @@
 PROJECT_NAME = "OpenSWMM GUI Extension Implementation"
 OUTPUT_DIRECTORY = build/docs/sdk-internal
 INPUT += include/plugins/extensionmanager.h \
+         include/plugins/extensionsharedribbon.h \
+         src/plugins/extensionsharedribbon.cpp \
          include/plugins/guiextensionhost.h \
+         include/plugins/extensiontoolbox.h \
+         src/plugins/extensiontoolbox.cpp \
+         include/plugins/extensiontoolruns.h \
+         src/plugins/extensiontoolruns.cpp \
+         src/plugins/extensiontoolservices.cpp \
+         include/ui/panels/toolboxpanel.h \
+         src/ui/panels/toolboxpanel.cpp \
+         include/ui/panels/toolrunspanel.h \
+         src/ui/panels/toolrunspanel.cpp \
          include/plugins/extensionmodelaccess.h \
          include/plugins/extensiontimeseriesaccess.h \
          src/plugins/extensiontimeseriesaccess.cpp \

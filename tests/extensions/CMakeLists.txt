@@ -141,3 +141,40 @@ if(SWMMVIS_TEST_ENV)
     set_tests_properties(test_gui_extensions test_gui_extension_models test_gui_extension_events test_gui_extension_stateevents test_gui_extension_viewevents test_gui_extension_activityevents test_gui_extension_activity_jobs test_gui_extension_activity_ui test_gui_extension_activity_consumers test_gui_extension_values test_gui_extension_progress PROPERTIES
         ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
 endif()
+
+add_executable(test_gui_extension_toolbox test_toolbox.cpp)
+set_target_properties(test_gui_extension_toolbox PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_toolbox PRIVATE openswmmvis_extensions Qt6::Test)
+target_compile_definitions(test_gui_extension_toolbox PRIVATE
+    SDK_TOOLBOX_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/toolbox_2026-10-31/core")
+add_test(NAME test_gui_extension_toolbox COMMAND test_gui_extension_toolbox)
+set_tests_properties(test_gui_extension_toolbox PROPERTIES LABELS "gui;sdk;toolbox"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+
+add_executable(test_gui_extension_toolruns test_toolruns.cpp)
+set_target_properties(test_gui_extension_toolruns PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_toolruns PRIVATE openswmmvis_extensions Qt6::Test)
+target_compile_definitions(test_gui_extension_toolruns PRIVATE
+    SDK_TOOLRUNS_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/toolbox_2026-10-31/runs")
+add_test(NAME test_gui_extension_toolruns COMMAND test_gui_extension_toolruns)
+set_tests_properties(test_gui_extension_toolruns PROPERTIES LABELS "gui;sdk;toolbox"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+
+add_executable(test_gui_extension_sharedribbon test_sharedribbon.cpp
+    ${PROJECT_SOURCE_DIR}/include/plugins/extensionsharedribbon.h
+    ${PROJECT_SOURCE_DIR}/src/plugins/extensionsharedribbon.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/toolbars/compacttoolbarcontroller.h
+    ${PROJECT_SOURCE_DIR}/src/ui/toolbars/compacttoolbarcontroller.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/toolbars/ribbongroup.h
+    ${PROJECT_SOURCE_DIR}/src/ui/toolbars/ribbongroup.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/toolbars/ribboncompactor.h
+    ${PROJECT_SOURCE_DIR}/src/ui/toolbars/ribboncompactor.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/toolbars/ribbonsplitbutton.h
+    ${PROJECT_SOURCE_DIR}/src/ui/toolbars/ribbonsplitbutton.cpp)
+set_target_properties(test_gui_extension_sharedribbon PROPERTIES AUTOMOC ON)
+target_link_libraries(test_gui_extension_sharedribbon PRIVATE openswmmvis_extensions Qt6::Test)
+target_compile_definitions(test_gui_extension_sharedribbon PRIVATE
+    SDK_SHARED_RIBBON_VERIFICATION_DIRECTORY="${PROJECT_SOURCE_DIR}/tests/verification/optional_ribbon_2026-10-31/shared")
+add_test(NAME test_gui_extension_sharedribbon COMMAND test_gui_extension_sharedribbon)
+set_tests_properties(test_gui_extension_sharedribbon PROPERTIES LABELS "gui;sdk;ribbon"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)

@@ -262,6 +262,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionShowLegend", QT_TR_NOOP("Show\nLegend")},
         {"actionSetStyle", QT_TR_NOOP("Set\nStyle")},
         // View (dock faces pinned — see note above)
+        {"actionToggleDockToolbox", QT_TR_NOOP("Analysis\nToolbox")},
         {"actionToggleDockLayers", QT_TR_NOOP("Layers")},
         {"actionToggleDockObjectBrowser", QT_TR_NOOP("Object\nBrowser")},
         {"actionToggleDockProperties", QT_TR_NOOP("Properties")},
@@ -387,6 +388,7 @@ void SWMMVis::initializeCompactToolbar()
 
     mToolBarView = new QToolBar(tr("View"), this);
     mToolBarView->setObjectName(QStringLiteral("toolBarView"));
+    addGroup(mToolBarView, tr("Tools"), {"actionToggleDockToolbox"});
     addGroup(mToolBarView, tr("Panels"),
              {"actionToggleDockLayers", "actionToggleDockObjectBrowser",
               "actionToggleDockProperties", "actionToggleDockSectionView",
@@ -560,9 +562,9 @@ QMenu *SWMMVis::createPopupMenu()
     // individually hiding them would break the tab illusion.
     auto *menu = new QMenu(this);
     for (const char *name :
-         {"actionToggleDockLayers", "actionToggleDockObjectBrowser", "actionToggleDockProperties",
-          "actionToggleDockSectionView", "actionToggleDockAttributeTable", "actionToggleDockLegend",
-          "actionToggleDockSimulationStatus", "actionToggleDockMessageLogs"}) {
+         {"actionToggleDockToolbox", "actionToggleDockLayers", "actionToggleDockObjectBrowser",
+          "actionToggleDockProperties", "actionToggleDockSectionView", "actionToggleDockAttributeTable",
+          "actionToggleDockLegend", "actionToggleDockSimulationStatus", "actionToggleDockMessageLogs"}) {
         if (auto *act = findChild<QAction *>(QLatin1String(name)))
             menu->addAction(act);
     }

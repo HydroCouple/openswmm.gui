@@ -621,7 +621,11 @@ public:
                         mPreviewSuppressed = true;
                 });
     }
-    ~ProjectFacade() override { clearPreview(); }
+    ~ProjectFacade() override
+    {
+        clearToolPreviews();
+        clearPreview();
+    }
     ModelFacade *model = nullptr;
     QUuid id() const override { return mWindow ? instanceId(mWindow) : QUuid{}; }
     QString path() const override
@@ -980,6 +984,49 @@ public:
             *featureIds = attached ? mPreviewFids : QList<qint64>{};
         return attached ? mPreviewLayer.data() : nullptr;
     }
+    /** @brief Resolve a tool's independent preview without allocating on read.
+     * @param[in] id Stable owner-local tool identity.
+     * @param[in] create True only for an accepted publication.
+     * @return Borrowed preview facade sharing only the native model window. */
+    ProjectFacade *toolPreview(const QString &id, bool create = false)
+    {
+        const auto found = mToolPreviews.find(id);
+        if (found != mToolPreviews.end())
+            return found->second.get();
+        if (!create || !mWindow || mWindow->isClosing())
+            return nullptr;
+        auto preview = std::make_unique<ProjectFacade>(mWindow, mPlugin);
+        auto *result = preview.get();
+        mToolPreviews.emplace(id, std::move(preview));
+        return result;
+    }
+    /** @brief Release all tool previews when the model starts another load. */
+    void clearToolPreviews()
+    {
+        // Native removal publishes synchronously. Retire ownership before callbacks.
+        decltype(mToolPreviews) retired;
+        retired.swap(mToolPreviews);
+    }
+    /** @brief Retire only previews belonging to an older accepted model load.
+     * @param[in] generation New accepted generation, including queued load notices.
+     * @note A delayed LoadStarted event must preserve already published new previews. */
+    void clearToolPreviewsBefore(quint64 generation)
+    {
+        decltype(mToolPreviews) retired;
+        for (auto it = mToolPreviews.begin(); it != mToolPreviews.end();) {
+            if (it->second->mPreviewGeneration < generation) {
+                retired.emplace(it->first, std::move(it->second));
+                it = mToolPreviews.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    /** @brief Record the exact generation before publishing a tool preview.
+     * @param[in] generation Current Ready model load generation. */
+    void setPreviewGeneration(quint64 generation) { mPreviewGeneration = generation; }
+    /** @return Accepted generation owning this named preview slot. */
+    quint64 previewGeneration() const { return mPreviewGeneration; }
 
 private:
     static QJsonObject spatialError(QString *error, const char *text)
@@ -1313,6 +1360,8 @@ private:
     QList<qint64> mPreviewFids;            ///< Native FIDs in accepted collection feature order.
     bool mChangingPreview = false;       ///< Refuse nested replacement while native signals publish.
     bool mPreviewSuppressed = false;      ///< Manual removal remains effective until clearPreview().
+    std::map<QString, std::unique_ptr<ProjectFacade>> mToolPreviews; ///< Independent per-tool slots.
+    quint64 mPreviewGeneration = 0; ///< Load owning this facade when it represents a tool slot.
 };
 class ModelFacade final : public IModelInstance
 {
@@ -1794,6 +1843,58 @@ void installExtensionModelAccess(GuiExtensionHost *host,
             if (id.isNull() && fids)
                 fids->clear();
             return id;
+        });
+        const auto previewProject = [access, registry](const QUuid &sessionId) -> ProjectFacade * {
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(sessionId));
+            auto *instance = access->model(window);
+            return instance ? static_cast<ProjectFacade *>(instance->project()) : nullptr;
+        };
+        host->setToolPreviews(
+            [previewProject, registry](const QUuid &sessionId, quint64 generation,
+                                        const QString &toolId, const QJsonObject &collection,
+                                        QString *error) {
+                const auto state = registry->session(sessionId);
+                if (state.status != SessionStatus::Ready || state.loadGeneration != generation) {
+                    if (error)
+                        *error = QStringLiteral("The tool preview target changed or closed.");
+                    return false;
+                }
+                const QPointer<ProjectFacade> project(previewProject(sessionId));
+                if (project)
+                    project->clearToolPreviewsBefore(generation);
+                const auto current = registry->session(sessionId);
+                if (!project || current.status != SessionStatus::Ready ||
+                    current.loadGeneration != generation)
+                    return false;
+                auto *preview = project ? project->toolPreview(toolId, true) : nullptr;
+                if (preview)
+                    preview->setPreviewGeneration(generation);
+                return preview && preview->showPreview(collection, error);
+            },
+            [previewProject](const QUuid &sessionId, const QString &toolId) {
+                auto *project = previewProject(sessionId);
+                if (auto *preview = project ? project->toolPreview(toolId) : nullptr)
+                    preview->clearPreview();
+            },
+            [previewProject, viewAccess, registry](const QUuid &sessionId, const QString &toolId,
+                                         QList<qint64> *fids) {
+                auto *project = previewProject(sessionId);
+                auto *preview = project ? project->toolPreview(toolId) : nullptr;
+                auto *views = viewAccess(sessionId);
+                const auto state = registry->session(sessionId);
+                auto *layer = preview && views && state.status == SessionStatus::Ready &&
+                                      preview->previewGeneration() == state.loadGeneration
+                                  ? preview->previewLayer(fids) : nullptr;
+                const auto id = layer ? views->identity(layer) : QUuid{};
+                if (id.isNull() && fids)
+                    fids->clear();
+                return id;
+            });
+        QObject::connect(registry, &ExtensionStateRegistry::stateEventReady, access,
+                         [previewProject](const StateEvent &event) {
+            if (event.kind == StateEventKind::LoadStarted)
+                if (auto *project = previewProject(event.session.sessionId))
+                    project->clearToolPreviewsBefore(event.session.loadGeneration);
         });
     }
     host->setModelAccess([access]() { return access->projects(); },

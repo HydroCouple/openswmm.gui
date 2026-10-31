@@ -17,7 +17,9 @@
 #include "sdk/IViewEvents.hpp"
 #include "sdk/IViewControls.hpp"
 #include "sdk/IPreviewLayers.hpp"
+#include "sdk/IToolPreviews.hpp"
 #include "sdk/IProject.hpp"
+#include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 #include "layers/featurelayer.h"
@@ -37,9 +39,13 @@
 #include "render/labelpainter.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/actionregistry.h"
+#include "ui/toolbars/compacttoolbarcontroller.h"
+#include "ui/toolbars/ribbongroup.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <QApplication>
+#include <QDockWidget>
 #include <QDir>
 #include <QEvent>
 #include <QElapsedTimer>
@@ -56,6 +62,7 @@
 #include <QFontMetricsF>
 #include <QPdfWriter>
 #include <QMainWindow>
+#include <QMenu>
 #include <QMdiArea>
 #include <QPointer>
 #include <QQmlEngine>
@@ -66,6 +73,8 @@
 #include <QSurfaceFormat>
 #include <QTest>
 #include <QTableView>
+#include <QToolBar>
+#include <QToolButton>
 #include <cpl_vsi.h>
 #include <ogrsf_frmts.h>
 #include <QThreadPool>
@@ -662,6 +671,71 @@ private slots:
         layer->setVisible(true);
         layer->refreshScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
         QVERIFY(render("preview-filtered-visible") > 20);
+    }
+
+    /** @brief Per-tool previews retain independent attachments, visibility and clearing. */
+    void toolPreviewChannelsAreIndependent()
+    {
+        ViewFixture fixture(model(), path("host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        QVERIFY(fixture.window->canvas()->setCanvasSRSByCode("EPSG", 4326));
+        auto *tools = qobject_cast<IToolPreviews *>(fixture.host.get());
+        QVERIFY(tools);
+        const auto state = fixture.host->stateSnapshot().sessions.first();
+        const auto collection = [](const QString &name) {
+            return QJsonObject{
+                {"type", "FeatureCollection"},
+                {"previewStyle", QJsonObject{{"asFeatureLayer", true}, {"title", name}}},
+                {"features", QJsonArray{QJsonObject{
+                    {"type", "Feature"}, {"properties", QJsonObject{{"name", name}}},
+                    {"geometry", QJsonObject{{"type", "Point"},
+                                              {"coordinates", QJsonArray{-76., 40.}}}}}}}};
+        };
+        QVERIFY2(tools->showToolPreview(state.sessionId, state.loadGeneration, "sites",
+                                        collection("Sites"), &error), qPrintable(error));
+        QList<qint64> sitesFids;
+        const auto sites = tools->toolPreviewLayer(state.sessionId, "sites", &sitesFids);
+        QVERIFY(!sites.isNull());
+        QCOMPARE(sitesFids.size(), 1);
+        QVERIFY2(tools->showToolPreview(state.sessionId, state.loadGeneration, "terrain",
+                                        collection("Terrain"), &error), qPrintable(error));
+        const auto terrain = tools->toolPreviewLayer(state.sessionId, "terrain");
+        QVERIFY(!terrain.isNull());
+        QVERIFY(terrain != sites);
+        fixture.instance()->project()->clearPreview();
+        QCOMPARE(tools->toolPreviewLayer(state.sessionId, "sites"), sites);
+        QCOMPARE(tools->toolPreviewLayer(state.sessionId, "terrain"), terrain);
+        GISVectorLayer *terrainLayer = nullptr;
+        for (auto *layer : fixture.window->canvas()->layers())
+            if (layer->name() == "Terrain")
+                terrainLayer = qobject_cast<GISVectorLayer *>(layer);
+        QVERIFY(terrainLayer);
+        terrainLayer->setVisible(false);
+        QVERIFY2(tools->showToolPreview(state.sessionId, state.loadGeneration, "terrain",
+                                        collection("Terrain"), &error), qPrintable(error));
+        QCOMPARE(tools->toolPreviewLayer(state.sessionId, "terrain"), terrain);
+        QVERIFY(!terrainLayer->isVisible());
+        QVERIFY(!tools->showToolPreview(state.sessionId, state.loadGeneration + 1, "terrain",
+                                         collection("Stale"), &error));
+        QVERIFY(!error.isEmpty());
+        tools->clearToolPreview(state.sessionId, "sites");
+        QVERIFY(tools->toolPreviewLayer(state.sessionId, "sites", &sitesFids).isNull());
+        QVERIFY(sitesFids.isEmpty());
+        QCOMPARE(tools->toolPreviewLayer(state.sessionId, "terrain"), terrain);
+        QVERIFY(!terrainLayer->isVisible());
+        tools->clearToolPreview(state.sessionId, "terrain");
+        QVERIFY(tools->toolPreviewLayer(state.sessionId, "terrain").isNull());
+        auto *registry = fixture.host->stateRegistry();
+        const auto nextGeneration = registry->beginLoad(state.sessionId);
+        QVERIFY(nextGeneration > state.loadGeneration);
+        registry->finishLoad(state.sessionId, nextGeneration, true);
+        QVERIFY2(tools->showToolPreview(state.sessionId, nextGeneration, "terrain",
+                                        collection("New terrain"), &error), qPrintable(error));
+        const auto fresh = tools->toolPreviewLayer(state.sessionId, "terrain");
+        QVERIFY(!fresh.isNull());
+        QCoreApplication::processEvents(); // Deliver the older queued LoadStarted notice.
+        QCOMPARE(tools->toolPreviewLayer(state.sessionId, "terrain"), fresh);
     }
 
     /** @brief The preview lookup maps string-identified records to FIDs, and the real select
@@ -1924,6 +1998,49 @@ private slots:
         QCOMPARE(interrupted.sourceGeneration, results->sourceRevision());
         QTRY_COMPARE(delivered.size(), 1);
         QCOMPARE(delivered.first(), ResultAvailability::Empty);
+    }
+    /** @brief Expose the real toolbox dock through one shared menu/palette/ribbon action. */
+    void viewRibbonToolboxUsesDockAction()
+    {
+        SWMMVis main;
+        main.resize(1280, 900);
+        main.show();
+        auto *bar = main.findChild<QToolBar *>("toolBarView");
+        auto *dock = main.findChild<QDockWidget *>("dockWidgetAnalysisToolBox");
+        auto *action = main.findChild<QAction *>("actionToggleDockToolbox");
+        auto *controller = main.findChild<openswmmvis::ui::CompactToolbarController *>();
+        auto *menu = main.findChild<QMenu *>("menuViewPanels");
+        QVERIFY(bar && dock && action && controller && menu);
+        QCOMPARE(action, dock->toggleViewAction());
+        QCOMPARE(openswmmvis::ui::ActionRegistry::instance()->action("view.dock.toolbox"), action);
+        QVERIFY(menu->actions().contains(action));
+        QVERIFY(action->isCheckable());
+        QVERIFY(action->isEnabled());
+        QVERIFY(!action->icon().isNull());
+        QCOMPARE(action->iconText(), QStringLiteral("Analysis\nToolbox"));
+
+        auto *group = bar->findChild<openswmmvis::ui::RibbonGroup *>("ribbonGroupTools");
+        QVERIFY(group);
+        auto *button = group->buttonForAction(action);
+        QVERIFY(button);
+        QCOMPARE(button->defaultAction(), action);
+        int faces = 0;
+        for (auto *candidate : bar->findChildren<QToolButton *>())
+            faces += candidate->defaultAction() == action;
+        QCOMPARE(faces, 1);
+
+        controller->setCurrentTab("view");
+        dock->hide();
+        QTRY_VERIFY(button->isVisible());
+        QTRY_VERIFY(!action->isChecked());
+        QTest::mouseClick(button, Qt::LeftButton);
+        QTRY_VERIFY(!dock->isHidden());
+        QTRY_VERIFY(action->isChecked());
+        dock->hide();
+        QTRY_VERIFY(!action->isChecked());
+        action->trigger();
+        QTRY_VERIFY(!dock->isHidden());
+        QTRY_VERIFY(button->isChecked());
     }
 };
 
