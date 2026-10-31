@@ -1746,8 +1746,6 @@ void SWMMVis::initializeMeshEditingToolBar()
                 });
         if (pw) {
             if (pw->modelLayer()) {
-                // Lets the Sources tab mark sources authored by XY in the input file.
-                dlg.setModelFile(pw->modelLayer()->modelFilePath());
                 QPointer<SWMMModelLayer> owner = pw->modelLayer();
                 QList<QPair<QPointer<SWMM2DMeshLayer>, quint64>> geometry;
                 for (auto *layer : pw->canvas()->layers())

@@ -968,7 +968,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
                                          .arg(model->fileRowCount()));
     }
     m_sources->setTagChoices(tags);
-    m_sources->load(m_engine, m_modelFile);
+    m_sources->load(m_engine);
     {
         QSignalBlocker block(m_bottomNode);
         m_bottomNode->clear();
@@ -1026,8 +1026,6 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
         for (auto *view : {m_sourceView, m_termView})
             view->setEditTriggers(on ? QAbstractItemView::AllEditTriggers
                                      : QAbstractItemView::NoEditTriggers);
-        if (on)
-            m_convertXyBtn->setEnabled(m_sources->isXy(m_sourceView->currentIndex().row()));
     }
     if (!whyNot.isEmpty()) {
         m_banner->setText(whyNot);
@@ -1096,7 +1094,9 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     auto *hint = new QLabel(
         tr("Named wells, injections and extractions. Flow is total m³/s, positive into the "
            "aquifer; a source on all cells (*) or a tag is shared among its active cells by "
-           "area. Species terms inject a concentration (CONC) or add mass per second (MASS)."),
+           "area. An XY source is placed in the cell whose centroid is nearest; choose XY in "
+           "Scope to locate one by coordinates. Species terms inject a concentration (CONC) or "
+           "add mass per second (MASS)."),
         m_sourcePage);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -1125,18 +1125,11 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     m_sourceView->setObjectName(QStringLiteral("gwSourcesTable"));
     table(m_sourceView, m_sources, tr("Groundwater sources"));
     layout->addWidget(m_sourceView, 1);
-    m_sourceNote = new QLabel(m_sourcePage);
-    m_sourceNote->setObjectName(QStringLiteral("gwSourceNote"));
-    m_sourceNote->setWordWrap(true);
-    m_sourceNote->hide();
-    layout->addWidget(m_sourceNote);
 
     auto *row = new QHBoxLayout;
     auto *add = button(tr("Add source"), "gwSourceAdd", m_sourcePage);
     auto *remove = button(tr("Remove source"), "gwSourceRemove", m_sourcePage);
-    m_convertXyBtn = button(tr("Edit XY location as cell…"), "gwSourceConvertXy", m_sourcePage);
-    m_convertXyBtn->setEnabled(false);
-    for (auto *b : {add, remove, m_convertXyBtn})
+    for (auto *b : {add, remove})
         row->addWidget(b);
     row->addStretch(1);
     layout->addLayout(row);
@@ -1159,19 +1152,7 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     layout->addWidget(termsBox, 1);
 
     const auto updateSelection = [this] {
-        const int r = m_sourceView->currentIndex().row();
-        m_sourceTerms->setSourceRow(r);
-        const bool xy = m_sources->isXy(r);
-        m_convertXyBtn->setEnabled(m_editable && xy);
-        const QModelIndex target = m_sources->index(r, Mesh2DGwSourceModel::ColTarget);
-        m_sourceNote->setText(
-            xy ? tr("%1 was authored by XY coordinates and sits in %2. Its scale and species "
-                    "terms can be edited as they are; editing its location saves it as a CELL "
-                    "source.")
-                     .arg(m_sources->data(m_sources->index(r, 0)).toString(),
-                          m_sources->data(target).toString())
-               : QString());
-        m_sourceNote->setVisible(xy);
+        m_sourceTerms->setSourceRow(m_sourceView->currentIndex().row());
     };
     connect(m_sourceView->selectionModel(), &QItemSelectionModel::currentRowChanged, this,
             updateSelection);
@@ -1186,24 +1167,6 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
         if (r >= 0)
             m_sources->removeRow(r);
     });
-    connect(m_convertXyBtn, &QPushButton::clicked, this, [this, updateSelection] {
-        const int r = m_sourceView->currentIndex().row();
-        if (!m_sources->isXy(r))
-            return;
-        const QString name = m_sources->data(m_sources->index(r, 0)).toString();
-        const QString cell =
-            m_sources->data(m_sources->index(r, Mesh2DGwSourceModel::ColTarget), Qt::EditRole)
-                .toString();
-        if (QMessageBox::question(
-                this, tr("2D Groundwater"),
-                tr("%1 was placed by XY coordinates. The engine cannot report the coordinates, "
-                   "so once its location is edited it is saved as CELL %2 (the cell the engine "
-                   "placed it in), not XY. Continue?")
-                    .arg(name, cell)) != QMessageBox::Yes)
-            return;
-        m_sources->convertToCell(r);
-        updateSelection();
-    });
     connect(addTerm, &QPushButton::clicked, this, [this] {
         const int at = m_sourceTerms->appendTerm();
         if (at >= 0)
@@ -1212,13 +1175,6 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     connect(removeTerm, &QPushButton::clicked, this,
             [this] { m_sourceTerms->removeTerm(m_termView->currentIndex().row()); });
     return m_sourcePage;
-}
-
-void Mesh2DGroundwaterDialog::setModelFile(const QString &inpPath)
-{
-    m_modelFile = inpPath;
-    if (m_engine && m_sources)
-        m_sources->load(m_engine, m_modelFile);
 }
 
 QWidget *Mesh2DGroundwaterDialog::buildTransportPage()

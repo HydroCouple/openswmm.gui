@@ -5,16 +5,16 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * `Mesh2DGwSourceModel` lists every named source (`*`, TAG, CELL and XY-authored rows) with its
+ * `Mesh2DGwSourceModel` lists every named source (`*`, TAG, CELL and XY rows) with its location,
  * flow, flow series and scale; `Mesh2DGwSourceTermModel` views the CONC/MASS species terms of the
  * selected source and edits them through the source model, so both tables stay in step (MVC).
  *
  * Reading and the per-source write primitive are shared with the per-cell assignment path
  * (`assignment::readGroundwaterSources`, `assignment::writeGroundwaterSource`). A commit only
- * touches sources that changed: an unchanged source keeps whatever the engine holds for it,
- * including an XY location the C API cannot read back. An XY-authored source reads as its
- * resolved CELL; its location columns stay read-only until convertToCell() (the dialog warns
- * first), because writing it saves CELL instead of XY.
+ * touches sources that changed. An XY source keeps its `XY x y` form: its X and Y are edited
+ * directly, the engine places it in the cell with the nearest centroid (shown read-only), and
+ * every rewrite re-applies the XY location (swmm_gw_source_xy_set), including a restore after
+ * a failed commit. The Scope column switches a source between XY, CELL, TAG and `*`.
  *
  * Flow is total m³/s (positive injects); CONC terms are in the species' units and MASS terms in
  * its mass per second.
@@ -29,7 +29,6 @@
 #include <QAbstractTableModel>
 #include <QList>
 #include <QPointer>
-#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -46,6 +45,8 @@ public:
         ColName = 0,
         ColScope,
         ColTarget,
+        ColX,
+        ColY,
         ColFlow,
         ColFlowSeries,
         ColScale,
@@ -67,13 +68,11 @@ public:
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     /**
-     * @brief Replace staged sources and baseline with the engine's.
+     * @brief Replace staged sources and baseline with the engine's (XY rows included).
      * @param[in] engine Borrowed engine; null clears the model.
-     * @param[in] inputFile Optional `.inp` the model was opened from. Its `[GW_SOURCES]` rows
-     * spelled `XY x y` mark those sources as XY-authored (the C API reports them as CELL).
      * @return Empty on success, otherwise the read error.
      */
-    QString load(SWMM_Engine engine, const QString &inputFile = QString());
+    QString load(SWMM_Engine engine);
     [[nodiscard]] bool isDirty() const;
     /** Editable engine, unchanged live sources, and complete, unique, in-range drafts. */
     QString validateCommit(SWMM_Engine engine) const;
@@ -89,10 +88,8 @@ public:
 
     /** Append a CELL 1 source with a unique name and zero flow; returns its row. */
     int appendSource();
-    /** True when the row was authored by XY and has not been converted. */
+    /** True when the staged row is located by XY coordinates. */
     [[nodiscard]] bool isXy(int row) const;
-    /** Stage an XY row as CELL at its resolved cell; its location becomes editable. */
-    bool convertToCell(int row);
     [[nodiscard]] QVector<assignment::GroundwaterSpeciesTerm> terms(int row) const;
     /** Replace a row's species terms (emits dataChanged for the Terms column). */
     bool setTerms(int row, const QVector<assignment::GroundwaterSpeciesTerm> &terms);
@@ -102,18 +99,10 @@ public:
     [[nodiscard]] QStringList seriesChoices() const;
     void setTagChoices(const QStringList &tags) { m_tags = tags; }
 
-    /** Names of `[GW_SOURCES]` rows located by `XY x y` in an input file (empty if unreadable). */
-    static QSet<QString> xySourceNames(const QString &inputFile);
-
 private:
-    struct Row {
-        assignment::GroundwaterSourceRow source;
-        bool xy = false;
-        bool operator==(const Row &o) const { return source == o.source && xy == o.xy; }
-    };
+    using Row = assignment::GroundwaterSourceRow;
     QString rowError(const Row &row) const;
-    QString transition(SWMM_Engine engine, const QList<Row> &target,
-                       const QSet<QString> &forceLocation) const;
+    QString transition(SWMM_Engine engine, const QList<Row> &target) const;
     QString noneLabel() const;
 
     QList<Row> m_rows, m_loaded;

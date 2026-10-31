@@ -420,6 +420,10 @@ bool readGroundwaterSources(SWMM_Engine e, QVector<GroundwaterSourceRow> *out, Q
                                &row.flow, series, sizeof series) != SWMM_OK ||
             swmm_gw_source_scale_get(e, i, &row.scale) != SWMM_OK)
             return fail(error, "Cannot read groundwater source or scale.");
+        int byXy = 0;
+        if (swmm_gw_source_xy_get(e, i, &byXy, &row.x, &row.y) != SWMM_OK)
+            return fail(error, "Cannot read groundwater source location.");
+        row.byXy = byXy != 0;
         row.name = QString::fromUtf8(name);
         row.tag = QString::fromUtf8(tag);
         row.series = QString::fromUtf8(series);
@@ -452,11 +456,14 @@ bool writeGroundwaterSource(SWMM_Engine e, int index, const GroundwaterSourceRow
             ++*writes;
         return true;
     };
+    // swmm_gw_source_set clears an XY location, so an XY row is placed again right after it.
     if (!step([&] {
             return swmm_gw_source_set(e, row.name.toUtf8().constData(), row.scope,
-                                      row.tag.toUtf8().constData(), row.cell, row.flow,
+                                      row.tag.toUtf8().constData(),
+                                      row.byXy ? std::max(row.cell, 0) : row.cell, row.flow,
                                       row.series.toUtf8().constData());
         }) ||
+        (row.byXy && !step([&] { return swmm_gw_source_xy_set(e, index, row.x, row.y); })) ||
         !step([&] { return swmm_gw_source_scale_set(e, index, row.scale); }))
         return false;
     for (const auto &term : row.terms)

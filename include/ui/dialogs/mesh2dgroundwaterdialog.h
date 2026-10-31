@@ -182,14 +182,6 @@ public:
      */
     void setSavedResultsFile(const QString &h5Path);
 
-    /**
-     * @brief Name the `.inp` the model was opened from so the Sources tab can tell which
-     * sources were authored by `XY x y` (the C API reports them as their resolved CELL).
-     * @param[in] inpPath Input file path; empty or unreadable marks none. Reloads the staged
-     * sources, so call it before editing.
-     */
-    void setModelFile(const QString &inpPath);
-
 public slots:
     /**
      * @brief Drop borrowed engine access and reject the disabled editor.
@@ -338,8 +330,8 @@ private:
      */
     QWidget *buildBoundaryPage();
     /**
-     * @brief Build the `[GW_SOURCES]` list, its XY conversion action and the species-term
-     * table of the selected source. Staged until Apply.
+     * @brief Build the `[GW_SOURCES]` list (XY sources with editable X and Y) and the
+     * species-term table of the selected source. Staged until Apply.
      */
     QWidget *buildSourcesPage();
     /**
@@ -354,9 +346,6 @@ private:
     QTableView *m_sourceView = nullptr;
     QTableView *m_termView = nullptr;
     QWidget *m_sourcePage = nullptr;
-    QPushButton *m_convertXyBtn = nullptr;
-    QLabel *m_sourceNote = nullptr;
-    QString m_modelFile;
     Mesh2DAquiferBoundaryModel *m_boundaries = nullptr;
     QWidget *m_boundaryPage = nullptr;
     QMap<QString, QWidget *> m_transportOptions;

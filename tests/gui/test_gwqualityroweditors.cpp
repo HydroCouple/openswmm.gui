@@ -445,38 +445,51 @@ private slots:
     }
 
     /**
-     * @brief [GW_SOURCES]: an XY source survives an unrelated edit and a scale/term edit, and is
-     * saved as CELL only after convertToCell(); sources can be added, renamed and removed, with
+     * @brief [GW_SOURCES]: an XY source keeps `XY x y` through edits of its scale, terms and
+     * coordinates, sits in the cell with the nearest centroid, and switches to CELL (and a CELL
+     * source to XY) through the Scope column; sources can be added, renamed and removed, with
      * species terms edited through the term model.
      */
-    void sourcesEditKeepXyUntilConvertedAndReopen()
+    void sourcesKeepXyThroughEditsAndReopen()
     {
         const QString inp = writeDeck(QStringLiteral("sources"));
         const QString dir = QFileInfo(inp).absolutePath();
         Engine engine;
         QVERIFY(openModel(engine, inp, dir));
         Mesh2DGwSourceModel sources;
-        QVERIFY(sources.load(engine.handle, inp).isEmpty());
+        QVERIFY(sources.load(engine.handle).isEmpty());
         Mesh2DGwSourceTermModel terms(&sources);
+        using C = Mesh2DGwSourceModel;
         QCOMPARE(sources.rowCount(), 2);
-        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColName), QStringLiteral("Well1"));
-        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColTarget), QStringLiteral("2"));
-        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColTerms),
-                 QStringLiteral("Tracer CONC 100"));
+        QCOMPARE(cell(sources, 0, C::ColName), QStringLiteral("Well1"));
+        QCOMPARE(cell(sources, 0, C::ColTarget), QStringLiteral("2"));
+        QCOMPARE(cell(sources, 0, C::ColX), QString());
+        QCOMPARE(cell(sources, 0, C::ColTerms), QStringLiteral("Tracer CONC 100"));
         QVERIFY(!sources.isXy(0));
         QVERIFY(sources.isXy(1));
-        QCOMPARE(sources.data(sources.index(1, Mesh2DGwSourceModel::ColScope)).toString(),
-                 QStringLiteral("XY"));
-        QCOMPARE(cell(sources, 1, Mesh2DGwSourceModel::ColFlowSeries), QStringLiteral("Pump"));
-        QCOMPARE(cell(sources, 1, Mesh2DGwSourceModel::ColScale), QStringLiteral("2"));
-        // An XY row's location is read-only until converted; its scale and terms are not.
-        for (int c : {Mesh2DGwSourceModel::ColName, Mesh2DGwSourceModel::ColScope,
-                      Mesh2DGwSourceModel::ColTarget, Mesh2DGwSourceModel::ColFlowSeries})
-            QVERIFY(!(sources.flags(sources.index(1, c)) & Qt::ItemIsEditable));
-        QVERIFY(set(sources, 1, Mesh2DGwSourceModel::ColScale, QStringLiteral("3")));
+        QCOMPARE(cell(sources, 1, C::ColScope), QStringLiteral("XY"));
+        QCOMPARE(cell(sources, 1, C::ColX), QStringLiteral("2"));
+        QCOMPARE(cell(sources, 1, C::ColY), QStringLiteral("8"));
+        // (2, 8) is nearest the centroid of cell 2 (3.33, 6.67), not cell 1 (6.67, 3.33).
+        QCOMPARE(sources.data(sources.index(1, C::ColTarget)).toString(),
+                 QStringLiteral("cell 2"));
+        QCOMPARE(cell(sources, 1, C::ColFlowSeries), QStringLiteral("Pump"));
+        QCOMPARE(cell(sources, 1, C::ColScale), QStringLiteral("2"));
+        // XY rows edit X and Y; the cell they resolve to is read-only. CELL rows have no X/Y.
+        QVERIFY(!(sources.flags(sources.index(1, C::ColTarget)) & Qt::ItemIsEditable));
+        QVERIFY(sources.flags(sources.index(1, C::ColX)) & Qt::ItemIsEditable);
+        QVERIFY(!(sources.flags(sources.index(0, C::ColX)) & Qt::ItemIsEditable));
+
+        // Spot: new scale and coordinates; it stays XY.
+        QVERIFY(set(sources, 1, C::ColScale, QStringLiteral("3")));
+        QVERIFY(set(sources, 1, C::ColX, QStringLiteral("9")));
+        QVERIFY(set(sources, 1, C::ColY, QStringLiteral("1")));
+        QVERIFY(!set(sources, 1, C::ColY, QStringLiteral("nan")));
+        QCOMPARE(sources.data(sources.index(1, C::ColTarget)).toString(),
+                 QStringLiteral("(placed on Apply)"));
 
         // Well1: new flow and an added MASS term through the term model.
-        QVERIFY(set(sources, 0, Mesh2DGwSourceModel::ColFlow, QStringLiteral("0.001")));
+        QVERIFY(set(sources, 0, C::ColFlow, QStringLiteral("0.001")));
         terms.setSourceRow(0);
         QCOMPARE(terms.rowCount(), 1);
         const int term = terms.appendTerm();
@@ -488,52 +501,125 @@ private slots:
 
         // A new TAG source; a duplicate name is refused at validation.
         const int ring = sources.appendSource();
-        QVERIFY(set(sources, ring, Mesh2DGwSourceModel::ColName, QStringLiteral("well1")));
+        QVERIFY(set(sources, ring, C::ColName, QStringLiteral("well1")));
         QVERIFY(sources.validateCommit(engine.handle).contains(QStringLiteral("unique")));
-        QVERIFY(set(sources, ring, Mesh2DGwSourceModel::ColName, QStringLiteral("Ring")));
-        QVERIFY(set(sources, ring, Mesh2DGwSourceModel::ColScope, 1));
-        QVERIFY(set(sources, ring, Mesh2DGwSourceModel::ColTarget, QStringLiteral("PAD")));
-        QVERIFY(set(sources, ring, Mesh2DGwSourceModel::ColFlow, QStringLiteral("-0.0001")));
+        QVERIFY(set(sources, ring, C::ColName, QStringLiteral("Ring")));
+        QVERIFY(set(sources, ring, C::ColScope, 1));
+        QVERIFY(set(sources, ring, C::ColTarget, QStringLiteral("PAD")));
+        QVERIFY(set(sources, ring, C::ColFlow, QStringLiteral("-0.0001")));
 
         QString error = sources.commit(engine.handle);
         QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(sources.isXy(1));
+        // (9, 1) is nearest cell 1's centroid; the engine placed it on Apply.
+        QCOMPARE(sources.data(sources.index(1, C::ColTarget)).toString(),
+                 QStringLiteral("cell 1"));
         const QString first = QDir(dir).filePath(QStringLiteral("saved_keep_xy.inp"));
         QCOMPARE(swmm_model_write(engine.handle, first.toUtf8().constData()), SWMM_OK);
         QVERIFY(sectionIs(first, QStringLiteral("[GW_SOURCES]"),
                           {{"Well1", "CELL", "2", "FLOW", "0.001", "Tracer", "CONC", "100", "TSS",
                             "MASS", "2"},
-                           {"Spot", "XY", "2", "8", "FLOW", "Pump", "SCALE", "3", "TSS", "MASS",
+                           {"Spot", "XY", "9", "1", "FLOW", "Pump", "SCALE", "3", "TSS", "MASS",
                             "3"},
                            {"Ring", "TAG", "PAD", "FLOW", "-0.0001"}}));
 
-        // Converting Spot saves CELL at the resolved cell; renaming Well1 and dropping Ring.
-        QVERIFY(sources.isXy(1));
-        const QString resolved = cell(sources, 1, Mesh2DGwSourceModel::ColTarget);
-        QVERIFY(sources.convertToCell(1));
-        QVERIFY(sources.isDirty());
-        QVERIFY(sources.flags(sources.index(1, Mesh2DGwSourceModel::ColTarget)) &
-                Qt::ItemIsEditable);
-        QVERIFY(set(sources, 0, Mesh2DGwSourceModel::ColName, QStringLiteral("WellA")));
+        // Scope switches: Spot XY -> CELL at the cell it sat in; Well1 renamed and made XY at
+        // (2, 8); Ring dropped.
+        QVERIFY(set(sources, 1, C::ColScope, QStringLiteral("Cell")));
+        QVERIFY(!sources.isXy(1));
+        QCOMPARE(cell(sources, 1, C::ColTarget), QStringLiteral("1"));
+        QVERIFY(set(sources, 0, C::ColName, QStringLiteral("WellA")));
+        QVERIFY(set(sources, 0, C::ColScope, QStringLiteral("XY")));
+        QVERIFY(set(sources, 0, C::ColX, QStringLiteral("2")));
+        QVERIFY(set(sources, 0, C::ColY, QStringLiteral("8")));
         QVERIFY(sources.removeRow(2));
         error = sources.commit(engine.handle);
         QVERIFY2(error.isEmpty(), qPrintable(error));
         // The renamed source is appended by the engine, and the model adopts that order.
-        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColName), QStringLiteral("Spot"));
-        QCOMPARE(cell(sources, 1, Mesh2DGwSourceModel::ColName), QStringLiteral("WellA"));
-        const QString second = QDir(dir).filePath(QStringLiteral("saved_converted.inp"));
+        QCOMPARE(cell(sources, 0, C::ColName), QStringLiteral("Spot"));
+        QCOMPARE(cell(sources, 1, C::ColName), QStringLiteral("WellA"));
+        QVERIFY(sources.isXy(1));
+        QCOMPARE(sources.data(sources.index(1, C::ColTarget)).toString(),
+                 QStringLiteral("cell 2"));
+        const QString second = QDir(dir).filePath(QStringLiteral("saved_scopes.inp"));
         QCOMPARE(swmm_model_write(engine.handle, second.toUtf8().constData()), SWMM_OK);
         QVERIFY(sectionIs(second, QStringLiteral("[GW_SOURCES]"),
-                          {{"Spot", "CELL", resolved, "FLOW", "Pump", "SCALE", "3", "TSS", "MASS",
-                            "3"},
-                           {"WellA", "CELL", "2", "FLOW", "0.001", "Tracer", "CONC", "100", "TSS",
-                            "MASS", "2"}}));
+                          {{"Spot", "CELL", "1", "FLOW", "Pump", "SCALE", "3", "TSS", "MASS", "3"},
+                           {"WellA", "XY", "2", "8", "FLOW", "0.001", "Tracer", "CONC", "100",
+                            "TSS", "MASS", "2"}}));
 
         Engine reopened;
         QVERIFY(openModel(reopened, second, QDir(dir).filePath(QStringLiteral("reopened"))));
         Mesh2DGwSourceModel sources2;
-        QVERIFY(sources2.load(reopened.handle, second).isEmpty());
+        QVERIFY(sources2.load(reopened.handle).isEmpty());
         QCOMPARE(rowsOf(sources2), rowsOf(sources));
         QVERIFY(!sources2.isXy(0));
+        QVERIFY(sources2.isXy(1));
+        QCOMPARE(sources2.data(sources2.index(1, C::ColTarget)).toString(),
+                 QStringLiteral("cell 2"));
+    }
+
+    /**
+     * @brief XY comes from the engine, not the input file: a model opened from a file deleted
+     * afterwards, and a source made XY through the API in this session, both read as XY.
+     */
+    void xySourcesDetectedWithoutInputFile()
+    {
+        const QString inp = writeDeck(QStringLiteral("xy_without_file"));
+        const QString dir = QFileInfo(inp).absolutePath();
+        const QString copy = QDir(dir).filePath(QStringLiteral("opened_then_deleted.inp"));
+        QFile::remove(copy);
+        QVERIFY(QFile::copy(inp, copy));
+        Engine engine;
+        QVERIFY(openModel(engine, copy, dir));
+        QVERIFY(QFile::remove(copy));
+        QCOMPARE(swmm_gw_source_xy_set(engine.handle, 0, 9.0, 1.0), SWMM_OK); // Well1, in session
+        Mesh2DGwSourceModel sources;
+        QVERIFY(sources.load(engine.handle).isEmpty());
+        QVERIFY(sources.isXy(0));
+        QVERIFY(sources.isXy(1));
+        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColX), QStringLiteral("9"));
+        QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColY), QStringLiteral("1"));
+        QCOMPARE(sources.data(sources.index(0, Mesh2DGwSourceModel::ColTarget)).toString(),
+                 QStringLiteral("cell 1"));
+        QCOMPARE(sources.data(sources.index(1, Mesh2DGwSourceModel::ColTarget)).toString(),
+                 QStringLiteral("cell 2"));
+    }
+
+    /**
+     * @brief Restoring the loaded sources after a commit puts an XY source back as XY (its flow
+     * rewrite clears XY in the engine, so the restore must place it again).
+     */
+    void restoreKeepsXySources()
+    {
+        const QString inp = writeDeck(QStringLiteral("xy_restore"));
+        Engine engine;
+        QVERIFY(openModel(engine, inp, QFileInfo(inp).absolutePath()));
+        Mesh2DGwSourceModel sources;
+        QVERIFY(sources.load(engine.handle).isEmpty());
+        QVERIFY(set(sources, 1, Mesh2DGwSourceModel::ColFlowSeries, QStringLiteral("(none)")));
+        QVERIFY(set(sources, 1, Mesh2DGwSourceModel::ColFlow, QStringLiteral("0.002")));
+        const QString error = sources.commit(engine.handle, false);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        int byXy = 0;
+        double x = 0.0, y = 0.0, flow = 0.0;
+        char series[64]{};
+        QCOMPARE(swmm_gw_source_xy_get(engine.handle, 1, &byXy, &x, &y), SWMM_OK);
+        QCOMPARE(byXy, 1);
+        QCOMPARE(swmm_gw_source_get(engine.handle, 1, nullptr, 0, nullptr, nullptr, 0, nullptr,
+                                    &flow, series, sizeof series),
+                 SWMM_OK);
+        QCOMPARE(flow, 0.002);
+        QVERIFY(sources.restoreLoaded(engine.handle).isEmpty());
+        byXy = 0;
+        QCOMPARE(swmm_gw_source_xy_get(engine.handle, 1, &byXy, &x, &y), SWMM_OK);
+        QCOMPARE(byXy, 1);
+        QCOMPARE(x, 2.0);
+        QCOMPARE(y, 8.0);
+        QCOMPARE(swmm_gw_source_get(engine.handle, 1, nullptr, 0, nullptr, nullptr, 0, nullptr,
+                                    &flow, series, sizeof series),
+                 SWMM_OK);
+        QCOMPARE(QString::fromUtf8(series), QStringLiteral("Pump"));
     }
 
     /**
@@ -640,7 +726,7 @@ private slots:
             Engine engine;
             QVERIFY(openModel(engine, inp, dir));
             Mesh2DGwSourceModel sources;
-            QVERIFY(sources.load(engine.handle, inp).isEmpty());
+            QVERIFY(sources.load(engine.handle).isEmpty());
             QCOMPARE(sources.rowCount(), 1);
             QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColName), QStringLiteral("Well1"));
             QCOMPARE(cell(sources, 0, Mesh2DGwSourceModel::ColScope), QStringLiteral("Cell"));
