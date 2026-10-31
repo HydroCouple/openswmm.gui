@@ -4730,3 +4730,17 @@ target_compile_definitions(test_spatialassignment PRIVATE
 set_property(TEST test_groundwaterassigndialog APPEND PROPERTY ENVIRONMENT
     "SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT=${SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT_DIR}")
 
+# 2D result sublayers (2026-10-31, workplans/BELLINGE_GW_QUALITY_RESULT_SUBLAYERS_BRIEF_2026-10-31.md):
+# every catalog variable becomes a hidden sublayer grouped under Surface /
+# Groundwater headings; no frame reads while hidden; tree headings, collapse
+# and within-group drags; project JSON keeps choices and older projects
+# auto-populate; live -> saved keeps checked rows. Fixtures land in one
+# reviewable folder.
+add_swmmvis_gui_test(test_resultsublayers
+    test_resultsublayers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_resultsublayers)
+target_compile_definitions(test_resultsublayers PRIVATE
+    SWMMVIS_RESULT_SUBLAYERS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/result_sublayers_2026-10-31")

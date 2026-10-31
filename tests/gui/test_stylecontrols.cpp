@@ -301,6 +301,7 @@ private slots:
         layer.setSource(std::make_unique<PanelVariableSource>());
         auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
         Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
         auto *presentation = panel.findChild<QComboBox *>("additionalResultPresentation");
         QVERIFY(presentation);
         presentation->setCurrentIndex(1);
@@ -336,17 +337,19 @@ private slots:
         QCOMPARE(catalog->count(), 2);
         auto *add = panel.findChild<QPushButton *>("additionalResultAdd");
         QVERIFY(add);
-        add->click();
-        add->click();
         auto *list = panel.findChild<QListWidget *>("additionalResultList");
         QVERIFY(list);
-        QCOMPARE(list->count(), 2);
+        const int catalogRows = list->count(); // one hidden row per catalog variable
+        QCOMPARE(catalogRows, 2);
+        add->click();
+        add->click();
+        QCOMPARE(list->count(), catalogRows + 2);
         auto *a = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
             OpenSWMM::Render::ISublayerHost::findSublayer(
-                layer, list->item(0)->data(Qt::UserRole).toString()));
+                layer, list->item(catalogRows)->data(Qt::UserRole).toString()));
         auto *b = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
             OpenSWMM::Render::ISublayerHost::findSublayer(
-                layer, list->item(1)->data(Qt::UserRole).toString()));
+                layer, list->item(catalogRows + 1)->data(Qt::UserRole).toString()));
         QVERIFY(a);
         QVERIFY(b);
         QVERIFY(a != b);
@@ -362,7 +365,7 @@ private slots:
         QCOMPARE(b->fillStyle()->missingColor(), QColor(Qt::red));
         QVERIFY(a->fillStyle()->missingColor() != QColor(Qt::red));
         panel.findChild<QPushButton *>("additionalResultRemove")->click();
-        QCOMPARE(list->count(), 1);
+        QCOMPARE(list->count(), catalogRows + 1);
     }
     /**
      *
@@ -410,6 +413,7 @@ private slots:
         auto *sub = layer.addResultSublayer(key);
         QVERIFY(sub);
         Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
         auto *selector = panel.findChild<QComboBox *>("additionalResultVariable");
         QVERIFY(selector);
         QCOMPARE(selector->currentData().toString(), key);
@@ -433,8 +437,9 @@ private slots:
         layer.setSource(std::make_unique<PanelQuadVariableSource>());
         QVERIFY(layer.triCellMap().size() >= 2);
         layer.highlightCells({0, 1});
-        layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
         Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
         auto *table = panel.findChild<QTableWidget *>("additionalResultInspection");
         QVERIFY(table);
         QCOMPARE(table->rowCount(), 1);
@@ -457,8 +462,9 @@ private slots:
         layer.setSource(std::make_unique<PanelVariableSource>());
         layer.highlightCells({0});
         auto vars = layer.resultVariables();
-        layer.addResultSublayer(vars[0].key());
+        auto *sub = layer.addResultSublayer(vars[0].key());
         Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
         auto *table = panel.findChild<QTableWidget *>("additionalResultInspection");
         QVERIFY(table);
         QCOMPARE(table->item(0, 1)->text(), QStringLiteral("Valid"));
