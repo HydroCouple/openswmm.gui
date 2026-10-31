@@ -16,12 +16,17 @@
  *   - An unknown key is refused with a message.
  *   - The comparison plot gives each variable its own chart row, titled by
  *     the variable's label.
+ *   - A SAVED run (HDF5 source) also serves its aquifer ledger terms on the
+ *     System ref and each enrolled node's aquifer exchange on a Node ref
+ *     (GW2D_AND_PIPE_REACTION_RESULTS_VISUALIZATION_PLAN V3/V4); a live
+ *     source offers neither.
  *
  * Full-app link pattern (drives SWMM2DResultsLayer + ComparisonPlotDialog).
- * Pure assertions — writes no files.
+ * Only the saved-run case writes a file (GW_RESULTS_TEST_OUTPUT).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "gwresults_fixture.h"
 #include "layers/swmm2dresultslayer.h"
 #include "plot/comparisonplotmodel.h"
 #include "plot/mesh2drunlayer.h"
@@ -265,6 +270,13 @@ private slots:
      * series succeeds. GUI dialog/model/layer lifetimes nested, no file or engine simulation.
      */
     void comparisonPlotGivesEachVariableItsOwnRow();
+    /**
+     * @brief Verify a saved run serves ledger terms (System) and node exchange (Node), keeps
+     * the exchange sign, refuses an unknown node, is not deferred by the comparison plot, and
+     * that a live source offers neither.
+     * @note Writes runlayer_saved_gw.2d.h5 (two cells, three reports) to GW_RESULTS_TEST_OUTPUT.
+     */
+    void savedRunServesGroundwaterLedgerAndNodeExchange();
 };
 
 void TestMesh2DVariableSeries::cellDescriptorsListTimeVaryingCatalogVariables()
@@ -383,6 +395,94 @@ void TestMesh2DVariableSeries::comparisonPlotGivesEachVariableItsOwnRow()
     const auto data = dlg.model()->resolveAllSeries();
     for (const auto &d : data)
         QVERIFY2(d.ok, qPrintable(d.errorMessage));
+}
+
+void TestMesh2DVariableSeries::savedRunServesGroundwaterLedgerAndNodeExchange()
+{
+    // Two triangles, three five-minute reports, a two-term water ledger and
+    // two node beds (N1 out of the aquifer, N2 into it).
+    const std::vector<double> days = {41089.0, 41089.0 + 300.0 / 86400.0,
+                                      41089.0 + 600.0 / 86400.0};
+    const hid_t f = gwfixture::create(QStringLiteral("runlayer_saved_gw.2d.h5"));
+    QVERIFY(f >= 0);
+    gwfixture::doubles(f, "Mesh2_node_x", {4}, {0.0, 1.0, 1.0, 0.0});
+    gwfixture::doubles(f, "Mesh2_node_y", {4}, {0.0, 0.0, 1.0, 1.0});
+    gwfixture::doubles(f, "Mesh2_node_z", {4}, {1.0, 1.0, 1.0, 1.0});
+    {
+        const int conn[6] = {0, 1, 2, 0, 2, 3};
+        const hsize_t dims[2] = {2, 3};
+        const hid_t space = H5Screate_simple(2, dims, nullptr);
+        const hid_t data = H5Dcreate2(f, "Mesh2_face_nodes", H5T_NATIVE_INT, space, H5P_DEFAULT,
+                                      H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(data, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conn);
+        H5Dclose(data);
+        H5Sclose(space);
+    }
+    gwfixture::times(f, days);
+    gwfixture::doubles(f, "Mesh2_face_depth", {3, 2}, std::vector<double>(6, 0.0));
+    gwfixture::doubles(f, "groundwater_ledger", {3, 2}, {0.0, 100.0, 2.0, 101.0, 5.0, 103.0});
+    gwfixture::stringAttr(f, "groundwater_ledger", "terms", QStringLiteral("node,storage"));
+    gwfixture::stringAttr(f, "groundwater_ledger", "units", QStringLiteral("m3"));
+    gwfixture::doubles(f, "groundwater_node_exchange_cum", {3, 2},
+                       {0.0, 0.0, 3.0, -1.5, 9.0, -3.0});
+    gwfixture::stringAttr(f, "groundwater_node_exchange_cum", "node_names",
+                          QStringLiteral("N1,N2"));
+    gwfixture::stringAttr(f, "groundwater_node_exchange_cum", "units", QStringLiteral("m3"));
+    H5Fclose(f);
+
+    auto source = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY(source->open(gwfixture::path(QStringLiteral("runlayer_saved_gw.2d.h5"))));
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(source));
+    Mesh2DRunLayer run(&layer);
+
+    ResultDescriptor storage, rate;
+    for (const auto &d : run.resultDescriptorsForKind(ObjectRef::Kind::System))
+        if (d.variableKey == QStringLiteral("gwledger:water:storage"))
+            storage = d;
+    for (const auto &d : run.resultDescriptorsForKind(ObjectRef::Kind::Node))
+        if (d.variableKey == QStringLiteral("gw_node_exchange"))
+            rate = d;
+    QVERIFY(storage.isMeshVariable());
+    QVERIFY(rate.isMeshVariable());
+    QCOMPARE(storage.unitLabel(UnitSystem::SI), QStringLiteral("m3"));
+    QCOMPARE(rate.unitLabel(UnitSystem::SI), QStringLiteral("m3/s"));
+
+    QVector<SeriesData> out;
+    run.getSeriesBatch({{ObjectRef::forSystem(), storage, 0},
+                        {ObjectRef::forNode(QStringLiteral("N2")), rate, 0},
+                        {ObjectRef::forNode(QStringLiteral("J9")), rate, 0}},
+                       out);
+    QVERIFY2(out[0].ok, qPrintable(out[0].errorMessage));
+    QCOMPARE(out[0].values, (std::vector<double>{100.0, 101.0, 103.0}));
+    QCOMPARE(out[0].timesJulian, days);
+    QVERIFY2(out[1].ok, qPrintable(out[1].errorMessage));
+    QCOMPARE(int(out[1].values.size()), 2);
+    for (double v : out[1].values) // into the aquifer: negative, as stored
+        QVERIFY(std::fabs(v - (-1.5 / 300.0)) < 1e-9);
+    QVERIFY(!out[2].ok); // no bed: missing, never zero
+    QVERIFY(out[2].values.empty());
+    QVERIFY(out[2].errorMessage.contains(QStringLiteral("missing")));
+
+    // Through the comparison plot: the run's saved-file deferral does not
+    // apply to these small series, and each gets its own row.
+    ComparisonPlotDialog dlg;
+    RunSource rs;
+    rs.layer = std::make_shared<Mesh2DRunLayer>(&layer);
+    const int runIdx = dlg.model()->addRunSource(std::move(rs));
+    QVERIFY(dlg.addSeries(runIdx, ObjectRef::forSystem(), storage) >= 0);
+    QVERIFY(dlg.addSeries(runIdx, ObjectRef::forNode(QStringLiteral("N1")), rate) >= 0);
+    QCOMPARE(dlg.model()->rows().size(), 2);
+    for (const auto &d : dlg.model()->resolveAllSeries())
+        QVERIFY2(d.ok, qPrintable(d.errorMessage));
+
+    // A live (in-memory) source has no complete file yet: neither is offered.
+    SWMM2DResultsLayer live;
+    live.setSource(std::make_unique<CatalogMeshSource>());
+    Mesh2DRunLayer liveRun(&live);
+    for (const auto kind : {ObjectRef::Kind::System, ObjectRef::Kind::Node})
+        for (const auto &d : liveRun.resultDescriptorsForKind(kind))
+            QVERIFY(!d.isMeshVariable());
 }
 
 QTEST_MAIN(TestMesh2DVariableSeries)

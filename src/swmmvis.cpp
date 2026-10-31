@@ -1733,6 +1733,16 @@ void SWMMVis::initializeMeshEditingToolBar()
         SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
         openswmmvis::ui::Mesh2DGroundwaterDialog dlg(engine, this, page,
                                                      pw ? pw->unitSystem() : nullptr);
+        // V4: the State tab also lists the saved run's aquifer ledgers (active
+        // 2D results file) and plots chosen terms on that run.
+        const SWMM2DResultsLayer *results = pw ? pw->active2DResultsLayer() : nullptr;
+        dlg.setSavedResultsFile(results && results->source() ? results->source()->sourcePath()
+                                                             : QString());
+        connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::plotLedgerRequested, this,
+                [this](const QVector<openswmmvis::plot::ResultDescriptor> &terms) {
+                    openComparisonPlotFor2DResults(openswmmvis::plot::ObjectRef::forSystem(),
+                                                   terms);
+                });
         if (pw) {
             if (pw->modelLayer()) {
                 QPointer<SWMMModelLayer> owner = pw->modelLayer();
@@ -3287,6 +3297,11 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
         openComparisonPlotFor(ref);
         return;
     }
+    // V3: the node's aquifer exchange, read from the active 2D results' file.
+    if (kind == ObjectRef::Kind::Node)
+        if (auto *pw = activeProjectWindow())
+            openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(
+                menu, pw->active2DResultsLayer(), ref.name);
 
     menu->setTitle(tr("Plot %1 …").arg(ref.name));
     // Pop at the cursor so the menu lands on the user's pointer
@@ -3346,6 +3361,11 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref, SWMMResults
         openComparisonPlotForOnLayer(ref, layer);
         return;
     }
+    // V3: the node's aquifer exchange, read from the active 2D results' file.
+    if (kind == ObjectRef::Kind::Node)
+        if (auto *pw = activeProjectWindow())
+            openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(
+                menu, pw->active2DResultsLayer(), ref.name);
 
     menu->setTitle(tr("Plot %1 (%2) …").arg(ref.name, layer->name()));
     QAction *picked = menu->exec(QCursor::pos());
@@ -3608,6 +3628,14 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
     if (!pw || !pw->canvas())
         return;
 
+    // V3: a node's aquifer exchange is read from the saved 2D results
+    // (groundwater_node_exchange_cum), never from a .out.
+    if (descriptor.isMeshVariable() && ref.objectType == SWMMObjectRef::Node) {
+        openComparisonPlotFor2DResults(openswmmvis::plot::ObjectRef::forNode(ref.name),
+                                       {descriptor});
+        return;
+    }
+
     // Honour the caller-supplied results layer when given (e.g. Object
     // Browser's "Plot Time Series ▸ <layer>" submenu); otherwise target the
     // project window's ACTIVE 1D results layer.
@@ -3689,6 +3717,34 @@ void SWMMVis::openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttrib
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
     dlg->addSeries(runIdx, openswmmvis::plot::ObjectRef::forSystem(), attribute);
 
+    mTimeSeriesDock->reveal(dlg);
+}
+
+void SWMMVis::openComparisonPlotFor2DResults(
+    const openswmmvis::plot::ObjectRef &ref,
+    const QVector<openswmmvis::plot::ResultDescriptor> &descriptors)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || descriptors.isEmpty())
+        return;
+    SWMM2DResultsLayer *layer = pw->active2DResultsLayer();
+    if (!layer || !layer->source()) {
+        QMessageBox::information(this, tr("No active 2D results layer"),
+                                 tr("Pick a results layer in the Analysis toolbar's \"2D results\" "
+                                    "selector (run a 2D simulation first if none are loaded)."));
+        return;
+    }
+    auto *dlg = ensureComparisonPlotDialog();
+    const int runIdx = dlg->ensureRunSourceForMeshLayer(layer);
+    if (runIdx < 0) {
+        QMessageBox::warning(this, tr("Mesh layer unavailable"),
+                             tr("Couldn't attach the 2D mesh layer to the comparison plot."));
+        return;
+    }
+    QVector<QPair<openswmmvis::plot::ObjectRef, openswmmvis::plot::ResultDescriptor>> items;
+    for (const auto &d : descriptors)
+        items.append({ref, d});
+    dlg->addSeriesBatch(runIdx, items);
     mTimeSeriesDock->reveal(dlg);
 }
 

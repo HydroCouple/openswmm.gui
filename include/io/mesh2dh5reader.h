@@ -103,6 +103,27 @@ struct CoordinateReference {
     bool declared = false;           ///< true when read from a `/crs` variable
 };
 
+/*!
+ * \brief One cumulative two-zone aquifer ledger as saved by the engine
+ *        (`/groundwater_ledger` [time, term] or `/groundwater_species_ledger`
+ *        [time, species, term]); workplans GW2D_AND_PIPE_REACTION_RESULTS_
+ *        VISUALIZATION_PLAN_2026-10-14 V4.
+ *
+ * Terms are identified by NAME (the dataset's `terms` attribute), never by a
+ * fixed column, because the engine has appended terms before (G-X3 moved the
+ * residual). Values are copied as stored, in the file's own units.
+ */
+struct GroundwaterLedger {
+    QStringList terms;        ///< `terms` attribute, in stored column order
+    QStringList species;      ///< species rows; empty for the water ledger
+    QStringList speciesUnits; ///< concentration unit per species ("" = unresolved)
+    QString units;            ///< `units` attribute verbatim ("m3"; "1" = per species)
+    QString longName;         ///< `long_name` attribute
+    QString layout;           ///< `layout` attribute (axis order and term definitions)
+    int frames = 0;           ///< stored time rows
+    std::vector<double> values; ///< row-major [frame][species][term]; no species axis for water
+};
+
 class Mesh2DH5Reader
 {
 public:
@@ -412,6 +433,59 @@ public:
      */
     bool readEdgeGeometry(std::vector<float> &length, std::vector<float> &nx,
                           std::vector<float> &ny) const;
+
+    // ----- Groundwater ledgers and network exchange (saved runs) ------------
+
+    /*!
+     * \brief Read the cumulative aquifer water ledger `/groundwater_ledger`.
+     * \param out Replaced on success with the term names, units, metadata,
+     *            frame count and row-major values [frame][term]; cleared on
+     *            failure.
+     * \returns false (lastError set) when the dataset is absent, is not a
+     *          numeric [time, term] array, or its `terms` attribute does not
+     *          name every column once. Callers show the ledger as unavailable,
+     *          never as zeros.
+     */
+    bool readGroundwaterLedger(GroundwaterLedger &out) const;
+
+    /*!
+     * \brief Read the cumulative per-species aquifer ledger
+     *        `/groundwater_species_ledger` [time, species, term].
+     *
+     * Species identities come from the dataset's own `species_names` when
+     * present, otherwise from the `species_names` of `Mesh2_face_gw_sat_conc`
+     * (then `_unsat_conc`), which the engine writes in the same species order;
+     * that dataset's `species_units` give each species' concentration unit
+     * (ledger mass = that unit × m3). Names that are missing, ambiguous or do
+     * not match the stored species count are refused, never guessed.
+     * \param out Replaced on success (values [frame][species][term]); cleared
+     *            on failure.
+     * \returns false (lastError set) when the dataset is absent or its terms
+     *          or species identities cannot be resolved.
+     */
+    bool readGroundwaterSpeciesLedger(GroundwaterLedger &out) const;
+
+    /*!
+     * \brief Column identities of `/groundwater_node_exchange_cum` [time, bed]
+     *        (V3): the cumulative aquifer ↔ 1D node exchange per
+     *        `[2D_AQUIFER_NODE]` bed, positive out of the aquifer.
+     * \param nodes  Replaced with the `node_names` attribute, one unique name
+     *               per column.
+     * \param units  Replaced with the `units` attribute (empty when absent).
+     * \param frames Replaced with the stored time-row count.
+     * \returns false (lastError set, outputs cleared) when the dataset or its
+     *          names are absent, malformed, or do not match the column count.
+     */
+    bool readGroundwaterExchangeNodes(QStringList &nodes, QString &units, int &frames) const;
+
+    /*!
+     * \brief Read one bed column of `/groundwater_node_exchange_cum`.
+     * \param column     0-based column (index into readGroundwaterExchangeNodes()).
+     * \param cumulative Replaced with one cumulative value per stored frame,
+     *                   sign and units as stored; cleared on failure.
+     * \returns false (lastError set) for an absent dataset or column.
+     */
+    bool readGroundwaterExchangeColumn(int column, std::vector<double> &cumulative) const;
 
 private:
     QString path_;

@@ -29,6 +29,7 @@
 class QMenu;
 class QWidget;
 class QAction;
+class SWMM2DResultsLayer;
 
 namespace openswmmvis::ui
 {
@@ -88,6 +89,22 @@ public:
     static QMenu *createForSystem(openswmmvis::plot::UnitSystem unitSystem,
                                   QWidget *parent = nullptr);
 
+    /*! \brief V3: append the saved 2D run's groundwater-exchange entries for
+     *  node \p node — a "Groundwater exchange (saved 2D results)" section
+     *  before "All attributes" with the report-interval rate and the
+     *  cumulative volume (`GwNetworkExchangeSource`). Nothing is added when
+     *  \p results is null, live, or its file has no
+     *  `groundwater_node_exchange_cum`. A node without an aquifer bed gets
+     *  the entries disabled with the reason (missing, never zero). The
+     *  actions carry mesh-variable descriptors; \ref descriptorFrom returns
+     *  them and the caller routes them to the 2D run, not the `.out`.
+     * @param[in,out] menu Menu built by createForObjectKind(Node); null is ignored.
+     * @param[in] results Borrowed 2D results layer whose saved file is read once here.
+     * @param[in] node Exact node ID.
+     */
+    static void appendGroundwaterExchange(QMenu *menu, const SWMM2DResultsLayer *results,
+                                          const QString &node);
+
     /*! \brief Extract the chosen PlotAttribute from a picked action.
      *  Returns `PlotAttribute::Unknown` for the "All attributes" sentinel
      *  or when the action is null / nonconvertible.
@@ -103,8 +120,8 @@ public:
      *  plots — a fixed attribute or a species BY NAME. An INVALID
      *  descriptor means the "All attributes" sentinel (or a null
      *  action); callers fan out across the run's descriptor list.
-     * @param[in] action Optional picked menu action. QString payloads become species names before integer conversion is considered.
-     * @return Species/fixed descriptor, or invalid for null/nonconvertible/Unknown payload. No catalog-membership check is performed here.
+     * @param[in] action Optional picked menu action. QString payloads become species names before integer conversion is considered; a {key, label, units} QStringList (appendGroundwaterExchange) becomes a mesh-variable descriptor.
+     * @return Species/fixed/mesh-variable descriptor, or invalid for null/nonconvertible/Unknown payload. No catalog-membership check is performed here.
      */
     static openswmmvis::plot::ResultDescriptor descriptorFrom(const QAction *action);
 };

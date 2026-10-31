@@ -11,6 +11,7 @@
 #include "ui/hydrothermalstate.h"
 
 #include "core/unitsystem.h"
+#include "results/gwledgermodel.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
 
 #include <openswmm/engine/openswmm_gw2d.h>
@@ -767,7 +768,64 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
     row->addWidget(m_refreshBtn);
     v->addLayout(row);
 
+    // V4: the saved run's ledgers — still here after the run and after a
+    // reopen, unlike the live text above; the comparison plot reads the
+    // same model (results::GwLedgerModel).
+    auto *saved = new QGroupBox(tr("Saved run ledgers (2D results file)"), page);
+    auto *sv = new QVBoxLayout(saved);
+    m_ledgerStatus = new QLabel(saved);
+    m_ledgerStatus->setWordWrap(true);
+    sv->addWidget(m_ledgerStatus);
+    m_ledger = new results::GwLedgerModel(this);
+    m_ledgerView = new QTableView(saved);
+    m_ledgerView->setModel(m_ledger);
+    m_ledgerView->setAccessibleName(tr("Saved groundwater water and species ledgers"));
+    m_ledgerView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_ledgerView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_ledgerView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_ledgerView->verticalHeader()->setVisible(false);
+    m_ledgerView->horizontalHeader()->setStretchLastSection(true);
+    sv->addWidget(m_ledgerView, 1);
+    auto *plotRow = new QHBoxLayout;
+    m_plotLedgerBtn = new QPushButton(tr("Plot Selected in Comparison Plot"), saved);
+    m_plotLedgerBtn->setAutoDefault(false);
+    m_plotLedgerBtn->setToolTip(
+        tr("Plot the selected terms as cumulative time series on the 2D results run."));
+    // Rows in table order; unavailable rows have no series and are skipped.
+    const auto selectedTerms = [this] {
+        QList<int> rows;
+        for (const QModelIndex &index : m_ledgerView->selectionModel()->selectedRows())
+            rows.append(index.row());
+        std::sort(rows.begin(), rows.end());
+        QVector<plot::ResultDescriptor> terms;
+        for (int r : rows)
+            if (const auto d = m_ledger->descriptor(r); d.isValid())
+                terms.append(d);
+        return terms;
+    };
+    connect(m_plotLedgerBtn, &QPushButton::clicked, this, [this, selectedTerms] {
+        if (const auto terms = selectedTerms(); !terms.isEmpty())
+            emit plotLedgerRequested(terms);
+    });
+    connect(m_ledgerView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this, selectedTerms] { m_plotLedgerBtn->setEnabled(!selectedTerms().isEmpty()); });
+    plotRow->addStretch(1);
+    plotRow->addWidget(m_plotLedgerBtn);
+    sv->addLayout(plotRow);
+    v->addWidget(saved, 1);
+    setSavedResultsFile(QString());
+
     return page;
+}
+
+void Mesh2DGroundwaterDialog::setSavedResultsFile(const QString &h5Path)
+{
+    if (!m_ledger)
+        return;
+    m_ledger->load(h5Path);
+    m_ledgerStatus->setText(m_ledger->status());
+    m_ledgerView->resizeColumnsToContents();
+    m_plotLedgerBtn->setEnabled(false);
 }
 
 // ---------------------------------------------------------------------------

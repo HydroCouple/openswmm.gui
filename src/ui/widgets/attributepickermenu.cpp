@@ -9,7 +9,11 @@
 
 #include "ui/widgets/attributepickermenu.h"
 
+#include "layers/swmm2dresultslayer.h"
+#include "plot/gwnetworkexchangesource.h"
+
 #include <QAction>
+#include <QFileInfo>
 #include <QHash>
 #include <QMenu>
 #include <QObject>
@@ -177,6 +181,45 @@ QMenu *AttributePickerMenu::createForSystem(UnitSystem u, QWidget *parent)
     return menu;
 }
 
+void AttributePickerMenu::appendGroundwaterExchange(QMenu *menu, const SWMM2DResultsLayer *results,
+                                                    const QString &node)
+{
+    // Saved runs only: a live source has no path, its file is still growing.
+    const QString path =
+        results && results->source() ? results->source()->sourcePath() : QString();
+    if (!menu || path.isEmpty())
+        return;
+    GwNetworkExchangeSource exchange;
+    if (!exchange.open(path))
+        return;
+    // Keep "All attributes" last — it fans out over the .out run only.
+    QAction *allAction = nullptr;
+    for (QAction *act : menu->actions())
+        if (act->data().typeId() == QMetaType::Int &&
+            act->data().toInt() == static_cast<int>(PlotAttribute::Unknown))
+            allAction = act;
+    menu->insertSection(allAction, QObject::tr("Groundwater exchange (saved 2D results)"));
+    const bool enrolled = exchange.hasNode(node);
+    for (const ResultDescriptor &d : exchange.nodeDescriptors()) {
+        auto *act = new QAction(QStringLiteral("%1 (%2)").arg(d.variableLabel, d.variableUnits),
+                                menu);
+        act->setData(QStringList{d.variableKey, d.variableLabel, d.variableUnits});
+        act->setEnabled(enrolled);
+        act->setToolTip(
+            enrolled ? QObject::tr("Read from groundwater_node_exchange_cum in %1. Positive = "
+                                   "out of the aquifer into the node; the rate is the change "
+                                   "over each report interval.")
+                           .arg(QFileInfo(path).fileName())
+                     : QObject::tr("Node %1 has no [2D_AQUIFER_NODE] bed in the saved 2D "
+                                   "results, so its exchange is missing (not zero).")
+                           .arg(node));
+        menu->insertAction(allAction, act);
+    }
+    if (allAction)
+        menu->insertSeparator(allAction);
+    menu->setToolTipsVisible(true);
+}
+
 PlotAttribute AttributePickerMenu::attributeFrom(const QAction *action)
 {
     if (!action)
@@ -196,6 +239,12 @@ openswmmvis::plot::ResultDescriptor AttributePickerMenu::descriptorFrom(const QA
     const QVariant v = action->data();
     if (v.typeId() == QMetaType::QString)
         return ResultDescriptor::forSpecies(v.toString());
+    // appendGroundwaterExchange: {key, label, units} of a 2D-results series.
+    if (v.typeId() == QMetaType::QStringList) {
+        const QStringList d = v.toStringList();
+        return d.size() == 3 ? ResultDescriptor::forMeshVariable(d[0], d[1], d[2])
+                             : ResultDescriptor{};
+    }
     bool ok = false;
     const int a = v.toInt(&ok);
     if (!ok)

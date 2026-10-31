@@ -28,17 +28,25 @@
  * Time axis: simulated wall-clock times are pulled from the source's
  * `simTimeAt(timeIdx)`. The adapter converts back to SWMM Julian days
  * for the model's common timeline.
+ *
+ * Saved-run groundwater (GW2D_AND_PIPE_REACTION_RESULTS_VISUALIZATION_PLAN
+ * V3/V4): a file-backed run also serves the aquifer ledger terms as System
+ * series (`results::GwLedgerModel`) and each enrolled node's aquifer
+ * exchange as Node series (`GwNetworkExchangeSource`).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_PLOT_MESH2DRUNLAYER_H
 #define OPENSWMMVIS_PLOT_MESH2DRUNLAYER_H
 
+#include "plot/gwnetworkexchangesource.h"
 #include "plot/irunlayer.h"
+#include "results/gwledgermodel.h"
 
 #include <QPointer>
 #include <atomic>
 #include <map>
+#include <memory>
 #include <set>
 
 class SWMM2DResultsLayer;
@@ -156,7 +164,9 @@ public:
     /*! Mesh2DCell: the fixed cell attributes plus every time-varying face
      *  variable the source's catalog carries (groundwater terms,
      *  infiltration, coupling flux, 2D species) that no fixed attribute
-     *  already covers. Other kinds: the fixed list.
+     *  already covers. System / Node on a saved run: the fixed list plus the
+     *  groundwater ledger terms / the node exchange rate and cumulative
+     *  volume, when the file carries them. Other kinds: the fixed list.
      * @param[in] kind Object kind; only Mesh2DCell appends dynamic face variables.
      * @return Fixed-kind list, plus reported/held catalog variables with positive frameCount whose datasets are not already covered by fixed depth/head/velocity/rain quantities. Unknown units produce an empty unit string. Fixed choices are not filtered through supportsAttribute().
      */
@@ -247,6 +257,18 @@ private:
      * @note Compares sourceRevision and, for HDF5, absolute path/size/mtime/timeCount/historyGeneration/dryDepth. A change clears numeric cache and pending/in-flight/cancelled sets and marks geometry caches unready. Does not cancel an already detached worker or clear remembered variable descriptors.
      */
     void validateSourceCache_() const;
+    /*! \brief Read the saved run's groundwater ledger and node-exchange names
+     *  once per source revision (dropped by validateSourceCache_). Live
+     *  sources get neither: their file is complete only after the run. */
+    void ensureGroundwater_() const;
+    /*! \brief Resolve a System ledger term or a Node exchange series into
+     *  \p out (honouring out.firstPeriod); out.ok false with the reason when
+     *  the run, term or node has none. */
+    void groundwaterSeries_(const ObjectRef &ref, const ResultDescriptor &d,
+                            SeriesData &out) const;
+    mutable std::unique_ptr<results::GwLedgerModel> m_ledger;
+    mutable std::unique_ptr<GwNetworkExchangeSource> m_exchange;
+    mutable bool m_groundwaterReady = false;
     bool m_deferFileReads = false;
     // Cleared with the cache when the source changes (validateSourceCache_).
     mutable std::set<SeriesKey> m_deferred; ///< queued, not yet in a job

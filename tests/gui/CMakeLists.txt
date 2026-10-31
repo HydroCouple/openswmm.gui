@@ -2525,6 +2525,15 @@ add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
+# V4: the State tab's saved-run ledger table reads the 2D results file.
+target_sources(test_mesh2dgroundwaterdialog PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/results/gwledgermodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/results/gwledgermodel.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dh5reader.h
+)
+target_include_directories(test_mesh2dgroundwaterdialog PRIVATE ${HDF5_INCLUDE_DIRS})
+target_link_libraries(test_mesh2dgroundwaterdialog PRIVATE ${HDF5_C_LIBRARIES})
 
 # Per-cell 2D parameter registry — the single table the mesh toolbar, the
 # Cell Data dialog and the cell property adapter all read. Layer-free by
@@ -2673,6 +2682,33 @@ add_swmmvis_gui_test(test_mesh2dh5reader
 )
 target_include_directories(test_mesh2dh5reader PRIVATE ${HDF5_INCLUDE_DIRS})
 target_link_libraries(test_mesh2dh5reader PRIVATE ${HDF5_C_LIBRARIES})
+
+# V3/V4 (workplans/GW2D_AND_PIPE_REACTION_RESULTS_VISUALIZATION_PLAN_2026-10-14.md):
+# a saved run's aquifer water/species ledgers and per-node aquifer exchange.
+# The tests write small synthetic .h5 fixtures to a reviewable folder.
+set(GW_RESULTS_TEST_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/tests/output/gw_ledger_exchange_2026-10-30")
+add_swmmvis_gui_test(test_gwledgermodel
+    test_gwledgermodel.cpp
+    gwresults_fixture.h
+    ${CMAKE_SOURCE_DIR}/src/results/gwledgermodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/results/gwledgermodel.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dh5reader.h
+)
+add_swmmvis_gui_test(test_gwnetworkexchange
+    test_gwnetworkexchange.cpp
+    gwresults_fixture.h
+    ${CMAKE_SOURCE_DIR}/src/plot/gwnetworkexchangesource.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/gwnetworkexchangesource.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dh5reader.h
+)
+foreach(_gw_results_test test_gwledgermodel test_gwnetworkexchange)
+    target_include_directories(${_gw_results_test} PRIVATE ${HDF5_INCLUDE_DIRS})
+    target_link_libraries(${_gw_results_test} PRIVATE ${HDF5_C_LIBRARIES})
+    target_compile_definitions(${_gw_results_test} PRIVATE
+        GW_RESULTS_TEST_OUTPUT="${GW_RESULTS_TEST_OUTPUT_DIR}")
+endforeach()
 
 # ArcGIS REST rendering — URL building, tile coordinate math, zoom selection,
 # and axis-order correctness for XYZTileLayer (including the ESRI World Imagery
@@ -3214,6 +3250,9 @@ add_swmmvis_gui_test(test_mesh2d_variable_series
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_mesh2d_variable_series)
+# V3/V4: the saved-run case writes its .h5 fixture beside the GW results tests'.
+target_compile_definitions(test_mesh2d_variable_series PRIVATE
+    GW_RESULTS_TEST_OUTPUT="${GW_RESULTS_TEST_OUTPUT_DIR}")
 
 # The mesh-generation dialog's Quality tab (MESH_OVERHAUL_PLAN_2026-09-29.md
 # §3): three groups, eleven controls, seeded from the 2D Defaults page. Needs
