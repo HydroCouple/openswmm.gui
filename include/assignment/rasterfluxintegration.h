@@ -8,6 +8,7 @@
  */
 
 #pragma once
+#include <QMap>
 #include <QPointF>
 #include <QString>
 #include <QVector>
@@ -45,4 +46,32 @@ struct RasterFluxResult {
  */
 RasterFluxResult integrateRasterFlux(const RasterFluxRequest &request,
                                      std::function<bool()> cancelled = {});
+
+// Phase 3b (2026-10-31): exact pixel/cell overlap statistics for intensive values and land-use
+// classes, sharing the flux integration's projected-CRS and pixel-clipping contract.
+struct RasterZonalRequest {
+    QString path, meshCrsWkt, assignedSourceCrsWkt;
+    int band = 1;
+    QVector<int> cells;
+    QVector<QVector<QPointF>> footprints;
+    double scale = 1, offset = 0; // applied to values (not to class codes)
+    bool categorical = false;     // true: overlap area per rounded class code
+};
+struct RasterZonalResult {
+    QVector<double> cellAreas, validAreas; // m², aligned with request cells
+    QVector<double> means; // area-weighted mean of scale*value+offset over valid pixels; NaN none
+    QVector<QMap<qint64, double>> classAreas; // categorical: m² per class code
+    QString error;
+    bool cancelled = false;
+};
+/**
+ * @brief Area-weight raster values, or measure class areas, over exact pixel/cell overlaps.
+ * @param[in] request Raster band and convex triangle/quad footprints in the mesh CRS, which must
+ * equal the raster's projected CRS. NoData and masked pixels are excluded from validAreas.
+ * @param[in] cancelled Optional synchronous cancellation callback.
+ * @return Aligned per-cell areas, means and class areas; error/cancelled carry no values.
+ * @details Opens its own dataset, so it can run on a worker thread.
+ */
+RasterZonalResult integrateRasterZonal(const RasterZonalRequest &request,
+                                       std::function<bool()> cancelled = {});
 }

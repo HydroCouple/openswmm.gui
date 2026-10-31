@@ -1001,6 +1001,13 @@ QString Mesh2DSectionRowModel::restoreLoaded(SWMM_Engine engine) const
     return write(engine, m_loaded);
 }
 
+void Mesh2DSectionRowModel::setStagedRows(const QList<Row> &rows)
+{
+    beginResetModel();
+    m_rows = normalized(rows);
+    endResetModel();
+}
+
 void Mesh2DSectionRowModel::acceptChanges()
 {
     m_rows = normalized(m_rows);

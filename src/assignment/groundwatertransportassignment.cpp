@@ -116,6 +116,44 @@ bool validLayer(const GroundwaterTransportSnapshot &s, int cell, int layer)
     return sigma && layer <= layers;
 }
 /**
+ * @brief Resolve GLOBAL < TAG < CELL aquifer rows per cell and flag cells with an active aquifer.
+ * @param[in] aquifers Authored aquifer rows (later rows of the same key win).
+ * @param[in] cellTags One tag per cell.
+ * @return One flag per cell: positive Ks and Zs and ThetaS above ThetaR.
+ */
+QVector<bool> activeCellsFor(const AquiferSnapshot &aquifers, const QStringList &cellTags)
+{
+    int global = -1;
+    QHash<QString, int> tags;
+    QHash<int, int> cells;
+    for (int i = 0; i < aquifers.rows.size(); ++i) {
+        const auto &row = aquifers.rows[i];
+        if (row.scope == 0)
+            global = i;
+        else if (row.scope == 1)
+            tags[row.tag] = i;
+        else if (row.scope == 2)
+            cells[row.cell] = i;
+    }
+    QVector<bool> active;
+    active.reserve(cellTags.size());
+    for (int cell = 0; cell < cellTags.size(); ++cell) {
+        const int index = cells.value(cell, tags.value(cellTags[cell], global));
+        const AquiferRow *effective = index >= 0 ? &aquifers.rows[index] : nullptr;
+        active.append(effective && effective->ks > 0 && effective->zs > 0 &&
+                      effective->thetaS > effective->thetaR);
+    }
+    return active;
+}
+/**
+ * @brief True for a source/tag name without whitespace, quotes or section delimiters.
+ */
+bool validName(const QString &name)
+{
+    static const QRegularExpression pattern(QStringLiteral("^[^\\s\\\";\\[\\]]+$"));
+    return name.size() <= 60 && pattern.match(name).hasMatch();
+}
+/**
  * @brief Validate a referenced series for finite, increasing time/value samples.
  * @param[in] s Snapshot owning time series.
  * @param[in] name Exact series ID; empty means constant forcing and is accepted.
@@ -216,6 +254,14 @@ bool transition(SWMM_Engine e, const GroundwaterTransportSnapshot &from,
                 ++writes;
             }
     } else {
+        // A TAG source tags its cells (Phase 3b); the tags are part of the snapshot.
+        for (int c = 0; c < from.cellTags.size() && c < to.cellTags.size(); ++c)
+            if (from.cellTags[c] != to.cellTags[c]) {
+                if (!allowed() ||
+                    swmm_2d_set_triangle_tag(e, c, to.cellTags[c].toUtf8().constData()) != SWMM_OK)
+                    return false;
+                ++writes;
+            }
         for (int i = from.sources.size() - 1; i >= to.sources.size(); --i) {
             if (!allowed() || swmm_gw_source_remove(e, i) != SWMM_OK)
                 return false;
@@ -488,31 +534,14 @@ bool readGroundwaterTransportSnapshot(SWMM_Engine e, GroundwaterTransportSnapsho
     QString readError;
     if (!readAquiferSnapshot(e, &result.aquifers, &readError))
         return fail(error, readError);
-    int global = -1;
-    QHash<QString, int> tags;
-    QHash<int, int> cells;
-    for (int i = 0; i < result.aquifers.rows.size(); ++i) {
-        const auto &row = result.aquifers.rows[i];
-        if (row.scope == 0)
-            global = i;
-        else if (row.scope == 1)
-            tags[row.tag] = i;
-        else if (row.scope == 2)
-            cells[row.cell] = i;
-    }
     result.cellTags.reserve(result.cellCount);
-    result.activeCells.reserve(result.cellCount);
     for (int cell = 0; cell < result.cellCount; ++cell) {
         char tag[4096]{};
         if (swmm_2d_get_triangle_tag(e, cell, tag, sizeof tag) != SWMM_OK)
             return fail(error, "Cannot read target cell tags.");
-        const QString cellTag = QString::fromUtf8(tag);
-        result.cellTags.append(cellTag);
-        const int index = cells.value(cell, tags.value(cellTag, global));
-        const AquiferRow *effective = index >= 0 ? &result.aquifers.rows[index] : nullptr;
-        result.activeCells.append(effective && effective->ks > 0 && effective->zs > 0 &&
-                                  effective->thetaS > effective->thetaR);
+        result.cellTags.append(QString::fromUtf8(tag));
     }
+    result.activeCells = activeCellsFor(result.aquifers, result.cellTags);
     result.species = groundwaterTransportSpecies(e, &readError);
     if (!readError.isEmpty())
         return fail(error, readError);
@@ -584,6 +613,50 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
     };
     if (cancelled && cancelled())
         return reject("Cancelled.");
+    if (r.target == GroundwaterTransportTarget::PointSources) {
+        // Phase 3b: one source per point feature, at its cell, with its own flow and terms.
+        if (r.points.isEmpty())
+            return reject("No point features fall in the assignment scope.");
+        if (!r.flowSeries.isEmpty())
+            return reject(
+                "Point sources take their flow from a feature field; choose a constant flow.");
+        QSet<QString> names;
+        for (const auto &row : p.before.sources)
+            names.insert(row.name);
+        static const QRegularExpression unsafe(QStringLiteral("[\\s\\\";\\[\\]]"));
+        for (const auto &point : r.points) {
+            if (cancelled && cancelled())
+                return reject("Cancelled.");
+            GroundwaterSourceRow row = point;
+            row.scope = 2;
+            row.tag.clear();
+            row.scale = 1;
+            row.series.clear();
+            if (!row.byXy) // the engine reports no coordinates for a CELL row
+                row.x = row.y = 0;
+            if (row.cell < 0 || row.cell >= r.before.cellCount ||
+                r.before.activeCells.size() != r.before.cellCount ||
+                !r.before.activeCells[row.cell])
+                return reject(QString("Point source %1 lies in cell %2, which has no active "
+                                      "authored aquifer.")
+                                  .arg(row.name)
+                                  .arg(row.cell + 1));
+            QString base = row.name;
+            base.replace(unsafe, QStringLiteral("_"));
+            base = base.isEmpty() ? QStringLiteral("Point") : base.left(54);
+            row.name = base;
+            int suffix = 2;
+            while (names.contains(row.name))
+                row.name = base + "_" + QString::number(suffix++);
+            names.insert(row.name);
+            const QString error = sourceError(r.before, row);
+            if (!error.isEmpty())
+                return reject(QString("Point source %1: %2").arg(row.name, error));
+            p.after.sources.append(row);
+            p.cells.append(row.cell);
+        }
+        return p;
+    }
     if (r.cells.isEmpty() || r.cells.size() != r.values.size())
         return reject("Select cells and provide one value per cell.");
     if (r.target != GroundwaterTransportTarget::InitialQuality &&
@@ -715,6 +788,61 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
                 return reject("Cancelled.");
             names.insert(row.name);
         }
+        if (!r.tag.isEmpty()) {
+            // Phase 3b: one TAG source carries the total; the engine area-weights it over the
+            // tag's active cells, so the selected cells are tagged for it.
+            if (!total)
+                return reject("A TAG source carries one total flow; choose the total across "
+                              "selected cells.");
+            if (!validName(r.tag))
+                return reject("Use a tag without whitespace, quotes or section delimiters "
+                              "(maximum 60 characters).");
+            QSet<int> scope;
+            for (int i : valid)
+                scope.insert(r.cells[i]);
+            int outside = 0;
+            QStringList leaving;
+            for (int c = 0; c < r.before.cellTags.size(); ++c) {
+                const QString &old = r.before.cellTags[c];
+                if (old == r.tag && !scope.contains(c))
+                    ++outside;
+                else if (scope.contains(c) && !old.isEmpty() && old != r.tag &&
+                         !leaving.contains(old))
+                    leaving << old;
+            }
+            if (outside)
+                return reject(QString("Tag %1 is also carried by %2 cell(s) outside the "
+                                      "selection; the TAG source would reach them too. Choose a "
+                                      "new tag.")
+                                  .arg(r.tag)
+                                  .arg(outside));
+            if (!leaving.isEmpty() && !r.allowRetag)
+                return reject(QString("Selected cells carry other tags (%1). Allow retagging to "
+                                      "move them, or write CELL rows.")
+                                  .arg(leaving.join(", ")));
+            for (int c : scope)
+                p.after.cellTags[c] = r.tag;
+            p.after.activeCells = activeCellsFor(p.after.aquifers, p.after.cellTags);
+            for (int c : scope)
+                if (!p.after.activeCells[c])
+                    return reject("Retagging would leave a selected cell without an active "
+                                  "aquifer.");
+            if (!massNonzero && (r.flowSeries.isEmpty() ? common.flow == 0 : !flowSeriesNonzero))
+                return reject("The source adds no water or species mass.");
+            GroundwaterSourceRow row = common;
+            row.scope = 1;
+            row.tag = r.tag;
+            row.cell = -1;
+            row.scale = 1;
+            row.name = r.sourceName;
+            int suffix = 2;
+            while (names.contains(row.name))
+                row.name = r.sourceName + "_" + QString::number(suffix++);
+            p.after.sources.append(row);
+            for (int i : valid)
+                p.cells.append(r.cells[i]);
+            return p;
+        }
         for (int i : valid) {
             if (cancelled && cancelled())
                 return reject("Cancelled.");
@@ -752,6 +880,13 @@ QString previewError(const GroundwaterTransportPreview &p)
     auto metadata = p.after;
     metadata.quality = p.before.quality;
     metadata.sources = p.before.sources;
+    const bool tagSource = p.target == GroundwaterTransportTarget::Source &&
+                           p.after.sources.size() == p.before.sources.size() + 1 &&
+                           p.after.sources.last().scope == 1;
+    if (tagSource) { // checked below: only the TAG source's own tag may change
+        metadata.cellTags = p.before.cellTags;
+        metadata.activeCells = p.before.activeCells;
+    }
     if (metadata != p.before)
         return "The preview contains changes outside the selected transport inputs.";
     if (p.target == GroundwaterTransportTarget::InitialQuality) {
@@ -784,6 +919,29 @@ QString previewError(const GroundwaterTransportPreview &p)
             names.insert(p.before.sources[i].name);
         }
         const int first = p.before.sources.size();
+        if (tagSource) {
+            const auto &row = p.after.sources[first];
+            if (row.tag.isEmpty() || !validName(row.tag) || names.contains(row.name) ||
+                row.scale != 1 || p.after.cellTags.size() != p.before.cellTags.size() ||
+                p.after.activeCells != activeCellsFor(p.after.aquifers, p.after.cellTags))
+                return "Invalid TAG source in preview.";
+            int member = -1;
+            for (int c = 0; c < p.after.cellTags.size(); ++c) {
+                if (p.after.cellTags[c] != p.before.cellTags[c] && p.after.cellTags[c] != row.tag)
+                    return "The preview changes unrelated cell tags.";
+                if (p.after.cellTags[c] == row.tag) {
+                    if (!p.after.activeCells[c])
+                        return "A TAG source cell has no active aquifer.";
+                    member = member < 0 ? c : member;
+                }
+            }
+            if (member < 0)
+                return "The TAG source has no cells.";
+            auto check = row; // reuse the cell-source checks for flow, series and terms
+            check.scope = 2;
+            check.cell = member;
+            return sourceError(p.before, check);
+        }
         if (first < p.after.sources.size()) {
             const auto error = sourceError(p.before, p.after.sources[first]);
             if (!error.isEmpty())
@@ -798,6 +956,26 @@ QString previewError(const GroundwaterTransportPreview &p)
                 !std::isfinite(row.flow) || !std::isfinite(row.scale) || row.scale < 0 ||
                 row.series != common.series || row.terms != common.terms)
                 return "Invalid or inconsistent cell sources in preview.";
+            names.insert(row.name);
+        }
+    } else if (p.target == GroundwaterTransportTarget::PointSources) {
+        if (p.after.quality != p.before.quality || p.after.sources.size() <= p.before.sources.size())
+            return "Invalid point-source preview.";
+        QSet<QString> names;
+        for (int i = 0; i < p.before.sources.size(); ++i) {
+            if (p.before.sources[i] != p.after.sources[i])
+                return "Existing sources cannot be replaced by an assignment.";
+            names.insert(p.before.sources[i].name);
+        }
+        for (int i = p.before.sources.size(); i < p.after.sources.size(); ++i) {
+            const auto &row = p.after.sources[i];
+            if (names.contains(row.name) || row.scale != 1 || !row.series.isEmpty() ||
+                p.before.activeCells.size() != p.before.cellCount || row.cell < 0 ||
+                row.cell >= p.before.cellCount || !p.before.activeCells[row.cell])
+                return "Invalid point source in preview.";
+            const auto error = sourceError(p.before, row);
+            if (!error.isEmpty())
+                return error;
             names.insert(row.name);
         }
     } else

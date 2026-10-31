@@ -13,6 +13,7 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_2d.h>
 #include <cstring>
+#include <QRegularExpression>
 #include <QSet>
 #include <QHash>
 #include <cmath>
@@ -173,6 +174,39 @@ bool removeTail(SWMM_Engine e, int count)
             return false;
     return true;
 }
+/**
+ * @brief Read every engine cell tag (a TAG assignment's stale check).
+ * @return True on a complete read into @p tags.
+ */
+bool readCellTags(SWMM_Engine e, QStringList *tags)
+{
+    int cells = 0;
+    if (swmm_2d_cell_count(e, &cells) != SWMM_OK)
+        return false;
+    tags->clear();
+    for (int c = 0; c < cells; ++c) {
+        char tag[4096]{};
+        if (swmm_2d_get_triangle_tag(e, c, tag, sizeof tag) != SWMM_OK)
+            return false;
+        tags->append(QString::fromUtf8(tag));
+    }
+    return true;
+}
+/**
+ * @brief Write the cell tags that differ between @p from and @p to.
+ * @param[in,out] write Hook ordinal counter, as for writeRow().
+ * @return True after every write; false can leave some tags written.
+ */
+bool writeCellTags(SWMM_Engine e, const QStringList &from, const QStringList &to, int &write,
+                   const std::function<bool(int)> &hook)
+{
+    for (int c = 0; c < from.size() && c < to.size(); ++c)
+        if (from[c] != to[c] && ((hook && !hook(++write)) ||
+                                 swmm_2d_set_triangle_tag(e, c, to[c].toUtf8().constData()) !=
+                                     SWMM_OK))
+            return false;
+    return true;
+}
 }
 QVector<AquiferTarget> aquiferTargets()
 {
@@ -283,6 +317,12 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
             cells.insert(row.cell, &row);
     }
     QSet<int> seen;
+    struct Assigned {
+        int cell;
+        const AquiferRow *effective;
+        double value;
+    };
+    QVector<Assigned> assigned; // every cell with a value, changed or not (TAG strategy)
     for (int i = 0; i < r.cells.size(); ++i) {
         if (cancelled && cancelled())
             return reject("Cancelled.");
@@ -309,6 +349,8 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
                 QString("Cell %1 has no authored aquifer properties. Define an aquifer row first.")
                     .arg(cell + 1));
         const double old = value(*effective, r.target);
+        if (r.strategy != AquiferWriteStrategy::CellRows)
+            assigned.append({cell, effective, v});
         if (old == v)
             continue;
         AquiferRow row = *effective;
@@ -324,6 +366,85 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
         p.oldValues.append(old);
         p.newValues.append(v);
     }
+    if (r.strategy == AquiferWriteStrategy::CellRows || assigned.isEmpty())
+        return p;
+    // Phase 3b: one TAG row is lossless only when every cell shares one effective record and
+    // gets one value, no CELL row would hide it, and no unrelated tag is overwritten.
+    QHash<QString, int> members;
+    for (const QString &t : r.allCellTags)
+        ++members[t];
+    const auto tagOf = [&](int cell) { return r.allCellTags.value(cell); };
+    QString why;
+    bool shared = true;
+    for (const auto &a : assigned) {
+        if (a.cell >= r.allCellTags.size())
+            why = "the cell tags could not be read";
+        else if (!(*a.effective == *assigned.front().effective) || a.value != assigned.front().value)
+            why = "the cells differ in their aquifer record or assigned value";
+        else if (cells.contains(a.cell))
+            why = QString("cell %1 has its own aquifer row, which a TAG row cannot override")
+                      .arg(a.cell + 1);
+        shared = shared && tagOf(a.cell) == tagOf(assigned.front().cell);
+        if (!why.isEmpty())
+            break;
+    }
+    QString tag = r.tag.trimmed();
+    if (why.isEmpty() && tag.isEmpty()) {
+        const QString first = tagOf(assigned.front().cell);
+        if (shared && !first.isEmpty() && members.value(first) == assigned.size())
+            tag = first;
+        for (int n = 1; tag.isEmpty() || (tag != first && members.contains(tag)); ++n)
+            tag = QString("AQUIFER_%1").arg(n);
+    }
+    int inside = 0;
+    QStringList leaving;
+    for (const auto &a : assigned) {
+        if (tagOf(a.cell) == tag)
+            ++inside;
+        else if (!tagOf(a.cell).isEmpty() && !leaving.contains(tagOf(a.cell)))
+            leaving << tagOf(a.cell);
+    }
+    if (why.isEmpty() && (tag.contains(QRegularExpression("[\\s\";\\[\\]]")) || tag.size() > 60))
+        why = QString("\"%1\" is not a usable tag").arg(tag);
+    if (why.isEmpty() && members.value(tag) > inside)
+        why = QString("tag %1 is also carried by %2 cell(s) outside the assignment")
+                  .arg(tag)
+                  .arg(members.value(tag) - inside);
+    if (why.isEmpty() && !leaving.isEmpty() && !r.allowRetag)
+        why = QString("cells would be moved out of tag(s) %1, whose rows they would stop inheriting")
+                  .arg(leaving.join(", "));
+    if (r.strategy == AquiferWriteStrategy::TagRow && !why.isEmpty())
+        return reject("One TAG row cannot be written: " + why + ".");
+    if (r.strategy == AquiferWriteStrategy::Automatic && (!why.isEmpty() || assigned.size() < 2)) {
+        p.notes << "Automatic: one CELL override per cell, because " +
+                       (why.isEmpty() ? QString("only one cell is assigned") : why) + ".";
+        return p;
+    }
+    AquiferRow row = *assigned.front().effective;
+    row.scope = 1;
+    row.tag = tag;
+    row.cell = -1;
+    assign(row, r.target, assigned.front().value);
+    const QString error = validate(row);
+    if (!error.isEmpty())
+        return reject(error);
+    p.tagsBefore = r.allCellTags;
+    p.tagsAfter = r.allCellTags;
+    p.cells.clear();
+    p.oldValues.clear();
+    p.newValues.clear();
+    for (const auto &a : assigned) {
+        p.tagsAfter[a.cell] = tag;
+        p.cells.append(a.cell);
+        p.oldValues.append(value(*a.effective, r.target));
+        p.newValues.append(a.value);
+    }
+    p.appended = {row};
+    p.notes << QString("One TAG row for tag %1; %2 cell(s) tagged for it.")
+                   .arg(tag)
+                   .arg(assigned.size() - inside);
+    if (!leaving.isEmpty())
+        p.notes << QString("Cells leave tag(s) %1.").arg(leaving.join(", "));
     return p;
 }
 bool applyAquiferPreview(SWMM_Engine e, const AquiferPreview &p, QString *error,
@@ -340,23 +461,36 @@ bool applyAquiferPreview(SWMM_Engine e, const AquiferPreview &p, QString *error,
         return false;
     if (now != p.before)
         return fail(error, "Aquifer data changed since preview. Preview again before applying.");
+    const bool tagged = !p.tagsAfter.isEmpty();
     for (const auto &r : p.appended) {
         const auto err = validate(r);
-        if (r.scope != 2 || r.cell < 0 || !err.isEmpty())
+        const bool shape = tagged ? r.scope == 1 && !r.tag.isEmpty() && p.appended.size() == 1
+                                  : r.scope == 2 && r.cell >= 0;
+        if (!shape || !err.isEmpty())
             return fail(error, err.isEmpty() ? "Invalid cell override." : err);
     }
     if (p.appended.size() > std::numeric_limits<int>::max() - p.before.rows.size())
         return fail(error, "Too many aquifer rows.");
+    QStringList tags;
+    if (tagged && (!readCellTags(e, &tags) || tags != p.tagsBefore))
+        return fail(error, "Mesh cell tags changed since preview. Preview again before applying.");
     int writes = 0;
-    for (int i = 0; i < p.appended.size(); ++i)
-        if (!writeRow(e, p.appended[i], int(p.before.rows.size()) + i, writes, hook)) {
-            const bool restored = removeTail(e, int(p.before.rows.size()));
-            return fail(
-                error,
-                restored
-                    ? "The engine refused an assignment. All appended rows were rolled back."
-                    : "The engine refused an assignment and rollback failed. Stop editing and reload the last saved model.");
+    bool ok = !tagged || writeCellTags(e, p.tagsBefore, p.tagsAfter, writes, hook);
+    for (int i = 0; ok && i < p.appended.size(); ++i)
+        ok = writeRow(e, p.appended[i], int(p.before.rows.size()) + i, writes, hook);
+    if (!ok) {
+        bool restored = removeTail(e, int(p.before.rows.size()));
+        if (tagged) {
+            int none = 0;
+            restored = restored && readCellTags(e, &tags) &&
+                       writeCellTags(e, tags, p.tagsBefore, none, {});
         }
+        return fail(
+            error,
+            restored
+                ? "The engine refused an assignment. All appended rows and tags were rolled back."
+                : "The engine refused an assignment and rollback failed. Stop editing and reload the last saved model.");
+    }
     return true;
 }
 bool undoAquiferPreview(SWMM_Engine e, const AquiferPreview &p, QString *error)
@@ -370,11 +504,15 @@ bool undoAquiferPreview(SWMM_Engine e, const AquiferPreview &p, QString *error)
         return false;
     auto expected = p.before;
     expected.rows += p.appended;
-    if (now != expected)
+    QStringList tags;
+    if (now != expected ||
+        (!p.tagsAfter.isEmpty() && (!readCellTags(e, &tags) || tags != p.tagsAfter)))
         return fail(
             error,
             "Aquifer data changed after this assignment. Undo was refused to preserve the newer edits.");
-    if (!removeTail(e, int(p.before.rows.size())))
+    int none = 0;
+    if (!removeTail(e, int(p.before.rows.size())) ||
+        (!p.tagsAfter.isEmpty() && !writeCellTags(e, p.tagsAfter, p.tagsBefore, none, {})))
         return fail(
             error,
             "Unable to remove the assignment rows. Stop editing and reload the last saved model.");

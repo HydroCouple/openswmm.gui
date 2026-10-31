@@ -140,9 +140,11 @@ void MapToolPick2DCells::applySelection_(const QVector<int> &hits, Qt::KeyboardM
 
     const bool add = mods.testFlag(Qt::ShiftModifier);
     const bool toggle = mods.testFlag(Qt::ControlModifier);
+    const bool subtract = mods.testFlag(Qt::AltModifier); // Phase 3b: assignment scopes
     const SelectionManager::Mode mode =
-        toggle ? SelectionManager::Toggle
-               : (add ? SelectionManager::Add : SelectionManager::Replace);
+        subtract ? SelectionManager::Subtract
+        : toggle ? SelectionManager::Toggle
+                 : (add ? SelectionManager::Add : SelectionManager::Replace);
     m_selection->select(set, mode);
 }
 

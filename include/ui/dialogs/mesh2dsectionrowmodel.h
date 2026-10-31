@@ -152,6 +152,19 @@ public:
         bool operator==(const Row &o) const;
     };
 
+    /** Rows read by the last load() (normalized; FILE-owned [GW_INITIAL_QUALITY] rows excluded). */
+    [[nodiscard]] const QList<Row> &loadedRows() const { return m_loaded; }
+    /**
+     * @brief Replace every staged row (no engine write); commit() then rewrites the section.
+     * Used by the spatial assignment service so it shares this model's write, read-back and
+     * restore path instead of binding the section API a second time.
+     */
+    void setStagedRows(const QList<Row> &rows);
+    /** Land uses offered as [2D_COVERAGES] columns after load(). */
+    [[nodiscard]] QStringList landUses() const { return m_landUses; }
+    /** Registry names (species or conduits) offered for this section after load(). */
+    [[nodiscard]] QStringList names() const { return m_names; }
+
 private:
     enum class Kind { Scope, Target, Name, Zone, Value, Percent, Flag };
     struct Column {

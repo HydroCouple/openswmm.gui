@@ -11,6 +11,7 @@
 #define OPENSWMMVIS_MESHASSIGNMENTSAMPLING_H
 #include "mesh/meshinfil.h"
 #include "mesh/naturalnbinterpolator.h"
+#include <QMap>
 #include <QPointF>
 #include <QSet>
 #include <QStringList>
@@ -28,7 +29,8 @@ struct MeshAssignmentSampling {
         SingleNumeric,   ///< One source value → one numeric cell parameter.
         MultiNumeric,    ///< N source values → N numeric cell parameters.
         ClassifiedInfil, ///< Key (or key pair) → a whole mesh::InfilRow.
-        SingleCategory   ///< One categorical key per cell (e.g. snowpack class).
+        SingleCategory,  ///< One categorical key per cell (e.g. snowpack class).
+        CategoryShare    ///< Polygon layers: area share of each keyField1 class per cell.
     };
 
     /*! \brief How one cell's source value is obtained. */
@@ -115,6 +117,9 @@ struct MeshAssignmentSampling {
         /*! Classified mode: the source key text each cell resolved to,
          *  parallel to \ref triangles. Drives the tag-correspondence check. */
         QStringList keys;
+        /*! CategoryShare mode: parallel to \ref triangles; class key -> fraction of the
+         *  cell's area covered by polygons carrying that key (fractions sum to <= 1). */
+        QVector<QMap<QString, double>> shares;
 
         int skippedNoData = 0;     ///< NoData / outside the source.
         int skippedNonNumeric = 0; ///< Field value not a number.

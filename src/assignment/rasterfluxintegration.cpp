@@ -155,6 +155,68 @@ RasterFluxResult cancelledResult()
     r.cancelled = true;
     return r;
 }
+/** One opened raster band with its pixel geometry in an equivalent projected mesh CRS. */
+struct Grid {
+    std::unique_ptr<GDALDataset, decltype(&GDALClose)> ds{nullptr, &GDALClose};
+    GDALRasterBand *band = nullptr, *mask = nullptr;
+    double gt[6]{}, inverse[6]{}, squareMetres = 0, noData = 0;
+    bool hasNoData = false;
+    int nx = 0, ny = 0;
+};
+/**
+ * @brief Open a raster band whose CRS equals the projected mesh CRS, for exact pixel overlap.
+ * @param[in] path Raster path opened read-only on the calling thread.
+ * @param[in] bandIndex One-based band.
+ * @param[in] meshWkt Mesh CRS; must be projected with valid linear units.
+ * @param[in] assignedWkt Optional CRS assigned to a loaded layer; empty uses the dataset's.
+ * @param[in] noun Source wording used in messages ("flux raster", "raster").
+ * @param[out] grid Receives the dataset, band, validity mask, geotransforms and pixel area in m².
+ * @return Empty on success, otherwise a refusal message.
+ */
+QString openGrid(const QString &path, int bandIndex, const QString &meshWkt,
+                 const QString &assignedWkt, const QString &noun, Grid *grid)
+{
+    grid->ds.reset(static_cast<GDALDataset *>(GDALOpenEx(
+        path.toUtf8().constData(), GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr, nullptr)));
+    if (!grid->ds)
+        return QObject::tr("Cannot open the %1.").arg(noun);
+    if (bandIndex < 1 || bandIndex > grid->ds->GetRasterCount())
+        return QObject::tr("The %1 has no band %2.").arg(noun).arg(bandIndex);
+    OGRSpatialReference mesh, source;
+    mesh.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    source.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    const QByteArray mw = meshWkt.toUtf8(), sw = assignedWkt.isEmpty()
+                                                     ? QByteArray(grid->ds->GetProjectionRef())
+                                                     : assignedWkt.toUtf8();
+    if (mw.isEmpty() || sw.isEmpty() || mesh.importFromWkt(mw.constData()) != OGRERR_NONE ||
+        source.importFromWkt(sw.constData()) != OGRERR_NONE || !mesh.IsProjected() ||
+        !source.IsProjected() || !mesh.IsSame(&source))
+        return QObject::tr(
+            "Area integration requires the raster and mesh to share an equivalent projected CRS. Prepare the raster in the mesh CRS; geographic and different projections are unsupported.");
+    const double units = mesh.GetLinearUnits();
+    if (!std::isfinite(units) || units <= 0)
+        return QObject::tr("The projected CRS must declare valid linear units.");
+    if (grid->ds->GetGeoTransform(grid->gt) != CE_None)
+        return QObject::tr("Area integration requires an explicit raster geotransform.");
+    for (double v : grid->gt)
+        if (!std::isfinite(v))
+            return QObject::tr("The raster geotransform must be finite.");
+    if (!GDALInvGeoTransform(grid->gt, grid->inverse))
+        return QObject::tr("The raster geotransform is singular.");
+    grid->squareMetres =
+        std::abs(grid->gt[1] * grid->gt[5] - grid->gt[2] * grid->gt[4]) * units * units;
+    if (!std::isfinite(grid->squareMetres) || grid->squareMetres <= 0)
+        return QObject::tr("The raster pixel area cannot be represented in square metres.");
+    grid->band = grid->ds->GetRasterBand(bandIndex);
+    int hasNoData = 0;
+    grid->noData = grid->band->GetNoDataValue(&hasNoData);
+    grid->hasNoData = hasNoData != 0;
+    if ((grid->band->GetMaskFlags() & GMF_ALL_VALID) == 0)
+        grid->mask = grid->band->GetMaskBand();
+    grid->nx = grid->ds->GetRasterXSize();
+    grid->ny = grid->ds->GetRasterYSize();
+    return {};
+}
 /**
  * @brief Validate the job and accumulate exact native-resolution pixel overlap fluxes.
  * @param[in] j Source/cell data and explicit density units; shared projected CRS is required.
@@ -202,48 +264,17 @@ RasterFluxResult integrate(const RasterFluxRequest &j, const std::function<bool(
                     "Cell %1 needs a nondegenerate triangle or convex quadrilateral for flux integration.")
                     .arg(j.cells[i] + 1));
     }
-    std::unique_ptr<GDALDataset, decltype(&GDALClose)> ds(
-        static_cast<GDALDataset *>(GDALOpenEx(j.path.toUtf8().constData(),
-                                              GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr,
-                                              nullptr)),
-        &GDALClose);
-    if (!ds)
-        return failure(QObject::tr("Cannot open the flux raster."));
-    if (j.band < 1 || j.band > ds->GetRasterCount())
-        return failure(QObject::tr("The flux raster has no band %1.").arg(j.band));
-    OGRSpatialReference mesh, source;
-    mesh.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    source.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    const QByteArray mw = j.meshCrsWkt.toUtf8(), sw = j.assignedSourceCrsWkt.isEmpty()
-                                                          ? QByteArray(ds->GetProjectionRef())
-                                                          : j.assignedSourceCrsWkt.toUtf8();
-    if (mw.isEmpty() || sw.isEmpty() || mesh.importFromWkt(mw.constData()) != OGRERR_NONE ||
-        source.importFromWkt(sw.constData()) != OGRERR_NONE || !mesh.IsProjected() ||
-        !source.IsProjected() || !mesh.IsSame(&source))
-        return failure(QObject::tr(
-            "Flux integration requires the raster and mesh to share an equivalent projected CRS. Prepare the raster in the mesh CRS; geographic and different projections are unsupported."));
-    const double units = mesh.GetLinearUnits();
-    if (!std::isfinite(units) || units <= 0)
-        return failure(QObject::tr("The projected CRS must declare valid linear units."));
-    double gt[6];
-    if (ds->GetGeoTransform(gt) != CE_None)
-        return failure(QObject::tr("Flux integration requires an explicit raster geotransform."));
-    for (double v : gt)
-        if (!std::isfinite(v))
-            return failure(QObject::tr("The raster geotransform must be finite."));
-    double inverse[6];
-    if (!GDALInvGeoTransform(gt, inverse))
-        return failure(QObject::tr("The raster geotransform is singular."));
-    const double squareMetres = std::abs(gt[1] * gt[5] - gt[2] * gt[4]) * units * units;
-    if (!std::isfinite(squareMetres) || squareMetres <= 0)
-        return failure(
-            QObject::tr("The raster pixel area cannot be represented in square metres."));
-    auto *band = ds->GetRasterBand(j.band);
-    int hasNoData = 0;
-    const double noData = band->GetNoDataValue(&hasNoData);
-    const bool needsMask = (band->GetMaskFlags() & GMF_ALL_VALID) == 0;
-    auto *mask = needsMask ? band->GetMaskBand() : nullptr;
-    const int nx = ds->GetRasterXSize(), ny = ds->GetRasterYSize();
+    Grid grid;
+    const QString gridError = openGrid(j.path, j.band, j.meshCrsWkt, j.assignedSourceCrsWkt,
+                                       QObject::tr("flux raster"), &grid);
+    if (!gridError.isEmpty())
+        return failure(gridError);
+    auto *band = grid.band;
+    auto *mask = grid.mask;
+    const bool hasNoData = grid.hasNoData;
+    const double noData = grid.noData, squareMetres = grid.squareMetres;
+    const double *gt = grid.gt, *inverse = grid.inverse;
+    const int nx = grid.nx, ny = grid.ny;
     constexpr int chunk = 4096;
     QVector<double> buffer(chunk);
     QVector<unsigned char> maskBuffer(chunk);
@@ -353,6 +384,140 @@ RasterFluxResult integrate(const RasterFluxRequest &j, const std::function<bool(
                 "The selected area or total flow exceeds the supported numeric range."));
     return r;
 }
+/**
+ * @brief Accumulate exact pixel/cell overlap areas per class or an area-weighted mean per cell.
+ * @param[in] j Source, band, cells and convex footprints in the mesh CRS.
+ * @param[in] cancel Optional synchronous cancellation callback.
+ * @return Aligned per-cell areas in m²; errors and cancellation carry no actionable values.
+ */
+RasterZonalResult zonal(const RasterZonalRequest &j, const std::function<bool()> &cancel)
+{
+    auto stopped = [&] { return cancel && cancel(); };
+    auto failed = [](const QString &message) {
+        RasterZonalResult r;
+        r.error = message;
+        return r;
+    };
+    auto cancelledZonal = [&] {
+        auto r = failed(QObject::tr("Cancelled."));
+        r.cancelled = true;
+        return r;
+    };
+    if (stopped())
+        return cancelledZonal();
+    if (!std::isfinite(j.scale) || !std::isfinite(j.offset))
+        return failed(QObject::tr("Source scale and offset must be finite."));
+    if (j.cells.isEmpty() || j.cells.size() != j.footprints.size())
+        return failed(QObject::tr("Each selected cell needs its own footprint."));
+    QSet<int> ids;
+    for (int i = 0; i < j.cells.size(); ++i) {
+        if (j.cells[i] < 0 || ids.contains(j.cells[i]))
+            return failed(QObject::tr("Selected cell IDs must be distinct and nonnegative."));
+        ids.insert(j.cells[i]);
+        for (const auto &p : j.footprints[i])
+            if (!std::isfinite(p.x()) || !std::isfinite(p.y()))
+                return failed(QObject::tr("Cell coordinates must be finite."));
+        if (!convex(j.footprints[i]))
+            return failed(
+                QObject::tr("Cell %1 needs a nondegenerate triangle or convex quadrilateral.")
+                    .arg(j.cells[i] + 1));
+    }
+    Grid grid;
+    const QString gridError = openGrid(j.path, j.band, j.meshCrsWkt, j.assignedSourceCrsWkt,
+                                       QObject::tr("raster"), &grid);
+    if (!gridError.isEmpty())
+        return failed(gridError);
+    constexpr int chunk = 4096;
+    QVector<double> buffer(chunk);
+    QVector<unsigned char> maskBuffer(chunk);
+    RasterZonalResult r;
+    int polls = 0;
+    for (int i = 0; i < j.cells.size(); ++i) {
+        if (stopped())
+            return cancelledZonal();
+        Polygon cell;
+        double xmin = std::numeric_limits<double>::infinity(), xmax = -xmin, ymin = xmin,
+               ymax = -xmin;
+        for (const auto &p : j.footprints[i]) {
+            const double dx = p.x() - grid.gt[0], dy = p.y() - grid.gt[3];
+            const QPointF q(dx * grid.inverse[1] + dy * grid.inverse[2],
+                            dx * grid.inverse[4] + dy * grid.inverse[5]);
+            if (!std::isfinite(q.x()) || !std::isfinite(q.y()))
+                return failed(
+                    QObject::tr("A cell cannot be represented in raster pixel coordinates."));
+            cell.append(q);
+            xmin = std::min(xmin, q.x());
+            xmax = std::max(xmax, q.x());
+            ymin = std::min(ymin, q.y());
+            ymax = std::max(ymax, q.y());
+        }
+        const double cellArea = area(cell) * grid.squareMetres;
+        if (!std::isfinite(cellArea) || cellArea <= 0)
+            return failed(QObject::tr("A cell area cannot be represented in square metres."));
+        const int x0 = int(std::clamp(std::floor(xmin), 0., double(grid.nx))),
+                  x1 = int(std::clamp(std::ceil(xmax), 0., double(grid.nx))),
+                  y0 = int(std::clamp(std::floor(ymin), 0., double(grid.ny))),
+                  y1 = int(std::clamp(std::ceil(ymax), 0., double(grid.ny)));
+        Sum valid, weighted;
+        QMap<qint64, Sum> classes;
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1;) {
+                const int count = std::min(chunk, x1 - x);
+                if (grid.band->RasterIO(GF_Read, x, y, count, 1, buffer.data(), count, 1,
+                                        GDT_Float64, 0, 0) != CE_None ||
+                    (grid.mask && grid.mask->RasterIO(GF_Read, x, y, count, 1, maskBuffer.data(),
+                                                      count, 1, GDT_Byte, 0, 0) != CE_None))
+                    return failed(QObject::tr("Cannot read raster values or its validity mask."));
+                for (int k = 0; k < count; ++k) {
+                    if ((++polls % 128) == 0 && stopped())
+                        return cancelledZonal();
+                    const double v = buffer[k];
+                    if (!std::isfinite(v) || (grid.hasNoData && v == grid.noData) ||
+                        (grid.mask && !maskBuffer[k]))
+                        continue;
+                    const double a = pixelArea(cell, x + k, y) * grid.squareMetres;
+                    if (!(a > 0))
+                        continue;
+                    valid.add(a);
+                    if (j.categorical) {
+                        classes[qint64(std::llround(v))].add(a);
+                    } else {
+                        const double value = v * j.scale + j.offset;
+                        if (!std::isfinite(value))
+                            return failed(QObject::tr(
+                                "A raster value is not finite after scale and offset."));
+                        weighted.add(value * a);
+                    }
+                }
+                x += count;
+            }
+        const double covered = std::min(cellArea, valid.value);
+        r.cellAreas.append(cellArea);
+        r.validAreas.append(covered);
+        r.means.append(!j.categorical && valid.value > 0
+                           ? weighted.value / valid.value
+                           : std::numeric_limits<double>::quiet_NaN());
+        QMap<qint64, double> areas;
+        for (auto it = classes.cbegin(); it != classes.cend(); ++it)
+            areas.insert(it.key(), it.value().value);
+        r.classAreas.append(areas);
+    }
+    return r;
+}
+}
+RasterZonalResult integrateRasterZonal(const RasterZonalRequest &j, std::function<bool()> cancelled)
+{
+    try {
+        return zonal(j, cancelled);
+    } catch (const std::exception &e) {
+        RasterZonalResult r;
+        r.error = QObject::tr("Raster area sampling failed: %1").arg(QString::fromUtf8(e.what()));
+        return r;
+    } catch (...) {
+        RasterZonalResult r;
+        r.error = QObject::tr("Raster area sampling failed.");
+        return r;
+    }
 }
 RasterFluxResult integrateRasterFlux(const RasterFluxRequest &j, std::function<bool()> cancelled)
 {

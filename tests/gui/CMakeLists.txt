@@ -4703,3 +4703,30 @@ add_swmmvis_gui_test(test_resultstablesdialogs
 swmmvis_link_full_app_deps(test_resultstablesdialogs)
 target_compile_definitions(test_resultstablesdialogs PRIVATE
     PHASE4B_OUTPUT="${SWMMVIS_PHASE4B_OUTPUT_DIR}")
+# Phase 3b (2026-10-31, workplans/BELLINGE_GW_QUALITY_PHASE3B_AGENT_BRIEF_2026-10-31.md):
+# spatial assignment of [2D_COVERAGES]/[2D_LOADINGS]/[2D_CURB_LENGTH]/
+# [2D_INITIAL_QUALITY]/[GW_INITIAL_QUALITY]/[GW_SOURCES] rows from the cell
+# selection, feature layers and rasters. Service-level gates (zonal shares,
+# CELL/TAG rows, rollback, point sources, save/reopen) plus dialog journeys in
+# test_groundwaterassigndialog. Every file lands in one reviewable folder.
+set(SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT_DIR
+    "${CMAKE_SOURCE_DIR}/tests/output/spatial_assignment_2026-10-31")
+add_swmmvis_gui_test(test_spatialassignment
+    test_spatialassignment.cpp
+    ${CMAKE_SOURCE_DIR}/include/assignment/spatialassignment.h
+    ${CMAKE_SOURCE_DIR}/src/assignment/spatialassignment.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionrowmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionrowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/meshassignmentsampling.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/rasterfluxintegration.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/libraries/meshkit/src/mesh/meshinfil.cpp)
+target_link_libraries(test_spatialassignment PRIVATE meshkit::core_qt GDAL::GDAL predicates_lib)
+target_compile_definitions(test_spatialassignment PRIVATE
+    SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT="${SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT_DIR}")
+set_property(TEST test_groundwaterassigndialog APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT=${SWMMVIS_SPATIAL_ASSIGNMENT_OUTPUT_DIR}")
+

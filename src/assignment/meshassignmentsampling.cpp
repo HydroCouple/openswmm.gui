@@ -877,10 +877,11 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *o
 {
     OGRFeatureDefn *defn = ol->GetLayerDefn();
     const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
+    const bool shares = job.mode == Mode::CategoryShare;
 
     QVector<int> valueIdx; // numeric modes, parallel to targetKeys
     int key1Idx = -1, key2Idx = -1;
-    if (classified) {
+    if (classified || shares) {
         key1Idx = defn->GetFieldIndex(job.keyField1.toUtf8().constData());
         if (key1Idx < 0) {
             r.error = QObject::tr("Field \"%1\" is not in the source layer.").arg(job.keyField1);
@@ -918,6 +919,10 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *o
         mode = categorical ? Sampling::Majority : Sampling::AreaWeightedMean;
         r.resolvedSampling = categorical ? QObject::tr("majority (categorical field)")
                                          : QObject::tr("area-weighted mean (continuous field)");
+    }
+    if (shares) { // always an overlay: the share of each class in the cell's area
+        mode = Sampling::AreaWeightedMean;
+        r.resolvedSampling = QObject::tr("area share of each class");
     }
 
     QVector<QPointF> pts = job.centroids;
@@ -969,6 +974,7 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *o
         bool hit = false;
         bool nonNumeric = false;
         QString centroidKey;
+        QMap<QString, double> classArea;
 
         OGRFeature *f = nullptr;
         while ((f = ol->GetNextFeature()) != nullptr) {
@@ -1023,7 +1029,9 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *o
             }
             hit = true;
 
-            if (classified) {
+            if (shares) {
+                classArea[fieldAsKey(f, key1Idx)] += share;
+            } else if (classified) {
                 if (share > acc[0].bestW) {
                     acc[0].bestW = share;
                     acc[0].bestKey = fieldAsKey(f, key1Idx);
@@ -1053,6 +1061,30 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *o
 
         if (!hit) {
             ++r.skippedNoData;
+            continue;
+        }
+
+        if (shares) {
+            const double cellArea = geomArea(&triPoly);
+            double covered = 0.0;
+            for (double a : classArea)
+                covered += a;
+            if (!(cellArea > 0.0)) {
+                ++r.skippedNoData;
+                continue;
+            }
+            if (job.rejectOverlaps && covered > cellArea * (1.0 + 1e-9)) {
+                r.error = QObject::tr("Cell %1 is covered by overlapping source polygons (%2 % of "
+                                      "its area). Resolve the overlap before assigning shares.")
+                              .arg(job.triangles[i] + 1)
+                              .arg(100.0 * covered / cellArea);
+                return;
+            }
+            QMap<QString, double> fractions;
+            for (auto it = classArea.cbegin(); it != classArea.cend(); ++it)
+                fractions.insert(it.key(), std::min(1.0, it.value() / cellArea));
+            r.triangles.append(job.triangles[i]);
+            r.shares.append(fractions);
             continue;
         }
 
@@ -1159,6 +1191,11 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job, SampleResult &r)
                                   "scattered point layer, not a raster.");
             return;
         }
+        if (job.mode == Mode::CategoryShare) {
+            r.error = QObject::tr("Raster class shares use exact pixel overlap "
+                                  "(integrateRasterZonal), not this sampler.");
+            return;
+        }
         QVector<int> channels;
         if ((job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory)) {
             channels.append(job.keyBand1);
@@ -1195,7 +1232,7 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job, SampleResult &r)
     if (job.sampling == Sampling::NaturalNeighbour) {
         sampleVectorNaturalNeighbour(promise, job, ol, r);
     } else {
-        if (job.sampling != Sampling::Centroid &&
+        if ((job.sampling != Sampling::Centroid || job.mode == Mode::CategoryShare) &&
             job.triVerts.size() < job.triangles.size() * kFootprintStride) {
             r.error = QObject::tr("Overlay sampling needs the cell footprints, "
                                   "which were not collected.");

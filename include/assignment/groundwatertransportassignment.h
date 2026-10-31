@@ -138,7 +138,9 @@ bool writeGroundwaterSource(SWMM_Engine engine, int index, const GroundwaterSour
  */
 bool readGroundwaterTransportSnapshot(SWMM_Engine engine, GroundwaterTransportSnapshot *snapshot,
                                       QString *error = nullptr);
-enum class GroundwaterTransportTarget { InitialQuality, Source };
+// PointSources (Phase 3b): one CELL/XY source per point feature, each with its own flow and
+// species values (GroundwaterTransportRequest::points).
+enum class GroundwaterTransportTarget { InitialQuality, Source, PointSources };
 enum class GroundwaterSourceDistribution { PerCell, RegionTotal };
 struct GroundwaterTransportRequest {
     GroundwaterTransportSnapshot before;
@@ -153,6 +155,12 @@ struct GroundwaterTransportRequest {
     QVector<GroundwaterSpeciesTerm> terms;
     GroundwaterSourceDistribution distribution = GroundwaterSourceDistribution::PerCell;
     QVector<double> areaWeights; // positive cell areas; normalized for RegionTotal
+    // Source + RegionTotal: a non-empty tag writes one TAG source (the engine area-weights its
+    // total over the tag's active cells) and tags the cells; allowRetag permits moving cells
+    // out of another tag.
+    QString tag;
+    bool allowRetag = false;
+    QVector<GroundwaterSourceRow> points; // PointSources: scope CELL (or byXy) rows to append
 };
 struct GroundwaterTransportPreview {
     GroundwaterTransportSnapshot before, after;
