@@ -8,6 +8,11 @@ and documented with the GUI. Individual plugins can be maintained in separate
 repositories and built against the installed SDK. Use **GUI Extensions** in
 the documentation navigation for the author guide and API references.
 
+Normal GUI builds include the Data Sources extension in the application and
+installer. It is discovered from `plugins/gui` beside the executable (inside
+`SWMMVis.app/Contents/MacOS` on macOS), before user-installed copies with the same
+plugin identity. The normal enable/disable preference still applies.
+
 Open **Tools → Plugins…** to see engine I/O plugins, process components and GUI
 extensions. GUI extension rows show version, vendor, license, build compatibility,
 load status and failure details. **Add directory…** adds an existing plugin

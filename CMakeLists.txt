@@ -1,7 +1,7 @@
 #
 # CMakeLists.txt — SWMMVis
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 
 cmake_minimum_required(VERSION 3.21)
@@ -142,6 +142,7 @@ include(FetchQPropertyModel)
 include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
 include(GuiExtensionSdk)
+include(FetchOpenSWMMData)
 add_subdirectory(libraries/meshkit)
 
 # ── Additional engine versions shipped as subprocess workers ────────────────
@@ -2106,6 +2107,69 @@ endif()
 # Placing it beside the engine lib lets the factory's dladdr/GetModuleHandleEx
 # search root find it and `auto`-select the OpenMP backend on large meshes.
 
+if(TARGET openswmm_data)
+    # Keep the module in the loader's application-relative search directory.
+    # A generated translation unit makes a Data-only rebuild re-run application
+    # deployment/signing on every generator, including Visual Studio and Xcode.
+    set(_data_stamp "${CMAKE_CURRENT_BINARY_DIR}/bundled-data/$<CONFIG>/plugin-revision.cpp")
+    add_custom_command(OUTPUT "${_data_stamp}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${CMAKE_CURRENT_BINARY_DIR}/bundled-data/$<CONFIG>"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_data_stamp}"
+        DEPENDS openswmm_data
+        COMMENT "Refresh bundled Data plugin deployment"
+        VERBATIM)
+    target_sources(SWMMVis PRIVATE "${_data_stamp}")
+    add_dependencies(SWMMVis openswmm_data)
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:SWMMVis>/plugins/gui"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:openswmm_data>"
+                "$<TARGET_FILE_DIR:SWMMVis>/plugins/gui/$<TARGET_FILE_NAME:openswmm_data>"
+        COMMENT "Bundle Data Sources in the GUI extension search directory"
+        VERBATIM)
+    if(APPLE)
+        set(_data_license_dir "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Resources/licenses/openswmm.gui.data")
+    else()
+        set(_data_license_dir "$<TARGET_FILE_DIR:SWMMVis>/licenses/openswmm.gui.data")
+        install(TARGETS openswmm_data
+            LIBRARY DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/gui" COMPONENT Runtime
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/gui" COMPONENT Runtime)
+        if(UNIX)
+            # Build dependencies live beside the executable; installed libraries
+            # live under lib/ (or the configured GNUInstallDirs equivalent).
+            set_target_properties(openswmm_data PROPERTIES
+                BUILD_WITH_INSTALL_RPATH TRUE
+                INSTALL_RPATH "$ORIGIN/../..;$ORIGIN/../../../${CMAKE_INSTALL_LIBDIR}")
+        endif()
+        install(FILES "${openswmmdata_SOURCE_DIR}/LICENSE" "${openswmmdata_SOURCE_DIR}/NOTICE"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/openswmm.gui.data" COMPONENT Runtime)
+        install(DIRECTORY "${openswmmdata_SOURCE_DIR}/LICENSES/"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/openswmm.gui.data/LICENSES" COMPONENT Runtime)
+    endif()
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_data_license_dir}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${openswmmdata_SOURCE_DIR}/LICENSE" "${openswmmdata_SOURCE_DIR}/NOTICE" "${_data_license_dir}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${openswmmdata_SOURCE_DIR}/LICENSES"
+                "${_data_license_dir}/LICENSES"
+        VERBATIM)
+else()
+    # Reconfiguring an existing build with bundling disabled must not ship a
+    # stale module copied by the previous enabled build.
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E rm -f
+                "$<TARGET_FILE_DIR:SWMMVis>/plugins/gui/${CMAKE_SHARED_MODULE_PREFIX}openswmm_data${CMAKE_SHARED_MODULE_SUFFIX}"
+        VERBATIM)
+    if(APPLE)
+        set(_data_license_dir "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Resources/licenses/openswmm.gui.data")
+    else()
+        set(_data_license_dir "$<TARGET_FILE_DIR:SWMMVis>/licenses/openswmm.gui.data")
+    endif()
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_data_license_dir}"
+        VERBATIM)
+endif()
+
 if(APPLE)
     find_program(MACDEPLOYQT_EXECUTABLE macdeployqt
         HINTS "${Qt6_DIR}/../../../bin"
@@ -2113,6 +2177,14 @@ if(APPLE)
               "$ENV{QT_ROOT_DIR}/bin"
     )
     if(MACDEPLOYQT_EXECUTABLE)
+        set(_data_mac_deploy_args "")
+        set(_data_mac_install_arg "")
+        if(TARGET openswmm_data)
+            set(_data_mac_deploy_args
+                "-executable=$<TARGET_FILE_DIR:SWMMVis>/plugins/gui/$<TARGET_FILE_NAME:openswmm_data>")
+            set(_data_mac_install_arg
+                "\"-executable=\${CMAKE_INSTALL_PREFIX}/SWMMVis.app/Contents/MacOS/plugins/gui/$<TARGET_FILE_NAME:openswmm_data>\"")
+        endif()
         # Capture a real dSYM BEFORE macdeployqt + codesign run, so the
         # debug-map links (N_OSO STABS) to per-.o DWARF are still intact.
         # macdeployqt re-links frameworks (@rpath rewrites) and codesign
@@ -2146,6 +2218,7 @@ if(APPLE)
             COMMAND "${MACDEPLOYQT_EXECUTABLE}"
                     "$<TARGET_BUNDLE_DIR:SWMMVis>"
                     "-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml"
+                    ${_data_mac_deploy_args}
                     -always-overwrite
             COMMENT "macdeployqt: bundling Qt frameworks, QML modules and linked dylibs (incl. GDAL)"
             VERBATIM
@@ -2330,6 +2403,7 @@ if(APPLE)
                 \"${MACDEPLOYQT_EXECUTABLE}\"
                 \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
                 \"-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml\"
+                ${_data_mac_install_arg}
                 -always-overwrite
                 COMMAND_ERROR_IS_FATAL ANY)
              set(APP_BUNDLE \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\")

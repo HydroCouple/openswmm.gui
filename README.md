@@ -41,6 +41,7 @@ The matching development engine supports qualified standalone CPU RK2 groundwate
 | [GDAL](https://gdal.org/) | 3.x | GIS/CRS support — installed via vcpkg |
 | [openswmm.engine](https://github.com/HydroCouple/openswmm.engine) | branch `swmm6_rel` | Engine — expected at `../openswmm.engine` |
 | [QPropertyModel](https://github.com/cbuahin/QPropertyModel) | branch `dev` | Property editor — expected at `../QPropertyModel` |
+| [Data Sources](https://github.com/HydroCouple/hydrocouple.gui.data) | pinned CMake revision | Built and bundled automatically; a sibling `../openswmm.gui.data` checkout takes precedence |
 | [vcpkg](https://github.com/microsoft/vcpkg) | `2025.03.19` | Package manager |
 | CMake | 3.21+ | Build system |
 
@@ -48,7 +49,8 @@ The matching development engine supports qualified standalone CPU RK2 groundwate
 
 ### 1. Clone sibling repositories
 
-All three repos must be siblings in the same parent directory:
+Sibling checkouts provide a convenient local development layout. QPropertyModel
+and Data Sources are fetched automatically when no local checkout is available:
 
 ```bash
 # From the directory that will contain all repos:
@@ -92,6 +94,18 @@ cmake --build --preset=Windows
 ```
 
 Debug builds append `-debug` to the preset name (e.g., `Darwin-debug`).
+
+The default build also compiles the Data Sources GUI plugin against the current
+GUI SDK and bundles it in `plugins/gui` beside the executable. On macOS this is
+`SWMMVis.app/Contents/MacOS/plugins/gui`; installed Windows/Linux packages use
+`bin/plugins/gui`. The same module and license notices are included by CPack.
+A Data-only rebuild refreshes application deployment and signing automatically.
+
+Configure with `-DOPENSWMM_DATA_SOURCE_DIR=/path/to/openswmm.gui.data` to choose a
+checkout, or `-DSWMMVIS_BUNDLE_DATA_PLUGIN=OFF` to omit the bundled plugin.
+`OPENSWMM_DATA_GIT_REPOSITORY` and `OPENSWMM_DATA_GIT_TAG` override the fallback
+source/revision. SDK-only builds do not fetch or build Data. Embedded Data tests
+are off by default; enable `OPENSWMM_DATA_BUILD_TESTS` to build them with the GUI.
 
 ### 4. Run tests
 

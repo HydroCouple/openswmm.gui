@@ -46,6 +46,8 @@ endif()
 set(_sdk_manifest "{\"guiVersion\":\"${PROJECT_VERSION}\",\"sdkApiVersion\":\"${OPENSWMMVIS_SDK_API_VERSION}\",\"qt\":\"${Qt6_VERSION}\",\"compilerAbi\":\"${_sdk_compiler_abi}\",\"engineVersion\":\"${PROJECT_VERSION}\",\"engineAbiTag\":\"${_sdk_engine_tag}\",\"arch\":\"${_sdk_arch}\"}")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sdk")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sdk/sdk-manifest.json" "${_sdk_manifest}\n")
+set(OpenSWMMVisSdk_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/sdk/sdk-manifest.json")
+include("${CMAKE_CURRENT_LIST_DIR}/OpenSWMMVisExtension.cmake")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sdk/sdk-build-manifest.h"
     "#pragma once\n#define OPENSWMMVIS_SDK_MANIFEST_JSON R\"manifest(${_sdk_manifest})manifest\"\n")
 
