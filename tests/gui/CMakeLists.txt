@@ -4576,3 +4576,40 @@ add_swmmvis_gui_test(test_plotpanels_integration
     ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
 swmmvis_link_full_app_deps(test_plotpanels_integration)
 set_property(TEST test_plotpanels_integration APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")
+
+# Phase 3a (2026-10-30): row editors for [2D_COVERAGES], [2D_LOADINGS],
+# [2D_CURB_LENGTH], [2D_INITIAL_QUALITY], [GW_SOURCES], [GW_TRANSPORT_PARAMS],
+# [GW_SORPTION], [GW_INITIAL_QUALITY] and [2D_AQUIFER_LINKS]. Model-level
+# write/reopen round trips; files are kept under tests/output for review, and
+# the Bellinge groundwater-quality example is opened read-only.
+add_swmmvis_gui_test(test_gwqualityroweditors
+    test_gwqualityroweditors.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionrowmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionrowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionroweditor.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionroweditor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dgwsourcemodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgwsourcemodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsurfacequalitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsurfacequalitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2daquifermodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2daquifermodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+target_compile_definitions(test_gwqualityroweditors PRIVATE
+    SWMMVIS_QUALITY_EDITORS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/gw_quality_editors_2026-10-30"
+    SWMMVIS_BELLINGE_GW_QUALITY_INP="${CMAKE_SOURCE_DIR}/examples/bellinge_2d_gw_quality/BellingeSWMM_v021_gw_quality.inp")
+
+# The 2D Groundwater dialog now also hosts the source, transport-row and
+# conduit-link editors (same Phase 3a models).
+target_sources(test_mesh2dgroundwaterdialog PRIVATE
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionrowmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionrowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionroweditor.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionroweditor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dgwsourcemodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgwsourcemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)

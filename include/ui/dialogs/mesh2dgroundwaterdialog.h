@@ -21,6 +21,10 @@
  *     continuity residual. Below it, the SAVED run's water and species
  *     ledgers (`results::GwLedgerModel`, V4), which survive a reopen and can
  *     be sent to the comparison plot.
+ *   - **Sources, Transport parameters, Sorption, Initial quality, Conduit
+ *     links** (2026-10-30) — `[GW_SOURCES]` (with species terms),
+ *     `[GW_TRANSPORT_PARAMS]`, `[GW_SORPTION]`, `[GW_INITIAL_QUALITY]` and
+ *     `[2D_AQUIFER_LINKS]` rows; NODE_ENROLMENT sits on the Options tab.
  *
  * MVC per CLAUDE.md §5.1: the tables are `Mesh2DAquiferModel` and
  * `Mesh2DAquiferNodeModel`, so the same rows can be edited from a future
@@ -38,6 +42,7 @@
 #define OPENSWMMVIS_UI_DIALOGS_MESH2DGROUNDWATERDIALOG_H
 
 #include <QDialog>
+#include <QList>
 #include <QMap>
 #include <QPointer>
 #include <QStringList>
@@ -74,6 +79,10 @@ namespace openswmmvis::ui
 class Mesh2DAquiferModel;
 class Mesh2DAquiferNodeModel;
 class Mesh2DAquiferBoundaryModel;
+class Mesh2DSectionRowModel;
+class Mesh2DSectionRowEditor;
+class Mesh2DGwSourceModel;
+class Mesh2DGwSourceTermModel;
 
 class Mesh2DGroundwaterDialog : public QDialog
 {
@@ -172,6 +181,14 @@ public:
      * unavailable rows, never zeros. Independent of the engine and of editability.
      */
     void setSavedResultsFile(const QString &h5Path);
+
+    /**
+     * @brief Name the `.inp` the model was opened from so the Sources tab can tell which
+     * sources were authored by `XY x y` (the C API reports them as their resolved CELL).
+     * @param[in] inpPath Input file path; empty or unreadable marks none. Reloads the staged
+     * sources, so call it before editing.
+     */
+    void setModelFile(const QString &inpPath);
 
 public slots:
     /**
@@ -320,6 +337,26 @@ private:
      * species-native terms), with validation/publication deferred to Apply.
      */
     QWidget *buildBoundaryPage();
+    /**
+     * @brief Build the `[GW_SOURCES]` list, its XY conversion action and the species-term
+     * table of the selected source. Staged until Apply.
+     */
+    QWidget *buildSourcesPage();
+    /**
+     * @brief Create one staged scoped-row model and its table page for a transport section.
+     * @return Page adopted by the tab widget.
+     */
+    QWidget *addRowPage(Mesh2DSectionRowModel *model, const QString &hint);
+    QList<Mesh2DSectionRowModel *> m_rowModels;
+    QList<Mesh2DSectionRowEditor *> m_rowEditors;
+    Mesh2DGwSourceModel *m_sources = nullptr;
+    Mesh2DGwSourceTermModel *m_sourceTerms = nullptr;
+    QTableView *m_sourceView = nullptr;
+    QTableView *m_termView = nullptr;
+    QWidget *m_sourcePage = nullptr;
+    QPushButton *m_convertXyBtn = nullptr;
+    QLabel *m_sourceNote = nullptr;
+    QString m_modelFile;
     Mesh2DAquiferBoundaryModel *m_boundaries = nullptr;
     QWidget *m_boundaryPage = nullptr;
     QMap<QString, QWidget *> m_transportOptions;
@@ -426,6 +463,7 @@ private:
     QCheckBox *m_dunneCheck = nullptr;
     QComboBox *m_modeCombo = nullptr;
     QComboBox *m_gwEtCombo = nullptr;
+    QComboBox *m_enrolmentCombo = nullptr;
     QComboBox *m_surfaceThermalKind = nullptr;
     QLineEdit *m_surfaceThermalValue = nullptr;
     QComboBox *m_deepThermalKind = nullptr;

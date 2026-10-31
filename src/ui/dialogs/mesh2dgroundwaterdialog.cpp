@@ -13,6 +13,9 @@
 #include "core/unitsystem.h"
 #include "results/gwledgermodel.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
+#include "ui/dialogs/mesh2dgwsourcemodel.h"
+#include "ui/dialogs/mesh2dsectionroweditor.h"
+#include "ui/dialogs/mesh2dsectionrowmodel.h"
 
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_heat.h>
@@ -368,7 +371,8 @@ QStringList Mesh2DGroundwaterDialog::configurationOptionKeys()
                         QStringLiteral("FORCE_CLOSED_FORM"),
                         QStringLiteral("DUNNE"),
                         QStringLiteral("MODE"),
-                        QStringLiteral("GW_ET")};
+                        QStringLiteral("GW_ET"),
+                        QStringLiteral("NODE_ENROLMENT")};
     const QStringList transportKeys = {QStringLiteral("UNSAT_TRANSPORT"),
                                        QStringLiteral("TRANSPORT_POLLUTANTS"),
                                        QStringLiteral("TRANSPORT_MSX"),
@@ -397,10 +401,9 @@ void Mesh2DGroundwaterDialog::setThermalOptionsOnly(bool enabled)
 {
     if (!m_tabs)
         return;
-    m_tabs->setTabVisible(1, !enabled);
-    m_tabs->setTabVisible(2, !enabled);
-    m_tabs->setTabVisible(3, !enabled);
-    m_tabs->setTabVisible(5, !enabled);
+    for (int i = 1; i < m_tabs->count(); ++i)
+        if (i != 4) // Options (0) and Transport and thermal settings (4) stay
+            m_tabs->setTabVisible(i, !enabled);
 }
 
 Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine, QWidget *parent,
@@ -449,6 +452,38 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
     m_tabs->addTab(buildStatePage(), tr("State"));
     m_tabs->addTab(buildTransportPage(), tr("Transport and thermal settings"));
     m_tabs->addTab(buildBoundaryPage(), tr("Edge boundaries"));
+    m_tabs->addTab(buildSourcesPage(), tr("Sources"));
+    using Section = Mesh2DSectionRowModel::Section;
+    const QString scopes = tr("Rows apply to all cells (<b>*</b>), every cell with a <b>tag</b>, "
+                              "or one <b>cell</b>; the most specific row wins.");
+    const struct {
+        Section section;
+        const char *name;
+        QString title, hint;
+    } rowPages[] = {
+        {Section::GwParams, "gwTransportParams", tr("Transport parameters"),
+         tr("Porous-media properties in SI units. The running kernel uses grain density for "
+            "sorption retardation and the dispersivities and molecular diffusivity for "
+            "dispersion; the thermal and vapour columns are kept for the thermal model. %1")
+             .arg(scopes)},
+        {Section::GwSorption, "gwSorption", tr("Sorption"),
+         tr("Linear sorption and first-order decay of an aquifer species. Leave the decay blank "
+            "to use the pollutant's own decay. %1")
+             .arg(scopes)},
+        {Section::GwInitialQuality, "gwInitialQuality", tr("Initial quality"),
+         tr("Starting concentration, water age or temperature in the saturated (SAT) or "
+            "unsaturated (UNSAT) zone. %1 Assign Groundwater sets per-cell rows from a "
+            "selection.")
+             .arg(scopes)},
+        {Section::AquiferLinks, "gwAquiferLinks", tr("Conduit links"),
+         tr("Per-conduit overrides of seepage exchange with the aquifer. KC and DC apply with "
+            "LINK_SEEPAGE TWO_WAY; clear Exchange to keep a conduit's seepage a system loss.")},
+    };
+    for (const auto &page : rowPages) {
+        auto *model = new Mesh2DSectionRowModel(page.section, this);
+        model->setObjectName(QString::fromLatin1(page.name));
+        m_tabs->addTab(addRowPage(model, page.hint), page.title);
+    }
     switch (initialPage) {
     case Page::Options:
         m_tabs->setCurrentIndex(0);
@@ -593,6 +628,16 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     connect(m_gwEtCombo, &QComboBox::currentIndexChanged, this, refreshEt);
     connect(m_modeCombo, &QComboBox::currentIndexChanged, this, refreshEt);
     refreshEt();
+
+    m_enrolmentCombo = new QComboBox(page);
+    m_enrolmentCombo->setObjectName("gwNodeEnrolment");
+    m_enrolmentCombo->addItem(tr("Automatic"), "AUTO");
+    m_enrolmentCombo->addItem(tr("Node Beds rows only"), "ROWS");
+    m_enrolmentCombo->setToolTip(
+        tr("AUTO connects every node inside the mesh (outfalls excepted) to the aquifer under it; "
+           "a Node Beds row overrides or opts a node out. ROWS connects only the nodes listed on "
+           "the Node Beds tab."));
+    form->addRow(tr("Node &enrolment:"), m_enrolmentCombo);
 
     return page;
 }
@@ -858,6 +903,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     pick(m_closureCombo, optionText(m_engine, "CLOSURE"));
     pick(m_modeCombo, optionText(m_engine, "MODE"));
     pick(m_gwEtCombo, optionText(m_engine, "GW_ET"));
+    pick(m_enrolmentCombo, optionText(m_engine, "NODE_ENROLMENT"));
     m_layersSpin->setValue(optionText(m_engine, "M_LAYERS").toInt());
     m_capillaryCheck->setChecked(optionText(m_engine, "CAPILLARY_DIFF") == QLatin1String("YES"));
     m_forceCfCheck->setChecked(optionText(m_engine, "FORCE_CLOSED_FORM") == QLatin1String("YES"));
@@ -909,6 +955,20 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_displayedOptions = optionDraft();
     m_aquifer->load(m_engine);
     m_nodes->load(m_engine);
+    const QStringList tags = meshCellTags(m_engine);
+    for (int i = 0; i < m_rowModels.size(); ++i) {
+        auto *model = m_rowModels[i];
+        model->setProjectUnits(si);
+        model->load(m_engine);
+        model->setTagChoices(tags);
+        if (!model->fileReference().isEmpty()) // [GW_INITIAL_QUALITY] FILE, shown read-only
+            m_rowEditors[i]->setNote(tr("Also seeded from FILE %1 (%2 rows); edit that file to "
+                                        "change them.")
+                                         .arg(model->fileReference())
+                                         .arg(model->fileRowCount()));
+    }
+    m_sources->setTagChoices(tags);
+    m_sources->load(m_engine, m_modelFile);
     {
         QSignalBlocker block(m_bottomNode);
         m_bottomNode->clear();
@@ -948,7 +1008,7 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
              m_soilCombo, m_closureCombo, m_layersSpin, m_capillaryCheck, m_cgwSpin, m_ccolSpin,
              m_forceCfCheck, m_dunneCheck, m_modeCombo, m_gwEtCombo, m_addRowBtn, m_delRowBtn,
              m_addBedBtn, m_delBedBtn, m_surfaceThermalKind, m_surfaceThermalValue,
-             m_deepThermalKind, m_deepThermalValue, m_deepThermalDepth})
+             m_deepThermalKind, m_deepThermalValue, m_deepThermalDepth, m_enrolmentCombo})
         if (w)
             w->setEnabled(on);
     refreshThermalGates();
@@ -958,6 +1018,17 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     if (m_nodeView)
         m_nodeView->setEditTriggers(on ? QAbstractItemView::AllEditTriggers
                                        : QAbstractItemView::NoEditTriggers);
+    for (auto *editor : m_rowEditors)
+        editor->setEditable(on);
+    if (m_sourcePage) {
+        for (auto *button : m_sourcePage->findChildren<QPushButton *>())
+            button->setEnabled(on);
+        for (auto *view : {m_sourceView, m_termView})
+            view->setEditTriggers(on ? QAbstractItemView::AllEditTriggers
+                                     : QAbstractItemView::NoEditTriggers);
+        if (on)
+            m_convertXyBtn->setEnabled(m_sources->isXy(m_sourceView->currentIndex().row()));
+    }
     if (!whyNot.isEmpty()) {
         m_banner->setText(whyNot);
         m_banner->show();
@@ -1010,13 +1081,153 @@ QWidget *Mesh2DGroundwaterDialog::buildBoundaryPage()
     return m_boundaryPage;
 }
 
+QWidget *Mesh2DGroundwaterDialog::addRowPage(Mesh2DSectionRowModel *model, const QString &hint)
+{
+    auto *editor = new Mesh2DSectionRowEditor(model, hint, this);
+    m_rowModels.append(model);
+    m_rowEditors.append(editor);
+    return editor;
+}
+
+QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
+{
+    m_sourcePage = new QWidget(this);
+    auto *layout = new QVBoxLayout(m_sourcePage);
+    auto *hint = new QLabel(
+        tr("Named wells, injections and extractions. Flow is total m³/s, positive into the "
+           "aquifer; a source on all cells (*) or a tag is shared among its active cells by "
+           "area. Species terms inject a concentration (CONC) or add mass per second (MASS)."),
+        m_sourcePage);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+
+    auto table = [](QTableView *view, QAbstractItemModel *model, const QString &name) {
+        view->setModel(model);
+        view->setItemDelegate(new Mesh2DChoiceDelegate(view));
+        view->setAccessibleName(name);
+        view->setAccessibleDescription(
+            tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
+        view->setSelectionBehavior(QAbstractItemView::SelectRows);
+        view->setSelectionMode(QAbstractItemView::SingleSelection);
+        view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        view->horizontalHeader()->setStretchLastSection(true);
+    };
+    auto button = [](const QString &text, const char *name, QWidget *parent) {
+        auto *b = new QPushButton(text, parent);
+        b->setObjectName(QString::fromLatin1(name));
+        b->setAutoDefault(false);
+        return b;
+    };
+
+    m_sources = new Mesh2DGwSourceModel(this);
+    m_sources->setObjectName(QStringLiteral("gwSources"));
+    m_sourceView = new QTableView(m_sourcePage);
+    m_sourceView->setObjectName(QStringLiteral("gwSourcesTable"));
+    table(m_sourceView, m_sources, tr("Groundwater sources"));
+    layout->addWidget(m_sourceView, 1);
+    m_sourceNote = new QLabel(m_sourcePage);
+    m_sourceNote->setObjectName(QStringLiteral("gwSourceNote"));
+    m_sourceNote->setWordWrap(true);
+    m_sourceNote->hide();
+    layout->addWidget(m_sourceNote);
+
+    auto *row = new QHBoxLayout;
+    auto *add = button(tr("Add source"), "gwSourceAdd", m_sourcePage);
+    auto *remove = button(tr("Remove source"), "gwSourceRemove", m_sourcePage);
+    m_convertXyBtn = button(tr("Edit XY location as cell…"), "gwSourceConvertXy", m_sourcePage);
+    m_convertXyBtn->setEnabled(false);
+    for (auto *b : {add, remove, m_convertXyBtn})
+        row->addWidget(b);
+    row->addStretch(1);
+    layout->addLayout(row);
+
+    auto *termsBox = new QGroupBox(tr("Species terms of the selected source"), m_sourcePage);
+    auto *termsLayout = new QVBoxLayout(termsBox);
+    m_sourceTerms = new Mesh2DGwSourceTermModel(m_sources, this);
+    m_sourceTerms->setObjectName(QStringLiteral("gwSourceTerms"));
+    m_termView = new QTableView(termsBox);
+    m_termView->setObjectName(QStringLiteral("gwSourceTermsTable"));
+    table(m_termView, m_sourceTerms, tr("Species terms of the selected groundwater source"));
+    termsLayout->addWidget(m_termView);
+    auto *termRow = new QHBoxLayout;
+    auto *addTerm = button(tr("Add term"), "gwSourceTermAdd", termsBox);
+    auto *removeTerm = button(tr("Remove term"), "gwSourceTermRemove", termsBox);
+    termRow->addWidget(addTerm);
+    termRow->addWidget(removeTerm);
+    termRow->addStretch(1);
+    termsLayout->addLayout(termRow);
+    layout->addWidget(termsBox, 1);
+
+    const auto updateSelection = [this] {
+        const int r = m_sourceView->currentIndex().row();
+        m_sourceTerms->setSourceRow(r);
+        const bool xy = m_sources->isXy(r);
+        m_convertXyBtn->setEnabled(m_editable && xy);
+        const QModelIndex target = m_sources->index(r, Mesh2DGwSourceModel::ColTarget);
+        m_sourceNote->setText(
+            xy ? tr("%1 was authored by XY coordinates and sits in %2. Its scale and species "
+                    "terms can be edited as they are; editing its location saves it as a CELL "
+                    "source.")
+                     .arg(m_sources->data(m_sources->index(r, 0)).toString(),
+                          m_sources->data(target).toString())
+               : QString());
+        m_sourceNote->setVisible(xy);
+    };
+    connect(m_sourceView->selectionModel(), &QItemSelectionModel::currentRowChanged, this,
+            updateSelection);
+    connect(m_sources, &QAbstractItemModel::modelReset, this, updateSelection);
+    connect(add, &QPushButton::clicked, this, [this] {
+        const int at = m_sources->appendSource();
+        m_sourceView->selectRow(at);
+        m_sourceView->scrollTo(m_sources->index(at, 0));
+    });
+    connect(remove, &QPushButton::clicked, this, [this] {
+        const int r = m_sourceView->currentIndex().row();
+        if (r >= 0)
+            m_sources->removeRow(r);
+    });
+    connect(m_convertXyBtn, &QPushButton::clicked, this, [this, updateSelection] {
+        const int r = m_sourceView->currentIndex().row();
+        if (!m_sources->isXy(r))
+            return;
+        const QString name = m_sources->data(m_sources->index(r, 0)).toString();
+        const QString cell =
+            m_sources->data(m_sources->index(r, Mesh2DGwSourceModel::ColTarget), Qt::EditRole)
+                .toString();
+        if (QMessageBox::question(
+                this, tr("2D Groundwater"),
+                tr("%1 was placed by XY coordinates. The engine cannot report the coordinates, "
+                   "so once its location is edited it is saved as CELL %2 (the cell the engine "
+                   "placed it in), not XY. Continue?")
+                    .arg(name, cell)) != QMessageBox::Yes)
+            return;
+        m_sources->convertToCell(r);
+        updateSelection();
+    });
+    connect(addTerm, &QPushButton::clicked, this, [this] {
+        const int at = m_sourceTerms->appendTerm();
+        if (at >= 0)
+            m_termView->selectRow(at);
+    });
+    connect(removeTerm, &QPushButton::clicked, this,
+            [this] { m_sourceTerms->removeTerm(m_termView->currentIndex().row()); });
+    return m_sourcePage;
+}
+
+void Mesh2DGroundwaterDialog::setModelFile(const QString &inpPath)
+{
+    m_modelFile = inpPath;
+    if (m_engine && m_sources)
+        m_sources->load(m_engine, m_modelFile);
+}
+
 QWidget *Mesh2DGroundwaterDialog::buildTransportPage()
 {
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     auto *note = new QLabel(
         tr("These are saved groundwater transport settings. They apply only with an active mesh aquifer and the corresponding project process. "
-           "Initial values and injection/extraction sources are edited in Assign Groundwater. Porous soil heat is opt-in and requires the porous-equilibrium model, active 2D groundwater, heat transport and groundwater temperature transport. "
+           "Initial values and injection/extraction sources have their own tabs; Assign Groundwater sets them for selected cells. Porous soil heat is opt-in and requires the porous-equilibrium model, active 2D groundwater, heat transport and groundwater temperature transport. "
            "Thermal settings remain saved while those parent processes are off."),
         content);
     note->setWordWrap(true);
@@ -1319,7 +1530,8 @@ QMap<QString, QString> Mesh2DGroundwaterDialog::optionDraft() const
                                   {"FORCE_CLOSED_FORM", m_forceCfCheck->isChecked() ? "YES" : "NO"},
                                   {"DUNNE", m_dunneCheck->isChecked() ? "YES" : "NO"},
                                   {"MODE", m_modeCombo->currentText()},
-                                  {"GW_ET", m_gwEtCombo->currentData().toString()}};
+                                  {"GW_ET", m_gwEtCombo->currentData().toString()},
+                                  {"NODE_ENROLMENT", m_enrolmentCombo->currentData().toString()}};
     for (auto it = m_transportOptions.cbegin(); it != m_transportOptions.cend(); ++it) {
         QString value;
         if (auto *box = qobject_cast<QCheckBox *>(it.value()))
@@ -1387,8 +1599,23 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     const auto draft = optionDraft();
     const bool optionsChanged = draft != m_displayedOptions, aqChanged = m_aquifer->isDirty(),
                nodesChanged = m_nodes->isDirty(), edgesChanged = m_boundaries->isDirty();
-    if (!optionsChanged && !aqChanged && !nodesChanged && !edgesChanged)
+    QList<Mesh2DSectionRowModel *> rowsChanged;
+    for (auto *model : m_rowModels)
+        if (model->isDirty())
+            rowsChanged.append(model);
+    const bool sourcesChanged = m_sources->isDirty();
+    if (!optionsChanged && !aqChanged && !nodesChanged && !edgesChanged && rowsChanged.isEmpty() &&
+        !sourcesChanged)
         return true;
+    // Sources and the transport/link rows are independent of the aquifer rows, so they are
+    // checked against the live engine like the edge table.
+    const auto validateRows = [&] {
+        QString problem = sourcesChanged ? m_sources->validateCommit(m_engine) : QString();
+        for (auto *model : rowsChanged)
+            if (problem.isEmpty())
+                problem = model->validateCommit(m_engine);
+        return problem;
+    };
     QString error;
     if (draft.value("GW_TRANSPORT:UNSAT_TRANSPORT") == "LAYERED") {
         if (draft.value("CLOSURE") != "SIGMA")
@@ -1403,6 +1630,8 @@ bool Mesh2DGroundwaterDialog::applyChanges()
         error = m_nodes->validateCommit(m_engine, !optionsChanged && !aqChanged);
     if (error.isEmpty() && edgesChanged)
         error = m_boundaries->validateCommit(m_engine, !optionsChanged && !aqChanged);
+    if (error.isEmpty())
+        error = validateRows();
     if (error.isEmpty() && optionsChanged) {
         SWMM_Engine check = swmm_engine_new();
         if (!check)
@@ -1435,6 +1664,8 @@ bool Mesh2DGroundwaterDialog::applyChanges()
         error = m_nodes->validateCommit(m_engine, !optionsChanged && !aqChanged);
     if (error.isEmpty() && edgesChanged)
         error = m_boundaries->validateCommit(m_engine, !optionsChanged && !aqChanged);
+    if (error.isEmpty())
+        error = validateRows();
     if (!error.isEmpty()) {
         QMessageBox::warning(this, tr("2D Groundwater"), error);
         return false;
@@ -1446,8 +1677,23 @@ bool Mesh2DGroundwaterDialog::applyChanges()
         error = m_nodes->commit(m_engine, false);
     if (error.isEmpty() && edgesChanged)
         error = m_boundaries->commit(m_engine, false);
+    if (error.isEmpty() && sourcesChanged)
+        error = m_sources->commit(m_engine, false);
+    for (auto *model : rowsChanged)
+        if (error.isEmpty())
+            error = model->commit(m_engine, false);
     if (!error.isEmpty()) {
         QStringList failed;
+        for (auto *model : rowsChanged) {
+            auto e = model->restoreLoaded(m_engine);
+            if (!e.isEmpty())
+                failed.append(e);
+        }
+        if (sourcesChanged) {
+            auto e = m_sources->restoreLoaded(m_engine);
+            if (!e.isEmpty())
+                failed.append(e);
+        }
         if (edgesChanged) {
             auto e = m_boundaries->restoreLoaded(m_engine);
             if (!e.isEmpty())
@@ -1484,6 +1730,10 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     m_boundaries->acceptChanges();
     m_aquifer->acceptChanges();
     m_nodes->acceptChanges();
+    if (sourcesChanged)
+        m_sources->acceptChanges();
+    for (auto *model : rowsChanged)
+        model->acceptChanges();
     m_loadedOptions = readOptions();
     m_displayedOptions = draft;
     refreshState();

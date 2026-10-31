@@ -88,6 +88,44 @@ struct GroundwaterTransportSnapshot {
  */
 QVector<TransportSpecies> groundwaterTransportSpecies(SWMM_Engine engine, QString *error = nullptr);
 /**
+ * @brief Read every authored [GW_INITIAL_QUALITY] row, including rows a FILE reference loaded
+ * (those carry layer -2).
+ * @param[in] engine Borrowed engine.
+ * @param[out] rows Non-null destination, replaced only after a complete successful read.
+ * @param[out] error Optional failure description, cleared at entry.
+ * @return True on a complete read.
+ */
+bool readGroundwaterQualityRows(SWMM_Engine engine, QVector<GroundwaterQualityRow> *rows,
+                                QString *error = nullptr);
+/**
+ * @brief Upsert one [GW_INITIAL_QUALITY] row by its scope, zone/layer and species key.
+ * @param[in] engine Borrowed editable engine.
+ * @param[in] row Row in species-native units; tag is passed only as given.
+ * @return True when the engine setter succeeds.
+ */
+bool writeGroundwaterQualityRow(SWMM_Engine engine, const GroundwaterQualityRow &row);
+/**
+ * @brief Read every authored [GW_SOURCES] row with its scale and species terms.
+ * @param[in] engine Borrowed engine.
+ * @param[out] rows Non-null destination, replaced only after a complete successful read.
+ * @param[out] error Optional failure description, cleared at entry.
+ * @return True on a complete read. An XY-authored source reads back as its resolved CELL.
+ */
+bool readGroundwaterSources(SWMM_Engine engine, QVector<GroundwaterSourceRow> *rows,
+                            QString *error = nullptr);
+/**
+ * @brief Write one named source, then its scale at @p index and each species term.
+ * @param[in] engine Borrowed editable engine.
+ * @param[in] index Zero-based row index the source occupies after the upsert (the current count
+ * for a new source).
+ * @param[in] row Source in m³/s with species-native terms.
+ * @param[in] allowed Optional callback asked before each write; false stops without writing.
+ * @param[in,out] writes Optional counter incremented after each successful write.
+ * @return True when every write succeeded; false can leave a partially written source.
+ */
+bool writeGroundwaterSource(SWMM_Engine engine, int index, const GroundwaterSourceRow &row,
+                            const std::function<bool()> &allowed = {}, int *writes = nullptr);
+/**
  * @brief Capture inputs needed for transport validation and stale-preview detection.
  * @param[in] engine Borrowed engine whose aquifers, active cells, quality, sources, species and time series are read.
  * @param[out] snapshot Non-null destination, replaced only after a complete successful read.

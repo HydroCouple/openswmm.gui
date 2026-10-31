@@ -27,6 +27,8 @@
 
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
+#include "ui/dialogs/mesh2dgwsourcemodel.h"
+#include "ui/dialogs/mesh2dsectionrowmodel.h"
 #include "ui/hydrothermalstate.h"
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_gw2d.h>
@@ -1167,6 +1169,63 @@ LID Stack .2
         for (QComboBox *c : combos)
             QVERIFY2(!c->isEnabled(),
                      qPrintable(QStringLiteral("combo '%1' is editable").arg(c->objectName())));
+    }
+
+    /**
+     * @brief Phase 3a: the source, transport-row and conduit-link tabs and NODE_ENROLMENT apply
+     * through the dialog's one Apply, and the thermal-only view hides the new tabs.
+     * @note Building engine without a mesh; warnings are dismissed so a refusal fails rather
+     * than blocks.
+     */
+    void transportRowTabsAndNodeEnrolmentApply()
+    {
+        Engine engine;
+        QVERIFY(engine.handle);
+        Mesh2DGroundwaterDialog dialog(engine.handle);
+        auto *tabs = dialog.findChild<QTabWidget *>();
+        QVERIFY(tabs);
+        QStringList titles;
+        for (int i = 0; i < tabs->count(); ++i)
+            titles << tabs->tabText(i);
+        for (const char *title :
+             {"Sources", "Transport parameters", "Sorption", "Initial quality", "Conduit links"})
+            QVERIFY2(titles.contains(QString::fromLatin1(title)), title);
+        dialog.setThermalOptionsOnly(true);
+        for (int i = 0; i < tabs->count(); ++i)
+            QCOMPARE(tabs->isTabVisible(i), i == 0 || i == 4);
+        dialog.setThermalOptionsOnly(false);
+
+        auto *enrolment = dialog.findChild<QComboBox *>(QStringLiteral("gwNodeEnrolment"));
+        QVERIFY(enrolment);
+        QCOMPARE(enrolment->currentData().toString(), QStringLiteral("AUTO"));
+        enrolment->setCurrentIndex(enrolment->findData(QStringLiteral("ROWS")));
+        auto *params = dialog.findChild<openswmmvis::ui::Mesh2DSectionRowModel *>(
+            QStringLiteral("gwTransportParams"));
+        QVERIFY(params);
+        params->appendRow();
+        auto *sources = dialog.findChild<openswmmvis::ui::Mesh2DGwSourceModel *>(
+            QStringLiteral("gwSources"));
+        QVERIFY(sources);
+        sources->appendSource();
+
+        QTimer dismiss;
+        connect(&dismiss, &QTimer::timeout, [] {
+            for (auto *w : QApplication::topLevelWidgets())
+                if (auto *m = qobject_cast<QMessageBox *>(w))
+                    m->reject();
+        });
+        dismiss.start(20);
+        QSignalSpy applied(&dialog, &Mesh2DGroundwaterDialog::applied);
+        dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(applied.count(), 1);
+        char value[32]{};
+        QCOMPARE(swmm_gw2d_option_get(engine.handle, "NODE_ENROLMENT", value, sizeof value),
+                 SWMM_OK);
+        QCOMPARE(QString::fromUtf8(value), QStringLiteral("ROWS"));
+        QCOMPARE(swmm_gw_params_count(engine.handle), 1);
+        QCOMPARE(swmm_gw_source_count(engine.handle), 1);
+        QVERIFY(!params->isDirty());
+        QVERIFY(!sources->isDirty());
     }
 
     /*! Each toolbar entry opens the dialog on its own page. Asserted by tab

@@ -871,6 +871,10 @@ set(
         include/ui/models/snowclimatesettings.h
         include/simulation/snowledger.h
         include/ui/dialogs/mesh2dgroundwaterdialog.h
+        include/ui/dialogs/mesh2dgwsourcemodel.h
+        include/ui/dialogs/mesh2dsectionroweditor.h
+        include/ui/dialogs/mesh2dsectionrowmodel.h
+        include/ui/dialogs/mesh2dsurfacequalitydialog.h
         include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/infilassigntoselectiondialog.h
@@ -1602,6 +1606,10 @@ set(
         src/ui/dialogs/meshsnowdialog.cpp
         src/ui/models/meshsnowmodel.cpp
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
+        src/ui/dialogs/mesh2dgwsourcemodel.cpp
+        src/ui/dialogs/mesh2dsectionroweditor.cpp
+        src/ui/dialogs/mesh2dsectionrowmodel.cpp
+        src/ui/dialogs/mesh2dsurfacequalitydialog.cpp
         src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/infilassigntoselectiondialog.cpp

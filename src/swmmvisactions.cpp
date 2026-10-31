@@ -241,6 +241,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionMeshAssignFromVector", QT_TR_NOOP("From\nShapefile")},
         {"actionMesh2DGWParams", QT_TR_NOOP("Aquifer\nParameters")},
         {"actionMesh2DGWInitCond", QT_TR_NOOP("Initial\nConditions")},
+        {"actionMesh2DSurfaceQuality", QT_TR_NOOP("Surface\nQuality")},
         // Analysis
         {"actionSummarizeResults", QT_TR_NOOP("Summarize")},
         {"actionTabularView", QT_TR_NOOP("Tabular\nView")},
@@ -379,6 +380,7 @@ void SWMMVis::initializeCompactToolbar()
              {"actionMeshAssignFromRaster", "actionMeshAssignFromVector"});
     addGroup(mToolBarMesh2D, tr("Groundwater (2D)"),
              {"actionMesh2DGWParams", "actionMesh2DGWInitCond"});
+    addGroup(mToolBarMesh2D, tr("Surface Quality (2D)"), {"actionMesh2DSurfaceQuality"});
 
     mToolBarView = new QToolBar(tr("View"), this);
     mToolBarView->setObjectName(QStringLiteral("toolBarView"));

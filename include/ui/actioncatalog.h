@@ -297,6 +297,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model/Mesh", Contextual2D},
     {"mesh.gw2dInitCond", "actionMesh2DGWInitCond", "Mesh 2D", "", "GW2DInit", "mesh2d",
      "Model/Mesh", Contextual2D},
+    {"mesh.surfaceQuality2d", "actionMesh2DSurfaceQuality", "Mesh 2D", "", "LandUse", "mesh2d",
+     "Model/Mesh", Contextual2D},
     {"terrain.profile", "actionTerrainProfile", "Model", "", "Profile", "model", "Model", NoTags},
 
     // ── View / panels (dock toggle actions; objectNames assigned where

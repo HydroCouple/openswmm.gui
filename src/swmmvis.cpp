@@ -270,6 +270,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/dialogs/mesh2dsurfacequalitydialog.h"
 #include "ui/dialogs/meshsnowdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
@@ -1745,6 +1746,8 @@ void SWMMVis::initializeMeshEditingToolBar()
                 });
         if (pw) {
             if (pw->modelLayer()) {
+                // Lets the Sources tab mark sources authored by XY in the input file.
+                dlg.setModelFile(pw->modelLayer()->modelFilePath());
                 QPointer<SWMMModelLayer> owner = pw->modelLayer();
                 QList<QPair<QPointer<SWMM2DMeshLayer>, quint64>> geometry;
                 for (auto *layer : pw->canvas()->layers())
@@ -1794,6 +1797,29 @@ void SWMMVis::initializeMeshEditingToolBar()
                              "resolved closures and the LTS tier histogram."));
     connect(actGWInit, &QAction::triggered, this, [openGwDialog]() {
         openGwDialog(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::State);
+    });
+
+    // ── Surface Quality (2D) ─────────────────────────────────────────────
+    // S7 GUI half (2026-10-30): [2D_COVERAGES], [2D_LOADINGS], [2D_CURB_LENGTH]
+    // and [2D_INITIAL_QUALITY] rows on the mesh surface.
+    auto *actSurfaceQuality = new QAction(tr("Surface Quality…"), this);
+    actSurfaceQuality->setObjectName(QStringLiteral("actionMesh2DSurfaceQuality"));
+    actSurfaceQuality->setToolTip(tr("Mesh surface quality: land-use coverages, initial buildup, "
+                                     "curb length and initial concentrations."));
+    connect(actSurfaceQuality, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
+        openswmmvis::ui::Mesh2DSurfaceQualityDialog dlg(engine, this,
+                                                        pw ? pw->unitSystem() : nullptr);
+        if (pw && pw->modelLayer()) {
+            connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
+                    &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
+            connect(pw->modelLayer(), &QObject::destroyed, &dlg,
+                    &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
+            connect(&dlg, &openswmmvis::ui::Mesh2DSurfaceQualityDialog::changesMayHaveBeenApplied,
+                    pw, [pw] { pw->setHasChanges(true); });
+        }
+        dlg.exec();
     });
 }
 
