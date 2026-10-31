@@ -16,6 +16,7 @@
 #include "io/lidstates.h"
 #include "layers/gisrasterlayer.h" // RasterColorRamp
 #include "layers/swmmmodellayer.h"
+#include "results/runspeciescatalog.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -852,6 +853,17 @@ public:
      * @return Owned nonempty UTF-8 pollutant/reserved-species IDs in current reader order, empty when closed/no quality. Null/empty IDs are skipped rather than preserving a slot placeholder. Serialized reader access required; no cache retained.
      */
     [[nodiscard]] QStringList speciesNames() const;
+
+    /*! \brief V0 — the run's species catalog: the `.out` species (names, unit
+     *         codes, columns), the model's `[REACTIONS]` declarations (kind)
+     *         and, when given, the 2D results' species slices.
+     *  \param meshVariables The companion 2D run's catalog
+     *         (`SWMM2DResultsLayer::resultVariables`); empty for 1D only.
+     * @return Owned catalog read live from the reader (no cache, like
+     *   speciesNames()); empty without an open handle. Serialized reader access.
+     */
+    [[nodiscard]] openswmmvis::results::RunSpeciesCatalog
+    speciesCatalog(const QVector<openswmmvis::io::Mesh2DResultVariable> &meshVariables = {}) const;
 
     // ----- Legend ---------------------------------------------------------
 

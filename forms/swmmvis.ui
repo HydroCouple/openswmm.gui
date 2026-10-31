@@ -701,6 +701,7 @@
     <addaction name="actionSummarizeResults"/>
     <addaction name="actionReport"/>
     <addaction name="actionTabularView"/>
+    <addaction name="actionTabularResults"/>
     <addaction name="separator"/>
     <addaction name="actionPlotTimeSeries"/>
     <addaction name="actionPlotProfile"/>
@@ -1670,6 +1671,21 @@
    </property>
    <property name="toolTip">
     <string>Wind Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionTabularResults">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/TableView</normaloff>:/swmmvis/TableView</iconset>
+   </property>
+   <property name="text">
+    <string>Tabular &amp;Results…</string>
+   </property>
+   <property name="toolTip">
+    <string>Results as tables: by object or by variable, species, pollutant loads, 2D cells and regions</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

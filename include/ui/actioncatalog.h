@@ -257,6 +257,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"analysis.report", "actionReport", "Analysis", "", "Report", "analysis", "Analysis", NoTags},
     {"analysis.tabularView", "actionTabularView", "Analysis", "Ctrl+Shift+A", "TableView",
      "analysis", "Analysis", NoTags},
+    {"analysis.tabularResults", "actionTabularResults", "Analysis", "", "TableView", "analysis",
+     "Analysis", NoTags},
     {"analysis.plotTimeSeries", "actionPlotTimeSeries", "Analysis", "Ctrl+T", "Chart", "analysis",
      "Analysis", NoTags},
     {"analysis.plotProfile", "actionPlotProfile", "Analysis", "Ctrl+Shift+T", "Profile", "analysis",

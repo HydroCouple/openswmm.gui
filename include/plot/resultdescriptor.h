@@ -53,10 +53,16 @@ struct ResultDescriptor {
 
     /*! 2D face variable key (`Mesh2DResultVariable::key()`) when this
      *  descriptor is a 2D catalog variable; empty otherwise. The key is the
-     *  identity; label and units are display metadata. */
+     *  identity; label and units are display metadata. A SPECIES descriptor
+     *  served by a run (V0, `SwmmOutRunLayer`) may also carry the catalog's
+     *  label (kind badge) and units here; they never enter its identity. */
     QString variableKey;
     QString variableLabel;
     QString variableUnits;
+    /*! Display-only description shown as a tooltip where the descriptor is
+     *  offered (e.g. how an R4 pollutant load is computed and how it differs
+     *  from the engine's .rpt totals). Never part of the identity. */
+    QString variableNote;
 
     /** Native observation identity, including quantity/statistic/unit/time basis. */
     QString observationKey;

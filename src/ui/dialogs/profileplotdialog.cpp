@@ -926,15 +926,19 @@ void ProfilePlotDialog::buildLayout()
     // overlay ComparisonPlotDialog will plot against — read live at menu
     // time so a run swap between right-clicks stays honest.
     /**
-     * @brief Read species names from the project currently active 1D results. Takes no arguments.
-     * Returns: owned name list or empty without active results; not a cached source-union list.
+     * @brief Build a plot picker for the project's currently active 1D results. V0: species
+     * from the run's catalog (kind badge, units, 2D-only marked); R4: node/link loads.
+     * Argument `kind`: node or link. Argument `units`: label unit system. Argument `parent`:
+     * menu owner. Returns: the new menu (createForObjectKind contract).
      */
-    auto speciesForMenu = [this]() -> QStringList {
-        if (!m_projectWindow)
-            return {};
-        if (auto *rl = m_projectWindow->activeResultsLayer())
-            return rl->speciesNames();
-        return {};
+    auto speciesForMenu = [this](openswmmvis::plot::ObjectRef::Kind kind,
+                                 openswmmvis::plot::UnitSystem units, QWidget *parent) -> QMenu * {
+        SWMMResultsLayer *rl = m_projectWindow ? m_projectWindow->activeResultsLayer() : nullptr;
+        return openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+            kind, units, parent,
+            openswmmvis::ui::AttributePickerMenu::runCatalog(
+                rl, rl ? m_projectWindow->active2DResultsLayer() : nullptr),
+            rl ? rl->flowUnits() : -1);
     };
 
     // Right-click "Plot Time Series…" mirrors the map view: instead of a
@@ -949,9 +953,8 @@ void ProfilePlotDialog::buildLayout()
                     return;
                 QMenu menu(this);
                 QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
-                QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    openswmmvis::plot::ObjectRef::Kind::Node, resolvePlotUnitSystem(), &menu,
-                    speciesForMenu());
+                QMenu *plotSubmenu = speciesForMenu(openswmmvis::plot::ObjectRef::Kind::Node,
+                                                    resolvePlotUnitSystem(), &menu);
                 if (plotSubmenu) {
                     plotSubmenu->setTitle(tr("Plot Time Series…"));
                     plotSubmenu->setIcon(
@@ -985,9 +988,8 @@ void ProfilePlotDialog::buildLayout()
                     return;
                 QMenu menu(this);
                 QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
-                QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    openswmmvis::plot::ObjectRef::Kind::Link, resolvePlotUnitSystem(), &menu,
-                    speciesForMenu());
+                QMenu *plotSubmenu = speciesForMenu(openswmmvis::plot::ObjectRef::Kind::Link,
+                                                    resolvePlotUnitSystem(), &menu);
                 if (plotSubmenu) {
                     plotSubmenu->setTitle(tr("Plot Time Series…"));
                     plotSubmenu->setIcon(
@@ -2470,11 +2472,22 @@ void ProfilePlotDialog::rebuildTracks()
         if (!known)
             continue;
         const auto d = P::ResultDescriptor::forSpecies(st.first);
+        // V0: the units the run states for this species (ug/L, count/L, …).
+        QString speciesUnits = d.unitLabel(us);
+        for (const TrackJob &j : jobs) {
+            if (!j.layer)
+                continue;
+            const auto catalog = j.layer->speciesCatalog();
+            if (const auto *entry = catalog.find(st.first); entry && entry->unitsKnown) {
+                speciesUnits = entry->units;
+                break;
+            }
+        }
         TrackSpec spec;
         spec.species = st.first;
         spec.isNode = st.second;
         spec.title = tr("%1 (%2) — %3")
-                         .arg(d.label(), d.unitLabel(us), st.second ? tr("nodes") : tr("links"));
+                         .arg(d.label(), speciesUnits, st.second ? tr("nodes") : tr("links"));
         spec.pen = m_trackOptions->speciesTrackPenFor(st.first, st.second);
         spec.cacheKey = st.first + (st.second ? QLatin1String("@node") : QLatin1String("@link"));
         specs.push_back(spec);

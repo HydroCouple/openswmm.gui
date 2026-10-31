@@ -11,6 +11,7 @@
 
 #include "plot/swmmoutrunlayer.h"
 
+#include "plot/pollutantload.h"
 #include "plot/resultdescriptor.h"
 
 #include "layers/swmmresultslayer.h"
@@ -222,6 +223,14 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef &ref, int varCode, Seri
 void SwmmOutRunLayer::getSeriesAt(const ObjectRef &ref, const ResultDescriptor &descriptor,
                                   SeriesData &out) const
 {
+    // R4: pollutant load (flow x concentration) and its time integral.
+    QString loadSpecies;
+    bool cumulative = false;
+    if (descriptor.isMeshVariable() &&
+        pollutantload::parseKey(descriptor.variableKey, &loadSpecies, &cumulative)) {
+        loadSeries_(ref, loadSpecies, cumulative, out);
+        return;
+    }
     // Fixed attributes take the enum path unchanged.
     if (!descriptor.isSpecies()) {
         getSeriesAt(ref, descriptor.attr, out);
@@ -255,16 +264,92 @@ QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(ObjectRef::K
 {
     // Y2b-1 (amendment D-Y4): the fixed set plus THIS run's species by
     // name. A destroyed or quality-free layer degrades to the fixed set —
-    // exactly what a legacy .out should serve.
-    QStringList species;
-    if (m_layer)
-        species = m_layer->speciesNames();
-    auto result = plot::resultDescriptorsForKind(kind, species);
-    result.erase(
-        std::remove_if(result.begin(), result.end(),
+    // exactly what a legacy .out should serve. V0: the species come from the
+    // run's catalog (its .out columns, in column order).
+    const results::RunSpeciesCatalog catalog =
+        m_layer ? m_layer->speciesCatalog() : results::RunSpeciesCatalog{};
+    auto fixed = plot::resultDescriptorsForKind(kind, catalog.reportedNames());
+    fixed.erase(
+        std::remove_if(fixed.begin(), fixed.end(),
                        [&](const auto &d) { return !d.isSpecies() && !supportsAttribute(d.attr); }),
-        result.end());
+        fixed.end());
+    // R4: each pollutant's load and cumulative load ride beside its
+    // concentration on nodes and links.
+    const bool loads = kind == ObjectRef::Kind::Node || kind == ObjectRef::Kind::Link;
+    const int flowCode = m_layer ? m_layer->flowUnits() : -1;
+    QVector<ResultDescriptor> result;
+    for (ResultDescriptor d : std::as_const(fixed)) {
+        const results::RunSpecies *s = d.isSpecies() ? catalog.find(d.species) : nullptr;
+        if (s) { // V0: kind badge and the run's units on the label
+            d.variableLabel = QStringLiteral("%1 [%2]").arg(s->displayLabel(), s->kindBadge());
+            d.variableUnits = s->units;
+        }
+        result.append(d);
+        if (!loads || !s || !s->carriesLoad())
+            continue;
+        const auto units = pollutantload::loadUnits(flowCode, s->concentrationCode);
+        if (!units.valid)
+            continue;
+        const bool link = kind == ObjectRef::Kind::Link;
+        result.append(pollutantload::rateDescriptor(s->name, units, link));
+        result.append(pollutantload::cumulativeDescriptor(s->name, units, link));
+    }
     return result;
+}
+
+void SwmmOutRunLayer::loadSeries_(const ObjectRef &ref, const QString &species, bool cumulative,
+                                  SeriesData &out) const
+{
+    out.ok = false;
+    out.errorMessage.clear();
+    out.timesJulian.clear();
+    out.values.clear();
+    if (!m_layer || !m_layer->outputHandle()) {
+        out.errorMessage = QStringLiteral("Result layer not available");
+        return;
+    }
+    if (ref.kind != ObjectRef::Kind::Node && ref.kind != ObjectRef::Kind::Link) {
+        out.errorMessage = QStringLiteral("Pollutant loads are node and link series");
+        return;
+    }
+    // Only the .out columns and unit codes matter here: no engine access.
+    const auto catalog = results::RunSpeciesCatalog::fromOutput(m_layer->outputHandle());
+    const results::RunSpecies *s = catalog.find(species);
+    if (!s || !s->carriesLoad()) {
+        out.errorMessage = QStringLiteral("Run carries no load for '%1' (not a pollutant in "
+                                          "this .out)")
+                               .arg(species);
+        return;
+    }
+    const auto units = pollutantload::loadUnits(m_layer->flowUnits(), s->concentrationCode);
+    if (!units.valid) {
+        out.errorMessage = QStringLiteral("Unknown flow or concentration units for '%1'")
+                               .arg(species);
+        return;
+    }
+    // Both inputs over the whole run: the cumulative needs every interval
+    // from the start, then the requested tail is returned.
+    SeriesData flow, conc;
+    fetchSeriesByCode_(ref,
+                       ref.kind == ObjectRef::Kind::Node ? int(SWMM_OUT_NODE_TOTAL_INFLOW)
+                                                         : int(SWMM_OUT_LINK_FLOW),
+                       flow);
+    fetchSeriesByCode_(ref,
+                       speciesVariableCodeFor(species, catalog.reportedNames(), ref.kind), conc);
+    if (!flow.ok || !conc.ok) {
+        out.errorMessage = !flow.ok ? flow.errorMessage : conc.errorMessage;
+        return;
+    }
+    const std::vector<double> values =
+        cumulative ? pollutantload::cumulative(flow.timesJulian, flow.values, conc.values,
+                                               startDateJulian(), reportStepSeconds(), units)
+                   : pollutantload::rate(flow.values, conc.values, units);
+    out.periodCount = flow.periodCount;
+    const std::size_t n = std::min(values.size(), flow.timesJulian.size());
+    const std::size_t from = std::size_t(std::clamp(out.firstPeriod, 0, int(n)));
+    out.timesJulian.assign(flow.timesJulian.begin() + from, flow.timesJulian.begin() + n);
+    out.values.assign(values.begin() + from, values.begin() + n);
+    out.ok = true;
 }
 
 } // namespace openswmmvis::plot

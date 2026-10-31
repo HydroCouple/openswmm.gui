@@ -49,6 +49,10 @@ public:
         openswmmvis::plot::ObjectRef ref;
         openswmmvis::plot::PlotAttribute attribute = openswmmvis::plot::PlotAttribute::Unknown;
         QString species;
+        /// Keyed result (R4 pollutant load): key plus display label/units.
+        QString variableKey;
+        QString variableLabel;
+        QString variableUnits;
 
         /**
          * @return Value descriptor for nonempty species name, otherwise fixed attribute (possibly
@@ -57,6 +61,9 @@ public:
          */
         openswmmvis::plot::ResultDescriptor descriptor() const
         {
+            if (!variableKey.isEmpty())
+                return openswmmvis::plot::ResultDescriptor::forMeshVariable(
+                    variableKey, variableLabel, variableUnits);
             return species.isEmpty() ? openswmmvis::plot::ResultDescriptor::forAttribute(attribute)
                                      : openswmmvis::plot::ResultDescriptor::forSpecies(species);
         }

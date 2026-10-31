@@ -18,8 +18,10 @@ QString ResultDescriptor::label() const
 {
     if (isObservation())
         return observationLabel.isEmpty() ? observationKey : observationLabel;
+    // V0: a run's catalog may attach its picker label (kind badge) and units.
     if (isSpecies())
-        return OpenSWMMVis::Species::speciesDisplayLabel(species);
+        return variableLabel.isEmpty() ? OpenSWMMVis::Species::speciesDisplayLabel(species)
+                                       : variableLabel;
     if (isMeshVariable())
         return variableLabel.isEmpty() ? variableKey : variableLabel;
     return labelFor(attr);
@@ -30,7 +32,9 @@ QString ResultDescriptor::unitLabel(UnitSystem u, const QString &concentrationUn
     if (isObservation())
         return observationUnits;
     if (isSpecies())
-        return OpenSWMMVis::Species::speciesUnitLabel(species, concentrationUnit);
+        return variableUnits.isEmpty()
+                   ? OpenSWMMVis::Species::speciesUnitLabel(species, concentrationUnit)
+                   : variableUnits;
     if (isMeshVariable())
         return variableUnits;
     return unitsFor(attr, u);

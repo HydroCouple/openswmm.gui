@@ -1099,4 +1099,104 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
         out.errorMessage = QStringLiteral("No valid samples for cell %1").arg(triIdx);
 }
 
+namespace
+{
+/*! The catalog entry behind a mesh-variable descriptor; dataset empty when
+ *  the source does not carry it. */
+io::Mesh2DResultVariable catalogVariable(const IMesh2DSource &src, const ResultDescriptor &d)
+{
+    if (d.isMeshVariable())
+        for (const auto &v : src.faceVariables())
+            if (v.key() == d.variableKey)
+                return v;
+    return {};
+}
+} // namespace
+
+bool Mesh2DRunLayer::massAvailable(const ResultDescriptor &descriptor) const
+{
+    const auto *src = m_layer ? m_layer->source() : nullptr;
+    return src && results::massAvailableFor(catalogVariable(*src, descriptor));
+}
+
+QString Mesh2DRunLayer::regionUnits(const ResultDescriptor &descriptor,
+                                    results::MeshAggregate aggregate) const
+{
+    if (aggregate == results::MeshAggregate::Mass && !massAvailable(descriptor))
+        return {};
+    return results::aggregateUnits(aggregate, descriptor.unitLabel(UnitSystem::SI));
+}
+
+void Mesh2DRunLayer::getRegionSeries(const QVector<results::MeshRegion> &regions,
+                                     const ResultDescriptor &descriptor,
+                                     results::MeshAggregate aggregate,
+                                     QVector<SeriesData> &out) const
+{
+    out = QVector<SeriesData>(regions.size());
+    auto *src = m_layer ? m_layer->source() : nullptr;
+    const int nT = src ? src->timeCount() : 0;
+    const auto fail = [&](const QString &why) {
+        for (SeriesData &d : out)
+            d.errorMessage = why;
+    };
+    if (!src || nT <= 0) {
+        fail(QStringLiteral("No time steps available yet"));
+        return;
+    }
+    const bool depthField = !descriptor.isMeshVariable() &&
+                            descriptor.attr == PlotAttribute::Mesh2DDepth;
+    const io::Mesh2DResultVariable variable = catalogVariable(*src, descriptor);
+    if (!depthField && variable.dataset.isEmpty()) {
+        fail(descriptor.isMeshVariable()
+                 ? QStringLiteral("'%1' is not in this run's 2D results").arg(descriptor.label())
+                 : QStringLiteral("Region aggregates cover the cell depth and the 2D result "
+                                  "variables"));
+        return;
+    }
+    const bool mass = aggregate == results::MeshAggregate::Mass;
+    double massFactor = 0.0;
+    if (mass && (depthField || !results::massAvailableFor(variable) ||
+                 !results::massFactorForUnits(variable.units, &massFactor, nullptr))) {
+        fail(QStringLiteral("Mass is concentration x water volume: it needs a surface species "
+                            "concentration in mass-per-volume units"));
+        return;
+    }
+    ensureZBedCache_(); // cell areas (m2)
+    std::vector<int> partial(std::size_t(regions.size()), 0); // frames with Missing cells
+    std::vector<float> values, depth;
+    std::vector<io::Mesh2DValueStatus> status;
+    for (int t = 0; t < nT; ++t) {
+        const QDateTime time = src->simTimeAt(t);
+        if (!time.isValid())
+            continue;
+        const double julian = core::qDateTimeToSwmmDateTime(time);
+        bool ok = depthField ? src->readDepthsAt(t, values)
+                             : src->readFaceVariableAt(variable, t, values, status);
+        if (ok && mass)
+            ok = src->readDepthsAt(t, depth);
+        if (!ok)
+            continue; // an unreadable frame has no sample (never a zero)
+        for (int r = 0; r < regions.size(); ++r) {
+            int missing = 0;
+            out[r].timesJulian.push_back(julian);
+            out[r].values.push_back(results::aggregateFrame(
+                values, depthField ? nullptr : &status, m_cellArea, mass ? &depth : nullptr,
+                regions[r].cells, aggregate, massFactor, nullptr, &missing));
+            if (missing > 0)
+                ++partial[std::size_t(r)];
+        }
+    }
+    for (int r = 0; r < out.size(); ++r) {
+        SeriesData &d = out[r];
+        d.periodCount = nT;
+        d.ok = !d.timesJulian.empty();
+        if (!d.ok)
+            d.errorMessage = QStringLiteral("No readable 2D frames");
+        else if (partial[std::size_t(r)] > 0)
+            d.displayNote = QStringLiteral("%1 of %2 frames aggregate without Missing cells")
+                                .arg(partial[std::size_t(r)])
+                                .arg(d.timesJulian.size());
+    }
+}
+
 } // namespace openswmmvis::plot

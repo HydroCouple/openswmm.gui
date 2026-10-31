@@ -406,6 +406,11 @@ set(
         include/plot/mesh2drunlayer.h
         include/plot/gwnetworkexchangesource.h
         include/results/gwledgermodel.h
+        include/results/runspeciescatalog.h
+        include/results/meshregionaggregate.h
+        include/results/resulttable.h
+        include/plot/pollutantload.h
+        include/plot/seriesintegration.h
         include/plot/observedcsvrunlayer.h
 
         # ── Layers ───────────────────────────────────────────────────────────
@@ -1208,6 +1213,10 @@ set(
         src/plot/mesh2drunlayer.cpp
         src/plot/gwnetworkexchangesource.cpp
         src/results/gwledgermodel.cpp
+        src/results/runspeciescatalog.cpp
+        src/results/meshregionaggregate.cpp
+        src/results/resulttable.cpp
+        src/plot/pollutantload.cpp
         src/plot/observedcsvrunlayer.cpp
 
         # Layers

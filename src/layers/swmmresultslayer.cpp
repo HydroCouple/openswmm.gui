@@ -3114,15 +3114,19 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     case L::CatWeirs:
     case L::CatOutlets:
     case L::CatSubcatchments: {
-        const QStringList species = speciesNames();
-        for (const QString &s : species) {
+        // V0: the run's species catalog supplies the kind and the units the
+        // .out states (ug/L, count/L, hours, deg C), not an assumed mg/L.
+        const auto catalog = speciesCatalog();
+        for (const auto &s : catalog.entries()) {
+            if (!s.in1D())
+                continue;
             using namespace OpenSWMMVis::Species;
             AttributeField f;
-            f.name = speciesAttributeName(s);
-            f.displayName = speciesDisplayLabel(s);
+            f.name = speciesAttributeName(s.name);
+            f.displayName = QStringLiteral("%1 [%2]").arg(s.displayLabel(), s.kindBadge());
             f.type = QMetaType::Double;
             f.isDynamic = true;
-            f.unit = speciesUnitLabel(s, QStringLiteral("mg/L"));
+            f.unit = s.units;
             out.append(f);
         }
         break;
@@ -3151,6 +3155,16 @@ QStringList SWMMResultsLayer::speciesNames() const
             out.append(QString::fromUtf8(id));
     }
     return out;
+}
+
+openswmmvis::results::RunSpeciesCatalog SWMMResultsLayer::speciesCatalog(
+    const QVector<openswmmvis::io::Mesh2DResultVariable> &meshVariables) const
+{
+    using openswmmvis::results::RunSpeciesCatalog;
+    return RunSpeciesCatalog::fromOutput(
+        m_handle, meshVariables,
+        RunSpeciesCatalog::declaredFromEngine(m_modelLayer ? m_modelLayer->engine() : nullptr),
+        !meshVariables.isEmpty());
 }
 
 namespace
