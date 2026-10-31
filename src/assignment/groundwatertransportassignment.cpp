@@ -188,18 +188,6 @@ QString sourceError(const GroundwaterTransportSnapshot &s, const GroundwaterSour
     return {};
 }
 /**
- * @brief Set an initial-quality record using its identity key.
- * @param[in] e Borrowed editable engine.
- * @param[in] row Complete authored row with value in species-native concentration units.
- * @return True when the engine setter succeeds; false on refusal.
- */
-bool writeQuality(SWMM_Engine e, const GroundwaterQualityRow &row)
-{
-    return swmm_gw_init_quality_set(e, row.scope, row.tag.toUtf8().constData(), row.cell, row.zone,
-                                    row.layer, row.species.toUtf8().constData(),
-                                    row.value) == SWMM_OK;
-}
-/**
  * @brief Transform managed quality values or an appended source suffix without rebuilding original rows.
  * @param[in] e Borrowed editable engine.
  * @param[in] from Expected current snapshot, checked by the caller before mutation.
@@ -223,7 +211,7 @@ bool transition(SWMM_Engine e, const GroundwaterTransportSnapshot &from,
         }
         for (int i = 0; i < to.quality.size(); ++i)
             if (i >= from.quality.size() || from.quality[i] != to.quality[i]) {
-                if (!allowed() || !writeQuality(e, to.quality[i]))
+                if (!allowed() || !writeGroundwaterQualityRow(e, to.quality[i]))
                     return false;
                 ++writes;
             }
@@ -233,25 +221,9 @@ bool transition(SWMM_Engine e, const GroundwaterTransportSnapshot &from,
                 return false;
             ++writes;
         }
-        for (int i = from.sources.size(); i < to.sources.size(); ++i) {
-            const auto &row = to.sources[i];
-            if (!allowed() || swmm_gw_source_set(e, row.name.toUtf8().constData(), row.scope,
-                                                 row.tag.toUtf8().constData(), row.cell, row.flow,
-                                                 row.series.toUtf8().constData()) != SWMM_OK)
+        for (int i = from.sources.size(); i < to.sources.size(); ++i)
+            if (!writeGroundwaterSource(e, i, to.sources[i], allowed, &writes))
                 return false;
-            ++writes;
-            if (!allowed() || swmm_gw_source_scale_set(e, i, row.scale) != SWMM_OK)
-                return false;
-            ++writes;
-            for (const auto &term : row.terms) {
-                if (!allowed() ||
-                    swmm_gw_source_species_set(e, i, term.species.toUtf8().constData(),
-                                               term.kind.toUtf8().constData(), term.value,
-                                               term.series.toUtf8().constData()) != SWMM_OK)
-                    return false;
-                ++writes;
-            }
-        }
     }
     return true;
 }
@@ -401,6 +373,101 @@ QVector<TransportSpecies> groundwaterTransportSpecies(SWMM_Engine e, QString *er
         result.append({"__TEMPERATURE__", "degC", {}, false, true});
     return result;
 }
+bool readGroundwaterQualityRows(SWMM_Engine e, QVector<GroundwaterQualityRow> *out,
+                                QString *error)
+{
+    if (error)
+        error->clear();
+    if (!e || !out)
+        return fail(error, "No groundwater model is available.");
+    const int qualities = swmm_gw_init_quality_count(e);
+    if (qualities < 0)
+        return fail(error, "Cannot read initial-quality rows.");
+    QVector<GroundwaterQualityRow> rows;
+    for (int i = 0; i < qualities; ++i) {
+        GroundwaterQualityRow row;
+        char tag[4096]{}, name[4096]{};
+        if (swmm_gw_init_quality_get(e, i, &row.scope, tag, sizeof tag, &row.cell, &row.zone,
+                                     &row.layer, name, sizeof name, &row.value) != SWMM_OK)
+            return fail(error, "Cannot read initial-quality row.");
+        row.tag = QString::fromUtf8(tag);
+        row.species = QString::fromUtf8(name);
+        rows.append(row);
+    }
+    *out = std::move(rows);
+    return true;
+}
+bool writeGroundwaterQualityRow(SWMM_Engine e, const GroundwaterQualityRow &row)
+{
+    return swmm_gw_init_quality_set(e, row.scope, row.tag.toUtf8().constData(), row.cell, row.zone,
+                                    row.layer, row.species.toUtf8().constData(),
+                                    row.value) == SWMM_OK;
+}
+bool readGroundwaterSources(SWMM_Engine e, QVector<GroundwaterSourceRow> *out, QString *error)
+{
+    if (error)
+        error->clear();
+    if (!e || !out)
+        return fail(error, "No groundwater model is available.");
+    const int sources = swmm_gw_source_count(e);
+    if (sources < 0)
+        return fail(error, "Cannot read groundwater sources.");
+    QVector<GroundwaterSourceRow> rows;
+    for (int i = 0; i < sources; ++i) {
+        GroundwaterSourceRow row;
+        char name[4096]{}, tag[4096]{}, series[4096]{};
+        if (swmm_gw_source_get(e, i, name, sizeof name, &row.scope, tag, sizeof tag, &row.cell,
+                               &row.flow, series, sizeof series) != SWMM_OK ||
+            swmm_gw_source_scale_get(e, i, &row.scale) != SWMM_OK)
+            return fail(error, "Cannot read groundwater source or scale.");
+        row.name = QString::fromUtf8(name);
+        row.tag = QString::fromUtf8(tag);
+        row.series = QString::fromUtf8(series);
+        const int terms = swmm_gw_source_species_count(e, i);
+        if (terms < 0)
+            return fail(error, "Cannot read source species terms.");
+        for (int t = 0; t < terms; ++t) {
+            GroundwaterSpeciesTerm term;
+            char speciesName[4096]{}, kind[64]{}, ts[4096]{};
+            if (swmm_gw_source_species_get(e, i, t, speciesName, sizeof speciesName, kind,
+                                           sizeof kind, &term.value, ts, sizeof ts) != SWMM_OK)
+                return fail(error, "Cannot read source species term.");
+            term.species = QString::fromUtf8(speciesName);
+            term.kind = QString::fromUtf8(kind);
+            term.series = QString::fromUtf8(ts);
+            row.terms.append(term);
+        }
+        rows.append(row);
+    }
+    *out = std::move(rows);
+    return true;
+}
+bool writeGroundwaterSource(SWMM_Engine e, int index, const GroundwaterSourceRow &row,
+                            const std::function<bool()> &allowed, int *writes)
+{
+    const auto step = [&](auto &&call) {
+        if ((allowed && !allowed()) || call() != SWMM_OK)
+            return false;
+        if (writes)
+            ++*writes;
+        return true;
+    };
+    if (!step([&] {
+            return swmm_gw_source_set(e, row.name.toUtf8().constData(), row.scope,
+                                      row.tag.toUtf8().constData(), row.cell, row.flow,
+                                      row.series.toUtf8().constData());
+        }) ||
+        !step([&] { return swmm_gw_source_scale_set(e, index, row.scale); }))
+        return false;
+    for (const auto &term : row.terms)
+        if (!step([&] {
+                return swmm_gw_source_species_set(e, index, term.species.toUtf8().constData(),
+                                                  term.kind.toUtf8().constData(), term.value,
+                                                  term.series.toUtf8().constData());
+            }))
+            return false;
+    return true;
+}
 bool readGroundwaterTransportSnapshot(SWMM_Engine e, GroundwaterTransportSnapshot *out,
                                       QString *error)
 {
@@ -465,48 +532,9 @@ bool readGroundwaterTransportSnapshot(SWMM_Engine e, GroundwaterTransportSnapsho
     if (swmm_gw_init_quality_file_get(e, path, sizeof path) != SWMM_OK)
         return fail(error, "Cannot read initial-quality FILE reference.");
     result.qualityFile = QString::fromUtf8(path);
-    const int qualities = swmm_gw_init_quality_count(e);
-    if (qualities < 0)
-        return fail(error, "Cannot read initial-quality rows.");
-    for (int i = 0; i < qualities; ++i) {
-        GroundwaterQualityRow row;
-        char tag[4096]{}, name[4096]{};
-        if (swmm_gw_init_quality_get(e, i, &row.scope, tag, sizeof tag, &row.cell, &row.zone,
-                                     &row.layer, name, sizeof name, &row.value) != SWMM_OK)
-            return fail(error, "Cannot read initial-quality row.");
-        row.tag = QString::fromUtf8(tag);
-        row.species = QString::fromUtf8(name);
-        result.quality.append(row);
-    }
-    const int sources = swmm_gw_source_count(e);
-    if (sources < 0)
-        return fail(error, "Cannot read groundwater sources.");
-    for (int i = 0; i < sources; ++i) {
-        GroundwaterSourceRow row;
-        char name[4096]{}, tag[4096]{}, series[4096]{};
-        if (swmm_gw_source_get(e, i, name, sizeof name, &row.scope, tag, sizeof tag, &row.cell,
-                               &row.flow, series, sizeof series) != SWMM_OK ||
-            swmm_gw_source_scale_get(e, i, &row.scale) != SWMM_OK)
-            return fail(error, "Cannot read groundwater source or scale.");
-        row.name = QString::fromUtf8(name);
-        row.tag = QString::fromUtf8(tag);
-        row.series = QString::fromUtf8(series);
-        const int terms = swmm_gw_source_species_count(e, i);
-        if (terms < 0)
-            return fail(error, "Cannot read source species terms.");
-        for (int t = 0; t < terms; ++t) {
-            GroundwaterSpeciesTerm term;
-            char speciesName[4096]{}, kind[64]{}, ts[4096]{};
-            if (swmm_gw_source_species_get(e, i, t, speciesName, sizeof speciesName, kind,
-                                           sizeof kind, &term.value, ts, sizeof ts) != SWMM_OK)
-                return fail(error, "Cannot read source species term.");
-            term.species = QString::fromUtf8(speciesName);
-            term.kind = QString::fromUtf8(kind);
-            term.series = QString::fromUtf8(ts);
-            row.terms.append(term);
-        }
-        result.sources.append(row);
-    }
+    if (!readGroundwaterQualityRows(e, &result.quality, error) ||
+        !readGroundwaterSources(e, &result.sources, error))
+        return false;
     const int tables = swmm_table_count(e);
     if (tables < 0)
         return fail(error, "Cannot read time-series catalog.");
