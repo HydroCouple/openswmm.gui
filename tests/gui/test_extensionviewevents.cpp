@@ -18,6 +18,9 @@
 #include "sdk/IViewControls.hpp"
 #include "sdk/IPreviewLayers.hpp"
 #include "sdk/IToolPreviews.hpp"
+#include "sdk/IModelRainfall.hpp"
+#include "sdk/IGuiExtension.hpp"
+#include "sdk/IToolbox.hpp"
 #include "sdk/IProject.hpp"
 #include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
@@ -46,6 +49,18 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <QApplication>
 #include <QDockWidget>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QLineEdit>
+#include <QDateTimeEdit>
+#include <QPushButton>
+#include <QPluginLoader>
+#include <QScopeGuard>
+#include <QRegion>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QSplitter>
 #include <QDir>
 #include <QEvent>
 #include <QElapsedTimer>
@@ -407,6 +422,445 @@ private slots:
         QObject::disconnect(mObservation);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCoreApplication::processEvents();
+    }
+
+    /** @brief Native rain units ignore display preferences and stale/locked reads leave output intact. */
+    void rainfallMetadataUsesNativeUnitsAndExactGeneration()
+    {
+        ViewFixture fixture(model(), path("rainfall-host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *reader = qobject_cast<IModelRainfall *>(fixture.host->lifetime());
+        QVERIFY(reader);
+        const auto state = fixture.host->stateRegistry()->session(fixture.window->extensionSessionId());
+        RainfallModelInfo info;
+        QVERIFY2(reader->modelRainfall(state.sessionId, state.loadGeneration, &info, &error),
+                 qPrintable(error));
+        QCOMPARE(info.depthUnit, QStringLiteral("mm"));
+        QVERIFY(info.start.isValid());
+        fixture.window->unitSystem()->setFlowUnits(swmm_CFS);
+        QVERIFY(reader->modelRainfall(state.sessionId, state.loadGeneration, &info, &error));
+        QCOMPARE(info.depthUnit, QStringLiteral("mm"));
+        info.depthUnit = "unchanged";
+        QVERIFY(!reader->modelRainfall(state.sessionId, state.loadGeneration + 1, &info, &error));
+        QCOMPARE(info.depthUnit, QStringLiteral("unchanged"));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!reader->modelRainfall(state.sessionId, state.loadGeneration, nullptr, &error));
+        auto write = fixture.instance()->acquireLease(LeaseKind::Write, &error);
+        QVERIFY(write);
+        QVERIFY(!reader->modelRainfall(state.sessionId, state.loadGeneration, &info, &error));
+        QCOMPARE(info.depthUnit, QStringLiteral("unchanged"));
+        write.reset();
+        fixture.host->prepareShutdown();
+        QVERIFY(!reader->modelRainfall(state.sessionId, state.loadGeneration, &info, &error));
+    }
+
+    /** @brief Rainfall samples and compact provenance share one undo/redo and abort boundary. */
+    void designStormModelEditConservesRainAndProvenance()
+    {
+        ViewFixture fixture(model(), path("storm-host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        auto *instance = fixture.instance();
+        QVERIFY(instance);
+        auto *project = instance->project();
+        const auto before = project->extensionData();
+        auto *undo = fixture.window->canvas()->undoStack();
+        const auto undoCount = undo->count();
+        const QDateTime start(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
+        auto edit = instance->edit("Apply design storm", &error);
+        QVERIFY2(edit, qPrintable(error));
+        QVERIFY(edit->addTimeSeries("DesignStormFixture", {start, start.addSecs(900), start.addSecs(1800)},
+                                    {30., 90., 0.}));
+        QVERIFY(edit->addGage("DesignGageFixture", QPointF(-76., 40.)));
+        QVERIFY(edit->setGageSeries("DesignGageFixture", "DesignStormFixture", 900., 0));
+        const QJsonObject provenance{{"method", "triangular"}, {"depthMm", 30.}};
+        auto metadata = before;
+        metadata["designStorms"] = QJsonObject{{"DesignStormFixture", provenance}};
+        project->setExtensionData(metadata);
+        QVERIFY2(edit->commit(&error), qPrintable(error));
+        edit.reset();
+        QCOMPARE(undo->count(), undoCount + 1);
+        QCOMPARE(project->extensionData(), metadata);
+        const auto checkRain = [&]() {
+            auto lease = instance->acquireLease(LeaseKind::Read, &error);
+            if (!lease)
+                return false;
+            auto engine = static_cast<SWMM_Engine>(lease->engine());
+            const auto gage = swmm_gage_index(engine, "DesignGageFixture");
+            int count = 0;
+            if (gage < 0 || swmm_gage_get_rainfall_series_count(engine, gage, &count) != SWMM_OK || count != 3)
+                return false;
+            double times[3]{}, values[3]{};
+            if (swmm_gage_get_rainfall_series(engine, gage, times, values, 3) != SWMM_OK)
+                return false;
+            return qAbs(values[0] - 30.) < 1e-9 && qAbs(values[1] - 90.) < 1e-9 &&
+                   values[2] == 0. && qAbs((values[0] + values[1]) * .25 - 30.) < 1e-9 &&
+                   qAbs((times[1] - times[0]) * 86400. - 900.) < 1e-4;
+        };
+        QVERIFY(checkRain());
+        undo->undo();
+        QCOMPARE(project->extensionData(), before);
+        QVERIFY(instance->attributes("gage", "DesignGageFixture").isEmpty());
+        undo->redo();
+        QCOMPARE(project->extensionData(), metadata);
+        QVERIFY(checkRain());
+        edit = instance->edit("Rejected storm", &error);
+        QVERIFY(edit);
+        project->setExtensionData(QJsonObject{{"uncommitted", true}});
+        QVERIFY(!edit->addTimeSeries("DesignStormFixture", {start}, {1.}));
+        QVERIFY(!edit->commit(&error));
+        edit.reset();
+        QCOMPARE(project->extensionData(), metadata);
+        QCOMPARE(undo->count(), undoCount + 1);
+        QVERIFY(checkRain());
+    }
+
+    /** @brief Exercise the separately built panel with both native rainfall unit systems. */
+    void installedDataStormAppliesWithoutNoaaFiles_data()
+    {
+        QTest::addColumn<QString>("flowUnits");
+        QTest::addColumn<double>("expectedDepth");
+        QTest::addColumn<bool>("liveNoaa");
+        QTest::newRow("millimetres") << QStringLiteral("CMS") << 30. << false;
+        QTest::newRow("inches") << QStringLiteral("CFS") << (30. / 25.4) << false;
+        if (qEnvironmentVariable("SDK_NOAA_LIVE_GUI") == "1")
+            QTest::newRow("live-noaa") << QStringLiteral("CMS") << 0. << true;
+    }
+    /** @brief A separately built Data panel applies its candidate through the real SDK and engine. */
+    void installedDataStormAppliesWithoutNoaaFiles()
+    {
+        const auto module = qEnvironmentVariable("SDK_NOAA_DATA_MODULE");
+        if (module.isEmpty())
+            QSKIP("Set SDK_NOAA_DATA_MODULE for the installed consumer's model application check.");
+        QFETCH(QString, flowUnits);
+        QFETCH(double, expectedDepth);
+        QFETCH(bool, liveNoaa);
+        const auto input = model();
+        {
+            QFile file(input);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            auto bytes = file.readAll();
+            file.close();
+            bytes.replace("FLOW_UNITS CMS", "FLOW_UNITS " + flowUnits.toUtf8());
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            QCOMPARE(file.write(bytes), bytes.size());
+        }
+        ViewFixture fixture(input, path("data-storm-host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        QPluginLoader loader(module);
+        auto *extension = qobject_cast<IGuiExtension *>(loader.instance());
+        QVERIFY2(extension, qPrintable(loader.errorString()));
+        const auto shutdown = qScopeGuard([&] {
+            fixture.host->prepareShutdown();
+            extension->shutdown();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        });
+        QVERIFY2(extension->initialize(fixture.host.get(), &error), qPrintable(error));
+        QVERIFY2(fixture.host->openTool("design-storm", &error), qPrintable(error));
+        auto *panel = fixture.main.findChild<QWidget *>("designStormPanel");
+        QVERIFY(panel);
+        auto *depthSource = panel->findChild<QComboBox *>("stormDepthSource");
+        auto *method = panel->findChild<QComboBox *>("stormMethod");
+        auto *depth = panel->findChild<QDoubleSpinBox *>("stormTotalDepth");
+        auto *duration = panel->findChild<QSpinBox *>("stormDurationMinutes");
+        auto *interval = panel->findChild<QSpinBox *>("stormIntervalMinutes");
+        auto *start = panel->findChild<QDateTimeEdit *>("stormStart");
+        auto *generate = panel->findChild<QPushButton *>("stormGenerate");
+        auto *apply = panel->findChild<QPushButton *>("stormApply");
+        QVERIFY(depthSource && method && depth && duration && interval && start && generate && apply);
+        fixture.settings.sync(); // Persist ordinary dock-open state before measuring evaluation IO.
+        auto filesBefore = QDir(mDirectory).entryList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
+        if (liveNoaa) {
+            QVERIFY(fixture.host->openTool("precipitation", &error));
+            auto *frequency = fixture.main.findChild<QWidget *>("noaaFrequencyPanel");
+            QVERIFY(frequency);
+            auto *fetch = frequency->findChild<QPushButton *>("stormFetch");
+            auto *values = frequency->findChild<QTableView *>("stormFrequencyTable");
+            QVERIFY(fetch && values);
+            fixture.settings.sync(); // Opening the second dock is an allowed UI-settings change.
+            filesBefore = QDir(mDirectory).entryList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
+            fetch->click();
+            QTRY_COMPARE_WITH_TIMEOUT(values->model()->rowCount(), 19, 45000);
+            depthSource->setCurrentIndex(depthSource->findData("noaa"));
+        } else {
+            depthSource->setCurrentIndex(depthSource->findData("manual"));
+            depth->setValue(30.);
+        }
+        method->setCurrentIndex(method->findData(liveNoaa ? "scs-ii" : "triangular"));
+        duration->setValue(liveNoaa ? 1440 : 60);
+        interval->setValue(5);
+        start->setDateTime(QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC));
+        const auto before = fixture.instance()->project()->extensionData();
+        const auto undoBefore = fixture.window->canvas()->undoStack()->count();
+        QVERIFY(generate->isEnabled());
+        generate->click();
+        if (liveNoaa) {
+            auto *samples = panel->findChild<QTableView *>("stormSampleTable");
+            QVERIFY(samples && samples->model()->rowCount() == 288);
+            expectedDepth = samples->model()->index(287, 3).data().toDouble();
+            QVERIFY(expectedDepth > 0.);
+        }
+        QCOMPARE(QDir(mDirectory).entryList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot), filesBefore);
+        QCOMPARE(fixture.instance()->project()->extensionData(), before);
+        QVERIFY(apply->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(panel, "applyToModel", Qt::DirectConnection));
+        auto *undo = fixture.window->canvas()->undoStack();
+        QCOMPARE(undo->count(), undoBefore + 1);
+        QVERIFY(!fixture.instance()->attributes("gage", "DesignGage").isEmpty());
+        const auto after = fixture.instance()->project()->extensionData();
+        QVERIFY(after != before);
+        QVERIFY(after.contains("designStorms"));
+        {
+            auto lease = fixture.instance()->acquireLease(LeaseKind::Read, &error);
+            QVERIFY(lease);
+            auto engine = static_cast<SWMM_Engine>(lease->engine());
+            const int gage = swmm_gage_index(engine, "DesignGage");
+            int count = 0;
+            QVERIFY(swmm_gage_get_rainfall_series_count(engine, gage, &count) == SWMM_OK);
+            QCOMPARE(count, liveNoaa ? 289 : 13);
+            QVector<double> times(count), rates(count);
+            QVERIFY(swmm_gage_get_rainfall_series(engine, gage, times.data(), rates.data(), count) == SWMM_OK);
+            double sum = 0.;
+            for (int i = 0; i < count - 1; ++i)
+                sum += rates[i] / 12.;
+            QVERIFY(std::abs(sum - expectedDepth) < (liveNoaa ? 1e-4 : 1e-7));
+            QCOMPARE(rates.last(), 0.);
+        }
+        undo->undo();
+        QCOMPARE(fixture.instance()->project()->extensionData(), before);
+        QVERIFY(fixture.instance()->attributes("gage", "DesignGage").isEmpty());
+        undo->redo();
+        QCOMPARE(fixture.instance()->project()->extensionData(), after);
+        QVERIFY(!fixture.instance()->attributes("gage", "DesignGage").isEmpty());
+    }
+
+    /** @brief Real Data panels scroll disclosures and resize charts within neighboring native docks.
+     * @details Loads the optional separately built consumer without requesting NOAA data or
+     * changing the model. Retains an expanded-layout image for review. */
+    void installedDataPanelsStayWithinNativeDocks()
+    {
+        const auto module = qEnvironmentVariable("SDK_NOAA_DATA_MODULE");
+        if (module.isEmpty())
+            QSKIP("Set SDK_NOAA_DATA_MODULE for the installed consumer's dock layout check.");
+        ViewFixture fixture(model(), path("data-panel-layout-host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        const auto metadata = fixture.instance()->project()->extensionData();
+        const auto undoCount = fixture.window->canvas()->undoStack()->count();
+        QPluginLoader loader(module);
+        auto *extension = qobject_cast<IGuiExtension *>(loader.instance());
+        QVERIFY2(extension, qPrintable(loader.errorString()));
+        const auto shutdown = qScopeGuard([&] {
+            fixture.host->prepareShutdown();
+            extension->shutdown();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        });
+        QVERIFY2(extension->initialize(fixture.host.get(), &error), qPrintable(error));
+        auto *toolbox = qobject_cast<IToolbox *>(fixture.host->lifetime());
+        QVERIFY(toolbox);
+        // Keep discovery available without stacking a third dock above the chart.
+        auto *discoveryDock = fixture.main.findChild<QDockWidget *>("dockWidgetAnalysisToolBox");
+        QVERIFY(discoveryDock);
+        fixture.main.addDockWidget(Qt::LeftDockWidgetArea, discoveryDock);
+        auto *neighbor = new QDockWidget("Native layers", &fixture.main);
+        neighbor->setObjectName("nativeLayoutNeighbor");
+        auto *neighborContent = new QWidget(neighbor);
+        neighborContent->setMinimumSize(100, 70);
+        neighbor->setWidget(neighborContent);
+        fixture.main.addDockWidget(Qt::RightDockWidgetArea, neighbor);
+        const auto dockFor = [](QWidget *widget) {
+            for (auto *parent = widget->parentWidget(); parent; parent = parent->parentWidget())
+                if (auto *dock = qobject_cast<QDockWidget *>(parent))
+                    return dock;
+            return static_cast<QDockWidget *>(nullptr);
+        };
+        QVERIFY2(toolbox->openTool("precipitation", &error), qPrintable(error));
+        auto *frequency = fixture.main.findChild<QWidget *>("noaaFrequencyPanel");
+        QVERIFY(frequency);
+        QVERIFY(frequency->findChild<QScrollArea *>("stormControlsScroll"));
+        QVERIFY(frequency->findChild<QSplitter *>("stormLayoutSplitter"));
+        auto *frequencyDock = dockFor(frequency);
+        QVERIFY(frequencyDock);
+        frequencyDock->hide();
+        QVERIFY2(toolbox->openTool("design-storm", &error), qPrintable(error));
+        auto *panel = fixture.main.findChild<QWidget *>("designStormPanel");
+        QVERIFY(panel);
+        auto *dock = dockFor(panel);
+        auto *controls = panel->findChild<QScrollArea *>("stormControlsScroll");
+        auto *splitter = panel->findChild<QSplitter *>("stormLayoutSplitter");
+        auto *source = panel->findChild<QToolButton *>("stormShowSource");
+        auto *target = panel->findChild<QToolButton *>("stormShowTarget");
+        auto *apply = panel->findChild<QPushButton *>("stormApply");
+        QVERIFY(dock && controls && splitter && source && target && apply);
+        auto *outerScroll = qobject_cast<QScrollArea *>(dock->widget());
+        QVERIFY(outerScroll);
+        QCOMPARE(outerScroll->objectName(), QStringLiteral("toolPanelScrollArea"));
+        fixture.main.splitDockWidget(neighbor, dock, Qt::Vertical);
+        fixture.main.resizeDocks({dock}, {440}, Qt::Horizontal);
+        fixture.main.resizeDocks({neighbor, dock}, {100, 450}, Qt::Vertical);
+        const QSize requestedSize(900, 640);
+        fixture.main.resize(requestedSize);
+        fixture.main.show();
+        QTRY_COMPARE(fixture.main.size(), requestedSize);
+        QTRY_VERIFY(neighbor->isVisible() && dock->isVisible());
+        const auto collapsedMaximum = controls->verticalScrollBar()->maximum();
+        source->click();
+        target->click();
+        QVERIFY(source->isChecked() && target->isChecked());
+        QTRY_VERIFY(controls->verticalScrollBar()->maximum() > collapsedMaximum);
+        QCOMPARE(fixture.main.size(), requestedSize);
+        QVERIFY(fixture.main.rect().contains(dock->geometry()));
+        QVERIFY(fixture.main.rect().contains(neighbor->geometry()));
+        QVERIFY(neighbor->height() >= neighborContent->minimumHeight());
+        QCOMPARE(controls->horizontalScrollBar()->maximum(), 0);
+        controls->ensureWidgetVisible(apply);
+        QTRY_VERIFY(controls->viewport()->rect().contains(
+            QRect(apply->mapTo(controls->viewport(), QPoint()), apply->size())));
+        QCOMPARE(splitter->orientation(), Qt::Vertical);
+        QCOMPARE(splitter->count(), 2);
+        QVERIFY(!splitter->childrenCollapsible());
+        const int available = splitter->height() - splitter->handleWidth();
+        qInfo() << "Native Data dock geometry" << fixture.main.size() << dock->size()
+                << neighbor->size() << panel->size() << splitter->size() << splitter->sizes()
+                << "outer scroll ranges" << outerScroll->horizontalScrollBar()->maximum()
+                << outerScroll->verticalScrollBar()->maximum();
+        for (auto *entry : fixture.main.findChildren<QDockWidget *>())
+            qInfo() << "Native layout dock" << entry->objectName() << entry->isVisible()
+                    << entry->geometry() << entry->minimumSizeHint();
+        QVERIFY(fixture.main.grab().save(path("expanded-before-splitter.png")));
+        QVERIFY(available > 250);
+        splitter->setSizes({available * 2 / 3, available / 3});
+        const int initialChartHeight = splitter->widget(1)->height();
+        splitter->setSizes({available / 3, available * 2 / 3});
+        QTRY_VERIFY(splitter->widget(1)->height() > initialChartHeight + 20);
+        QToolButton *history = nullptr;
+        for (auto *button : dock->findChildren<QToolButton *>())
+            if (button->text() == QStringLiteral("Results and messages"))
+                history = button;
+        QVERIFY(history);
+        history->click();
+        QVERIFY(history->isChecked());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(fixture.main.size(), requestedSize);
+        QVERIFY(fixture.main.rect().contains(dock->geometry()));
+        QVERIFY(fixture.main.rect().contains(neighbor->geometry()));
+        QVERIFY(neighbor->isVisible());
+        QVERIFY(neighbor->height() >= neighborContent->minimumHeight());
+        QVERIFY(dock->rect().contains(outerScroll->geometry()));
+        outerScroll->ensureWidgetVisible(history);
+        QVERIFY(fixture.main.grab().save(path("expanded-data-docks.png")));
+        QCOMPARE(fixture.instance()->project()->extensionData(), metadata);
+        QCOMPARE(fixture.window->canvas()->undoStack()->count(), undoCount);
+    }
+
+    /** @brief Keep four simultaneously open Data tools clipped through dock layout changes.
+     * @details Exercises all live tool widgets together without a network request. Each
+     * state retains an image so paint artefacts can be compared with native geometry. */
+    void installedDataToolsPaintWithinTheirOwnDocks()
+    {
+        const auto module = qEnvironmentVariable("SDK_NOAA_DATA_MODULE");
+        if (module.isEmpty())
+            QSKIP("Set SDK_NOAA_DATA_MODULE for the simultaneous tool paint check.");
+        ViewFixture fixture(model(), path("multiple-tools-host.ini"));
+        QString error;
+        QVERIFY2(fixture.load(error), qPrintable(error));
+        QPluginLoader loader(module);
+        auto *extension = qobject_cast<IGuiExtension *>(loader.instance());
+        QVERIFY2(extension, qPrintable(loader.errorString()));
+        const auto shutdown = qScopeGuard([&] {
+            fixture.host->prepareShutdown();
+            extension->shutdown();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        });
+        QVERIFY2(extension->initialize(fixture.host.get(), &error), qPrintable(error));
+        auto *toolbox = qobject_cast<IToolbox *>(fixture.host->lifetime());
+        QVERIFY(toolbox);
+        fixture.main.setDockOptions(fixture.main.dockOptions() | QMainWindow::AllowNestedDocks);
+        auto *discovery = fixture.main.findChild<QDockWidget *>("dockWidgetAnalysisToolBox");
+        QVERIFY(discovery);
+        fixture.main.addDockWidget(Qt::LeftDockWidgetArea, discovery);
+        const QSize requestedSize(1100, 760);
+        fixture.main.resize(requestedSize);
+        fixture.main.show();
+        QCoreApplication::processEvents();
+        QList<QDockWidget *> docks;
+        for (const auto &id : {"sites", "terrain", "precipitation", "design-storm"}) {
+            QVERIFY2(toolbox->openTool(id, &error), qPrintable(error));
+            auto *dock = fixture.main.findChild<QDockWidget *>(
+                QStringLiteral("ext.org.openswmm.native-view.toolpanel.") + id);
+            QVERIFY(dock);
+            docks.append(dock);
+            QCoreApplication::processEvents();
+            QVERIFY(fixture.main.grab().save(path(QStringLiteral("opening-") + id + ".png")));
+        }
+        auto *storm = docks.last()->findChild<QWidget *>("designStormPanel");
+        QVERIFY(storm);
+        storm->findChild<QComboBox *>("stormDepthSource")->setCurrentIndex(1);
+        auto *method = storm->findChild<QComboBox *>("stormMethod");
+        method->setCurrentIndex(method->findData("triangular"));
+        storm->findChild<QDoubleSpinBox *>("stormTotalDepth")->setValue(30.);
+        storm->findChild<QSpinBox *>("stormDurationMinutes")->setValue(60);
+        storm->findChild<QSpinBox *>("stormIntervalMinutes")->setValue(5);
+        storm->findChild<QPushButton *>("stormGenerate")->click();
+        QCOMPARE(storm->findChild<QTableView *>("stormSampleTable")->model()->rowCount(), 12);
+        const auto settle = [] {
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+            QCoreApplication::processEvents();
+        };
+        const auto capture = [&](const QString &name) {
+            settle();
+            QCOMPARE(fixture.main.size(), requestedSize);
+            for (auto *dock : docks) {
+                QVERIFY(dock->isVisible());
+                if (dock->isFloating())
+                    continue;
+                QVERIFY(fixture.main.rect().contains(dock->geometry()));
+                for (auto *other : docks)
+                    if (other != dock && !other->isFloating() &&
+                        fixture.main.tabifiedDockWidgets(dock).contains(other) == false)
+                        QVERIFY(!dock->geometry().intersects(other->geometry()));
+                auto *scroll = qobject_cast<QScrollArea *>(dock->widget());
+                QVERIFY(scroll);
+                const QRegion allowed(dock->rect());
+                for (auto *widget : scroll->findChildren<QWidget *>()) {
+                    if (!widget->isVisible() || widget->isWindow())
+                        continue;
+                    const auto painted = widget->visibleRegion().translated(widget->mapTo(dock, QPoint()));
+                    QVERIFY2(painted.subtracted(allowed).isEmpty(),
+                             qPrintable(QStringLiteral("Paint leaves %1: %2 %3")
+                                 .arg(dock->windowTitle(), widget->metaObject()->className(), widget->objectName())));
+                }
+            }
+            QVERIFY(fixture.main.grab().save(path(name + ".png")));
+        };
+        capture("multiple-tools-stacked");
+        for (auto *dock : docks) {
+            for (auto *button : dock->findChildren<QToolButton *>())
+                if (button->isCheckable() && (button->objectName() == "stormShowSource" ||
+                    button->objectName() == "stormShowTarget" ||
+                    button->objectName() == "dataDetailsToggle" ||
+                    button->text() == QStringLiteral("Results and messages")))
+                    button->setChecked(true);
+            auto *scroll = qobject_cast<QScrollArea *>(dock->widget());
+            settle();
+            scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+        }
+        capture("multiple-tools-expanded");
+        auto *floating = docks.last();
+        floating->setFloating(true);
+        settle();
+        floating->setFloating(false);
+        capture("multiple-tools-redocked");
+        fixture.main.tabifyDockWidget(docks[0], docks[1]);
+        docks[1]->raise();
+        settle();
+        QVERIFY(fixture.main.grab().save(path("multiple-tools-tabbed-terrain.png")));
+        docks[0]->raise();
+        settle();
+        QVERIFY(fixture.main.grab().save(path("multiple-tools-tabbed-sites.png")));
     }
 
     /** @brief Keep optional point labels plain and fixed-size without acquiring layer ownership. */

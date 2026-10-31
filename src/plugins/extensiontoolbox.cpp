@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -20,6 +21,59 @@
 namespace openswmmvis
 {
 using namespace OpenSWMM::Sdk;
+namespace
+{
+/** @brief Offer native dock placement without requiring a precise drag gesture.
+ * @param[in] dock Tool dock owning the menu actions and their connections.
+ * @param[in] window Main window receiving the existing dock, guarded across native events.
+ * @details The standard title bar remains available for dragging and double-clicking.
+ * Actions use normal main-window placement, so saved layouts and manual tab groups
+ * remain authoritative until the user explicitly chooses a new position. */
+void addDockPlacementActions(QPointer<QDockWidget> dock, QPointer<QMainWindow> window)
+{
+    const auto addPlacement = [&](const QString &name, const QString &text,
+                                  Qt::DockWidgetArea area) {
+        if (!dock)
+            return;
+        QPointer<QAction> action(new QAction(text, dock));
+        if (!dock || !action)
+            return;
+        action->setObjectName(name);
+        dock->addAction(action);
+        QObject::connect(action, &QAction::triggered, dock, [dock, window, area] {
+            if (!dock || !window)
+                return;
+            dock->setFloating(false);
+            if (!dock || !window)
+                return;
+            window->addDockWidget(area, dock);
+            if (!dock || !window)
+                return;
+            dock->show();
+            if (dock)
+                dock->raise();
+        });
+    };
+    addPlacement("toolDockLeft", QObject::tr("Dock left"), Qt::LeftDockWidgetArea);
+    addPlacement("toolDockRight", QObject::tr("Dock right"), Qt::RightDockWidgetArea);
+    addPlacement("toolDockTop", QObject::tr("Dock top"), Qt::TopDockWidgetArea);
+    addPlacement("toolDockBottom", QObject::tr("Dock bottom"), Qt::BottomDockWidgetArea);
+    if (!dock)
+        return;
+    QPointer<QAction> floating(new QAction(QObject::tr("Float panel"), dock));
+    if (!dock || !floating)
+        return;
+    floating->setObjectName("toolDockFloating");
+    floating->setCheckable(true);
+    floating->setChecked(dock->isFloating());
+    dock->addAction(floating);
+    QObject::connect(floating, &QAction::triggered, dock, [dock](bool checked) {
+        if (dock)
+            dock->setFloating(checked);
+    });
+    QObject::connect(dock, &QDockWidget::topLevelChanged, floating, &QAction::setChecked);
+}
+}
 ExtensionToolbox::ExtensionToolbox(GuiExtensionHost *host, QMainWindow *window, QSettings *settings)
     : QObject(host), mHost(host), mWindow(window), mSettings(settings)
 {
@@ -206,13 +260,38 @@ bool ExtensionToolbox::openTool(const QString &inputId, QString *error)
         dock->setObjectName("ext." + host->pluginId() + ".toolpanel." + id);
         if (!usable())
             return discard();
-        QPointer<QWidget> body(new QWidget(dock));
+        dock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
+                          QDockWidget::DockWidgetFloatable);
+        if (!usable())
+            return discard();
+        dock->setAllowedAreas(Qt::AllDockWidgetAreas);
+        if (!usable())
+            return discard();
+        dock->setContextMenuPolicy(Qt::ActionsContextMenu);
+        if (!usable())
+            return discard();
+        addDockPlacementActions(dock, window);
+        if (!usable())
+            return discard();
+        QPointer<QScrollArea> scroll(new QScrollArea(dock));
+        if (!usable() || !scroll)
+            return discard();
+        scroll->setObjectName("toolPanelScrollArea");
+        scroll->setAccessibleName(tr("Tool panel contents"));
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setWidgetResizable(true);
+        if (!usable() || !scroll)
+            return discard();
+        QPointer<QWidget> body(new QWidget(scroll));
         if (!usable() || !body)
             return discard();
         QPointer<QVBoxLayout> layout(new QVBoxLayout(body));
         if (!usable() || !body || !layout)
             return discard();
         layout->setContentsMargins(0, 0, 0, 0);
+        // Update the fallback scroll range when a plugin or the run history
+        // expands, without propagating their combined minimum to the window.
+        layout->setSizeConstraint(QLayout::SetMinAndMaxSize);
         if (!usable() || !body || !layout)
             return discard();
         layout->addWidget(content, 1);
@@ -224,8 +303,11 @@ bool ExtensionToolbox::openTool(const QString &inputId, QString *error)
         layout->addWidget(history);
         if (!usable() || !body || !layout || !history)
             return discard();
-        dock->setWidget(body);
-        if (!usable() || !body)
+        scroll->setWidget(body);
+        if (!usable() || !body || !scroll)
+            return discard();
+        dock->setWidget(scroll);
+        if (!usable() || !body || !scroll)
             return discard();
         window->addDockWidget(Qt::RightDockWidgetArea, dock);
         if (!usable())

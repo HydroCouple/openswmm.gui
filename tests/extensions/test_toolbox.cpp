@@ -23,8 +23,11 @@
 #include <QMdiArea>
 #include <QPointer>
 #include <QPixmap>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTest>
+#include <QToolButton>
 #include <memory>
 #include <utility>
 
@@ -86,6 +89,7 @@ class ReparentingLabel final : public QLabel
 {
 public:
     std::function<void()> attached; ///< One-shot callback after the widget acquires a parent.
+    std::function<void()> shown; ///< One-shot callback when native mounting shows the widget.
 
 protected:
     /** @brief Preserve native event handling before running the tested reentrant callback. */
@@ -94,6 +98,11 @@ protected:
         const bool result = QLabel::event(event);
         if (event->type() == QEvent::ParentChange && parentWidget()) {
             auto callback = std::exchange(attached, {});
+            if (callback)
+                callback();
+        }
+        if (event->type() == QEvent::Show) {
+            auto callback = std::exchange(shown, {});
             if (callback)
                 callback();
         }
@@ -300,6 +309,130 @@ private slots:
         QCOMPARE(created, 0);
     }
 
+    /** @brief Oversized tool content scrolls without enlarging its window or covering a peer dock. */
+    void oversizedContentStaysInsideDock()
+    {
+        ToolboxFixture f;
+        f.window.resize(900, 580);
+        auto *peer = new QDockWidget("Layers", &f.window);
+        peer->setObjectName("layers");
+        peer->setWidget(new QLabel("Neighboring layers"));
+        f.window.addDockWidget(Qt::LeftDockWidgetArea, peer);
+        QVERIFY(f.action("sites"));
+        auto *service = qobject_cast<IToolbox *>(f.host->lifetime());
+        QObject context;
+        QVERIFY(service->registerTool(tool("sites"), &context, [](ExtensionHost *) {
+            auto *content = new QLabel("Large plugin content");
+            content->setMinimumHeight(1800);
+            return content;
+        }));
+        f.window.show();
+        QCoreApplication::processEvents();
+        const auto initialSize = f.window.size();
+        QVERIFY(service->openTool("sites"));
+        auto *dock = f.window.findChild<QDockWidget *>(
+            "ext.org.openswmm.toolbox-first.toolpanel.sites");
+        QVERIFY(dock);
+        auto *scroll = qobject_cast<QScrollArea *>(dock->widget());
+        QVERIFY(scroll);
+        QVERIFY(scroll->widgetResizable());
+        QTRY_VERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        QCOMPARE(f.window.size(), initialSize);
+        QVERIFY(f.window.rect().contains(dock->geometry()));
+        QVERIFY(f.window.rect().contains(peer->geometry()));
+        QVERIFY(peer->isVisible());
+        QVERIFY(!dock->geometry().intersects(peer->geometry()));
+    }
+
+    /** @brief Expanding history activates scrolling while the neighboring dock remains visible. */
+    void expandingHistoryKeepsNeighborInsideWindow()
+    {
+        ToolboxFixture f;
+        f.window.resize(900, 580);
+        QVERIFY(f.action("sites"));
+        auto *service = qobject_cast<IToolbox *>(f.host->lifetime());
+        QObject context;
+        QVERIFY(service->registerTool(tool("sites"), &context, [](ExtensionHost *) {
+            auto *content = new QLabel("Tool controls");
+            content->setMinimumHeight(220);
+            return content;
+        }));
+        QVERIFY(service->openTool("sites"));
+        auto *dock = f.window.findChild<QDockWidget *>(
+            "ext.org.openswmm.toolbox-first.toolpanel.sites");
+        QVERIFY(dock);
+        auto *peer = new QDockWidget("Layers", &f.window);
+        peer->setObjectName("layers");
+        peer->setWidget(new QLabel("Neighboring layers"));
+        f.window.splitDockWidget(dock, peer, Qt::Vertical);
+        f.window.show();
+        QCoreApplication::processEvents();
+        const auto initialSize = f.window.size();
+        auto *scroll = qobject_cast<QScrollArea *>(dock->widget());
+        QVERIFY(scroll);
+        auto *toggle = dock->findChild<QToolButton *>();
+        QVERIFY(toggle);
+        QVERIFY(toggle->isCheckable());
+        toggle->setChecked(true);
+        QTRY_VERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        QCOMPARE(f.window.size(), initialSize);
+        QVERIFY(peer->isVisible());
+        QVERIFY(f.window.rect().contains(dock->geometry()));
+        QVERIFY(f.window.rect().contains(peer->geometry()));
+        QVERIFY(!dock->geometry().intersects(peer->geometry()));
+        scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+        QVERIFY(f.window.grab().save(QStringLiteral(
+            SDK_TOOLBOX_VERIFICATION_DIRECTORY "/expanded-history-bounded.png")));
+    }
+
+    /** @brief Placement commands support all native dock areas, floating and saved layout restore. */
+    void placementCommandsAndLayoutRestore()
+    {
+        ToolboxFixture f;
+        f.window.resize(900, 580);
+        f.window.show();
+        QVERIFY(f.action("sites"));
+        auto *service = qobject_cast<IToolbox *>(f.host->lifetime());
+        QObject context;
+        QVERIFY(service->registerTool(tool("sites"), &context,
+                                      [](ExtensionHost *) { return new QLabel("Tool"); }));
+        QVERIFY(service->openTool("sites"));
+        auto *dock = f.window.findChild<QDockWidget *>(
+            "ext.org.openswmm.toolbox-first.toolpanel.sites");
+        QVERIFY(dock);
+        QCOMPARE(dock->allowedAreas(), Qt::DockWidgetAreas(Qt::AllDockWidgetAreas));
+        QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetMovable));
+        QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetFloatable));
+        const QList<QPair<QString, Qt::DockWidgetArea>> placements{
+            {"toolDockLeft", Qt::LeftDockWidgetArea},
+            {"toolDockTop", Qt::TopDockWidgetArea},
+            {"toolDockBottom", Qt::BottomDockWidgetArea},
+            {"toolDockRight", Qt::RightDockWidgetArea}};
+        for (const auto &placement : placements) {
+            auto *action = dock->findChild<QAction *>(placement.first);
+            QVERIFY(action);
+            action->trigger();
+            QCOMPARE(f.window.dockWidgetArea(dock), placement.second);
+            QVERIFY(!dock->isFloating());
+        }
+        auto *floating = dock->findChild<QAction *>("toolDockFloating");
+        QVERIFY(floating);
+        floating->trigger();
+        QVERIFY(dock->isFloating());
+        QVERIFY(floating->isChecked());
+        dock->findChild<QAction *>("toolDockLeft")->trigger();
+        QVERIFY(!dock->isFloating());
+        QVERIFY(!floating->isChecked());
+        QCOMPARE(f.window.dockWidgetArea(dock), Qt::LeftDockWidgetArea);
+        const auto savedLayout = f.window.saveState();
+        dock->findChild<QAction *>("toolDockBottom")->trigger();
+        QVERIFY(f.window.restoreState(savedLayout));
+        QCOMPARE(f.window.dockWidgetArea(dock), Qt::LeftDockWidgetArea);
+        dock->close();
+        QVERIFY(service->openTool("sites"));
+        QCOMPARE(f.window.dockWidgetArea(dock), Qt::LeftDockWidgetArea);
+    }
+
     /** @brief Reentrant unregister during creation disposes the unmounted widget. */
     void reentrantFactoryDoesNotLeaveDock()
     {
@@ -362,6 +495,28 @@ private slots:
         QVERIFY(!service->openTool("sites"));
         QVERIFY(content.isNull());
         QVERIFY(!service->openTool("sites"));
+    }
+
+    /** @brief Unregistration during native show cannot publish or retain an in-flight dock. */
+    void unregisterDuringNativeShow()
+    {
+        ToolboxFixture f;
+        f.window.show();
+        QVERIFY(f.action("sites"));
+        auto *service = qobject_cast<IToolbox *>(f.host->lifetime());
+        QObject context;
+        QPointer<ReparentingLabel> content;
+        QVERIFY(service->registerTool(tool("sites"), &context, [&](ExtensionHost *) {
+            content = new ReparentingLabel;
+            content->shown = [service] { service->unregisterTool("sites"); };
+            return content.data();
+        }));
+        QVERIFY(!service->openTool("sites"));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(content.isNull());
+        QVERIFY(!service->openTool("sites"));
+        QVERIFY(!f.window.findChild<QDockWidget *>(
+            "ext.org.openswmm.toolbox-first.toolpanel.sites"));
     }
 
     /** @brief Identical local IDs belong to separate plugin namespaces. */

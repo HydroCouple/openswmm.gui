@@ -1,7 +1,7 @@
 /**
  * @file IEditScope.hpp
  * @brief Mediated undoable model editing through the GUI property and apply paths.
- * @details Edits form one snapshot transaction. A failed operation prevents commit and causes rollback. Timestamps are timezone-naive SWMM wall-clock values; geometry uses the native model CRS.
+ * @details Edits form one snapshot transaction. A failed operation prevents commit and causes rollback. Compact project extension data changed through IProject during an active scope is restored with its engine snapshot on abort/undo/redo. Do not process events inside a scope. Timestamps are timezone-naive SWMM wall-clock values; geometry uses the native model CRS.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
  * @date 2026
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
