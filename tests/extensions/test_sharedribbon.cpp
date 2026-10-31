@@ -284,7 +284,7 @@ private slots:
         QVERIFY2(extension->initialize(host.get(), &error), qPrintable(error));
         auto *catalog = f.window.findChild<ToolboxPanel *>("analysisToolboxPanel");
         QVERIFY(catalog);
-        QCOMPARE(catalog->toolCount(), 2);
+        QCOMPARE(catalog->toolCount(), 4);
         IPreferencesPageFactory *preferences = nullptr;
         for (const auto &entry : extensionPreferences())
             if (entry.owner == host.get())
@@ -300,7 +300,7 @@ private slots:
             preferences->apply();
             QCOMPARE(f.controller->tabIds().contains("ext.openswmm.gui.data.data"), mode == "separate");
             QCOMPARE(f.controller->tabIds().contains("shared.data"), mode == "shared");
-            QCOMPARE(catalog->toolCount(), 2);
+            QCOMPARE(catalog->toolCount(), 4);
         }
         placement->setCurrentIndex(placement->findData("shared"));
         preferences->apply();

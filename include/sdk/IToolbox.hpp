@@ -43,6 +43,9 @@ public:
      * @param[in] context Required GUI-thread owner for the factory callback.
      * @param[in] create GUI-thread factory, called only on first activation. Returned content
      * transfers to the host. Exceptions/null return refuse activation and permit retry.
+     * The host contains oversized content in a scrollable native dock. Keep widget
+     * minimum sizes small; put long forms in an internal scroll area and use a
+     * splitter when charts and controls need independent resizing.
      * @param[out] error Optional registration refusal detail.
      * @return True after registration. The plugin must not also connect action activation
      * to a second panel opener. Destroying the context/action unregisters the tool. */

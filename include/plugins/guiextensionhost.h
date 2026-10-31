@@ -22,6 +22,7 @@
 #include "sdk/ISharedRibbon.hpp"
 #include "sdk/IToolRuns.hpp"
 #include "sdk/IToolPreviews.hpp"
+#include "sdk/IModelRainfall.hpp"
 #include "sdk/IModelInstance.hpp"
 #include "sdk/IProject.hpp"
 #include <QHash>
@@ -110,10 +111,11 @@ class GuiExtensionHost final : public QObject,
                                public OpenSWMM::Sdk::IToolbox,
                                public OpenSWMM::Sdk::IToolRuns,
                                public OpenSWMM::Sdk::IToolPreviews,
-                               public OpenSWMM::Sdk::ISharedRibbon
+                               public OpenSWMM::Sdk::ISharedRibbon,
+                               public OpenSWMM::Sdk::IModelRainfall
 {
     Q_OBJECT
-    Q_INTERFACES(OpenSWMM::Sdk::IModelEvents OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IViewControls OpenSWMM::Sdk::IActivityEvents OpenSWMM::Sdk::IActivityControls OpenSWMM::Sdk::ITimeSeriesLayers OpenSWMM::Sdk::IProgress OpenSWMM::Sdk::IPreviewLayers OpenSWMM::Sdk::IToolbox OpenSWMM::Sdk::IToolRuns OpenSWMM::Sdk::IToolPreviews OpenSWMM::Sdk::ISharedRibbon)
+    Q_INTERFACES(OpenSWMM::Sdk::IModelEvents OpenSWMM::Sdk::ISessionEvents OpenSWMM::Sdk::IViewEvents OpenSWMM::Sdk::IViewControls OpenSWMM::Sdk::IActivityEvents OpenSWMM::Sdk::IActivityControls OpenSWMM::Sdk::ITimeSeriesLayers OpenSWMM::Sdk::IProgress OpenSWMM::Sdk::IPreviewLayers OpenSWMM::Sdk::IToolbox OpenSWMM::Sdk::IToolRuns OpenSWMM::Sdk::IToolPreviews OpenSWMM::Sdk::ISharedRibbon OpenSWMM::Sdk::IModelRainfall)
 public:
     /** @brief Construct one extension's namespaced implementation of host services.
      * @param[in] id Validated extension identity.
@@ -204,6 +206,14 @@ public:
         std::function<bool(const QUuid &, quint64, const QString &, const QJsonObject &, QString *)> show,
         std::function<void(const QUuid &, const QString &)> clear,
         std::function<QUuid(const QUuid &, const QString &, QList<qint64> *)> lookup);
+    /** @copydoc OpenSWMM::Sdk::IModelRainfall::modelRainfall */
+    bool modelRainfall(const QUuid &sessionId, quint64 generation,
+                       OpenSWMM::Sdk::RainfallModelInfo *info, QString *error = nullptr) const override;
+    /** @brief Install the native model rainfall metadata reader.
+     * @param[in] read GUI-thread callback validating target, lease, native units and locations. */
+    void setRainfallReader(std::function<bool(const QUuid &, quint64,
+                           OpenSWMM::Sdk::RainfallModelInfo *, QString *)> read)
+    { mRainfallReader = std::move(read); }
     OpenSWMM::Sdk::INetworkPolicy *network() override;
     OpenSWMM::Sdk::IRunRegistry *runRegistry() override { return this; }
     OpenSWMM::Sdk::IPlotService *plots() override { return this; }
@@ -520,6 +530,8 @@ private:
     std::function<bool(const QUuid &, quint64, const QString &, const QJsonObject &, QString *)> mShowToolPreview;
     std::function<void(const QUuid &, const QString &)> mClearToolPreview;
     std::function<QUuid(const QUuid &, const QString &, QList<qint64> *)> mToolPreviewLayer;
+    std::function<bool(const QUuid &, quint64, OpenSWMM::Sdk::RainfallModelInfo *, QString *)>
+        mRainfallReader; ///< Installed native read path; never used after host shutdown.
     bool mStopping = false;
     QUuid mActivityOwnerId = QUuid::createUuid(); ///< Unique per-host private activity scope.
     QUuid mActivityWindowId; ///< Established main-window lifetime.

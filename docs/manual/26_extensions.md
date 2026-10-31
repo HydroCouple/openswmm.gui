@@ -114,6 +114,11 @@ preview, allowing gages and elevation footprints to be reviewed side by side.
 Clearing one tool's preview leaves the other tool's preview and selection
 available.
 
+Drag a tool's title bar to move, tab or float its dock. Right-click the title bar
+for explicit docking positions and a floating option. Tool content and
+expanded **Results and messages** scroll within the available space, keeping
+neighboring panels accessible.
+
 Each tool's area chooser uses the current map viewport
 or a chosen polygon from a loaded feature layer. Preview results respect polygon
 holes and multiple parts. USGS site and elevation tile previews create a temporary
@@ -159,7 +164,35 @@ Data previews, downloads and imports report their stages in the shared status
 bar and record outcomes in **Logs**. A saved download and its addition to the
 map are separate outcomes: **Saved, not added** means the files are retained
 even though the original model could not accept a new layer.
-Precipitation design storms retain their own implementation package.
+Under **Data sources → Precipitation**, **NOAA precipitation frequency…**
+retrieves live Atlas 14 point estimates into memory. Enter a location or select
+a georeferenced model gage, choose PDS/AMS and display units, then Fetch/Refresh.
+The table and depth/intensity-duration-frequency charts show the accepted
+estimate or its lower/upper bound. The accepted coordinate and retrieval time
+remain visible. Clear releases the response; no NOAA response or disk cache is
+created by retrieval or curve evaluation.
+
+**Design storm builder…** shares that accepted table and compares generated
+rainfall distributions as intensity, cumulative-depth or normalized cumulative
+curves. Select a qualified method, frequency/depth, duration and recording
+interval. NOAA temporal patterns are fetched live for an explicitly selected
+region/area/duration. Manual-depth and custom cumulative patterns are also
+available. Evaluation changes no model forcing. A regular rain-gage interval
+must divide the storm duration evenly.
+
+Both precipitation tools have a horizontal divider between the controls and
+the chart/value tabs. Drag the divider vertically to resize these sections.
+The controls scroll independently, including expanded source and model-target
+sections; resizing keeps the accepted response and comparison candidates.
+
+Expand the model target section, review the selected candidate, wall-clock start,
+new time-series name and new/existing rain gage, then choose **Apply to model…**.
+The host supplies the engine's actual rainfall units, independently of display
+preferences. Applying creates the series, gage association and compact source/
+method metadata in one undoable edit, directly from memory. Normal project save
+retains the applied storm; reopening it needs no NOAA connection. A refresh
+does not overwrite applied forcing. Raw NOAA frequency matrices and temporal
+responses are omitted from project/settings/recovery persistence.
 The SDK and its documentation remain part of `openswmm.gui`.
 
 Extension authors should read @ref gui_extension_sdk for the public API,

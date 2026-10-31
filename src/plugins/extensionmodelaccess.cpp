@@ -314,26 +314,28 @@ public:
     NativeEditCommand(SWMMVisProjectWindow *window, QString before, QString after,
                       const QString &label, QSet<SWMMObjectRef> beforeSelection,
                       QSet<SWMMObjectRef> afterSelection, QVariant beforeAssignments,
-                      QVariant afterAssignments)
+                      QVariant afterAssignments, QVariant beforeExtensions,
+                      QVariant afterExtensions)
         : QUndoCommand(label), mWindow(window), mBefore(std::move(before)),
           mAfter(std::move(after)), mBeforeSelection(std::move(beforeSelection)),
           mAfterSelection(std::move(afterSelection)),
           mBeforeAssignments(std::move(beforeAssignments)),
-          mAfterAssignments(std::move(afterAssignments))
+          mAfterAssignments(std::move(afterAssignments)),
+          mBeforeExtensions(std::move(beforeExtensions)), mAfterExtensions(std::move(afterExtensions))
     {
     }
-    void undo() override { replay(mBefore, mBeforeSelection, mBeforeAssignments); }
+    void undo() override { replay(mBefore, mBeforeSelection, mBeforeAssignments, mBeforeExtensions); }
     void redo() override
     {
         if (mInitial)
             mInitial = false;
         else
-            replay(mAfter, mAfterSelection, mAfterAssignments);
+            replay(mAfter, mAfterSelection, mAfterAssignments, mAfterExtensions);
     }
 
 private:
     void replay(const QString &path, const QSet<SWMMObjectRef> &selection,
-                const QVariant &assignments)
+                const QVariant &assignments, const QVariant &extensions)
     {
         const QPointer<SWMMVisProjectWindow> owner(mWindow);
         const auto target = path;
@@ -344,6 +346,7 @@ private:
             qWarning().noquote() << "Extension snapshot replay failed:" << target << error;
         else if (owner && !owner->isClosing()) {
             owner->setProperty("timeSeriesAssignments", assignments);
+            owner->setProperty("extensionData", extensions);
             restoreSpatialSelection(owner, identities, others);
         }
     }
@@ -352,6 +355,7 @@ private:
     QSet<SWMMObjectRef> mBeforeSelection,
         mAfterSelection; ///< Model identities matching each snapshot.
     QVariant mBeforeAssignments, mAfterAssignments; ///< Provenance matching each engine snapshot.
+    QVariant mBeforeExtensions, mAfterExtensions; ///< Compact plugin provenance in the same undo step.
     bool mInitial = true;
 };
 
@@ -373,6 +377,7 @@ public:
         mWasDirty = window->hasChanges();
         mBeforeSelection = spatialSelection(window);
         mBeforeAssignments = window->property("timeSeriesAssignments");
+        mBeforeExtensions = window->property("extensionData");
         connect(window, &SWMMVisProjectWindow::aboutToClose, this, [this]() { abort(); });
     }
     ~NativeEditScope() override
@@ -410,7 +415,8 @@ public:
         if (owner && !owner->isClosing())
             owner->canvas()->undoStack()->push(new NativeEditCommand(
                 owner, mBefore, after, mLabel, mBeforeSelection, afterSelection,
-                mBeforeAssignments, owner->property("timeSeriesAssignments")));
+                mBeforeAssignments, owner->property("timeSeriesAssignments"),
+                mBeforeExtensions, owner->property("extensionData")));
         mLease.reset();
         clearMarker();
         return owner && !owner->isClosing();
@@ -432,6 +438,8 @@ public:
         const bool ok = restoreSnapshot(owner, mBefore, error);
         if (ok && owner && !owner->isClosing())
             owner->setProperty("timeSeriesAssignments", mBeforeAssignments);
+        if (ok && owner && !owner->isClosing())
+            owner->setProperty("extensionData", mBeforeExtensions);
         if (ok && owner && !owner->isClosing())
             restoreSpatialSelection(owner, mBeforeSelection, others);
         if (ok && owner && !owner->isClosing())
@@ -458,6 +466,7 @@ private:
     QString mMarker;
     QSet<SWMMObjectRef> mBeforeSelection; ///< Pre-edit spatial identities for abort and undo.
     QVariant mBeforeAssignments; ///< Assignment provenance before the corresponding engine edit.
+    QVariant mBeforeExtensions; ///< Plugin-owned project metadata before the corresponding engine edit.
     bool mBlocked = false, mFinished = false, mWasDirty = false;
 };
 
@@ -1789,6 +1798,50 @@ void installExtensionModelAccess(GuiExtensionHost *host,
     access->windows = std::move(windows);
     access->active = std::move(active);
     if (auto *registry = host->stateRegistry()) {
+        host->setRainfallReader([access, registry](const QUuid &sessionId, quint64 generation,
+                                                  RainfallModelInfo *info, QString *error) {
+            const auto refuse = [error](const QString &detail) {
+                if (error)
+                    *error = detail;
+                return false;
+            };
+            const auto state = registry->session(sessionId);
+            auto *window = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(sessionId));
+            if (!info || state.status != SessionStatus::Ready || state.saving ||
+                state.loadGeneration != generation || !window || !access->windows().contains(window))
+                return refuse(QStringLiteral("The rainfall target changed, closed or is not ready."));
+            auto *model = access->model(window);
+            auto lease = model ? model->acquireLease(LeaseKind::Read, error) : nullptr;
+            if (!lease)
+                return false;
+            auto engine = static_cast<SWMM_Engine>(lease->engine());
+            int system = -1;
+            double start = 0.;
+            const int count = swmm_gage_count(engine);
+            if (swmm_get_unit_system(engine, &system) != SWMM_OK || (system != 0 && system != 1) ||
+                swmm_options_get_start_date(engine, &start) != SWMM_OK || count < 0 || count > 5000)
+                return refuse(QStringLiteral("The model rainfall metadata could not be read."));
+            RainfallModelInfo result;
+            result.depthUnit = system == 1 ? QStringLiteral("mm") : QStringLiteral("in");
+            result.start = core::swmmDateTimeToQDateTime(start);
+            for (int i = 0; i < count; ++i) {
+                const auto *id = swmm_gage_id(engine, i);
+                if (!id)
+                    continue;
+                RainGageInfo gage;
+                gage.id = QString::fromUtf8(id);
+                double x = 0., y = 0.;
+                if (window->modelLayer()->cachedGageCoord(i, &x, &y) &&
+                    std::isfinite(x) && std::isfinite(y)) {
+                    gage.point = QPointF(x, y);
+                    if (x != 0. || y != 0.)
+                        gage.hasLonLat = model->project()->toLonLat(gage.point, &gage.lonLat);
+                }
+                result.gages.append(gage);
+            }
+            *info = std::move(result);
+            return true;
+        });
         QObject::connect(registry, &ExtensionStateRegistry::sessionRegistered, access,
                          [access, host](QObject *owner, const QUuid &) {
             auto *window = qobject_cast<SWMMVisProjectWindow *>(owner);

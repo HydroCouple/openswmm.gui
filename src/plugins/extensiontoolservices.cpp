@@ -15,6 +15,18 @@
 namespace openswmmvis
 {
 using namespace OpenSWMM::Sdk;
+bool GuiExtensionHost::modelRainfall(const QUuid &sessionId, quint64 generation,
+                                     RainfallModelInfo *info, QString *error) const
+{
+    if (error)
+        error->clear();
+    if (!info || isStopping() || QThread::currentThread() != thread() || !mRainfallReader) {
+        if (error)
+            *error = tr("Model rainfall metadata is unavailable.");
+        return false;
+    }
+    return mRainfallReader(sessionId, generation, info, error);
+}
 bool GuiExtensionHost::registerSharedRibbonTab(const SharedRibbonTabSpec &spec, QString *error)
 {
     if (error)

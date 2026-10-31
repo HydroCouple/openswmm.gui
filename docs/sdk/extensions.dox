@@ -259,6 +259,15 @@
  * activations raise that same dock. Closing the dock hides it and retains the
  * controls and in-flight work. Cancellation belongs to the tool controller.
  *
+ * Tool docks retain the native movable/floatable title bar and saved placement.
+ * Their context menu provides explicit docking positions and a floating option.
+ * The host scrolls content that exceeds the available dock size, including an
+ * expanded Results and messages section, without enlarging adjacent docks.
+ * Keep the returned widget's minimum size small. Long forms should scroll
+ * internally; a QSplitter can keep a chart visible and independently resizable
+ * while its controls scroll. Do not impose a fixed panel size or replace the
+ * native dock title bar to implement tool-specific controls.
+ *
  * The required GUI-thread QObject context guards the factory callback.
  * Destroying the context or action unregisters the tool and releases its dock.
  * Unregister before destroying any other captured objects. The host validates
@@ -1578,7 +1587,8 @@
  * bindings and the separate Python product. The independent openswmm.gui.data
  * consumer implements catalogue previews, dated observation downloads and native
  * collection import, and terrain payload retrieval with exact-area raster import.
- * Precipitation design storms remain a subsequent data package.
+ * Live precipitation evaluation uses session-only values; see the rainfall
+ * metadata capability and explicit application contract below.
  * SDK 1.1 adds derived model attributes and console source
  * navigation; the root IGuiExtension IID remains at 1.0 because its interface
  * is unchanged. Existing SDK 1.0 clients remain loadable, while plugins using
@@ -1690,6 +1700,33 @@
  * EV5 evidence belongs under tests/verification/extension_events_2026-10/ev5/.
  * Catalogue acceptance does not qualify future observation/raster/storm payload
  * invalidation, live-network policy/retry/cancellation, or all platform/toolchains.
+ *
+ * @section sdk_model_rainfall Rainfall metadata and in-memory storm evaluation (SDK 1.12)
+ *
+ * Discover OpenSWMM::Sdk::IModelRainfall through ExtensionHost::lifetime().
+ * modelRainfall() validates the exact Ready session/load and acquires a native
+ * read lease before copying the engine rainfall depth unit, model start and up
+ * to 5000 authored gage locations. The unit is mm for SI engine flow units and
+ * in for US engine flow units; display-unit preferences do not change it.
+ * Origin/unlocated gages are not advertised as valid geographic query points.
+ * The output is unchanged after a stale, locked, closing or invalid request.
+ * The interface returns no borrowed layer or engine pointers.
+ *
+ * The Data NOAA client uses the shared network policy with per-request cache
+ * load bypass and cache-save disabled. Responses, parsed frequency matrices,
+ * temporal products and candidate comparison curves remain bounded session
+ * values. Never serialize them into settings, extension project state, recovery
+ * files or persistent history. Run messages contain small operation summaries.
+ * Late/cancelled responses cannot replace an accepted newer query.
+ *
+ * Applying a selected storm uses IModelInstance::edit() and IEditScope directly:
+ * author regular intensity samples in native input units, add a terminal dry
+ * sample, configure the rain gage and commit once. Compact accepted source and
+ * method metadata may be changed through IProject::setExtensionData() inside
+ * the active edit scope; abort/undo/redo restore that metadata with the engine
+ * snapshot. Do not process GUI events inside the scope. The time-series/gage
+ * model edit does not require a saved response or a native time-series package.
+ * Separately requested persistent layer imports retain their existing contract.
  *
  * Generate the complete GUI documentation from the repository root with:
  * @code{.sh}
