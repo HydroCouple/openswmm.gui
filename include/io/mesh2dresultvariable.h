@@ -11,6 +11,7 @@
 #define OPENSWMMVIS_IO_MESH2DRESULTVARIABLE_H
 
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <cstdint>
 
@@ -34,16 +35,22 @@ struct Mesh2DResultVariable {
     int layer = -1;     // explicit sigma-layer coordinate, not a species row
     int frameCount = 0; // 0 for time-independent static/envelope variables
     bool unitsKnown = false;
+    // V1 (D-V7): computed in the GUI from other variables, never stored in the
+    // result file. derivedFrom lists the input keys (export provenance).
+    bool derived = false;
+    QStringList derivedFrom;
 
     /**
      * @brief Encode the source-local dataset, optional species, and optional layer identity.
-     * @return Empty when dataset is empty; otherwise a domain-prefixed key with percent-encoded dataset/species and a nonnegative layer suffix when supplied.
+     * @return Empty when dataset is empty; "derived:<dataset>" for a derived variable; otherwise a domain-prefixed key with percent-encoded dataset/species and a nonnegative layer suffix when supplied.
      * @details Labels, units, temporal mode, and frame count do not enter the key. The owner must pair this key with its run/source identity.
      */
     QString key() const
     {
         if (dataset.isEmpty())
             return {};
+        if (derived)
+            return QStringLiteral("derived:") + QString::fromLatin1(QUrl::toPercentEncoding(dataset));
         QString result = (domain == Domain::Groundwater ? QStringLiteral("groundwater:")
                                                         : QStringLiteral("surface:")) +
                          QString::fromLatin1(QUrl::toPercentEncoding(dataset));

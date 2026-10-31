@@ -496,10 +496,12 @@ void StatusReportDialog::loadReport(int sourceIndex)
             tr("Could not read %1:\n%2").arg(m_path, err.isEmpty() ? rawErr : err));
     }
 
-    if (openswmmvis::io::RptParser::hasHighContinuityError(sections)) {
-        m_continuityBanner->setText(tr("⚠ Continuity error above %1 % detected. "
-                                       "Check the Runoff / Routing Continuity sections.")
-                                        .arg(kContinuityErrorThresholdPct, 0, 'f', 0));
+    const QStringList highBlocks = openswmmvis::io::RptParser::highContinuityErrorBlocks(
+        sections, kContinuityErrorThresholdPct);
+    if (!highBlocks.isEmpty()) {
+        m_continuityBanner->setText(tr("⚠ Continuity error above %1 % in: %2.")
+                                        .arg(kContinuityErrorThresholdPct, 0, 'f', 0)
+                                        .arg(highBlocks.join(QStringLiteral(", "))));
         m_continuityBanner->show();
     } else {
         m_continuityBanner->hide();
@@ -525,6 +527,8 @@ void StatusReportDialog::populateText(const QVector<openswmmvis::io::RptSection>
         m_sectionsModel->appendRow(item);
     };
 
+    // Per-species blocks repeat a title; their labels add the species.
+    const QStringList labels = openswmmvis::io::RptParser::bookmarkLabels(sections);
     int anchor = 0;
     for (int i = 0; i < sections.size(); ++i) {
         const openswmmvis::io::RptSection &s = sections.at(i);
@@ -532,7 +536,7 @@ void StatusReportDialog::populateText(const QVector<openswmmvis::io::RptSection>
         anchor += s.body.length();
 
         if (!s.title.isEmpty()) {
-            addBookmark(s.title, start);
+            addBookmark(labels.at(i), start);
             continue;
         }
 

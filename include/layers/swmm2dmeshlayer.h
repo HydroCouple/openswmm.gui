@@ -23,6 +23,7 @@
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H
 #define OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H
 
+#include "layers/groundwatermapmarkers.h"
 #include "layers/meshspatialgrid.h"
 #include "layers/openswmmvislayer.h"
 #include "mesh/meshboundarygraph.h"
@@ -63,6 +64,7 @@ class ContourBandSublayer;
 class IsolineSublayer;
 class MeshBcSublayer;
 class CoupledNodeSublayer;
+class GroundwaterMarkerSublayer;
 }
 
 class SWMM2DMeshLayer : public OpenSWMMVisLayer, public OpenSWMM::Render::ISublayerHost
@@ -781,7 +783,9 @@ public:
      * @param[in] triIdx Original zero-based cell index, including quads.
      * @param[in] tag Raw region tag copied verbatim, including empty.
      * @return False invalid cell, true unchanged/applied.
-     * @note Effective change emits cell attribute/repaint but does not bump attribute revision or refresh ownership/legend caches; consumers depending on tag inheritance need subsequent explicit refresh/invalidation.
+     * @note Effective change bumps the attribute revision (tag categories, tag-inherited
+     * values) and queues a legend refresh, then emits cell attribute/repaint. Ownership caches
+     * are not refreshed here.
      */
     bool applyMeshTriangleTag(int triIdx, const QString &tag);
 
@@ -1053,6 +1057,30 @@ public:
     {
         return m_coupledNodeSublayer;
     }
+    /**
+     * @return Borrowed layer-owned R7 sublayer marking [GW_SOURCES] locations and
+     * [2D_AQUIFER_NODE] beds; toggled like the other decoration sublayers.
+     */
+    [[nodiscard]] OpenSWMM::Render::GroundwaterMarkerSublayer *groundwaterMarkerSublayer() const
+    {
+        return m_gwMarkerSublayer;
+    }
+
+    /*! \brief R7: re-read the groundwater source and node-bed rows from the model engine
+     *  (setInfiltrationModel()'s model) and repaint when they changed. Called on model edits;
+     *  callers that edit those rows without a model-edit signal call it directly. */
+    void refreshGroundwaterMarkers();
+
+    /*! One groundwater marker in scene coordinates (canvas CRS, Y down). */
+    struct GroundwaterSceneMarker {
+        QPointF pt;
+        OpenSWMMVis::Groundwater::GroundwaterMapMarker::Kind kind;
+        QString name;
+    };
+    /*! \brief The current markers in scene coordinates: XY rows and node beds reprojected
+     *  from the model CRS, cell rows at the cell's vertex centroid. Cached per geometry and
+     *  marker revision; markers naming a cell outside the mesh are skipped. */
+    [[nodiscard]] const QVector<GroundwaterSceneMarker> &groundwaterSceneMarkers() const;
 
     /*! Migration hook (ISublayerHost) — seeds the BC / coupled-node
      *  sublayers from legacy MeshEdgeStyle / MeshNodeStyle JSON when a
@@ -1125,6 +1153,10 @@ public:
      * @note Recomputed on key/geometry/attribute revision and can resolve inherited/ownership values. A later different-key call overwrites the same buffer; copy if retaining independently. No locking/notifications.
      */
     [[nodiscard]] const QVector<float> &cellAttributeValues(const QByteArray &key) const;
+
+    /*! \brief Distinct non-empty cell tags, sorted: category i of the "tag" fill attribute
+     *  (cellAttributeValues("tag") holds i per cell, NaN for an untagged cell). */
+    [[nodiscard]] QStringList cellTagCategories() const;
 
     /*! \brief Strided sample of \p key for data-driven classification
      *  (quantile / natural-breaks / std-dev), NaNs excluded. Empty when the
@@ -1554,6 +1586,14 @@ private:
     OpenSWMM::Render::IsolineSublayer *m_isolineSublayer = nullptr;
     OpenSWMM::Render::MeshBcSublayer *m_meshBcSublayer = nullptr;
     OpenSWMM::Render::CoupledNodeSublayer *m_coupledNodeSublayer = nullptr;
+    OpenSWMM::Render::GroundwaterMarkerSublayer *m_gwMarkerSublayer = nullptr;
+    // R7: rows read from the model engine by refreshGroundwaterMarkers(), and
+    // their scene positions (rebuilt when the geometry or the rows change).
+    QVector<OpenSWMMVis::Groundwater::GroundwaterMapMarker> m_gwMarkers;
+    quint64 m_gwMarkerRevision = 0;
+    mutable QVector<GroundwaterSceneMarker> m_gwSceneMarkers;
+    mutable quint64 m_gwSceneGeomRev = ~quint64(0);
+    mutable quint64 m_gwSceneMarkerRev = ~quint64(0);
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;

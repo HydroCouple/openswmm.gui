@@ -8,6 +8,7 @@
  */
 
 #include "layers/swmm2dresultslayer.h"
+#include "io/mesh2dderivedvariables.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include <QJsonArray>
 #include <QUuid>
@@ -22,12 +23,22 @@ using OpenSWMM::Render::ResultScalarSublayer;
 
 QVector<Mesh2DResultVariable> HDF5Mesh2DSource::faceVariables(QStringList *warnings) const
 {
-    return reader_->faceVariables(warnings);
+    auto variables = reader_->faceVariables(warnings);
+    variables += openswmmvis::io::derivedGroundwaterVariables(variables, warnings);
+    return variables;
 }
 bool HDF5Mesh2DSource::readFaceVariableAt(const Mesh2DResultVariable &v, int t,
                                           std::vector<float> &values,
                                           std::vector<Mesh2DValueStatus> &status)
 {
+    if (v.derived)
+        return openswmmvis::io::readDerivedVariableAt(
+            v, t,
+            [this](const Mesh2DResultVariable &input, int time, std::vector<float> &out,
+                   std::vector<Mesh2DValueStatus> &flags) {
+                return reader_->readFaceVariableAt(input, time, out, flags);
+            },
+            values, status);
     return reader_->readFaceVariableAt(v, t, values, status);
 }
 

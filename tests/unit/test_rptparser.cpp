@@ -20,7 +20,9 @@
 
 #include <gtest/gtest.h>
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QString>
 #include <QStringList>
 
@@ -230,4 +232,114 @@ TEST(RptParser, MissingFileReturnsEmptyWithError)
     const auto sections = RptParser::parse(QStringLiteral("does_not_exist.rpt"), &err);
     EXPECT_TRUE(sections.isEmpty());
     EXPECT_FALSE(err.isEmpty());
+}
+
+namespace
+{
+// Phase 4A R8 (2026-10-30): the engine writes one "2D Aquifer Quality
+// Continuity" block per species, naming the species on the opening star rule,
+// and a "Quality Routing Continuity" block with one column per species. A
+// per-species "n/a" error is followed by a block whose lines carry digits.
+const char *kSpeciesBlocksReport = R"RPT(
+  *************************
+  Analysis Options
+  *************************
+  Flow Units ............... CMS
+
+
+  **************************        Volume         Depth
+  Runoff Quantity Continuity     hectare-m            mm
+  **************************     ---------       -------
+  Total Precipitation ......       154.561       571.430
+  Continuity Error (%) .....        -0.437
+
+
+  **************************      SurfPoll
+  2D Aquifer Quality Continuity       mass
+  **************************    ----------
+  Initial Stored Mass ......        0.0000
+  Final Stored Mass ........   136338.5348
+  Continuity Error (%) .....         0.000
+
+
+  **************************      GWTracer
+  2D Aquifer Quality Continuity       mass
+  **************************    ----------
+  Initial Stored Mass ......        0.0000
+  Final Stored Mass ........     1437.0000
+  Continuity Error (%) .....        15.200
+
+
+  **************************      __WATER_AGE__
+  2D Aquifer Quality Continuity       mass
+  **************************    ----------
+  Initial Stored Mass ......        0.0000
+  Continuity Error (%) .....           n/a
+
+
+  *************************
+  2D Solver Statistics
+  *************************
+  Internal Steps ...........        139262
+
+
+  **************************      SurfPoll      GWTracer
+  Quality Routing Continuity            kg            kg
+  **************************    ----------    ----------
+  External Inflow ..........        21.853         0.000
+  Continuity Error (%) .....        12.463         0.000
+)RPT";
+
+/**
+ * @brief Write the per-species report fixture to the reviewable Phase 4A folder.
+ * @return Absolute path of the written report, or empty when it cannot be written.
+ */
+QString writeSpeciesBlocksReport()
+{
+    const QString dir = QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath(
+        QStringLiteral("../output/gw_phase4a_2026-10-30/report_viewer"));
+    if (!QDir().mkpath(dir))
+        return {};
+    const QString path = dir + QStringLiteral("/species_blocks.rpt");
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return {};
+    const QByteArray bytes(kSpeciesBlocksReport);
+    return f.write(bytes) == bytes.size() ? path : QString();
+}
+} // namespace
+
+TEST(RptParser, PerSpeciesAquiferBlocksGetDistinctBookmarks)
+{
+    const QString path = writeSpeciesBlocksReport();
+    ASSERT_FALSE(path.isEmpty());
+    const auto sections = RptParser::parse(path, nullptr);
+    const QStringList labels = RptParser::bookmarkLabels(sections);
+    ASSERT_EQ(labels.size(), sections.size());
+    QStringList aquifer;
+    for (const QString &label : labels)
+        if (label.startsWith(QStringLiteral("2D Aquifer Quality Continuity")))
+            aquifer << label;
+    EXPECT_EQ(aquifer.join(QStringLiteral(" | ")).toStdString(),
+              "2D Aquifer Quality Continuity — SurfPoll | "
+              "2D Aquifer Quality Continuity — GWTracer | "
+              "2D Aquifer Quality Continuity — __WATER_AGE__");
+    // Unique titles keep their plain title (no "Volume Depth" heading suffix).
+    EXPECT_TRUE(labels.contains(QStringLiteral("Runoff Quantity Continuity")));
+    EXPECT_TRUE(labels.contains(QStringLiteral("Quality Routing Continuity")));
+}
+
+TEST(RptParser, ContinuityBannerNamesTheExceedingBlocks)
+{
+    const QString path = writeSpeciesBlocksReport();
+    ASSERT_FALSE(path.isEmpty());
+    const auto sections = RptParser::parse(path, nullptr);
+    // Exactly the GWTracer aquifer block and the SurfPoll routing column; the
+    // runoff block (0.437 %) and the "n/a" block are not named.
+    EXPECT_EQ(RptParser::highContinuityErrorBlocks(sections)
+                  .join(QStringLiteral(" | "))
+                  .toStdString(),
+              "2D Aquifer Quality Continuity (GWTracer) | Quality Routing Continuity (SurfPoll)");
+    EXPECT_TRUE(RptParser::hasHighContinuityError(sections));
+    EXPECT_TRUE(RptParser::highContinuityErrorBlocks(sections, 20.0).isEmpty());
 }

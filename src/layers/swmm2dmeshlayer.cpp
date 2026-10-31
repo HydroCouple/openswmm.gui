@@ -44,6 +44,7 @@
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
@@ -677,6 +678,34 @@ public:
             }
         }
 
+        // ---- Pass 5c: groundwater sources / aquifer node beds (R7) ------------
+        // A handful of markers: drawn at every zoom (no vertex LOD gate).
+        // Sources are squares, beds diamonds; an EXCHANGE NO bed is grey.
+        if (const auto *gwSub = m_layer->groundwaterMarkerSublayer();
+            gwSub && gwSub->isVisible() && !m_layer->groundwaterSceneMarkers().isEmpty()) {
+            using Kind = OpenSWMMVis::Groundwater::GroundwaterMapMarker::Kind;
+            const auto *gwStyle = gwSub->markerStyle();
+            const double scale = p->worldTransform().m11();
+            const double r = 0.5 * gwStyle->markerSizePx() / (scale > 0.0 ? scale : 1.0);
+            QPen outline(QColor(255, 255, 255, 230));
+            outline.setCosmetic(true);
+            outline.setWidthF(1.0);
+            p->setPen(outline);
+            for (const auto &m : m_layer->groundwaterSceneMarkers()) {
+                const QColor c = m.kind == Kind::Source    ? gwStyle->sourceColor()
+                                 : m.kind == Kind::NodeBed ? gwStyle->bedColor()
+                                                           : gwStyle->noExchangeColor();
+                p->setBrush(withOpacity(c, gwSub->opacity()));
+                if (m.kind == Kind::Source)
+                    p->drawRect(QRectF(m.pt.x() - r, m.pt.y() - r, 2 * r, 2 * r));
+                else
+                    p->drawPolygon(QPolygonF({QPointF(m.pt.x(), m.pt.y() - r),
+                                              QPointF(m.pt.x() + r, m.pt.y()),
+                                              QPointF(m.pt.x(), m.pt.y() + r),
+                                              QPointF(m.pt.x() - r, m.pt.y())}));
+            }
+        }
+
         // ---- Pass 3: selection highlight (cells / edges / vertices) ----------
         // Cyan, drawn on top of fill + edges. This is the active render path
         // (the QSG renderer is currently inactive), so all mesh-element
@@ -811,6 +840,8 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
         new OpenSWMM::Render::MeshNodeSublayer(QStringLiteral("mesh.vertices"), this);
     m_coupledNodeSublayer =
         new OpenSWMM::Render::CoupledNodeSublayer(QStringLiteral("mesh.coupledNodes"), this);
+    m_gwMarkerSublayer = new OpenSWMM::Render::GroundwaterMarkerSublayer(
+        QStringLiteral("mesh.groundwaterMarkers"), this);
     m_contourBandSublayer =
         new OpenSWMM::Render::ContourBandSublayer(QStringLiteral("mesh.contourBands"), this);
     m_isolineSublayer =
@@ -856,8 +887,14 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     wire(m_meshBcSublayer);
     wire(m_meshNodeSublayer);
     wire(m_coupledNodeSublayer);
+    wire(m_gwMarkerSublayer);
     wire(m_contourBandSublayer);
     wire(m_isolineSublayer);
+    // Category legend rows (infiltration method, cell tag) follow the
+    // "Colour by" choice, not only attribute edits.
+    if (auto *fs = m_meshFillSublayer->fillStyle())
+        QObject::connect(fs, &OpenSWMM::Render::SublayerStyle::styleChanged, this,
+                         [this]() { scheduleLegendInputRefresh(); });
 
     if (!m_mesh.vertices.isEmpty()) {
         const auto &v0 = m_mesh.vertices.first();
@@ -1959,6 +1996,10 @@ void SWMM2DMeshLayer::refreshSublayerLegendInputs()
             std::sort(present.begin(), present.end());
         }
         m_meshFillSublayer->setCategoriesPresent(present);
+        m_meshFillSublayer->setCategoryNames(
+            st && st->colorByAttribute() == OpenSWMM::Render::MeshFillStyle::CellAttribute::Tag
+                ? cellTagCategories()
+                : QStringList());
 
         if (auto *us = UnitSystem::instance())
             m_meshFillSublayer->setDepthUnitLabel(us->depthLabel());
@@ -1985,6 +2026,21 @@ const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key
     m_attrCacheMin = 0.0;
     m_attrCacheMax = 0.0;
 
+    // R7: the cell TAG as categories (index into cellTagCategories()).
+    if (key == "tag") {
+        const QStringList tags = cellTagCategories();
+        QHash<QString, int> index;
+        for (int i = 0; i < tags.size(); ++i)
+            index.insert(tags[i], i);
+        m_attrCacheVals.reserve(m_sceneTris.size());
+        for (const SceneTri &st : m_sceneTris) {
+            const int i = index.value(m_mesh.triangles[st.cell].tag, -1);
+            m_attrCacheVals.append(i < 0 ? std::numeric_limits<float>::quiet_NaN() : float(i));
+        }
+        m_attrCacheHasData = !tags.isEmpty();
+        m_attrCacheMax = std::max(0, int(tags.size()) - 1);
+        return m_attrCacheVals;
+    }
     if (!mesh::cellParamSpec(key))
         return m_attrCacheVals; // unknown key
 
@@ -2014,6 +2070,17 @@ const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key
         m_attrCacheMax = hi;
     }
     return m_attrCacheVals;
+}
+
+QStringList SWMM2DMeshLayer::cellTagCategories() const
+{
+    QSet<QString> seen;
+    for (const auto &t : m_mesh.triangles)
+        if (!t.tag.isEmpty())
+            seen.insert(t.tag);
+    QStringList tags(seen.cbegin(), seen.cend());
+    tags.sort();
+    return tags;
 }
 
 bool SWMM2DMeshLayer::cellAttributeRange(const QByteArray &key, double *vMin, double *vMax) const
@@ -2659,6 +2726,8 @@ bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
     if (m_mesh.triangles[triIdx].tag == tag)
         return true;
     m_mesh.triangles[triIdx].tag = tag;
+    ++m_attrRevision; // tag categories (fill colour, legend) follow the edit
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;
@@ -2945,6 +3014,7 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
         OpenSWMM::Render::ISublayer *defaults[] = {
             m_meshFillSublayer, m_contourBandSublayer, m_meshEdgeSublayer,    m_meshBcSublayer,
             m_isolineSublayer,  m_meshNodeSublayer,    m_coupledNodeSublayer,
+            m_gwMarkerSublayer,
         };
         for (auto *s : defaults)
             if (s)
@@ -3263,6 +3333,7 @@ std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMM2DMeshLaye
     add(m_isolineSublayer);
     add(m_meshNodeSublayer);
     add(m_coupledNodeSublayer);
+    add(m_gwMarkerSublayer);
 
     return out;
 }
@@ -3351,16 +3422,71 @@ void SWMM2DMeshLayer::setInfiltrationModel(::SWMMModelLayer *model)
                 m_mesh.infiltrationConflict.clear();
                 m_mesh.infiltrationSource.clear();
                 invalidateSurfaceOwnership();
+                m_gwMarkers.clear();
+                ++m_gwMarkerRevision;
                 emit meshEditsChanged();
             });
             m_ownerEdited = connect(model, &::SWMMModelLayer::modelEdited, this, [this] {
                 refreshInfiltrationOwnership();
                 refreshSurfaceOwnership();
+                refreshGroundwaterMarkers();
             });
         }
     }
     refreshInfiltrationOwnership();
     refreshSurfaceOwnership();
+    refreshGroundwaterMarkers();
+}
+
+void SWMM2DMeshLayer::refreshGroundwaterMarkers()
+{
+    using OpenSWMMVis::Groundwater::GroundwaterMapMarker;
+    const QVector<GroundwaterMapMarker> markers =
+        m_infiltrationModel ? OpenSWMMVis::Groundwater::groundwaterMapMarkers(
+                                  m_infiltrationModel->engine())
+                            : QVector<GroundwaterMapMarker>();
+    const auto same = [](const GroundwaterMapMarker &a, const GroundwaterMapMarker &b) {
+        return a.kind == b.kind && a.name == b.name && a.hasPoint == b.hasPoint &&
+               a.point == b.point && a.cell == b.cell;
+    };
+    if (markers.size() == m_gwMarkers.size() &&
+        std::equal(markers.cbegin(), markers.cend(), m_gwMarkers.cbegin(), same))
+        return;
+    m_gwMarkers = markers;
+    ++m_gwMarkerRevision;
+    emit repaintRequested();
+}
+
+const QVector<SWMM2DMeshLayer::GroundwaterSceneMarker> &
+SWMM2DMeshLayer::groundwaterSceneMarkers() const
+{
+    if (m_gwSceneGeomRev == m_geomRevision && m_gwSceneMarkerRev == m_gwMarkerRevision)
+        return m_gwSceneMarkers;
+    m_gwSceneGeomRev = m_geomRevision;
+    m_gwSceneMarkerRev = m_gwMarkerRevision;
+    m_gwSceneMarkers.clear();
+    for (const auto &m : m_gwMarkers) {
+        double x = m.point.x(), y = m.point.y();
+        if (!m.hasPoint) {
+            // A cell row sits at the cell's vertex centroid (model coordinates).
+            if (m.cell < 0 || m.cell >= m_mesh.triangles.size())
+                continue;
+            constexpr double nan = std::numeric_limits<double>::quiet_NaN();
+            const auto &cell = m_mesh.triangles[m.cell];
+            x = y = 0;
+            const int n = cell.vertexCount();
+            for (int k = 0; k < n; ++k) {
+                const int v = cell.vertex(k);
+                const bool valid = v >= 0 && v < m_mesh.vertices.size();
+                x += valid ? m_mesh.vertices[v].xy.x() / n : nan;
+                y += valid ? m_mesh.vertices[v].xy.y() / n : nan;
+            }
+        }
+        CRSReproject::transformPointsInPlace(m_transform, &x, &y, 1);
+        if (std::isfinite(x) && std::isfinite(y))
+            m_gwSceneMarkers.append({QPointF(x, -y), m.kind, m.name}); // Y-flip as the scene
+    }
+    return m_gwSceneMarkers;
 }
 void SWMM2DMeshLayer::invalidateSurfaceOwnership()
 {

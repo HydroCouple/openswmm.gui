@@ -33,6 +33,7 @@
 
 #include <QColor>
 #include <QJsonObject>
+#include <QStringList>
 #include <QString>
 #include <QVector>
 
@@ -84,6 +85,9 @@ public:
         GwHg0,        ///< "gw.hg0"     (engine support pending)
         InfilOwner,
         InfilConflict,
+        // R7 (2026-10-30): the cell's [2D_TRIANGLES] TAG as categories, one
+        // palette colour per distinct tag; untagged cells take noDataColor.
+        Tag, ///< "tag" (categorical; not a cell-parameter registry key)
     };
     Q_ENUM(CellAttribute)
 
@@ -178,8 +182,8 @@ public:
      *  mesh::CellParamSpec is Kind::Enum. The renderer then colours each cell
      *  by categoryColorForValue() instead of running the value through the
      *  ClassificationScheme, and the legend emits one row per present value. */
-    /** @return True only when the selected non-Elevation key resolves to a CellParamSpec
-     * whose Kind is Enum. This queries metadata without examining mesh values. */
+    /** @return True for Tag, or when the selected non-Elevation key resolves to a
+     * CellParamSpec whose Kind is Enum. This queries metadata without examining mesh values. */
     [[nodiscard]] bool colorsByCategory() const;
 
     /*! \brief Colour for enumeration value \p v of the current categorical
@@ -341,6 +345,13 @@ public:
      * the advertised ascending/unique order because this class does not enforce it. */
     [[nodiscard]] const QVector<int> &categoriesPresent() const { return m_categoriesPresent; }
 
+    /*! \brief Legend names of a categorical attribute without registry labels (the cell
+     *  tag): name i labels category value i. Pushed by SWMM2DMeshLayer; a change emits
+     *  invalidated(). */
+    void setCategoryNames(const QStringList &names);
+    /** @return Borrowed names last pushed by setCategoryNames(). */
+    [[nodiscard]] const QStringList &categoryNames() const { return m_categoryNames; }
+
 private:
     QString m_id;
     bool m_visible = true;
@@ -349,6 +360,7 @@ private:
     bool m_attributeHasData = true;
     QString m_depthUnitLabel;
     QVector<int> m_categoriesPresent;
+    QStringList m_categoryNames;
 };
 
 } // namespace OpenSWMM::Render

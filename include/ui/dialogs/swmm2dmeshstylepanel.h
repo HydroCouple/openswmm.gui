@@ -117,6 +117,9 @@ private:
      * page lifetime.
      */
     [[nodiscard]] QWidget *buildCoupledNodeTab(QWidget *parent);
+    /** @brief Build the R7 Groundwater Markers tab ([GW_SOURCES] / [2D_AQUIFER_NODE]).
+     * @param parent Owner of the returned page. @return New page widget. */
+    [[nodiscard]] QWidget *buildGroundwaterMarkerTab(QWidget *parent);
 
     QPointer<SWMM2DMeshLayer> m_layer;
 };

@@ -46,6 +46,24 @@ public:
      */
     static bool hasHighContinuityError(const QVector<RptSection> &sections,
                                        double thresholdPct = 10.0);
+
+    /*! \brief Name the report blocks whose "Continuity Error (%)" exceeds \p thresholdPct.
+     * @param[in] sections Parsed report sections.
+     * @param[in] thresholdPct Strict absolute-error threshold in percent.
+     * @return One label per exceeding block, in report order and without duplicates: the
+     * section title, plus "(column)" when the block's opening star rule names one column
+     * per reported value (the species of a quality block). Untitled text is "(untitled)".
+     * Only numbers on the continuity line itself are read ("n/a" is not a value).
+     */
+    static QStringList highContinuityErrorBlocks(const QVector<RptSection> &sections,
+                                                 double thresholdPct = 10.0);
+
+    /*! \brief Navigation label for each section, parallel to \p sections.
+     * @return The section title (empty for untitled text), followed by " — " and the column
+     * text of its opening star rule for the per-species "2D Aquifer Quality Continuity"
+     * blocks and for any title the report repeats, so repeated blocks stay distinguishable.
+     */
+    static QStringList bookmarkLabels(const QVector<RptSection> &sections);
 };
 
 } // namespace openswmmvis::io

@@ -144,9 +144,16 @@ bool exportMesh2DVariableCsv(IMesh2DSource &source, const QString &key, int fram
         const auto write = [&](const QByteArray &bytes) {
             return output.write(bytes) == bytes.size();
         };
-        if (!write(
-                "source,key,dataset,species,domain,zone,layer_index_0based,temporal,requested_frame,frame,time,cell_index_0based,value,status,units\n"))
+        // A derived variable (V1) names its inputs; native exports keep the
+        // historic columns.
+        if (!write(QByteArray(
+                       "source,key,dataset,species,domain,zone,layer_index_0based,temporal,requested_frame,frame,time,cell_index_0based,value,status,units") +
+                   (variable.derived ? ",derived_from\n" : "\n")))
             return fail(output.errorString());
+        const QString provenance =
+            variable.derived
+                ? ',' + csvString(variable.derivedFrom.join(QLatin1Char(';')))
+                : QString();
         const QString domain =
             variable.domain == V::Domain::Groundwater ? "groundwater" : "surface";
         const QString zone = variable.zone == V::Zone::Saturated     ? "saturated"
@@ -182,7 +189,7 @@ bool exportMesh2DVariableCsv(IMesh2DSource &source, const QString &key, int fram
                                        : QString::number(values[std::size_t(cell)], 'g',
                                                          std::numeric_limits<float>::max_digits10);
             const QByteArray row = (prefix + QString::number(cell) + ',' + number + ',' + label +
-                                    ',' + csvString(variable.units) + '\n')
+                                    ',' + csvString(variable.units) + provenance + '\n')
                                        .toUtf8();
             if (!write(row))
                 return fail(output.errorString());

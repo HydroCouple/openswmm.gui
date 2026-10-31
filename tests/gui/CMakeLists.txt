@@ -4613,3 +4613,53 @@ target_sources(test_mesh2dgroundwaterdialog PRIVATE
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgwsourcemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
     ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+
+# Phase 4A (2026-10-30, workplans/BELLINGE_GW_QUALITY_PHASE4A_AGENT_BRIEF_2026-10-30.md):
+# derived groundwater variables (V1), live surface quality and groundwater
+# fluxes (R3), groundwater map markers and tag categories (R7). Every test
+# writes its decks, results and exports under one reviewable folder.
+set(SWMMVIS_PHASE4A_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/tests/output/gw_phase4a_2026-10-30")
+add_swmmvis_gui_test(test_livesurfacevariables
+    test_livesurfacevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dderivedvariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
+    ${CMAKE_SOURCE_DIR}/include/io/mesh2dh5reader.h)
+target_include_directories(test_livesurfacevariables PRIVATE ${HDF5_INCLUDE_DIRS})
+target_link_libraries(test_livesurfacevariables PRIVATE ${HDF5_C_LIBRARIES})
+target_compile_definitions(test_livesurfacevariables PRIVATE
+    SWMMVIS_PHASE4A_OUTPUT="${SWMMVIS_PHASE4A_OUTPUT_DIR}")
+
+# V1 gate: derived groundwater variables through the saved/live sources, the
+# map frame, cell series and the CSV/GeoTIFF exports (full app sources).
+add_swmmvis_gui_test(test_mesh2dderivedvariables
+    test_mesh2dderivedvariables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_mesh2dderivedvariables)
+target_compile_definitions(test_mesh2dderivedvariables PRIVATE
+    SWMMVIS_PHASE4A_OUTPUT="${SWMMVIS_PHASE4A_OUTPUT_DIR}")
+
+# R7: groundwater source / node-bed map markers read from the model engine,
+# drawn and toggled through the mesh layer's sublayer, and mesh fill by TAG.
+add_swmmvis_gui_test(test_gwmapmarkers
+    test_gwmapmarkers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_gwmapmarkers)
+target_compile_definitions(test_gwmapmarkers PRIVATE
+    SWMMVIS_PHASE4A_OUTPUT="${SWMMVIS_PHASE4A_OUTPUT_DIR}")
+
+# R8: report viewer bookmarks for per-species aquifer blocks and the >10 %
+# continuity banner naming the exceeding blocks.
+add_swmmvis_gui_test(test_statusreportviewer
+    test_statusreportviewer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/statusreportdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/statusreportdialog.h
+    ${CMAKE_SOURCE_DIR}/src/io/rptparser.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h)
+target_link_libraries(test_statusreportviewer PRIVATE Qt6::Svg)
+target_compile_definitions(test_statusreportviewer PRIVATE
+    SWMMVIS_PHASE4A_OUTPUT="${SWMMVIS_PHASE4A_OUTPUT_DIR}")

@@ -21,6 +21,7 @@
 #include "contour/marchingtriangles.h"
 #include "core/crsreproject.h"
 #include "core/swmmdatetime.h"
+#include "io/mesh2dderivedvariables.h"
 #include "io/mesh2dh5reader.h"
 #include "layers/vertexdepthreconstruct.h"
 #include "map/mapextent.h"
@@ -1579,6 +1580,7 @@ EngineMesh2DSource::faceVariables(QStringList *warnings) const
     for (auto &v : variables)
         v.frameCount =
             v.temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static ? 0 : timeCount();
+    variables += openswmmvis::io::derivedGroundwaterVariables(variables, warnings);
     return variables;
 }
 
@@ -1589,6 +1591,14 @@ bool EngineMesh2DSource::readFaceVariableAt(const openswmmvis::io::Mesh2DResultV
     using Status = openswmmvis::io::Mesh2DValueStatus;
     values.clear();
     status.clear();
+    if (variable.derived)
+        return openswmmvis::io::readDerivedVariableAt(
+            variable, timeIdx,
+            [this](const openswmmvis::io::Mesh2DResultVariable &input, int time,
+                   std::vector<float> &out, std::vector<Status> &flags) {
+                return readFaceVariableAt(input, time, out, flags);
+            },
+            values, status);
     const openswmmvis::io::Mesh2DResultVariable *known = nullptr;
     for (const auto &v : live_variables_)
         if (v.key() == variable.key() && v.zone == variable.zone) {
