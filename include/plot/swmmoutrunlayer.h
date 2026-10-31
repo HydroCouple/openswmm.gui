@@ -99,7 +99,10 @@ public:
     bool supportsAttribute(PlotAttribute attr) const override;
 
     /*! \brief Y2b-1: fixed set + the open run's species BY NAME (D-G1).
-     *  Legacy `.out` (no quality) serves the fixed set only.
+     *  Legacy `.out` (no quality) serves the fixed set only. V0: the species
+     *  are the run catalog's `.out` columns; R4: on nodes and links each
+     *  pollutant is followed by its load and cumulative-load descriptors
+     *  (plot/pollutantload.h).
      * @param[in] kind Requested object discriminator.
      * @return Fixed-kind choices filtered by supportsAttribute(), with current nonempty species names appended only for node/link/subcatch kinds. A missing layer gives no species and excludes unavailable snow fields. No samples are read.
      */
@@ -151,6 +154,14 @@ private:
      * @note Zero periods, unknown ID, engine read failure or missing clocks produce diagnostics. A tail at/after total succeeds empty. Values are copied from output floats to doubles, without scaling.
      */
     void fetchSeriesByCode_(const ObjectRef &ref, int varCode, SeriesData &out) const;
+
+    /*! R4: \p species' load (node total inflow or link flow x concentration,
+     *  in kg/d | lb/d | count/d) or its cumulative time integral (kg | lb |
+     *  count) — plot/pollutantload.h — from out.firstPeriod on. Refuses a
+     *  species without a load (reserved age/temperature, 2D-only) with a
+     *  message; never returns zeros for it. */
+    void loadSeries_(const ObjectRef &ref, const QString &species, bool cumulative,
+                     SeriesData &out) const;
 
     QPointer<SWMMResultsLayer> m_layer;
 };

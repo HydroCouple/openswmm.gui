@@ -13,9 +13,15 @@
 #include "ui/theme/themehelpers.h"
 
 #include "core/queryparser.h"
+#include "layers/speciesattributes.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
+#include "plot/mesh2drunlayer.h"
+#include "plot/pollutantload.h"
+#include "plot/seriesintegration.h"
+#include "plot/swmmoutrunlayer.h"
 #include "ui/theme/iconfactory.h"
 
 #include <openswmm/engine/openswmm_output.h>
@@ -27,6 +33,7 @@
 #include <QBarSet>
 #include <QChart>
 #include <QChartView>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -46,6 +53,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
+#include <set>
 #include <vector>
 
 namespace openswmmvis::ui
@@ -112,6 +121,217 @@ protected:
 private:
     openswmmvis::QueryPredicate m_predicate;
 };
+
+using openswmmvis::plot::ObjectRef;
+using openswmmvis::plot::PlotAttribute;
+using openswmmvis::plot::ResultDescriptor;
+using openswmmvis::plot::SeriesData;
+
+/*! V6: what a column reports about one descriptor series. */
+enum class Stat { Max, Min, SampleSum, TimeIntegral, TimeMean, Final };
+
+struct StatColumn {
+    QString header;
+    ResultDescriptor descriptor;
+    Stat stat = Stat::Max;
+    char format = 'f'; ///< display rounding; the sort/query value is the rounded text
+    int precision = 3;
+    QString units;
+    double scale = 1.0; ///< applied to a time integral (seconds -> volume/depth units)
+    QString tip;
+};
+
+double statOf(const SeriesData &s, Stat stat, double start, int step)
+{
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    if (!s.ok || s.values.empty())
+        return nan;
+    std::vector<double> finite;
+    for (double v : s.values)
+        if (std::isfinite(v))
+            finite.push_back(v);
+    switch (stat) {
+    case Stat::Max:
+        return finite.empty() ? nan : *std::max_element(finite.begin(), finite.end());
+    case Stat::Min:
+        return finite.empty() ? nan : *std::min_element(finite.begin(), finite.end());
+    case Stat::SampleSum: // the sum of the stored samples, NOT a time integral
+        return finite.empty() ? nan : std::accumulate(finite.begin(), finite.end(), 0.0);
+    case Stat::TimeIntegral:
+        return openswmmvis::plot::timeIntegral(s.timesJulian, s.values, start, step);
+    case Stat::TimeMean:
+        return openswmmvis::plot::timeWeightedMean(s.timesJulian, s.values, start, step);
+    case Stat::Final:
+        return s.values.back();
+    }
+    return nan;
+}
+
+/*! A table cell: rounded like the dashboard always rounded, or an empty
+ *  item (no EditRole) for a missing value — never 0. */
+QStandardItem *statItem(double v, const StatColumn &c)
+{
+    if (!std::isfinite(v)) {
+        auto *item = new QStandardItem;
+        item->setToolTip(QObject::tr("Missing (not zero): the run has no value for %1 here.")
+                             .arg(c.header));
+        return item;
+    }
+    auto *item = new QStandardItem(QString::number(v, c.format, c.precision));
+    item->setData(item->text().toDouble(), Qt::EditRole); // sortable numeric
+    return item;
+}
+
+/*! Fill \p model with one row per id: each column a statistic of a
+ *  descriptor series read through \p run (each descriptor read once). */
+void populateStats(QStandardItemModel *model, const QString &idHeader, ObjectRef::Kind kind,
+                   const QStringList &ids, const QVector<StatColumn> &columns,
+                   const openswmmvis::plot::IRunLayer &run)
+{
+    model->clear();
+    QStringList headers{idHeader};
+    for (const StatColumn &c : columns)
+        headers.append(c.header);
+    model->setHorizontalHeaderLabels(headers);
+    for (int c = 0; c < columns.size(); ++c) {
+        QString tip = columns[c].units.isEmpty()
+                          ? QString()
+                          : QObject::tr("Units: %1").arg(columns[c].units);
+        if (!columns[c].tip.isEmpty())
+            tip += (tip.isEmpty() ? QString() : QStringLiteral("\n")) + columns[c].tip;
+        model->setHeaderData(c + 1, Qt::Horizontal, tip, Qt::ToolTipRole);
+    }
+    QVector<ResultDescriptor> unique;
+    QVector<int> source(columns.size());
+    for (int c = 0; c < columns.size(); ++c) {
+        int at = unique.indexOf(columns[c].descriptor);
+        if (at < 0) {
+            at = int(unique.size());
+            unique.append(columns[c].descriptor);
+        }
+        source[c] = at;
+    }
+    const double start = run.startDateJulian();
+    const int step = run.reportStepSeconds();
+    for (const QString &id : ids) {
+        QVector<openswmmvis::plot::SeriesRequest> requests;
+        const ObjectRef ref = kind == ObjectRef::Kind::System ? ObjectRef::forSystem()
+                                                              : ObjectRef(kind, id);
+        for (const ResultDescriptor &d : std::as_const(unique))
+            requests.append({ref, d, 0});
+        QVector<SeriesData> series;
+        run.getSeriesBatch(requests, series);
+        QList<QStandardItem *> row;
+        row << new QStandardItem(id);
+        for (int c = 0; c < columns.size(); ++c) {
+            double v = statOf(series.value(source[c]), columns[c].stat, start, step);
+            if (columns[c].stat == Stat::TimeIntegral)
+                v *= columns[c].scale;
+            row << statItem(v, columns[c]);
+        }
+        model->appendRow(row);
+    }
+}
+
+/*! The run's 1D object ids of \p kind, in `.out` order. */
+QStringList objectIds(SWMM_Output handle, ObjectRef::Kind kind)
+{
+    QStringList ids;
+    if (!handle)
+        return ids;
+    const int n = kind == ObjectRef::Kind::Node   ? swmm_output_get_node_count(handle)
+                  : kind == ObjectRef::Kind::Link ? swmm_output_get_link_count(handle)
+                                                  : swmm_output_get_subcatch_count(handle);
+    if (n <= 0 || swmm_output_get_period_count(handle) <= 0)
+        return ids;
+    for (int i = 0; i < n; ++i)
+        ids.append(QString::fromUtf8(kind == ObjectRef::Kind::Node
+                                         ? swmm_output_get_node_id(handle, i)
+                                     : kind == ObjectRef::Kind::Link
+                                         ? swmm_output_get_link_id(handle, i)
+                                         : swmm_output_get_subcatch_id(handle, i)));
+    return ids;
+}
+
+/*! Species columns: the max of each `.out` species and, on nodes and links,
+ *  each pollutant's total load (the time integral of flow x concentration). */
+QVector<StatColumn> speciesColumns(const openswmmvis::plot::SwmmOutRunLayer &run,
+                                   ObjectRef::Kind kind)
+{
+    QVector<StatColumn> columns;
+    namespace load = openswmmvis::plot::pollutantload;
+    for (const ResultDescriptor &d : run.resultDescriptorsForKind(kind)) {
+        if (d.isSpecies()) {
+            StatColumn c;
+            c.header = QObject::tr("Max %1").arg(
+                OpenSWMMVis::Species::speciesDisplayLabel(d.species));
+            c.descriptor = d;
+            c.format = 'g';
+            c.precision = 6;
+            c.units = d.unitLabel(run.unitSystem());
+            columns.append(c);
+        } else if (load::isLoadDescriptor(d)) {
+            QString species;
+            bool cumulative = false;
+            if (!load::parseKey(d.variableKey, &species, &cumulative) || !cumulative)
+                continue;
+            // Not the engine's own total: say so in the header and the tip.
+            const QString name = OpenSWMMVis::Species::speciesDisplayLabel(species);
+            StatColumn c;
+            c.header = kind == ObjectRef::Kind::Link
+                           ? QObject::tr("%1 net load (integrated from report-step samples)")
+                                 .arg(name)
+                           : QObject::tr("%1 load (integrated from report-step samples)").arg(name);
+            c.descriptor = d;
+            c.stat = Stat::Final;
+            c.format = 'g';
+            c.precision = 6;
+            c.units = d.variableUnits;
+            c.tip = d.variableNote;
+            columns.append(c);
+        }
+    }
+    return columns;
+}
+
+StatColumn fixedColumn(const QString &header, PlotAttribute a, Stat stat,
+                       openswmmvis::plot::UnitSystem u, int precision = 3, int flowUnits = -1)
+{
+    StatColumn c;
+    c.header = header;
+    c.descriptor = ResultDescriptor::forAttribute(a);
+    c.stat = stat;
+    c.precision = precision;
+    // .out flow columns are in the run's flow units (LPS, MGD, ...).
+    const bool flow = a == PlotAttribute::NodeOverflow || a == PlotAttribute::LinkFlow ||
+                      a == PlotAttribute::SubcatchRunoff;
+    const QString flowName = openswmmvis::plot::pollutantload::flowUnitsName(flowUnits);
+    c.units = flow && !flowName.isEmpty() ? flowName : openswmmvis::plot::unitsFor(a, u);
+    if (stat == Stat::SampleSum)
+        c.tip = QObject::tr("Sum of the stored report samples, not a time integral.");
+    return c;
+}
+
+/*! Volume unit and per-second factor of a flow-units code's time integral. */
+std::pair<QString, double> flowVolume(int flowUnitsCode)
+{
+    switch (flowUnitsCode) {
+    case 0:
+        return {QStringLiteral("ft³"), 1.0};
+    case 1:
+        return {QStringLiteral("gal"), 1.0 / 60.0};
+    case 2:
+        return {QStringLiteral("Mgal"), 1.0 / 86400.0};
+    case 3:
+        return {QStringLiteral("m³"), 1.0};
+    case 4:
+        return {QStringLiteral("L"), 1.0};
+    case 5:
+        return {QStringLiteral("ML"), 1.0 / 86400.0};
+    default:
+        return {QString(), std::numeric_limits<double>::quiet_NaN()};
+    }
+}
 
 } // namespace
 
@@ -187,7 +407,8 @@ void StatisticsDashboardDialog::buildUi()
     // Node table -------------------------------------------------------------
     m_nodeModel = new QStandardItemModel(this);
     m_nodeModel->setHorizontalHeaderLabels(
-        {tr("Node"), tr("Max depth"), tr("Max head"), tr("Max overflow"), tr("Volume")});
+        {tr("Node"), tr("Max depth"), tr("Max head"), tr("Max overflow"),
+         tr("Volume (sample sum)")});
     m_nodeProxy = new StatsFilteringProxy(this);
     m_nodeProxy->setSourceModel(m_nodeModel);
     m_nodeProxy->setSortRole(Qt::EditRole);
@@ -221,8 +442,10 @@ void StatisticsDashboardDialog::buildUi()
     // Subcatchment table -----------------------------------------------------
     m_subModel = new QStandardItemModel(this);
     m_subModel->setHorizontalHeaderLabels({tr("Subcatchment"), tr("Peak runoff"),
-                                           tr("Total runoff"), tr("Total infil"),
-                                           tr("Total evap")});
+                                           tr("Runoff (sample sum)"),
+                                           tr("Infiltration (sample sum)"),
+                                           tr("Evaporation (sample sum)"), tr("Runoff volume"),
+                                           tr("Infiltration depth"), tr("Evaporation depth")});
     m_subProxy = new StatsFilteringProxy(this);
     m_subProxy->setSourceModel(m_subModel);
     m_subProxy->setSortRole(Qt::EditRole);
@@ -235,6 +458,50 @@ void StatisticsDashboardDialog::buildUi()
     m_subTable->setAlternatingRowColors(true);
     m_subTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tabs->addTab(m_subTable, tr("S&ubcatchments"));
+
+    // V6: 2D regions — the map-selected cells, the selection, each cell tag
+    // and the whole domain for one 2D variable and aggregate.
+    m_meshPage = new QWidget(this);
+    auto *meshLayout = new QVBoxLayout(m_meshPage);
+    meshLayout->setContentsMargins(0, 0, 0, 0);
+    auto *meshRow = new QHBoxLayout;
+    meshRow->addWidget(new QLabel(tr("2D variable:"), m_meshPage));
+    m_meshVariable = new QComboBox(m_meshPage);
+    m_meshVariable->setObjectName(QStringLiteral("meshStatsVariable"));
+    meshRow->addWidget(m_meshVariable, 1);
+    meshRow->addWidget(new QLabel(tr("Aggregate:"), m_meshPage));
+    m_meshAggregate = new QComboBox(m_meshPage);
+    m_meshAggregate->setObjectName(QStringLiteral("meshStatsAggregate"));
+    for (auto a : {openswmmvis::results::MeshAggregate::AreaWeightedMean,
+                   openswmmvis::results::MeshAggregate::Mean,
+                   openswmmvis::results::MeshAggregate::Sum,
+                   openswmmvis::results::MeshAggregate::Mass})
+        m_meshAggregate->addItem(openswmmvis::results::aggregateLabel(a), int(a));
+    m_meshAggregate->setToolTip(
+        tr("How a region's cells combine at each report time. Mass = concentration x water "
+           "volume (depth x cell area), for surface species concentrations. Missing cells are "
+           "left out, never counted as zero."));
+    meshRow->addWidget(m_meshAggregate);
+    meshLayout->addLayout(meshRow);
+    m_meshModel = new QStandardItemModel(this);
+    m_meshProxy = new StatsFilteringProxy(this);
+    m_meshProxy->setSourceModel(m_meshModel);
+    m_meshProxy->setSortRole(Qt::EditRole);
+    m_meshTable = new QTableView(m_meshPage);
+    m_meshTable->setModel(m_meshProxy);
+    m_meshTable->setSortingEnabled(true);
+    m_meshTable->setObjectName(QStringLiteral("meshTable"));
+    m_meshTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_meshTable->setAlternatingRowColors(true);
+    m_meshTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_meshTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    meshLayout->addWidget(m_meshTable, 1);
+    m_tabs->addTab(m_meshPage, tr("2D &regions"));
+    m_tabs->setTabVisible(3, false);
+    connect(m_meshVariable, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this] { populateMeshStats(); });
+    connect(m_meshAggregate, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this] { populateMeshStats(); });
 
     // Histogram view is kept as an off-layout helper so selecting a numeric
     // column can still update the chart object without taking vertical space
@@ -315,43 +582,22 @@ void StatisticsDashboardDialog::populateNodeStats()
     m_nodeModel->removeRows(0, m_nodeModel->rowCount());
     if (!m_layer)
         return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle)
-        return;
-    const int n = swmm_output_get_node_count(handle);
-    const int periods = swmm_output_get_period_count(handle);
-    if (n <= 0 || periods <= 0)
-        return;
-
-    std::vector<float> series(periods);
-    for (int j = 0; j < n; ++j) {
-        const QString name = QString::fromUtf8(swmm_output_get_node_id(handle, j));
-        double maxDepth = -1e30, maxHead = -1e30, maxOver = -1e30, vol = 0.0;
-        if (swmm_output_get_node_series(handle, j, SWMM_OUT_NODE_DEPTH, 0, periods - 1,
-                                        series.data()) == 0) {
-            maxDepth = *std::max_element(series.begin(), series.end());
-        }
-        if (swmm_output_get_node_series(handle, j, SWMM_OUT_NODE_HEAD, 0, periods - 1,
-                                        series.data()) == 0) {
-            maxHead = *std::max_element(series.begin(), series.end());
-        }
-        if (swmm_output_get_node_series(handle, j, SWMM_OUT_NODE_OVERFLOW, 0, periods - 1,
-                                        series.data()) == 0) {
-            maxOver = *std::max_element(series.begin(), series.end());
-        }
-        if (swmm_output_get_node_series(handle, j, SWMM_OUT_NODE_VOLUME, 0, periods - 1,
-                                        series.data()) == 0) {
-            vol = std::accumulate(series.begin(), series.end(), 0.0);
-        }
-        QList<QStandardItem *> row;
-        row << new QStandardItem(name) << new QStandardItem(QString::number(maxDepth, 'f', 3))
-            << new QStandardItem(QString::number(maxHead, 'f', 3))
-            << new QStandardItem(QString::number(maxOver, 'f', 3))
-            << new QStandardItem(QString::number(vol, 'f', 1));
-        for (int c = 1; c < row.size(); ++c)
-            row[c]->setData(row[c]->text().toDouble(), Qt::EditRole); // sortable numeric
-        m_nodeModel->appendRow(row);
-    }
+    using U = openswmmvis::plot::UnitSystem;
+    const openswmmvis::plot::SwmmOutRunLayer run(m_layer);
+    const U u = run.unitSystem();
+    QVector<StatColumn> columns = {
+        fixedColumn(tr("Max depth"), PlotAttribute::NodeDepth, Stat::Max, u),
+        fixedColumn(tr("Max head"), PlotAttribute::NodeHead, Stat::Max, u),
+        fixedColumn(tr("Max overflow"), PlotAttribute::NodeOverflow, Stat::Max, u, 3,
+                    m_layer->flowUnits()),
+        fixedColumn(tr("Volume (sample sum)"), PlotAttribute::NodeVolume, Stat::SampleSum, u, 1)};
+    columns += speciesColumns(run, ObjectRef::Kind::Node);
+    populateStats(m_nodeModel, tr("Node"), ObjectRef::Kind::Node,
+                  objectIds(m_layer->outputHandle(), ObjectRef::Kind::Node), columns, run);
+    QStringList units{QString()};
+    for (const StatColumn &c : columns)
+        units.append(c.units);
+    m_units.insert(m_nodeModel, units);
 }
 
 void StatisticsDashboardDialog::populateLinkStats()
@@ -359,40 +605,21 @@ void StatisticsDashboardDialog::populateLinkStats()
     m_linkModel->removeRows(0, m_linkModel->rowCount());
     if (!m_layer)
         return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle)
-        return;
-    const int n = swmm_output_get_link_count(handle);
-    const int periods = swmm_output_get_period_count(handle);
-    if (n <= 0 || periods <= 0)
-        return;
-
-    std::vector<float> series(periods);
-    for (int j = 0; j < n; ++j) {
-        const QString name = QString::fromUtf8(swmm_output_get_link_id(handle, j));
-        double maxFlow = -1e30, maxDepth = -1e30, maxVel = -1e30, maxCap = -1e30;
-        if (swmm_output_get_link_series(handle, j, SWMM_OUT_LINK_FLOW, 0, periods - 1,
-                                        series.data()) == 0)
-            maxFlow = *std::max_element(series.begin(), series.end());
-        if (swmm_output_get_link_series(handle, j, SWMM_OUT_LINK_DEPTH, 0, periods - 1,
-                                        series.data()) == 0)
-            maxDepth = *std::max_element(series.begin(), series.end());
-        if (swmm_output_get_link_series(handle, j, SWMM_OUT_LINK_VELOCITY, 0, periods - 1,
-                                        series.data()) == 0)
-            maxVel = *std::max_element(series.begin(), series.end());
-        if (swmm_output_get_link_series(handle, j, SWMM_OUT_LINK_CAPACITY, 0, periods - 1,
-                                        series.data()) == 0)
-            maxCap = *std::max_element(series.begin(), series.end());
-
-        QList<QStandardItem *> row;
-        row << new QStandardItem(name) << new QStandardItem(QString::number(maxFlow, 'f', 3))
-            << new QStandardItem(QString::number(maxDepth, 'f', 3))
-            << new QStandardItem(QString::number(maxVel, 'f', 3))
-            << new QStandardItem(QString::number(maxCap, 'f', 3));
-        for (int c = 1; c < row.size(); ++c)
-            row[c]->setData(row[c]->text().toDouble(), Qt::EditRole);
-        m_linkModel->appendRow(row);
-    }
+    const openswmmvis::plot::SwmmOutRunLayer run(m_layer);
+    const auto u = run.unitSystem();
+    QVector<StatColumn> columns = {
+        fixedColumn(tr("Max flow"), PlotAttribute::LinkFlow, Stat::Max, u, 3,
+                    m_layer->flowUnits()),
+        fixedColumn(tr("Max depth"), PlotAttribute::LinkDepth, Stat::Max, u),
+        fixedColumn(tr("Max velocity"), PlotAttribute::LinkVelocity, Stat::Max, u),
+        fixedColumn(tr("Max capacity"), PlotAttribute::LinkCapacity, Stat::Max, u)};
+    columns += speciesColumns(run, ObjectRef::Kind::Link);
+    populateStats(m_linkModel, tr("Link"), ObjectRef::Kind::Link,
+                  objectIds(m_layer->outputHandle(), ObjectRef::Kind::Link), columns, run);
+    QStringList units{QString()};
+    for (const StatColumn &c : columns)
+        units.append(c.units);
+    m_units.insert(m_linkModel, units);
 }
 
 void StatisticsDashboardDialog::populateSubcatchStats()
@@ -400,39 +627,175 @@ void StatisticsDashboardDialog::populateSubcatchStats()
     m_subModel->removeRows(0, m_subModel->rowCount());
     if (!m_layer)
         return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle)
-        return;
-    const int n = swmm_output_get_subcatch_count(handle);
-    const int periods = swmm_output_get_period_count(handle);
-    if (n <= 0 || periods <= 0)
-        return;
+    using U = openswmmvis::plot::UnitSystem;
+    const openswmmvis::plot::SwmmOutRunLayer run(m_layer);
+    const U u = run.unitSystem();
+    QVector<StatColumn> columns = {
+        fixedColumn(tr("Peak runoff"), PlotAttribute::SubcatchRunoff, Stat::Max, u, 3,
+                    m_layer->flowUnits()),
+        fixedColumn(tr("Runoff (sample sum)"), PlotAttribute::SubcatchRunoff, Stat::SampleSum, u,
+                    3, m_layer->flowUnits()),
+        fixedColumn(tr("Infiltration (sample sum)"), PlotAttribute::SubcatchInfil,
+                    Stat::SampleSum, u),
+        fixedColumn(tr("Evaporation (sample sum)"), PlotAttribute::SubcatchEvap,
+                    Stat::SampleSum, u)};
+    // The time-integral variants of the three rates (V6 / brief item 3).
+    const auto [volumeUnits, volumeScale] = flowVolume(m_layer->flowUnits());
+    const QString depth = u == U::US ? QStringLiteral("in") : QStringLiteral("mm");
+    const QString integralTip =
+        tr("Time integral of the report samples (each value held over the interval ending at "
+           "it).");
+    StatColumn runoff = fixedColumn(tr("Runoff volume"), PlotAttribute::SubcatchRunoff,
+                                    Stat::TimeIntegral, u);
+    runoff.units = volumeUnits;
+    runoff.scale = volumeScale;
+    runoff.tip = integralTip;
+    StatColumn infil = fixedColumn(tr("Infiltration depth"), PlotAttribute::SubcatchInfil,
+                                   Stat::TimeIntegral, u);
+    infil.units = depth;
+    infil.scale = 1.0 / 3600.0; // in/hr | mm/hr x s
+    infil.tip = integralTip;
+    StatColumn evap = fixedColumn(tr("Evaporation depth"), PlotAttribute::SubcatchEvap,
+                                  Stat::TimeIntegral, u);
+    evap.units = depth;
+    evap.scale = 1.0 / 86400.0; // in/day | mm/day x s
+    evap.tip = integralTip;
+    columns << runoff << infil << evap;
+    columns += speciesColumns(run, ObjectRef::Kind::Subcatch);
+    populateStats(m_subModel, tr("Subcatchment"), ObjectRef::Kind::Subcatch,
+                  objectIds(m_layer->outputHandle(), ObjectRef::Kind::Subcatch), columns, run);
+    QStringList units{QString()};
+    for (const StatColumn &c : columns)
+        units.append(c.units);
+    m_units.insert(m_subModel, units);
+}
 
-    std::vector<float> series(periods);
-    for (int j = 0; j < n; ++j) {
-        const QString name = QString::fromUtf8(swmm_output_get_subcatch_id(handle, j));
-        double peakRunoff = -1e30, totRunoff = 0.0, totInfil = 0.0, totEvap = 0.0;
-        if (swmm_output_get_subcatch_series(handle, j, SWMM_OUT_SUBCATCH_RUNOFF, 0, periods - 1,
-                                            series.data()) == 0) {
-            peakRunoff = *std::max_element(series.begin(), series.end());
-            totRunoff = std::accumulate(series.begin(), series.end(), 0.0);
-        }
-        if (swmm_output_get_subcatch_series(handle, j, SWMM_OUT_SUBCATCH_INFIL, 0, periods - 1,
-                                            series.data()) == 0)
-            totInfil = std::accumulate(series.begin(), series.end(), 0.0);
-        if (swmm_output_get_subcatch_series(handle, j, SWMM_OUT_SUBCATCH_EVAP, 0, periods - 1,
-                                            series.data()) == 0)
-            totEvap = std::accumulate(series.begin(), series.end(), 0.0);
-
-        QList<QStandardItem *> row;
-        row << new QStandardItem(name) << new QStandardItem(QString::number(peakRunoff, 'f', 3))
-            << new QStandardItem(QString::number(totRunoff, 'f', 3))
-            << new QStandardItem(QString::number(totInfil, 'f', 3))
-            << new QStandardItem(QString::number(totEvap, 'f', 3));
-        for (int c = 1; c < row.size(); ++c)
-            row[c]->setData(row[c]->text().toDouble(), Qt::EditRole);
-        m_subModel->appendRow(row);
+void StatisticsDashboardDialog::set2DResults(SWMM2DResultsLayer *mesh, const QStringList &cellTags)
+{
+    m_mesh = mesh;
+    m_cellTags = cellTags;
+    if (m_tabs) {
+        m_tabs->setTabVisible(3, m_mesh != nullptr);
+        if (m_mesh && !m_layer) // a 2D-only run opens on its tab
+            m_tabs->setCurrentIndex(3);
     }
+    refreshMeshVariables();
+}
+
+void StatisticsDashboardDialog::refreshMeshVariables()
+{
+    if (!m_meshVariable)
+        return;
+    const QSignalBlocker block(m_meshVariable);
+    m_meshVariable->clear();
+    if (m_mesh) {
+        const openswmmvis::plot::Mesh2DRunLayer run(m_mesh);
+        const auto cellDescriptors = run.resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell);
+        for (const ResultDescriptor &d : cellDescriptors) {
+            if (!d.isMeshVariable() && d.attr != PlotAttribute::Mesh2DDepth)
+                continue;
+            const QString units = d.unitLabel(openswmmvis::plot::UnitSystem::SI);
+            const QString text =
+                units.isEmpty() ? d.label() : QStringLiteral("%1 (%2)").arg(d.label(), units);
+            m_meshVariable->addItem(text, d.isMeshVariable()
+                                              ? QVariant(QStringList{d.variableKey,
+                                                                     d.variableLabel,
+                                                                     d.variableUnits})
+                                              : QVariant(int(d.attr)));
+        }
+    }
+    populateMeshStats();
+}
+
+void StatisticsDashboardDialog::populateMeshStats()
+{
+    if (!m_meshModel)
+        return;
+    m_meshModel->clear();
+    if (!m_mesh || !m_mesh->source() || m_meshVariable->currentIndex() < 0)
+        return;
+    const QVariant data = m_meshVariable->currentData();
+    const QStringList keyed = data.toStringList();
+    const ResultDescriptor d =
+        keyed.size() == 3 ? ResultDescriptor::forMeshVariable(keyed[0], keyed[1], keyed[2])
+                          : ResultDescriptor::forAttribute(PlotAttribute(data.toInt()));
+    const auto aggregate =
+        static_cast<openswmmvis::results::MeshAggregate>(m_meshAggregate->currentData().toInt());
+
+    // Regions: each map-selected cell, the selection, each tag, the domain.
+    std::set<int> picked;
+    const auto &triCell = m_mesh->triCellMap();
+    for (int triangle : m_mesh->highlightedCells())
+        if (triangle >= 0 && std::size_t(triangle) < triCell.size() &&
+            triCell[std::size_t(triangle)] >= 0)
+            picked.insert(triCell[std::size_t(triangle)]);
+    const int cells = m_mesh->source()->triangleCount();
+    QVector<openswmmvis::results::MeshRegion> regions;
+    for (int c : picked)
+        regions.append({tr("Cell %1").arg(c), {c}});
+    if (!picked.empty())
+        regions.append({tr("Selection (%n cells)", nullptr, int(picked.size())),
+                        std::vector<int>(picked.begin(), picked.end())});
+    if (m_cellTags.size() == cells)
+        for (auto r : openswmmvis::results::tagRegions(m_cellTags)) {
+            r.label = tr("%1 (%n cells)", nullptr, int(r.cells.size())).arg(r.label);
+            regions.append(r);
+        }
+    auto domain = openswmmvis::results::domainRegion(cells);
+    domain.label = tr("%1 (%n cells)", nullptr, cells).arg(domain.label);
+    regions.append(domain);
+
+    const openswmmvis::plot::Mesh2DRunLayer run(m_mesh);
+    QVector<SeriesData> series;
+    run.getRegionSeries(regions, d, aggregate, series);
+    const QString units = run.regionUnits(d, aggregate);
+    const QString integralUnits = units.isEmpty() ? QString() : units + QStringLiteral("·s");
+    QVector<StatColumn> columns;
+    const auto column = [&](const QString &header, Stat stat, const QString &u) {
+        StatColumn c;
+        c.header = header;
+        c.descriptor = d;
+        c.stat = stat;
+        c.format = 'g';
+        c.precision = 6;
+        c.units = u;
+        columns.append(c);
+    };
+    column(tr("Max"), Stat::Max, units);
+    column(tr("Min"), Stat::Min, units);
+    column(tr("Mean (time-weighted)"), Stat::TimeMean, units);
+    column(tr("Final"), Stat::Final, units);
+    column(tr("Time integral"), Stat::TimeIntegral, integralUnits);
+    columns.last().tip = tr("Each report value held over the interval ending at it.");
+
+    QStringList headers{tr("Region")};
+    QStringList unitRow{QString()};
+    for (const StatColumn &c : std::as_const(columns)) {
+        headers.append(c.header);
+        unitRow.append(c.units);
+    }
+    m_meshModel->setHorizontalHeaderLabels(headers);
+    for (int c = 0; c < columns.size(); ++c)
+        if (!columns[c].units.isEmpty())
+            m_meshModel->setHeaderData(c + 1, Qt::Horizontal, tr("Units: %1").arg(columns[c].units),
+                                       Qt::ToolTipRole);
+    m_units.insert(m_meshModel, unitRow);
+    const double start = run.startDateJulian();
+    const int step = run.reportStepSeconds();
+    for (int r = 0; r < regions.size(); ++r) {
+        QList<QStandardItem *> row;
+        auto *label = new QStandardItem(regions[r].label);
+        if (!series.value(r).ok)
+            label->setToolTip(series.value(r).errorMessage);
+        else if (!series.value(r).displayNote.isEmpty())
+            label->setToolTip(series.value(r).displayNote);
+        row << label;
+        for (const StatColumn &c : std::as_const(columns))
+            row << statItem(statOf(series.value(r), c.stat, start, step), c);
+        m_meshModel->appendRow(row);
+    }
+    if (applyQueryToAllTables())
+        updateQueryStatus();
 }
 
 void StatisticsDashboardDialog::refreshHistogramForSelection()
@@ -664,35 +1027,61 @@ void StatisticsDashboardDialog::onExportClicked()
         this, tr("Export statistics"), QStringLiteral("statistics.csv"), tr("CSV (*.csv)"));
     if (path.isEmpty())
         return;
+    exportTo(path);
+}
 
+bool StatisticsDashboardDialog::exportTo(const QString &path) const
+{
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
-        return;
+        return false;
     QTextStream out(&f);
 
-    auto dumpModel = [&](const QString &sectionTitle, QAbstractItemModel *m) {
+    // V6: each section is its header, a Units row, then the (filtered) rows
+    // with a Status column naming the missing (blank, never 0) values.
+    auto dumpModel = [&](const QString &sectionTitle, QSortFilterProxyModel *m) {
         if (!m)
             return;
+        const auto *source = qobject_cast<const QStandardItemModel *>(m->sourceModel());
+        const QStringList units = m_units.value(source);
         out << "# " << sectionTitle << '\n';
         for (int c = 0; c < m->columnCount(); ++c) {
             if (c)
                 out << ',';
             out << m->headerData(c, Qt::Horizontal).toString();
         }
-        out << '\n';
+        out << ',' << tr("Status") << '\n';
+        out << tr("Units");
+        for (int c = 1; c < m->columnCount(); ++c)
+            out << ',' << units.value(c);
+        out << ",\n";
         for (int r = 0; r < m->rowCount(); ++r) {
+            QStringList missing;
             for (int c = 0; c < m->columnCount(); ++c) {
                 if (c)
                     out << ',';
-                out << m->index(r, c).data(Qt::DisplayRole).toString();
+                const QString text = m->index(r, c).data(Qt::DisplayRole).toString();
+                if (c > 0 && text.isEmpty())
+                    missing.append(m->headerData(c, Qt::Horizontal).toString());
+                out << text;
             }
-            out << '\n';
+            out << ','
+                << (missing.isEmpty()
+                        ? QString()
+                        : tr("missing: %1").arg(missing.join(QStringLiteral("; "))))
+                << '\n';
         }
         out << '\n';
     };
     dumpModel(tr("Nodes"), m_nodeProxy);
     dumpModel(tr("Links"), m_linkProxy);
     dumpModel(tr("Subcatchments"), m_subProxy);
+    if (m_mesh)
+        dumpModel(tr("2D regions: %1, %2")
+                      .arg(m_meshVariable->currentText(), m_meshAggregate->currentText()),
+                  m_meshProxy);
+    out.flush();
+    return out.status() == QTextStream::Ok;
 }
 
 void StatisticsDashboardDialog::onQueryApplyClicked()
@@ -737,6 +1126,8 @@ bool StatisticsDashboardDialog::applyQueryToAllTables()
     static_cast<StatsFilteringProxy *>(m_nodeProxy)->setQueryPredicate(pred);
     static_cast<StatsFilteringProxy *>(m_linkProxy)->setQueryPredicate(pred);
     static_cast<StatsFilteringProxy *>(m_subProxy)->setQueryPredicate(pred);
+    if (m_meshProxy)
+        static_cast<StatsFilteringProxy *>(m_meshProxy)->setQueryPredicate(pred);
     return true;
 }
 
@@ -758,6 +1149,8 @@ void StatisticsDashboardDialog::updateQueryStatus()
 
 QTableView *StatisticsDashboardDialog::currentTable() const
 {
+    if (m_tabs && m_tabs->currentWidget() == m_meshPage)
+        return m_meshTable;
     return m_tabs ? qobject_cast<QTableView *>(m_tabs->currentWidget()) : nullptr;
 }
 
@@ -772,6 +1165,8 @@ QSortFilterProxyModel *StatisticsDashboardDialog::currentProxy() const
         return m_linkProxy;
     case 2:
         return m_subProxy;
+    case 3:
+        return m_meshProxy;
     default:
         return nullptr;
     }

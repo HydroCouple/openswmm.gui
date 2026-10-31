@@ -136,9 +136,17 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-        kind, openswmmvis::plot::UnitSystem::US, widget,
-        hit.results ? hit.results->speciesNames() : m_speciesNames);
+    // V0 / R4: the hit run's species catalog (and node/link loads).
+    const auto *projectWindow = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent());
+    QMenu *menu =
+        hit.results
+            ? openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+                  kind, openswmmvis::plot::UnitSystem::US, widget,
+                  openswmmvis::ui::AttributePickerMenu::runCatalog(
+                      hit.results, projectWindow ? projectWindow->active2DResultsLayer() : nullptr),
+                  hit.results->flowUnits())
+            : openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+                  kind, openswmmvis::plot::UnitSystem::US, widget, m_speciesNames);
     if (!menu) {
         event->accept();
         return;

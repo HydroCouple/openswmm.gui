@@ -10,6 +10,19 @@
  * rounded for display/sorting; sample sums are not report-step integrals. A hidden
  * off-layout chart helper can build a 20-bin histogram of visible rows.
  * No cumulative-statistics engine API or time-of-occurrence lookup is used here.
+ *
+ * V6 (workplans/GW2D_AND_PIPE_REACTION_RESULTS_VISUALIZATION_PLAN_2026-10-14.md
+ * D-V6): every column is a statistic of a `ResultDescriptor` series read
+ * through `SwmmOutRunLayer` (the hydraulic columns are unchanged), so every
+ * species the run carries adds a "Max" column and every pollutant its total
+ * load (R4: integrated from the report-step samples of flow x concentration,
+ * net of reversing flow on links — not the .rpt's routing-step totals). Sums of samples are
+ * labelled "(sample sum)"; the subcatchment rates gain time-integral
+ * columns (volume / depth). A "2D regions" tab (when a 2D run is given)
+ * lists the map-selected cells, the selection, each cell tag and the domain
+ * for one 2D variable and aggregate, with Max / Min / time-weighted Mean /
+ * Final / Time integral. Missing values are blank, never 0; the CSV export
+ * adds a Units row and a Status column per section.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -19,6 +32,7 @@
 #include "selection/selectionmanager.h"
 
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
 #include <QSet>
 
@@ -31,9 +45,11 @@ class QTabWidget;
 class QTableView;
 class QStandardItemModel;
 class QChartView;
+class QComboBox;
 class MapCanvas;
 class SWMMModelLayer;
 class SWMMResultsLayer;
+class SWMM2DResultsLayer;
 
 namespace openswmmvis::ui
 {
@@ -65,6 +81,19 @@ public:
      *   predicates.
      */
     void setResultsLayer(SWMMResultsLayer *layer);
+
+    /*! \brief V6: add the "2D regions" tab for \p mesh (null hides it).
+     * @param[in] mesh Borrowed guarded 2D results.
+     * @param[in] cellTags Per-cell mesh tags (engine cell order); ignored when the count does
+     *   not match the 2D cell count.
+     */
+    void set2DResults(SWMM2DResultsLayer *mesh, const QStringList &cellTags = {});
+
+    /*! \brief Write every (filtered) table as one sectioned CSV: per section
+     *  its header, a Units row, the rows, and a Status column naming the
+     *  missing (blank, never 0) values.
+     * @return False when the file cannot be written. */
+    bool exportTo(const QString &path) const;
 
     /*! \brief Bind the dialog to the project's cross-view selection bus so
      *         table rows highlight on the map, and to the canvas + model layer
@@ -153,35 +182,32 @@ private:
  */
     SWMMObjectRef::ObjectType currentObjectType() const;
     /**
-     * @brief Clear table and compute node maxima of depth/head/overflow and SUM of stored volume
-     *   samples (not flooded volume or time integral). Failed series leaves -1e30 maximum or zero
-     *   sum; maxima quantized to three decimals, volume sum to one.
-     * @note Uses every saved period of current output handle, native file units; absent
-     *   handle/nonpositive counts yields no rows. No finite-sample filtering, cumulative-statistics
-     *   query or failure dialog. Numeric EditRole is parsed back from formatted text, so
-     *   sorting/query/export use rounded values.
+     * @brief Clear and refill the node table: max depth/head/overflow, the SUM of the stored
+     *   volume samples (labelled "sample sum": not a time integral), then per `.out` species its
+     *   maximum and per pollutant its total load (time integral of total inflow x concentration).
+     * @note Series come from `SwmmOutRunLayer` (V6); a failed or all-missing series is a blank
+     *   cell, never 0 or a sentinel. Hydraulic values are rounded to three decimals (volume sum to
+     *   one) and EditRole is parsed back from that text, as before.
      */
     void populateNodeStats();
     /**
-     * @brief Clear table and compute link maxima of signed flow, depth, velocity and capacity ratio
-     *   (not absolute magnitude). Failed series leaves -1e30; values quantized to three decimals.
-     * @note Uses every saved period of current output handle, native file units; absent
-     *   handle/nonpositive counts yields no rows. No finite-sample filtering, cumulative-statistics
-     *   query or failure dialog. Numeric EditRole is parsed back from formatted text, so
-     *   sorting/query/export use rounded values.
+     * @brief Clear and refill the link table: maxima of signed flow, depth, velocity and capacity,
+     *   then per species its maximum and per pollutant its total load (flow x concentration).
+     * @note Same source, missing-value and rounding rules as populateNodeStats().
      */
     void populateLinkStats();
     /**
-     * @brief Clear table and compute subcatchment peak runoff and sample SUMS of
-     *   runoff/infiltration/evaporation (no report-step integration or depth/volume conversion).
-     *   Failed runoff leaves -1e30 peak and zero sum; other failed sums zero. Values quantized to
-     *   three decimals.
-     * @note Uses every saved period of current output handle, native file units; absent
-     *   handle/nonpositive counts yields no rows. No finite-sample filtering, cumulative-statistics
-     *   query or failure dialog. Numeric EditRole is parsed back from formatted text, so
-     *   sorting/query/export use rounded values.
+     * @brief Clear and refill the subcatchment table: peak runoff, the sample SUMS of
+     *   runoff/infiltration/evaporation (labelled as such), their time integrals (runoff volume in
+     *   the flow units' volume, infiltration and evaporation depth in in | mm) and per species
+     *   its maximum.
+     * @note Same source, missing-value and rounding rules as populateNodeStats().
      */
     void populateSubcatchStats();
+    /*! \brief V6: rows of the 2D regions tab for the chosen variable and aggregate. */
+    void populateMeshStats();
+    /*! \brief Fill the 2D variable picker from the 2D run's cell descriptors. */
+    void refreshMeshVariables();
     /**
      * @param[in] column Active proxy column, intended numeric column greater than zero; caller must
      *   supply valid index.
@@ -243,6 +269,17 @@ private:
     QSortFilterProxyModel *m_linkProxy = nullptr;
     QSortFilterProxyModel *m_subProxy = nullptr;
     QChartView *m_histView = nullptr;
+    // V6: 2D regions tab.
+    QPointer<SWMM2DResultsLayer> m_mesh;
+    QStringList m_cellTags;
+    QWidget *m_meshPage = nullptr;
+    QComboBox *m_meshVariable = nullptr;
+    QComboBox *m_meshAggregate = nullptr;
+    QTableView *m_meshTable = nullptr;
+    QStandardItemModel *m_meshModel = nullptr;
+    QSortFilterProxyModel *m_meshProxy = nullptr;
+    /// Per-section units (parallel to each model's columns) for the CSV.
+    QHash<const QStandardItemModel *, QStringList> m_units;
 };
 
 } // namespace openswmmvis::ui

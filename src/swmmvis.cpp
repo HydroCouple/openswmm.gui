@@ -179,6 +179,7 @@
 #include "ui/dialogs/reactionsystemeditordialog.h"
 #include "ui/dialogs/mesh2dresultsexportdialog.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
+#include "ui/dialogs/tabularresultsdialog.h"
 #include "ui/dialogs/userflagsdialog.h"
 #include "layers/tabulardatalayer.h"
 #include "selection/selectionmanager.h"
@@ -207,6 +208,7 @@
 #include "ui/dialogs/comparisonplotdialog.h"
 #include "ui/dialogs/rainfallvisualizationdialog.h"
 #include "ui/dialogs/plotvariablepickerdialog.h"
+#include "plot/gwnetworkexchangesource.h"
 #include "plot/swmmoutrunlayer.h"
 #include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
@@ -3038,15 +3040,26 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
         // Y2b-2 (amendment D-Y4): the run's species, labelled/united by
         // the descriptor authorities and carried BY NAME (QString data —
         // the accept path below tells the two apart by variant type).
+        // V0: labels and units from the run's species catalog; R4: node and
+        // link loads (QStringList data {key, label, units}) beside each pollutant.
         if (t == SWMMObjectRef::Node || t == SWMMObjectRef::Link ||
             t == SWMMObjectRef::Subcatchment) {
-            for (const QString &sp : layer->speciesNames()) {
-                if (sp.isEmpty())
-                    continue;
-                const auto d = openswmmvis::plot::ResultDescriptor::forSpecies(sp);
-                varCombo->addItem(QStringLiteral("%1 (%2)").arg(
-                                      d.label(), d.unitLabel(openswmmvis::plot::UnitSystem::US)),
-                                  sp);
+            using RefKind = openswmmvis::plot::ObjectRef::Kind;
+            const openswmmvis::plot::SwmmOutRunLayer run(layer);
+            const auto kind = t == SWMMObjectRef::Node   ? RefKind::Node
+                              : t == SWMMObjectRef::Link ? RefKind::Link
+                                                         : RefKind::Subcatch;
+            for (const auto &d : run.resultDescriptorsForKind(kind)) {
+                const QString units = d.unitLabel(openswmmvis::plot::UnitSystem::US);
+                const QString text =
+                    units.isEmpty() ? d.label() : QStringLiteral("%1 (%2)").arg(d.label(), units);
+                if (d.isSpecies())
+                    varCombo->addItem(text, d.species);
+                else if (d.isMeshVariable()) {
+                    varCombo->addItem(text,
+                                      QStringList{d.variableKey, d.variableLabel, d.variableUnits});
+                    varCombo->setItemData(varCombo->count() - 1, d.variableNote, Qt::ToolTipRole);
+                }
             }
         }
     };
@@ -3071,8 +3084,12 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
     ref.objectType = static_cast<SWMMObjectRef::ObjectType>(classCombo->currentData().toInt());
     ref.name = idCombo->currentText();
     const QVariant varData = varCombo->currentData();
+    const QStringList keyed = varData.typeId() == QMetaType::QStringList ? varData.toStringList()
+                                                                        : QStringList();
     const auto descriptor =
-        varData.typeId() == QMetaType::QString
+        keyed.size() == 3
+            ? openswmmvis::plot::ResultDescriptor::forMeshVariable(keyed[0], keyed[1], keyed[2])
+        : varData.typeId() == QMetaType::QString
             ? openswmmvis::plot::ResultDescriptor::forSpecies(varData.toString())
             : openswmmvis::plot::ResultDescriptor::forAttribute(static_cast<PA>(varData.toInt()));
     openComparisonPlotForDescriptorOnLayer(ref, descriptor, layer);
@@ -3318,12 +3335,18 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
     // Y2b-2 follow-up (amendment D-Y4): offer the run's species alongside
     // the fixed attributes — read from the layer the plot will actually
     // target (the project window's active 1D results layer).
-    QStringList species;
+    // V0 / R4: the run's species catalog (kind, units, 2D-only marked) and
+    // node/link loads.
+    openswmmvis::results::RunSpeciesCatalog catalog;
+    int flowUnits = -1;
     if (auto *pw = activeProjectWindow())
-        if (auto *rl = pw->activeResultsLayer())
-            species = rl->speciesNames();
-    QMenu *menu =
-        openswmmvis::ui::AttributePickerMenu::createForObjectKind(kind, units, this, species);
+        if (auto *rl = pw->activeResultsLayer()) {
+            catalog = openswmmvis::ui::AttributePickerMenu::runCatalog(
+                rl, pw->active2DResultsLayer());
+            flowUnits = rl->flowUnits();
+        }
+    QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(kind, units, this,
+                                                                            catalog, flowUnits);
     if (!menu) {
         openComparisonPlotFor(ref);
         return;
@@ -3386,8 +3409,12 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref, SWMMResults
     const auto units = UnitSystem::instance() && UnitSystem::instance()->isSI()
                            ? openswmmvis::plot::UnitSystem::SI
                            : openswmmvis::plot::UnitSystem::US;
-    QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(kind, units, this,
-                                                                            layer->speciesNames());
+    auto *catalogWindow = activeProjectWindow();
+    QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+        kind, units, this,
+        openswmmvis::ui::AttributePickerMenu::runCatalog(
+            layer, catalogWindow ? catalogWindow->active2DResultsLayer() : nullptr),
+        layer->flowUnits());
     if (!menu) {
         openComparisonPlotForOnLayer(ref, layer);
         return;
@@ -3660,8 +3687,10 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
         return;
 
     // V3: a node's aquifer exchange is read from the saved 2D results
-    // (groundwater_node_exchange_cum), never from a .out.
-    if (descriptor.isMeshVariable() && ref.objectType == SWMMObjectRef::Node) {
+    // (groundwater_node_exchange_cum), never from a .out. (R4 pollutant
+    // loads are also keyed descriptors, but they are .out series.)
+    if (openswmmvis::plot::GwNetworkExchangeSource::isExchangeDescriptor(descriptor) &&
+        ref.objectType == SWMMObjectRef::Node) {
         openComparisonPlotFor2DResults(openswmmvis::plot::ObjectRef::forNode(ref.name),
                                        {descriptor});
         return;
@@ -5471,6 +5500,9 @@ void SWMMVis::initializeMenus()
     if (ui->actionSummarizeResults)
         connect(ui->actionSummarizeResults, &QAction::triggered, this,
                 &SWMMVis::onSummarizeResults);
+    if (ui->actionTabularResults)
+        connect(ui->actionTabularResults, &QAction::triggered, this,
+                &SWMMVis::onTabularResults);
     if (ui->actionCopy)
         connect(ui->actionCopy, &QAction::triggered, this, &SWMMVis::onCopyActiveView);
     if (ui->actionPrint)
@@ -9392,7 +9424,8 @@ void SWMMVis::onSummarizeResults()
         return;
     }
     auto *layer = pw->activeResultsLayer();
-    if (!layer) {
+    auto *mesh = pw->active2DResultsLayer();
+    if (!layer && !mesh) {
         QMessageBox::information(this, tr("No Results"),
                                  tr("Run a simulation or load a results (.out) file first."));
         return;
@@ -9400,6 +9433,32 @@ void SWMMVis::onSummarizeResults()
 
     auto *dlg = new openswmmvis::ui::StatisticsDashboardDialog(layer, this);
     dlg->setProject(pw->modelLayer(), pw->selectionManager(), pw->canvas());
+    // V6: the 2D regions tab (map-selected cells, selection, tags, domain).
+    if (mesh)
+        dlg->set2DResults(mesh, openswmmvis::results::cellTagsFromEngine(
+                                    pw->modelLayer() ? pw->modelLayer()->engine() : nullptr));
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+void SWMMVis::onTabularResults()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw) {
+        onLogMessage(tr("Tabular Results: open a project first."), OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    auto *layer = pw->activeResultsLayer();
+    auto *mesh = pw->active2DResultsLayer();
+    if (!layer && !mesh) {
+        QMessageBox::information(this, tr("No Results"),
+                                 tr("Run a simulation or load a results (.out) file first."));
+        return;
+    }
+    auto *dlg = new openswmmvis::ui::TabularResultsDialog(layer, mesh, this);
+    if (mesh)
+        dlg->setCellTags(openswmmvis::results::cellTagsFromEngine(
+            pw->modelLayer() ? pw->modelLayer()->engine() : nullptr));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

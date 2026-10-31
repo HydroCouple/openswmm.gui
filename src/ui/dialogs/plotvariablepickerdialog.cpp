@@ -32,6 +32,8 @@ constexpr int kRoleAttr = Qt::UserRole;        ///< int(PlotAttribute)
 constexpr int kRoleKind = Qt::UserRole + 1;    ///< int(ObjectRef::Kind)
 constexpr int kRoleName = Qt::UserRole + 2;    ///< object name (unused for System)
 constexpr int kRoleSpecies = Qt::UserRole + 3; ///< species NAME (Y2b-2); empty for fixed attrs
+/// Keyed descriptor {key, label, units} (R4 loads); empty otherwise.
+constexpr int kRoleVariable = Qt::UserRole + 4;
 
 /**
  * @param[in] ref Read-only identity; kind and name inspected, no source resolution.
@@ -142,6 +144,23 @@ void PlotVariablePickerDialog::addDescriptorLeaf(QTreeWidgetItem *group, const O
                                                  const ResultDescriptor &d,
                                                  const IRunLayer *availability, UnitSystem units)
 {
+    if (d.isMeshVariable()) {
+        // A keyed result (R4 pollutant load): label and units travel with it.
+        auto *leaf = new QTreeWidgetItem(group);
+        leaf->setText(0, d.variableUnits.isEmpty()
+                             ? d.label()
+                             : QStringLiteral("%1 (%2)").arg(d.label(), d.variableUnits));
+        leaf->setData(0, kRoleAttr, static_cast<int>(PlotAttribute::Unknown));
+        leaf->setData(0, kRoleKind, static_cast<int>(ref.kind));
+        leaf->setData(0, kRoleName, ref.name);
+        leaf->setData(0, kRoleVariable,
+                      QStringList{d.variableKey, d.variableLabel, d.variableUnits});
+        if (!d.variableNote.isEmpty())
+            leaf->setToolTip(0, d.variableNote);
+        leaf->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+        leaf->setCheckState(0, Qt::Unchecked);
+        return;
+    }
     if (!d.isSpecies()) {
         addAttributeLeaf(group, ref, d.attr, availability, units);
         return;
@@ -200,6 +219,12 @@ QVector<PlotVariablePickerDialog::Entry> PlotVariablePickerDialog::checkedEntrie
             Entry e;
             e.attribute = static_cast<PlotAttribute>(leaf->data(0, kRoleAttr).toInt());
             e.species = leaf->data(0, kRoleSpecies).toString();
+            const QStringList variable = leaf->data(0, kRoleVariable).toStringList();
+            if (variable.size() == 3) {
+                e.variableKey = variable[0];
+                e.variableLabel = variable[1];
+                e.variableUnits = variable[2];
+            }
             const auto kind = static_cast<ObjectRef::Kind>(leaf->data(0, kRoleKind).toInt());
             e.ref = (kind == ObjectRef::Kind::System)
                         ? ObjectRef::forSystem()

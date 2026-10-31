@@ -245,6 +245,7 @@ void SWMMVis::initializeCompactToolbar()
         // Analysis
         {"actionSummarizeResults", QT_TR_NOOP("Summarize")},
         {"actionTabularView", QT_TR_NOOP("Tabular\nView")},
+        {"actionTabularResults", QT_TR_NOOP("Tabular\nResults")},
         {"actionFlowBalanceDownstream", QT_TR_NOOP("Flow Balance\nDownstream")},
         {"actionFlowBalanceUpstream", QT_TR_NOOP("Flow Balance\nUpstream")},
         {"actionTravelTimeDownstream", QT_TR_NOOP("Travel Time\nDownstream")},
@@ -412,7 +413,8 @@ void SWMMVis::initializeCompactToolbar()
     // action groups follow here. Tabular View gains its first toolbar home in
     // the Report group.
     addGroup(mToolBarAnalysis, tr("Report"),
-             {"actionSummarizeResults", "actionReport", "actionTabularView"});
+             {"actionSummarizeResults", "actionReport", "actionTabularView",
+              "actionTabularResults"});
     mGroupPlots = addGroup(mToolBarAnalysis, tr("Plots"),
                            {"actionPlotTimeSeries", "actionPlotProfile", "actionPlotProfile2D"});
     addGroup(mToolBarAnalysis, tr("Network Analysis"),

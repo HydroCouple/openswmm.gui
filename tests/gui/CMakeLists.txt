@@ -4663,3 +4663,43 @@ add_swmmvis_gui_test(test_statusreportviewer
 target_link_libraries(test_statusreportviewer PRIVATE Qt6::Svg)
 target_compile_definitions(test_statusreportviewer PRIVATE
     SWMMVIS_PHASE4A_OUTPUT="${SWMMVIS_PHASE4A_OUTPUT_DIR}")
+
+# Phase 4B (2026-10-30, workplans/BELLINGE_GW_QUALITY_PHASE4B_AGENT_BRIEF_2026-10-30.md):
+# V0 RunSpeciesCatalog, V6 Tabular Results / Statistics on descriptor series,
+# R4 pollutant loads and cumulative mass, 2D region aggregates. Every test
+# writes its decks, runs and CSV exports under one reviewable folder.
+set(SWMMVIS_PHASE4B_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/tests/output/tables_statistics_loads_2026-10-30")
+add_swmmvis_gui_test(test_runspeciescatalog
+    test_runspeciescatalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/results/runspeciescatalog.cpp
+    ${CMAKE_SOURCE_DIR}/include/results/runspeciescatalog.h
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp)
+target_compile_definitions(test_runspeciescatalog PRIVATE
+    PHASE4B_OUTPUT="${SWMMVIS_PHASE4B_OUTPUT_DIR}")
+
+# Loads against the .rpt load summaries, integration rule, region aggregates
+# against hand sums, and the result table (missing -> blank, CSV units/status).
+add_swmmvis_gui_test(test_resultseriestables
+    test_resultseriestables.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/pollutantload.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/pollutantload.h
+    ${CMAKE_SOURCE_DIR}/include/plot/seriesintegration.h
+    ${CMAKE_SOURCE_DIR}/src/results/meshregionaggregate.cpp
+    ${CMAKE_SOURCE_DIR}/include/results/meshregionaggregate.h
+    ${CMAKE_SOURCE_DIR}/src/results/resulttable.cpp
+    ${CMAKE_SOURCE_DIR}/include/results/resulttable.h
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp)
+target_compile_definitions(test_resultseriestables PRIVATE
+    PHASE4B_OUTPUT="${SWMMVIS_PHASE4B_OUTPUT_DIR}")
+
+# The dialogs over a real run (full app): hydraulic characterization, species
+# and load columns, 2D cell / region tables, pickers, menu reachability.
+add_swmmvis_gui_test(test_resultstablesdialogs
+    test_resultstablesdialogs.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_resultstablesdialogs)
+target_compile_definitions(test_resultstablesdialogs PRIVATE
+    PHASE4B_OUTPUT="${SWMMVIS_PHASE4B_OUTPUT_DIR}")

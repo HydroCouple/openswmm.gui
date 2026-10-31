@@ -10,7 +10,9 @@
 #include "ui/widgets/attributepickermenu.h"
 
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmmresultslayer.h"
 #include "plot/gwnetworkexchangesource.h"
+#include "plot/pollutantload.h"
 
 #include <QAction>
 #include <QFileInfo>
@@ -56,6 +58,17 @@ void addAllAttributesEntry(QMenu *menu)
 QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind, UnitSystem u, QWidget *parent,
                                                 const QStringList &speciesNames)
 {
+    // A bare name list is a catalog without unit codes (units unknown).
+    QVector<results::RunSpeciesCatalog::OutputSpecies> reported;
+    for (const QString &sp : speciesNames)
+        reported.append({sp, -1});
+    return createForObjectKind(kind, u, parent, results::RunSpeciesCatalog::build(reported));
+}
+
+QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind, UnitSystem u, QWidget *parent,
+                                                const results::RunSpeciesCatalog &catalog,
+                                                int flowUnitsCode)
+{
     auto *menu = new QMenu(parent);
 
     switch (kind) {
@@ -63,20 +76,41 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind, UnitSystem
     case ObjectRef::Kind::Link:
     case ObjectRef::Kind::Subcatch:
         addAttrActions(menu, attributesForKind(kind), u);
-        // Y2b-2 (amendment D-Y4): the run's species, labelled/united by
-        // the descriptor authorities (age in hours). Data carries the
-        // NAME as a QString — descriptorFrom() tells it apart from the
-        // int-typed fixed attributes.
-        if (!speciesNames.isEmpty()) {
+        // Y2b-2 (amendment D-Y4) / V0: the run's species from its catalog,
+        // each with its kind badge and the units the run states. Data
+        // carries the NAME as a QString — descriptorFrom() tells it apart
+        // from the int-typed fixed attributes.
+        if (!catalog.isEmpty()) {
             menu->addSeparator();
-            for (const QString &sp : speciesNames) {
-                if (sp.isEmpty())
+            const bool loads = kind != ObjectRef::Kind::Subcatch && flowUnitsCode >= 0;
+            for (const results::RunSpecies &s : catalog.entries()) {
+                QAction *act = menu->addAction(catalog.pickerLabel(s));
+                act->setData(s.name);
+                if (!s.in1D()) {
+                    act->setEnabled(false);
+                    act->setToolTip(QObject::tr("%1 is in this run's 2D results only; the .out "
+                                                "has no column for it.")
+                                        .arg(s.displayLabel()));
                     continue;
-                const auto d = openswmmvis::plot::ResultDescriptor::forSpecies(sp);
-                QAction *act =
-                    menu->addAction(QStringLiteral("%1 (%2)").arg(d.label(), d.unitLabel(u)));
-                act->setData(sp);
+                }
+                if (!loads || !s.carriesLoad())
+                    continue;
+                // R4: load and cumulative load beside the concentration.
+                const auto units = plot::pollutantload::loadUnits(flowUnitsCode,
+                                                                  s.concentrationCode);
+                if (!units.valid)
+                    continue;
+                const bool link = kind == ObjectRef::Kind::Link;
+                for (const ResultDescriptor &d :
+                     {plot::pollutantload::rateDescriptor(s.name, units, link),
+                      plot::pollutantload::cumulativeDescriptor(s.name, units, link)}) {
+                    QAction *load = menu->addAction(
+                        QStringLiteral("%1 (%2)").arg(d.variableLabel, d.variableUnits));
+                    load->setData(QStringList{d.variableKey, d.variableLabel, d.variableUnits});
+                    load->setToolTip(d.variableNote);
+                }
             }
+            menu->setToolTipsVisible(true);
         }
         break;
 
@@ -172,6 +206,16 @@ QVector<ResultDescriptor> AttributePickerMenu::execForMeshKind(ObjectRef::Kind k
     }
     delete menu;
     return chosen;
+}
+
+results::RunSpeciesCatalog AttributePickerMenu::runCatalog(const SWMMResultsLayer *results,
+                                                           const SWMM2DResultsLayer *mesh)
+{
+    const auto meshVariables =
+        mesh ? mesh->resultVariables() : QVector<openswmmvis::io::Mesh2DResultVariable>{};
+    if (results)
+        return results->speciesCatalog(meshVariables);
+    return results::RunSpeciesCatalog::build({}, meshVariables, {}, mesh != nullptr);
 }
 
 QMenu *AttributePickerMenu::createForSystem(UnitSystem u, QWidget *parent)

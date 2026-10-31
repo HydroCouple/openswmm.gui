@@ -42,6 +42,7 @@
 #include "plot/gwnetworkexchangesource.h"
 #include "plot/irunlayer.h"
 #include "results/gwledgermodel.h"
+#include "results/meshregionaggregate.h"
 
 #include <QPointer>
 #include <atomic>
@@ -185,6 +186,30 @@ public:
      */
     void getSeriesBatch(const QVector<SeriesRequest> &requests,
                         QVector<SeriesData> &out) const override;
+
+    /*! \brief V6: one series per region — \p aggregate of the cell field
+     *  \p descriptor over the region's cells at every report frame
+     *  (results/meshregionaggregate.h). Each frame is read once for all
+     *  regions. Supports the fixed cell depth and the source's catalog
+     *  variables; Mass needs a surface species concentration (and reads the
+     *  depth too). A region with no contributing cell at a frame gets a NaN
+     *  sample (blank, never zero). Reads synchronously on the calling thread.
+     * @param[in] regions Engine cell indices per region; out-of-range cells are ignored.
+     * @param[in] descriptor Mesh2DDepth or a catalog variable key.
+     * @param[in] aggregate Sum, Mean, AreaWeightedMean or Mass.
+     * @param[out] out One response per region, ok false with the reason when
+     *   the variable/aggregate is unavailable.
+     */
+    void getRegionSeries(const QVector<results::MeshRegion> &regions,
+                         const ResultDescriptor &descriptor, results::MeshAggregate aggregate,
+                         QVector<SeriesData> &out) const;
+    /*! \brief Units of a region series (aggregate of \p descriptor's units);
+     *  empty when unknown or the aggregate is not available for it. */
+    QString regionUnits(const ResultDescriptor &descriptor,
+                        results::MeshAggregate aggregate) const;
+    /*! \brief True when Mass (conc x depth x area) can be formed for
+     *  \p descriptor (a surface species concentration with mass units). */
+    bool massAvailable(const ResultDescriptor &descriptor) const;
 
     /*! \brief Interactive consumers (the comparison plot) turn this on so an
      *  uncached saved-file cell series is queued for a worker instead of read

@@ -1619,11 +1619,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     const SWMM2DResultsLayer *active2D =
         projectWindow && plotKind == PlotKind::Node ? projectWindow->active2DResultsLayer()
                                                     : nullptr;
+    // V0: species come from each run's catalog (kind badge, units, 2D-only
+    // species marked); R4: node/link loads follow each pollutant.
+    const SWMM2DResultsLayer *catalog2D =
+        projectWindow ? projectWindow->active2DResultsLayer() : nullptr;
     if (plotKind != PlotKind::Unknown) {
         if (resultsLayers.size() <= 1) {
+            SWMMResultsLayer *only = resultsLayers.isEmpty() ? nullptr : resultsLayers.first();
             plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
                 plotKind, openswmmvis::plot::UnitSystem::US, &menu,
-                resultsLayers.isEmpty() ? QStringList() : resultsLayers.first()->speciesNames());
+                openswmmvis::ui::AttributePickerMenu::runCatalog(only, only ? catalog2D : nullptr),
+                only ? only->flowUnits() : -1);
             openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(plotSubmenu, active2D,
                                                                             ref.name);
             if (plotSubmenu) {
@@ -1636,7 +1642,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                                           QObject::tr("Plot Time Series"));
             for (SWMMResultsLayer *r : resultsLayers) {
                 QMenu *attrMenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot, r->speciesNames());
+                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot,
+                    openswmmvis::ui::AttributePickerMenu::runCatalog(r, catalog2D),
+                    r->flowUnits());
                 if (!attrMenu)
                     continue;
                 attrMenu->setTitle(r->name());

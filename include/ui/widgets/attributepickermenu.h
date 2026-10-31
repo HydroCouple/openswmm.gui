@@ -20,6 +20,7 @@
 
 #include "plot/irunlayer.h"
 #include "plot/plotattribute.h"
+#include "results/runspeciescatalog.h"
 
 #include <QPoint>
 #include <QString>
@@ -30,6 +31,7 @@ class QMenu;
 class QWidget;
 class QAction;
 class SWMM2DResultsLayer;
+class SWMMResultsLayer;
 
 namespace openswmmvis::ui
 {
@@ -60,6 +62,22 @@ public:
                                       QWidget *parent = nullptr,
                                       const QStringList &speciesNames = QStringList());
 
+    /*! \brief V0 / R4: the same menu with the species taken from the run's
+     *  catalog — every entry labelled with its kind badge and units
+     *  (`RunSpeciesCatalog::pickerLabel`); species the `.out` lacks (2D-only
+     *  MSX species) are listed disabled with the reason. On nodes and links
+     *  each pollutant carrying a load is followed by its load and cumulative
+     *  load (plot/pollutantload.h) when \p flowUnitsCode is known.
+     * @param[in] catalog The run's species (SWMMResultsLayer::speciesCatalog).
+     * @param[in] flowUnitsCode `.out` flow-units code; negative omits loads.
+     * @return As the name-list overload. Species actions carry the NAME;
+     *   load actions a {key, label, units} QStringList (\ref descriptorFrom).
+     */
+    static QMenu *createForObjectKind(openswmmvis::plot::ObjectRef::Kind kind,
+                                      openswmmvis::plot::UnitSystem unitSystem, QWidget *parent,
+                                      const openswmmvis::results::RunSpeciesCatalog &catalog,
+                                      int flowUnitsCode = -1);
+
     /*! \brief Pop a "Plot time series" context menu for a 2D mesh kind at
      *  \p globalPos and return what the user picked — one entry, or every
      *  enabled entry when "All attributes" was chosen. Entries
@@ -79,6 +97,16 @@ public:
     execForMeshKind(openswmmvis::plot::ObjectRef::Kind kind, const QPoint &globalPos,
                     const openswmmvis::plot::IRunLayer *availability,
                     const QString &unavailableTip = QString());
+
+    /*! \brief V0: the species catalog of one loaded run — \p results' `.out`
+     *  species with the model's declarations, plus \p mesh's 2D species
+     *  slices when a 2D run is active (so 2D-only species show as such).
+     * @param[in] results Borrowed 1D results; null gives no 1D species.
+     * @param[in] mesh Borrowed active 2D results; null for 1D only.
+     * @return Owned catalog; empty when both are null.
+     */
+    static openswmmvis::results::RunSpeciesCatalog runCatalog(const SWMMResultsLayer *results,
+                                                              const SWMM2DResultsLayer *mesh);
 
     /*! \brief Build the system-attribute menu (14 entries). Each action's
      *  data() carries the `PlotAttribute` value.

@@ -1180,6 +1180,9 @@ private slots:
      * output handle itself or transfer project ownership.
      */
     void onSummarizeResults();
+    /*! \brief V6: open Tabular Results over the active 1D and 2D results
+     *  (species, pollutant loads, 2D cells and regions). */
+    void onTabularResults();
 
     /**
      * @brief Invoke the common 2D export flow with the active project's active 2D result layer.
