@@ -845,6 +845,25 @@ jobs:
         timeout-minutes: 15
         run: cmake --install build/${{ matrix.build_subdir }} --prefix ${{ github.workspace }}/dist/${{ matrix.build_subdir }}
 
+      - name: Verify bundled Data Sources extension
+        shell: bash
+        run: |
+          python tests/ci/test_data_dependency.py
+          python - "dist/${{ matrix.build_subdir }}" <<'PY'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          apps = list(root.glob("*.app"))
+          executable_dir = apps[0] / "Contents/MacOS" if apps else root / "bin"
+          plugins = [p for p in (executable_dir / "plugins/gui").glob("*openswmm_data*")
+                     if p.suffix in (".dll", ".so", ".dylib")]
+          assert len(plugins) == 1, f"Expected one bundled Data module: {plugins}"
+          notices = (apps[0] / "Contents/Resources/licenses/openswmm.gui.data" if apps
+                     else root / "share/licenses/openswmm.gui.data")
+          for name in ("LICENSE", "NOTICE", "LICENSES/Apache-2.0.txt", "LICENSES/Doxygen-Awesome-MIT.txt"):
+              assert (notices / name).is_file(), f"Missing Data notice: {name}"
+          print(f"Bundled Data extension: {plugins[0]}")
+          PY
+
       - name: Stage GUI extension SDK
         shell: bash
         run: |

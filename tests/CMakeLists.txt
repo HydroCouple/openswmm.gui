@@ -110,3 +110,10 @@ add_test(NAME test_build_timestamp
         "-DTEST_COMPILER=${CMAKE_CXX_COMPILER}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/test_build_timestamp.cmake")
 set_tests_properties(test_build_timestamp PROPERTIES LABELS "unit" TIMEOUT 60)
+
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME test_data_dependency
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/ci/test_data_dependency.py")
+    set_tests_properties(test_data_dependency PROPERTIES LABELS "unit;packaging" TIMEOUT 60)
+endif()

@@ -1,12 +1,11 @@
-Open Source SWMM (SWMM2D)
-Copyright (c) Caleb Buahin
+OpenSWMM Engine
+Copyright 2026 HydroCouple Developers
 
-Licensed under the MIT License. The canonical text is shipped in the
-OpenSWMMEngine source tree (LICENSE file at the repository root). A copy
-should be inserted here at packaging time by the build system. Until
-then, please consult:
+Licensed under the Apache License, Version 2.0 (Apache-2.0).
+The canonical license text is maintained at the repository root:
 
-https://github.com/hydrocouple/openswmm.engine/blob/main/LICENSE
+https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/LICENSE
 
-This project links against openswmm.engine as a shared library built from
-sibling source via CMake `add_subdirectory`.
+SWMMVis consumes the prebuilt installed OpenSWMMEngine CMake package and
+links against the engine as a shared library. The engine's license is
+independent of the GUI's GPL-3.0-or-later license.
