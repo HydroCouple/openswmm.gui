@@ -335,6 +335,19 @@ public:
      */
     [[nodiscard]] OpenSWMM::Render::ISublayer *sublayerForIndex(const QModelIndex &index) const;
 
+    /*! True if \p index is a sublayer heading row (ISublayerHost::sublayerGroups()), whose
+     *  children are that group's sublayer rows. Its check state is tri-state over them.
+     * @param[in] index Expected current model index, invalid is supported.
+     */
+    [[nodiscard]] bool isSublayerGroupIndex(const QModelIndex &index) const;
+
+    /*! Sublayers sharing the parent of a sublayer row (its heading, or the layer for ungrouped
+     *  rows), in display order (top of the paint stack first). Reorders stay inside this list.
+     * @param[in] index Sublayer-row index; any other index yields an empty list.
+     */
+    [[nodiscard]] QList<OpenSWMM::Render::ISublayer *>
+    sublayerSiblings(const QModelIndex &index) const;
+
     /*!
      * \brief Slice LTR-2026-09-19 — moves the category group \p categoryId
      *        (an openswmmvis::ui::CategoryId currently shown in the tree) to
@@ -481,6 +494,17 @@ private:
     struct SublayerRow {
         OpenSWMMVisLayer *layer = nullptr;
         OpenSWMM::Render::ISublayer *sublayer = nullptr;
+        int group = -1; // index into the host's m_sublayerGroupStorage, -1 = under the layer
+    };
+    // Heading row ("Surface results", …) under a host layer, holding the
+    // sublayer rows its host assigns to ISublayerHost::sublayerGroups()[g].
+    // Its rows are the contiguous slice [first, first + count) of the host's
+    // m_sublayerRowStorage vector. Same address-stability contract.
+    struct SublayerGroupRow {
+        OpenSWMMVisLayer *layer = nullptr;
+        QString title;
+        int first = 0;
+        int count = 0;
     };
 
     /**
@@ -537,6 +561,31 @@ private:
     // between sublayer-row, kind-row, layer, and category indices.
     QHash<OpenSWMMVisLayer *, std::vector<SublayerRow>> m_sublayerRowStorage;
     QSet<const void *> m_sublayerRowPtrSet;
+    // Heading rows per host (only non-empty groups), shown after the
+    // ungrouped sublayer rows. Vector sized once per rebuild.
+    QHash<OpenSWMMVisLayer *, std::vector<SublayerGroupRow>> m_sublayerGroupStorage;
+    QSet<const void *> m_sublayerGroupPtrSet;
+    /**
+     * @param[in] layer Host pointer identity.
+     * @return Number of sublayer rows shown directly under the layer (before its headings).
+     */
+    int ungroupedSublayerCount(OpenSWMMVisLayer *layer) const;
+    /**
+     * @param[in] layer Host pointer identity, dereferenced only when it has sublayer rows.
+     * @param[in] paintIndex Position in the host's sublayers() (0 = bottom).
+     * @return Current row of that sublayer, or null.
+     */
+    const SublayerRow *sublayerRowForPaintIndex(OpenSWMMVisLayer *layer, int paintIndex) const;
+    /**
+     * @param[in] row Current sublayer row.
+     * @return Internal pointer of its parent row: its heading, else its layer.
+     */
+    const void *sublayerRowParent(const SublayerRow *row) const;
+    /**
+     * @param[in] row Current sublayer row.
+     * @return Sublayers under the same parent row, in display order.
+     */
+    QList<OpenSWMM::Render::ISublayer *> siblingSublayers(const SublayerRow *row) const;
 
     // Slice LTR-2026-09-19: no cached category order here. The displayed
     // category sequence is DERIVED from the canvas stack (first appearance,
@@ -904,6 +953,19 @@ private:
         OpenSWMM::Render::ISublayer *sublayer = nullptr; // compared by address only
     };
     RememberedRow m_remembered;
+
+    // Sublayer headings the user collapsed, keyed by layer address + title.
+    // Every reset expands the whole tree; these collapse again afterwards.
+    QSet<QString> m_collapsedHeadings;
+    bool m_expandingTree = false;
+    /**
+     * @param[in] sourceIndex Heading row of the source model.
+     * @return Identity of the heading that survives model resets.
+     */
+    QString headingKey(const QModelIndex &sourceIndex) const;
+    /** @note Expand the whole tree (after resets and filtering), then collapse the remembered
+     *   headings again. */
+    void expandTree();
 
     QPointer<MapCanvas> m_canvas; // see LayerTreeModel::m_canvas
     QTreeView *m_treeView = nullptr;

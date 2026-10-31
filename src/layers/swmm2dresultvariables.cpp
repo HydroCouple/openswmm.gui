@@ -222,18 +222,29 @@ SWMM2DResultsLayer::resultScalarGeometry(const std::shared_ptr<const Mesh2DScala
     return output;
 }
 
-ResultScalarSublayer *SWMM2DResultsLayer::addResultSublayer(const QString &key,
-                                                            const QString &requestedId)
+namespace
+{
+const QString kCatalogRowPrefix = QStringLiteral("results2d.variable.catalog.");
+const QString kOfferedKeys = QStringLiteral("resultCatalogKeys");
+/** @brief Layer-tree group of a variable key: 1 groundwater (incl. derived), 0 surface. */
+int resultKeyGroup(const QString &key)
+{
+    return key.startsWith(QLatin1String("groundwater:")) ||
+                   key.startsWith(QLatin1String("derived:"))
+               ? 1
+               : 0;
+}
+}
+
+ResultScalarSublayer *SWMM2DResultsLayer::createResultSublayer_(const QString &key,
+                                                                const QString &id, bool visible)
 {
     (void)sublayers();
-    const QString id = requestedId.isEmpty()
-                           ? QStringLiteral("results2d.variable.") +
-                                 QUuid::createUuid().toString(QUuid::WithoutBraces)
-                           : requestedId;
     if (!id.startsWith(QLatin1String("results2d.variable.")) ||
         OpenSWMM::Render::ISublayerHost::findSublayer(*this, id))
         return nullptr;
     auto *sub = new ResultScalarSublayer(id, this);
+    sub->setVisible(visible);
     sub->fillStyle()->setAttribute(key);
     for (const auto &v : resultVariables())
         if (v.key() == key) {
@@ -252,13 +263,115 @@ ResultScalarSublayer *SWMM2DResultsLayer::addResultSublayer(const QString &key,
     connect(sub->fillStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged, sub,
             refreshDescriptor);
     connect(this, &SWMM2DResultsLayer::timeRangeChanged, sub, refreshDescriptor);
-    m_sublayerOrder.append(sub);
     connect(sub, &OpenSWMM::Render::ISublayer::invalidated, this,
             [this] { emit repaintRequested(); });
+    return sub;
+}
+
+ResultScalarSublayer *SWMM2DResultsLayer::addResultSublayer(const QString &key,
+                                                            const QString &requestedId)
+{
+    const QString id = requestedId.isEmpty()
+                           ? QStringLiteral("results2d.variable.") +
+                                 QUuid::createUuid().toString(QUuid::WithoutBraces)
+                           : requestedId;
+    auto *sub = createResultSublayer_(key, id, true);
+    if (!sub)
+        return nullptr;
+    m_sublayerOrder.append(sub);
     emit resultSublayersChanged();
     emit childrenChanged();
     emit repaintRequested();
     return sub;
+}
+
+void SWMM2DResultsLayer::syncResultSublayers_()
+{
+    const auto catalog = resultVariables();
+    if (catalog.isEmpty())
+        return; // no source, or a live run that has not reported variables yet
+    bool changed = false;
+    // A live catalog only grows. A saved one is complete: drop catalog rows
+    // whose variable is gone, and let the key be offered again if it returns.
+    if (!source_->isLive()) {
+        QSet<QString> available;
+        for (const auto &v : catalog)
+            available.insert(v.key());
+        const auto existing = sublayers();
+        for (auto *base : existing) {
+            auto *sub = qobject_cast<ResultScalarSublayer *>(base);
+            if (sub && sub->id().startsWith(kCatalogRowPrefix) &&
+                !available.contains(sub->variableKey())) {
+                m_sublayerOrder.removeOne(sub);
+                delete sub;
+                changed = true;
+            }
+        }
+        m_offeredResultKeys.removeIf([&](const QString &key) { return !available.contains(key); });
+    }
+    QSet<QString> shown;
+    for (auto *base : sublayers())
+        if (auto *sub = qobject_cast<ResultScalarSublayer *>(base))
+            shown.insert(sub->variableKey());
+    for (const int group : {0, 1})
+        for (const auto &v : catalog) {
+            const QString key = v.key();
+            if (resultKeyGroup(key) != group || m_offeredResultKeys.contains(key))
+                continue;
+            m_offeredResultKeys.insert(key);
+            if (shown.contains(key))
+                continue; // a row added by hand already shows it
+            auto *sub = createResultSublayer_(key, kCatalogRowPrefix + key, false);
+            if (!sub)
+                continue;
+            // Below this group's rows so the tree reads in catalog order; a
+            // first groundwater row goes below the surface rows. Variable rows
+            // paint above the builtin hydraulics, as Add result always did.
+            int at = m_sublayerOrder.size(), firstSurface = -1, firstSame = -1;
+            for (int i = 0; i < m_sublayerOrder.size(); ++i) {
+                const int g = sublayerGroup(m_sublayerOrder[i]);
+                if (g == group && firstSame < 0)
+                    firstSame = i;
+                if (g == 0 && firstSurface < 0)
+                    firstSurface = i;
+            }
+            if (firstSame >= 0)
+                at = firstSame;
+            else if (group == 1 && firstSurface >= 0)
+                at = firstSurface;
+            m_sublayerOrder.insert(at, sub);
+            shown.insert(key);
+            changed = true;
+        }
+    if (changed) {
+        emit resultSublayersChanged();
+        emit childrenChanged();
+        emit repaintRequested();
+    }
+}
+
+QStringList SWMM2DResultsLayer::sublayerGroups() const
+{
+    return {tr("Surface results"), tr("Groundwater results")};
+}
+
+int SWMM2DResultsLayer::sublayerGroup(const OpenSWMM::Render::ISublayer *sublayer) const
+{
+    const auto *sub = qobject_cast<const ResultScalarSublayer *>(sublayer);
+    return sub ? resultKeyGroup(sub->variableKey()) : -1;
+}
+
+void SWMM2DResultsLayer::saveSublayersJsonState(QJsonObject &j) const
+{
+    QStringList keys(m_offeredResultKeys.cbegin(), m_offeredResultKeys.cend());
+    keys.sort();
+    j.insert(kOfferedKeys, QJsonArray::fromStringList(keys));
+}
+
+void SWMM2DResultsLayer::onSublayersJsonLoaded(const QJsonObject &j)
+{
+    Q_UNUSED(j);
+    syncResultSublayers_();
 }
 
 bool SWMM2DResultsLayer::removeResultSublayer(const QString &id)
@@ -280,18 +393,34 @@ void SWMM2DResultsLayer::prepareSublayersJsonLoad(const QJsonObject &j)
     if (!j.value(QStringLiteral("sublayers")).isArray())
         return;
     const auto rows = j.value(QStringLiteral("sublayers")).toArray();
-    QSet<QString> wanted;
+    QSet<QString> wanted, wantedKeys;
     for (const auto &entry : rows) {
         const auto row = entry.toObject();
         const auto id = row.value("id").toString();
         if (!id.startsWith(QLatin1String("results2d.variable.")) || wanted.contains(id))
             continue;
         wanted.insert(id);
+        const QString key = row.value("style").toObject().value("attribute").toString();
+        wantedKeys.insert(key);
         if (!OpenSWMM::Render::ISublayerHost::findSublayer(*this, id))
-            addResultSublayer(row.value("style").toObject().value("attribute").toString(), id);
+            addResultSublayer(key, id);
     }
+    // A snapshot saved before catalog rows existed has no record of them:
+    // keep those rows unless a saved row already shows that variable.
+    const auto offered = j.value(kOfferedKeys);
     const auto existing = sublayers();
-    for (auto *sub : existing)
-        if (qobject_cast<ResultScalarSublayer *>(sub) && !wanted.contains(sub->id()))
-            removeResultSublayer(sub->id());
+    for (auto *sub : existing) {
+        auto *scalar = qobject_cast<ResultScalarSublayer *>(sub);
+        if (!scalar || wanted.contains(sub->id()))
+            continue;
+        if (!offered.isArray() && sub->id().startsWith(kCatalogRowPrefix) &&
+            !wantedKeys.contains(scalar->variableKey()))
+            continue;
+        removeResultSublayer(sub->id());
+    }
+    if (offered.isArray()) {
+        m_offeredResultKeys.clear();
+        for (const auto &key : offered.toArray())
+            m_offeredResultKeys.insert(key.toString());
+    }
 }

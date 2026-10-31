@@ -1305,8 +1305,31 @@ public:
      *   by prefix/attribute, ignores duplicate IDs and deletes dynamic rows absent from wanted set;
      *   ordinary add/remove notifications can fire repeatedly. This prepares identities before base
      *   JSON style/order restoration; malformed row style may yield an unresolved key.
+     *   A snapshot without resultCatalogKeys (saved before catalog rows existed) keeps the
+     *   automatic catalog rows it never knew, unless a saved row shows the same variable; a
+     *   snapshot with it is authoritative, including the user's removals.
      */
     void prepareSublayersJsonLoad(const QJsonObject &j) override;
+    /**
+     * @param[in] j Restored snapshot (unused).
+     * @note Offers catalog variables the snapshot had not seen yet, as hidden rows.
+     */
+    void onSublayersJsonLoaded(const QJsonObject &j) override;
+    /**
+     * @param[in,out] j Snapshot receiving resultCatalogKeys: the sorted catalog keys already
+     *   offered as rows. An offered key without a row is a row the user removed.
+     */
+    void saveSublayersJsonState(QJsonObject &j) const override;
+    /**
+     * @return Layer-tree headings for result variable rows: Surface results, Groundwater results.
+     */
+    [[nodiscard]] QStringList sublayerGroups() const override;
+    /**
+     * @param[in] sublayer Borrowed sublayer of this layer.
+     * @return -1 for builtin sublayers; 1 for groundwater and derived variable keys; 0 for other
+     *   variable rows, including unavailable keys.
+     */
+    [[nodiscard]] int sublayerGroup(const OpenSWMM::Render::ISublayer *sublayer) const override;
 
     /**
      * @param[in] frame Shared immutable scalar frame, nullable; pointer identity is part of cache
@@ -2921,6 +2944,26 @@ private:
     mutable QHash<QString, std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>>
         m_resultRanges;
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
+    // Catalog keys already offered as hidden variable rows. An offered key
+    // without a row is one the user removed; it is not offered again.
+    QSet<QString> m_offeredResultKeys;
+    /**
+     * @param[in] key Semantic variable key bound to the new row.
+     * @param[in] id Stable results2d.variable. ID; invalid prefix or duplicate rejected.
+     * @param[in] visible Initial visibility, applied before any signal is wired.
+     * @return Borrowed new child with descriptor/style/range wiring, not yet in the paint order and
+     *   not announced, or null.
+     */
+    OpenSWMM::Render::ResultScalarSublayer *createResultSublayer_(const QString &key,
+                                                                  const QString &id, bool visible);
+    /**
+     * @note Gives every catalog variable not yet offered a hidden row (Surface rows above
+     *   Groundwater rows, catalog order within each), skipping keys that already have a row. For
+     *   a complete (non-live) catalog, automatic rows whose variable vanished are removed and their
+     *   keys may be offered again. An empty catalog changes nothing. Emits the add/remove
+     *   notifications once.
+     */
+    void syncResultSublayers_();
 
 public:
     // ----- ISublayerHost interface (Slice S5.6) -----------------------------
@@ -2946,6 +2989,13 @@ public:
      *   rebuild geometry or rule-list ordering.
      */
     bool moveSublayer(int from, int to) override;
+
+    /**
+     * @param[in] period New animation period (unused; the renderer reads the current frame).
+     * @note Invalidates dynamic sublayers like the base, except hidden result-variable rows:
+     *   they have nothing to redraw, and most catalog rows are hidden.
+     */
+    void dispatchAnimationTick(int period) override;
 
     /*! Graduated ramp swatches for the legend dock. Mirrors
      *  SWMMResultsLayer::sublayerLegendItems for the 2D layer: emits

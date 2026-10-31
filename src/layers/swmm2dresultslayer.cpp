@@ -2188,6 +2188,10 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString &name, OpenSWMMVisWorkspace
             graphics_item_->geometryChanged();
         emit repaintRequested();
     });
+    // Every catalog variable becomes a hidden sublayer. A new source (saved
+    // file, live run, live -> saved switch) and live catalog growth all
+    // announce themselves through timeRangeChanged.
+    connect(this, &SWMM2DResultsLayer::timeRangeChanged, this, [this] { syncResultSublayers_(); });
     surface_pool_.setMaxThreadCount(1);
 }
 
@@ -2236,6 +2240,15 @@ bool SWMM2DResultsLayer::moveSublayer(int from, int to)
     m_sublayerOrder.move(from, to);
     emit repaintRequested();
     return true;
+}
+
+void SWMM2DResultsLayer::dispatchAnimationTick(int period)
+{
+    Q_UNUSED(period);
+    for (auto *s : sublayers())
+        if (s && s->isDynamic() &&
+            (s->isVisible() || !qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(s)))
+            s->invalidate();
 }
 
 // ---------------------------------------------------------------------------

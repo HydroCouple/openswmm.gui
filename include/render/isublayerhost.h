@@ -55,6 +55,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 
 namespace OpenSWMM::Render
 {
@@ -149,6 +150,24 @@ public:
         Q_UNUSED(sublayersJson);
     }
 
+    /** @brief Add host-level state beside the saved sublayers array.
+     * @param[in,out] j Snapshot being built by saveSublayersToJson(). Dynamic hosts record
+     * inventory state that prepareSublayersJsonLoad() reads back; the base adds nothing. */
+    virtual void saveSublayersJsonState(QJsonObject &j) const { Q_UNUSED(j); }
+
+    /** @brief Ordered headings under which the layer tree nests some sublayers.
+     * @return Empty by default: every sublayer is shown directly under its layer. */
+    [[nodiscard]] virtual QStringList sublayerGroups() const { return {}; }
+
+    /** @brief Heading of one sublayer in the layer tree.
+     * @param sublayer Borrowed sublayer of this host.
+     * @return Index into sublayerGroups(), or -1 (default) to show it directly under the layer. */
+    [[nodiscard]] virtual int sublayerGroup(const ISublayer *sublayer) const
+    {
+        Q_UNUSED(sublayer);
+        return -1;
+    }
+
     // ── Slice S6.1 — JSON persistence helpers ──────────────────────────
     //
     // Layers call these at their `.oswp` save/load points to round-trip
@@ -170,8 +189,9 @@ public:
 
     /** @brief Snapshot sublayer identity, visibility, opacity, style and paint order.
      * @param host Host to inspect synchronously; its sublayers must remain alive during traversal.
-     * @return Owned object containing a sublayers array in paint order. Null entries
-     * are skipped and style is omitted when style() returns nullptr. */
+     * @return Owned object containing a sublayers array in paint order plus any
+     * saveSublayersJsonState() fields. Null entries are skipped and style is omitted
+     * when style() returns nullptr. */
     [[nodiscard]] static QJsonObject saveSublayersToJson(const ISublayerHost &host)
     {
         QJsonArray arr;
@@ -188,6 +208,7 @@ public:
         }
         QJsonObject obj;
         obj.insert(QStringLiteral("sublayers"), arr);
+        host.saveSublayersJsonState(obj);
         return obj;
     }
 

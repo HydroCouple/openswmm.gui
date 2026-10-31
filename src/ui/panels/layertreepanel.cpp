@@ -50,6 +50,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPainter>
+#include <QScopedValueRollback>
 #include <QSortFilterProxyModel>
 #include <QSpinBox>
 #include <QStyle>
@@ -599,6 +600,8 @@ void LayerTreeModel::rebuildSublayerRows()
 {
     m_sublayerRowStorage.clear();
     m_sublayerRowPtrSet.clear();
+    m_sublayerGroupStorage.clear();
+    m_sublayerGroupPtrSet.clear();
 
     for (const Category &cat : m_categories) {
         for (OpenSWMMVisLayer *layer : cat.layers) {
@@ -621,17 +624,36 @@ void LayerTreeModel::rebuildSublayerRows()
             // Display order = TOP-of-paint-stack first, matching how the
             // tree shows top-of-canvas first for categories and layers.
             // ISublayerHost::sublayers() returns paint order (bottom-up),
-            // so we reverse.
+            // so we reverse. Rows the host puts under a heading follow the
+            // ungrouped rows, one contiguous slice per non-empty heading.
+            const QStringList groups = host->sublayerGroups();
             auto &storage = m_sublayerRowStorage[layer];
             storage.reserve(subs.size());
-            for (int i = subs.size() - 1; i >= 0; --i) {
-                if (!subs[i])
-                    continue;
-                SublayerRow row;
-                row.layer = layer;
-                row.sublayer = subs[i];
-                storage.push_back(row);
-                m_sublayerRowPtrSet.insert(static_cast<const void *>(&storage.back()));
+            std::vector<SublayerGroupRow> headings;
+            headings.reserve(size_t(groups.size()));
+            for (int g = -1; g < groups.size(); ++g) {
+                const int first = int(storage.size());
+                for (int i = subs.size() - 1; i >= 0; --i) {
+                    if (!subs[i])
+                        continue;
+                    const int group = host->sublayerGroup(subs[i]);
+                    if ((group >= 0 && group < groups.size() ? group : -1) != g)
+                        continue;
+                    SublayerRow row;
+                    row.layer = layer;
+                    row.sublayer = subs[i];
+                    row.group = g < 0 ? -1 : int(headings.size());
+                    storage.push_back(row);
+                    m_sublayerRowPtrSet.insert(static_cast<const void *>(&storage.back()));
+                }
+                if (g >= 0 && int(storage.size()) > first)
+                    headings.push_back({layer, groups[g], first, int(storage.size()) - first});
+            }
+            if (!headings.empty()) {
+                auto &stored = m_sublayerGroupStorage[layer];
+                stored = std::move(headings);
+                for (const auto &heading : stored)
+                    m_sublayerGroupPtrSet.insert(static_cast<const void *>(&heading));
             }
 
             // Live update: re-emit dataChanged when any sublayer of this
@@ -658,11 +680,33 @@ void LayerTreeModel::rebuildSublayerRows()
                             return;
                         const QModelIndex top = index(0, 0, layerIdx);
                         const QModelIndex bottom = index(rows - 1, columnCount() - 1, layerIdx);
-                        emit dataChanged(top, bottom);
+                        emit dataChanged(top, bottom); // includes the headings' tri-state
+                        // Rows nested under the headings (the last rows of the layer).
+                        const auto headings = m_sublayerGroupStorage.constFind(layer);
+                        const int count = headings == m_sublayerGroupStorage.constEnd()
+                                              ? 0
+                                              : int(headings.value().size());
+                        for (int h = rows - count; h < rows; ++h) {
+                            const QModelIndex heading = index(h, 0, layerIdx);
+                            const int n = rowCount(heading);
+                            if (n > 0)
+                                emit dataChanged(index(0, 0, heading),
+                                                 index(n - 1, columnCount() - 1, heading));
+                        }
                     });
             }
         }
     }
+}
+
+int LayerTreeModel::ungroupedSublayerCount(OpenSWMMVisLayer *layer) const
+{
+    const auto rows = m_sublayerRowStorage.constFind(layer);
+    if (rows == m_sublayerRowStorage.constEnd())
+        return 0;
+    const auto headings = m_sublayerGroupStorage.constFind(layer);
+    return headings == m_sublayerGroupStorage.constEnd() ? int(rows.value().size())
+                                                         : headings.value().front().first;
 }
 
 // Helper: find the row index of a SublayerRow within its parent layer's
@@ -708,6 +752,17 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
         return createIndex(row, column, m_categories[catIdx].layers[row]);
     }
 
+    // Parent is a sublayer heading → its slice of the host's sublayer rows.
+    if (m_sublayerGroupPtrSet.contains(parent.internalPointer())) {
+        const auto *heading = static_cast<const SublayerGroupRow *>(parent.internalPointer());
+        const auto rows = m_sublayerRowStorage.constFind(heading->layer);
+        if (rows == m_sublayerRowStorage.constEnd() || row < 0 || row >= heading->count)
+            return {};
+        return createIndex(row, column,
+                           const_cast<void *>(static_cast<const void *>(
+                               &rows.value()[size_t(heading->first + row)])));
+    }
+
     // Parent is a layer row → check whether this layer has kind sub-rows
     // (SWMMModelLayer does, others don't). If so, return a kind-row index
     // whose internalPointer is the stable address of the per-kind sentinel.
@@ -726,12 +781,21 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
     }
     // Slice S3 — fall back to sublayer rows for sublayer-host layers that
     // aren't kind-row eligible (today: SWMM2DResultsLayer).
+    // Ungrouped sublayer rows first, then the host's heading rows.
     auto subIt = m_sublayerRowStorage.constFind(parentLayer);
     if (subIt != m_sublayerRowStorage.constEnd()) {
         const auto &vec = subIt.value();
-        if (row < 0 || static_cast<size_t>(row) >= vec.size())
-            return {};
-        return createIndex(row, column, const_cast<void *>(static_cast<const void *>(&vec[row])));
+        const int ungrouped = ungroupedSublayerCount(parentLayer);
+        if (row >= 0 && row < ungrouped)
+            return createIndex(row, column,
+                               const_cast<void *>(static_cast<const void *>(&vec[row])));
+        const auto headings = m_sublayerGroupStorage.constFind(parentLayer);
+        if (headings != m_sublayerGroupStorage.constEnd() && row >= ungrouped &&
+            row - ungrouped < int(headings.value().size()))
+            return createIndex(row, column,
+                               const_cast<void *>(static_cast<const void *>(
+                                   &headings.value()[size_t(row - ungrouped)])));
+        return {};
     }
     return {};
 }
@@ -760,10 +824,23 @@ QModelIndex LayerTreeModel::parent(const QModelIndex &child) const
         return createIndex(layerRow, 0, parentLayer);
     }
 
-    // Slice S3 — sublayer row: parent is the layer row.
+    // Heading row: parent is the layer row.
+    if (m_sublayerGroupPtrSet.contains(p))
+        return indexForLayer(static_cast<const SublayerGroupRow *>(p)->layer);
+
+    // Slice S3 — sublayer row: parent is its heading, else the layer row.
     if (m_sublayerRowPtrSet.contains(p)) {
         const SublayerRow *sr = static_cast<const SublayerRow *>(p);
         OpenSWMMVisLayer *parentLayer = sr->layer;
+        if (sr->group >= 0) {
+            const auto headings = m_sublayerGroupStorage.constFind(parentLayer);
+            if (headings == m_sublayerGroupStorage.constEnd() ||
+                sr->group >= int(headings.value().size()))
+                return {};
+            return createIndex(ungroupedSublayerCount(parentLayer) + sr->group, 0,
+                               const_cast<void *>(static_cast<const void *>(
+                                   &headings.value()[size_t(sr->group)])));
+        }
         const int catIdx = m_layerToCategory.value(parentLayer, -1);
         if (catIdx < 0)
             return {};
@@ -794,6 +871,8 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
                                                              : 0;
     }
     if (m_seriesRowPtrs.contains(parent.internalPointer())) return 0;
+    if (m_sublayerGroupPtrSet.contains(parent.internalPointer()))
+        return static_cast<const SublayerGroupRow *>(parent.internalPointer())->count;
     const auto seriesIt = m_seriesRows.find(static_cast<OpenSWMMVisLayer *>(parent.internalPointer()));
     if (seriesIt != m_seriesRows.end()) return int(seriesIt->second.size());
     // Slice BI-MK.LT / S3 — layer row: has kind sub-rows for multi-kind
@@ -804,9 +883,13 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
         auto *layer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
         if (m_kindRowStorage.contains(layer))
             return kKindsPerSwmmModelLayer;
-        auto subIt = m_sublayerRowStorage.constFind(layer);
-        if (subIt != m_sublayerRowStorage.constEnd())
-            return static_cast<int>(subIt.value().size());
+        if (m_sublayerRowStorage.contains(layer)) {
+            const auto headings = m_sublayerGroupStorage.constFind(layer);
+            return ungroupedSublayerCount(layer) +
+                   (headings == m_sublayerGroupStorage.constEnd()
+                        ? 0
+                        : int(headings.value().size()));
+        }
         return 0; // leaf layer
     }
     return 0; // kind rows and sublayer rows are leaves
@@ -822,7 +905,8 @@ bool LayerTreeModel::canFetchMore(const QModelIndex &parent) const
 {
     if (!parent.isValid() || parent.column() != 0 || !parent.internalPointer() ||
         m_seriesRowPtrs.contains(parent.internalPointer()) || m_kindRowPtrSet.contains(parent.internalPointer()) ||
-        m_sublayerRowPtrSet.contains(parent.internalPointer())) return false;
+        m_sublayerRowPtrSet.contains(parent.internalPointer()) ||
+        m_sublayerGroupPtrSet.contains(parent.internalPointer())) return false;
     auto *layer = qobject_cast<TimeSeriesLayer *>(static_cast<OpenSWMMVisLayer *>(parent.internalPointer()));
     if (!layer || !layer->dataset()) return false;
     const auto it = m_seriesRows.find(layer);
@@ -900,6 +984,28 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
             case Qt::EditRole:
                 return s->opacity() * 100.0;
             }
+        }
+        return {};
+    }
+
+    // ---- Sublayer heading row: title + tri-state over its rows -------------
+    if (p && m_sublayerGroupPtrSet.contains(p)) {
+        if (index.column() != 0)
+            return {};
+        const auto *heading = static_cast<const SublayerGroupRow *>(p);
+        if (role == Qt::DisplayRole)
+            return heading->title;
+        if (role == Qt::CheckStateRole) {
+            const auto rows = m_sublayerRowStorage.constFind(heading->layer);
+            if (rows == m_sublayerRowStorage.constEnd())
+                return {};
+            int shown = 0;
+            for (int i = 0; i < heading->count; ++i)
+                if (auto *s = rows.value()[size_t(heading->first + i)].sublayer)
+                    shown += s->isVisible() ? 1 : 0;
+            return shown == 0                ? Qt::Unchecked
+                   : shown == heading->count ? Qt::Checked
+                                             : Qt::PartiallyChecked;
         }
         return {};
     }
@@ -1072,6 +1178,25 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
         return false;
     }
 
+    // Heading check shows or hides every sublayer row under it.
+    if (p && m_sublayerGroupPtrSet.contains(p)) {
+        if (index.column() != 0 || role != Qt::CheckStateRole)
+            return false;
+        const auto *heading = static_cast<const SublayerGroupRow *>(p);
+        const auto rows = m_sublayerRowStorage.constFind(heading->layer);
+        if (rows == m_sublayerRowStorage.constEnd())
+            return false;
+        QList<QPointer<OpenSWMM::Render::ISublayer>> members;
+        for (int i = 0; i < heading->count; ++i)
+            members.append(rows.value()[size_t(heading->first + i)].sublayer);
+        const bool visible = value.toInt() == Qt::Checked;
+        for (const auto &s : members)
+            if (s)
+                s->setVisible(visible);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
     // Slice BI-MK.LT — kind-row check-state toggles per-kind visibility;
     // column-1 edit sets per-kind opacity (SWMM model kinds only).
     if (p && m_kindRowPtrSet.contains(p)) {
@@ -1146,6 +1271,15 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
         return f;
     }
 
+    // Heading row: checkable (tri-state shown, toggles its rows), accepts its
+    // own rows' drops, not draggable itself.
+    if (p && m_sublayerGroupPtrSet.contains(p)) {
+        Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDropEnabled;
+        if (index.column() == 0)
+            f |= Qt::ItemIsUserCheckable;
+        return f;
+    }
+
     // Slice BI-MK.LT — kind sub-row: checkable + enabled + selectable, no drag.
     // Slice OUT.3 — only SWMMModelLayer kind rows are checkable (per-kind
     // visibility); output-layer kind rows are display-only for v1.
@@ -1214,7 +1348,7 @@ QMimeData *LayerTreeModel::mimeData(const QModelIndexList &indexes) const
 
     const QModelIndex first = indexes.first();
     void *p = first.internalPointer();
-    if (m_seriesRowPtrs.contains(p)) return nullptr;
+    if (m_seriesRowPtrs.contains(p) || m_sublayerGroupPtrSet.contains(p)) return nullptr;
     auto *mime = new QMimeData;
     QByteArray encoded;
     QDataStream stream(&encoded, QIODevice::WriteOnly);
@@ -1301,31 +1435,31 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
         return src && m_layerToCategory.value(src, -1) == parent.row();
     }
 
-    // Sublayer drop: only inside the same host. Two drop shapes arrive
-    // from QTreeView — BETWEEN sub-rows (parent = the host layer row,
-    // row = insertion slot) and ONTO a sub-row (parent = that sub-row).
-    // Both are accepted when the host matches the drag source.
+    // Sublayer drop: only among the dragged row's siblings — the same host
+    // and the same heading (or none). Two drop shapes arrive from QTreeView —
+    // BETWEEN sibling rows (parent = their heading or host layer row, row =
+    // insertion slot) and ONTO a sibling row (parent = that row).
     if (data->hasFormat(QStringLiteral("application/x-sublayerrow"))) {
-        if (!parent.isValid())
-            return false;
+        if (!parent.isValid() || !parent.internalPointer())
+            return false; // nothing or a category row
         QByteArray buf = data->data(QStringLiteral("application/x-sublayerrow"));
         QDataStream ds(&buf, QIODevice::ReadOnly);
         quintptr hostPtr = 0;
-        qint32 ignoredIdx = 0;
-        ds >> hostPtr >> ignoredIdx;
-
+        qint32 srcIdx = -1;
+        ds >> hostPtr >> srcIdx;
+        const SublayerRow *src =
+            sublayerRowForPaintIndex(reinterpret_cast<OpenSWMMVisLayer *>(hostPtr), srcIdx);
+        if (!src)
+            return false;
+        const void *home = sublayerRowParent(src);
         void *pp = parent.internalPointer();
-        if (!pp)
-            return false;                       // category row
-        if (m_sublayerRowPtrSet.contains(pp)) { // onto a sub-row
-            const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
-            return dst->layer && reinterpret_cast<quintptr>(dst->layer) == hostPtr;
-        }
-        if (m_kindRowPtrSet.contains(pp))
-            return false; // kind row
-        // Layer row: must be the host itself (and carry sublayer rows).
-        return reinterpret_cast<quintptr>(pp) == hostPtr &&
-               m_sublayerRowStorage.contains(static_cast<OpenSWMMVisLayer *>(pp));
+        if (m_sublayerRowPtrSet.contains(pp)) // onto a sub-row
+            return sublayerRowParent(static_cast<const SublayerRow *>(pp)) == home;
+        if (pp != home)
+            return false;
+        // Between a layer's ungrouped rows, never among its headings.
+        return m_sublayerGroupPtrSet.contains(pp) ||
+               row <= ungroupedSublayerCount(static_cast<OpenSWMMVisLayer *>(pp));
     }
 
     return false;
@@ -1447,44 +1581,39 @@ bool LayerTreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action, 
         quintptr hostPtr = 0;
         qint32 srcIdx = -1;
         ds >> hostPtr >> srcIdx;
-        if (srcIdx < 0)
+        const SublayerRow *src =
+            sublayerRowForPaintIndex(reinterpret_cast<OpenSWMMVisLayer *>(hostPtr), srcIdx);
+        if (!src)
             return false;
-
-        OpenSWMMVisLayer *hostLayer = nullptr;
+        OpenSWMMVisLayer *hostLayer = src->layer;
+        const auto subs = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer)->sublayers();
+        const void *home = sublayerRowParent(src);
         int dstIdx = -1; // paint index (0 = bottom)
 
         if (m_sublayerRowPtrSet.contains(pp)) {
-            // Onto a sub-row: take that sub-row's paint slot.
+            // Onto a sibling row: take that row's paint slot.
             const SublayerRow *dst = static_cast<const SublayerRow *>(pp);
-            if (!dst->layer || reinterpret_cast<quintptr>(dst->layer) != hostPtr)
+            if (sublayerRowParent(dst) != home)
                 return false;
-            hostLayer = dst->layer;
-            auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
-            if (!host)
-                return false;
-            dstIdx = host->sublayers().indexOf(dst->sublayer);
+            dstIdx = subs.indexOf(dst->sublayer);
         } else {
-            // Between sub-rows: parent is the host layer row, `row` is the
-            // display slot (0 = top of paint stack). Convert display → paint:
-            // display r of n is paint n-1-r; the classic "slot after source
-            // shifts by one" adjustment happens in display space first.
-            if (m_kindRowPtrSet.contains(pp))
+            // Between sibling rows: `row` is the display slot among them (0 =
+            // top of their paint order, -1 = after the last). The classic
+            // "slot after source shifts by one" adjustment happens in display
+            // space; the row then takes the paint slot of the sibling it lands
+            // on, so the rows of other headings keep their places.
+            if (pp != home)
                 return false;
-            hostLayer = static_cast<OpenSWMMVisLayer *>(pp);
-            if (reinterpret_cast<quintptr>(hostLayer) != hostPtr)
-                return false;
-            auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(hostLayer);
-            if (!host)
-                return false;
-            const int n = host->sublayers().size();
-            if (srcIdx >= n)
-                return false;
-            const int srcDisplay = n - 1 - srcIdx;
+            const auto siblings = siblingSublayers(src);
+            const int n = siblings.size();
+            if (!m_sublayerGroupPtrSet.contains(pp) && row > n)
+                return false; // among the layer's headings
+            const int srcDisplay = siblings.indexOf(src->sublayer);
             int dstDisplay = (row < 0) ? n : row;
             if (dstDisplay > srcDisplay)
                 --dstDisplay;
             dstDisplay = qBound(0, dstDisplay, n - 1);
-            dstIdx = n - 1 - dstDisplay;
+            dstIdx = subs.indexOf(siblings[dstDisplay]);
         }
         if (dstIdx < 0 || dstIdx == srcIdx)
             return false;
@@ -1542,9 +1671,11 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
     // Slice BI-MK.LT — kind sub-row: return its parent layer.
     if (m_kindRowPtrSet.contains(p))
         return static_cast<const KindRow *>(p)->layer;
-    // Slice S3 — sublayer sub-row: return its parent layer.
+    // Slice S3 — sublayer sub-row / heading: return its parent layer.
     if (m_sublayerRowPtrSet.contains(p))
         return static_cast<const SublayerRow *>(p)->layer;
+    if (m_sublayerGroupPtrSet.contains(p))
+        return static_cast<const SublayerGroupRow *>(p)->layer;
     return static_cast<OpenSWMMVisLayer *>(p);
 }
 
@@ -1582,10 +1713,15 @@ QModelIndex LayerTreeModel::indexForSublayer(OpenSWMMVisLayer *layer,
     if (it == m_sublayerRowStorage.constEnd())
         return {};
     const auto &vec = it.value();
+    const auto headings = m_sublayerGroupStorage.constFind(layer);
     for (size_t i = 0; i < vec.size(); ++i)
-        if (vec[i].sublayer == sublayer)
-            return createIndex(static_cast<int>(i), 0,
-                               const_cast<void *>(static_cast<const void *>(&vec[i])));
+        if (vec[i].sublayer == sublayer) {
+            // Row within its parent: the heading's slice, or the ungrouped rows.
+            const int row = vec[i].group < 0 || headings == m_sublayerGroupStorage.constEnd()
+                                ? int(i)
+                                : int(i) - headings.value()[size_t(vec[i].group)].first;
+            return createIndex(row, 0, const_cast<void *>(static_cast<const void *>(&vec[i])));
+        }
     return {};
 }
 
@@ -1636,6 +1772,56 @@ OpenSWMM::Render::ISublayer *LayerTreeModel::sublayerForIndex(const QModelIndex 
     if (!isSublayerIndex(index))
         return nullptr;
     return static_cast<const SublayerRow *>(index.internalPointer())->sublayer;
+}
+
+bool LayerTreeModel::isSublayerGroupIndex(const QModelIndex &index) const
+{
+    return index.isValid() && index.internalPointer() != nullptr &&
+           m_sublayerGroupPtrSet.contains(index.internalPointer());
+}
+
+QList<OpenSWMM::Render::ISublayer *> LayerTreeModel::sublayerSiblings(const QModelIndex &index) const
+{
+    return isSublayerIndex(index)
+               ? siblingSublayers(static_cast<const SublayerRow *>(index.internalPointer()))
+               : QList<OpenSWMM::Render::ISublayer *>{};
+}
+
+const LayerTreeModel::SublayerRow *
+LayerTreeModel::sublayerRowForPaintIndex(OpenSWMMVisLayer *layer, int paintIndex) const
+{
+    const auto rows = m_sublayerRowStorage.constFind(layer);
+    if (rows == m_sublayerRowStorage.constEnd())
+        return nullptr; // unknown (or destroyed) host: never dereferenced
+    auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(layer);
+    const auto subs = host ? host->sublayers() : QList<OpenSWMM::Render::ISublayer *>{};
+    if (paintIndex < 0 || paintIndex >= subs.size())
+        return nullptr;
+    for (const auto &row : rows.value())
+        if (row.sublayer == subs[paintIndex])
+            return &row;
+    return nullptr;
+}
+
+const void *LayerTreeModel::sublayerRowParent(const SublayerRow *row) const
+{
+    if (row->group < 0)
+        return row->layer;
+    const auto headings = m_sublayerGroupStorage.constFind(row->layer);
+    return headings == m_sublayerGroupStorage.constEnd()
+               ? nullptr
+               : static_cast<const void *>(&headings.value()[size_t(row->group)]);
+}
+
+QList<OpenSWMM::Render::ISublayer *> LayerTreeModel::siblingSublayers(const SublayerRow *row) const
+{
+    QList<OpenSWMM::Render::ISublayer *> out;
+    const auto rows = m_sublayerRowStorage.constFind(row->layer);
+    if (rows != m_sublayerRowStorage.constEnd())
+        for (const auto &other : rows.value())
+            if (other.group == row->group)
+                out.append(other.sublayer);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1796,9 +1982,20 @@ void LayerTreePanel::setupUi()
 
     // Re-expand on every reset so newly-categorised layers (and the result
     // of filter changes) are visible without manual expand.
-    connect(m_model, &QAbstractItemModel::modelReset, m_treeView, &QTreeView::expandAll);
-    connect(m_proxy, &QAbstractItemModel::modelReset, m_treeView, &QTreeView::expandAll);
-    connect(m_proxy, &QAbstractItemModel::layoutChanged, m_treeView, &QTreeView::expandAll);
+    // Sublayer headings the user collapsed stay collapsed (expandTree()).
+    connect(m_model, &QAbstractItemModel::modelReset, this, &LayerTreePanel::expandTree);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this, &LayerTreePanel::expandTree);
+    connect(m_proxy, &QAbstractItemModel::layoutChanged, this, &LayerTreePanel::expandTree);
+    connect(m_treeView, &QTreeView::collapsed, this, [this](const QModelIndex &index) {
+        const QModelIndex src = toSourceIndex(index);
+        if (m_model->isSublayerGroupIndex(src))
+            m_collapsedHeadings.insert(headingKey(src));
+    });
+    connect(m_treeView, &QTreeView::expanded, this, [this](const QModelIndex &index) {
+        const QModelIndex src = toSourceIndex(index);
+        if (!m_expandingTree && m_model->isSublayerGroupIndex(src))
+            m_collapsedHeadings.remove(headingKey(src));
+    });
 
     // Slice LTR-2026-09-19 — keep the moved row selected across the reset
     // every reorder (drop, menu, undo, redo) performs. Connected AFTER the
@@ -1846,6 +2043,8 @@ void LayerTreePanel::onRemoveSelectedLayer()
     if (!m_canvas)
         return;
     const auto index = toSourceIndex(m_treeView->currentIndex());
+    if (m_model->isSublayerGroupIndex(index))
+        return; // a heading is not its layer
     if (m_model->isSublayerIndex(index)) {
         removeAnalysisSublayer(m_canvas, dynamic_cast<openswmmvis::trace::TraceSublayer *>(
                                              m_model->sublayerForIndex(index)));
@@ -2002,6 +2201,36 @@ void LayerTreePanel::restoreRememberedRow()
     m_treeView->scrollTo(proxyIdx);
 }
 
+QString LayerTreePanel::headingKey(const QModelIndex &sourceIndex) const
+{
+    return QString::number(quintptr(m_model->layerForIndex(sourceIndex))) + QLatin1Char('/') +
+           sourceIndex.data(Qt::DisplayRole).toString();
+}
+
+void LayerTreePanel::expandTree()
+{
+    {
+        // expandAll() reports every row as expanded; that is not the user
+        // reopening a heading.
+        const QScopedValueRollback<bool> expanding(m_expandingTree, true);
+        m_treeView->expandAll();
+    }
+    if (m_collapsedHeadings.isEmpty())
+        return;
+    for (int c = 0; c < m_model->rowCount({}); ++c) {
+        const QModelIndex category = m_model->index(c, 0);
+        for (int l = 0; l < m_model->rowCount(category); ++l) {
+            const QModelIndex layer = m_model->index(l, 0, category);
+            for (int r = 0; r < m_model->rowCount(layer); ++r) {
+                const QModelIndex row = m_model->index(r, 0, layer);
+                if (m_model->isSublayerGroupIndex(row) &&
+                    m_collapsedHeadings.contains(headingKey(row)))
+                    m_treeView->collapse(m_proxy->mapFromSource(row));
+            }
+        }
+    }
+}
+
 void LayerTreePanel::onSelectionChanged()
 {
     emit layerSelected(selectedLayer());
@@ -2065,6 +2294,9 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     if (!idx.isValid())
         return;
     m_treeView->setCurrentIndex(proxyIdx);
+    // Headings only group rows; their check box toggles them. No layer menu.
+    if (m_model->isSublayerGroupIndex(idx))
+        return;
 
     // ── Category row ────────────────────────────────────────────────────
     if (m_model->isCategoryIndex(idx)) {
@@ -2245,7 +2477,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
         // Slice GUI-2026-05-30 §2 — sublayer reorder.  Up moves toward
         // the top of the paint stack (higher index); Down moves the
-        // opposite way.  Disabled at the boundaries.
+        // opposite way.  Moves stay among the row's siblings (its heading,
+        // if any) and are disabled at their boundaries.
         QAction *actTop =
             subMenu.addAction(ss->standardIcon(QStyle::SP_TitleBarShadeButton), tr("Move to Top"));
         QAction *actUp = subMenu.addAction(ss->standardIcon(QStyle::SP_ArrowUp), tr("Move Up"));
@@ -2253,16 +2486,19 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             subMenu.addAction(ss->standardIcon(QStyle::SP_ArrowDown), tr("Move Down"));
         QAction *actBottom = subMenu.addAction(ss->standardIcon(QStyle::SP_TitleBarUnshadeButton),
                                                tr("Move to Bottom"));
-        int curPos = -1, nSubs = 0;
+        int curPos = -1;
+        QList<OpenSWMM::Render::ISublayer *> subs;
+        const auto siblings = m_model->sublayerSiblings(idx); // display order, top first
+        const int sibling = siblings.indexOf(sub), nSiblings = siblings.size();
         if (host) {
-            const auto subs = host->sublayers();
-            nSubs = subs.size();
+            subs = host->sublayers();
             curPos = subs.indexOf(sub);
         }
-        actTop->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
-        actUp->setEnabled(host && curPos >= 0 && curPos < nSubs - 1);
-        actDown->setEnabled(host && curPos > 0);
-        actBottom->setEnabled(host && curPos > 0);
+        const bool movable = host && curPos >= 0 && sibling >= 0;
+        actTop->setEnabled(movable && sibling > 0);
+        actUp->setEnabled(movable && sibling > 0);
+        actDown->setEnabled(movable && sibling < nSiblings - 1);
+        actBottom->setEnabled(movable && sibling < nSiblings - 1);
 
         QAction *picked = subMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!picked)
@@ -2283,18 +2519,20 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
                 dlg->setAttribute(Qt::WA_DeleteOnClose);
                 dlg->show();
             }
-        } else if (host && parentLayer && m_canvas &&
+        } else if (movable && parentLayer && m_canvas &&
                    (picked == actUp || picked == actDown || picked == actTop ||
                     picked == actBottom)) {
-            int target = curPos;
+            // Take the paint slot of the sibling the row lands on.
+            int landing = sibling;
             if (picked == actUp)
-                target = curPos + 1;
+                landing = sibling - 1;
             else if (picked == actDown)
-                target = curPos - 1;
+                landing = sibling + 1;
             else if (picked == actTop)
-                target = nSubs - 1;
+                landing = 0;
             else if (picked == actBottom)
-                target = 0;
+                landing = nSiblings - 1;
+            const int target = subs.indexOf(siblings[landing]);
             // Undoable (MoveSublayerCommand); the canvas's
             // sublayerOrderChanged signal rebuilds the model's sub-rows.
             m_canvas->moveSublayer(parentLayer, curPos, target);
@@ -2695,5 +2933,5 @@ void LayerTreePanel::onSearchTextChanged(const QString &text)
     // slot ambiguous. The context-menu moves keep working.
     m_treeView->setDragEnabled(text.isEmpty());
     m_treeView->setAcceptDrops(text.isEmpty());
-    m_treeView->expandAll();
+    expandTree();
 }

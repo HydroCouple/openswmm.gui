@@ -148,9 +148,13 @@ QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
 
     root[QStringLiteral("schema")] = QString::fromLatin1(kSchema);
     root[QStringLiteral("layerType")] = layerTypeTag(layer);
-    if (const auto *host = dynamic_cast<const ISublayerHost *>(layer))
-        root[QStringLiteral("sublayers")] =
-            ISublayerHost::saveSublayersToJson(*host).value(QStringLiteral("sublayers"));
+    // Host-level sublayer state (e.g. the 2D result keys already offered as
+    // sublayers) travels beside the rows so undo/redo replays removals.
+    if (const auto *host = dynamic_cast<const ISublayerHost *>(layer)) {
+        const QJsonObject sublayers = ISublayerHost::saveSublayersToJson(*host);
+        for (auto it = sublayers.begin(); it != sublayers.end(); ++it)
+            root[it.key()] = it.value();
+    }
 
     if (const auto *r = layer->renderer())
         root[QStringLiteral("renderer")] = r->toJson();
