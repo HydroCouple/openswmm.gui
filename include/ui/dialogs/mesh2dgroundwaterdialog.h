@@ -18,7 +18,9 @@
  *     cell, through what conductance.
  *   - **State** — read-only, live during a run: saturated thickness, storage,
  *     the closure each cell resolved to, the LTS tier histogram and the
- *     continuity residual.
+ *     continuity residual. Below it, the SAVED run's water and species
+ *     ledgers (`results::GwLedgerModel`, V4), which survive a reopen and can
+ *     be sent to the comparison plot.
  *
  * MVC per CLAUDE.md §5.1: the tables are `Mesh2DAquiferModel` and
  * `Mesh2DAquiferNodeModel`, so the same rows can be edited from a future
@@ -44,6 +46,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "plot/resultdescriptor.h"
+
 class QUndoStack;
 class QCheckBox;
 class QComboBox;
@@ -58,6 +62,11 @@ class QTableView;
 class QTabWidget;
 
 class UnitSystem; // core/unitsystem.h — global scope, as every other dialog declares it
+
+namespace openswmmvis::results
+{
+class GwLedgerModel;
+}
 
 namespace openswmmvis::ui
 {
@@ -155,6 +164,15 @@ public:
      */
     void setThermalOptionsOnly(bool enabled);
 
+    /**
+     * @brief Show the saved run's water and species ledgers on the State tab (V4).
+     * @param[in] h5Path Saved 2D results file (`.2d.h5`); empty when there is none (no run yet,
+     * or a live run whose file is still being written) — the table then explains why.
+     * @details Reads the file once into the tab's GwLedgerModel; absent ledgers show as
+     * unavailable rows, never zeros. Independent of the engine and of editability.
+     */
+    void setSavedResultsFile(const QString &h5Path);
+
 public slots:
     /**
      * @brief Drop borrowed engine access and reject the disabled editor.
@@ -191,6 +209,12 @@ signals:
      * @details Emitted after all groundwater edits have been applied successfully.
      */
     void applied();
+    /**
+     * @brief The user asked to plot saved ledger terms as cumulative series.
+     * @param terms Comparison-plot descriptors of the selected available rows (GwLedgerModel
+     * keys); the host adds them on the System ref of the 2D results run.
+     */
+    void plotLedgerRequested(const QVector<openswmmvis::plot::ResultDescriptor> &terms);
 
 private slots:
     /**
@@ -425,6 +449,11 @@ private:
     // State
     QPlainTextEdit *m_stateText = nullptr;
     QPushButton *m_refreshBtn = nullptr;
+    // Saved-run ledgers (V4)
+    results::GwLedgerModel *m_ledger = nullptr;
+    QTableView *m_ledgerView = nullptr;
+    QLabel *m_ledgerStatus = nullptr;
+    QPushButton *m_plotLedgerBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

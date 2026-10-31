@@ -59,6 +59,10 @@ namespace openswmmvis::ui
 class ComparisonPlotDialog;
 class PlotDock;
 }
+namespace openswmmvis::plot
+{
+struct ObjectRef;
+}
 namespace openswmmvis::ui
 {
 class RainfallVisualizationDialog;
@@ -1827,6 +1831,17 @@ protected:
     void removeWelcomeSubWindow();
 
 private:
+    /**
+     * @brief V3/V4: plot saved-2D-run groundwater series (aquifer ledger terms on the System
+     * ref, a node's aquifer exchange on a Node ref) on the active 2D results layer's run.
+     * @param ref System or Node identity.
+     * @param descriptors Ledger or node-exchange descriptors; empty is inert.
+     * Missing active project/2D results prompts; the run layer refuses series the file lacks.
+     */
+    void openComparisonPlotFor2DResults(
+        const openswmmvis::plot::ObjectRef &ref,
+        const QVector<openswmmvis::plot::ResultDescriptor> &descriptors);
+
     Ui::SWMMVis *ui;
     QStringList mRecentFiles;
     bool mShowSplashScreenOnStartUp = true;

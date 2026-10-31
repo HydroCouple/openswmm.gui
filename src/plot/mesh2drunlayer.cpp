@@ -276,9 +276,51 @@ void Mesh2DRunLayer::validateSourceCache_() const
         m_inFlight.clear(); // a job prepared for the old source is now stale
         m_cancelled.clear();
         m_zBedReady = m_vertexAdjReady = false;
+        m_groundwaterReady = false;
+        m_ledger.reset();
+        m_exchange.reset();
         m_sourceRevision = revision;
         m_fileRevision = fileRevision;
     }
+}
+
+void Mesh2DRunLayer::ensureGroundwater_() const
+{
+    validateSourceCache_();
+    if (m_groundwaterReady)
+        return;
+    m_groundwaterReady = true;
+    auto *h5 = m_layer ? dynamic_cast<HDF5Mesh2DSource *>(m_layer->source()) : nullptr;
+    if (!h5)
+        return;
+    m_ledger = std::make_unique<results::GwLedgerModel>();
+    m_ledger->load(h5->path());
+    m_exchange = std::make_unique<GwNetworkExchangeSource>();
+    m_exchange->open(h5->path());
+}
+
+void Mesh2DRunLayer::groundwaterSeries_(const ObjectRef &ref, const ResultDescriptor &d,
+                                        SeriesData &out) const
+{
+    ensureGroundwater_();
+    if (!m_ledger || !m_exchange) {
+        out.ok = false;
+        out.errorMessage = QStringLiteral("Groundwater ledgers and node exchange are read from "
+                                          "the saved 2D results once the run has finished");
+        return;
+    }
+    if (ref.kind == ObjectRef::Kind::Node) {
+        m_exchange->series(ref.name, d, out);
+        return;
+    }
+    const int row = m_ledger->rowForKey(d.variableKey);
+    if (row < 0) {
+        out.ok = false;
+        out.errorMessage =
+            QStringLiteral("'%1' is not in this run's groundwater ledger").arg(d.label());
+        return;
+    }
+    m_ledger->series(row, out);
 }
 
 void Mesh2DRunLayer::getSeriesAt(const ObjectRef &ref, PlotAttribute attr, SeriesData &out) const
@@ -314,6 +356,15 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef &ref, const ResultDescriptor &d
 QVector<ResultDescriptor> Mesh2DRunLayer::resultDescriptorsForKind(ObjectRef::Kind kind) const
 {
     QVector<ResultDescriptor> out = plot::resultDescriptorsForKind(kind, QStringList());
+    // V3/V4: a saved run's aquifer ledger terms and per-node exchange.
+    if (kind == ObjectRef::Kind::System || kind == ObjectRef::Kind::Node) {
+        ensureGroundwater_();
+        if (kind == ObjectRef::Kind::System && m_ledger)
+            out += m_ledger->descriptors();
+        if (kind == ObjectRef::Kind::Node && m_exchange && m_exchange->isAvailable())
+            out += m_exchange->nodeDescriptors();
+        return out;
+    }
     if (kind != ObjectRef::Kind::Mesh2DCell || !m_layer)
         return out;
     // Datasets a fixed attribute already plots (depth, HGL, velocity, rain).
@@ -353,6 +404,13 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest> &requests,
                               attr == PlotAttribute::Mesh2DVelocityMag;
         if (r.descriptor.isSpecies()) {
             data.errorMessage = QStringLiteral("2D mesh source carries no species results");
+            continue;
+        }
+        // V3/V4: saved-run groundwater series belong to the System (ledger
+        // terms) or to a 1D node (aquifer exchange), not to a cell.
+        if (r.descriptor.isMeshVariable() &&
+            (r.ref.kind == ObjectRef::Kind::System || r.ref.kind == ObjectRef::Kind::Node)) {
+            groundwaterSeries_(r.ref, r.descriptor, data);
             continue;
         }
         const bool variable = r.descriptor.isMeshVariable();

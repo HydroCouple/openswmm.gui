@@ -13,6 +13,7 @@
 #include "layers/timeserieslayer.h"
 #include "map/networkplotpick.h"
 #include "map/mapcanvas.h"
+#include "swmmvisprojectwindow.h"
 #include "ui/widgets/attributepickermenu.h"
 
 #include <QAction>
@@ -142,6 +143,11 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
         event->accept();
         return;
     }
+    // V3: a node's aquifer exchange comes from the active 2D results' file.
+    if (kind == PKind::Node)
+        if (const auto *pw = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent()))
+            openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(
+                menu, pw->active2DResultsLayer(), ref.name);
     QAction *picked = menu->exec(globalPt);
     const auto d = openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked);
     delete menu;

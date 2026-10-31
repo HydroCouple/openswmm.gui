@@ -1613,11 +1613,19 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     QMenu *plotSubmenu = nullptr;                      // flat case
     QList<QMenu *> perLayerSubmenus;                   // 2+ case
     QHash<QMenu *, SWMMResultsLayer *> submenuToLayer; // 2+ case
+    QMenu *groundwaterMenu = nullptr; // 2+ case: V3 entries on the top menu
+    // V3: a node's aquifer exchange comes from the active 2D results' file.
+    const auto *projectWindow = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent());
+    const SWMM2DResultsLayer *active2D =
+        projectWindow && plotKind == PlotKind::Node ? projectWindow->active2DResultsLayer()
+                                                    : nullptr;
     if (plotKind != PlotKind::Unknown) {
         if (resultsLayers.size() <= 1) {
             plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
                 plotKind, openswmmvis::plot::UnitSystem::US, &menu,
                 resultsLayers.isEmpty() ? QStringList() : resultsLayers.first()->speciesNames());
+            openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(plotSubmenu, active2D,
+                                                                            ref.name);
             if (plotSubmenu) {
                 plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
                 plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
@@ -1635,6 +1643,11 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 topPlot->addMenu(attrMenu);
                 perLayerSubmenus.push_back(attrMenu);
                 submenuToLayer.insert(attrMenu, r);
+            }
+            if (active2D) {
+                openswmmvis::ui::AttributePickerMenu::appendGroundwaterExchange(topPlot, active2D,
+                                                                                ref.name);
+                groundwaterMenu = topPlot;
             }
         }
     }
@@ -1837,6 +1850,12 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             emit plotAttributeForLayerRequested(ref, descriptor, resultsLayers.first());
         else
             emit plotAttributeRequested(ref, descriptor);
+        return;
+    }
+    // V3 entries on the two-level top menu: their (2D) run is implied.
+    if (groundwaterMenu && picked->parent() == groundwaterMenu) {
+        emit plotAttributeRequested(ref,
+                                    openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked));
         return;
     }
     // Two-level layout: the picked QAction's parent is the per-layer

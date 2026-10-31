@@ -401,6 +401,8 @@ set(
         include/plot/seriesdataexport.h
         include/plot/swmmoutrunlayer.h
         include/plot/mesh2drunlayer.h
+        include/plot/gwnetworkexchangesource.h
+        include/results/gwledgermodel.h
         include/plot/observedcsvrunlayer.h
 
         # ── Layers ───────────────────────────────────────────────────────────
@@ -1195,6 +1197,8 @@ set(
         src/plot/swmmoutrunlayer.cpp
         src/plot/swmmoutrunlayer_codes.cpp
         src/plot/mesh2drunlayer.cpp
+        src/plot/gwnetworkexchangesource.cpp
+        src/results/gwledgermodel.cpp
         src/plot/observedcsvrunlayer.cpp
 
         # Layers
