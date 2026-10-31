@@ -70,6 +70,19 @@ public:
      * visible Qt tab and refreshes toolbar visibility. GUI-thread only. */
     void removeTab(const QString &id);
 
+    /** @brief Append an independently owned toolbar to an existing tab.
+     * @param[in] id Exact existing tab identity.
+     * @param[in] toolbar Borrowed toolbar, unique to this tab while registered.
+     * @return True after mounting; false for missing tabs, null/already assigned bars
+     * or reentrant removal. The controller never takes ownership. */
+    bool addToolbarToTab(const QString &id, QToolBar *toolbar);
+
+    /** @brief Detach one toolbar without removing other contributors or the tab.
+     * @param[in] id Exact existing tab identity.
+     * @param[in] toolbar Previously assigned toolbar, retained by its owner.
+     * @return True after removing its membership, false for an unknown membership. */
+    bool removeToolbarFromTab(const QString &id, QToolBar *toolbar);
+
     /*! Mark \a bar (already registered via addTab) to occupy its own
      *  full row BELOW the shared group row while its tab is current —
      *  for the widget-heavy Terrain / Mesh Editing bars, which would
@@ -153,8 +166,9 @@ private:
     /**
      * @brief Set each registered live toolbar visible only for current AND visible tab.
      * @note Null entries skipped; same pointer registered multiple times receives repeated
-     *   assignments, last tab wins. Does not mount/reparent toolbars or guard raw deletion.
-     *   GUI-thread only.
+     *   assignments, last tab wins. Snapshots guarded toolbar pointers and stops an
+     *   obsolete pass when a native callback changes visibility again. Does not mount
+     *   or reparent toolbars. GUI-thread only.
      */
     void applyVisibility();
     /**
@@ -178,6 +192,7 @@ private:
     QList<Tab> mTabs;
     QList<QToolBar *> mOwnRowBars;
     bool mFinalized = false;
+    quint64 mVisibilityRevision = 0; ///< Prevent stale writes after synchronous tab changes.
 };
 
 } // namespace openswmmvis::ui

@@ -1,3 +1,8 @@
+#include "plugins/extensiontoolruns.h"
+#include "plugins/extensionstateregistry.h"
+#include "ui/panels/layertreepanel.h"
+#include "map/mapcanvas.h"
+#include "layers/openswmmvislayer.h"
 /**
  * @file swmmvisextensions.cpp
  * @brief Application registration of native GUI extensions and UI bridges.
@@ -14,6 +19,7 @@
 #endif
 #include "ui_swmmvis.h"
 #include "plugins/extensionmanager.h"
+#include "plugins/extensionsharedribbon.h"
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionmodelaccess.h"
 #include "plugins/extensiontimeseriesaccess.h"
@@ -114,6 +120,48 @@ void SWMMVis::initializeExtensions()
     using namespace openswmmvis::ui;
     using namespace OpenSWMM::Sdk;
     ensureActivityWindowId(this);
+    ToolRunStore::forWindow(this)->setLayerNavigator([this](const ToolResult &result, bool activate) {
+        auto *registry = ExtensionStateRegistry::instance();
+        const auto session = registry->session(result.sessionId);
+        auto *project = qobject_cast<SWMMVisProjectWindow *>(registry->ownerForSession(result.sessionId));
+        if (!project || !ui->mdiAreaCentral->subWindowList().contains(project) ||
+            session.status != SessionStatus::Ready || session.loadGeneration != result.loadGeneration ||
+            result.layerSessionId.isNull() || !project->canvas())
+            return false;
+        int matches = 0;
+        bool attached = false;
+        for (const auto &layer : registry->viewSnapshot(result.sessionId).layers) {
+            if (layer.layerId == result.layerId)
+                ++matches;
+            if (layer.layerSessionId == result.layerSessionId && layer.layerId == result.layerId)
+                attached = true;
+        }
+        if (!attached || matches != 1)
+            return false;
+        QPointer<OpenSWMMVisLayer> target;
+        int nativeMatches = 0;
+        for (auto *layer : project->canvas()->layers())
+            if (layer->layerId() == result.layerId) {
+                target = layer;
+                ++nativeMatches;
+            }
+        if (!target || nativeMatches != 1)
+            return false;
+        if (activate) {
+            const QPointer<SWMMVisProjectWindow> guard(project);
+            ui->mdiAreaCentral->setActiveSubWindow(project);
+            const auto current = registry->session(result.sessionId);
+            if (!guard || !target || current.status != SessionStatus::Ready ||
+                current.loadGeneration != result.loadGeneration ||
+                !guard->canvas() || !guard->canvas()->layers().contains(target) ||
+                !mLayerTreePanel || !mLayerTreePanel->focusLayer(target))
+                return false;
+            ui->dockWidgetSWMMLayers->show();
+            ui->dockWidgetSWMMLayers->raise();
+        }
+        return true;
+    });
+    const QPointer<ExtensionSharedRibbon> sharedRibbon = new ExtensionSharedRibbon(this, mCompactToolbar);
     auto *manager = ExtensionManager::instance();
 #ifdef OPENSWMM_ENGINE_ABI_TAG
     manager->setEngineRuntimeAbiTag(QString::fromUtf8(swmm_engine_abi_tag()));
@@ -121,7 +169,7 @@ void SWMMVis::initializeExtensions()
     const bool safe = QCoreApplication::arguments().contains("--no-extensions") ||
                       QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier);
     manager->start(
-        [this](const QString &id) -> std::unique_ptr<ExtensionHost> {
+        [this, sharedRibbon](const QString &id) -> std::unique_ptr<ExtensionHost> {
             ExtensionUiBridge bridge;
             configureExtensionActivityBridge(bridge);
             bridge.addTab = [this](const RibbonTabSpec &spec,
@@ -146,6 +194,14 @@ void SWMMVis::initializeExtensions()
                 const auto bars = mCompactToolbar->toolbarsForTab(id);
                 mCompactToolbar->removeTab(id);
                 qDeleteAll(bars);
+            };
+            bridge.addSharedTab = [sharedRibbon, id](const SharedRibbonTabSpec &spec,
+                const QHash<QString, QPointer<QAction>> &actions, QString *error) {
+                return sharedRibbon && sharedRibbon->add(id, spec, actions, error);
+            };
+            bridge.removeSharedTab = [sharedRibbon, id](const QString &localId) {
+                if (sharedRibbon)
+                    sharedRibbon->remove(id, localId);
             };
             bridge.addAction = [](const QString &id, QAction *action) {
                 ActionRegistry::instance()->registerExtensionAction(id, action);

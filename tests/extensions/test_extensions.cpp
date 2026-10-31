@@ -112,9 +112,21 @@ private slots:
         plugin.sdkApiVersion = "1.9";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
         plugin.sdkApiVersion = "1.10";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.11";
+        QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false).isEmpty());
+        plugin.sdkApiVersion = "1.12";
         QVERIFY(ExtensionManager::compatibilityError(expected, plugin, false)
                     .contains("sdkApiVersion"));
         auto olderHost = expected;
+        olderHost.sdkApiVersion = "1.9";
+        plugin.sdkApiVersion = "1.10";
+        QVERIFY(ExtensionManager::compatibilityError(olderHost, plugin, false)
+                    .contains("sdkApiVersion"));
+        olderHost.sdkApiVersion = "1.10";
+        plugin.sdkApiVersion = "1.11";
+        QVERIFY(ExtensionManager::compatibilityError(olderHost, plugin, false)
+                    .contains("sdkApiVersion"));
         olderHost.sdkApiVersion = "1.1";
         plugin.sdkApiVersion = "1.2";
         QVERIFY(ExtensionManager::compatibilityError(olderHost, plugin, false)

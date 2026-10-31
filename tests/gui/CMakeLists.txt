@@ -52,6 +52,8 @@ function(add_swmmvis_gui_test TEST_NAME)
     if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
+            ${CMAKE_SOURCE_DIR}/include/plugins/extensionsharedribbon.h
+            ${CMAKE_SOURCE_DIR}/src/plugins/extensionsharedribbon.cpp
             ${CMAKE_SOURCE_DIR}/src/swmmvistimeseries.cpp
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp
             ${CMAKE_SOURCE_DIR}/src/plugins/extensiontimeseriesaccess.cpp)

@@ -10,7 +10,9 @@
 #include "plugins/guiextensionhost.h"
 #include "plugins/extensionstateregistry.h"
 #include <QDir>
+#include <QDateTime>
 #include <QPlainTextEdit>
+#include <QRegularExpression>
 #include <QSemaphore>
 #include <QStandardPaths>
 #include <QTest>
@@ -207,6 +209,67 @@ private slots:
         owner->prepareShutdown();
         owner->append("info", "After stop");
         QCOMPARE(logs.size(), 3);
+    }
+    /** @brief Plugin Output includes a parseable full timestamp with a timezone. */
+    void consoleTimestamp()
+    {
+        auto owner = host("timed.console", bridge());
+        const auto before = QDateTime::currentDateTimeUtc();
+        owner->append("info", "Timestamp fixture");
+        const auto after = QDateTime::currentDateTimeUtc();
+        auto *output = window.findChild<QPlainTextEdit *>("ext.timed.console.output");
+        QVERIFY(output);
+        const QRegularExpression pattern(
+            QStringLiteral("^([^ ]+(?:Z|[+-][0-9]{2}:[0-9]{2})) \\[info\\] Timestamp fixture$"));
+        const auto match = pattern.match(output->toPlainText());
+        QVERIFY2(match.hasMatch(), qPrintable(output->toPlainText()));
+        const auto timestamp = QDateTime::fromString(match.captured(1), Qt::ISODateWithMs);
+        QVERIFY(timestamp.isValid());
+        QVERIFY(timestamp >= before);
+        QVERIFY(timestamp <= after);
+        QCOMPARE(logCount("Timestamp fixture"), 1);
+    }
+    /** @brief Exercise timing metadata for every ordinary progress settlement. */
+    void progressTiming_data()
+    {
+        QTest::addColumn<int>("outcome");
+        QTest::newRow("succeeded") << int(ProgressOutcome::Succeeded);
+        QTest::newRow("failed") << int(ProgressOutcome::Failed);
+        QTest::newRow("cancelled") << int(ProgressOutcome::Cancelled);
+    }
+    /** @brief Terminal logs retain start, finish and nonnegative elapsed seconds. */
+    void progressTiming()
+    {
+        QFETCH(int, outcome);
+        auto owner = host("timed.progress", bridge());
+        QObject context;
+        const auto before = QDateTime::currentDateTimeUtc();
+        const auto id = owner->beginProgress("Timing fixture", &context);
+        QVERIFY(!id.isNull());
+        const auto accepted = QDateTime::currentDateTimeUtc();
+        const QRegularExpression startPattern(QStringLiteral("started\\. Start ([^ ]+)$"));
+        const auto startMatch = startPattern.match(logs.last().second);
+        QVERIFY2(startMatch.hasMatch(), qPrintable(logs.last().second));
+        const auto start = QDateTime::fromString(startMatch.captured(1), Qt::ISODateWithMs);
+        QVERIFY(start.isValid());
+        QVERIFY(start >= before);
+        QVERIFY(start <= accepted);
+        QVERIFY(owner->finishProgress(id, static_cast<ProgressOutcome>(outcome)));
+        const auto settled = QDateTime::currentDateTimeUtc();
+        const QRegularExpression terminalPattern(QStringLiteral(
+            "Start ([^ ]+)\\. Finish ([^ ]+)\\. Duration ([0-9]+\\.[0-9]{3}) s\\.$"));
+        const auto terminal = terminalPattern.match(logs.last().second);
+        QVERIFY2(terminal.hasMatch(), qPrintable(logs.last().second));
+        QCOMPARE(terminal.captured(1), startMatch.captured(1));
+        const auto finish = QDateTime::fromString(terminal.captured(2), Qt::ISODateWithMs);
+        QVERIFY(finish.isValid());
+        QVERIFY(finish >= start);
+        QVERIFY(finish <= settled);
+        const double duration = terminal.captured(3).toDouble();
+        QVERIFY(duration >= 0.);
+        QCOMPARE(qRound64(duration * 1000.), start.msecsTo(finish));
+        QCOMPARE(logCount("started."), 1);
+        QCOMPARE(finished, QList<QUuid>{id});
     }
     /** @brief Context destruction during initial native publication cannot leave stale progress. */
     void reentrantBeginContextDestruction()

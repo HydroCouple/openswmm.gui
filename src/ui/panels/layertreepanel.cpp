@@ -2935,3 +2935,18 @@ void LayerTreePanel::onSearchTextChanged(const QString &text)
     m_treeView->setAcceptDrops(text.isEmpty());
     expandTree();
 }
+
+bool LayerTreePanel::focusLayer(OpenSWMMVisLayer *layer)
+{
+    if (!layer || !m_canvas || !m_canvas->layers().contains(layer))
+        return false;
+    m_searchEdit->clear();
+    const auto index = m_proxy->mapFromSource(m_model->indexForLayer(layer));
+    if (!index.isValid())
+        return false;
+    for (auto parent = index.parent(); parent.isValid(); parent = parent.parent())
+        m_treeView->expand(parent);
+    m_treeView->setCurrentIndex(index);
+    m_treeView->scrollTo(index);
+    return true;
+}

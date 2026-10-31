@@ -166,6 +166,8 @@ set(
         # ── App ──────────────────────────────────────────────────────────────
         include/swmmvis.h
         src/swmmvisextensions.cpp
+        include/plugins/extensionsharedribbon.h
+        src/plugins/extensionsharedribbon.cpp
         src/swmmvistimeseries.cpp
         src/plugins/extensionmodelaccess.cpp
         include/plugins/extensiontimeseriesaccess.h

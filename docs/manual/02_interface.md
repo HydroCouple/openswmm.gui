@@ -93,7 +93,7 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 | **Features** | **Select** · **Layer** (New Layer) · **Edit** (Edit Mode; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (Add Part; Add Hole; Edit Vertices; Move) — see \ref manual_feature_layers |
 | **Analysis** | **Select** · **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View) · **Plots** (Time Series; Profile; 2D Profile) · **Network Analysis** (Flow Balance Downstream/Upstream; Travel Time Downstream/Upstream; Mass Balance) |
 | **Animation** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
-| **View** | **Panels** (the dock toggles) · **Plots** (Time Series; 1D Profiles; 2D Profiles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
+| **View** | **Tools** (Analysis Toolbox) · **Panels** (the dock toggles) · **Plots** (Time Series; 1D Profiles; 2D Profiles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
 | **Extension tabs** | Each loaded GUI extension can add its own named tabs, such as **Data** for USGS monitoring sites and elevation footprints |
 
 \fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
@@ -388,14 +388,22 @@ when you show it again. **Layer Styling** has its own View-menu entry and shortc
 | **Time Series** | | Time-series plot tabs; hiding the panel retains the plots | \ref manual_time_series_plots |
 | **1D Profiles** | | Network profile plot tabs | \ref manual_profile_plots |
 | **2D Profiles** | | Mesh profile plot tabs | \ref manual_profile_plots |
+| **Analysis Toolbox** | | Tools grouped by plugin and toolset, with text search, tag filters and a shared run history | \ref manual_extensions |
 
 \fig{02_docks_default_layout.png, An example dock arrangement with the Object Browser; Properties; Message Logs and Attribute Table}
 
-An **Analysis Toolbox** panel can appear in the initial dock layout, but it is
-empty and has no toggle action. Close it to give the other panels more space;
-use the **Analysis** menu or ribbon for analysis commands. The **Overview Map**
-navigator is not created in this build. See \ref manual_map_navigation for
-the supported navigation tools.
+Use **Analysis Toolbox** in the **View** ribbon's **Tools** group, or open
+**View → Panels → Analysis Toolbox**, to browse tools provided by enabled
+extensions. Search by name or description, or use **Tags** to check one or more
+categories. A tool must match every checked tag. Double-click a tool or press
+Enter to open its dockable panel. The same command on an extension's ribbon
+opens that panel with its current inputs and selections.
+
+The toolbox's **History** tab collects tool runs for the current application
+session. Each tool panel also shows its own results and messages. See
+\ref manual_extensions for the Data tools, progress, cancellation and output
+handling. The **Overview Map** navigator is not created in this build. See
+\ref manual_map_navigation for the supported navigation tools.
 
 ### Working with tables in dialogs
 

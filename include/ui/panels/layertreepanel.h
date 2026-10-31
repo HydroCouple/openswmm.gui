@@ -635,6 +635,11 @@ public:
      *   engine query.
      */
     [[nodiscard]] OpenSWMMVisLayer *selectedLayer() const;
+    /** @brief Reveal a current attached layer in the tree after an explicit result action.
+     * @param[in] layer Layer attached to this panel's current canvas.
+     * @return True after selecting and scrolling to the layer. Clears a hiding search filter. */
+    bool focusLayer(OpenSWMMVisLayer *layer);
+
 
     /*!
      * \brief Rebind the panel and its model to a different canvas.

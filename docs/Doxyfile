@@ -1011,6 +1011,7 @@ INPUT                  = ../README.md \
                          ../examples/extensions/lifecycle/extension.cpp \
                          ../examples/extensions/views/extension.cpp \
                          ../examples/extensions/activity/extension.cpp \
+                         ../examples/extensions/toolbox/extension.cpp \
                          ../examples/extensions/values/extension.cpp \
                          ../examples/extensions/values/ValueEventAdapter.hpp \
                          ../examples/extensions/values/ValueEventAdapter.cpp

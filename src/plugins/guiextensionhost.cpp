@@ -1,3 +1,6 @@
+#include "plugins/extensiontoolbox.h"
+#include "plugins/extensiontoolruns.h"
+#include <limits>
 /**
  * @file guiextensionhost.cpp
  * @brief Host-owned extension UI, persistence, preferences, console and jobs.
@@ -335,6 +338,11 @@ GuiExtensionHost::GuiExtensionHost(QString id, CompatibilityManifest manifest, Q
     mActivityUi = std::make_unique<ExtensionActivityUi>(this, mStateRegistry, mActivityOwnerId, mId,
                                                         mWindow, mMdi, mBridge);
     mActivityWindowId = mActivityUi->windowId();
+    mToolbox = std::make_unique<ExtensionToolbox>(this, window, settings);
+    mToolRuns = std::make_unique<ExtensionToolRuns>(
+        this, ToolRunStore::forWindow(window),
+        ToolRunBridge{mBridge.progressChanged, mBridge.progressFinished,
+                      [this](const QString &id) { return mToolbox && mToolbox->contains(id); }}, this);
 }
 
 GuiExtensionHost::~GuiExtensionHost()
@@ -390,13 +398,16 @@ QUuid GuiExtensionHost::beginProgressOperation(const QString &inputTitle, QObjec
     ProgressOperation operation;
     operation.context = context;
     operation.title = title;
+    operation.startedAt = QDateTime::currentDateTimeUtc();
     operation.destroyed = connect(context, &QObject::destroyed, this, [this, operationId] {
         releaseProgress(operationId, ProgressOutcome::Cancelled,
                         tr("The operation context was closed."), !mStopping);
     });
     mProgress.insert(operationId, operation);
+    if (mToolRuns && mToolRuns->captureOperation(operationId))
+        return operationId;
     const QPointer<GuiExtensionHost> owner(this);
-    append(QStringLiteral("info"), tr("%1: started.").arg(title));
+    append(QStringLiteral("info"), tr("%1: started. Start %2").arg(title, operation.startedAt.toString(Qt::ISODateWithMs)));
     if (!owner || owner->mStopping)
         return {};
     const auto current = owner->mProgress.constFind(operationId);
@@ -431,6 +442,8 @@ bool GuiExtensionHost::updateProgress(const QUuid &inputOperationId, double frac
     operation->stage = stage;
     const quint64 revision = ++operation->revision;
     const auto title = operation->title;
+    if (mToolRuns && mToolRuns->updateOperation(operationId, value, stage))
+        return true;
     const QPointer<GuiExtensionHost> owner(this);
     if (logStage)
         append(QStringLiteral("info"), QStringLiteral("%1: %2").arg(title, stage));
@@ -468,8 +481,11 @@ bool GuiExtensionHost::releaseProgress(const QUuid &inputOperationId, ProgressOu
     if (operation == mProgress.end())
         return false;
     const auto title = operation->title;
+    const auto startedAt = operation->startedAt;
     disconnect(operation->destroyed);
     mProgress.erase(operation); // Commit ownership removal before any reentrant callback.
+    if (mToolRuns && mToolRuns->finishOperation(operationId))
+        return true;
     const QPointer<GuiExtensionHost> owner(this);
     const auto remove = mBridge.progressFinished;
     if (remove)
@@ -482,6 +498,10 @@ bool GuiExtensionHost::releaseProgress(const QUuid &inputOperationId, ProgressOu
     QString message = tr("%1: %2.").arg(title, state);
     if (!detail.isEmpty())
         message += QStringLiteral(" ") + detail;
+    const auto finishedAt = QDateTime::currentDateTimeUtc();
+    message += tr(" Start %1. Finish %2. Duration %3 s.")
+                   .arg(startedAt.toString(Qt::ISODateWithMs), finishedAt.toString(Qt::ISODateWithMs),
+                        QString::number(qMax<qint64>(0, startedAt.msecsTo(finishedAt)) / 1000., 'f', 3));
     owner->append(outcome == ProgressOutcome::Failed ? QStringLiteral("error")
                                                     : QStringLiteral("info"),
                   message);
@@ -1059,6 +1079,7 @@ IJob *GuiExtensionHost::runJob(const QString &title, std::function<void(IJobCont
     auto job = std::make_unique<Job>(this, title);
     auto *state = job.get();
     state->completion = std::move(finished);
+    const bool toolOperation = mToolRuns && mToolRuns->captureOperation(state->operationId);
     if (mStateRegistry) {
         ProcessState process;
         process.operationId = state->operationId;
@@ -1067,12 +1088,15 @@ IJob *GuiExtensionHost::runJob(const QString &title, std::function<void(IJobCont
         process.ownerId = mActivityOwnerId;
         process.ownerPluginId = mId;
         process.title = title;
-        if (mStateRegistry->beginOperation(std::move(process)).isNull())
+        if (mStateRegistry->beginOperation(std::move(process)).isNull()) {
+            if (mToolRuns)
+                mToolRuns->finishOperation(state->operationId);
             return nullptr;
+        }
     }
     state->progress = new QProgressDialog(title, tr("Cancel"), 0, 100, mWindow);
     state->progress->setWindowModality(Qt::NonModal);
-    state->progress->setMinimumDuration(500);
+    state->progress->setMinimumDuration(toolOperation ? std::numeric_limits<int>::max() : 500);
     connect(state->progress, &QProgressDialog::canceled, this, [state]() { state->cancel(); });
     mJobs.push_back(std::move(job));
     const auto marker = QStringLiteral("extensions/operations/%1/%2").arg(mId, state->id);
@@ -1143,7 +1167,22 @@ void GuiExtensionHost::prepareShutdown()
 {
     if (mStopping)
         return;
+    const QPointer<GuiExtensionHost> shutdownGuard(this);
+    if (mToolRuns)
+        mToolRuns->stop();
+    if (!shutdownGuard)
+        return;
+    if (mToolbox)
+        mToolbox->stop();
+    if (!shutdownGuard)
+        return;
     mStopping = true;
+    const auto sharedIds = mSharedTabs.keys();
+    for (const auto &id : sharedIds) {
+        unregisterSharedRibbonTab(id);
+        if (!shutdownGuard)
+            return;
+    }
     if (mActivityUi)
         mActivityUi->stop();
     for (const auto &connection : std::as_const(mStateConnections))
@@ -1205,8 +1244,12 @@ void GuiExtensionHost::append(const QString &inputLevel, const QString &inputTex
         tabs->addTab(mText, mId);
         mOutput = dock;
     }
-    if (mText)
-        mText->appendPlainText(QStringLiteral("[%1] %2").arg(level, text));
+    if (mText) {
+        const auto now = QDateTime::currentDateTime();
+        mText->appendPlainText(QStringLiteral("%1 [%2] %3")
+                                  .arg(now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODateWithMs),
+                                       level, text));
+    }
     if (owner && !owner->mStopping) {
         const auto publish = owner->mBridge.logMessage;
         const auto message = QStringLiteral("[%1] %2").arg(owner->mId, text);
@@ -1265,8 +1308,12 @@ bool GuiExtensionHost::registerAction(const QString &id, QAction *action)
     const QPointer<QAction> guard(action);
     mActions.insert(id, action);
     connect(action, &QObject::destroyed, this, [this, id, action]() {
-        if (mActions.value(id) == action)
-            mActions.remove(id);
+        if (mActions.value(id) == action) {
+            const QPointer<GuiExtensionHost> guard(this);
+            removeSharedTabsForAction(id);
+            if (guard)
+                mActions.remove(id);
+        }
     });
     action->setObjectName(qualified(id));
     if (!owner || !guard || !owner->mWindow || owner->mStopping)
@@ -1288,6 +1335,14 @@ bool GuiExtensionHost::registerAction(const QString &id, QAction *action)
 void GuiExtensionHost::unregisterAction(const QString &id)
 {
     checkThread();
+    const QPointer<GuiExtensionHost> guard(this);
+    if (mToolbox)
+        mToolbox->removeAction(id);
+    if (!guard)
+        return;
+    removeSharedTabsForAction(id);
+    if (!guard)
+        return;
     if (mActivityUi)
         mActivityUi->removeCommand(id);
     const auto action = mActions.take(id);
@@ -1299,7 +1354,7 @@ void GuiExtensionHost::unregisterAction(const QString &id)
 bool GuiExtensionHost::registerRibbonTab(const RibbonTabSpec &tab)
 {
     checkThread();
-    if (tab.id.isEmpty() || mTabs.contains(tab.id) || !mBridge.addTab)
+    if (mStopping || tab.id.isEmpty() || mTabs.contains(tab.id) || !mBridge.addTab)
         return false;
     for (const auto &group : tab.groups)
         for (const auto &id : group.actionIds)

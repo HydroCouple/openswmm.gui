@@ -52,6 +52,10 @@
  * sdk/ITimeSeriesLayers.hpp | SDK 1.6 cancellable file-backed native observation import and bounded collection queries.
  * sdk/IProgress.hpp | SDK 1.7 scoped shared-status progress for asynchronous extension operations.
  * sdk/IPreviewLayers.hpp | SDK 1.8 native preview-layer attachment and feature-order FIDs for selection sync.
+ * sdk/ISharedRibbon.hpp | SDK 1.11 optional owner-scoped groups on shared plugin ribbon tabs.
+ * sdk/IToolbox.hpp | SDK 1.10 tagged tool metadata and deferred independently dockable panels.
+ * sdk/IToolRuns.hpp | SDK 1.10 execution identities, bounded results/messages, cancellation and run-scoped jobs/imports.
+ * sdk/IToolPreviews.hpp | SDK 1.10 tool-owned map previews and exact native attachment lookup.
  * sdk/qt/ActivitySignalAdapter.hpp | Optional consumer-local Qt signals for IActivityEvents process and UI observations.
  * sdk/IUiHost.hpp | Ribbon values, widget factories and dynamic UI registration.
  * sdk/ISettings.hpp | Extension-specific persistent preferences.
@@ -186,6 +190,148 @@
  * when an extension is unavailable. Runtime registration materializes a
  * pending kind once its factory becomes available. Model-owned document
  * widgets close with their model.
+ *
+ * @subsection sdk_shared_ribbon Optional and shared ribbon contributions
+ *
+ * IToolbox registrations work without ribbon registration. Authors can choose
+ * toolbox-only tools, an independent IUiHost::registerRibbonTab() tab, or the
+ * optional SDK 1.11 ISharedRibbon capability. Discover it with qobject_cast on
+ * ExtensionHost::lifetime(). Existing IUiHost and RibbonTabSpec layouts are frozen.
+ *
+ * SharedRibbonTabSpec::id identifies this plugin's contribution. Its tabId is the
+ * common stable key agreed by participating plugins, and title is their common
+ * translated caption. Groups refer only to actions already registered by this
+ * plugin. The host creates a custom tab with a shared. identity prefix on first use and
+ * preserves each contributor's toolbar, group widgets, actions and icons.
+ *
+ * @code{.cpp}
+ * auto *shared = qobject_cast<ISharedRibbon *>(host->lifetime());
+ * if (shared) {
+ *     SharedRibbonTabSpec contribution{
+ *         "download", "data", tr("Data"),
+ *         {{tr("Monitoring data"), {"sites"}}}};
+ *     shared->registerSharedRibbonTab(contribution, error);
+ * }
+ * @endcode
+ *
+ * Different plugins may use the same local contribution ID. They share the tab
+ * only when tabId and caption agree. A conflicting caption or missing/foreign
+ * action refuses registration with a diagnostic. Unregistering a contribution,
+ * removing its actions or stopping its host releases only its own groups. The
+ * custom shared tab disappears after its last contributor leaves. Built-in tabs
+ * and independently owned tabs retain separate identities.
+ *
+ * Ribbon placement can be a plugin preference. Data offers Toolbox only by
+ * default, Shared Data tab and Separate Data tab. Apply changes the contribution
+ * immediately without recreating tools or their docks. A failed optional ribbon
+ * mount leaves startup tools usable and reports its reason through the console.
+ *
+ * @subsection sdk_toolbox Tagged tools and independent panels
+ *
+ * Discover IToolbox with qobject_cast on ExtensionHost::lifetime(). Register
+ * each tool's QAction with IUiHost::registerAction() before calling
+ * IToolbox::registerTool(). The ToolSpec contains a stable local tool ID, that
+ * registered action ID, a translated description, an optional ordered toolset
+ * path, and at least one lowercase tag slug. ToolsetSpec carries a stable ID
+ * and a translated caption. ToolSpec::toolboxTitle supplies the translated
+ * plugin root caption. Each plugin owns its tool IDs, so two plugins may use
+ * the same local ID.
+ *
+ * @code{.cpp}
+ * auto *tools = qobject_cast<IToolbox *>(host->lifetime());
+ * auto *action = new QAction(tr("Monitoring sites…"), host->lifetime());
+ * if (!tools || !host->ui()->registerAction("sites", action))
+ *     return false;
+ * ToolSpec spec{"sites", "sites", tr("Preview and download monitoring observations."),
+ *               {{"download", tr("Download data")}},
+ *               {"download", "usgs", "time-series"}, tr("Data sources")};
+ * return tools->registerTool(spec, host->lifetime(),
+ *     [](ExtensionHost *owner) -> QWidget * {
+ *         return new MonitoringPanel(owner);
+ *     }, error);
+ * @endcode
+ *
+ * The registration binds the action to the tool opener. A ribbon or command
+ * palette entry uses that same action. The plugin should supply a single
+ * factory and avoid connecting a second panel opener. Creating metadata,
+ * searching, and expanding the tree do not call the factory. The first
+ * activation transfers the returned widget into a host-owned dock; later
+ * activations raise that same dock. Closing the dock hides it and retains the
+ * controls and in-flight work. Cancellation belongs to the tool controller.
+ *
+ * The required GUI-thread QObject context guards the factory callback.
+ * Destroying the context or action unregisters the tool and releases its dock.
+ * Unregister before destroying any other captured objects. The host validates
+ * IDs, command ownership, factory/context availability, and tags before
+ * publishing a tree leaf. A failed registration leaves its identity available
+ * for correction. A null-returning or throwing factory refuses that activation
+ * and can be retried. Factories must tolerate shutdown or unregistration while
+ * they run, and use QObject guards when they call reentrant application code.
+ *
+ * Tags describe individual tools. Shared slugs such as download, raster,
+ * elevation and time-series let users filter tools from different plugins
+ * together. Selecting several tags requires every selected tag. Text search
+ * combines with the tags and includes tool captions, descriptions and paths.
+ * Plugin-level ExtensionInfo::tags remain metadata for the plugin manager.
+ *
+ * examples/extensions/toolbox/ demonstrates two independent tool panels,
+ * commands and a run that publishes a literal calculation.
+ *
+ * @subsection sdk_tool_runs Execution results and messages
+ *
+ * IToolRuns is discovered independently of IToolbox. After validating inputs,
+ * call beginToolRun() with a registered local tool ID, a short action title,
+ * an owning input summary, and the exact session/load generation when bound
+ * to a model. The required GUI-thread context guards any cancellation
+ * controller. A null UUID means the run was refused. Opening a panel does not
+ * create a run. Each explicit retry creates another UUID.
+ *
+ * Update progress and stages with updateToolRun(). appendToolMessage() accepts
+ * literal severity/text and mirrors an accepted message once to the plugin's
+ * ordinary Output and Message Logs. General console messages retain their
+ * plugin-wide scope. addToolResult() publishes a small literal value or a typed
+ * completed file/layer reference. ToolResult owns its text, local file path,
+ * native layer ID and exact runtime session identity. Navigation rechecks
+ * availability so an old result cannot target a different project session.
+ *
+ * Finish explicitly through finishToolRun() after all network, worker and
+ * import stages have settled. ToolRunOutcome distinguishes success,
+ * completion with warnings, failure and cancellation. A cancellation request
+ * alone leaves the run active. The guarded cancellation callback must cancel
+ * the current stage, including the network controller when applicable.
+ * Terminal records reject further updates and a second settlement.
+ * startedAt and finishedAt retain UTC QDateTime values. History displays the
+ * full date/time with timezone and a duration derived from those timestamps;
+ * a visible running entry refreshes its elapsed duration. Each run message
+ * retains its own publication time and displays it with its timezone.
+ *
+ * @code{.cpp}
+ * auto *runs = qobject_cast<IToolRuns *>(host->lifetime());
+ * const auto run = runs->beginToolRun(
+ *     {"sites", tr("Download"), tr("Two reviewed gages"), sessionId, generation},
+ *     panel, [panel] { panel->cancel(); });
+ * if (run.isNull())
+ *     return;
+ * runs->updateToolRun(run, 0.25, tr("Downloading observations"));
+ * // Network callbacks publish only completed files and actual attached layers.
+ * runs->appendToolMessage(run, "info", tr("Saved observations."));
+ * runs->finishToolRun(run, ToolRunOutcome::Succeeded, tr("Download complete."));
+ * @endcode
+ *
+ * Use runToolJob() and importToolTimeSeries() to bind worker/import attempts to
+ * their parent before the host emits the first operation event. Child jobs
+ * retain their usual worker-safe IJobContext and GUI-thread finished callback.
+ * A child settlement leaves the parent active through any remaining stages.
+ * Explicitly record retained assets when a source download succeeds but the
+ * original session cannot accept a layer. Saved files may still be reported
+ * after that session closes; native attachment requires its original live
+ * generation.
+ *
+ * Tool panels show their own execution results/messages and Analysis Toolbox
+ * History shows the shared current-session store. The host retains at most
+ * 100 finished runs per window and 1,000 messages per run, marking truncation.
+ * Active runs remain until settlement. The history contains copied values,
+ * while downloads and manifests stay in their chosen output directories.
  *
  * @section sdk_computed Derived model attributes
  *
@@ -1104,6 +1250,28 @@
  * collection creates a new attachment with new FIDs and an empty selection, and
  * a scene-only preview, manual removal or clearPreview() returns a null attachment.
  *
+ * @subsection sdk_tool_previews Independent tool preview ownership
+ *
+ * A plugin with several simultaneously open tools can discover IToolPreviews.
+ * showToolPreview() publishes GeoJSON and the existing previewStyle hints for
+ * the exact sessionId/loadGeneration and a stable local tool ID. Each pair of
+ * tool and session owns a distinct preview within this extension. The legacy
+ * IProject::showPreview() slot remains separate.
+ *
+ * Use toolPreviewLayer(sessionId, toolId, &featureIds) to obtain that tool's
+ * exact native attachment and FIDs. Route IViewEvents selection changes by
+ * the returned attachment so a gage panel never consumes a DEM footprint's
+ * selection. clearToolPreview() clears only that named slot. Other previews
+ * and imported layers remain available. A model close or host teardown
+ * releases the associated temporary layers.
+ *
+ * The capability shares the legacy validation, coordinate transformation,
+ * native feature limits, style/visibility handling, manual-removal behavior
+ * and temporary-layer persistence rules. Replacement validates its input
+ * before retiring the old display. A matching collection preserves attachment
+ * identity. Publication requires an exact Ready generation; lookup and
+ * cleanup never grant permission to export source data or change model forcing.
+ *
  * The host retains an overlay until another successful showPreview(), an explicit
  * clearPreview(), or destruction of its project facade. Display is separate from
  * download/export authority: retaining dots for orientation after a viewport
@@ -1116,9 +1284,11 @@
  * polygon before presenting the preview. Keep that reviewed area with the
  * result identities selected for download. Changes to source, filters,
  * polygon or relevant viewport invalidate the preview; do not download
- * using a silently recomputed area. Legacy/IModelEvents viewportChanged, layersChanged,
+ * using a silently recomputed area. The Data consumer freezes the reviewed viewport
+ * at Preview, so later panning, zooming or resizing retains that review until a
+ * new explicit Preview. Legacy/IModelEvents viewportChanged, layersChanged,
  * selectionChanged and boundaryChanged remain available to old consumers.
- * The current openswmm.gui.data consumer requires SDK 1.9 and uses authoritative
+ * The current openswmm.gui.data consumer requires SDK 1.11 and uses authoritative
  * session/view/activity metadata instead; legacy name translation alone does not establish
  * session readiness, an unambiguous attachment identity or a source revision.
  *
@@ -1135,7 +1305,7 @@
  * Source/change | Current catalogue-review behavior
  * --- | ---
  * Bound session closes, reloads, fails or ceases to be Ready; another model document becomes active | Cancel pending work, clear review authority/overlay and bind only an exact current Ready lifetime.
- * Viewport-mode ISessionEvents Viewport change, including extent, resize or canvas CRS | Invalidate the frozen viewport review; a new explicit preview is required.
+ * Viewport-mode ISessionEvents Viewport change, including extent, resize or canvas CRS | Preserve the frozen reviewed area; only an explicit Preview adopts the new viewport.
  * Polygon-mode viewport change | Preserve a matching chosen boundary; a map pan does not change the frozen polygon.
  * Chosen polygon's IViewEvents feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
  * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
@@ -1324,6 +1494,10 @@
  * one terminal outcome, already identified by extension. Do not duplicate those
  * messages with console()->append(); use the console for additional domain
  * details such as retained asset paths or import diagnostics.
+ * A start entry records its UTC start timestamp. The terminal entry records
+ * start, finish and duration in seconds with millisecond precision. Ordinary
+ * plugin Output lines also carry a full ISO date/time with timezone. The
+ * application's Message Logs retain their existing timestamped presentation.
  * Keep stage wording stable while bytes or counts change; use the fraction for
  * numerical progress. Identical updates are coalesced. Native publication is
  * synchronous and can reenter application code, so rediscover the service through
@@ -1434,8 +1608,12 @@
  * IActivityControls, ITimeSeriesLayers, IProgress and IPreviewLayers dropped
  * their V1 suffix, as did the header and IID macro names. Source using the old
  * names must be updated. An interface's version is carried only by its IID string.
- * The updated Data consumer requires SDK 1.9,
- * including native observation import, shared progress and preview selection.
+ * SDK 1.10 adds IToolbox, IToolRuns and IToolPreviews for per-tool discovery,
+ * lazy panels, execution results/messages and independent map previews. See
+ * @ref sdk_toolbox, @ref sdk_tool_runs and @ref sdk_tool_previews. The Data
+ * consumer requires SDK 1.11, which adds ISharedRibbon for optional shared
+ * plugin tabs. Native observation import, shared progress and preview selection
+ * remain available through the earlier capabilities.
  *
  * The current openswmm.gui.data consumer requires the newer typed capabilities;
  * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.
