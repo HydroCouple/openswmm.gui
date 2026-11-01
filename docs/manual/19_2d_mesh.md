@@ -917,6 +917,24 @@ operational groundwater editor. It edits aquifer properties and initial water
 state, preserving global, tag and cell inheritance. Values are checked before
 Apply; invalid or stale edits do not partially overwrite the model.
 
+The **Options** tab includes **Groundwater time stepping**:
+
+| Setting | Default | Use |
+|---|---|---|
+| Time stepping | Shared with surface | Choose Independent (experimental) for separate aquifer-cell time steps. |
+| Base interval | 1 s | Check cadence for independent stepping. Use a smaller interval for rapid exchange; 0.125 s is qualified for the node-fill case. |
+| Maximum groundwater step | 3600 s | Maximum elapsed aquifer step. A maximum below the base interval is allowed. |
+| Storage budget fraction | 0.5 | Fraction of directional storage/head room used before requesting an update; greater than zero and at most one. |
+| Relative head-change budget | 0.05 | Scheduling budget, greater than zero and less than one, with a 0.01 m head floor. It is not a global accuracy guarantee. |
+| Also let groundwater stability limit the surface step | Off in Independent | Enables the groundwater stability limit on the surface base step for comparison. Shared always includes this limit. |
+
+Independent stepping requires first-order CPU integration. Its additional controls
+are enabled when Independent is selected. Physical stability may require steps
+shorter than the base interval. These choices are staged until Apply and survive
+saving and reopening the model. Unsupported engine versions disable the clock
+controls with an explanation. Shared remains the default; zone-split clocks are
+not implemented.
+
 Groundwater ET offers **Automatic**, **None**, **Boundary ET**, **Capillary
 rise** and **Both** in both editors. Automatic resolves using the aquifer
 mode: Both for MESH, None for PER_SUBCATCH. The status distinguishes saved

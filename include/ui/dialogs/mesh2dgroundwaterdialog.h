@@ -159,7 +159,7 @@ public:
     [[nodiscard]] static QStringList closureTokens();
     /**
      * @brief Enumerate the groundwater and transport option keys represented by this editor.
-     * @return Owned fixed-order list of ten hydraulic/process keys and nineteen
+     * @return Owned fixed-order list of hydraulic/process and clock keys and nineteen
      * GW_TRANSPORT:-prefixed keys, including thermal boundary strings. Does not query engine
      * support or return option values.
      */
@@ -288,6 +288,8 @@ private:
      * publishing settings.
      */
     QWidget *buildOptionsPage();
+    /// Gate clock controls by engine support, lifecycle and the staged clock choice.
+    void refreshClockGates();
     /**
      * @brief Build the owned staged aquifer-row model, enum delegates and row actions.
      * @return Dialog-owned/tab-adopted page widget.
@@ -349,6 +351,11 @@ private:
     Mesh2DAquiferBoundaryModel *m_boundaries = nullptr;
     QWidget *m_boundaryPage = nullptr;
     QMap<QString, QWidget *> m_transportOptions;
+    QComboBox *m_clockCombo = nullptr;
+    QMap<QString, QDoubleSpinBox *> m_clockNumbers;
+    QCheckBox *m_bindsSurfaceCheck = nullptr;
+    QLabel *m_clockStatus = nullptr;
+    bool m_clockOptionsSupported = false;
     std::vector<QWidget *> m_thermalFields;
 
     /**
