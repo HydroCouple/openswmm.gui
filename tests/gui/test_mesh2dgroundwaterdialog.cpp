@@ -52,6 +52,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QScrollArea>
 #include <QTableView>
 #include <QStyledItemDelegate>
 #include <QTimer>
@@ -449,6 +450,125 @@ LID Stack .2
         swmm_gw2d_option_get(e.handle, "C_GW", value, sizeof value);
         QVERIFY(QString::fromUtf8(value).startsWith("0.123457") ||
                 QString::fromUtf8(value).startsWith("0.123456789"));
+    }
+    void groundwaterClockChoicesAreStagedAndGated()
+    {
+        Engine engine;
+        Mesh2DGroundwaterDialog dialog(engine.handle);
+        auto *clock = dialog.findChild<QComboBox *>("gwClock");
+        auto *base = dialog.findChild<QDoubleSpinBox *>("gwClock_GW_BASE_STEP");
+        auto *binds = dialog.findChild<QCheckBox *>("gwBindsSurfaceDt");
+        QVERIFY(clock && base && binds);
+        QCOMPARE(clock->currentData().toString(), QStringLiteral("SHARED"));
+        QCOMPARE(base->value(), 1.);
+        QVERIFY(!base->isEnabled());
+        QVERIFY(!binds->isEnabled());
+        clock->setCurrentIndex(clock->findData("INDEPENDENT"));
+        QVERIFY(base->isEnabled());
+        QVERIFY(binds->isEnabled());
+        QVERIFY(!binds->isChecked());
+        base->setValue(.125);
+        char value[64]{};
+        QCOMPARE(swmm_gw2d_option_get(engine.handle, "GW_CLOCK", value, sizeof value), SWMM_OK);
+        QCOMPARE(QByteArray(value), QByteArray("SHARED"));
+        dialog.reject();
+        QCOMPARE(swmm_gw2d_option_get(engine.handle, "GW_BASE_STEP", value, sizeof value), SWMM_OK);
+        QCOMPARE(QString::fromUtf8(value).toDouble(), 1.);
+        Mesh2DGroundwaterDialog unavailable(nullptr);
+        QVERIFY(!unavailable.findChild<QComboBox *>("gwClock")->isEnabled());
+    }
+
+    void groundwaterClockOptionsApplySaveAndReopen()
+    {
+        const QString output =
+            QFileInfo(QStringLiteral(__FILE__)).absolutePath() + "/data/gw_clock_options";
+        QVERIFY(QDir().mkpath(output));
+        const QString seed = QDir(output).filePath("seed.inp");
+        QFile file(seed);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                   "[JUNCTIONS]\nJ1 0 3\n[OUTFALLS]\nO1 -1 FREE\n"
+                   "[CONDUITS]\nC1 J1 O1 10 .013 0 0 0\n"
+                   "[XSECTIONS]\nC1 CIRCULAR 1 0 0 0 1\n");
+        file.close();
+        Engine engine(false);
+        QCOMPARE(
+            swmm_engine_open(engine.handle, seed.toUtf8().constData(), nullptr, nullptr, nullptr),
+            SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(engine.handle, nullptr,
+                                      Mesh2DGroundwaterDialog::Page::Options);
+        auto *clock = dialog.findChild<QComboBox *>("gwClock");
+        clock->setCurrentIndex(clock->findData("INDEPENDENT"));
+        // A maximum below the base is valid and must remain selectable.
+        const QMap<QString, double> values{{"GW_BASE_STEP", .125},
+                                           {"GW_MAX_STEP", .0625},
+                                           {"GW_BUDGET_FRACTION", 1.},
+                                           {"GW_HEAD_TOLERANCE", .015625}};
+        for (auto it = values.cbegin(); it != values.cend(); ++it)
+            dialog.findChild<QDoubleSpinBox *>("gwClock_" + it.key())->setValue(it.value());
+        dialog.findChild<QCheckBox *>("gwBindsSurfaceDt")->setChecked(true);
+        dialog.show();
+        QApplication::processEvents();
+        auto *scroll = qobject_cast<QScrollArea *>(dialog.findChild<QTabWidget *>()->widget(0));
+        QVERIFY(scroll);
+        scroll->ensureWidgetVisible(dialog.findChild<QLabel *>("gwClockStatus"));
+        QApplication::processEvents();
+        QVERIFY(dialog.grab().save(QDir(output).filePath("independent-controls.png")));
+        QSignalSpy applied(&dialog, &Mesh2DGroundwaterDialog::applied);
+        dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(applied.count(), 1);
+        const QString saved = QDir(output).filePath("independent.inp");
+        QCOMPARE(swmm_model_write(engine.handle, saved.toUtf8().constData()), SWMM_OK);
+        Engine reopened(false);
+        QCOMPARE(swmm_engine_open(reopened.handle, saved.toUtf8().constData(), nullptr, nullptr,
+                                  nullptr),
+                 SWMM_OK);
+        char value[128]{};
+        QCOMPARE(swmm_gw2d_option_get(reopened.handle, "GW_CLOCK", value, sizeof value), SWMM_OK);
+        QCOMPARE(QByteArray(value), QByteArray("INDEPENDENT"));
+        for (auto it = values.cbegin(); it != values.cend(); ++it) {
+            QCOMPARE(swmm_gw2d_option_get(reopened.handle, it.key().toUtf8().constData(), value,
+                                          sizeof value),
+                     SWMM_OK);
+            QCOMPARE(QString::fromUtf8(value).toDouble(), it.value());
+        }
+        QCOMPARE(swmm_gw2d_option_get(reopened.handle, "GW_BINDS_SURFACE_DT", value, sizeof value),
+                 SWMM_OK);
+        QCOMPARE(QByteArray(value), QByteArray("YES"));
+        Mesh2DGroundwaterDialog restored(reopened.handle);
+        QCOMPARE(restored.findChild<QComboBox *>("gwClock")->currentData().toString(),
+                 QStringLiteral("INDEPENDENT"));
+        QCOMPARE(restored.findChild<QDoubleSpinBox *>("gwClock_GW_BASE_STEP")->value(), .125);
+        QVERIFY(restored.findChild<QCheckBox *>("gwBindsSurfaceDt")->isChecked());
+        QSignalSpy writes(&restored, &Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);
+        restored.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(writes.count(), 0);
+    }
+
+    void unrelatedEditsPreservePreciseGroundwaterClockOptions()
+    {
+        Engine engine;
+        QCOMPARE(swmm_gw2d_option_set(engine.handle, "GW_CLOCK", "INDEPENDENT"), SWMM_OK);
+        QMap<QString, QByteArray> before;
+        for (const char *key :
+             {"GW_BASE_STEP", "GW_MAX_STEP", "GW_BUDGET_FRACTION", "GW_HEAD_TOLERANCE"}) {
+            QCOMPARE(swmm_gw2d_option_set(engine.handle, key, "0.123456789012345"), SWMM_OK);
+            char value[128]{};
+            QCOMPARE(swmm_gw2d_option_get(engine.handle, key, value, sizeof value), SWMM_OK);
+            before[QString::fromLatin1(key)] = QByteArray(value);
+        }
+        Mesh2DGroundwaterDialog dialog(engine.handle);
+        dialog.findChild<Mesh2DAquiferModel *>()->appendRow();
+        QSignalSpy applied(&dialog, &Mesh2DGroundwaterDialog::applied);
+        dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(applied.count(), 1);
+        for (auto it = before.cbegin(); it != before.cend(); ++it) {
+            char value[128]{};
+            QCOMPARE(swmm_gw2d_option_get(engine.handle, it.key().toUtf8().constData(), value,
+                                          sizeof value),
+                     SWMM_OK);
+            QCOMPARE(QByteArray(value), it.value());
+        }
     }
     /**
      * @brief Verify adding an aquifer row leaves untouched high-precision groundwater/column
