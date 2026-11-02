@@ -222,7 +222,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 ## tutorials/t04_1d2d_coupling.md
 
 - [ ] `t04_project_open.png` (line 54) — The portable plaza model with its inline mesh and three 1D nodes
-- [ ] `t04_vertex_coupling_toolbar.png` (line 85) — The Mesh 2D vertex controls showing vertex 16 coupled to J1 with Cd 0.65 and area 0.02 square metres
+- [ ] `t04_vertex_coupling_toolbar.png` (line 113) — Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square metres
 - [ ] `t04_coupled_nodes_style.png` (line 98) — The plaza mesh with the J1 and J2 coupling vertices marked
 - [ ] `t04_animation_ponding.png` (line 150) — The plaza at the checked maximum-depth frame with a fixed depth ramp and legend
 - [ ] `t04_comparison_1d_2d.png` (line 159) — Junction head and nearby surface-cell depth series for the same plaza run
@@ -231,7 +231,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 ## tutorials/t05_2d_boundaries.md
 
 - [ ] `t05_road_culvert_overview.png` (line 41) — The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centreline
-- [ ] `t05_select_mesh_edges.png` (line 87) — The Select Mesh Edges tool with the whole east outflow face selected and the Edges group showing Normal Flow
+- [ ] `t05_select_mesh_edges.png` (line 91) — The Edges tool with the whole east outflow face selected and the Surface boundary condition editor showing Normal Depth
 - [ ] `t05_edge_attribute_table.png` (line 127) — Mesh edge rows in the attribute table with the BC Type; Bed Slope and Conveyance columns visible
 - [ ] `t05_bc_style_tab.png` (line 147) — The Boundary Conditions tab of the mesh layer style dialog with per-type colour and width
 - [ ] `t05_coupled_vertex.png` (line 192) — A coupled culvert vertex selected — the mesh toolbar Vertices group showing node J_P00; Cd 0.65 and Area 0.283 m2

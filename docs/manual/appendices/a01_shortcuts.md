@@ -121,10 +121,9 @@ separate Find dialog.
 
 ### Model authoring, data objects, climate, import, results
 
-Every command in these groups is available from the ribbon — and, except for the
-ribbon-only 2D-mesh tools noted below, from the menus too — and **none of them
-ships with a default shortcut**; they are the natural candidates for your own
-bindings. The list, by menu path:
+Every command in these groups is available from both the ribbon and the menus,
+and **none of them ships with a default shortcut**; they are the natural
+candidates for your own bindings. The list, by menu path:
 
 - **Model → Add Node** — Junction, Virtual Junction, Inlet Junction, Outfall,
   Divider, Storage
@@ -136,17 +135,25 @@ bindings. The list, by menu path:
 - **Model → Data Objects** — Time Series, Curve, Pattern, LID Control,
   Pollutant, Land Use, Aquifer, Snowpack, Control Rule, Transect, Unit
   Hydrograph, Street, Inlet
-- **Model → Mesh** — Select Vertex, Select Edge, Assign Infiltration to
-  Selection. The remaining mesh commands — **From Raster…**, **From
-  Shapefile…**, **Aquifer…** and **Initial Conditions…** — are on the **Mesh
-  2D** ribbon tab only and have no menu home
+- **Model → Mesh** — Process ▸ (Surface Flow, Infiltration, Groundwater,
+  Surface Quality, Snow, Heat); Auto-couple, Remap 1D↔2D, Burn Channels…;
+  Select 2D Cells, Select Edge, Select Vertex, Clear Selection, Edit in Table;
+  Boundary Condition…, Assign Infiltration to Selection…, Review Ownership…;
+  Assign Groundwater…, Aquifer…, State & Diagnostics…, Aquifer Edge
+  Boundaries…, Aquifer Node Beds…; Surface Quality…, Assign Surface Quality…,
+  Assign snow…, Heat Properties from Raster…; From Raster…, From Shapefile…,
+  Mesh Profile. Every **Mesh 2D** ribbon command has a home here; **Burn
+  Channels…**, **Assign Groundwater…**, **Assign Surface Quality…** and
+  **Assign snow…** are also at the top level of the **Model** menu
 - **File → Import** — SWMM Output, Vector Data, Raster Data, WMS Data,
   Delimited Data, Basemap, 2D Mesh
-- **Results** — Play, Pause, Stop, Skip Back, Skip Forward, Set Style
+- **Animation** — Play, Pause, Stop, Skip Back, Skip Forward, Set Style
   (**Animation** ribbon tab)
 
-The **Mesh** group is contextual: those commands appear on the **Mesh 2D**
-ribbon tab and are enabled only while a 2D mesh is active.
+The **Model → Mesh** commands mirror the **Mesh 2D** ribbon tab. Commands that
+edit the mesh need an active 2D mesh; **Boundary Condition…** also needs
+selected boundary edges and **Assign Infiltration to Selection…** selected cells.
+The **Process** entries are always available.
 
 ### Map canvas keys
 
@@ -177,10 +184,10 @@ Anything the canvas does not consume is forwarded to the active tool.
 | **Measure** | **Esc** clears all points but keeps the tool active; **Backspace** / **Delete** removes the last vertex. |
 | **Select Profile** | **Esc** resets the selection. **Ctrl** toggles, **Shift** extends. |
 | **Plot Pick** | **Esc** cancels. |
-| **Select Mesh Vertices** | **Esc** clears the vertex selection and any drag. **Shift** add, **Ctrl** toggle, plain replace. |
-| **Select Mesh Edges** | **Esc** once clears a pending path anchor, twice clears the selection. **A** includes interior edges, **B** returns to boundary edges only. **Ctrl**-click picks a path along the boundary; **Shift** adds; plain replaces. |
+| **Select Vertex** | **Esc** clears the vertex selection and any drag. **Shift** add, **Ctrl** toggle, plain replace. |
+| **Select Edge** | **Esc** once clears a pending path anchor, twice clears the selection. **A** includes interior edges, **B** returns to boundary edges only. **Ctrl**-click picks a path along the boundary; **Shift** adds; plain replaces. |
 | **Mesh Profile** | **Return** / **Enter** finish the trace (needs at least two vertices), **Esc** cancel. |
-| **Pick 2D Cells** | **Esc** clears selection, drag and lasso. **B** box mode, **L** lasso mode. **Shift** add, **Ctrl** toggle, plain replace. |
+| **Select 2D Cells** | **Esc** clears selection, drag and lasso. **B** box mode, **L** lasso mode. **Shift** add, **Ctrl** toggle, plain replace. |
 
 No tool uses **Alt** or **Space**.
 

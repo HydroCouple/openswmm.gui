@@ -12,6 +12,7 @@
 #include <QPointer>
 #include <QThread>
 
+#include <QAction>
 #include <QLayout>
 #include <QMainWindow>
 #include <QSettings>
@@ -44,7 +45,7 @@ CompactToolbarController::CompactToolbarController(QMainWindow *window)
     mTabBar->setExpanding(false);
     mTabBar->setFocusPolicy(Qt::TabFocus);
     mTabBar->setAccessibleName(tr("Toolbar tabs"));
-    mStrip->addWidget(mTabBar);
+    mTabBarAction = mStrip->addWidget(mTabBar);
 
     // Expanding spacer keeps future corner widgets (command palette
     // launcher) right-aligned.
@@ -268,6 +269,15 @@ void CompactToolbarController::setTabVisible(const QString &id, bool visible)
     // explicit apply below covers the non-current case.
     mTabBar->setTabVisible(index, visible);
     applyVisibility();
+    relayoutStrip();
+}
+
+void CompactToolbarController::setLeadingWidget(QWidget *widget)
+{
+    if (!widget || !mTabBarAction)
+        return;
+    mStrip->insertWidget(mTabBarAction, widget);
+    mStrip->insertSeparator(mTabBarAction);
     relayoutStrip();
 }
 

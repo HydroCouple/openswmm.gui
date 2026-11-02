@@ -26,9 +26,11 @@
 #include <QObject>
 #include <QString>
 
+class QAction;
 class QMainWindow;
 class QTabBar;
 class QToolBar;
+class QWidget;
 
 namespace openswmmvis::ui
 {
@@ -148,6 +150,13 @@ public:
      */
     QToolBar *stripToolBar() const { return mStrip; }
 
+    /*! Mount \a widget at the leading edge of the tab strip, before the tab
+     *  bar — the Quick Access cluster that stays visible on every tab.
+     * @param[in] widget Live widget; the strip adopts it. Null is ignored. Call once.
+     * @note Inserts a separator between the widget and the tab bar and re-lays the strip.
+     */
+    void setLeadingWidget(QWidget *widget);
+
 signals:
     /**
      * @param[in] id New current registered tab identity after visibility application/settings
@@ -189,6 +198,7 @@ private:
     QMainWindow *mWindow = nullptr;
     QToolBar *mStrip = nullptr;
     QTabBar *mTabBar = nullptr;
+    QAction *mTabBarAction = nullptr; ///< Strip slot of the tab bar; leading widgets go before it.
     QList<Tab> mTabs;
     QList<QToolBar *> mOwnRowBars;
     bool mFinalized = false;

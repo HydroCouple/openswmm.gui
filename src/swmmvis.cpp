@@ -283,13 +283,7 @@
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "ui/toolbars/ribbongroup.h"
 
-#include "ui/dialogs/timeserieseditordialog.h"
-#include "ui/dialogs/curveeditordialog.h"
 #include "layers/swmmmodellayer.h"
-#include "timeseries/timeseriesregistry.h"
-#include "timeseries/timeseriesprovider.h"
-#include "curve/curveregistry.h"
-#include "curve/curveprovider.h"
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolplotpick.h"
 #include "map/tools/maptoolselectprofile.h"
@@ -591,6 +585,11 @@ SWMMVis::~SWMMVis()
     const auto projects = findChildren<SWMMVisProjectWindow *>();
     for (auto *project : projects)
         delete project;
+    // QWidget's destructor hides the children after this body; the MDI area
+    // then announces a sub-window change, and its handlers (rebuildWindowMenu,
+    // onActiveSubWindowChanged) would read the freed ui. Nothing needs them now.
+    disconnect(ui->mdiAreaCentral, nullptr, this, nullptr);
+    mMenuWindow = nullptr;
     delete ui;
 }
 
@@ -1264,6 +1263,40 @@ void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
     dlg->show();
 }
 
+static void showSpatialAssignment(SWMMVisProjectWindow *pw, SWMM2DMeshLayer *mesh,
+                                  const QString &target, const QList<int> &cells)
+{
+    if (!pw || !pw->modelLayer())
+        return;
+    if (!mesh || !pw->canvas()->layers().contains(mesh)) {
+        QMessageBox::information(pw, SWMMVis::tr("Assign groundwater"),
+                                 SWMMVis::tr("Choose an active 2D mesh in this project first."));
+        return;
+    }
+    auto *store = GroundwaterRecipeStore::forOwner(pw);
+    if (!store->loadError().isEmpty()) {
+        QMessageBox::warning(pw, SWMMVis::tr("Assignment history"), store->loadError());
+        return;
+    }
+    auto *dialog = new openswmmvis::ui::GroundwaterAssignDialog(
+        pw->modelLayer(), mesh, pw->canvas(), pw->selectionManager(), pw->unitSystem(), pw);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    QObject::connect(dialog, &openswmmvis::ui::GroundwaterAssignDialog::applied, pw,
+            [pw] { pw->setHasChanges(true); });
+    QObject::connect(dialog->assignmentEvents(), &openswmmvis::ui::GroundwaterAssignmentEvents::changed,
+            pw, [pw, store](const QJsonObject &recipe, bool) {
+                pw->setHasChanges(true);
+                QString error;
+                if (!store->append(recipe, &error))
+                    QMessageBox::warning(pw, SWMMVis::tr("Assignment history"), error);
+            });
+    if (!target.isEmpty())
+        dialog->selectTarget(target);
+    if (!cells.isEmpty())
+        dialog->setInitialCells(cells);
+    dialog->show();
+}
+
 // Slice §V.VB — Mesh Editing toolbar peer of TerrainToolbar.  Docked in
 // the top toolbar area; the compact-toolbar controller re-homes it onto
 // its own tab-scoped row (setOwnRow) during finalize(), which also keeps
@@ -1297,77 +1330,6 @@ void SWMMVis::initializeMeshEditingToolBar()
             pw->activateSelectTool();
     });
 
-    // Slice §V.VC — picker callbacks dispatch through the rich editor
-    // dialogs ([[feedback_data_object_pickers]]). The toolbar stays
-    // decoupled from the registries; lambdas close over `this` to
-    // resolve the active project window's SWMMModelLayer at click time.
-    /**
-     * @brief Choose a stage/flow timeseries from the current model registry. Argument `cur`:
-     * existing selection used to seed the modal picker. Returns: selected name or empty for
-     * absent
-     * project/model/registry or picker cancellation. Registry stays model-owned; callback does
-     * not
-     * capture a project between activations.
-     */
-    auto stagePicker = [this](const QString &cur) -> QString {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer())
-            return {};
-        auto *reg = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
-            pw->modelLayer()->ensureTimeseriesRegistry());
-        if (!reg)
-            return {};
-        return openswmmvis::ui::TimeseriesEditorDialog::pickTimeseries(reg, nullptr, cur, this);
-    };
-    mMeshEditingToolbar->setStageTimeseriesPicker(stagePicker);
-    mMeshEditingToolbar->setFlowTimeseriesPicker(stagePicker);
-
-    mMeshEditingToolbar->setRatingCurvePicker([this](const QString &cur) -> QString {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer())
-            return {};
-        auto *reg = qobject_cast<openswmmvis::curve::CurveRegistry *>(
-            pw->modelLayer()->ensureCurveRegistry());
-        if (!reg)
-            return {};
-        return openswmmvis::ui::CurveEditorDialog::pickCurve(reg, nullptr, cur, this);
-    });
-
-    // Listers populate the TS / curve comboboxes from the project's
-    // registries so the user can pick an existing object without
-    // opening the CRUD dialog. Re-queried on rebindCanvas + after
-    // each CRUD dialog closes.
-    mMeshEditingToolbar->setTimeseriesLister([this]() -> QStringList {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer())
-            return {};
-        auto *reg = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
-            pw->modelLayer()->ensureTimeseriesRegistry());
-        if (!reg)
-            return {};
-        QStringList names;
-        for (auto *p : reg->providers())
-            if (p)
-                names.append(p->name());
-        names.sort(Qt::CaseInsensitive);
-        return names;
-    });
-    // Couplable SWMM node ids for the mesh vertex coupled-node dropdown.
-    mMeshEditingToolbar->setNodeLister([this]() -> QStringList {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
-            return {};
-        SWMM_Engine e = pw->modelLayer()->engine();
-        QStringList ids;
-        const int nNodes = swmm_node_count(e);
-        for (int i = 0; i < nNodes; ++i) {
-            const char *id = swmm_node_id(e, i);
-            if (id && id[0] != '\0')
-                ids.append(QString::fromUtf8(id));
-        }
-        ids.sort(Qt::CaseInsensitive);
-        return ids;
-    });
     // Node ids + [COORDINATES] for the Auto-couple action. Raw map units —
     // the same CRS the mesh vertices carry, so coincidence needs no
     // conversion. Nodes without coordinates are skipped.
@@ -1484,40 +1446,12 @@ void SWMMVis::initializeMeshEditingToolBar()
         }
         return in;
     });
-    mMeshEditingToolbar->setCurveLister([this]() -> QStringList {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer())
-            return {};
-        auto *reg = qobject_cast<openswmmvis::curve::CurveRegistry *>(
-            pw->modelLayer()->ensureCurveRegistry());
-        if (!reg)
-            return {};
-        QStringList names;
-        for (auto *p : reg->providers())
-            if (p)
-                names.append(p->name());
-        names.sort(Qt::CaseInsensitive);
-        return names;
-    });
-
-    // ── 2D-results interactions at the end of the mesh toolbar ──────────────
-    // Select 2D Cells (the cell-selector peer of the vertex/edge selectors)
-    // and the Trace Profile Path tool, placed after the BC controls (before
-    // the expanding spacer) via addToolAction(). Both are checkable and kept
-    // OUT of the toolbar's exclusive vertex/edge edit group so they toggle
-    // freely. Their objectNames match SWMMVisProjectWindow::toolActionKeys()
-    // so the existing active-tool checked-state sync keeps them in step.
-    mMeshEditingToolbar->addToolSeparator();
-
-    auto *actPick2DCells = new QAction(QIcon(QStringLiteral(":/swmmvis/SelectCell")),
-                                       tr("Select 2D Cells"), mMeshEditingToolbar);
-    actPick2DCells->setObjectName(QStringLiteral("actionPick2DCells"));
-    actPick2DCells->setCheckable(true);
-    actPick2DCells->setToolTip(
-        tr("Select cells on the 2D mesh results layer. Single-click selects and "
-           "highlights a cell (Shift = add, Ctrl = toggle); drag a box or press L "
-           "to lasso multiple. Right-click a selection to plot its depth / HGL / "
-           "velocity time series. Esc clears."));
+    // ── Select 2D Cells and the mesh profile tool ───────────────────────────
+    // The cell tool sits in the toolbar's Select group beside Edges and
+    // Vertices; it stays OUT of their exclusive group so it toggles freely.
+    // objectNames match SWMMVisProjectWindow::toolActionKeys() so the
+    // active-tool checked-state sync keeps them in step.
+    QAction *actPick2DCells = mMeshEditingToolbar->pickCellsAction();
     connect(actPick2DCells, &QAction::toggled, this, [this, actPick2DCells](bool checked) {
         auto *pw = activeProjectWindow();
         if (!pw) {
@@ -1529,25 +1463,12 @@ void SWMMVis::initializeMeshEditingToolBar()
         else
             pw->activateSelectTool();
     });
-    mMeshEditingToolbar->addToolAction(actPick2DCells);
-    // Cell-selection info label right after the Select-2D-Cells tool (like the
-    // edge label after Edit Edge), then the per-cell editors (parameter combo
-    // + value, then tag) so they sit in the 2D-cell group. The toolbar hides
-    // them unless at least one cell is selected.
-    mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellInfoLabel());
-    QAction *cellParamAct =
-        mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellParamEditorWidget());
-    QAction *cellTagAct = mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellTagWidget());
-    mMeshEditingToolbar->setCellEditorActions(cellParamAct, cellTagAct);
-
-    // Icon-only on the toolbar — like Edit Vertex / Edit Edge above, the
-    // QAction text is left empty so only the icon shows; the descriptive
-    // label lives in the tooltip set below.
+    // Labeled face in the Profile group (plan: labels whenever feasible).
     // Same glyph as the Analysis tab's "2D Profile" (themed, unlike a raw
     // QIcon from the resource path).
     auto *actMeshProfile =
-        new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Profile2D")), QString(),
-                    mMeshEditingToolbar);
+        new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Profile2D")),
+                    tr("Mesh Pro&file"), mMeshEditingToolbar);
     actMeshProfile->setObjectName(QStringLiteral("actionMeshProfile"));
     actMeshProfile->setCheckable(true);
     actMeshProfile->setToolTip(
@@ -1621,10 +1542,11 @@ void SWMMVis::initializeMeshEditingToolBar()
     connect(actAssignVector, &QAction::triggered, this, [openAssignDialog]() {
         openAssignDialog(openswmmvis::ui::MeshAttributeAssignDialog::Source::Vector);
     });
+    mMeshEditingToolbar->addCellDataActions({actAssignRaster, actAssignVector});
 
     // GUI plan §3.5(4) — the whole-row infiltration form for the cells picked
-    // on the map. Placed in the Mesh Editing toolbar's 2D-cell cluster (shown
-    // only while cells are selected) and mirrored into Model ▸ Mesh below, so
+    // on the map. Placed in the Mesh 2D tab's Infiltration process group
+    // (enabled while cells are selected) and mirrored into Model ▸ Mesh, so
     // the capability stays menu-reachable.
     auto *actAssignInfil = new QAction(tr("Assign Infiltration to Selection…"), this);
     actAssignInfil->setObjectName(QStringLiteral("actionMeshAssignInfilToSelection"));
@@ -1646,8 +1568,6 @@ void SWMMVis::initializeMeshEditingToolBar()
             mesh, pw->canvas(), pw->selectionManager(),
             pw->unitSystem() ? pw->unitSystem()->depthLabel() : QStringLiteral("m"), this);
     });
-    if (mMeshEditingToolbar)
-        mMeshEditingToolbar->addCellAction(actAssignInfil);
 
     auto *assignGroundwater = new QAction(tr("Assign Groundwater…"), this);
     assignGroundwater->setObjectName(QStringLiteral("actionAssignGroundwater"));
@@ -1655,40 +1575,12 @@ void SWMMVis::initializeMeshEditingToolBar()
         "Preview and assign groundwater values using selected cells, feature layers or rasters."));
     // Phase 3b: one spatial assignment dialog serves groundwater and mesh surface-quality rows.
     const auto openSpatialAssignment = [this](const QString &target) {
-        auto *pw = activeProjectWindow();
-        if (!pw || !pw->modelLayer())
-            return;
-        auto *mesh = mMeshEditingToolbar ? mMeshEditingToolbar->activeMesh() : nullptr;
-        if (!mesh || !pw->canvas()->layers().contains(mesh)) {
-            QMessageBox::information(pw, tr("Assign groundwater"),
-                                     tr("Choose an active 2D mesh in this project first."));
-            return;
-        }
-        auto *store = GroundwaterRecipeStore::forOwner(pw);
-        if (!store->loadError().isEmpty()) {
-            QMessageBox::warning(pw, tr("Assignment history"), store->loadError());
-            return;
-        }
-        auto *dialog = new openswmmvis::ui::GroundwaterAssignDialog(
-            pw->modelLayer(), mesh, pw->canvas(), pw->selectionManager(), pw->unitSystem(), pw);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dialog, &openswmmvis::ui::GroundwaterAssignDialog::applied, pw,
-                [pw] { pw->setHasChanges(true); });
-        connect(dialog->assignmentEvents(), &openswmmvis::ui::GroundwaterAssignmentEvents::changed,
-                pw, [pw, store](const QJsonObject &recipe, bool) {
-                    pw->setHasChanges(true);
-                    QString error;
-                    if (!store->append(recipe, &error))
-                        QMessageBox::warning(pw, tr("Assignment history"), error);
-                });
-        if (!target.isEmpty())
-            dialog->selectTarget(target);
-        dialog->show();
+        showSpatialAssignment(activeProjectWindow(),
+                              mMeshEditingToolbar ? mMeshEditingToolbar->activeMesh() : nullptr,
+                              target, {});
     };
     connect(assignGroundwater, &QAction::triggered, this,
             [openSpatialAssignment] { openSpatialAssignment({}); });
-    if (mMeshEditingToolbar)
-        mMeshEditingToolbar->addCellAction(assignGroundwater);
     if (ui->menuModel)
         ui->menuModel->addAction(assignGroundwater);
     auto *assignSurfaceQuality = new QAction(tr("Assign Surface Quality…"), this);
@@ -1698,8 +1590,6 @@ void SWMMVis::initializeMeshEditingToolBar()
            "concentrations to mesh cells from the selection, feature layers or rasters."));
     connect(assignSurfaceQuality, &QAction::triggered, this,
             [openSpatialAssignment] { openSpatialAssignment(QStringLiteral("SQ_COVERAGE")); });
-    if (mMeshEditingToolbar)
-        mMeshEditingToolbar->addCellAction(assignSurfaceQuality);
     if (ui->menuModel)
         ui->menuModel->addAction(assignSurfaceQuality);
 
@@ -1733,8 +1623,6 @@ void SWMMVis::initializeMeshEditingToolBar()
                                                pw->selectionManager(), pw);
         dialog.exec();
     });
-    if (mMeshEditingToolbar)
-        mMeshEditingToolbar->addCellAction(assignSnow);
     if (ui->menuModel)
         ui->menuModel->addAction(assignSnow);
 
@@ -1846,6 +1734,102 @@ void SWMMVis::initializeMeshEditingToolBar()
         }
         dlg.exec();
     });
+
+    // Groundwater pages for edge boundaries and node beds: the same editor,
+    // opened on the page the selection is about.
+    auto *actGWEdges = new QAction(tr("Aquifer Edge Boundaries…"), this);
+    actGWEdges->setObjectName(QStringLiteral("actionMesh2DGWEdgeBoundaries"));
+    actGWEdges->setToolTip(tr("Aquifer head / flow boundaries and their chemistry or heat terms "
+                              "on mesh edges."));
+    connect(actGWEdges, &QAction::triggered, this, [openGwDialog]() {
+        openGwDialog(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::EdgeBoundaries);
+    });
+    auto *actGWNodeBeds = new QAction(tr("Aquifer Node Beds…"), this);
+    actGWNodeBeds->setObjectName(QStringLiteral("actionMesh2DGWNodeBeds"));
+    actGWNodeBeds->setToolTip(tr("Node-to-aquifer exchange beds."));
+    connect(actGWNodeBeds, &QAction::triggered, this, [openGwDialog]() {
+        openGwDialog(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::NodeBeds);
+    });
+
+    // Heat properties sampled from rasters onto 2D cells, nodes or conduits —
+    // the dialog the Heat Configuration editor also opens.
+    auto *actHeatRaster = new QAction(tr("Heat Properties from Raster…"), this);
+    actHeatRaster->setObjectName(QStringLiteral("actionMeshHeatFromRaster"));
+    actHeatRaster->setToolTip(tr("Assign heat properties to 2D cells, nodes or conduits by "
+                                 "sampling a raster."));
+    connect(actHeatRaster, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+            return;
+        OpenSWMMVis::HeatRasterAssignDialog assignment(pw->modelLayer(), pw->canvas(), this);
+        assignment.exec();
+    });
+
+    // Process groups on the Mesh 2D tab (process-aware editing plan §4.2):
+    // the picker shows one process's configurators at a time.
+    using Process = MeshEditingToolbar::Process;
+    mMeshEditingToolbar->addProcessActions(
+        Process::Infiltration, {actAssignInfil, mMeshEditingToolbar->reviewOwnershipAction()});
+    mMeshEditingToolbar->setCommandNeeds(actAssignInfil, MeshEditingToolbar::Needs::Cells);
+    mMeshEditingToolbar->addProcessActions(
+        Process::Groundwater,
+        {assignGroundwater, actGWParams, actGWInit, actGWEdges, actGWNodeBeds});
+    mMeshEditingToolbar->addProcessActions(Process::SurfaceQuality,
+                                           {actSurfaceQuality, assignSurfaceQuality});
+    mMeshEditingToolbar->addProcessActions(Process::Snow, {assignSnow});
+    mMeshEditingToolbar->addProcessActions(Process::Heat, {actHeatRaster});
+
+    // Picker status: informational, so a process can be configured before it
+    // is switched on (the plan's "keep enable settings reachable" rule).
+    mMeshEditingToolbar->setProcessStatusProvider([this](Process process) -> QString {
+        auto *pw = activeProjectWindow();
+        SWMMModelLayer *model = pw ? pw->modelLayer() : nullptr;
+        if (!model || !model->engine())
+            return {};
+        const auto isOn = [model](const char *key, const char *fallback) {
+            return SimulationOptionsDialog::parseEngineBool(model->getOption(
+                       QByteArray(key), QString::fromLatin1(fallback))) == Qt::Checked;
+        };
+        // Short, so the closed picker never cuts it off; the tooltip says
+        // where to switch the process on.
+        const QString off = tr("off");
+        switch (process) {
+        case Process::SurfaceQuality:
+            if (isOn("IGNORE_QUALITY", "NO"))
+                return off;
+            return model->dataObjectCount(SWMMModelLayer::DataPollutants) > 0
+                       ? QString()
+                       : tr("no pollutants");
+        case Process::Snow:
+            return isOn("IGNORE_SNOWMELT", "NO") ? off : QString();
+        case Process::Heat:
+            return isOn("HEAT_TRANSPORT", "NO") ? QString() : off;
+        case Process::Groundwater: {
+            // [2D_OPTIONS] GROUNDWATER NO (or OFF, read back as NO) switches
+            // the 2D aquifer off. YES forces it on; AUTO turns it on once
+            // [2D_AQUIFER] rows exist, which the Groundwater group creates.
+            char gw[32] = {};
+            const QString mode =
+                swmm_options_get_ext(model->engine(), "GROUNDWATER", gw, sizeof gw) == 0
+                    ? QString::fromUtf8(gw).trimmed().toUpper()
+                    : QString();
+            return mode == QLatin1String("NO") ? off : QString();
+        }
+        case Process::SurfaceFlow:
+        case Process::Infiltration:
+            break;
+        }
+        return {};
+    });
+
+    // "Edit in Table" — the bulk editing route that replaced the ribbon's
+    // inline value editors.
+    connect(mMeshEditingToolbar, &MeshEditingToolbar::editInTableRequested, this,
+            [this](SWMM2DMeshLayer *mesh, int meshKind) {
+                onTabularView();
+                if (mAttributeTablePanel)
+                    mAttributeTablePanel->showMeshTable(mesh, meshKind);
+            });
 }
 
 void SWMMVis::initializeAnalysisLayerCombos()
@@ -4705,6 +4689,12 @@ void SWMMVis::initializePropertiesPanelDockWidget()
 
     // Attribute table (all objects, tabular grid) — bottom dock.
     mAttributeTablePanel = new AttributeTablePanel(this);
+    const auto openGroundwaterCells = [this](SWMM2DMeshLayer *mesh, const QList<int> &cells) {
+        if (mesh && mesh->isActiveMesh() && !cells.isEmpty())
+            showSpatialAssignment(activeProjectWindow(), mesh, QStringLiteral("KS"), cells);
+    };
+    connect(mPropertiesPanel, &PropertiesPanel::groundwaterCellsRequested, this, openGroundwaterCells);
+    connect(mAttributeTablePanel, &AttributeTablePanel::groundwaterCellsRequested, this, openGroundwaterCells);
     auto *tableDock = new QDockWidget(tr("Attribute Table"), this);
     tableDock->setObjectName(QStringLiteral("dockWidgetAttributeTable"));
     tableDock->setWidget(mAttributeTablePanel);
@@ -5082,22 +5072,44 @@ void SWMMVis::initializeMenus()
     if (ui->menuModel) {
         auto *actSetCRS = ui->menuModel->addAction(QIcon(QStringLiteral(":/swmmvis/Globe")),
                                                    tr("Set Project CRS…"));
+        actSetCRS->setObjectName(QStringLiteral("actionSetProjectCRS")); // catalog key
         actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
         connect(actSetCRS, &QAction::triggered, this, &SWMMVis::onCRSButtonClicked);
 
-        // Pick 2D Cells (and the new Trace Profile Path tool) now live on the
-        // Mesh Editing toolbar — see initializeMeshEditingToolBar(). They are
-        // no longer added to the Tools menu / Analysis toolbar.
+        // Select 2D Cells and Mesh Profile live on the Mesh 2D tab (Select and
+        // Profile groups); the Model ▸ Mesh submenu below mirrors them.
 
-        // Model → Mesh ▸ (tool actions created by the Mesh Editing toolbar)
-        // and the Terrain Profile trace — menu mirrors for toolbar-born
-        // actions so every capability stays menu-reachable.
+        // Model → Mesh ▸ mirrors the whole Mesh 2D tab (process-aware
+        // editing plan §4.5), section by section, so every ribbon command
+        // also has a menu home. Burn Channels and the three Assign commands
+        // also stay at the top of the Model menu, where they were before.
         auto *meshMenu = new QMenu(tr("M&esh"), this);
         meshMenu->setObjectName(QStringLiteral("menuModelMesh"));
-        for (const char *name : {"actionMeshSelectVertex", "actionMeshSelectEdge",
-                                 "actionMeshAssignInfilToSelection"}) {
-            if (auto *act = findChild<QAction *>(QLatin1String(name)))
-                meshMenu->addAction(act);
+        if (mMeshEditingToolbar) {
+            auto *processMenu = meshMenu->addMenu(tr("&Process"));
+            processMenu->setObjectName(QStringLiteral("menuModelMeshProcess"));
+            processMenu->addActions(mMeshEditingToolbar->processActions());
+            connect(processMenu, &QMenu::aboutToShow, mMeshEditingToolbar,
+                    &MeshEditingToolbar::refreshProcessStatus);
+        }
+        const std::initializer_list<const char *> sections[] = {
+            {"actionMeshAutoCouple", "actionMeshRemap", "actionBurnChannels"},
+            {"actionPick2DCells", "actionMeshSelectEdge", "actionMeshSelectVertex",
+             "actionMeshClearSelection", "actionMeshEditInTable"},
+            {"actionMeshBoundaryCondition", "actionMeshAssignInfilToSelection",
+             "actionMeshReviewOwnership"},
+            {"actionAssignGroundwater", "actionMesh2DGWParams", "actionMesh2DGWInitCond",
+             "actionMesh2DGWEdgeBoundaries", "actionMesh2DGWNodeBeds"},
+            {"actionMesh2DSurfaceQuality", "actionAssignSurfaceQuality", "actionMeshSnow",
+             "actionMeshHeatFromRaster"},
+            {"actionMeshAssignFromRaster", "actionMeshAssignFromVector", "actionMeshProfile"},
+        };
+        for (const auto &section : sections) {
+            if (!meshMenu->isEmpty())
+                meshMenu->addSeparator();
+            for (const char *name : section)
+                if (auto *act = findChild<QAction *>(QLatin1String(name)))
+                    meshMenu->addAction(act);
         }
         if (!meshMenu->isEmpty())
             ui->menuModel->addMenu(meshMenu);
@@ -8136,8 +8148,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                                                          pw->unitSystem()
                                                              ? pw->unitSystem()->depthLabel()
                                                              : QStringLiteral("m"));
-                    else
-                        mPropertiesPanel->clear();
+                    else // several elements: one aggregate (plan Phase 3)
+                        mPropertiesPanel->showMeshSelection(pw->canvas(), current.values());
                     return;
                 }
                 auto *layer = pw->modelLayer();
@@ -8205,24 +8217,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mMeshEditingToolbar) {
         mMeshEditingToolbar->rebindCanvas(pw->canvas());
         mMeshEditingToolbar->rebindSelectionManager(pw->selectionManager());
-        if (pw->unitSystem())
-            mMeshEditingToolbar->setDepthUnitLabel(pw->unitSystem()->depthLabel());
-        // Keep the BC combos (stage/flow TS, rating curve) and the coupled-
-        // node dropdown current when objects are created OUTSIDE the
-        // toolbar's own "…" picker — Object Browser Add New, editor
-        // dialogs, undo/redo. The listers read the ACTIVE project, so a
-        // stale connection from a background project's layer at worst
-        // triggers a harmless re-query. Both refreshers preserve the
-        // combo's current text.
+        // Process status follows option and pollutant edits (queued: data
+        // objects can change before a removal lands).
         if (auto *ml = pw->modelLayer()) {
-            // Queued: the signal can fire on providerAboutToBeRemoved,
-            // i.e. before the removal lands — defer so the lister reads
-            // post-mutation state.
+            connect(ml, &SWMMModelLayer::optionsChanged, mMeshEditingToolbar,
+                    &MeshEditingToolbar::refreshProcessStatus, Qt::UniqueConnection);
             connect(ml, &SWMMModelLayer::dataObjectsChanged, mMeshEditingToolbar,
-                    &MeshEditingToolbar::refreshBCNameLists,
+                    &MeshEditingToolbar::refreshProcessStatus,
                     static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::UniqueConnection));
-            connect(ml, &SWMMModelLayer::geometryChanged, mMeshEditingToolbar,
-                    &MeshEditingToolbar::refreshNodeList, Qt::UniqueConnection);
         }
     }
 

@@ -116,6 +116,7 @@ void InfilAssignToSelectionDialog::buildUi()
     auto *form = new QFormLayout;
 
     m_methodCombo = new QComboBox(this);
+    m_methodCombo->setObjectName("infiltrationMethod");
     {
         const QStringList labels = mesh::infilMethodLabels();
         for (int i = 0; i < labels.size(); ++i)
@@ -148,20 +149,16 @@ void InfilAssignToSelectionDialog::buildUi()
         for (int i = 0; i < labels.size(); ++i) {
             const auto d = static_cast<mesh::InfilDest>(i);
             m_destCombo->addItem(labels.at(i), int(d));
-            // All three destinations are routed by the engine now. AQUIFER_2D
-            // additionally needs the model to carry a [2D_AQUIFER], which is
-            // not something this combo can know — so it carries the hint and
-            // the engine refuses the combination by name at resolve.
-            if (model)
-                if (QStandardItem *item = model->item(i))
-                    item->setData(mesh::infilDestHint(d), Qt::ToolTipRole);
+            if (model) {
+                if (QStandardItem *item = model->item(i)) {
+                    item->setToolTip(mesh::infilDestHint(d));
+                    item->setEnabled(d != mesh::InfilDest::Aquifer2D);
+                }
+            }
         }
     }
-    m_destCombo->setToolTip(tr("Where infiltrated water goes. \"Lost\" leaves the model; "
-                               "\"Subcatchment aquifer\" recharges the legacy aquifer of the "
-                               "subcatchment whose polygon contains the cell; \"2D aquifer\" "
-                               "recharges the integrated two-zone kernel and needs a [2D_AQUIFER] "
-                               "section."));
+    m_destCombo->setToolTip(tr("Choose where surface infiltration goes. For legacy AQUIFER_2D "
+                               "rows, review infiltration ownership in Assign Groundwater."));
     form->addRow(tr("Destination:"), m_destCombo);
 
     outer->addLayout(form);
@@ -385,6 +382,10 @@ void InfilAssignToSelectionDialog::onApply()
         return;
     }
     const mesh::InfilRow row = currentRow();
+    if (row.dest == mesh::InfilDest::Aquifer2D) {
+        m_statusLbl->setText(mesh::infilDestHint(row.dest));
+        return;
+    }
 
     if (m_writeTag->isChecked()) {
         const QString tag = commonTag();

@@ -3287,6 +3287,17 @@ add_swmmvis_gui_test(test_featurelayer_hostwiring
 )
 swmmvis_link_full_app_deps(test_featurelayer_hostwiring)
 
+# Ribbon organization on the real main window (process-aware editing plan,
+# Phase 1): one face per command, Quick Access, contextual Animation, stack
+# budgets, and catalog tab fields that match the mounted placement.
+add_swmmvis_gui_test(test_ribbon_organization
+    test_ribbon_organization.cpp
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc # real icons: widths must match the app
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_ribbon_organization)
+
 # Spatial rain-gage assignment against a real engine-loaded model. Guards the
 # un-located-gage trap (engine says (0,0); the display cache invents a position)
 # and the mediated write that lets a bulk assignment refresh the views.

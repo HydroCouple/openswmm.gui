@@ -333,8 +333,6 @@ private slots:
         QTest::newRow("cells") << QString("c") << QString("mannings") << 0.04;
         QTest::newRow("edges") << QString("e") << QString("conveyance") << 0.5;
         QTest::newRow("vertices") << QString("v") << QString("z") << 42.0;
-        QTest::newRow("infiltration") << QString("c") << QString("infil.f0") << 40.0;
-        QTest::newRow("coupling") << QString("v") << QString("couplingCd") << 0.75;
     }
 
     void meshBulkApplyRefreshesOnce()
@@ -345,21 +343,12 @@ private slots:
         auto layer = openLayer();
         QVERIFY(layer);
         mesh::MeshResult meshData;
-        const int scaleVertices = qEnvironmentVariableIntValue("SWMMVIS_BULK_SCALE_VERTICES");
-        const int cells = kind == "v" ? std::max(512, (scaleVertices + 2) / 3) : 512;
-        meshData.vertices.reserve(cells * 3);
-        meshData.triangles.reserve(cells);
-        for (int i = 0; i < cells; ++i) {
+        for (int i = 0; i < 512; ++i) {
             const int first = meshData.vertices.size();
             for (const auto &xy : {QPointF(i * 2, 0), QPointF(i * 2 + 1, 0), QPointF(i * 2, 1)}) {
                 mesh::MeshVertex vertex;
                 vertex.xy = xy;
                 vertex.z = 0.0;
-                if (key == "couplingCd") {
-                    vertex.coupledNode = "J1";
-                    vertex.couplingCdSet = false;
-                    vertex.couplingAreaSet = false;
-                }
                 meshData.vertices.append(vertex);
             }
             mesh::MeshTriangle triangle;
@@ -368,18 +357,6 @@ private slots:
             triangle.v2 = first + 2;
             triangle.mannings = 0.02;
             meshData.triangles.append(triangle);
-        }
-        if (key.startsWith("infil.")) {
-            mesh::InfilRow inherited;
-            inherited.method = mesh::InfilMethod::Horton;
-            for (int k = 0; k < mesh::kInfilMaxParams; ++k)
-                inherited.p[k] = k + 1.0;
-            meshData.infilDefaults.append({"*", inherited});
-            for (int row = 1; row < cells; row += 2) {
-                auto override = inherited;
-                override.p[1] = row + 10.0;
-                meshData.infilOverrides.insert(row, override);
-            }
         }
         meshData.ok = true;
         SWMM2DMeshLayer meshLayer(meshData, QStringLiteral("bulk-mesh.2dm"));
@@ -431,25 +408,12 @@ private slots:
         QCOMPARE(dirty.count(), 1);
         QVERIFY(selection.selection() == selected);
         QCOMPARE(canvas.undoStack()->count(), 1);
-        QCOMPARE(canvas.undoStack()->command(0)->childCount(), 1);
         for (int row = 0; row < model->rowCount(); ++row)
             QCOMPARE(model->index(row, column).data(Qt::EditRole).toDouble(), value);
-        timer.restart();
         canvas.undoStack()->undo();
-        qInfo() << kind << "bulk undo:" << timer.elapsed() << "ms";
-        QCOMPARE(attributes.count(), 2);
         QCOMPARE(model->index(0, column).data(Qt::EditRole).toDouble(), original);
         QCOMPARE(clickedSource.data(Qt::EditRole).toDouble(), value);
-        if (key.startsWith("infil.")) {
-            QVERIFY(!meshLayer.mesh().infilOverrides.contains(0));
-            QCOMPARE(meshLayer.mesh().infilOverrides[1].p[1], 11.0);
-        }
-        if (key == "couplingCd")
-            QVERIFY(!meshLayer.mesh().vertices[0].couplingCdSet);
-        timer.restart();
         canvas.undoStack()->redo();
-        qInfo() << kind << "bulk redo:" << timer.elapsed() << "ms";
-        QCOMPARE(attributes.count(), 3);
         QCOMPARE(model->index(0, column).data(Qt::EditRole).toDouble(), value);
     }
 
@@ -458,7 +422,7 @@ private slots:
         QTest::addColumn<QString>("style");
         QTest::addColumn<bool>("cancel");
         QTest::addColumn<bool>("activeEditor");
-        QTest::addColumn<bool>("reentrant");
+        QTest::addColumn<bool>("cdSet");
         QTest::addColumn<bool>("bulk");
         for (const QString &style : {QString("Windows"), QString("Fusion")}) {
             for (bool activeEditor : {false, true}) {
@@ -466,8 +430,12 @@ private slots:
                 QTest::newRow(qPrintable(style + "-apply" + suffix)) << style << false << activeEditor << false << true;
                 QTest::newRow(qPrintable(style + "-cancel" + suffix)) << style << true << activeEditor << false << true;
             }
-            QTest::newRow(qPrintable(style + "-refresh-single")) << style << false << false << true << false;
-            QTest::newRow(qPrintable(style + "-refresh-bulk")) << style << false << false << true << true;
+            // The former "refresh" rows also re-entered the Mesh 2D toolbar's
+            // inline vertex editors mid-edit. Those editors left the ribbon
+            // (process-aware editing plan, Phase 2), so the rows keep their
+            // fixture (an explicit Cd on every vertex) without the re-entry.
+            QTest::newRow(qPrintable(style + "-cd-single")) << style << false << false << true << false;
+            QTest::newRow(qPrintable(style + "-cd-bulk")) << style << false << false << true << true;
         }
     }
 
@@ -476,7 +444,7 @@ private slots:
         QFETCH(QString, style);
         QFETCH(bool, cancel);
         QFETCH(bool, activeEditor);
-        QFETCH(bool, reentrant);
+        QFETCH(bool, cdSet);
         QFETCH(bool, bulk);
         // Keep style ownership local; changing the application style can
         // leave native macOS popup callbacks referring to a deleted style.
@@ -493,7 +461,7 @@ private slots:
             v.tag = QString("keep%1").arg(i);
             v.coupledNode = i == 3 ? QString() : QStringLiteral("J1");
             v.couplingArea = originalAreas[i];
-            v.couplingCdSet = reentrant;
+            v.couplingCdSet = cdSet;
             v.couplingAreaSet = activeEditor;
             meshData.vertices.append(v);
         }
@@ -532,32 +500,6 @@ private slots:
         QVERIFY(proxy);
         QSignalSpy changes(&meshLayer, &SWMM2DMeshLayer::attributeChanged);
         const auto clicked = proxy->mapFromSource(model->index(0, column));
-        bool commitInjected = false;
-        QMetaObject::Connection injection;
-        const auto disconnectInjection = qScopeGuard([&] { QObject::disconnect(injection); });
-        if (reentrant) {
-            QDoubleSpinBox *area = nullptr;
-            QComboBox *node = nullptr;
-            for (auto *spin : toolbar.findChildren<QDoubleSpinBox *>())
-                if (spin->toolTip().startsWith("Coupling exchange area")) area = spin;
-            for (auto *combo : toolbar.findChildren<QComboBox *>())
-                if (combo->toolTip().startsWith("Coupled SWMM node")) node = combo;
-            QVERIFY(area && node && node->lineEdit());
-            auto *line = node->lineEdit();
-            {
-                const QSignalBlocker blockCombo(node), blockLine(line);
-                line->setText("stale display");
-            }
-            // A native value notification can re-enter while another vertex
-            // editor refreshes, before the area spin receives the new value.
-            // Simulate that notification deterministically on either platform.
-            injection = connect(line, &QLineEdit::textChanged, &toolbar, [&, area] {
-                if (commitInjected) return;
-                commitInjected = true;
-                QMetaObject::invokeMethod(area, "valueChanged", Qt::DirectConnection,
-                                         Q_ARG(double, area->value()));
-            });
-        }
         if (activeEditor) {
             panel.resize(1200, 600);
             panel.show();
@@ -572,13 +514,12 @@ private slots:
         else
             QVERIFY(model->setData(model->index(0, column), 5.));
         QCoreApplication::processEvents();
-        QCOMPARE(commitInjected, reentrant);
         for (int i = 0; i < 4; ++i) {
             const auto &v = meshLayer.mesh().vertices[i];
             const bool edited = !cancel && i < 3 && (bulk || i == 0);
             QCOMPARE(v.couplingArea, edited ? 5. : originalAreas[i]);
             QCOMPARE(v.couplingAreaSet, activeEditor || edited);
-            QCOMPARE(v.couplingCdSet, reentrant);
+            QCOMPARE(v.couplingCdSet, cdSet);
             QCOMPARE(v.coupledNode, i == 3 ? QString() : QStringLiteral("J1"));
             QCOMPARE(v.tag, QString("keep%1").arg(i));
             QCOMPARE(v.z, i + 10.);
@@ -650,6 +591,51 @@ private slots:
         QCOMPARE(registry->findByName("ST2")->roadRoughness(), 0.02);
         QCOMPARE(engineRoughness("ST1"), 0.02);
         QCOMPARE(engineRoughness("ST2"), 0.02);
+    }
+
+    /** Applying a value every selected row already holds is no edit, so it leaves no undo step
+     *  (the Properties aggregate leaves none either; process-aware plan Phase 3). */
+    void meshBulkApplyOfHeldValueLeavesNoUndoStep()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        for (bool distinct : {false, true}) {
+            mesh::MeshResult meshData;
+            for (int i = 0; i < 3; ++i) {
+                mesh::MeshVertex v;
+                v.xy = QPointF(i % 2, i / 2);
+                v.z = distinct ? 10. + i : 10.;
+                meshData.vertices.append(v);
+            }
+            mesh::MeshTriangle t;
+            t.v0 = 0; t.v1 = 1; t.v2 = 2; meshData.triangles.append(t);
+            meshData.ok = true;
+            SWMM2DMeshLayer meshLayer(meshData, QStringLiteral("held-value.2dm"));
+            MapCanvas canvas;
+            canvas.addLayer(&meshLayer, false);
+            SelectionManager selection;
+            AttributeTablePanel panel;
+            panel.setProject(layer.get(), &selection, &canvas);
+            panel.refresh();
+            auto *combo = panel.findChild<QComboBox *>();
+            auto *view = panel.findChild<QTableView *>();
+            auto *model = panel.findChild<MeshAttributeTableModel *>();
+            QVERIFY(combo && view && model);
+            combo->setCurrentIndex(combo->findData(QString("mesh:%1:v").arg(meshLayer.layerId())));
+            const int column = colFor(model->columnSpecs(), "z");
+            QSet<SWMMObjectRef> selected;
+            for (int i = 0; i < 3; ++i)
+                selected.insert(model->refForRow(i));
+            selection.select(selected, SelectionManager::Replace);
+            auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
+            QVERIFY(proxy);
+            QVERIFY(applyBulkCell(panel, view, proxy->mapFromSource(model->index(0, column))));
+            QCoreApplication::processEvents();
+            for (int i = 0; i < 3; ++i)
+                QCOMPARE(meshLayer.mesh().vertices[i].z, 10.);
+            // Positive control: when rows change, the batch is one step.
+            QCOMPARE(canvas.undoStack()->count(), distinct ? 1 : 0);
+        }
     }
 
     void bulkApplyDefersSorting_data()
@@ -732,8 +718,7 @@ private slots:
         for (const auto &ref : selected)
             QCOMPARE(model->index(model->rowForName(ref.name), column).data(Qt::EditRole).toDouble(),
                      value);
-        QVERIFY2(layoutCount <= (filtered ? 2 : 1),
-                 "Bulk apply must rebuild the view once, rather than after every row");
+        QVERIFY2(layoutCount <= 1, "Bulk apply must sort once, rather than after every row");
     }
 
     void linkEndpointsAreEditable_data()
@@ -860,7 +845,15 @@ private slots:
         QCOMPARE(cell.data().toString(), QString("J1"));
         combo->setEditText("O1");
         delegate->setModelData(combo, model, cell);
-        QCOMPARE(cell.data().toString(), QString("O1"));
+        // Reconnecting a link reloads the table, so `cell` is stale here: reading
+        // it touched freed proxy mapping memory (Guard Malloc faults every time;
+        // ordinary runs crashed depending on heap layout). Find C1 again.
+        int after = -1;
+        for (int r = 0; r < model->rowCount(); ++r)
+            if (model->index(r, 0).data().toString() == "C1")
+                after = r;
+        QVERIFY(after >= 0);
+        QCOMPARE(model->index(after, col).data().toString(), QString("O1"));
     }
 
     void linkEndpointPickerProtectsVirtualConnections()

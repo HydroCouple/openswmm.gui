@@ -1054,6 +1054,28 @@ void GroundwaterAssignDialog::selectTarget(const QString &key)
     if (index >= 0)
         m_target->setCurrentIndex(index);
 }
+void GroundwaterAssignDialog::setInitialCells(const QVector<int> &cells)
+{
+    if (cells.isEmpty() || !m_mesh || !m_invokingCells.isEmpty())
+        return;
+    m_invokingCells = cells;
+    const QString label = cells.size() == 1
+                              ? tr("Cell %1").arg(cells.first() + 1)
+                              : tr("%n cells from the attribute table", nullptr, cells.size());
+    m_scopeChoice->addItem(label, QStringLiteral("invokingCells"));
+    m_scopeChoice->setCurrentIndex(m_scopeChoice->count() - 1);
+    connect(m_mesh, &SWMM2DMeshLayer::selectionInvalidated, this,
+            &GroundwaterAssignDialog::invalidateContext);
+    connect(m_mesh, &SWMM2DMeshLayer::activeMeshChanged, this, [this](bool active) {
+        if (!active)
+            invalidateContext();
+    });
+    connect(m_canvas, &MapCanvas::layerRemoved, this, [this](OpenSWMMVisLayer *removed) {
+        if (removed == m_mesh)
+            invalidateContext();
+    });
+}
+
 void GroundwaterAssignDialog::refreshSelectionCount()
 {
     int cells = 0;
@@ -1341,7 +1363,9 @@ QVector<int> GroundwaterAssignDialog::scope(QString *error) const
     const auto &m = m_mesh->mesh();
     const int mode = m_scopeChoice->currentIndex();
     QSet<int> chosen;
-    if (mode == 0 && m_selection) {
+    if (m_scopeChoice->currentData() == QStringLiteral("invokingCells")) {
+        chosen = QSet<int>(m_invokingCells.cbegin(), m_invokingCells.cend());
+    } else if (mode == 0 && m_selection) {
         const auto key = mesh::MeshObjectRef::layerKey(m_mesh->sourcePath());
         for (const auto &ref : m_selection->selection()) {
             QString layer;

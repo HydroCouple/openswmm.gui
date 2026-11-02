@@ -240,6 +240,7 @@ public slots:
     void onObjectEditedExternally(const QString &name);
 
 signals:
+    void groundwaterCellsRequested(SWMM2DMeshLayer *mesh, const QList<int> &cells);
     /**
      * @brief Forward a retained SWMM, mesh or data-object model's accepted cell-edit
      * notification.

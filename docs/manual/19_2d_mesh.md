@@ -16,14 +16,15 @@ the `.inp` — inline, or into a sibling `.2dm` file referenced by
 
 | What | Where |
 | --- | --- |
-| **Generate Mesh** | **Model → Generate Mesh**; ribbon **Model** and **Mesh 2D** tabs |
+| **Generate Mesh** | **Model → Generate Mesh**; ribbon **Model** tab, **2D Mesh** group |
 | **Add 2D Mesh…** (import a `.2dm`) | **File → Import → Add 2D Mesh…**; ribbon **Home** tab |
-| Mesh picker, vertex / edge / cell editors | The ribbon **Mesh 2D** tab (the Mesh Editing toolbar) |
-| **Select Vertices** / **Select Edges** | **Model → Mesh →**, and the **Mesh 2D** tab |
-| **From Raster…** / **From Shapefile…** (Cell Data) | Ribbon **Mesh 2D** tab |
-| **Assign Infiltration to Selection…** | **Model → Mesh →**, and the **Mesh 2D** tab while cells are selected |
-| **Aquifer…** / **Initial Conditions…** (2D groundwater) | Ribbon **Mesh 2D** tab |
-| **Assign Groundwater…** | **Model** menu and mesh cell tools |
+| Mesh picker, process picker, selection tools and process commands | The ribbon **Mesh 2D** tab |
+| Vertex, edge and cell values | **Properties** (one element, or several of one kind together) and the **Attribute Table** (many) |
+| **Select 2D Cells** / **Select Edge** / **Select Vertex** | **Model → Mesh →**; **Mesh 2D** tab, **Select** group (faces **Cells** / **Edges** / **Vertices**) |
+| **From Raster…** / **From Shapefile…** (Cell Data) | **Model → Mesh →**; ribbon **Mesh 2D** tab |
+| **Assign Infiltration to Selection…** | **Model → Mesh →**; **Mesh 2D** tab, **Infiltration** process group (enabled while cells are selected) |
+| **Aquifer…** / **State & Diagnostics…** (2D groundwater) | **Model → Mesh →**; **Mesh 2D** tab, **Groundwater** process group (faces **Aquifer Properties** / **State**) |
+| **Assign Groundwater…** | **Model** menu and **Model → Mesh →**; **Mesh 2D** tab, **Groundwater** process group |
 | Active terrain raster, vertical unit, invert offsets | The Terrain toolbar |
 | **Terrain Profile** | **Model → Terrain Profile**; ribbon **Model** tab |
 | Which mesh the engine reads; 2D solver options | **Model → Simulation Options…** → *Mesh* and *2D Surface Routing* |
@@ -569,68 +570,74 @@ mesh the engine actually reads when a project has several — see
 
 ### The Mesh 2D ribbon tab
 
-The **Select** button at the beginning of this tab returns to the same selection
-tool used on Home. Use it to switch back from **Select Vertex**, **Select Edge**
-or **Select 2D Cells** without changing ribbon tabs.
+The **Select** button in Quick Access, at the left end of the tab strip, returns
+to the general selection tool on every tab. Use it to switch back from **Select
+Vertex**, **Select Edge** or **Select 2D Cells** without changing ribbon tabs.
 
-\fig{19_mesh2d_ribbon.png, The Mesh 2D ribbon tab with the Mesh; Vertices; Edges; 2D Results; Profile and Coupling groups}
+\fig{19_mesh2d_ribbon.png, The Mesh 2D ribbon tab with the Mesh; Process; Select; process; Cell Data and Profile groups}
 
-The Mesh Editing toolbar is organised into captioned groups. Clusters appear
-and disappear with the selection, so the tab shows the editors that apply right
-now.
+The tab reads left to right: pick the mesh, pick the process, select elements,
+then use that process's commands. It holds pickers and commands only. Values are
+edited in **Properties**, for the elements you selected, and in the **Attribute
+Table**, for many elements at once, so the tab keeps its width whatever you
+select. Every command is also under **Model → Mesh →**.
 
-**Mesh group**
-
-| Control | What it does |
+| Group | Contents |
 | --- | --- |
-| **Mesh** combo | Which mesh layer is active — this is the layer every other control on the tab acts on |
-| **Z:** hover readout | Elevation under the cursor, interpolated linearly across the triangle it is inside; blank off-mesh. It is also mirrored into the status-bar coordinate readout |
+| **Mesh** | **Mesh:** the active mesh every other command acts on · **Auto-couple Nodes** · **Remap 1D↔2D** · **Burn Channels**. The elevation under the cursor is shown in the status bar |
+| **Process** | **Surface Flow**, **Infiltration**, **Groundwater**, **Surface Quality**, **Snow** or **Heat**. The next group shows that process's commands. A process that is switched off reads, for example, "Snow — off" (the tooltip says where to switch it on); its commands stay usable so it can be set up first. **Model → Mesh → Process** offers the same choice |
+| **Select** | **Cells**, **Edges** and **Vertices** tools · **Clear Selection** · **Edit in Table**, which opens the Attribute Table on the selected element kind |
+| *Process group* | **Surface Flow:** Boundary Condition… · **Infiltration:** Infiltration to Selection…, Review Ownership… · **Groundwater:** Assign Groundwater…, Aquifer Properties…, State…, Edge Boundaries…, Node Beds… · **Surface Quality:** Surface Quality…, Assign Surface Quality… · **Snow:** Assign Snow… · **Heat:** Heat Properties from Raster… |
+| **Cell Data** | **From Raster…**, **From Shapefile…** |
+| **Profile** | **Mesh Profile**, the bed and terrain profile tracer |
 
-**Vertices group**
+Commands that act on a selection are enabled only while it holds what they need:
+**Boundary Condition…** needs at least one boundary edge and **Infiltration to
+Selection…** needs cells. A disabled command's tooltip says what to select.
 
-| Control | What it does | Writes |
+**Editing values.** Click one element and edit it in **Properties**; each change
+is written at once. To edit many, use either route:
+
+- **Properties with several elements selected.** Select cells, edges or vertices
+  of one kind on one mesh. Properties lists them together: a value they share
+  shows as that value, and a value that differs shows **Mixed** in grey
+  italics. Change any fields you like. Changed fields turn bold and nothing is
+  written yet. The line under the tree counts the selection and the changes.
+  **Apply** writes every changed field to every selected element as one undo
+  step, and **Cancel** discards the changes. Fields you did not change keep each
+  element's own value, so a **Mixed** field stays mixed. Opening a **Mixed**
+  field and leaving it without choosing a value changes nothing.
+- **The Attribute Table.** Choose **Edit in Table**, select the rows, right-click
+  a value and choose **Apply this value to N selected rows**. That is one undo
+  step per field.
+
+Both routes write the same values through the same edit commands, so they save
+the same file. A field that applies to only some of the selected elements, such
+as a boundary type when an interior edge is selected, is read-only in
+Properties, and its tooltip says how many it applies to. Apply checks every
+value first: a value out of range, or one a staged type change makes
+inapplicable, stops the whole Apply, writes nothing and says why. Selecting
+something else discards unapplied changes, and Properties says how many were
+discarded. A selection that mixes kinds or meshes is summarized with counts
+instead; select one kind to edit it.
+
+| Element | Fields in Properties and the Attribute Table | Writes |
 | --- | --- | --- |
-| **Select Vertex** (toggle) | Click a vertex to select it; **Esc** clears | — |
-| Vertex info label | The selected vertex index, its tag and its coupled node | — |
-| **Z** spin | Elevation of the selected vertex in project vertical units | `[2D_VERTICES]` Z |
-| Tag field | Descriptive vertex tag | `[2D_VERTICES]` TAG |
-| Coupled node combo | The SWMM node this vertex couples to; blank = uncoupled | `[2D_VERTEX_NODE_MAP]` |
-| **Cd** spin | Discharge coefficient for the selected coupled vertices | `[2D_VERTEX_NODE_MAP]` CD |
-| **Area** spin | Exchange area (mesh length units squared) for the selected coupled vertices | `[2D_VERTEX_NODE_MAP]` AREA |
+| Vertex | Elevation · Tag · Coupled node · Coupling Cd and area (only when coupled) | `[2D_VERTICES]` Z, TAG; `[2D_VERTEX_NODE_MAP]` |
+| Edge | Boundary type and its parameter · Time series or rating curve · Wall drag · Conveyance · Group; read-only Segment (the named boundary segment the edge lies on) | `[2D_BOUNDARY_CONDITIONS]`; `[2D_EDGE_CONVEYANCE]` |
+| Cell | Manning's n · Initial depth · Infiltration method and parameters · Tag · ownership and snow fields | `[2D_TRIANGLES]`; `[2D_INFILTRATION]` |
 
-The Z spin coalesces edits — it applies on Enter, focus-out or an arrow step, so
-a mesh recompute is not triggered per keystroke.
-
-**Edges group**
-
-| Control | What it does |
-| --- | --- |
-| **Select Edge** (toggle) | Click a boundary edge, or drag a box to select several. **Ctrl/⌘-click two boundary edges to add the whole run between them** — the shortest chain by geometric length. **Esc** clears |
-| Edge info label | The selected edge, its tag, or the count and how many of them are boundary edges |
-| **BC type** combo | The boundary condition; changes apply immediately to every selected edge |
-| Parameter page | Follows the BC type (see the table below) |
-| **Conveyance** spin | Per-edge flux attenuation in [0, 1]; 1.0 is unrestricted. Applies to **every** edge, interior and boundary, and is mirrored onto the neighbouring triangle's matching slot so mass conservation holds |
-
-**Coupling group** — **Auto-couple** and **Remap 1D↔2D**, described below.
-
-**2D Results and Profile groups** — **Pick 2D Cells** and the mesh profile
-tracer, plus the per-cell editors that appear while cells are selected. See
-\ref manual_analysis_tools and \ref manual_profile_plots.
+**Select Edges** adds a whole boundary run when you **Ctrl/⌘-click two boundary
+edges**: the shortest chain between them by geometric length.
 
 ### Cell parameters
 
-Select cells with **Pick 2D Cells** — single-click selects (Shift adds, Ctrl
-toggles), drag a box or press **L** to lasso, **Esc** clears — then use the cell
-editor that appears beside the cell info label.
-
-\figtodo{19_cell_editor.png, The per-cell parameter editor on the Mesh 2D tab with cells selected}
-
-| Control | What it does |
-| --- | --- |
-| Parameter combo | Which per-cell attribute to prescribe |
-| Value editor | A spin box, or a combo when the parameter is an enumeration (the infiltration method) |
-| Cell tag field | Descriptive triangle tag (`[2D_TRIANGLES]` TAG) |
-| **Assign Infiltration to Selection…** | The whole-row infiltration form for the selected cells — method, parameters and destination in one undo entry, applied to the cells or to the region tag they share. Enabled only while cells are selected |
+Select cells with **Cells** — single-click selects (Shift adds, Ctrl toggles),
+drag a box or press **L** to lasso, **Esc** clears — then edit them in
+**Properties** (one cell) or with **Edit in Table** (many). Under the
+**Infiltration** process, **Infiltration to Selection…** opens the whole-row
+infiltration form for the selected cells — method, parameters and destination in
+one undo entry, applied to the cells or to the region tag they share.
 
 The editable per-cell parameters are:
 
@@ -646,8 +653,8 @@ tag's numbers (or the `*` row's), which is what the engine will run. Editing one
 creates a per-cell override; undoing that edit puts the cell back to
 *inheriting*, not to an override carrying the same numbers.
 
-The legacy cell-parameter selector still disables its groundwater entries.
-Use **Model → Assign Groundwater…** for aquifer properties, initial water state,
+The groundwater fields in the cell table are read-only.
+Choose **Edit…** beside **Groundwater** in Properties, or **Edit groundwater parameters…** in the cell table’s context menu, to open the assignment for those cells. **Model → Assign Groundwater…** also provides aquifer properties, initial water state,
 SAT/UNSAT initial species concentrations and injection/extraction sources.
 These values use the engine's groundwater authoring records and project undo.
 
@@ -657,8 +664,8 @@ Properties panel and the attribute table together, so no view can drift.
 ### Assigning cell data from a raster or a shapefile
 
 **From Raster…** and **From Shapefile…** on the **Mesh 2D** tab open the
-**Assign 2D Cell Data** dialog. Where the toolbar's cell editor prescribes one
-value to a hand-picked selection, this prescribes a spatially varying field to
+**Assign 2D Cell Data** dialog. Where Properties and the Attribute Table prescribe
+values on hand-picked cells, this prescribes a spatially varying field to
 the whole mesh or the current selection, in one undoable step.
 
 \figtodo{19_assign_cell_data.png, The Assign 2D Cell Data dialog in classified infiltration lookup mode}
@@ -707,25 +714,27 @@ successfully, so cancelling mid-run leaves the mesh exactly as it was.
 
 ### Boundary conditions
 
-Select boundary edges with **Select Edge**, then choose a type. Boundary edges
-you never touch default to `WALL` (zero flux).
+Select boundary edges with **Edges**, then choose **Boundary Condition…** under
+the **Surface Flow** process, or edit the edge in **Properties** or the
+**Attribute Table**. All three use the same editor and write one undo step.
+Boundary edges you never touch default to `WALL` (zero flux).
 
 \figtodo{19_edge_bc.png, Assigning a boundary condition to a selected run of boundary edges}
 
 | Type | Parameter | Writes (`[2D_BOUNDARY_CONDITIONS]` TYPE) |
 | --- | --- | --- |
-| **Wall** | none | `WALL` |
-| **Normal Flow** | **Slope:** bed slope, dimensionless — must be > 0; the engine treats 0 as a wall | `NORMAL_FLOW` |
+| **Wall** | **Wall drag Cw:** zero for free slip | `WALL` |
+| **Normal Depth** | **Friction Slope:** dimensionless and signed. Positive drains the domain; negative feeds it at the same Manning rate using the depth already in the boundary cell, so it cannot wet a dry cell (use Specified Flow for that); zero acts as a wall | `NORMAL_FLOW` |
 | **Specified Stage (Constant)** | **Stage:** water-surface elevation in project vertical units | `SPECIFIED_STAGE` |
-| **Specified Stage (Timeseries)** | **TS:** a time series name | `TS_STAGE` |
-| **Specified Flow (Constant)** | **Flow/m:** discharge per metre of edge, outward-positive | `SPECIFIED_FLOW` |
-| **Specified Flow (Timeseries)** | **TS:** a time series name | `TS_FLOW` |
-| **Rating Curve** | **Curve:** a curve name | `RATING_CURVE` |
+| **Specified Stage (Timeseries)** | **Time Series:** a time series | `TS_STAGE` |
+| **Specified Flow (Constant)** | **Flow:** discharge per metre of edge, outward-positive | `SPECIFIED_FLOW` |
+| **Specified Flow (Timeseries)** | **Time Series:** a time series | `TS_FLOW` |
+| **Rating Curve** | **Rating Curve:** a curve | `RATING_CURVE` |
 
-The time-series and curve fields are editable combos over the project's data
-objects; pick an existing one, or type a name and press the browse button to
-create or edit it in the matching editor (\ref manual_data_objects). Edits apply
-immediately to every selected edge — there is no separate Apply.
+The time-series and curve fields offer the project's data objects to pick from
+(\ref manual_data_objects). When the selected edges disagree, **Boundary
+Condition…** opens with no type chosen, so nothing is written until you pick one;
+**OK** then applies it to every selected boundary edge.
 
 Edges can also carry a **group** name, which the `.inp` writes in the GROUP
 column so a run of edges reads as one named boundary.
@@ -891,7 +900,7 @@ Rain reaches the 2D surface according to `[2D_OPTIONS] RAINFALL_MODE`, set on
 Rain gages are placed and edited like any other model object
 (\ref manual_hydrology); the 2D module reads their locations, so there is no
 per-cell gage assignment to make. To check what a run actually applied, select
-cells with **Pick 2D Cells** and right-click: the attribute menu offers
+cells with **Cells** (Select 2D Cells) on the **Mesh 2D** tab and right-click: the attribute menu offers
 **Rainfall** (intensity) and **Rain Volume** (cumulative), alongside depth, HGL
 and velocity, and plots the chosen series for the selected cells. Right-click
 also works on selected edges and vertices with their own attribute lists.
@@ -912,7 +921,8 @@ coordinate of exactly (0,0) as unlocated.
 
 ### 2D groundwater
 
-**Aquifer…** and **Initial Conditions…** on the **Mesh 2D** tab open the
+**Aquifer Properties** and **State** in the **Mesh 2D** tab's **Groundwater**
+process group (or **Model → Mesh → Aquifer…** / **State & Diagnostics…**) open the
 operational groundwater editor. It edits aquifer properties and initial water
 state, preserving global, tag and cell inheritance. Values are checked before
 Apply; invalid or stale edits do not partially overwrite the model.
@@ -1090,8 +1100,9 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - **The maximum incision is a unit tripwire.** Set it to something a little
   deeper than your deepest real channel. A metres/feet mix-up then clamps
   visibly instead of quietly cutting a canyon.
-- **`NORMAL_FLOW` with slope 0 is a wall.** The engine needs a positive bed
-  slope for that BC to pass any water.
+- **`NORMAL_FLOW` with slope 0 is a wall.** The engine needs a non-zero
+  friction slope for that BC to pass any water: positive drains the domain,
+  negative feeds it.
 - **Conveyance is not a boundary condition.** Use it on interior edges to model
   berms, kerbs and partial blockages; the BC type still applies independently on
   boundary edges.

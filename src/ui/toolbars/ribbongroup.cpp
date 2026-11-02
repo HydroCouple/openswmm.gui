@@ -31,6 +31,35 @@
 namespace openswmmvis::ui
 {
 
+namespace
+{
+
+/*! One stacked row. The style's tool-button margins (about 10 px a side on
+ *  macOS) suit a lone button; rows packed into columns only need a few
+ *  pixels, and the saving is what keeps labels visible at common window
+ *  widths. Contents are laid out exactly as QToolButton paints them: icon,
+ *  4 px, then the label. */
+class StackButton final : public QToolButton
+{
+public:
+    explicit StackButton(QWidget *parent) : QToolButton(parent) {}
+
+    QSize sizeHint() const override
+    {
+        const QSize base = QToolButton::sizeHint();
+        if (toolButtonStyle() == Qt::ToolButtonIconOnly || text().isEmpty())
+            return base;
+        constexpr int kPad = 4;
+        const int label = fontMetrics().horizontalAdvance(text());
+        const int icon =
+            toolButtonStyle() == Qt::ToolButtonTextOnly ? 0 : iconSize().width() + 4;
+        return QSize(qMin(base.width(), icon + label + 2 * kPad), base.height());
+    }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+};
+
+} // namespace
+
 RibbonGroup::RibbonGroup(const QString &caption, QWidget *parent)
     : QWidget(parent), mCaption(caption)
 {
@@ -157,6 +186,41 @@ RibbonSplitButton *RibbonGroup::addFamily(const QString &familyId, const QList<Q
     return button;
 }
 
+QList<QToolButton *> RibbonGroup::addStack(const QList<QAction *> &actions)
+{
+    auto *column = new QWidget(this);
+    column->setObjectName(QStringLiteral("ribbonStackColumn"));
+    auto *rows = new QVBoxLayout(column);
+    rows->setContentsMargins(0, 0, 0, 0);
+    rows->setSpacing(1);
+
+    QList<QToolButton *> buttons;
+    for (QAction *action : actions.mid(0, kRibbonStackRows)) {
+        auto *button = new StackButton(column);
+        button->setAutoRaise(true);
+        button->setDefaultAction(action);
+        button->setFixedHeight(kRibbonStackRowHeight);
+        button->setIconSize(QSize(kRibbonIconStack, kRibbonIconStack));
+        rows->addWidget(button, 0, Qt::AlignLeft);
+
+        mActions.append(action);
+        watchActionPresentation(action);
+        mButtons.append(button);
+        mStackButtons.insert(button);
+        mCollapsedButton->menu()->addAction(action);
+        if (mCollapsedButton->icon().isNull() && !action->icon().isNull())
+            mCollapsedButton->setIcon(action->icon());
+        buttons.append(button);
+    }
+    rows->addStretch(1);
+    mContentLayout->addWidget(column, 0, Qt::AlignTop);
+    mStackColumns.insert(column, buttons);
+
+    invalidateWidthCache();
+    applyMode(mMode);
+    return buttons;
+}
+
 void RibbonGroup::watchActionPresentation(QAction *action)
 {
     if (mWatchedActions.contains(action))
@@ -230,6 +294,16 @@ void RibbonGroup::applyMode(RibbonMode mode)
         // icon) stay text-rendered so Compact never blanks them.
         const QAction *face = button->defaultAction();
         const bool hasIcon = face && !face->icon().isNull();
+        if (mStackButtons.contains(button)) {
+            // Stacked rows keep their small icon in every mode; Compact
+            // only drops the label beside it.
+            Qt::ToolButtonStyle rowStyle =
+                hasIcon ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonTextOnly;
+            if (compact && hasIcon)
+                rowStyle = Qt::ToolButtonIconOnly;
+            button->setToolButtonStyle(rowStyle);
+            continue;
+        }
         Qt::ToolButtonStyle style = Qt::ToolButtonTextUnderIcon;
         if (compact)
             style = hasIcon ? Qt::ToolButtonIconOnly : Qt::ToolButtonTextOnly;
@@ -244,6 +318,9 @@ void RibbonGroup::applyMode(RibbonMode mode)
     // extension chevron would keep judging it by the stale (wide) hint
     // and never re-show it. Invalidate the whole chain synchronously and
     // tell host layouts the hint moved.
+    for (auto it = mStackColumns.cbegin(); it != mStackColumns.cend(); ++it)
+        if (it.key()->layout())
+            it.key()->layout()->invalidate();
     mContentLayout->invalidate();
     if (mContent->layout())
         mContent->layout()->invalidate();
@@ -281,6 +358,19 @@ int RibbonGroup::widthForMode(RibbonMode m) const
         int items = 0;
         for (int i = 0; i < mContentLayout->count(); ++i) {
             if (QWidget *w = mContentLayout->itemAt(i)->widget()) {
+                const auto stack = mStackColumns.constFind(w);
+                if (stack != mStackColumns.cend()) {
+                    // A column is as wide as its widest row. Read the rows
+                    // directly: the column's own layout hint is cached and
+                    // lags the style flip applied just above.
+                    int widest = 0;
+                    for (QToolButton *button : stack.value())
+                        if (!button->isHidden())
+                            widest = qMax(widest, button->sizeHint().width());
+                    row += widest;
+                    ++items;
+                    continue;
+                }
                 // A raw sizeHint ignores an explicit setMinimumWidth
                 // (combos, the timeline slider), while the inner layout
                 // clamps the widget back up to it — under-reporting here

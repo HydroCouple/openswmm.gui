@@ -58,9 +58,9 @@ capture selects a known output frame through the real timeline control.
 The 1D network — five nodes in a line running east from the bowl centre —
 draws on the canvas, and the **Layers** panel gains a mesh layer built from the inline
 vertices and triangles. Because a mesh layer is on the canvas, the contextual
-**Mesh 2D** ribbon tab appears, with the groups **Mesh**, **Cell Data**,
-**Groundwater (2D)**, **Vertices**, **Edges**, **2D Results**, **Profile**
-and **Coupling**.
+**Mesh 2D** ribbon tab appears, with the groups **Mesh**, **Process**,
+**Select**, one group for the process picked in **Process** (**Surface
+Flow** at first), **Cell Data** and **Profile**.
 
 \fig{t03_project_open.png, The portable terrain bowl model with the mesh layer and the 1D network}
 
@@ -145,8 +145,8 @@ straight to Vertices.
 | Table | Columns |
 | ----- | ------- |
 | **Vertices** | `Index`, `X`, `Y`, `Marker`, `Elevation`, `Tag`, `Coupled Node`, `Coupling Cd`, `Coupling Area` |
-| **Edges** | `Edge`, `Boundary`, `Length (map units)`, `Conveyance`, `Stage`, `Bed Slope`, `Flow`, `Time Series`, `Rating Curve`, `Group` |
-| **Cells** | `Index`, `Area (map units²)`, `Centroid X`, `Centroid Y`, `Tag`, then one column per cell parameter — `Manning's n`, `Initial Depth`, `Infiltration Method` and the rest |
+| **Edges** | `Edge`, `Boundary`, `Length (map units)`, `Segment`, `Conveyance`, `BC Type`, `Wall drag Cw`, `Stage`, `Friction Slope`, `Flow`, `Time Series`, `Rating Curve`, `Group` |
+| **Cells** | `Index`, `Vertices`, `Area (map units²)`, `Centroid X`, `Centroid Y`, `Tag`, then one column per cell parameter — `Manning's n`, `Initial Depth`, `Infiltration Method` and the rest |
 
 Sort **Vertices** by `Elevation`. The lowest vertex is index 40 at (0, 0),
 z = 97 m, coupled to `J1`. The vertices form a regular 9 × 9 grid at 25 m
@@ -165,8 +165,8 @@ to every selected row — *Apply "&lt;col&gt;" value to N selected rows…*
 You do not need to do this to finish the tutorial — the mesh already exists —
 but it is worth walking the dialog once with the DTM loaded.
 
-**Model → Generate Mesh…** (ribbon **Model → Mesh 2D → Generate Mesh**, or
-**Mesh 2D → Mesh**) opens **Generate 2D Mesh**, with tabs **Sources**,
+**Model → Generate Mesh…** (ribbon **Model → 2D Mesh → Generate Mesh**)
+opens **Generate 2D Mesh**, with tabs **Sources**,
 **Quality** and **Hydraulics** over a permanent footer.
 
 On **Sources**:
@@ -203,14 +203,14 @@ The footer chooses **Output:** — **External .2dm** (what an external-mesh alte
 
 \fig{t03_mesh_generation_sources.png, The Generate 2D Mesh Sources tab with the bowl raster and explicit square boundary selected}
 
-After generation, the **Mesh 2D → Coupling** group's **Auto-couple** button
+After generation, the **Mesh 2D → Mesh** group's **Auto-couple Nodes** button
 couples mesh vertices to coincident SWMM nodes, and **Remap 1D↔2D** clears
 and rebuilds every coupling — vertex-coupling nodes that sit on a vertex and
-cell-coupling the rest. To set the coupling by hand, activate the vertex tool
-in **Mesh 2D → Vertices**, click the vertex, and fill the **Coupled SWMM
-node** combo, the **Cd:** spin (0.001–1.0, default 0.65) and the **Area:**
-spin — they write the `[2D_VERTEX_NODE_MAP]` `CD` and `AREA` columns and only
-appear once the vertex is coupled.
+cell-coupling the rest. To set the coupling by hand, activate **Mesh 2D →
+Select → Vertices**, click the vertex, and in **Properties** set **Coupled
+Node**, **Coupling Cd** (0.001–1.0, default 0.65) and **Coupling Area** —
+they write the `[2D_VERTEX_NODE_MAP]` `CD` and `AREA` columns, and Cd and
+Area are editable only once the vertex is coupled.
 
 ### 6. 2D options in Simulation Options
 
@@ -330,12 +330,11 @@ arrows at all.
 
 ### 9. A time series from one cell
 
-Activate the cell picker in **Mesh 2D → 2D Results** (an icon-only tool). Its
-tooltip explains the modifiers: *Single-click selects and highlights a cell
-(Shift = add, Ctrl = toggle); drag a box or press L to lasso multiple.
-Right-click a selection to plot its depth / HGL / velocity time series. Esc
-clears.* The toolbar readout beside it reads **Cell: (none)**, then
-**Cell number** or **Cells: N selected**.
+Activate **Mesh 2D → Select → Cells** (the **Select 2D Cells** tool). Its
+tooltip explains the modifiers: *Select 2D cells. Click selects a cell
+(Shift = add, Ctrl = toggle); drag a box or press L to lasso several. Edit
+their values in Properties or the attribute table; right-click a selection to
+plot its results. Esc clears.*
 
 Click the cell at the bowl centre and right-click it. The attribute menu
 offers **Depth (2D cell) (m)**, **HGL (2D cell) (m)**, **|V| (2D cell)

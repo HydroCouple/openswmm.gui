@@ -28,8 +28,11 @@
  *  - icon:            ":/swmmvis/<alias>" qrc alias (without the prefix)
  *                     rendered through the theme-aware IconFactory;
  *                     "" = the action keeps whatever icon it already has.
- *  - tab:             compact-toolbar tab id ("" = menu-only). Consumed
- *                     by the tabbed-toolbar phase; audited before then.
+ *  - tab:             where the action's ONE ribbon face lives: a compact-
+ *                     toolbar tab id, "strip" for the Quick Access cluster
+ *                     on the tab strip, or "" for menu/palette only.
+ *                     test_ribbon_organization compares it with the mounted
+ *                     ribbon, so a regrouping must update it.
  *  - menuPath:        canonical menu location (documentation + menubar
  *                     audit; "/" separates submenu levels).
  *  - tags:            behavior bits, see ActionTag.
@@ -70,8 +73,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"file.new", "actionNew", "File", "std:New", "New", "home", "File", NoTags},
     {"file.open", "actionOpen", "File", "std:Open", "Open", "home", "File", NoTags},
     {"file.save", "actionSave", "File", "std:Save", "Save", "home", "File", NoTags},
-    {"file.saveAs", "actionSaveAs", "File", "std:SaveAs", "SaveAs", "", "File", NoTags},
-    {"file.exportMap", "actionExportMap", "File", "", "ExportMap", "", "File", NoTags},
+    {"file.saveAs", "actionSaveAs", "File", "std:SaveAs", "SaveAs", "home", "File", NoTags},
+    {"file.exportMap", "actionExportMap", "File", "", "ExportMap", "home", "File", NoTags},
     {"file.print", "actionPrint", "File", "std:Print", "Print", "", "File", NoTags},
     {"file.clearRecent", "actionClearRecentFiles", "File", "", "ClearRecent", "",
      "File/Open Recent", NoTags},
@@ -83,8 +86,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"app.quit", "actionExit", "Application", "Ctrl+Q", "Exit", "", "File", NoTags},
 
     // ── Edit / selection ────────────────────────────────────────────────
-    {"edit.undo", "actionUndo", "Edit", "std:Undo", "Undo", "home", "Edit", NoTags},
-    {"edit.redo", "actionRedo", "Edit", "std:Redo", "Redo", "home", "Edit", NoTags},
+    {"edit.undo", "actionUndo", "Edit", "std:Undo", "Undo", "strip", "Edit", NoTags},
+    {"edit.redo", "actionRedo", "Edit", "std:Redo", "Redo", "strip", "Edit", NoTags},
     {"edit.copy", "actionCopy", "Edit", "std:Copy", "Copy", "home", "Edit", NoTags},
     {"find.search", "actionSearch", "Edit", "std:Find", "Search", "home", "Edit", NoTags},
     {"edit.editExisting", "actionEditExisting", "Edit", "Ctrl+E", "SelectEdit", "model", "Edit",
@@ -97,14 +100,15 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      NoTags},
 
     // ── Map navigation / tools ──────────────────────────────────────────
-    {"map.pan", "actionPan", "Map", "", "Move", "home", "View", NoTags},
+    {"map.pan", "actionPan", "Map", "", "Move", "strip", "View", NoTags},
     {"map.zoomIn", "actionZoomIn", "Map", "std:ZoomIn", "ZoomIn", "home", "View", NoTags},
     {"map.zoomOut", "actionZoomOut", "Map", "std:ZoomOut", "ZoomOut", "home", "View", NoTags},
-    {"map.zoomExtent", "actionZoomExtent", "Map", "Ctrl+Shift+F", "Extent", "home", "View", NoTags},
+    {"map.zoomExtent", "actionZoomExtent", "Map", "Ctrl+Shift+F", "Extent", "strip", "View",
+     NoTags},
     {"map.zoomToSelection", "actionZoomToSelection", "Map", "Ctrl+Shift+J", "ZoomToSelection",
      "home", "View", NoTags},
-    {"map.select", "actionSelect", "Map", "", "Select", "home", "Edit", NoTags},
-    {"map.selectByPolygon", "actionSelectByPolygon", "Map", "", "SelectByPolygon", "home", "Edit",
+    {"map.select", "actionSelect", "Map", "", "Select", "strip", "Edit", NoTags},
+    {"map.selectByPolygon", "actionSelectByPolygon", "Map", "", "SelectByPolygon", "strip", "Edit",
      NoTags},
     {"map.measure", "actionMeasure", "Map", "Ctrl+Shift+M", "Ruler", "home", "View", NoTags},
 
@@ -150,7 +154,12 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model", NoTags},
     {"model.editHeatConfig", "actionEditHeatConfig", "Model", "", "HeatConfig", "model", "Model",
      NoTags},
-    {"model.generateMesh", "actionGenerateMesh", "Model", "", "CreateMesh", "mesh2d", "Model",
+    {"model.editInitialQuality", "actionEditInitialQuality", "Model", "", "Droplet", "model",
+     "Model", NoTags},
+    {"model.editWaterAgeSources", "actionEditWaterAgeSources", "Model", "", "TimeCursor", "model",
+     "Model", NoTags},
+    {"model.projectCrs", "actionSetProjectCRS", "Model", "", "Globe", "model", "Model", NoTags},
+    {"model.generateMesh", "actionGenerateMesh", "Model", "", "CreateMesh", "model", "Model",
      NoTags},
     {"model.burnChannels", "actionBurnChannels", "Mesh 2D", "", "BurnChannels", "mesh2d",
      "Model/Mesh", Contextual2D},
@@ -205,17 +214,17 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model/Data Objects", NoTags},
     {"data.newPollutant", "actionNewPollutant", "Data", "", "Pollutant", "model",
      "Model/Data Objects", NoTags},
-    {"data.newLandUse", "actionNewLandUse", "Data", "", "LandUse", "", "Model/Data Objects",
+    {"data.newLandUse", "actionNewLandUse", "Data", "", "LandUse", "model", "Model/Data Objects",
      NoTags},
     {"data.newAquifer", "actionNewAquifer", "Data", "", "Aquifer", "model", "Model/Data Objects",
      NoTags},
-    {"data.newSnowpack", "actionNewSnowpack", "Data", "", "Snowpack", "", "Model/Data Objects",
+    {"data.newSnowpack", "actionNewSnowpack", "Data", "", "Snowpack", "model", "Model/Data Objects",
      NoTags},
     {"data.newControlRule", "actionNewControlRule", "Data", "", "AddControlRule", "model",
      "Model/Data Objects", NoTags},
     {"data.newTransect", "actionNewTransect", "Data", "", "AddTransect", "model",
      "Model/Data Objects", NoTags},
-    {"data.newUnitHydrograph", "actionNewUnitHydrograph", "Data", "", "UnitHydrograph", "",
+    {"data.newUnitHydrograph", "actionNewUnitHydrograph", "Data", "", "UnitHydrograph", "model",
      "Model/Data Objects", NoTags},
     {"data.newStreet", "actionNewStreet", "Data", "", "Street", "model", "Model/Data Objects",
      NoTags},
@@ -229,9 +238,11 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"import.raster", "actionAddRasterData", "Import", "", "AddRaster", "home", "File/Import",
      NoTags},
     {"import.wms", "actionAddWMSData", "Import", "", "AddWMS", "home", "File/Import", NoTags},
+    {"import.wfs", "actionAddWFSData", "Import", "", "AddWFS", "home", "File/Import", NoTags},
     {"import.delimited", "actionAddDelimeteredData", "Import", "", "AddDelimetered", "home",
      "File/Import", NoTags},
-    {"import.basemap", "actionAddBasemap", "Import", "", "AddBasemap", "", "File/Import", NoTags},
+    {"import.basemap", "actionAddBasemap", "Import", "", "AddBasemap", "home", "File/Import",
+     NoTags},
     {"import.mesh2d", "actionAddMesh2D", "Import", "", "AddMesh", "home", "File/Import", NoTags},
 
     // ── Simulation ──────────────────────────────────────────────────────
@@ -275,8 +286,12 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "TravelTimeDownstream", "analysis", "Analysis", NoTags},
     {"analysis.travelTimeUp", "actionTravelTimeUpstream", "Analysis", "", "TravelTimeUpstream",
      "analysis", "Analysis", NoTags},
-    {"analysis.massBalance", "actionShowMassBalance", "Analysis", "", "Chartpie", "analysis",
+    // Menu-only: it opens the same report viewer as Report, so a second
+    // ribbon face would be a duplicate (process-aware editing plan §3.2).
+    {"analysis.massBalance", "actionShowMassBalance", "Analysis", "", "Chartpie", "",
      "Analysis", NoTags},
+    {"analysis.rainfallVisualization", "actionRainfallVisualization", "Analysis", "", "Rainfall",
+     "analysis", "Analysis", NoTags},
     {"analysis.export2DResults", "actionExport2DResults", "Analysis", "", "Export2DResults",
      "analysis", "Analysis", NoTags},
 
@@ -303,41 +318,78 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model/Mesh", Contextual2D},
     {"mesh.assignSurfaceQuality", "actionAssignSurfaceQuality", "Mesh 2D", "", "LandUse",
      "mesh2d", "Model/Mesh", Contextual2D},
-    {"terrain.profile", "actionTerrainProfile", "Model", "", "Profile", "model", "Model", NoTags},
+    // Mesh 2D tab commands (process-aware editing plan, Phase 2).
+    {"mesh.autoCouple", "actionMeshAutoCouple", "Mesh 2D", "", "Snap", "mesh2d", "Model/Mesh",
+     Contextual2D},
+    {"mesh.remap", "actionMeshRemap", "Mesh 2D", "", "Remap1D2D", "mesh2d", "Model/Mesh",
+     Contextual2D},
+    {"mesh.clearSelection", "actionMeshClearSelection", "Mesh 2D", "", "SelectNone", "mesh2d",
+     "Model/Mesh", Contextual2D},
+    {"mesh.editInTable", "actionMeshEditInTable", "Mesh 2D", "", "TableView", "mesh2d",
+     "Model/Mesh", Contextual2D},
+    {"mesh.boundaryCondition", "actionMeshBoundaryCondition", "Mesh 2D", "", "CellBoundaries",
+     "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.assignInfiltration", "actionMeshAssignInfilToSelection", "Mesh 2D", "", "Inundation2D",
+     "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.reviewOwnership", "actionMeshReviewOwnership", "Mesh 2D", "", "Warning", "mesh2d",
+     "Model/Mesh", Contextual2D},
+    {"mesh.gw2dEdgeBoundaries", "actionMesh2DGWEdgeBoundaries", "Mesh 2D", "", "SelectTriEdge",
+     "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.gw2dNodeBeds", "actionMesh2DGWNodeBeds", "Mesh 2D", "", "Node", "mesh2d", "Model/Mesh",
+     Contextual2D},
+    {"mesh.snow", "actionMeshSnow", "Mesh 2D", "", "Snowpack", "mesh2d", "Model", Contextual2D},
+    {"mesh.heatFromRaster", "actionMeshHeatFromRaster", "Mesh 2D", "", "HeatConfig", "mesh2d",
+     "Model/Mesh", Contextual2D},
+    {"mesh.profile", "actionMeshProfile", "Mesh 2D", "", "Profile2D", "mesh2d", "Model/Mesh",
+     Contextual2D},
+    // Menu and palette mirror of the Mesh 2D process picker (no ribbon face).
+    {"mesh.process.surfaceFlow", "actionMeshProcessSurfaceFlow", "Mesh 2D", "", "", "",
+     "Model/Mesh/Process", Contextual2D},
+    {"mesh.process.infiltration", "actionMeshProcessInfiltration", "Mesh 2D", "", "", "",
+     "Model/Mesh/Process", Contextual2D},
+    {"mesh.process.groundwater", "actionMeshProcessGroundwater", "Mesh 2D", "", "", "",
+     "Model/Mesh/Process", Contextual2D},
+    {"mesh.process.surfaceQuality", "actionMeshProcessSurfaceQuality", "Mesh 2D", "", "", "",
+     "Model/Mesh/Process", Contextual2D},
+    {"mesh.process.snow", "actionMeshProcessSnow", "Mesh 2D", "", "", "", "Model/Mesh/Process",
+     Contextual2D},
+    {"mesh.process.heat", "actionMeshProcessHeat", "Mesh 2D", "", "", "", "Model/Mesh/Process",
+     Contextual2D},
+    {"terrain.profile", "actionTerrainProfile", "Model", "", "Profile", "terrain", "Model", NoTags},
 
     // ── View / panels (dock toggle actions; objectNames assigned where
     //    the View → Panels menu is built) ────────────────────────────────
-    {"view.styleManager", "actionStyleManager", "View", "", "StyleManager", "view", "Tools",
+    {"view.styleManager", "actionStyleManager", "View", "", "StyleManager", "home", "Tools",
      NoTags},
     {"view.layerStylingDock", "actionLayerStylingDock", "Panels", "Ctrl+Alt+8", "LayerStyling",
-     "view", "View", NoTags},
-    {"view.dock.timeSeries", "actionToggleDockTimeSeries", "Panels", "", "Profile", "view",
+     "home", "View", NoTags},
+    {"view.dock.timeSeries", "actionToggleDockTimeSeries", "Panels", "", "Profile", "",
      "View/Panels", NoTags},
-    {"view.dock.profiles1D", "actionToggleDockProfiles1D", "Panels", "", "Profile", "view",
+    {"view.dock.profiles1D", "actionToggleDockProfiles1D", "Panels", "", "Profile", "",
      "View/Panels", NoTags},
-    {"view.dock.profiles2D", "actionToggleDockProfiles2D", "Panels", "", "Profile2D", "view",
+    {"view.dock.profiles2D", "actionToggleDockProfiles2D", "Panels", "", "Profile2D", "",
      "View/Panels", NoTags},
-    {"view.dock.toolbox", "actionToggleDockToolbox", "Panels", "", "Plugins", "view",
+    {"view.dock.toolbox", "actionToggleDockToolbox", "Panels", "", "Plugins", "analysis",
      "View/Panels", NoTags},
-    {"view.dock.layers", "actionToggleDockLayers", "Panels", "Ctrl+Alt+1", "DockLayers", "view",
+    {"view.dock.layers", "actionToggleDockLayers", "Panels", "Ctrl+Alt+1", "DockLayers", "",
      "View/Panels", NoTags},
     {"view.dock.objectBrowser", "actionToggleDockObjectBrowser", "Panels", "Ctrl+Alt+2",
-     "DockObjectBrowser", "view", "View/Panels", NoTags},
+     "DockObjectBrowser", "", "View/Panels", NoTags},
     {"view.dock.properties", "actionToggleDockProperties", "Panels", "Ctrl+Alt+3", "DockProperties",
-     "view", "View/Panels", NoTags},
+     "", "View/Panels", NoTags},
     {"view.dock.sectionView", "actionToggleDockSectionView", "Panels", "Ctrl+Alt+9",
-     "DockSectionView", "view", "View/Panels", NoTags},
+     "DockSectionView", "", "View/Panels", NoTags},
     {"view.dock.attributeTable", "actionToggleDockAttributeTable", "Panels", "Ctrl+Alt+4",
-     "DockAttributeTable", "view", "View/Panels", NoTags},
-    {"view.dock.legend", "actionToggleDockLegend", "Panels", "Ctrl+Alt+5", "DockLegend", "view",
+     "DockAttributeTable", "", "View/Panels", NoTags},
+    {"view.dock.legend", "actionToggleDockLegend", "Panels", "Ctrl+Alt+5", "DockLegend", "",
      "View/Panels", NoTags},
     {"view.dock.simulationStatus", "actionToggleDockSimulationStatus", "Panels", "Ctrl+Alt+6",
-     "DockSimulationStatus", "view", "View/Panels", NoTags},
+     "DockSimulationStatus", "home", "View/Panels", NoTags},
     {"view.dock.messageLogs", "actionToggleDockMessageLogs", "Panels", "Ctrl+Alt+7",
-     "DockMessageLogs", "view", "View/Panels", NoTags},
-    {"view.dock.features", "actionToggleDockFeatures", "Panels", "Ctrl+Alt+0", "Layers", "view",
+     "DockMessageLogs", "", "View/Panels", NoTags},
+    {"view.dock.features", "actionToggleDockFeatures", "Panels", "Ctrl+Alt+0", "Layers", "",
      "View/Panels", NoTags},
-    {"view.showWelcome", "actionShowWelcome", "View", "", "Help", "view", "Help", NoTags},
+    {"view.showWelcome", "actionShowWelcome", "View", "", "Help", "home", "Help", NoTags},
 
     // ── Tools / window / help ───────────────────────────────────────────
     {"tools.plugins", "actionPlugins", "Tools", "", "Plugins", "", "Tools", NoTags},
@@ -354,10 +406,15 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
 
 inline constexpr std::size_t kActionCatalogSize = std::size(kActionCatalog);
 
-/// Known compact-toolbar tab ids ("" = menu-only entry).
+/// Known compact-toolbar tab ids ("" = menu-only entry). The View tab was
+/// dissolved into Home → Window (process-aware editing plan §4); its id is
+/// gone from the vocabulary so no command can be assigned to it again.
 inline constexpr const char *kActionCatalogTabs[] = {
-    "home", "model", "mesh2d", "analysis", "results", "view", "features",
+    "home", "model", "terrain", "mesh2d", "analysis", "results", "features",
 };
+
+/// Pseudo-tab of the Quick Access cluster on the tab strip, visible on every tab.
+inline constexpr const char *kActionCatalogStrip = "strip";
 
 } // namespace openswmmvis::ui
 

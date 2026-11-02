@@ -15,7 +15,9 @@
 
 #include "ui/toolbars/ribboncompactor.h"
 
+#include <QAction>
 #include <QEvent>
+#include <QSet>
 #include <QLayout>
 #include <QTimer>
 #include <QToolBar>
@@ -65,13 +67,27 @@ void RibbonCompactor::scheduleRelayout()
 
 void RibbonCompactor::relayoutNow()
 {
+    // A contextual group whose context is inactive has its toolbar action
+    // switched off; it takes no row width, so it stays out of the solve.
+    // (QWidget::isHidden would also catch groups of a bar not yet shown and
+    // groups parked in the overflow chevron, which must still be solved.)
+    // Each group's current mode is the previous solution the hysteresis
+    // compares against, which stays correct as groups come and go.
+    QSet<const QWidget *> switchedOff;
+    for (QAction *action : mBar->actions())
+        if (!action->isVisible())
+            if (QWidget *widget = mBar->widgetForAction(action))
+                switchedOff.insert(widget);
     QList<RibbonGroup *> groups;
     QVector<RibbonGroupWidths> widths;
+    QVector<RibbonMode> previous;
     for (const auto &pointer : std::as_const(mGroups)) {
-        if (RibbonGroup *group = pointer.data()) {
-            groups.append(group);
-            widths.append(group->groupWidths());
-        }
+        RibbonGroup *group = pointer.data();
+        if (!group || switchedOff.contains(group))
+            continue;
+        groups.append(group);
+        widths.append(group->groupWidths());
+        previous.append(group->mode());
     }
     if (groups.isEmpty())
         return;
@@ -90,8 +106,7 @@ void RibbonCompactor::relayoutNow()
     if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"), Qt::FindDirectChildrenOnly))
         available -= spacing;
 
-    const QVector<RibbonMode> modes = applyRibbonHysteresis(mModes, available, widths, spacing);
-    mModes = modes;
+    const QVector<RibbonMode> modes = applyRibbonHysteresis(previous, available, widths, spacing);
     bool changed = false;
     for (int i = 0; i < groups.size(); ++i) {
         const RibbonMode before = groups.at(i)->mode();

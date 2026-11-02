@@ -10,12 +10,11 @@ to the chapter that explains the workflow behind it.
 
 The whole main window. Commands live in three places at once:
 
-- the **menu bar**, which is almost complete — every capability has a menu home
-  except a handful of Mesh 2D tools (**Pick 2D Cells**, **From Raster…**, **From
-  Shapefile…**, **Aquifer…**, **Initial Conditions…**), which live only on the
-  ribbon;
+- the **menu bar**, where every capability has a menu home, including every
+  Mesh 2D tab command under **Model → Mesh ▸**;
 - the **ribbon**, a tabbed compact toolbar with captioned groups (Home, Model,
-  Terrain, Mesh 2D, Features, Analysis, Results, View);
+  Terrain, Mesh 2D, Features, Analysis, Animation), led by a **Quick Access**
+  cluster (Select, Pan, Full Extent, Undo, Redo) that stays visible on every tab;
 - the **Command Palette** (`Ctrl+Shift+P`), which searches all of them by name.
 
 Keyboard shortcuts listed here are the defaults; rebind any of them in
@@ -49,7 +48,7 @@ tabbed together, so a saved workspace may have a different arrangement.
 
 | Region | How to recognize it | What to do there |
 |---|---|---|
-| **1. Ribbon tabs and command row** | Home; Model; Features; Analysis; Results and View across the top | Choose a task family; then use its labeled command groups |
+| **1. Ribbon tabs and command row** | Quick Access, then Home; Model; Features and Analysis across the top, plus Terrain, Mesh 2D and Animation when the project has that content | Choose a task family; then use its labeled command groups |
 | **2. Project tabs** | Welcome and the model name immediately above the map | Switch projects or return to the Welcome page |
 | **3. Map canvas** | The network and subcatchment polygons in the center | Navigate; select; draw; inspect layers and results |
 | **4. Layers and Object Browser** | Dock tabs listing map layers or SWMM object categories | Choose a layer or find an object by name |
@@ -65,8 +64,8 @@ when the active project has a raster. Import a mesh or raster to reveal them.
 
 On macOS the **menu bar** is at the top of the display, outside the captured
 application client area. On Windows and Linux it normally belongs to the window.
-The **Terrain** and **Mesh 2D** tabs appear when the project has the corresponding
-layers.
+The **Terrain**, **Mesh 2D** and **Animation** tabs appear when the project has the
+corresponding layers.
 
 Docks may be nested, tabbed together, dragged as a group, or floated; the layout is
 saved on exit and restored at the next launch. Right-clicking an empty part of the
@@ -80,23 +79,35 @@ is visible; the tab you were last on is restored at the next launch
 (`SWMMVis::MainWindow/CompactToolbarTab`).
 
 Buttons are grouped into captioned **ribbon groups** — a caption under a row of
-buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
+buttons, closed by a vertical rule, in the ArcGIS Pro idiom. Frequent commands
+have large faces (a 32 px icon over its label). Related families sit in
+**stacks**: columns of up to three rows, each a small icon beside its label.
+Every row is its own button, so nothing in a stack is hidden behind a dropdown.
+
+Each command has exactly one place on the ribbon. The menu bar still lists every
+command, and the **Command Palette** finds any of them by name.
+
+#### Quick Access
+
+The left end of the tab strip holds the commands every tab needs: **Select ▾**
+(Select / Select by Polygon), **Pan**, **Full Extent**, **Undo** and **Redo**.
+They stay visible whichever tab is current, so returning to plain selection after
+a drawing tool never costs a tab switch.
 
 #### Ribbon tabs and groups
 
 | Tab | Groups (left to right) |
 |---|---|
-| **Home** | **Project** (New; Open; Save) · **History** (Undo; Redo) · **Navigate** (Pan; Zoom In; Zoom Out; Full Extent; Zoom to Selection) · **Select** (Select ▾ split button; Invert; Upstream; Downstream) · **Inspect** (Measure; Search; Copy) · **Import** (SWMM Output; 2D Results; Vector Data; Raster Data; Web Layers; Delimited; Basemap; 2D Mesh) · **Run** (Execute; Pause; Cancel) |
-| **Model** | **Select** · **Edit** (Edit Existing) · **Nodes** (Junction; Virtual Junction; Inlet Junction; Outfall; Flow Divider; Storage) · **Links** (Pipe; Pump; Orifice; Weir; Outlet) · **Subcatchments** · **Rain Gages** · **Annotation** (Text) · **Climate** (split button over Temperature; Wind; Snow; Evaporation; Solar Radiation) · **Data Objects** (Time Series; Curve; Pattern; Control Rule; Transect; Street; Inlet; Aquifer; LID Control; Pollutant; Land Use; Reaction System; Heat) · **Setup** (Simulation Options; User Flags; Import Feature Layer) · **Tools** (Assign Rain Gages) · **Mesh 2D** (Generate Mesh; Burn Channels) |
+| **Home** | **Project** (New; Open; Save; stack: Save As, Export Map, Copy View) · **Navigate** (Zoom In; Zoom Out; Zoom to Selection; Measure) · **Selection** (Invert; Upstream; Downstream; Search) · **Import** (stacks: SWMM Output, 2D Results, 2D Mesh; Vector Data, Raster Data, Delimited; Web Layers, WFS, Basemap) · **Run** (Execute; stack: Pause, Cancel, Simulation Status) · **Window** (Panels ▾ — every dock toggle; stack: Layer Styling, Styles, Welcome) |
+| **Model** | **Edit** (Edit Network) · **Nodes** (stacks: Junction, Outfall, Storage; Flow Divider, Virtual Junction, Inlet Junction; LID Node) · **Links** (stacks: Conduit, Pump, Orifice; Weir, Outlet) · **Catchment** (stack: Subcatchment, Rain Gage, Assign Rain Gages; **Climate ▾** split button over Temperature, Wind, Snow, Evaporation and Solar Radiation; stack: Snowpack, Unit Hydrograph) · **Data Objects** (stacks: Time Series, Curve, Pattern; Transect, Street, Inlet; Aquifer, LID Control, Control Rule) · **Processes** (stacks: Pollutant, Land Use, Reactions; Initial Quality, Water Age, Heat) · **Setup** (Simulation Options; Import Features; stack: User Flags, Project CRS, Text Layers) · **2D Mesh** (Generate Mesh) |
 | **Terrain** *(contextual)* | **Active Terrain** · **Vertical Units** · **Invert Offsets** · **Profile** |
-| **Mesh 2D** *(contextual)* | **Mesh** (Generate Mesh; Burn Channels) · **Cell Data** (From Raster; From Shapefile) · **Groundwater (2D)** (Aquifer Parameters; Initial Conditions) — plus the Mesh Editing toolbar's own groups: **Mesh** · **Vertices** · **Edges** · **2D Results** · **Profile** · **Coupling** |
-| **Features** | **Select** · **Layer** (New Layer) · **Edit** (Edit Mode; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (Add Part; Add Hole; Edit Vertices; Move) — see \ref manual_feature_layers |
-| **Analysis** | **Select** · **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View) · **Plots** (Time Series; Profile; 2D Profile) · **Network Analysis** (Flow Balance Downstream/Upstream; Travel Time Downstream/Upstream; Mass Balance) |
-| **Animation** | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
-| **View** | **Tools** (Analysis Toolbox) · **Panels** (the dock toggles) · **Plots** (Time Series; 1D Profiles; 2D Profiles) · **Styling** (Layer Styling; Styles) · **Start** (Welcome) |
+| **Mesh 2D** *(contextual)* | **Mesh** (active-mesh picker; stack: Auto-couple Nodes, Remap 1D↔2D; Burn Channels) · **Process** (Surface Flow, Infiltration, Groundwater, Surface Quality, Snow or Heat) · **Select** (Cells; Edges; Vertices; stack: Clear Selection, Edit in Table) · *the picked process's group* · **Cell Data** (From Raster; From Shapefile) · **Profile** (Mesh Profile) — see \ref manual_2d_mesh |
+| **Features** | **Layer** (New Layer) · **Edit** (Edit Features; Delete) · **Draw** (Point; Line; Polygon) · **Modify** (stacks: Add Part, Add Hole, Edit Vertices; Move) — see \ref manual_feature_layers |
+| **Analysis** | **Results Layers** (the 1D and 2D results pickers) · **Report** (Summarize; Report; Tabular View; Tabular Results) · **Plots** (Time Series; Profile; 2D Profile; stack: Rainfall Visualization, Saved 2D Sections) · **Network** (stacks: Flow Balance Downstream, Flow Balance Upstream; Travel Time Downstream, Travel Time Upstream) · **Export** (Export 2D Results) · **Toolbox** (Analysis Toolbox) |
+| **Animation** *(contextual)* | **Playback** (Skip Back; Skip Forward; Play; Pause; Stop) · **Timeline** (scrubber; **Window:** look-back; time cursor; **Speed:**; **Cycle**) · **Display** (Show Legend; Set Style; **Live 2D**; **Live 1D**) |
 | **Extension tabs** | Each loaded GUI extension can add its own named tabs, such as **Data** for USGS monitoring sites and elevation footprints |
 
-\fig{02_ribbon_home_tab.png, The Home tab with its Project; History; Navigate; Select; Inspect; Import and Run groups}
+\fig{02_ribbon_home_tab.png, The Home tab with its Project; Navigate; Selection; Import; Run and Window groups}
 
 \fig{02_ribbon_model_tab.png, The Model tab showing the Nodes; Links and Data Objects groups}
 
@@ -108,8 +119,9 @@ buttons, closed by a vertical rule, in the ArcGIS Pro idiom.
 |---|---|
 | **Terrain** | The active project's canvas holds at least one raster layer |
 | **Mesh 2D** | The active project's canvas holds a 2D mesh layer or a 2D results layer |
+| **Animation** | The active project's canvas holds a 1D or 2D results layer, including the live layer of a running simulation |
 
-Both are hidden again as soon as the last qualifying layer is removed, and they
+All three are hidden again as soon as the last qualifying layer is removed, and they
 follow the active project tab.
 
 GUI extensions can add their own named ribbon tabs and command groups. An
@@ -117,7 +129,7 @@ extension can provide multiple tabs, each with independent visibility and comman
 
 #### Split buttons
 
-Two groups use **last-used split buttons**: **Select** on the Home tab (Select /
+Two commands use **last-used split buttons**: **Select** in Quick Access (Select /
 Select by Polygon) and **Climate** on the Model tab. The button's face mirrors the
 member you used last — including its checked state, so pressing `Esc` to fall back
 to the Select tool is visible on the ribbon — and the arrow opens the family menu.
@@ -131,8 +143,12 @@ from the trailing end first, in three steps:
 | Mode | Appearance |
 |---|---|
 | **Full** | Large icons with the label under each icon; caption shown |
-| **Compact** | Small icon-only buttons; caption still shown |
+| **Compact** | Small icon-only buttons; stacked rows keep their small icons and drop the labels; caption still shown |
 | **Collapsed** | The whole group becomes one popup button titled by its caption |
+
+Every group keeps its labels in a window at least 1600 px wide; the Model tab,
+which carries the most commands, needs 1760 px. Narrower windows compact the
+trailing groups first, so the drawing tools at the left keep their labels longest.
 
 Groups are promoted back only after the row has 32 px of slack, so dragging the
 window edge across a threshold does not make the ribbon flicker. Groups that host
@@ -142,18 +158,20 @@ strip.
 
 \fig{02_ribbon_compact_modes.png, The same ribbon row at three window widths showing Full; Compact and Collapsed groups}
 
-#### Mesh Editing toolbar
+#### Mesh 2D tab
 
-Shown on the **Mesh 2D** tab beside the Mesh 2D groups.
+The tab holds pickers and commands only; vertex, edge and cell values are edited
+in **Properties** and the **Attribute Table**, so the tab keeps its width whatever
+is selected. Pick a process to show its commands:
 
-| Group | Contents |
+| Process | Commands |
 |---|---|
-| **Mesh** | **Mesh:** active-mesh picker · **Z:** live elevation readout interpolated inside the triangle under the cursor |
-| **Vertices** | Select Vertex toggle; vertex info label; Z spin box for retyping the picked vertex's elevation |
-| **Edges** | Select Edge toggle; edge info label; the boundary-condition editor pages; **Browse Object** |
-| **2D Results** | Cell picking; the cell info label; the per-cell parameter page; **Assign Infiltration to Selection…** |
-| **Profile** | The mesh profile-plot tool |
-| **Coupling** | **Auto-couple** and **Re-map** 1D nodes onto the active mesh |
+| **Surface Flow** | **Boundary Condition…** for the selected boundary edges |
+| **Infiltration** | **Infiltration to Selection…** for the selected cells · **Review Ownership…** |
+| **Groundwater** | **Assign Groundwater…** · **Aquifer Properties…** · **State…** · **Edge Boundaries…** · **Node Beds…** |
+| **Surface Quality** | **Surface Quality…** · **Assign Surface Quality…** |
+| **Snow** | **Assign Snow…** |
+| **Heat** | **Heat Properties from Raster…** |
 
 See \ref manual_2d_mesh.
 
@@ -256,7 +274,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Generate Mesh…** | Opens the 2D mesh generator. A DTM raster is optional — without one; vertex elevations come from junction rim elevations | \ref manual_2d_mesh |
 | **Burn Channels…** | Burns selected open-channel sections into the active mesh, with undoable network replacement; no DEM is required | \ref manual_2d_mesh |
 | **Set Project CRS…** | Chooses or changes the project's coordinate reference system | \ref manual_crs |
-| **Mesh ▸** | Select Vertex · Select Edge · Assign Infiltration to Selection… — menu mirrors of the Mesh Editing toolbar tools | \ref manual_2d_mesh |
+| **Mesh ▸** | Every Mesh 2D tab command, in tab order: **Process ▸** (the six processes, checkable); Auto-couple, Remap 1D↔2D and Burn Channels…; the selection tools, Clear Selection and Edit in Table; Boundary Condition…, Assign Infiltration to Selection… and Review Ownership…; Assign Groundwater… and the groundwater pages; Surface Quality…, Assign Surface Quality…, Assign snow… and Heat Properties from Raster…; From Raster…, From Shapefile… and Mesh Profile. Burn Channels… and the three Assign commands are also at the top of the Model menu | \ref manual_2d_mesh |
 | **Terrain Profile** | Traces a terrain profile | \ref manual_profile_plots |
 
 **Model → Data Objects ▸** — every entry opens that category's editor in *browse*
@@ -300,7 +318,7 @@ tooltip naming what is missing.
 | **Travel Time Upstream** | | Travel time upstream of the selection | \ref manual_analysis_tools |
 | **Show Mass Balance** | | Wired to the same handler as **Report** — opens the same report viewer; the continuity ledgers are sections of the `.rpt`. There is no separate mass-balance dialog | \ref manual_running |
 
-#### Results
+#### Animation
 
 | Item | What it does |
 |---|---|
@@ -368,16 +386,16 @@ The document area's background and the Welcome tab track the application theme
 
 ### Dock panels
 
-Dock panels have toggle actions in **View → Panels ▸** and on the **View** ribbon
-tab. The ribbon's **Plots** group toggles **Time Series**, **1D Profiles** and
-**2D Profiles**. Hiding a plot panel retains its plot tabs so they are available
+Dock panels have toggle actions in **View → Panels ▸** and behind the **Panels ▾**
+button in the Home tab's **Window** group, which opens the same list, including
+**Time Series**, **1D Profiles** and **2D Profiles**. Hiding a plot panel retains its plot tabs so they are available
 when you show it again. **Layer Styling** has its own View-menu entry and shortcut.
 
 | Panel | Shortcut | What it shows | Chapter |
 |---|---|---|---|
 | **Layers** | `Ctrl+Alt+1` | The layer tree — ordered; groupable; per-layer visibility and opacity; filter box. Clicking a SWMM kind row focuses that category in the Object Browser | \ref manual_layers |
 | **Object Browser** | `Ctrl+Alt+2` | Every SWMM object grouped by category; with per-category ordering and the **Add New…** entry points | \ref manual_object_browser |
-| **Properties** | `Ctrl+Alt+3` | The property grid for the current selection. Its title tracks what is selected — *Properties — &lt;name&gt;* or *Properties — &lt;kind&gt; (N features)* | \ref manual_object_browser |
+| **Properties** | `Ctrl+Alt+3` | The property grid for the current selection. Its title tracks what is selected — *Properties — &lt;name&gt;* or *Properties — &lt;kind&gt; (N features)*. Several 2D mesh elements of one kind are edited together: shared values show, differing ones read **Mixed**, and **Apply** writes the changed fields as one undo step | \ref manual_object_browser |
 | **Attribute Table** | `Ctrl+Alt+4` | The tabular view of a layer's features; with the attribute calculator and selection sync | \ref manual_attribute_tables |
 | **Legend** | `Ctrl+Alt+5` | The docked legend for the active canvas's layers | \ref manual_styling |
 | **Simulation Status** | `Ctrl+Alt+6` | One row per running or finished simulation with progress; selecting a row targets Pause / Stop at that job | \ref manual_running |
@@ -392,7 +410,7 @@ when you show it again. **Layer Styling** has its own View-menu entry and shortc
 
 \fig{02_docks_default_layout.png, An example dock arrangement with the Object Browser; Properties; Message Logs and Attribute Table}
 
-Use **Analysis Toolbox** in the **View** ribbon's **Tools** group, or open
+Use **Analysis Toolbox** in the **Analysis** ribbon's **Toolbox** group, or open
 **View → Panels → Analysis Toolbox**, to browse tools provided by enabled
 extensions. Search by name or description, or use **Tags** to check one or more
 categories. A tool must match every checked tag. Double-click a tool or press
@@ -539,12 +557,11 @@ explanatory tooltip. See \ref manual_object_browser.
 
 ## Tips and gotchas
 
-- **The menu bar is very nearly the complete surface.** Several commands are
-  menu-only by design; the only ribbon-only ones are the Mesh 2D tools listed
-  under *Where to find it* above.
+- **The menu bar is the complete surface.** Several commands are menu-only by
+  design, and every ribbon command also has a menu entry.
 - **A greyed command usually means "no project" or "no edit session."** Add-feature
   tools need an open project; move, reshape and delete need **Edit Existing** on.
-- **`Esc` returns to the Select tool** and the ribbon's Select split button shows
+- **`Esc` returns to the Select tool** and the Select split button in Quick Access shows
   it, because the split button mirrors its member's checked state.
 - **Pause and Stop act on the run selected in Simulation Status.** With several
   runs in flight and no selection, they refuse and tell you to pick one.

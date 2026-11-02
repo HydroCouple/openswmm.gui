@@ -29,11 +29,8 @@
  *    edit still reaches the cells.
  *
  * Parameter fields are masked by the chosen method through
- * mesh::infilUsesParam(). Every destination is selectable and carries a
- * mesh::infilDestHint() tooltip — the engine routes all three, and whether
- * `AQUIFER_2D` works depends on the open model carrying a `[2D_AQUIFER]`
- * rather than on the release, so the engine judges it at resolve. Same two
- * rules the attribute table and the region-defaults table follow.
+ * mesh::infilUsesParam(). The obsolete AQUIFER_2D destination remains readable for
+ * migration through the groundwater ownership review.
  *
  * Singleton-raise per `[[feedback_mvc_synchronized_uis]]`: showFor() keeps a
  * `static QPointer` so the toolbar action and the menu mirror raise one window

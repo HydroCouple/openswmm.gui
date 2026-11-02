@@ -14,7 +14,7 @@ then save a style you like and reuse it.
 | **Layer Properties** (the style dialog) | Layer right-click → **Properties…**, or **Styles ▸ Edit Symbology…**, or double-click a kind row | — |
 | **Layer Styling** dock | **View → Layer Styling** (ribbon **View**) | `Ctrl+Alt+8` |
 | **Style Manager** | **Tools → Style Manager** (ribbon **View**) | — |
-| **Set Style** | **Results → Set Style** (ribbon **Animation**) | — |
+| **Set Style** | **Animation → Set Style** (ribbon **Animation**) | — |
 | **Legend** dock | **View → Panels → Legend** | `Ctrl+Alt+5` |
 | On-canvas legend | **View → Show Legend** (ribbon **Animation**) | — |
 | **Legend Properties** | Right-click the on-canvas legend → **Properties…** | — |
@@ -287,7 +287,7 @@ QGIS `.qml`, reporting any warnings.
 
 ### Results → Set Style
 
-**Results → Set Style** opens the same Layer Properties dialog on whichever
+**Animation → Set Style** opens the same Layer Properties dialog on whichever
 layer is selected in the Layers panel, falling back to the topmost visible layer
 when nothing is selected. For a results layer, that is where you choose the
 result variable driving the colours and the ramp that maps it.

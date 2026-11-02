@@ -24,8 +24,15 @@
 #include <QVariantList>
 #include <limits>
 
+class QAbstractItemView;
+
 namespace openswmmvis
 {
+
+struct ColumnSpec;
+/*! Begin editing a clicked mesh value, opening its list of choices when available. */
+void editClickedMeshField(QAbstractItemView *view, const QModelIndex &index);
+QStyledItemDelegate *createAttributeDelegate(const ColumnSpec &spec, QObject *parent);
 
 /*! Numeric (double) editor with optional min/max/decimals. */
 class NumericDelegate : public QStyledItemDelegate
@@ -67,8 +74,7 @@ public:
      * @param[in] editor Borrowed editor from this delegate; wrong/null behavior described below.
      * @param[in] index Source cell, EditRole read, expected stable model/index.
      * @note QDoubleSpinBox only; convert EditRole toDouble(success flag), block signals and set
-     *   number or 0/clear on failure. Set attributeValueWasNull=!conversionOK and Edited=false, so
-     *   failed conversion treated null, not engine missing-value query. No source write/undo here.
+     *   number or 0/clear on failure. Clear the user-edit flag after initializing the widget.
      */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override;
     /**
@@ -76,8 +82,8 @@ public:
      * @param[in] model Required mutable destination model for accepted editor path, unchecked null.
      * @param[in] index Destination cell forwarded unchanged; valid source/context must survive any
      *   compound/modal work.
-     * @note Wrong/null spin ignored. If original conversion failed and no user edit tracked, NO
-     *   write. Otherwise interpretText then submit normalized spin double; deleting text from a
+     * @note An untouched spin box preserves the source value and its full precision.
+     *   After a user edit, interpretText submits the spin value. Deleting text from a
      *   nonnull numeric cell is not a null-clear operation here. Uses EditRole, ignores setData
      *   result, no local engine/undo transaction or error dialog; model owns
      *   notifications/validation.

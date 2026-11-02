@@ -37,6 +37,7 @@ private slots:
     void userOverridePersistsAndApplies();
     void clearedShortcutPersistsAsEmpty();
     void enableByTag();
+    void disabledReasonFollowsEnableState();
     void conflictLookup();
     void shortcutFiresViaKeyClick();
 
@@ -190,6 +191,43 @@ void TestActionRegistry::enableByTag()
     QVERIFY(mNew->isEnabled()); // untagged actions untouched
     registry->setEnabledByTag(RequiresProject, true);
     QVERIFY(mAddJunction->isEnabled());
+}
+
+/**
+ * @brief A disabled command's tooltip carries its reason; enabling restores the action's own
+ * tooltip, a tooltip set by other code becomes the new base, and the registry never changes the
+ * enable state itself.
+ */
+void TestActionRegistry::disabledReasonFollowsEnableState()
+{
+    auto *registry = ActionRegistry::instance();
+    const QString id = QStringLiteral("model.addJunction");
+    mAddJunction->setToolTip(QStringLiteral("Place a junction"));
+    mAddJunction->setEnabled(true);
+
+    registry->setDisabledReason(id, QStringLiteral("Open or create a project first."));
+    QCOMPARE(registry->disabledReason(id), QStringLiteral("Open or create a project first."));
+    QVERIFY(mAddJunction->isEnabled()); // explanation only, no enable writes
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction"));
+
+    mAddJunction->setEnabled(false);
+    QCOMPARE(mAddJunction->toolTip(),
+             QStringLiteral("Place a junction\nOpen or create a project first."));
+    mAddJunction->setEnabled(true);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction"));
+
+    // Another owner retitles the action while the reason is showing.
+    mAddJunction->setEnabled(false);
+    mAddJunction->setToolTip(QStringLiteral("Place a junction node"));
+    QCOMPARE(mAddJunction->toolTip(),
+             QStringLiteral("Place a junction node\nOpen or create a project first."));
+    mAddJunction->setEnabled(true);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction node"));
+
+    registry->setDisabledReason(id, QString());
+    mAddJunction->setEnabled(false);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction node"));
+    mAddJunction->setEnabled(true);
 }
 
 /**

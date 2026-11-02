@@ -104,6 +104,18 @@ public:
      */
     void setEnabledByTag(unsigned tag, bool enabled);
 
+    /*! Say why \a id is unavailable. While the action is disabled its tooltip
+     *  carries \a reason on a second line, so the ribbon face explains itself
+     *  on hover; enabling the action restores its own tooltip. The owner of
+     *  the enable state is unchanged — this never enables or disables.
+     * @param[in] id Registered catalog or extension id; unknown ids are ignored.
+     * @param[in] reason Translated sentence; empty removes the explanation.
+     * @note A tooltip set by other code while the reason is shown becomes the new base text.
+     */
+    void setDisabledReason(const QString &id, const QString &reason);
+    /** @return Reason registered for \a id, empty when none. */
+    QString disabledReason(const QString &id) const;
+
     /*! Catalog-default bindings for \a id ("std:" entries expand to the
      *  platform's full standard-key binding list).
      * @param[in] id Catalog identity; unknown returns no shortcuts.
@@ -167,6 +179,16 @@ private:
      * @param[in] id Identity; unregistered actions are ignored. No registry notification is emitted here.
      */
     void applyShortcut(const QString &id);
+    /** @brief Compose or restore \a id's tooltip from its enabled state and reason. */
+    void applyDisabledReason(const QString &id);
+
+    /// Disabled-reason bookkeeping: the action's own tooltip and the last text written.
+    struct ReasonState {
+        QString reason;
+        QString baseToolTip;
+        QString written;
+    };
+    QHash<QString, ReasonState> mReasons;
 
     QHash<QString, QAction *> mActions; // id -> adopted action
     QHash<QString, QList<QKeySequence>> mExtensionDefaults; ///< Captured default bindings for extension commands.

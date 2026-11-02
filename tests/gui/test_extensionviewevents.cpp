@@ -2453,13 +2453,14 @@ private slots:
         QTRY_COMPARE(delivered.size(), 1);
         QCOMPARE(delivered.first(), ResultAvailability::Empty);
     }
-    /** @brief Expose the real toolbox dock through one shared menu/palette/ribbon action. */
+    /** @brief Expose the real toolbox dock through one shared menu/palette/ribbon action. The
+     *  ribbon face lives in the Analysis tab's Toolbox group (the View tab was dissolved). */
     void viewRibbonToolboxUsesDockAction()
     {
         SWMMVis main;
         main.resize(1280, 900);
         main.show();
-        auto *bar = main.findChild<QToolBar *>("toolBarView");
+        auto *bar = main.findChild<QToolBar *>("toolBarAnalysis");
         auto *dock = main.findChild<QDockWidget *>("dockWidgetAnalysisToolBox");
         auto *action = main.findChild<QAction *>("actionToggleDockToolbox");
         auto *controller = main.findChild<openswmmvis::ui::CompactToolbarController *>();
@@ -2473,7 +2474,7 @@ private slots:
         QVERIFY(!action->icon().isNull());
         QCOMPARE(action->iconText(), QStringLiteral("Analysis\nToolbox"));
 
-        auto *group = bar->findChild<openswmmvis::ui::RibbonGroup *>("ribbonGroupTools");
+        auto *group = bar->findChild<openswmmvis::ui::RibbonGroup *>("ribbonGroupToolbox");
         QVERIFY(group);
         auto *button = group->buttonForAction(action);
         QVERIFY(button);
@@ -2483,7 +2484,7 @@ private slots:
             faces += candidate->defaultAction() == action;
         QCOMPARE(faces, 1);
 
-        controller->setCurrentTab("view");
+        controller->setCurrentTab("analysis");
         dock->hide();
         QTRY_VERIFY(button->isVisible());
         QTRY_VERIFY(!action->isChecked());

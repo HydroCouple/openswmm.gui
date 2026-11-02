@@ -18,8 +18,8 @@ as an animation on a shared time cursor.
 | The loaded results layers | The **Layers** dock, under the **SWMM Results** category |
 | Which run is active | The **Results Layers** group at the head of the **Analysis** ribbon tab — **1D results:** and **2D results:** combos |
 | Playback | The **Results** menu and the **Animation** ribbon tab |
-| Styling | **Results → Set Style**, or right-click a layer → **Properties…** |
-| Legend | **Results → Show Legend** (canvas overlay); **View → Panels → Legend** (`Ctrl+Alt+5`) for the dock |
+| Styling | **Animation → Set Style**, or right-click a layer → **Properties…** |
+| Legend | **Animation → Show Legend** (canvas overlay); **View → Panels → Legend** (`Ctrl+Alt+5`) for the dock |
 
 ## Step-by-step
 
@@ -75,7 +75,7 @@ step, and vice versa.
 
 ### Styling 1D results — colour and size by variable
 
-**Results → Set Style** opens the layer properties dialog for the layer selected
+**Animation → Set Style** opens the layer properties dialog for the layer selected
 in the Layers panel (falling back to the topmost visible layer). Its
 **Symbology** tab is the same kind-tree editor used for model layers — one row
 per element kind (Junctions, Outfalls, Storage, Dividers; Conduits, Pumps,
@@ -111,7 +111,7 @@ the colours stay comparable frame to frame.
 
 ### Legends
 
-- **Results → Show Legend** toggles a legend **overlay** drawn on the map canvas
+- **Animation → Show Legend** toggles a legend **overlay** drawn on the map canvas
   itself. Its right-click menu includes *Hide legend*, which unchecks the action.
 - **View → Panels → Legend** (`Ctrl+Alt+5`) opens the dockable **Legend** panel,
   which lists each visible layer's classes and lets you edit a class's style in
@@ -124,7 +124,7 @@ layer's properties.
 
 ### Playback — the Animation ribbon tab
 
-The **Animation** tab (and the **Results** menu) carries the animation. One time
+The **Animation** tab (and the **Animation** menu) carries the animation. One time
 cursor drives the 1D and 2D outputs selected in Analysis. The 1D report times
 are authoritative when available; otherwise the selected 2D output supplies
 the clock.
@@ -133,11 +133,11 @@ the clock.
 
 | Control | Menu text | What it does |
 |---------|-----------|--------------|
-| **Backward** | **Results → Backward** | Step one period back |
-| **Play** | **Results → Play** | Start playback; checked while playing |
-| **Pause** | **Results → Pause** | Pause; checked while paused |
-| **Stop** | **Results → Stop** | Momentary action: clear playback/live following, then rewind |
-| **Forward** | **Results → Forward** | Step one period forward |
+| **Backward** | **Animation → Backward** | Step one period back |
+| **Play** | **Animation → Play** | Start playback; checked while playing |
+| **Pause** | **Animation → Pause** | Pause; checked while paused |
+| **Stop** | **Animation → Stop** | Momentary action: clear playback/live following, then rewind |
+| **Forward** | **Animation → Forward** | Step one period forward |
 
 **Timeline group**
 

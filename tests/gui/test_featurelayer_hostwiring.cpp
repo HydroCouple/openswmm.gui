@@ -30,10 +30,12 @@
 #include "swmmvis.h"
 #include "ui/actioncatalog.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
+#include "ui/toolbars/ribbonsplitbutton.h"
 
 #include <QAction>
 #include <QDockWidget>
 #include <QMainWindow>
+#include <QMenu>
 #include <QString>
 #include <QStringList>
 #include <QTest>
@@ -166,30 +168,32 @@ private slots:
                  qPrintable(QStringLiteral("never reached the Features toolbar: %1")
                                 .arg(absent.join(QStringLiteral(", ")))));
 
-        // Select is the FIRST button on the bar, so returning from a modal
-        // drawing tool to plain selection never costs a tab switch. Ordered,
-        // not merely present: findChildren returns children in insertion
-        // order, which is the order the RibbonGroups were added.
+        // Returning from a modal drawing tool to plain selection must never
+        // cost a tab switch. Select now lives in the Quick Access cluster on
+        // the tab strip, visible on every tab, rather than repeated as the
+        // first group of each tab.
         QVERIFY2(!found.isEmpty(), "the Features toolbar has no buttons");
-        QCOMPARE(found.first(), QStringLiteral("actionSelect"));
+        QVERIFY2(!found.contains(QStringLiteral("actionSelect")),
+                 "Select is repeated on the Features tab; it belongs to Quick Access");
+        auto *quick = m_win->findChild<QWidget *>(QStringLiteral("ribbonQuickAccess"));
+        QVERIFY2(quick != nullptr, "no Quick Access cluster on the tab strip");
+        auto *select = m_win->findChild<QAction *>(QStringLiteral("actionSelect"));
+        bool selectInQuickAccess = false;
+        for (auto *b : quick->findChildren<openswmmvis::ui::RibbonSplitButton *>())
+            selectInQuickAccess |= b->members().contains(select);
+        QVERIFY2(selectInQuickAccess, "Select is missing from Quick Access");
 
         // The dock toggle belongs with every other dock toggle in View >
-        // Panels, NOT on this tab — a panel you closed is looked for under
-        // View, and this tab is the one place it must not be the only home.
+        // Panels (also the Home tab's Panels button), NOT on this tab — a
+        // panel you closed is looked for there.
         QVERIFY2(!found.contains(QStringLiteral("actionToggleDockFeatures")),
                  "the Features dock toggle is on the Features tab; it belongs "
                  "in View > Panels");
-
-        auto *viewBar = m_win->findChild<QToolBar *>(QStringLiteral("toolBarView"));
-        QVERIFY2(viewBar != nullptr, "the View toolbar is missing");
-        QStringList onView;
-        for (QToolButton *b : viewBar->findChildren<QToolButton *>())
-            if (QAction *def = b->defaultAction(); def && !def->objectName().isEmpty())
-                onView << def->objectName();
-        QVERIFY2(onView.contains(QStringLiteral("actionToggleDockFeatures")),
-                 qPrintable(QStringLiteral("the Features dock toggle never reached View > Panels; "
-                                           "found there: %1")
-                                .arg(onView.join(QStringLiteral(", ")))));
+        auto *panels = m_win->findChild<QMenu *>(QStringLiteral("menuViewPanels"));
+        QVERIFY2(panels != nullptr, "the View > Panels menu is missing");
+        auto *toggle = m_win->findChild<QAction *>(QStringLiteral("actionToggleDockFeatures"));
+        QVERIFY2(panels->actions().contains(toggle),
+                 "the Features dock toggle never reached View > Panels");
     }
 
     /*!

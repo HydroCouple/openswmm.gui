@@ -25,6 +25,7 @@
 using openswmmvis::ui::ActionCatalogEntry;
 using openswmmvis::ui::ActionRegistry;
 using openswmmvis::ui::kActionCatalog;
+using openswmmvis::ui::kActionCatalogStrip;
 using openswmmvis::ui::kActionCatalogTabs;
 
 class TestActionCatalog : public QObject
@@ -154,6 +155,7 @@ void TestActionCatalog::tabsAreKnown()
     QSet<QString> known;
     for (const char *tab : kActionCatalogTabs)
         known.insert(QString::fromLatin1(tab));
+    known.insert(QString::fromLatin1(kActionCatalogStrip)); // Quick Access cluster
     for (const ActionCatalogEntry &e : kActionCatalog) {
         const QString tab = QString::fromLatin1(e.tab);
         if (tab.isEmpty())
