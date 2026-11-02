@@ -201,6 +201,46 @@ void ActionRegistry::setEnabledByTag(unsigned tag, bool enabled)
     }
 }
 
+void ActionRegistry::setDisabledReason(const QString &id, const QString &reason)
+{
+    QAction *act = mActions.value(id, nullptr);
+    if (!act)
+        return;
+    auto it = mReasons.find(id);
+    if (it == mReasons.end()) {
+        ReasonState state;
+        state.baseToolTip = act->toolTip();
+        state.written = state.baseToolTip;
+        it = mReasons.insert(id, state);
+        connect(act, &QAction::changed, this, [this, id] { applyDisabledReason(id); });
+        connect(act, &QObject::destroyed, this, [this, id] { mReasons.remove(id); });
+    }
+    it->reason = reason;
+    applyDisabledReason(id);
+}
+
+QString ActionRegistry::disabledReason(const QString &id) const
+{
+    return mReasons.value(id).reason;
+}
+
+void ActionRegistry::applyDisabledReason(const QString &id)
+{
+    QAction *act = mActions.value(id, nullptr);
+    auto it = mReasons.find(id);
+    if (!act || it == mReasons.end())
+        return;
+    const QString current = act->toolTip();
+    if (current != it->written)
+        it->baseToolTip = current; // someone else retitled the action meanwhile
+    QString wanted = it->baseToolTip;
+    if (!act->isEnabled() && !it->reason.isEmpty())
+        wanted += QLatin1Char('\n') + it->reason;
+    it->written = wanted;
+    if (current != wanted)
+        act->setToolTip(wanted); // re-enters via changed(); the texts then match
+}
+
 QList<QKeySequence> ActionRegistry::defaultShortcuts(const QString &id) const
 {
     const ActionCatalogEntry *entry = mEntries.value(id, nullptr);

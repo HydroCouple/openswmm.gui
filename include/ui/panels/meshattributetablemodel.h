@@ -68,13 +68,23 @@ public:
      *  the edge row index, then resets. Pass a null layer to clear.
      * @param[in] layer Optional borrowed mesh source, guarded by QPointer; null clears rows.
      * @param[in] kind Row family stored even null source; valid Kind enumerator required.
+     * @param[in] focus Optional Properties selection. A focused edge indexes only its two incident
+     *   slots. Focused views use the mesh's existing project ownership binding.
      * @note Always reset, including equal pair; disconnect ALL old layer-to-model connections, bind
      *   signals, set source infiltration model from current model binding, rebuild schema and
      *   unique-edge rows. Setting infiltration model can refresh ownership diagnostics/emit layer
      *   signals; source binding is not purely visual. No mesh parameter command, undo-stack
      *   clearing or source ownership transfer.
      */
-    void setSource(SWMM2DMeshLayer *layer, Kind kind);
+    void setSource(SWMM2DMeshLayer *layer, Kind kind, const SWMMObjectRef &focus = {});
+
+    /*! Source row for the single-element Properties binding; -1 for an unfocused table. */
+    [[nodiscard]] int focusedRow() const { return rowForRef(m_focus); }
+
+    /*! Open the whole-row form for eligible cells in a snapshot of the invoking rows. */
+    void editInfiltration(const QList<int> &rows, QWidget *parent);
+    /*! Stage one complete surface boundary prescription for eligible source rows. */
+    void editBoundaryCondition(const QList<int> &rows, QWidget *parent);
 
     /**
      * @return Borrowed mesh source or null after detach/destruction, no ownership pin or
@@ -106,9 +116,7 @@ public:
      * @param[in] layer Optional borrowed SWMM model guarded by QPointer; engine handle determines
      *   current picker availability.
      * @note Changed pointer resets schema and sets mesh infiltration model, potentially refreshing
-     *   ownership/notifications. Same pointer returns immediately in current comparison, including
-     *   if its engine availability changed since earlier binding; rebind alone does not reliably
-     *   refresh editor kinds for that transition. No subscription to model engine open/close, no
+     *   ownership/notifications. Rebinding also refreshes the schema when engine availability changes. No subscription to model engine open/close, no
      *   undo command or ownership transfer. PickerRef queries current engine on demand.
      */
     void setModelLayer(SWMMModelLayer *layer);
@@ -117,8 +125,7 @@ public:
      *  as it does for `SWMMAttributeTableModel`.
      * @return Value copy of cached ordered editor schema. Numeric bounds/decimals presentation
      *   metadata; actual validation delegated to mesh edit funnels. Coupling-area heading snapshot
-     *   uses m² for explicitly SI mesh, otherwise current global length label squared; no automatic
-     *   unit-change rebuild.
+     *   uses m² for explicitly SI mesh, otherwise the current length label squared.
      */
     [[nodiscard]] QList<openswmmvis::ColumnSpec> columnSpecs() const { return m_columnSpecs; }
 
@@ -226,6 +233,21 @@ public:
      */
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
+
+    /*! Public so the table's bulk "Apply value to selected rows…" prompt can
+     *  offer the same picker as the cell editor.
+     *  Build the picker-cell value for \p key ("coupledNode" / "tseries" /
+     *  "curve") holding \p current. Returns an invalid QVariant when no model
+     *  layer is bound, which is what makes those columns degrade to text.
+     * @param[in] key Exact coupledNode, tseries or curve; unknown invalid.
+     * @param[in] current Current raw stored name copied even if absent from model, no
+     *   trimming/validation.
+     * @return Typed DataObjectRef borrowing current engine/layer: Node, TimeSeries or AnyCurve
+     *   respectively, invalid without live engine/model. All curves offered regardless table type.
+     *   Host/delegate must preserve source-engine lifetime; no selection, object creation or
+     *   validation write.
+     */
+    [[nodiscard]] QVariant pickerRef(const QString &key, const QString &current) const;
 
 public slots:
     /*! Full reload — rebuilds the edge row index and resets the model.
@@ -335,20 +357,12 @@ private:
      */
     [[nodiscard]] bool canPick() const;
 
-    /*! Build the picker-cell value for \p key ("coupledNode" / "tseries" /
-     *  "curve") holding \p current. Returns an invalid QVariant when no model
-     *  layer is bound, which is what makes those columns degrade to text.
-     * @param[in] key Exact coupledNode, tseries or curve; unknown invalid.
-     * @param[in] current Current raw stored name copied even if absent from model, no
-     *   trimming/validation.
-     * @return Typed DataObjectRef borrowing current engine/layer: Node, TimeSeries or AnyCurve
-     *   respectively, invalid without live engine/model. All curves offered regardless table type.
-     *   Host/delegate must preserve source-engine lifetime; no selection, object creation or
-     *   validation write.
-     */
-    [[nodiscard]] QVariant pickerRef(const QString &key, const QString &current) const;
 
     QPointer<SWMM2DMeshLayer> m_layer;
+    /// Boundary segment tag by sorted vertex pair, rebuilt when the geometry revision moves.
+    mutable QHash<QPair<int, int>, QString> m_segmentTags;
+    mutable quint64 m_segmentTagsRevision = 0;
+    mutable bool m_segmentTagsBuilt = false;
     QPointer<SWMMModelLayer> m_modelLayer;
     QPointer<MapCanvas> m_canvas;
     Kind m_kind = Kind::Vertex;
@@ -356,6 +370,8 @@ private:
     QList<openswmmvis::ColumnSpec> m_columnSpecs;
 
     /*! Canonical (lower) flat slot per Edge row. Empty for other kinds. */
+    bool m_pickerAvailable = false;
+    SWMMObjectRef m_focus; // Properties only needs the picked edge and its twin.
     QVector<int> m_edgeSlots;
     /*! Every flat slot → its row, both halves of an interior pair included. */
     QHash<int, int> m_slotRow;

@@ -103,6 +103,7 @@ public:
      * @details Unknown keys leave the current target. Used by the Assign Surface Quality action.
      */
     void selectTarget(const QString &key);
+    void setInitialCells(const QVector<int> &cells);
 public slots:
     /**
      * @brief Cancel outstanding work or reject an idle editor without applying a draft.
@@ -280,6 +281,7 @@ private:
     quint64 m_geometry = 0, m_attributes = 0, m_serial = 0;
     QString m_meshPath, m_meshCrs, m_length, m_rate;
     QVector<int> m_scope;
+    QVector<int> m_invokingCells;
     QJsonObject m_recipe;
     WorkResult m_reviewed;
     assignment::InfiltrationOwnershipPreview m_ownership;

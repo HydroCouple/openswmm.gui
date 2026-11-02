@@ -28,6 +28,7 @@
 
 using openswmmvis::ui::CompactToolbarController;
 using openswmmvis::ui::kActionCatalog;
+using openswmmvis::ui::kActionCatalogStrip;
 using openswmmvis::ui::kActionCatalogTabs;
 
 class TestCompactToolbar : public QObject
@@ -225,8 +226,10 @@ void TestCompactToolbar::catalogTabIdsAreMounted()
     for (const char *tab : kActionCatalogTabs)
         known.insert(QString::fromLatin1(tab));
     // The app mounts exactly the catalog's tab vocabulary (home, model,
-    // mesh2d, analysis, results, view) — every catalog tab id must be in
-    // that set, so no action can be assigned to an unmounted tab.
+    // terrain, mesh2d, features, analysis, results) plus the Quick Access
+    // cluster on the strip — every catalog tab id must be in that set, so no
+    // action can be assigned to an unmounted tab.
+    known.insert(QString::fromLatin1(kActionCatalogStrip));
     for (const auto &entry : kActionCatalog) {
         const QString tab = QString::fromLatin1(entry.tab);
         if (!tab.isEmpty())

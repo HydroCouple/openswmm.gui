@@ -55,6 +55,12 @@ inline constexpr int kRibbonRowHeight = 100;
 inline constexpr int kRibbonIconFull = 32;
 /// Icon edge in Compact mode.
 inline constexpr int kRibbonIconCompact = 24;
+/// Icon edge of a stacked (small icon + label) row.
+inline constexpr int kRibbonIconStack = 16;
+/// Fixed height of one stacked row; three rows fit under the caption.
+inline constexpr int kRibbonStackRowHeight = 24;
+/// Most rows one stack column holds.
+inline constexpr int kRibbonStackRows = 3;
 
 class RibbonGroup : public QWidget
 {
@@ -105,6 +111,19 @@ public:
      *   externally owned; toggles/triggers can later persist face selection.
      */
     RibbonSplitButton *addFamily(const QString &familyId, const QList<QAction *> &members);
+
+    /*! Add one column of up to three small icon + label rows (an ArcGIS-style
+     *  stack). Every row is its own button bound to its action, so checked
+     *  state, shortcuts, tooltips and tool sync behave exactly like a large
+     *  face; it is not a dropdown.
+     * @param[in] actions Borrowed live actions, one to kRibbonStackRows; extra entries are
+     *   ignored. The face text is the action's iconText, so callers keep it on one line.
+     * @return Borrowed column buttons in order. The column widget is named
+     *   "ribbonStackColumn". Actions join the collapsed menu in order.
+     * @note Full mode shows 16 px icons beside labels; Compact keeps the 16 px icons and drops
+     *   the labels; Collapsed folds the column into the group popup like any other face.
+     */
+    QList<QToolButton *> addStack(const QList<QAction *> &actions);
 
     /*! Adopt a member widget (combo, slider…). Marks the group
      *  non-collapsible.
@@ -246,6 +265,8 @@ private:
     QList<QAction *> mActions;
     QSet<QAction *> mWatchedActions; ///< Commands with active presentation/lifetime observations.
     QList<QToolButton *> mButtons;
+    QSet<QToolButton *> mStackButtons; ///< Rows of stack columns (small icon + label).
+    QHash<QWidget *, QList<QToolButton *>> mStackColumns; ///< Column -> its rows, for measuring.
     mutable QHash<int, int> mWidthCache;
 };
 

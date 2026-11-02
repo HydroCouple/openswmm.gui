@@ -16,6 +16,7 @@
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/tabulardatatablemodel.h"
+#include "ui/properties/dataobjectpickereditor.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
@@ -82,6 +83,8 @@
 #include <QItemSelection>
 #include <QItemSelectionModel>
 #include <QKeyEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLoggingCategory>
@@ -1143,7 +1146,7 @@ bool AttributeTablePanel::eventFilter(QObject *watched, QEvent *event)
         }
     }
 
-    if (event->type() == QEvent::KeyPress) {
+    if (!meshSourceActive() && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
             // Let delegates commit, then keep focus anchored in the table.
@@ -1348,6 +1351,10 @@ void AttributeTablePanel::buildUi()
     // A replacement header does not inherit QTableView's clickable default.
     m_view->horizontalHeader()->setSectionsClickable(true);
     m_view->setModel(m_proxy);
+    connect(m_view, &QTableView::clicked, this, [this](const QModelIndex &index) {
+        if (meshSourceActive())
+            openswmmvis::editClickedMeshField(m_view, index);
+    });
     m_view->setSortingEnabled(true);
     connect(m_proxy, &QAbstractItemModel::modelReset, this,
             &AttributeTablePanel::updateQueryFields);
@@ -2073,42 +2080,9 @@ void AttributeTablePanel::installColumnDelegates(const QList<openswmmvis::Column
 
     for (int col = 0; col < specs.size(); ++col) {
         const auto &spec = specs[col];
-        QStyledItemDelegate *del = nullptr;
-        switch (spec.editor) {
-        case openswmmvis::EditorKind::Numeric:
-            del = new openswmmvis::NumericDelegate(this, spec.minValue, spec.maxValue,
-                                                   spec.decimals, openswmmvis::columnStep(spec));
-            break;
-        case openswmmvis::EditorKind::Integer:
-            del = new openswmmvis::IntegerDelegate(this, static_cast<int>(spec.minValue),
-                                                   static_cast<int>(spec.maxValue));
-            break;
-        case openswmmvis::EditorKind::Enum:
-            del = new openswmmvis::EnumDelegate(this, spec.enumValues);
-            break;
-        case openswmmvis::EditorKind::LinkEndpoint:
-            del = new openswmmvis::LinkEndpointDelegate(this);
-            break;
-        case openswmmvis::EditorKind::Interval:
-            del = new openswmmvis::IntervalDelegate(this);
-            break;
-        case openswmmvis::EditorKind::FileBrowse:
-            del = new openswmmvis::FileBrowseDelegate(this, spec.fileFilter);
-            break;
-        case openswmmvis::EditorKind::FileColumn:
-            del = new openswmmvis::FileColumnDelegate(this, openswmmvis::kFileColumnOptionsRole);
-            break;
-        case openswmmvis::EditorKind::Compound:
-            del = new openswmmvis::CompoundEditDelegate(this);
-            break;
-        case openswmmvis::EditorKind::Text:
-            // Qt's default QStyledItemDelegate provides a QLineEdit — no custom
-            // delegate needed.  Fall through so nullptr is NOT installed.
+        auto *del = openswmmvis::createAttributeDelegate(spec, this);
+        if (!del)
             continue;
-        case openswmmvis::EditorKind::ReadOnly:
-        default:
-            continue;
-        }
         // Delegate column index is the *proxy* column; since proxy
         // doesn't reorder columns, source-col == proxy-col here.
         m_view->setItemDelegateForColumn(col, del);
@@ -2936,6 +2910,36 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         const int col = srcIdx.isValid() ? srcIdx.column() : -1;
         const QList<openswmmvis::ColumnSpec> specs = m_meshModel->columnSpecs();
         const QList<int> selRows = selectedSourceRows();
+        const QList<int> targets =
+            selRows.contains(srcIdx.row()) ? selRows : QList<int>{srcIdx.row()};
+        connect(m_meshModel, &QAbstractItemModel::modelAboutToBeReset, &meshMenu, &QMenu::close);
+        if (m_meshModel->kind() == MeshAttributeTableModel::Kind::Cell) {
+            auto *mesh = m_meshModel->layer();
+            auto *infil = meshMenu.addAction(tr("Edit surface infiltration…"));
+            infil->setEnabled(mesh &&
+                              std::any_of(targets.cbegin(), targets.cend(), [mesh](int row) {
+                                  return mesh->surfaceInfiltrationEditable(row);
+                              }));
+            connect(infil, &QAction::triggered, this,
+                    [this, targets] { m_meshModel->editInfiltration(targets, this); });
+            auto *gw = meshMenu.addAction(tr("Edit groundwater parameters…"));
+            gw->setEnabled(mesh && mesh->isActiveMesh() && m_layer && m_layer->engine());
+            connect(gw, &QAction::triggered, this, [this, targets] {
+                emit groundwaterCellsRequested(m_meshModel->layer(), targets);
+            });
+        }
+        if (m_meshModel->kind() == MeshAttributeTableModel::Kind::Edge) {
+            const auto typeCol =
+                std::find_if(specs.cbegin(), specs.cend(),
+                             [](const auto &spec) { return spec.key == QLatin1String("bcType"); }) -
+                specs.cbegin();
+            auto *editBC = meshMenu.addAction(tr("Edit surface boundary condition…"));
+            editBC->setEnabled(std::any_of(targets.cbegin(), targets.cend(), [&](int row) {
+                return m_meshModel->flags(m_meshModel->index(row, typeCol)) & Qt::ItemIsEditable;
+            }));
+            connect(editBC, &QAction::triggered, this,
+                    [this, targets] { m_meshModel->editBoundaryCondition(targets, this); });
+        }
         const bool clickedEditable =
             srcIdx.isValid() && (m_meshModel->flags(srcIdx) & Qt::ItemIsEditable);
         if (clickedEditable && col >= 0 && col < specs.size() && selRows.size() >= 2) {
@@ -2947,11 +2951,13 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                 applyValueToSelectedRows(col, selRows, cellValue);
             });
             // The "prompt for a value" flavour needs a typed input dialog. A
-            // reference column (coupled node / time series / curve) has no such
-            // dialog — its whole point is that the value comes from a closed
-            // picker — so only the copy-the-clicked-cell flavour is offered
-            // there, and the copied id is one the picker already validated.
-            if (spec.editor != openswmmvis::EditorKind::Compound) {
+            // reference column (coupled node / time series / curve) prompts
+            // with the same closed picker as its cell editor, so choosing one
+            // node for many vertices stays a single undo step (the Mesh 2D
+            // ribbon's inline coupled-node editor used to offer that).
+            const bool pickable = spec.editor == openswmmvis::EditorKind::Compound &&
+                                  m_meshModel->pickerRef(spec.key, cellValue.toString()).isValid();
+            if (spec.editor != openswmmvis::EditorKind::Compound || pickable) {
                 QAction *promptVal =
                     meshMenu.addAction(tr("Apply \"%1\" value to %2 selected rows…")
                                            .arg(spec.label)
@@ -3368,6 +3374,7 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
                            ? (m_canvas ? static_cast<QUndoStack *>(m_canvas->undoStack()) : nullptr)
                        : dataSourceActive() ? m_dataModel->undoStack()
                                             : (m_model ? m_model->undoStack() : nullptr);
+    const int undoBefore = undo ? undo->index() : 0;
     if (undo)
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
     if (dataSourceActive()) {
@@ -3385,8 +3392,19 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
             model->setData(idx, value, Qt::EditRole);
         }
     }
-    if (undo)
+    if (undo) {
         undo->endMacro();
+        // QUndoStack keeps an empty macro: when no row changed (every row
+        // already held the value, or every write was refused) that would be
+        // an undo step that does nothing. Undo it and let redo delete it.
+        if (undo->index() > undoBefore && undo->command(undo->index() - 1)->childCount() == 0) {
+            undo->undo();
+            if (auto *empty = const_cast<QUndoCommand *>(undo->command(undo->index()))) {
+                empty->setObsolete(true);
+                undo->redo();
+            }
+        }
+    }
 
     if (!suppressEditForward && !editedNames.isEmpty()) {
         {
@@ -3422,6 +3440,30 @@ QVariant AttributeTablePanel::promptBulkValue(int column, const QVariant &curren
     auto *self = const_cast<AttributeTablePanel *>(this);
     const QString title = tr("Apply Value");
     const QString prompt = tr("New value for \"%1\":").arg(spec.label);
+
+    // Mesh reference columns pick from the model, like their cell editor.
+    if (meshSourceActive() && spec.editor == EditorKind::Compound) {
+        const QVariant ref = m_meshModel->pickerRef(spec.key, current.toString());
+        if (!ref.isValid())
+            return {};
+        QDialog dialog(self);
+        dialog.setWindowTitle(title);
+        auto *layout = new QVBoxLayout(&dialog);
+        layout->addWidget(new QLabel(prompt, &dialog));
+        auto *picker = new DataObjectPickerEditor(&dialog);
+        picker->setValue(ref.value<DataObjectRef>());
+        layout->addWidget(picker);
+        auto *buttons =
+            new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        if (dialog.exec() != QDialog::Accepted)
+            return {};
+        if (ok)
+            *ok = true;
+        return picker->value().currentName;
+    }
 
     switch (spec.editor) {
     case EditorKind::Numeric: {

@@ -114,6 +114,7 @@ private slots:
 
     // iteration 4 — vertically stacked label+combo rows in one group
     void stackedComboWrapperFitsRow();
+    void actionStackRowsAreIndividualButtons();
 
     // split button
     void splitRestoresLastUsedFromSettings();
@@ -124,6 +125,8 @@ private slots:
     // compactor (R5)
     void compactorStepsTrailingGroupWithWidth();
     void compactorLeftPacksWithTrailingSpacer();
+    void compactorSkipsSwitchedOffGroups();
+    void compactorHysteresisSurvivesGroupSwap();
 
 private:
     void wipeRibbonSettings();
@@ -554,6 +557,57 @@ void TestRibbonGroup::wrappedLabelFitsRow()
  * child width and remain noncollapsible.
  *
  */
+/**
+ * @brief A stack column is three real buttons, not a dropdown: each row is bound to its own
+ * action, fits the content budget, keeps its small icon in Compact (label dropped), narrows the
+ * group, and folds into the collapsed popup in order.
+ */
+void TestRibbonGroup::actionStackRowsAreIndividualButtons()
+{
+    RibbonGroup group(QStringLiteral("Nodes"));
+    QAction *junction = makeAction(&group, QStringLiteral("Junction"),
+                                   QStringLiteral("actionJunction"), /*checkable*/ true);
+    QAction *outfall = makeAction(&group, QStringLiteral("Outfall"),
+                                  QStringLiteral("actionOutfall"), true);
+    QAction *storage = makeAction(&group, QStringLiteral("Storage"),
+                                  QStringLiteral("actionStorage"), true);
+    QAction *divider = makeAction(&group, QStringLiteral("Flow Divider"),
+                                  QStringLiteral("actionDivider"), true);
+    const auto rows = group.addStack({junction, outfall, storage});
+    group.addStack({divider});
+
+    QCOMPARE(rows.size(), 3);
+    QCOMPARE(rows[0]->defaultAction(), junction);
+    QCOMPARE(rows[2]->defaultAction(), storage);
+    QCOMPARE(group.buttonForAction(outfall), rows[1]);
+    QCOMPARE(rows[0]->toolButtonStyle(), Qt::ToolButtonTextBesideIcon);
+    QCOMPARE(rows[0]->iconSize(), QSize(openswmmvis::ui::kRibbonIconStack,
+                                        openswmmvis::ui::kRibbonIconStack));
+
+    // Checked state belongs to the action, so the row mirrors a tool switch.
+    junction->setChecked(true);
+    QVERIFY(rows[0]->isChecked());
+
+    auto *column = rows[0]->parentWidget();
+    QCOMPARE(column->objectName(), QStringLiteral("ribbonStackColumn"));
+    QVERIFY2(column->sizeHint().height() <= kRibbonRowHeight - 22,
+             qPrintable(QStringLiteral("three rows take %1 px").arg(column->sizeHint().height())));
+    QCOMPARE(group.sizeHint().height(), kRibbonRowHeight);
+
+    const auto widths = group.groupWidths();
+    QVERIFY(widths.collapsible);
+    QVERIFY2(widths.compact < widths.full,
+             qPrintable(QStringLiteral("compact %1 !< full %2").arg(widths.compact).arg(widths.full)));
+    group.setMode(RibbonMode::Compact);
+    QCOMPARE(rows[0]->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    QCOMPARE(rows[0]->iconSize(), QSize(openswmmvis::ui::kRibbonIconStack,
+                                        openswmmvis::ui::kRibbonIconStack));
+    group.setMode(RibbonMode::Full);
+    QCOMPARE(rows[0]->toolButtonStyle(), Qt::ToolButtonTextBesideIcon);
+
+    QCOMPARE(group.groupActions(), (QList<QAction *>{junction, outfall, storage, divider}));
+}
+
 void TestRibbonGroup::stackedComboWrapperFitsRow()
 {
     // Iteration 4 — the Analysis "Results Layers" group stacks two
@@ -835,4 +889,139 @@ void TestRibbonGroup::compactorLeftPacksWithTrailingSpacer()
 }
 
 QTEST_MAIN(TestRibbonGroup)
+/**
+ * @brief A group whose toolbar action is switched off (a contextual group out of context, such as
+ * a Mesh 2D process group) takes no row width: the visible groups keep their labels when they
+ * fit without it, lose them when it returns, and get them back when it leaves again.
+ */
+void TestRibbonGroup::compactorSkipsSwitchedOffGroups()
+{
+    QMainWindow window;
+    auto *bar = new QToolBar(&window);
+    window.addToolBar(bar);
+    QAction *slotA = nullptr, *slotB = nullptr, *slotC = nullptr;
+    const auto make = [bar](const QString &caption, int n, const QString &prefix, QAction **slot) {
+        auto *group = new RibbonGroup(caption, bar);
+        for (int i = 0; i < n; ++i)
+            group->addAction(makeAction(group, QStringLiteral("%1 Command %2").arg(prefix).arg(i),
+                                        prefix + QString::number(i)));
+        *slot = bar->addWidget(group);
+        return group;
+    };
+    RibbonGroup *a = make(QStringLiteral("A"), 3, QStringLiteral("a"), &slotA);
+    RibbonGroup *b = make(QStringLiteral("B"), 3, QStringLiteral("b"), &slotB);
+    RibbonGroup *c = make(QStringLiteral("C"), 6, QStringLiteral("c"), &slotC);
+    const int fa = a->widthForMode(RibbonMode::Full);
+    const int fb = b->widthForMode(RibbonMode::Full);
+    const int collapsedC = c->widthForMode(RibbonMode::Collapsed);
+    slotC->setVisible(false);
+    new openswmmvis::ui::RibbonCompactor(bar, {a, b, c});
+
+    window.resize(fa + fb + 800, 220);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const auto available = [bar] {
+        const QMargins m = bar->layout()->contentsMargins();
+        return bar->contentsRect().width() - m.left() - m.right();
+    };
+    const int spacing = bar->layout()->spacing();
+    // 40 px of slack for A and B: enough to promote (32 px dead band), too
+    // little to hold C even collapsed.
+    const int target = fa + fb + spacing + 40;
+    window.resize(window.width() - (available() - target), 220);
+    QTRY_COMPARE(available(), target);
+    QVERIFY2(collapsedC + spacing > 40, "fixture: C must not fit in the slack");
+
+    QTRY_COMPARE(a->mode(), RibbonMode::Full);
+    QTRY_COMPARE(b->mode(), RibbonMode::Full);
+    QTest::qWait(50);
+    QCOMPARE(b->mode(), RibbonMode::Full); // C is out of context: no demotion
+
+    slotC->setVisible(true); // C back in context: something must give
+    QTRY_VERIFY(b->mode() != RibbonMode::Full || c->mode() == RibbonMode::Collapsed);
+    QVERIFY(b->mode() != RibbonMode::Full);
+
+    slotC->setVisible(false); // and out again: A and B get their labels back
+    QTRY_COMPARE(b->mode(), RibbonMode::Full);
+    QCOMPARE(a->mode(), RibbonMode::Full);
+}
+
+/**
+ * @brief Swapping one switched-off group for another of the same width (the Mesh 2D process
+ * picker) leaves the other groups' modes alone. The hysteresis compares against each group's
+ * current mode: a stale or reset seed would promote B, which is compact inside the dead band.
+ */
+void TestRibbonGroup::compactorHysteresisSurvivesGroupSwap()
+{
+    QMainWindow window;
+    auto *bar = new QToolBar(&window);
+    window.addToolBar(bar);
+    QAction *slotA = nullptr, *slotB = nullptr, *slotC = nullptr, *slotD = nullptr;
+    // Labels come from \a text, object names from \a name: C and D share their
+    // text so they measure the same.
+    const auto make = [bar](const QString &caption, int n, const QString &text,
+                            const QString &name, QAction **slot) {
+        auto *group = new RibbonGroup(caption, bar);
+        for (int i = 0; i < n; ++i)
+            group->addAction(makeAction(group, QStringLiteral("%1 Command %2").arg(text).arg(i),
+                                        name + QString::number(i)));
+        *slot = bar->addWidget(group);
+        return group;
+    };
+    RibbonGroup *a = make(QStringLiteral("A"), 3, QStringLiteral("a"), QStringLiteral("a"), &slotA);
+    RibbonGroup *b = make(QStringLiteral("B"), 3, QStringLiteral("b"), QStringLiteral("b"), &slotB);
+    RibbonGroup *c =
+        make(QStringLiteral("Process"), 4, QStringLiteral("p"), QStringLiteral("c"), &slotC);
+    RibbonGroup *d =
+        make(QStringLiteral("Process"), 4, QStringLiteral("p"), QStringLiteral("d"), &slotD);
+    slotD->setVisible(false); // C and D take turns, like two process groups
+    new openswmmvis::ui::RibbonCompactor(bar, {a, b, c, d});
+
+    const int fa = a->widthForMode(RibbonMode::Full);
+    const int fb = b->widthForMode(RibbonMode::Full);
+    const int cb = b->widthForMode(RibbonMode::Compact);
+    const int fc = c->widthForMode(RibbonMode::Full);
+    const int cc = c->widthForMode(RibbonMode::Compact);
+    QCOMPARE(d->widthForMode(RibbonMode::Full), fc);
+    QCOMPARE(d->widthForMode(RibbonMode::Compact), cc);
+
+    window.resize(fa + fb + fc + 800, 220);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const int spacing = bar->layout()->spacing();
+    const auto available = [bar] {
+        const QMargins m = bar->layout()->contentsMargins();
+        return bar->contentsRect().width() - m.left() - m.right();
+    };
+    const auto resizeTo = [&](int target) {
+        window.resize(window.width() - (available() - target), 220);
+        QTRY_COMPARE(available(), target);
+    };
+    // Narrow: B and C compact. Then 10 px wider than A + B full + C compact:
+    // B's promotion is due but lies inside the 32 px dead band, so B holds.
+    const int narrow = fa + cb + cc + 2 * spacing;
+    const int held = fa + fb + cc + 2 * spacing + 10;
+    QVERIFY2(fb - cb >= 22 && fc - cc > 10, "fixture: B and C must have room to compact");
+    resizeTo(narrow);
+    QTRY_COMPARE(b->mode(), RibbonMode::Compact);
+    QTRY_COMPARE(c->mode(), RibbonMode::Compact);
+    resizeTo(held);
+    QTest::qWait(50);
+    QCOMPARE(a->mode(), RibbonMode::Full);
+    QCOMPARE(b->mode(), RibbonMode::Compact); // hysteresis holds B
+    QCOMPARE(c->mode(), RibbonMode::Compact);
+
+    for (int swap = 0; swap < 2; ++swap) {
+        QAction *out = swap == 0 ? slotC : slotD;
+        QAction *in = swap == 0 ? slotD : slotC;
+        RibbonGroup *shown = swap == 0 ? d : c;
+        out->setVisible(false);
+        in->setVisible(true);
+        QTRY_COMPARE(shown->mode(), RibbonMode::Compact); // same width, same fit
+        QTest::qWait(50);
+        QCOMPARE(a->mode(), RibbonMode::Full);
+        QCOMPARE(b->mode(), RibbonMode::Compact); // a fresh solve would promote it
+    }
+}
+
 #include "test_ribbongroup.moc"

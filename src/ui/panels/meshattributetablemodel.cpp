@@ -24,6 +24,16 @@
 #include "mesh/meshobjectref.h"
 #include "ui/properties/dataobjectref.h"
 
+#include "ui/dialogs/infilassigntoselectiondialog.h"
+#include "ui/properties/dataobjectpickereditor.h"
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QVBoxLayout>
 #include <QBrush>
 #include <QCoreApplication>
 #include <QFont>
@@ -180,7 +190,8 @@ ColumnSpec bcTypeCol()
     c.editor = EditorKind::Enum;
     c.setter = c.key;
     for (int t = int(MeshBCTypes::Type::Wall); t <= int(MeshBCTypes::Type::RatingCurve); ++t) {
-        c.enumValues.append(QVariantList{MeshBCTypes::label(static_cast<MeshBCTypes::Type>(t)), t});
+        c.enumValues.append(
+            QVariant(QVariantList{MeshBCTypes::label(static_cast<MeshBCTypes::Type>(t)), t}));
     }
     return c;
 }
@@ -209,47 +220,44 @@ ColumnSpec enumCol(const mesh::CellParamSpec &s)
     c.minValue = s.min;
     c.maxValue = s.max;
     for (int i = 0; i < s.enumLabels.size(); ++i)
-        c.enumValues.append(QVariantList{s.enumLabels[i], int(s.min) + i});
+        c.enumValues.append(QVariant(QVariantList{s.enumLabels[i], int(s.min) + i}));
     return c;
 }
 
-/*! Does boundary-condition field \p key carry a value for type \p t?
- *
- *  Each BC type reads exactly one parameter, so the others are noise: a Wall
- *  has none, a Normal Flow reads only its bed slope, a Rating Curve only its
- *  curve. Mirrors the mesh toolbar, which shows one parameter widget per type
- *  and hides the rest — here the inapplicable cells render "—" and refuse
- *  edits, so a boundary can't be left carrying a stage the engine will ignore
- *  or a curve reference nothing reads. `group` is orthogonal to the type and
- *  applies throughout.
- * @param[in] t Resolved boundary type; unknown treated unused.
- * @param[in] key Exact boundary parameter key; group always applies, even unknown type.
- * @return True for slope/NormalFlow, head/constant-stage, flow/constant-flow, tseries/TS types,
- *   curve/RatingCurve, or group; Wall has no non-group fields. Does not establish boundary status,
- *   clear inactive values or mutate source.
- */
-bool bcFieldApplies(mesh::MeshBCTypes::Type t, const QString &key)
+using BCType = mesh::MeshBCTypes::Type;
+
+// The field key also selects the numeric bounds, unit label and reference
+// picker used in the complete-record editor.
+struct BoundaryParameter {
+    const char *key;
+    double mesh::MeshEdgeBC::*number;
+    QString mesh::MeshEdgeBC::*reference;
+};
+
+BoundaryParameter boundaryParameter(BCType type)
 {
-    using T = mesh::MeshBCTypes::Type;
-    if (key == QLatin1String("group"))
-        return true;
-    switch (t) {
-    case T::Wall:
-        return key == QLatin1String("wallDrag");
-    case T::NormalFlow:
-        return key == QLatin1String("slope");
-    case T::SpecifiedStageConst:
-        return key == QLatin1String("head");
-    case T::SpecifiedStageTS:
-        return key == QLatin1String("tseries");
-    case T::SpecifiedFlowConst:
-        return key == QLatin1String("flow");
-    case T::SpecifiedFlowTS:
-        return key == QLatin1String("tseries");
-    case T::RatingCurve:
-        return key == QLatin1String("curve");
+    using BC = mesh::MeshEdgeBC;
+    switch (type) {
+    case BCType::Wall:
+        return {"wallDrag", &BC::wallDrag, nullptr};
+    case BCType::NormalFlow:
+        return {"slope", &BC::slope, nullptr};
+    case BCType::SpecifiedStageConst:
+        return {"head", &BC::head, nullptr};
+    case BCType::SpecifiedFlowConst:
+        return {"flow", &BC::flow, nullptr};
+    case BCType::SpecifiedStageTS:
+    case BCType::SpecifiedFlowTS:
+        return {"tseries", nullptr, &BC::tseries};
+    case BCType::RatingCurve:
+        return {"curve", nullptr, &BC::curve};
     }
-    return false;
+    return {"", nullptr, nullptr};
+}
+
+bool bcFieldApplies(BCType type, const QString &key)
+{
+    return key == QLatin1String("group") || key == QLatin1String(boundaryParameter(type).key);
 }
 
 /*! Endpoint vertex indices of local edge \p e on cell \p tri.
@@ -352,6 +360,10 @@ bool editedInfilRow(SWMM2DMeshLayer *layer, int row, const QByteArray &key,
 MeshAttributeTableModel::MeshAttributeTableModel(QObject *parent) : QAbstractTableModel(parent)
 {
     rebuildColumns();
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this, [this] {
+        rebuildColumns();
+        emit headerDataChanged(Qt::Horizontal, 0, columnCount() - 1);
+    });
 }
 
 void MeshAttributeTableModel::setCanvas(MapCanvas *canvas)
@@ -364,13 +376,13 @@ void MeshAttributeTableModel::setModelLayer(SWMMModelLayer *layer)
     // Compare pick-ability, not just the pointer: the panel binds the layer
     // before the engine is open, so the SAME layer goes from "nothing to offer"
     // to "here are the nodes" and the columns have to follow.
-    if (m_modelLayer == layer && canPick() == (layer && layer->engine()))
+    if (m_modelLayer == layer && m_pickerAvailable == bool(layer && layer->engine()))
         return;
     // The reference columns switch editor kind on this (picker ⇄ plain text),
     // so the schema itself changes — a reset, not a dataChanged.
     beginResetModel();
     m_modelLayer = layer;
-    if (m_layer)
+    if (m_layer && !m_focus.isValid())
         m_layer->setInfiltrationModel(layer);
     rebuildColumns();
     endResetModel();
@@ -404,7 +416,8 @@ QVariant MeshAttributeTableModel::pickerRef(const QString &key, const QString &c
     return QVariant::fromValue(ref);
 }
 
-void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind)
+void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind,
+                                        const SWMMObjectRef &focus)
 {
     beginResetModel();
     // Unconditional: connectLayer() below re-establishes everything, and one of
@@ -413,7 +426,11 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind)
     if (m_layer)
         disconnect(m_layer, nullptr, this, nullptr);
     m_layer = layer;
-    if (m_layer)
+    // The segment-tag index belongs to the previous mesh; two meshes can share
+    // a geometry revision, so the revision check alone would reuse it.
+    m_segmentTagsBuilt = false;
+    m_focus = focus;
+    if (m_layer && !m_focus.isValid())
         m_layer->setInfiltrationModel(m_modelLayer);
     m_kind = kind;
     connectLayer(layer);
@@ -456,6 +473,7 @@ void MeshAttributeTableModel::reload()
 
 void MeshAttributeTableModel::rebuildColumns()
 {
+    m_pickerAvailable = canPick();
     m_columnSpecs.clear();
     m_firstCellParamCol = -1;
 
@@ -508,6 +526,10 @@ void MeshAttributeTableModel::rebuildColumns()
                   tr("Whether the edge lies on the mesh outline (or a hole). "
                      "Boundary conditions apply to these edges only."))
             << ro(QStringLiteral("Length"), tr("Length (map units)"))
+            << ro(QStringLiteral("segment"), tr("Segment"), UnitKind::None,
+                  tr("Named boundary segment the edge lies on (a node string or "
+                     "generator tag such as a conduit id or \"outflow\"); empty "
+                     "when the edge is on no named segment."))
             << num(QStringLiteral("conveyance"), tr("Conveyance"), 0.0, 1.0, 4, UnitKind::None,
                    tr("Flux attenuation multiplier in [0, 1]; 1 = "
                       "unrestricted. Applies to interior edges too, and is "
@@ -518,9 +540,11 @@ void MeshAttributeTableModel::rebuildColumns()
             << num(QStringLiteral("head"), tr("Stage"), -1.0e9, 1.0e9, 4, UnitKind::Length,
                    tr("Fixed water-surface elevation for a Specified Stage "
                       "(constant) boundary."))
-            << num(QStringLiteral("slope"), tr("Friction Slope"), 0.0, 1.0e6, 6, UnitKind::None,
-                   tr("Dimensionless friction slope for a Normal Depth boundary. "
-                      "Zero conveys no flow and acts as a wall."))
+            << num(QStringLiteral("slope"), tr("Friction Slope"), -1.0e6, 1.0e6, 6, UnitKind::None,
+                   tr("Signed, dimensionless friction slope for a Normal Depth boundary. "
+                      "Positive drains the domain; negative feeds it at the same Manning "
+                      "rate, using the depth already in the boundary cell (use Specified "
+                      "Flow to wet a dry bed). Zero conveys nothing and acts as a wall."))
             << num(QStringLiteral("flow"), tr("Flow"), -1.0e12, 1.0e12, 4, UnitKind::None,
                    tr("Discharge per metre of edge for a Specified Flow "
                       "(constant) boundary."))
@@ -558,6 +582,10 @@ void MeshAttributeTableModel::rebuildColumns()
                                      s.lengthUnit ? UnitKind::Length : UnitKind::None, s.tooltip);
             }
         }
+        m_columnSpecs << ro("corners", tr("Corner vertex IDs"))
+                      << ro("ownerSource", tr("Ownership source"))
+                      << ro("infilOrigin", tr("Infiltration assignment"))
+                      << ro("infilDestination", tr("Infiltration destination"));
         break;
     }
 }
@@ -577,6 +605,24 @@ void MeshAttributeTableModel::rebuildEdgeRows()
 
     const int nTri = m_layer->triangleCount();
     const auto &cells = m_layer->mesh().triangles;
+    if (m_focus.isValid()) {
+        int cell = -1, local = -1;
+        QString key;
+        if (!mesh::MeshObjectRef::parseEdge(m_focus, &key, &cell, &local) || cell >= nTri ||
+            local >= cells[cell].vertexCount())
+            return;
+        const auto neighbor = m_layer->findEdgeNeighbour(cell, local);
+        const int slot = mesh::edgeSlot(cell, local);
+        int canonical = slot;
+        if (neighbor.first >= 0) {
+            const int twin = mesh::edgeSlot(neighbor.first, neighbor.second);
+            m_slotRow.insert(twin, 0);
+            canonical = std::min(canonical, twin);
+        }
+        m_slotRow.insert(slot, 0);
+        m_edgeSlots.append(canonical);
+        return;
+    }
     m_edgeSlots.reserve((3 * nTri + 1) / 2);
     m_slotRow.reserve(3 * nTri);
     for (int t = 0; t < nTri; ++t) {
@@ -875,6 +921,21 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
                 return {};
             return QLineF(m.vertices[va].xy, m.vertices[vb].xy).length();
         }
+        if (spec.key == QLatin1String("segment")) {
+            int va = -1, vb = -1;
+            if (!edgeEndpoints(m, tri, e, &va, &vb))
+                return {};
+            // Indexed once per geometry revision: a sort or export reads every row.
+            if (m_segmentTagsRevision != m_layer->geomRevision() || !m_segmentTagsBuilt) {
+                m_segmentTags.clear();
+                for (const auto &be : m.boundaryEdges)
+                    if (!be.tag.isEmpty())
+                        m_segmentTags.insert({qMin(be.v0, be.v1), qMax(be.v0, be.v1)}, be.tag);
+                m_segmentTagsRevision = m_layer->geomRevision();
+                m_segmentTagsBuilt = true;
+            }
+            return m_segmentTags.value({qMin(va, vb), qMax(va, vb)});
+        }
         const QVector<mesh::MeshEdgeBC> &bcs = m_layer->edgeBCs();
         if (flat >= bcs.size())
             return {};
@@ -941,6 +1002,24 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         }
         if (spec.key == QLatin1String("tag"))
             return t.tag;
+        if (spec.key == QLatin1String("corners")) {
+            QStringList corners;
+            for (int k = 0; k < t.vertexCount(); ++k)
+                corners << QString::number(t.vertex(k));
+            return corners.join(QStringLiteral(", "));
+        }
+        if (spec.key == QLatin1String("ownerSource"))
+            return m.infiltrationSource.value(row);
+        if (spec.key == QLatin1String("infilOrigin") ||
+            spec.key == QLatin1String("infilDestination")) {
+            const auto resolved = mesh::resolveInfil(m, row);
+            if (resolved.provenance == mesh::InfilProvenance::None)
+                return missing(tr("No surface infiltration assignment."));
+            if (spec.key == QLatin1String("infilDestination"))
+                return mesh::infilDestLabel(resolved.row.dest);
+            return resolved.isOverride() ? tr("Cell override")
+                                         : tr("Inherited from %1").arg(resolved.sourceTag);
+        }
         // Per-cell parameter: unset reads back as the registry default, which
         // is what the engine would use; engine-pending keys have no value.
         const QByteArray key = spec.key.toUtf8();
@@ -1089,6 +1168,202 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     // objectEdited is the user-edit-only signal other views key off.
     emit objectEdited(refForRow(row).name);
     return true;
+}
+
+void MeshAttributeTableModel::editInfiltration(const QList<int> &rows, QWidget *parent)
+{
+    if (!m_layer || m_kind != Kind::Cell)
+        return;
+    QSet<SWMMObjectRef> targets;
+    for (int row : rows) {
+        if (row >= 0 && row < rowCount() && m_layer->surfaceInfiltrationEditable(row))
+            targets.insert(refForRow(row));
+    }
+    if (targets.isEmpty())
+        return;
+    // Give the existing assignment form a private selection. A table sort or
+    // a subsequent map pick must never retarget a draft.
+    auto *selection = new SelectionManager;
+    selection->select(targets);
+    auto *units = UnitSystem::instance();
+    auto *dialog = new openswmmvis::ui::InfilAssignToSelectionDialog(
+        m_layer, m_canvas, selection, units ? units->depthLabel() : tr("m"), parent);
+    selection->setParent(dialog);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(this, &QAbstractItemModel::modelAboutToBeReset, dialog, &QDialog::reject);
+    const auto rejectIfGeometryChanged = [mesh = m_layer, revision = m_layer->geomRevision(), dialog] {
+        if (!mesh || mesh->geomRevision() != revision) dialog->reject();
+    };
+    connect(m_layer, &SWMM2DMeshLayer::meshEditsChanged, dialog, rejectIfGeometryChanged);
+    connect(m_layer, &SWMM2DMeshLayer::attributeChanged, dialog, rejectIfGeometryChanged);
+    connect(m_layer, &QObject::destroyed, dialog, &QDialog::reject);
+    if (m_canvas)
+        connect(m_canvas, &MapCanvas::layerRemoved, dialog,
+                [layer = m_layer, dialog](auto *removed) {
+                    if (removed == layer)
+                        dialog->reject();
+                });
+    dialog->open();
+}
+
+void MeshAttributeTableModel::editBoundaryCondition(const QList<int> &rows, QWidget *parent)
+{
+    QVector<QPair<int, int>> edges;
+    QVector<mesh::MeshEdgeBC> before;
+    for (int row : rows) {
+        if (!rowIsBoundaryEdge(row))
+            continue;
+        const int slot = slotForRow(row);
+        if (slot >= m_layer->edgeBCs().size())
+            continue;
+        edges.append({mesh::slotCell(slot), mesh::slotLocal(slot)});
+        before.append(m_layer->edgeBCs()[slot]);
+    }
+    if (edges.isEmpty())
+        return;
+
+    auto *dialog = new QDialog(parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(tr("Surface boundary condition"));
+    dialog->setObjectName("meshBoundaryDialog");
+    auto *layout = new QVBoxLayout(dialog);
+    layout->addWidget(new QLabel(
+        tr("%1 of %2 selected edges are boundary edges.").arg(edges.size()).arg(rows.size()),
+        dialog));
+    auto *form = new QFormLayout;
+    layout->addLayout(form);
+    auto *type = new QComboBox(dialog);
+    type->setObjectName("boundaryType");
+    for (const auto &entry : bcTypeCol().enumValues) {
+        const auto pair = entry.toList();
+        type->addItem(pair.first().toString(), pair.last());
+    }
+    auto *label = new QLabel(dialog);
+    auto *value = new QLineEdit(dialog);
+    value->setObjectName("boundaryValue");
+    auto *picker = new DataObjectPickerEditor(dialog);
+    form->addRow(tr("Type"), type);
+    form->addRow(label, value);
+    // Both value rows carry the field's own name ("Time Series", "Rating
+    // Curve"), so the picker and the no-model text field read the same.
+    auto *pickerLabel = new QLabel(dialog);
+    form->addRow(pickerLabel, picker);
+    auto *message = new QLabel(dialog);
+    message->setWordWrap(true);
+    layout->addWidget(message);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    layout->addWidget(buttons);
+
+    const mesh::MeshEdgeBC first = before.first();
+    // Distinct labels and conveyance values are independent of the BC.
+    const bool uniform = std::all_of(before.cbegin(), before.cend(), [&](const auto &bc) {
+        const auto param = boundaryParameter(first.type);
+        return bc.type == first.type &&
+               (param.number ? bc.*param.number == first.*param.number
+                             : param.reference && bc.*param.reference == first.*param.reference);
+    });
+    type->setPlaceholderText(tr("Choose a boundary type"));
+    type->setCurrentIndex(uniform ? type->findData(int(first.type)) : -1);
+    const auto refresh = [=, this] {
+        const bool active = type->currentIndex() >= 0;
+        const auto selected = static_cast<BCType>(type->currentData().toInt());
+        const auto param = boundaryParameter(selected);
+        const bool usePicker = active && param.reference && canPick();
+        form->setRowVisible(value, active && !usePicker);
+        form->setRowVisible(picker, usePicker);
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(active);
+        message->clear();
+        if (!active)
+            return;
+        for (int col = 0; col < m_columnSpecs.size(); ++col) {
+            if (m_columnSpecs[col].key == QLatin1String(param.key)) {
+                label->setText(headerData(col, Qt::Horizontal).toString());
+                pickerLabel->setText(label->text());
+                value->setToolTip(m_columnSpecs[col].tooltip);
+                break;
+            }
+        }
+        const bool useOriginal = uniform && selected == first.type;
+        const mesh::MeshEdgeBC draft = useOriginal ? first : mesh::MeshEdgeBC{};
+        if (param.number)
+            value->setText(QString::number(draft.*param.number, 'g', QLocale::FloatingPointShortest));
+        else if (usePicker)
+            picker->setValue(pickerRef(QString::fromLatin1(param.key), draft.*param.reference)
+                                 .value<DataObjectRef>());
+        else
+            value->setText(draft.*param.reference);
+    };
+    connect(type, &QComboBox::currentIndexChanged, dialog, refresh);
+    refresh();
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(this, &QAbstractItemModel::modelReset, dialog,
+            [this, dialog, mesh = m_layer, model = m_modelLayer, canvas = m_canvas] {
+                if (m_layer != mesh || m_modelLayer != model || m_canvas != canvas ||
+                    m_kind != Kind::Edge)
+                    dialog->reject();
+            });
+    connect(m_layer, &SWMM2DMeshLayer::selectionInvalidated, dialog, &QDialog::reject);
+    connect(this, &QObject::destroyed, dialog, &QDialog::reject);
+    connect(m_layer, &QObject::destroyed, dialog, &QDialog::reject);
+    if (m_modelLayer)
+        connect(m_modelLayer, &SWMMModelLayer::engineAboutToClose, dialog, &QDialog::reject);
+    if (m_canvas)
+        connect(m_canvas, &MapCanvas::layerRemoved, dialog,
+                [layer = m_layer, dialog](auto *removed) {
+                    if (removed == layer)
+                        dialog->reject();
+                });
+    const auto geometryRevision = m_layer->geomRevision();
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [=, this] {
+        if (!dialog->isVisible() || !m_layer || type->currentIndex() < 0)
+            return;
+        for (int i = 0; i < edges.size(); ++i) {
+            const auto [cell, local] = edges[i];
+            const int slot = mesh::edgeSlot(cell, local);
+            if (m_layer->geomRevision() != geometryRevision || !m_layer->isBoundaryEdge(cell, local) ||
+                slot >= m_layer->edgeBCs().size() ||
+                m_layer->edgeBCs()[slot] != before[i]) {
+                message->setText(tr("These edges have changed. Reopen the editor to review them."));
+                return;
+            }
+        }
+        const auto selected = static_cast<BCType>(type->currentData().toInt());
+        const auto param = boundaryParameter(selected);
+        // Retain dormant fields when editing a single existing prescription.
+        mesh::MeshEdgeBC next = selected == first.type ? first : mesh::MeshEdgeBC{};
+        next.type = selected;
+        if (param.number) {
+            bool ok = false;
+            const double n = value->text().toDouble(&ok);
+            for (const auto &spec : m_columnSpecs) {
+                if (spec.key == QLatin1String(param.key) &&
+                    (!ok || !std::isfinite(n) || n < spec.minValue || n > spec.maxValue)) {
+                    message->setText(tr("Enter a value between %1 and %2.")
+                                         .arg(spec.minValue)
+                                         .arg(spec.maxValue));
+                    return;
+                }
+            }
+            next.*param.number = n;
+        } else {
+            const QString id = canPick() ? picker->value().currentName : value->text().trimmed();
+            if (id.isEmpty() ||
+                (canPick() &&
+                 !m_modelLayer->tableIdsOfType(selected == BCType::RatingCurve ? -1 : 0)
+                      .contains(id, Qt::CaseInsensitive))) {
+                message->setText(tr("Choose a valid reference for this boundary condition."));
+                return;
+            }
+            next.*param.reference = id;
+        }
+        const bool unchanged = uniform && next.type == first.type &&
+                               (param.number ? next.*param.number == first.*param.number
+                                             : next.*param.reference == first.*param.reference);
+        if (!unchanged && mesh::pushEdgeBCEdit(m_layer, edges, next, m_canvas) > 0)
+            emit objectEdited(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));
+        dialog->accept();
+    });
+    dialog->open();
 }
 
 void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourceRows,

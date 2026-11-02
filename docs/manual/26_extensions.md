@@ -63,7 +63,7 @@ available through the Analysis Toolbox in every mode.
 
 ## Finding and opening tools
 
-Use **View → Tools → Analysis Toolbox** on the ribbon, or **View → Panels →
+Use **Analysis → Toolbox → Analysis Toolbox** on the ribbon, or **View → Panels →
 Analysis Toolbox** in the menu, to browse tools grouped by extension
 and toolset. Type in the search box to match tool names, descriptions and tags.
 Use **Tags** to check categories graphically. A tool must match every checked

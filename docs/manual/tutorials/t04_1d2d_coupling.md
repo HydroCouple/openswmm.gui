@@ -94,9 +94,10 @@ Custom `[USER_FLAGS]` / `[USER_FLAG_VALUES]` attributes do not replace these sec
 
 ## 2. Inspect the exchange map
 
-Select a mesh vertex with the **Vertices** tool on **Mesh 2D**. Its coupling
-controls show **Coupled SWMM node**, **Cd** and **Area**. Inspect vertex 16
-and then 18. The map in the input is:
+On **Mesh 2D**, choose **Vertices** in the **Select** group and click a mesh
+vertex. **Properties** shows its **Node coupling** fields: **Coupled Node**,
+**Coupling Cd** and **Coupling Area**. Inspect vertex 16 and then 18. The map
+in the input is:
 
 ```
 [2D_VERTEX_NODE_MAP]
@@ -109,7 +110,7 @@ cell to the nearest node. The per-row Cd and area override the global defaults
 on **Simulation Options → 2D Surface Routing → Coupling**. Area is square
 metres here; it must be consistent with the inlet opening being represented.
 
-\figtodo{t04_vertex_coupling_toolbar.png, The Mesh 2D vertex controls showing vertex 16 coupled to J1 with Cd 0.65 and area 0.02 square metres}
+\figtodo{t04_vertex_coupling_toolbar.png, Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square metres}
 
 Open **Attribute Table** and choose the mesh **Vertices** category. Check
 indices 16 and 18, coordinates, elevations and **Coupled Node**. Only two
@@ -204,11 +205,12 @@ choices; do not assume every temporary plot setting is saved with the project.
 
 Change one item in a copy, rerun and compare both domain ledgers:
 
-- Clear vertex 16's **Coupled SWMM node** to remove J1's exchange. Inspect
+- Clear vertex 16's **Coupled Node** to remove J1's exchange. Inspect
   ordinary flooding as well as J2's remaining exchange; other pathways may
   compensate, so total surface storage need not change monotonically.
-- Change one vertex's **Cd** or **Area**. These affect exchange capacity;
-  compare volume and timing instead of assuming a proportional peak-depth change.
+- Change one coupled vertex's **Coupling Cd** or **Coupling Area**. These
+  affect exchange capacity; compare volume and timing instead of assuming a
+  proportional peak-depth change.
 - Add a positive **Surcharge Depth** to J1. This changes the capped exchange
   threshold; verify that the mesh bed and node rim still use the same datum.
 - Select **None (no direct rainfall)**. The 48 m³ rainfall term disappears,

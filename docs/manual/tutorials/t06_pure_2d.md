@@ -348,8 +348,8 @@ options. Here is the raster route.
 2. **Add the raster.** **File → Import → Add Raster Data…** and pick your slope
    DEM (GeoTIFF, ASCII Grid, Erdas Imagine, SRTMHGT, netCDF, … — the offered
    filter lists only the drivers the running build actually has).
-3. **Open Generate 2D Mesh** (**Mesh 2D** ribbon tab, or **Model → Generate
-   Mesh**). The dialog has three tabs plus a persistent footer.
+3. **Open Generate 2D Mesh** (ribbon **Model → 2D Mesh → Generate Mesh**, or
+   **Model → Generate Mesh…**). The dialog has three tabs plus a persistent footer.
 
    **Sources** tab:
    - **DTM raster:** your slope raster; **DTM vertical unit:**,
@@ -391,7 +391,7 @@ options. Here is the raster route.
    `DRY_DEPTH`, `REPORT_2D` and `OUTPUT_FILE`. The **2D results file:** field
    has the placeholder `<model>.2d.h5 (automatic)`.
 7. **Leave the boundaries alone** for a closed box, or select the low edge with
-   **Select Mesh Edges** and give it **Normal Flow** with a non-zero slope so
+   **Select Mesh Edges** and give it **Normal Depth** with a positive slope so
    the domain drains.
 8. **Save and run.**
 
@@ -416,7 +416,7 @@ that would have made things worse, and so on).
 ## Variations
 
 - **Open the west wall.** Select the run of boundary edges at *x* = 0 and set
-  **Normal Flow** with a slope of, say, 0.03 to match the bed. The pond drains
+  **Normal Depth** with a slope of, say, 0.03 to match the bed. The pond drains
   off the domain instead of filling.
 - **Switch to `NATURAL_NEIGHBOUR`** and add a second gage with a different
   series. Give both `[SYMBOLS]` locations and watch the rainfall field vary

@@ -20,7 +20,8 @@ boundary-condition type the engine accepts**, plus an `[2D_EDGE_CONVEYANCE]`
 - `[2D_VERTEX_NODE_MAP]` and `[2D_TRIANGLE_NODE_MAP]` — 1D↔2D coupling
 - `[2D_OPTIONS]` — `CELL_CLOSURE`, `FACE_RECONSTRUCTION`, `COUPLING_*`,
   `RAINFALL_MODE`, and the CVODE-era keys the engine has retired
-- **Select Mesh Edges** tool, mesh attribute table, mesh layer styling
+- **Mesh 2D** tab **Edges** and **Vertices** tools, **Boundary Condition…**
+  editor, Properties, mesh attribute table, mesh layer styling
 - 2D mesh profile plot, map animation, flow balance, the status report
 
 ## Files
@@ -71,51 +72,66 @@ edge is left out of the section, and **an unlisted boundary edge defaults to
 `WALL`** — so the plain is walled on three sides.
 
 1. Make the mesh layer active on the **Mesh 2D** ribbon tab (pick it in the
-   **Mesh:** combo of the mesh toolbar).
-2. Activate **Select Mesh Edges** (**Mesh 2D** tab, or
-   **Model → Mesh → Select Mesh Edges**). By default it picks **boundary edges
+   **Mesh:** picker of the **Mesh** group), then pick **Surface Flow** in the
+   **Process** group's picker so the **Surface Flow** group shows.
+2. Activate the **Edges** tool (**Mesh 2D → Select** group, or
+   **Model → Mesh → Select Edge**). By default it picks **boundary edges
    only**; press **A** to include interior edges and **B** to go back.
 3. Click one edge on the X = 1000 face, then **Ctrl-click** (⌘-click on macOS)
    another edge further along that face. Every boundary edge on the shortest
    run between the two is added to the selection. Keep Ctrl-clicking to walk
    the whole face in a few clicks. **Esc** drops a pending anchor; **Esc**
    again clears the selection. (\ref manual_selection has the full rules.)
-4. Read the **Edges** group on the mesh toolbar. With a run selected it shows
-   `Edges: 10 (10 boundary)`, and the **BC type** combo reads **Normal Flow**
-   with **Slope:** `0.00100`.
+4. Click **Boundary Condition** in the **Surface Flow** group (or
+   **Model → Mesh → Boundary Condition…**); it is enabled once at least one
+   boundary edge is selected. The **Surface boundary condition** editor opens
+   with `10 of 10 selected edges are boundary edges.`, **Type** reading
+   **Normal Depth** and **Friction Slope** `0.001`.
 
-\figtodo{t05_select_mesh_edges.png, The Select Mesh Edges tool with the whole east outflow face selected and the Edges group showing Normal Flow}
+\figtodo{t05_select_mesh_edges.png, The Edges tool with the whole east outflow face selected and the Surface boundary condition editor showing Normal Depth}
 
-The seven type entries in that combo map one-to-one onto the engine's
-`[2D_BOUNDARY_CONDITIONS]` `TYPE` tokens:
+The seven entries in the editor's **Type** combo (the same list as the edge
+table's **BC Type** column) map one-to-one onto the engine's
+`[2D_BOUNDARY_CONDITIONS]` `TYPE` tokens. Below the combo the editor shows the
+one value field that type uses:
 
-| Combo entry | `.inp` token | `PARAM_1` |
-|---|---|---|
-| **Wall** | `WALL` | — (no flux) |
-| **Normal Flow** | `NORMAL_FLOW` | bed slope, dimensionless |
-| **Specified Stage (Constant)** | `SPECIFIED_STAGE` | water-surface elevation |
-| **Specified Stage (Timeseries)** | `TS_STAGE` | a `[TIMESERIES]` name |
-| **Specified Flow (Constant)** | `SPECIFIED_FLOW` | discharge per metre of edge |
-| **Specified Flow (Timeseries)** | `TS_FLOW` | a `[TIMESERIES]` name |
-| **Rating Curve** | `RATING_CURVE` | a `RATING` `[CURVES]` name |
+| Type entry | `.inp` token | Value field | `PARAM_1` |
+|---|---|---|---|
+| **Wall** | `WALL` (`WALL_DRAG` when Cw > 0) | **Wall drag Cw** | — (no flux); Cw for `WALL_DRAG` |
+| **Normal Depth** | `NORMAL_FLOW` | **Friction Slope** | signed friction slope, dimensionless |
+| **Specified Stage (Constant)** | `SPECIFIED_STAGE` | **Stage** | water-surface elevation |
+| **Specified Stage (Timeseries)** | `TS_STAGE` | **Time Series** | a `[TIMESERIES]` name |
+| **Specified Flow (Constant)** | `SPECIFIED_FLOW` | **Flow** | discharge per metre of edge |
+| **Specified Flow (Timeseries)** | `TS_FLOW` | **Time Series** | a `[TIMESERIES]` name |
+| **Rating Curve** | `RATING_CURVE` | **Rating Curve** | a `RATING` `[CURVES]` name |
 
-Changing the combo applies immediately to **every** selected edge, so a run
-selection is the fast way to build an outflow face.
+The **Time Series** and **Rating Curve** rows are pickers over the model's
+time series or curves (a plain text field when no model is open). **OK** writes the type and
+value to **every** selected boundary edge as one undo step, so a run selection
+is the fast way to build an outflow face. If the selected edges disagree, the
+editor opens with no type chosen and **OK** stays disabled until you pick one.
+The same editor opens from **Edit surface boundary condition…** on a single
+edge's **Boundary condition** group in **Properties**, and from the edge
+table's row context menu.
 
 ### 3. The same thing in the attribute table
 
-Open the attribute table (**Ctrl+Alt+4**, or **View → Panels → Attribute
-Table**) and switch it to the mesh layer's **Edge** rows. The edge columns are:
+With the edges still selected, click **Edit in Table** in the **Mesh 2D →
+Select** group: the attribute table opens on the mesh layer's **Edge** rows.
+(You can also open it with **Ctrl+Alt+4**, or **View → Panels → Attribute
+Table**, and switch it to the **Edge** rows.) The edge columns are:
 
 | Column | Meaning | Writes |
 |---|---|---|
 | **Edge** | owning triangle and local edge, as `triangle:edge` | — |
 | **Boundary** | Yes / No — BCs apply to boundary edges only | — |
 | **Length (map units)** | edge length | — |
+| **Segment** | named boundary segment the edge lies on, e.g. a conduit id or `outflow` | — |
 | **Conveyance** | flux multiplier in [0, 1]; 1 = unrestricted | `[2D_EDGE_CONVEYANCE]` |
 | **BC Type** | the seven entries above | `[2D_BOUNDARY_CONDITIONS]` `TYPE` |
+| **Wall drag Cw** | tangential wall friction; 0 = free slip | `PARAM_1` |
 | **Stage** | constant water-surface elevation | `PARAM_1` |
-| **Bed Slope** | must be > 0 | `PARAM_1` |
+| **Friction Slope** | signed: positive drains, negative feeds the domain using the depth already in the cell, 0 acts as a wall | `PARAM_1` |
 | **Flow** | discharge per metre of edge | `PARAM_1` |
 | **Time Series** | series name for `TS_STAGE` / `TS_FLOW` | `PARAM_1` |
 | **Rating Curve** | curve name for `RATING_CURVE` | `PARAM_1` |
@@ -124,7 +140,14 @@ Table**) and switch it to the mesh layer's **Edge** rows. The edge columns are:
 Columns that do not apply to the row's BC type render as `—` and refuse edits.
 An interior edge is listed once, under its lower triangle slot.
 
-\figtodo{t05_edge_attribute_table.png, Mesh edge rows in the attribute table with the BC Type; Bed Slope and Conveyance columns visible}
+To change many edges at once, select their rows, right-click a value cell and
+choose **Apply this "…" value to N selected rows** (copies the clicked
+value) or **Apply "…" value to N selected rows…** (prompts for one;
+**Time Series** and **Rating Curve** open a picker). Either is one undo step.
+The row context menu also has **Edit surface boundary condition…**, which opens
+the editor from step 2.
+
+\figtodo{t05_edge_attribute_table.png, Mesh edge rows in the attribute table with the BC Type; Friction Slope and Conveyance columns visible}
 
 ### 4. Style the boundary edges so you can see them
 
@@ -137,7 +160,7 @@ right-click → **Properties…**) and go to the **Boundary Conditions** tab.
   The **Wall** row is labelled `… / interior edges` and shows
   `(wireframe width)` instead of a width spin, because walls are drawn with the
   wireframe.
-- The boundary ring stays visible at every zoom level, so give **Normal Flow**
+- The boundary ring stays visible at every zoom level, so give **Normal Depth**
   a strong colour and a wide stroke — the ten outflow edges then read clearly
   against the three walled faces.
 
@@ -161,22 +184,26 @@ The buried pipe is stitched to the surface through `[2D_VERTEX_NODE_MAP]`:
 Four vertices, four nodes, `CD` 0.65 and an exchange **AREA** of 0.283 m² —
 the full cross-section of a 0.6 m barrel.
 
-Switch to **Select Mesh Vertices** on the **Mesh 2D** tab and click vertex 552.
-The **Vertices** group on the mesh toolbar now shows:
+Switch to the **Vertices** tool (**Mesh 2D → Select** group, or
+**Model → Mesh → Select Vertex**) and click vertex 552. **Properties** now
+shows its fields:
 
-| Control | What it does | Writes |
+| Field | What it does | Writes |
 |---|---|---|
-| **Z:** | vertex bed elevation | `[2D_VERTICES]` Z |
-| tag field | descriptive vertex tag | `[2D_VERTICES]` TAG |
-| coupled-node combo | the SWMM node this vertex exchanges with; blank = uncoupled | `[2D_VERTEX_NODE_MAP]` node |
-| **Cd:** | coupling discharge coefficient | `[2D_VERTEX_NODE_MAP]` CD |
-| **Area:** (m²) | exchange area | `[2D_VERTEX_NODE_MAP]` AREA |
+| **Elevation** | vertex bed elevation | `[2D_VERTICES]` Z |
+| **Tag** | descriptive vertex tag | `[2D_VERTICES]` TAG |
+| **Coupled Node** | the SWMM node this vertex exchanges with; blank = uncoupled | `[2D_VERTEX_NODE_MAP]` node |
+| **Coupling Cd** | coupling discharge coefficient | `[2D_VERTEX_NODE_MAP]` CD |
+| **Coupling Area (m²)** | exchange area | `[2D_VERTEX_NODE_MAP]` AREA |
 
-The same four fields are the **Coupled Node**, **Coupling Cd** and
-**Coupling Area (m²)** columns of the vertex rows in the attribute table.
+**Coupling Cd** and **Coupling Area** are editable only while the vertex is
+coupled; **Index**, **X**, **Y** and **Marker** are shown read-only. The same
+fields are the columns of the vertex rows in the attribute table — select the
+four culvert vertices and click **Edit in Table** to edit them together with
+**Apply this "…" value to N selected rows**.
 
-Two buttons in the **Coupling** group automate the tedious part:
-**Auto-couple** links every vertex that is coincident with a SWMM node
+Two commands in the **Mesh** group automate the tedious part:
+**Auto-couple Nodes** links every vertex that is coincident with a SWMM node
 (`Coupled %1 vertex(es) to coincident SWMM nodes.`), and **Remap 1D↔2D**
 clears the maps and re-derives them for the whole model — nodes on a vertex get
 vertex coupling, nodes inside a cell get cell coupling.
@@ -189,7 +216,7 @@ surcharged pipe spills back onto the mesh. With a literal invert-at-grade the
 threshold would sit a full diameter *above* the surface and the culvert would
 never engage.
 
-\figtodo{t05_coupled_vertex.png, A coupled culvert vertex selected — the mesh toolbar Vertices group showing node J_P00; Cd 0.65 and Area 0.283 m2}
+\figtodo{t05_coupled_vertex.png, A coupled culvert vertex selected — Properties showing Coupled Node J_P00; Coupling Cd 0.65 and Coupling Area 0.283 m2}
 
 ### 6. Load the results and animate the overtopping
 
@@ -224,8 +251,8 @@ Finish the trace with **Return**; **Esc** cancels it. The plot opens as
 along the trace; its **Profile Display Options** sub-dialog exposes the cell
 boundary colour. Press **Home** to fit.
 
-The mesh toolbar's own *Trace Profile* draws a **bed-only** profile — useful for
-checking that the embankment really is a cell-wide plateau. That matters: a
+The **Mesh 2D** tab's own **Mesh Profile** (**Profile** group) draws a
+**bed-only** profile — useful for checking that the embankment really is a cell-wide plateau. That matters: a
 single raised vertex column leaves the flanking cell beds much lower, and the
 dam then leaks numerically from a lower effective crest and can never hold the
 nominal 0.5 m head.
@@ -435,7 +462,7 @@ The grammar is `TRI EDGE TYPE [PARAM_1 [PARAM_2 [GROUP]]]`.
 - `SPECIFIED_FLOW` is **outward-positive**, so an inflow is a negative value,
   and its units are project flow units **per metre of edge**.
 - A `NORMAL_FLOW` row with slope 0 zeroes the Manning outflow and therefore
-  behaves as a wall. The toolbar tooltip says so; the engine warns at
+  behaves as a wall. The **Friction Slope** tooltip says so; the engine warns at
   validation. There is no auto-compute from bed geometry.
 
 Row by row, this is what the reference model does:
@@ -450,12 +477,12 @@ Row by row, this is what the reference model does:
 | `5 0` | T5 north | `SPECIFIED_STAGE 101.50` | fixed water-surface elevation |
 | — | west face | *(unlisted)* | defaults to `WALL` |
 
-To reproduce any of these in the GUI: select the edge with **Select Mesh
-Edges**, pick the type in the toolbar's BC combo, and fill the one parameter
-that appears on the stacked page beside it — **Slope:**, **Stage:**, **Flow/m:**,
-**TS:** or **Curve:**. The **…** button next to the combo browses, creates or
-edits the referenced time series or rating curve. Named groups are set in the
-attribute table's **Group** column.
+To reproduce any of these in the GUI: pick **Surface Flow** in the
+**Mesh 2D → Process** picker, select the edge with the **Edges** tool, click
+**Boundary Condition**, pick the **Type**, and fill the one value field that
+appears below it — **Friction Slope**, **Stage**, **Flow**, or the **Model
+reference** picker for a time series or rating curve. Named groups are set in
+the attribute table's **Group** column.
 
 \figtodo{t05_bc_types_reference.png, The reference model's six boundary rows highlighted on the map with per-type colours}
 
@@ -498,12 +525,16 @@ sub-grid features you do not want to mesh: garden walls, hedges, fences, kerbs,
 a partially blocked road crossing — or, as here, a berm that leaks 30 % of the
 flux the bare geometry would allow.
 
-In the GUI it is the **ψ:** spin box in the mesh toolbar's **Edges** group
-(0–1, three decimals, default 1.000) and the **Conveyance** column in the edge
-attribute table. The spin deliberately sits outside the BC parameter stack so
-it stays available for interior edges, which have no boundary condition at all.
+In the GUI it is the **Conveyance** field of a selected edge in **Properties**
+and the **Conveyance** column in the edge attribute table (0–1, default 1).
+Unlike the boundary-condition fields it is editable on interior edges too,
+which have no boundary condition at all, and each value is mirrored onto the
+neighbouring half. To set the berm, select both edges with the **Edges** tool
+(press **A** to include interior edges; **Shift**-click adds the second edge),
+click **Edit in Table**, and use
+**Apply "Conveyance" value to 2 selected rows…**.
 
-\figtodo{t05_edge_conveyance.png, Two interior berm edges selected with the mesh toolbar psi spin set to 0.300}
+\figtodo{t05_edge_conveyance.png, Two interior berm edges selected with the Conveyance column set to 0.300 in the edge attribute table}
 
 ## What to look for
 

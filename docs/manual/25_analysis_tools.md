@@ -16,8 +16,8 @@ comparing every rain gage's record, per-cell time series picked straight off the
 | **Flow Balance Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A completed 1D output; choose the seed node on the map or by ID |
 | **Travel Time Downstream / Upstream** | **Analysis** | **Analysis → Network Analysis** | A completed 1D output; choose the seed node on the map or by ID |
 | **Rainfall Visualization…** | **Analysis** | — | Rain gages in the model |
-| **Pick 2D Cells** | — | The **Mesh 2D** toolbar | A 2D results layer |
-| Mesh **Select Vertices** / **Select Edges** | **Model → Mesh** | **Mesh 2D** | A mesh |
+| **Select 2D Cells** | **Model → Mesh → Select 2D Cells** | **Mesh 2D → Select → Cells** | A 2D mesh or 2D results layer |
+| Mesh **Select Vertex** / **Select Edge** | **Model → Mesh** | **Mesh 2D → Select → Vertices** / **Edges** | A mesh |
 | **Summarize Results** | **Analysis** | **Analysis → Report** | An active 1D results layer |
 
 Rainfall Visualization is also reachable from the Object Browser's **Rain Gages**
@@ -107,9 +107,10 @@ All three routes feed the comparison plot (\ref manual_time_series_plots).
 
 #### Picking cells
 
-The **Mesh 2D** toolbar's cell-picking tool is checkable — turning it on activates
-the picker, turning it off returns to the select tool. It works on the **active 2D
-results layer**.
+The **Cells** tool (**Mesh 2D → Select → Cells**, or **Model → Mesh → Select 2D
+Cells**) is checkable — turning it on activates the picker, turning it off returns
+to the select tool. It picks cells on the active 2D mesh, or on the **active 2D
+results layer** when only results are loaded.
 
 | Interaction | Effect |
 |-------------|--------|
@@ -137,9 +138,9 @@ this run's 2D results — re-run with the current engine*: velocity needs edge-f
 data, and the rainfall entries need the per-cell rainfall datasets. Depth and HGL
 are always available.
 
-Edges are picked with the mesh **Select Edges** tool and vertices with **Select
-Vertices**; right-clicking either pops the same picker (a vertex's menu also shows
-its elevation as a disabled header line).
+Edges are picked with the **Edges** tool (**Select Edge**) and vertices with the
+**Vertices** tool (**Select Vertex**); right-clicking either pops the same picker
+(a vertex's menu also shows its elevation as a disabled header line).
 
 A selection of *N* cells × *M* attributes produces *N × M* series across *M* chart
 rows. More than 500 series raises a confirmation first.

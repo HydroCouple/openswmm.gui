@@ -1918,8 +1918,6 @@ private:
     void configureExtensionActivityBridge(openswmmvis::ExtensionUiBridge &bridge);
     class QToolBar *mToolBarHome = nullptr;
     class QToolBar *mToolBarModel = nullptr;
-    class QToolBar *mToolBarMesh2D = nullptr;
-    class QToolBar *mToolBarView = nullptr;
     class QToolBar *mToolBarFeatures = nullptr;
     // Iteration 2 (R3) — the two formerly .ui-authored bars, rebuilt in
     // code with the SAME objectNames so saved window state keeps working.

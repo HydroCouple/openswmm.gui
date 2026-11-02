@@ -723,6 +723,7 @@ set(
         include/ui/panels/objectbrowserpanel.h
         include/ui/panels/dataobjectattributetablemodel.h
         include/ui/panels/meshattributetablemodel.h
+        include/ui/panels/meshaggregateselection.h
         include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
         include/ui/panels/tabulardatatablemodel.h
@@ -1539,6 +1540,7 @@ set(
         src/ui/panels/overviewmappanel.cpp
         src/ui/panels/dataobjectattributetablemodel.cpp
         src/ui/panels/meshattributetablemodel.cpp
+        src/ui/panels/meshaggregateselection.cpp
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
         src/ui/panels/curvepointtablemodel.cpp

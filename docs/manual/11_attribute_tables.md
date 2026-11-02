@@ -372,11 +372,17 @@ Select several rows, right-click an editable cell, and pick one of:
 - **Apply "…" value to N selected rows…** — prompts for a value with the input
   widget the column's editor kind implies.
 
-The whole batch is one undo step. Rows whose cell is not editable are skipped —
+The whole batch is one undo step, and none when no row changes (every selected
+row already held the value). Rows whose cell is not editable are skipped —
 so bulk-applying a boundary Stage touches only the rows already set to a
-Specified Stage type. Picker columns offer only the copy-the-clicked-cell
-flavour, since their value has to come from the dropdown; that also makes
-"couple these twelve vertices to J1" a single gesture.
+Specified Stage type. On a picker column (Coupled Node, Time Series, Rating
+Curve) the prompting flavour opens the same picker as the cell, so "couple
+these twelve vertices to J1" is a single gesture.
+
+For 2D mesh elements, **Properties** offers the same edit for a multi-element
+selection: several fields at once, staged and written by one **Apply**. Unlike
+the table, it does not skip elements: a field that applies to only some of the
+selection is read-only there. See *Editing values* in Chapter 19.
 
 \figtodo{11_apply_value_to_rows.png, The right-click menu offering to apply one roughness value to twelve selected conduits}
 
@@ -428,15 +434,17 @@ elsewhere, and bring the result back as a user flag or by editing the `.inp`.
 
 ### 2D mesh tables
 
-Selecting one of the `△ Mesh …` entries lists that mesh's elements. Rows are
-read straight from the mesh and written through the same undoable edits as
-the mesh-editing toolbar, so even a multi-million-cell mesh opens quickly.
+Selecting one of the `△ Mesh …` entries lists that mesh's elements;
+**Mesh 2D → Edit in Table** opens the entry for the element kind selected on
+the map. Rows are read straight from the mesh and written through the same
+undoable edits as **Properties** uses for one clicked element, so even a
+multi-million-cell mesh opens quickly.
 
 | Table | Read-only columns | Editable columns |
 |---|---|---|
 | **Vertices** | Index, X, Y, Marker | Elevation, Tag, Coupled Node, Coupling Cd, Coupling Area |
-| **Edges** | Edge (`triangle:edge`), Boundary, Length (map units) | Conveyance; and on boundary edges BC Type, Stage, Bed Slope, Flow, Time Series, Rating Curve, Group |
-| **Cells** | Index, Area (map units²), Centroid X, Centroid Y | Tag, plus one column per per-cell parameter |
+| **Edges** | Edge (`cell:edge`), Boundary, Length (map units), Segment | Conveyance; and on boundary edges BC Type, Wall drag Cw, Stage, Friction Slope, Flow, Time Series, Rating Curve, Group |
+| **Cells** | Index, corner count and vertex IDs, area, centroid, ownership and infiltration source/destination | Tag, plus one column per per-cell parameter |
 
 Coordinates are **not** editable here — move a vertex on the map. The same goes
 for the other derived columns (edge length, cell area, centroid): they are
@@ -447,9 +455,11 @@ parameter appears here the moment it is added. Today they are Manning's n and In
 (`[2D_TRIANGLES]`), the per-cell infiltration set — Infiltration Method plus its
 positional parameters (`[2D_INFILTRATION]`) — and a greyed-out 2D groundwater
 block (Saturated Conductivity, Aquifer Thickness, Porosity, initial unsaturated
-and saturated depths). Edit groundwater through **Model → Assign Groundwater…**
-or the dedicated aquifer/initial-state dialog; the legacy table columns do not
-write groundwater records.
+and saturated depths). For an active model mesh, right-click a cell and choose **Edit groundwater parameters…**.
+The assignment preview starts with the invoking cells and shows their current and proposed values.
+Use **Edit surface infiltration…** for the full method, parameters, destination and write scope.
+A right-click inside a selection targets the selected rows. A right-click outside it targets the clicked row.
+In the Properties dock, expand a group to inspect or edit the picked element. Choose **Edit…** beside **Infiltration** or **Groundwater** to open its assignment form.
 
 A cell showing **NULL** has no applicable or available scalar value:
 
@@ -466,18 +476,21 @@ because the engine requires both halves to agree.
 
 #### One boundary condition, one parameter
 
-Set **BC Type** first; the column it reads becomes editable and the rest show
-**NULL**:
+In either **Properties** or the **Attribute Table**, click the **BC Type** value on an exterior edge
+and choose a type from the list. Its parameter becomes editable immediately. Click that value to
+enter the boundary data and press Enter to apply it.
 
 | BC Type | Live parameter |
 |---|---|
-| Wall | *(none)* |
-| Normal Flow | Bed Slope |
+| Wall | Wall drag Cw (zero for free slip) |
+| Normal Depth | Friction Slope (signed: positive drains, negative feeds the domain, zero acts as a wall) |
 | Specified Stage (constant) | Stage |
 | Specified Stage (time series) | Time Series |
 | Specified Flow (constant) | Flow |
 | Specified Flow (time series) | Time Series |
 | Rating Curve | Rating Curve |
+
+Right-click an edge and choose **Edit surface boundary condition…** to set the type and its parameter together. The dialog counts eligible boundary edges. **OK** applies one undoable edit, preserving the group and conveyance on each edge. In Properties, choose **Edit…** beside **Boundary condition** for a picked boundary edge, including the fourth edge of a quad.
 
 **Group** is independent of the type and stays available on any boundary edge.
 A value typed under a previous type is kept but hidden, so flipping back brings
@@ -529,9 +542,10 @@ for these sources and there is no **Change Type**.
 
 Infiltration is not one parameter — it is a method, up to five positional
 values and a destination, and the values only mean anything together. So it has
-its own form rather than the toolbar's one-parameter cell editor: pick cells on
-the map with the 2D cell picker, then open **Assign Infiltration to
-Selection…**.
+its own form rather than one column at a time: pick **Infiltration** in the
+**Mesh 2D** tab's **Process** picker, select cells on the map with **Cells**,
+then click **Infiltration to Selection** (**Model → Mesh ▸ Assign Infiltration
+to Selection…**; enabled only while cells are selected).
 
 Two write targets:
 

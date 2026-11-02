@@ -245,7 +245,9 @@ void DataObjectPickerEditor::repopulate()
     // A filtered curve list must still show the curve already assigned (an
     // older model may give a pump a curve of another type); without it the
     // combo falls back to "(none)" and the next commit would clear it.
-    if ((m_ref.kind == DataObjectRef::PumpCurve || m_ref.kind == DataObjectRef::RatingCurve) &&
+    if ((m_ref.kind == DataObjectRef::PumpCurve || m_ref.kind == DataObjectRef::RatingCurve ||
+         m_ref.kind == DataObjectRef::Node || m_ref.kind == DataObjectRef::TimeSeries ||
+         m_ref.kind == DataObjectRef::AnyCurve) &&
         !m_ref.currentName.isEmpty() && !items.contains(m_ref.currentName))
         items << m_ref.currentName;
 

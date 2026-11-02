@@ -561,8 +561,10 @@ domain** matrix on *Models / Processes* — one model, two views, kept in step
 while the dialog is open.
 
 **Groundwater (subsurface)** — the process *enables* for the two-zone
-subsurface column under every mesh cell. The aquifer *parameters* are edited in
-*Mesh 2D* › *Groundwater (2D)*, and both places write the same
+subsurface column under every mesh cell. The aquifer *parameters* are edited
+in the 2D groundwater editor, opened with **Aquifer Properties** in the **Mesh
+2D** tab's **Groundwater** process group (pick **Groundwater** in the **Process**
+picker) or **Model → Mesh ▸ Aquifer…**. That editor and this page write the same
 `[2D_AQUIFER_OPTIONS]` values.
 
 | Control | Options | Writes |

@@ -201,7 +201,9 @@ visible SWMM model layer and frames it. It is a view change only.
 
 ### Selecting 2D mesh elements
 
-The Mesh 2D ribbon tab carries two picking tools.
+The Mesh 2D ribbon tab's **Select** group carries three picking tools:
+**Cells**, **Edges** and **Vertices**. The vertex and edge tools are described
+here; **Cells** (Select 2D Cells) is described in the 2D mesh chapter.
 
 #### Select Mesh Vertices
 

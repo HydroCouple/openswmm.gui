@@ -26,6 +26,8 @@
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/userflagseditref.h"
 
+#include <QAbstractItemView>
+#include <QApplication>
 #include <QComboBox>
 #include "ui/properties/linkendpointcombobox.h"
 #include "ui/panels/swmmattributetablemodel.h"
@@ -41,6 +43,50 @@
 
 namespace openswmmvis
 {
+
+void editClickedMeshField(QAbstractItemView *view, const QModelIndex &index)
+{
+    if (QApplication::keyboardModifiers() != Qt::NoModifier ||
+        !(index.flags() & Qt::ItemIsEditable))
+        return;
+    if (!view->indexWidget(index))
+        view->edit(index);
+    QWidget *editor = view->indexWidget(index);
+    auto *combo = qobject_cast<QComboBox *>(editor);
+    if (auto *picker = qobject_cast<DataObjectPickerEditor *>(editor))
+        combo = picker->findChild<QComboBox *>();
+    if (combo) {
+        // Finish the edit on a user choice so dependent fields become editable immediately.
+        QObject::connect(combo, &QComboBox::activated, view, qOverload<>(&QWidget::setFocus),
+                         Qt::UniqueConnection);
+        combo->showPopup();
+    }
+}
+
+QStyledItemDelegate *createAttributeDelegate(const ColumnSpec &spec, QObject *parent)
+{
+    switch (spec.editor) {
+    case EditorKind::Numeric:
+        return new NumericDelegate(parent, spec.minValue, spec.maxValue, spec.decimals,
+                                   columnStep(spec));
+    case EditorKind::Integer:
+        return new IntegerDelegate(parent, int(spec.minValue), int(spec.maxValue));
+    case EditorKind::Enum:
+        return new EnumDelegate(parent, spec.enumValues);
+    case EditorKind::LinkEndpoint:
+        return new LinkEndpointDelegate(parent);
+    case EditorKind::Interval:
+        return new IntervalDelegate(parent);
+    case EditorKind::FileBrowse:
+        return new FileBrowseDelegate(parent, spec.fileFilter);
+    case EditorKind::FileColumn:
+        return new FileColumnDelegate(parent, kFileColumnOptionsRole);
+    case EditorKind::Compound:
+        return new CompoundEditDelegate(parent);
+    default:
+        return nullptr;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // NumericDelegate
@@ -80,7 +126,6 @@ void NumericDelegate::setEditorData(QWidget *editor, const QModelIndex &index) c
     spin->setValue(ok ? v : 0.0);
     if (!ok)
         spin->clear();
-    spin->setProperty("attributeValueWasNull", !ok);
     spin->setProperty("attributeValueEdited", false);
 }
 
@@ -90,8 +135,9 @@ void NumericDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
     auto *spin = qobject_cast<QDoubleSpinBox *>(editor);
     if (!spin)
         return;
-    if (spin->property("attributeValueWasNull").toBool() &&
-        !spin->property("attributeValueEdited").toBool())
+    // Opening and leaving an editor must preserve both inherited values and
+    // authored precision beyond the spin box's displayed decimals.
+    if (!spin->property("attributeValueEdited").toBool())
         return;
     spin->interpretText(); // flush any pending typed value
     model->setData(index, spin->value(), Qt::EditRole);

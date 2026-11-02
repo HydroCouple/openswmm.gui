@@ -79,7 +79,6 @@ private:
 
     QToolBar *mBar = nullptr;
     QList<QPointer<RibbonGroup>> mGroups;
-    QVector<RibbonMode> mModes;
     bool mPending = false;
 };
 

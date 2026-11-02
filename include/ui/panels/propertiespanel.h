@@ -18,7 +18,9 @@
 #include <QPointer>
 #include <QVariantMap>
 
+class SWMM2DMeshLayer;
 class QTreeView;
+class MeshAttributeTableModel;
 class QComboBox;
 class QPushButton;
 class QAbstractItemModel;
@@ -89,7 +91,7 @@ public:
      *                Pass nullptr to clear the panel.
      * \param title   Optional title shown in the tab or header.
      * @note Borrow displayed QObject; caller preserves lifetime for property reads/edits, no
-     *   generic ownership transfer. Release old mesh adapter unless object is that same adapter,
+     *   generic ownership transfer. Release the previous mesh view,
      *   set title/default Properties, clear identify combo/cache and hide editor/rainfall buttons.
      *   With property library set QObject into model or clear for null, then expand rows. Does not
      *   delete cached spatial/data adapters, rebind project/stats sources or necessarily hide stale
@@ -102,19 +104,22 @@ public:
      *   key; not retained by panel.
      * @param[in] ref Typed encoded MeshCell/MeshVertex/MeshEdge selection, requires matching layer
      *   key and current element bounds.
-     * @param[in] depthUnit Cell adapter depth display suffix copied, default m; does not convert
-     *   geometry/value units.
-     * @brief Create owned adapter for first matching mesh source and display it, otherwise clear
-     *   visible panel.
-     * @note Cell gets canvas undo context, vertex/edge constructors receive layer/index only. Edge
-     *   gate currently accepts local indices 0..2 even on quads, so fourth quad edge cannot display
-     *   here. A matching layer with invalid element stops search rather than trying later same-key
-     *   source. Attribute signal refreshes only current mesh adapter; source destruction clears
-     *   visible panel. No engine/mesh write during selection, borrowed mesh lifetime guarded by
-     *   adapter behavior.
+     * @param[in] depthUnit Retained for caller compatibility. Units follow the shared mesh field schema.
+     * @brief Display the selected element of an unambiguous mesh source.
+     * @note Uses the mesh attribute schema and canvas undo stack for all element kinds.
      */
     void showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref,
                         const QString &depthUnit = QStringLiteral("m"));
+
+    /*! Show several mesh elements as one aggregate: common values, "Mixed" where they differ,
+     *  staged edits and one Apply (one undo step) or Cancel. Elements of more than one kind or
+     *  mesh show a summary with counts and nothing editable.
+     * @param[in] canvas Optional borrowed canvas whose mesh layers resolve the refs and whose undo
+     *   stack receives Apply.
+     * @param[in] refs Selected refs; non-mesh refs are counted in the summary only.
+     * @note Process-aware editing plan Phase 3 (§7.1). Staged edits are discarded, with a note,
+     *   when the panel shows something else. */
+    void showMeshSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs);
 
     /*!
      * \brief Shows the attribute results from an identify operation.
@@ -221,7 +226,7 @@ public:
      *   data bind does not clear last identify combo/cache or cached spatial adapters.
      *   Rename/coordinate callbacks route direct layer apply methods, no panel-wide undo command.
      *   Transect/hydrograph/control signals refresh matching/current data view. Without library,
-     *   only releaseMeshAdapter occurs. Host preserves source/engine through callbacks/modal
+     *   only releaseMeshProperties occurs. Host preserves source/engine through callbacks/modal
      *   editors.
      */
     void showDataObject(SWMMModelLayer *layer, int objectKind, const QString &name);
@@ -277,6 +282,7 @@ public slots:
     void onObjectRenamed(const QString &oldName, const QString &newName, int kind);
 
 signals:
+    void groundwaterCellsRequested(SWMM2DMeshLayer *mesh, const QList<int> &cells);
 
     /*!
      * \brief Generic property-change signal reserved for edit observers.
@@ -368,12 +374,11 @@ private slots:
 
 private:
     /**
-     * @brief Schedule guarded current mesh adapter deleteLater and clear tracking pointer.
-     * @note No-op absent/destroyed adapter; does not itself clear QPropertyModel, stop cached
-     *   nonmesh adapter signals or edit mesh. Caller must replace/clear displayed model before
-     *   deferred adapter destruction.
+     * @brief Release the field binding for the previously displayed mesh element.
      */
-    void releaseMeshAdapter();
+    void releaseMeshProperties();
+    /** @brief Refresh the aggregate summary line and the Apply/Cancel state. */
+    void updateAggregateBar(const QString &message = {});
     /**
      * @param[in] watched Borrowed QObject being filtered; nonwidget/outside property tree forwarded
      *   to dock base.
@@ -473,7 +478,13 @@ private:
     // is `deleteLater()`d so the QPropertyModel stops referencing it
     // before the new one binds.
     SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
-    QPointer<QObject> m_meshAdapter;
+    MeshAttributeTableModel *m_meshFields = nullptr;
+    class MeshAggregateSelection *m_meshAggregate = nullptr; ///< Phase 3 aggregate, or null.
+    QWidget *m_aggregateBar = nullptr;       ///< Summary + Apply/Cancel, aggregates only.
+    class QLabel *m_aggregateSummary = nullptr;
+    QPushButton *m_aggregateApply = nullptr;
+    QPushButton *m_aggregateCancel = nullptr;
+    class QLabel *m_meshNote = nullptr; ///< Says when unapplied aggregate edits were discarded.
 
     bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 
