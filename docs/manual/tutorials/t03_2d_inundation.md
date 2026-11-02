@@ -371,7 +371,7 @@ along the section.
 
 The **Mesh 2D → Profile** tool is the *terrain-only* twin of this: it plots
 bed elevation along a polyline without the results overlay. **Model → Terrain
-Profile** does the same for a raster, in the **Terrain Profile** window.
+Profile** does the same for a raster, adding a tab in the **Terrain Profiles** panel.
 
 \figtodo{t03_2d_profile.png, A 2D mesh profile across the bowl with the ground line and water surface}
 

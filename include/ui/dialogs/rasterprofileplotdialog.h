@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Host dialog for a DEM-raster longitudinal profile.  The terrain peer
+ * @brief     Dockable content for a DEM-raster longitudinal profile. The terrain peer
  *         of MeshProfilePlotDialog: builds a ProfileSection::Section from a
  *         traced polyline via RasterProfileSampler and hosts the SAME
  *         MeshProfilePlotWidget chart + MeshProfileOverlay map line.
@@ -15,9 +15,9 @@
  *         unit / factor controls), so the ground line always reads in the
  *         project's model vertical units.
  *
- *         A nonmodal top-level window uses the supplied QWidget parent; the
- *         caller controls deletion on close. Project aboutToClose removes
- *         the map overlay before scene teardown and closes the window.
+ *         PlotDock owns the tabs and deletion on close. Only an active panel
+ *         binds its map overlay/tool. Project aboutToClose removes the overlay
+ *         before scene teardown and closes the tab.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -25,13 +25,14 @@
 #define RASTER_PROFILE_PLOT_DIALOG_H
 
 #include "plot/profilesection.h"
+#include "ui/panels/plotpanelview.h"
 
-#include <QDialog>
 #include <QPointer>
 #include <QPointF>
 #include <QVector>
 
 class GISRasterLayer;
+class QAction;
 class MapToolProfileMarker;
 class MeshProfileOverlay;
 class MeshProfilePlotOptions;
@@ -39,7 +40,7 @@ class MeshProfilePlotWidget;
 class OpenSWMMVisMapTool;
 class SWMMVisProjectWindow;
 
-class RasterProfilePlotDialog : public QDialog
+class RasterProfilePlotDialog : public openswmmvis::ui::PlotPanelView
 {
     Q_OBJECT
 public:
@@ -51,15 +52,13 @@ public:
      *                       sy = -canvasY), as MapToolMeshProfile emits them.
      * @param[in] projectWindow Optional borrowed guarded project/canvas context for sampling CRS,
      *   map overlay/tool and axis labels. Does not become QObject parent automatically.
-     * @param[in] parent Optional QWidget owner; caller manages parentless dialog and any
-     *   delete-on-close policy externally.
+     * @param[in] parent Optional QWidget owner; PlotDock adopts and deletes hosted content.
      * @brief Copy trace/scaling, build static terrain chart and optional map overlay/marker tool,
      *   and remove overlay on project aboutToClose.
      * @note Inputs are guarded for later queries but no automatic raster-deletion/path/band or
      *   CRS-change resampling subscription. Caller invokes factor update/rebuild as needed.
-     *   Constructor sets nonmodal top-level flags but does NOT set WA_DeleteOnClose; ordinary close
-     *   can hide retained dialog with overlay until destructor/project teardown cleanup. No mesh
-     *   water/results ownership or source edits.
+     *   Host manages activation, close and deletion. No mesh water/results ownership or source
+     *   edits.
      */
     RasterProfilePlotDialog(GISRasterLayer *raster, double vertFactor,
                             const QVector<QPointF> &scenePolyline,
@@ -85,7 +84,7 @@ public:
 
 private:
     /**
-     * @brief Create owned plot/options toolbar, marker toggle and Close controls with
+     * @brief Create owned plot/options toolbar and marker toggle with
      *   project/global length labels.
      * @note Chart modes identify/zoom/pan/fit are plot-only; marker toggle delegates map tool
      *   activation. Labels use unit snapshot at layout creation, horizontal chainage remains
@@ -104,11 +103,17 @@ private:
      */
     void rebuildProfile();
 
+    /**
+     * @brief Bind this panel's map overlay on activation; on deactivation uncheck the marker,
+     *   restore the previous map tool and detach only this overlay. Retains cursor and samples.
+     */
+    void plotActivationChanged(bool active) override;
+
     // Persistent map overlay (profile line + position arrow) + the map-drag
-    // tool that scrubs the arrow. Lifetime tied to this dialog.
+    // tool that scrubs the arrow. Lifetime tied to this panel.
     /**
      * @brief With project canvas and at least two trace vertices, allocate owned polyline/arrow
-     *   overlay, bind canvas borrowed slot and create child marker tool.
+     *   overlay, bind canvas borrowed slot only while active and create child marker tool.
      * @note Chart cursor updates map arrow and Overlay invalidation; map marker updates chart
      *   display-only cursor, no feedback emission. Start halfway along trace. Does not activate
      *   marker tool until toggled. Not idempotent: no existing-overlay cleanup inside helper; other
@@ -125,8 +130,8 @@ private:
      */
     void removeOverlay();
     /**
-     * @param[in] on True installs marker tool after remembering current active tool, false restores
-     *   remembered live tool or null only if marker still active.
+     * @param[in] on True installs marker tool only while active after remembering current tool;
+     *   false restores the remembered live tool or null only if marker still active.
      * @brief Temporarily switch map tool when project/canvas/marker available.
      * @note Repeated true while already active no-op; false leaves another newly active tool
      *   unchanged. Previous tool guarded but not owned; no trace/model edits, marker reset or
@@ -151,8 +156,9 @@ private:
     MeshProfilePlotWidget *m_plot = nullptr;
     MeshProfilePlotOptions *m_options = nullptr;
 
+    QAction *m_markerAction = nullptr;
     MeshProfileOverlay *m_overlay = nullptr;      // manually owned; canvas borrows
-    MapToolProfileMarker *m_markerTool = nullptr; // parented to dialog
+    MapToolProfileMarker *m_markerTool = nullptr; // parented to panel
     QPointer<OpenSWMMVisMapTool> m_prevTool;      // restore on toggle-off/close
 
     ProfileSection::Section m_profile;

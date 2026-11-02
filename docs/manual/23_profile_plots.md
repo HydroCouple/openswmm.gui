@@ -28,19 +28,21 @@ again returns to the select tool.
 
 ## Dockable profile panels
 
-**1D Profiles** and **2D Profiles** each hold multiple independent tabs. A new
-network path or mesh trace opens another tab. Drag tabs to reorder them; use the
+**1D Profiles**, **2D Profiles** and **Terrain Profiles** each hold multiple
+independent tabs. A new network path, mesh trace or terrain trace opens another tab.
+Terrain tab labels include the project and source raster. Drag tabs to reorder them; use the
 tab close button to remove one profile. Reopening an already-open saved 2D section
 selects its existing tab. Closing a tab does not delete a saved section.
 
 The panels start in the bottom docking area alongside **Time Series**. Drag a
 panel's title bar to move, float, or dock it beside another panel. Closing the
-panel only hides it: reopen it through **View → Panels → 1D Profiles / 2D Profiles**.
+panel only hides it: reopen it through **View → Panels → 1D Profiles / 2D Profiles /
+Terrain Profiles**.
 Dock positions are remembered after restart; unsaved plot tabs are not.
 
 Each tab keeps its own sources, zoom, cursor and display settings. Selecting a
-tab for another project activates that project. Only the active, visible 2D tab
-controls the map's profile line and marker. Switching tabs or hiding the panel
+tab for another project activates that project. Active, visible 2D and terrain tabs
+bind their profile line and marker to the map. Switching tabs or hiding the panel
 ends marker dragging; returning to a tab restores its cursor and current results.
 Closing a project removes its profile tabs and its sources from comparison plots.
 
@@ -303,14 +305,15 @@ The **Terrain** toolbar's profile tool traces a polyline over the **active terra
 raster** — the DEM chosen in that toolbar's **Active Terrain** combo. Click to add
 vertices, double-click or `Enter` to finish, right-click to undo, `Esc` to cancel.
 
-The **Terrain Profile** window is the mesh-profile chart with no water: ground
+The **Terrain Profiles** panel uses the mesh-profile chart with no water: ground
 elevation only, with **Select**, **Zoom In**, **Zoom Out**, **Fit**, **Pan**,
 **Move marker on map** and **Display Options…**.
 
 Elevations are converted from the DEM's raw values into the project's vertical
 units using the terrain toolbar's **DEM vertical unit** and **× factor** controls.
-Change either and the profile re-samples, so the ground line always reads in model
-units.
+Change either and profiles bound to the currently selected DEM re-sample in model
+units. Existing tabs stay bound to their original raster when you select another
+DEM; trace again to create a profile of the new terrain.
 
 \figtodo{23_terrain_profile.png, A terrain profile traced over a DEM with the position marker on the map}
 

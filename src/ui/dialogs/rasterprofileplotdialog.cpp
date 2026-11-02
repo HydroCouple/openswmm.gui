@@ -29,11 +29,11 @@
 #endif
 
 #include <QActionGroup>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QKeySequence>
 #include <QLabel>
-#include <QPushButton>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
@@ -43,13 +43,12 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer *raster, double 
                                                  const QVector<QPointF> &scenePolyline,
                                                  SWMMVisProjectWindow *projectWindow,
                                                  QWidget *parent)
-    : QDialog(parent), m_raster(raster), m_projectWindow(projectWindow),
+    : openswmmvis::ui::PlotPanelView(parent), m_raster(raster), m_projectWindow(projectWindow),
       m_scenePolyline(scenePolyline), m_vertFactor(vertFactor)
 {
     setWindowTitle(tr("Terrain Profile"));
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("RasterProfilePlotDialog"));
-    setModal(false);
     m_options = new MeshProfilePlotOptions(this);
     // A DEM section has no water and no mesh cells. The chart's water passes
     // are already gated on hasResults (false here), so nothing would render
@@ -60,9 +59,6 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer *raster, double 
     m_options->setShowMaxEnvelopeFill(false);
     m_options->setShowMaxEnvelopeLine(false);
     m_options->setShowCellBoundaries(false);
-    setWindowFlags(Qt::Window | Qt::WindowSystemMenuHint | Qt::WindowTitleHint |
-                   Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint |
-                   openswmmvis::ui::stayAboveAppFlags());
     resize(900, 520);
 
     buildLayout();
@@ -73,6 +69,8 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer *raster, double 
     if (m_projectWindow) {
         connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this, [this] {
             removeOverlay(); // detach from the scene before it's torn down
+            m_projectWindow.clear();
+            m_raster.clear();
             close();
         });
     }
@@ -115,7 +113,7 @@ void RasterProfilePlotDialog::buildLayout()
     actZoomIn->setCheckable(true);
     actZoomOut->setCheckable(true);
     actPan->setCheckable(true);
-    actFit->setShortcut(QKeySequence(Qt::Key_Home));
+    actFit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Home));
     auto *modeGroup = new QActionGroup(this);
     modeGroup->setExclusive(true);
     modeGroup->addAction(actSelect);
@@ -127,6 +125,7 @@ void RasterProfilePlotDialog::buildLayout()
         toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")),
                            tr("Move marker on map"));
     actMapMarker->setCheckable(true);
+    m_markerAction = actMapMarker;
     actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
     toolbar->addSeparator();
@@ -138,17 +137,6 @@ void RasterProfilePlotDialog::buildLayout()
     m_plot = new MeshProfilePlotWidget(this);
     m_plot->setOptions(m_options);
     root->addWidget(m_plot, /*stretch=*/1);
-
-    // Close row, as ProfilePlotDialog has. Wired to close() so every exit
-    // (button, Esc, title bar) takes the same path.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("rasterprof_closeBox"));
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("rasterprof_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    root->addWidget(closeBox);
 
     // Axis labels from the project unit system — the sampler already converted
     // raw DEM Z into model vertical units via the terrain factor.
@@ -188,6 +176,21 @@ void RasterProfilePlotDialog::rebuildProfile()
     m_plot->setProfile(m_profile);
 }
 
+void RasterProfilePlotDialog::plotActivationChanged(bool active)
+{
+    auto *canvas = m_projectWindow ? m_projectWindow->canvas() : nullptr;
+    if (!active) {
+        if (m_markerAction)
+            m_markerAction->setChecked(false);
+        setMarkerToolActive(false);
+        if (canvas && canvas->meshProfileOverlay() == m_overlay)
+            canvas->setMeshProfileOverlay(nullptr);
+        return;
+    }
+    if (canvas && m_overlay && !m_projectWindow->isClosing())
+        canvas->setMeshProfileOverlay(m_overlay);
+}
+
 void RasterProfilePlotDialog::setupMapOverlay()
 {
     if (!m_projectWindow || m_scenePolyline.size() < 2)
@@ -196,10 +199,11 @@ void RasterProfilePlotDialog::setupMapOverlay()
     if (!canvas)
         return;
 
-    // Persistent profile line on the map (cleared when this dialog closes).
+    // Retain the line/cursor per tab; the canvas borrows only the active overlay.
     m_overlay = new MeshProfileOverlay();
     m_overlay->setPolyline(m_scenePolyline);
-    canvas->setMeshProfileOverlay(m_overlay);
+    if (isPlotActive())
+        canvas->setMeshProfileOverlay(m_overlay);
 
     // Chart cursor → map arrow. setCursorChainage on the chart is display-only,
     // so this connection cannot echo back into the chart.
@@ -233,6 +237,8 @@ void RasterProfilePlotDialog::setMarkerToolActive(bool on)
     if (!canvas)
         return;
     if (on) {
+        if (!isPlotActive() || m_projectWindow->isClosing())
+            return;
         if (canvas->activeTool() == m_markerTool)
             return;
         m_prevTool = canvas->activeTool();

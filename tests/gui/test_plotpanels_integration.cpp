@@ -26,9 +26,11 @@
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/gisrasterlayer.h"
 #include "mesh/meshresult.h"
 #include "plot/swmmoutrunlayer.h"
 #include "plot/chartproperties.h"
+#include "plot/meshprofileplotwidget.h"
 #include "plot/utctimeaxis.h"
 #include "core/swmmdatetime.h"
 #include "ui/widgets/interactivechartview.h"
@@ -36,12 +38,18 @@
 #include "ui/dialogs/comparisonplotdialog.h"
 #include "ui/dialogs/profileplotdialog.h"
 #include "ui/dialogs/meshprofileplotdialog.h"
+#include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/panels/plotdock.h"
+#include "ui/toolbars/terraintoolbar.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_output.h>
 #include <QAction>
+#include <QComboBox>
+#include <QDateTime>
+#include <QDir>
+#include <QDoubleSpinBox>
 #include <QMenu>
 #include <QTimer>
 #include <QTreeView>
@@ -61,7 +69,7 @@
 #include <QQmlEngine>
 #include <QSettings>
 #include <QTabWidget>
-#include <QTemporaryDir>
+#include <QTabBar>
 #include <QThreadPool>
 #include <QtTest>
 
@@ -95,14 +103,16 @@ public:
 class TestPlotPanelsIntegration : public QObject
 {
     Q_OBJECT
-    QTemporaryDir files;
+    QDir files{QDir::current().absoluteFilePath(
+        "test-output/plotpanels-integration/" +
+        QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz"))};
     /**
-     * @brief Resolve one fixture leaf name inside this suite's owning temporary directory.
+     * @brief Resolve one fixture leaf name inside this suite's retained evidence directory.
      * @param[in] name Required NUL-terminated borrowed UTF-8 safe relative filename, not
      * retained.
      * @return Owned joined pathname; no existence check, directory creation or IO. Directory
      * must remain
-     * valid/alive until consumers finish; caller prevents path traversal/source aliases.
+     * available until consumers finish; caller prevents path traversal/source aliases.
      */
     QString path(const char *name) { return files.filePath(QString::fromUtf8(name)); }
     /**
@@ -231,11 +241,23 @@ class TestPlotPanelsIntegration : public QObject
         project->setActiveResultsLayer(layer);
         return layer;
     }
+
+    /** @brief Add a retained ramp DEM fixture to a project without changing its model. */
+    GISRasterLayer *terrain(SWMMVisProjectWindow *project, const char *name = "terrain.asc")
+    {
+        auto *raster = new GISRasterLayer(path(name));
+        if (!raster->bandCount()) {
+            delete raster;
+            return nullptr;
+        }
+        project->canvas()->addLayer(raster, false);
+        return raster;
+    }
 private slots:
     /**
      * @brief Configure isolated settings/QML types and generate two model decks plus one
      * recorded output run.
-     * @note Uses suite-owned temporary directory, process-wide INI path and app names, registers
+     * @note Uses a retained evidence directory, process-wide INI path and app names, registers
      * three QSG
      * render types. Writes first/second INP and run report/output, asserts byte writes and
      * engine-run status.
@@ -244,7 +266,8 @@ private slots:
      */
     void initTestCase()
     {
-        QVERIFY(files.isValid());
+        QVERIFY(QDir().mkpath(files.absolutePath()));
+        qInfo() << "Plot panel test artifacts:" << files.absolutePath();
         QCoreApplication::setOrganizationName("OpenSWMMPlotPanelIntegration");
         QCoreApplication::setApplicationName("PlotPanels");
         QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -262,6 +285,24 @@ private slots:
         QCOMPARE(swmm_engine_run(path("first.inp").toUtf8(), path("run.rpt").toUtf8(),
                                  path("run.out").toUtf8(), nullptr),
                  SWMM_OK);
+        // Two deterministic DEM ramps in the model CRS, retained for review.
+        for (auto *name : {"terrain", "other-terrain"}) {
+            QByteArray grid =
+                "ncols 20\nnrows 20\nxllcorner 0\nyllcorner 0\ncellsize 1\nNODATA_value -9999\n";
+            const int base = QString::fromLatin1(name) == "terrain" ? 10 : 100;
+            for (int row = 0; row < 20; ++row) {
+                for (int col = 0; col < 20; ++col)
+                    grid += QByteArray::number(base + col + row) + ' ';
+                grid += '\n';
+            }
+            QFile raster(files.filePath(QString::fromLatin1(name) + ".asc"));
+            QVERIFY(raster.open(QIODevice::WriteOnly));
+            QCOMPARE(raster.write(grid), grid.size());
+            QFile crs(files.filePath(QString::fromLatin1(name) + ".prj"));
+            QVERIFY(crs.open(QIODevice::WriteOnly));
+            const QByteArray wkt = SpatialReferenceSystem("EPSG", 32618).toWkt().toUtf8();
+            QCOMPARE(crs.write(wkt), wkt.size());
+        }
     }
     /**
      * @brief Clear the suite's redirected default settings before each integration case.
@@ -962,6 +1003,239 @@ private slots:
         delete project;
         QTRY_COMPARE(dock->tabs()->count(), 0);
         QTRY_VERIFY(second.isNull());
+    }
+
+    /** @brief Terrain traces use independent dock tabs and transfer map ownership safely. */
+    void terrainTabsTransferOverlayAndKeepViewState()
+    {
+        PlotTestWindow app;
+        app.resize(1400, 950);
+        app.show();
+        auto *project = open(app, "first.inp");
+        QVERIFY(project);
+        auto *raster = terrain(project);
+        QVERIFY(raster);
+        auto *canvas = project->canvas();
+        auto *dock = app.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+        auto *toggle = app.findChild<QAction *>("actionToggleDockTerrainProfiles");
+        QVERIFY(dock && toggle);
+        auto *panels = app.findChild<QMenu *>("menuViewPanels");
+        QVERIFY(panels && panels->actions().contains(toggle));
+        QCOMPARE(dock->tabs()->count(), 0);
+        QVERIFY(dock->isHidden());
+
+        emit project->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        QCOMPARE(dock->tabs()->count(), 1);
+        QPointer<RasterProfilePlotDialog> first =
+            qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(first);
+        QVERIFY(!first->isWindow());
+        QVERIFY(!first->findChild<QObject *>("rasterprof_closeBox"));
+        QCOMPARE(dock->contextFor(first), project);
+        QVERIFY(dock->tabs()->tabText(0).contains(project->windowTitle()));
+        QVERIFY(dock->tabs()->tabText(0).contains(raster->name()));
+        QTRY_VERIFY(first->isPlotActive());
+        QTRY_VERIFY(dock->width() > app.width() / 2);
+        auto *firstOverlay = canvas->meshProfileOverlay();
+        QVERIFY(firstOverlay);
+        auto *plot = first->findChild<MeshProfilePlotWidget *>();
+        QVERIFY(plot);
+        QVERIFY(plot->visibleDataRange().center().y() > 10);
+        plot->zoomBy(0.5);
+        plot->setCursorChainage(3.0);
+        plot->options()->setShowTimeLabel(false);
+        const QRectF zoom = plot->visibleDataRange();
+        auto *marker = first->findChild<QAction *>("showMapMarker");
+        QVERIFY(marker);
+        auto *previousTool = canvas->activeTool();
+        marker->setChecked(true);
+        QVERIFY(qobject_cast<MapToolProfileMarker *>(canvas->activeTool()));
+
+        emit project->terrainProfileTraced({{1.5, -8.5}, {12.5, -8.5}});
+        QCOMPARE(dock->tabs()->count(), 2);
+        QPointer<RasterProfilePlotDialog> second =
+            qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(second && second != first);
+        QVERIFY(second->findChild<MeshProfilePlotWidget *>()->options()->showTimeLabel());
+        QVERIFY(dock->tabs()->tabText(1).endsWith("(2)"));
+        QTRY_VERIFY(second->isPlotActive());
+        QVERIFY(!first->isPlotActive());
+        QVERIFY(!marker->isChecked());
+        QCOMPARE(canvas->activeTool(), previousTool);
+        auto *secondOverlay = canvas->meshProfileOverlay();
+        QVERIFY(secondOverlay && secondOverlay != firstOverlay);
+        dock->tabs()->tabBar()->moveTab(1, 0);
+        QCOMPARE(dock->tabs()->currentWidget(), second.data());
+        dock->reveal(first);
+        QTRY_COMPARE(canvas->meshProfileOverlay(), firstOverlay);
+        QCOMPARE(plot->visibleDataRange(), zoom);
+        QCOMPARE(plot->cursorChainage(), 3.0);
+        QVERIFY(!plot->options()->showTimeLabel());
+        QTest::keyClick(plot, Qt::Key_Escape);
+        QCOMPARE(dock->tabs()->count(), 2);
+
+        // A mesh profile uses the same canvas overlay slot in a different dock.
+        mesh::MeshResult mesh;
+        mesh.vertices = {{{0, 0}, 10}, {{20, 0}, 11}, {{0, 20}, 12}};
+        mesh::MeshTriangle triangle;
+        triangle.v0 = 0;
+        triangle.v1 = 1;
+        triangle.v2 = 2;
+        mesh.triangles.append(triangle);
+        canvas->addLayer(new SWMM2DMeshLayer(mesh), false);
+        marker->setChecked(true);
+        emit project->meshProfileTraced({{1, -1}, {12, -1}});
+        QTRY_VERIFY(!first->isPlotActive());
+        QVERIFY(!marker->isChecked());
+        QVERIFY(canvas->meshProfileOverlay());
+        QVERIFY(canvas->meshProfileOverlay() != firstOverlay);
+        dock->reveal(first);
+        QTRY_COMPARE(canvas->meshProfileOverlay(), firstOverlay);
+
+        marker->setChecked(true);
+        toggle->trigger(); // Closing a panel hides it and retains both tabs.
+        QTRY_VERIFY(!first->isPlotActive());
+        QVERIFY(!marker->isChecked());
+        QVERIFY(!canvas->meshProfileOverlay());
+        QCOMPARE(canvas->activeTool(), previousTool);
+        QCOMPARE(dock->tabs()->count(), 2);
+        toggle->trigger();
+        dock->raise();
+        QTRY_COMPARE(canvas->meshProfileOverlay(), firstOverlay);
+        dock->setFloating(true);
+        QTRY_VERIFY(dock->isFloating());
+        QCOMPARE(plot->visibleDataRange(), zoom);
+        dock->setFloating(false);
+        dock->reveal(first);
+        QTRY_VERIFY(first->isPlotActive());
+        QCoreApplication::processEvents();
+        QVERIFY(app.grab().save(path("terrain-profiles.png")));
+
+        // Closing an inactive tab must preserve the active tab's overlay.
+        dock->closeView(second);
+        QTRY_VERIFY(second.isNull());
+        QCOMPARE(canvas->meshProfileOverlay(), firstOverlay);
+        emit project->terrainProfileTraced({{1.5, -8.5}, {12.5, -8.5}});
+        second = qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(second);
+        emit dock->tabs()->tabCloseRequested(dock->tabs()->currentIndex());
+        QTRY_VERIFY(second.isNull());
+        QTRY_COMPARE(canvas->meshProfileOverlay(), firstOverlay);
+        marker->setChecked(true);
+        // Direct deletion also has to clean up tabs before the canvas dies.
+        delete project;
+        QTRY_COMPARE(dock->tabs()->count(), 0);
+        QTRY_VERIFY(first.isNull());
+    }
+
+    /** @brief Terrain tabs retain their source and accept factor updates only for that DEM. */
+    void terrainTabsKeepSourceAndProjectBinding()
+    {
+        PlotTestWindow app;
+        app.show();
+        auto *a = open(app, "first.inp");
+        QVERIFY(a);
+        auto *raster = terrain(a);
+        QVERIFY(raster);
+        auto *toolbar = app.findChild<TerrainToolbar *>();
+        auto *dock = app.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+        QVERIFY(toolbar && dock);
+        QCOMPARE(toolbar->activeTerrain(), raster);
+        emit a->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        QPointer<RasterProfilePlotDialog> first =
+            qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(first);
+        auto *firstPlot = first->findChild<MeshProfilePlotWidget *>();
+        QVERIFY(firstPlot);
+        const QRectF original = firstPlot->visibleDataRange();
+        QDoubleSpinBox *factor = nullptr;
+        for (auto *spin : toolbar->findChildren<QDoubleSpinBox *>())
+            if (spin->toolTip().startsWith("Multiplication factor applied"))
+                factor = spin;
+        QVERIFY(factor);
+        factor->setValue(2.0);
+        QCOMPARE(firstPlot->visibleDataRange().center().y(), original.center().y() * 2);
+
+        auto *other = terrain(a, "other-terrain.asc");
+        QVERIFY(other);
+        QComboBox *selector = nullptr;
+        const QVariant otherId = QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(other));
+        for (auto *combo : toolbar->findChildren<QComboBox *>())
+            if (combo->findData(otherId) >= 0)
+                selector = combo;
+        QVERIFY(selector);
+        selector->setCurrentIndex(selector->findData(otherId));
+        QCOMPARE(toolbar->activeTerrain(), other);
+        const QRectF firstRange = firstPlot->visibleDataRange();
+        emit a->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        QPointer<RasterProfilePlotDialog> second =
+            qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(second && second != first);
+        auto *secondPlot = second->findChild<MeshProfilePlotWidget *>();
+        QVERIFY(secondPlot);
+        const double secondElevation = secondPlot->visibleDataRange().center().y();
+        QVERIFY(secondElevation > original.center().y() + 50);
+        factor->setValue(3.0);
+        QCOMPARE(firstPlot->visibleDataRange(), firstRange);
+        QCOMPARE(secondPlot->visibleDataRange().center().y(), secondElevation * 3);
+
+        auto *b = open(app, "second.inp");
+        QVERIFY(b && b != a);
+        QVERIFY(terrain(b));
+        QVERIFY(!first->isPlotActive());
+        QVERIFY(!second->isPlotActive());
+        QVERIFY(!a->canvas()->meshProfileOverlay());
+        emit b->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        QPointer<RasterProfilePlotDialog> third =
+            qobject_cast<RasterProfilePlotDialog *>(dock->tabs()->currentWidget());
+        QVERIFY(third && third != second);
+        QTRY_VERIFY(third->isPlotActive());
+        auto *area = app.findChild<QMdiArea *>();
+        dock->reveal(first);
+        QCOMPARE(area->activeSubWindow(), a);
+        QTRY_VERIFY(first->isPlotActive());
+        QVERIFY(!third->isPlotActive());
+        QVERIFY(!b->canvas()->meshProfileOverlay());
+        QCOMPARE(firstPlot->visibleDataRange(), firstRange);
+        area->setActiveSubWindow(b);
+        QVERIFY(!first->isPlotActive());
+        emit dock->tabs()->tabBarClicked(dock->tabs()->currentIndex());
+        QCOMPARE(area->activeSubWindow(), a);
+        a->setHasChanges(false);
+        QVERIFY(a->close());
+        QTRY_COMPARE(dock->tabs()->count(), 1);
+        QTRY_VERIFY(first.isNull());
+        QTRY_VERIFY(second.isNull());
+        dock->reveal(third);
+        QTRY_VERIFY(third->isPlotActive());
+        QVERIFY(b->canvas()->meshProfileOverlay());
+        b->setHasChanges(false);
+        QVERIFY(b->close());
+        QTRY_COMPARE(dock->tabs()->count(), 0);
+        QTRY_VERIFY(third.isNull());
+    }
+
+    /** @brief The new dock participates in the normal saved main-window layout. */
+    void terrainDockLayoutRestores()
+    {
+        {
+            PlotTestWindow app;
+            app.show();
+            auto *dock = app.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+            QVERIFY(dock);
+            dock->show();
+            dock->setFloating(true);
+            QTRY_VERIFY(dock->isFloating());
+            dock->resize(800, 400);
+            QVERIFY(app.close()); // Normal application close saves the layout.
+        }
+        PlotTestWindow restored;
+        restored.show();
+        auto *dock = restored.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+        QVERIFY(dock);
+        QTRY_VERIFY(dock->isFloating());
+        QTRY_VERIFY(dock->isVisible());
+        QCOMPARE(dock->tabs()->count(), 0);
     }
 };
 QTEST_MAIN(TestPlotPanelsIntegration)

@@ -369,6 +369,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "View/Panels", NoTags},
     {"view.dock.profiles2D", "actionToggleDockProfiles2D", "Panels", "", "Profile2D", "",
      "View/Panels", NoTags},
+    {"view.dock.terrainProfiles", "actionToggleDockTerrainProfiles", "Panels", "", "Profile", "",
+     "View/Panels", NoTags},
     {"view.dock.toolbox", "actionToggleDockToolbox", "Panels", "", "Plugins", "analysis",
      "View/Panels", NoTags},
     {"view.dock.layers", "actionToggleDockLayers", "Panels", "Ctrl+Alt+1", "DockLayers", "",
