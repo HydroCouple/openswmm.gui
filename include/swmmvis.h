@@ -1595,7 +1595,7 @@ private slots:
     void openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline);
 
     /**
-     * @brief Show a project-owned modeless DeleteOnClose terrain profile for a traced path.
+     * @brief Add a project-bound terrain profile tab to the Terrain Profiles dock.
      * @param[in] scenePolyline Borrowed polyline in canvas scene coordinates, copied into the
      * plot; fewer than two points is ignored.
      * Requires an active project and the terrain toolbar selected raster, otherwise
@@ -1952,6 +1952,7 @@ private:
     openswmmvis::ui::PlotDock *mTimeSeriesDock = nullptr;
     openswmmvis::ui::PlotDock *mProfiles1DDock = nullptr;
     openswmmvis::ui::PlotDock *mProfiles2DDock = nullptr;
+    openswmmvis::ui::PlotDock *mTerrainProfilesDock = nullptr;
     QPointer<openswmmvis::ui::ComparisonPlotDialog> mComparisonPlot;
     QHash<ProfilePlotDialog *, QPointer<openswmmvis::ui::ComparisonPlotDialog>> mProfileComparisons;
     QPointer<openswmmvis::ui::ComparisonPlotDialog> mComparisonRouteTarget;

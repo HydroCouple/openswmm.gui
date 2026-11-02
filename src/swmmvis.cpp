@@ -1244,23 +1244,25 @@ void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
     }
 
     const double vertFactor = mTerrainToolbar->verticalToModelFactor();
-    auto *dlg = new RasterProfilePlotDialog(raster, vertFactor, scenePolyline, pw, /*parent=*/pw);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    auto *view =
+        new RasterProfilePlotDialog(raster, vertFactor, scenePolyline, pw, mTerrainProfilesDock);
+    view->setWindowTitle(tr("Terrain — %1").arg(raster->name()));
 
     // Keep the ground line in model vertical units when the user corrects the
-    // DEM unit / conversion factor after the dialog is already open. Guarded on
-    // the toolbar still pointing at THIS dialog's raster — the factor is a
+    // DEM unit / conversion factor after the tab is already open. Guarded on
+    // the toolbar still pointing at THIS tab's raster — the factor is a
     // property of that DEM, so once the user switches terrain it no longer
-    // describes the profile this window is showing. (The traced profile stays
+    // describes the profile this tab is showing. (The traced profile stays
     // bound to the raster it was traced against; trace again for the new one.)
-    connect(mTerrainToolbar, &TerrainToolbar::verticalUnitChanged, dlg,
-            [this, dlg, raster](const QString &) {
+    connect(mTerrainToolbar, &TerrainToolbar::verticalUnitChanged, view,
+            [this, view, raster](const QString &) {
                 if (!mTerrainToolbar || mTerrainToolbar->activeTerrain() != raster)
                     return;
-                dlg->setVerticalFactor(mTerrainToolbar->verticalToModelFactor());
+                view->setVerticalFactor(mTerrainToolbar->verticalToModelFactor());
             });
 
-    dlg->show();
+    mTerrainProfilesDock->addView(view, tr("%1 — %2").arg(pw->windowTitle(), view->windowTitle()),
+                                  pw);
 }
 
 static void showSpatialAssignment(SWMMVisProjectWindow *pw, SWMM2DMeshLayer *mesh,
@@ -3449,7 +3451,9 @@ void SWMMVis::initializePlotDocks()
     mTimeSeriesDock = new PlotDock(tr("Time Series"), QStringLiteral("dockWidgetTimeSeries"), this);
     mProfiles1DDock = new PlotDock(tr("1D Profiles"), QStringLiteral("dockWidgetProfiles1D"), this);
     mProfiles2DDock = new PlotDock(tr("2D Profiles"), QStringLiteral("dockWidgetProfiles2D"), this);
-    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock}) {
+    mTerrainProfilesDock =
+        new PlotDock(tr("Terrain Profiles"), QStringLiteral("dockWidgetTerrainProfiles"), this);
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock, mTerrainProfilesDock}) {
         addDockWidget(Qt::BottomDockWidgetArea, dock);
         if (dock != mTimeSeriesDock)
             tabifyDockWidget(mTimeSeriesDock, dock);
@@ -5332,6 +5336,7 @@ void SWMMVis::initializeMenus()
             {mTimeSeriesDock, "actionToggleDockTimeSeries"},
             {mProfiles1DDock, "actionToggleDockProfiles1D"},
             {mProfiles2DDock, "actionToggleDockProfiles2D"},
+            {mTerrainProfilesDock, "actionToggleDockTerrainProfiles"},
             {mLegendDock, "actionToggleDockLegend"},
             {ui->dockWidgetSimulationStatus, "actionToggleDockSimulationStatus"},
             {ui->dockWidgetLogs, "actionToggleDockMessageLogs"},
@@ -5712,7 +5717,7 @@ void SWMMVis::initializeSettings()
 
 void SWMMVis::saveSettings()
 {
-    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock, mTerrainProfilesDock})
         if (dock)
             dock->saveLayouts();
     mSettings.beginGroup("SWMMVis::MainWindow");
@@ -7584,7 +7589,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             return; // spurious null — keep existing bindings
 
         cancelPlotPick();
-        for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+        for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock, mTerrainProfilesDock})
             if (dock)
                 dock->setActiveContext(nullptr);
         // Real "all projects closed" — clear bindings.
@@ -7640,7 +7645,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mPlotPickCanvas && mPlotPickCanvas != pw->canvas())
         cancelPlotPick();
     mActiveProjectWindow = pw;
-    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock, mTerrainProfilesDock})
         if (dock)
             dock->setActiveContext(pw);
     rebindUndoRedoActions(pw);
@@ -8232,9 +8237,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // per-project state.  Disconnect prior signal connections first to avoid
     // stacking lambdas on every tab switch.
     if (mTerrainToolbar) {
-        mTerrainToolbar->rebindCanvas(pw->canvas());
-        mTerrainToolbar->restoreState(pw->activeTerrainLayerPath(), pw->terrainNodeOffset(),
-                                      pw->terrainLinkOffset(), pw->terrainVerticalUnit());
+        {
+            // Intermediate DEM/unit selections during project rebinding are
+            // not factor edits: leave existing profile samples unchanged.
+            const QSignalBlocker block(mTerrainToolbar);
+            mTerrainToolbar->rebindCanvas(pw->canvas());
+            mTerrainToolbar->restoreState(pw->activeTerrainLayerPath(), pw->terrainNodeOffset(),
+                                          pw->terrainLinkOffset(), pw->terrainVerticalUnit());
+        }
 
         QObject::disconnect(mTerrainToolbar, &TerrainToolbar::activeTerrainChanged, this, nullptr);
         QObject::disconnect(mTerrainToolbar, &TerrainToolbar::nodeOffsetChanged, this, nullptr);
