@@ -7,7 +7,10 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/preferencesmanager.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/widgets/colorcelldelegate.h"
+#include "ui/widgets/colorrampcombobox.h"
 #include "ui/widgets/classificationeditor.h"
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
@@ -29,10 +32,13 @@
 #include "layers/swmm2dmeshlayer.h"
 
 #include <QAccessible>
+#include <QApplication>
 #include <QColorDialog>
 #include <QDir>
 #include <QFormLayout>
 #include <QImage>
+#include <QMessageBox>
+#include <QPointer>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTableWidget>
@@ -851,6 +857,135 @@ private slots:
             names.insert(name);
         }
         QCOMPARE(names.size(), 2);
+    }
+
+    /**
+     *
+     * @brief Require the custom-ramp editor to open after the combo's own activation code has
+     * returned, and to survive the combo being deleted while it is open (its page rebuilt
+     * underneath).
+     *
+     */
+    void rampEditorSurvivesItsComboBeingDeleted()
+    {
+        auto *host = new QWidget;
+        auto *combo = new ColorRampComboBox(host);
+        const QPointer<QWidget> alive(host);
+        QCOMPARE(combo->itemText(combo->count() - 1), QStringLiteral("Edit Custom Ramp…"));
+        bool sawEditor = false;
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, this, [&] {
+            if (alive && qobject_cast<ColorRampEditorDialog *>(QApplication::activeModalWidget())) {
+                sawEditor = true;
+                delete host;
+            }
+        });
+        poll.start(10);
+        QTest::keyClick(combo, Qt::Key_End); // activates the last row: Edit Custom Ramp…
+        QVERIFY2(!sawEditor && alive, "the editor opens from the event loop, not the key press");
+        QTRY_VERIFY(!alive);
+        QVERIFY(sawEditor);
+        QVERIFY(!QApplication::activeModalWidget());
+    }
+
+    /**
+     *
+     * @brief Require the ramp editor's Delete question to survive the combo, and with it the
+     * editor, being deleted while the question is open.
+     *
+     */
+    void rampDeleteQuestionSurvivesItsComboBeingDeleted()
+    {
+        const QString name = QStringLiteral("stylecontrols delete question");
+        auto *prefs = PreferencesManager::instance();
+        prefs->saveCustomColorRamp(name, RasterColorRamp::viridis());
+        auto *host = new QWidget;
+        auto *combo = new ColorRampComboBox(host);
+        const QPointer<QWidget> alive(host);
+        bool deleting = false, asked = false;
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, this, [&] {
+            QWidget *modal = QApplication::activeModalWidget();
+            if (auto *editor = qobject_cast<ColorRampEditorDialog *>(modal); editor && !deleting) {
+                for (auto *saved : editor->findChildren<QComboBox *>())
+                    if (const int at = saved->findText(name); at >= 0)
+                        saved->setCurrentIndex(at);
+                for (auto *button : editor->findChildren<QPushButton *>())
+                    if (button->text() == QStringLiteral("&Delete")) {
+                        deleting = true;
+                        QTimer::singleShot(0, button, &QPushButton::click);
+                    }
+            } else if (alive && qobject_cast<QMessageBox *>(modal)) {
+                asked = true;
+                delete host;
+            }
+        });
+        poll.start(10);
+        QTest::keyClick(combo, Qt::Key_End); // Edit Custom Ramp…
+        QTRY_VERIFY(!alive);
+        QVERIFY(asked);
+        QVERIFY(!QApplication::activeModalWidget());
+        QVERIFY(prefs->customColorRamps().contains(name)); // the question was never answered
+        prefs->removeCustomColorRamp(name);
+    }
+
+    /**
+     *
+     * @brief Require a double-clicked class colour to open its picker after the view handled the
+     * click, seeded with the cell's colour and written back to that cell even when the rows
+     * were rebuilt meanwhile; and the picker to survive its table and model being deleted while
+     * it is open.
+     *
+     */
+    void classColourPickerSurvivesItsTableBeingDeleted()
+    {
+        auto *host = new QWidget;
+        auto *model = new QStandardItemModel(1, 1, host);
+        model->setData(model->index(0, 0), QColor(Qt::blue), Qt::BackgroundRole);
+        auto *view = new QTableView(host);
+        view->setModel(model);
+        view->setItemDelegate(new ColorCellDelegate(view));
+        host->resize(240, 140);
+        host->show();
+        QVERIFY(QTest::qWaitForWindowExposed(host));
+        const QPointer<QWidget> alive(host);
+        bool deleteWhileOpen = false;
+        int opened = 0;
+        QColor seed;
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, this, [&] {
+            auto *picker = qobject_cast<QColorDialog *>(QApplication::activeModalWidget());
+            if (!picker)
+                return;
+            ++opened;
+            seed = picker->currentColor();
+            if (deleteWhileOpen)
+                delete host;
+            picker->setCurrentColor(QColor(Qt::red));
+            picker->accept();
+        });
+        poll.start(10);
+        const QPoint cell = view->visualRect(model->index(0, 0)).center();
+        const auto doubleClick = [&] {
+            QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, cell);
+            QTest::mouseDClick(view->viewport(), Qt::LeftButton, {}, cell);
+            QTest::mouseRelease(view->viewport(), Qt::LeftButton, {}, cell);
+        };
+        doubleClick();
+        QCOMPARE(opened, 0); // opens from the event loop, after the view handled the click
+        // A refresh rebuilding the rows before the picker opens (a live frame).
+        model->setRowCount(0);
+        model->setRowCount(1);
+        model->setData(model->index(0, 0), QColor(Qt::blue), Qt::BackgroundRole);
+        QTRY_COMPARE(model->index(0, 0).data(Qt::BackgroundRole).value<QColor>(), QColor(Qt::red));
+        QCOMPARE(opened, 1);
+        QCOMPARE(seed, QColor(Qt::blue));
+        deleteWhileOpen = true;
+        doubleClick();
+        QCOMPARE(opened, 1);
+        QTRY_VERIFY(!alive);
+        QTRY_VERIFY(!QApplication::activeModalWidget());
+        QCOMPARE(opened, 2);
     }
 
     /**

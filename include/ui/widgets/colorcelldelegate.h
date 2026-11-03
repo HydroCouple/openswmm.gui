@@ -42,10 +42,13 @@ public:
     QWidget *createEditor(QWidget *, const QStyleOptionViewItem &,
                           const QModelIndex &) const override;
     /**
-     * @brief Open an alpha-enabled colour dialog on a cell double click.
+     * @brief Open an alpha-enabled colour dialog on a cell double click, from a queued call
+     *   once the view has finished handling the event.
      * @param[in] e Required Qt event; only MouseButtonDblClick is handled.
-     * @param[in,out] m Required model receiving a valid pick through BackgroundRole setData().
-     * @param[in] idx Target cell; current invalid colour uses white as picker default.
+     * @param[in,out] m Required model receiving a valid pick through BackgroundRole setData(),
+     *   unless the model or the cell is gone by the time the dialog closes.
+     * @param[in] idx Target cell, read now: its colour seeds the picker (white when invalid).
+     *   Rows rebuilt meanwhile take the pick at the same row/column of the flat table.
      * @return True for every double-click, including cancellation or rejected model writes; false for other events. The view-options argument is unused.
      */
     bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,

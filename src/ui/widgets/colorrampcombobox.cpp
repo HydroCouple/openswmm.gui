@@ -15,12 +15,15 @@
 #include <QAbstractItemView>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPointer>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStyle>
 #include <QStyleOptionComboBox>
 #include <QStylePainter>
 #include <QStyledItemDelegate>
+
+#include <memory>
 
 namespace
 {
@@ -253,7 +256,9 @@ void ColorRampComboBox::onActivated(int index)
     const QString kind = itemData(index, RampKindRole).toString();
 
     if (kind == QStringLiteral("edit")) {
-        openEditor();
+        // Queued: the editor's event loop can delete the page holding this combo, and
+        // QComboBox's own activation code still runs on the combo after this slot returns.
+        QMetaObject::invokeMethod(this, &ColorRampComboBox::openEditor, Qt::QueuedConnection);
         return;
     }
     if (kind == QStringLiteral("sep"))
@@ -337,9 +342,17 @@ void ColorRampComboBox::openEditor()
                 seedName = itemText(m_lastRampRow);
         }
     }
-    openswmmvis::ui::ColorRampEditorDialog dlg(seed, this);
-    dlg.setRampName(seedName);
-    if (dlg.exec() != QDialog::Accepted || dlg.rampName().isEmpty()) {
+    // On the heap and guarded: deleting this combo while the editor is open (its page rebuilt
+    // underneath) deletes the editor with it, and neither may be touched afterwards.
+    const QPointer<ColorRampComboBox> self(this);
+    const QPointer<openswmmvis::ui::ColorRampEditorDialog> editor =
+        new openswmmvis::ui::ColorRampEditorDialog(seed, this);
+    editor->setRampName(seedName);
+    const int result = editor->exec();
+    if (!self)
+        return;
+    const std::unique_ptr<openswmmvis::ui::ColorRampEditorDialog> dlg(editor.data());
+    if (result != QDialog::Accepted || !dlg || dlg->rampName().isEmpty()) {
         // User cancelled — restore the pre-edit selection (previously this
         // reset to row 0 = Grayscale without even emitting rampChanged,
         // desynchronising the combo from the style it edits).
@@ -348,8 +361,8 @@ void ColorRampComboBox::openEditor()
         return;
     }
 
-    const RasterColorRamp edited = dlg.ramp();
-    const QString name = dlg.rampName();
+    const RasterColorRamp edited = dlg->ramp();
+    const QString name = dlg->rampName();
 
     PreferencesManager::instance()->saveCustomColorRamp(name, edited);
     rebuildItems();

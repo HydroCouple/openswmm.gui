@@ -15,6 +15,8 @@
 #include <QColorDialog>
 #include <QEvent>
 #include <QPainter>
+#include <QPersistentModelIndex>
+#include <QPointer>
 
 namespace openswmmvis::ui
 {
@@ -58,13 +60,26 @@ bool ColorCellDelegate::editorEvent(QEvent *e, QAbstractItemModel *m, const QSty
 {
     if (e->type() != QEvent::MouseButtonDblClick)
         return false;
-    QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
-    const QColor picked =
-        QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
-                               QObject::tr("Class colour"), QColorDialog::ShowAlphaChannel);
-    if (!picked.isValid())
-        return true;
-    m->setData(idx, picked, Qt::BackgroundRole);
+    // Queued, and written through guards: the picker's event loop can delete the table and its
+    // model (their page rebuilt underneath), and the view still runs after this returns. A
+    // refresh can also rebuild the rows before the picker closes: the seed is read now, and the
+    // pick then lands on the same cell of the (flat) table, as it did when written synchronously.
+    const QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
+    QMetaObject::invokeMethod(
+        this,
+        [model = QPointer<QAbstractItemModel>(m), index = QPersistentModelIndex(idx),
+         row = idx.row(), column = idx.column(), cur] {
+            const QColor picked = QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white),
+                                                         nullptr, QObject::tr("Class colour"),
+                                                         QColorDialog::ShowAlphaChannel);
+            if (!picked.isValid() || !model)
+                return;
+            const QModelIndex target =
+                index.isValid() ? QModelIndex(index) : model->index(row, column);
+            if (target.isValid())
+                model->setData(target, picked, Qt::BackgroundRole);
+        },
+        Qt::QueuedConnection);
     return true;
 }
 

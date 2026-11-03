@@ -106,7 +106,8 @@ protected:
 
 private slots:
     /**
-     * @brief Handle user row activation, opening the custom editor for its sentinel or forwarding a real ramp.
+     * @brief Handle user row activation, opening the custom editor for its sentinel (from a queued
+     *   call) or forwarding a real ramp.
      * @param[in] index Activated current row; negative/separator rows are ignored.
      */
     void onActivated(int index);
