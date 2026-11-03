@@ -1799,6 +1799,30 @@ private slots:
     }
     /**
      *
+     * @brief Require the speed classification to survive a save and reload, and restoring an
+     * older snapshot (Cancel, undo) to replace an edited classification.
+     *
+     */
+    void speedClassificationSurvivesSaveAndReload()
+    {
+        FlowStreakStyle style;
+        auto scheme = style.scheme();
+        scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        scheme.setClassCount(7);
+        scheme.setRangeMax(3.5);
+        style.setScheme(scheme);
+        const auto saved = style.toJson();
+        FlowStreakStyle reopened;
+        reopened.fromJson(saved);
+        QCOMPARE(reopened.scheme().toJson(), scheme.toJson());
+        auto edited = scheme;
+        edited.setClassCount(3);
+        reopened.setScheme(edited);
+        reopened.fromJson(saved);
+        QCOMPARE(reopened.scheme().toJson(), scheme.toJson());
+    }
+    /**
+     *
      * @brief Require two live style panels to synchronize
      * density/motion/trail/lifetime/classification controls while another layer stays
      * independent.
