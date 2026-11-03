@@ -199,7 +199,7 @@ void FlowStreakStyle::fromJson(const QJsonObject &j)
         if (j.contains("colorByMagnitude"))
             setColorByMagnitude(j["colorByMagnitude"].toBool(m_colorByMagnitude));
         if (j.contains("classification"))
-            m_scheme.fromJson(j["classification"].toObject());
+            setScheme(ClassificationScheme::fromJson(j["classification"].toObject()));
         const bool legacy =
             j["schemaVersion"].toInt() < 4 || !j["continuousParticles"].toBool(true);
         m_motionWasMigrated = false;

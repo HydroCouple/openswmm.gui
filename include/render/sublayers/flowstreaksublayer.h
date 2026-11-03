@@ -163,8 +163,8 @@ public:
     /** @brief Load appearance, apply legacy motion migration and notify once at the end.
      * @param j Borrowed object; present properties use their validated setters while
      * intermediate signals are blocked. Missing head width adopts a present body width.
-     * The current implementation calls static ClassificationScheme::fromJson() but
-     * discards its returned value, so a classification key does not replace m_scheme.
+     * A present classification object replaces the speed classification through
+     * setScheme(ClassificationScheme::fromJson(...)); a missing key keeps the current scheme.
      * Nonempty legacy objects (schemaVersion<4 or continuousParticles=false) snap spacing
      * to 56/40/28 and eligible trail duration to 0.75/1.5/3, otherwise 1.5, then reset
      * speed gain to one and set motionWasMigrated. Unknown keys are ignored; empty
