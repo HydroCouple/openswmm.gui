@@ -357,7 +357,9 @@ the flat or smooth fill being drawn; **Filled contours** the band classes and
 isoline **Levels** (**Mode**, **Count**, **Method**, **Interval**, **Base
 level**), **Symbology** and **Labels**. The surface velocity row's **Streaks**
 tab holds the animated flow streak settings, and its **Colour** tab colours the
-arrows only.
+arrows only. When a row takes over the depth or velocity displays (a new run, an
+older project, or the previous row removed or changed), its **Opacity** shows the
+opacity they draw at; changing it sets every display of the row.
 
 Every control applies straight to its sublayer, so the map repaints
 immediately and the setting survives a project round-trip.

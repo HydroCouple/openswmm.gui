@@ -40,6 +40,7 @@
 #include <QFuture>
 #include <QLineF>
 #include <QPointF>
+#include <QPointer>
 #include <QPolygonF>
 #include <QRectF>
 #include <QSet>
@@ -1335,6 +1336,11 @@ public:
                          double pixelsPerScene, double *colorMin = nullptr,
                          double *colorMax = nullptr, QString *colorUnits = nullptr,
                          int timeIndex = -1) const;
+    /** @param[in] sub Vector row of this layer, nullable.
+     *  @return Report time the row is drawn at: the time the scene graph last drew it while
+     *   the scene graph owns rendering, else currentTimeIndex(). Legends and colour ranges read
+     *   it so they match the arrows on screen. */
+    int displayedVectorTime(const OpenSWMM::Render::ResultVectorSublayer *sub) const;
     /** @return Row bound to surface depth, which drives the optimized depth passes (cell and
      *   smooth fills, contour bands, isolines); null when the catalog has no depth. */
     OpenSWMM::Render::ResultScalarSublayer *depthResultSublayer() const;
@@ -1398,9 +1404,14 @@ public:
      * @param[in] levels Requested contour scalar levels in descriptor units, forwarded to geometry
      *   builder.
      * @param[in] labels Whether to generate cell value-label anchors.
+     * @param[in] bandLevels Filled-contour band levels; empty builds no bands.
+     * @param[in] vertexValues Whether to keep the vertex-interpolated values.
+     * @param[in] bandRect Scene rectangle the bands are marched over; null marches every cell.
      * @return Nonnull immutable shared geometry; null frame returns an error object. Cache key
-     *   includes source frame identity,levels,labels and geometry revision; evicts entire cache
-     *   at4entries/64MiB, excludes outputs larger than 64MiB. Builds synchronously from current
+     *   includes source frame identity, levels, labels, bands, vertex values, band rectangle and
+     *   geometry revision. A hit becomes the most recent entry; bands for a new rectangle replace
+     *   the same request's bands for another; the least recent entries go first above 8 entries
+     *   or 96 MiB; outputs larger than 64 MiB are not kept. Builds synchronously from current
      *   scene geometry; caller must keep frame geometry-compatible.
      */
     std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry>
@@ -3051,9 +3062,17 @@ private:
      * @brief Set the engines' visibility from their rows: the depth row's visibility and toggles
      *   drive the cell, smooth, band and isoline depth passes; the velocity row's visibility and
      *   streak toggle drive the flow-streak engine. The velocity-vector engine is never shown
-     *   (vector rows draw their own arrows). Without a row an engine is left as it is.
+     *   (vector rows draw their own arrows). Without a row an engine is left as it is. Ends
+     *   with adoptPassOpacity_().
      */
     void syncEngineVisibility_();
+    /**
+     * @brief Give a row that has just become the depth or velocity row the opacity its passes
+     *   draw at: the highest among the passes its toggles show (fills, filled contours and
+     *   contour lines; the streaks). The passes are left as they are. A row whose toggles show
+     *   no pass keeps its own opacity.
+     */
+    void adoptPassOpacity_();
     /**
      * @brief Apply the defaults of a newly offered row: depth filled contours, velocity streaks,
      *   groundwater water table isolines with labels, the unsaturated column average as a
@@ -3069,6 +3088,11 @@ private:
      */
     void migrateEngineStateToRows_();
     bool m_engineMigrationPending = false;
+    /// Rows adoptPassOpacity_() last saw presenting the depth and velocity passes.
+    QPointer<OpenSWMM::Render::ResultScalarSublayer> m_opacityDepthRow;
+    QPointer<OpenSWMM::Render::ResultVectorSublayer> m_opacityVelocityRow;
+    /// Set while a row takes its passes' opacity, so its handler does not push it back.
+    bool m_adoptingPassOpacity = false;
 
 public:
     // ----- ISublayerHost interface (Slice S5.6) -----------------------------

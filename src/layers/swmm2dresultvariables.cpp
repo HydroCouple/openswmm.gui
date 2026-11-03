@@ -12,6 +12,7 @@
 #include "render/sublayers/resultscalarsublayer.h"
 #include "render/sublayers/resultvectorsublayer.h"
 #include <QJsonArray>
+#include <QScopedValueRollback>
 #include <QUuid>
 #include <algorithm>
 #include <cmath>
@@ -210,11 +211,18 @@ SWMM2DResultsLayer::resultScalarGeometry(const std::shared_ptr<const Mesh2DScala
                                          const std::vector<double> &bandLevels,
                                          bool vertexValues, const QRectF &bandRect) const
 {
-    for (const auto &entry : m_scalarGeometryCache)
-        if (entry.frame == frame && entry.levels == levels && entry.labels == labels &&
-            entry.bandLevels == bandLevels && entry.vertexValues == vertexValues &&
-            entry.bandRect == bandRect && entry.geometry == geomRevision())
-            return entry.output;
+    const auto sameRequest = [&](const ScalarGeometryCache &entry) {
+        return entry.frame == frame && entry.levels == levels && entry.labels == labels &&
+               entry.bandLevels == bandLevels && entry.vertexValues == vertexValues &&
+               entry.geometry == geomRevision();
+    };
+    for (qsizetype i = 0; i < m_scalarGeometryCache.size(); ++i)
+        if (sameRequest(m_scalarGeometryCache[i]) &&
+            m_scalarGeometryCache[i].bandRect == bandRect) {
+            // Most recently used last: eviction drops the oldest first.
+            m_scalarGeometryCache.move(i, m_scalarGeometryCache.size() - 1);
+            return m_scalarGeometryCache.last().output;
+        }
     auto output = std::make_shared<OpenSWMM::Render::ResultScalarGeometry>();
     if (!frame)
         output->error = tr("The scalar frame is unavailable.");
@@ -222,15 +230,26 @@ SWMM2DResultsLayer::resultScalarGeometry(const std::shared_ptr<const Mesh2DScala
         *output = OpenSWMM::Render::buildResultScalarGeometry(
             m_sceneVerts, cellVertexIndices(), triVertexIndices(), triCellMap(), *frame, levels,
             labels, bandLevels, vertexValues, bandRect);
+    if (output->bytes() > 64 * 1024 * 1024)
+        return output;
+    // Bands marched for another view of the same request are superseded (a
+    // panning view would otherwise add an entry per frame).
+    if (!bandRect.isNull())
+        m_scalarGeometryCache.removeIf([&](const ScalarGeometryCache &entry) {
+            return !entry.bandRect.isNull() && sameRequest(entry);
+        });
+    // Several rows can show at once (fills, bands, isolines, vector components):
+    // drop the least recently used until the new entry fits.
     size_t bytes = output->bytes();
     for (const auto &entry : m_scalarGeometryCache)
         bytes += entry.output->bytes();
-    // Several rows can show at once (fills, bands, isolines, vector components).
-    if (m_scalarGeometryCache.size() >= 8 || bytes > 96 * 1024 * 1024)
-        m_scalarGeometryCache.clear();
-    if (output->bytes() <= 64 * 1024 * 1024)
-        m_scalarGeometryCache.append(
-            {frame, levels, bandLevels, labels, vertexValues, bandRect, geomRevision(), output});
+    while (!m_scalarGeometryCache.isEmpty() &&
+           (m_scalarGeometryCache.size() >= 8 || bytes > 96 * 1024 * 1024)) {
+        bytes -= m_scalarGeometryCache.first().output->bytes();
+        m_scalarGeometryCache.removeFirst();
+    }
+    m_scalarGeometryCache.append(
+        {frame, levels, bandLevels, labels, vertexValues, bandRect, geomRevision(), output});
     return output;
 }
 
@@ -468,6 +487,40 @@ void SWMM2DResultsLayer::syncEngineVisibility_()
         if (m_velocityVectorSublayer)
             m_velocityVectorSublayer->setVisible(false);
     }
+    adoptPassOpacity_();
+}
+
+void SWMM2DResultsLayer::adoptPassOpacity_()
+{
+    // The row shows what is drawn: the highest opacity of the passes its
+    // toggles show, set without pushing it back to them.
+    const auto adopt = [this](OpenSWMM::Render::ISublayer *row,
+                              std::initializer_list<OpenSWMM::Render::ISublayer *> passes) {
+        qreal drawn = -1;
+        for (auto *pass : passes)
+            if (pass)
+                drawn = std::max(drawn, pass->opacity());
+        if (drawn < 0)
+            return;
+        const QScopedValueRollback quiet(m_adoptingPassOpacity, true);
+        row->setOpacity(drawn);
+    };
+    if (auto *depth = depthResultSublayer(); depth != m_opacityDepthRow) {
+        m_opacityDepthRow = depth;
+        if (depth) {
+            const auto *st = depth->fillStyle();
+            const bool fill = st->cellFill();
+            adopt(depth, {fill && !st->smoothFill() ? m_cellDepthFillSublayer : nullptr,
+                          fill && st->smoothFill() ? m_smoothDepthFillSublayer : nullptr,
+                          st->filledContours() ? m_contourBandSublayer : nullptr,
+                          st->isolines() ? m_isolineSublayer : nullptr});
+        }
+    }
+    if (auto *velocity = velocityResultSublayer(); velocity != m_opacityVelocityRow) {
+        m_opacityVelocityRow = velocity;
+        if (velocity && velocity->vectorStyle()->streaks())
+            adopt(velocity, {m_flowStreakSublayer});
+    }
 }
 
 bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *base) const
@@ -625,8 +678,22 @@ void SWMM2DResultsLayer::migrateEngineStateToRows_()
         vs->setStreaks(streaks);
         velocity->setVisible(arrows || streaks);
     }
+    const qreal arrowOpacity =
+        velocity && m_velocityVectorSublayer && m_velocityVectorSublayer->isVisible()
+            ? m_velocityVectorSublayer->opacity()
+            : -1;
     m_engineMigrationPending = false;
+    // The migrated rows take the opacity of the passes they now present.
+    m_opacityDepthRow = nullptr;
+    m_opacityVelocityRow = nullptr;
     syncEngineVisibility_();
+    // The velocity row draws the former arrows itself, at its own opacity.
+    if (arrowOpacity >= 0 && velocity == velocityResultSublayer()) {
+        const QScopedValueRollback quiet(m_adoptingPassOpacity, true);
+        velocity->setOpacity(velocity->vectorStyle()->streaks()
+                                 ? std::max(velocity->opacity(), arrowOpacity)
+                                 : arrowOpacity);
+    }
 }
 
 ResultScalarSublayer *SWMM2DResultsLayer::createResultSublayer_(const QString &key,
@@ -682,7 +749,7 @@ ResultScalarSublayer *SWMM2DResultsLayer::createResultSublayer_(const QString &k
                 state->toggles = now;
                 syncEngineVisibility_();
             }
-            if (sub->opacity() != state->opacity)
+            if (sub->opacity() != state->opacity && !m_adoptingPassOpacity)
                 for (OpenSWMM::Render::ISublayer *engine :
                      {static_cast<OpenSWMM::Render::ISublayer *>(m_cellDepthFillSublayer),
                       static_cast<OpenSWMM::Render::ISublayer *>(m_smoothDepthFillSublayer),
@@ -754,7 +821,7 @@ ResultVectorSublayer *SWMM2DResultsLayer::createResultVectorSublayer_(const QStr
         if (!m_engineMigrationPending && presenting) {
             if (const int now = vectorState(sub); now != state->toggles || !wasVelocity)
                 syncEngineVisibility_();
-            if (sub->opacity() != state->opacity && m_flowStreakSublayer)
+            if (sub->opacity() != state->opacity && !m_adoptingPassOpacity && m_flowStreakSublayer)
                 m_flowStreakSublayer->setOpacity(sub->opacity());
         } else if (!m_engineMigrationPending && wasVelocity && sub->vectorKey() != kVelocityKey) {
             // Re-keyed away from velocity: the streaks follow the next velocity row, or hide.
@@ -966,8 +1033,12 @@ void SWMM2DResultsLayer::saveSublayersJsonState(QJsonObject &j) const
 void SWMM2DResultsLayer::onSublayersJsonLoaded(const QJsonObject &j)
 {
     const bool legacy = !j.contains(kUnifiedMarker);
-    if (!legacy)
+    if (!legacy) {
         m_engineMigrationPending = false; // rows and engines were saved in step
+        // Their rows keep the opacity they were saved with.
+        m_opacityDepthRow = depthResultSublayer();
+        m_opacityVelocityRow = velocityResultSublayer();
+    }
     // An older snapshot carries a hidden automatic row for every field: retire
     // those of the other fields. Visible rows, rows added by hand and the
     // default fields stay.
@@ -1090,6 +1161,12 @@ void SWMM2DResultsLayer::prepareSublayersJsonLoad(const QJsonObject &j)
         for (const auto &key : offered.toArray())
             m_offeredResultKeys.insert(key.toString());
     }
+}
+
+int SWMM2DResultsLayer::displayedVectorTime(const ResultVectorSublayer *sub) const
+{
+    const int drawn = sub && qsgOwnsRendering() ? sub->presentedTime() : -1;
+    return drawn >= 0 && source_ && drawn < source_->timeCount() ? drawn : currentTimeIndex();
 }
 
 OpenSWMM::Render::ResultVectorGeometry

@@ -50,7 +50,11 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QGraphicsScene>
+#include <QImage>
+#include <QPainter>
 #include <QSGGeometryNode>
+#include <QSGOpacityNode>
 
 using namespace openswmmvis::io;
 using namespace OpenSWMM::Render;
@@ -112,6 +116,10 @@ public:
     bool supportsWholeRunRange() const override { return wholeRun; }
     bool edgeFlux = false;    // true: the run carries edge fluxes (all zero)
     bool scaleByTime = false; // true: values at report time t are multiplied by t + 1
+    QHash<QString, int> reads; // frame reads per stored dataset
+    std::vector<double> bed{0, 0, 0, 0}; // vertex bed elevations
+    QString missingDataset; // with missingTime: a frame that cannot be read
+    int missingTime = -1;
     bool readEdgeFluxAt(int, std::vector<float> &flux) override
     {
         if (!edgeFlux)
@@ -139,7 +147,7 @@ public:
     {
         x = {0, 1, 1, 0};
         y = {0, 0, 1, 1};
-        z = {0, 0, 0, 0};
+        z = bed;
         tris = {{0, 1, 2}, {0, 2, 3}};
         return true;
     }
@@ -164,8 +172,9 @@ public:
                     return readFaceVariableAt(input, time, o, s);
                 },
                 out, status);
-        if (!values.contains(v.dataset))
+        if (!values.contains(v.dataset) || (v.dataset == missingDataset && t == missingTime))
             return false;
+        ++reads[v.dataset];
         out = values.value(v.dataset);
         if (scaleByTime)
             for (auto &x : out)
@@ -201,6 +210,45 @@ int vertices(QSGNode *root, int attributes)
             count += g->vertexCount();
     }
     return count;
+}
+
+/** @return The layer's CPU scene over the unit square, painted into a 100 px image. */
+QImage paintCpu(SWMM2DResultsLayer &layer)
+{
+    QGraphicsScene scene;
+    layer.populateScene(&scene, MapExtent(0, 0, 1, 1), nullptr);
+    QImage image(100, 100, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    {
+        QPainter painter(&image);
+        scene.render(&painter, QRectF(0, 0, 100, 100), QRectF(0, -1, 1, 1));
+    }
+    layer.depopulateScene(&scene);
+    return image;
+}
+
+/** @return The highest pixel alpha of the image. */
+int highestAlpha(const QImage &image)
+{
+    int alpha = 0;
+    for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+            alpha = std::max(alpha, qAlpha(image.pixel(x, y)));
+    return alpha;
+}
+
+/** @return Opacities of every opacity node under the root. */
+QList<qreal> nodeOpacities(QSGNode *root)
+{
+    QList<qreal> out;
+    QVector<QSGNode *> pending{root};
+    for (qsizetype n = 0; n < pending.size(); ++n) {
+        for (auto *c = pending[n]->firstChild(); c; c = c->nextSibling())
+            pending.append(c);
+        if (pending[n]->type() == QSGNode::OpacityNodeType)
+            out << static_cast<QSGOpacityNode *>(pending[n])->opacity();
+    }
+    return out;
 }
 
 ResultScalarSublayer *scalarRow(const SWMM2DResultsLayer &layer, const QString &key)
@@ -463,6 +511,9 @@ private slots:
         source.isolineSublayer()->setVisible(true);
         source.velocityVectorSublayer()->setVisible(true);
         source.flowStreakSublayer()->setVisible(false);
+        source.smoothDepthFillSublayer()->setOpacity(.4);
+        source.isolineSublayer()->setOpacity(.7);
+        source.velocityVectorSublayer()->setOpacity(.5);
         auto *arrows = source.velocityVectorSublayer()->vectorStyle();
         arrows->setGlyphLengthScalePxPerMps(15);
         arrows->setDryDepthCutoff(.05);
@@ -504,6 +555,12 @@ private slots:
         QVERIFY(old.smoothDepthFillSublayer()->isVisible() && old.isolineSublayer()->isVisible());
         QVERIFY(!old.contourBandSublayer()->isVisible());
         QVERIFY(!old.velocityVectorSublayer()->isVisible()); // the row draws the arrows
+        // The rows show the opacity of what they now present; the passes keep theirs.
+        QCOMPARE(depth->opacity(), .7);
+        QCOMPARE(old.smoothDepthFillSublayer()->opacity(), .4);
+        QCOMPARE(old.isolineSublayer()->opacity(), .7);
+        QCOMPARE(velocity->opacity(), .5);
+        QCOMPARE(old.flowStreakSublayer()->opacity(), source.flowStreakSublayer()->opacity());
         QVERIFY(ISublayerHost::saveSublayersToJson(old).contains("unifiedResults"));
     }
 
@@ -1044,12 +1101,13 @@ private slots:
         layer.setSource(std::make_unique<FieldSource>());
         auto *depth = layer.depthResultSublayer();
         QVERIFY(depth);
+        const qreal rowOpacity = depth->opacity(); // the bands' opacity (see below)
         layer.contourBandSublayer()->setOpacity(.8); // set on the Depth Contours tab
         const auto snapshot = ISublayerHost::saveSublayersToJson(layer);
         depth->setOpacity(.5);
         QCOMPARE(layer.contourBandSublayer()->opacity(), .5);
         ISublayerHost::loadSublayersFromJson(layer, snapshot);
-        QCOMPARE(depth->opacity(), 1.);
+        QCOMPARE(depth->opacity(), rowOpacity);
         QCOMPARE(layer.contourBandSublayer()->opacity(), .8);
         QVERIFY(layer.contourBandSublayer()->isVisible()); // visibility still follows the row
     }
@@ -1737,6 +1795,258 @@ private slots:
         QVERIFY(layer.contourBandSublayer()->isVisible());
         QCOMPARE(currentId(panel), second->id());
         QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
+    }
+
+    /** @brief A row that becomes the depth or velocity row shows the opacity of the passes it
+     * presents (new run, removal, re-key), without changing them; a row edit still sets every
+     * pass. */
+    void presentingRowShowsItsPassOpacity()
+    {
+        SWMM2DResultsLayer defaults; // passes at their own defaults
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>());
+        auto *depth = layer.depthResultSublayer();
+        auto *bands = layer.contourBandSublayer();
+        QVERIFY(bands->opacity() < 1);
+        QCOMPARE(depth->opacity(), bands->opacity()); // it presents the filled contours
+        QCOMPARE(bands->opacity(), defaults.contourBandSublayer()->opacity());
+        QCOMPARE(layer.isolineSublayer()->opacity(), defaults.isolineSublayer()->opacity());
+        QCOMPARE(layer.cellDepthFillSublayer()->opacity(),
+                 defaults.cellDepthFillSublayer()->opacity());
+        auto *velocity = layer.velocityResultSublayer();
+        QCOMPARE(velocity->opacity(), layer.flowStreakSublayer()->opacity());
+        depth->setOpacity(.5);
+        QCOMPARE(bands->opacity(), .5);
+        QCOMPARE(layer.isolineSublayer()->opacity(), .5);
+        // The presenting row is removed: a 30 % hand-added row takes over and shows the bands.
+        bands->setOpacity(.7); // the Filled contours tab
+        auto *second = layer.addResultSublayer(kDepth);
+        second->fillStyle()->setCellFill(false);
+        second->fillStyle()->setFilledContours(true);
+        second->setOpacity(.3);
+        QCOMPARE(bands->opacity(), .7); // not the presenting row yet
+        QVERIFY(layer.removeResultSublayer(depth->id()));
+        QCOMPARE(layer.depthResultSublayer(), second);
+        QCOMPARE(second->opacity(), .7);
+        QCOMPARE(bands->opacity(), .7);
+        // Re-keyed into depth (no depth row left): the smooth fill it presents.
+        QVERIFY(layer.removeResultSublayer(second->id()));
+        layer.smoothDepthFillSublayer()->setOpacity(.45);
+        auto *moisture = scalarRow(layer, kMoisture);
+        moisture->setOpacity(.2);
+        moisture->setVariableKey(kDepth);
+        QCOMPARE(layer.depthResultSublayer(), moisture);
+        QCOMPARE(moisture->opacity(), .45);
+        QCOMPARE(layer.smoothDepthFillSublayer()->opacity(), .45);
+        // Reopened, a saved presenting row keeps the opacity it was saved with.
+        SWMM2DResultsLayer saved;
+        saved.setSource(std::make_unique<FieldSource>());
+        QVERIFY(saved.removeResultSublayer(saved.depthResultSublayer()->id()));
+        auto *own = saved.addResultSublayer(kDepth);
+        own->fillStyle()->setCellFill(false);
+        own->fillStyle()->setFilledContours(true);
+        own->setOpacity(.3);
+        saved.contourBandSublayer()->setOpacity(.8); // the Filled contours tab
+        const auto snapshot = ISublayerHost::saveSublayersToJson(saved);
+        SWMM2DResultsLayer reopened;
+        reopened.setSource(std::make_unique<FieldSource>());
+        ISublayerHost::loadSublayersFromJson(reopened, snapshot);
+        auto *row = reopened.depthResultSublayer();
+        QVERIFY(row && row->id() == own->id());
+        QCOMPARE(row->opacity(), .3);
+        QCOMPARE(reopened.contourBandSublayer()->opacity(), .8);
+    }
+
+    /** @brief The depth contour-line pass draws its lines (CPU) and labels (scene graph) at its
+     * own opacity. */
+    void isolinePassOpacityReachesLinesAndLabels()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        owned->bed = {0, .5, 1, .5}; // depth contours cross the sloping bed
+        owned->values["Mesh2_face_depth"] = {1.f, 1.f};
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        layer.setCurrentTimeIndex(0);
+        auto *depth = layer.depthResultSublayer();
+        depth->fillStyle()->setFilledContours(false);
+        depth->fillStyle()->setIsolines(true);
+        auto *lines = layer.isolineSublayer();
+        // Only the contour lines paint: no other rows, no mesh overlays.
+        for (auto *sub : layer.sublayers())
+            if ((qobject_cast<ResultScalarSublayer *>(sub) ||
+                 qobject_cast<ResultVectorSublayer *>(sub)) &&
+                sub != depth)
+                sub->setVisible(false);
+        layer.meshEdgeSublayer()->setVisible(false);
+        layer.meshNodeSublayer()->setVisible(false);
+        QVERIFY(lines->isVisible() && !layer.contourBandSublayer()->isVisible());
+        lines->setOpacity(1);
+        const QImage opaqueImage = paintCpu(layer);
+        opaqueImage.save(QDir(outputDir()).filePath("isoline_pass_opaque.png"));
+        const int opaque = highestAlpha(opaqueImage);
+        QVERIFY(opaque > 0);
+        lines->setOpacity(.25);
+        const QImage faintImage = paintCpu(layer);
+        faintImage.save(QDir(outputDir()).filePath("isoline_pass_faint.png"));
+        const int faint = highestAlpha(faintImage);
+        QVERIFY2(faint > 0 && faint < opaque / 2,
+                 qPrintable(QStringLiteral("alpha %1 at 25 %, %2 opaque").arg(faint).arg(opaque)));
+        lines->isolineStyle()->setLabels(true);
+        Renderer renderer;
+        renderer.setWidth(100);
+        renderer.setHeight(100);
+        renderer.setMapExtent(MapExtent(0, 0, 1, 1));
+        renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        root.reset(renderer.sync(root.release()));
+        const auto opacities = nodeOpacities(root.get());
+        QVERIFY2(std::any_of(opacities.cbegin(), opacities.cend(),
+                             [](qreal o) { return qFuzzyCompare(o, qreal(.25)); }),
+                 "the label node does not carry the pass opacity");
+    }
+
+    /** @brief The vector legend and the style panel's colour range follow the time the scene
+     * graph drew, not a newer current time. */
+    void vectorLegendAndPanelFollowTheDrawnTime()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        owned->scaleByTime = true;
+        owned->values["Mesh2_face_gw_qx"] = {1e-7f, 3e-7f};
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        layer.setQsgOwnsRendering(true);
+        layer.setCurrentTimeIndex(0);
+        auto *darcy = vectorRow(layer, kDarcy);
+        QVERIFY(darcy && darcy->isVisible() && darcy->vectorStyle()->arrows());
+        auto scheme = darcy->vectorStyle()->colorScheme();
+        scheme.setMode(OpenSWMM::Render::ClassificationScheme::ClassMode::Classified);
+        scheme.setClassCount(2);
+        darcy->vectorStyle()->setColorScheme(scheme);
+        Renderer renderer;
+        renderer.setWidth(100);
+        renderer.setHeight(100);
+        renderer.setMapExtent(MapExtent(0, 0, 1, 1));
+        renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QCOMPARE(darcy->presentedTime(), 0);
+        double lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0;
+        QString units;
+        (void)layer.resultVectorGeometry(darcy, QRectF(), 1, &lo0, &hi0, &units, 0);
+        (void)layer.resultVectorGeometry(darcy, QRectF(), 1, &lo1, &hi1, nullptr, 1);
+        QVERIFY(hi0 > lo0 && hi1 > hi0);
+        layer.setCurrentTimeIndex(1); // not drawn yet
+        QCOMPARE(layer.displayedVectorTime(darcy), 0);
+        QStringList legend, expected;
+        for (const auto &item : layer.sublayerLegendItems())
+            if (item.sublayerId == darcy->id())
+                legend << item.label;
+        for (const auto &item : darcy->legendSymbolItems(lo0, hi0, units))
+            expected << item.label;
+        QCOMPARE(legend, expected);
+        Panel panel(&layer);
+        QVERIFY(panel.focusResult(darcy->id()));
+        auto *editor = panel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultVectorClassification");
+        QVERIFY(editor);
+        auto *table = editor->findChild<QTableView *>();
+        QVERIFY(table && table->model()->rowCount() == 2);
+        QStringList cells;
+        for (int r = 0; r < table->model()->rowCount(); ++r)
+            for (int c = 0; c < table->model()->columnCount(); ++c)
+                cells << table->model()->index(r, c).data().toString();
+        const auto &shown = darcy->vectorStyle()->colorScheme();
+        QVERIFY2(cells.contains(shown.formatValue(hi0)) && !cells.contains(shown.formatValue(hi1)),
+                 qPrintable(cells.join(QLatin1Char('|'))));
+        // The colour editor stays usable while the drawn frame has a range, although the newer
+        // current frame cannot be read.
+        auto lagging = std::make_unique<FieldSource>();
+        lagging->values["Mesh2_face_gw_qx"] = {1e-7f, 3e-7f};
+        lagging->missingDataset = QStringLiteral("Mesh2_face_gw_qx");
+        lagging->missingTime = 1;
+        SWMM2DResultsLayer late;
+        late.setSource(std::move(lagging));
+        late.setQsgOwnsRendering(true);
+        late.setCurrentTimeIndex(0);
+        Renderer lateRenderer;
+        lateRenderer.setWidth(100);
+        lateRenderer.setHeight(100);
+        lateRenderer.setMapExtent(MapExtent(0, 0, 1, 1));
+        lateRenderer.setLayer(&late);
+        std::unique_ptr<QSGNode> lateRoot(lateRenderer.sync());
+        late.setCurrentTimeIndex(1);
+        auto *lateRow = vectorRow(late, kDarcy);
+        QCOMPARE(lateRow->presentedTime(), 0);
+        Panel latePanel(&late);
+        QVERIFY(latePanel.focusResult(lateRow->id()));
+        auto *lateEditor = latePanel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultVectorClassification");
+        QVERIFY(lateEditor && lateEditor->isEnabled());
+    }
+
+    /** @brief Bands marched for a new view replace that request's bands for the old view, and the
+     * least recently used geometry goes first: panning keeps the isolines cached. */
+    void viewBoundBandsKeepOtherGeometryCached()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        owned->values["Mesh2_face_depth"] = {0.f, 1.f};
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        const auto frame = layer.resultFrame(kDepth, 0);
+        QVERIFY(frame && frame->error.isEmpty());
+        const std::vector<double> levels{.5}, bandLevels{0, .5, 1};
+        const auto isolines = layer.resultScalarGeometry(frame, levels, false);
+        for (int i = 0; i < 12; ++i) // a panning view
+            (void)layer.resultScalarGeometry(frame, {}, false, bandLevels, false,
+                                             QRectF(.01 * i, 0, 1, 1));
+        QCOMPARE(layer.resultScalarGeometry(frame, levels, false).get(), isolines.get());
+        // Other requests fill the cache; the isolines, still in use, stay.
+        for (int i = 1; i <= 10; ++i) {
+            (void)layer.resultScalarGeometry(frame, {.05 * i}, false);
+            QCOMPARE(layer.resultScalarGeometry(frame, levels, false).get(), isolines.get());
+        }
+    }
+
+    /** @brief Without cell labels the CPU painter reads no depth frame for the depth row (its
+     * passes draw the fills and contours); with labels it does. */
+    void cpuDepthRowReadsNoFrameWithoutLabels()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        auto *source = owned.get();
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        QVERIFY(layer.depthResultSublayer()->isVisible());
+        source->reads.clear();
+        (void)paintCpu(layer);
+        QCOMPARE(source->reads.value("Mesh2_face_depth"), 0);
+        layer.depthResultSublayer()->fillStyle()->setCellLabels(true);
+        layer.setCurrentTimeIndex(1); // a frame not read yet
+        (void)paintCpu(layer);
+        QVERIFY(source->reads.value("Mesh2_face_depth") > 0);
+    }
+
+    /** @brief A reorder that leaves the depth and velocity rows alone still signals once, and the
+     * style panel's field tree follows the new order. */
+    void plainReorderSignalsAndReordersTheTree()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>());
+        auto *table = scalarRow(layer, kTable);
+        auto *moisture = scalarRow(layer, kMoisture);
+        QVERIFY(table && moisture);
+        auto *depth = layer.depthResultSublayer();
+        auto *velocity = layer.velocityResultSublayer();
+        Panel panel(&layer);
+        const auto tableAbove = [&] {
+            return fieldItem(panel, table->id()).row() < fieldItem(panel, moisture->id()).row();
+        };
+        const bool before = tableAbove();
+        QSignalSpy changed(&layer, &SWMM2DResultsLayer::resultSublayersChanged);
+        const auto subs = layer.sublayers();
+        QVERIFY(layer.moveSublayer(subs.indexOf(table), subs.indexOf(moisture)));
+        QCOMPARE(layer.depthResultSublayer(), depth);
+        QCOMPARE(layer.velocityResultSublayer(), velocity);
+        QCOMPARE(changed.count(), 1);
+        QTRY_COMPARE(tableAbove(), !before);
     }
 
     /** @brief The tree lists result rows under the four domain/kind headings and no row for

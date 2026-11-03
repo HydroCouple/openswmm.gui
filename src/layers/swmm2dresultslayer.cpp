@@ -519,6 +519,9 @@ public:
             // every Nth level, and along-line labels (decimals / font / halo).
             if (paintIsolines && maxDepth > dryDepth) {
                 using namespace OpenSWMM::Contour;
+                // Lines and labels draw at the pass's own opacity.
+                p->save();
+                p->setOpacity(p->opacity() * std::clamp<qreal>(isolineSub->opacity(), 0.0, 1.0));
                 const auto *isoStyle = (isolineSub && isolineSub->isolineStyle())
                                            ? isolineSub->isolineStyle()
                                            : nullptr;
@@ -690,6 +693,7 @@ public:
                         }
                     }
                 }
+                p->restore();
             }
         };
         auto paintEdgePass = [&] {
@@ -1159,7 +1163,8 @@ public:
                 continue;
             if (sub == depthRow) {
                 paintDepthPasses();
-                if (sub->isVisible())
+                // The passes draw its fills and contours; the row adds only cell labels.
+                if (sub->isVisible() && depthRow->fillStyle()->cellLabels())
                     paintScalarRow(depthRow, true);
                 continue;
             }
@@ -5431,7 +5436,8 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
              (vector->vectorStyle()->streaks() && vector != velocityResultSublayer()))) {
             double lo = 0, hi = 0;
             QString units;
-            (void)resultVectorGeometry(vector, QRectF(), 1.0, &lo, &hi, &units);
+            (void)resultVectorGeometry(vector, QRectF(), 1.0, &lo, &hi, &units,
+                                       displayedVectorTime(vector));
             out.append(vector->legendSymbolItems(lo, hi, units));
             continue;
         }

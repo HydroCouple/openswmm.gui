@@ -343,8 +343,9 @@ Mesh2DLiveVariablesPtr captureGroundwaterVariables(SWMM_Engine engine, int expec
     // Inputs of the derived unsaturated water content column average.
     if (waterKnown[1])
         scalar(water[1], "Mesh2_face_gw_hu",
-               "closure A unsaturated storage (equivalent depth of water; 0 under closure B)", "m",
-               Mesh2DResultVariable::Temporal::Reported);
+               "unsaturated storage (equivalent depth of water; the sigma column total under "
+               "closure B)",
+               "m", Mesh2DResultVariable::Temporal::Reported);
     // Same label and (absent) units as the saved file's static closure mask.
     if (std::vector<double> closure; read(SWMM_GW2D_VAR_CLOSURE, closure)) {
         scalar(closure, "Mesh2_face_gw_closure", "resolved unsaturated-zone closure per cell", "",
