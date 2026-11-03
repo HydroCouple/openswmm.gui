@@ -22,6 +22,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPointer>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QToolButton>
@@ -398,12 +399,20 @@ void ColorRampEditorDialog::onDeleteSaved()
     const QString name = m_savedCombo->currentText();
     if (name.isEmpty())
         return;
-    const auto ret =
-        QMessageBox::question(this, tr("Delete Custom Ramp"),
-                              tr("Delete the custom ramp \"%1\"? Styles already using it keep "
-                                 "their colors (the ramp is embedded in the style), but it will "
-                                 "no longer be offered in ramp lists.")
-                                  .arg(name));
+    // On the heap and guarded, like this editor (ColorRampComboBox::openEditor): the combo that
+    // owns the editor can be deleted while the question is open, taking both with it.
+    const QPointer<ColorRampEditorDialog> self(this);
+    const QPointer<QMessageBox> question =
+        new QMessageBox(QMessageBox::Question, tr("Delete Custom Ramp"),
+                        tr("Delete the custom ramp \"%1\"? Styles already using it keep "
+                           "their colors (the ramp is embedded in the style), but it will "
+                           "no longer be offered in ramp lists.")
+                            .arg(name),
+                        QMessageBox::Yes | QMessageBox::No, this);
+    const int ret = question->exec();
+    if (!self)
+        return;
+    delete question;
     if (ret != QMessageBox::Yes)
         return;
     PreferencesManager::instance()->removeCustomColorRamp(name);

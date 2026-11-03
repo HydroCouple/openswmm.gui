@@ -153,7 +153,7 @@ private slots:
      *   saved choices and name warning.
      * @note Empty name/cancel no-op. Deletion persists independently of dialog acceptance, has no
      *   undo and does not change current embedded edited ramp or already embedded layer styles.
-     *   Host must preserve dialog lifetime through modal question.
+     *   Deleting the editor while the question is open returns without touching it.
      */
     void onDeleteSaved();
 
