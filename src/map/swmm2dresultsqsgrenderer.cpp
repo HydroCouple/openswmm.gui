@@ -593,7 +593,7 @@ struct ResultsRootNode : QSGTransformNode {
     QSGGeometryNode *bandNode = nullptr;
     QSGGeometryNode *isoNode = nullptr;
     QSGGeometryNode *isoIndexNode = nullptr;
-    QSGNode *isoLabels = nullptr;
+    QSGOpacityNode *isoLabels = nullptr; // the isoline pass's opacity
     QSGGeometryNode *edgeNode = nullptr;
     QSGGeometryNode *nodeMarkNode = nullptr;
     QSGGeometryNode *velNode = nullptr;
@@ -1000,7 +1000,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     QSGGeometryNode *bandNode = nullptr;
     QSGGeometryNode *isoNode = nullptr;
     QSGGeometryNode *isoIndexNode = nullptr;
-    QSGNode *isoLabels = nullptr;
+    QSGOpacityNode *isoLabels = nullptr;
     QSGGeometryNode *edgeNode = nullptr;     // mesh wireframe overlay
     QSGGeometryNode *nodeMarkNode = nullptr; // mesh-vertex markers
     QSGGeometryNode *velNode = nullptr;
@@ -1025,7 +1025,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         bandNode = root->bandNode = makeWaterFillNode();
         isoNode = root->isoNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoIndexNode = root->isoIndexNode = makeFlatNode(QColor(10, 10, 10, 220));
-        isoLabels = root->isoLabels = new QSGNode();
+        isoLabels = root->isoLabels = new QSGOpacityNode();
         edgeNode = root->edgeNode = makeFlatNode(QColor(0, 0, 0, 130));
         nodeMarkNode = root->nodeMarkNode = makeFlatNode(QColor(40, 40, 40, 220));
         velNode = root->velNode = makeColoredNode();
@@ -2054,6 +2054,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         const auto geometry = m_layer->resultVectorGeometry(
                             vector, cullRect, double(sx_r), nullptr, nullptr, nullptr,
                             frame.key.time);
+                        // Legends and colour ranges read the time drawn here.
+                        vector->publishPresentedTime(frame.key.time);
                         const float streakHalf = float(0.5 * style->streakWidthPx()) * invView;
                         for (const auto &streak : geometry.streaks) {
                             const size_t n = streak.points.size();
@@ -2406,6 +2408,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     setFlatColor(isoIndexNode, isoColor);
 
                     // ---- Pass 3b: along-line labels ----------------------
+                    // The labels draw at the pass's opacity, like its lines.
+                    isoLabels->setOpacity(std::clamp(isoSub->opacity(), qreal(0), qreal(1)));
                     while (auto *c = isoLabels->firstChild()) {
                         isoLabels->removeChildNode(c);
                         delete c;

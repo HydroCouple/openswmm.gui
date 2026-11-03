@@ -17,6 +17,7 @@
 
 #include <QColor>
 #include <QPointF>
+#include <atomic>
 #include <vector>
 
 namespace OpenSWMM::Render
@@ -233,6 +234,12 @@ public:
                                               const QString &colorUnits) const;
     /** @return Colour for a bound value over [lo, hi] with the colour scheme (opacity applied). */
     QColor colorFor(double value, double lo, double hi) const;
+    /** @return Report time the scene graph last drew this row at, or -1. Atomic, so the GUI
+     *   thread may read what the render thread published. */
+    int presentedTime() const { return m_presentedTime.load(std::memory_order_acquire); }
+    /** @brief Record the report time the scene graph drew this row at (render thread; no
+     *   signals). @param time Report time index, or -1 to clear. */
+    void publishPresentedTime(int time) { m_presentedTime.store(time, std::memory_order_release); }
     QSGNode *buildOrUpdateNode(QSGNode *existing, const SublayerContext &) override
     {
         return existing;
@@ -244,6 +251,7 @@ private:
     qreal m_opacity = 1;
     ResultVectorStyle *m_style;
     openswmmvis::io::Mesh2DResultVector m_descriptor;
+    std::atomic<int> m_presentedTime{-1};
 };
 
 } // namespace OpenSWMM::Render

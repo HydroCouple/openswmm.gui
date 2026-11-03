@@ -1876,7 +1876,8 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     auto colorRange = [layer, sub] {
         double lo = std::numeric_limits<double>::quiet_NaN(), hi = lo;
         if (layer && sub)
-            (void)layer->resultVectorGeometry(sub, QRectF(), 1.0, &lo, &hi);
+            (void)layer->resultVectorGeometry(sub, QRectF(), 1.0, &lo, &hi, nullptr,
+                                              layer->displayedVectorTime(sub));
         return qMakePair(lo, hi);
     };
     auto *binding = new SublayerSchemeBinding(
@@ -1910,7 +1911,8 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
         if (!layer || !sub)
             return;
         double lo = std::numeric_limits<double>::quiet_NaN(), hi = lo;
-        const auto geometry = layer->resultVectorGeometry(sub, QRectF(), 1.0, &lo, &hi);
+        const auto geometry = layer->resultVectorGeometry(sub, QRectF(), 1.0, &lo, &hi, nullptr,
+                                                          layer->displayedVectorTime(sub));
         status->setText(geometry.error.isEmpty()
                             ? tr("Arrows sample cell values on a screen grid; streaks follow the "
                                  "interpolated field from evenly spaced seeds.")
