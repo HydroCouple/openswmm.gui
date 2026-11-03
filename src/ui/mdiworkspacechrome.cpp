@@ -17,6 +17,7 @@
 #include <QMdiSubWindow>
 #include <QDir>
 #include <QObject>
+#include <QVariant>
 #include <QWidget>
 
 namespace openswmmvis::ui
@@ -43,6 +44,28 @@ void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome)
 
     if (!area)
         return;
+
+    // Tabbed QMdiArea only covers inactive subwindows; their contents stay
+    // visible and remain eligible for fallback focus when dock pages change.
+    // Hide the contents and exclude the wrapper itself from focus traversal.
+    // Focusing either one activates that document in QMdiSubWindow. Retain
+    // the tabs and Qt's activation machinery; never show a closed wrapper.
+    QObject::connect(area, &QMdiArea::subWindowActivated, area, [area](QMdiSubWindow *active) {
+        if (!active || active->isHidden() || area->viewMode() != QMdiArea::TabbedView)
+            return;
+        const auto subs = area->subWindowList();
+        for (auto *sub : subs) {
+            constexpr auto policyProperty = "openswmmvisMdiFocusPolicy";
+            if (!sub->property(policyProperty).isValid())
+                sub->setProperty(policyProperty, int(sub->focusPolicy()));
+            sub->setFocusPolicy(sub == active
+                                    ? Qt::FocusPolicy(sub->property(policyProperty).toInt())
+                                    : Qt::NoFocus);
+        }
+        for (auto *sub : subs)
+            if (auto *content = sub->widget())
+                content->setVisible(sub == active);
+    });
 
     // Backdrop follows the theme. setBackground() is what QMdiArea's
     // paintEvent fills the viewport with; re-running it on themeChanged

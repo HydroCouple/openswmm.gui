@@ -27,12 +27,15 @@
 #include <QtTest/QtTest>
 
 #include <QApplication>
+#include <QDockWidget>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QMdiArea>
 #include <QMdiSubWindow>
 #include <QPalette>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -213,6 +216,7 @@ private slots:
     void hiddenWelcomeDoesNotStrandTheNextTab();
     void tabBarSwitchingLeavesNoStray();
     void hiddenSubWindowIsNotResurrected();
+    void switchingFocusedDockTabsKeepsTheDocument();
 };
 
 //! Every test starts from Light so backdrop expectations are stable and
@@ -390,8 +394,8 @@ void TestMdiTabMaximize::tabBarSwitchingLeavesNoStray()
 
 /*!
  * A hidden Welcome must stay hidden through a main-window hide/show cycle.
- * The workspace chrome deliberately has no activation hook: calling
- * showMaximized() from one would resurrect a welcome tab the user closed.
+ * The workspace chrome must never show a wrapper or force it maximized:
+ * doing so would resurrect a welcome tab the user closed.
  */
 /** @brief Verify a hidden restored Welcome remains hidden and nonmaximized after hiding/showing the main window. */
 void TestMdiTabMaximize::hiddenSubWindowIsNotResurrected()
@@ -414,6 +418,61 @@ void TestMdiTabMaximize::hiddenSubWindowIsNotResurrected()
     QVERIFY(welcome->isHidden());
     QVERIFY(!welcome->isVisible());
     QVERIFY(!welcome->isMaximized());
+}
+
+void TestMdiTabMaximize::switchingFocusedDockTabsKeepsTheDocument()
+{
+    Workspace w;
+    auto *welcomeInput = new QLineEdit("Welcome input");
+    w.welcome->layout()->addWidget(welcomeInput);
+    installMdiWorkspaceChrome(w.area, w.welcome);
+    w.show();
+    auto *model = w.addProject("Model A");
+    auto *dock = new QDockWidget("Profile tabs", &w.win);
+    auto *tabs = new QTabWidget(dock);
+    auto *first = new QLineEdit("First profile");
+    auto *second = new QLineEdit("Second profile");
+    tabs->addTab(first, "First");
+    tabs->addTab(second, "Second");
+    dock->setWidget(tabs);
+    w.win.addDockWidget(Qt::BottomDockWidgetArea, dock);
+    dock->show();
+    w.area->setActiveSubWindow(model);
+    first->setFocus();
+    QTRY_VERIFY(first->hasFocus());
+    QTest::mouseClick(tabs->tabBar(), Qt::LeftButton, Qt::NoModifier,
+                       tabs->tabBar()->tabRect(1).center());
+    QApplication::processEvents();
+    QCOMPARE(w.area->currentSubWindow(), model);
+    QCOMPARE(visibleStrays(w.area), 0);
+
+    auto *peer = new QDockWidget("Attribute table", &w.win);
+    peer->setWidget(new QLineEdit("Table filter"));
+    w.win.addDockWidget(Qt::BottomDockWidgetArea, peer);
+    w.win.tabifyDockWidget(dock, peer);
+    dock->raise();
+    second->setFocus();
+    QTRY_VERIFY(second->hasFocus());
+    const auto bars = w.win.findChildren<QTabBar *>(QString(), Qt::FindDirectChildrenOnly);
+    QCOMPARE(bars.size(), 1);
+    auto *bar = bars.first();
+    const int peerIndex = bar->tabText(0) == peer->windowTitle() ? 0 : 1;
+    QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(peerIndex).center());
+    QApplication::processEvents();
+    QCOMPARE(w.area->currentSubWindow(), model);
+    QCOMPARE(visibleStrays(w.area), 0);
+
+    // Dock fallback focus traverses the main window. Covered document
+    // controls must not participate as if they were an exposed page.
+    peer->widget()->setFocus();
+    for (int i = 0; i < 20; ++i) {
+        auto *focus = QApplication::focusWidget();
+        QVERIFY(focus);
+        QTest::keyClick(focus, Qt::Key_Tab);
+        QApplication::processEvents();
+        QVERIFY(QApplication::focusWidget() != welcomeInput);
+        QCOMPARE(w.area->currentSubWindow(), model);
+    }
 }
 
 QTEST_MAIN(TestMdiTabMaximize)

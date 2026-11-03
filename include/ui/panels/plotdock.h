@@ -110,7 +110,8 @@ signals:
     /**
      * @param[in] view Borrowed selected/clicked/revealed plot, null possible on no/current invalid
      *   tab.
-     * @note Emitted on currentChanged, tabBarClicked(even same tab), and reveal explicitly. Does
+     * @note Emitted on currentChanged, tabBarClicked(even same tab), reveal, and outer dock-tab
+     * activation when parented to a QMainWindow. Does
      *   not guarantee plot active or matching project until receiver updates active context; order
      *   differs by route.
      */
